@@ -137,7 +137,7 @@ echo "Building commit: $ACTUAL_COMMIT"
 echo ""
 
 # Clean previous builds
-rm -rf destroot build_host_hermesc build_iphoneos build_iphonesimulator
+rm -rf destroot build_host_hermesc build_iphoneos build_iphonesimulator build_macosx
 
 echo "=== Building Hermes for iOS ==="
 echo ""
@@ -146,7 +146,10 @@ NUM_CORES=$(sysctl -n hw.ncpu)
 
 # Build host hermesc first
 echo "Building host hermesc..."
-cmake -S . -B build_host_hermesc -DCMAKE_BUILD_TYPE=Release
+# Note: HAVE_CXX_ATOMICS*_WITHOUT_LIB=ON works around a CMake detection issue on macOS
+cmake -S . -B build_host_hermesc -DCMAKE_BUILD_TYPE=Release \
+    -DHAVE_CXX_ATOMICS_WITHOUT_LIB=ON \
+    -DHAVE_CXX_ATOMICS64_WITHOUT_LIB=ON
 cmake --build ./build_host_hermesc --target hermesc -j "${NUM_CORES}"
 
 # Build for iOS device
@@ -199,6 +202,34 @@ cmake --build ./build_iphonesimulator --target hermesvm -j "${NUM_CORES}"
 mkdir -p destroot/Library/Frameworks/iphonesimulator
 cp -R ./build_iphonesimulator/lib/hermesvm.framework destroot/Library/Frameworks/iphonesimulator/
 
+# Build for macOS
+echo ""
+echo "Building for macOS (arm64, x86_64)..."
+# Note: We add flags to suppress visionOS availability errors in newer SDKs
+cmake -S . -B build_macosx \
+    -DHERMES_APPLE_TARGET_PLATFORM:STRING="macosx" \
+    -DCMAKE_OSX_ARCHITECTURES:STRING="x86_64;arm64" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING="$MAC_DEPLOYMENT_TARGET" \
+    -DHERMES_ENABLE_DEBUGGER:BOOLEAN=false \
+    -DHERMES_ENABLE_INTL:BOOLEAN=true \
+    -DHERMES_ENABLE_LIBFUZZER:BOOLEAN=false \
+    -DHERMES_ENABLE_FUZZILLI:BOOLEAN=false \
+    -DHERMES_ENABLE_TEST_SUITE:BOOLEAN=false \
+    -DHERMES_ENABLE_BITCODE:BOOLEAN=false \
+    -DHERMES_BUILD_APPLE_FRAMEWORK:BOOLEAN=true \
+    -DHERMES_BUILD_SHARED_JSI:BOOLEAN=false \
+    -DIMPORT_HOST_COMPILERS:PATH="$PWD/build_host_hermesc/ImportHostCompilers.cmake" \
+    -DCMAKE_BUILD_TYPE=MinSizeRel \
+    -DCMAKE_C_FLAGS="-Wno-unguarded-availability -Wno-unguarded-availability-new -Wno-availability" \
+    -DCMAKE_CXX_FLAGS="-Wno-unguarded-availability -Wno-unguarded-availability-new -Wno-availability"
+
+# Build bytecode include first (required dependency)
+cmake --build ./build_macosx --target ExtensionsBytecodeInclude -j 1
+cmake --build ./build_macosx --target hermesvm -j "${NUM_CORES}"
+
+mkdir -p destroot/Library/Frameworks/macosx
+cp -R ./build_macosx/lib/hermesvm.framework destroot/Library/Frameworks/macosx/
+
 # Copy headers
 mkdir -p destroot/include/hermes/Public
 cp public/hermes/Public/*.h destroot/include/hermes/Public/
@@ -207,13 +238,14 @@ cp API/hermes/*.h destroot/include/hermes/
 mkdir -p destroot/include/jsi
 cp API/jsi/jsi/*.h destroot/include/jsi/
 
-# Create xcframework from just iOS and simulator
+# Create xcframework from iOS, simulator, and macOS
 echo ""
 echo "Creating xcframework..."
 mkdir -p destroot/Library/Frameworks/universal
 xcodebuild -create-xcframework \
     -framework "destroot/Library/Frameworks/iphoneos/hermesvm.framework" \
     -framework "destroot/Library/Frameworks/iphonesimulator/hermesvm.framework" \
+    -framework "destroot/Library/Frameworks/macosx/hermesvm.framework" \
     -output "destroot/Library/Frameworks/universal/hermesvm.xcframework"
 
 # Copy results to cache
