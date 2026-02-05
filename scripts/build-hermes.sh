@@ -4,9 +4,11 @@
 # Builds Hermes from source for iOS using their native build scripts
 #
 # Usage:
-#   ./scripts/build-hermes.sh              # Build latest static_h (default branch)
-#   ./scripts/build-hermes.sh v0.13.0      # Build specific tag
-#   ./scripts/build-hermes.sh --clean      # Clean cache and rebuild
+#   ./scripts/build-hermes.sh                      # Build latest static_h (default branch)
+#   ./scripts/build-hermes.sh v0.13.0              # Build specific tag
+#   ./scripts/build-hermes.sh --release            # Build without debugger
+#   ./scripts/build-hermes.sh --debug              # Force debugger on
+#   ./scripts/build-hermes.sh --clean              # Clean cache and rebuild
 #
 # The built xcframework is cached at:
 #   ~/.cache/exact/hermes/<version>/
@@ -19,11 +21,38 @@ set -e
 
 # Configuration
 # Note: Hermes uses "static_h" as their default branch, not "main"
-HERMES_VERSION="${1:-static_h}"
+HERMES_VERSION="static_h"
 CACHE_DIR="$HOME/.cache/exact/hermes"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
+HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
+CLEAN_CACHE=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --clean)
+            CLEAN_CACHE=true
+            shift
+            ;;
+        --release|--no-debugger)
+            HERMES_DEBUGGER=false
+            shift
+            ;;
+        --debug)
+            HERMES_DEBUGGER=true
+            shift
+            ;;
+        *)
+            HERMES_VERSION="$1"
+            shift
+            ;;
+    esac
+done
+DEBUG_SUFFIX=""
+if [[ "$HERMES_DEBUGGER" == "1" || "$HERMES_DEBUGGER" == "true" || "$HERMES_DEBUGGER" == "TRUE" || "$HERMES_DEBUGGER" == "yes" || "$HERMES_DEBUGGER" == "YES" ]]; then
+    DEBUG_SUFFIX="-debug"
+fi
 
 # iOS deployment target (minimum iOS version)
 export IOS_DEPLOYMENT_TARGET="15.0"
@@ -31,7 +60,7 @@ export MAC_DEPLOYMENT_TARGET="12.0"
 export XROS_DEPLOYMENT_TARGET="1.0"
 
 # Handle --clean flag
-if [ "$HERMES_VERSION" = "--clean" ]; then
+if [ "$CLEAN_CACHE" = true ]; then
     echo "Cleaning Hermes cache..."
     rm -rf "$CACHE_DIR"
     echo "Done. Run again without --clean to rebuild."
@@ -51,13 +80,15 @@ resolve_version() {
 }
 
 VERSION_KEY=$(resolve_version "$HERMES_VERSION")
-VERSION_CACHE="$CACHE_DIR/$VERSION_KEY"
+VERSION_CACHE="$CACHE_DIR/${VERSION_KEY}${DEBUG_SUFFIX}"
 
 echo "=== Hermes Build Script ==="
 echo "Version: $HERMES_VERSION"
 echo "Cache key: $VERSION_KEY"
+echo "Debugger suffix: $DEBUG_SUFFIX"
 echo "Cache dir: $VERSION_CACHE"
 echo "iOS Deployment Target: $IOS_DEPLOYMENT_TARGET"
+echo "Hermes Debugger: $HERMES_DEBUGGER"
 echo ""
 
 # Check if already built
@@ -144,10 +175,13 @@ echo ""
 
 NUM_CORES=$(sysctl -n hw.ncpu)
 
-# Build host hermesc first
+# Build host hermesc first (force macOS SDK to avoid visionOS defaults)
 echo "Building host hermesc..."
 # Note: HAVE_CXX_ATOMICS*_WITHOUT_LIB=ON works around a CMake detection issue on macOS
 cmake -S . -B build_host_hermesc -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_SYSROOT:STRING="macosx" \
+    -DCMAKE_OSX_ARCHITECTURES:STRING="arm64" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING="$MAC_DEPLOYMENT_TARGET" \
     -DHAVE_CXX_ATOMICS_WITHOUT_LIB=ON \
     -DHAVE_CXX_ATOMICS64_WITHOUT_LIB=ON
 cmake --build ./build_host_hermesc --target hermesc -j "${NUM_CORES}"
@@ -159,7 +193,7 @@ cmake -S . -B build_iphoneos \
     -DHERMES_APPLE_TARGET_PLATFORM:STRING="iphoneos" \
     -DCMAKE_OSX_ARCHITECTURES:STRING="arm64" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING="$IOS_DEPLOYMENT_TARGET" \
-    -DHERMES_ENABLE_DEBUGGER:BOOLEAN=false \
+    -DHERMES_ENABLE_DEBUGGER:BOOLEAN="$HERMES_DEBUGGER" \
     -DHERMES_ENABLE_INTL:BOOLEAN=true \
     -DHERMES_ENABLE_LIBFUZZER:BOOLEAN=false \
     -DHERMES_ENABLE_FUZZILLI:BOOLEAN=false \
@@ -184,7 +218,7 @@ cmake -S . -B build_iphonesimulator \
     -DHERMES_APPLE_TARGET_PLATFORM:STRING="iphonesimulator" \
     -DCMAKE_OSX_ARCHITECTURES:STRING="x86_64;arm64" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING="$IOS_DEPLOYMENT_TARGET" \
-    -DHERMES_ENABLE_DEBUGGER:BOOLEAN=false \
+    -DHERMES_ENABLE_DEBUGGER:BOOLEAN="$HERMES_DEBUGGER" \
     -DHERMES_ENABLE_INTL:BOOLEAN=true \
     -DHERMES_ENABLE_LIBFUZZER:BOOLEAN=false \
     -DHERMES_ENABLE_FUZZILLI:BOOLEAN=false \
@@ -210,7 +244,7 @@ cmake -S . -B build_macosx \
     -DHERMES_APPLE_TARGET_PLATFORM:STRING="macosx" \
     -DCMAKE_OSX_ARCHITECTURES:STRING="x86_64;arm64" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING="$MAC_DEPLOYMENT_TARGET" \
-    -DHERMES_ENABLE_DEBUGGER:BOOLEAN=false \
+    -DHERMES_ENABLE_DEBUGGER:BOOLEAN="$HERMES_DEBUGGER" \
     -DHERMES_ENABLE_INTL:BOOLEAN=true \
     -DHERMES_ENABLE_LIBFUZZER:BOOLEAN=false \
     -DHERMES_ENABLE_FUZZILLI:BOOLEAN=false \
