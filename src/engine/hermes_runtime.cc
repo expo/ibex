@@ -27,6 +27,7 @@
 #include <future>
 #include <iomanip>
 #include <cctype>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -36,10 +37,18 @@
 #include <optional>
 #include <vector>
 #include <thread>
+#include <tuple>
+#include <sys/poll.h>
 #include <unistd.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <spawn.h>
+#if defined(__linux__)
+#include <sys/epoll.h>
+#elif defined(__APPLE__)
+#include <sys/event.h>
+#include <sys/time.h>
+#endif
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -416,6 +425,7 @@ struct ExactHermesRuntime {
   // Task queue for cross-thread execution
   std::mutex task_mutex;
   std::vector<std::function<void(facebook::jsi::Runtime&)>> pending_tasks;
+  std::atomic<int> active_spawn_processes{0};
   // Fetch infrastructure
   std::mutex fetchMutex;
   uint32_t nextFetchId{1};
@@ -9424,7 +9434,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
 
   // __exactExecSync(command, optionsJSON) -> JSON string { stdout, stderr, status, error }
-  // Executes a shell command synchronously using popen and returns result.
+  // Executes a shell command synchronously using posix_spawn and returns result.
   auto execSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactExecSync"),
@@ -9445,6 +9455,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         std::string cwd;
         uint32_t timeout_ms = 0;
         uint32_t max_buffer = 1024 * 1024; // 1MB default
+        std::vector<std::string> envEntries;
 
         if (count > 1 && args[1].isString()) {
           auto optsJson = args[1].toString(runtime).utf8(runtime);
@@ -9466,6 +9477,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             auto start = maxBufPos + 12;
             max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
           }
+          envEntries = s_parseEnvFromOpts(optsJson);
         }
 
         // Build the actual command: optionally prepend cd
@@ -9474,60 +9486,181 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           fullCommand = "cd " + cwd + " && " + command;
         }
 
-        // Redirect stderr to a temp file so we can capture it separately
-        char stderrTmpPath[] = "/tmp/ex_stderr_XXXXXX";
-        int stderrFd = mkstemp(stderrTmpPath);
-        if (stderrFd < 0) {
-          throw facebook::jsi::JSError(runtime, "Failed to create temp file for stderr");
+        // Create pipes for stdout and stderr
+        int stdoutPipe[2], stderrPipe[2];
+        if (pipe(stdoutPipe) != 0 || pipe(stderrPipe) != 0) {
+          throw facebook::jsi::JSError(runtime, "Failed to create pipes");
         }
-        close(stderrFd);
-
-        std::string shellCmd = "( " + fullCommand + " ) 2>" + stderrTmpPath;
 
         std::atomic<bool> timedOut{false};
 
-        FILE* fp = popen(shellCmd.c_str(), "r");
-        if (!fp) {
-          unlink(stderrTmpPath);
-          throw facebook::jsi::JSError(runtime, "Failed to execute command");
+        posix_spawn_file_actions_t fileActions;
+        if (posix_spawn_file_actions_init(&fileActions) != 0) {
+          close(stdoutPipe[0]);
+          close(stdoutPipe[1]);
+          close(stderrPipe[0]);
+          close(stderrPipe[1]);
+          throw facebook::jsi::JSError(runtime, "Failed to initialize spawn file actions");
         }
 
-        // Start timeout thread if needed
+        int actionError = 0;
+        actionError = posix_spawn_file_actions_adddup2(&fileActions, stdoutPipe[1], STDOUT_FILENO);
+        if (actionError == 0) {
+          actionError = posix_spawn_file_actions_adddup2(&fileActions, stderrPipe[1], STDERR_FILENO);
+        }
+        if (actionError == 0) {
+          actionError = posix_spawn_file_actions_addclose(&fileActions, stdoutPipe[0]);
+        }
+        if (actionError == 0) {
+          actionError = posix_spawn_file_actions_addclose(&fileActions, stderrPipe[0]);
+        }
+        if (actionError == 0) {
+          actionError = posix_spawn_file_actions_addclose(&fileActions, stdoutPipe[1]);
+        }
+        if (actionError == 0) {
+          actionError = posix_spawn_file_actions_addclose(&fileActions, stderrPipe[1]);
+        }
+
+        std::vector<std::string> argvStorage;
+        std::vector<char*> argv;
+        argvStorage.emplace_back("/bin/sh");
+        argvStorage.emplace_back("-c");
+        argvStorage.emplace_back(fullCommand);
+        for (auto& arg : argvStorage) {
+          argv.push_back(const_cast<char*>(arg.c_str()));
+        }
+        argv.push_back(nullptr);
+
+        std::vector<char*> envp;
+        char* const* envpArgv = nullptr;
+        if (!envEntries.empty()) {
+          envp.reserve(envEntries.size() + 1);
+          for (auto& envEntry : envEntries) {
+            envp.push_back(const_cast<char*>(envEntry.c_str()));
+          }
+          envp.push_back(nullptr);
+          envpArgv = envp.data();
+        }
+
+        if (actionError != 0) {
+          posix_spawn_file_actions_destroy(&fileActions);
+          close(stdoutPipe[0]);
+          close(stdoutPipe[1]);
+          close(stderrPipe[0]);
+          close(stderrPipe[1]);
+          throw facebook::jsi::JSError(runtime, "Failed to set spawn file actions");
+        }
+
+        pid_t pid = -1;
+        int spawnErr = posix_spawn(&pid, argv[0], &fileActions, nullptr, argv.data(), envpArgv);
+        posix_spawn_file_actions_destroy(&fileActions);
+        if (spawnErr != 0) {
+          close(stdoutPipe[0]);
+          close(stdoutPipe[1]);
+          close(stderrPipe[0]);
+          close(stderrPipe[1]);
+          throw facebook::jsi::JSError(runtime, std::string("Failed to spawn command: ") + strerror(spawnErr));
+        }
+
+        close(stdoutPipe[1]);
+        close(stderrPipe[1]);
+
+        fcntl(stdoutPipe[0], F_SETFL, O_NONBLOCK);
+        fcntl(stderrPipe[0], F_SETFL, O_NONBLOCK);
+
         if (timeout_ms > 0) {
-          std::thread([timeout_ms, &timedOut]() {
+          std::thread([timeout_ms, &timedOut, pid]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
-            timedOut.store(true);
+            if (!timedOut.load()) {
+              timedOut.store(true);
+              kill(pid, SIGKILL);
+            }
           }).detach();
         }
 
-        // Read stdout
+        // Read stdout/stderr
         std::string stdoutStr;
-        char buf[4096];
-        while (!timedOut.load()) {
-          size_t bytesRead = fread(buf, 1, sizeof(buf), fp);
-          if (bytesRead == 0) break;
-          if (stdoutStr.size() + bytesRead > max_buffer) {
-            stdoutStr.append(buf, max_buffer - stdoutStr.size());
-            break;
-          }
-          stdoutStr.append(buf, bytesRead);
-        }
-
-        int pcloseResult = pclose(fp);
-        int exitStatus = WIFEXITED(pcloseResult) ? WEXITSTATUS(pcloseResult) : -1;
-
-        // Read stderr from temp file
         std::string stderrStr;
-        FILE* stderrFile = fopen(stderrTmpPath, "r");
-        if (stderrFile) {
-          while (true) {
-            size_t bytesRead = fread(buf, 1, sizeof(buf), stderrFile);
-            if (bytesRead == 0) break;
-            stderrStr.append(buf, bytesRead);
+        char buf[4096];
+        bool stdoutOpen = true;
+        bool stderrOpen = true;
+        bool sawExit = false;
+
+        while (stdoutOpen || stderrOpen || !sawExit) {
+          bool progressed = false;
+
+          if (stdoutOpen) {
+            ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
+            if (bytesRead > 0) {
+              progressed = true;
+              if (stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
+                if (stdoutStr.size() < max_buffer) {
+                  stdoutStr.append(buf, max_buffer - stdoutStr.size());
+                }
+                stdoutOpen = false;
+                close(stdoutPipe[0]);
+              } else {
+                stdoutStr.append(buf, static_cast<size_t>(bytesRead));
+              }
+            } else if (bytesRead == 0) {
+              stdoutOpen = false;
+              close(stdoutPipe[0]);
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+              stdoutOpen = false;
+              close(stdoutPipe[0]);
+            }
           }
-          fclose(stderrFile);
+
+          if (stderrOpen) {
+            ssize_t bytesRead = read(stderrPipe[0], buf, sizeof(buf));
+            if (bytesRead > 0) {
+              progressed = true;
+              stderrStr.append(buf, static_cast<size_t>(bytesRead));
+            } else if (bytesRead == 0) {
+              stderrOpen = false;
+              close(stderrPipe[0]);
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+              stderrOpen = false;
+              close(stderrPipe[0]);
+            }
+          }
+
+          if (!sawExit) {
+            int status = 0;
+            pid_t waitResult = waitpid(pid, &status, WNOHANG);
+            if (waitResult == pid) {
+              sawExit = true;
+            }
+          }
+
+          if (!progressed) {
+            if (!stdoutOpen && !stderrOpen && sawExit) {
+              break;
+            }
+            if (timedOut.load()) {
+              break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          }
         }
-        unlink(stderrTmpPath);
+
+        if (stdoutOpen) {
+          close(stdoutPipe[0]);
+        }
+        if (stderrOpen) {
+          close(stderrPipe[0]);
+        }
+
+        int status = 0;
+        waitpid(pid, &status, 0);
+        int exitStatus = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        if (WIFSIGNALED(status)) {
+          exitStatus = -WTERMSIG(status);
+        }
+
+        if (timedOut.load()) {
+          exitStatus = -1;
+        }
 
         // JSON escape helper
         auto jsonEscape = [](const std::string& s) -> std::string {
@@ -9559,7 +9692,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         std::string errorStr = "";
         if (timedOut.load()) {
           errorStr = "Command timed out";
-          exitStatus = -1;
         }
 
         std::string resultJson = "{\"stdout\":\"" + jsonEscape(stdoutStr)
@@ -9578,7 +9710,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // Env helpers defined as static functions above (s_parseEnvJsonStr, s_parseEnvFromOpts)
 
   // __exactSpawnSync(file, argsJSON, optionsJSON) -> JSON string { stdout, stderr, status, pid, error }
-  // Spawns a process synchronously using fork/exec and returns result.
+  // Spawns a process synchronously using posix_spawn and returns result.
   auto spawnSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSync"),
@@ -9698,59 +9830,103 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Failed to create pipes");
         }
 
-        pid_t pid = fork();
-        if (pid < 0) {
-          close(stdoutPipe[0]); close(stdoutPipe[1]);
-          close(stderrPipe[0]); close(stderrPipe[1]);
-          throw facebook::jsi::JSError(runtime, "Failed to fork process");
+        bool shellMode = useShell || !cwd.empty();
+        std::string shellCommand;
+        if (shellMode) {
+          shellCommand = file;
+          for (auto& a : spawnArgs) {
+            shellCommand += " " + a;
+          }
+          if (!cwd.empty()) {
+            shellCommand = "cd " + cwd + " && " + shellCommand;
+          }
         }
 
-        if (pid == 0) {
-          // Child process
-          close(stdoutPipe[0]);
-          close(stderrPipe[0]);
-          dup2(stdoutPipe[1], STDOUT_FILENO);
-          dup2(stderrPipe[1], STDERR_FILENO);
-          close(stdoutPipe[1]);
-          close(stderrPipe[1]);
-
-          // Build envp array (must outlive execvp call)
-          std::vector<char*> envp;
-          if (!envEntries.empty()) {
-            envp.reserve(envEntries.size() + 1);
-            for (auto& e : envEntries) {
-              envp.push_back(const_cast<char*>(e.c_str()));
-            }
-            envp.push_back(nullptr);
-#if defined(__APPLE__)
-            *_NSGetEnviron() = envp.data();
-#else
-            environ = envp.data();
-#endif
+        std::vector<std::string> argvStorage;
+        std::vector<char*> argv;
+        if (shellMode) {
+          argvStorage.emplace_back("/bin/sh");
+          argvStorage.emplace_back("-c");
+          argvStorage.emplace_back(shellCommand);
+        } else {
+          argvStorage.push_back(file);
+          for (auto& a : spawnArgs) {
+            argvStorage.push_back(a);
           }
+        }
+        for (auto& arg : argvStorage) {
+          argv.push_back(const_cast<char*>(arg.c_str()));
+        }
+        argv.push_back(nullptr);
 
-          if (!cwd.empty()) {
-            if (chdir(cwd.c_str()) != 0) {
-              _exit(127);
-            }
+        std::vector<char*> envp;
+        char* const* envArgv = nullptr;
+        if (!envEntries.empty()) {
+          envp.reserve(envEntries.size() + 1);
+          for (auto& entry : envEntries) {
+            envp.push_back(const_cast<char*>(entry.c_str()));
           }
+          envp.push_back(nullptr);
+          envArgv = envp.data();
+        }
 
-          if (useShell) {
-            std::string fullCmd = file;
-            for (auto& a : spawnArgs) {
-              fullCmd += " " + a;
-            }
-            execl("/bin/sh", "sh", "-c", fullCmd.c_str(), nullptr);
+        posix_spawn_file_actions_t fileActions;
+        if (posix_spawn_file_actions_init(&fileActions) != 0) {
+          close(stdoutPipe[0]); close(stdoutPipe[1]);
+          close(stderrPipe[0]); close(stderrPipe[1]);
+          throw facebook::jsi::JSError(runtime, "Failed to initialize spawn file actions");
+        }
+
+        int fileActionErr = 0;
+        fileActionErr = posix_spawn_file_actions_adddup2(&fileActions, stdoutPipe[1], STDOUT_FILENO);
+        if (fileActionErr == 0) {
+          fileActionErr = posix_spawn_file_actions_adddup2(&fileActions, stderrPipe[1], STDERR_FILENO);
+        }
+        if (fileActionErr == 0) {
+          fileActionErr = posix_spawn_file_actions_addclose(&fileActions, stdoutPipe[0]);
+        }
+        if (fileActionErr == 0) {
+          fileActionErr = posix_spawn_file_actions_addclose(&fileActions, stderrPipe[0]);
+        }
+        if (fileActionErr == 0) {
+          fileActionErr = posix_spawn_file_actions_addclose(&fileActions, stdoutPipe[1]);
+        }
+        if (fileActionErr == 0) {
+          fileActionErr = posix_spawn_file_actions_addclose(&fileActions, stderrPipe[1]);
+        }
+
+        if (fileActionErr != 0) {
+          posix_spawn_file_actions_destroy(&fileActions);
+          close(stdoutPipe[0]); close(stdoutPipe[1]);
+          close(stderrPipe[0]); close(stderrPipe[1]);
+          throw facebook::jsi::JSError(runtime, "Failed to configure spawn file actions");
+        }
+
+        pid_t pid = -1;
+        int spawnResult = 0;
+        if (shellMode) {
+          spawnResult = posix_spawn(&pid, argv[0], &fileActions, nullptr, argv.data(), envArgv);
+        } else {
+          spawnResult = posix_spawnp(&pid, argv[0], &fileActions, nullptr, argv.data(), envArgv);
+        }
+        posix_spawn_file_actions_destroy(&fileActions);
+
+        if (spawnResult != 0) {
+          close(stdoutPipe[0]); close(stdoutPipe[1]);
+          close(stderrPipe[0]); close(stderrPipe[1]);
+          int exitStatus = -1;
+          std::string errorStr;
+          if (spawnResult == ENOENT) {
+            exitStatus = 127;
+            errorStr = "Command not found: " + file;
           } else {
-            std::vector<char*> argv;
-            argv.push_back(const_cast<char*>(file.c_str()));
-            for (auto& a : spawnArgs) {
-              argv.push_back(const_cast<char*>(a.c_str()));
-            }
-            argv.push_back(nullptr);
-            execvp(file.c_str(), argv.data());
+            errorStr = std::string("Failed to spawn process: ") + strerror(spawnResult);
           }
-          _exit(127);
+          std::string resultJson = "{\"stdout\":\"\",\"stderr\":\"\",\"status\":"
+              + std::to_string(exitStatus)
+              + ",\"pid\":-1,\"error\":\"" + jsonEscape(errorStr) + "\"}";
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, resultJson));
         }
 
         // Parent process
@@ -9827,20 +10003,356 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     int stdinFd;   // parent writes to child's stdin
     int stdoutFd;  // parent reads from child's stdout
     int stderrFd;  // parent reads from child's stderr
+    ExactHermesRuntime* runtimeHandle;
     bool exited;
     int exitCode;
     int exitSignal; // 0 if exited normally, >0 if signaled
+    bool disposed;
   };
   static std::unordered_map<int, SpawnedProcess> s_spawnedProcesses;
   static int s_nextSpawnHandle = 1;
   static std::mutex s_spawnMutex;
+  static std::condition_variable s_spawnCv;
+  static bool s_spawnWatcherStarted = false;
+
+  auto notifySpawnPump = [](ExactHermesRuntime* runtimeHandle, int handle) {
+    if (!runtimeHandle) return;
+    pushRuntimeCallback(runtimeHandle,
+                        [handle](facebook::jsi::Runtime& rt) {
+      auto pumpVal = rt.global().getProperty(rt, "__exactSpawnPump");
+      if (!pumpVal.isObject() || !pumpVal.asObject(rt).isFunction(rt)) {
+        return;
+      }
+      try {
+        pumpVal.asObject(rt).asFunction(rt).call(rt, facebook::jsi::Value(static_cast<double>(handle)));
+      } catch (...) {
+        // Ignore callback failures to avoid taking down runtime.
+      }
+    });
+  };
+
+  auto closeSpawnProcessFds = [](SpawnedProcess& proc) {
+    if (proc.stdinFd >= 0) {
+      close(proc.stdinFd);
+      proc.stdinFd = -1;
+    }
+    if (proc.stdoutFd >= 0) {
+      close(proc.stdoutFd);
+      proc.stdoutFd = -1;
+    }
+    if (proc.stderrFd >= 0) {
+      close(proc.stderrFd);
+      proc.stderrFd = -1;
+    }
+  };
+
+  auto disposeSpawnProcess = [&closeSpawnProcessFds](int handle) {
+    std::lock_guard<std::mutex> lock(s_spawnMutex);
+    auto it = s_spawnedProcesses.find(handle);
+    if (it == s_spawnedProcesses.end()) {
+      return false;
+    }
+    if (it->second.disposed) {
+      return true;
+    }
+    it->second.disposed = true;
+    closeSpawnProcessFds(it->second);
+    if (it->second.exited) {
+      if (it->second.runtimeHandle) {
+        it->second.runtimeHandle->active_spawn_processes.fetch_sub(1, std::memory_order_relaxed);
+      }
+      s_spawnedProcesses.erase(it);
+    }
+    return true;
+  };
+
+  auto ensureSpawnWatcher = [&]() {
+    std::lock_guard<std::mutex> lock(s_spawnMutex);
+    if (s_spawnWatcherStarted) {
+      return;
+    }
+    s_spawnWatcherStarted = true;
+    std::thread([notifySpawnPump,
+                 &closeSpawnProcessFds]() {
+      while (true) {
+        std::vector<std::tuple<int, pid_t, int, int, ExactHermesRuntime*>> snapshot;
+        {
+          std::unique_lock<std::mutex> lock(s_spawnMutex);
+          s_spawnCv.wait(lock, [&] {
+            return !s_spawnedProcesses.empty();
+          });
+          snapshot.reserve(s_spawnedProcesses.size());
+          for (auto& entry : s_spawnedProcesses) {
+            auto& proc = entry.second;
+            snapshot.emplace_back(entry.first, proc.pid, proc.stdoutFd, proc.stderrFd, proc.runtimeHandle);
+          }
+        }
+
+        if (snapshot.empty()) {
+          continue;
+        }
+
+        bool hasPipes = false;
+        std::unordered_set<int> readyHandles;
+        for (auto& entry : snapshot) {
+          int stdoutFd = std::get<2>(entry);
+          int stderrFd = std::get<3>(entry);
+          if (stdoutFd >= 0 || stderrFd >= 0) {
+            hasPipes = true;
+            break;
+          }
+        }
+
+        bool gotBackend = false;
+        if (hasPipes) {
+#if defined(__linux__)
+          int epollFd = epoll_create1(EPOLL_CLOEXEC);
+          if (epollFd >= 0) {
+            gotBackend = true;
+            bool setupOk = true;
+            std::unordered_map<int, int> fdToHandle;
+            auto addFd = [&](int handle, int fd) -> bool {
+              if (fd < 0) return true;
+              struct epoll_event event{};
+              event.events = EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP;
+              event.data.u64 = static_cast<uint64_t>(static_cast<uint32_t>(handle));
+              int result = epoll_ctl(epollFd, EPOLL_CTL_ADD, fd, &event);
+              if (result == 0) {
+                fdToHandle.emplace(fd, handle);
+              }
+              return result == 0;
+            };
+            for (auto& entry : snapshot) {
+              int handle = std::get<0>(entry);
+              if (!addFd(handle, std::get<2>(entry))) setupOk = false;
+              if (!addFd(handle, std::get<3>(entry))) setupOk = false;
+            }
+            if (setupOk) {
+              std::vector<epoll_event> events(fdToHandle.empty() ? 1 : fdToHandle.size());
+              int eventResult = epoll_wait(epollFd,
+                                          events.data(),
+                                          static_cast<int>(events.size()),
+                                          25);
+              if (eventResult > 0) {
+                for (int i = 0; i < eventResult; i++) {
+                  auto it = fdToHandle.find(static_cast<int>(events[i].data.u64));
+                  if (it != fdToHandle.end()) {
+                    readyHandles.insert(it->second);
+                  }
+                }
+              } else if (eventResult < 0 && errno == EINTR) {
+                close(epollFd);
+                continue;
+              } else if (eventResult < 0) {
+                gotBackend = false;
+              }
+            } else {
+              gotBackend = false;
+            }
+            close(epollFd);
+          }
+#elif defined(__APPLE__)
+          int kqueueFd = kqueue();
+          if (kqueueFd >= 0) {
+            gotBackend = true;
+            bool setupOk = true;
+            std::vector<struct kevent> changes;
+            std::unordered_map<int, int> fdToHandle;
+            for (auto& entry : snapshot) {
+              int handle = std::get<0>(entry);
+              int stdoutFd = std::get<2>(entry);
+              int stderrFd = std::get<3>(entry);
+              if (stdoutFd >= 0) {
+                struct kevent ev{};
+                EV_SET(&ev, stdoutFd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, nullptr);
+                changes.push_back(ev);
+                fdToHandle.emplace(stdoutFd, handle);
+              }
+              if (stderrFd >= 0) {
+                struct kevent ev{};
+                EV_SET(&ev, stderrFd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, nullptr);
+                changes.push_back(ev);
+                fdToHandle.emplace(stderrFd, handle);
+              }
+            }
+            if (changes.empty()) {
+              setupOk = false;
+            }
+            if (setupOk) {
+              struct timespec timeout{};
+              timeout.tv_sec = 0;
+              timeout.tv_nsec = 25 * 1000 * 1000;
+              std::vector<struct kevent> events(changes.size());
+              int eventResult = kevent(kqueueFd,
+                                       changes.data(),
+                                       static_cast<int>(changes.size()),
+                                       events.data(),
+                                       static_cast<int>(events.size()),
+                                       &timeout);
+              if (eventResult > 0) {
+                for (int i = 0; i < eventResult; i++) {
+                  auto it = fdToHandle.find(static_cast<int>(events[i].ident));
+                  if (it != fdToHandle.end()) {
+                    readyHandles.insert(it->second);
+                  }
+                }
+              } else if (eventResult < 0 && errno != EINTR) {
+                gotBackend = false;
+              } else if (eventResult < 0 && errno == EINTR) {
+                close(kqueueFd);
+                continue;
+              }
+            } else {
+              gotBackend = false;
+            }
+            close(kqueueFd);
+          }
+#endif
+        }
+
+        if (!hasPipes || !gotBackend) {
+          if (hasPipes) {
+            std::vector<struct pollfd> pollFds;
+            std::unordered_map<int, int> fdToHandle;
+            for (auto& entry : snapshot) {
+              int handle = std::get<0>(entry);
+              int stdoutFd = std::get<2>(entry);
+              int stderrFd = std::get<3>(entry);
+              if (stdoutFd >= 0) {
+                pollFds.push_back({stdoutFd, POLLIN | POLLERR | POLLHUP, 0});
+                fdToHandle.emplace(stdoutFd, handle);
+              }
+              if (stderrFd >= 0) {
+                pollFds.push_back({stderrFd, POLLIN | POLLERR | POLLHUP, 0});
+                fdToHandle.emplace(stderrFd, handle);
+              }
+            }
+            if (!pollFds.empty()) {
+              int pollResult = poll(pollFds.data(), static_cast<nfds_t>(pollFds.size()), 25);
+              if (pollResult > 0) {
+                for (auto& pollFd : pollFds) {
+                  if ((pollFd.revents & (POLLIN | POLLERR | POLLHUP)) != 0) {
+                    auto it = fdToHandle.find(pollFd.fd);
+                    if (it != fdToHandle.end()) {
+                      readyHandles.insert(it->second);
+                    }
+                  }
+                }
+              } else if (pollResult < 0 && errno == EINTR) {
+                continue;
+              }
+            } else {
+              std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            }
+          } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+          }
+        }
+
+        for (auto& entry : snapshot) {
+          int handle = std::get<0>(entry);
+          int pid = std::get<1>(entry);
+          ExactHermesRuntime* procRuntime = std::get<4>(entry);
+          bool shouldNotify = readyHandles.count(handle) != 0;
+
+          {
+            std::lock_guard<std::mutex> lock(s_spawnMutex);
+            auto it = s_spawnedProcesses.find(handle);
+            if (it == s_spawnedProcesses.end()) {
+              continue;
+            }
+            if (it->second.exited) {
+              if (readyHandles.count(handle) != 0 && it->second.runtimeHandle) {
+                notifySpawnPump(it->second.runtimeHandle, handle);
+              }
+              continue;
+            }
+          }
+
+          int status = 0;
+          pid_t waitResult = waitpid(pid, &status, WNOHANG);
+          if (waitResult > 0) {
+            bool changed = false;
+            bool disposeAfterNotify = false;
+            {
+              std::lock_guard<std::mutex> lock(s_spawnMutex);
+              auto it = s_spawnedProcesses.find(handle);
+              if (it != s_spawnedProcesses.end() && !it->second.exited) {
+                it->second.exited = true;
+                if (WIFEXITED(status)) {
+                  it->second.exitCode = WEXITSTATUS(status);
+                  it->second.exitSignal = 0;
+                } else if (WIFSIGNALED(status)) {
+                  it->second.exitCode = -1;
+                  it->second.exitSignal = WTERMSIG(status);
+                } else {
+                  it->second.exitCode = -1;
+                  it->second.exitSignal = 0;
+                }
+                procRuntime = it->second.runtimeHandle;
+                changed = true;
+                if (it->second.stdoutFd < 0 &&
+                    it->second.stderrFd < 0) {
+                  it->second.disposed = true;
+                  disposeAfterNotify = true;
+                  closeSpawnProcessFds(it->second);
+                  if (it->second.runtimeHandle) {
+                    it->second.runtimeHandle->active_spawn_processes.fetch_sub(1, std::memory_order_relaxed);
+                  }
+                }
+              }
+              if (disposeAfterNotify) {
+                s_spawnedProcesses.erase(handle);
+              }
+            }
+            if (changed) {
+              shouldNotify = true;
+            }
+          } else if (waitResult < 0 && errno != EINTR) {
+            bool changed = false;
+            bool disposeAfterNotify = false;
+            {
+              std::lock_guard<std::mutex> lock(s_spawnMutex);
+              auto it = s_spawnedProcesses.find(handle);
+              if (it != s_spawnedProcesses.end() && !it->second.exited) {
+                it->second.exited = true;
+                it->second.exitCode = -1;
+                it->second.exitSignal = 0;
+                procRuntime = it->second.runtimeHandle;
+                changed = true;
+                if (it->second.stdoutFd < 0 &&
+                    it->second.stderrFd < 0) {
+                  it->second.disposed = true;
+                  disposeAfterNotify = true;
+                  closeSpawnProcessFds(it->second);
+                  if (it->second.runtimeHandle) {
+                    it->second.runtimeHandle->active_spawn_processes.fetch_sub(1, std::memory_order_relaxed);
+                  }
+                }
+              }
+              if (disposeAfterNotify) {
+                s_spawnedProcesses.erase(handle);
+              }
+            }
+            if (changed) {
+              shouldNotify = true;
+            }
+          }
+
+          if (shouldNotify && procRuntime) {
+            notifySpawnPump(procRuntime, handle);
+          }
+        }
+      }
+    }).detach();
+  };
 
   // __exactSpawn(file, argsJSON, optionsJSON) -> JSON string {"handle":N,"pid":N} or {"error":"..."}
   auto spawnFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawn"),
       3,
-      [](facebook::jsi::Runtime& runtime,
+      [runtimeHandle = handle, &ensureSpawnWatcher](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -9991,6 +10503,32 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           envEntries = s_parseEnvFromOpts(optsJson);
         }
 
+        auto jsonEscape = [](const std::string& s) -> std::string {
+          std::string result;
+          result.reserve(s.size() + 16);
+          for (char c : s) {
+            switch (c) {
+              case '"': result += "\\\""; break;
+              case '\\': result += "\\\\"; break;
+              case '\n': result += "\\n"; break;
+              case '\r': result += "\\r"; break;
+              case '\t': result += "\\t"; break;
+              case '\b': result += "\\b"; break;
+              case '\f': result += "\\f"; break;
+              default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                  char hex[8];
+                  snprintf(hex, sizeof(hex), "\\u%04x", static_cast<unsigned char>(c));
+                  result += hex;
+                } else {
+                  result += c;
+                }
+                break;
+            }
+          }
+          return result;
+        };
+
         const bool stdinPipeRequested = stdioModes[0] == "pipe";
         const bool stdoutPipeRequested = stdioModes[1] == "pipe";
         const bool stderrPipeRequested = stdioModes[2] == "pipe";
@@ -10023,8 +10561,48 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create stderr pipe\"}"));
         }
 
-        pid_t pid = fork();
-        if (pid < 0) {
+        bool shellMode = useShell || !cwd.empty();
+        std::string shellCommand;
+        if (shellMode) {
+          shellCommand = file;
+          for (auto& a : spawnArgs) {
+            shellCommand += " " + a;
+          }
+          if (!cwd.empty()) {
+            shellCommand = "cd " + cwd + " && " + shellCommand;
+          }
+        }
+
+        std::vector<std::string> argvStorage;
+        std::vector<char*> argv;
+        if (shellMode) {
+          argvStorage.emplace_back("/bin/sh");
+          argvStorage.emplace_back("-c");
+          argvStorage.emplace_back(shellCommand);
+        } else {
+          argvStorage.push_back(file);
+          for (auto& a : spawnArgs) {
+            argvStorage.push_back(a);
+          }
+        }
+        for (auto& arg : argvStorage) {
+          argv.push_back(const_cast<char*>(arg.c_str()));
+        }
+        argv.push_back(nullptr);
+
+        std::vector<char*> envp;
+        char* const* envArgv = nullptr;
+        if (!envEntries.empty()) {
+          envp.reserve(envEntries.size() + 1);
+          for (auto& entry : envEntries) {
+            envp.push_back(const_cast<char*>(entry.c_str()));
+          }
+          envp.push_back(nullptr);
+          envArgv = envp.data();
+        }
+
+        posix_spawn_file_actions_t fileActions;
+        if (posix_spawn_file_actions_init(&fileActions) != 0) {
           if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
           if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
           if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
@@ -10032,97 +10610,108 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
           if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
           return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to fork process\"}"));
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to initialize spawn file actions\"}"));
         }
 
-        if (pid == 0) {
-          // Child process
-          if (stdinPipeRequested) {
-            close(stdinPipeFd[1]);
-            dup2(stdinPipeFd[0], STDIN_FILENO);
-            close(stdinPipeFd[0]);
-          } else if (stdioModes[0] == "ignore") {
-            int nullStdin = open("/dev/null", O_RDONLY);
-            if (nullStdin >= 0) {
-              dup2(nullStdin, STDIN_FILENO);
-              close(nullStdin);
+        int actionError = 0;
+        int nullStdinFd = -1;
+        int nullStdoutFd = -1;
+        int nullStderrFd = -1;
+
+        if (stdinPipeRequested) {
+          actionError = posix_spawn_file_actions_adddup2(&fileActions, stdinPipeFd[0], STDIN_FILENO);
+          if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stdinPipeFd[0]);
+          if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stdinPipeFd[1]);
+        } else if (stdioModes[0] == "ignore") {
+          nullStdinFd = open("/dev/null", O_RDONLY);
+          if (nullStdinFd >= 0) {
+            actionError = posix_spawn_file_actions_adddup2(&fileActions, nullStdinFd, STDIN_FILENO);
+            if (actionError == 0) {
+              actionError = posix_spawn_file_actions_addclose(&fileActions, nullStdinFd);
             }
           }
+        }
 
+        if (actionError == 0) {
           if (stdoutPipeRequested) {
-            close(stdoutPipeFd[0]);
-            dup2(stdoutPipeFd[1], STDOUT_FILENO);
-            close(stdoutPipeFd[1]);
+            actionError = posix_spawn_file_actions_adddup2(&fileActions, stdoutPipeFd[1], STDOUT_FILENO);
+            if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stdoutPipeFd[0]);
+            if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stdoutPipeFd[1]);
           } else if (stdioModes[1] == "ignore") {
-            int nullStdout = open("/dev/null", O_WRONLY);
-            if (nullStdout >= 0) {
-              dup2(nullStdout, STDOUT_FILENO);
-              close(nullStdout);
+            nullStdoutFd = open("/dev/null", O_WRONLY);
+            if (nullStdoutFd >= 0) {
+              actionError = posix_spawn_file_actions_adddup2(&fileActions, nullStdoutFd, STDOUT_FILENO);
+              if (actionError == 0) {
+                actionError = posix_spawn_file_actions_addclose(&fileActions, nullStdoutFd);
+              }
             }
           }
+        }
 
+        if (actionError == 0) {
           if (stderrPipeRequested) {
-            close(stderrPipeFd[0]);
-            dup2(stderrPipeFd[1], STDERR_FILENO);
-            close(stderrPipeFd[1]);
+            actionError = posix_spawn_file_actions_adddup2(&fileActions, stderrPipeFd[1], STDERR_FILENO);
+            if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stderrPipeFd[0]);
+            if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stderrPipeFd[1]);
           } else if (stdioModes[2] == "ignore") {
-            int nullStderr = open("/dev/null", O_WRONLY);
-            if (nullStderr >= 0) {
-              dup2(nullStderr, STDERR_FILENO);
-              close(nullStderr);
+            nullStderrFd = open("/dev/null", O_WRONLY);
+            if (nullStderrFd >= 0) {
+              actionError = posix_spawn_file_actions_adddup2(&fileActions, nullStderrFd, STDERR_FILENO);
+              if (actionError == 0) {
+                actionError = posix_spawn_file_actions_addclose(&fileActions, nullStderrFd);
+              }
             }
           }
+        }
 
-          if (!stdinPipeRequested) {
-            if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
-            if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
-          }
-          if (!stdoutPipeRequested) {
-            if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
-            if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
-          }
-          if (!stderrPipeRequested) {
-            if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
-            if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
-          }
+        if (!stdinPipeRequested && !stdoutPipeRequested) {
+          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+        }
+        if (!stdoutPipeRequested && stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+        if (!stderrPipeRequested && stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
 
-          // Build envp array (must outlive execvp call)
-          std::vector<char*> envp;
-          if (!envEntries.empty()) {
-            envp.reserve(envEntries.size() + 1);
-            for (auto& e : envEntries) {
-              envp.push_back(const_cast<char*>(e.c_str()));
-            }
-            envp.push_back(nullptr);
-#if defined(__APPLE__)
-            *_NSGetEnviron() = envp.data();
-#else
-            environ = envp.data();
-#endif
-          }
+        if (actionError != 0) {
+          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          if (nullStdinFd >= 0) close(nullStdinFd);
+          if (nullStdoutFd >= 0) close(nullStdoutFd);
+          if (nullStderrFd >= 0) close(nullStderrFd);
+          posix_spawn_file_actions_destroy(&fileActions);
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to configure spawn file actions\"}"));
+        }
 
-          if (!cwd.empty()) {
-            if (chdir(cwd.c_str()) != 0) {
-              _exit(127);
-            }
-          }
+        pid_t pid = -1;
+        int spawnResult = 0;
+        if (shellMode) {
+          spawnResult = posix_spawn(&pid, argv[0], &fileActions, nullptr, argv.data(), envArgv);
+        } else {
+          spawnResult = posix_spawnp(&pid, argv[0], &fileActions, nullptr, argv.data(), envArgv);
+        }
+        posix_spawn_file_actions_destroy(&fileActions);
 
-          if (useShell) {
-            std::string fullCmd = file;
-            for (auto& a : spawnArgs) {
-              fullCmd += " " + a;
-            }
-            execl("/bin/sh", "sh", "-c", fullCmd.c_str(), nullptr);
-          } else {
-            std::vector<char*> argv;
-            argv.push_back(const_cast<char*>(file.c_str()));
-            for (auto& a : spawnArgs) {
-              argv.push_back(const_cast<char*>(a.c_str()));
-            }
-            argv.push_back(nullptr);
-            execvp(file.c_str(), argv.data());
+        if (nullStdinFd >= 0) close(nullStdinFd);
+        if (nullStdoutFd >= 0) close(nullStdoutFd);
+        if (nullStderrFd >= 0) close(nullStderrFd);
+
+        if (spawnResult != 0) {
+          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          std::string errorStr = std::string("Failed to spawn process: ") + strerror(spawnResult);
+          if (spawnResult == ENOENT) {
+            errorStr = "Command not found: " + file;
           }
-          _exit(127);
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"" + jsonEscape(errorStr) + "\"}"));
         }
 
         // Parent process
@@ -10133,7 +10722,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (stdoutPipeRequested) fcntl(stdoutPipeFd[0], F_SETFL, O_NONBLOCK);
         if (stderrPipeRequested) fcntl(stderrPipeFd[0], F_SETFL, O_NONBLOCK);
 
-        // Store in map
         int handle;
         {
           std::lock_guard<std::mutex> lock(s_spawnMutex);
@@ -10143,11 +10731,18 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           proc.stdinFd = stdinPipeRequested ? stdinPipeFd[1] : -1;
           proc.stdoutFd = stdoutPipeRequested ? stdoutPipeFd[0] : -1;
           proc.stderrFd = stderrPipeRequested ? stderrPipeFd[0] : -1;
+          proc.runtimeHandle = runtimeHandle;
           proc.exited = false;
           proc.exitCode = -1;
           proc.exitSignal = 0;
+          proc.disposed = false;
           s_spawnedProcesses[handle] = proc;
+          if (runtimeHandle) {
+            runtimeHandle->active_spawn_processes.fetch_add(1, std::memory_order_relaxed);
+          }
+          s_spawnCv.notify_all();
         }
+        ensureSpawnWatcher();
 
         std::string resultJson = "{\"handle\":" + std::to_string(handle)
             + ",\"pid\":" + std::to_string(static_cast<int>(pid)) + "}";
@@ -10375,6 +10970,25 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactSpawnCloseStdin", std::move(spawnCloseStdinFn));
+
+  // __exactSpawnDispose(handle) -> boolean (success)
+  // Closes process streams. Exited processes are removed immediately; running
+  // processes are kept for background reaping when they exit.
+  auto spawnDisposeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnDispose"),
+      1,
+      [&disposeSpawnProcess](facebook::jsi::Runtime& /*runtime*/,
+                             const facebook::jsi::Value&,
+                             const facebook::jsi::Value* args,
+                             size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value(false);
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        return facebook::jsi::Value(disposeSpawnProcess(handle));
+      });
+  rt.global().setProperty(rt, "__exactSpawnDispose", std::move(spawnDisposeFn));
 
   // __exactWhich(command) -> string path or null
   // Searches PATH for the given command, similar to the `which` utility.
@@ -12508,6 +13122,9 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
     return 1;
   }
   if (!runtime->next_tick.empty()) {
+    return 1;
+  }
+  if (runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
     return 1;
   }
   {

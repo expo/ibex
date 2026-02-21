@@ -58,6 +58,9 @@ openssl-sys = { version = "0.9", features = ["vendored"] }
 [build-dependencies]
 cc = "1.0"
 
+[dev-dependencies]
+tempfile = "3"
+
 [profile.release]
 lto = true
 codegen-units = 1

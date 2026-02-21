@@ -6679,6 +6679,29 @@ var signalNames = {};
 for (var sn in signalMap) {
   if (signalMap.hasOwnProperty(sn)) signalNames[signalMap[sn]] = sn;
 }
+if (typeof globalThis.__exactSpawnProcesses !== 'object') {
+  globalThis.__exactSpawnProcesses = Object.create(null);
+}
+if (typeof globalThis.__exactSpawnPump !== 'function') {
+  globalThis.__exactSpawnPump = function(handle) {
+    if (!globalThis.__exactSpawnProcesses) {
+      return;
+    }
+    var proc = globalThis.__exactSpawnProcesses[String(handle)];
+    if (!proc) return;
+    if (typeof proc.__pumpFromNative === 'function') {
+      proc.__pumpFromNative();
+    }
+  };
+}
+if (typeof globalThis.__exactSpawnDispose !== 'function') {
+  globalThis.__exactSpawnDispose = function(handle) {
+    if (!globalThis.__exactSpawnProcesses) {
+      return;
+    }
+    delete globalThis.__exactSpawnProcesses[String(handle)];
+  };
+}
 
 // ChildProcess constructor (extends EventEmitter)
 function ChildProcess(handle, pid, stdioModes) {
@@ -6705,6 +6728,8 @@ function ChildProcess(handle, pid, stdioModes) {
   this.killed = false;
   this.connected = false;
   this._exited = false;
+  this._useNativePump = typeof globalThis.__exactSpawnPump === 'function';
+  this._pumpInProgress = false;
   var modes = stdioModes || { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' };
 
   // Create stdout as a Readable stream
@@ -6775,6 +6800,9 @@ function ChildProcess(handle, pid, stdioModes) {
   }
 
   this.stdio = [this.stdin, this.stdout, this.stderr];
+  if (self._useNativePump && self._handle >= 0) {
+    globalThis.__exactSpawnProcesses[String(self._handle)] = self;
+  }
 
   // Start polling for stdout/stderr data and exit status
   var pollInterval = 10; // ms
@@ -6801,7 +6829,9 @@ function ChildProcess(handle, pid, stdioModes) {
   }
 
   function pollStreams() {
+    if (self._pumpInProgress) return;
     if (self._exited && stdoutEnded && stderrEnded) return;
+    self._pumpInProgress = true;
 
     // Poll stdout
     if (!stdoutEnded) {
@@ -6858,16 +6888,51 @@ function ChildProcess(handle, pid, stdioModes) {
         // 'close' fires after streams are done
         setTimeout(function() {
           self.emit('close', self.exitCode, self.signalCode);
+          if (globalThis.__exactSpawnProcesses) {
+            delete globalThis.__exactSpawnProcesses[String(self._handle)];
+          }
+          if (typeof globalThis.__exactSpawnDispose === 'function') {
+            globalThis.__exactSpawnDispose(self._handle);
+          }
         }, 0);
+        self._pumpInProgress = false;
         return;
       }
     }
 
-    setTimeout(pollStreams, pollInterval);
+    if (!self._useNativePump) {
+      self._pollTimer = setTimeout(pollStreams, pollInterval);
+    }
+    self._pumpInProgress = false;
   }
 
-  // Start polling on next tick
-  setTimeout(pollStreams, 0);
+  this.__pumpFromNative = pollStreams;
+
+  if (self._useNativePump && self._handle >= 0) {
+    var nativePollFallback = function() {
+      if (self._exited) {
+        return;
+      }
+      if (typeof self.__pumpFromNative === 'function') {
+        self.__pumpFromNative();
+      }
+      if (!self._exited) {
+        self._pollTimer = setTimeout(nativePollFallback, pollInterval);
+      }
+    };
+    // Keep the JS event loop alive until the spawn settles for top-level await cases
+    // where no other pending tasks exist.
+    self._pollTimer = setTimeout(nativePollFallback, 0);
+  } else {
+    // Start polling for stdout/stderr data and exit status.
+    var fallbackPoll = function() {
+      pollStreams();
+      if (!self._exited) {
+        self._pollTimer = setTimeout(fallbackPoll, pollInterval);
+      }
+    };
+    self._pollTimer = setTimeout(fallbackPoll, 0);
+  }
 }
 
 ChildProcess.prototype.kill = function(signal) {
