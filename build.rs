@@ -27,6 +27,16 @@ fn main() {
         .flag_if_supported("-std=c++17")
         .flag_if_supported("-stdlib=libc++");
 
+    // Set minimum deployment targets to match Xcode project settings.
+    // This avoids "was built for newer version" linker warnings for our C++ files.
+    // Note: bundled C deps (e.g. rusqlite's sqlite3) need the env var set before
+    // cargo runs — see build-kernel.sh which exports MACOSX_DEPLOYMENT_TARGET.
+    match target_os.as_str() {
+        "macos" => { build.flag("-mmacosx-version-min=14.0"); }
+        "ios" => { build.flag("-mios-version-min=17.0"); }
+        _ => {}
+    }
+
     // Platform-specific includes and defines
     match target_os.as_str() {
         "macos" => {
@@ -87,18 +97,31 @@ fn main() {
     // Compile native fetch and websocket (Objective-C++ using NSURLSession)
     // These work on both macOS and iOS since they use Foundation
     if target_os == "macos" || target_os == "ios" {
-        cc::Build::new()
+        let mut fetch_build = cc::Build::new();
+        fetch_build
             .file("src/engine/native_fetch_macos.mm")
             .flag("-fobjc-arc")
             .flag("-std=c++17")
-            .flag("-stdlib=libc++")
-            .compile("exact_native_fetch");
+            .flag("-stdlib=libc++");
+        if target_os == "macos" {
+            fetch_build.flag("-mmacosx-version-min=14.0");
+        } else {
+            fetch_build.flag("-mios-version-min=17.0");
+        }
+        fetch_build.compile("exact_native_fetch");
 
-        cc::Build::new()
+        let mut ws_build = cc::Build::new();
+        ws_build
             .file("src/engine/native_websocket_macos.mm")
             .flag("-fobjc-arc")
             .flag("-std=c++17")
-            .flag("-stdlib=libc++")
+            .flag("-stdlib=libc++");
+        if target_os == "macos" {
+            ws_build.flag("-mmacosx-version-min=14.0");
+        } else {
+            ws_build.flag("-mios-version-min=17.0");
+        }
+        ws_build
             .compile("exact_native_websocket");
 
         // Link frameworks
