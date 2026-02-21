@@ -1,0 +1,59 @@
+//! Exact Shared Runtime
+//!
+//! This crate contains the shared runtime components used by both the CLI (`ex`)
+//! and the iOS app. It provides:
+//!
+//! - **Module Loader**: Node.js-compatible `require()` with 30+ builtin modules
+//! - **Host ABI**: C-level functions for filesystem, SQLite, crypto, etc.
+//! - **Hermes C++ adapter**: The `hermes_runtime.cc` compiled into this library
+//!   provides `ex_hermes_create()`, `ex_hermes_eval()`, `ex_hermes_poll()`, etc.
+//!
+//! The CLI wraps these in async Rust (via tokio). The iOS app calls the C API
+//! directly from Swift via the bridging header.
+
+pub mod host;
+pub mod module_loader;
+pub mod engine;
+
+use anyhow::Result;
+use std::path::PathBuf;
+
+/// Determine runtime cache directory.
+/// - macOS: ~/Library/Caches/Exact
+/// - iOS: app's Caches directory
+/// - Linux: ~/.cache/exact
+pub fn runtime_cache_dir() -> Result<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = dirs::home_dir() {
+            return Ok(home.join("Library").join("Caches").join("Exact"));
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    {
+        // On iOS, use the app's Caches directory
+        if let Some(dir) = dirs::cache_dir() {
+            return Ok(dir.join("Exact"));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(dir) = dirs::cache_dir() {
+            return Ok(dir.join("exact"));
+        }
+        if let Some(home) = dirs::home_dir() {
+            return Ok(home.join(".cache").join("exact"));
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
+    {
+        if let Some(dir) = dirs::cache_dir() {
+            return Ok(dir.join("exact"));
+        }
+    }
+
+    anyhow::bail!("Failed to determine cache directory")
+}

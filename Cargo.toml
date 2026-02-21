@@ -1,0 +1,62 @@
+[package]
+name = "exact-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Exact shared runtime - Hermes JS engine, module loader, and host ABI"
+authors = ["Exact Team"]
+license = "MIT"
+
+[lib]
+name = "exact_runtime"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# JSON handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Random bytes for crypto
+getrandom = "0.2"
+
+# SQLite support for exact:sqlite builtin module
+rusqlite = { version = "0.31", features = ["bundled", "column_decltype"] }
+
+# Module resolution (Node/ESM)
+oxc_resolver = "11.17.0"
+
+# Async trait support
+async-trait = "0.1"
+
+# Base64 for source maps
+base64 = "0.21"
+
+# Kernel integration
+exact-kernel = { path = "../../kernel" }
+
+# Path handling
+dirs = "5.0"
+
+# Process handling
+which = "6.0"
+
+# For FFI string handling
+libc = "0.2"
+
+[features]
+default = []
+# When enabled, skips the default ex_hermes_notify_callback implementation.
+# The CLI provides its own tokio-based version.
+cli-notify = []
+
+[build-dependencies]
+cc = "1.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+strip = true
