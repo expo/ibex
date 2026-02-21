@@ -6931,7 +6931,8 @@ cp.spawn = function spawn(command, args, options) {
     return errChild;
   }
 
-  return new ChildProcess(result.handle, result.pid, normalizedOptions.stdio);
+  var stdioCfg = { stdin: normalizedOptions.stdio[0], stdout: normalizedOptions.stdio[1], stderr: normalizedOptions.stdio[2] };
+  return new ChildProcess(result.handle, result.pid, stdioCfg);
 };
 
 // Stub for fork
