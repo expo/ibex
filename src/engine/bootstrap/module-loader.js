@@ -397,6 +397,43 @@
         __exactEnsureWebCrypto();
       }
     }
+    if (typeof __exactEnsureDns === 'function') {
+      if (specifier === 'dns' || specifier === 'node:dns' ||
+          specifier === 'dns/promises' || specifier === 'node:dns/promises') {
+        __exactEnsureDns();
+      }
+    }
+    if (typeof __exactEnsureFs === 'function') {
+      if (specifier === 'fs' || specifier === 'node:fs' ||
+          specifier === 'fs/promises' || specifier === 'node:fs/promises' ||
+          specifier === 'path' || specifier === 'node:path') {
+        __exactEnsureFs();
+      }
+    }
+    if (typeof __exactEnsureChildProcess === 'function') {
+      if (specifier === 'child_process' || specifier === 'node:child_process') {
+        __exactEnsureChildProcess();
+      }
+    }
+    if (typeof __exactEnsureNet === 'function') {
+      if (specifier === 'net' || specifier === 'node:net' ||
+          specifier === 'tls' || specifier === 'node:tls' ||
+          specifier === 'dgram' || specifier === 'node:dgram') {
+        __exactEnsureNet();
+      }
+    }
+    if (typeof __exactEnsureSqlite === 'function') {
+      if (specifier === 'bun:sqlite' || specifier === 'better-sqlite3') {
+        __exactEnsureSqlite();
+      }
+    }
+    if (typeof __exactEnsureHttp === 'function') {
+      if (specifier === 'http' || specifier === 'node:http' ||
+          specifier === 'https' || specifier === 'node:https' ||
+          specifier === 'http2' || specifier === 'node:http2') {
+        __exactEnsureHttp();
+      }
+    }
     const json = __exactModuleResolve(specifier, referrer || "");
     if (!json) {
       throw new Error("Module not found: " + specifier);

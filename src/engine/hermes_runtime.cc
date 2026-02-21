@@ -458,6 +458,14 @@ struct ExactHermesRuntime {
   bool web_crypto_loaded = false;
   bool web_storage_loaded = false;
   bool form_data_loaded = false;
+
+  // Deferred host function group flags (startup optimization #2)
+  bool dns_functions_loaded = false;
+  bool fs_functions_loaded = false;
+  bool child_process_functions_loaded = false;
+  bool net_functions_loaded = false;
+  bool sqlite_functions_loaded = false;
+  bool http_functions_loaded = false;
 };
 
 class VectorBuffer : public facebook::jsi::MutableBuffer {
@@ -1403,6 +1411,43 @@ void installModuleLoader(ExactHermesRuntime* handle) {
         __exactEnsureWebCrypto();
       }
     }
+    if (typeof __exactEnsureDns === 'function') {
+      if (specifier === 'dns' || specifier === 'node:dns' ||
+          specifier === 'dns/promises' || specifier === 'node:dns/promises') {
+        __exactEnsureDns();
+      }
+    }
+    if (typeof __exactEnsureFs === 'function') {
+      if (specifier === 'fs' || specifier === 'node:fs' ||
+          specifier === 'fs/promises' || specifier === 'node:fs/promises' ||
+          specifier === 'path' || specifier === 'node:path') {
+        __exactEnsureFs();
+      }
+    }
+    if (typeof __exactEnsureChildProcess === 'function') {
+      if (specifier === 'child_process' || specifier === 'node:child_process') {
+        __exactEnsureChildProcess();
+      }
+    }
+    if (typeof __exactEnsureNet === 'function') {
+      if (specifier === 'net' || specifier === 'node:net' ||
+          specifier === 'tls' || specifier === 'node:tls' ||
+          specifier === 'dgram' || specifier === 'node:dgram') {
+        __exactEnsureNet();
+      }
+    }
+    if (typeof __exactEnsureSqlite === 'function') {
+      if (specifier === 'bun:sqlite' || specifier === 'better-sqlite3') {
+        __exactEnsureSqlite();
+      }
+    }
+    if (typeof __exactEnsureHttp === 'function') {
+      if (specifier === 'http' || specifier === 'node:http' ||
+          specifier === 'https' || specifier === 'node:https' ||
+          specifier === 'http2' || specifier === 'node:http2') {
+        __exactEnsureHttp();
+      }
+    }
     const json = __exactModuleResolve(specifier, referrer || "");
     if (!json) {
       throw new Error("Module not found: " + specifier);
@@ -1706,102 +1751,173 @@ void installModuleLoader(ExactHermesRuntime* handle) {
   try {
     std::string globals = R"JS(
 (function() {
-  try {
-    var buf = globalThis.require('buffer');
-    if (buf && buf.Buffer) {
-      globalThis.Buffer = buf.Buffer;
-    }
-  } catch(e) {}
-  try {
-    var urlMod = globalThis.require('url');
-    if (urlMod) {
-      if (urlMod.URL && typeof globalThis.URL === 'undefined') {
-        globalThis.URL = urlMod.URL;
-      }
-      if (urlMod.URLSearchParams && typeof globalThis.URLSearchParams === 'undefined') {
-        globalThis.URLSearchParams = urlMod.URLSearchParams;
-      }
-    }
-  } catch(e) {}
-  // setImmediate / clearImmediate (Node.js global)
-  if (typeof globalThis.setImmediate === 'undefined') {
-    globalThis.setImmediate = function(callback) {
-      var args = [];
-      for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
-      return globalThis.setTimeout(function() { callback.apply(null, args); }, 0);
-    };
-    globalThis.clearImmediate = function(handle) {
-      globalThis.clearTimeout(handle);
-    };
-  }
-  // AbortController / AbortSignal (Web API)
-  if (typeof globalThis.AbortController === 'undefined') {
-    function AbortSignal() {
-      this.aborted = false;
-      this.reason = undefined;
-      this._listeners = [];
-    }
-    AbortSignal.prototype.addEventListener = function(type, listener) {
-      if (type === 'abort') this._listeners.push(listener);
-    };
-    AbortSignal.prototype.removeEventListener = function(type, listener) {
-      if (type === 'abort') {
-        var idx = this._listeners.indexOf(listener);
-        if (idx !== -1) this._listeners.splice(idx, 1);
-      }
-    };
-    AbortSignal.prototype.throwIfAborted = function() {
-      if (this.aborted) throw this.reason;
-    };
-    AbortSignal.abort = function(reason) {
-      var s = new AbortSignal();
-      s.aborted = true;
-      s.reason = reason !== undefined ? reason : new DOMException('The operation was aborted.', 'AbortError');
-      return s;
-    };
-    AbortSignal.timeout = function(ms) {
-      var s = new AbortSignal();
-      globalThis.setTimeout(function() {
-        s.aborted = true;
-        s.reason = new DOMException('The operation was aborted due to timeout.', 'TimeoutError');
-        for (var i = 0; i < s._listeners.length; i++) {
-          try { s._listeners[i]({ type: 'abort', target: s }); } catch(e) {}
+  // Helper: define a lazy getter that initializes on first access
+  function defineLazyGlobal(prop, init) {
+    Object.defineProperty(globalThis, prop, {
+      configurable: true, enumerable: true,
+      get: function() {
+        delete globalThis[prop];
+        var val = init();
+        if (val !== undefined && globalThis[prop] === undefined) {
+          globalThis[prop] = val;
         }
-      }, ms);
-      return s;
-    };
-    function AbortController() {
-      this.signal = new AbortSignal();
-    }
-    AbortController.prototype.abort = function(reason) {
-      if (this.signal.aborted) return;
-      this.signal.aborted = true;
-      this.signal.reason = reason !== undefined ? reason : new DOMException('The operation was aborted.', 'AbortError');
-      var listeners = this.signal._listeners.slice();
-      for (var i = 0; i < listeners.length; i++) {
-        try { listeners[i]({ type: 'abort', target: this.signal }); } catch(e) {}
+        return globalThis[prop];
       }
-    };
-    globalThis.AbortController = AbortController;
-    globalThis.AbortSignal = AbortSignal;
+    });
   }
-  // DOMException polyfill (if not available)
+
+  // Buffer — lazy, from require('buffer')
+  defineLazyGlobal('Buffer', function() {
+    try {
+      var buf = globalThis.require('buffer');
+      if (buf && buf.Buffer) { return buf.Buffer; }
+    } catch(e) {}
+    return undefined;
+  });
+
+  // URL — lazy, from require('url')
+  if (typeof globalThis.URL === 'undefined') {
+    defineLazyGlobal('URL', function() {
+      try {
+        var urlMod = globalThis.require('url');
+        if (urlMod) {
+          // Also install URLSearchParams eagerly while we have the module
+          if (urlMod.URLSearchParams && typeof globalThis.URLSearchParams === 'undefined') {
+            globalThis.URLSearchParams = urlMod.URLSearchParams;
+          }
+          if (urlMod.URL) { return urlMod.URL; }
+        }
+      } catch(e) {}
+      return undefined;
+    });
+  }
+
+  // URLSearchParams — lazy, from require('url')
+  if (typeof globalThis.URLSearchParams === 'undefined') {
+    defineLazyGlobal('URLSearchParams', function() {
+      try {
+        var urlMod = globalThis.require('url');
+        if (urlMod) {
+          // Also install URL eagerly while we have the module
+          if (urlMod.URL && typeof globalThis.URL === 'undefined') {
+            globalThis.URL = urlMod.URL;
+          }
+          if (urlMod.URLSearchParams) { return urlMod.URLSearchParams; }
+        }
+      } catch(e) {}
+      return undefined;
+    });
+  }
+
+  // DOMException polyfill — lazy (needed by AbortController, so define first)
   if (typeof globalThis.DOMException === 'undefined') {
-    function DOMException(message, name) {
-      this.message = message || '';
-      this.name = name || 'Error';
+    defineLazyGlobal('DOMException', function() {
+      function DOMException(message, name) {
+        this.message = message || '';
+        this.name = name || 'Error';
+      }
+      DOMException.prototype = Object.create(Error.prototype);
+      DOMException.prototype.constructor = DOMException;
+      return DOMException;
+    });
+  }
+
+  // setImmediate / clearImmediate — lazy (Node.js global)
+  if (typeof globalThis.setImmediate === 'undefined') {
+    defineLazyGlobal('setImmediate', function() {
+      var impl = function(callback) {
+        var args = [];
+        for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+        return globalThis.setTimeout(function() { callback.apply(null, args); }, 0);
+      };
+      // Also install clearImmediate eagerly
+      globalThis.clearImmediate = function(handle) {
+        globalThis.clearTimeout(handle);
+      };
+      return impl;
+    });
+  }
+  if (typeof globalThis.clearImmediate === 'undefined') {
+    defineLazyGlobal('clearImmediate', function() {
+      // Trigger setImmediate lazy init which installs both
+      void globalThis.setImmediate;
+      if (globalThis.clearImmediate) return globalThis.clearImmediate;
+      return function(handle) { globalThis.clearTimeout(handle); };
+    });
+  }
+
+  // AbortController / AbortSignal — lazy (Web API)
+  if (typeof globalThis.AbortController === 'undefined') {
+    function _initAbort() {
+      function AbortSignal() {
+        this.aborted = false;
+        this.reason = undefined;
+        this._listeners = [];
+      }
+      AbortSignal.prototype.addEventListener = function(type, listener) {
+        if (type === 'abort') this._listeners.push(listener);
+      };
+      AbortSignal.prototype.removeEventListener = function(type, listener) {
+        if (type === 'abort') {
+          var idx = this._listeners.indexOf(listener);
+          if (idx !== -1) this._listeners.splice(idx, 1);
+        }
+      };
+      AbortSignal.prototype.throwIfAborted = function() {
+        if (this.aborted) throw this.reason;
+      };
+      AbortSignal.abort = function(reason) {
+        var s = new AbortSignal();
+        s.aborted = true;
+        s.reason = reason !== undefined ? reason : new (globalThis.DOMException || Error)('The operation was aborted.', 'AbortError');
+        return s;
+      };
+      AbortSignal.timeout = function(ms) {
+        var s = new AbortSignal();
+        globalThis.setTimeout(function() {
+          s.aborted = true;
+          s.reason = new (globalThis.DOMException || Error)('The operation was aborted due to timeout.', 'TimeoutError');
+          for (var i = 0; i < s._listeners.length; i++) {
+            try { s._listeners[i]({ type: 'abort', target: s }); } catch(e) {}
+          }
+        }, ms);
+        return s;
+      };
+      function AbortController() {
+        this.signal = new AbortSignal();
+      }
+      AbortController.prototype.abort = function(reason) {
+        if (this.signal.aborted) return;
+        this.signal.aborted = true;
+        this.signal.reason = reason !== undefined ? reason : new (globalThis.DOMException || Error)('The operation was aborted.', 'AbortError');
+        var listeners = this.signal._listeners.slice();
+        for (var i = 0; i < listeners.length; i++) {
+          try { listeners[i]({ type: 'abort', target: this.signal }); } catch(e) {}
+        }
+      };
+      globalThis.AbortController = AbortController;
+      globalThis.AbortSignal = AbortSignal;
     }
-    DOMException.prototype = Object.create(Error.prototype);
-    DOMException.prototype.constructor = DOMException;
-    globalThis.DOMException = DOMException;
+    defineLazyGlobal('AbortController', function() {
+      _initAbort();
+      return globalThis.AbortController;
+    });
+    defineLazyGlobal('AbortSignal', function() {
+      _initAbort();
+      return globalThis.AbortSignal;
+    });
   }
-  // structuredClone (Web API)
+
+  // structuredClone — lazy (Web API)
   if (typeof globalThis.structuredClone === 'undefined') {
-    globalThis.structuredClone = function(value) {
-      return JSON.parse(JSON.stringify(value));
-    };
+    defineLazyGlobal('structuredClone', function() {
+      return function(value) {
+        return JSON.parse(JSON.stringify(value));
+      };
+    });
   }
-  // performance (Web API) — use perf_hooks if available
+
+  // performance (Web API) — EAGER: used immediately by almost everything
   if (typeof globalThis.performance === 'undefined') {
     var _perfStart = Date.now();
     globalThis.performance = {
@@ -1825,116 +1941,141 @@ void installModuleLoader(ExactHermesRuntime* handle) {
       clearMeasures: function() {}
     };
   }
-  // Event / EventTarget / CustomEvent (Web API)
-  if (typeof globalThis.EventTarget === 'undefined') {
-    function EventTarget() {
-      this._listeners = {};
-    }
-    EventTarget.prototype.addEventListener = function(type, listener, options) {
-      if (!this._listeners[type]) this._listeners[type] = [];
-      this._listeners[type].push({ fn: listener, once: options && options.once });
-    };
-    EventTarget.prototype.removeEventListener = function(type, listener) {
-      if (!this._listeners[type]) return;
-      this._listeners[type] = this._listeners[type].filter(function(l) { return l.fn !== listener; });
-    };
-    EventTarget.prototype.dispatchEvent = function(event) {
-      if (!event || !event.type) return true;
-      var listeners = this._listeners[event.type];
-      if (!listeners) return true;
-      event.target = this;
-      event.currentTarget = this;
-      var toRemove = [];
-      for (var i = 0; i < listeners.length; i++) {
-        try { listeners[i].fn.call(this, event); } catch(e) {}
-        if (listeners[i].once) toRemove.push(i);
-      }
-      for (var j = toRemove.length - 1; j >= 0; j--) {
-        listeners.splice(toRemove[j], 1);
-      }
-      return !event.defaultPrevented;
-    };
-    globalThis.EventTarget = EventTarget;
-  }
-  if (typeof globalThis.Event === 'undefined') {
-    function Event(type, options) {
-      this.type = type;
-      this.bubbles = (options && options.bubbles) || false;
-      this.cancelable = (options && options.cancelable) || false;
-      this.composed = (options && options.composed) || false;
-      this.defaultPrevented = false;
-      this.target = null;
-      this.currentTarget = null;
-      this.timeStamp = Date.now();
-    }
-    Event.prototype.preventDefault = function() {
-      if (this.cancelable) this.defaultPrevented = true;
-    };
-    Event.prototype.stopPropagation = function() {};
-    Event.prototype.stopImmediatePropagation = function() {};
-    globalThis.Event = Event;
-  }
-  if (typeof globalThis.CustomEvent === 'undefined') {
-    function CustomEvent(type, options) {
-      Event.call(this, type, options);
-      this.detail = (options && options.detail) || null;
-    }
-    CustomEvent.prototype = Object.create(Event.prototype);
-    CustomEvent.prototype.constructor = CustomEvent;
-    globalThis.CustomEvent = CustomEvent;
-  }
-  // Blob (Web API)
-  if (typeof globalThis.Blob === 'undefined') {
-    function Blob(parts, options) {
-      this._parts = parts || [];
-      this.type = (options && options.type) || '';
-      var totalSize = 0;
-      for (var i = 0; i < this._parts.length; i++) {
-        var part = this._parts[i];
-        if (typeof part === 'string') totalSize += part.length;
-        else if (part instanceof Uint8Array) totalSize += part.length;
-        else if (part instanceof ArrayBuffer) totalSize += part.byteLength;
-        else if (part && part._parts) totalSize += part.size;
-        else totalSize += String(part).length;
-      }
-      this.size = totalSize;
-    }
-    Blob.prototype.text = function() {
-      var result = '';
-      for (var i = 0; i < this._parts.length; i++) {
-        var part = this._parts[i];
-        if (typeof part === 'string') result += part;
-        else if (part instanceof Uint8Array) {
-          for (var j = 0; j < part.length; j++) result += String.fromCharCode(part[j]);
-        } else result += String(part);
-      }
-      return Promise.resolve(result);
-    };
-    Blob.prototype.arrayBuffer = function() {
-      var self = this;
-      return this.text().then(function(text) {
-        var buf = new Uint8Array(text.length);
-        for (var i = 0; i < text.length; i++) buf[i] = text.charCodeAt(i);
-        return buf.buffer;
-      });
-    };
-    Blob.prototype.slice = function(start, end, contentType) {
-      return this.text().then(function(text) {
-        return new Blob([text.slice(start, end)], { type: contentType || '' });
-      });
-    };
-    Blob.prototype.stream = function() { return null; };
-    globalThis.Blob = Blob;
 
-    // File extends Blob
-    function File(parts, name, options) {
-      Blob.call(this, parts, options);
-      this.name = name;
-      this.lastModified = (options && options.lastModified) || Date.now();
+  // Event / EventTarget / CustomEvent — lazy (Web API)
+  if (typeof globalThis.EventTarget === 'undefined') {
+    function _initEvents() {
+      function EventTarget() {
+        this._listeners = {};
+      }
+      EventTarget.prototype.addEventListener = function(type, listener, options) {
+        if (!this._listeners[type]) this._listeners[type] = [];
+        this._listeners[type].push({ fn: listener, once: options && options.once });
+      };
+      EventTarget.prototype.removeEventListener = function(type, listener) {
+        if (!this._listeners[type]) return;
+        this._listeners[type] = this._listeners[type].filter(function(l) { return l.fn !== listener; });
+      };
+      EventTarget.prototype.dispatchEvent = function(event) {
+        if (!event || !event.type) return true;
+        var listeners = this._listeners[event.type];
+        if (!listeners) return true;
+        event.target = this;
+        event.currentTarget = this;
+        var toRemove = [];
+        for (var i = 0; i < listeners.length; i++) {
+          try { listeners[i].fn.call(this, event); } catch(e) {}
+          if (listeners[i].once) toRemove.push(i);
+        }
+        for (var j = toRemove.length - 1; j >= 0; j--) {
+          listeners.splice(toRemove[j], 1);
+        }
+        return !event.defaultPrevented;
+      };
+      globalThis.EventTarget = EventTarget;
+
+      function Event(type, options) {
+        this.type = type;
+        this.bubbles = (options && options.bubbles) || false;
+        this.cancelable = (options && options.cancelable) || false;
+        this.composed = (options && options.composed) || false;
+        this.defaultPrevented = false;
+        this.target = null;
+        this.currentTarget = null;
+        this.timeStamp = Date.now();
+      }
+      Event.prototype.preventDefault = function() {
+        if (this.cancelable) this.defaultPrevented = true;
+      };
+      Event.prototype.stopPropagation = function() {};
+      Event.prototype.stopImmediatePropagation = function() {};
+      globalThis.Event = Event;
+
+      function CustomEvent(type, options) {
+        Event.call(this, type, options);
+        this.detail = (options && options.detail) || null;
+      }
+      CustomEvent.prototype = Object.create(Event.prototype);
+      CustomEvent.prototype.constructor = CustomEvent;
+      globalThis.CustomEvent = CustomEvent;
     }
-    File.prototype = Object.create(Blob.prototype);
-    File.prototype.constructor = File;
-    globalThis.File = File;
+
+    defineLazyGlobal('EventTarget', function() {
+      _initEvents();
+      return globalThis.EventTarget;
+    });
+    defineLazyGlobal('Event', function() {
+      _initEvents();
+      return globalThis.Event;
+    });
+    defineLazyGlobal('CustomEvent', function() {
+      _initEvents();
+      return globalThis.CustomEvent;
+    });
+  }
+
+  // Blob / File — lazy (Web API)
+  if (typeof globalThis.Blob === 'undefined') {
+    function _initBlob() {
+      function Blob(parts, options) {
+        this._parts = parts || [];
+        this.type = (options && options.type) || '';
+        var totalSize = 0;
+        for (var i = 0; i < this._parts.length; i++) {
+          var part = this._parts[i];
+          if (typeof part === 'string') totalSize += part.length;
+          else if (part instanceof Uint8Array) totalSize += part.length;
+          else if (part instanceof ArrayBuffer) totalSize += part.byteLength;
+          else if (part && part._parts) totalSize += part.size;
+          else totalSize += String(part).length;
+        }
+        this.size = totalSize;
+      }
+      Blob.prototype.text = function() {
+        var result = '';
+        for (var i = 0; i < this._parts.length; i++) {
+          var part = this._parts[i];
+          if (typeof part === 'string') result += part;
+          else if (part instanceof Uint8Array) {
+            for (var j = 0; j < part.length; j++) result += String.fromCharCode(part[j]);
+          } else result += String(part);
+        }
+        return Promise.resolve(result);
+      };
+      Blob.prototype.arrayBuffer = function() {
+        var self = this;
+        return this.text().then(function(text) {
+          var buf = new Uint8Array(text.length);
+          for (var i = 0; i < text.length; i++) buf[i] = text.charCodeAt(i);
+          return buf.buffer;
+        });
+      };
+      Blob.prototype.slice = function(start, end, contentType) {
+        return this.text().then(function(text) {
+          return new Blob([text.slice(start, end)], { type: contentType || '' });
+        });
+      };
+      Blob.prototype.stream = function() { return null; };
+      globalThis.Blob = Blob;
+
+      function File(parts, name, options) {
+        Blob.call(this, parts, options);
+        this.name = name;
+        this.lastModified = (options && options.lastModified) || Date.now();
+      }
+      File.prototype = Object.create(Blob.prototype);
+      File.prototype.constructor = File;
+      globalThis.File = File;
+    }
+
+    defineLazyGlobal('Blob', function() {
+      _initBlob();
+      return globalThis.Blob;
+    });
+    defineLazyGlobal('File', function() {
+      _initBlob();
+      return globalThis.File;
+    });
   }
 })();
 )JS";
@@ -2149,6 +2290,3126 @@ void ensureFormData(ExactHermesRuntime* handle) {
   } catch (...) {}
 }
 #endif // HAS_PRECOMPILED_BOOTSTRAP
+
+
+// =============================================================================
+// Deferred host function installation helpers (startup optimization #2)
+// These are called lazily on first use via __exactEnsure* trigger functions.
+// =============================================================================
+
+static void installDnsHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  // --- DNS lookup ---
+  // __exactDnsLookup(hostname, family) -> JSON string { address, family }
+  auto dnsLookupFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactDnsLookup"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactDnsLookup: hostname required");
+        }
+        auto hostname = args[0].asString(runtime).utf8(runtime);
+        int family = 0; // 0 = any, 4 = IPv4, 6 = IPv6
+        if (count > 1 && args[1].isNumber()) {
+          family = static_cast<int>(args[1].asNumber());
+        }
+
+        struct addrinfo hints = {};
+        hints.ai_socktype = SOCK_STREAM;
+        if (family == 4) hints.ai_family = AF_INET;
+        else if (family == 6) hints.ai_family = AF_INET6;
+        else hints.ai_family = AF_UNSPEC;
+
+        struct addrinfo* result = nullptr;
+        int ret = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
+        if (ret != 0 || !result) {
+          if (result) freeaddrinfo(result);
+          throw facebook::jsi::JSError(runtime,
+              std::string("getaddrinfo failed for ") + hostname + ": " + gai_strerror(ret));
+        }
+
+        // Build JSON result
+        std::string json = "[";
+        bool first = true;
+        for (struct addrinfo* p = result; p != nullptr; p = p->ai_next) {
+          char addr[INET6_ADDRSTRLEN] = {};
+          int fam = 4;
+          if (p->ai_family == AF_INET) {
+            struct sockaddr_in* sa = reinterpret_cast<struct sockaddr_in*>(p->ai_addr);
+            inet_ntop(AF_INET, &sa->sin_addr, addr, sizeof(addr));
+            fam = 4;
+          } else if (p->ai_family == AF_INET6) {
+            struct sockaddr_in6* sa = reinterpret_cast<struct sockaddr_in6*>(p->ai_addr);
+            inet_ntop(AF_INET6, &sa->sin6_addr, addr, sizeof(addr));
+            fam = 6;
+          } else {
+            continue;
+          }
+          if (!first) json += ",";
+          json += "{\"address\":\"" + std::string(addr) + "\",\"family\":" + std::to_string(fam) + "}";
+          first = false;
+        }
+        json += "]";
+        freeaddrinfo(result);
+
+        return facebook::jsi::String::createFromUtf8(runtime, json);
+      });
+  rt.global().setProperty(rt, "__exactDnsLookup", std::move(dnsLookupFn));
+
+  // __exactDnsResolve(hostname, rrtype) -> JSON array via res_query
+  auto dnsResolveFn = facebook::jsi::Function::createFromHostFunction(rt, facebook::jsi::PropNameID::forAscii(rt, "__exactDnsResolve"), 2, [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&, const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+    if (count < 2 || !args[0].isString() || !args[1].isString()) throw facebook::jsi::JSError(runtime, "__exactDnsResolve requires hostname and rrtype");
+    auto hostname = args[0].asString(runtime).utf8(runtime);
+    auto rrtype = args[1].asString(runtime).utf8(runtime);
+    int qtype = 0;
+    if (rrtype == "MX") qtype = ns_t_mx;
+    else if (rrtype == "TXT") qtype = ns_t_txt;
+    else if (rrtype == "SRV") qtype = ns_t_srv;
+    else if (rrtype == "NS") qtype = ns_t_ns;
+    else if (rrtype == "CNAME") qtype = ns_t_cname;
+    else if (rrtype == "SOA") qtype = ns_t_soa;
+    else if (rrtype == "PTR") qtype = ns_t_ptr;
+    else if (rrtype == "CAA") qtype = 257;
+    else if (rrtype == "NAPTR") qtype = ns_t_naptr;
+    else throw facebook::jsi::JSError(runtime, ("unsupported record type: " + rrtype).c_str());
+    unsigned char answer[4096];
+    int len = res_query(hostname.c_str(), ns_c_in, qtype, answer, sizeof(answer));
+    if (len < 0) throw facebook::jsi::JSError(runtime, ("DNS query failed for " + hostname + " type " + rrtype).c_str());
+    ns_msg msg;
+    if (ns_initparse(answer, len, &msg) < 0) throw facebook::jsi::JSError(runtime, "Failed to parse DNS response");
+    int rrCount = ns_msg_count(msg, ns_s_an);
+    std::string json = "[";
+    bool first = true;
+    for (int i = 0; i < rrCount; i++) {
+      ns_rr rr;
+      if (ns_parserr(&msg, ns_s_an, i, &rr) < 0) continue;
+      if (ns_rr_type(rr) != qtype) continue;
+      const unsigned char* rdata = ns_rr_rdata(rr);
+      int rdlen = ns_rr_rdlen(rr);
+      if (!first) json += ",";
+      first = false;
+      if (qtype == ns_t_mx) {
+        if (rdlen < 3) { first = true; continue; }
+        int prio = (rdata[0] << 8) | rdata[1];
+        char ex[NS_MAXDNAME];
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata + 2, ex, sizeof(ex)) < 0) { first = true; continue; }
+        std::string e(ex); if (!e.empty() && e.back() == '.') e.pop_back();
+        json += "{\"priority\":" + std::to_string(prio) + ",\"exchange\":\"" + e + "\"}";
+      } else if (qtype == ns_t_txt) {
+        std::string ta = "["; bool ft = true; int p = 0;
+        while (p < rdlen) { int sl = static_cast<unsigned char>(rdata[p]); p++; if (p+sl>rdlen) break; if (!ft) ta += ","; ft = false; std::string t; for (int j=0;j<sl;j++){char c=static_cast<char>(rdata[p+j]);if(c=='"')t+="\\\"";else if(c=='\\')t+="\\\\";else t+=c;} ta += "\"" + t + "\""; p += sl; }
+        ta += "]"; json += ta;
+      } else if (qtype == ns_t_srv) {
+        if (rdlen < 7) { first = true; continue; }
+        int prio = (rdata[0]<<8)|rdata[1]; int wt = (rdata[2]<<8)|rdata[3]; int pt = (rdata[4]<<8)|rdata[5];
+        char tg[NS_MAXDNAME];
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata+6, tg, sizeof(tg)) < 0) { first = true; continue; }
+        std::string tgt(tg); if (!tgt.empty() && tgt.back() == '.') tgt.pop_back();
+        json += "{\"priority\":" + std::to_string(prio) + ",\"weight\":" + std::to_string(wt) + ",\"port\":" + std::to_string(pt) + ",\"name\":\"" + tgt + "\"}";
+      } else if (qtype == ns_t_ns) {
+        char n[NS_MAXDNAME];
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, n, sizeof(n)) < 0) { first = true; continue; }
+        std::string s(n); if (!s.empty() && s.back() == '.') s.pop_back();
+        json += "\"" + s + "\"";
+      } else if (qtype == ns_t_cname) {
+        char cn[NS_MAXDNAME];
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, cn, sizeof(cn)) < 0) { first = true; continue; }
+        std::string s(cn); if (!s.empty() && s.back() == '.') s.pop_back();
+        json += "\"" + s + "\"";
+      } else if (qtype == ns_t_soa) {
+        char mn[NS_MAXDNAME]; int o1 = ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, mn, sizeof(mn));
+        if (o1 < 0) { first = true; continue; }
+        std::string m(mn); if (!m.empty() && m.back() == '.') m.pop_back();
+        char rn[NS_MAXDNAME]; int o2 = ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata+o1, rn, sizeof(rn));
+        if (o2 < 0) { first = true; continue; }
+        std::string r(rn); if (!r.empty() && r.back() == '.') r.pop_back();
+        const unsigned char* sd = rdata+o1+o2;
+        if (o1+o2+20 > rdlen) { first = true; continue; }
+        uint32_t ser = (uint32_t(sd[0])<<24)|(uint32_t(sd[1])<<16)|(uint32_t(sd[2])<<8)|sd[3];
+        int32_t ref = (sd[4]<<24)|(sd[5]<<16)|(sd[6]<<8)|sd[7];
+        int32_t rty = (sd[8]<<24)|(sd[9]<<16)|(sd[10]<<8)|sd[11];
+        int32_t exp = (sd[12]<<24)|(sd[13]<<16)|(sd[14]<<8)|sd[15];
+        uint32_t mnt = (uint32_t(sd[16])<<24)|(uint32_t(sd[17])<<16)|(uint32_t(sd[18])<<8)|sd[19];
+        json += "{\"nsname\":\""+m+"\",\"hostmaster\":\""+r+"\",\"serial\":"+std::to_string(ser)+",\"refresh\":"+std::to_string(ref)+",\"retry\":"+std::to_string(rty)+",\"expire\":"+std::to_string(exp)+",\"minttl\":"+std::to_string(mnt)+"}";
+      } else if (qtype == ns_t_ptr) {
+        char pn[NS_MAXDNAME];
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, pn, sizeof(pn)) < 0) { first = true; continue; }
+        std::string s(pn); if (!s.empty() && s.back() == '.') s.pop_back();
+        json += "\"" + s + "\"";
+      } else if (qtype == 257) {
+        if (rdlen < 2) { first = true; continue; }
+        int fl = rdata[0]; int tl = rdata[1];
+        if (2+tl > rdlen) { first = true; continue; }
+        std::string tag(reinterpret_cast<const char*>(rdata+2), tl);
+        std::string val(reinterpret_cast<const char*>(rdata+2+tl), rdlen-2-tl);
+        std::string ev; for (size_t vi=0;vi<val.size();vi++){char c=val[vi];if(c=='"')ev+="\\\"";else if(c=='\\')ev+="\\\\";else ev+=c;}
+        json += "{\"critical\":"+std::to_string(fl)+",\""+tag+"\":\""+ev+"\"}";
+      }
+    }
+    json += "]";
+    return facebook::jsi::String::createFromUtf8(runtime, json);
+  });
+  rt.global().setProperty(rt, "__exactDnsResolve", std::move(dnsResolveFn));
+
+  // __exactDnsReverse(ip) -> JSON array of hostnames via getnameinfo
+  auto dnsReverseFn = facebook::jsi::Function::createFromHostFunction(rt, facebook::jsi::PropNameID::forAscii(rt, "__exactDnsReverse"), 1, [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&, const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+    if (count == 0 || !args[0].isString()) throw facebook::jsi::JSError(runtime, "__exactDnsReverse: ip address required");
+    auto ip = args[0].asString(runtime).utf8(runtime);
+    struct sockaddr_storage sa; socklen_t salen; memset(&sa, 0, sizeof(sa));
+    auto* sa4 = reinterpret_cast<struct sockaddr_in*>(&sa);
+    auto* sa6 = reinterpret_cast<struct sockaddr_in6*>(&sa);
+    if (inet_pton(AF_INET, ip.c_str(), &sa4->sin_addr) == 1) { sa4->sin_family = AF_INET; salen = sizeof(struct sockaddr_in); }
+    else if (inet_pton(AF_INET6, ip.c_str(), &sa6->sin6_addr) == 1) { sa6->sin6_family = AF_INET6; salen = sizeof(struct sockaddr_in6); }
+    else throw facebook::jsi::JSError(runtime, ("invalid IP address: " + ip).c_str());
+    char host[NI_MAXHOST];
+    int ret = getnameinfo(reinterpret_cast<struct sockaddr*>(&sa), salen, host, sizeof(host), nullptr, 0, NI_NAMEREQD);
+    if (ret != 0) throw facebook::jsi::JSError(runtime, ("getnameinfo failed for " + ip + ": " + gai_strerror(ret)).c_str());
+    return facebook::jsi::String::createFromUtf8(runtime, "[\"" + std::string(host) + "\"]");
+  });
+  rt.global().setProperty(rt, "__exactDnsReverse", std::move(dnsReverseFn));
+
+}
+
+static void installFsHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto readFileFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactReadFile"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          return facebook::jsi::Value::undefined();
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        if (!isAllowAll()) {
+          std::string cap = "fs:read:" + path;
+          if (!checkCapability(cap)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        }
+
+        // Single FFI call: read entire file at once
+        uint32_t len = 0;
+        uint8_t* buf = ex_host_fs_read_file(path.c_str(), &len);
+        if (!buf) {
+          throw facebook::jsi::JSError(runtime, "Failed to open file");
+        }
+
+        // Move data into a vector and free the Rust buffer
+        std::vector<uint8_t> data(buf, buf + len);
+        ex_host_free_buffer(buf, len);
+        return makeUint8Array(runtime, std::move(data));
+      });
+  rt.global().setProperty(rt, "__exactReadFile", std::move(readFileFn));
+
+  // __exactWriteFile(path, data: Uint8Array) -> void (throws on error)
+  auto writeFileFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWriteFile"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactWriteFile: path and data required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:write:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+
+        // Extract bytes from Uint8Array
+        auto obj = args[1].asObject(runtime);
+        size_t length = 0;
+        const uint8_t* dataPtr = nullptr;
+        std::vector<uint8_t> dataCopy;
+
+        if (obj.hasProperty(runtime, "buffer")) {
+          auto bufVal = obj.getProperty(runtime, "buffer");
+          if (bufVal.isObject()) {
+            auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
+            auto offset = obj.hasProperty(runtime, "byteOffset")
+                ? static_cast<size_t>(obj.getProperty(runtime, "byteOffset").asNumber())
+                : 0;
+            length = obj.hasProperty(runtime, "byteLength")
+                ? static_cast<size_t>(obj.getProperty(runtime, "byteLength").asNumber())
+                : buf.size(runtime) - offset;
+            dataCopy.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
+            dataPtr = dataCopy.data();
+          }
+        }
+
+        void* handle = ex_host_fs_open(path.c_str(), EXACT_FS_WRITE | EXACT_FS_CREATE | EXACT_FS_TRUNCATE);
+        if (!handle) {
+          throw facebook::jsi::JSError(runtime, "Failed to open file for writing");
+        }
+        if (length > 0 && dataPtr) {
+          int32_t written = ex_host_fs_write(handle, dataPtr, static_cast<uint32_t>(length));
+          if (written < 0) {
+            ex_host_fs_close(handle);
+            throw facebook::jsi::JSError(runtime, "Failed to write file");
+          }
+        }
+        ex_host_fs_close(handle);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWriteFile", std::move(writeFileFn));
+
+  // __exactAppendFile(path, data: Uint8Array) -> void
+  auto appendFileFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAppendFile"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactAppendFile: path and data required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:write:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+
+        auto obj = args[1].asObject(runtime);
+        size_t length = 0;
+        const uint8_t* dataPtr = nullptr;
+        std::vector<uint8_t> dataCopy;
+
+        if (obj.hasProperty(runtime, "buffer")) {
+          auto bufVal = obj.getProperty(runtime, "buffer");
+          if (bufVal.isObject()) {
+            auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
+            auto offset = obj.hasProperty(runtime, "byteOffset")
+                ? static_cast<size_t>(obj.getProperty(runtime, "byteOffset").asNumber())
+                : 0;
+            length = obj.hasProperty(runtime, "byteLength")
+                ? static_cast<size_t>(obj.getProperty(runtime, "byteLength").asNumber())
+                : buf.size(runtime) - offset;
+            dataCopy.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
+            dataPtr = dataCopy.data();
+          }
+        }
+
+        if (length > 0 && dataPtr) {
+          int32_t written = ex_host_fs_append(path.c_str(), dataPtr, static_cast<uint32_t>(length));
+          if (written < 0) {
+            throw facebook::jsi::JSError(runtime, "Failed to append to file");
+          }
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactAppendFile", std::move(appendFileFn));
+
+  // __exactStat(path) -> object {size, mtime_ms, is_dir, is_file, mode}
+  auto statFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactStat"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactStat: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:read:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        char* json = ex_host_fs_stat(path.c_str());
+        if (!json) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, stat '") + path + "'");
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactStat", std::move(statFn));
+
+  // __exactLstat(path) -> JSON string
+  auto lstatFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactLstat"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactLstat: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:read:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        char* json = ex_host_fs_lstat(path.c_str());
+        if (!json) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, lstat '") + path + "'");
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactLstat", std::move(lstatFn));
+
+  // __exactReaddir(path) -> JSON string (array of names)
+  auto readdirFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactReaddir"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactReaddir: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:read:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        char* json = ex_host_fs_readdir(path.c_str());
+        if (!json) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, readdir '") + path + "'");
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactReaddir", std::move(readdirFn));
+
+  // __exactMkdir(path, recursive) -> void
+  auto mkdirFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactMkdir"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactMkdir: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:write:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        int32_t recursive = 0;
+        if (count > 1 && args[1].isBool()) {
+          recursive = args[1].getBool() ? 1 : 0;
+        } else if (count > 1 && args[1].isNumber()) {
+          recursive = args[1].asNumber() != 0 ? 1 : 0;
+        }
+        if (ex_host_fs_mkdir(path.c_str(), recursive) != 0) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: failed to create directory '") + path + "'");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactMkdir", std::move(mkdirFn));
+
+  // __exactRmdir(path) -> void
+  auto rmdirFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRmdir"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactRmdir: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:write:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (ex_host_fs_rmdir(path.c_str()) != 0) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: failed to remove directory '") + path + "'");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactRmdir", std::move(rmdirFn));
+
+  // __exactUnlink(path) -> void
+  auto unlinkFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactUnlink"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactUnlink: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:write:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (ex_host_fs_unlink(path.c_str()) != 0) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, unlink '") + path + "'");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactUnlink", std::move(unlinkFn));
+
+  // __exactRename(from, to) -> void
+  auto renameFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRename"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactRename: from and to paths required");
+        }
+        auto from = args[0].toString(runtime).utf8(runtime);
+        auto to = args[1].toString(runtime).utf8(runtime);
+        std::string cap = "fs:write:" + from;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (ex_host_fs_rename(from.c_str(), to.c_str()) != 0) {
+          throw facebook::jsi::JSError(runtime, std::string("Failed to rename '") + from + "' to '" + to + "'");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactRename", std::move(renameFn));
+
+  // __exactCopyFile(from, to) -> void
+  auto copyFileFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactCopyFile"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactCopyFile: src and dest required");
+        }
+        auto from = args[0].toString(runtime).utf8(runtime);
+        auto to = args[1].toString(runtime).utf8(runtime);
+        std::string cap = "fs:read:" + from;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        std::string wcap = "fs:write:" + to;
+        if (!checkCapability(wcap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (ex_host_fs_copy(from.c_str(), to.c_str()) != 0) {
+          throw facebook::jsi::JSError(runtime, std::string("Failed to copy '") + from + "' to '" + to + "'");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactCopyFile", std::move(copyFileFn));
+
+  // __exactRealpath(path) -> string
+  auto realpathFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRealpath"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactRealpath: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:read:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        char* resolved = ex_host_fs_realpath(path.c_str());
+        if (!resolved) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, realpath '") + path + "'");
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, resolved);
+        ex_host_free_string(resolved);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactRealpath", std::move(realpathFn));
+
+  // __exactAccess(path, mode) -> void (throws if not accessible)
+  auto accessFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAccess"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactAccess: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:read:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        int32_t mode = 0;
+        if (count > 1 && args[1].isNumber()) {
+          mode = static_cast<int32_t>(args[1].asNumber());
+        }
+        if (ex_host_fs_access(path.c_str(), mode) != 0) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, access '") + path + "'");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactAccess", std::move(accessFn));
+
+  // __exactChmod(path, mode) -> void
+  auto chmodFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactChmod"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactChmod: path and mode required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        std::string cap = "fs:write:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        uint32_t mode = static_cast<uint32_t>(args[1].asNumber());
+        if (ex_host_fs_chmod(path.c_str(), mode) != 0) {
+          throw facebook::jsi::JSError(runtime, std::string("Failed to chmod '") + path + "'");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactChmod", std::move(chmodFn));
+
+  // __exactMkdtemp(prefix) -> string (path of created temp directory)
+  auto mkdtempFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactMkdtemp"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        std::string prefix = "tmp";
+        if (count > 0 && args[0].isString()) {
+          prefix = args[0].toString(runtime).utf8(runtime);
+        }
+        std::string cap = "fs:write:" + prefix;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        char* path = ex_host_fs_mkdtemp(prefix.c_str());
+        if (!path) {
+          throw facebook::jsi::JSError(runtime, "Failed to create temporary directory");
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, path);
+        ex_host_free_string(path);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactMkdtemp", std::move(mkdtempFn));
+
+  // __exactFsOpen(path, flags, mode) -> integer fd
+  auto fsOpenFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpen"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsOpen: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        if (!isAllowAll()) {
+          std::string cap = "fs:read:" + path;
+          if (!checkCapability(cap)) {
+            std::string wcap = "fs:write:" + path;
+            if (!checkCapability(wcap)) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+          }
+        }
+
+        // Parse flags string to POSIX flags
+        int posixFlags = O_RDONLY;
+        if (count > 1 && args[1].isString()) {
+          auto flagStr = args[1].toString(runtime).utf8(runtime);
+          if (flagStr == "r") posixFlags = O_RDONLY;
+          else if (flagStr == "r+") posixFlags = O_RDWR;
+          else if (flagStr == "rs+" || flagStr == "sr+") posixFlags = O_RDWR | O_SYNC;
+          else if (flagStr == "w") posixFlags = O_WRONLY | O_CREAT | O_TRUNC;
+          else if (flagStr == "wx" || flagStr == "xw") posixFlags = O_WRONLY | O_CREAT | O_TRUNC | O_EXCL;
+          else if (flagStr == "w+") posixFlags = O_RDWR | O_CREAT | O_TRUNC;
+          else if (flagStr == "wx+" || flagStr == "xw+") posixFlags = O_RDWR | O_CREAT | O_TRUNC | O_EXCL;
+          else if (flagStr == "a") posixFlags = O_WRONLY | O_CREAT | O_APPEND;
+          else if (flagStr == "ax" || flagStr == "xa") posixFlags = O_WRONLY | O_CREAT | O_APPEND | O_EXCL;
+          else if (flagStr == "a+") posixFlags = O_RDWR | O_CREAT | O_APPEND;
+          else if (flagStr == "ax+" || flagStr == "xa+") posixFlags = O_RDWR | O_CREAT | O_APPEND | O_EXCL;
+          else {
+            throw facebook::jsi::JSError(runtime, std::string("Unknown file flag: ") + flagStr);
+          }
+        } else if (count > 1 && args[1].isNumber()) {
+          posixFlags = static_cast<int>(args[1].asNumber());
+        }
+
+        int mode = 0666;
+        if (count > 2 && args[2].isNumber()) {
+          mode = static_cast<int>(args[2].asNumber());
+        }
+
+        int fd = ::open(path.c_str(), posixFlags, mode);
+        if (fd < 0) {
+          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, open '") + path + "'");
+        }
+        return facebook::jsi::Value(fd);
+      });
+  rt.global().setProperty(rt, "__exactFsOpen", std::move(fsOpenFn));
+
+  // __exactFsClose(fd) -> void
+  auto fsCloseFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsClose"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsClose: fd required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        if (::close(fd) < 0) {
+          throw facebook::jsi::JSError(runtime, std::string("EBADF: bad file descriptor, close fd ") + std::to_string(fd));
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsClose", std::move(fsCloseFn));
+
+  // __exactFsRead(fd, length, position) -> Uint8Array (bytes read)
+  // position = -1 means use current position
+  auto fsReadFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsRead"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsRead: fd and length required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        size_t length = static_cast<size_t>(args[1].asNumber());
+
+        // If position is provided and not -1 / null / undefined, seek first
+        if (count > 2 && args[2].isNumber()) {
+          double pos = args[2].asNumber();
+          if (pos >= 0) {
+            ::lseek(fd, static_cast<off_t>(pos), SEEK_SET);
+          }
+        }
+
+        std::vector<uint8_t> data(length);
+        ssize_t bytesRead = ::read(fd, data.data(), length);
+        if (bytesRead < 0) {
+          throw facebook::jsi::JSError(runtime, std::string("EIO: read error on fd ") + std::to_string(fd));
+        }
+        data.resize(static_cast<size_t>(bytesRead));
+        return makeUint8Array(runtime, std::move(data));
+      });
+  rt.global().setProperty(rt, "__exactFsRead", std::move(fsReadFn));
+
+  // __exactFsWrite(fd, data, position) -> number (bytes written)
+  // data can be a string or Uint8Array; position = -1 means use current position
+  auto fsWriteFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsWrite"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+
+        // Extract data bytes
+        auto dataBytes = extractBytes(runtime, args[1]);
+
+        // If position is provided and not -1 / null / undefined, seek first
+        if (count > 2 && args[2].isNumber()) {
+          double pos = args[2].asNumber();
+          if (pos >= 0) {
+            ::lseek(fd, static_cast<off_t>(pos), SEEK_SET);
+          }
+        }
+
+        ssize_t bytesWritten = ::write(fd, dataBytes.data(), dataBytes.size());
+        if (bytesWritten < 0) {
+          throw facebook::jsi::JSError(runtime, std::string("EIO: write error on fd ") + std::to_string(fd));
+        }
+        return facebook::jsi::Value(static_cast<int>(bytesWritten));
+      });
+  rt.global().setProperty(rt, "__exactFsWrite", std::move(fsWriteFn));
+
+}
+
+static void installHttpHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  // __exactHttpServe(port, hostname) -> JSON string {"id":N,"port":N} or {"error":"..."}
+  auto httpServeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpServe"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        uint16_t port = 0;
+        if (count > 0 && args[0].isNumber()) {
+          port = static_cast<uint16_t>(args[0].asNumber());
+        }
+        std::string hostname = "0.0.0.0";
+        if (count > 1 && args[1].isString()) {
+          hostname = args[1].toString(runtime).utf8(runtime);
+        }
+        char* json = ex_host_http_serve(port, hostname.c_str());
+        if (!json) {
+          throw facebook::jsi::JSError(runtime, "Failed to start HTTP server");
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactHttpServe", std::move(httpServeFn));
+
+  // __exactHttpPoll(serverId) -> JSON string | null (synchronous, non-blocking)
+  // Item 6: Synchronous poll fast-path. If a request is already queued,
+  // returns it immediately without Promise/async overhead.
+  auto httpPollFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpPoll"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        char* json = ex_host_http_poll(server_id);
+        if (!json) {
+          return facebook::jsi::Value::null();
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactHttpPoll", std::move(httpPollFn));
+
+  // __exactHttpDrain(serverId, maxCount) -> JSON array string | null (synchronous)
+  // Item 8: Batch dequeue. Pops up to maxCount requests at once to reduce
+  // FFI round-trips under load.
+  auto httpDrainFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpDrain"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t max_count = 16; // default
+        if (count > 1 && args[1].isNumber()) {
+          max_count = static_cast<uint32_t>(args[1].asNumber());
+        }
+        char* json = ex_host_http_drain(server_id, max_count);
+        if (!json) {
+          return facebook::jsi::Value::null();
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactHttpDrain", std::move(httpDrainFn));
+
+  // __exactHttpWait(serverId, timeoutMs) -> Promise(JSON string | null)
+  // Item 5: Uses a persistent waiter thread pool instead of spawning a
+  // detached thread per call. Tasks are submitted to a shared pool.
+  auto httpWaitFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpWait"),
+      2,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t timeout_ms = 0;
+        if (count > 1 && args[1].isNumber()) {
+          timeout_ms = static_cast<uint32_t>(args[1].asNumber());
+        }
+
+        // Fast path: try synchronous poll first to avoid Promise overhead entirely
+        {
+          char* json = ex_host_http_poll(server_id);
+          if (json) {
+            auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+            ex_host_free_string(json);
+            // Wrap in resolved Promise to maintain API contract
+            auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
+            auto resolveFn = promiseCtor.getPropertyAsFunction(runtime, "resolve");
+            return resolveFn.call(runtime, result);
+          }
+        }
+
+        auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
+        auto executor = facebook::jsi::Function::createFromHostFunction(
+            runtime,
+            facebook::jsi::PropNameID::forAscii(runtime, "__exactHttpWaitExecutor"),
+            2,
+            [handle, server_id, timeout_ms](facebook::jsi::Runtime& runtime,
+                                           const facebook::jsi::Value&,
+                                           const facebook::jsi::Value* args,
+                                           size_t count) -> facebook::jsi::Value {
+              if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
+                return facebook::jsi::Value::undefined();
+              }
+
+              auto resolve = std::make_shared<facebook::jsi::Function>(
+                  args[0].asObject(runtime).asFunction(runtime));
+              auto reject = std::make_shared<facebook::jsi::Function>(
+                  args[1].asObject(runtime).asFunction(runtime));
+
+              // Item 5: Use persistent waiter thread pool.
+              // We use a static thread pool with a work queue instead of
+              // creating/destroying a thread per wait call.
+              struct WaitTask {
+                ExactHermesRuntime* handle;
+                uint32_t server_id;
+                uint32_t timeout_ms;
+                std::shared_ptr<facebook::jsi::Function> resolve;
+                std::shared_ptr<facebook::jsi::Function> reject;
+              };
+
+              static std::mutex poolMutex;
+              static std::condition_variable poolCv;
+              static std::deque<WaitTask> poolQueue;
+              static bool poolInitialized = false;
+              static constexpr int POOL_SIZE = 4;
+
+              auto task = WaitTask{handle, server_id, timeout_ms, resolve, reject};
+
+              {
+                std::lock_guard<std::mutex> lock(poolMutex);
+                if (!poolInitialized) {
+                  poolInitialized = true;
+                  for (int i = 0; i < POOL_SIZE; i++) {
+                    std::thread([]() {
+                      while (true) {
+                        WaitTask t;
+                        {
+                          std::unique_lock<std::mutex> lock(poolMutex);
+                          poolCv.wait(lock, []{ return !poolQueue.empty(); });
+                          t = std::move(poolQueue.front());
+                          poolQueue.pop_front();
+                        }
+
+                        char* json = ex_host_http_wait(t.server_id, t.timeout_ms);
+                        std::string payload;
+                        bool has_payload = false;
+                        if (json) {
+                          payload = json;
+                          has_payload = true;
+                          ex_host_free_string(json);
+                        }
+
+                        pushRuntimeCallback(t.handle,
+                            [resolve = t.resolve, reject = t.reject,
+                             has_payload, payload = std::move(payload)](
+                                facebook::jsi::Runtime& rt) {
+                              try {
+                                if (has_payload) {
+                                  resolve->call(rt,
+                                      facebook::jsi::String::createFromUtf8(rt, payload));
+                                } else {
+                                  resolve->call(rt, facebook::jsi::Value::null());
+                                }
+                              } catch (const facebook::jsi::JSError& err) {
+                                reject->call(rt,
+                                    facebook::jsi::JSError(rt, err.getMessage().c_str()).value());
+                              } catch (...) {
+                                reject->call(rt,
+                                    facebook::jsi::JSError(rt,
+                                        "Failed to complete __exactHttpWait").value());
+                              }
+                            });
+                      }
+                    }).detach();
+                  }
+                }
+                poolQueue.push_back(std::move(task));
+              }
+              poolCv.notify_one();
+
+              return facebook::jsi::Value::undefined();
+            });
+
+        return promiseCtor.callAsConstructor(runtime, executor);
+      });
+  rt.global().setProperty(rt, "__exactHttpWait", std::move(httpWaitFn));
+
+  // __exactHttpReadBody(serverId, requestId) -> JSON string or null
+  auto httpReadBodyFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpReadBody"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        char* json = ex_host_http_read_body(server_id, request_id);
+        if (!json) {
+          return facebook::jsi::Value::null();
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactHttpReadBody", std::move(httpReadBodyFn));
+
+  // __exactHttpRespond(serverId, requestId, status, headersJson, bodyUint8Array) -> 0 or -1
+  auto httpRespondFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespond"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespond: serverId, requestId, status required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+
+        // Headers JSON string
+        const char* headers_json = nullptr;
+        std::string headers_str;
+        if (count > 3 && args[3].isString()) {
+          headers_str = args[3].toString(runtime).utf8(runtime);
+          headers_json = headers_str.c_str();
+        }
+
+        // Body as Uint8Array
+        const uint8_t* body = nullptr;
+        uint32_t body_len = 0;
+        if (count > 4 && !args[4].isNull() && !args[4].isUndefined() && args[4].isObject()) {
+          auto bodyObj = args[4].asObject(runtime);
+          if (bodyObj.hasProperty(runtime, "buffer")) {
+            auto bufVal = bodyObj.getProperty(runtime, "buffer");
+            if (bufVal.isObject()) {
+              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
+              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
+                  : 0;
+              auto length = bodyObj.hasProperty(runtime, "byteLength")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
+                  : buf.size(runtime) - offset;
+              body = buf.data(runtime) + offset;
+              body_len = static_cast<uint32_t>(length);
+            }
+          }
+        }
+
+        int32_t result = ex_host_http_respond(
+            server_id, request_id, status, headers_json, body, body_len);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespond", std::move(httpRespondFn));
+
+  // __exactHttpRespondText(serverId, requestId, status, bodyUint8Array) -> 0 or -1
+  auto httpRespondTextFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondText"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespondText: serverId, requestId, status required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+
+        const uint8_t* body = nullptr;
+        uint32_t body_len = 0;
+        if (count > 3 && !args[3].isNull() && !args[3].isUndefined() && args[3].isObject()) {
+          auto bodyObj = args[3].asObject(runtime);
+          if (bodyObj.hasProperty(runtime, "buffer")) {
+            auto bufVal = bodyObj.getProperty(runtime, "buffer");
+            if (bufVal.isObject()) {
+              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
+              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
+                  : 0;
+              auto length = bodyObj.hasProperty(runtime, "byteLength")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
+                  : buf.size(runtime) - offset;
+              body = buf.data(runtime) + offset;
+              body_len = static_cast<uint32_t>(length);
+            }
+          }
+        }
+
+        int32_t result = ex_host_http_respond_text(
+            server_id, request_id, status, body, body_len);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondText", std::move(httpRespondTextFn));
+
+  // __exactHttpRespondJson(serverId, requestId, status, bodyUint8Array) -> 0 or -1
+  auto httpRespondJsonFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondJson"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespondJson: serverId, requestId, status required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+
+        const uint8_t* body = nullptr;
+        uint32_t body_len = 0;
+        if (count > 3 && !args[3].isNull() && !args[3].isUndefined() && args[3].isObject()) {
+          auto bodyObj = args[3].asObject(runtime);
+          if (bodyObj.hasProperty(runtime, "buffer")) {
+            auto bufVal = bodyObj.getProperty(runtime, "buffer");
+            if (bufVal.isObject()) {
+              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
+              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
+                  : 0;
+              auto length = bodyObj.hasProperty(runtime, "byteLength")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
+                  : buf.size(runtime) - offset;
+              body = buf.data(runtime) + offset;
+              body_len = static_cast<uint32_t>(length);
+            }
+          }
+        }
+
+        int32_t result = ex_host_http_respond_json(
+            server_id, request_id, status, body, body_len);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondJson", std::move(httpRespondJsonFn));
+
+  // __exactHttpRespondString(serverId, requestId, status, headersJson, bodyString) -> 0 or -1
+  // Item 10: Zero-copy string response. Takes a JS string directly and passes
+  // its UTF-8 buffer to Rust without requiring JS to encode to Uint8Array first.
+  auto httpRespondStringFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondString"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespondString: serverId, requestId, status required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+
+        // Headers JSON string
+        const char* headers_json = nullptr;
+        std::string headers_str;
+        if (count > 3 && args[3].isString()) {
+          headers_str = args[3].toString(runtime).utf8(runtime);
+          headers_json = headers_str.c_str();
+        }
+
+        // Body as JS string - extract UTF-8 bytes directly
+        const uint8_t* body = nullptr;
+        uint32_t body_len = 0;
+        std::string body_str;
+        if (count > 4 && args[4].isString()) {
+          body_str = args[4].toString(runtime).utf8(runtime);
+          body = reinterpret_cast<const uint8_t*>(body_str.data());
+          body_len = static_cast<uint32_t>(body_str.size());
+        }
+
+        int32_t result = ex_host_http_respond_string(
+            server_id, request_id, status, headers_json, body, body_len);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondString", std::move(httpRespondStringFn));
+
+  // __exactHttpRespondStream(serverId, requestId, status, headersJson) -> 0 or -1
+  auto httpRespondStreamFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondStream"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespondStream: serverId, requestId, status required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+
+        const char* headers_json = nullptr;
+        std::string headers_str;
+        if (count > 3 && args[3].isString()) {
+          headers_str = args[3].toString(runtime).utf8(runtime);
+          headers_json = headers_str.c_str();
+        }
+
+        int32_t result = ex_host_http_respond_stream(
+            server_id, request_id, status, headers_json);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondStream", std::move(httpRespondStreamFn));
+
+  // __exactHttpRespondChunk(serverId, requestId, bodyUint8Array) -> 0 or -1
+  auto httpRespondChunkFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondChunk"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespondChunk: serverId, requestId, body required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+
+        const uint8_t* body = nullptr;
+        uint32_t body_len = 0;
+        if (count > 2 && !args[2].isNull() && !args[2].isUndefined() && args[2].isObject()) {
+          auto bodyObj = args[2].asObject(runtime);
+          if (bodyObj.hasProperty(runtime, "buffer")) {
+            auto bufVal = bodyObj.getProperty(runtime, "buffer");
+            if (bufVal.isObject()) {
+              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
+              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
+                  : 0;
+              auto length = bodyObj.hasProperty(runtime, "byteLength")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
+                  : buf.size(runtime) - offset;
+              body = buf.data(runtime) + offset;
+              body_len = static_cast<uint32_t>(length);
+            }
+          }
+        }
+
+        int32_t result = ex_host_http_respond_chunk(
+            server_id, request_id, body, body_len);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondChunk", std::move(httpRespondChunkFn));
+
+  // __exactHttpRespondEnd(serverId, requestId) -> 0 or -1
+  auto httpRespondEndFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondEnd"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespondEnd: serverId, requestId required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+
+        int32_t result = ex_host_http_respond_end(server_id, request_id);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondEnd", std::move(httpRespondEndFn));
+
+  // __exactHttpAddress(serverId) -> JSON string or null
+  auto httpAddressFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpAddress"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        char* json = ex_host_http_address(server_id);
+        if (!json) {
+          return facebook::jsi::Value::null();
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactHttpAddress", std::move(httpAddressFn));
+
+  // __exactHttpClose(serverId, force?) -> 0 or -1
+  auto httpCloseFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpClose"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value(-1);
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        int32_t force = count > 1 && args[1].isNumber() ? static_cast<int32_t>(args[1].asNumber()) : 0;
+        int32_t result = ex_host_http_close(server_id, force);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpClose", std::move(httpCloseFn));
+
+  // __exactHttpSetRef(serverId, referenced) -> void
+  auto httpSetRefFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpSetRef"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count >= 2 && args[0].isNumber()) {
+          uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+          int32_t referenced = count > 1 && args[1].isNumber()
+              ? static_cast<int32_t>(args[1].asNumber()) : 1;
+          ex_host_http_set_ref(server_id, referenced);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactHttpSetRef", std::move(httpSetRefFn));
+
+}
+
+static void installSqliteHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  // __exactSqliteOpen(path, options) -> numeric sqlite handle
+  auto sqliteOpenFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteOpen"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteOpen: path required");
+        }
+        std::string path = args[0].toString(runtime).utf8(runtime);
+        std::string optionsJson;
+        const char* options = nullptr;
+        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+          optionsJson = stringifyValue(runtime, args[1]);
+          options = optionsJson.c_str();
+        }
+        uint64_t handle = ex_host_sqlite_open(path.c_str(), options);
+        if (handle == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteOpen failed");
+        }
+        return facebook::jsi::Value(static_cast<double>(handle));
+      });
+  rt.global().setProperty(rt, "__exactSqliteOpen", std::move(sqliteOpenFn));
+
+  // __exactSqliteClose(handle) -> 0/-1
+  auto sqliteCloseFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteClose"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteClose: handle required");
+        }
+        auto handle = static_cast<uint64_t>(args[0].asNumber());
+        ex_host_sqlite_close(handle);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactSqliteClose", std::move(sqliteCloseFn));
+
+  // __exactSqlitePrepare(handle, sql) -> object {handle, ...}
+  auto sqlitePrepareFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqlitePrepare"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactSqlitePrepare: db handle and sql required");
+        }
+        auto handle = static_cast<uint64_t>(args[0].asNumber());
+        auto sql = args[1].toString(runtime).utf8(runtime);
+        char* json = ex_host_sqlite_prepare(handle, sql.c_str());
+        if (!json) {
+          throw facebook::jsi::JSError(runtime, "__exactSqlitePrepare failed");
+        }
+        auto value = parseJsonValue(runtime, json);
+        ex_host_free_string(json);
+        return value;
+      });
+  rt.global().setProperty(rt, "__exactSqlitePrepare", std::move(sqlitePrepareFn));
+
+  // __exactSqliteFinalize(statementHandle) -> 0/-1
+  auto sqliteFinalizeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteFinalize"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteFinalize: statement handle required");
+        }
+        auto handle = static_cast<uint64_t>(args[0].asNumber());
+        ex_host_sqlite_finalize(handle);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactSqliteFinalize", std::move(sqliteFinalizeFn));
+
+  // __exactSqliteExpandedSql(statementHandle) -> string
+  auto sqliteExpandedSqlFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteExpandedSql"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteExpandedSql: statement handle required");
+        }
+        auto handle = static_cast<uint64_t>(args[0].asNumber());
+        char* expanded = ex_host_sqlite_expanded_sql(handle);
+        if (!expanded) {
+          return facebook::jsi::Value::null();
+        }
+        auto value = facebook::jsi::String::createFromUtf8(runtime, expanded);
+        ex_host_free_string(expanded);
+        return value;
+      });
+  rt.global().setProperty(rt, "__exactSqliteExpandedSql", std::move(sqliteExpandedSqlFn));
+
+  // __exactSqliteInTransaction(handle) -> boolean
+  auto sqliteInTransactionFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteInTransaction"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteInTransaction: handle required");
+        }
+        auto handle = static_cast<uint64_t>(args[0].asNumber());
+        auto in_tx = ex_host_sqlite_in_transaction(handle);
+        return facebook::jsi::Value(in_tx != 0);
+      });
+  rt.global().setProperty(rt, "__exactSqliteInTransaction", std::move(sqliteInTransactionFn));
+
+  auto sqliteResultToValue = [](facebook::jsi::Runtime& runtime,
+                               char* json,
+                               const char* error_message) -> facebook::jsi::Value {
+    if (!json) {
+      throw facebook::jsi::JSError(runtime, error_message);
+    }
+    auto value = parseJsonValue(runtime, json);
+    ex_host_free_string(json);
+    return value;
+  };
+
+  // __exactSqliteAll(statementHandle, bindings) -> object {rows, columnTypes}
+  auto sqliteAllFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteAll"),
+      2,
+      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteAll: statement handle required");
+        }
+        auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
+        std::string bindingsJson;
+        const char* bindings = nullptr;
+        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+          bindingsJson = stringifyValue(runtime, args[1]);
+          bindings = bindingsJson.c_str();
+        }
+        char* json = ex_host_sqlite_all(statementHandle, bindings);
+        return sqliteResultToValue(runtime, json, "__exactSqliteAll failed");
+      });
+  rt.global().setProperty(rt, "__exactSqliteAll", std::move(sqliteAllFn));
+
+  // __exactSqliteGet(statementHandle, bindings) -> object {row, columnTypes}
+  auto sqliteGetFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteGet"),
+      2,
+      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteGet: statement handle required");
+        }
+        auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
+        std::string bindingsJson;
+        const char* bindings = nullptr;
+        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+          bindingsJson = stringifyValue(runtime, args[1]);
+          bindings = bindingsJson.c_str();
+        }
+        char* json = ex_host_sqlite_get(statementHandle, bindings);
+        return sqliteResultToValue(runtime, json, "__exactSqliteGet failed");
+      });
+  rt.global().setProperty(rt, "__exactSqliteGet", std::move(sqliteGetFn));
+
+  // __exactSqliteRun(statementHandle, bindings) -> object {changes, lastInsertRowid}
+  auto sqliteRunFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteRun"),
+      2,
+      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteRun: statement handle required");
+        }
+        auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
+        std::string bindingsJson;
+        const char* bindings = nullptr;
+        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+          bindingsJson = stringifyValue(runtime, args[1]);
+          bindings = bindingsJson.c_str();
+        }
+        char* json = ex_host_sqlite_run(statementHandle, bindings);
+        return sqliteResultToValue(runtime, json, "__exactSqliteRun failed");
+      });
+  rt.global().setProperty(rt, "__exactSqliteRun", std::move(sqliteRunFn));
+
+  // __exactSqliteValues(statementHandle, bindings) -> object {rows, columnTypes}
+  auto sqliteValuesFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteValues"),
+      2,
+      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteValues: statement handle required");
+        }
+        auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
+        std::string bindingsJson;
+        const char* bindings = nullptr;
+        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+          bindingsJson = stringifyValue(runtime, args[1]);
+          bindings = bindingsJson.c_str();
+        }
+        char* json = ex_host_sqlite_values(statementHandle, bindings);
+        return sqliteResultToValue(runtime, json, "__exactSqliteValues failed");
+      });
+  rt.global().setProperty(rt, "__exactSqliteValues", std::move(sqliteValuesFn));
+
+  // __exactSqliteExec(handle, sql, bindings) -> object {changes, lastInsertRowid}
+  auto sqliteExecFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteExec"),
+      3,
+      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactSqliteExec: db handle and sql required");
+        }
+        auto handle = static_cast<uint64_t>(args[0].asNumber());
+        auto sql = args[1].toString(runtime).utf8(runtime);
+        std::string bindingsJson;
+        const char* bindings = nullptr;
+        if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
+          bindingsJson = stringifyValue(runtime, args[2]);
+          bindings = bindingsJson.c_str();
+        }
+        char* json = ex_host_sqlite_exec(handle, sql.c_str(), bindings);
+        return sqliteResultToValue(runtime, json, "__exactSqliteExec failed");
+      });
+  rt.global().setProperty(rt, "__exactSqliteExec", std::move(sqliteExecFn));
+
+}
+
+static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  // __exactExecSync(command, optionsJSON) -> JSON string { stdout, stderr, status, error }
+  // Executes a shell command synchronously using popen and returns result.
+  auto execSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactExecSync"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (!checkCapability("child_process")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
+        }
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactExecSync: command string required");
+        }
+        auto command = args[0].toString(runtime).utf8(runtime);
+
+        // Parse options
+        std::string cwd;
+        uint32_t timeout_ms = 0;
+        uint32_t max_buffer = 1024 * 1024; // 1MB default
+
+        if (count > 1 && args[1].isString()) {
+          auto optsJson = args[1].toString(runtime).utf8(runtime);
+          auto cwdPos = optsJson.find("\"cwd\":\"");
+          if (cwdPos != std::string::npos) {
+            auto start = cwdPos + 7;
+            auto end = optsJson.find("\"", start);
+            if (end != std::string::npos) {
+              cwd = optsJson.substr(start, end - start);
+            }
+          }
+          auto timeoutPos = optsJson.find("\"timeout\":");
+          if (timeoutPos != std::string::npos) {
+            auto start = timeoutPos + 10;
+            timeout_ms = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
+          }
+          auto maxBufPos = optsJson.find("\"maxBuffer\":");
+          if (maxBufPos != std::string::npos) {
+            auto start = maxBufPos + 12;
+            max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
+          }
+        }
+
+        // Build the actual command: optionally prepend cd
+        std::string fullCommand = command;
+        if (!cwd.empty()) {
+          fullCommand = "cd " + cwd + " && " + command;
+        }
+
+        // Redirect stderr to a temp file so we can capture it separately
+        char stderrTmpPath[] = "/tmp/ex_stderr_XXXXXX";
+        int stderrFd = mkstemp(stderrTmpPath);
+        if (stderrFd < 0) {
+          throw facebook::jsi::JSError(runtime, "Failed to create temp file for stderr");
+        }
+        close(stderrFd);
+
+        std::string shellCmd = "( " + fullCommand + " ) 2>" + stderrTmpPath;
+
+        std::atomic<bool> timedOut{false};
+
+        FILE* fp = popen(shellCmd.c_str(), "r");
+        if (!fp) {
+          unlink(stderrTmpPath);
+          throw facebook::jsi::JSError(runtime, "Failed to execute command");
+        }
+
+        // Start timeout thread if needed
+        if (timeout_ms > 0) {
+          std::thread([timeout_ms, &timedOut]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
+            timedOut.store(true);
+          }).detach();
+        }
+
+        // Read stdout
+        std::string stdoutStr;
+        char buf[4096];
+        while (!timedOut.load()) {
+          size_t bytesRead = fread(buf, 1, sizeof(buf), fp);
+          if (bytesRead == 0) break;
+          if (stdoutStr.size() + bytesRead > max_buffer) {
+            stdoutStr.append(buf, max_buffer - stdoutStr.size());
+            break;
+          }
+          stdoutStr.append(buf, bytesRead);
+        }
+
+        int pcloseResult = pclose(fp);
+        int exitStatus = WIFEXITED(pcloseResult) ? WEXITSTATUS(pcloseResult) : -1;
+
+        // Read stderr from temp file
+        std::string stderrStr;
+        FILE* stderrFile = fopen(stderrTmpPath, "r");
+        if (stderrFile) {
+          while (true) {
+            size_t bytesRead = fread(buf, 1, sizeof(buf), stderrFile);
+            if (bytesRead == 0) break;
+            stderrStr.append(buf, bytesRead);
+          }
+          fclose(stderrFile);
+        }
+        unlink(stderrTmpPath);
+
+        // JSON escape helper
+        auto jsonEscape = [](const std::string& s) -> std::string {
+          std::string result;
+          result.reserve(s.size() + 16);
+          for (char c : s) {
+            switch (c) {
+              case '"': result += "\\\""; break;
+              case '\\': result += "\\\\"; break;
+              case '\n': result += "\\n"; break;
+              case '\r': result += "\\r"; break;
+              case '\t': result += "\\t"; break;
+              case '\b': result += "\\b"; break;
+              case '\f': result += "\\f"; break;
+              default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                  char hex[8];
+                  snprintf(hex, sizeof(hex), "\\u%04x", static_cast<unsigned char>(c));
+                  result += hex;
+                } else {
+                  result += c;
+                }
+                break;
+            }
+          }
+          return result;
+        };
+
+        std::string errorStr = "";
+        if (timedOut.load()) {
+          errorStr = "Command timed out";
+          exitStatus = -1;
+        }
+
+        std::string resultJson = "{\"stdout\":\"" + jsonEscape(stdoutStr)
+            + "\",\"stderr\":\"" + jsonEscape(stderrStr)
+            + "\",\"status\":" + std::to_string(exitStatus);
+        if (!errorStr.empty()) {
+          resultJson += ",\"error\":\"" + jsonEscape(errorStr) + "\"";
+        }
+        resultJson += "}";
+
+        return facebook::jsi::Value(
+            facebook::jsi::String::createFromUtf8(runtime, resultJson));
+      });
+  rt.global().setProperty(rt, "__exactExecSync", std::move(execSyncFn));
+
+  // Env helpers defined as static functions above (s_parseEnvJsonStr, s_parseEnvFromOpts)
+
+  // __exactSpawnSync(file, argsJSON, optionsJSON) -> JSON string { stdout, stderr, status, pid, error }
+  // Spawns a process synchronously using fork/exec and returns result.
+  auto spawnSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSync"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (!checkCapability("child_process")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
+        }
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactSpawnSync: file path required");
+        }
+        auto file = args[0].toString(runtime).utf8(runtime);
+
+        // Parse args array from JSON
+        std::vector<std::string> spawnArgs;
+        if (count > 1 && args[1].isString()) {
+          auto argsJson = args[1].toString(runtime).utf8(runtime);
+          if (argsJson.size() > 2 && argsJson[0] == '[') {
+            size_t pos = 1;
+            while (pos < argsJson.size()) {
+              while (pos < argsJson.size() && (argsJson[pos] == ' ' || argsJson[pos] == ',' || argsJson[pos] == '\n')) pos++;
+              if (pos >= argsJson.size() || argsJson[pos] == ']') break;
+              if (argsJson[pos] == '"') {
+                pos++;
+                std::string arg;
+                while (pos < argsJson.size() && argsJson[pos] != '"') {
+                  if (argsJson[pos] == '\\' && pos + 1 < argsJson.size()) {
+                    pos++;
+                    if (argsJson[pos] == 'n') arg += '\n';
+                    else if (argsJson[pos] == 't') arg += '\t';
+                    else if (argsJson[pos] == 'r') arg += '\r';
+                    else arg += argsJson[pos];
+                  } else {
+                    arg += argsJson[pos];
+                  }
+                  pos++;
+                }
+                if (pos < argsJson.size()) pos++;
+                spawnArgs.push_back(arg);
+              } else {
+                while (pos < argsJson.size() && argsJson[pos] != ',' && argsJson[pos] != ']') pos++;
+              }
+            }
+          }
+        }
+
+        // Parse options
+        std::string cwd;
+        bool useShell = false;
+        uint32_t timeout_ms = 0;
+        uint32_t max_buffer = 1024 * 1024;
+        std::vector<std::string> envEntries;
+
+        if (count > 2 && args[2].isString()) {
+          auto optsJson = args[2].toString(runtime).utf8(runtime);
+          auto cwdPos = optsJson.find("\"cwd\":\"");
+          if (cwdPos != std::string::npos) {
+            auto start = cwdPos + 7;
+            auto end = optsJson.find("\"", start);
+            if (end != std::string::npos) {
+              cwd = optsJson.substr(start, end - start);
+            }
+          }
+          if (optsJson.find("\"shell\":true") != std::string::npos) {
+            useShell = true;
+          }
+          auto shellPos = optsJson.find("\"shell\":\"");
+          if (shellPos != std::string::npos) {
+            useShell = true;
+          }
+          auto timeoutPos = optsJson.find("\"timeout\":");
+          if (timeoutPos != std::string::npos) {
+            auto start = timeoutPos + 10;
+            timeout_ms = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
+          }
+          auto maxBufPos = optsJson.find("\"maxBuffer\":");
+          if (maxBufPos != std::string::npos) {
+            auto start = maxBufPos + 12;
+            max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
+          }
+          envEntries = s_parseEnvFromOpts(optsJson);
+        }
+
+        // JSON escape helper
+        auto jsonEscape = [](const std::string& s) -> std::string {
+          std::string result;
+          result.reserve(s.size() + 16);
+          for (char c : s) {
+            switch (c) {
+              case '"': result += "\\\""; break;
+              case '\\': result += "\\\\"; break;
+              case '\n': result += "\\n"; break;
+              case '\r': result += "\\r"; break;
+              case '\t': result += "\\t"; break;
+              case '\b': result += "\\b"; break;
+              case '\f': result += "\\f"; break;
+              default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                  char hex[8];
+                  snprintf(hex, sizeof(hex), "\\u%04x", static_cast<unsigned char>(c));
+                  result += hex;
+                } else {
+                  result += c;
+                }
+                break;
+            }
+          }
+          return result;
+        };
+
+        // Create pipes for stdout and stderr
+        int stdoutPipe[2], stderrPipe[2];
+        if (pipe(stdoutPipe) != 0 || pipe(stderrPipe) != 0) {
+          throw facebook::jsi::JSError(runtime, "Failed to create pipes");
+        }
+
+        pid_t pid = fork();
+        if (pid < 0) {
+          close(stdoutPipe[0]); close(stdoutPipe[1]);
+          close(stderrPipe[0]); close(stderrPipe[1]);
+          throw facebook::jsi::JSError(runtime, "Failed to fork process");
+        }
+
+        if (pid == 0) {
+          // Child process
+          close(stdoutPipe[0]);
+          close(stderrPipe[0]);
+          dup2(stdoutPipe[1], STDOUT_FILENO);
+          dup2(stderrPipe[1], STDERR_FILENO);
+          close(stdoutPipe[1]);
+          close(stderrPipe[1]);
+
+          // Build envp array (must outlive execvp call)
+          std::vector<char*> envp;
+          if (!envEntries.empty()) {
+            envp.reserve(envEntries.size() + 1);
+            for (auto& e : envEntries) {
+              envp.push_back(const_cast<char*>(e.c_str()));
+            }
+            envp.push_back(nullptr);
+#if defined(__APPLE__)
+            *_NSGetEnviron() = envp.data();
+#else
+            environ = envp.data();
+#endif
+          }
+
+          if (!cwd.empty()) {
+            if (chdir(cwd.c_str()) != 0) {
+              _exit(127);
+            }
+          }
+
+          if (useShell) {
+            std::string fullCmd = file;
+            for (auto& a : spawnArgs) {
+              fullCmd += " " + a;
+            }
+            execl("/bin/sh", "sh", "-c", fullCmd.c_str(), nullptr);
+          } else {
+            std::vector<char*> argv;
+            argv.push_back(const_cast<char*>(file.c_str()));
+            for (auto& a : spawnArgs) {
+              argv.push_back(const_cast<char*>(a.c_str()));
+            }
+            argv.push_back(nullptr);
+            execvp(file.c_str(), argv.data());
+          }
+          _exit(127);
+        }
+
+        // Parent process
+        close(stdoutPipe[1]);
+        close(stderrPipe[1]);
+
+        std::string stdoutStr, stderrStr;
+        char buf[4096];
+        std::atomic<bool> timedOut{false};
+
+        if (timeout_ms > 0) {
+          std::thread([timeout_ms, &timedOut, pid]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
+            if (!timedOut.load()) {
+              timedOut.store(true);
+              kill(pid, SIGKILL);
+            }
+          }).detach();
+        }
+
+        // Read stdout
+        while (true) {
+          ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
+          if (bytesRead <= 0) break;
+          if (stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
+            stdoutStr.append(buf, max_buffer - stdoutStr.size());
+            break;
+          }
+          stdoutStr.append(buf, static_cast<size_t>(bytesRead));
+        }
+        close(stdoutPipe[0]);
+
+        // Read stderr
+        while (true) {
+          ssize_t bytesRead = read(stderrPipe[0], buf, sizeof(buf));
+          if (bytesRead <= 0) break;
+          stderrStr.append(buf, static_cast<size_t>(bytesRead));
+        }
+        close(stderrPipe[0]);
+
+        // Wait for child
+        int status = 0;
+        waitpid(pid, &status, 0);
+        int exitStatus = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        if (WIFSIGNALED(status)) {
+          exitStatus = -WTERMSIG(status);
+        }
+
+        std::string errorStr;
+        if (timedOut.load()) {
+          errorStr = "Command timed out";
+        } else if (exitStatus == 127) {
+          errorStr = "Command not found: " + file;
+        }
+
+        std::string resultJson = "{\"stdout\":\"" + jsonEscape(stdoutStr)
+            + "\",\"stderr\":\"" + jsonEscape(stderrStr)
+            + "\",\"status\":" + std::to_string(exitStatus)
+            + ",\"pid\":" + std::to_string(static_cast<int>(pid));
+        if (!errorStr.empty()) {
+          resultJson += ",\"error\":\"" + jsonEscape(errorStr) + "\"";
+        }
+        resultJson += "}";
+
+        return facebook::jsi::Value(
+            facebook::jsi::String::createFromUtf8(runtime, resultJson));
+      });
+  rt.global().setProperty(rt, "__exactSpawnSync", std::move(spawnSyncFn));
+
+  // --- Async spawn support ---
+  // SpawnedProcess stores pipe fds and pid for async child processes.
+  struct SpawnedProcess {
+    pid_t pid;
+    int stdinFd;   // parent writes to child's stdin
+    int stdoutFd;  // parent reads from child's stdout
+    int stderrFd;  // parent reads from child's stderr
+    bool exited;
+    int exitCode;
+    int exitSignal; // 0 if exited normally, >0 if signaled
+  };
+  static std::unordered_map<int, SpawnedProcess> s_spawnedProcesses;
+  static int s_nextSpawnHandle = 1;
+  static std::mutex s_spawnMutex;
+
+  // __exactSpawn(file, argsJSON, optionsJSON) -> JSON string {"handle":N,"pid":N} or {"error":"..."}
+  auto spawnFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawn"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (!checkCapability("child_process")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
+        }
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactSpawn: file path required");
+        }
+        auto file = args[0].toString(runtime).utf8(runtime);
+
+        // Parse args array from JSON
+        std::vector<std::string> spawnArgs;
+        if (count > 1 && args[1].isString()) {
+          auto argsJson = args[1].toString(runtime).utf8(runtime);
+          if (argsJson.size() > 2 && argsJson[0] == '[') {
+            size_t pos = 1;
+            while (pos < argsJson.size()) {
+              while (pos < argsJson.size() && (argsJson[pos] == ' ' || argsJson[pos] == ',' || argsJson[pos] == '\n')) pos++;
+              if (pos >= argsJson.size() || argsJson[pos] == ']') break;
+              if (argsJson[pos] == '"') {
+                pos++;
+                std::string arg;
+                while (pos < argsJson.size() && argsJson[pos] != '"') {
+                  if (argsJson[pos] == '\\' && pos + 1 < argsJson.size()) {
+                    pos++;
+                    if (argsJson[pos] == 'n') arg += '\n';
+                    else if (argsJson[pos] == 't') arg += '\t';
+                    else if (argsJson[pos] == 'r') arg += '\r';
+                    else arg += argsJson[pos];
+                  } else {
+                    arg += argsJson[pos];
+                  }
+                  pos++;
+                }
+                if (pos < argsJson.size()) pos++;
+                spawnArgs.push_back(arg);
+              } else {
+                while (pos < argsJson.size() && argsJson[pos] != ',' && argsJson[pos] != ']') pos++;
+              }
+            }
+          }
+        }
+
+        // Parse options
+        std::string cwd;
+        bool useShell = false;
+        std::string stdioModes[3] = {"pipe", "pipe", "pipe"};
+        std::vector<std::string> envEntries;
+
+        auto skipJsonWhitespace = [](const std::string& value, size_t& pos) {
+          while (pos < value.size()) {
+            char ch = value[pos];
+            if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t') break;
+            pos++;
+          }
+        };
+
+        auto parseJsonString = [](const std::string& value, size_t& pos) {
+          std::string out;
+          if (pos >= value.size() || value[pos] != '"') return out;
+          ++pos;
+          while (pos < value.size()) {
+            char ch = value[pos++];
+            if (ch == '\\' && pos < value.size()) {
+              char escaped = value[pos++];
+              if (escaped == 'n') out.push_back('\n');
+              else if (escaped == 't') out.push_back('\t');
+              else if (escaped == 'r') out.push_back('\r');
+              else if (escaped == '"') out.push_back('"');
+              else if (escaped == '\\') out.push_back('\\');
+              else out.push_back(escaped);
+              continue;
+            }
+            if (ch == '"') break;
+            out.push_back(ch);
+          }
+          return out;
+        };
+
+        auto normalizeStdioMode = [](const std::string& value) {
+          if (value == "ignore") return std::string("ignore");
+          if (value == "inherit") return std::string("inherit");
+          if (value == "pipe") return std::string("pipe");
+          if (value == "overlapped" || value == "ipc") return std::string("pipe");
+          return std::string("pipe");
+        };
+
+        if (count > 2 && args[2].isString()) {
+          auto optsJson = args[2].toString(runtime).utf8(runtime);
+          auto cwdPos = optsJson.find("\"cwd\":\"");
+          if (cwdPos != std::string::npos) {
+            auto start = cwdPos + 7;
+            auto end = optsJson.find("\"", start);
+            if (end != std::string::npos) {
+              cwd = optsJson.substr(start, end - start);
+            }
+          }
+          if (optsJson.find("\"shell\":true") != std::string::npos) {
+            useShell = true;
+          }
+          auto shellPos = optsJson.find("\"shell\":\"");
+          if (shellPos != std::string::npos) {
+            useShell = true;
+          }
+
+          auto stdioPos = optsJson.find("\"stdio\":");
+          if (stdioPos != std::string::npos) {
+            size_t modePos = stdioPos + 8;
+            skipJsonWhitespace(optsJson, modePos);
+            if (modePos < optsJson.size()) {
+              if (optsJson[modePos] == '"') {
+                auto parsed = parseJsonString(optsJson, modePos);
+                auto normalized = normalizeStdioMode(parsed);
+                stdioModes[0] = normalized;
+                stdioModes[1] = normalized;
+                stdioModes[2] = normalized;
+              } else if (optsJson[modePos] == '[') {
+                ++modePos;
+                int slot = 0;
+                while (modePos < optsJson.size() && slot < 3) {
+                  skipJsonWhitespace(optsJson, modePos);
+                  if (modePos >= optsJson.size() || optsJson[modePos] == ']') break;
+                  std::string parsed;
+                  if (optsJson[modePos] == '"') {
+                    parsed = parseJsonString(optsJson, modePos);
+                  } else {
+                    if (optsJson.compare(modePos, 4, "null") == 0) {
+                      modePos += 4;
+                    } else {
+                      while (modePos < optsJson.size() &&
+                             optsJson[modePos] != ',' &&
+                             optsJson[modePos] != ']') {
+                        modePos++;
+                      }
+                    }
+                  }
+                  stdioModes[slot] = normalizeStdioMode(parsed);
+                  slot++;
+                  skipJsonWhitespace(optsJson, modePos);
+                  if (modePos < optsJson.size() && optsJson[modePos] == ',') {
+                    modePos++;
+                  }
+                }
+              }
+            }
+          }
+          envEntries = s_parseEnvFromOpts(optsJson);
+        }
+
+        const bool stdinPipeRequested = stdioModes[0] == "pipe";
+        const bool stdoutPipeRequested = stdioModes[1] == "pipe";
+        const bool stderrPipeRequested = stdioModes[2] == "pipe";
+
+        // Create pipes for stdin, stdout, stderr
+        int stdinPipeFd[2] = {-1, -1};
+        int stdoutPipeFd[2] = {-1, -1};
+        int stderrPipeFd[2] = {-1, -1};
+
+        if (stdinPipeRequested && pipe(stdinPipeFd) != 0) {
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create stdin pipe\"}"));
+        }
+        if (stdoutPipeRequested && pipe(stdoutPipeFd) != 0) {
+          if (stdinPipeFd[0] >= 0) {
+            close(stdinPipeFd[0]);
+          }
+          if (stdinPipeFd[1] >= 0) {
+            close(stdinPipeFd[1]);
+          }
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create stdout pipe\"}"));
+        }
+        if (stderrPipeRequested && pipe(stderrPipeFd) != 0) {
+          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create stderr pipe\"}"));
+        }
+
+        pid_t pid = fork();
+        if (pid < 0) {
+          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to fork process\"}"));
+        }
+
+        if (pid == 0) {
+          // Child process
+          if (stdinPipeRequested) {
+            close(stdinPipeFd[1]);
+            dup2(stdinPipeFd[0], STDIN_FILENO);
+            close(stdinPipeFd[0]);
+          } else if (stdioModes[0] == "ignore") {
+            int nullStdin = open("/dev/null", O_RDONLY);
+            if (nullStdin >= 0) {
+              dup2(nullStdin, STDIN_FILENO);
+              close(nullStdin);
+            }
+          }
+
+          if (stdoutPipeRequested) {
+            close(stdoutPipeFd[0]);
+            dup2(stdoutPipeFd[1], STDOUT_FILENO);
+            close(stdoutPipeFd[1]);
+          } else if (stdioModes[1] == "ignore") {
+            int nullStdout = open("/dev/null", O_WRONLY);
+            if (nullStdout >= 0) {
+              dup2(nullStdout, STDOUT_FILENO);
+              close(nullStdout);
+            }
+          }
+
+          if (stderrPipeRequested) {
+            close(stderrPipeFd[0]);
+            dup2(stderrPipeFd[1], STDERR_FILENO);
+            close(stderrPipeFd[1]);
+          } else if (stdioModes[2] == "ignore") {
+            int nullStderr = open("/dev/null", O_WRONLY);
+            if (nullStderr >= 0) {
+              dup2(nullStderr, STDERR_FILENO);
+              close(nullStderr);
+            }
+          }
+
+          if (!stdinPipeRequested) {
+            if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+            if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+          }
+          if (!stdoutPipeRequested) {
+            if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+            if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+          }
+          if (!stderrPipeRequested) {
+            if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+            if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          }
+
+          // Build envp array (must outlive execvp call)
+          std::vector<char*> envp;
+          if (!envEntries.empty()) {
+            envp.reserve(envEntries.size() + 1);
+            for (auto& e : envEntries) {
+              envp.push_back(const_cast<char*>(e.c_str()));
+            }
+            envp.push_back(nullptr);
+#if defined(__APPLE__)
+            *_NSGetEnviron() = envp.data();
+#else
+            environ = envp.data();
+#endif
+          }
+
+          if (!cwd.empty()) {
+            if (chdir(cwd.c_str()) != 0) {
+              _exit(127);
+            }
+          }
+
+          if (useShell) {
+            std::string fullCmd = file;
+            for (auto& a : spawnArgs) {
+              fullCmd += " " + a;
+            }
+            execl("/bin/sh", "sh", "-c", fullCmd.c_str(), nullptr);
+          } else {
+            std::vector<char*> argv;
+            argv.push_back(const_cast<char*>(file.c_str()));
+            for (auto& a : spawnArgs) {
+              argv.push_back(const_cast<char*>(a.c_str()));
+            }
+            argv.push_back(nullptr);
+            execvp(file.c_str(), argv.data());
+          }
+          _exit(127);
+        }
+
+        // Parent process
+        if (stdinPipeRequested) close(stdinPipeFd[0]);   // close read end of stdin pipe (child reads)
+        if (stdoutPipeRequested) close(stdoutPipeFd[1]); // close write end of stdout pipe (child writes)
+        if (stderrPipeRequested) close(stderrPipeFd[1]); // close write end of stderr pipe (child writes)
+
+        if (stdoutPipeRequested) fcntl(stdoutPipeFd[0], F_SETFL, O_NONBLOCK);
+        if (stderrPipeRequested) fcntl(stderrPipeFd[0], F_SETFL, O_NONBLOCK);
+
+        // Store in map
+        int handle;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          handle = s_nextSpawnHandle++;
+          SpawnedProcess proc;
+          proc.pid = pid;
+          proc.stdinFd = stdinPipeRequested ? stdinPipeFd[1] : -1;
+          proc.stdoutFd = stdoutPipeRequested ? stdoutPipeFd[0] : -1;
+          proc.stderrFd = stderrPipeRequested ? stderrPipeFd[0] : -1;
+          proc.exited = false;
+          proc.exitCode = -1;
+          proc.exitSignal = 0;
+          s_spawnedProcesses[handle] = proc;
+        }
+
+        std::string resultJson = "{\"handle\":" + std::to_string(handle)
+            + ",\"pid\":" + std::to_string(static_cast<int>(pid)) + "}";
+        return facebook::jsi::Value(
+            facebook::jsi::String::createFromUtf8(runtime, resultJson));
+      });
+  rt.global().setProperty(rt, "__exactSpawn", std::move(spawnFn));
+
+  // __exactSpawnRead(handle, stream) -> string (data read, empty if nothing available)
+  // stream is "stdout" or "stderr". Non-blocking read.
+  auto spawnReadFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRead"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto streamName = args[1].toString(runtime).utf8(runtime);
+
+        int fd = -1;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          auto it = s_spawnedProcesses.find(handle);
+          if (it == s_spawnedProcesses.end()) {
+            return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
+          }
+          if (streamName == "stdout") {
+            fd = it->second.stdoutFd;
+          } else if (streamName == "stderr") {
+            fd = it->second.stderrFd;
+          }
+        }
+
+        if (fd < 0) {
+          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
+        }
+
+        // Non-blocking read
+        char buf[65536];
+        std::string result;
+        while (true) {
+          ssize_t n = read(fd, buf, sizeof(buf));
+          if (n > 0) {
+            result.append(buf, static_cast<size_t>(n));
+          } else {
+            break;  // EAGAIN/EWOULDBLOCK or EOF
+          }
+        }
+
+        return facebook::jsi::Value(
+            facebook::jsi::String::createFromUtf8(runtime, result));
+      });
+  rt.global().setProperty(rt, "__exactSpawnRead", std::move(spawnReadFn));
+
+  // __exactSpawnWrite(handle, data) -> boolean (success)
+  auto spawnWriteFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnWrite"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          return facebook::jsi::Value(false);
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto data = args[1].toString(runtime).utf8(runtime);
+
+        int fd = -1;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          auto it = s_spawnedProcesses.find(handle);
+          if (it == s_spawnedProcesses.end()) {
+            return facebook::jsi::Value(false);
+          }
+          fd = it->second.stdinFd;
+        }
+
+        if (fd < 0) {
+          return facebook::jsi::Value(false);
+        }
+
+        size_t totalWritten = 0;
+        while (totalWritten < data.size()) {
+          ssize_t n = write(fd, data.c_str() + totalWritten, data.size() - totalWritten);
+          if (n < 0) {
+            if (errno == EINTR) continue;
+            return facebook::jsi::Value(false);
+          }
+          totalWritten += static_cast<size_t>(n);
+        }
+        return facebook::jsi::Value(true);
+      });
+  rt.global().setProperty(rt, "__exactSpawnWrite", std::move(spawnWriteFn));
+
+  // __exactSpawnPoll(handle) -> JSON string {"exited":bool,"exitCode":N,"signal":N}
+  // Uses waitpid with WNOHANG for non-blocking check.
+  auto spawnPollFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnPoll"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}"));
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+
+        std::lock_guard<std::mutex> lock(s_spawnMutex);
+        auto it = s_spawnedProcesses.find(handle);
+        if (it == s_spawnedProcesses.end()) {
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":true,\"exitCode\":-1,\"signal\":0}"));
+        }
+
+        auto& proc = it->second;
+        if (proc.exited) {
+          std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc.exitCode)
+              + ",\"signal\":" + std::to_string(proc.exitSignal) + "}";
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, json));
+        }
+
+        int status = 0;
+        pid_t result = waitpid(proc.pid, &status, WNOHANG);
+        if (result == 0) {
+          // Still running
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}"));
+        } else if (result > 0) {
+          // Process exited
+          proc.exited = true;
+          if (WIFEXITED(status)) {
+            proc.exitCode = WEXITSTATUS(status);
+            proc.exitSignal = 0;
+          } else if (WIFSIGNALED(status)) {
+            proc.exitCode = -1;
+            proc.exitSignal = WTERMSIG(status);
+          }
+          std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc.exitCode)
+              + ",\"signal\":" + std::to_string(proc.exitSignal) + "}";
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, json));
+        } else {
+          // waitpid error
+          proc.exited = true;
+          proc.exitCode = -1;
+          std::string json = "{\"exited\":true,\"exitCode\":-1,\"signal\":0}";
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, json));
+        }
+      });
+  rt.global().setProperty(rt, "__exactSpawnPoll", std::move(spawnPollFn));
+
+  // __exactSpawnKill(handle, signal) -> boolean (success)
+  // signal: number (e.g. 15 for SIGTERM, 9 for SIGKILL)
+  auto spawnKillFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnKill"),
+      2,
+      [](facebook::jsi::Runtime& /*runtime*/,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value(false);
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        int sig = SIGTERM; // default
+        if (count > 1 && args[1].isNumber()) {
+          sig = static_cast<int>(args[1].asNumber());
+        }
+
+        std::lock_guard<std::mutex> lock(s_spawnMutex);
+        auto it = s_spawnedProcesses.find(handle);
+        if (it == s_spawnedProcesses.end()) {
+          return facebook::jsi::Value(false);
+        }
+
+        auto& proc = it->second;
+        if (proc.exited) {
+          return facebook::jsi::Value(false);
+        }
+
+        int killResult = kill(proc.pid, sig);
+        return facebook::jsi::Value(killResult == 0);
+      });
+  rt.global().setProperty(rt, "__exactSpawnKill", std::move(spawnKillFn));
+
+  // __exactSpawnCloseStdin(handle) -> void
+  // Closes the stdin pipe so the child process sees EOF on its stdin.
+  auto spawnCloseStdinFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnCloseStdin"),
+      1,
+      [](facebook::jsi::Runtime& /*runtime*/,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::undefined();
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+
+        std::lock_guard<std::mutex> lock(s_spawnMutex);
+        auto it = s_spawnedProcesses.find(handle);
+        if (it == s_spawnedProcesses.end()) {
+          return facebook::jsi::Value::undefined();
+        }
+
+        auto& proc = it->second;
+        if (proc.stdinFd >= 0) {
+          close(proc.stdinFd);
+          proc.stdinFd = -1;
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactSpawnCloseStdin", std::move(spawnCloseStdinFn));
+
+  // __exactWhich(command) -> string path or null
+  // Searches PATH for the given command, similar to the `which` utility.
+  auto whichFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWhich"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          return facebook::jsi::Value::null();
+        }
+        auto command = args[0].asString(runtime).utf8(runtime);
+
+        // If command contains a slash, check it directly
+        if (command.find('/') != std::string::npos) {
+          if (access(command.c_str(), X_OK) == 0) {
+            return facebook::jsi::String::createFromUtf8(runtime, command);
+          }
+          return facebook::jsi::Value::null();
+        }
+
+        // Get PATH environment variable
+        const char* pathEnv = getenv("PATH");
+        if (!pathEnv) {
+          return facebook::jsi::Value::null();
+        }
+
+        std::string pathStr(pathEnv);
+        std::string::size_type start = 0;
+        while (start < pathStr.size()) {
+          auto end = pathStr.find(':', start);
+          if (end == std::string::npos) end = pathStr.size();
+
+          std::string dir = pathStr.substr(start, end - start);
+          if (!dir.empty()) {
+            std::string fullPath = dir + "/" + command;
+            if (access(fullPath.c_str(), X_OK) == 0) {
+              // Resolve to real path
+              char resolved[PATH_MAX];
+              if (realpath(fullPath.c_str(), resolved) != nullptr) {
+                return facebook::jsi::String::createFromUtf8(runtime, std::string(resolved));
+              }
+              return facebook::jsi::String::createFromUtf8(runtime, fullPath);
+            }
+          }
+
+          start = end + 1;
+        }
+
+        return facebook::jsi::Value::null();
+      });
+  rt.global().setProperty(rt, "__exactWhich", std::move(whichFn));
+
+}
+
+static void installNetHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  {
+    static std::unordered_map<int, int> g_tcp_sockets;
+    static int g_tcp_next_handle = 1;
+    static std::mutex g_tcp_mutex;
+
+    // __exactTcpConnect(host, port) -> handle or throws
+    auto tcpConnectFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpConnect"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpConnect: host (string) and port (number) required");
+          }
+          std::string host = args[0].toString(runtime).utf8(runtime);
+          int port = static_cast<int>(args[1].asNumber());
+          struct addrinfo hints{}, *result = nullptr;
+          hints.ai_family = AF_UNSPEC;
+          hints.ai_socktype = SOCK_STREAM;
+          hints.ai_protocol = IPPROTO_TCP;
+          std::string portStr = std::to_string(port);
+          int gai_err = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
+          if (gai_err != 0) {
+            throw facebook::jsi::JSError(runtime,
+                ("getaddrinfo failed for " + host + ":" + portStr + ": " + gai_strerror(gai_err)).c_str());
+          }
+          int fd = -1;
+          for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+            fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+            if (fd == -1) continue;
+            if (::connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) break;
+            ::close(fd);
+            fd = -1;
+          }
+          freeaddrinfo(result);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("connect failed for " + host + ":" + portStr + ": " + strerror(errno)).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactTcpConnect", std::move(tcpConnectFn));
+
+    // __exactTcpRead(handle, maxBytes) -> string (data), null (EOF), "" (EAGAIN)
+    auto tcpReadFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpRead"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpRead: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int maxBytes = 65536;
+          if (count > 1 && args[1].isNumber()) {
+            maxBytes = static_cast<int>(args[1].asNumber());
+            if (maxBytes <= 0) maxBytes = 65536;
+          }
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpRead: invalid handle");
+            fd = it->second;
+          }
+          std::vector<char> buf(maxBytes);
+          ssize_t n = ::read(fd, buf.data(), maxBytes);
+          if (n > 0) {
+            return facebook::jsi::String::createFromUtf8(runtime, reinterpret_cast<const uint8_t*>(buf.data()), n);
+          } else if (n == 0) {
+            return facebook::jsi::Value::null();
+          } else {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+              return facebook::jsi::String::createFromUtf8(runtime, "");
+            }
+            throw facebook::jsi::JSError(runtime, ("__exactTcpRead error: " + std::string(strerror(errno))).c_str());
+          }
+        });
+    rt.global().setProperty(rt, "__exactTcpRead", std::move(tcpReadFn));
+
+    // __exactTcpWrite(handle, data) -> bytes written
+    auto tcpWriteFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpWrite"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 2 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpWrite: handle and data required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid handle");
+            fd = it->second;
+          }
+          std::string data;
+          if (args[1].isString()) {
+            data = args[1].toString(runtime).utf8(runtime);
+          } else if (args[1].isObject()) {
+            auto obj = args[1].asObject(runtime);
+            if (obj.isArrayBuffer(runtime)) {
+              auto ab = obj.getArrayBuffer(runtime);
+              data.assign(reinterpret_cast<const char*>(ab.data(runtime)), ab.size(runtime));
+            } else {
+              auto bufProp = obj.getProperty(runtime, "buffer");
+              auto byteLenProp = obj.getProperty(runtime, "byteLength");
+              auto byteOffProp = obj.getProperty(runtime, "byteOffset");
+              if (bufProp.isObject() && bufProp.asObject(runtime).isArrayBuffer(runtime)) {
+                auto ab = bufProp.asObject(runtime).getArrayBuffer(runtime);
+                size_t offset = byteOffProp.isNumber() ? static_cast<size_t>(byteOffProp.asNumber()) : 0;
+                size_t len = byteLenProp.isNumber() ? static_cast<size_t>(byteLenProp.asNumber()) : ab.size(runtime) - offset;
+                data.assign(reinterpret_cast<const char*>(ab.data(runtime) + offset), len);
+              } else {
+                data = args[1].toString(runtime).utf8(runtime);
+              }
+            }
+          } else {
+            data = args[1].toString(runtime).utf8(runtime);
+          }
+          ssize_t written = ::write(fd, data.data(), data.size());
+          if (written < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(0);
+            throw facebook::jsi::JSError(runtime, ("__exactTcpWrite error: " + std::string(strerror(errno))).c_str());
+          }
+          return facebook::jsi::Value(static_cast<int>(written));
+        });
+    rt.global().setProperty(rt, "__exactTcpWrite", std::move(tcpWriteFn));
+
+    // __exactTcpClose(handle) -> 0
+    auto tcpCloseFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpClose"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpClose: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+            g_tcp_sockets.erase(it);
+          }
+          ::close(fd);
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpClose", std::move(tcpCloseFn));
+
+    // __exactTcpSetNoDelay(handle, enable) -> 0
+    auto tcpSetNoDelayFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetNoDelay"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetNoDelay: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+            fd = it->second;
+          }
+          int flag = enable ? 1 : 0;
+          setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpSetNoDelay", std::move(tcpSetNoDelayFn));
+
+    // __exactTcpSetKeepAlive(handle, enable) -> 0
+    auto tcpSetKeepAliveFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetKeepAlive"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetKeepAlive: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+            fd = it->second;
+          }
+          int flag = enable ? 1 : 0;
+          setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpSetKeepAlive", std::move(tcpSetKeepAliveFn));
+
+    // __exactTcpListen(host, port, backlog) -> handle or throws
+    auto tcpListenFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 3,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          std::string host = "0.0.0.0";
+          if (count > 0 && args[0].isString()) host = args[0].toString(runtime).utf8(runtime);
+          int port = 0;
+          if (count > 1 && args[1].isNumber()) port = static_cast<int>(args[1].asNumber());
+          int backlog = 128;
+          if (count > 2 && args[2].isNumber()) backlog = static_cast<int>(args[2].asNumber());
+          struct addrinfo hints{}, *result = nullptr;
+          hints.ai_family = AF_INET;
+          hints.ai_socktype = SOCK_STREAM;
+          hints.ai_protocol = IPPROTO_TCP;
+          hints.ai_flags = AI_PASSIVE;
+          std::string portStr = std::to_string(port);
+          const char* nodeStr = host == "0.0.0.0" ? nullptr : host.c_str();
+          int gai_err = getaddrinfo(nodeStr, portStr.c_str(), &hints, &result);
+          if (gai_err != 0) {
+            throw facebook::jsi::JSError(runtime, ("getaddrinfo failed: " + std::string(gai_strerror(gai_err))).c_str());
+          }
+          int fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+          if (fd == -1) {
+            freeaddrinfo(result);
+            throw facebook::jsi::JSError(runtime, ("socket() failed: " + std::string(strerror(errno))).c_str());
+          }
+          int reuse = 1;
+          setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+          if (::bind(fd, result->ai_addr, result->ai_addrlen) == -1) {
+            freeaddrinfo(result);
+            ::close(fd);
+            throw facebook::jsi::JSError(runtime, ("bind() failed: " + std::string(strerror(errno))).c_str());
+          }
+          freeaddrinfo(result);
+          if (::listen(fd, backlog) == -1) {
+            ::close(fd);
+            throw facebook::jsi::JSError(runtime, ("listen() failed: " + std::string(strerror(errno))).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactTcpListen", std::move(tcpListenFn));
+
+    // __exactTcpAccept(handle) -> new handle or -1 (EAGAIN)
+    auto tcpAcceptFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpAccept"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpAccept: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int listenFd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpAccept: invalid handle");
+            listenFd = it->second;
+          }
+          struct sockaddr_storage clientAddr;
+          socklen_t clientLen = sizeof(clientAddr);
+          int clientFd = ::accept(listenFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
+          if (clientFd == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(-1);
+            throw facebook::jsi::JSError(runtime, ("__exactTcpAccept error: " + std::string(strerror(errno))).c_str());
+          }
+          int flags = fcntl(clientFd, F_GETFL, 0);
+          if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
+          int newHandle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            newHandle = g_tcp_next_handle++;
+            g_tcp_sockets[newHandle] = clientFd;
+          }
+          return facebook::jsi::Value(newHandle);
+        });
+    rt.global().setProperty(rt, "__exactTcpAccept", std::move(tcpAcceptFn));
+
+    // __exactTcpLocalAddr(handle) -> JSON string or null
+    auto tcpLocalAddrFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpLocalAddr"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
+            fd = it->second;
+          }
+          struct sockaddr_storage addr;
+          socklen_t addrLen = sizeof(addr);
+          if (getsockname(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1) return facebook::jsi::Value::null();
+          char ipStr[INET6_ADDRSTRLEN]; int port = 0; std::string family;
+          if (addr.ss_family == AF_INET) {
+            auto* sa = reinterpret_cast<struct sockaddr_in*>(&addr);
+            inet_ntop(AF_INET, &sa->sin_addr, ipStr, sizeof(ipStr));
+            port = ntohs(sa->sin_port); family = "IPv4";
+          } else if (addr.ss_family == AF_INET6) {
+            auto* sa = reinterpret_cast<struct sockaddr_in6*>(&addr);
+            inet_ntop(AF_INET6, &sa->sin6_addr, ipStr, sizeof(ipStr));
+            port = ntohs(sa->sin6_port); family = "IPv6";
+          } else { return facebook::jsi::Value::null(); }
+          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(port) + ",\"family\":\"" + family + "\"}";
+          return facebook::jsi::String::createFromUtf8(runtime, json);
+        });
+    rt.global().setProperty(rt, "__exactTcpLocalAddr", std::move(tcpLocalAddrFn));
+
+    // __exactTcpRemoteAddr(handle) -> JSON string or null
+    auto tcpRemoteAddrFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpRemoteAddr"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
+            fd = it->second;
+          }
+          struct sockaddr_storage addr;
+          socklen_t addrLen = sizeof(addr);
+          if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1) return facebook::jsi::Value::null();
+          char ipStr[INET6_ADDRSTRLEN]; int port = 0; std::string family;
+          if (addr.ss_family == AF_INET) {
+            auto* sa = reinterpret_cast<struct sockaddr_in*>(&addr);
+            inet_ntop(AF_INET, &sa->sin_addr, ipStr, sizeof(ipStr));
+            port = ntohs(sa->sin_port); family = "IPv4";
+          } else if (addr.ss_family == AF_INET6) {
+            auto* sa = reinterpret_cast<struct sockaddr_in6*>(&addr);
+            inet_ntop(AF_INET6, &sa->sin6_addr, ipStr, sizeof(ipStr));
+            port = ntohs(sa->sin6_port); family = "IPv6";
+          } else { return facebook::jsi::Value::null(); }
+          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(port) + ",\"family\":\"" + family + "\"}";
+          return facebook::jsi::String::createFromUtf8(runtime, json);
+        });
+    rt.global().setProperty(rt, "__exactTcpRemoteAddr", std::move(tcpRemoteAddrFn));
+
+    // ============================================================
+    // Unix Domain Socket host functions
+    // Reuses g_tcp_sockets/g_tcp_next_handle/g_tcp_mutex so that
+    // __exactTcpRead, __exactTcpWrite, __exactTcpClose work on
+    // Unix socket fds too (they all use the same fd-based I/O).
+    // ============================================================
+
+    // __exactUnixConnect(path) -> handle or throws
+    auto unixConnectFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixConnect"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isString()) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixConnect: path (string) required");
+          }
+          std::string path = args[0].toString(runtime).utf8(runtime);
+          if (path.size() >= sizeof(((struct sockaddr_un*)0)->sun_path)) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixConnect: path too long");
+          }
+          int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("socket(AF_UNIX) failed: " + std::string(strerror(errno))).c_str());
+          }
+          struct sockaddr_un addr;
+          memset(&addr, 0, sizeof(addr));
+          addr.sun_family = AF_UNIX;
+          strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+          if (::connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
+            int saved_errno = errno;
+            ::close(fd);
+            throw facebook::jsi::JSError(runtime,
+                ("connect(AF_UNIX) failed for " + path + ": " + strerror(saved_errno)).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactUnixConnect", std::move(unixConnectFn));
+
+    // __exactUnixListen(path, backlog) -> handle or throws
+    auto unixListenFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixListen"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isString()) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixListen: path (string) required");
+          }
+          std::string path = args[0].toString(runtime).utf8(runtime);
+          if (path.size() >= sizeof(((struct sockaddr_un*)0)->sun_path)) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixListen: path too long");
+          }
+          int backlog = 128;
+          if (count > 1 && args[1].isNumber()) backlog = static_cast<int>(args[1].asNumber());
+          // Unlink existing socket file (common pattern for Unix sockets)
+          ::unlink(path.c_str());
+          int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("socket(AF_UNIX) failed: " + std::string(strerror(errno))).c_str());
+          }
+          struct sockaddr_un addr;
+          memset(&addr, 0, sizeof(addr));
+          addr.sun_family = AF_UNIX;
+          strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+          if (::bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
+            int saved_errno = errno;
+            ::close(fd);
+            throw facebook::jsi::JSError(runtime,
+                ("bind(AF_UNIX) failed for " + path + ": " + strerror(saved_errno)).c_str());
+          }
+          if (::listen(fd, backlog) == -1) {
+            int saved_errno = errno;
+            ::close(fd);
+            ::unlink(path.c_str());
+            throw facebook::jsi::JSError(runtime,
+                ("listen(AF_UNIX) failed: " + std::string(strerror(saved_errno))).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactUnixListen", std::move(unixListenFn));
+
+    // __exactUnixAccept(handle) -> new handle or -1 (EAGAIN)
+    // Identical to __exactTcpAccept but kept separate for clarity
+    auto unixAcceptFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixAccept"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixAccept: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int listenFd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) {
+              throw facebook::jsi::JSError(runtime, "__exactUnixAccept: invalid handle");
+            }
+            listenFd = it->second;
+          }
+          struct sockaddr_un clientAddr;
+          socklen_t clientLen = sizeof(clientAddr);
+          int clientFd = ::accept(listenFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
+          if (clientFd == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(-1);
+            throw facebook::jsi::JSError(runtime,
+                ("__exactUnixAccept error: " + std::string(strerror(errno))).c_str());
+          }
+          int flags = fcntl(clientFd, F_GETFL, 0);
+          if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
+          int newHandle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            newHandle = g_tcp_next_handle++;
+            g_tcp_sockets[newHandle] = clientFd;
+          }
+          return facebook::jsi::Value(newHandle);
+        });
+    rt.global().setProperty(rt, "__exactUnixAccept", std::move(unixAcceptFn));
+
+  } // end TCP + Unix socket host functions
+
+}
 
 void installGlobals(struct ExactHermesRuntime* handle) {
   bool _tracing = startup_trace_enabled();
@@ -5839,178 +9100,19 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactStdinRead", std::move(stdinReadFn));
 
-  // --- DNS lookup ---
-  // __exactDnsLookup(hostname, family) -> JSON string { address, family }
-  auto dnsLookupFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactDnsLookup"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactDnsLookup: hostname required");
+  // Deferred: Dns host functions (registered lazily on first use)
+  auto ensureDnsFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureDns"), 0,
+      [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+               const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
+        if (!handle->dns_functions_loaded) {
+          handle->dns_functions_loaded = true;
+          installDnsHostFunctions(handle);
         }
-        auto hostname = args[0].asString(runtime).utf8(runtime);
-        int family = 0; // 0 = any, 4 = IPv4, 6 = IPv6
-        if (count > 1 && args[1].isNumber()) {
-          family = static_cast<int>(args[1].asNumber());
-        }
-
-        struct addrinfo hints = {};
-        hints.ai_socktype = SOCK_STREAM;
-        if (family == 4) hints.ai_family = AF_INET;
-        else if (family == 6) hints.ai_family = AF_INET6;
-        else hints.ai_family = AF_UNSPEC;
-
-        struct addrinfo* result = nullptr;
-        int ret = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
-        if (ret != 0 || !result) {
-          if (result) freeaddrinfo(result);
-          throw facebook::jsi::JSError(runtime,
-              std::string("getaddrinfo failed for ") + hostname + ": " + gai_strerror(ret));
-        }
-
-        // Build JSON result
-        std::string json = "[";
-        bool first = true;
-        for (struct addrinfo* p = result; p != nullptr; p = p->ai_next) {
-          char addr[INET6_ADDRSTRLEN] = {};
-          int fam = 4;
-          if (p->ai_family == AF_INET) {
-            struct sockaddr_in* sa = reinterpret_cast<struct sockaddr_in*>(p->ai_addr);
-            inet_ntop(AF_INET, &sa->sin_addr, addr, sizeof(addr));
-            fam = 4;
-          } else if (p->ai_family == AF_INET6) {
-            struct sockaddr_in6* sa = reinterpret_cast<struct sockaddr_in6*>(p->ai_addr);
-            inet_ntop(AF_INET6, &sa->sin6_addr, addr, sizeof(addr));
-            fam = 6;
-          } else {
-            continue;
-          }
-          if (!first) json += ",";
-          json += "{\"address\":\"" + std::string(addr) + "\",\"family\":" + std::to_string(fam) + "}";
-          first = false;
-        }
-        json += "]";
-        freeaddrinfo(result);
-
-        return facebook::jsi::String::createFromUtf8(runtime, json);
+        return facebook::jsi::Value::undefined();
       });
-  rt.global().setProperty(rt, "__exactDnsLookup", std::move(dnsLookupFn));
+  rt.global().setProperty(rt, "__exactEnsureDns", std::move(ensureDnsFn));
 
-  // __exactDnsResolve(hostname, rrtype) -> JSON array via res_query
-  auto dnsResolveFn = facebook::jsi::Function::createFromHostFunction(rt, facebook::jsi::PropNameID::forAscii(rt, "__exactDnsResolve"), 2, [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&, const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-    if (count < 2 || !args[0].isString() || !args[1].isString()) throw facebook::jsi::JSError(runtime, "__exactDnsResolve requires hostname and rrtype");
-    auto hostname = args[0].asString(runtime).utf8(runtime);
-    auto rrtype = args[1].asString(runtime).utf8(runtime);
-    int qtype = 0;
-    if (rrtype == "MX") qtype = ns_t_mx;
-    else if (rrtype == "TXT") qtype = ns_t_txt;
-    else if (rrtype == "SRV") qtype = ns_t_srv;
-    else if (rrtype == "NS") qtype = ns_t_ns;
-    else if (rrtype == "CNAME") qtype = ns_t_cname;
-    else if (rrtype == "SOA") qtype = ns_t_soa;
-    else if (rrtype == "PTR") qtype = ns_t_ptr;
-    else if (rrtype == "CAA") qtype = 257;
-    else if (rrtype == "NAPTR") qtype = ns_t_naptr;
-    else throw facebook::jsi::JSError(runtime, ("unsupported record type: " + rrtype).c_str());
-    unsigned char answer[4096];
-    int len = res_query(hostname.c_str(), ns_c_in, qtype, answer, sizeof(answer));
-    if (len < 0) throw facebook::jsi::JSError(runtime, ("DNS query failed for " + hostname + " type " + rrtype).c_str());
-    ns_msg msg;
-    if (ns_initparse(answer, len, &msg) < 0) throw facebook::jsi::JSError(runtime, "Failed to parse DNS response");
-    int rrCount = ns_msg_count(msg, ns_s_an);
-    std::string json = "[";
-    bool first = true;
-    for (int i = 0; i < rrCount; i++) {
-      ns_rr rr;
-      if (ns_parserr(&msg, ns_s_an, i, &rr) < 0) continue;
-      if (ns_rr_type(rr) != qtype) continue;
-      const unsigned char* rdata = ns_rr_rdata(rr);
-      int rdlen = ns_rr_rdlen(rr);
-      if (!first) json += ",";
-      first = false;
-      if (qtype == ns_t_mx) {
-        if (rdlen < 3) { first = true; continue; }
-        int prio = (rdata[0] << 8) | rdata[1];
-        char ex[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata + 2, ex, sizeof(ex)) < 0) { first = true; continue; }
-        std::string e(ex); if (!e.empty() && e.back() == '.') e.pop_back();
-        json += "{\"priority\":" + std::to_string(prio) + ",\"exchange\":\"" + e + "\"}";
-      } else if (qtype == ns_t_txt) {
-        std::string ta = "["; bool ft = true; int p = 0;
-        while (p < rdlen) { int sl = static_cast<unsigned char>(rdata[p]); p++; if (p+sl>rdlen) break; if (!ft) ta += ","; ft = false; std::string t; for (int j=0;j<sl;j++){char c=static_cast<char>(rdata[p+j]);if(c=='"')t+="\\\"";else if(c=='\\')t+="\\\\";else t+=c;} ta += "\"" + t + "\""; p += sl; }
-        ta += "]"; json += ta;
-      } else if (qtype == ns_t_srv) {
-        if (rdlen < 7) { first = true; continue; }
-        int prio = (rdata[0]<<8)|rdata[1]; int wt = (rdata[2]<<8)|rdata[3]; int pt = (rdata[4]<<8)|rdata[5];
-        char tg[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata+6, tg, sizeof(tg)) < 0) { first = true; continue; }
-        std::string tgt(tg); if (!tgt.empty() && tgt.back() == '.') tgt.pop_back();
-        json += "{\"priority\":" + std::to_string(prio) + ",\"weight\":" + std::to_string(wt) + ",\"port\":" + std::to_string(pt) + ",\"name\":\"" + tgt + "\"}";
-      } else if (qtype == ns_t_ns) {
-        char n[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, n, sizeof(n)) < 0) { first = true; continue; }
-        std::string s(n); if (!s.empty() && s.back() == '.') s.pop_back();
-        json += "\"" + s + "\"";
-      } else if (qtype == ns_t_cname) {
-        char cn[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, cn, sizeof(cn)) < 0) { first = true; continue; }
-        std::string s(cn); if (!s.empty() && s.back() == '.') s.pop_back();
-        json += "\"" + s + "\"";
-      } else if (qtype == ns_t_soa) {
-        char mn[NS_MAXDNAME]; int o1 = ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, mn, sizeof(mn));
-        if (o1 < 0) { first = true; continue; }
-        std::string m(mn); if (!m.empty() && m.back() == '.') m.pop_back();
-        char rn[NS_MAXDNAME]; int o2 = ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata+o1, rn, sizeof(rn));
-        if (o2 < 0) { first = true; continue; }
-        std::string r(rn); if (!r.empty() && r.back() == '.') r.pop_back();
-        const unsigned char* sd = rdata+o1+o2;
-        if (o1+o2+20 > rdlen) { first = true; continue; }
-        uint32_t ser = (uint32_t(sd[0])<<24)|(uint32_t(sd[1])<<16)|(uint32_t(sd[2])<<8)|sd[3];
-        int32_t ref = (sd[4]<<24)|(sd[5]<<16)|(sd[6]<<8)|sd[7];
-        int32_t rty = (sd[8]<<24)|(sd[9]<<16)|(sd[10]<<8)|sd[11];
-        int32_t exp = (sd[12]<<24)|(sd[13]<<16)|(sd[14]<<8)|sd[15];
-        uint32_t mnt = (uint32_t(sd[16])<<24)|(uint32_t(sd[17])<<16)|(uint32_t(sd[18])<<8)|sd[19];
-        json += "{\"nsname\":\""+m+"\",\"hostmaster\":\""+r+"\",\"serial\":"+std::to_string(ser)+",\"refresh\":"+std::to_string(ref)+",\"retry\":"+std::to_string(rty)+",\"expire\":"+std::to_string(exp)+",\"minttl\":"+std::to_string(mnt)+"}";
-      } else if (qtype == ns_t_ptr) {
-        char pn[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, pn, sizeof(pn)) < 0) { first = true; continue; }
-        std::string s(pn); if (!s.empty() && s.back() == '.') s.pop_back();
-        json += "\"" + s + "\"";
-      } else if (qtype == 257) {
-        if (rdlen < 2) { first = true; continue; }
-        int fl = rdata[0]; int tl = rdata[1];
-        if (2+tl > rdlen) { first = true; continue; }
-        std::string tag(reinterpret_cast<const char*>(rdata+2), tl);
-        std::string val(reinterpret_cast<const char*>(rdata+2+tl), rdlen-2-tl);
-        std::string ev; for (size_t vi=0;vi<val.size();vi++){char c=val[vi];if(c=='"')ev+="\\\"";else if(c=='\\')ev+="\\\\";else ev+=c;}
-        json += "{\"critical\":"+std::to_string(fl)+",\""+tag+"\":\""+ev+"\"}";
-      }
-    }
-    json += "]";
-    return facebook::jsi::String::createFromUtf8(runtime, json);
-  });
-  rt.global().setProperty(rt, "__exactDnsResolve", std::move(dnsResolveFn));
-
-  // __exactDnsReverse(ip) -> JSON array of hostnames via getnameinfo
-  auto dnsReverseFn = facebook::jsi::Function::createFromHostFunction(rt, facebook::jsi::PropNameID::forAscii(rt, "__exactDnsReverse"), 1, [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&, const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-    if (count == 0 || !args[0].isString()) throw facebook::jsi::JSError(runtime, "__exactDnsReverse: ip address required");
-    auto ip = args[0].asString(runtime).utf8(runtime);
-    struct sockaddr_storage sa; socklen_t salen; memset(&sa, 0, sizeof(sa));
-    auto* sa4 = reinterpret_cast<struct sockaddr_in*>(&sa);
-    auto* sa6 = reinterpret_cast<struct sockaddr_in6*>(&sa);
-    if (inet_pton(AF_INET, ip.c_str(), &sa4->sin_addr) == 1) { sa4->sin_family = AF_INET; salen = sizeof(struct sockaddr_in); }
-    else if (inet_pton(AF_INET6, ip.c_str(), &sa6->sin6_addr) == 1) { sa6->sin6_family = AF_INET6; salen = sizeof(struct sockaddr_in6); }
-    else throw facebook::jsi::JSError(runtime, ("invalid IP address: " + ip).c_str());
-    char host[NI_MAXHOST];
-    int ret = getnameinfo(reinterpret_cast<struct sockaddr*>(&sa), salen, host, sizeof(host), nullptr, 0, NI_NAMEREQD);
-    if (ret != 0) throw facebook::jsi::JSError(runtime, ("getnameinfo failed for " + ip + ": " + gai_strerror(ret)).c_str());
-    return facebook::jsi::String::createFromUtf8(runtime, "[\"" + std::string(host) + "\"]");
-  });
-  rt.global().setProperty(rt, "__exactDnsReverse", std::move(dnsReverseFn));
 
   // __exactGrantCapability(moduleId, capability) -> void
   auto grantCapabilityFn = facebook::jsi::Function::createFromHostFunction(
@@ -6031,607 +9133,19 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactGrantCapability", std::move(grantCapabilityFn));
 
-  auto readFileFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactReadFile"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0) {
-          return facebook::jsi::Value::undefined();
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        if (!isAllowAll()) {
-          std::string cap = "fs:read:" + path;
-          if (!checkCapability(cap)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-        }
-
-        // Single FFI call: read entire file at once
-        uint32_t len = 0;
-        uint8_t* buf = ex_host_fs_read_file(path.c_str(), &len);
-        if (!buf) {
-          throw facebook::jsi::JSError(runtime, "Failed to open file");
-        }
-
-        // Move data into a vector and free the Rust buffer
-        std::vector<uint8_t> data(buf, buf + len);
-        ex_host_free_buffer(buf, len);
-        return makeUint8Array(runtime, std::move(data));
-      });
-  rt.global().setProperty(rt, "__exactReadFile", std::move(readFileFn));
-
-  // __exactWriteFile(path, data: Uint8Array) -> void (throws on error)
-  auto writeFileFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactWriteFile"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactWriteFile: path and data required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-
-        // Extract bytes from Uint8Array
-        auto obj = args[1].asObject(runtime);
-        size_t length = 0;
-        const uint8_t* dataPtr = nullptr;
-        std::vector<uint8_t> dataCopy;
-
-        if (obj.hasProperty(runtime, "buffer")) {
-          auto bufVal = obj.getProperty(runtime, "buffer");
-          if (bufVal.isObject()) {
-            auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-            auto offset = obj.hasProperty(runtime, "byteOffset")
-                ? static_cast<size_t>(obj.getProperty(runtime, "byteOffset").asNumber())
-                : 0;
-            length = obj.hasProperty(runtime, "byteLength")
-                ? static_cast<size_t>(obj.getProperty(runtime, "byteLength").asNumber())
-                : buf.size(runtime) - offset;
-            dataCopy.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
-            dataPtr = dataCopy.data();
-          }
-        }
-
-        void* handle = ex_host_fs_open(path.c_str(), EXACT_FS_WRITE | EXACT_FS_CREATE | EXACT_FS_TRUNCATE);
-        if (!handle) {
-          throw facebook::jsi::JSError(runtime, "Failed to open file for writing");
-        }
-        if (length > 0 && dataPtr) {
-          int32_t written = ex_host_fs_write(handle, dataPtr, static_cast<uint32_t>(length));
-          if (written < 0) {
-            ex_host_fs_close(handle);
-            throw facebook::jsi::JSError(runtime, "Failed to write file");
-          }
-        }
-        ex_host_fs_close(handle);
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactWriteFile", std::move(writeFileFn));
-
-  // __exactAppendFile(path, data: Uint8Array) -> void
-  auto appendFileFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactAppendFile"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactAppendFile: path and data required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-
-        auto obj = args[1].asObject(runtime);
-        size_t length = 0;
-        const uint8_t* dataPtr = nullptr;
-        std::vector<uint8_t> dataCopy;
-
-        if (obj.hasProperty(runtime, "buffer")) {
-          auto bufVal = obj.getProperty(runtime, "buffer");
-          if (bufVal.isObject()) {
-            auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-            auto offset = obj.hasProperty(runtime, "byteOffset")
-                ? static_cast<size_t>(obj.getProperty(runtime, "byteOffset").asNumber())
-                : 0;
-            length = obj.hasProperty(runtime, "byteLength")
-                ? static_cast<size_t>(obj.getProperty(runtime, "byteLength").asNumber())
-                : buf.size(runtime) - offset;
-            dataCopy.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
-            dataPtr = dataCopy.data();
-          }
-        }
-
-        if (length > 0 && dataPtr) {
-          int32_t written = ex_host_fs_append(path.c_str(), dataPtr, static_cast<uint32_t>(length));
-          if (written < 0) {
-            throw facebook::jsi::JSError(runtime, "Failed to append to file");
-          }
+  // Deferred: Fs host functions (registered lazily on first use)
+  auto ensureFsFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureFs"), 0,
+      [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+               const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
+        if (!handle->fs_functions_loaded) {
+          handle->fs_functions_loaded = true;
+          installFsHostFunctions(handle);
         }
         return facebook::jsi::Value::undefined();
       });
-  rt.global().setProperty(rt, "__exactAppendFile", std::move(appendFileFn));
+  rt.global().setProperty(rt, "__exactEnsureFs", std::move(ensureFsFn));
 
-  // __exactStat(path) -> object {size, mtime_ms, is_dir, is_file, mode}
-  auto statFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactStat"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactStat: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:read:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        char* json = ex_host_fs_stat(path.c_str());
-        if (!json) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, stat '") + path + "'");
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-        ex_host_free_string(json);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactStat", std::move(statFn));
-
-  // __exactLstat(path) -> JSON string
-  auto lstatFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactLstat"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactLstat: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:read:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        char* json = ex_host_fs_lstat(path.c_str());
-        if (!json) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, lstat '") + path + "'");
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-        ex_host_free_string(json);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactLstat", std::move(lstatFn));
-
-  // __exactReaddir(path) -> JSON string (array of names)
-  auto readdirFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactReaddir"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactReaddir: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:read:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        char* json = ex_host_fs_readdir(path.c_str());
-        if (!json) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, readdir '") + path + "'");
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-        ex_host_free_string(json);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactReaddir", std::move(readdirFn));
-
-  // __exactMkdir(path, recursive) -> void
-  auto mkdirFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactMkdir"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactMkdir: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        int32_t recursive = 0;
-        if (count > 1 && args[1].isBool()) {
-          recursive = args[1].getBool() ? 1 : 0;
-        } else if (count > 1 && args[1].isNumber()) {
-          recursive = args[1].asNumber() != 0 ? 1 : 0;
-        }
-        if (ex_host_fs_mkdir(path.c_str(), recursive) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: failed to create directory '") + path + "'");
-        }
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactMkdir", std::move(mkdirFn));
-
-  // __exactRmdir(path) -> void
-  auto rmdirFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactRmdir"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactRmdir: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        if (ex_host_fs_rmdir(path.c_str()) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: failed to remove directory '") + path + "'");
-        }
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactRmdir", std::move(rmdirFn));
-
-  // __exactUnlink(path) -> void
-  auto unlinkFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactUnlink"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactUnlink: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        if (ex_host_fs_unlink(path.c_str()) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, unlink '") + path + "'");
-        }
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactUnlink", std::move(unlinkFn));
-
-  // __exactRename(from, to) -> void
-  auto renameFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactRename"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isString() || !args[1].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactRename: from and to paths required");
-        }
-        auto from = args[0].toString(runtime).utf8(runtime);
-        auto to = args[1].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + from;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        if (ex_host_fs_rename(from.c_str(), to.c_str()) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("Failed to rename '") + from + "' to '" + to + "'");
-        }
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactRename", std::move(renameFn));
-
-  // __exactCopyFile(from, to) -> void
-  auto copyFileFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactCopyFile"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isString() || !args[1].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactCopyFile: src and dest required");
-        }
-        auto from = args[0].toString(runtime).utf8(runtime);
-        auto to = args[1].toString(runtime).utf8(runtime);
-        std::string cap = "fs:read:" + from;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        std::string wcap = "fs:write:" + to;
-        if (!checkCapability(wcap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        if (ex_host_fs_copy(from.c_str(), to.c_str()) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("Failed to copy '") + from + "' to '" + to + "'");
-        }
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactCopyFile", std::move(copyFileFn));
-
-  // __exactRealpath(path) -> string
-  auto realpathFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactRealpath"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactRealpath: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:read:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        char* resolved = ex_host_fs_realpath(path.c_str());
-        if (!resolved) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, realpath '") + path + "'");
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, resolved);
-        ex_host_free_string(resolved);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactRealpath", std::move(realpathFn));
-
-  // __exactAccess(path, mode) -> void (throws if not accessible)
-  auto accessFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactAccess"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactAccess: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:read:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        int32_t mode = 0;
-        if (count > 1 && args[1].isNumber()) {
-          mode = static_cast<int32_t>(args[1].asNumber());
-        }
-        if (ex_host_fs_access(path.c_str(), mode) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, access '") + path + "'");
-        }
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactAccess", std::move(accessFn));
-
-  // __exactChmod(path, mode) -> void
-  auto chmodFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactChmod"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactChmod: path and mode required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        uint32_t mode = static_cast<uint32_t>(args[1].asNumber());
-        if (ex_host_fs_chmod(path.c_str(), mode) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("Failed to chmod '") + path + "'");
-        }
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactChmod", std::move(chmodFn));
-
-  // __exactMkdtemp(prefix) -> string (path of created temp directory)
-  auto mkdtempFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactMkdtemp"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        std::string prefix = "tmp";
-        if (count > 0 && args[0].isString()) {
-          prefix = args[0].toString(runtime).utf8(runtime);
-        }
-        std::string cap = "fs:write:" + prefix;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        char* path = ex_host_fs_mkdtemp(prefix.c_str());
-        if (!path) {
-          throw facebook::jsi::JSError(runtime, "Failed to create temporary directory");
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, path);
-        ex_host_free_string(path);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactMkdtemp", std::move(mkdtempFn));
-
-  // __exactFsOpen(path, flags, mode) -> integer fd
-  auto fsOpenFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpen"),
-      3,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactFsOpen: path required");
-        }
-        auto path = args[0].toString(runtime).utf8(runtime);
-        if (!isAllowAll()) {
-          std::string cap = "fs:read:" + path;
-          if (!checkCapability(cap)) {
-            std::string wcap = "fs:write:" + path;
-            if (!checkCapability(wcap)) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
-            }
-          }
-        }
-
-        // Parse flags string to POSIX flags
-        int posixFlags = O_RDONLY;
-        if (count > 1 && args[1].isString()) {
-          auto flagStr = args[1].toString(runtime).utf8(runtime);
-          if (flagStr == "r") posixFlags = O_RDONLY;
-          else if (flagStr == "r+") posixFlags = O_RDWR;
-          else if (flagStr == "rs+" || flagStr == "sr+") posixFlags = O_RDWR | O_SYNC;
-          else if (flagStr == "w") posixFlags = O_WRONLY | O_CREAT | O_TRUNC;
-          else if (flagStr == "wx" || flagStr == "xw") posixFlags = O_WRONLY | O_CREAT | O_TRUNC | O_EXCL;
-          else if (flagStr == "w+") posixFlags = O_RDWR | O_CREAT | O_TRUNC;
-          else if (flagStr == "wx+" || flagStr == "xw+") posixFlags = O_RDWR | O_CREAT | O_TRUNC | O_EXCL;
-          else if (flagStr == "a") posixFlags = O_WRONLY | O_CREAT | O_APPEND;
-          else if (flagStr == "ax" || flagStr == "xa") posixFlags = O_WRONLY | O_CREAT | O_APPEND | O_EXCL;
-          else if (flagStr == "a+") posixFlags = O_RDWR | O_CREAT | O_APPEND;
-          else if (flagStr == "ax+" || flagStr == "xa+") posixFlags = O_RDWR | O_CREAT | O_APPEND | O_EXCL;
-          else {
-            throw facebook::jsi::JSError(runtime, std::string("Unknown file flag: ") + flagStr);
-          }
-        } else if (count > 1 && args[1].isNumber()) {
-          posixFlags = static_cast<int>(args[1].asNumber());
-        }
-
-        int mode = 0666;
-        if (count > 2 && args[2].isNumber()) {
-          mode = static_cast<int>(args[2].asNumber());
-        }
-
-        int fd = ::open(path.c_str(), posixFlags, mode);
-        if (fd < 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, open '") + path + "'");
-        }
-        return facebook::jsi::Value(fd);
-      });
-  rt.global().setProperty(rt, "__exactFsOpen", std::move(fsOpenFn));
-
-  // __exactFsClose(fd) -> void
-  auto fsCloseFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactFsClose"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactFsClose: fd required");
-        }
-        int fd = static_cast<int>(args[0].asNumber());
-        if (::close(fd) < 0) {
-          throw facebook::jsi::JSError(runtime, std::string("EBADF: bad file descriptor, close fd ") + std::to_string(fd));
-        }
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactFsClose", std::move(fsCloseFn));
-
-  // __exactFsRead(fd, length, position) -> Uint8Array (bytes read)
-  // position = -1 means use current position
-  auto fsReadFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactFsRead"),
-      3,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactFsRead: fd and length required");
-        }
-        int fd = static_cast<int>(args[0].asNumber());
-        size_t length = static_cast<size_t>(args[1].asNumber());
-
-        // If position is provided and not -1 / null / undefined, seek first
-        if (count > 2 && args[2].isNumber()) {
-          double pos = args[2].asNumber();
-          if (pos >= 0) {
-            ::lseek(fd, static_cast<off_t>(pos), SEEK_SET);
-          }
-        }
-
-        std::vector<uint8_t> data(length);
-        ssize_t bytesRead = ::read(fd, data.data(), length);
-        if (bytesRead < 0) {
-          throw facebook::jsi::JSError(runtime, std::string("EIO: read error on fd ") + std::to_string(fd));
-        }
-        data.resize(static_cast<size_t>(bytesRead));
-        return makeUint8Array(runtime, std::move(data));
-      });
-  rt.global().setProperty(rt, "__exactFsRead", std::move(fsReadFn));
-
-  // __exactFsWrite(fd, data, position) -> number (bytes written)
-  // data can be a string or Uint8Array; position = -1 means use current position
-  auto fsWriteFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactFsWrite"),
-      3,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
-        }
-        int fd = static_cast<int>(args[0].asNumber());
-
-        // Extract data bytes
-        auto dataBytes = extractBytes(runtime, args[1]);
-
-        // If position is provided and not -1 / null / undefined, seek first
-        if (count > 2 && args[2].isNumber()) {
-          double pos = args[2].asNumber();
-          if (pos >= 0) {
-            ::lseek(fd, static_cast<off_t>(pos), SEEK_SET);
-          }
-        }
-
-        ssize_t bytesWritten = ::write(fd, dataBytes.data(), dataBytes.size());
-        if (bytesWritten < 0) {
-          throw facebook::jsi::JSError(runtime, std::string("EIO: write error on fd ") + std::to_string(fd));
-        }
-        return facebook::jsi::Value(static_cast<int>(bytesWritten));
-      });
-  rt.global().setProperty(rt, "__exactFsWrite", std::move(fsWriteFn));
 
   auto randomBytesFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -8606,2444 +11120,49 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__nativeFetch", std::move(nativeFetchFn));
 
-  // __exactHttpServe(port, hostname) -> JSON string {"id":N,"port":N} or {"error":"..."}
-  auto httpServeFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpServe"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        uint16_t port = 0;
-        if (count > 0 && args[0].isNumber()) {
-          port = static_cast<uint16_t>(args[0].asNumber());
-        }
-        std::string hostname = "0.0.0.0";
-        if (count > 1 && args[1].isString()) {
-          hostname = args[1].toString(runtime).utf8(runtime);
-        }
-        char* json = ex_host_http_serve(port, hostname.c_str());
-        if (!json) {
-          throw facebook::jsi::JSError(runtime, "Failed to start HTTP server");
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-        ex_host_free_string(json);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactHttpServe", std::move(httpServeFn));
-
-  // __exactHttpPoll(serverId) -> JSON string | null (synchronous, non-blocking)
-  // Item 6: Synchronous poll fast-path. If a request is already queued,
-  // returns it immediately without Promise/async overhead.
-  auto httpPollFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpPoll"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value::null();
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        char* json = ex_host_http_poll(server_id);
-        if (!json) {
-          return facebook::jsi::Value::null();
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-        ex_host_free_string(json);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactHttpPoll", std::move(httpPollFn));
-
-  // __exactHttpDrain(serverId, maxCount) -> JSON array string | null (synchronous)
-  // Item 8: Batch dequeue. Pops up to maxCount requests at once to reduce
-  // FFI round-trips under load.
-  auto httpDrainFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpDrain"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value::null();
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t max_count = 16; // default
-        if (count > 1 && args[1].isNumber()) {
-          max_count = static_cast<uint32_t>(args[1].asNumber());
-        }
-        char* json = ex_host_http_drain(server_id, max_count);
-        if (!json) {
-          return facebook::jsi::Value::null();
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-        ex_host_free_string(json);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactHttpDrain", std::move(httpDrainFn));
-
-  // __exactHttpWait(serverId, timeoutMs) -> Promise(JSON string | null)
-  // Item 5: Uses a persistent waiter thread pool instead of spawning a
-  // detached thread per call. Tasks are submitted to a shared pool.
-  auto httpWaitFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpWait"),
-      2,
-      [handle](facebook::jsi::Runtime& runtime,
-               const facebook::jsi::Value&,
-               const facebook::jsi::Value* args,
-               size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value::null();
-        }
-
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t timeout_ms = 0;
-        if (count > 1 && args[1].isNumber()) {
-          timeout_ms = static_cast<uint32_t>(args[1].asNumber());
-        }
-
-        // Fast path: try synchronous poll first to avoid Promise overhead entirely
-        {
-          char* json = ex_host_http_poll(server_id);
-          if (json) {
-            auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-            ex_host_free_string(json);
-            // Wrap in resolved Promise to maintain API contract
-            auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
-            auto resolveFn = promiseCtor.getPropertyAsFunction(runtime, "resolve");
-            return resolveFn.call(runtime, result);
-          }
-        }
-
-        auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
-        auto executor = facebook::jsi::Function::createFromHostFunction(
-            runtime,
-            facebook::jsi::PropNameID::forAscii(runtime, "__exactHttpWaitExecutor"),
-            2,
-            [handle, server_id, timeout_ms](facebook::jsi::Runtime& runtime,
-                                           const facebook::jsi::Value&,
-                                           const facebook::jsi::Value* args,
-                                           size_t count) -> facebook::jsi::Value {
-              if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
-                return facebook::jsi::Value::undefined();
-              }
-
-              auto resolve = std::make_shared<facebook::jsi::Function>(
-                  args[0].asObject(runtime).asFunction(runtime));
-              auto reject = std::make_shared<facebook::jsi::Function>(
-                  args[1].asObject(runtime).asFunction(runtime));
-
-              // Item 5: Use persistent waiter thread pool.
-              // We use a static thread pool with a work queue instead of
-              // creating/destroying a thread per wait call.
-              struct WaitTask {
-                ExactHermesRuntime* handle;
-                uint32_t server_id;
-                uint32_t timeout_ms;
-                std::shared_ptr<facebook::jsi::Function> resolve;
-                std::shared_ptr<facebook::jsi::Function> reject;
-              };
-
-              static std::mutex poolMutex;
-              static std::condition_variable poolCv;
-              static std::deque<WaitTask> poolQueue;
-              static bool poolInitialized = false;
-              static constexpr int POOL_SIZE = 4;
-
-              auto task = WaitTask{handle, server_id, timeout_ms, resolve, reject};
-
-              {
-                std::lock_guard<std::mutex> lock(poolMutex);
-                if (!poolInitialized) {
-                  poolInitialized = true;
-                  for (int i = 0; i < POOL_SIZE; i++) {
-                    std::thread([]() {
-                      while (true) {
-                        WaitTask t;
-                        {
-                          std::unique_lock<std::mutex> lock(poolMutex);
-                          poolCv.wait(lock, []{ return !poolQueue.empty(); });
-                          t = std::move(poolQueue.front());
-                          poolQueue.pop_front();
-                        }
-
-                        char* json = ex_host_http_wait(t.server_id, t.timeout_ms);
-                        std::string payload;
-                        bool has_payload = false;
-                        if (json) {
-                          payload = json;
-                          has_payload = true;
-                          ex_host_free_string(json);
-                        }
-
-                        pushRuntimeCallback(t.handle,
-                            [resolve = t.resolve, reject = t.reject,
-                             has_payload, payload = std::move(payload)](
-                                facebook::jsi::Runtime& rt) {
-                              try {
-                                if (has_payload) {
-                                  resolve->call(rt,
-                                      facebook::jsi::String::createFromUtf8(rt, payload));
-                                } else {
-                                  resolve->call(rt, facebook::jsi::Value::null());
-                                }
-                              } catch (const facebook::jsi::JSError& err) {
-                                reject->call(rt,
-                                    facebook::jsi::JSError(rt, err.getMessage().c_str()).value());
-                              } catch (...) {
-                                reject->call(rt,
-                                    facebook::jsi::JSError(rt,
-                                        "Failed to complete __exactHttpWait").value());
-                              }
-                            });
-                      }
-                    }).detach();
-                  }
-                }
-                poolQueue.push_back(std::move(task));
-              }
-              poolCv.notify_one();
-
-              return facebook::jsi::Value::undefined();
-            });
-
-        return promiseCtor.callAsConstructor(runtime, executor);
-      });
-  rt.global().setProperty(rt, "__exactHttpWait", std::move(httpWaitFn));
-
-  // __exactHttpReadBody(serverId, requestId) -> JSON string or null
-  auto httpReadBodyFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpReadBody"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
-          return facebook::jsi::Value::null();
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        char* json = ex_host_http_read_body(server_id, request_id);
-        if (!json) {
-          return facebook::jsi::Value::null();
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-        ex_host_free_string(json);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactHttpReadBody", std::move(httpReadBodyFn));
-
-  // __exactHttpRespond(serverId, requestId, status, headersJson, bodyUint8Array) -> 0 or -1
-  auto httpRespondFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespond"),
-      5,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 3) {
-          throw facebook::jsi::JSError(runtime, "__exactHttpRespond: serverId, requestId, status required");
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
-
-        // Headers JSON string
-        const char* headers_json = nullptr;
-        std::string headers_str;
-        if (count > 3 && args[3].isString()) {
-          headers_str = args[3].toString(runtime).utf8(runtime);
-          headers_json = headers_str.c_str();
-        }
-
-        // Body as Uint8Array
-        const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        if (count > 4 && !args[4].isNull() && !args[4].isUndefined() && args[4].isObject()) {
-          auto bodyObj = args[4].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body = buf.data(runtime) + offset;
-              body_len = static_cast<uint32_t>(length);
-            }
-          }
-        }
-
-        int32_t result = ex_host_http_respond(
-            server_id, request_id, status, headers_json, body, body_len);
-        return facebook::jsi::Value(result);
-      });
-  rt.global().setProperty(rt, "__exactHttpRespond", std::move(httpRespondFn));
-
-  // __exactHttpRespondText(serverId, requestId, status, bodyUint8Array) -> 0 or -1
-  auto httpRespondTextFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondText"),
-      4,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 3) {
-          throw facebook::jsi::JSError(runtime, "__exactHttpRespondText: serverId, requestId, status required");
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
-
-        const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        if (count > 3 && !args[3].isNull() && !args[3].isUndefined() && args[3].isObject()) {
-          auto bodyObj = args[3].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body = buf.data(runtime) + offset;
-              body_len = static_cast<uint32_t>(length);
-            }
-          }
-        }
-
-        int32_t result = ex_host_http_respond_text(
-            server_id, request_id, status, body, body_len);
-        return facebook::jsi::Value(result);
-      });
-  rt.global().setProperty(rt, "__exactHttpRespondText", std::move(httpRespondTextFn));
-
-  // __exactHttpRespondJson(serverId, requestId, status, bodyUint8Array) -> 0 or -1
-  auto httpRespondJsonFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondJson"),
-      4,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 3) {
-          throw facebook::jsi::JSError(runtime, "__exactHttpRespondJson: serverId, requestId, status required");
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
-
-        const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        if (count > 3 && !args[3].isNull() && !args[3].isUndefined() && args[3].isObject()) {
-          auto bodyObj = args[3].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body = buf.data(runtime) + offset;
-              body_len = static_cast<uint32_t>(length);
-            }
-          }
-        }
-
-        int32_t result = ex_host_http_respond_json(
-            server_id, request_id, status, body, body_len);
-        return facebook::jsi::Value(result);
-      });
-  rt.global().setProperty(rt, "__exactHttpRespondJson", std::move(httpRespondJsonFn));
-
-  // __exactHttpRespondString(serverId, requestId, status, headersJson, bodyString) -> 0 or -1
-  // Item 10: Zero-copy string response. Takes a JS string directly and passes
-  // its UTF-8 buffer to Rust without requiring JS to encode to Uint8Array first.
-  auto httpRespondStringFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondString"),
-      5,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 3) {
-          throw facebook::jsi::JSError(runtime, "__exactHttpRespondString: serverId, requestId, status required");
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
-
-        // Headers JSON string
-        const char* headers_json = nullptr;
-        std::string headers_str;
-        if (count > 3 && args[3].isString()) {
-          headers_str = args[3].toString(runtime).utf8(runtime);
-          headers_json = headers_str.c_str();
-        }
-
-        // Body as JS string - extract UTF-8 bytes directly
-        const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        std::string body_str;
-        if (count > 4 && args[4].isString()) {
-          body_str = args[4].toString(runtime).utf8(runtime);
-          body = reinterpret_cast<const uint8_t*>(body_str.data());
-          body_len = static_cast<uint32_t>(body_str.size());
-        }
-
-        int32_t result = ex_host_http_respond_string(
-            server_id, request_id, status, headers_json, body, body_len);
-        return facebook::jsi::Value(result);
-      });
-  rt.global().setProperty(rt, "__exactHttpRespondString", std::move(httpRespondStringFn));
-
-  // __exactHttpRespondStream(serverId, requestId, status, headersJson) -> 0 or -1
-  auto httpRespondStreamFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondStream"),
-      4,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 3) {
-          throw facebook::jsi::JSError(runtime, "__exactHttpRespondStream: serverId, requestId, status required");
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        uint16_t status = static_cast<uint16_t>(args[2].asNumber());
-
-        const char* headers_json = nullptr;
-        std::string headers_str;
-        if (count > 3 && args[3].isString()) {
-          headers_str = args[3].toString(runtime).utf8(runtime);
-          headers_json = headers_str.c_str();
-        }
-
-        int32_t result = ex_host_http_respond_stream(
-            server_id, request_id, status, headers_json);
-        return facebook::jsi::Value(result);
-      });
-  rt.global().setProperty(rt, "__exactHttpRespondStream", std::move(httpRespondStreamFn));
-
-  // __exactHttpRespondChunk(serverId, requestId, bodyUint8Array) -> 0 or -1
-  auto httpRespondChunkFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondChunk"),
-      3,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 3) {
-          throw facebook::jsi::JSError(runtime, "__exactHttpRespondChunk: serverId, requestId, body required");
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-
-        const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        if (count > 2 && !args[2].isNull() && !args[2].isUndefined() && args[2].isObject()) {
-          auto bodyObj = args[2].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body = buf.data(runtime) + offset;
-              body_len = static_cast<uint32_t>(length);
-            }
-          }
-        }
-
-        int32_t result = ex_host_http_respond_chunk(
-            server_id, request_id, body, body_len);
-        return facebook::jsi::Value(result);
-      });
-  rt.global().setProperty(rt, "__exactHttpRespondChunk", std::move(httpRespondChunkFn));
-
-  // __exactHttpRespondEnd(serverId, requestId) -> 0 or -1
-  auto httpRespondEndFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondEnd"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2) {
-          throw facebook::jsi::JSError(runtime, "__exactHttpRespondEnd: serverId, requestId required");
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-
-        int32_t result = ex_host_http_respond_end(server_id, request_id);
-        return facebook::jsi::Value(result);
-      });
-  rt.global().setProperty(rt, "__exactHttpRespondEnd", std::move(httpRespondEndFn));
-
-  // __exactHttpAddress(serverId) -> JSON string or null
-  auto httpAddressFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpAddress"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value::null();
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        char* json = ex_host_http_address(server_id);
-        if (!json) {
-          return facebook::jsi::Value::null();
-        }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
-        ex_host_free_string(json);
-        return result;
-      });
-  rt.global().setProperty(rt, "__exactHttpAddress", std::move(httpAddressFn));
-
-  // __exactHttpClose(serverId, force?) -> 0 or -1
-  auto httpCloseFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpClose"),
-      2,
-      [](facebook::jsi::Runtime&,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value(-1);
-        }
-        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-        int32_t force = count > 1 && args[1].isNumber() ? static_cast<int32_t>(args[1].asNumber()) : 0;
-        int32_t result = ex_host_http_close(server_id, force);
-        return facebook::jsi::Value(result);
-      });
-  rt.global().setProperty(rt, "__exactHttpClose", std::move(httpCloseFn));
-
-  // __exactHttpSetRef(serverId, referenced) -> void
-  auto httpSetRefFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpSetRef"),
-      2,
-      [](facebook::jsi::Runtime&,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count >= 2 && args[0].isNumber()) {
-          uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
-          int32_t referenced = count > 1 && args[1].isNumber()
-              ? static_cast<int32_t>(args[1].asNumber()) : 1;
-          ex_host_http_set_ref(server_id, referenced);
+  // Deferred: Http host functions (registered lazily on first use)
+  auto ensureHttpFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureHttp"), 0,
+      [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+               const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
+        if (!handle->http_functions_loaded) {
+          handle->http_functions_loaded = true;
+          installHttpHostFunctions(handle);
         }
         return facebook::jsi::Value::undefined();
       });
-  rt.global().setProperty(rt, "__exactHttpSetRef", std::move(httpSetRefFn));
-
-  // __exactSqliteOpen(path, options) -> numeric sqlite handle
-  auto sqliteOpenFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteOpen"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteOpen: path required");
-        }
-        std::string path = args[0].toString(runtime).utf8(runtime);
-        std::string optionsJson;
-        const char* options = nullptr;
-        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          optionsJson = stringifyValue(runtime, args[1]);
-          options = optionsJson.c_str();
-        }
-        uint64_t handle = ex_host_sqlite_open(path.c_str(), options);
-        if (handle == 0) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteOpen failed");
-        }
-        return facebook::jsi::Value(static_cast<double>(handle));
-      });
-  rt.global().setProperty(rt, "__exactSqliteOpen", std::move(sqliteOpenFn));
-
-  // __exactSqliteClose(handle) -> 0/-1
-  auto sqliteCloseFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteClose"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteClose: handle required");
-        }
-        auto handle = static_cast<uint64_t>(args[0].asNumber());
-        ex_host_sqlite_close(handle);
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactSqliteClose", std::move(sqliteCloseFn));
-
-  // __exactSqlitePrepare(handle, sql) -> object {handle, ...}
-  auto sqlitePrepareFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqlitePrepare"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
-          throw facebook::jsi::JSError(
-              runtime,
-              "__exactSqlitePrepare: db handle and sql required");
-        }
-        auto handle = static_cast<uint64_t>(args[0].asNumber());
-        auto sql = args[1].toString(runtime).utf8(runtime);
-        char* json = ex_host_sqlite_prepare(handle, sql.c_str());
-        if (!json) {
-          throw facebook::jsi::JSError(runtime, "__exactSqlitePrepare failed");
-        }
-        auto value = parseJsonValue(runtime, json);
-        ex_host_free_string(json);
-        return value;
-      });
-  rt.global().setProperty(rt, "__exactSqlitePrepare", std::move(sqlitePrepareFn));
-
-  // __exactSqliteFinalize(statementHandle) -> 0/-1
-  auto sqliteFinalizeFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteFinalize"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteFinalize: statement handle required");
-        }
-        auto handle = static_cast<uint64_t>(args[0].asNumber());
-        ex_host_sqlite_finalize(handle);
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactSqliteFinalize", std::move(sqliteFinalizeFn));
-
-  // __exactSqliteExpandedSql(statementHandle) -> string
-  auto sqliteExpandedSqlFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteExpandedSql"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteExpandedSql: statement handle required");
-        }
-        auto handle = static_cast<uint64_t>(args[0].asNumber());
-        char* expanded = ex_host_sqlite_expanded_sql(handle);
-        if (!expanded) {
-          return facebook::jsi::Value::null();
-        }
-        auto value = facebook::jsi::String::createFromUtf8(runtime, expanded);
-        ex_host_free_string(expanded);
-        return value;
-      });
-  rt.global().setProperty(rt, "__exactSqliteExpandedSql", std::move(sqliteExpandedSqlFn));
-
-  // __exactSqliteInTransaction(handle) -> boolean
-  auto sqliteInTransactionFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteInTransaction"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteInTransaction: handle required");
-        }
-        auto handle = static_cast<uint64_t>(args[0].asNumber());
-        auto in_tx = ex_host_sqlite_in_transaction(handle);
-        return facebook::jsi::Value(in_tx != 0);
-      });
-  rt.global().setProperty(rt, "__exactSqliteInTransaction", std::move(sqliteInTransactionFn));
-
-  auto sqliteResultToValue = [](facebook::jsi::Runtime& runtime,
-                               char* json,
-                               const char* error_message) -> facebook::jsi::Value {
-    if (!json) {
-      throw facebook::jsi::JSError(runtime, error_message);
-    }
-    auto value = parseJsonValue(runtime, json);
-    ex_host_free_string(json);
-    return value;
-  };
-
-  // __exactSqliteAll(statementHandle, bindings) -> object {rows, columnTypes}
-  auto sqliteAllFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteAll"),
-      2,
-      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteAll: statement handle required");
-        }
-        auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
-        std::string bindingsJson;
-        const char* bindings = nullptr;
-        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[1]);
-          bindings = bindingsJson.c_str();
-        }
-        char* json = ex_host_sqlite_all(statementHandle, bindings);
-        return sqliteResultToValue(runtime, json, "__exactSqliteAll failed");
-      });
-  rt.global().setProperty(rt, "__exactSqliteAll", std::move(sqliteAllFn));
-
-  // __exactSqliteGet(statementHandle, bindings) -> object {row, columnTypes}
-  auto sqliteGetFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteGet"),
-      2,
-      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteGet: statement handle required");
-        }
-        auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
-        std::string bindingsJson;
-        const char* bindings = nullptr;
-        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[1]);
-          bindings = bindingsJson.c_str();
-        }
-        char* json = ex_host_sqlite_get(statementHandle, bindings);
-        return sqliteResultToValue(runtime, json, "__exactSqliteGet failed");
-      });
-  rt.global().setProperty(rt, "__exactSqliteGet", std::move(sqliteGetFn));
-
-  // __exactSqliteRun(statementHandle, bindings) -> object {changes, lastInsertRowid}
-  auto sqliteRunFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteRun"),
-      2,
-      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteRun: statement handle required");
-        }
-        auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
-        std::string bindingsJson;
-        const char* bindings = nullptr;
-        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[1]);
-          bindings = bindingsJson.c_str();
-        }
-        char* json = ex_host_sqlite_run(statementHandle, bindings);
-        return sqliteResultToValue(runtime, json, "__exactSqliteRun failed");
-      });
-  rt.global().setProperty(rt, "__exactSqliteRun", std::move(sqliteRunFn));
-
-  // __exactSqliteValues(statementHandle, bindings) -> object {rows, columnTypes}
-  auto sqliteValuesFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteValues"),
-      2,
-      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteValues: statement handle required");
-        }
-        auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
-        std::string bindingsJson;
-        const char* bindings = nullptr;
-        if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[1]);
-          bindings = bindingsJson.c_str();
-        }
-        char* json = ex_host_sqlite_values(statementHandle, bindings);
-        return sqliteResultToValue(runtime, json, "__exactSqliteValues failed");
-      });
-  rt.global().setProperty(rt, "__exactSqliteValues", std::move(sqliteValuesFn));
-
-  // __exactSqliteExec(handle, sql, bindings) -> object {changes, lastInsertRowid}
-  auto sqliteExecFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSqliteExec"),
-      3,
-      [sqliteResultToValue](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactSqliteExec: db handle and sql required");
-        }
-        auto handle = static_cast<uint64_t>(args[0].asNumber());
-        auto sql = args[1].toString(runtime).utf8(runtime);
-        std::string bindingsJson;
-        const char* bindings = nullptr;
-        if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[2]);
-          bindings = bindingsJson.c_str();
-        }
-        char* json = ex_host_sqlite_exec(handle, sql.c_str(), bindings);
-        return sqliteResultToValue(runtime, json, "__exactSqliteExec failed");
-      });
-  rt.global().setProperty(rt, "__exactSqliteExec", std::move(sqliteExecFn));
-
-
-
-  // __exactExecSync(command, optionsJSON) -> JSON string { stdout, stderr, status, error }
-  // Executes a shell command synchronously using posix_spawn and returns result.
-  auto execSyncFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactExecSync"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (!checkCapability("child_process")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
-        }
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactExecSync: command string required");
-        }
-        auto command = args[0].toString(runtime).utf8(runtime);
-
-        // Parse options
-        std::string cwd;
-        uint32_t timeout_ms = 0;
-        uint32_t max_buffer = 1024 * 1024; // 1MB default
-        std::vector<std::string> envEntries;
-
-        if (count > 1 && args[1].isString()) {
-          auto optsJson = args[1].toString(runtime).utf8(runtime);
-          auto cwdPos = optsJson.find("\"cwd\":\"");
-          if (cwdPos != std::string::npos) {
-            auto start = cwdPos + 7;
-            auto end = optsJson.find("\"", start);
-            if (end != std::string::npos) {
-              cwd = optsJson.substr(start, end - start);
-            }
-          }
-          auto timeoutPos = optsJson.find("\"timeout\":");
-          if (timeoutPos != std::string::npos) {
-            auto start = timeoutPos + 10;
-            timeout_ms = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
-          }
-          auto maxBufPos = optsJson.find("\"maxBuffer\":");
-          if (maxBufPos != std::string::npos) {
-            auto start = maxBufPos + 12;
-            max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
-          }
-          envEntries = s_parseEnvFromOpts(optsJson);
-        }
-
-        // Build the actual command: optionally prepend cd
-        std::string fullCommand = command;
-        if (!cwd.empty()) {
-          fullCommand = "cd " + cwd + " && " + command;
-        }
-
-        // Create pipes for stdout and stderr
-        int stdoutPipe[2], stderrPipe[2];
-        if (pipe(stdoutPipe) != 0 || pipe(stderrPipe) != 0) {
-          throw facebook::jsi::JSError(runtime, "Failed to create pipes");
-        }
-
-        std::atomic<bool> timedOut{false};
-
-        posix_spawn_file_actions_t fileActions;
-        if (posix_spawn_file_actions_init(&fileActions) != 0) {
-          close(stdoutPipe[0]);
-          close(stdoutPipe[1]);
-          close(stderrPipe[0]);
-          close(stderrPipe[1]);
-          throw facebook::jsi::JSError(runtime, "Failed to initialize spawn file actions");
-        }
-
-        int actionError = 0;
-        actionError = posix_spawn_file_actions_adddup2(&fileActions, stdoutPipe[1], STDOUT_FILENO);
-        if (actionError == 0) {
-          actionError = posix_spawn_file_actions_adddup2(&fileActions, stderrPipe[1], STDERR_FILENO);
-        }
-        if (actionError == 0) {
-          actionError = posix_spawn_file_actions_addclose(&fileActions, stdoutPipe[0]);
-        }
-        if (actionError == 0) {
-          actionError = posix_spawn_file_actions_addclose(&fileActions, stderrPipe[0]);
-        }
-        if (actionError == 0) {
-          actionError = posix_spawn_file_actions_addclose(&fileActions, stdoutPipe[1]);
-        }
-        if (actionError == 0) {
-          actionError = posix_spawn_file_actions_addclose(&fileActions, stderrPipe[1]);
-        }
-
-        std::vector<std::string> argvStorage;
-        std::vector<char*> argv;
-        argvStorage.emplace_back("/bin/sh");
-        argvStorage.emplace_back("-c");
-        argvStorage.emplace_back(fullCommand);
-        for (auto& arg : argvStorage) {
-          argv.push_back(const_cast<char*>(arg.c_str()));
-        }
-        argv.push_back(nullptr);
-
-        std::vector<char*> envp;
-        char* const* envpArgv = nullptr;
-        if (!envEntries.empty()) {
-          envp.reserve(envEntries.size() + 1);
-          for (auto& envEntry : envEntries) {
-            envp.push_back(const_cast<char*>(envEntry.c_str()));
-          }
-          envp.push_back(nullptr);
-          envpArgv = envp.data();
-        }
-
-        if (actionError != 0) {
-          posix_spawn_file_actions_destroy(&fileActions);
-          close(stdoutPipe[0]);
-          close(stdoutPipe[1]);
-          close(stderrPipe[0]);
-          close(stderrPipe[1]);
-          throw facebook::jsi::JSError(runtime, "Failed to set spawn file actions");
-        }
-
-        pid_t pid = -1;
-        int spawnErr = posix_spawn(&pid, argv[0], &fileActions, nullptr, argv.data(), envpArgv);
-        posix_spawn_file_actions_destroy(&fileActions);
-        if (spawnErr != 0) {
-          close(stdoutPipe[0]);
-          close(stdoutPipe[1]);
-          close(stderrPipe[0]);
-          close(stderrPipe[1]);
-          throw facebook::jsi::JSError(runtime, std::string("Failed to spawn command: ") + strerror(spawnErr));
-        }
-
-        close(stdoutPipe[1]);
-        close(stderrPipe[1]);
-
-        fcntl(stdoutPipe[0], F_SETFL, O_NONBLOCK);
-        fcntl(stderrPipe[0], F_SETFL, O_NONBLOCK);
-
-        if (timeout_ms > 0) {
-          std::thread([timeout_ms, &timedOut, pid]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
-            if (!timedOut.load()) {
-              timedOut.store(true);
-              kill(pid, SIGKILL);
-            }
-          }).detach();
-        }
-
-        // Read stdout/stderr
-        std::string stdoutStr;
-        std::string stderrStr;
-        char buf[4096];
-        bool stdoutOpen = true;
-        bool stderrOpen = true;
-        bool sawExit = false;
-
-        while (stdoutOpen || stderrOpen || !sawExit) {
-          bool progressed = false;
-
-          if (stdoutOpen) {
-            ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
-            if (bytesRead > 0) {
-              progressed = true;
-              if (stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
-                if (stdoutStr.size() < max_buffer) {
-                  stdoutStr.append(buf, max_buffer - stdoutStr.size());
-                }
-                stdoutOpen = false;
-                close(stdoutPipe[0]);
-              } else {
-                stdoutStr.append(buf, static_cast<size_t>(bytesRead));
-              }
-            } else if (bytesRead == 0) {
-              stdoutOpen = false;
-              close(stdoutPipe[0]);
-            } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-              stdoutOpen = false;
-              close(stdoutPipe[0]);
-            }
-          }
-
-          if (stderrOpen) {
-            ssize_t bytesRead = read(stderrPipe[0], buf, sizeof(buf));
-            if (bytesRead > 0) {
-              progressed = true;
-              stderrStr.append(buf, static_cast<size_t>(bytesRead));
-            } else if (bytesRead == 0) {
-              stderrOpen = false;
-              close(stderrPipe[0]);
-            } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-              stderrOpen = false;
-              close(stderrPipe[0]);
-            }
-          }
-
-          if (!sawExit) {
-            int status = 0;
-            pid_t waitResult = waitpid(pid, &status, WNOHANG);
-            if (waitResult == pid) {
-              sawExit = true;
-            }
-          }
-
-          if (!progressed) {
-            if (!stdoutOpen && !stderrOpen && sawExit) {
-              break;
-            }
-            if (timedOut.load()) {
-              break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-          }
-        }
-
-        if (stdoutOpen) {
-          close(stdoutPipe[0]);
-        }
-        if (stderrOpen) {
-          close(stderrPipe[0]);
-        }
-
-        int status = 0;
-        waitpid(pid, &status, 0);
-        int exitStatus = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-        if (WIFSIGNALED(status)) {
-          exitStatus = -WTERMSIG(status);
-        }
-
-        if (timedOut.load()) {
-          exitStatus = -1;
-        }
-
-        // JSON escape helper
-        auto jsonEscape = [](const std::string& s) -> std::string {
-          std::string result;
-          result.reserve(s.size() + 16);
-          for (char c : s) {
-            switch (c) {
-              case '"': result += "\\\""; break;
-              case '\\': result += "\\\\"; break;
-              case '\n': result += "\\n"; break;
-              case '\r': result += "\\r"; break;
-              case '\t': result += "\\t"; break;
-              case '\b': result += "\\b"; break;
-              case '\f': result += "\\f"; break;
-              default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                  char hex[8];
-                  snprintf(hex, sizeof(hex), "\\u%04x", static_cast<unsigned char>(c));
-                  result += hex;
-                } else {
-                  result += c;
-                }
-                break;
-            }
-          }
-          return result;
-        };
-
-        std::string errorStr = "";
-        if (timedOut.load()) {
-          errorStr = "Command timed out";
-        }
-
-        std::string resultJson = "{\"stdout\":\"" + jsonEscape(stdoutStr)
-            + "\",\"stderr\":\"" + jsonEscape(stderrStr)
-            + "\",\"status\":" + std::to_string(exitStatus);
-        if (!errorStr.empty()) {
-          resultJson += ",\"error\":\"" + jsonEscape(errorStr) + "\"";
-        }
-        resultJson += "}";
-
-        return facebook::jsi::Value(
-            facebook::jsi::String::createFromUtf8(runtime, resultJson));
-      });
-  rt.global().setProperty(rt, "__exactExecSync", std::move(execSyncFn));
-
-  // Env helpers defined as static functions above (s_parseEnvJsonStr, s_parseEnvFromOpts)
-
-  // __exactSpawnSync(file, argsJSON, optionsJSON) -> JSON string { stdout, stderr, status, pid, error }
-  // Spawns a process synchronously using posix_spawn and returns result.
-  auto spawnSyncFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSync"),
-      3,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (!checkCapability("child_process")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
-        }
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactSpawnSync: file path required");
-        }
-        auto file = args[0].toString(runtime).utf8(runtime);
-
-        // Parse args array from JSON
-        std::vector<std::string> spawnArgs;
-        if (count > 1 && args[1].isString()) {
-          auto argsJson = args[1].toString(runtime).utf8(runtime);
-          if (argsJson.size() > 2 && argsJson[0] == '[') {
-            size_t pos = 1;
-            while (pos < argsJson.size()) {
-              while (pos < argsJson.size() && (argsJson[pos] == ' ' || argsJson[pos] == ',' || argsJson[pos] == '\n')) pos++;
-              if (pos >= argsJson.size() || argsJson[pos] == ']') break;
-              if (argsJson[pos] == '"') {
-                pos++;
-                std::string arg;
-                while (pos < argsJson.size() && argsJson[pos] != '"') {
-                  if (argsJson[pos] == '\\' && pos + 1 < argsJson.size()) {
-                    pos++;
-                    if (argsJson[pos] == 'n') arg += '\n';
-                    else if (argsJson[pos] == 't') arg += '\t';
-                    else if (argsJson[pos] == 'r') arg += '\r';
-                    else arg += argsJson[pos];
-                  } else {
-                    arg += argsJson[pos];
-                  }
-                  pos++;
-                }
-                if (pos < argsJson.size()) pos++;
-                spawnArgs.push_back(arg);
-              } else {
-                while (pos < argsJson.size() && argsJson[pos] != ',' && argsJson[pos] != ']') pos++;
-              }
-            }
-          }
-        }
-
-        // Parse options
-        std::string cwd;
-        bool useShell = false;
-        uint32_t timeout_ms = 0;
-        uint32_t max_buffer = 1024 * 1024;
-        std::vector<std::string> envEntries;
-
-        if (count > 2 && args[2].isString()) {
-          auto optsJson = args[2].toString(runtime).utf8(runtime);
-          auto cwdPos = optsJson.find("\"cwd\":\"");
-          if (cwdPos != std::string::npos) {
-            auto start = cwdPos + 7;
-            auto end = optsJson.find("\"", start);
-            if (end != std::string::npos) {
-              cwd = optsJson.substr(start, end - start);
-            }
-          }
-          if (optsJson.find("\"shell\":true") != std::string::npos) {
-            useShell = true;
-          }
-          auto shellPos = optsJson.find("\"shell\":\"");
-          if (shellPos != std::string::npos) {
-            useShell = true;
-          }
-          auto timeoutPos = optsJson.find("\"timeout\":");
-          if (timeoutPos != std::string::npos) {
-            auto start = timeoutPos + 10;
-            timeout_ms = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
-          }
-          auto maxBufPos = optsJson.find("\"maxBuffer\":");
-          if (maxBufPos != std::string::npos) {
-            auto start = maxBufPos + 12;
-            max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
-          }
-          envEntries = s_parseEnvFromOpts(optsJson);
-        }
-
-        // JSON escape helper
-        auto jsonEscape = [](const std::string& s) -> std::string {
-          std::string result;
-          result.reserve(s.size() + 16);
-          for (char c : s) {
-            switch (c) {
-              case '"': result += "\\\""; break;
-              case '\\': result += "\\\\"; break;
-              case '\n': result += "\\n"; break;
-              case '\r': result += "\\r"; break;
-              case '\t': result += "\\t"; break;
-              case '\b': result += "\\b"; break;
-              case '\f': result += "\\f"; break;
-              default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                  char hex[8];
-                  snprintf(hex, sizeof(hex), "\\u%04x", static_cast<unsigned char>(c));
-                  result += hex;
-                } else {
-                  result += c;
-                }
-                break;
-            }
-          }
-          return result;
-        };
-
-        // Create pipes for stdout and stderr
-        int stdoutPipe[2], stderrPipe[2];
-        if (pipe(stdoutPipe) != 0 || pipe(stderrPipe) != 0) {
-          throw facebook::jsi::JSError(runtime, "Failed to create pipes");
-        }
-
-        bool shellMode = useShell || !cwd.empty();
-        std::string shellCommand;
-        if (shellMode) {
-          shellCommand = file;
-          for (auto& a : spawnArgs) {
-            shellCommand += " " + a;
-          }
-          if (!cwd.empty()) {
-            shellCommand = "cd " + cwd + " && " + shellCommand;
-          }
-        }
-
-        std::vector<std::string> argvStorage;
-        std::vector<char*> argv;
-        if (shellMode) {
-          argvStorage.emplace_back("/bin/sh");
-          argvStorage.emplace_back("-c");
-          argvStorage.emplace_back(shellCommand);
-        } else {
-          argvStorage.push_back(file);
-          for (auto& a : spawnArgs) {
-            argvStorage.push_back(a);
-          }
-        }
-        for (auto& arg : argvStorage) {
-          argv.push_back(const_cast<char*>(arg.c_str()));
-        }
-        argv.push_back(nullptr);
-
-        std::vector<char*> envp;
-        char* const* envArgv = nullptr;
-        if (!envEntries.empty()) {
-          envp.reserve(envEntries.size() + 1);
-          for (auto& entry : envEntries) {
-            envp.push_back(const_cast<char*>(entry.c_str()));
-          }
-          envp.push_back(nullptr);
-          envArgv = envp.data();
-        }
-
-        posix_spawn_file_actions_t fileActions;
-        if (posix_spawn_file_actions_init(&fileActions) != 0) {
-          close(stdoutPipe[0]); close(stdoutPipe[1]);
-          close(stderrPipe[0]); close(stderrPipe[1]);
-          throw facebook::jsi::JSError(runtime, "Failed to initialize spawn file actions");
-        }
-
-        int fileActionErr = 0;
-        fileActionErr = posix_spawn_file_actions_adddup2(&fileActions, stdoutPipe[1], STDOUT_FILENO);
-        if (fileActionErr == 0) {
-          fileActionErr = posix_spawn_file_actions_adddup2(&fileActions, stderrPipe[1], STDERR_FILENO);
-        }
-        if (fileActionErr == 0) {
-          fileActionErr = posix_spawn_file_actions_addclose(&fileActions, stdoutPipe[0]);
-        }
-        if (fileActionErr == 0) {
-          fileActionErr = posix_spawn_file_actions_addclose(&fileActions, stderrPipe[0]);
-        }
-        if (fileActionErr == 0) {
-          fileActionErr = posix_spawn_file_actions_addclose(&fileActions, stdoutPipe[1]);
-        }
-        if (fileActionErr == 0) {
-          fileActionErr = posix_spawn_file_actions_addclose(&fileActions, stderrPipe[1]);
-        }
-
-        if (fileActionErr != 0) {
-          posix_spawn_file_actions_destroy(&fileActions);
-          close(stdoutPipe[0]); close(stdoutPipe[1]);
-          close(stderrPipe[0]); close(stderrPipe[1]);
-          throw facebook::jsi::JSError(runtime, "Failed to configure spawn file actions");
-        }
-
-        pid_t pid = -1;
-        int spawnResult = 0;
-        if (shellMode) {
-          spawnResult = posix_spawn(&pid, argv[0], &fileActions, nullptr, argv.data(), envArgv);
-        } else {
-          spawnResult = posix_spawnp(&pid, argv[0], &fileActions, nullptr, argv.data(), envArgv);
-        }
-        posix_spawn_file_actions_destroy(&fileActions);
-
-        if (spawnResult != 0) {
-          close(stdoutPipe[0]); close(stdoutPipe[1]);
-          close(stderrPipe[0]); close(stderrPipe[1]);
-          int exitStatus = -1;
-          std::string errorStr;
-          if (spawnResult == ENOENT) {
-            exitStatus = 127;
-            errorStr = "Command not found: " + file;
-          } else {
-            errorStr = std::string("Failed to spawn process: ") + strerror(spawnResult);
-          }
-          std::string resultJson = "{\"stdout\":\"\",\"stderr\":\"\",\"status\":"
-              + std::to_string(exitStatus)
-              + ",\"pid\":-1,\"error\":\"" + jsonEscape(errorStr) + "\"}";
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, resultJson));
-        }
-
-        // Parent process
-        close(stdoutPipe[1]);
-        close(stderrPipe[1]);
-
-        std::string stdoutStr, stderrStr;
-        char buf[4096];
-        std::atomic<bool> timedOut{false};
-
-        if (timeout_ms > 0) {
-          std::thread([timeout_ms, &timedOut, pid]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
-            if (!timedOut.load()) {
-              timedOut.store(true);
-              kill(pid, SIGKILL);
-            }
-          }).detach();
-        }
-
-        // Read stdout
-        while (true) {
-          ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
-          if (bytesRead <= 0) break;
-          if (stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
-            stdoutStr.append(buf, max_buffer - stdoutStr.size());
-            break;
-          }
-          stdoutStr.append(buf, static_cast<size_t>(bytesRead));
-        }
-        close(stdoutPipe[0]);
-
-        // Read stderr
-        while (true) {
-          ssize_t bytesRead = read(stderrPipe[0], buf, sizeof(buf));
-          if (bytesRead <= 0) break;
-          stderrStr.append(buf, static_cast<size_t>(bytesRead));
-        }
-        close(stderrPipe[0]);
-
-        // Wait for child
-        int status = 0;
-        waitpid(pid, &status, 0);
-        int exitStatus = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-        if (WIFSIGNALED(status)) {
-          exitStatus = -WTERMSIG(status);
-        }
-
-        std::string errorStr;
-        if (timedOut.load()) {
-          errorStr = "Command timed out";
-        } else if (exitStatus == 127) {
-          errorStr = "Command not found: " + file;
-        }
-
-        std::string resultJson = "{\"stdout\":\"" + jsonEscape(stdoutStr)
-            + "\",\"stderr\":\"" + jsonEscape(stderrStr)
-            + "\",\"status\":" + std::to_string(exitStatus)
-            + ",\"pid\":" + std::to_string(static_cast<int>(pid));
-        if (!errorStr.empty()) {
-          resultJson += ",\"error\":\"" + jsonEscape(errorStr) + "\"";
-        }
-        resultJson += "}";
-
-        return facebook::jsi::Value(
-            facebook::jsi::String::createFromUtf8(runtime, resultJson));
-      });
-  rt.global().setProperty(rt, "__exactSpawnSync", std::move(spawnSyncFn));
-
-  // --- Async spawn support ---
-  // SpawnedProcess stores pipe fds and pid for async child processes.
-  struct SpawnedProcess {
-    pid_t pid;
-    int stdinFd;   // parent writes to child's stdin
-    int stdoutFd;  // parent reads from child's stdout
-    int stderrFd;  // parent reads from child's stderr
-    ExactHermesRuntime* runtimeHandle;
-    bool exited;
-    int exitCode;
-    int exitSignal; // 0 if exited normally, >0 if signaled
-    bool disposed;
-  };
-  static std::unordered_map<int, SpawnedProcess> s_spawnedProcesses;
-  static int s_nextSpawnHandle = 1;
-  static std::mutex s_spawnMutex;
-  static std::condition_variable s_spawnCv;
-  static bool s_spawnWatcherStarted = false;
-
-  auto notifySpawnPump = [](ExactHermesRuntime* runtimeHandle, int handle) {
-    if (!runtimeHandle) return;
-    pushRuntimeCallback(runtimeHandle,
-                        [handle](facebook::jsi::Runtime& rt) {
-      auto pumpVal = rt.global().getProperty(rt, "__exactSpawnPump");
-      if (!pumpVal.isObject() || !pumpVal.asObject(rt).isFunction(rt)) {
-        return;
-      }
-      try {
-        pumpVal.asObject(rt).asFunction(rt).call(rt, facebook::jsi::Value(static_cast<double>(handle)));
-      } catch (...) {
-        // Ignore callback failures to avoid taking down runtime.
-      }
-    });
-  };
-
-  auto closeSpawnProcessFds = [](SpawnedProcess& proc) {
-    if (proc.stdinFd >= 0) {
-      close(proc.stdinFd);
-      proc.stdinFd = -1;
-    }
-    if (proc.stdoutFd >= 0) {
-      close(proc.stdoutFd);
-      proc.stdoutFd = -1;
-    }
-    if (proc.stderrFd >= 0) {
-      close(proc.stderrFd);
-      proc.stderrFd = -1;
-    }
-  };
-
-  auto disposeSpawnProcess = [&closeSpawnProcessFds](int handle) {
-    std::lock_guard<std::mutex> lock(s_spawnMutex);
-    auto it = s_spawnedProcesses.find(handle);
-    if (it == s_spawnedProcesses.end()) {
-      return false;
-    }
-    if (it->second.disposed) {
-      return true;
-    }
-    it->second.disposed = true;
-    closeSpawnProcessFds(it->second);
-    if (it->second.exited) {
-      if (it->second.runtimeHandle) {
-        it->second.runtimeHandle->active_spawn_processes.fetch_sub(1, std::memory_order_relaxed);
-      }
-      s_spawnedProcesses.erase(it);
-    }
-    return true;
-  };
-
-  auto ensureSpawnWatcher = [&]() {
-    std::lock_guard<std::mutex> lock(s_spawnMutex);
-    if (s_spawnWatcherStarted) {
-      return;
-    }
-    s_spawnWatcherStarted = true;
-    std::thread([notifySpawnPump,
-                 &closeSpawnProcessFds]() {
-      while (true) {
-        std::vector<std::tuple<int, pid_t, int, int, ExactHermesRuntime*>> snapshot;
-        {
-          std::unique_lock<std::mutex> lock(s_spawnMutex);
-          s_spawnCv.wait(lock, [&] {
-            return !s_spawnedProcesses.empty();
-          });
-          snapshot.reserve(s_spawnedProcesses.size());
-          for (auto& entry : s_spawnedProcesses) {
-            auto& proc = entry.second;
-            snapshot.emplace_back(entry.first, proc.pid, proc.stdoutFd, proc.stderrFd, proc.runtimeHandle);
-          }
-        }
-
-        if (snapshot.empty()) {
-          continue;
-        }
-
-        bool hasPipes = false;
-        std::unordered_set<int> readyHandles;
-        for (auto& entry : snapshot) {
-          int stdoutFd = std::get<2>(entry);
-          int stderrFd = std::get<3>(entry);
-          if (stdoutFd >= 0 || stderrFd >= 0) {
-            hasPipes = true;
-            break;
-          }
-        }
-
-        bool gotBackend = false;
-        if (hasPipes) {
-#if defined(__linux__)
-          int epollFd = epoll_create1(EPOLL_CLOEXEC);
-          if (epollFd >= 0) {
-            gotBackend = true;
-            bool setupOk = true;
-            std::unordered_map<int, int> fdToHandle;
-            auto addFd = [&](int handle, int fd) -> bool {
-              if (fd < 0) return true;
-              struct epoll_event event{};
-              event.events = EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP;
-              event.data.u64 = static_cast<uint64_t>(static_cast<uint32_t>(handle));
-              int result = epoll_ctl(epollFd, EPOLL_CTL_ADD, fd, &event);
-              if (result == 0) {
-                fdToHandle.emplace(fd, handle);
-              }
-              return result == 0;
-            };
-            for (auto& entry : snapshot) {
-              int handle = std::get<0>(entry);
-              if (!addFd(handle, std::get<2>(entry))) setupOk = false;
-              if (!addFd(handle, std::get<3>(entry))) setupOk = false;
-            }
-            if (setupOk) {
-              std::vector<epoll_event> events(fdToHandle.empty() ? 1 : fdToHandle.size());
-              int eventResult = epoll_wait(epollFd,
-                                          events.data(),
-                                          static_cast<int>(events.size()),
-                                          25);
-              if (eventResult > 0) {
-                for (int i = 0; i < eventResult; i++) {
-                  auto it = fdToHandle.find(static_cast<int>(events[i].data.u64));
-                  if (it != fdToHandle.end()) {
-                    readyHandles.insert(it->second);
-                  }
-                }
-              } else if (eventResult < 0 && errno == EINTR) {
-                close(epollFd);
-                continue;
-              } else if (eventResult < 0) {
-                gotBackend = false;
-              }
-            } else {
-              gotBackend = false;
-            }
-            close(epollFd);
-          }
-#elif defined(__APPLE__)
-          int kqueueFd = kqueue();
-          if (kqueueFd >= 0) {
-            gotBackend = true;
-            bool setupOk = true;
-            std::vector<struct kevent> changes;
-            std::unordered_map<int, int> fdToHandle;
-            for (auto& entry : snapshot) {
-              int handle = std::get<0>(entry);
-              int stdoutFd = std::get<2>(entry);
-              int stderrFd = std::get<3>(entry);
-              if (stdoutFd >= 0) {
-                struct kevent ev{};
-                EV_SET(&ev, stdoutFd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, nullptr);
-                changes.push_back(ev);
-                fdToHandle.emplace(stdoutFd, handle);
-              }
-              if (stderrFd >= 0) {
-                struct kevent ev{};
-                EV_SET(&ev, stderrFd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, nullptr);
-                changes.push_back(ev);
-                fdToHandle.emplace(stderrFd, handle);
-              }
-            }
-            if (changes.empty()) {
-              setupOk = false;
-            }
-            if (setupOk) {
-              struct timespec timeout{};
-              timeout.tv_sec = 0;
-              timeout.tv_nsec = 25 * 1000 * 1000;
-              std::vector<struct kevent> events(changes.size());
-              int eventResult = kevent(kqueueFd,
-                                       changes.data(),
-                                       static_cast<int>(changes.size()),
-                                       events.data(),
-                                       static_cast<int>(events.size()),
-                                       &timeout);
-              if (eventResult > 0) {
-                for (int i = 0; i < eventResult; i++) {
-                  auto it = fdToHandle.find(static_cast<int>(events[i].ident));
-                  if (it != fdToHandle.end()) {
-                    readyHandles.insert(it->second);
-                  }
-                }
-              } else if (eventResult < 0 && errno != EINTR) {
-                gotBackend = false;
-              } else if (eventResult < 0 && errno == EINTR) {
-                close(kqueueFd);
-                continue;
-              }
-            } else {
-              gotBackend = false;
-            }
-            close(kqueueFd);
-          }
-#endif
-        }
-
-        if (!hasPipes || !gotBackend) {
-          if (hasPipes) {
-            std::vector<struct pollfd> pollFds;
-            std::unordered_map<int, int> fdToHandle;
-            for (auto& entry : snapshot) {
-              int handle = std::get<0>(entry);
-              int stdoutFd = std::get<2>(entry);
-              int stderrFd = std::get<3>(entry);
-              if (stdoutFd >= 0) {
-                pollFds.push_back({stdoutFd, POLLIN | POLLERR | POLLHUP, 0});
-                fdToHandle.emplace(stdoutFd, handle);
-              }
-              if (stderrFd >= 0) {
-                pollFds.push_back({stderrFd, POLLIN | POLLERR | POLLHUP, 0});
-                fdToHandle.emplace(stderrFd, handle);
-              }
-            }
-            if (!pollFds.empty()) {
-              int pollResult = poll(pollFds.data(), static_cast<nfds_t>(pollFds.size()), 25);
-              if (pollResult > 0) {
-                for (auto& pollFd : pollFds) {
-                  if ((pollFd.revents & (POLLIN | POLLERR | POLLHUP)) != 0) {
-                    auto it = fdToHandle.find(pollFd.fd);
-                    if (it != fdToHandle.end()) {
-                      readyHandles.insert(it->second);
-                    }
-                  }
-                }
-              } else if (pollResult < 0 && errno == EINTR) {
-                continue;
-              }
-            } else {
-              std::this_thread::sleep_for(std::chrono::milliseconds(25));
-            }
-          } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(25));
-          }
-        }
-
-        for (auto& entry : snapshot) {
-          int handle = std::get<0>(entry);
-          int pid = std::get<1>(entry);
-          ExactHermesRuntime* procRuntime = std::get<4>(entry);
-          bool shouldNotify = readyHandles.count(handle) != 0;
-
-          {
-            std::lock_guard<std::mutex> lock(s_spawnMutex);
-            auto it = s_spawnedProcesses.find(handle);
-            if (it == s_spawnedProcesses.end()) {
-              continue;
-            }
-            if (it->second.exited) {
-              if (readyHandles.count(handle) != 0 && it->second.runtimeHandle) {
-                notifySpawnPump(it->second.runtimeHandle, handle);
-              }
-              continue;
-            }
-          }
-
-          int status = 0;
-          pid_t waitResult = waitpid(pid, &status, WNOHANG);
-          if (waitResult > 0) {
-            bool changed = false;
-            bool disposeAfterNotify = false;
-            {
-              std::lock_guard<std::mutex> lock(s_spawnMutex);
-              auto it = s_spawnedProcesses.find(handle);
-              if (it != s_spawnedProcesses.end() && !it->second.exited) {
-                it->second.exited = true;
-                if (WIFEXITED(status)) {
-                  it->second.exitCode = WEXITSTATUS(status);
-                  it->second.exitSignal = 0;
-                } else if (WIFSIGNALED(status)) {
-                  it->second.exitCode = -1;
-                  it->second.exitSignal = WTERMSIG(status);
-                } else {
-                  it->second.exitCode = -1;
-                  it->second.exitSignal = 0;
-                }
-                procRuntime = it->second.runtimeHandle;
-                changed = true;
-                if (it->second.stdoutFd < 0 &&
-                    it->second.stderrFd < 0) {
-                  it->second.disposed = true;
-                  disposeAfterNotify = true;
-                  closeSpawnProcessFds(it->second);
-                  if (it->second.runtimeHandle) {
-                    it->second.runtimeHandle->active_spawn_processes.fetch_sub(1, std::memory_order_relaxed);
-                  }
-                }
-              }
-              if (disposeAfterNotify) {
-                s_spawnedProcesses.erase(handle);
-              }
-            }
-            if (changed) {
-              shouldNotify = true;
-            }
-          } else if (waitResult < 0 && errno != EINTR) {
-            bool changed = false;
-            bool disposeAfterNotify = false;
-            {
-              std::lock_guard<std::mutex> lock(s_spawnMutex);
-              auto it = s_spawnedProcesses.find(handle);
-              if (it != s_spawnedProcesses.end() && !it->second.exited) {
-                it->second.exited = true;
-                it->second.exitCode = -1;
-                it->second.exitSignal = 0;
-                procRuntime = it->second.runtimeHandle;
-                changed = true;
-                if (it->second.stdoutFd < 0 &&
-                    it->second.stderrFd < 0) {
-                  it->second.disposed = true;
-                  disposeAfterNotify = true;
-                  closeSpawnProcessFds(it->second);
-                  if (it->second.runtimeHandle) {
-                    it->second.runtimeHandle->active_spawn_processes.fetch_sub(1, std::memory_order_relaxed);
-                  }
-                }
-              }
-              if (disposeAfterNotify) {
-                s_spawnedProcesses.erase(handle);
-              }
-            }
-            if (changed) {
-              shouldNotify = true;
-            }
-          }
-
-          if (shouldNotify && procRuntime) {
-            notifySpawnPump(procRuntime, handle);
-          }
-        }
-      }
-    }).detach();
-  };
-
-  // __exactSpawn(file, argsJSON, optionsJSON) -> JSON string {"handle":N,"pid":N} or {"error":"..."}
-  auto spawnFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawn"),
-      3,
-      [runtimeHandle = handle, &ensureSpawnWatcher](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (!checkCapability("child_process")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
-        }
-        if (count == 0 || !args[0].isString()) {
-          throw facebook::jsi::JSError(runtime, "__exactSpawn: file path required");
-        }
-        auto file = args[0].toString(runtime).utf8(runtime);
-
-        // Parse args array from JSON
-        std::vector<std::string> spawnArgs;
-        if (count > 1 && args[1].isString()) {
-          auto argsJson = args[1].toString(runtime).utf8(runtime);
-          if (argsJson.size() > 2 && argsJson[0] == '[') {
-            size_t pos = 1;
-            while (pos < argsJson.size()) {
-              while (pos < argsJson.size() && (argsJson[pos] == ' ' || argsJson[pos] == ',' || argsJson[pos] == '\n')) pos++;
-              if (pos >= argsJson.size() || argsJson[pos] == ']') break;
-              if (argsJson[pos] == '"') {
-                pos++;
-                std::string arg;
-                while (pos < argsJson.size() && argsJson[pos] != '"') {
-                  if (argsJson[pos] == '\\' && pos + 1 < argsJson.size()) {
-                    pos++;
-                    if (argsJson[pos] == 'n') arg += '\n';
-                    else if (argsJson[pos] == 't') arg += '\t';
-                    else if (argsJson[pos] == 'r') arg += '\r';
-                    else arg += argsJson[pos];
-                  } else {
-                    arg += argsJson[pos];
-                  }
-                  pos++;
-                }
-                if (pos < argsJson.size()) pos++;
-                spawnArgs.push_back(arg);
-              } else {
-                while (pos < argsJson.size() && argsJson[pos] != ',' && argsJson[pos] != ']') pos++;
-              }
-            }
-          }
-        }
-
-        // Parse options
-        std::string cwd;
-        bool useShell = false;
-        std::string stdioModes[3] = {"pipe", "pipe", "pipe"};
-        std::vector<std::string> envEntries;
-
-        auto skipJsonWhitespace = [](const std::string& value, size_t& pos) {
-          while (pos < value.size()) {
-            char ch = value[pos];
-            if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t') break;
-            pos++;
-          }
-        };
-
-        auto parseJsonString = [](const std::string& value, size_t& pos) {
-          std::string out;
-          if (pos >= value.size() || value[pos] != '"') return out;
-          ++pos;
-          while (pos < value.size()) {
-            char ch = value[pos++];
-            if (ch == '\\' && pos < value.size()) {
-              char escaped = value[pos++];
-              if (escaped == 'n') out.push_back('\n');
-              else if (escaped == 't') out.push_back('\t');
-              else if (escaped == 'r') out.push_back('\r');
-              else if (escaped == '"') out.push_back('"');
-              else if (escaped == '\\') out.push_back('\\');
-              else out.push_back(escaped);
-              continue;
-            }
-            if (ch == '"') break;
-            out.push_back(ch);
-          }
-          return out;
-        };
-
-        auto normalizeStdioMode = [](const std::string& value) {
-          if (value == "ignore") return std::string("ignore");
-          if (value == "inherit") return std::string("inherit");
-          if (value == "pipe") return std::string("pipe");
-          if (value == "overlapped" || value == "ipc") return std::string("pipe");
-          return std::string("pipe");
-        };
-
-        if (count > 2 && args[2].isString()) {
-          auto optsJson = args[2].toString(runtime).utf8(runtime);
-          auto cwdPos = optsJson.find("\"cwd\":\"");
-          if (cwdPos != std::string::npos) {
-            auto start = cwdPos + 7;
-            auto end = optsJson.find("\"", start);
-            if (end != std::string::npos) {
-              cwd = optsJson.substr(start, end - start);
-            }
-          }
-          if (optsJson.find("\"shell\":true") != std::string::npos) {
-            useShell = true;
-          }
-          auto shellPos = optsJson.find("\"shell\":\"");
-          if (shellPos != std::string::npos) {
-            useShell = true;
-          }
-
-          auto stdioPos = optsJson.find("\"stdio\":");
-          if (stdioPos != std::string::npos) {
-            size_t modePos = stdioPos + 8;
-            skipJsonWhitespace(optsJson, modePos);
-            if (modePos < optsJson.size()) {
-              if (optsJson[modePos] == '"') {
-                auto parsed = parseJsonString(optsJson, modePos);
-                auto normalized = normalizeStdioMode(parsed);
-                stdioModes[0] = normalized;
-                stdioModes[1] = normalized;
-                stdioModes[2] = normalized;
-              } else if (optsJson[modePos] == '[') {
-                ++modePos;
-                int slot = 0;
-                while (modePos < optsJson.size() && slot < 3) {
-                  skipJsonWhitespace(optsJson, modePos);
-                  if (modePos >= optsJson.size() || optsJson[modePos] == ']') break;
-                  std::string parsed;
-                  if (optsJson[modePos] == '"') {
-                    parsed = parseJsonString(optsJson, modePos);
-                  } else {
-                    if (optsJson.compare(modePos, 4, "null") == 0) {
-                      modePos += 4;
-                    } else {
-                      while (modePos < optsJson.size() &&
-                             optsJson[modePos] != ',' &&
-                             optsJson[modePos] != ']') {
-                        modePos++;
-                      }
-                    }
-                  }
-                  stdioModes[slot] = normalizeStdioMode(parsed);
-                  slot++;
-                  skipJsonWhitespace(optsJson, modePos);
-                  if (modePos < optsJson.size() && optsJson[modePos] == ',') {
-                    modePos++;
-                  }
-                }
-              }
-            }
-          }
-          envEntries = s_parseEnvFromOpts(optsJson);
-        }
-
-        auto jsonEscape = [](const std::string& s) -> std::string {
-          std::string result;
-          result.reserve(s.size() + 16);
-          for (char c : s) {
-            switch (c) {
-              case '"': result += "\\\""; break;
-              case '\\': result += "\\\\"; break;
-              case '\n': result += "\\n"; break;
-              case '\r': result += "\\r"; break;
-              case '\t': result += "\\t"; break;
-              case '\b': result += "\\b"; break;
-              case '\f': result += "\\f"; break;
-              default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                  char hex[8];
-                  snprintf(hex, sizeof(hex), "\\u%04x", static_cast<unsigned char>(c));
-                  result += hex;
-                } else {
-                  result += c;
-                }
-                break;
-            }
-          }
-          return result;
-        };
-
-        const bool stdinPipeRequested = stdioModes[0] == "pipe";
-        const bool stdoutPipeRequested = stdioModes[1] == "pipe";
-        const bool stderrPipeRequested = stdioModes[2] == "pipe";
-
-        // Create pipes for stdin, stdout, stderr
-        int stdinPipeFd[2] = {-1, -1};
-        int stdoutPipeFd[2] = {-1, -1};
-        int stderrPipeFd[2] = {-1, -1};
-
-        if (stdinPipeRequested && pipe(stdinPipeFd) != 0) {
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create stdin pipe\"}"));
-        }
-        if (stdoutPipeRequested && pipe(stdoutPipeFd) != 0) {
-          if (stdinPipeFd[0] >= 0) {
-            close(stdinPipeFd[0]);
-          }
-          if (stdinPipeFd[1] >= 0) {
-            close(stdinPipeFd[1]);
-          }
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create stdout pipe\"}"));
-        }
-        if (stderrPipeRequested && pipe(stderrPipeFd) != 0) {
-          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
-          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
-          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
-          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create stderr pipe\"}"));
-        }
-
-        bool shellMode = useShell || !cwd.empty();
-        std::string shellCommand;
-        if (shellMode) {
-          shellCommand = file;
-          for (auto& a : spawnArgs) {
-            shellCommand += " " + a;
-          }
-          if (!cwd.empty()) {
-            shellCommand = "cd " + cwd + " && " + shellCommand;
-          }
-        }
-
-        std::vector<std::string> argvStorage;
-        std::vector<char*> argv;
-        if (shellMode) {
-          argvStorage.emplace_back("/bin/sh");
-          argvStorage.emplace_back("-c");
-          argvStorage.emplace_back(shellCommand);
-        } else {
-          argvStorage.push_back(file);
-          for (auto& a : spawnArgs) {
-            argvStorage.push_back(a);
-          }
-        }
-        for (auto& arg : argvStorage) {
-          argv.push_back(const_cast<char*>(arg.c_str()));
-        }
-        argv.push_back(nullptr);
-
-        std::vector<char*> envp;
-        char* const* envArgv = nullptr;
-        if (!envEntries.empty()) {
-          envp.reserve(envEntries.size() + 1);
-          for (auto& entry : envEntries) {
-            envp.push_back(const_cast<char*>(entry.c_str()));
-          }
-          envp.push_back(nullptr);
-          envArgv = envp.data();
-        }
-
-        posix_spawn_file_actions_t fileActions;
-        if (posix_spawn_file_actions_init(&fileActions) != 0) {
-          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
-          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
-          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
-          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
-          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
-          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to initialize spawn file actions\"}"));
-        }
-
-        int actionError = 0;
-        int nullStdinFd = -1;
-        int nullStdoutFd = -1;
-        int nullStderrFd = -1;
-
-        if (stdinPipeRequested) {
-          actionError = posix_spawn_file_actions_adddup2(&fileActions, stdinPipeFd[0], STDIN_FILENO);
-          if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stdinPipeFd[0]);
-          if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stdinPipeFd[1]);
-        } else if (stdioModes[0] == "ignore") {
-          nullStdinFd = open("/dev/null", O_RDONLY);
-          if (nullStdinFd >= 0) {
-            actionError = posix_spawn_file_actions_adddup2(&fileActions, nullStdinFd, STDIN_FILENO);
-            if (actionError == 0) {
-              actionError = posix_spawn_file_actions_addclose(&fileActions, nullStdinFd);
-            }
-          }
-        }
-
-        if (actionError == 0) {
-          if (stdoutPipeRequested) {
-            actionError = posix_spawn_file_actions_adddup2(&fileActions, stdoutPipeFd[1], STDOUT_FILENO);
-            if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stdoutPipeFd[0]);
-            if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stdoutPipeFd[1]);
-          } else if (stdioModes[1] == "ignore") {
-            nullStdoutFd = open("/dev/null", O_WRONLY);
-            if (nullStdoutFd >= 0) {
-              actionError = posix_spawn_file_actions_adddup2(&fileActions, nullStdoutFd, STDOUT_FILENO);
-              if (actionError == 0) {
-                actionError = posix_spawn_file_actions_addclose(&fileActions, nullStdoutFd);
-              }
-            }
-          }
-        }
-
-        if (actionError == 0) {
-          if (stderrPipeRequested) {
-            actionError = posix_spawn_file_actions_adddup2(&fileActions, stderrPipeFd[1], STDERR_FILENO);
-            if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stderrPipeFd[0]);
-            if (actionError == 0) actionError = posix_spawn_file_actions_addclose(&fileActions, stderrPipeFd[1]);
-          } else if (stdioModes[2] == "ignore") {
-            nullStderrFd = open("/dev/null", O_WRONLY);
-            if (nullStderrFd >= 0) {
-              actionError = posix_spawn_file_actions_adddup2(&fileActions, nullStderrFd, STDERR_FILENO);
-              if (actionError == 0) {
-                actionError = posix_spawn_file_actions_addclose(&fileActions, nullStderrFd);
-              }
-            }
-          }
-        }
-
-        if (!stdinPipeRequested && !stdoutPipeRequested) {
-          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
-          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
-        }
-        if (!stdoutPipeRequested && stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
-        if (!stderrPipeRequested && stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
-
-        if (actionError != 0) {
-          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
-          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
-          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
-          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
-          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
-          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
-          if (nullStdinFd >= 0) close(nullStdinFd);
-          if (nullStdoutFd >= 0) close(nullStdoutFd);
-          if (nullStderrFd >= 0) close(nullStderrFd);
-          posix_spawn_file_actions_destroy(&fileActions);
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to configure spawn file actions\"}"));
-        }
-
-        pid_t pid = -1;
-        int spawnResult = 0;
-        if (shellMode) {
-          spawnResult = posix_spawn(&pid, argv[0], &fileActions, nullptr, argv.data(), envArgv);
-        } else {
-          spawnResult = posix_spawnp(&pid, argv[0], &fileActions, nullptr, argv.data(), envArgv);
-        }
-        posix_spawn_file_actions_destroy(&fileActions);
-
-        if (nullStdinFd >= 0) close(nullStdinFd);
-        if (nullStdoutFd >= 0) close(nullStdoutFd);
-        if (nullStderrFd >= 0) close(nullStderrFd);
-
-        if (spawnResult != 0) {
-          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
-          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
-          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
-          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
-          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
-          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
-          std::string errorStr = std::string("Failed to spawn process: ") + strerror(spawnResult);
-          if (spawnResult == ENOENT) {
-            errorStr = "Command not found: " + file;
-          }
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"" + jsonEscape(errorStr) + "\"}"));
-        }
-
-        // Parent process
-        if (stdinPipeRequested) close(stdinPipeFd[0]);   // close read end of stdin pipe (child reads)
-        if (stdoutPipeRequested) close(stdoutPipeFd[1]); // close write end of stdout pipe (child writes)
-        if (stderrPipeRequested) close(stderrPipeFd[1]); // close write end of stderr pipe (child writes)
-
-        if (stdoutPipeRequested) fcntl(stdoutPipeFd[0], F_SETFL, O_NONBLOCK);
-        if (stderrPipeRequested) fcntl(stderrPipeFd[0], F_SETFL, O_NONBLOCK);
-
-        int handle;
-        {
-          std::lock_guard<std::mutex> lock(s_spawnMutex);
-          handle = s_nextSpawnHandle++;
-          SpawnedProcess proc;
-          proc.pid = pid;
-          proc.stdinFd = stdinPipeRequested ? stdinPipeFd[1] : -1;
-          proc.stdoutFd = stdoutPipeRequested ? stdoutPipeFd[0] : -1;
-          proc.stderrFd = stderrPipeRequested ? stderrPipeFd[0] : -1;
-          proc.runtimeHandle = runtimeHandle;
-          proc.exited = false;
-          proc.exitCode = -1;
-          proc.exitSignal = 0;
-          proc.disposed = false;
-          s_spawnedProcesses[handle] = proc;
-          if (runtimeHandle) {
-            runtimeHandle->active_spawn_processes.fetch_add(1, std::memory_order_relaxed);
-          }
-          s_spawnCv.notify_all();
-        }
-        ensureSpawnWatcher();
-
-        std::string resultJson = "{\"handle\":" + std::to_string(handle)
-            + ",\"pid\":" + std::to_string(static_cast<int>(pid)) + "}";
-        return facebook::jsi::Value(
-            facebook::jsi::String::createFromUtf8(runtime, resultJson));
-      });
-  rt.global().setProperty(rt, "__exactSpawn", std::move(spawnFn));
-
-  // __exactSpawnRead(handle, stream) -> string (data read, empty if nothing available)
-  // stream is "stdout" or "stderr". Non-blocking read.
-  auto spawnReadFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRead"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
-          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
-        }
-        int handle = static_cast<int>(args[0].asNumber());
-        auto streamName = args[1].toString(runtime).utf8(runtime);
-
-        int fd = -1;
-        {
-          std::lock_guard<std::mutex> lock(s_spawnMutex);
-          auto it = s_spawnedProcesses.find(handle);
-          if (it == s_spawnedProcesses.end()) {
-            return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
-          }
-          if (streamName == "stdout") {
-            fd = it->second.stdoutFd;
-          } else if (streamName == "stderr") {
-            fd = it->second.stderrFd;
-          }
-        }
-
-        if (fd < 0) {
-          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
-        }
-
-        // Non-blocking read
-        char buf[65536];
-        std::string result;
-        while (true) {
-          ssize_t n = read(fd, buf, sizeof(buf));
-          if (n > 0) {
-            result.append(buf, static_cast<size_t>(n));
-          } else {
-            break;  // EAGAIN/EWOULDBLOCK or EOF
-          }
-        }
-
-        return facebook::jsi::Value(
-            facebook::jsi::String::createFromUtf8(runtime, result));
-      });
-  rt.global().setProperty(rt, "__exactSpawnRead", std::move(spawnReadFn));
-
-  // __exactSpawnWrite(handle, data) -> boolean (success)
-  auto spawnWriteFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnWrite"),
-      2,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
-          return facebook::jsi::Value(false);
-        }
-        int handle = static_cast<int>(args[0].asNumber());
-        auto data = args[1].toString(runtime).utf8(runtime);
-
-        int fd = -1;
-        {
-          std::lock_guard<std::mutex> lock(s_spawnMutex);
-          auto it = s_spawnedProcesses.find(handle);
-          if (it == s_spawnedProcesses.end()) {
-            return facebook::jsi::Value(false);
-          }
-          fd = it->second.stdinFd;
-        }
-
-        if (fd < 0) {
-          return facebook::jsi::Value(false);
-        }
-
-        size_t totalWritten = 0;
-        while (totalWritten < data.size()) {
-          ssize_t n = write(fd, data.c_str() + totalWritten, data.size() - totalWritten);
-          if (n < 0) {
-            if (errno == EINTR) continue;
-            return facebook::jsi::Value(false);
-          }
-          totalWritten += static_cast<size_t>(n);
-        }
-        return facebook::jsi::Value(true);
-      });
-  rt.global().setProperty(rt, "__exactSpawnWrite", std::move(spawnWriteFn));
-
-  // __exactSpawnPoll(handle) -> JSON string {"exited":bool,"exitCode":N,"signal":N}
-  // Uses waitpid with WNOHANG for non-blocking check.
-  auto spawnPollFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnPoll"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}"));
-        }
-        int handle = static_cast<int>(args[0].asNumber());
-
-        std::lock_guard<std::mutex> lock(s_spawnMutex);
-        auto it = s_spawnedProcesses.find(handle);
-        if (it == s_spawnedProcesses.end()) {
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":true,\"exitCode\":-1,\"signal\":0}"));
-        }
-
-        auto& proc = it->second;
-        if (proc.exited) {
-          std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc.exitCode)
-              + ",\"signal\":" + std::to_string(proc.exitSignal) + "}";
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, json));
-        }
-
-        int status = 0;
-        pid_t result = waitpid(proc.pid, &status, WNOHANG);
-        if (result == 0) {
-          // Still running
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}"));
-        } else if (result > 0) {
-          // Process exited
-          proc.exited = true;
-          if (WIFEXITED(status)) {
-            proc.exitCode = WEXITSTATUS(status);
-            proc.exitSignal = 0;
-          } else if (WIFSIGNALED(status)) {
-            proc.exitCode = -1;
-            proc.exitSignal = WTERMSIG(status);
-          }
-          std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc.exitCode)
-              + ",\"signal\":" + std::to_string(proc.exitSignal) + "}";
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, json));
-        } else {
-          // waitpid error
-          proc.exited = true;
-          proc.exitCode = -1;
-          std::string json = "{\"exited\":true,\"exitCode\":-1,\"signal\":0}";
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, json));
-        }
-      });
-  rt.global().setProperty(rt, "__exactSpawnPoll", std::move(spawnPollFn));
-
-  // __exactSpawnKill(handle, signal) -> boolean (success)
-  // signal: number (e.g. 15 for SIGTERM, 9 for SIGKILL)
-  auto spawnKillFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnKill"),
-      2,
-      [](facebook::jsi::Runtime& /*runtime*/,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value(false);
-        }
-        int handle = static_cast<int>(args[0].asNumber());
-        int sig = SIGTERM; // default
-        if (count > 1 && args[1].isNumber()) {
-          sig = static_cast<int>(args[1].asNumber());
-        }
-
-        std::lock_guard<std::mutex> lock(s_spawnMutex);
-        auto it = s_spawnedProcesses.find(handle);
-        if (it == s_spawnedProcesses.end()) {
-          return facebook::jsi::Value(false);
-        }
-
-        auto& proc = it->second;
-        if (proc.exited) {
-          return facebook::jsi::Value(false);
-        }
-
-        int killResult = kill(proc.pid, sig);
-        return facebook::jsi::Value(killResult == 0);
-      });
-  rt.global().setProperty(rt, "__exactSpawnKill", std::move(spawnKillFn));
-
-  // __exactSpawnCloseStdin(handle) -> void
-  // Closes the stdin pipe so the child process sees EOF on its stdin.
-  auto spawnCloseStdinFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnCloseStdin"),
-      1,
-      [](facebook::jsi::Runtime& /*runtime*/,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value::undefined();
-        }
-        int handle = static_cast<int>(args[0].asNumber());
-
-        std::lock_guard<std::mutex> lock(s_spawnMutex);
-        auto it = s_spawnedProcesses.find(handle);
-        if (it == s_spawnedProcesses.end()) {
-          return facebook::jsi::Value::undefined();
-        }
-
-        auto& proc = it->second;
-        if (proc.stdinFd >= 0) {
-          close(proc.stdinFd);
-          proc.stdinFd = -1;
+  rt.global().setProperty(rt, "__exactEnsureHttp", std::move(ensureHttpFn));
+
+
+  // Deferred: Sqlite host functions (registered lazily on first use)
+  auto ensureSqliteFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureSqlite"), 0,
+      [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+               const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
+        if (!handle->sqlite_functions_loaded) {
+          handle->sqlite_functions_loaded = true;
+          installSqliteHostFunctions(handle);
         }
         return facebook::jsi::Value::undefined();
       });
-  rt.global().setProperty(rt, "__exactSpawnCloseStdin", std::move(spawnCloseStdinFn));
+  rt.global().setProperty(rt, "__exactEnsureSqlite", std::move(ensureSqliteFn));
 
-  // __exactSpawnDispose(handle) -> boolean (success)
-  // Closes process streams. Exited processes are removed immediately; running
-  // processes are kept for background reaping when they exit.
-  auto spawnDisposeFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnDispose"),
-      1,
-      [&disposeSpawnProcess](facebook::jsi::Runtime& /*runtime*/,
-                             const facebook::jsi::Value&,
-                             const facebook::jsi::Value* args,
-                             size_t count) -> facebook::jsi::Value {
-        if (count < 1 || !args[0].isNumber()) {
-          return facebook::jsi::Value(false);
+
+
+
+  // Deferred: ChildProcess host functions (registered lazily on first use)
+  auto ensureChildProcessFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureChildProcess"), 0,
+      [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+               const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
+        if (!handle->child_process_functions_loaded) {
+          handle->child_process_functions_loaded = true;
+          installChildProcessHostFunctions(handle);
         }
-        int handle = static_cast<int>(args[0].asNumber());
-        return facebook::jsi::Value(disposeSpawnProcess(handle));
+        return facebook::jsi::Value::undefined();
       });
-  rt.global().setProperty(rt, "__exactSpawnDispose", std::move(spawnDisposeFn));
+  rt.global().setProperty(rt, "__exactEnsureChildProcess", std::move(ensureChildProcessFn));
 
-  // __exactWhich(command) -> string path or null
-  // Searches PATH for the given command, similar to the `which` utility.
-  auto whichFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactWhich"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isString()) {
-          return facebook::jsi::Value::null();
-        }
-        auto command = args[0].asString(runtime).utf8(runtime);
-
-        // If command contains a slash, check it directly
-        if (command.find('/') != std::string::npos) {
-          if (access(command.c_str(), X_OK) == 0) {
-            return facebook::jsi::String::createFromUtf8(runtime, command);
-          }
-          return facebook::jsi::Value::null();
-        }
-
-        // Get PATH environment variable
-        const char* pathEnv = getenv("PATH");
-        if (!pathEnv) {
-          return facebook::jsi::Value::null();
-        }
-
-        std::string pathStr(pathEnv);
-        std::string::size_type start = 0;
-        while (start < pathStr.size()) {
-          auto end = pathStr.find(':', start);
-          if (end == std::string::npos) end = pathStr.size();
-
-          std::string dir = pathStr.substr(start, end - start);
-          if (!dir.empty()) {
-            std::string fullPath = dir + "/" + command;
-            if (access(fullPath.c_str(), X_OK) == 0) {
-              // Resolve to real path
-              char resolved[PATH_MAX];
-              if (realpath(fullPath.c_str(), resolved) != nullptr) {
-                return facebook::jsi::String::createFromUtf8(runtime, std::string(resolved));
-              }
-              return facebook::jsi::String::createFromUtf8(runtime, fullPath);
-            }
-          }
-
-          start = end + 1;
-        }
-
-        return facebook::jsi::Value::null();
-      });
-  rt.global().setProperty(rt, "__exactWhich", std::move(whichFn));
 
   // __StringBuffer: native string builder for O(1) amortized append
   // Avoids O(n^2) string concatenation in Hermes (no rope strings)
@@ -11065,487 +11184,19 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // ============================================================
   // TCP Socket host functions for net module
   // ============================================================
-  {
-    static std::unordered_map<int, int> g_tcp_sockets;
-    static int g_tcp_next_handle = 1;
-    static std::mutex g_tcp_mutex;
+  // Deferred: Net host functions (registered lazily on first use)
+  auto ensureNetFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureNet"), 0,
+      [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+               const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
+        if (!handle->net_functions_loaded) {
+          handle->net_functions_loaded = true;
+          installNetHostFunctions(handle);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactEnsureNet", std::move(ensureNetFn));
 
-    // __exactTcpConnect(host, port) -> handle or throws
-    auto tcpConnectFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpConnect"), 2,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
-            throw facebook::jsi::JSError(runtime, "__exactTcpConnect: host (string) and port (number) required");
-          }
-          std::string host = args[0].toString(runtime).utf8(runtime);
-          int port = static_cast<int>(args[1].asNumber());
-          struct addrinfo hints{}, *result = nullptr;
-          hints.ai_family = AF_UNSPEC;
-          hints.ai_socktype = SOCK_STREAM;
-          hints.ai_protocol = IPPROTO_TCP;
-          std::string portStr = std::to_string(port);
-          int gai_err = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
-          if (gai_err != 0) {
-            throw facebook::jsi::JSError(runtime,
-                ("getaddrinfo failed for " + host + ":" + portStr + ": " + gai_strerror(gai_err)).c_str());
-          }
-          int fd = -1;
-          for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
-            fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-            if (fd == -1) continue;
-            if (::connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) break;
-            ::close(fd);
-            fd = -1;
-          }
-          freeaddrinfo(result);
-          if (fd == -1) {
-            throw facebook::jsi::JSError(runtime,
-                ("connect failed for " + host + ":" + portStr + ": " + strerror(errno)).c_str());
-          }
-          int flags = fcntl(fd, F_GETFL, 0);
-          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
-          return facebook::jsi::Value(handle);
-        });
-    rt.global().setProperty(rt, "__exactTcpConnect", std::move(tcpConnectFn));
-
-    // __exactTcpRead(handle, maxBytes) -> string (data), null (EOF), "" (EAGAIN)
-    auto tcpReadFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpRead"), 2,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) {
-            throw facebook::jsi::JSError(runtime, "__exactTcpRead: handle required");
-          }
-          int handle = static_cast<int>(args[0].asNumber());
-          int maxBytes = 65536;
-          if (count > 1 && args[1].isNumber()) {
-            maxBytes = static_cast<int>(args[1].asNumber());
-            if (maxBytes <= 0) maxBytes = 65536;
-          }
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpRead: invalid handle");
-            fd = it->second;
-          }
-          std::vector<char> buf(maxBytes);
-          ssize_t n = ::read(fd, buf.data(), maxBytes);
-          if (n > 0) {
-            return facebook::jsi::String::createFromUtf8(runtime, reinterpret_cast<const uint8_t*>(buf.data()), n);
-          } else if (n == 0) {
-            return facebook::jsi::Value::null();
-          } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-              return facebook::jsi::String::createFromUtf8(runtime, "");
-            }
-            throw facebook::jsi::JSError(runtime, ("__exactTcpRead error: " + std::string(strerror(errno))).c_str());
-          }
-        });
-    rt.global().setProperty(rt, "__exactTcpRead", std::move(tcpReadFn));
-
-    // __exactTcpWrite(handle, data) -> bytes written
-    auto tcpWriteFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpWrite"), 2,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 2 || !args[0].isNumber()) {
-            throw facebook::jsi::JSError(runtime, "__exactTcpWrite: handle and data required");
-          }
-          int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid handle");
-            fd = it->second;
-          }
-          std::string data;
-          if (args[1].isString()) {
-            data = args[1].toString(runtime).utf8(runtime);
-          } else if (args[1].isObject()) {
-            auto obj = args[1].asObject(runtime);
-            if (obj.isArrayBuffer(runtime)) {
-              auto ab = obj.getArrayBuffer(runtime);
-              data.assign(reinterpret_cast<const char*>(ab.data(runtime)), ab.size(runtime));
-            } else {
-              auto bufProp = obj.getProperty(runtime, "buffer");
-              auto byteLenProp = obj.getProperty(runtime, "byteLength");
-              auto byteOffProp = obj.getProperty(runtime, "byteOffset");
-              if (bufProp.isObject() && bufProp.asObject(runtime).isArrayBuffer(runtime)) {
-                auto ab = bufProp.asObject(runtime).getArrayBuffer(runtime);
-                size_t offset = byteOffProp.isNumber() ? static_cast<size_t>(byteOffProp.asNumber()) : 0;
-                size_t len = byteLenProp.isNumber() ? static_cast<size_t>(byteLenProp.asNumber()) : ab.size(runtime) - offset;
-                data.assign(reinterpret_cast<const char*>(ab.data(runtime) + offset), len);
-              } else {
-                data = args[1].toString(runtime).utf8(runtime);
-              }
-            }
-          } else {
-            data = args[1].toString(runtime).utf8(runtime);
-          }
-          ssize_t written = ::write(fd, data.data(), data.size());
-          if (written < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(0);
-            throw facebook::jsi::JSError(runtime, ("__exactTcpWrite error: " + std::string(strerror(errno))).c_str());
-          }
-          return facebook::jsi::Value(static_cast<int>(written));
-        });
-    rt.global().setProperty(rt, "__exactTcpWrite", std::move(tcpWriteFn));
-
-    // __exactTcpClose(handle) -> 0
-    auto tcpCloseFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpClose"), 1,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpClose: handle required");
-          int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
-            fd = it->second;
-            g_tcp_sockets.erase(it);
-          }
-          ::close(fd);
-          return facebook::jsi::Value(0);
-        });
-    rt.global().setProperty(rt, "__exactTcpClose", std::move(tcpCloseFn));
-
-    // __exactTcpSetNoDelay(handle, enable) -> 0
-    auto tcpSetNoDelayFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetNoDelay"), 2,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetNoDelay: handle required");
-          int handle = static_cast<int>(args[0].asNumber());
-          int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
-            fd = it->second;
-          }
-          int flag = enable ? 1 : 0;
-          setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-          return facebook::jsi::Value(0);
-        });
-    rt.global().setProperty(rt, "__exactTcpSetNoDelay", std::move(tcpSetNoDelayFn));
-
-    // __exactTcpSetKeepAlive(handle, enable) -> 0
-    auto tcpSetKeepAliveFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetKeepAlive"), 2,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetKeepAlive: handle required");
-          int handle = static_cast<int>(args[0].asNumber());
-          int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
-            fd = it->second;
-          }
-          int flag = enable ? 1 : 0;
-          setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
-          return facebook::jsi::Value(0);
-        });
-    rt.global().setProperty(rt, "__exactTcpSetKeepAlive", std::move(tcpSetKeepAliveFn));
-
-    // __exactTcpListen(host, port, backlog) -> handle or throws
-    auto tcpListenFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 3,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          std::string host = "0.0.0.0";
-          if (count > 0 && args[0].isString()) host = args[0].toString(runtime).utf8(runtime);
-          int port = 0;
-          if (count > 1 && args[1].isNumber()) port = static_cast<int>(args[1].asNumber());
-          int backlog = 128;
-          if (count > 2 && args[2].isNumber()) backlog = static_cast<int>(args[2].asNumber());
-          struct addrinfo hints{}, *result = nullptr;
-          hints.ai_family = AF_INET;
-          hints.ai_socktype = SOCK_STREAM;
-          hints.ai_protocol = IPPROTO_TCP;
-          hints.ai_flags = AI_PASSIVE;
-          std::string portStr = std::to_string(port);
-          const char* nodeStr = host == "0.0.0.0" ? nullptr : host.c_str();
-          int gai_err = getaddrinfo(nodeStr, portStr.c_str(), &hints, &result);
-          if (gai_err != 0) {
-            throw facebook::jsi::JSError(runtime, ("getaddrinfo failed: " + std::string(gai_strerror(gai_err))).c_str());
-          }
-          int fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-          if (fd == -1) {
-            freeaddrinfo(result);
-            throw facebook::jsi::JSError(runtime, ("socket() failed: " + std::string(strerror(errno))).c_str());
-          }
-          int reuse = 1;
-          setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-          if (::bind(fd, result->ai_addr, result->ai_addrlen) == -1) {
-            freeaddrinfo(result);
-            ::close(fd);
-            throw facebook::jsi::JSError(runtime, ("bind() failed: " + std::string(strerror(errno))).c_str());
-          }
-          freeaddrinfo(result);
-          if (::listen(fd, backlog) == -1) {
-            ::close(fd);
-            throw facebook::jsi::JSError(runtime, ("listen() failed: " + std::string(strerror(errno))).c_str());
-          }
-          int flags = fcntl(fd, F_GETFL, 0);
-          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
-          return facebook::jsi::Value(handle);
-        });
-    rt.global().setProperty(rt, "__exactTcpListen", std::move(tcpListenFn));
-
-    // __exactTcpAccept(handle) -> new handle or -1 (EAGAIN)
-    auto tcpAcceptFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpAccept"), 1,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpAccept: handle required");
-          int handle = static_cast<int>(args[0].asNumber());
-          int listenFd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpAccept: invalid handle");
-            listenFd = it->second;
-          }
-          struct sockaddr_storage clientAddr;
-          socklen_t clientLen = sizeof(clientAddr);
-          int clientFd = ::accept(listenFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
-          if (clientFd == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(-1);
-            throw facebook::jsi::JSError(runtime, ("__exactTcpAccept error: " + std::string(strerror(errno))).c_str());
-          }
-          int flags = fcntl(clientFd, F_GETFL, 0);
-          if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
-          int newHandle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            newHandle = g_tcp_next_handle++;
-            g_tcp_sockets[newHandle] = clientFd;
-          }
-          return facebook::jsi::Value(newHandle);
-        });
-    rt.global().setProperty(rt, "__exactTcpAccept", std::move(tcpAcceptFn));
-
-    // __exactTcpLocalAddr(handle) -> JSON string or null
-    auto tcpLocalAddrFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpLocalAddr"), 1,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
-          int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
-            fd = it->second;
-          }
-          struct sockaddr_storage addr;
-          socklen_t addrLen = sizeof(addr);
-          if (getsockname(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1) return facebook::jsi::Value::null();
-          char ipStr[INET6_ADDRSTRLEN]; int port = 0; std::string family;
-          if (addr.ss_family == AF_INET) {
-            auto* sa = reinterpret_cast<struct sockaddr_in*>(&addr);
-            inet_ntop(AF_INET, &sa->sin_addr, ipStr, sizeof(ipStr));
-            port = ntohs(sa->sin_port); family = "IPv4";
-          } else if (addr.ss_family == AF_INET6) {
-            auto* sa = reinterpret_cast<struct sockaddr_in6*>(&addr);
-            inet_ntop(AF_INET6, &sa->sin6_addr, ipStr, sizeof(ipStr));
-            port = ntohs(sa->sin6_port); family = "IPv6";
-          } else { return facebook::jsi::Value::null(); }
-          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(port) + ",\"family\":\"" + family + "\"}";
-          return facebook::jsi::String::createFromUtf8(runtime, json);
-        });
-    rt.global().setProperty(rt, "__exactTcpLocalAddr", std::move(tcpLocalAddrFn));
-
-    // __exactTcpRemoteAddr(handle) -> JSON string or null
-    auto tcpRemoteAddrFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpRemoteAddr"), 1,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
-          int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
-            fd = it->second;
-          }
-          struct sockaddr_storage addr;
-          socklen_t addrLen = sizeof(addr);
-          if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1) return facebook::jsi::Value::null();
-          char ipStr[INET6_ADDRSTRLEN]; int port = 0; std::string family;
-          if (addr.ss_family == AF_INET) {
-            auto* sa = reinterpret_cast<struct sockaddr_in*>(&addr);
-            inet_ntop(AF_INET, &sa->sin_addr, ipStr, sizeof(ipStr));
-            port = ntohs(sa->sin_port); family = "IPv4";
-          } else if (addr.ss_family == AF_INET6) {
-            auto* sa = reinterpret_cast<struct sockaddr_in6*>(&addr);
-            inet_ntop(AF_INET6, &sa->sin6_addr, ipStr, sizeof(ipStr));
-            port = ntohs(sa->sin6_port); family = "IPv6";
-          } else { return facebook::jsi::Value::null(); }
-          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(port) + ",\"family\":\"" + family + "\"}";
-          return facebook::jsi::String::createFromUtf8(runtime, json);
-        });
-    rt.global().setProperty(rt, "__exactTcpRemoteAddr", std::move(tcpRemoteAddrFn));
-
-    // ============================================================
-    // Unix Domain Socket host functions
-    // Reuses g_tcp_sockets/g_tcp_next_handle/g_tcp_mutex so that
-    // __exactTcpRead, __exactTcpWrite, __exactTcpClose work on
-    // Unix socket fds too (they all use the same fd-based I/O).
-    // ============================================================
-
-    // __exactUnixConnect(path) -> handle or throws
-    auto unixConnectFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixConnect"), 1,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isString()) {
-            throw facebook::jsi::JSError(runtime, "__exactUnixConnect: path (string) required");
-          }
-          std::string path = args[0].toString(runtime).utf8(runtime);
-          if (path.size() >= sizeof(((struct sockaddr_un*)0)->sun_path)) {
-            throw facebook::jsi::JSError(runtime, "__exactUnixConnect: path too long");
-          }
-          int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-          if (fd == -1) {
-            throw facebook::jsi::JSError(runtime,
-                ("socket(AF_UNIX) failed: " + std::string(strerror(errno))).c_str());
-          }
-          struct sockaddr_un addr;
-          memset(&addr, 0, sizeof(addr));
-          addr.sun_family = AF_UNIX;
-          strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
-          if (::connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
-            int saved_errno = errno;
-            ::close(fd);
-            throw facebook::jsi::JSError(runtime,
-                ("connect(AF_UNIX) failed for " + path + ": " + strerror(saved_errno)).c_str());
-          }
-          int flags = fcntl(fd, F_GETFL, 0);
-          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
-          return facebook::jsi::Value(handle);
-        });
-    rt.global().setProperty(rt, "__exactUnixConnect", std::move(unixConnectFn));
-
-    // __exactUnixListen(path, backlog) -> handle or throws
-    auto unixListenFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixListen"), 2,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isString()) {
-            throw facebook::jsi::JSError(runtime, "__exactUnixListen: path (string) required");
-          }
-          std::string path = args[0].toString(runtime).utf8(runtime);
-          if (path.size() >= sizeof(((struct sockaddr_un*)0)->sun_path)) {
-            throw facebook::jsi::JSError(runtime, "__exactUnixListen: path too long");
-          }
-          int backlog = 128;
-          if (count > 1 && args[1].isNumber()) backlog = static_cast<int>(args[1].asNumber());
-          // Unlink existing socket file (common pattern for Unix sockets)
-          ::unlink(path.c_str());
-          int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-          if (fd == -1) {
-            throw facebook::jsi::JSError(runtime,
-                ("socket(AF_UNIX) failed: " + std::string(strerror(errno))).c_str());
-          }
-          struct sockaddr_un addr;
-          memset(&addr, 0, sizeof(addr));
-          addr.sun_family = AF_UNIX;
-          strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
-          if (::bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
-            int saved_errno = errno;
-            ::close(fd);
-            throw facebook::jsi::JSError(runtime,
-                ("bind(AF_UNIX) failed for " + path + ": " + strerror(saved_errno)).c_str());
-          }
-          if (::listen(fd, backlog) == -1) {
-            int saved_errno = errno;
-            ::close(fd);
-            ::unlink(path.c_str());
-            throw facebook::jsi::JSError(runtime,
-                ("listen(AF_UNIX) failed: " + std::string(strerror(saved_errno))).c_str());
-          }
-          int flags = fcntl(fd, F_GETFL, 0);
-          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
-          return facebook::jsi::Value(handle);
-        });
-    rt.global().setProperty(rt, "__exactUnixListen", std::move(unixListenFn));
-
-    // __exactUnixAccept(handle) -> new handle or -1 (EAGAIN)
-    // Identical to __exactTcpAccept but kept separate for clarity
-    auto unixAcceptFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixAccept"), 1,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) {
-            throw facebook::jsi::JSError(runtime, "__exactUnixAccept: handle required");
-          }
-          int handle = static_cast<int>(args[0].asNumber());
-          int listenFd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) {
-              throw facebook::jsi::JSError(runtime, "__exactUnixAccept: invalid handle");
-            }
-            listenFd = it->second;
-          }
-          struct sockaddr_un clientAddr;
-          socklen_t clientLen = sizeof(clientAddr);
-          int clientFd = ::accept(listenFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
-          if (clientFd == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(-1);
-            throw facebook::jsi::JSError(runtime,
-                ("__exactUnixAccept error: " + std::string(strerror(errno))).c_str());
-          }
-          int flags = fcntl(clientFd, F_GETFL, 0);
-          if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
-          int newHandle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            newHandle = g_tcp_next_handle++;
-            g_tcp_sockets[newHandle] = clientFd;
-          }
-          return facebook::jsi::Value(newHandle);
-        });
-    rt.global().setProperty(rt, "__exactUnixAccept", std::move(unixAcceptFn));
-
-  } // end TCP + Unix socket host functions
 
   installModuleLoader(handle);
 
@@ -11800,6 +11451,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   }
 
   function ExactFile(path, opts) {
+    if (typeof __exactEnsureFs === 'function') { __exactEnsureFs(); }
     this.name = path;
     this.type = (opts && opts.type) || mimeType(path);
   }
@@ -11887,6 +11539,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   E.platform = 'cli';
   E.file = function(path, opts) { return new ExactFile(path, opts); };
   E.write = function(dest, data) {
+    if (typeof __exactEnsureFs === 'function') { __exactEnsureFs(); }
     var path = typeof dest === 'string' ? dest : dest.name;
     var b = toBytes(data);
     return Promise.resolve().then(function() { g.__exactWriteFile(path, b); return b.length; });
@@ -12417,6 +12070,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var port = options.port || 3000;
     var hostname = options.hostname || '0.0.0.0';
 
+    if (typeof __exactEnsureHttp === 'function') { __exactEnsureHttp(); }
     if (typeof __exactHttpServe !== 'function') {
       throw new Error('HTTP server not available in this environment');
     }

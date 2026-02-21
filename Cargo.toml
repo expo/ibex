@@ -62,7 +62,14 @@ cc = "1.0"
 tempfile = "3"
 
 [profile.release]
-lto = true
-codegen-units = 1
-opt-level = "z"
-strip = true
+opt-level = 3          # Maximum optimization for runtime speed
+lto = "thin"           # Thin LTO for good optimization with reasonable build times
+codegen-units = 1      # Single codegen unit for better optimization
+strip = true           # Strip debug symbols from binary
+panic = "abort"        # Smaller binary, no unwinding tables
+
+[profile.release-fast]
+inherits = "release"
+lto = false            # Skip LTO for faster compile times
+codegen-units = 16     # Parallel codegen for faster builds
+strip = false          # Keep debug symbols for profiling
