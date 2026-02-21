@@ -52,6 +52,9 @@ default = []
 # The CLI provides its own tokio-based version.
 cli-notify = []
 
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+openssl-sys = { version = "0.9", features = ["vendored"] }
+
 [build-dependencies]
 cc = "1.0"
 

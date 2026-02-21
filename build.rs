@@ -40,33 +40,14 @@ fn main() {
     // Platform-specific includes and defines
     match target_os.as_str() {
         "macos" => {
-            // OpenSSL include path for Ed25519/X25519/ECDSA operations
-            let openssl_paths = [
-                "/opt/homebrew/opt/openssl/include",
-                "/opt/homebrew/opt/openssl@3/include",
-                "/usr/local/opt/openssl/include",
-                "/usr/local/opt/openssl@3/include",
-            ];
-            for path in &openssl_paths {
-                if std::path::Path::new(path).exists() {
-                    build.include(path);
-                    break;
-                }
+            // OpenSSL include path from vendored openssl-sys crate
+            if let Ok(openssl_include) = std::env::var("DEP_OPENSSL_INCLUDE") {
+                build.include(&openssl_include);
             }
 
-            // Brotli include path
-            let brotli_include_paths = [
-                "/opt/homebrew/opt/brotli/include",
-                "/opt/homebrew/include",
-                "/usr/local/opt/brotli/include",
-                "/usr/local/include",
-            ];
-            for path in &brotli_include_paths {
-                if std::path::Path::new(path).join("brotli").join("encode.h").exists() {
-                    build.include(path);
-                    break;
-                }
-            }
+            // Brotli include path from vendored source
+            let brotli_include = manifest_dir.join("vendor").join("brotli").join("include");
+            build.include(&brotli_include);
         }
         "ios" => {
             // On iOS, CommonCrypto is available via the SDK (no OpenSSL needed)
@@ -142,40 +123,35 @@ fn main() {
         println!("cargo:rustc-link-lib=z");
 
         if target_os == "macos" {
-            // Link OpenSSL on macOS
-            let openssl_lib_paths = [
-                "/opt/homebrew/opt/openssl/lib",
-                "/opt/homebrew/opt/openssl@3/lib",
-                "/usr/local/opt/openssl/lib",
-                "/usr/local/opt/openssl@3/lib",
-            ];
-            for path in &openssl_lib_paths {
-                if std::path::Path::new(path).exists() {
-                    println!("cargo:rustc-link-search=native={}", path);
-                    break;
-                }
+            // Link vendored OpenSSL (compiled by openssl-sys crate)
+            // We must emit link directives here to ensure correct link order,
+            // since hermes_runtime.cc references OpenSSL symbols directly.
+            if let Ok(lib_dir) = std::env::var("DEP_OPENSSL_LIB_DIR") {
+                println!("cargo:rustc-link-search=native={}", lib_dir);
             }
-            println!("cargo:rustc-link-lib=ssl");
-            println!("cargo:rustc-link-lib=crypto");
+            println!("cargo:rustc-link-lib=static=ssl");
+            println!("cargo:rustc-link-lib=static=crypto");
             // Link libresolv for DNS res_query()
             println!("cargo:rustc-link-lib=resolv");
 
-            // Link Brotli
-            let brotli_lib_paths = [
-                "/opt/homebrew/opt/brotli/lib",
-                "/opt/homebrew/lib",
-                "/usr/local/opt/brotli/lib",
-                "/usr/local/lib",
-            ];
-            for path in &brotli_lib_paths {
-                if std::path::Path::new(path).join("libbrotlienc.a").exists() {
-                    println!("cargo:rustc-link-search=native={}", path);
-                    break;
+            // Compile vendored Brotli from source
+            let brotli_dir = manifest_dir.join("vendor").join("brotli");
+            let mut brotli_build = cc::Build::new();
+            brotli_build
+                .include(brotli_dir.join("include"))
+                .flag("-mmacosx-version-min=14.0");
+
+            // Add all brotli C sources
+            for subdir in &["common", "dec", "enc"] {
+                let dir = brotli_dir.join(subdir);
+                for entry in std::fs::read_dir(&dir).unwrap() {
+                    let path = entry.unwrap().path();
+                    if path.extension().map_or(false, |e| e == "c") {
+                        brotli_build.file(&path);
+                    }
                 }
             }
-            println!("cargo:rustc-link-lib=brotlienc");
-            println!("cargo:rustc-link-lib=brotlidec");
-            println!("cargo:rustc-link-lib=brotlicommon");
+            brotli_build.compile("brotli");
         }
 
         if target_os == "ios" {
