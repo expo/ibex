@@ -146,6 +146,15 @@ static void signal_handler(int sig) {
   g_pending_signal.store(sig, std::memory_order_relaxed);
 }
 
+static bool startup_trace_enabled() {
+  static int cached = -1;
+  if (cached < 0) {
+    const char* val = std::getenv("EX_STARTUP_TRACE");
+    cached = (val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y')) ? 1 : 0;
+  }
+  return cached == 1;
+}
+
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
@@ -1655,6 +1664,7 @@ void installModuleLoader(ExactHermesRuntime* handle) {
 })();
 )JS";
 
+  auto _t0 = std::chrono::steady_clock::now();
   try {
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
     try {
@@ -1674,8 +1684,15 @@ void installModuleLoader(ExactHermesRuntime* handle) {
   } catch (const std::exception& err) {
     ex_host_console_log(1, err.what());
   }
+  if (startup_trace_enabled()) {
+    auto _el = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - _t0).count();
+    fprintf(stderr, "[startup]   %-28s %6lld us (%5.1f ms)\n",
+            "module_loader", (long long)_el, _el / 1000.0);
+  }
 
   // Expose common globals from modules (Buffer, URL, URLSearchParams, setImmediate, etc.)
+  _t0 = std::chrono::steady_clock::now();
   try {
     std::string globals = R"JS(
 (function() {
@@ -1924,6 +1941,12 @@ void installModuleLoader(ExactHermesRuntime* handle) {
     rt.evaluateJavaScript(globalsBuf, "<bootstrap>");
 #endif
   } catch (...) {}
+  if (startup_trace_enabled()) {
+    auto _el = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - _t0).count();
+    fprintf(stderr, "[startup]   %-28s %6lld us (%5.1f ms)\n",
+            "bootstrap_globals", (long long)_el, _el / 1000.0);
+  }
 }
 
 // Native StringBuffer for O(1) amortized string append (avoids O(n^2) JS string concatenation)
@@ -2118,6 +2141,19 @@ void ensureFormData(ExactHermesRuntime* handle) {
 #endif // HAS_PRECOMPILED_BOOTSTRAP
 
 void installGlobals(struct ExactHermesRuntime* handle) {
+  bool _tracing = startup_trace_enabled();
+  auto _t_now = std::chrono::steady_clock::now();
+  auto _t_console_enhance = _t_now;
+  auto _t_host_functions = _t_now;
+  auto _t_compat_polyfills = _t_now;
+  auto _t_exact_global = _t_now;
+  #define IG_TRACE_START(n) _t_##n = std::chrono::steady_clock::now()
+  #define IG_TRACE_END(n) if (_tracing) { \
+    auto _el = std::chrono::duration_cast<std::chrono::microseconds>( \
+        std::chrono::steady_clock::now() - _t_##n).count(); \
+    fprintf(stderr, "[startup]   %-28s %6lld us (%5.1f ms)\n", \
+            #n, (long long)_el, _el / 1000.0); }
+
   auto& rt = *handle->runtime;
   auto printFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -2151,6 +2187,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "console", std::move(console));
 
   // Enhance console with time/count/group/table/assert/clear via JS
+  IG_TRACE_START(console_enhance);
   try {
     std::string consoleEnhance = R"JS(
 (function() {
@@ -2242,7 +2279,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     rt.evaluateJavaScript(enhBuf, "<console>");
 #endif
   } catch (...) {}
+  IG_TRACE_END(console_enhance);
 
+  IG_TRACE_START(host_functions);
   auto setTimeoutFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "setTimeout"),
@@ -11005,8 +11044,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     } catch (...) {}
   }
 #endif // HAS_PRECOMPILED_BOOTSTRAP
+  IG_TRACE_END(host_functions);
 
   // Compatibility polyfills for modern ECMAScript APIs used by npm modules.
+  IG_TRACE_START(compat_polyfills);
   {
     static const char* compatibilityPolyfillsJS = R"JS(
 (function() {
@@ -11096,8 +11137,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.what()).c_str());
     }
   }
+  IG_TRACE_END(compat_polyfills);
 
   // Install Exact global (with Bun alias) including Exact.file() and Exact.write()
+  IG_TRACE_START(exact_global);
   static const char* exactGlobalJS = R"JS(
 (function() {
   var g = globalThis;
@@ -12100,6 +12143,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   } catch (const std::exception& err) {
     ex_host_console_log(1, err.what());
   }
+  IG_TRACE_END(exact_global);
 }
 
 void runNextTickQueue(ExactHermesRuntime* runtime) {
@@ -12137,18 +12181,38 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
 
 } // namespace
 
+#define TRACE_START(name) \
+  auto _trace_##name = std::chrono::steady_clock::now()
+#define TRACE_END(name) \
+  if (startup_trace_enabled()) { \
+    auto _elapsed = std::chrono::duration_cast<std::chrono::microseconds>( \
+        std::chrono::steady_clock::now() - _trace_##name).count(); \
+    fprintf(stderr, "[startup] %-30s %6lld us (%5.1f ms)\n", \
+            #name, (long long)_elapsed, _elapsed / 1000.0); \
+  }
+
 extern "C" ExactHermesRuntime* ex_hermes_create() {
+  TRACE_START(total);
+  TRACE_START(hermes_config);
   auto config = ::hermes::vm::RuntimeConfig::Builder()
                     .withMicrotaskQueue(true)
                     .withEnableEval(true)  // Required for debugger eval
                     .build();
+  TRACE_END(hermes_config);
+
+  TRACE_START(hermes_init);
   auto runtime = facebook::hermes::makeHermesRuntime(config);
+  TRACE_END(hermes_init);
   if (!runtime) {
     return nullptr;
   }
+  TRACE_START(handle_alloc);
   auto handle = new ExactHermesRuntime();
   handle->runtime = std::move(runtime);
   handle->runtime_thread = std::this_thread::get_id();
+  TRACE_END(handle_alloc);
+
+  TRACE_START(debugger_init);
 #if defined(HERMES_ENABLE_DEBUGGER)
   try {
     handle->debugger = std::make_unique<facebook::hermes::debugger::AsyncDebuggerAPI>(*handle->runtime);
@@ -12170,7 +12234,13 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   handle->debugger.reset();
   handle->debugger_available.store(false);
 #endif
+  TRACE_END(debugger_init);
+
+  TRACE_START(install_globals);
   installGlobals(handle);
+  TRACE_END(install_globals);
+
+  TRACE_END(total);
   return handle;
 }
 
