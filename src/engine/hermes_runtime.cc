@@ -8,6 +8,7 @@
 #include <hermes/AsyncDebuggerAPI.h>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
+#include <jsi/instrumentation.h>
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
@@ -12738,10 +12739,7 @@ extern "C" int ex_hermes_emit_module_event(
 
 extern "C" void ex_hermes_gc(ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime) return;
-  // GC is automatic in Hermes. The instrumentation().collectGarbage() API
-  // requires headers not included in the public Hermes distribution.
-  // This is a no-op; Hermes will collect garbage automatically.
-  (void)runtime;
+  runtime->runtime->instrumentation().collectGarbage("ex_hermes_gc");
 }
 
 // =============================================================================
