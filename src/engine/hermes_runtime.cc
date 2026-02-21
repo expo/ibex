@@ -925,8 +925,10 @@ static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType it
 #endif // !EXACT_PLATFORM_IOS
 #endif
 
-#if !defined(__APPLE__) || !defined(EXACT_NO_OPENSSL)
-const EVP_MD* selectDigestForCryptoAlgo(const std::string& algorithm) {
+// These helpers are only used by the non-Apple (Linux/OpenSSL) sign/verify path.
+// On Apple, sign/verify uses Security.framework directly.
+#if !defined(__APPLE__) && !defined(EXACT_NO_OPENSSL)
+static const EVP_MD* selectDigestForCryptoAlgo(const std::string& algorithm) {
   if (algorithm == "sha1" || algorithm == "sha-1") return EVP_sha1();
   if (algorithm == "sha256" || algorithm == "sha-256") return EVP_sha256();
   if (algorithm == "sha384" || algorithm == "sha-384") return EVP_sha384();
@@ -935,7 +937,7 @@ const EVP_MD* selectDigestForCryptoAlgo(const std::string& algorithm) {
   return nullptr;
 }
 
-std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
+static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
   auto lowered = algorithm;
   for (auto& ch : lowered) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));

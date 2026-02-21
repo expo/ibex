@@ -14,7 +14,6 @@ use std::process::Command;
 use std::time::SystemTime;
 use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
 use serde_json::Value;
-use which::which;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
@@ -4195,6 +4194,7 @@ module.exports = util;
     .to_string()
 }
 
+#[allow(dead_code)]
 pub(crate) fn node_timers_module() -> String {
     r#"
 function setTimeout$1(callback, delay) {

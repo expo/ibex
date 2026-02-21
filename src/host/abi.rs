@@ -79,6 +79,7 @@ const SQLITE_OPEN_READWRITE: u64 = 0x00000002;
 const SQLITE_OPEN_CREATE: u64 = 0x00000004;
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct SqliteOpenOptions {
     readonly: bool,
     create: bool,
