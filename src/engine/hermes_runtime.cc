@@ -1929,6 +1929,54 @@ public:
   }
 };
 
+// --- Spawn env helpers (used by __exactSpawnSync and __exactSpawn) ---
+
+static std::string s_parseEnvJsonStr(const std::string& value, size_t& pos) {
+  std::string out;
+  if (pos >= value.size() || value[pos] != '"') return out;
+  ++pos;
+  while (pos < value.size()) {
+    char ch = value[pos++];
+    if (ch == '\\' && pos < value.size()) {
+      char escaped = value[pos++];
+      if (escaped == 'n') out.push_back('\n');
+      else if (escaped == 't') out.push_back('\t');
+      else if (escaped == 'r') out.push_back('\r');
+      else if (escaped == '"') out.push_back('"');
+      else if (escaped == '\\') out.push_back('\\');
+      else if (escaped == '/') out.push_back('/');
+      else out.push_back(escaped);
+      continue;
+    }
+    if (ch == '"') break;
+    out.push_back(ch);
+  }
+  return out;
+}
+
+static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) {
+  std::vector<std::string> envVec;
+  auto envPos = optsJson.find("\"env\":{");
+  if (envPos == std::string::npos) return envVec;
+  size_t pos = envPos + 7;
+  while (pos < optsJson.size()) {
+    while (pos < optsJson.size() && (optsJson[pos] == ' ' || optsJson[pos] == ',' ||
+           optsJson[pos] == '\n' || optsJson[pos] == '\r' || optsJson[pos] == '\t')) pos++;
+    if (pos >= optsJson.size() || optsJson[pos] == '}') break;
+    if (optsJson[pos] != '"') break;
+    auto key = s_parseEnvJsonStr(optsJson, pos);
+    while (pos < optsJson.size() && (optsJson[pos] == ':' || optsJson[pos] == ' ')) pos++;
+    if (pos >= optsJson.size()) break;
+    if (optsJson[pos] == '"') {
+      auto val = s_parseEnvJsonStr(optsJson, pos);
+      envVec.push_back(key + "=" + val);
+    } else {
+      while (pos < optsJson.size() && optsJson[pos] != ',' && optsJson[pos] != '}') pos++;
+    }
+  }
+  return envVec;
+}
+
 void installGlobals(struct ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   auto printFn = facebook::jsi::Function::createFromHostFunction(
@@ -9316,6 +9364,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactExecSync", std::move(execSyncFn));
 
+  // Env helpers defined as static functions above (s_parseEnvJsonStr, s_parseEnvFromOpts)
+
   // __exactSpawnSync(file, argsJSON, optionsJSON) -> JSON string { stdout, stderr, status, pid, error }
   // Spawns a process synchronously using fork/exec and returns result.
   auto spawnSyncFn = facebook::jsi::Function::createFromHostFunction(
@@ -9372,6 +9422,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         bool useShell = false;
         uint32_t timeout_ms = 0;
         uint32_t max_buffer = 1024 * 1024;
+        std::vector<std::string> envEntries;
 
         if (count > 2 && args[2].isString()) {
           auto optsJson = args[2].toString(runtime).utf8(runtime);
@@ -9400,6 +9451,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             auto start = maxBufPos + 12;
             max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
           }
+          envEntries = s_parseEnvFromOpts(optsJson);
         }
 
         // JSON escape helper
@@ -9450,6 +9502,21 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           dup2(stderrPipe[1], STDERR_FILENO);
           close(stdoutPipe[1]);
           close(stderrPipe[1]);
+
+          // Build envp array (must outlive execvp call)
+          std::vector<char*> envp;
+          if (!envEntries.empty()) {
+            envp.reserve(envEntries.size() + 1);
+            for (auto& e : envEntries) {
+              envp.push_back(const_cast<char*>(e.c_str()));
+            }
+            envp.push_back(nullptr);
+#if defined(__APPLE__)
+            *_NSGetEnviron() = envp.data();
+#else
+            environ = envp.data();
+#endif
+          }
 
           if (!cwd.empty()) {
             if (chdir(cwd.c_str()) != 0) {
@@ -9611,6 +9678,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         std::string cwd;
         bool useShell = false;
         std::string stdioModes[3] = {"pipe", "pipe", "pipe"};
+        std::vector<std::string> envEntries;
 
         auto skipJsonWhitespace = [](const std::string& value, size_t& pos) {
           while (pos < value.size()) {
@@ -9709,6 +9777,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               }
             }
           }
+          envEntries = s_parseEnvFromOpts(optsJson);
         }
 
         const bool stdinPipeRequested = stdioModes[0] == "pipe";
@@ -9804,6 +9873,21 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           if (!stderrPipeRequested) {
             if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
             if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          }
+
+          // Build envp array (must outlive execvp call)
+          std::vector<char*> envp;
+          if (!envEntries.empty()) {
+            envp.reserve(envEntries.size() + 1);
+            for (auto& e : envEntries) {
+              envp.push_back(const_cast<char*>(e.c_str()));
+            }
+            envp.push_back(nullptr);
+#if defined(__APPLE__)
+            *_NSGetEnviron() = envp.data();
+#else
+            environ = envp.data();
+#endif
           }
 
           if (!cwd.empty()) {
