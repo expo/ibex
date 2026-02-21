@@ -12749,26 +12749,29 @@ extern "C" void ex_hermes_gc(ExactHermesRuntime* runtime) {
 // The CLI provides real implementations via tokio; on iOS these are no-ops.
 // =============================================================================
 
-#if defined(EXACT_PLATFORM_IOS)
+// Weak stubs for HTTP server functions. The CLI provides real implementations
+// via tokio (http_server.rs). In standalone/Xcode builds (iOS, macOS app),
+// these no-op stubs are used instead. The __attribute__((weak)) ensures the
+// CLI's strong symbols override these when both are linked.
+#define WEAK_STUB __attribute__((weak))
 
-// Stubs must match the forward declarations exactly (lines 163-210)
-extern "C" char* ex_host_http_serve(uint16_t, const char*) { return nullptr; }
-extern "C" char* ex_host_http_wait(uint32_t, uint32_t) { return nullptr; }
-extern "C" char* ex_host_http_read_body(uint32_t, uint32_t) { return nullptr; }
-extern "C" int32_t ex_host_http_respond(uint32_t, uint32_t, uint16_t, const char*, const uint8_t*, uint32_t) { return -1; }
-extern "C" int32_t ex_host_http_respond_text(uint32_t, uint32_t, uint16_t, const uint8_t*, uint32_t) { return -1; }
-extern "C" int32_t ex_host_http_respond_json(uint32_t, uint32_t, uint16_t, const uint8_t*, uint32_t) { return -1; }
-extern "C" int32_t ex_host_http_respond_stream(uint32_t, uint32_t, uint16_t, const char*) { return -1; }
-extern "C" int32_t ex_host_http_respond_chunk(uint32_t, uint32_t, const uint8_t*, uint32_t) { return -1; }
-extern "C" int32_t ex_host_http_respond_end(uint32_t, uint32_t) { return -1; }
-extern "C" int32_t ex_host_http_respond_string(uint32_t, uint32_t, uint16_t, const char*, const uint8_t*, uint32_t) { return -1; }
-extern "C" char* ex_host_http_address(uint32_t) { return nullptr; }
-extern "C" char* ex_host_http_poll(uint32_t) { return nullptr; }
-extern "C" char* ex_host_http_drain(uint32_t, uint32_t) { return nullptr; }
-extern "C" int32_t ex_host_http_close(uint32_t, int32_t) { return -1; }
-extern "C" int32_t ex_host_http_is_referenced(uint32_t) { return 0; }
-extern "C" int32_t ex_host_http_has_referenced(void) { return 0; }
-extern "C" int32_t ex_host_http_has_pending_requests(void) { return 0; }
-extern "C" void ex_host_http_set_ref(uint32_t, int32_t) {}
+extern "C" WEAK_STUB char* ex_host_http_serve(uint16_t, const char*) { return nullptr; }
+extern "C" WEAK_STUB char* ex_host_http_wait(uint32_t, uint32_t) { return nullptr; }
+extern "C" WEAK_STUB char* ex_host_http_read_body(uint32_t, uint32_t) { return nullptr; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond(uint32_t, uint32_t, uint16_t, const char*, const uint8_t*, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_text(uint32_t, uint32_t, uint16_t, const uint8_t*, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_json(uint32_t, uint32_t, uint16_t, const uint8_t*, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_stream(uint32_t, uint32_t, uint16_t, const char*) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_chunk(uint32_t, uint32_t, const uint8_t*, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_end(uint32_t, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_string(uint32_t, uint32_t, uint16_t, const char*, const uint8_t*, uint32_t) { return -1; }
+extern "C" WEAK_STUB char* ex_host_http_address(uint32_t) { return nullptr; }
+extern "C" WEAK_STUB char* ex_host_http_poll(uint32_t) { return nullptr; }
+extern "C" WEAK_STUB char* ex_host_http_drain(uint32_t, uint32_t) { return nullptr; }
+extern "C" WEAK_STUB int32_t ex_host_http_close(uint32_t, int32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_is_referenced(uint32_t) { return 0; }
+extern "C" WEAK_STUB int32_t ex_host_http_has_referenced(void) { return 0; }
+extern "C" WEAK_STUB int32_t ex_host_http_has_pending_requests(void) { return 0; }
+extern "C" WEAK_STUB void ex_host_http_set_ref(uint32_t, int32_t) {}
 
-#endif // EXACT_PLATFORM_IOS
+#undef WEAK_STUB
