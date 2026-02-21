@@ -155,11 +155,44 @@ void ex_host_console_log(int32_t level, const char* message);
 int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 
 // =============================================================================
-// Debugger (optional, may not be available on iOS builds)
+// Debugger (requires HERMES_ENABLE_DEBUGGER; functions are no-ops otherwise)
 // =============================================================================
 
 /// Enable the Hermes debugger. Returns non-zero on success.
 int ex_hermes_debugger_enable(ExactHermesRuntime* runtime);
+
+/// Get all loaded scripts as a JSON array string.
+/// Returns malloc'd string: [{"id":N,"url":"..."},...]  Free with ex_hermes_free_string().
+char* ex_hermes_debugger_get_scripts(ExactHermesRuntime* runtime);
+
+/// Get the source code of a script by ID.
+/// Returns malloc'd string. Free with ex_hermes_free_string().
+char* ex_hermes_debugger_get_script_source(ExactHermesRuntime* runtime, uint32_t script_id);
+
+/// Set a breakpoint. Returns malloc'd JSON: {"id":N,"scriptId":N,"line":N,"column":N}
+/// Condition may be NULL. Free with ex_hermes_free_string().
+char* ex_hermes_debugger_set_breakpoint(ExactHermesRuntime* runtime, uint32_t script_id,
+                                         uint32_t line_number, uint32_t column_number,
+                                         const char* condition);
+
+/// Remove a breakpoint by ID.
+void ex_hermes_debugger_remove_breakpoint(ExactHermesRuntime* runtime, uint64_t breakpoint_id);
+
+/// Pause execution.
+void ex_hermes_debugger_pause(ExactHermesRuntime* runtime);
+
+/// Resume execution. command: 0=Continue, 1=StepInto, 2=StepOver, 3=StepOut
+void ex_hermes_debugger_resume(ExactHermesRuntime* runtime, int command);
+
+/// Get the next pending debug event (non-blocking).
+/// Returns malloc'd JSON string, or NULL if no event. Free with ex_hermes_free_string().
+char* ex_hermes_debugger_next_event(ExactHermesRuntime* runtime);
+
+/// Evaluate an expression (optionally on a call frame when paused).
+/// Returns malloc'd JSON: {"result":{...},"exceptionDetails":{...}}
+/// Free with ex_hermes_free_string().
+char* ex_hermes_debugger_eval(ExactHermesRuntime* runtime, const char* expression,
+                               uint32_t frame_index);
 
 // =============================================================================
 // Memory Management

@@ -78,9 +78,12 @@ fn main() {
         _ => {}
     }
 
-    // Debugger support (disabled on iOS by default)
+    // Debugger support (disabled on iOS by default — Hermes xcframework needs matching debugger build)
+    // Set HERMES_ENABLE_DEBUGGER=1 to enable for CDP DevTools support
     let enable_debugger = if target_os == "ios" {
-        false // Debugger adds significant binary size on iOS
+        std::env::var("HERMES_ENABLE_DEBUGGER")
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false)
     } else {
         std::env::var("HERMES_ENABLE_DEBUGGER")
             .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
