@@ -97,6 +97,8 @@ impl ModuleLoader {
         let util_module = node_util_module();
         builtins.insert("node:util".to_string(), util_module.clone());
         builtins.insert("util".to_string(), util_module);
+        builtins.insert("util/types".to_string(), "module.exports = require('util').types;".to_string());
+        builtins.insert("node:util/types".to_string(), "module.exports = require('node:util').types;".to_string());
 
         let timers_module = node_timers_module();
         builtins.insert("node:timers".to_string(), timers_module.clone());

@@ -1,5 +1,118 @@
 (function() {
   var g = globalThis;
+  if (!g.global) {
+    g.global = g;
+  }
+
+  (function installNodeTimerHelpers() {
+    if (typeof g.setTimeout !== 'function' || typeof g.setInterval !== 'function') {
+      return;
+    }
+
+    var nativeSetTimeout = g.setTimeout;
+    var nativeClearTimeout = g.clearTimeout || function() {};
+    var nativeSetInterval = g.setInterval;
+    var nativeClearInterval = g.clearInterval || function() {};
+
+    function createTimeoutObject(handle, clearHandle, schedule, args) {
+      if (handle && typeof handle === 'object' && typeof handle.unref === 'function') {
+        return handle;
+      }
+
+      var timer = {
+        _exactHandle: handle,
+        _clear: clearHandle,
+        _schedule: schedule,
+        _args: args
+      };
+
+      timer.ref = function() { return this; };
+      timer.unref = function() { return this; };
+      timer.hasRef = function() { return false; };
+      timer.refresh = function() {
+        if (typeof this._clear === 'function' && this._exactHandle != null) {
+          this._clear(this._exactHandle);
+        }
+        if (typeof this._schedule === 'function') {
+          this._exactHandle = this._schedule.apply(g, this._args || []);
+        }
+        return this;
+      };
+      timer.close = function() {
+        if (typeof this._clear === 'function' && this._exactHandle != null) {
+          this._clear(this._exactHandle);
+        }
+        return this;
+      };
+      timer.valueOf = function() { return this._exactHandle; };
+      timer.toString = function() {
+        return '[object Timeout]';
+      };
+
+      if (typeof Symbol === 'function' && Symbol.toPrimitive) {
+        timer[Symbol.toPrimitive] = function() { return this._exactHandle; };
+      }
+
+      return timer;
+    }
+
+    function wrapSetTimeout(callback, delay) {
+      var args = [];
+      for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
+      var cb = function() { callback.apply(null, args); };
+      var handle = nativeSetTimeout(cb, delay || 0);
+      return createTimeoutObject(handle, nativeClearTimeout, function() {
+        return nativeSetTimeout(cb, delay || 0);
+      }, [callback, delay]);
+    }
+
+    function wrapSetInterval(callback, delay) {
+      var args = [];
+      for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
+      var cb = function() { callback.apply(null, args); };
+      var handle = nativeSetInterval(cb, delay || 0);
+      return createTimeoutObject(handle, nativeClearInterval, function() {
+        return nativeSetInterval(cb, delay || 0);
+      }, [callback, delay]);
+    }
+
+    g.clearTimeout = function(handle) {
+      if (handle && typeof handle === 'object' && handle._exactHandle != null) {
+        return nativeClearTimeout(handle._exactHandle);
+      }
+      return nativeClearTimeout(handle);
+    };
+
+    g.clearInterval = function(handle) {
+      if (handle && typeof handle === 'object' && handle._exactHandle != null) {
+        return nativeClearInterval(handle._exactHandle);
+      }
+      return nativeClearInterval(handle);
+    };
+
+    if (typeof g.setImmediate === 'function' && typeof g.clearImmediate === 'function') {
+      var nativeSetImmediate = g.setImmediate;
+      var nativeClearImmediate = g.clearImmediate;
+
+      g.setImmediate = function(callback) {
+        var args = [];
+        for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+        var cb = function() { callback.apply(null, args); };
+        var handle = nativeSetImmediate(cb);
+        return createTimeoutObject(handle, nativeClearImmediate, function() { return nativeSetImmediate(cb); }, [callback]);
+      };
+
+      g.clearImmediate = function(handle) {
+        if (handle && typeof handle === 'object' && handle._exactHandle != null) {
+          return nativeClearImmediate(handle._exactHandle);
+        }
+        return nativeClearImmediate(handle);
+      };
+    }
+
+    g.setTimeout = wrapSetTimeout;
+    g.setInterval = wrapSetInterval;
+  })();
 
   (function ensureProcessEventEmitter() {
     var p = g.process;

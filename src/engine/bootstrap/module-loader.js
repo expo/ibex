@@ -34,6 +34,38 @@
     }
     return normalized.slice(0, idx);
   }
+  function resolveModulePath(basePath, relativePath) {
+    if (!relativePath) {
+      return "";
+    }
+    if (/^([A-Za-z]:\\|[A-Za-z]:\/|\/|\\\\|\\)/.test(relativePath)) {
+      return relativePath.replace(/\\/g, "/");
+    }
+    if (relativePath.indexOf("./") === 0 || relativePath.indexOf("../") === 0) {
+      const normalizedBase = dirname(basePath).replace(/\\/g, "/");
+      const normalizedRelative = relativePath.replace(/\\/g, "/");
+      const stack = normalizedBase ? normalizedBase.split("/") : [];
+      const segments = normalizedRelative.split("/");
+      for (var i = 0; i < segments.length; i++) {
+        var part = segments[i];
+        if (!part || part === ".") {
+          continue;
+        }
+        if (part === "..") {
+          if (stack.length) {
+            stack.pop();
+          }
+          continue;
+        }
+        stack.push(part);
+      }
+      return stack.join("/");
+    }
+    return relativePath.replace(/\\/g, "/");
+  }
+  function applyRolldownCjsDirnameBindings(source, bundlePath) {
+    return source;
+  }
   function fixEsmCjsInterop(source) {
     // Patch rolldown's __toCommonJS to return .default with named exports
     // merged, so require('esm-pkg') returns the default export directly.
@@ -146,6 +178,12 @@
       i = j;
     }
     return out.join("\n");
+  }
+  function aliasNodePathGlobals(source) {
+    if (!source || (source.indexOf("__dirname") === -1 && source.indexOf("__filename") === -1)) {
+      return source;
+    }
+    return source.replace(/\b__dirname\b/g, "globalThis.__dirname").replace(/\b__filename\b/g, "globalThis.__filename");
   }
   function transformEsmToCjs(source) {
     if (!source) {
@@ -558,9 +596,20 @@
     const previousModuleId = typeof g.__exactSetActiveModuleId === "function"
       ? g.__exactSetActiveModuleId(module.__exactId)
       : 0;
+    const previousNodeFilename = g.__filename;
+    const previousNodeDirname = g.__dirname;
     try {
-      const directSource = fixForOfScoping(fixEsmCjsInterop(source || "")) + "\n//# sourceURL=" + filename;
+      const directSource =
+        applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename) +
+        "\n//# sourceURL=" + filename;
+      g.__exactDebugModuleSources = (g.__exactDebugModuleSources || []);
+      if (Array.isArray(g.__exactDebugModuleSources)) {
+        g.__exactDebugModuleSources.push({ id: id, filename: filename, source: directSource.slice(0, 2000) });
+      }
+      g.__exactDebugModuleSource = directSource;
       try {
+        g.__filename = filename;
+        g.__dirname = dir;
         const directFn = new Function(
           "require",
           "module",
@@ -579,7 +628,13 @@
         if (!canFallback) {
           throw err;
         }
-        const runtimeSource = fixForOfScoping(transformEsmToCjs(directSource)) + "\n//# sourceURL=" + filename;
+        const runtimeSource =
+          applyRolldownCjsDirnameBindings(fixForOfScoping(transformEsmToCjs(directSource)), filename) +
+            "\n//# sourceURL=" + filename;
+        if (Array.isArray(g.__exactDebugModuleSources)) {
+          g.__exactDebugModuleSources.push({ id: id, filename: filename, source: runtimeSource.slice(0, 2000), fallback: true });
+        }
+        g.__exactDebugModuleSource = runtimeSource;
         const fallbackFn = new Function(
           "require",
           "module",
@@ -588,6 +643,8 @@
           "__dirname",
           runtimeSource
         );
+        g.__filename = filename;
+        g.__dirname = dir;
         fallbackFn(localRequire, module, module.exports, filename, dir);
         if (module.exports && typeof module.exports === "object") {
           module.exports.__esModule = true;
@@ -598,6 +655,16 @@
       delete cache[id];
       throw err;
     } finally {
+      if (typeof previousNodeFilename === "undefined") {
+        delete g.__filename;
+      } else {
+        g.__filename = previousNodeFilename;
+      }
+      if (typeof previousNodeDirname === "undefined") {
+        delete g.__dirname;
+      } else {
+        g.__dirname = previousNodeDirname;
+      }
       restoreModuleId(previousModuleId);
     }
     module.loaded = true;

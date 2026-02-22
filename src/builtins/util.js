@@ -149,6 +149,11 @@ var util = {
   },
   types: {
     isPromise: function(value) { return value instanceof Promise || (value && typeof value.then === "function"); },
+    isModuleNamespaceObject: function(value) {
+      if (value === null || typeof value !== "object") return false;
+      if (typeof Symbol === 'function' && Symbol.toStringTag && value[Symbol.toStringTag] === "Module") return true;
+      return Object.prototype.toString.call(value) === "[object Module]";
+    },
     isAsyncFunction: function(value) { return value && value.constructor && value.constructor.name === "AsyncFunction"; },
     isArrayBufferView: function(value) {
       return value && (typeof ArrayBuffer !== "undefined") && ArrayBuffer.isView(value);
