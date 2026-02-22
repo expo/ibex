@@ -6,6 +6,7 @@
  */
 
 #import <Foundation/Foundation.h>
+#import <CFNetwork/CFNetwork.h>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -80,20 +81,54 @@ extern "C" void native_fetch_perform(
         }
 
         // Use a semaphore to make this synchronous from the caller's perspective
-        // but still use NSURLSession's native networking stack
+        // but still use NSURLSession's native networking stack.
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-
-        __block NSData* responseData = nil;
-        __block NSHTTPURLResponse* httpResponse = nil;
-        __block NSError* responseError = nil;
+        struct FetchResult {
+            int status = 0;
+            std::string status_text;
+            std::string headers;
+            std::string error_text;
+            std::vector<uint8_t> body;
+            bool completed = false;
+        };
+        __block FetchResult result;
 
         NSURLSessionDataTask* task = [getSession() dataTaskWithRequest:request
             completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
-                responseData = data;
-                if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
-                    httpResponse = (NSHTTPURLResponse*)response;
+                result.completed = true;
+                if (error) {
+                    const char* msg = error.localizedDescription.UTF8String;
+                    result.error_text = msg ? msg : "Network error";
+                    dispatch_semaphore_signal(sem);
+                    return;
                 }
-                responseError = error;
+                if (!response || ![response isKindOfClass:[NSHTTPURLResponse class]]) {
+                    result.error_text = "No HTTP response";
+                    dispatch_semaphore_signal(sem);
+                    return;
+                }
+
+                auto* httpResponse = (NSHTTPURLResponse*)response;
+                result.status = (int)httpResponse.statusCode;
+
+                NSString* statusText =
+                    [NSHTTPURLResponse localizedStringForStatusCode:httpResponse.statusCode];
+                if (statusText) {
+                    result.status_text = std::string(statusText.UTF8String);
+                } else {
+                    result.status_text = std::string("Unknown");
+                }
+
+                NSDictionary* responseHeaders = httpResponse.allHeaderFields;
+                for (NSString* key in responseHeaders) {
+                    NSString* value = responseHeaders[key];
+                    result.headers +=
+                        std::string(key.UTF8String) + ": " + std::string(value.UTF8String) + "\r\n";
+                }
+                if (data && data.length > 0) {
+                    result.body.resize((size_t)data.length);
+                    memcpy(result.body.data(), data.bytes, (size_t)data.length);
+                }
                 dispatch_semaphore_signal(sem);
             }];
         [task resume];
@@ -101,38 +136,23 @@ extern "C" void native_fetch_perform(
         // Wait for completion
         dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
 
-        if (responseError) {
-            std::string errorMsg = std::string(responseError.localizedDescription.UTF8String);
-            response_callback(request_id, 0, errorMsg.c_str(), nullptr, nullptr, 0, context);
+        if (!result.completed || result.status == 0) {
+            response_callback(request_id, 0,
+                result.error_text.empty() ? "No HTTP response" : result.error_text.c_str(),
+                nullptr, nullptr, 0, context);
             return;
         }
 
-        if (!httpResponse) {
-            response_callback(request_id, 0, "No HTTP response", nullptr, nullptr, 0, context);
-            return;
-        }
-
-        // Build status text
-        NSString* statusText = [NSHTTPURLResponse localizedStringForStatusCode:httpResponse.statusCode];
-        std::string statusTextStr(statusText.UTF8String);
-
-        // Build headers string in "Key: Value\r\n" format
-        std::string headersStr;
-        NSDictionary* responseHeaders = httpResponse.allHeaderFields;
-        for (NSString* key in responseHeaders) {
-            NSString* value = responseHeaders[key];
-            headersStr += std::string(key.UTF8String) + ": " + std::string(value.UTF8String) + "\r\n";
-        }
-
-        int statusCode = (int)httpResponse.statusCode;
-        const uint8_t* bodyPtr = responseData ? (const uint8_t*)responseData.bytes : nullptr;
-        size_t bodyLen = responseData ? responseData.length : 0;
+        const char* statusText = result.status_text.c_str();
+        const char* headersText = result.headers.empty() ? nullptr : result.headers.c_str();
+        const uint8_t* bodyPtr = result.body.empty() ? nullptr : result.body.data();
+        size_t bodyLen = result.body.size();
 
         response_callback(
             request_id,
-            statusCode,
-            statusTextStr.c_str(),
-            headersStr.empty() ? nullptr : headersStr.c_str(),
+            result.status,
+            statusText,
+            headersText,
             bodyPtr,
             bodyLen,
             context
