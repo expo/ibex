@@ -59,7 +59,8 @@ impl ModuleLoader {
         let node_fs_promises_src = node_fs_promises_module();
         builtins.insert("bun:fs/promises".to_string(), node_fs_promises_src.clone());
         builtins.insert("node:fs/promises".to_string(), node_fs_promises_src.clone());
-        builtins.insert("fs/promises".to_string(), node_fs_promises_src);
+        builtins.insert("fs/promises".to_string(), node_fs_promises_src.clone());
+        builtins.insert("internal/fs/promises".to_string(), node_fs_promises_src.clone());
 
         let path_module = node_path_module();
         builtins.insert("node:path".to_string(), path_module.clone());
