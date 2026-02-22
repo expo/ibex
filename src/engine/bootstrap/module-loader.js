@@ -5,6 +5,92 @@
   var g = globalThis;
   const cache = Object.create(null);
   var mainModule = null;
+  function normalizeSpecifier(specifier) {
+    if (typeof specifier !== 'string') {
+      return String(specifier || '');
+    }
+    var out = specifier.replace(/\\/g, '/');
+    if (out.indexOf('node:') === 0) {
+      out = out.slice(5);
+    }
+    if (out.slice(-3) === '.js') {
+      out = out.slice(0, -3);
+    }
+    return out;
+  }
+  function formatTime(ms) {
+    var t = typeof ms === 'number' ? ms : Number(ms);
+    if (!isFinite(t) || t < 0) {
+      return String(t) + 'ms';
+    }
+    if (t < 1000) {
+      return t.toFixed(3).replace(/\.?0+$/, '') + 'ms';
+    }
+    if (t < 60000) {
+      return (t / 1000).toFixed(3) + 's';
+    }
+    var totalSeconds = Math.floor(t / 1000);
+    var hours = Math.floor(totalSeconds / 3600);
+    var remainingSeconds = totalSeconds % 3600;
+    var minutes = Math.floor(remainingSeconds / 60);
+    var seconds = remainingSeconds % 60;
+    var millis = Math.floor(t % 1000);
+    var secondPart = String(seconds).padStart(2, '0') + '.' + String(millis).padStart(3, '0');
+    if (hours > 0) {
+      return hours + ':' + String(minutes).padStart(2, '0') + ':' + secondPart;
+    }
+    return minutes + ':' + secondPart;
+  }
+  var internalModules = {
+    'internal/util/debuglog': {
+      formatTime: formatTime,
+      debuglog: function() { return function() {}; }
+    },
+    'internal/crypto/util': {
+      getOpenSSLSecLevel: function() { return 0; }
+    },
+    'internal/crypto/x509': {
+      isX509Certificate: function(value) {
+        return !!(value && value.constructor && value.constructor.name === 'X509Certificate');
+      }
+    },
+    'internal/test/binding': {
+      internalBinding: function(name) {
+        if (name === 'crypto') {
+          return {
+            testFipsCrypto: function() {
+              return 0;
+            }
+          };
+        }
+        if (name === 'test' && this && this.test) {
+          return this.test;
+        }
+        return {};
+      }
+    }
+  };
+  function loadInternal(specifier) {
+    var normalized = normalizeSpecifier(specifier);
+    if (normalized.indexOf('internal/util/debuglog') !== -1) {
+      normalized = 'internal/util/debuglog';
+    }
+    var internal = internalModules[normalized];
+    if (!internal) return null;
+    if (!cache[normalized]) {
+      cache[normalized] = {
+        exports: internal,
+        loaded: true,
+        id: normalized,
+        filename: normalized,
+        path: '',
+        __exactId: idToModuleId(normalized),
+        parent: null,
+        children: []
+      };
+    }
+    return cache[normalized].exports;
+  }
   function isSameModule(a, b) {
     if (!a || !b) return false;
     return a === b;
@@ -542,6 +628,13 @@
         __exactEnsureHttp();
       }
     }
+    var normalized = normalizeSpecifier(specifier);
+    if (internalModules[normalized]) {
+      if (!cache[normalized]) {
+        cache[normalized] = { exports: internalModules[normalized], loaded: true };
+      }
+      return cache[normalized].exports;
+    }
     const json = __exactModuleResolve(specifier, referrer || "");
     if (!json) {
       throw new Error("Module not found: " + specifier);
@@ -615,6 +708,8 @@
       return /\n?\s*(?:import|export)\b/m.test(text || "");
     };
     var localRequire = function(next) {
+      var internal = loadInternal(next);
+      if (internal) return internal;
       var exports = load(next, filename, module);
       // Skip interop for ESM-shimmed modules — the shim's generated
       // import bindings already handle default/named/namespace access.
@@ -772,6 +867,8 @@
   globalThis.require = function(specifier, options) {
     // Grant capabilities if provided
     grantCapabilities(specifier, options, 0);
+    var internal = loadInternal(specifier);
+    if (internal) return internal;
     return load(specifier, "");
   };
   globalThis.require.cache = cache;
