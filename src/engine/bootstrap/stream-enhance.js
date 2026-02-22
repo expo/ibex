@@ -458,7 +458,7 @@
   // process.versions — many packages check process.versions.node
   if (!p.versions || !p.versions.node) {
     p.versions = {
-      node: '22.0.0',
+      node: '24.13.1',
       v8: '0.0.0',
       uv: '0.0.0',
       zlib: '1.3.1',
@@ -477,7 +477,7 @@
   }
 
   // process.version
-  if (!p.version) p.version = 'v22.0.0';
+  if (!p.version) p.version = 'v24.13.1';
 
   // process.execArgv — empty by default
   if (!p.execArgv) p.execArgv = [];

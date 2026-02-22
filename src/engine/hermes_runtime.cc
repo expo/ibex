@@ -9251,11 +9251,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 #endif
 
   processObj.setProperty(rt, "version",
-    facebook::jsi::String::createFromUtf8(rt, "v22.0.0"));
+    facebook::jsi::String::createFromUtf8(rt, "v24.13.1"));
   {
     auto versionsObj = facebook::jsi::Object(rt);
     versionsObj.setProperty(rt, "node",
-      facebook::jsi::String::createFromUtf8(rt, "22.0.0"));
+      facebook::jsi::String::createFromUtf8(rt, "24.13.1"));
     versionsObj.setProperty(rt, "exact",
       facebook::jsi::String::createFromUtf8(rt, "0.1.0"));
     processObj.setProperty(rt, "versions", std::move(versionsObj));
@@ -10115,7 +10115,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // process.versions — many packages check process.versions.node
   if (!p.versions || !p.versions.node) {
     p.versions = {
-      node: '22.0.0',
+      node: '24.13.1',
       v8: '0.0.0',
       uv: '0.0.0',
       zlib: '1.3.1',
@@ -10134,7 +10134,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   }
 
   // process.version
-  if (!p.version) p.version = 'v22.0.0';
+  if (!p.version) p.version = 'v24.13.1';
 
   // process.execArgv — empty by default
   if (!p.execArgv) p.execArgv = [];
