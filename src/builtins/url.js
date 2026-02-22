@@ -778,12 +778,31 @@ function _makeIterator(params, mapFn) {
   return iterator;
 }
 
+/**
+ * Create a TypeError matching the WHATWG URL spec error format.
+ * Redacts base URLs that contain credentials.
+ */
+function _makeURLError(input, baseStr) {
+  var msg;
+  if (baseStr !== undefined) {
+    // Redact base if it contains credentials (password portion)
+    var hasCredentials = /:[^/].*@/.test(String(baseStr));
+    var displayBase = hasCredentials ? "<redacted>" : JSON.stringify(String(baseStr));
+    msg = JSON.stringify(String(input)) + " cannot be parsed as a URL against " + displayBase;
+  } else {
+    msg = JSON.stringify(String(input)) + " cannot be parsed as a URL";
+  }
+  var err = new TypeError(msg);
+  err.code = "ERR_INVALID_URL";
+  return err;
+}
+
 function URL(input, base) {
   if (!(this instanceof URL)) {
     return new URL(input, base);
   }
   if (typeof input === "undefined" && typeof base === "undefined") {
-    throw new TypeError("Invalid URL");
+    throw _makeURLError("undefined");
   }
 
   this._protocol = "";
@@ -796,14 +815,23 @@ function URL(input, base) {
   this._hash = "";
   this._searchParams = null;
 
+  var baseStr = (base !== undefined) ? String(base) : undefined;
   var baseUrl = null;
   if (typeof base === "string" || (base && typeof base === "object" && base.href)) {
-    baseUrl = new URL(base);
+    try {
+      baseUrl = new URL(base);
+    } catch(e) {
+      throw _makeURLError(String(input), baseStr);
+    }
   } else if (base instanceof URL) {
     baseUrl = base;
   }
 
-  this._parse(input, baseUrl);
+  this.__originalInput = String(input);
+  this.__baseStr = baseStr;
+  this._parse(input, baseUrl, baseStr);
+  delete this.__originalInput;
+  delete this.__baseStr;
   this._searchParams = new URLSearchParams(this._search);
   this._searchParams._setURL(this);
 }
@@ -862,13 +890,19 @@ URL._isSpecialProtocol = function(protocol) {
         urlObj._port = _normalizePort(afterBracket.slice(1));
       }
     } else {
-      throw new TypeError("Invalid URL: " + urlObj._protocol);
+      throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
     }
   } else {
     var colonIndex = hostPart.lastIndexOf(":");
     if (colonIndex !== -1) {
+      var portStr = hostPart.slice(colonIndex + 1);
+      // For special schemes, non-numeric port values are parse errors
+      var isSpecialScheme = URL._isSpecialProtocol(urlObj._protocol.slice(0, -1));
+      if (portStr && isSpecialScheme && !/^[0-9]*$/.test(portStr)) {
+        throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+      }
       urlObj._hostname = _canonicalizeHost(hostPart.slice(0, colonIndex), urlObj._protocol);
-      urlObj._port = _normalizePort(hostPart.slice(colonIndex + 1));
+      urlObj._port = _normalizePort(portStr);
     } else {
       urlObj._hostname = _canonicalizeHost(hostPart, urlObj._protocol);
       urlObj._port = "";
@@ -879,7 +913,7 @@ URL._isSpecialProtocol = function(protocol) {
     urlObj._port &&
     String(Number(urlObj._port)) !== urlObj._port
   ) {
-    throw new TypeError("Invalid URL: " + urlObj._protocol);
+    throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
   }
   if (
     URL._SPECIAL_PROTOCOLS[urlObj._protocol.slice(0, -1)] &&
@@ -891,7 +925,7 @@ URL._isSpecialProtocol = function(protocol) {
     urlObj._port &&
     (Number(urlObj._port) > 0xFFFF || String(Number(urlObj._port)) !== urlObj._port)
   ) {
-    throw new TypeError("Invalid URL: " + urlObj._protocol);
+    throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
   }
   if (urlObj._protocol === "file:" && urlObj._hostname === "localhost") {
     urlObj._hostname = "";
@@ -918,12 +952,12 @@ URL._normalizePath = function(path) {
   return result;
 };
 
-URL.prototype._parse = function(input, base) {
+URL.prototype._parse = function(input, base, baseStr) {
   var isUndefined = typeof input === "undefined";
   var url;
   if (isUndefined) {
     if (!base) {
-      throw new TypeError("Invalid URL: " + input);
+      throw _makeURLError(input, baseStr);
     }
     if (base._isOpaque) {
       if (
@@ -933,7 +967,7 @@ URL.prototype._parse = function(input, base) {
       ) {
         url = base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1) + "undefined";
       } else {
-        throw new TypeError("Invalid URL: " + input);
+        throw _makeURLError(input, baseStr);
       }
     } else {
       url = "undefined";
@@ -954,7 +988,7 @@ URL.prototype._parse = function(input, base) {
     this._protocol = base.protocol;
     this._isOpaque = false;
   } else {
-    throw new TypeError("Invalid URL: " + input);
+    throw _makeURLError(input, baseStr);
   }
 
   var isSpecial = URL._isSpecialProtocol(this._protocol.slice(0, -1));
@@ -1092,10 +1126,32 @@ Object.defineProperty(URL.prototype, "searchParams", {
   Object.defineProperty(URL.prototype, "origin", {
     configurable: true,
     get: function() {
-      if (!URL._isSpecialProtocol(this._protocol.slice(0, -1))) {
+      var scheme = this._protocol.slice(0, -1);
+      // blob: URLs derive origin from their inner URL
+      if (scheme === "blob") {
+        try {
+          var blobPath = this.href.slice(5); // skip "blob:"
+          var innerURL = new URL(blobPath);
+          var innerScheme = innerURL.protocol.slice(0, -1);
+          // For file: URLs, return protocol + "//" + host (Bun compat)
+          if (innerScheme === "file") {
+            return innerURL.protocol + "//" + innerURL.host;
+          }
+          return innerURL.origin;
+        } catch(e) {
+          return "null";
+        }
+      }
+      // file: always has null origin per the URL spec
+      if (scheme === "file") {
         return "null";
       }
-      return this._protocol + "//" + this.host;
+      // Only http, https, ftp, ws, wss have a meaningful origin
+      if (scheme === "http" || scheme === "https" || scheme === "ftp" ||
+          scheme === "ws" || scheme === "wss") {
+        return this._protocol + "//" + this.host;
+      }
+      return "null";
     },
   set: function(value) {
     throw new TypeError("Cannot set origin");
