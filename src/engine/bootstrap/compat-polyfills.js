@@ -82,6 +82,36 @@
     }
   }
 
+  // Process streams can still be host-backed accessors in some bootstrap paths.
+  // Pin stdout/stderr/stdin on the process object itself so repeated reads return
+  // the same stream objects and util's write interception works consistently.
+  if (typeof globalThis.process === 'object' && globalThis.process !== null) {
+    try {
+      if (!globalThis.process.__exactStreamStabilityPatched) {
+        function __exactPinStream(name) {
+          var stream = globalThis.process[name];
+          if (!stream) return;
+          if ((name === 'stdout' || name === 'stderr') &&
+              stream.writable === undefined) {
+            stream.writable = true;
+          }
+          Object.defineProperty(globalThis.process, name, {
+            value: stream,
+            writable: true,
+            configurable: true,
+            enumerable: true,
+          });
+        }
+        __exactPinStream('stdout');
+        __exactPinStream('stderr');
+        __exactPinStream('stdin');
+        globalThis.process.__exactStreamStabilityPatched = true;
+      }
+    } catch (err) {
+      // Keep compatibility bootstrap resilient if process stream patching fails.
+    }
+  }
+
   // Node/Bun fixtures assume process.config.variables is always available.
   // Normalize it here to avoid runtime crashes when the stream enhancer hasn't
   // run yet or didn't populate this field for some compatibility paths.

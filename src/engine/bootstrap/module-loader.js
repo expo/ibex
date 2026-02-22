@@ -94,6 +94,72 @@
       "}";
     return source.slice(0, idx) + replacement + source.slice(end + 1);
   }
+  function __exactPinProcessStreams() {
+    if (typeof process !== 'object' || process === null) {
+      return;
+    }
+    if (process.__exactStreamPinned) {
+      return;
+    }
+    function createWritableProxy(stream) {
+      if (!stream) return stream;
+      var writeFn = stream.write;
+      var proxy = Object.create(stream);
+      Object.defineProperty(proxy, "write", {
+        configurable: true,
+        enumerable: true,
+        get: function() { return writeFn; },
+        set: function(value) {
+          writeFn = value;
+        },
+      });
+      return proxy;
+    }
+    try {
+      if (typeof process.stdout !== 'object' || process.stdout === null) {
+        return;
+      }
+      var stdout = process.stdout;
+      var stderr = process.stderr;
+      if (stdout && stdout.writable === undefined) {
+        stdout = createWritableProxy(stdout);
+        if (stdout.writable === undefined) {
+          stdout.writable = true;
+        }
+      }
+      Object.defineProperty(process, 'stdout', {
+        value: stdout,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+      if (stderr) {
+        if (stderr.writable === undefined) {
+          stderr = createWritableProxy(stderr);
+          if (stderr.writable === undefined) {
+            stderr.writable = true;
+          }
+        }
+        Object.defineProperty(process, 'stderr', {
+          value: stderr,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
+      }
+      if (process.stdin) {
+        Object.defineProperty(process, 'stdin', {
+          value: process.stdin,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
+      }
+      process.__exactStreamPinned = true;
+    } catch (_) {
+      // Keep module loading resilient if process stream patching is not possible.
+    }
+  }
   function fixForOfScoping(source) {
     if (!source || !/\bfor\s*\(\s*(?:const|let)\b[^)]*\bof\b/.test(source)) {
       return source;
@@ -422,6 +488,8 @@
     return out.join("\n");
   }
   function load(specifier, referrer, parent) {
+    __exactPinProcessStreams();
+
     // Lazy-load triggers: ensure non-essential bootstrap blocks are loaded
     // when their corresponding modules are first required.
     if (typeof __exactEnsureStreamEnhance === 'function') {

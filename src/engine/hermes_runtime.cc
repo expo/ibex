@@ -2247,6 +2247,14 @@ void ensureStreamEnhance(ExactHermesRuntime* handle) {
   handle->stream_enhance_loaded = true;
   auto& rt = *handle->runtime;
   try {
+    // Use source bootstrap JS when available so local source updates (like stream shim
+    // fixes) are applied without requiring regenerated precompiled bytecode.
+    if (g_streamEnhanceJS) {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(g_streamEnhanceJS);
+      rt.evaluateJavaScript(buffer, "<stream-enhance>");
+      return;
+    }
+
     evalHBCWithFallback(rt, STREAM_ENHANCE_HBC, STREAM_ENHANCE_HBC_LEN,
                         g_streamEnhanceJS, "<stream-enhance>");
   } catch (const facebook::jsi::JSError& err) {
@@ -10001,17 +10009,50 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     stream.addListener = stream.on;
   }
 
-  // Cache stdout/stderr/stdin as own properties since prototype getters
-  // may create new objects on each access
-  var _stdout = p.stdout;
-  var _stderr = p.stderr;
-  var _stdin = p.stdin;
+  // Cache stdout/stderr/stdin as own properties so the returned streams remain
+  // stable and can be safely monkey-patched by modules like util.
+  function createWritableProxy(stream) {
+    if (!stream) return stream;
+
+    var writeFn = stream.write;
+    var proxy = Object.create(stream);
+
+    Object.defineProperty(proxy, "write", {
+      configurable: true,
+      enumerable: true,
+      get: function() { return writeFn; },
+      set: function(value) {
+        writeFn = value;
+      },
+    });
+
+    return proxy;
+  }
+
+  function installProcessStream(processObj, name, stream, enhancer) {
+    if (!stream) return stream;
+    var enhanced = enhancer ? enhancer(stream) : stream;
+    try {
+      Object.defineProperty(processObj, name, {
+        value: enhanced,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    } catch (_) {
+      processObj[name] = enhanced;
+    }
+    return enhanced;
+  }
+
+  var _stdout = installProcessStream(p, 'stdout', p.stdout, createWritableProxy);
+  var _stderr = installProcessStream(p, 'stderr', p.stderr, createWritableProxy);
+  var _stdin = installProcessStream(p, 'stdin', p.stdin);
   enhanceWritable(_stdout);
   enhanceWritable(_stderr);
   enhanceReadable(_stdin);
-  Object.defineProperty(p, 'stdout', { value: _stdout, writable: true, configurable: true, enumerable: true });
-  Object.defineProperty(p, 'stderr', { value: _stderr, writable: true, configurable: true, enumerable: true });
-  Object.defineProperty(p, 'stdin', { value: _stdin, writable: true, configurable: true, enumerable: true });
+
+  p.__exactStreamEnhanceInstalled = true;
 
   // --- Make process itself an EventEmitter ---
   addEventEmitter(p);
@@ -10197,9 +10238,12 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 )JS";
 
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
-    // With HBC, stream-enhance is loaded lazily via ensureStreamEnhance()
-    handle->stream_enhance_loaded = false;
+    // Keep stream enhancement on the source path so runtime changes here are
+    // immediately reflected (and to avoid stale HBC artifacts in the current
+    // debug/test workflow). Use ensureStreamEnhance for one canonical load path.
     g_streamEnhanceJS = streamEnhanceJS;
+    handle->stream_enhance_loaded = false;
+    ensureStreamEnhance(handle);
 #else
     // Without HBC, evaluate eagerly (existing behavior)
     try {
@@ -10211,6 +10255,65 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       ex_host_console_log(1, (std::string("Stream enhance error: ") + err.what()).c_str());
     }
 #endif
+  }
+
+  // --- Process stream stability patch ---
+  // Ensure stream wrappers remain stable even if process streams come from host getters.
+  {
+    static const char* streamStabilityPatchJS = R"JS(
+(function() {
+  'use strict';
+  var p = globalThis.process;
+  if (!p || p.__exactStreamStabilityPatched) return;
+
+  function createWritableProxy(stream) {
+    if (!stream) return stream;
+    var writeFn = stream.write;
+    var proxy = Object.create(stream);
+    Object.defineProperty(proxy, 'write', {
+      configurable: true,
+      enumerable: true,
+      get: function() { return writeFn; },
+      set: function(value) { writeFn = value; },
+    });
+    return proxy;
+  }
+
+  function pinStream(name, stream, transform) {
+    var value = transform ? transform(stream) : stream;
+    if (name === 'stdout' || name === 'stderr') {
+      if (value && value.writable === undefined) {
+        value.writable = true;
+      }
+    }
+    try {
+      Object.defineProperty(p, name, {
+        value: value,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    } catch (_) {
+      try {
+        p[name] = value;
+      } catch (_) {}
+    }
+  }
+
+  pinStream('stdout', p.stdout, createWritableProxy);
+  pinStream('stderr', p.stderr, createWritableProxy);
+  pinStream('stdin', p.stdin);
+  p.__exactStreamStabilityPatched = true;
+})();
+)JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(streamStabilityPatchJS);
+      rt.evaluateJavaScript(buffer, "<stream-stability-patch>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(1, (std::string("Stream stability patch error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1, (std::string("Stream stability patch error: ") + err.what()).c_str());
+    }
   }
 
   // --- Web Crypto API (globalThis.crypto) ---
