@@ -3538,6 +3538,16 @@ function decodeBytes(bytes, encoding, start, end) {
     for (var i = 0; i < slice.length; i++) binary += String.fromCharCode(slice[i]);
     return typeof btoa === "function" ? btoa(binary) : "";
   }
+  if (enc === "latin1" || enc === "binary") {
+    var result = "";
+    for (var i = 0; i < slice.length; i++) result += String.fromCharCode(slice[i]);
+    return result;
+  }
+  if (enc === "ascii") {
+    var result = "";
+    for (var i = 0; i < slice.length; i++) result += String.fromCharCode(slice[i] & 0x7F);
+    return result;
+  }
   if (typeof TextDecoder !== "undefined") {
     var view = (slice.__isExactBuffer) ? new Uint8Array(slice) : slice;
     return new TextDecoder("utf-8").decode(view);

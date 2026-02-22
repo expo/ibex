@@ -9251,9 +9251,15 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 #endif
 
   processObj.setProperty(rt, "version",
-    facebook::jsi::String::createFromUtf8(rt, "v21.0.0"));
-  processObj.setProperty(rt, "versions",
-    facebook::jsi::Object(rt));
+    facebook::jsi::String::createFromUtf8(rt, "v22.0.0"));
+  {
+    auto versionsObj = facebook::jsi::Object(rt);
+    versionsObj.setProperty(rt, "node",
+      facebook::jsi::String::createFromUtf8(rt, "22.0.0"));
+    versionsObj.setProperty(rt, "exact",
+      facebook::jsi::String::createFromUtf8(rt, "0.1.0"));
+    processObj.setProperty(rt, "versions", std::move(versionsObj));
+  }
 
   // process.cwd()
   auto cwdFn = facebook::jsi::Function::createFromHostFunction(
@@ -9476,18 +9482,21 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           return result;
         });
 
-    // hrtime.bigint() — returns nanoseconds as a number (Hermes lacks BigInt)
+    // hrtime.bigint() — returns nanoseconds as a BigInt
     auto hrtimeBigintFn = facebook::jsi::Function::createFromHostFunction(
         rt,
         facebook::jsi::PropNameID::forAscii(rt, "bigint"),
         0,
-        [](facebook::jsi::Runtime&,
+        [](facebook::jsi::Runtime& runtime,
            const facebook::jsi::Value&,
            const facebook::jsi::Value*,
            size_t) -> facebook::jsi::Value {
           auto now = std::chrono::steady_clock::now().time_since_epoch();
           auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
-          return facebook::jsi::Value(static_cast<double>(ns));
+          // Use BigInt(string) for full precision (doubles lose ns precision)
+          auto nsStr = std::to_string(ns);
+          auto bigintCtor = runtime.global().getPropertyAsFunction(runtime, "BigInt");
+          return bigintCtor.call(runtime, facebook::jsi::String::createFromUtf8(runtime, nsStr));
         });
 
     // Attach bigint as a property of the hrtime function object
