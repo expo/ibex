@@ -822,6 +822,20 @@
       return JSON.parse(text);
     });
   };
+  E.readableStreamToArray = function(stream) {
+    return new Promise(function(resolve, reject) {
+      var chunks = [];
+      var reader = stream.getReader();
+      function pump() {
+        reader.read().then(function(result) {
+          if (result.done) { resolve(chunks); return; }
+          chunks.push(result.value);
+          pump();
+        }).catch(reject);
+      }
+      pump();
+    });
+  };
 
   // --- Bun.argv, Bun.main, Bun.isMainThread ---
   E.argv = (typeof process !== 'undefined' && process.argv) ? process.argv : [];
