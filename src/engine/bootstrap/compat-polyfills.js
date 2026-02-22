@@ -71,13 +71,64 @@
   if (
     typeof globalThis.process === 'object' &&
     globalThis.process !== null &&
-    typeof globalThis.process.on !== 'function' &&
-    typeof globalThis.__exactEnsureStreamEnhance === 'function'
+    typeof globalThis.__exactEnsureStreamEnhance === 'function' &&
+    (typeof globalThis.process.on !== 'function' ||
+      !globalThis.process.config)
   ) {
     try {
       globalThis.__exactEnsureStreamEnhance();
     } catch (err) {
       // Keep compatibility bootstrap resilient if stream enhancement cannot load.
+    }
+  }
+
+  // Node/Bun fixtures assume process.config.variables is always available.
+  // Normalize it here to avoid runtime crashes when the stream enhancer hasn't
+  // run yet or didn't populate this field for some compatibility paths.
+  if (typeof globalThis.process === 'object' && globalThis.process !== null) {
+    try {
+      if (globalThis.process.config === undefined || globalThis.process.config === null) {
+        globalThis.process.config = { target_defaults: {}, variables: {} };
+      } else if (
+        typeof globalThis.process.config === 'object' &&
+        !globalThis.process.config.variables
+      ) {
+        globalThis.process.config.variables = {};
+      }
+    } catch (err) {
+      // Keep compatibility bootstrap resilient if process/config cannot be patched.
+    }
+  }
+
+  if (typeof globalThis.process === 'object' && globalThis.process !== null) {
+    try {
+      if (!globalThis.process.features || typeof globalThis.process.features !== 'object') {
+        globalThis.process.features = {
+          inspector: true,
+          debug: false,
+          uv: false,
+          ipv6: true,
+          tls_alpn: false,
+          tls_sni: false,
+          tls_ocsp: false,
+          tls: false,
+        };
+      } else {
+        if (globalThis.process.features.tls === undefined) {
+          globalThis.process.features.tls = false;
+        }
+        if (globalThis.process.features.tls_alpn === undefined) {
+          globalThis.process.features.tls_alpn = false;
+        }
+        if (globalThis.process.features.tls_sni === undefined) {
+          globalThis.process.features.tls_sni = false;
+        }
+        if (globalThis.process.features.tls_ocsp === undefined) {
+          globalThis.process.features.tls_ocsp = false;
+        }
+      }
+    } catch (err) {
+      // Keep compatibility bootstrap resilient if process.features cannot be patched.
     }
   }
 
