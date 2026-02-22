@@ -9,14 +9,30 @@ function MessagePort() {
   this._remotePort = null;
   this._started = false;
   this._closed = false;
+  this._messageListenerCount = 0;
+  this._closing = false;
+  this._ref = false;
+  this._onmessageListener = false;
   this._queue = [];
   this._onmessage = null;
   this._onmessageerror = null;
+  var asyncHooks = require('async_hooks');
+  this._asyncId = typeof asyncHooks.__nextAsyncId === 'function'
+    ? asyncHooks.__nextAsyncId()
+    : 0;
+  if (typeof asyncHooks.__emitInit === 'function') {
+    asyncHooks.__emitInit(this._asyncId, 'MESSAGEPORT', 0, this);
+  }
+}
+
+function hasMessageEventListeners(port) {
+  return port && !port._closed && (port._onmessageListener || port._messageListenerCount > 0);
 }
 
 Object.defineProperty(MessagePort.prototype, 'onmessage', {
   get: function() { return this._onmessage; },
   set: function(handler) {
+    this._onmessageListener = !!handler;
     this._onmessage = handler;
     this.start();
   },
@@ -31,8 +47,16 @@ Object.defineProperty(MessagePort.prototype, 'onmessageerror', {
 
 MessagePort.prototype.addEventListener = function(type, callback) {
   if (!callback) return;
+  if (type === 'message') {
+    this._messageListenerCount = (this._messageListenerCount || 0) + 1;
+  }
   if (!this._listeners[type]) this._listeners[type] = [];
   this._listeners[type].push(callback);
+};
+
+MessagePort.prototype.on = function(type, callback) {
+  this.addEventListener(type, callback);
+  return this;
 };
 
 MessagePort.prototype.removeEventListener = function(type, callback) {
@@ -40,6 +64,29 @@ MessagePort.prototype.removeEventListener = function(type, callback) {
   if (!list) return;
   var idx = list.indexOf(callback);
   if (idx !== -1) list.splice(idx, 1);
+  if (type === 'message') {
+    this._messageListenerCount = Math.max(0, (this._messageListenerCount || 0) - 1);
+  }
+};
+
+MessagePort.prototype.off = function(type, callback) {
+  this.removeEventListener(type, callback);
+  return this;
+};
+
+MessagePort.prototype.ref = function() {
+  this._ref = true;
+  return this;
+};
+
+MessagePort.prototype.unref = function() {
+  this._ref = false;
+  return this;
+};
+
+MessagePort.prototype.hasRef = function() {
+  if (this._closed) return false;
+  return this._ref || hasMessageEventListeners(this);
 };
 
 MessagePort.prototype.dispatchEvent = function(event) {
@@ -100,8 +147,24 @@ MessagePort.prototype.start = function() {
 };
 
 MessagePort.prototype.close = function() {
-  this._closed = true;
-  this._queue.length = 0;
+  if (this._closed || this._closing) return;
+  this._closing = true;
+  var self = this;
+  var remote = this._remotePort;
+  queueMicrotask(function() {
+    self._closed = true;
+    self._closing = false;
+    if (remote) {
+      remote._closed = true;
+      remote._closing = false;
+    }
+    self._queue.length = 0;
+    if (remote) remote._queue.length = 0;
+    var selfEvent = { type: 'close', target: self, currentTarget: self };
+    var remoteEvent = { type: 'close', target: remote, currentTarget: remote };
+    self.dispatchEvent(selfEvent);
+    if (remote) remote.dispatchEvent(remoteEvent);
+  });
 };
 
 MessagePort.prototype._dispatchMessage = function(data) {

@@ -1,6 +1,7 @@
 var _hooksEnabled = false;
 var _noop = function() {};
 var _idCounter = 1;
+var _activeHooks = [];
 
 /* ------------------------------------------------------------------ */
 /*  Global async context tracking                                      */
@@ -124,17 +125,51 @@ function _wrapCallback(fn) {
 /* ------------------------------------------------------------------ */
 function createHook(callbacks) {
   callbacks = callbacks || {};
+  var hook = {
+    _callbacks: callbacks,
+    _enabled: false
+  };
   return {
     enable: function() {
+      if (!hook._enabled) {
+        hook._enabled = true;
+        _activeHooks.push(callbacks);
+      }
       _hooksEnabled = true;
       return this;
     },
     disable: function() {
-      _hooksEnabled = false;
+      if (hook._enabled) {
+        hook._enabled = false;
+        var idx = _activeHooks.indexOf(callbacks);
+        if (idx !== -1) _activeHooks.splice(idx, 1);
+      }
+      if (_activeHooks.length === 0) _hooksEnabled = false;
       return this;
     },
     _callbacks: callbacks
   };
+}
+
+function __nextAsyncId() {
+  return _idCounter++;
+}
+
+function __emitInit(asyncId, type, triggerAsyncId, resource) {
+  if (!_hooksEnabled) return;
+  var i;
+  for (i = 0; i < _activeHooks.length; i++) {
+    var callbacks = _activeHooks[i];
+    if (callbacks && typeof callbacks.init === 'function') {
+      try {
+        callbacks.init(asyncId, type, triggerAsyncId, resource);
+      } catch (e) {}
+    }
+  }
+}
+
+function __getHooksEnabled() {
+  return _hooksEnabled;
 }
 
 function executionAsyncId() {
@@ -288,6 +323,9 @@ AsyncLocalStorage.snapshot = function() {
 
 module.exports = {
   createHook: createHook,
+  __nextAsyncId: __nextAsyncId,
+  __emitInit: __emitInit,
+  __getHooksEnabled: __getHooksEnabled,
   executionAsyncId: executionAsyncId,
   triggerAsyncId: triggerAsyncId,
   AsyncResource: AsyncResource,
