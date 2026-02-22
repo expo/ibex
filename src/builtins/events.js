@@ -205,6 +205,8 @@ EventEmitter.prototype.prependOnceListener = function prependOnceListener(eventN
 };
 
 EventEmitter.prototype.removeListener = function removeListener(eventName, listener) {
+  checkListener(listener);
+
   var events = this._events;
   if (events === undefined) return this;
 
