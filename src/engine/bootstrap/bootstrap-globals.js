@@ -63,12 +63,94 @@
       function DOMException(message, name) {
         this.message = message || '';
         this.name = name || 'Error';
+        if (this.code === undefined && this.name === 'InvalidCharacterError') {
+          this.code = 5;
+        }
       }
       DOMException.prototype = Object.create(Error.prototype);
       DOMException.prototype.constructor = DOMException;
       return DOMException;
     });
   }
+
+  // btoa() support — Hermes' built-in implementation throws a plain Error in
+  // some Unicode cases without the legacy INVALID_CHARACTER_ERR code. Wrap it so
+  // compatibility tests observe the expected DOMException shape.
+  var __exactNativeBtoa = (typeof globalThis.btoa === 'function') ? globalThis.btoa : null;
+  var __exactNativeAtob = (typeof globalThis.atob === 'function') ? globalThis.atob : null;
+
+  function __exactInvalidCharacterError() {
+    if (typeof globalThis.DOMException === 'function') {
+      var err = new globalThis.DOMException(
+        'The string to be encoded contains characters outside of the Latin1 range.',
+        'InvalidCharacterError'
+      );
+      if (err.code === undefined) err.code = 5;
+      return err;
+    }
+    var fallback = new Error('The string to be encoded contains characters outside of the Latin1 range.');
+    fallback.name = 'InvalidCharacterError';
+    fallback.code = 5;
+    return fallback;
+  }
+
+  function __exactAtobInvalidCharacterError() {
+    if (typeof globalThis.DOMException === 'function') {
+      var err = new globalThis.DOMException('The string to be decoded is not correctly encoded.', 'InvalidCharacterError');
+      if (err.code === undefined) err.code = 5;
+      return err;
+    }
+    var fallback = new Error('The string to be decoded is not correctly encoded.');
+    fallback.name = 'InvalidCharacterError';
+    fallback.code = 5;
+    return fallback;
+  }
+
+  globalThis.atob = function() {
+    var input = String(arguments[0]);
+
+    if (!__exactNativeAtob) {
+      throw __exactAtobInvalidCharacterError();
+    }
+
+    try {
+      return __exactNativeAtob(input);
+    } catch (err) {
+      throw __exactAtobInvalidCharacterError();
+    }
+  };
+
+  // Replace btoa definition after atob to ensure both helpers are available.
+  globalThis.btoa = function() {
+    var input = String(arguments[0]);
+    for (var i = 0; i < input.length; i++) {
+      if (input.charCodeAt(i) > 255) {
+        throw __exactInvalidCharacterError();
+      }
+    }
+    if (__exactNativeBtoa) {
+      try {
+        return __exactNativeBtoa(input);
+      } catch (err) {
+        throw __exactInvalidCharacterError();
+      }
+    }
+
+    // Fallback manual implementation (for environments that lack btoa entirely).
+    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' ;
+    var output = '';
+    for (var j = 0; j < input.length; j += 3) {
+      var c1 = input.charCodeAt(j);
+      var c2 = j + 1 < input.length ? input.charCodeAt(j + 1) : NaN;
+      var c3 = j + 2 < input.length ? input.charCodeAt(j + 2) : NaN;
+
+      output += chars[c1 >> 2];
+      output += chars[((c1 & 3) << 4) | (isNaN(c2) ? 0 : (c2 >> 4))];
+      output += isNaN(c2) ? '=' : chars[((c2 & 15) << 2) | (isNaN(c3) ? 0 : (c3 >> 6))];
+      output += isNaN(c3) ? '=' : chars[c3 & 63];
+    }
+    return output;
+  };
 
   // setImmediate / clearImmediate — lazy (Node.js global)
   if (typeof globalThis.setImmediate === 'undefined') {
