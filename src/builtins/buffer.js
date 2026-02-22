@@ -20,10 +20,14 @@ function decodeBytes(bytes, encoding, start, end) {
     }
     return out;
   }
-  if (enc === "base64") {
+  if (enc === "base64" || enc === "base64url") {
     var binary = "";
     for (var i = 0; i < slice.length; i++) binary += String.fromCharCode(slice[i]);
-    return typeof btoa === "function" ? btoa(binary) : "";
+    var b64 = typeof btoa === "function" ? btoa(binary) : "";
+    if (enc === "base64url") {
+      return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+    }
+    return b64;
   }
   if (enc === "latin1" || enc === "binary") {
     var result = "";
@@ -33,6 +37,13 @@ function decodeBytes(bytes, encoding, start, end) {
   if (enc === "ascii") {
     var result = "";
     for (var i = 0; i < slice.length; i++) result += String.fromCharCode(slice[i] & 0x7F);
+    return result;
+  }
+  if (enc === "utf16le" || enc === "ucs2" || enc === "ucs-2" || enc === "utf-16le") {
+    var result = "";
+    for (var i = 0; i + 1 < slice.length; i += 2) {
+      result += String.fromCharCode(slice[i] | (slice[i + 1] << 8));
+    }
     return result;
   }
   if (typeof TextDecoder !== "undefined") {
@@ -64,9 +75,16 @@ function encodeString(value, encoding) {
     }
     return bytes;
   }
-  if (enc === "base64") {
+  if (enc === "base64" || enc === "base64url") {
+    var b64str = str;
+    if (enc === "base64url") {
+      b64str = b64str.replace(/-/g, "+").replace(/_/g, "/");
+      var pad = b64str.length % 4;
+      if (pad === 2) b64str += "==";
+      else if (pad === 3) b64str += "=";
+    }
     if (typeof atob === "function") {
-      var raw = atob(str);
+      var raw = atob(b64str);
       var b = new Uint8Array(raw.length);
       for (var j = 0; j < raw.length; j++) b[j] = raw.charCodeAt(j);
       return b;
@@ -81,6 +99,15 @@ function encodeString(value, encoding) {
     var asc = new Uint8Array(str.length);
     for (var m = 0; m < str.length; m++) asc[m] = str.charCodeAt(m) & 0x7f;
     return asc;
+  }
+  if (enc === "utf16le" || enc === "ucs2" || enc === "ucs-2" || enc === "utf-16le") {
+    var u16 = new Uint8Array(str.length * 2);
+    for (var p = 0; p < str.length; p++) {
+      var code = str.charCodeAt(p);
+      u16[p * 2] = code & 0xff;
+      u16[p * 2 + 1] = (code >> 8) & 0xff;
+    }
+    return u16;
   }
   // utf8
   if (typeof TextEncoder !== "undefined") {
@@ -218,9 +245,15 @@ Buffer.concat = function(list, totalLength) {
   return result;
 };
 
+Buffer.of = function() {
+  var bytes = new Uint8Array(arguments.length);
+  for (var i = 0; i < arguments.length; i++) bytes[i] = arguments[i] & 0xff;
+  return makeBuffer(bytes);
+};
+
 Buffer.isEncoding = function(encoding) {
   return typeof encoding === "string" &&
-    ["utf8", "utf-8", "ascii", "latin1", "binary", "hex", "base64", "ucs2", "ucs-2", "utf16le", "utf-16le"]
+    ["utf8", "utf-8", "ascii", "latin1", "binary", "hex", "base64", "base64url", "ucs2", "ucs-2", "utf16le", "utf-16le"]
     .indexOf(encoding.toLowerCase()) !== -1;
 };
 

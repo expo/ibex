@@ -5,6 +5,7 @@ function normalizeEncoding(enc) {
   if (lowered === 'ascii') return 'ascii';
   if (lowered === 'latin1' || lowered === 'binary') return 'latin1';
   if (lowered === 'base64') return 'base64';
+  if (lowered === 'base64url') return 'base64url';
   if (lowered === 'hex') return 'hex';
   if (lowered === 'utf16le' || lowered === 'ucs2') return 'utf16le';
   throw new TypeError('Unknown encoding: ' + enc);
@@ -76,7 +77,7 @@ StringDecoder.prototype.write = function write(buf) {
     }
     return result;
   }
-  if (enc === 'base64') {
+  if (enc === 'base64' || enc === 'base64url') {
     var input;
     if (this._bufLen > 0) {
       input = new Uint8Array(this._bufLen + bytes.length);
@@ -99,7 +100,11 @@ StringDecoder.prototype.write = function write(buf) {
     var toEncode = (encodeLen === input.length) ? input : input.slice(0, encodeLen);
     var binary = '';
     for (var i = 0; i < toEncode.length; i++) binary += String.fromCharCode(toEncode[i]);
-    return typeof btoa === 'function' ? btoa(binary) : '';
+    var b64 = typeof btoa === 'function' ? btoa(binary) : '';
+    if (enc === 'base64url') {
+      return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+    return b64;
   }
   if (enc === 'utf16le') {
     var input;
@@ -168,7 +173,11 @@ StringDecoder.prototype._writeUtf8 = function _writeUtf8(bytes) {
     var seqLen = utf8ByteLength(b);
     if (i + seqLen <= bytes.length) {
       if (seqLen === 1) {
-        result += String.fromCharCode(b);
+        if (b >= 0x80) {
+          result += '\uFFFD';
+        } else {
+          result += String.fromCharCode(b);
+        }
         i += 1;
       } else {
         var valid = true;
@@ -209,11 +218,15 @@ StringDecoder.prototype.end = function end(buf) {
     if (enc === 'utf8') {
       result += '\uFFFD';
     } else if (enc === 'utf16le') {
-      if (this._bufLen === 1) result += String.fromCharCode(this._buf[0]);
-    } else if (enc === 'base64') {
+      // Lone trailing byte is discarded in Node.js utf16le StringDecoder
+    } else if (enc === 'base64' || enc === 'base64url') {
       var binary = '';
       for (var i = 0; i < this._bufLen; i++) binary += String.fromCharCode(this._buf[i]);
-      result += typeof btoa === 'function' ? btoa(binary) : '';
+      var b64 = typeof btoa === 'function' ? btoa(binary) : '';
+      if (enc === 'base64url') {
+        b64 = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      }
+      result += b64;
     }
     this._buf = null;
     this._bufLen = 0;
