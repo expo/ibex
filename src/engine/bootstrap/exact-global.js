@@ -1,5 +1,60 @@
 (function() {
   var g = globalThis;
+
+  (function ensureProcessEventEmitter() {
+    var p = g.process;
+    if (!p) return;
+    if (typeof p.on === 'function') return;
+
+    if (typeof __exactEnsureStreamEnhance === 'function') {
+      try {
+        __exactEnsureStreamEnhance();
+        return;
+      } catch (e) {}
+    }
+
+    var listeners = {};
+    p.on = function(event, fn) {
+      if (!listeners[event]) listeners[event] = [];
+      listeners[event].push({ fn: fn, once: false });
+      return p;
+    };
+    p.addListener = p.on;
+    p.once = function(event, fn) {
+      if (!listeners[event]) listeners[event] = [];
+      listeners[event].push({ fn: fn, once: true });
+      return p;
+    };
+    p.emit = function(event) {
+      var args = [];
+      for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+      var list = listeners[event];
+      if (!list) return false;
+      var keep = [];
+      for (var i = 0; i < list.length; i++) {
+        list[i].fn.apply(p, args);
+        if (!list[i].once) keep.push(list[i]);
+      }
+      listeners[event] = keep;
+      return true;
+    };
+    p.removeListener = function(event, fn) {
+      var list = listeners[event];
+      if (!list) return p;
+      var keep = [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].fn !== fn && list[i].fn !== undefined) keep.push(list[i]);
+      }
+      listeners[event] = keep;
+      return p;
+    };
+    p.off = p.removeListener;
+    p.removeAllListeners = function(event) {
+      if (event) { listeners[event] = []; } else { listeners = {}; }
+      return p;
+    };
+  })();
+
   var MIME = {
     '.txt':'text/plain;charset=utf-8','.html':'text/html;charset=utf-8','.htm':'text/html;charset=utf-8',
     '.css':'text/css;charset=utf-8','.js':'text/javascript;charset=utf-8','.mjs':'text/javascript;charset=utf-8',

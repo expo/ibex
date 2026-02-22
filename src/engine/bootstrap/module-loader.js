@@ -406,7 +406,9 @@
     if (typeof __exactEnsureFs === 'function') {
       if (specifier === 'fs' || specifier === 'node:fs' ||
           specifier === 'fs/promises' || specifier === 'node:fs/promises' ||
-          specifier === 'path' || specifier === 'node:path') {
+          specifier === 'path' || specifier === 'node:path' ||
+          specifier === 'path/posix' || specifier === 'node:path/posix' ||
+          specifier === 'path/win32' || specifier === 'node:path/win32') {
         __exactEnsureFs();
       }
     }
