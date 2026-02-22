@@ -282,6 +282,8 @@ extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t lengt
 extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reason);
 extern "C" void native_ws_destroy(uint32_t ws_id);
 extern "C" int native_ws_has_active(void);
+extern "C" void native_ws_retain_context(void* context);
+extern "C" void native_ws_release_context(void* context);
 
 // Native fetch (implemented in native_fetch_macos.mm using NSURLSession)
 typedef void (*NativeFetchResponseCallback)(
@@ -472,6 +474,40 @@ struct ExactHermesRuntime {
   bool sqlite_functions_loaded = false;
   bool http_functions_loaded = false;
 };
+
+struct NativeWebSocketCallbackContext {
+  ExactHermesRuntime* runtime;
+  std::shared_ptr<facebook::jsi::Object> ws_instance;
+  std::atomic<uint32_t> ref_count{1};
+};
+
+extern "C" void native_ws_retain_context(void* context) {
+  auto* ctx = static_cast<NativeWebSocketCallbackContext*>(context);
+  if (!ctx) {
+    return;
+  }
+  ctx->ref_count.fetch_add(1, std::memory_order_relaxed);
+}
+
+extern "C" void native_ws_release_context(void* context) {
+  auto* ctx = static_cast<NativeWebSocketCallbackContext*>(context);
+  if (!ctx) {
+    return;
+  }
+  if (ctx->ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    delete ctx;
+  }
+}
+
+struct CFUniqueReleaser {
+  void operator()(const void* ptr) const {
+    if (ptr) {
+      CFRelease(ptr);
+    }
+  }
+};
+
+using CFUniquePtr = std::unique_ptr<const void, CFUniqueReleaser>;
 
 class VectorBuffer : public facebook::jsi::MutableBuffer {
  public:
@@ -733,17 +769,26 @@ std::string runOnRuntimeThread(ExactHermesRuntime* runtime, F func) {
     }
   };
 
+  facebook::hermes::debugger::AsyncDebuggerAPI* debugger_snapshot = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+    if (!runtime->debugger || !runtime->debugger_available.load()) {
+      return std::string();
+    }
+    debugger_snapshot = runtime->debugger.get();
+  }
+
   if (std::this_thread::get_id() == runtime->runtime_thread) {
     return safe_call();
   }
-  if (!runtime->debugger || !runtime->debugger_available.load()) {
+  if (!debugger_snapshot || !runtime->debugger_available.load()) {
     return std::string();
   }
 
   auto promise = std::make_shared<std::promise<std::string>>();
   auto future = promise->get_future();
   try {
-    runtime->debugger->triggerInterrupt_TS(
+    debugger_snapshot->triggerInterrupt_TS(
         [promise, safe_call](facebook::hermes::HermesRuntime&) mutable {
           promise->set_value(safe_call());
         });
@@ -885,13 +930,13 @@ static SecKeyAlgorithm pickSecKeySignAlgorithm(const std::string& hashName, bool
 
 static bool isRsaSecKey(SecKeyRef key) {
   bool isRsa = false;
-  auto attrs = SecKeyCopyAttributes(key);
-  if (attrs) {
-    auto type = CFDictionaryGetValue(attrs, kSecAttrKeyType);
+  CFUniquePtr attrs(static_cast<const void*>(SecKeyCopyAttributes(key)));
+  if (attrs.get()) {
+    auto type = CFDictionaryGetValue(
+        static_cast<CFDictionaryRef>(attrs.get()), kSecAttrKeyType);
     if (type != nullptr) {
       isRsa = CFEqual(type, kSecAttrKeyTypeRSA);
     }
-    CFRelease(attrs);
   }
   return isRsa;
 }
@@ -907,7 +952,10 @@ static std::string dataToString(CFDataRef data) {
 // SecItemImport/SecItemExport are macOS-only APIs (not available on iOS)
 static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType itemType) {
   auto keyBytes = std::vector<uint8_t>(pemText.begin(), pemText.end());
-  auto keyData = CFDataCreate(kCFAllocatorDefault, keyBytes.data(), static_cast<CFIndex>(keyBytes.size()));
+  CFUniquePtr keyData(static_cast<const void*>(CFDataCreate(
+      kCFAllocatorDefault,
+      keyBytes.data(),
+      static_cast<CFIndex>(keyBytes.size()))));
   if (!keyData) {
     return nullptr;
   }
@@ -919,7 +967,7 @@ static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType it
   SecExternalFormat inputFormat = kSecFormatPEMSequence;
   SecExternalItemType effectiveType = itemType;
   auto status = SecItemImport(
-      keyData,
+      static_cast<CFDataRef>(keyData.get()),
       nullptr,
       &inputFormat,
       &effectiveType,
@@ -927,17 +975,15 @@ static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType it
       &keyParams,
       nullptr,
       &importedItems);
+  CFUniquePtr importedItemsHandle(static_cast<const void*>(importedItems));
 
   if (status != noErr) {
-    if (importedItems) {
-      CFRelease(importedItems);
-      importedItems = nullptr;
-    }
-
     if (status != noErr && itemType != kSecItemTypeUnknown) {
       effectiveType = kSecItemTypeUnknown;
+      importedItemsHandle.reset();
+      importedItems = nullptr;
       status = SecItemImport(
-          keyData,
+          static_cast<CFDataRef>(keyData.get()),
           nullptr,
           &inputFormat,
           &effectiveType,
@@ -945,41 +991,34 @@ static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType it
           &keyParams,
           nullptr,
           &importedItems);
+      importedItemsHandle.reset(static_cast<const void*>(importedItems));
     }
   }
-
-  CFRelease(keyData);
 
   if (status != noErr || !importedItems) {
-    if (importedItems) {
-      CFRelease(importedItems);
-    }
     return nullptr;
   }
 
-  if (CFArrayGetCount(importedItems) == 0) {
-    CFRelease(importedItems);
+  auto importedItemsArray = static_cast<CFArrayRef>(importedItemsHandle.get());
+  if (CFArrayGetCount(importedItemsArray) == 0) {
     return nullptr;
   }
 
-  auto maybeKey = CFArrayGetValueAtIndex(importedItems, 0);
+  auto maybeKey = CFArrayGetValueAtIndex(importedItemsArray, 0);
   if (!maybeKey) {
-    CFRelease(importedItems);
     return nullptr;
   }
 
   if (CFGetTypeID(maybeKey) != SecKeyGetTypeID()) {
-    CFRelease(importedItems);
     return nullptr;
   }
 
   auto key = static_cast<SecKeyRef>(const_cast<void*>(maybeKey));
   CFRetain(key);
-  CFRelease(importedItems);
   return key;
 }
 #endif // !EXACT_PLATFORM_IOS
-#endif
+#endif // __APPLE__
 
 // These helpers are only used by the non-Apple (Linux/OpenSSL) sign/verify path.
 // On Apple, sign/verify uses Security.framework directly.
@@ -1437,7 +1476,9 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
   auto dnsReverseFn = facebook::jsi::Function::createFromHostFunction(rt, facebook::jsi::PropNameID::forAscii(rt, "__exactDnsReverse"), 1, [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&, const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
     if (count == 0 || !args[0].isString()) throw facebook::jsi::JSError(runtime, "__exactDnsReverse: ip address required");
     auto ip = args[0].asString(runtime).utf8(runtime);
-    struct sockaddr_storage sa; socklen_t salen; memset(&sa, 0, sizeof(sa));
+    struct sockaddr_storage sa;
+    socklen_t salen = 0;
+    memset(&sa, 0, sizeof(sa));
     auto* sa4 = reinterpret_cast<struct sockaddr_in*>(&sa);
     auto* sa6 = reinterpret_cast<struct sockaddr_in6*>(&sa);
     if (inet_pton(AF_INET, ip.c_str(), &sa4->sin_addr) == 1) { sa4->sin_family = AF_INET; salen = sizeof(struct sockaddr_in); }
@@ -8707,82 +8748,125 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto protocols = args[1].isString() ? args[1].toString(runtime).utf8(runtime) : std::string("");
         auto wsInstance = std::make_shared<facebook::jsi::Object>(args[2].asObject(runtime));
         ExactHermesRuntime* rtHandle = handle;
+        auto* callbackContext = new NativeWebSocketCallbackContext{rtHandle, wsInstance, 1};
 
         auto wsId = native_ws_connect(
             url.c_str(),
             protocols.empty() ? nullptr : protocols.c_str(),
             // open callback - receives protocol and extensions from native
             [](uint32_t, const char* protocol, const char* extensions, void* ctx) {
-                auto* info = static_cast<std::pair<ExactHermesRuntime*, std::shared_ptr<facebook::jsi::Object>>*>(ctx);
+                auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+                if (!context || !context->runtime || !context->ws_instance) {
+                  return;
+                }
+                auto runtime = context->runtime;
+                auto wsObj = context->ws_instance;
                 auto protoCopy = std::string(protocol ? protocol : "");
                 auto extCopy = std::string(extensions ? extensions : "");
-                auto wsObj = info->second;
-                pushRuntimeCallback(info->first, [wsObj, protoCopy, extCopy](facebook::jsi::Runtime& rt) {
-                    auto fn = wsObj->getPropertyAsFunction(rt, "_handleOpen");
-                    fn.call(rt,
-                        facebook::jsi::String::createFromUtf8(rt, protoCopy),
-                        facebook::jsi::String::createFromUtf8(rt, extCopy));
-                });
+                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+
+                pushRuntimeCallback(runtime,
+                                   [wsObj, protoCopy, extCopy, context_guard = std::move(context_guard)](
+                                       facebook::jsi::Runtime& rt) {
+                                     auto fn = wsObj->getPropertyAsFunction(rt, "_handleOpen");
+                                     fn.call(rt,
+                                             facebook::jsi::String::createFromUtf8(rt, protoCopy),
+                                             facebook::jsi::String::createFromUtf8(rt, extCopy));
+                                   });
             },
             [](uint32_t, const uint8_t* data, size_t length, int is_text, void* ctx) {
-                auto* info = static_cast<std::pair<ExactHermesRuntime*, std::shared_ptr<facebook::jsi::Object>>*>(ctx);
-                auto wsObj = info->second;
+                auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+                if (!context || !context->runtime || !context->ws_instance) {
+                  return;
+                }
+                auto runtime = context->runtime;
+                auto wsObj = context->ws_instance;
+                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
                 if (is_text) {
                     auto textCopy = std::string(reinterpret_cast<const char*>(data), length);
-                    pushRuntimeCallback(info->first, [wsObj, textCopy](facebook::jsi::Runtime& rt) {
-                        auto fn = wsObj->getPropertyAsFunction(rt, "_handleMessage");
-                        fn.call(rt, facebook::jsi::String::createFromUtf8(rt, textCopy));
-                    });
+                    pushRuntimeCallback(
+                        runtime,
+                        [wsObj, textCopy, context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                          auto fn = wsObj->getPropertyAsFunction(rt, "_handleMessage");
+                          fn.call(rt, facebook::jsi::String::createFromUtf8(rt, textCopy));
+                        });
                 } else {
                     auto dataCopy = std::make_shared<std::vector<uint8_t>>(data, data + length);
-                    pushRuntimeCallback(info->first, [wsObj, dataCopy](facebook::jsi::Runtime& rt) {
-                        auto ab = rt.global()
-                            .getPropertyAsFunction(rt, "ArrayBuffer")
-                            .callAsConstructor(rt, static_cast<int>(dataCopy->size()))
-                            .asObject(rt)
-                            .getArrayBuffer(rt);
-                        memcpy(ab.data(rt), dataCopy->data(), dataCopy->size());
-                        auto fn = wsObj->getPropertyAsFunction(rt, "_handleMessage");
-                        fn.call(rt, std::move(ab));
-                    });
+                    pushRuntimeCallback(
+                        runtime,
+                        [wsObj, dataCopy, context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                          auto ab = rt.global()
+                                        .getPropertyAsFunction(rt, "ArrayBuffer")
+                                        .callAsConstructor(rt, static_cast<int>(dataCopy->size()))
+                                        .asObject(rt)
+                                        .getArrayBuffer(rt);
+                          memcpy(ab.data(rt), dataCopy->data(), dataCopy->size());
+                          auto fn = wsObj->getPropertyAsFunction(rt, "_handleMessage");
+                          fn.call(rt, std::move(ab));
+                        });
                 }
             },
             [](uint32_t, uint16_t code, const char* reason, int was_clean, void* ctx) {
-                auto* info = static_cast<std::pair<ExactHermesRuntime*, std::shared_ptr<facebook::jsi::Object>>*>(ctx);
+                auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+                if (!context || !context->runtime || !context->ws_instance) {
+                  return;
+                }
+                auto runtime = context->runtime;
+                auto wsObj = context->ws_instance;
                 auto reasonCopy = std::string(reason ? reason : "");
-                auto wsObj = info->second;
                 auto codeCopy = code;
                 auto cleanCopy = was_clean;
-                pushRuntimeCallback(info->first, [wsObj, codeCopy, reasonCopy, cleanCopy](facebook::jsi::Runtime& rt) {
-                    auto fn = wsObj->getPropertyAsFunction(rt, "_handleClose");
-                    fn.call(rt,
-                        facebook::jsi::Value(static_cast<int>(codeCopy)),
-                        facebook::jsi::String::createFromUtf8(rt, reasonCopy),
-                        facebook::jsi::Value(cleanCopy != 0));
-                });
+                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+                pushRuntimeCallback(
+                    runtime,
+                    [wsObj, codeCopy, reasonCopy, cleanCopy, context_guard = std::move(context_guard)](
+                        facebook::jsi::Runtime& rt) {
+                      auto fn = wsObj->getPropertyAsFunction(rt, "_handleClose");
+                      fn.call(rt,
+                              facebook::jsi::Value(static_cast<int>(codeCopy)),
+                              facebook::jsi::String::createFromUtf8(rt, reasonCopy),
+                              facebook::jsi::Value(cleanCopy != 0));
+                    });
             },
             // error callback
             [](uint32_t, const char* message, void* ctx) {
-                auto* info = static_cast<std::pair<ExactHermesRuntime*, std::shared_ptr<facebook::jsi::Object>>*>(ctx);
+                auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+                if (!context || !context->runtime || !context->ws_instance) {
+                  return;
+                }
+                auto runtime = context->runtime;
+                auto wsObj = context->ws_instance;
                 auto msgCopy = std::string(message ? message : "Unknown error");
-                auto wsObj = info->second;
-                pushRuntimeCallback(info->first, [wsObj, msgCopy](facebook::jsi::Runtime& rt) {
-                    auto fn = wsObj->getPropertyAsFunction(rt, "_handleError");
-                    fn.call(rt, facebook::jsi::String::createFromUtf8(rt, msgCopy));
-                });
+                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+                pushRuntimeCallback(runtime,
+                                   [wsObj, msgCopy, context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                                     auto fn = wsObj->getPropertyAsFunction(rt, "_handleError");
+                                     fn.call(rt, facebook::jsi::String::createFromUtf8(rt, msgCopy));
+                                   });
             },
             // bytes_sent callback - decrements bufferedAmount on JS side
             [](uint32_t, size_t bytes_sent, void* ctx) {
-                auto* info = static_cast<std::pair<ExactHermesRuntime*, std::shared_ptr<facebook::jsi::Object>>*>(ctx);
-                auto wsObj = info->second;
+                auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+                if (!context || !context->runtime || !context->ws_instance) {
+                  return;
+                }
+                auto runtime = context->runtime;
+                auto wsObj = context->ws_instance;
                 auto sentCopy = bytes_sent;
-                pushRuntimeCallback(info->first, [wsObj, sentCopy](facebook::jsi::Runtime& rt) {
-                    auto fn = wsObj->getPropertyAsFunction(rt, "_handleBytesSent");
-                    fn.call(rt, facebook::jsi::Value(static_cast<int>(sentCopy)));
-                });
+                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+                pushRuntimeCallback(
+                    runtime,
+                    [wsObj, sentCopy, context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                      auto fn = wsObj->getPropertyAsFunction(rt, "_handleBytesSent");
+                      fn.call(rt, facebook::jsi::Value(static_cast<int>(sentCopy)));
+                    });
             },
-            new std::pair<ExactHermesRuntime*, std::shared_ptr<facebook::jsi::Object>>(rtHandle, wsInstance)
+            callbackContext
         );
+        if (wsId == 0) {
+            native_ws_release_context(callbackContext);
+            return facebook::jsi::Value::undefined();
+        }
         return facebook::jsi::Value(static_cast<int>(wsId));
       });
   rt.global().setProperty(rt, "__exactWsConnect", std::move(wsConnectFn));

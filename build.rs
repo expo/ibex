@@ -20,6 +20,13 @@ fn main() {
     println!("cargo:rerun-if-changed=src/builtins");
     println!("cargo:rerun-if-env-changed=HERMES_ENABLE_DEBUGGER");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
+    let allow_fallback = matches!(
+        std::env::var("EXACT_ALLOW_FALLBACK")
+            .ok()
+            .map(|v| v.to_ascii_lowercase())
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    );
 
     // --- Build builtin JS modules via rolldown ---
     // Compiles src/builtins/*.js through the shared Hermes transforms and
@@ -44,19 +51,39 @@ fn main() {
                         eprintln!("cargo:warning=Built builtin modules → {}", builtins_out.display());
                     }
                     Ok(s) => {
+                        if !allow_fallback {
+                            panic!(
+                                "build-builtins.mjs failed with status {s} and EXACT_ALLOW_FALLBACK is not set"
+                            );
+                        }
                         eprintln!("cargo:warning=build-builtins.mjs exited with status {}, copying source files as fallback", s);
                         copy_builtins_fallback(&builtins_src, &builtins_out);
                     }
                     Err(e) => {
+                        if !allow_fallback {
+                            panic!(
+                                "Failed to run build-builtins.mjs ({e}); build aborted because EXACT_ALLOW_FALLBACK is not set"
+                            );
+                        }
                         eprintln!("cargo:warning=Failed to run build-builtins.mjs: {}, copying source files as fallback", e);
                         copy_builtins_fallback(&builtins_src, &builtins_out);
                     }
                 }
             } else {
+                if !allow_fallback {
+                    panic!(
+                        "Neither bun nor node found and EXACT_ALLOW_FALLBACK is not set"
+                    );
+                }
                 eprintln!("cargo:warning=Neither bun nor node found, copying builtin sources as-is");
                 copy_builtins_fallback(&builtins_src, &builtins_out);
             }
         } else {
+            if !allow_fallback {
+                panic!(
+                    "build-builtins.mjs not found and EXACT_ALLOW_FALLBACK is not set"
+                );
+            }
             eprintln!("cargo:warning=build-builtins.mjs not found, copying builtin sources as-is");
             copy_builtins_fallback(&builtins_src, &builtins_out);
         }
@@ -95,6 +122,12 @@ fn main() {
             let hbc_path = out_dir.join(js_file.replace(".js", ".hbc"));
 
             if !js_path.exists() {
+                if !allow_fallback {
+                    panic!(
+                        "Bootstrap JS file not found: {} and EXACT_ALLOW_FALLBACK is not set",
+                        js_path.display()
+                    );
+                }
                 eprintln!("cargo:warning=Bootstrap JS file not found: {}", js_path.display());
                 all_ok = false;
                 break;
@@ -127,6 +160,12 @@ fn main() {
                     ));
                 }
                 _ => {
+                    if !allow_fallback {
+                        panic!(
+                            "hermesc failed for {} and EXACT_ALLOW_FALLBACK is not set",
+                            js_file
+                        );
+                    }
                     eprintln!("cargo:warning=hermesc failed for {}", js_file);
                     all_ok = false;
                     break;
@@ -139,6 +178,11 @@ fn main() {
             std::fs::write(&header_path, &header).unwrap();
             eprintln!("cargo:warning=Generated bootstrap_bytecode.h with precompiled HBC");
         } else {
+            if !allow_fallback {
+                panic!(
+                    "HBC precompilation failed and EXACT_ALLOW_FALLBACK is not set"
+                );
+            }
             eprintln!("cargo:warning=HBC precompilation failed, falling back to source parsing");
         }
     } else {
@@ -158,7 +202,16 @@ fn main() {
         for (js_file, const_name) in &bootstrap_files {
             let js_path = bootstrap_dir.join(js_file);
             if !js_path.exists() {
-                eprintln!("cargo:warning=Bootstrap JS file not found for source header: {}", js_path.display());
+                if !allow_fallback {
+                    panic!(
+                        "Bootstrap JS file not found for source header: {} and EXACT_ALLOW_FALLBACK is not set",
+                        js_path.display()
+                    );
+                }
+                eprintln!(
+                    "cargo:warning=Bootstrap JS file not found for source header: {}",
+                    js_path.display()
+                );
                 all_ok = false;
                 break;
             }
@@ -175,6 +228,11 @@ fn main() {
             std::fs::write(&header_path, &src_header).unwrap();
             eprintln!("cargo:warning=Generated bootstrap_source.h with JS source literals");
         } else {
+            if !allow_fallback {
+                panic!(
+                    "bootstrap_source.h generation failed because EXACT_ALLOW_FALLBACK is not set"
+                );
+            }
             eprintln!("cargo:warning=bootstrap_source.h generation failed — missing JS files");
         }
     }
