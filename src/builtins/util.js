@@ -43,11 +43,15 @@ function promisify(fn) {
 function format(value) {
   if (arguments.length === 0) return "";
   if (typeof value !== "string") {
-    return String(value);
+    var parts = [];
+    for (var i = 0; i < arguments.length; i++) {
+      parts.push(inspect(arguments[i]));
+    }
+    return parts.join(' ');
   }
   var i = 1;
   var args = arguments;
-  return value.replace(/%[sdjoO%]/g, function(match) {
+  var result = value.replace(/%[sdjoO%]/g, function(match) {
     if (match === "%%") return "%";
     if (i >= args.length) return match;
     var arg = args[i];
@@ -55,9 +59,31 @@ function format(value) {
     if (match === "%s") return String(arg);
     if (match === "%d") return String(Number(arg));
     if (match === "%j") return JSON.stringify(arg);
-    if (match === "%o" || match === "%O") return arg && arg.toString ? arg.toString() : String(arg);
+    if (match === "%o" || match === "%O") return inspect(arg);
     return match;
   });
+  while (i < args.length) {
+    result += ' ' + inspect(args[i]);
+    i++;
+  }
+  return result;
+}
+
+function log() {
+  var now = new Date();
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var d = now.getDate();
+  var h = now.getHours();
+  var m = now.getMinutes();
+  var s = now.getSeconds();
+  var ts = d + ' ' + months[now.getMonth()] + ' ' +
+    (h < 10 ? '0' + h : '' + h) + ':' +
+    (m < 10 ? '0' + m : '' + m) + ':' +
+    (s < 10 ? '0' + s : '' + s);
+  var msg = format.apply(null, arguments);
+  if (typeof process !== 'undefined' && process.stdout && typeof process.stdout.write === 'function') {
+    process.stdout.write(ts + ' - ' + msg + '\n');
+  }
 }
 
 function inspect(value, options) {
@@ -135,6 +161,7 @@ var util = {
   inherits: inherits,
   promisify: promisify,
   format: format,
+  log: log,
   inspect: inspect,
   deprecate: function(fn, message) {
     if (typeof fn !== "function") return undefined;

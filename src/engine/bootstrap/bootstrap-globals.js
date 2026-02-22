@@ -164,31 +164,39 @@
     }
   }
 
-  // Wrap native setTimeout with callback validation
+  // Clamp delay: negative or non-numeric → 0 (matches Node.js and Web Platform behavior)
+  function _clampDelay(delay) {
+    var d = Number(delay);
+    return (d > 0) ? d : 0;
+  }
+
+  // Wrap native setTimeout with callback validation and delay clamping
   if (typeof globalThis.setTimeout === 'function') {
     var _nativeSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = function(callback, delay) {
       _validateTimerCallback(callback, 'setTimeout');
+      var d = _clampDelay(delay);
       var args = [];
       for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
       if (args.length > 0) {
-        return _nativeSetTimeout(function() { callback.apply(null, args); }, delay || 0);
+        return _nativeSetTimeout(function() { callback.apply(null, args); }, d);
       }
-      return _nativeSetTimeout(callback, delay || 0);
+      return _nativeSetTimeout(callback, d);
     };
   }
 
-  // Wrap native setInterval with callback validation
+  // Wrap native setInterval with callback validation and delay clamping
   if (typeof globalThis.setInterval === 'function') {
     var _nativeSetInterval = globalThis.setInterval;
     globalThis.setInterval = function(callback, delay) {
       _validateTimerCallback(callback, 'setInterval');
+      var d = _clampDelay(delay);
       var args = [];
       for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
       if (args.length > 0) {
-        return _nativeSetInterval(function() { callback.apply(null, args); }, delay || 0);
+        return _nativeSetInterval(function() { callback.apply(null, args); }, d);
       }
-      return _nativeSetInterval(callback, delay || 0);
+      return _nativeSetInterval(callback, d);
     };
   }
 

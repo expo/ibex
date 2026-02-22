@@ -114,6 +114,11 @@
     var origWrite = stream.write;
     addEventEmitter(stream);
 
+    stream.writable = true;
+    stream.writableEnded = false;
+    stream.writableFinished = false;
+    stream.destroyed = false;
+
     // Wrap native write to ensure callback support and coerce non-strings
     stream.write = function(chunk, encoding, callback) {
       if (typeof encoding === 'function') {
@@ -324,9 +329,19 @@
     stream.addListener = stream.on;
   }
 
-  enhanceWritable(p.stdout);
-  enhanceWritable(p.stderr);
-  enhanceReadable(p.stdin);
+  // Cache stdout/stderr/stdin as own properties since prototype getters
+  // may create new objects on each access
+  var _stdout = p.stdout;
+  var _stderr = p.stderr;
+  var _stdin = p.stdin;
+  enhanceWritable(_stdout);
+  enhanceWritable(_stderr);
+  enhanceReadable(_stdin);
+  try {
+    Object.defineProperty(p, 'stdout', { value: _stdout, writable: true, configurable: true, enumerable: true });
+    Object.defineProperty(p, 'stderr', { value: _stderr, writable: true, configurable: true, enumerable: true });
+    Object.defineProperty(p, 'stdin', { value: _stdin, writable: true, configurable: true, enumerable: true });
+  } catch(e) {}
 
   // --- Make process itself an EventEmitter ---
   addEventEmitter(p);
