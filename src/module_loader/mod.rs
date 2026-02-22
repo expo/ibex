@@ -45,6 +45,7 @@ impl ModuleLoader {
         builtins.insert("exact:http".to_string(), exact_http_module());
         builtins.insert("exact:sqlite".to_string(), exact_sqlite_module());
         builtins.insert("bun:sqlite".to_string(), exact_sqlite_module());
+        builtins.insert("bun:test".to_string(), bun_test_module());
 
         let node_fs_src = node_fs_module();
         builtins.insert("bun:fs".to_string(), node_fs_src.clone());
@@ -1835,6 +1836,10 @@ fn exact_http_module() -> String {
 
 fn exact_sqlite_module() -> String {
     include_str!("../../../../js/src/runtime/sqlite/module.js").to_string()
+}
+
+fn bun_test_module() -> String {
+    include_str!("../../../../test/compat/harness/bun-adapter.js").to_string()
 }
 
 fn exact_clipboard_module() -> String {
