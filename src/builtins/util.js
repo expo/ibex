@@ -295,4 +295,39 @@ util.parseArgs = function parseArgs(config) {
   return { values: values, positionals: positionals };
 };
 
+var nodeDebugEnv = (typeof process !== 'undefined' && process.env && process.env.NODE_DEBUG) ? process.env.NODE_DEBUG : '';
+var debugNamespaces = {};
+(function parseNodeDebugEnv() {
+  if (!nodeDebugEnv || typeof nodeDebugEnv !== 'string') return;
+  var parts = nodeDebugEnv.split(/[\s,]+/);
+  for (var i = 0; i < parts.length; i++) {
+    var ns = parts[i] && parts[i].trim();
+    if (!ns) continue;
+    debugNamespaces[ns.toUpperCase()] = true;
+  }
+})();
+
+util.debuglog = function debuglog(set) {
+  if (typeof set !== 'string' || !set) {
+    return function() {};
+  }
+  var normalized = set.toUpperCase();
+  var isEnabled = normalized === 'NODE_DEBUG' || debugNamespaces[normalized] ||
+    debugNamespaces['*'] ||
+    debugNamespaces[normalized.toLowerCase()] === true;
+
+  if (!isEnabled) {
+    return function() {};
+  }
+
+  var pid = (typeof process !== 'undefined' && process.pid != null) ? process.pid : 0;
+  return function() {
+    var args = Array.prototype.slice.call(arguments);
+    if (typeof console !== 'undefined' && console.error) {
+      args.unshift('[' + set + '] ' + pid + ':');
+      console.error.apply(console, args);
+    }
+  };
+};
+
 module.exports = util;
