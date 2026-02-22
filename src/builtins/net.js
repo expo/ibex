@@ -17,6 +17,7 @@ try { EventEmitter = require('events'); } catch(e) {
 var _hasTcp = typeof __exactTcpConnect === 'function';
 // Check for native Unix socket support
 var _hasUnix = typeof __exactUnixConnect === 'function';
+var _defaultAutoSelectFamilyAttemptTimeout = 0;
 
 // --- Socket class ---
 function Socket(options) {
@@ -665,6 +666,19 @@ function SocketAddress(options) {
   this.flowlabel = options.flowlabel || 0;
 }
 
+function getDefaultAutoSelectFamilyAttemptTimeout() {
+  return _defaultAutoSelectFamilyAttemptTimeout;
+}
+
+function setDefaultAutoSelectFamilyAttemptTimeout(milliseconds) {
+  if (typeof milliseconds === 'number' && isFinite(milliseconds)) {
+    _defaultAutoSelectFamilyAttemptTimeout = milliseconds;
+  } else if (arguments.length === 0) {
+    _defaultAutoSelectFamilyAttemptTimeout = 0;
+  }
+  return _defaultAutoSelectFamilyAttemptTimeout;
+}
+
 // --- BlockList class ---
 function BlockList() {
   if (!(this instanceof BlockList)) return new BlockList();
@@ -699,7 +713,7 @@ BlockList.prototype.check = function(address, type) {
   return false;
 };
 
-BlockList.prototype.rules = [];
+  BlockList.prototype.rules = [];
 
 module.exports = {
   Socket: Socket,
@@ -712,6 +726,8 @@ module.exports = {
   isIPv4: isIPv4,
   isIPv6: isIPv6,
   BlockList: BlockList,
-  SocketAddress: SocketAddress
+  SocketAddress: SocketAddress,
+  getDefaultAutoSelectFamilyAttemptTimeout: getDefaultAutoSelectFamilyAttemptTimeout,
+  setDefaultAutoSelectFamilyAttemptTimeout: setDefaultAutoSelectFamilyAttemptTimeout
 };
 module.exports.default = module.exports;

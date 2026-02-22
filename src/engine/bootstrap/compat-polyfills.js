@@ -81,6 +81,38 @@
     }
   }
 
+  function __exactInstallUmaskPolyfill() {
+    if (typeof globalThis.process !== 'object' || globalThis.process === null) {
+      return;
+    }
+    var proc = globalThis.process;
+    if (typeof proc.umask === 'function') {
+      return;
+    }
+
+    var currentUmask = 0o022;
+    proc.umask = function(mask) {
+      if (arguments.length === 0) {
+        return currentUmask;
+      }
+      if (typeof mask === 'string') {
+        if (!/^\d+$/.test(mask)) {
+          throw new TypeError("Bad argument");
+        }
+        mask = parseInt(mask, 8);
+      } else if (typeof mask !== 'number' || (mask | 0) !== mask) {
+        throw new TypeError("Bad argument");
+      }
+      if (mask < 0 || mask > 0o7777 || !isFinite(mask)) {
+        throw new RangeError("Bad argument");
+      }
+      var previousUmask = currentUmask;
+      currentUmask = mask & 0o7777;
+      return previousUmask;
+    };
+  }
+  __exactInstallUmaskPolyfill();
+
   // Node-oriented packages expect `process.versions.node` to exist.
   // In some Hermes runtimes process.versions is a host-managed accessor object
   // that may not include the Node key even though the process object is writable.

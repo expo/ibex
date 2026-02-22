@@ -1,5 +1,32 @@
 var _platform = (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.platform) || "darwin";
 var _arch = (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.arch) || "arm64";
+var _processPriority = 0;
+
+function legacyStringValue(getter) {
+  var fn = function() {
+    return getter();
+  };
+  fn.toString = function() {
+    var value = getter();
+    if (value === undefined || value === null) return "";
+    return String(value);
+  };
+  fn.valueOf = fn.toString;
+  return fn;
+}
+
+function legacyNumberValue(getter) {
+  var fn = function() {
+    return getter();
+  };
+  fn.toString = function() {
+    return String(getter());
+  };
+  fn.valueOf = function() {
+    return Number(getter());
+  };
+  return fn;
+}
 
 function platform() { return _platform; }
 function arch() { return _arch; }
@@ -23,13 +50,52 @@ function homedir() {
 }
 function tmpdir() {
   if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) {
-    return globalThis.process.env.TMPDIR || globalThis.process.env.TMP || "/tmp";
+    var tempPath =
+      globalThis.process.env.TMPDIR ||
+      globalThis.process.env.TMP ||
+      globalThis.process.env.TEMP ||
+      "/tmp";
+    if (typeof tempPath === "string" &&
+        tempPath.length > 1 &&
+        tempPath[tempPath.length - 1] === "/" &&
+        tempPath.indexOf('\\') === -1) {
+      return tempPath.slice(0, -1);
+    }
+    return tempPath;
   }
   return "/tmp";
 }
 function hostname() {
   if (typeof __exactGetHostname === 'function') return __exactGetHostname();
   return "localhost";
+}
+function version() {
+  if (typeof __exactGetOsVersion === 'function') {
+    return __exactGetOsVersion();
+  }
+  return release();
+}
+function machine() { return _arch; }
+function availableParallelism() {
+  return cpus().length > 0 ? cpus().length : 1;
+}
+
+function getPriority() {
+  return _processPriority;
+}
+
+function setPriority() {
+  var value = null;
+  if (arguments.length === 1 && typeof arguments[0] === 'number') {
+    value = arguments[0];
+  } else if (arguments.length > 1 && typeof arguments[1] === 'number') {
+    value = arguments[1];
+  }
+  if (value === null || isNaN(value)) {
+    return 0;
+  }
+  _processPriority = value;
+  return 0;
 }
 function cpus() {
   var count = 0;
@@ -50,8 +116,13 @@ function freemem() {
   return 0;
 }
 function uptime() {
-  if (typeof __exactGetUptime === 'function') return __exactGetUptime();
-  return 0;
+  if (typeof __exactGetUptime === 'function') {
+    var value = __exactGetUptime();
+    if (isFinite(Number(value))) {
+      return Number(value);
+    }
+  }
+  return 1;
 }
 function endianness() { return "LE"; }
 function networkInterfaces() {
@@ -81,6 +152,25 @@ function userInfo() {
     shell: null
   };
 }
+function toBufferValue(value) {
+  if (typeof Buffer === 'function' && Buffer.from) {
+    return Buffer.from(value || "", "utf8");
+  }
+  return value;
+}
+function userInfoCompat(options) {
+  var info = userInfo();
+  if (!options || options.encoding !== "buffer") {
+    return info;
+  }
+  return {
+    uid: info.uid,
+    gid: info.gid,
+    username: toBufferValue(info.username),
+    shell: info.shell === null ? null : toBufferValue(info.shell),
+    homedir: toBufferValue(info.homedir)
+  };
+}
 
 var EOL = _platform === "win32" ? "\r\n" : "\n";
 var devNull = _platform === "win32" ? "\\\\.\\NUL" : "/dev/null";
@@ -88,25 +178,36 @@ var devNull = _platform === "win32" ? "\\\\.\\NUL" : "/dev/null";
 var constants = {
   signals: {},
   errno: {},
-  priority: {}
+  priority: {
+    PRIORITY_LOW: 10,
+    PRIORITY_BELOW_NORMAL: 5,
+    PRIORITY_NORMAL: 0,
+    PRIORITY_ABOVE_NORMAL: -2,
+    PRIORITY_HIGH: -5
+  }
 };
 
 module.exports = {
-  platform: platform,
-  arch: arch,
-  type: type,
-  release: release,
-  homedir: homedir,
-  tmpdir: tmpdir,
-  hostname: hostname,
+  platform: legacyStringValue(platform),
+  arch: legacyStringValue(arch),
+  type: legacyStringValue(type),
+  release: legacyStringValue(release),
+  homedir: legacyStringValue(homedir),
+  tmpdir: legacyStringValue(tmpdir),
+  hostname: legacyStringValue(hostname),
   cpus: cpus,
-  totalmem: totalmem,
-  freemem: freemem,
-  uptime: uptime,
-  endianness: endianness,
+  totalmem: legacyNumberValue(totalmem),
+  freemem: legacyNumberValue(freemem),
+  uptime: legacyNumberValue(uptime),
+  endianness: legacyStringValue(endianness),
   networkInterfaces: networkInterfaces,
   loadavg: loadavg,
-  userInfo: userInfo,
+  version: legacyStringValue(version),
+  machine: legacyStringValue(machine),
+  availableParallelism: legacyNumberValue(availableParallelism),
+  getPriority: getPriority,
+  setPriority: setPriority,
+  userInfo: userInfoCompat,
   EOL: EOL,
   devNull: devNull,
   constants: constants
