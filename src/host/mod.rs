@@ -20,20 +20,15 @@ use crate::module_loader::{ModuleLoader, ResolvedModule};
 use std::sync::Arc;
 
 /// Capability security enforcement mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SecurityMode {
     /// Allow all capabilities (development/legacy mode)
+    #[default]
     Permissive,
     /// Enforce capability declarations, wildcards allowed
     Capability,
     /// Enforce capability declarations, no wildcards
     Strict,
-}
-
-impl Default for SecurityMode {
-    fn default() -> Self {
-        SecurityMode::Permissive
-    }
 }
 
 /// The host configuration

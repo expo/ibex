@@ -2,6 +2,12 @@
 //!
 //! These functions are intended to be called from engine adapters (C/C++).
 //! The CLI stores a singleton Host instance that backs these calls.
+//!
+//! # Safety
+//! FFI functions receive raw pointers from foreign code. The safety contract
+//! is between the caller (C/C++ code) and this module. Functions validate
+//! null pointers where possible but assume pointers are valid when non-null.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use super::Host;
 use getrandom::getrandom;

@@ -371,7 +371,7 @@ fn main() {
                 let dir = brotli_dir.join(subdir);
                 for entry in std::fs::read_dir(&dir).unwrap() {
                     let path = entry.unwrap().path();
-                    if path.extension().map_or(false, |e| e == "c") {
+                    if path.extension().is_some_and(|e| e == "c") {
                         brotli_build.file(&path);
                     }
                 }
@@ -409,7 +409,7 @@ fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
     if let Ok(entries) = std::fs::read_dir(src) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "js" || e == "ts") {
+            if path.extension().is_some_and(|e| e == "js" || e == "ts") {
                 let dest = dst.join(path.file_name().unwrap());
                 let _ = std::fs::copy(&path, &dest);
             }

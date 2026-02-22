@@ -36,6 +36,12 @@ pub struct ModuleLoader {
     resolver: Resolver,
 }
 
+impl Default for ModuleLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModuleLoader {
     pub fn new() -> Self {
         let mut builtins = HashMap::new();
