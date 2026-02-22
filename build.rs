@@ -17,8 +17,50 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/native_fetch_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/bootstrap");
+    println!("cargo:rerun-if-changed=src/builtins");
     println!("cargo:rerun-if-env-changed=HERMES_ENABLE_DEBUGGER");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
+
+    // --- Build builtin JS modules via rolldown ---
+    // Compiles src/builtins/*.js through the shared Hermes transforms and
+    // writes the output to $OUT_DIR/builtins/ for include_str!() in mod.rs.
+    let builtins_src = manifest_dir.join("src").join("builtins");
+    let builtins_out = out_dir.join("builtins");
+    if builtins_src.exists() {
+        let build_script = repo_root.join("js").join("scripts").join("build-builtins.mjs");
+        if build_script.exists() {
+            // Try bun first, fall back to node
+            let runner = which_js_runner();
+            if let Some(runner_path) = runner {
+                let status = std::process::Command::new(&runner_path)
+                    .arg(&build_script)
+                    .arg("--src-dir")
+                    .arg(&builtins_src)
+                    .arg("--out-dir")
+                    .arg(&builtins_out)
+                    .status();
+                match status {
+                    Ok(s) if s.success() => {
+                        eprintln!("cargo:warning=Built builtin modules → {}", builtins_out.display());
+                    }
+                    Ok(s) => {
+                        eprintln!("cargo:warning=build-builtins.mjs exited with status {}, copying source files as fallback", s);
+                        copy_builtins_fallback(&builtins_src, &builtins_out);
+                    }
+                    Err(e) => {
+                        eprintln!("cargo:warning=Failed to run build-builtins.mjs: {}, copying source files as fallback", e);
+                        copy_builtins_fallback(&builtins_src, &builtins_out);
+                    }
+                }
+            } else {
+                eprintln!("cargo:warning=Neither bun nor node found, copying builtin sources as-is");
+                copy_builtins_fallback(&builtins_src, &builtins_out);
+            }
+        } else {
+            eprintln!("cargo:warning=build-builtins.mjs not found, copying builtin sources as-is");
+            copy_builtins_fallback(&builtins_src, &builtins_out);
+        }
+    }
 
     // --- Precompile bootstrap JS to Hermes bytecode (HBC) ---
     // If hermesc is available, compile each bootstrap .js file to .hbc and
@@ -241,6 +283,37 @@ fn main() {
         if target_os == "ios" {
             // Link libresolv for DNS on iOS too
             println!("cargo:rustc-link-lib=resolv");
+        }
+    }
+}
+
+fn which_js_runner() -> Option<PathBuf> {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let dirs: Vec<&str> = if cfg!(target_os = "windows") {
+        path_var.split(';').collect()
+    } else {
+        path_var.split(':').collect()
+    };
+    for name in &["bun", "node"] {
+        for dir in &dirs {
+            let candidate = PathBuf::from(dir).join(name);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
+    let _ = std::fs::create_dir_all(dst);
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "js" || e == "ts") {
+                let dest = dst.join(path.file_name().unwrap());
+                let _ = std::fs::copy(&path, &dest);
+            }
         }
     }
 }
