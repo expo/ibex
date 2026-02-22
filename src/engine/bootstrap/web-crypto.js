@@ -96,6 +96,88 @@
       var key = new CryptoKey('secret', extractable, { name: 'HMAC', hash: { name: hashAlgo.toUpperCase() }, length: klen * 8 }, keyUsages, hmacKey);
       return Promise.resolve(key);
     }
+    // Ed25519 / X25519 key pair generation via native bridge
+    if (algo.name === 'ED25519' || algo.name === 'EDDSA') {
+      if (typeof __exactGenerateKeyPairSync === 'function') {
+        try {
+          var result = __exactGenerateKeyPairSync('ed25519', {});
+          var algorithmInfo = { name: 'Ed25519' };
+          var pubKeyData = new TextEncoder().encode(result.publicKey);
+          var privKeyData = new TextEncoder().encode(result.privateKey);
+          return Promise.resolve({
+            publicKey: new CryptoKey('public', true, algorithmInfo,
+              keyUsages.filter(function(u) { return u === 'verify'; }), pubKeyData),
+            privateKey: new CryptoKey('private', extractable, algorithmInfo,
+              keyUsages.filter(function(u) { return u === 'sign'; }), privKeyData)
+          });
+        } catch(e) { return Promise.reject(e); }
+      }
+      return Promise.reject(new Error('Native crypto not available for Ed25519 key generation'));
+    }
+    if (algo.name === 'X25519') {
+      if (typeof __exactGenerateKeyPairSync === 'function') {
+        try {
+          var result = __exactGenerateKeyPairSync('x25519', {});
+          var algorithmInfo = { name: 'X25519' };
+          var pubKeyData = new TextEncoder().encode(result.publicKey);
+          var privKeyData = new TextEncoder().encode(result.privateKey);
+          return Promise.resolve({
+            publicKey: new CryptoKey('public', true, algorithmInfo,
+              keyUsages.filter(function(u) { return u === 'deriveBits' || u === 'deriveKey'; }), pubKeyData),
+            privateKey: new CryptoKey('private', extractable, algorithmInfo,
+              keyUsages.filter(function(u) { return u === 'deriveBits' || u === 'deriveKey'; }), privKeyData)
+          });
+        } catch(e) { return Promise.reject(e); }
+      }
+      return Promise.reject(new Error('Native crypto not available for X25519 key generation'));
+    }
+    // RSA key pair generation via native bridge
+    if (algo.name === 'RSA-OAEP' || algo.name === 'RSASSA-PKCS1-V1_5' || algo.name === 'RSA-PSS') {
+      if (typeof __exactGenerateKeyPairSync === 'function') {
+        try {
+          var modulusLength = algo.modulusLength || 2048;
+          var publicExponent = 65537;
+          if (algo.publicExponent instanceof Uint8Array) {
+            var dv = new DataView(algo.publicExponent.buffer, algo.publicExponent.byteOffset, algo.publicExponent.byteLength);
+            publicExponent = dv.getUint32(algo.publicExponent.byteLength - 4, false);
+          }
+          var result = __exactGenerateKeyPairSync('rsa', { modulusLength: modulusLength, publicExponent: publicExponent });
+          var hashName = typeof algo.hash === 'string' ? algo.hash : (algo.hash && algo.hash.name ? algo.hash.name : 'SHA-256');
+          var algorithmInfo = { name: algo.name, modulusLength: modulusLength, publicExponent: algo.publicExponent, hash: { name: hashName } };
+          var pubKeyData = new TextEncoder().encode(result.publicKey);
+          var privKeyData = new TextEncoder().encode(result.privateKey);
+          return Promise.resolve({
+            publicKey: new CryptoKey('public', true, algorithmInfo,
+              keyUsages.filter(function(u) { return u === 'encrypt' || u === 'verify' || u === 'wrapKey'; }), pubKeyData),
+            privateKey: new CryptoKey('private', extractable, algorithmInfo,
+              keyUsages.filter(function(u) { return u === 'decrypt' || u === 'sign' || u === 'unwrapKey'; }), privKeyData)
+          });
+        } catch(e) { return Promise.reject(e); }
+      }
+      return Promise.reject(new Error('Native crypto not available for RSA key generation'));
+    }
+    // ECDSA / ECDH key pair generation via native bridge
+    if (algo.name === 'ECDSA' || algo.name === 'ECDH') {
+      if (typeof __exactGenerateKeyPairSync === 'function') {
+        try {
+          var result = __exactGenerateKeyPairSync('ec', { namedCurve: algo.namedCurve });
+          var algorithmInfo = { name: algo.name, namedCurve: algo.namedCurve };
+          var pubKeyData = new TextEncoder().encode(result.publicKey);
+          var privKeyData = new TextEncoder().encode(result.privateKey);
+          var pubUsages = algo.name === 'ECDSA'
+            ? keyUsages.filter(function(u) { return u === 'verify'; })
+            : keyUsages.filter(function(u) { return u === 'deriveBits' || u === 'deriveKey'; });
+          var privUsages = algo.name === 'ECDSA'
+            ? keyUsages.filter(function(u) { return u === 'sign'; })
+            : keyUsages.filter(function(u) { return u === 'deriveBits' || u === 'deriveKey'; });
+          return Promise.resolve({
+            publicKey: new CryptoKey('public', true, algorithmInfo, pubUsages, pubKeyData),
+            privateKey: new CryptoKey('private', extractable, algorithmInfo, privUsages, privKeyData)
+          });
+        } catch(e) { return Promise.reject(e); }
+      }
+      return Promise.reject(new Error('Native crypto not available for EC key generation'));
+    }
     return Promise.reject(new Error('Unsupported algorithm for generateKey: ' + algo.name));
   };
 
@@ -319,10 +401,36 @@
     });
   };
 
-  // Set globalThis.crypto
-  globalThis.crypto = {
-    getRandomValues: getRandomValues,
-    randomUUID: randomUUID,
-    subtle: subtle
-  };
+  // Set globalThis.crypto — only if the full SubtleCrypto from the JS runtime
+  // bundle (bootstrap.ts) hasn't been installed yet. The full implementation
+  // supports Ed25519, ECDSA, RSA, ECDH, X25519, PBKDF2, HKDF, etc. while this
+  // shim only handles AES and HMAC. The full implementation marks itself with
+  // __exactFullSubtle so we can detect it.
+  if (typeof globalThis.crypto === 'object' && globalThis.crypto !== null &&
+      typeof globalThis.crypto.subtle === 'object' && globalThis.crypto.subtle !== null &&
+      globalThis.crypto.subtle.__exactFullSubtle === true) {
+    // Full SubtleCrypto already installed by runtime bundle — skip overwrite.
+    // Only fill in missing top-level methods if needed.
+    if (typeof globalThis.crypto.getRandomValues !== 'function') {
+      globalThis.crypto.getRandomValues = getRandomValues;
+    }
+    if (typeof globalThis.crypto.randomUUID !== 'function') {
+      globalThis.crypto.randomUUID = randomUUID;
+    }
+  } else {
+    // Create crypto object with read-only subtle property (matching browser behavior).
+    // In browsers/Bun, crypto.subtle is a getter-only property — assigning to it is
+    // silently ignored. This prevents test code from accidentally clobbering subtle.
+    var cryptoObj = {
+      getRandomValues: getRandomValues,
+      randomUUID: randomUUID,
+    };
+    Object.defineProperty(cryptoObj, 'subtle', {
+      get: function() { return subtle; },
+      set: function() { /* no-op, matching browser behavior */ },
+      enumerable: true,
+      configurable: true,
+    });
+    globalThis.crypto = cryptoObj;
+  }
 })();
