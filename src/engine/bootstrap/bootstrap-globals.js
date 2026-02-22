@@ -152,10 +152,51 @@
     return output;
   };
 
+  // Timer callback validation helper (Node.js throws ERR_INVALID_ARG_TYPE)
+  function _validateTimerCallback(callback, name) {
+    if (typeof callback !== 'function') {
+      var err = new TypeError(
+        'The "callback" argument must be of type function. Received ' +
+        (callback === null ? 'null' : typeof callback)
+      );
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+  }
+
+  // Wrap native setTimeout with callback validation
+  if (typeof globalThis.setTimeout === 'function') {
+    var _nativeSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = function(callback, delay) {
+      _validateTimerCallback(callback, 'setTimeout');
+      var args = [];
+      for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
+      if (args.length > 0) {
+        return _nativeSetTimeout(function() { callback.apply(null, args); }, delay || 0);
+      }
+      return _nativeSetTimeout(callback, delay || 0);
+    };
+  }
+
+  // Wrap native setInterval with callback validation
+  if (typeof globalThis.setInterval === 'function') {
+    var _nativeSetInterval = globalThis.setInterval;
+    globalThis.setInterval = function(callback, delay) {
+      _validateTimerCallback(callback, 'setInterval');
+      var args = [];
+      for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
+      if (args.length > 0) {
+        return _nativeSetInterval(function() { callback.apply(null, args); }, delay || 0);
+      }
+      return _nativeSetInterval(callback, delay || 0);
+    };
+  }
+
   // setImmediate / clearImmediate — lazy (Node.js global)
   if (typeof globalThis.setImmediate === 'undefined') {
     defineLazyGlobal('setImmediate', function() {
       var impl = function(callback) {
+        _validateTimerCallback(callback, 'setImmediate');
         var args = [];
         for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
         return globalThis.setTimeout(function() { callback.apply(null, args); }, 0);
