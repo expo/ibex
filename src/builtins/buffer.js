@@ -142,6 +142,9 @@ function toByteArray(value, encoding) {
   if (Array.isArray(value)) {
     return new Uint8Array(value);
   }
+  if (value && typeof value === "object" && value.type === "Buffer" && Array.isArray(value.data)) {
+    return new Uint8Array(value.data);
+  }
   if (typeof value === "object" && value !== null && typeof value.valueOf === "function") {
     var unboxed = value.valueOf();
     if (unboxed !== value) {

@@ -3,25 +3,93 @@ function _typeof(v) {
 }
 
 function _inspect(v) {
+  var isNodeUtil = false;
+  if (!_inspect._initialized) {
+    try {
+      _inspect._util = require('util').inspect;
+      isNodeUtil = true;
+    } catch (e) {
+      _inspect._util = null;
+    }
+    _inspect._initialized = true;
+  }
+
+  if (_inspect._util) {
+    try {
+      return _inspect._util(v, {
+        compact: true,
+        breakLength: Infinity,
+      });
+    } catch (e) {
+      // fall back
+    }
+  }
+
   if (v === undefined) return 'undefined';
   if (v === null) return 'null';
   if (typeof v === 'string') return JSON.stringify(v);
   if (typeof v === 'function') return '[Function' + (v.name ? ': ' + v.name : '') + ']';
-  try { return JSON.stringify(v); } catch(e) { return String(v); }
+  try {
+    return JSON.stringify(v);
+  } catch (e) {
+    return String(v);
+  }
 }
 
-function AssertionError(opts) {
-  var msg = opts.message || ('Expected values to be ' + (opts.operator || 'truthy'));
-  if (opts.actual !== undefined && opts.expected !== undefined) {
-    msg += '\n  actual: ' + _inspect(opts.actual) + '\n  expected: ' + _inspect(opts.expected);
+class AssertionError extends Error {
+  constructor(opts) {
+    if (!opts || _typeof(opts) !== 'object') {
+      var typeErr = new TypeError('The "options" argument must be of type object.' +
+          ' Received type "' + _typeof(opts) + '"');
+      typeErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw typeErr;
+    }
+
+    var msg = opts.message || ('Expected values to be ' + (opts.operator || 'truthy'));
+    super(msg);
+    this.name = 'AssertionError';
+    this.actual = opts.actual;
+    this.expected = opts.expected;
+    this.operator = opts.operator;
+    this.code = 'ERR_ASSERTION';
+    this.generatedMessage = opts.message ? false : true;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, AssertionError);
+    }
   }
-  var err = new Error(msg);
-  err.name = 'AssertionError';
-  err.actual = opts.actual;
-  err.expected = opts.expected;
-  err.operator = opts.operator;
-  err.code = 'ERR_ASSERTION';
-  return err;
+}
+
+function _isErrorConstructor(expected) {
+  return (
+    typeof expected === 'function' &&
+    expected.prototype &&
+    expected.prototype instanceof Error
+  );
+}
+
+function _ifErrorValue(err) {
+  if (err === undefined || err === null) return '';
+  if (err instanceof Error) {
+    return (typeof err.message === 'string' && err.message.length > 0)
+      ? err.message
+      : (typeof err.name === 'string' ? err.name : String(err));
+  }
+  if (_typeof(err) === 'object' && Object.prototype.hasOwnProperty.call(err, 'message')) {
+    return typeof err.message === 'string' ? err.message : _inspect(err.message);
+  }
+  if (_typeof(err) === 'string') return err;
+  if (_typeof(err) === 'boolean' || _typeof(err) === 'number' || _typeof(err) === 'symbol') {
+    return String(err);
+  }
+  return _inspect(err);
+}
+
+function _errorTypeName(err) {
+  if (err === null || err === undefined) return String(err);
+  if (_typeof(err) === 'string') return err;
+  if (_typeof(err) === 'number' || _typeof(err) === 'boolean' || _typeof(err) === 'symbol') return String(err);
+  if (_typeof(err) === 'object' && err.name) return String(err.name);
+  return _inspect(err);
 }
 
 function _deepEqual(a, b) {
@@ -49,7 +117,7 @@ function _deepEqual(a, b) {
 
 function ok(value, message) {
   if (!value) {
-    throw AssertionError({
+    throw new AssertionError({
       message: message || 'The expression evaluated to a falsy value',
       actual: value,
       expected: true,
@@ -60,49 +128,49 @@ function ok(value, message) {
 
 function equal(actual, expected, message) {
   if (actual != expected) {
-    throw AssertionError({ message: message, actual: actual, expected: expected, operator: '==' });
+    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: '==' });
   }
 }
 
 function notEqual(actual, expected, message) {
   if (actual == expected) {
-    throw AssertionError({ message: message, actual: actual, expected: expected, operator: '!=' });
+    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: '!=' });
   }
 }
 
 function strictEqual(actual, expected, message) {
   if (actual !== expected) {
-    throw AssertionError({ message: message, actual: actual, expected: expected, operator: '===' });
+    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: '===' });
   }
 }
 
 function notStrictEqual(actual, expected, message) {
   if (actual === expected) {
-    throw AssertionError({ message: message, actual: actual, expected: expected, operator: '!==' });
+    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: '!==' });
   }
 }
 
 function deepEqual(actual, expected, message) {
   if (!_deepEqual(actual, expected)) {
-    throw AssertionError({ message: message, actual: actual, expected: expected, operator: 'deepEqual' });
+    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: 'deepEqual' });
   }
 }
 
 function deepStrictEqual(actual, expected, message) {
   if (!_deepEqual(actual, expected)) {
-    throw AssertionError({ message: message, actual: actual, expected: expected, operator: 'deepStrictEqual' });
+    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: 'deepStrictEqual' });
   }
 }
 
 function notDeepEqual(actual, expected, message) {
   if (_deepEqual(actual, expected)) {
-    throw AssertionError({ message: message, actual: actual, expected: expected, operator: 'notDeepEqual' });
+    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: 'notDeepEqual' });
   }
 }
 
 function notDeepStrictEqual(actual, expected, message) {
   if (_deepEqual(actual, expected)) {
-    throw AssertionError({ message: message, actual: actual, expected: expected, operator: 'notDeepStrictEqual' });
+    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: 'notDeepStrictEqual' });
   }
 }
 
@@ -116,20 +184,33 @@ function throws(fn, expected, message) {
     caught = e;
   }
   if (!threw) {
-    throw AssertionError({
+    throw new AssertionError({
       message: message || 'Missing expected exception',
       operator: 'throws'
     });
   }
   if (expected) {
+    if (_isErrorConstructor(expected)) {
+      if (caught instanceof expected) return;
+      throw new AssertionError({
+        message: 'The error is expected to be an instance of "' +
+            (expected.name || 'Error') +
+            '". ' +
+            'Received "' + _errorTypeName(caught) + '"\n\nError message:\n\n' +
+            _inspect(caught),
+        actual: caught,
+        expected: expected,
+        operator: 'throws'
+      });
+    }
+
     if (typeof expected === 'function') {
-      if (expected.prototype && caught instanceof expected) return;
       if (expected(caught) === true) return;
-      throw AssertionError({ message: message || 'Unexpected exception', actual: caught, expected: expected, operator: 'throws' });
+      throw new AssertionError({ message: message || 'Unexpected exception', actual: caught, expected: expected, operator: 'throws' });
     }
     if (expected instanceof RegExp) {
       if (expected.test(String(caught))) return;
-      throw AssertionError({ message: message || 'Unexpected exception', actual: caught, expected: expected, operator: 'throws' });
+      throw new AssertionError({ message: message || 'Unexpected exception', actual: caught, expected: expected, operator: 'throws' });
     }
   }
 }
@@ -138,7 +219,7 @@ function doesNotThrow(fn, expected, message) {
   try {
     fn();
   } catch (e) {
-    throw AssertionError({
+    throw new AssertionError({
       message: message || 'Got unwanted exception',
       actual: e,
       operator: 'doesNotThrow'
@@ -148,12 +229,17 @@ function doesNotThrow(fn, expected, message) {
 
 function ifError(err) {
   if (err !== null && err !== undefined) {
-    throw err;
+    throw new AssertionError({
+      message: 'ifError got unwanted exception: ' + _ifErrorValue(err),
+      actual: err,
+      expected: null,
+      operator: 'ifError'
+    });
   }
 }
 
 function fail(message) {
-  throw AssertionError({
+  throw new AssertionError({
     message: message || 'Failed',
     operator: 'fail'
   });
@@ -161,13 +247,13 @@ function fail(message) {
 
 function match(string, regexp, message) {
   if (!regexp.test(string)) {
-    throw AssertionError({ message: message, actual: string, expected: regexp, operator: 'match' });
+    throw new AssertionError({ message: message, actual: string, expected: regexp, operator: 'match' });
   }
 }
 
 function doesNotMatch(string, regexp, message) {
   if (regexp.test(string)) {
-    throw AssertionError({ message: message, actual: string, expected: regexp, operator: 'doesNotMatch' });
+    throw new AssertionError({ message: message, actual: string, expected: regexp, operator: 'doesNotMatch' });
   }
 }
 

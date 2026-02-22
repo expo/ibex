@@ -328,8 +328,22 @@
         this._listeners = {};
       }
       EventTarget.prototype.addEventListener = function(type, listener, options) {
+        var capture = false;
+        var once = false;
+        if (options === true || options === false) {
+          capture = !!options;
+        } else if (options && typeof options === 'object') {
+          capture = !!options.capture;
+          once = !!options.once;
+        }
         if (!this._listeners[type]) this._listeners[type] = [];
-        this._listeners[type].push({ fn: listener, once: options && options.once });
+        var listeners = this._listeners[type];
+        for (var i = 0; i < listeners.length; i++) {
+          if (listeners[i].fn === listener && listeners[i].capture === capture) {
+            return;
+          }
+        }
+        listeners.push({ fn: listener, once: once, capture: capture });
       };
       EventTarget.prototype.removeEventListener = function(type, listener) {
         if (!this._listeners[type]) return;
@@ -341,13 +355,21 @@
         if (!listeners) return true;
         event.target = this;
         event.currentTarget = this;
-        var toRemove = [];
-        for (var i = 0; i < listeners.length; i++) {
-          try { listeners[i].fn.call(this, event); } catch(e) {}
-          if (listeners[i].once) toRemove.push(i);
+        var snapshot = listeners.slice();
+        var current = this._listeners[event.type];
+        for (var i = 0; i < snapshot.length; i++) {
+          var listener = snapshot[i];
+          if (!listener) {
+            continue;
+          }
+          if (listener.once && current) {
+            current = current.filter(function(entry) { return entry.fn !== listener.fn || entry.capture !== listener.capture; });
+            this._listeners[event.type] = current;
+          }
+          try { listener.fn.call(this, event); } catch(e) {}
         }
-        for (var j = toRemove.length - 1; j >= 0; j--) {
-          listeners.splice(toRemove[j], 1);
+        if (current && current.length !== listeners.length) {
+          this._listeners[event.type] = current;
         }
         return !event.defaultPrevented;
       };
