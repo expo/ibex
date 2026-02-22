@@ -50,10 +50,17 @@ function encodeString(value, encoding) {
   var enc = coerceEncoding(encoding || "utf8");
   var str = String(value);
   if (enc === "hex") {
-    var hexLen = Math.floor(str.length / 2);
-    var bytes = new Uint8Array(hexLen);
-    for (var i = 0; i < hexLen; i++) {
-      bytes[i] = parseInt(str.substr(i * 2, 2), 16);
+    var values = [];
+    for (var i = 0; i < str.length - 1; i += 2) {
+      var byte = parseInt(str.substr(i, 2), 16);
+      if (isNaN(byte)) {
+        break;
+      }
+      values.push(byte);
+    }
+    var bytes = new Uint8Array(values.length);
+    for (var j = 0; j < values.length; j++) {
+      bytes[j] = values[j];
     }
     return bytes;
   }
@@ -254,6 +261,16 @@ BufferProto.copy = function(target, targetStart, sourceStart, sourceEnd) {
 };
 
 BufferProto.write = function(value, offset, length, encoding) {
+  if (typeof length === "string") {
+    encoding = length;
+    length = null;
+  }
+  if (typeof offset === "string") {
+    encoding = offset;
+    offset = 0;
+    length = null;
+  }
+
   var bytes = encodeString(String(value), encoding || "utf8");
   if (offset == null) offset = 0;
   if (length == null || length > bytes.length) length = bytes.length;
