@@ -1,4 +1,12 @@
 var g = globalThis;
+var _exactFsInitialized = false;
+function ensureExactFs() {
+  if (_exactFsInitialized) return;
+  if (typeof g.__exactEnsureFs === 'function') {
+    try { g.__exactEnsureFs(); } catch (e) {}
+  }
+  _exactFsInitialized = true;
+}
 
 function toUint8Array(data) {
   if (typeof data === 'string') {
@@ -58,6 +66,7 @@ function wrapBuffer(bytes) {
 }
 
 function readFileSync(path, options) {
+  ensureExactFs();
   var encoding = typeof options === 'string' ? options : (options && options.encoding);
   var bytes = g.__exactReadFile(path);
   if (encoding) return decodeBytes(bytes, encoding);
@@ -65,14 +74,17 @@ function readFileSync(path, options) {
 }
 
 function writeFileSync(path, data, options) {
+  ensureExactFs();
   g.__exactWriteFile(path, toUint8Array(data));
 }
 
 function appendFileSync(path, data, options) {
+  ensureExactFs();
   g.__exactAppendFile(path, toUint8Array(data));
 }
 
 function statSync(path) {
+  ensureExactFs();
   var json = g.__exactStat(path);
   var raw = JSON.parse(json);
   raw.isFile = function() { return raw.is_file; };
@@ -92,6 +104,7 @@ function statSync(path) {
 }
 
 function lstatSync(path) {
+  ensureExactFs();
   var json = g.__exactLstat(path);
   var raw = JSON.parse(json);
   raw.isFile = function() { return raw.is_file; };
@@ -107,24 +120,27 @@ function lstatSync(path) {
 }
 
 function readdirSync(path) {
+  ensureExactFs();
   return JSON.parse(g.__exactReaddir(path));
 }
 
 function mkdirSync(path, options) {
+  ensureExactFs();
   var recursive = typeof options === 'object' && options !== null ? !!options.recursive : false;
   g.__exactMkdir(path, recursive);
 }
 
-function rmdirSync(path) { g.__exactRmdir(path); }
-function unlinkSync(path) { g.__exactUnlink(path); }
-function renameSync(oldPath, newPath) { g.__exactRename(oldPath, newPath); }
-function copyFileSync(src, dest) { g.__exactCopyFile(src, dest); }
-function accessSync(path, mode) { g.__exactAccess(path, mode || 0); }
-function chmodSync(path, mode) { g.__exactChmod(path, mode); }
-function realpathSync(path) { return g.__exactRealpath(path); }
-function mkdtempSync(prefix) { return g.__exactMkdtemp(prefix); }
+function rmdirSync(path) { ensureExactFs(); g.__exactRmdir(path); }
+function unlinkSync(path) { ensureExactFs(); g.__exactUnlink(path); }
+function renameSync(oldPath, newPath) { ensureExactFs(); g.__exactRename(oldPath, newPath); }
+function copyFileSync(src, dest) { ensureExactFs(); g.__exactCopyFile(src, dest); }
+function accessSync(path, mode) { ensureExactFs(); g.__exactAccess(path, mode || 0); }
+function chmodSync(path, mode) { ensureExactFs(); g.__exactChmod(path, mode); }
+function realpathSync(path) { ensureExactFs(); return g.__exactRealpath(path); }
+function mkdtempSync(prefix) { ensureExactFs(); return g.__exactMkdtemp(prefix); }
 
 function existsSync(path) {
+  ensureExactFs();
   try { g.__exactAccess(path, 0); return true; } catch(e) { return false; }
 }
 
@@ -187,16 +203,19 @@ function exists(path, cb) {
 }
 
 function openSync(path, flags, mode) {
+  ensureExactFs();
   var f = flags || 'r';
   var m = (mode !== undefined && mode !== null) ? mode : 438;
   return g.__exactFsOpen(path, f, m);
 }
 
 function closeSync(fd) {
+  ensureExactFs();
   g.__exactFsClose(fd);
 }
 
 function readSync(fd, buffer, offset, length, position) {
+  ensureExactFs();
   var off = (typeof offset === 'number') ? offset : 0;
   var len = (typeof length === 'number') ? length : (buffer ? buffer.length - off : 0);
   var pos = (typeof position === 'number' && position !== null) ? position : -1;
@@ -210,6 +229,7 @@ function readSync(fd, buffer, offset, length, position) {
 }
 
 function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
+  ensureExactFs();
   if (typeof bufferOrString === 'string') {
     var pos = (typeof offsetOrPosition === 'number') ? offsetOrPosition : -1;
     var bytes = toUint8Array(bufferOrString);
@@ -261,6 +281,7 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
 }
 
 function createReadStream(path, options) {
+  ensureExactFs();
   var Stream = require('node:stream');
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
   var encoding = opts.encoding || null;
@@ -315,6 +336,7 @@ function createReadStream(path, options) {
 }
 
 function createWriteStream(path, options) {
+  ensureExactFs();
   var Stream = require('node:stream');
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
   var flags = opts.flags || 'w';
@@ -338,7 +360,7 @@ function createWriteStream(path, options) {
       ws.pending = false;
       ws.fd = fd;
       if (typeof start === 'number' && start >= 0) {
-        g.__exactFsWrite(fd, toUint8Array(''), start);
+        writeSync(fd, '', start);
       }
       ws.emit('open', fd);
     }
@@ -348,7 +370,7 @@ function createWriteStream(path, options) {
     try {
       ensureOpen();
       var bytes = toUint8Array(chunk);
-      var written = g.__exactFsWrite(fd, bytes, -1);
+      var written = writeSync(fd, bytes, 0, bytes.length, -1);
       ws.bytesWritten += written;
       if (typeof callback === 'function') callback();
     } catch(err) {
@@ -430,6 +452,7 @@ function unwatchFile(filename) {
 
 // fs.symlink/link/readlink/truncate/chown/utimes/rm
 function symlinkSync(target, path, type) {
+  ensureExactFs();
   if (typeof g.__exactSymlink === 'function') return g.__exactSymlink(target, path);
   throw new Error('symlink not available');
 }
@@ -438,6 +461,7 @@ function symlink(target, path, type, cb) {
   try { symlinkSync(target, path, type); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
 }
 function linkSync(existingPath, newPath) {
+  ensureExactFs();
   if (typeof g.__exactLink === 'function') return g.__exactLink(existingPath, newPath);
   throw new Error('link not available');
 }
@@ -445,6 +469,7 @@ function link(existingPath, newPath, cb) {
   try { linkSync(existingPath, newPath); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
 }
 function readlinkSync(path) {
+  ensureExactFs();
   if (typeof g.__exactReadlink === 'function') return g.__exactReadlink(path);
   throw new Error('readlink not available');
 }
@@ -453,6 +478,7 @@ function readlink(path, options, cb) {
   try { var r = readlinkSync(path); if (cb) cb(null, r); } catch(e) { if (cb) cb(e); }
 }
 function truncateSync(path, len) {
+  ensureExactFs();
   if (typeof g.__exactTruncate === 'function') return g.__exactTruncate(path, len || 0);
   throw new Error('truncate not available');
 }
@@ -461,6 +487,7 @@ function truncate(path, len, cb) {
   try { truncateSync(path, len); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
 }
 function chownSync(path, uid, gid) {
+  ensureExactFs();
   if (typeof g.__exactChown === 'function') return g.__exactChown(path, uid, gid);
   // No-op if native chown not available
 }
@@ -468,6 +495,7 @@ function chown(path, uid, gid, cb) {
   try { chownSync(path, uid, gid); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
 }
 function utimesSync(path, atime, mtime) {
+  ensureExactFs();
   if (typeof g.__exactUtimes === 'function') return g.__exactUtimes(path, atime, mtime);
   // No-op if native utimes not available
 }
@@ -475,12 +503,13 @@ function utimes(path, atime, mtime, cb) {
   try { utimesSync(path, atime, mtime); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
 }
 function rmSync(path, options) {
+  ensureExactFs();
   options = options || {};
   try {
-    var info = JSON.parse(g.__exactStat(path));
-    if (info.is_dir) {
+    var info = statSync(path);
+    if (typeof info.isDirectory === 'function' ? info.isDirectory() : info.is_dir) {
       if (options.recursive) {
-        var entries = JSON.parse(g.__exactReaddir(path));
+        var entries = readdirSync(path);
         for (var i = 0; i < entries.length; i++) {
           rmSync(path + '/' + entries[i], options);
         }
@@ -513,9 +542,11 @@ var promises = {
   realpath: function(p) { return Promise.resolve(realpathSync(p)); },
   mkdtemp: function(p) { return Promise.resolve(mkdtempSync(p)); },
   rm: function(p, o) {
+    ensureExactFs();
     try {
-      var info = JSON.parse(g.__exactStat(p));
-      if (info.is_dir) rmdirSync(p); else unlinkSync(p);
+      var info = statSync(p);
+      if (typeof info.isDirectory === 'function' ? info.isDirectory() : info.is_dir) rmdirSync(p);
+      else unlinkSync(p);
     } catch(e) { if (!(o && o.force)) throw e; }
     return Promise.resolve();
   },

@@ -213,26 +213,40 @@
     this.name = path;
     this.type = (opts && opts.type) || mimeType(path);
   }
+  var _exactFsInitialized = false;
+  function ensureExactFs() {
+    if (_exactFsInitialized) return;
+    if (typeof g.__exactEnsureFs === 'function') {
+      try { g.__exactEnsureFs(); }
+      catch (e) {}
+    }
+    _exactFsInitialized = true;
+  }
   Object.defineProperty(ExactFile.prototype, 'size', {
     get: function() {
+      ensureExactFs();
       try { var s = JSON.parse(g.__exactStat(this.name)); return s.size; } catch(e) { return 0; }
     }
   });
   Object.defineProperty(ExactFile.prototype, 'lastModified', {
     get: function() {
+      ensureExactFs();
       try { var s = JSON.parse(g.__exactStat(this.name)); return s.mtime_ms; } catch(e) { return 0; }
     }
   });
   ExactFile.prototype.text = function() {
     var n = this.name;
+    ensureExactFs();
     return Promise.resolve().then(function() { return decode(g.__exactReadFile(n)); });
   };
   ExactFile.prototype.json = function() {
     var n = this.name;
+    ensureExactFs();
     return Promise.resolve().then(function() { return JSON.parse(decode(g.__exactReadFile(n))); });
   };
   ExactFile.prototype.arrayBuffer = function() {
     var n = this.name;
+    ensureExactFs();
     return Promise.resolve().then(function() {
       var b = g.__exactReadFile(n);
       return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
@@ -240,27 +254,32 @@
   };
   ExactFile.prototype.bytes = function() {
     var n = this.name;
+    ensureExactFs();
     return Promise.resolve().then(function() { return g.__exactReadFile(n); });
   };
   ExactFile.prototype.exists = function() {
     var n = this.name;
+    ensureExactFs();
     return Promise.resolve().then(function() {
       try { g.__exactAccess(n, 0); return true; } catch(e) { return false; }
     });
   };
   ExactFile.prototype.stat = function() {
     var n = this.name;
+    ensureExactFs();
     return Promise.resolve().then(function() {
       try { return JSON.parse(g.__exactStat(n)); } catch(e) { return null; }
     });
   };
   ExactFile.prototype.slice = function(begin, end, type) {
+    ensureExactFs();
     var b = g.__exactReadFile(this.name);
     var s = b.slice(begin || 0, end === undefined ? b.length : end);
     return new Blob([s], { type: type || this.type });
   };
   ExactFile.prototype.stream = function() {
     var n = this.name;
+    ensureExactFs();
     return new ReadableStream({
       start: function(c) {
         try { c.enqueue(g.__exactReadFile(n)); c.close(); } catch(e) { c.error(e); }
@@ -271,6 +290,7 @@
     var n = this.name, started = false;
     return {
       write: function(data) {
+        ensureExactFs();
         var b = toBytes(data);
         if (!started) { g.__exactWriteFile(n, b); started = true; }
         else if (typeof g.__exactAppendFile === 'function') { g.__exactAppendFile(n, b); }
@@ -298,6 +318,7 @@
   E.file = function(path, opts) { return new ExactFile(path, opts); };
   E.write = function(dest, data) {
     var path = typeof dest === 'string' ? dest : dest.name;
+    ensureExactFs();
     var b = toBytes(data);
     return Promise.resolve().then(function() { g.__exactWriteFile(path, b); return b.length; });
   };
