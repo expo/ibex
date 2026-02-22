@@ -9258,7 +9258,22 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       facebook::jsi::String::createFromUtf8(rt, "24.13.1"));
     versionsObj.setProperty(rt, "exact",
       facebook::jsi::String::createFromUtf8(rt, "0.1.0"));
-    processObj.setProperty(rt, "versions", std::move(versionsObj));
+  processObj.setProperty(rt, "versions", std::move(versionsObj));
+  }
+
+  // Ensure process.config exists with a minimal variables map for Node compatibility.
+  // Some compatibility tests expect `process.config.variables` to exist at startup.
+  {
+    auto configId = facebook::jsi::PropNameID::forAscii(rt, "config");
+    auto configValue = processObj.getProperty(rt, configId);
+    if (configValue.isUndefined() || configValue.isNull()) {
+      facebook::jsi::Object configObj(rt);
+      facebook::jsi::Object targetDefaultsObj(rt);
+      facebook::jsi::Object variablesObj(rt);
+      configObj.setProperty(rt, "target_defaults", std::move(targetDefaultsObj));
+      configObj.setProperty(rt, "variables", std::move(variablesObj));
+      processObj.setProperty(rt, "config", std::move(configObj));
+    }
   }
 
   // process.cwd()
@@ -12434,6 +12449,55 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     ex_host_console_log(1, err.what());
   }
   IG_TRACE_END(exact_global);
+
+  // Compatibility post-bootstrap fixups for host shims used by test suites.
+  {
+  static const char* processCompatFixJS = R"JS(
+(function() {
+  globalThis.__exactProcessCompatFixRan = 1;
+  globalThis.__exactProcessCompatFixSawProcess = (typeof process === 'object' && process !== null);
+  if (!globalThis.__exactProcessCompatFixSawProcess) return;
+  var configValue = process.config;
+  if (!configValue || typeof configValue !== 'object' || !configValue.variables) {
+    var configValueObject = { target_defaults: {}, variables: {} };
+    try {
+      Object.defineProperty(process, 'config', {
+        value: configValueObject,
+        writable: true,
+        enumerable: true,
+        configurable: true
+      });
+    } catch (e) {
+      process.config = configValueObject;
+    }
+
+    if (!process.config || typeof process.config !== 'object' || !process.config.variables) {
+      var proto = Object.getPrototypeOf(process);
+      if (proto && typeof proto === 'object') {
+        try {
+          Object.defineProperty(proto, 'config', {
+            value: configValueObject,
+            writable: true,
+            enumerable: false,
+            configurable: true
+          });
+        } catch (e2) {
+          proto.config = configValueObject;
+        }
+      }
+    }
+  }
+})();
+ )JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(processCompatFixJS);
+      rt.evaluateJavaScript(buffer, "<process-compat-fix>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.what()).c_str());
+    }
+  }
 }
 
 void runNextTickQueue(ExactHermesRuntime* runtime) {
