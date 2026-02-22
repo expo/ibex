@@ -409,45 +409,7 @@ void drainMicrotasks(facebook::jsi::Runtime& rt) {
   rt.drainMicrotasks(-1);
 }
 
-void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
-  if (!runtime || !runtime->runtime) {
-    return;
-  }
-
-  auto now = std::chrono::steady_clock::now();
-  std::vector<std::pair<std::shared_ptr<facebook::jsi::Function>, std::string>> expired;
-
-  {
-    std::lock_guard<std::mutex> lock(runtime->fetchMutex);
-    for (auto it = runtime->fetchCallbacks.begin();
-         it != runtime->fetchCallbacks.end();) {
-      if (it->second.deadline <= now) {
-        expired.push_back({
-            std::move(it->second.reject),
-            std::move(it->second.url),
-        });
-        it = runtime->fetchCallbacks.erase(it);
-      } else {
-        ++it;
-      }
-    }
-  }
-
-  for (auto& entry : expired) {
-    auto& reject = entry.first;
-    auto& url = entry.second;
-    if (!reject) {
-      continue;
-    }
-    try {
-      reject->call(*runtime->runtime,
-                   facebook::jsi::JSError(*runtime->runtime,
-                                          ("Fetch timeout: " + url).c_str())
-                       .value());
-    } catch (...) {
-    }
-  }
-}
+void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 
 constexpr uint32_t EXACT_FETCH_TIMEOUT_MS = 30000;
 
@@ -518,6 +480,46 @@ struct ExactHermesRuntime {
   bool sqlite_functions_loaded = false;
   bool http_functions_loaded = false;
 };
+
+void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) {
+    return;
+  }
+
+  auto now = std::chrono::steady_clock::now();
+  std::vector<std::pair<std::shared_ptr<facebook::jsi::Function>, std::string>> expired;
+
+  {
+    std::lock_guard<std::mutex> lock(runtime->fetchMutex);
+    for (auto it = runtime->fetchCallbacks.begin();
+         it != runtime->fetchCallbacks.end();) {
+      if (it->second.deadline <= now) {
+        expired.push_back({
+            std::move(it->second.reject),
+            std::move(it->second.url),
+        });
+        it = runtime->fetchCallbacks.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  for (auto& entry : expired) {
+    auto& reject = entry.first;
+    auto& url = entry.second;
+    if (!reject) {
+      continue;
+    }
+    try {
+      reject->call(*runtime->runtime,
+                   facebook::jsi::JSError(*runtime->runtime,
+                                          ("Fetch timeout: " + url).c_str())
+                       .value());
+    } catch (...) {
+    }
+  }
+}
 
 struct NativeWebSocketCallbackContext {
   ExactHermesRuntime* runtime;
