@@ -185,6 +185,10 @@ fn main() {
             }
             eprintln!("cargo:warning=HBC precompilation failed, falling back to source parsing");
         }
+    } else if !allow_fallback {
+        panic!(
+            "hermesc not found at {} and EXACT_ALLOW_FALLBACK is not set"
+        );
     } else {
         eprintln!("cargo:warning=hermesc not found at {}, skipping HBC precompilation", hermesc.display());
     }

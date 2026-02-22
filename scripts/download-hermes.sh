@@ -11,6 +11,8 @@ set -e
 HERMES_VERSION="0.11.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+RUNTIME_SHA256="593773e4800c5be3f041162cd18880181153da2e7b0340bf43f0e051b2717a"
+CLI_SHA256="b051e3f099023c5d131fcd7b5a6d664e845588db440c9ea8ee0396ade370bf99a"
 
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
 TOOLS_DIR="$PROJECT_ROOT/tools/hermes"
@@ -20,6 +22,36 @@ cleanup() {
     rm -rf "$TEMP_DIR"
 }
 trap cleanup EXIT
+
+checksum_of() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" | awk '{print $1}'
+        return
+    fi
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" | awk '{print $1}'
+        return
+    fi
+    echo "ERROR: missing sha256sum or shasum"
+}
+
+verify_sha256() {
+    local file="$1"
+    local expected="$2"
+    local actual
+    actual="$(checksum_of "$file")"
+    if [ -z "$actual" ]; then
+        echo "[✗] Unable to verify checksum for $file"
+        exit 1
+    fi
+    if [ "$actual" != "$expected" ]; then
+        echo "[✗] Checksum mismatch for $file"
+        echo "    expected: $expected"
+        echo "    actual:   $actual"
+        exit 1
+    fi
+}
 
 echo "=== Hermes Download Script ==="
 echo "Version: $HERMES_VERSION"
@@ -38,6 +70,7 @@ else
     RUNTIME_TAR="$TEMP_DIR/hermes-runtime.tar.gz"
 
     curl -L -o "$RUNTIME_TAR" "$RUNTIME_URL"
+    verify_sha256 "$RUNTIME_TAR" "$RUNTIME_SHA256"
 
     echo "[↓] Extracting..."
     mkdir -p "$TEMP_DIR/runtime"
@@ -87,6 +120,7 @@ else
     CLI_TAR="$TEMP_DIR/hermes-cli.tar.gz"
 
     curl -L -o "$CLI_TAR" "$CLI_URL"
+    verify_sha256 "$CLI_TAR" "$CLI_SHA256"
 
     echo "[↓] Extracting..."
     mkdir -p "$TOOLS_DIR"

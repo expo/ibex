@@ -398,6 +398,8 @@ struct TimerEntry {
   facebook::jsi::Function callback;
 };
 
+struct ExactHermesRuntime;
+
 uint64_t nowMs() {
   using namespace std::chrono;
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -407,12 +409,54 @@ void drainMicrotasks(facebook::jsi::Runtime& rt) {
   rt.drainMicrotasks(-1);
 }
 
-// Fetch callback storage: request_id -> (resolve, reject, url)
-using FetchCallbackEntry = std::tuple<
-    std::shared_ptr<facebook::jsi::Function>,
-    std::shared_ptr<facebook::jsi::Function>,
-    std::string
->;
+void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) {
+    return;
+  }
+
+  auto now = std::chrono::steady_clock::now();
+  std::vector<std::pair<std::shared_ptr<facebook::jsi::Function>, std::string>> expired;
+
+  {
+    std::lock_guard<std::mutex> lock(runtime->fetchMutex);
+    for (auto it = runtime->fetchCallbacks.begin();
+         it != runtime->fetchCallbacks.end();) {
+      if (it->second.deadline <= now) {
+        expired.push_back({
+            std::move(it->second.reject),
+            std::move(it->second.url),
+        });
+        it = runtime->fetchCallbacks.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  for (auto& entry : expired) {
+    auto& reject = entry.first;
+    auto& url = entry.second;
+    if (!reject) {
+      continue;
+    }
+    try {
+      reject->call(*runtime->runtime,
+                   facebook::jsi::JSError(*runtime->runtime,
+                                          ("Fetch timeout: " + url).c_str())
+                       .value());
+    } catch (...) {
+    }
+  }
+}
+
+constexpr uint32_t EXACT_FETCH_TIMEOUT_MS = 30000;
+
+struct FetchCallbackEntry {
+    std::shared_ptr<facebook::jsi::Function> resolve;
+    std::shared_ptr<facebook::jsi::Function> reject;
+    std::string url;
+    std::chrono::steady_clock::time_point deadline;
+};
 
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
@@ -584,6 +628,74 @@ std::string escapeJson(const std::string& input) {
     }
   }
   return out.str();
+}
+
+static bool isValidUtf8(const uint8_t* bytes, size_t len) {
+  size_t i = 0;
+  while (i < len) {
+    uint8_t byte1 = bytes[i++];
+    if (byte1 < 0x80) {
+      continue;
+    }
+
+    size_t needed = 0;
+    uint32_t codepoint = 0;
+
+    if ((byte1 & 0xE0) == 0xC0) {
+      if (byte1 < 0xC2) {
+        return false;
+      }
+      needed = 1;
+      codepoint = byte1 & 0x1F;
+    } else if ((byte1 & 0xF0) == 0xE0) {
+      needed = 2;
+      codepoint = byte1 & 0x0F;
+    } else if ((byte1 & 0xF8) == 0xF0) {
+      if (byte1 > 0xF4) {
+        return false;
+      }
+      needed = 3;
+      codepoint = byte1 & 0x07;
+    } else {
+      return false;
+    }
+
+    if (i + needed > len) {
+      return false;
+    }
+
+    if (needed >= 1) {
+      uint8_t cont1 = bytes[i];
+      if ((byte1 == 0xE0 && cont1 < 0xA0) || (byte1 == 0xED && cont1 > 0x9F) ||
+          (byte1 == 0xF0 && cont1 < 0x90) || (byte1 == 0xF4 && cont1 > 0x8F)) {
+        return false;
+      }
+    }
+
+    for (size_t j = 0; j < needed; j++) {
+      uint8_t cont = bytes[i + j];
+      if ((cont & 0xC0) != 0x80) {
+        return false;
+      }
+      codepoint = (codepoint << 6) | (cont & 0x3F);
+    }
+    i += needed;
+
+    if (codepoint > 0x10FFFF || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool appendEscapedJsonText(std::string& out, const uint8_t* bytes, size_t len) {
+  if (!isValidUtf8(bytes, len)) {
+    return false;
+  }
+  out += "\"";
+  out += escapeJson(std::string(reinterpret_cast<const char*>(bytes), len));
+  out += "\"";
+  return true;
 }
 
 std::string jsonString(const std::string& value) {
@@ -1401,70 +1513,149 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
     int rrCount = ns_msg_count(msg, ns_s_an);
     std::string json = "[";
     bool first = true;
+    auto appendRecord = [&json, &first](const std::string& record) {
+      if (!first) json += ",";
+      first = false;
+      json += record;
+    };
     for (int i = 0; i < rrCount; i++) {
       ns_rr rr;
       if (ns_parserr(&msg, ns_s_an, i, &rr) < 0) continue;
       if (ns_rr_type(rr) != qtype) continue;
       const unsigned char* rdata = ns_rr_rdata(rr);
       int rdlen = ns_rr_rdlen(rr);
-      if (!first) json += ",";
-      first = false;
       if (qtype == ns_t_mx) {
         if (rdlen < 3) { first = true; continue; }
-        int prio = (rdata[0] << 8) | rdata[1];
+        uint32_t prio = (static_cast<uint32_t>(rdata[0]) << 8) |
+                        static_cast<uint32_t>(rdata[1]);
         char ex[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata + 2, ex, sizeof(ex)) < 0) { first = true; continue; }
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata + 2, ex, sizeof(ex)) < 0) { continue; }
         std::string e(ex); if (!e.empty() && e.back() == '.') e.pop_back();
-        json += "{\"priority\":" + std::to_string(prio) + ",\"exchange\":\"" + e + "\"}";
+        std::string exJson;
+        if (!appendEscapedJsonText(exJson, reinterpret_cast<const uint8_t*>(e.c_str()), e.size())) {
+          continue;
+        }
+        appendRecord("{\"priority\":" + std::to_string(prio) + ",\"exchange\":" + exJson + "}");
       } else if (qtype == ns_t_txt) {
-        std::string ta = "["; bool ft = true; int p = 0;
-        while (p < rdlen) { int sl = static_cast<unsigned char>(rdata[p]); p++; if (p+sl>rdlen) break; if (!ft) ta += ","; ft = false; std::string t; for (int j=0;j<sl;j++){char c=static_cast<char>(rdata[p+j]);if(c=='"')t+="\\\"";else if(c=='\\')t+="\\\\";else t+=c;} ta += "\"" + t + "\""; p += sl; }
-        ta += "]"; json += ta;
+        int p = 0;
+        bool valid = true;
+        bool firstText = true;
+        std::string ta = "[";
+        while (p < rdlen) {
+          uint8_t sl = static_cast<uint8_t>(rdata[p]);
+          p++;
+          if (p + sl > static_cast<size_t>(rdlen)) {
+            valid = false;
+            break;
+          }
+          std::string textJson;
+          if (!appendEscapedJsonText(textJson, rdata + p, sl)) {
+            valid = false;
+            break;
+          }
+          if (!firstText) ta += ",";
+          firstText = false;
+          ta += textJson;
+          p += sl;
+        }
+        if (!valid) {
+          continue;
+        }
+        ta += "]";
+        appendRecord(ta);
       } else if (qtype == ns_t_srv) {
-        if (rdlen < 7) { first = true; continue; }
-        int prio = (rdata[0]<<8)|rdata[1]; int wt = (rdata[2]<<8)|rdata[3]; int pt = (rdata[4]<<8)|rdata[5];
+        if (rdlen < 7) { continue; }
+        uint32_t prio = (static_cast<uint32_t>(rdata[0]) << 8) |
+                        static_cast<uint32_t>(rdata[1]);
+        uint32_t wt = (static_cast<uint32_t>(rdata[2]) << 8) |
+                       static_cast<uint32_t>(rdata[3]);
+        uint32_t pt = (static_cast<uint32_t>(rdata[4]) << 8) |
+                       static_cast<uint32_t>(rdata[5]);
         char tg[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata+6, tg, sizeof(tg)) < 0) { first = true; continue; }
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata+6, tg, sizeof(tg)) < 0) { continue; }
         std::string tgt(tg); if (!tgt.empty() && tgt.back() == '.') tgt.pop_back();
-        json += "{\"priority\":" + std::to_string(prio) + ",\"weight\":" + std::to_string(wt) + ",\"port\":" + std::to_string(pt) + ",\"name\":\"" + tgt + "\"}";
+        std::string tgtJson;
+        if (!appendEscapedJsonText(tgtJson, reinterpret_cast<const uint8_t*>(tgt.c_str()), tgt.size())) {
+          continue;
+        }
+        appendRecord("{\"priority\":" + std::to_string(prio) + ",\"weight\":" + std::to_string(wt) + ",\"port\":" + std::to_string(pt) + ",\"name\":" + tgtJson + "}");
       } else if (qtype == ns_t_ns) {
         char n[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, n, sizeof(n)) < 0) { first = true; continue; }
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, n, sizeof(n)) < 0) { continue; }
         std::string s(n); if (!s.empty() && s.back() == '.') s.pop_back();
-        json += "\"" + s + "\"";
+        std::string sJson;
+        if (!appendEscapedJsonText(sJson, reinterpret_cast<const uint8_t*>(s.c_str()), s.size())) {
+          continue;
+        }
+        appendRecord(sJson);
       } else if (qtype == ns_t_cname) {
         char cn[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, cn, sizeof(cn)) < 0) { first = true; continue; }
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, cn, sizeof(cn)) < 0) { continue; }
         std::string s(cn); if (!s.empty() && s.back() == '.') s.pop_back();
-        json += "\"" + s + "\"";
+        std::string sJson;
+        if (!appendEscapedJsonText(sJson, reinterpret_cast<const uint8_t*>(s.c_str()), s.size())) {
+          continue;
+        }
+        appendRecord(sJson);
       } else if (qtype == ns_t_soa) {
         char mn[NS_MAXDNAME]; int o1 = ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, mn, sizeof(mn));
-        if (o1 < 0) { first = true; continue; }
+        if (o1 < 0) { continue; }
         std::string m(mn); if (!m.empty() && m.back() == '.') m.pop_back();
         char rn[NS_MAXDNAME]; int o2 = ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata+o1, rn, sizeof(rn));
-        if (o2 < 0) { first = true; continue; }
+        if (o2 < 0) { continue; }
         std::string r(rn); if (!r.empty() && r.back() == '.') r.pop_back();
         const unsigned char* sd = rdata+o1+o2;
-        if (o1+o2+20 > rdlen) { first = true; continue; }
+        if (o1+o2+20 > rdlen) { continue; }
         uint32_t ser = (uint32_t(sd[0])<<24)|(uint32_t(sd[1])<<16)|(uint32_t(sd[2])<<8)|sd[3];
-        int32_t ref = (sd[4]<<24)|(sd[5]<<16)|(sd[6]<<8)|sd[7];
-        int32_t rty = (sd[8]<<24)|(sd[9]<<16)|(sd[10]<<8)|sd[11];
-        int32_t exp = (sd[12]<<24)|(sd[13]<<16)|(sd[14]<<8)|sd[15];
+        int32_t ref = static_cast<int32_t>((uint32_t(sd[4]) << 24) |
+                                          (uint32_t(sd[5]) << 16) |
+                                          (uint32_t(sd[6]) << 8) |
+                                          uint32_t(sd[7]));
+        int32_t rty = static_cast<int32_t>((uint32_t(sd[8]) << 24) |
+                                          (uint32_t(sd[9]) << 16) |
+                                          (uint32_t(sd[10]) << 8) |
+                                          uint32_t(sd[11]));
+        int32_t exp = static_cast<int32_t>((uint32_t(sd[12]) << 24) |
+                                          (uint32_t(sd[13]) << 16) |
+                                          (uint32_t(sd[14]) << 8) |
+                                          uint32_t(sd[15]));
         uint32_t mnt = (uint32_t(sd[16])<<24)|(uint32_t(sd[17])<<16)|(uint32_t(sd[18])<<8)|sd[19];
-        json += "{\"nsname\":\""+m+"\",\"hostmaster\":\""+r+"\",\"serial\":"+std::to_string(ser)+",\"refresh\":"+std::to_string(ref)+",\"retry\":"+std::to_string(rty)+",\"expire\":"+std::to_string(exp)+",\"minttl\":"+std::to_string(mnt)+"}";
+        std::string mJson;
+        std::string rJson;
+        if (!appendEscapedJsonText(mJson, reinterpret_cast<const uint8_t*>(m.c_str()), m.size())) {
+          continue;
+        }
+        if (!appendEscapedJsonText(rJson, reinterpret_cast<const uint8_t*>(r.c_str()), r.size())) {
+          continue;
+        }
+        appendRecord("{\"nsname\":" + mJson + ",\"hostmaster\":" + rJson + ",\"serial\":" +
+                     std::to_string(ser) + ",\"refresh\":" + std::to_string(ref) + ",\"retry\":" +
+                     std::to_string(rty) + ",\"expire\":" + std::to_string(exp) + ",\"minttl\":" + std::to_string(mnt) + "}");
       } else if (qtype == ns_t_ptr) {
         char pn[NS_MAXDNAME];
-        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, pn, sizeof(pn)) < 0) { first = true; continue; }
+        if (ns_name_uncompress(ns_msg_base(msg), ns_msg_end(msg), rdata, pn, sizeof(pn)) < 0) { continue; }
         std::string s(pn); if (!s.empty() && s.back() == '.') s.pop_back();
-        json += "\"" + s + "\"";
+        std::string sJson;
+        if (!appendEscapedJsonText(sJson, reinterpret_cast<const uint8_t*>(s.c_str()), s.size())) {
+          continue;
+        }
+        appendRecord(sJson);
       } else if (qtype == 257) {
-        if (rdlen < 2) { first = true; continue; }
-        int fl = rdata[0]; int tl = rdata[1];
-        if (2+tl > rdlen) { first = true; continue; }
-        std::string tag(reinterpret_cast<const char*>(rdata+2), tl);
-        std::string val(reinterpret_cast<const char*>(rdata+2+tl), rdlen-2-tl);
-        std::string ev; for (size_t vi=0;vi<val.size();vi++){char c=val[vi];if(c=='"')ev+="\\\"";else if(c=='\\')ev+="\\\\";else ev+=c;}
-        json += "{\"critical\":"+std::to_string(fl)+",\""+tag+"\":\""+ev+"\"}";
+        if (rdlen < 2) { continue; }
+        uint8_t fl = rdata[0];
+        uint8_t tl = rdata[1];
+        if (static_cast<size_t>(2 + tl) > static_cast<size_t>(rdlen)) { continue; }
+        size_t offset = static_cast<size_t>(2 + tl);
+        size_t valueLen = static_cast<size_t>(rdlen) - offset;
+        std::string tag;
+        if (!appendEscapedJsonText(tag, rdata + 2, static_cast<size_t>(tl))) {
+          continue;
+        }
+        std::string val;
+        if (!appendEscapedJsonText(val, rdata + 2 + tl, valueLen)) {
+          continue;
+        }
+        appendRecord("{\"critical\":" + std::to_string(static_cast<uint32_t>(fl)) + "," + tag + ":" + val + "}");
       }
     }
     json += "]";
@@ -9026,6 +9217,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           }
         }
 
+        uint32_t timeout_ms = EXACT_FETCH_TIMEOUT_MS;
+        if (init.hasProperty(runtime, "timeout")) {
+          auto timeoutVal = init.getProperty(runtime, "timeout");
+          if (timeoutVal.isNumber()) {
+            auto timeoutNumber = timeoutVal.asNumber();
+            if (timeoutNumber > 0 && timeoutNumber <= 4294967295.0) {
+              timeout_ms = static_cast<uint32_t>(timeoutNumber);
+            }
+          }
+        }
+
         // Parse body (Uint8Array or null)
         std::vector<uint8_t> body;
         if (count > 2 && !args[2].isNull() && !args[2].isUndefined()) {
@@ -9061,12 +9263,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto urlCopy = std::make_shared<std::string>(url);
         auto headersCopy = std::make_shared<std::string>(headers);
         auto bodyCopy = std::make_shared<std::vector<uint8_t>>(body);
+        auto timeoutCopy = timeout_ms;
 
         auto executor = facebook::jsi::Function::createFromHostFunction(
             runtime,
             facebook::jsi::PropNameID::forAscii(runtime, "executor"),
             2,
-            [handle, requestId, methodCopy, urlCopy, headersCopy, bodyCopy](
+            [handle, requestId, methodCopy, urlCopy, headersCopy, bodyCopy, timeoutCopy](
                 facebook::jsi::Runtime& rt,
                 const facebook::jsi::Value&,
                 const facebook::jsi::Value* args,
@@ -9077,9 +9280,16 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                 auto reject = std::make_shared<facebook::jsi::Function>(
                     args[1].asObject(rt).asFunction(rt));
 
+                auto deadline =
+                    std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(timeoutCopy);
+
+                cleanupFetchCallbacks(handle);
                 {
                   std::lock_guard<std::mutex> lock(handle->fetchMutex);
-                  handle->fetchCallbacks[requestId] = std::make_tuple(resolve, reject, *urlCopy);
+                  handle->fetchCallbacks[requestId] = {std::move(resolve),
+                                                     std::move(reject), *urlCopy,
+                                                     deadline};
                 }
 
                 // Call native fetch (NSURLSession)
@@ -9098,20 +9308,23 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                       if (!wrapper || !wrapper->runtime) return;
 
                       // Find and remove callbacks
-                      std::shared_ptr<facebook::jsi::Function> resolve;
-                      std::shared_ptr<facebook::jsi::Function> reject;
-                      std::string requestUrl;
-                      {
-                        std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
+                    std::shared_ptr<facebook::jsi::Function> resolve;
+                    std::shared_ptr<facebook::jsi::Function> reject;
+                    std::string requestUrl;
+                    {
+                      std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
                         auto it = wrapper->fetchCallbacks.find(req_id);
                         if (it == wrapper->fetchCallbacks.end()) return;
-                        resolve = std::get<0>(it->second);
-                        reject = std::get<1>(it->second);
-                        requestUrl = std::get<2>(it->second);
+                        resolve = it->second.resolve;
+                        reject = it->second.reject;
+                        requestUrl = std::move(it->second.url);
                         wrapper->fetchCallbacks.erase(it);
                       }
 
                       auto& rt = *wrapper->runtime;
+                      if (!resolve || !reject) {
+                        return;
+                      }
 
                       try {
                         if (status == 0) {
@@ -9178,8 +9391,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                       } catch (const std::exception& e) {
                         reject->call(rt, facebook::jsi::JSError(rt, e.what()).value());
                       } catch (...) {}
-                    },
-                    handle  // context pointer
+                },
+                   handle  // context pointer
                 );
               }
               return facebook::jsi::Value::undefined();
@@ -9655,6 +9868,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   }
 
   int executed = 0;
+  cleanupFetchCallbacks(runtime);
 
   // Drain cross-thread callback queue (HTTP server responses, etc.)
   executed += drainCallbackQueue(runtime);

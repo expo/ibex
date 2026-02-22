@@ -116,9 +116,11 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry);
     // We pass empty string and let the server-negotiated protocol through.
     const char* extensions = "";
 
-    if (entry && entry->open_cb && entry->context) {
-        native_ws_retain_context(entry->context);
-        entry->open_cb(entry->ws_id, proto, extensions, entry->context);
+    auto context = entry ? entry->context : nullptr;
+    if (entry && entry->open_cb && context) {
+        native_ws_retain_context(context);
+        auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+        entry->open_cb(entry->ws_id, proto, extensions, context);
     }
 
     // Start receive loop
@@ -137,9 +139,11 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry);
     }
 
     NSString* reasonStr = reason ? [[NSString alloc] initWithData:reason encoding:NSUTF8StringEncoding] : @"";
-    if (entry && entry->close_cb && entry->context) {
-        native_ws_retain_context(entry->context);
-        entry->close_cb(entry->ws_id, (uint16_t)closeCode, [reasonStr UTF8String], 1, entry->context);
+    auto context = entry ? entry->context : nullptr;
+    if (entry && entry->close_cb && context) {
+        native_ws_retain_context(context);
+        auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+        entry->close_cb(entry->ws_id, (uint16_t)closeCode, [reasonStr UTF8String], 1, context);
     }
 
     destroy_entry(entry->ws_id);
@@ -158,8 +162,13 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
     auto error_cb = entry->error_cb;
     auto ws_id = entry->ws_id;
     auto context = entry->context;
+    if (context) {
+        native_ws_retain_context(context);
+    }
+    auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
 
     [entry->task receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage* message, NSError* error) {
+        (void)context_guard;
         if (error) {
             std::shared_ptr<WebSocketEntry> activeEntry;
             {
@@ -170,15 +179,11 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             }
 
             if (context && error_cb) {
-                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
-                native_ws_retain_context(context);
                 error_cb(ws_id, [[error localizedDescription] UTF8String], context);
             }
 
             if (activeEntry && close_cb && context && !activeEntry->closed) {
                 activeEntry->closed = true;
-                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
-                native_ws_retain_context(context);
                 close_cb(ws_id, 1006, "Connection error", 0, context);
             }
             destroy_entry(ws_id);
@@ -191,22 +196,18 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             if (it == wsConnections.end() || it->second->closed) return;
         }
 
-        if (message.type == NSURLSessionWebSocketMessageTypeString) {
-            NSString* str = message.string;
-            const char* utf8 = [str UTF8String];
-            if (context && message_cb) {
-                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
-                native_ws_retain_context(context);
-                message_cb(ws_id, (const uint8_t*)utf8, strlen(utf8), 1, context);
+            if (message.type == NSURLSessionWebSocketMessageTypeString) {
+                NSString* str = message.string;
+                const char* utf8 = [str UTF8String];
+                if (context && message_cb) {
+                    message_cb(ws_id, (const uint8_t*)utf8, strlen(utf8), 1, context);
+                }
+            } else if (message.type == NSURLSessionWebSocketMessageTypeData) {
+                NSData* data = message.data;
+                if (context && message_cb) {
+                    message_cb(ws_id, (const uint8_t*)[data bytes], [data length], 0, context);
+                }
             }
-        } else if (message.type == NSURLSessionWebSocketMessageTypeData) {
-            NSData* data = message.data;
-            if (context && message_cb) {
-                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
-                native_ws_retain_context(context);
-                message_cb(ws_id, (const uint8_t*)[data bytes], [data length], 0, context);
-            }
-        }
 
         // Continue receiving
         if (!entry->closed) {
@@ -232,10 +233,13 @@ extern "C" uint32_t native_ws_connect(
         NSURL* nsUrl = [NSURL URLWithString:urlString];
         if (!nsUrl) {
             if (context) {
+                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
                 native_ws_retain_context(context);
                 error_cb(0, "Invalid WebSocket URL", context);
                 return 0;
             }
+            auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+            native_ws_retain_context(context);
             error_cb(0, "Invalid WebSocket URL", context);
             return 0;
         }
@@ -315,8 +319,13 @@ extern "C" void native_ws_send(
     // Capture bytes_sent_cb and ws_id for completion handler
     auto bytes_sent_cb = entry->bytes_sent_cb;
     auto ctx = entry->context;
+    if (ctx) {
+        native_ws_retain_context(ctx);
+    }
+    auto context_guard = std::shared_ptr<void>(ctx, native_ws_release_context);
 
     [entry->task sendMessage:message completionHandler:^(NSError* error) {
+        (void)context_guard;
         if (error) {
             std::shared_ptr<WebSocketEntry> activeEntry;
             {
@@ -326,8 +335,6 @@ extern "C" void native_ws_send(
                 activeEntry = it->second;
             }
             if (activeEntry->context && activeEntry->error_cb) {
-                auto context_guard = std::shared_ptr<void>(activeEntry->context, native_ws_release_context);
-                native_ws_retain_context(activeEntry->context);
                 activeEntry->error_cb(ws_id,
                                       [[error localizedDescription] UTF8String],
                                       activeEntry->context);
@@ -336,8 +343,6 @@ extern "C" void native_ws_send(
             // Notify JS that data was successfully sent so bufferedAmount can decrement
             if (bytes_sent_cb) {
                 if (ctx) {
-                    auto context_guard = std::shared_ptr<void>(ctx, native_ws_release_context);
-                    native_ws_retain_context(ctx);
                     bytes_sent_cb(ws_id, bytesSent, ctx);
                 }
             }
