@@ -14,7 +14,10 @@ function _fsInvalidArgType(name, expected, actual) {
   if (actual === null) received = 'null';
   else if (actual === undefined) received = 'undefined';
   else if (Array.isArray(actual)) received = 'an instance of Array';
-  else if (typeof actual === 'string') received = "type string (" + actual + ")";
+  else if (typeof actual === 'object') {
+    var className = actual.constructor && actual.constructor.name ? actual.constructor.name : 'Object';
+    received = 'an instance of ' + className;
+  } else if (typeof actual === 'string') received = 'type string (' + actual + ')';
   else if (typeof actual === 'number') received = 'type number (' + actual + ')';
   else if (typeof actual === 'boolean') received = 'type boolean (' + actual + ')';
   else received = 'type ' + typeof actual;
@@ -23,10 +26,79 @@ function _fsInvalidArgType(name, expected, actual) {
   return err;
 }
 
+function _fsOutOfRange(name, received, min, max) {
+  var message;
+  if (min === null) {
+    message = 'The value of "' + name + '" is out of range. It must be an integer. Received ' + received;
+  } else {
+    message = 'The value of "' + name + '" is out of range. It must be >= ' + min + ' && <= ' + max + '. Received ' + received;
+  }
+  var err = new RangeError(message);
+  err.code = 'ERR_OUT_OF_RANGE';
+  return err;
+}
+
+function _validateInt(name, value, min, max) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value % 1 !== 0) {
+    throw _fsOutOfRange(name, value, null, null);
+  }
+  if (value < min || value > max) {
+    throw _fsOutOfRange(name, value, min, max);
+  }
+}
+
+function _validateInt32(name, value) {
+  _validateInt(name, value, -2147483648, 2147483647);
+}
+
+function _validateUidOrGid(name, value) {
+  _validateInt(name, value, -1, 4294967295);
+}
+
+function _validateUint32(name, value) {
+  _validateInt(name, value, 0, 4294967295);
+}
+
+function _fsInvalidArgValue(name, value, reason) {
+  var received;
+  if (typeof value === 'string') {
+    received = "'" + value + "'";
+  } else if (value === undefined) {
+    received = 'undefined';
+  } else if (value === null) {
+    received = 'null';
+  } else {
+    received = String(value);
+  }
+  var err = new TypeError('The argument "' + name + '" must be ' + reason + '. Received ' + received);
+  err.code = 'ERR_INVALID_ARG_VALUE';
+  return err;
+}
+
+function _coerceMode(mode) {
+  if (typeof mode === 'number') return mode;
+  if (typeof mode === 'string') {
+    var normalized = mode;
+    if (normalized.slice(0, 2).toLowerCase() === '0o') normalized = normalized.slice(2);
+    if (normalized.length === 0) {
+      return 0;
+    }
+    for (var i = 0; i < normalized.length; i++) {
+      var code = normalized.charCodeAt(i);
+      if (code < 48 || code > 55) {
+        throw _fsInvalidArgValue('mode', mode, 'a 32-bit unsigned integer or an octal string');
+      }
+    }
+    return parseInt(normalized, 8);
+  }
+  throw _fsInvalidArgType('mode', 'number', mode);
+}
+
 function _validateFd(fd) {
-  if (typeof fd !== 'number' || fd < 0 || !Number.isInteger(fd)) {
+  if (typeof fd !== 'number') {
     throw _fsInvalidArgType('fd', 'number', fd);
   }
+  _validateInt('fd', fd, 0, 2147483647);
 }
 
 function _validatePath(path, propName) {
@@ -46,8 +118,11 @@ function _validateCallback(cb) {
   }
 }
 
-function toUint8Array(data) {
+function toUint8Array(data, encoding) {
   if (typeof data === 'string') {
+    if (typeof Buffer !== 'undefined' && Buffer.from) {
+      return Buffer.from(data, encoding || 'utf8');
+    }
     if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(data);
     var buf = new Uint8Array(data.length * 3);
     var offset = 0;
@@ -330,51 +405,179 @@ function createReadStream(path, options) {
   var Stream = require('node:stream');
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
   var encoding = opts.encoding || null;
-  var start = opts.start || 0;
+  var hasFsOption = opts.fs !== undefined;
+  if (hasFsOption) {
+    var fsErr = new Error('The FileHandle with fs method is not implemented');
+    fsErr.code = 'ERR_METHOD_NOT_IMPLEMENTED';
+    throw fsErr;
+  }
+  var start = typeof opts.start === 'number' ? opts.start : 0;
   var end = opts.end;
-  var highWaterMark = opts.highWaterMark || 65536;
+  var highWaterMark = opts.highWaterMark || opts.bufferSize || 65536;
+  var autoClose = opts.autoClose !== false;
+  var fdOption = opts.fd;
+  var sourceFd = null;
+  var sourceHandle = null;
+  var sourceIsHandle = false;
+  if (fdOption === undefined || fdOption === null) {
+    _validatePath(path, 'path');
+  } else if (typeof fdOption === 'object') {
+    if (fdOption && typeof fdOption.fd === 'number') {
+      sourceHandle = fdOption;
+      sourceFd = fdOption.fd;
+      sourceIsHandle = true;
+    } else {
+      throw _fsInvalidArgType('fd', 'number', fdOption);
+    }
+  } else if (typeof fdOption === 'number') {
+    sourceFd = fdOption;
+  } else {
+    throw _fsInvalidArgType('fd', 'number', fdOption);
+  }
+
+  if (typeof sourceFd === 'number' && sourceFd !== null && sourceFd !== undefined) {
+    _validateFd(sourceFd);
+  }
 
   var rs = new Stream.Readable({ highWaterMark: highWaterMark });
   rs.path = path;
+  rs.readable = true;
   rs.bytesRead = 0;
+  rs.closed = false;
+  rs.fd = null;
   rs.pending = true;
+  rs._position = start;
+  rs._end = end;
+  rs._autoClose = autoClose;
 
-  var pushed = false;
-  rs._read = function() {
-    if (pushed) return;
-    pushed = true;
-    try {
-      var bytes = g.__exactReadFile(path);
-      rs.pending = false;
-      rs.emit('open');
-      var data = bytes;
-      if (start > 0 || end !== undefined) {
-        var e = (end !== undefined) ? end + 1 : bytes.length;
-        data = bytes.slice(start, e);
+  function closeFd() {
+    if (rs.closed) return;
+    rs.closed = true;
+    rs.fd = null;
+    if (!sourceIsHandle) {
+      if (rs._opened && rs._shouldAutoClose) {
+        try { if (typeof rs._openFd === 'number') closeSync(rs._openFd); } catch (e) {}
       }
-      if (encoding) {
-        rs.push(decodeBytes(data, encoding));
-      } else {
-        var chunk;
-        var offset = 0;
-        while (offset < data.length) {
-          var chunkEnd = Math.min(offset + highWaterMark, data.length);
-          chunk = data.slice(offset, chunkEnd);
-          rs.push(wrapBuffer(chunk));
-          offset = chunkEnd;
+    } else if (sourceHandle && typeof sourceHandle.close === 'function') {
+      try { sourceHandle.close(); } catch (e) {}
+    }
+    rs.emit('close');
+  }
+
+  rs._openFd = sourceFd;
+  rs._opened = sourceFd !== null;
+  rs._shouldAutoClose = sourceIsHandle ? false : rs._autoClose;
+  rs._opening = false;
+  rs._readyEmitted = false;
+  if (rs._opened) {
+    rs.pending = false;
+    rs._readyEmitted = true;
+    rs.emit('ready');
+  }
+
+  function markReady() {
+    if (!rs.pending) return;
+    rs.pending = false;
+    rs._readyEmitted = true;
+    rs.emit('ready');
+  }
+
+  function ensureOpen() {
+    if (rs.closed || rs.destroyed || rs._opened || rs._opening) return;
+    rs._opening = true;
+    try {
+      var fsModule = require('node:fs');
+      if (!sourceIsHandle && sourceFd === null) {
+        rs._openFd = openSync(path, opts.flags || 'r', opts.mode || 438);
+        rs._opened = true;
+        rs._shouldAutoClose = rs._autoClose;
+        rs.fd = rs._openFd;
+        rs.emit('open', rs._openFd);
+        markReady();
+      }
+    } catch(err) {
+      rs._opening = false;
+      rs.emit('error', err);
+      if (autoClose) closeFd();
+    }
+    rs._opening = false;
+  }
+
+  if (!rs._opened) {
+    if (typeof queueMicrotask === 'function') queueMicrotask(ensureOpen);
+    else setTimeout(ensureOpen, 0);
+  }
+
+  rs._read = function() {
+    if (rs.destroyed || rs.closed) return;
+    if (typeof rs._reading === 'boolean' && rs._reading) return;
+    rs._reading = true;
+    try {
+      var fsModule = require('node:fs');
+      if (!rs._opened) {
+        ensureOpen();
+        if (!rs._opened) {
+          rs._reading = false;
+          return;
         }
       }
-      rs.bytesRead = data.length;
-      rs.push(null);
+
+      if (sourceIsHandle && sourceHandle && sourceHandle.fd === null) {
+        rs._reading = false;
+        rs.push(null);
+        return;
+      }
+      rs.fd = rs._openFd || sourceFd;
+      var chunkSize = highWaterMark;
+      if (end !== undefined) {
+        var remaining = end - rs._position + 1;
+        if (remaining <= 0) {
+          rs._reading = false;
+          rs.push(null);
+          if (autoClose) closeFd();
+          return;
+        }
+        if (remaining < chunkSize) chunkSize = remaining;
+      }
+
+      var buf = new Uint8Array(chunkSize);
+      var readDone = function(err, bytesRead, data) {
+        rs._reading = false;
+        if (err) {
+          rs.emit('error', err);
+          if (autoClose) closeFd();
+          return;
+        }
+        if (bytesRead <= 0) {
+          rs.push(null);
+          if (autoClose) closeFd();
+          return;
+        }
+        rs.bytesRead += bytesRead;
+        rs._position += bytesRead;
+        var chunk = data ? data.slice(0, bytesRead) : buf.slice(0, bytesRead);
+        if (encoding) {
+          rs.push(decodeBytes(chunk, encoding));
+        } else {
+          rs.push(wrapBuffer(chunk));
+        }
+      };
+
+        if (sourceIsHandle && sourceHandle && typeof sourceHandle.read === 'function') {
+          sourceHandle.read(buf, 0, chunkSize, rs._position, readDone);
+      } else {
+        var readArgs = [rs.fd, buf, 0, chunkSize, rs._position];
+        fsModule.read.apply(null, readArgs.concat(readDone));
+      }
     } catch(err) {
-      rs.pending = false;
       rs.emit('error', err);
-      rs.emit('close');
+      if (autoClose) closeFd();
     }
   };
-
-  if (typeof queueMicrotask === 'function') {
-    queueMicrotask(function() { rs._read(); });
+  rs.close = function() { if (!rs.closed) closeFd(); };
+  rs.on('error', function() { closeFd(); });
+  if (sourceIsHandle && sourceHandle && typeof sourceHandle.on === 'function') {
+    sourceHandle.on('close', rs.close);
   }
 
   return rs;
@@ -388,34 +591,93 @@ function createWriteStream(path, options) {
   var mode = opts.mode || 438;
   var encoding = opts.encoding || 'utf8';
   var autoClose = opts.autoClose !== false;
-  var start = opts.start;
-
-  var ws = new Stream.Writable();
-  ws.path = path;
-  ws.bytesWritten = 0;
-  ws.pending = true;
-
+  var start = typeof opts.start === 'number' ? opts.start : null;
+  var fdOption = opts.fd;
   var fd = null;
   var opened = false;
 
+  var usingHandle = false;
+  if (fdOption !== undefined && fdOption !== null) {
+    if (typeof fdOption === 'number') {
+      fd = fdOption;
+      opened = true;
+    } else if (typeof fdOption === 'object' && typeof fdOption.fd === 'number') {
+      fd = fdOption.fd;
+      opened = true;
+      usingHandle = true;
+    } else {
+      throw _fsInvalidArgType('fd', 'number', fdOption);
+    }
+  }
+
+  var ws = new Stream.Writable({ emitClose: autoClose });
+  ws.path = path;
+  ws.fd = fd;
+  ws.closed = false;
+  ws.pending = !opened;
+  ws.bytesWritten = 0;
+  ws._encoding = encoding;
+  ws._shouldAutoClose = autoClose;
+  ws._shouldWriteAt = start;
+  ws._readyEmitted = false;
+
+  if (fdOption === undefined || fdOption === null) {
+    _validatePath(path, 'path');
+  }
+
+  ws._emitClose = function() {
+    if (!autoClose || ws.closed || ws._closed) return;
+    ws._closed = true;
+    ws.closed = true;
+    ws.emit('close');
+  };
+
+  function closeWriteFd() {
+    if (fd === null) return;
+    try { closeSync(fd); } catch(e) {}
+    fd = null;
+    ws.fd = null;
+  }
+
   function ensureOpen() {
     if (!opened) {
+      if (ws.closed || ws.destroyed) return;
       opened = true;
       fd = openSync(path, flags, mode);
-      ws.pending = false;
       ws.fd = fd;
-      if (typeof start === 'number' && start >= 0) {
-        writeSync(fd, '', start);
+      if (start !== null && start >= 0) {
+        ws._shouldWriteAt = start;
       }
       ws.emit('open', fd);
+      if (!ws._readyEmitted) {
+        ws._readyEmitted = true;
+        ws.pending = false;
+        ws.emit('ready');
+      }
+    } else if (!ws._readyEmitted) {
+      ws._readyEmitted = true;
+      ws.pending = false;
+      ws.emit('ready');
     }
+  }
+
+  if (!opened) {
+    setTimeout(ensureOpen, 0);
+  } else if (opened) {
+    ws.pending = false;
+    ws._readyEmitted = true;
+    ws.emit('ready');
   }
 
   ws._write = function(chunk, enc, callback) {
     try {
       ensureOpen();
-      var bytes = toUint8Array(chunk);
-      var written = writeSync(fd, bytes, 0, bytes.length, -1);
+      var bytes = toUint8Array(chunk, encoding);
+      var position = ws._shouldWriteAt;
+      var written = writeSync(fd, bytes, 0, bytes.length, typeof position === 'number' ? position : -1);
+      if (typeof ws._shouldWriteAt === 'number') {
+        ws._shouldWriteAt += written;
+      }
       ws.bytesWritten += written;
       if (typeof callback === 'function') callback();
     } catch(err) {
@@ -424,20 +686,39 @@ function createWriteStream(path, options) {
   };
 
   ws._final = function(callback) {
-    if (fd !== null && autoClose) {
-      try { closeSync(fd); } catch(e) {}
-      fd = null;
+    if (typeof callback !== 'function') {
+      callback = function() {};
     }
-    if (typeof callback === 'function') callback();
+    if (!opened) {
+      setTimeout(function() {
+        try {
+          ensureOpen();
+          if (autoClose) {
+            closeWriteFd();
+          }
+          callback();
+        } catch(err) {
+          callback(err);
+        }
+      }, 0);
+      return;
+    }
+    if (autoClose) {
+      closeWriteFd();
+    }
+    callback();
   };
 
   ws.destroy = function(err) {
-    if (fd !== null && autoClose) {
-      try { closeSync(fd); } catch(e) {}
-      fd = null;
+    if (!ws.destroyed && autoClose) {
+      closeWriteFd();
+    }
+    if (!autoClose) {
+      ws.destroyed = true;
+      return ws;
     }
     if (err) ws.emit('error', err);
-    ws.emit('close');
+    ws._emitClose();
     return ws;
   };
 
@@ -578,6 +859,7 @@ function emitWatchDirectoryChanges(watcher, encoding, prevState, nextState) {
 function makeZeroStats() {
   var zero = new Date(0);
   return {
+    __exactExists: false,
     dev: 0,
     mode: 0,
     nlink: 0,
@@ -706,22 +988,26 @@ function watchFile(filename, options, listener) {
     watcher._hadInitialStat = false;
     watcher._timer = null;
     watcher._prev = makeZeroStats();
-    try { watcher._prev = statSync(filename); watcher._hadInitialStat = true; } catch(e) {}
+    try { watcher._prev = statSync(filename); watcher._prev.__exactExists = true; watcher._hadInitialStat = true; } catch(e) { watcher._prev.__exactExists = false; }
     var watchFileInterval = options.interval || 5007;
     watcher._poll = function() {
       if (watcher._closed || watcher._stopped) return;
       var curr;
-      try { curr = statSync(filename); } catch(e) { curr = makeZeroStats(); }
-      if (!watcher._initialized) {
-        watcher._initialized = true;
-        if (!watcher._hadInitialStat) watcher.emit('change', curr, watcher._prev);
-        watcher._prev = curr;
-        return;
+      try {
+        curr = statSync(filename);
+        curr.__exactExists = true;
+      } catch(e) {
+        curr = makeZeroStats();
+        curr.__exactExists = false;
       }
-      if ((curr.mtimeMs || 0) !== (watcher._prev.mtimeMs || 0) || (curr.size || 0) !== (watcher._prev.size || 0)) {
+      if (!watcher._initialized) watcher._initialized = true;
+      if (watcher._prev.__exactExists !== curr.__exactExists ||
+          (curr.mtimeMs || 0) !== (watcher._prev.mtimeMs || 0) ||
+          (curr.size || 0) !== (watcher._prev.size || 0)) {
         watcher.emit('change', curr, watcher._prev);
         watcher._prev = curr;
       }
+      watcher._prev = curr;
     };
     watcher._pollInterval = watchFileInterval;
     watcher._start = function() {
@@ -800,13 +1086,39 @@ function link(existingPath, newPath, cb) {
   try { linkSync(existingPath, newPath); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
 }
 function readlinkSync(path) {
+  _validatePath(path, 'path');
   ensureExactFs();
   if (typeof g.__exactReadlink === 'function') return g.__exactReadlink(path);
   throw new Error('readlink not available');
 }
 function readlink(path, options, cb) {
   if (typeof options === 'function') { cb = options; }
-  try { var r = readlinkSync(path); if (cb) cb(null, r); } catch(e) { if (cb) cb(e); }
+  _validatePath(path, 'path');
+  if (cb !== undefined) {
+    _validateCallback(cb);
+  }
+  try {
+    var r = readlinkSync(path);
+    if (cb) {
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(function() { cb(null, r); });
+      } else {
+        cb(null, r);
+      }
+    } else {
+      return r;
+    }
+  } catch(e) {
+    if (cb) {
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(function() { cb(e); });
+      } else {
+        cb(e);
+      }
+      return;
+    }
+    throw e;
+  }
 }
 function truncateSync(path, len) {
   ensureExactFs();
@@ -898,26 +1210,29 @@ var constants = { F_OK: 0, R_OK: 1, W_OK: 2, X_OK: 4 };
 // fchmod/fchmodSync — file descriptor-based chmod
 function fchmod(fd, mode, callback) {
   _validateFd(fd);
-  if (typeof mode !== 'number') throw _fsInvalidArgType('mode', 'number', mode);
-  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
+  mode = _coerceMode(mode);
+  _validateUint32('mode', mode);
+  if (callback !== undefined && typeof callback !== 'function') _validateCallback(callback);
   ensureExactFs();
-  // Stub: not fully implemented, call callback with no error
-  if (typeof g.__exactFsFchmod === 'function') {
-    g.__exactFsFchmod(fd, mode, callback);
-  } else {
-    var err = new Error('fchmod is not supported');
-    err.code = 'ENOSYS';
-    callback(err);
+  if (typeof callback === 'function') {
+    if (typeof g.__exactFsFchmod === 'function') {
+      g.__exactFsFchmod(fd, mode, callback);
+    } else {
+      wrapCallback(function() { fchmodSync(fd, mode); }, callback);
+    }
+    return;
   }
+  return fchmodSync(fd, mode);
 }
 function fchmodSync(fd, mode) {
   _validateFd(fd);
-  if (typeof mode !== 'number') throw _fsInvalidArgType('mode', 'number', mode);
+  mode = _coerceMode(mode);
+  _validateUint32('mode', mode);
   ensureExactFs();
   if (typeof g.__exactFsFchmodSync === 'function') {
     return g.__exactFsFchmodSync(fd, mode);
   }
-  var err = new Error('fchmodSync is not supported');
+  var err = new Error('fchmod is not supported');
   err.code = 'ENOSYS';
   throw err;
 }
@@ -926,26 +1241,40 @@ function fchmodSync(fd, mode) {
 function fchown(fd, uid, gid, callback) {
   _validateFd(fd);
   if (typeof uid !== 'number') throw _fsInvalidArgType('uid', 'number', uid);
+  if (typeof uid === 'number') _validateUidOrGid('uid', uid);
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
-  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
+  _validateUidOrGid('gid', gid);
+  if (callback !== undefined && typeof callback !== 'function') _validateCallback(callback);
   ensureExactFs();
-  if (typeof g.__exactFsFchown === 'function') {
-    g.__exactFsFchown(fd, uid, gid, callback);
-  } else {
-    var err = new Error('fchown is not supported');
-    err.code = 'ENOSYS';
-    callback(err);
+  if (typeof callback === 'function') {
+    if (typeof g.__exactFsFchown === 'function') {
+      g.__exactFsFchown(fd, uid, gid, callback);
+    } else {
+      wrapCallback(function() { fchownSync(fd, uid, gid); }, callback);
+    }
+    return;
   }
+  if (typeof g.__exactFsFchownSync === 'function') {
+    return g.__exactFsFchownSync(fd, uid, gid);
+  }
+  if (typeof g.__exactFsFchown === 'function') {
+    return g.__exactFsFchown(fd, uid, gid, function() {});
+  }
+  var err = new Error('fchown is not supported');
+  err.code = 'ENOSYS';
+  throw err;
 }
 function fchownSync(fd, uid, gid) {
   _validateFd(fd);
   if (typeof uid !== 'number') throw _fsInvalidArgType('uid', 'number', uid);
+  if (typeof uid === 'number') _validateUidOrGid('uid', uid);
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
+  _validateUidOrGid('gid', gid);
   ensureExactFs();
   if (typeof g.__exactFsFchownSync === 'function') {
     return g.__exactFsFchownSync(fd, uid, gid);
   }
-  var err = new Error('fchownSync is not supported');
+  var err = new Error('fchown is not supported');
   err.code = 'ENOSYS';
   throw err;
 }
