@@ -41,6 +41,7 @@ function Socket(options) {
   this._lastActivity = 0;
   this._handle = null;
   this._pollTimer = null;
+  this._drainTimer = null;
   this._writeQueue = [];
   this._isWriting = false;
   this._closeAfterEnd = false;
@@ -50,6 +51,7 @@ function Socket(options) {
   this._readBuffer = [];
   this._readBufferLength = 0;
   this._onread = options.onread || null;
+  this._onreadEOF = false;
   this._isUnix = false;
   this._socketPath = null;
   this.allowHalfOpen = options.allowHalfOpen || false;
@@ -127,6 +129,11 @@ Socket.prototype._consumeReadBuffer = function(size) {
 };
 
 Socket.prototype._drainWriteQueue = function() {
+  if (this._drainTimer != null) {
+    clearTimeout(this._drainTimer);
+    this._drainTimer = null;
+  }
+
   if (this._isWriting || this._handle == null || this.destroyed) {
     return;
   }
@@ -181,14 +188,18 @@ Socket.prototype._drainWriteQueue = function() {
       this.destroy();
       return;
     }
-    this.emit('drain');
+    var self = this;
+    setTimeout(function() {
+      self.emit('drain');
+    }, 0);
     return;
   }
 
   var self = this;
-  setTimeout(function() {
+  self._drainTimer = setTimeout(function() {
+    self._drainTimer = null;
     self._drainWriteQueue();
-  }, 0);
+  }, 1);
 };
 
 Socket.prototype._resolveOnreadBuffer = function() {
@@ -198,10 +209,19 @@ Socket.prototype._resolveOnreadBuffer = function() {
 };
 
 Socket.prototype._notifyOnreadEOF = function() {
-  if (!this._onread || typeof this._onread.callback !== 'function') return true;
+  if (this._onreadEOF) return true;
+  if (!this._onread || typeof this._onread.callback !== 'function') {
+    this._onreadEOF = true;
+    return true;
+  }
+  if (this._paused) return false;
   var buffer = this._resolveOnreadBuffer();
+  this._onreadEOF = true;
   var cbResult = this._onread.callback.call(this, 0, buffer);
-  return cbResult !== false && !this._paused;
+  if (cbResult === false) {
+    this._paused = true;
+  }
+  return cbResult !== false;
 };
 
 Socket.prototype._processOnreadBuffer = function() {
@@ -228,6 +248,9 @@ Socket.prototype._processOnreadBuffer = function() {
     remaining = data.length - offset;
 
     var cbResult = onread.callback.call(this, nread, buffer);
+    if (cbResult === false) {
+      this._paused = true;
+    }
     if (cbResult === false || this._paused) {
       if (remaining > 0) {
         this._appendToReadBuffer(data.slice(offset));
@@ -272,6 +295,10 @@ Socket.prototype._startPolling = function() {
   function poll() {
     if (self.destroyed || self._handle == null) return;
     if (self._onread) {
+      if (self._paused) {
+        self._pollTimer = setTimeout(poll, 10);
+        return;
+      }
       if (!self._processOnreadBuffer()) {
         self._pollTimer = setTimeout(poll, 10);
         return;
@@ -282,6 +309,7 @@ Socket.prototype._startPolling = function() {
           // EOF
           self._pollTimer = null;
           if (!self._notifyOnreadEOF()) {
+            self._pollTimer = setTimeout(poll, 10);
             return;
           }
           self.readable = false;
@@ -502,15 +530,11 @@ Socket.prototype.write = function(data, encoding, callback) {
     return false;
   }
 
-  var str = data;
-  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(data)) {
-    str = data.toString(encoding || 'utf8');
-  } else if (typeof data !== 'string') {
-    str = String(data);
-  }
+  var dataToWrite = toBufferData(data, encoding);
+  if (dataToWrite == null) dataToWrite = '';
 
   this._writeQueue.push({
-    data: str,
+    data: dataToWrite,
     offset: 0,
     callback: callback,
   });
