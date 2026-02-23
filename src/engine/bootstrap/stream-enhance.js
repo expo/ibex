@@ -363,14 +363,201 @@
   };
 
   // process.emitWarning()
-  p.emitWarning = function(warning, options) {
-    var name = 'Warning';
-    if (typeof options === 'string') name = options;
-    else if (options && options.type) name = options.type;
-    var msg = (typeof warning === 'string') ? warning : String(warning);
-    p.stderr.write('(' + name + ') ' + msg + '\n');
-    p.emit('warning', warning);
+  p.emitWarning = function(warning, type, code, ctor) {
+    if (typeof type === 'object' && type !== null) {
+      // emitWarning(msg, options)
+      code = type.code;
+      ctor = type.ctor;
+      type = type.type || 'Warning';
+    }
+    if (typeof code === 'function') {
+      ctor = code;
+      code = undefined;
+    }
+    if (typeof type === 'function') {
+      ctor = type;
+      type = 'Warning';
+      code = undefined;
+    }
+    var warningObj;
+    if (typeof warning === 'string') {
+      warningObj = new Error(warning);
+      warningObj.name = type || 'Warning';
+    } else if (warning instanceof Error) {
+      warningObj = warning;
+    } else {
+      warningObj = new Error(String(warning));
+      warningObj.name = type || 'Warning';
+    }
+    if (code) warningObj.code = code;
+    // Emit asynchronously like Node.js
+    setTimeout(function() {
+      p.emit('warning', warningObj);
+    }, 0);
   };
+
+  // process.getActiveResourcesInfo()
+  p.getActiveResourcesInfo = function() { return []; };
+
+  // process._getActiveRequests() and process._getActiveHandles()
+  p._getActiveRequests = function() { return []; };
+  p._getActiveHandles = function() { return []; };
+
+  // process.setUncaughtExceptionCaptureCallback / hasUncaughtExceptionCaptureCallback
+  var _uncaughtCaptureCb = null;
+  p.setUncaughtExceptionCaptureCallback = function(fn) {
+    if (fn !== null && typeof fn !== 'function') {
+      var err = new TypeError('The "fn" argument must be one of type function or null. Received type ' + typeof fn);
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+    if (fn !== null && _uncaughtCaptureCb !== null) {
+      var err2 = new Error('`process.setUncaughtExceptionCaptureCallback()` was called while a capture callback was already active');
+      err2.code = 'ERR_UNCAUGHT_EXCEPTION_CAPTURE_ALREADY_SET';
+      throw err2;
+    }
+    _uncaughtCaptureCb = fn;
+  };
+  p.hasUncaughtExceptionCaptureCallback = function() {
+    return _uncaughtCaptureCb !== null;
+  };
+
+  // process.features
+  if (!p.features) {
+    p.features = {
+      inspector: false,
+      debug: false,
+      uv: true,
+      ipv6: true,
+      tls_alpn: false,
+      tls_sni: false,
+      tls_ocsp: false,
+      tls: false,
+    };
+  }
+
+  // process.config - frozen object mimicking Node.js build config
+  if (!p.config) {
+    var _configObj = {
+      target_defaults: {},
+      variables: {
+        v8_enable_i18n_support: 1,
+        icu_locales: 'en',
+        openssl_is_fips: 0,
+        node_module_version: 108,
+      },
+    };
+    Object.freeze(_configObj.target_defaults);
+    Object.freeze(_configObj.variables);
+    Object.freeze(_configObj);
+    p.config = _configObj;
+  }
+
+  // process.debugPort
+  if (p.debugPort === undefined) {
+    p.debugPort = 9229;
+  }
+
+  // process.memoryUsage()
+  if (!p.memoryUsage) {
+    p.memoryUsage = function() {
+      return { rss: 0, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 };
+    };
+    p.memoryUsage.rss = function() { return 0; };
+  }
+
+  // process.cpuUsage()
+  if (!p.cpuUsage) {
+    p.cpuUsage = function(prevValue) {
+      var usage = { user: 0, system: 0 };
+      if (prevValue) {
+        usage.user = Math.max(0, usage.user - prevValue.user);
+        usage.system = Math.max(0, usage.system - prevValue.system);
+      }
+      return usage;
+    };
+  }
+
+  // process.resourceUsage()
+  if (!p.resourceUsage) {
+    p.resourceUsage = function() {
+      return {
+        userCPUTime: 0, systemCPUTime: 0, maxRSS: 0,
+        sharedMemorySize: 0, unsharedDataSize: 0, unsharedStackSize: 0,
+        minorPageFault: 0, majorPageFault: 0, swappedOut: 0,
+        fsRead: 0, fsWrite: 0, ipcSent: 0, ipcReceived: 0,
+        signalsCount: 0, voluntaryContextSwitches: 0, involuntaryContextSwitches: 0,
+      };
+    };
+  }
+
+  // process.uptime()
+  if (!p.uptime) {
+    var _startTime = Date.now();
+    p.uptime = function() {
+      return (Date.now() - _startTime) / 1000;
+    };
+  }
+
+  // process.hrtime() and process.hrtime.bigint()
+  if (!p.hrtime) {
+    var _hrtimeBase = Date.now();
+    p.hrtime = function(prev) {
+      var now = Date.now() - _hrtimeBase;
+      var secs = Math.floor(now / 1000);
+      var nanos = (now % 1000) * 1e6;
+      if (prev) {
+        var diffSecs = secs - prev[0];
+        var diffNanos = nanos - prev[1];
+        if (diffNanos < 0) {
+          diffSecs -= 1;
+          diffNanos += 1e9;
+        }
+        return [diffSecs, diffNanos];
+      }
+      return [secs, nanos];
+    };
+    p.hrtime.bigint = function() {
+      var now = Date.now() - _hrtimeBase;
+      // BigInt might not be available in all engines
+      if (typeof BigInt === 'function') {
+        return BigInt(now) * BigInt(1e6);
+      }
+      return now * 1e6;
+    };
+  }
+
+  // process.report
+  if (!p.report) {
+    p.report = {
+      writeReport: function() { return ''; },
+      getReport: function() { return {}; },
+      directory: '',
+      filename: '',
+      compact: false,
+      signal: 'SIGUSR2',
+      reportOnFatalError: false,
+      reportOnSignal: false,
+      reportOnUncaughtException: false,
+    };
+  }
+
+  // process.allowedNodeEnvironmentFlags
+  if (!p.allowedNodeEnvironmentFlags) {
+    var _emptyFlags = new Set();
+    Object.freeze(_emptyFlags);
+    p.allowedNodeEnvironmentFlags = _emptyFlags;
+  }
+
+  // process.release
+  if (!p.release) {
+    p.release = {
+      name: 'node',
+      lts: undefined,
+      sourceUrl: '',
+      headersUrl: '',
+    };
+  }
 
   // --- uncaughtException / unhandledRejection support ---
   // Store a global error handler that the native side can call into
@@ -517,10 +704,4 @@
     };
   }
 
-  // process.emitWarning
-  if (!p.emitWarning) {
-    p.emitWarning = function(warning, type) {
-      console.warn((type || 'Warning') + ': ' + warning);
-    };
-  }
 })();

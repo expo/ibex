@@ -234,6 +234,7 @@ StringDecoder.prototype.end = function end(buf) {
   var enc = this.encoding;
   if (enc === 'utf8' && this._utf8Decoder) {
     result += this._utf8Decoder.decode(new Uint8Array(), { stream: false });
+    this._utf8Decoder = null;
   } else if (this._bufLen > 0) {
     if (enc === 'utf8') {
       result += '\uFFFD';
@@ -249,10 +250,13 @@ StringDecoder.prototype.end = function end(buf) {
       result += b64;
     }
   }
-  if (this._bufLen > 0) {
-    this._buf = null;
-    this._bufLen = 0;
-    this._needBytes = 0;
+  // Always reset state after end() so next write() starts fresh
+  this._buf = null;
+  this._bufLen = 0;
+  this._needBytes = 0;
+  // Recreate the streaming TextDecoder so the decoder is reusable after end()
+  if (this.encoding === 'utf8' && utf8DecoderSupportsStream && !this._utf8Decoder) {
+    this._utf8Decoder = new TextDecoder('utf-8');
   }
   return result;
 };
