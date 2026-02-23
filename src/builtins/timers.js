@@ -1,34 +1,41 @@
+// Capture references to global timer functions at module load time
+// so they survive deletion from global scope
+var _setTimeout = globalThis.setTimeout;
+var _clearTimeout = globalThis.clearTimeout;
+var _setInterval = globalThis.setInterval;
+var _clearInterval = globalThis.clearInterval;
+
 function setTimeout$1(callback, delay) {
   var args = [];
   for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
-  if (typeof globalThis.setTimeout !== "function") {
+  if (typeof _setTimeout !== "function") {
     throw new Error("setTimeout is not available");
   }
-  return globalThis.setTimeout(function() {
+  return _setTimeout(function() {
     callback.apply(null, args);
   }, delay || 0);
 }
 
 function clearTimeout$1(handle) {
-  if (typeof globalThis.clearTimeout === "function") {
-    globalThis.clearTimeout(handle);
+  if (typeof _clearTimeout === "function") {
+    _clearTimeout(handle);
   }
 }
 
 function setInterval$1(callback, delay) {
   var args = [];
   for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
-  if (typeof globalThis.setInterval !== "function") {
+  if (typeof _setInterval !== "function") {
     throw new Error("setInterval is not available");
   }
-  return globalThis.setInterval(function() {
+  return _setInterval(function() {
     callback.apply(null, args);
   }, delay || 0);
 }
 
 function clearInterval$1(handle) {
-  if (typeof globalThis.clearInterval === "function") {
-    globalThis.clearInterval(handle);
+  if (typeof _clearInterval === "function") {
+    _clearInterval(handle);
   }
 }
 

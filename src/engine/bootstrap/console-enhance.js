@@ -72,4 +72,107 @@
     }
   };
   console.clear = function() {};
+
+  // Console constructor — creates a new console instance that writes to given streams
+  function Console(stdout, stderr, opts) {
+    if (!(this instanceof Console)) {
+      return new Console(stdout, stderr, opts);
+    }
+    if (!stdout) {
+      throw new TypeError('Console expects a writable stream instance');
+    }
+    // Handle options object as second arg
+    if (stderr && typeof stderr === 'object' && !stderr.write) {
+      opts = stderr;
+      stderr = undefined;
+    }
+    this._stdout = stdout;
+    this._stderr = stderr || stdout;
+    this._times = {};
+    this._counts = {};
+    this._groupDepth = 0;
+
+    var self = this;
+    var write = function(stream, args) {
+      var msg = '';
+      for (var i = 0; i < args.length; i++) {
+        if (i > 0) msg += ' ';
+        msg += typeof args[i] === 'string' ? args[i] : String(args[i]);
+      }
+      msg += '\n';
+      if (stream && typeof stream.write === 'function') {
+        stream.write(msg);
+      }
+    };
+
+    this.log = function() { write(self._stdout, arguments); };
+    this.log.name = 'log';
+    this.debug = this.log;
+    this.info = this.log;
+    this.dirxml = this.log;
+    this.warn = function() { write(self._stderr, arguments); };
+    this.warn.name = 'warn';
+    this.error = this.warn;
+    this.dir = function(obj) { write(self._stdout, [typeof obj === 'object' ? JSON.stringify(obj) : String(obj)]); };
+    this.dir.name = 'dir';
+    this.time = function(label) { self._times[label || 'default'] = Date.now(); };
+    this.time.name = 'time';
+    this.timeEnd = function(label) {
+      label = label || 'default';
+      var start = self._times[label];
+      if (start !== undefined) {
+        write(self._stdout, [label + ': ' + (Date.now() - start) + 'ms']);
+        delete self._times[label];
+      }
+    };
+    this.timeEnd.name = 'timeEnd';
+    this.timeLog = function(label) {
+      label = label || 'default';
+      var start = self._times[label];
+      if (start !== undefined) {
+        var args = [label + ': ' + (Date.now() - start) + 'ms'];
+        for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+        write(self._stdout, args);
+      }
+    };
+    this.timeLog.name = 'timeLog';
+    this.trace = function() {
+      var err = new Error();
+      var args = Array.prototype.slice.call(arguments);
+      args.push('\n' + (err.stack || ''));
+      write(self._stderr, args);
+    };
+    this.trace.name = 'trace';
+    this.assert = function(condition) {
+      if (!condition) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        if (args.length === 0) args = ['Assertion failed'];
+        else args[0] = 'Assertion failed: ' + args[0];
+        write(self._stderr, args);
+      }
+    };
+    this.assert.name = 'assert';
+    this.clear = function() {};
+    this.clear.name = 'clear';
+    this.count = function(label) {
+      label = label || 'default';
+      self._counts[label] = (self._counts[label] || 0) + 1;
+      write(self._stdout, [label + ': ' + self._counts[label]]);
+    };
+    this.count.name = 'count';
+    this.countReset = function(label) { self._counts[label || 'default'] = 0; };
+    this.countReset.name = 'countReset';
+    this.group = function() {
+      self._groupDepth++;
+      if (arguments.length > 0) write(self._stdout, arguments);
+    };
+    this.group.name = 'group';
+    this.groupCollapsed = this.group;
+    this.groupEnd = function() { if (self._groupDepth > 0) self._groupDepth--; };
+    this.groupEnd.name = 'groupEnd';
+    this.table = function(data) { write(self._stdout, [data]); };
+    this.table.name = 'table';
+  }
+
+  console.Console = Console;
 })();

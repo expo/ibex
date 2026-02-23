@@ -6,6 +6,19 @@ function isWS(c) { return c === SLASH || c === BSLASH; }
 function isPS(c) { return c === SLASH; }
 function isDR(c) { return (c >= 65 && c <= 90) || (c >= 97 && c <= 122); }
 function _cwd() { return (typeof process !== 'undefined' && process.cwd) ? process.cwd() : '/'; }
+function _invalidArgType(name, expected, actual) {
+  var received;
+  if (actual === null) received = 'null';
+  else if (actual === undefined) received = 'undefined';
+  else if (Array.isArray(actual)) received = 'an instance of Array';
+  else if (typeof actual === 'string') received = "type string (" + actual + ")";
+  else if (typeof actual === 'number') received = 'type number (' + actual + ')';
+  else if (typeof actual === 'boolean') received = 'type boolean (' + actual + ')';
+  else received = 'type ' + typeof actual;
+  var err = new TypeError('The "' + name + '" argument must be of type ' + expected + '. Received ' + received);
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  return err;
+}
 
 function nStr(path, allowAboveRoot, sep, isSep) {
   var res = '', lsl = 0, ls = -1, dots = 0, code = 0;
@@ -47,7 +60,7 @@ var posix = {
     var rp = '', ra = false;
     for (var i = arguments.length - 1; i >= -1 && !ra; i--) {
       var p = i >= 0 ? arguments[i] : _cwd();
-      if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+      if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
       if (p.length === 0) continue;
       rp = p + '/' + rp;
       ra = p.charCodeAt(0) === SLASH;
@@ -57,7 +70,7 @@ var posix = {
     return rp.length > 0 ? rp : '.';
   },
   normalize: function normalize(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     if (p.length === 0) return '.';
     var isAbs = p.charCodeAt(0) === SLASH;
     var trail = p.charCodeAt(p.length - 1) === SLASH;
@@ -67,7 +80,7 @@ var posix = {
     return isAbs ? '/' + p : p;
   },
   isAbsolute: function isAbsolute(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     return p.length > 0 && p.charCodeAt(0) === SLASH;
   },
   join: function join() {
@@ -75,15 +88,15 @@ var posix = {
     var joined;
     for (var i = 0; i < arguments.length; ++i) {
       var a = arguments[i];
-      if (typeof a !== 'string') throw new TypeError('Path must be a string. Received ' + typeof a);
+      if (typeof a !== 'string') throw _invalidArgType('path', 'string', a);
       if (a.length > 0) { if (joined === undefined) joined = a; else joined += '/' + a; }
     }
     if (joined === undefined) return '.';
     return posix.normalize(joined);
   },
   relative: function relative(from, to) {
-    if (typeof from !== 'string') throw new TypeError('Path must be a string. Received ' + typeof from);
-    if (typeof to !== 'string') throw new TypeError('Path must be a string. Received ' + typeof to);
+    if (typeof from !== 'string') throw _invalidArgType('from', 'string', from);
+    if (typeof to !== 'string') throw _invalidArgType('to', 'string', to);
     if (from === to) return '';
     from = posix.resolve(from); to = posix.resolve(to);
     if (from === to) return '';
@@ -106,7 +119,7 @@ var posix = {
     return out + to.slice(ti + lcs);
   },
   dirname: function dirname(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     if (p.length === 0) return '.';
     var hr = p.charCodeAt(0) === SLASH, end = -1, ms = true;
     for (var i = p.length - 1; i >= 1; --i) {
@@ -117,8 +130,8 @@ var posix = {
     return p.slice(0, end);
   },
   basename: function basename(p, ext) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
-    if (ext !== undefined && typeof ext !== 'string') throw new TypeError('"ext" argument must be a string');
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
+    if (ext !== undefined && typeof ext !== 'string') throw _invalidArgType('ext', 'string', ext);
     var s = 0, end = -1, ms = true, i;
     if (ext !== undefined && ext.length > 0 && ext.length <= p.length) {
       if (ext === p) return '';
@@ -140,7 +153,7 @@ var posix = {
     return p.slice(s, end);
   },
   extname: function extname(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     var sd = -1, sp = 0, end = -1, ms = true, pds = 0;
     for (var i = p.length - 1; i >= 0; --i) {
       var c = p.charCodeAt(i);
@@ -153,7 +166,7 @@ var posix = {
     return p.slice(sd, end);
   },
   parse: function parse(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     var ret = { root: '', dir: '', base: '', ext: '', name: '' };
     if (p.length === 0) return ret;
     var isAbs = p.charCodeAt(0) === SLASH, start;
@@ -176,7 +189,7 @@ var posix = {
     return ret;
   },
   format: function format(obj) {
-    if (obj === null || typeof obj !== 'object') throw new TypeError('Parameter "pathObject" must be an object, not ' + typeof obj);
+    if (obj === null || typeof obj !== 'object') throw _invalidArgType('pathObject', 'object', obj);
     var dir = obj.dir || obj.root;
     var base = obj.base || ((obj.name || '') + (obj.ext ? (obj.ext.charCodeAt(0) === DOT ? '' : '.') + obj.ext : ''));
     if (!dir) return base;
@@ -194,7 +207,7 @@ var win32 = {
     var rd = '', rt = '', ra = false;
     for (var i = arguments.length - 1; i >= -1; i--) {
       var p;
-      if (i >= 0) { p = arguments[i]; if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p); if (p.length === 0) continue; }
+      if (i >= 0) { p = arguments[i]; if (typeof p !== 'string') throw _invalidArgType('path', 'string', p); if (p.length === 0) continue; }
       else if (rd.length === 0) { p = _cwd(); }
       else { p = _cwd(); }
       var len = p.length, re = 0, dev = '', ia = false, code = p.charCodeAt(0);
@@ -226,7 +239,7 @@ var win32 = {
     return rd + (ra ? '\\' : '') + rt || '.';
   },
   normalize: function normalize(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     var len = p.length;
     if (len === 0) return '.';
     var re = 0, dev, ia = false, code = p.charCodeAt(0);
@@ -257,7 +270,7 @@ var win32 = {
     return ia ? dev + '\\' + tail : dev + tail;
   },
   isAbsolute: function isAbsolute(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     var len = p.length;
     if (len === 0) return false;
     var c = p.charCodeAt(0);
@@ -270,7 +283,7 @@ var win32 = {
     var joined, fp;
     for (var i = 0; i < arguments.length; ++i) {
       var a = arguments[i];
-      if (typeof a !== 'string') throw new TypeError('Path must be a string. Received ' + typeof a);
+      if (typeof a !== 'string') throw _invalidArgType('path', 'string', a);
       if (a.length > 0) { if (joined === undefined) { joined = fp = a; } else { joined += '\\' + a; } }
     }
     if (joined === undefined) return '.';
@@ -283,8 +296,8 @@ var win32 = {
     return win32.normalize(joined);
   },
   relative: function relative(from, to) {
-    if (typeof from !== 'string') throw new TypeError('Path must be a string. Received ' + typeof from);
-    if (typeof to !== 'string') throw new TypeError('Path must be a string. Received ' + typeof to);
+    if (typeof from !== 'string') throw _invalidArgType('from', 'string', from);
+    if (typeof to !== 'string') throw _invalidArgType('to', 'string', to);
     if (from === to) return '';
     var fO = win32.resolve(from), tO = win32.resolve(to);
     if (fO === tO) return '';
@@ -318,7 +331,7 @@ var win32 = {
     return tO.slice(ti, te);
   },
   dirname: function dirname(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     var len = p.length;
     if (len === 0) return '.';
     var re = -1, off = 0, code = p.charCodeAt(0);
@@ -350,8 +363,8 @@ var win32 = {
     return p.slice(0, end);
   },
   basename: function basename(p, ext) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
-    if (ext !== undefined && typeof ext !== 'string') throw new TypeError('"ext" argument must be a string');
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
+    if (ext !== undefined && typeof ext !== 'string') throw _invalidArgType('ext', 'string', ext);
     var s = 0;
     if (p.length >= 2 && isDR(p.charCodeAt(0)) && p.charCodeAt(1) === COLON) s = 2;
     var end = -1, ms = true, i;
@@ -375,7 +388,7 @@ var win32 = {
     return p.slice(s, end);
   },
   extname: function extname(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     var s = 0, sd = -1, sp = 0, end = -1, ms = true, pds = 0;
     if (p.length >= 2 && p.charCodeAt(1) === COLON && isDR(p.charCodeAt(0))) { s = sp = 2; }
     for (var i = p.length - 1; i >= s; --i) {
@@ -389,7 +402,7 @@ var win32 = {
     return p.slice(sd, end);
   },
   parse: function parse(p) {
-    if (typeof p !== 'string') throw new TypeError('Path must be a string. Received ' + typeof p);
+    if (typeof p !== 'string') throw _invalidArgType('path', 'string', p);
     var ret = { root: '', dir: '', base: '', ext: '', name: '' };
     if (p.length === 0) return ret;
     var len = p.length, re = 0, code = p.charCodeAt(0);
@@ -434,7 +447,7 @@ var win32 = {
     return ret;
   },
   format: function format(obj) {
-    if (obj === null || typeof obj !== 'object') throw new TypeError('Parameter "pathObject" must be an object, not ' + typeof obj);
+    if (obj === null || typeof obj !== 'object') throw _invalidArgType('pathObject', 'object', obj);
     var dir = obj.dir || obj.root;
     var base = obj.base || ((obj.name || '') + (obj.ext ? (obj.ext.charCodeAt(0) === DOT ? '' : '.') + obj.ext : ''));
     if (!dir) return base;
