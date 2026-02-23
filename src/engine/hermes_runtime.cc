@@ -4211,7 +4211,7 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpConnect", std::move(tcpConnectFn));
 
-    // __exactTcpRead(handle, maxBytes) -> string (data), null (EOF), "" (EAGAIN)
+    // __exactTcpRead(handle, maxBytes) -> Uint8Array (data), null (EOF), "" (EAGAIN)
     auto tcpReadFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpRead"), 2,
         [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
@@ -4232,10 +4232,11 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
             if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpRead: invalid handle");
             fd = it->second;
           }
-          std::vector<char> buf(maxBytes);
+          std::vector<uint8_t> buf(maxBytes);
           ssize_t n = ::read(fd, buf.data(), maxBytes);
           if (n > 0) {
-            return facebook::jsi::String::createFromUtf8(runtime, reinterpret_cast<const uint8_t*>(buf.data()), n);
+            buf.resize(n);
+            return makeUint8Array(runtime, std::move(buf));
           } else if (n == 0) {
             return facebook::jsi::Value::null();
           } else {
@@ -4263,14 +4264,15 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
             if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid handle");
             fd = it->second;
           }
-          std::string data;
+          ssize_t written;
           if (args[1].isString()) {
-            data = args[1].toString(runtime).utf8(runtime);
+            std::string data = args[1].toString(runtime).utf8(runtime);
+            written = ::write(fd, data.data(), data.size());
           } else if (args[1].isObject()) {
             auto obj = args[1].asObject(runtime);
             if (obj.isArrayBuffer(runtime)) {
               auto ab = obj.getArrayBuffer(runtime);
-              data.assign(reinterpret_cast<const char*>(ab.data(runtime)), ab.size(runtime));
+              written = ::write(fd, ab.data(runtime), ab.size(runtime));
             } else {
               auto bufProp = obj.getProperty(runtime, "buffer");
               auto byteLenProp = obj.getProperty(runtime, "byteLength");
@@ -4279,15 +4281,26 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
                 auto ab = bufProp.asObject(runtime).getArrayBuffer(runtime);
                 size_t offset = byteOffProp.isNumber() ? static_cast<size_t>(byteOffProp.asNumber()) : 0;
                 size_t len = byteLenProp.isNumber() ? static_cast<size_t>(byteLenProp.asNumber()) : ab.size(runtime) - offset;
-                data.assign(reinterpret_cast<const char*>(ab.data(runtime) + offset), len);
+                if (offset > ab.size(runtime)) {
+                  throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid byteOffset");
+                }
+                if (offset + len > ab.size(runtime)) {
+                  len = ab.size(runtime) - offset;
+                }
+                if (len == 0) {
+                  written = 0;
+                } else {
+                  written = ::write(fd, ab.data(runtime) + offset, len);
+                }
               } else {
-                data = args[1].toString(runtime).utf8(runtime);
+                std::string data = args[1].toString(runtime).utf8(runtime);
+                written = ::write(fd, data.data(), data.size());
               }
             }
           } else {
-            data = args[1].toString(runtime).utf8(runtime);
+            std::string data = args[1].toString(runtime).utf8(runtime);
+            written = ::write(fd, data.data(), data.size());
           }
-          ssize_t written = ::write(fd, data.data(), data.size());
           if (written < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(0);
             throw facebook::jsi::JSError(runtime, ("__exactTcpWrite error: " + std::string(strerror(errno))).c_str());
@@ -8566,7 +8579,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   processObj.setProperty(rt, "exit", std::move(exitFn));
-
   // process.stdout and process.stderr — proper Writable stream-like objects
   auto makeStream = [&rt](int fd) {
     facebook::jsi::Object stream(rt);
