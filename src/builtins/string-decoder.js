@@ -37,11 +37,25 @@ function decodeUtf8Char(bytes, len) {
   return String.fromCharCode(cp);
 }
 
+var utf8DecoderSupportsStream = false;
+if (typeof TextDecoder === 'function') {
+  try {
+    var _probeUtf8Decoder = new TextDecoder('utf-8');
+    _probeUtf8Decoder.decode(new Uint8Array(), { stream: true });
+    utf8DecoderSupportsStream = true;
+  } catch (err) {
+    utf8DecoderSupportsStream = false;
+  }
+}
+
 function StringDecoder(encoding) {
   this.encoding = normalizeEncoding(encoding);
   this._buf = null;
   this._bufLen = 0;
   this._needBytes = 0;
+  this._utf8Decoder = (this.encoding === 'utf8' && utf8DecoderSupportsStream)
+    ? new TextDecoder('utf-8')
+    : null;
 }
 
 StringDecoder.prototype.write = function write(buf) {
@@ -135,6 +149,10 @@ StringDecoder.prototype.write = function write(buf) {
 };
 
 StringDecoder.prototype._writeUtf8 = function _writeUtf8(bytes) {
+  if (this._utf8Decoder) {
+    return this._utf8Decoder.decode(bytes, { stream: true });
+  }
+
   var result = '';
   var i = 0;
   if (this._bufLen > 0) {
@@ -213,8 +231,10 @@ StringDecoder.prototype.end = function end(buf) {
   if (buf && (typeof buf === 'string' || (typeof buf === 'object' && buf.length > 0))) {
     result = this.write(buf);
   }
-  if (this._bufLen > 0) {
-    var enc = this.encoding;
+  var enc = this.encoding;
+  if (enc === 'utf8' && this._utf8Decoder) {
+    result += this._utf8Decoder.decode(new Uint8Array(), { stream: false });
+  } else if (this._bufLen > 0) {
     if (enc === 'utf8') {
       result += '\uFFFD';
     } else if (enc === 'utf16le') {
@@ -228,6 +248,8 @@ StringDecoder.prototype.end = function end(buf) {
       }
       result += b64;
     }
+  }
+  if (this._bufLen > 0) {
     this._buf = null;
     this._bufLen = 0;
     this._needBytes = 0;
