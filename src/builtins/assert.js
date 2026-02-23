@@ -314,6 +314,32 @@ function _freeze(obj) {
   return Object.freeze(obj);
 }
 
+function _safePropertyDescriptor(descriptor) {
+  if (!descriptor) {
+    return descriptor;
+  }
+  var safe = Object.create(null);
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+    safe.value = descriptor.value;
+  }
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'writable')) {
+    safe.writable = descriptor.writable;
+  }
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'get')) {
+    safe.get = descriptor.get;
+  }
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'set')) {
+    safe.set = descriptor.set;
+  }
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'configurable')) {
+    safe.configurable = descriptor.configurable;
+  }
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'enumerable')) {
+    safe.enumerable = descriptor.enumerable;
+  }
+  return safe;
+}
+
 function _validateExpectedCalls(expected) {
   if (typeof expected === 'undefined') {
     return 1;
@@ -421,9 +447,9 @@ CallTracker.prototype.calls = function(fn, expected) {
 
   var context = new CallTrackerContext(expected, _getContextName(fn), new Error());
   var wrapped = fn;
-  var originalLengthDescriptor = Object.getOwnPropertyDescriptor(fn, 'length');
+  var originalLengthDescriptor = _safePropertyDescriptor(Object.getOwnPropertyDescriptor(fn, 'length'));
   var originalLength = (originalLengthDescriptor &&
-      originalLengthDescriptor.hasOwnProperty('value') &&
+      Object.prototype.hasOwnProperty.call(originalLengthDescriptor, 'value') &&
       typeof originalLengthDescriptor.value === 'number') ? originalLengthDescriptor.value : 0;
 
   var tracked = (function() {
@@ -466,10 +492,12 @@ CallTracker.prototype.calls = function(fn, expected) {
       continue;
     }
     try {
-      Object.defineProperty(tracked, key, Object.getOwnPropertyDescriptor(fn, key));
+      Object.defineProperty(tracked, key, _safePropertyDescriptor(Object.getOwnPropertyDescriptor(fn, key)));
     } catch (e) {}
   }
-  try { Object.defineProperty(tracked, 'name', Object.getOwnPropertyDescriptor(fn, 'name')); } catch (e) {}
+  try {
+    Object.defineProperty(tracked, 'name', _safePropertyDescriptor(Object.getOwnPropertyDescriptor(fn, 'name')));
+  } catch (e) {}
 
   
 
