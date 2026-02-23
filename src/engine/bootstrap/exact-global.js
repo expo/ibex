@@ -4,6 +4,16 @@
     g.global = g;
   }
 
+  // Polyfill Symbol.dispose and Symbol.asyncDispose if missing
+  if (typeof Symbol === 'function') {
+    if (!Symbol.dispose) {
+      Symbol.dispose = Symbol.for('nodejs.dispose');
+    }
+    if (!Symbol.asyncDispose) {
+      Symbol.asyncDispose = Symbol.for('nodejs.asyncDispose');
+    }
+  }
+
   (function installNodeTimerHelpers() {
     if (typeof g.setTimeout !== 'function' || typeof g.setInterval !== 'function') {
       return;
@@ -14,46 +24,67 @@
     var nativeSetInterval = g.setInterval;
     var nativeClearInterval = g.clearInterval || function() {};
 
-    function createTimeoutObject(handle, clearHandle, schedule, args) {
+    function Timeout(handle, clearHandle, schedule, args) {
       if (handle && typeof handle === 'object' && typeof handle.unref === 'function') {
         return handle;
       }
 
-      var timer = {
-        _exactHandle: handle,
-        _clear: clearHandle,
-        _schedule: schedule,
-        _args: args
-      };
-
-      timer.ref = function() { return this; };
-      timer.unref = function() { return this; };
-      timer.hasRef = function() { return false; };
-      timer.refresh = function() {
-        if (typeof this._clear === 'function' && this._exactHandle != null) {
-          this._clear(this._exactHandle);
-        }
-        if (typeof this._schedule === 'function') {
-          this._exactHandle = this._schedule.apply(g, this._args || []);
-        }
-        return this;
-      };
-      timer.close = function() {
-        if (typeof this._clear === 'function' && this._exactHandle != null) {
-          this._clear(this._exactHandle);
-        }
-        return this;
-      };
-      timer.valueOf = function() { return this._exactHandle; };
-      timer.toString = function() {
-        return '[object Timeout]';
-      };
-
-      if (typeof Symbol === 'function' && Symbol.toPrimitive) {
-        timer[Symbol.toPrimitive] = function() { return this._exactHandle; };
+      this._exactHandle = handle;
+      this._clear = clearHandle;
+      this._schedule = schedule;
+      this._args = args;
+      this._destroyed = false;
+      this._repeat = null;
+      this._idleTimeout = -1;
+    }
+    Timeout.prototype.ref = function() { return this; };
+    Timeout.prototype.unref = function() { return this; };
+    Timeout.prototype.hasRef = function() { return false; };
+    Timeout.prototype.refresh = function() {
+      if (typeof this._clear === 'function' && this._exactHandle != null) {
+        this._clear(this._exactHandle);
       }
+      this._destroyed = false;
+      if (typeof this._schedule === 'function') {
+        this._exactHandle = this._schedule.apply(g, this._args || []);
+      }
+      return this;
+    };
+    Timeout.prototype.close = function() {
+      if (typeof this._clear === 'function' && this._exactHandle != null) {
+        this._clear(this._exactHandle);
+      }
+      this._destroyed = true;
+      return this;
+    };
+    Timeout.prototype.valueOf = function() { return this._exactHandle; };
+    Timeout.prototype.toString = function() { return '[object Timeout]'; };
+    if (typeof Symbol === 'function' && Symbol.toPrimitive) {
+      Timeout.prototype[Symbol.toPrimitive] = function() { return this._exactHandle; };
+    }
+    if (typeof Symbol === 'function' && Symbol.dispose) {
+      Timeout.prototype[Symbol.dispose] = function() { this.close(); };
+    }
 
-      return timer;
+    function Immediate(handle, clearHandle, schedule, args) {
+      this._exactHandle = handle;
+      this._clear = clearHandle;
+      this._schedule = schedule;
+      this._args = args;
+      this._destroyed = false;
+    }
+    Immediate.prototype = Object.create(Timeout.prototype);
+    Immediate.prototype.constructor = Immediate;
+
+    function createTimeoutObject(handle, clearHandle, schedule, args) {
+      if (handle && typeof handle === 'object' && typeof handle.unref === 'function') {
+        return handle;
+      }
+      return new Timeout(handle, clearHandle, schedule, args);
+    }
+
+    function createImmediateObject(handle, clearHandle, schedule, args) {
+      return new Immediate(handle, clearHandle, schedule, args);
     }
 
     function _validateTimerCb(callback) {
@@ -64,30 +95,43 @@
       }
     }
 
+    var _apply = Function.prototype.apply;
+    var _call = Function.prototype.call;
+
     function wrapSetTimeout(callback, delay) {
       _validateTimerCb(callback);
       var args = [];
       for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
-      var cb = function() { callback.apply(null, args); };
+      var timer;
+      var cb = function() {
+        timer._destroyed = true;
+        _call.call(_apply, callback, timer, args);
+      };
       var handle = nativeSetTimeout(cb, delay || 0);
-      return createTimeoutObject(handle, nativeClearTimeout, function() {
+      timer = createTimeoutObject(handle, nativeClearTimeout, function() {
         return nativeSetTimeout(cb, delay || 0);
       }, [callback, delay]);
+      return timer;
     }
 
     function wrapSetInterval(callback, delay) {
       _validateTimerCb(callback);
       var args = [];
       for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
-      var cb = function() { callback.apply(null, args); };
+      var timer;
+      var cb = function() {
+        _call.call(_apply, callback, timer, args);
+      };
       var handle = nativeSetInterval(cb, delay || 0);
-      return createTimeoutObject(handle, nativeClearInterval, function() {
+      timer = createTimeoutObject(handle, nativeClearInterval, function() {
         return nativeSetInterval(cb, delay || 0);
       }, [callback, delay]);
+      return timer;
     }
 
     g.clearTimeout = function(handle) {
       if (handle && typeof handle === 'object' && handle._exactHandle != null) {
+        handle._destroyed = true;
         return nativeClearTimeout(handle._exactHandle);
       }
       return nativeClearTimeout(handle);
@@ -95,6 +139,7 @@
 
     g.clearInterval = function(handle) {
       if (handle && typeof handle === 'object' && handle._exactHandle != null) {
+        handle._destroyed = true;
         return nativeClearInterval(handle._exactHandle);
       }
       return nativeClearInterval(handle);
@@ -108,13 +153,19 @@
         _validateTimerCb(callback);
         var args = [];
         for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
-        var cb = function() { callback.apply(null, args); };
+        var timer;
+        var cb = function() {
+          timer._destroyed = true;
+          _call.call(_apply, callback, timer, args);
+        };
         var handle = nativeSetImmediate(cb);
-        return createTimeoutObject(handle, nativeClearImmediate, function() { return nativeSetImmediate(cb); }, [callback]);
+        timer = createImmediateObject(handle, nativeClearImmediate, function() { return nativeSetImmediate(cb); }, [callback]);
+        return timer;
       };
 
       g.clearImmediate = function(handle) {
         if (handle && typeof handle === 'object' && handle._exactHandle != null) {
+          handle._destroyed = true;
           return nativeClearImmediate(handle._exactHandle);
         }
         return nativeClearImmediate(handle);

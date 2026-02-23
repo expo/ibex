@@ -4,6 +4,8 @@ var _setTimeout = globalThis.setTimeout;
 var _clearTimeout = globalThis.clearTimeout;
 var _setInterval = globalThis.setInterval;
 var _clearInterval = globalThis.clearInterval;
+var _FuncApply = Function.prototype.apply;
+var _FuncCall = Function.prototype.call;
 
 function _validateTimerCallback(callback, name) {
   if (typeof callback !== 'function') {
@@ -21,7 +23,7 @@ function setTimeout$1(callback, delay) {
     throw new Error("setTimeout is not available");
   }
   return _setTimeout(function() {
-    callback.apply(null, args);
+    _FuncCall.call(_FuncApply, callback, null, args);
   }, delay || 0);
 }
 
@@ -39,7 +41,7 @@ function setInterval$1(callback, delay) {
     throw new Error("setInterval is not available");
   }
   return _setInterval(function() {
-    callback.apply(null, args);
+    _FuncCall.call(_FuncApply, callback, null, args);
   }, delay || 0);
 }
 
@@ -54,7 +56,7 @@ function setImmediate$1(callback) {
   var args = [];
   for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
   return setTimeout$1(function() {
-    callback.apply(null, args);
+    _FuncCall.call(_FuncApply, callback, null, args);
   }, 0);
 }
 
@@ -79,9 +81,21 @@ module.exports = {
     // Stub: no-op for compatibility.
   },
   enroll: function enroll(item, msecs) {
+    if (typeof msecs !== 'number') {
+      var err = new TypeError('The "msecs" argument must be of type number. Received type ' + typeof msecs);
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+    if (msecs < 0 || !isFinite(msecs)) {
+      var err2 = new RangeError('The value of "msecs" is out of range. It must be a non-negative finite number. Received ' + msecs);
+      err2.code = 'ERR_OUT_OF_RANGE';
+      throw err2;
+    }
     item._idleTimeout = msecs;
   },
   unenroll: function unenroll(item) {
     item._idleTimeout = -1;
-  }
+  },
+  // promises sub-module
+  promises: (typeof require === 'function') ? require('timers/promises') : {}
 };

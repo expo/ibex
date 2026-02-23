@@ -102,13 +102,17 @@ function _deepEqual(a, b) {
 
   if (typeof a !== 'object') return false;
 
-  // Handle Date
-  if (a instanceof Date && b instanceof Date) {
+  // Handle Date - use toString tag check to avoid calling getTime on non-Date objects
+  var aTag = Object.prototype.toString.call(a);
+  var bTag = Object.prototype.toString.call(b);
+  if (aTag !== bTag) return false;
+
+  if (aTag === '[object Date]') {
     return a.getTime() === b.getTime();
   }
 
   // Handle RegExp
-  if (a instanceof RegExp && b instanceof RegExp) {
+  if (aTag === '[object RegExp]') {
     return a.source === b.source && a.flags === b.flags;
   }
 
@@ -117,8 +121,8 @@ function _deepEqual(a, b) {
     return a.message === b.message && a.name === b.name;
   }
 
-  // Handle ArrayBuffer
-  if (typeof ArrayBuffer !== 'undefined' && a instanceof ArrayBuffer && b instanceof ArrayBuffer) {
+  // Handle ArrayBuffer and SharedArrayBuffer - different types are not equal
+  if (typeof ArrayBuffer !== 'undefined' && (aTag === '[object ArrayBuffer]' || aTag === '[object SharedArrayBuffer]')) {
     if (a.byteLength !== b.byteLength) return false;
     var viewA = new Uint8Array(a);
     var viewB = new Uint8Array(b);
@@ -271,7 +275,7 @@ function throws(fn, expected, message) {
   }
   if (!threw) {
     throw new AssertionError({
-      message: message || 'Missing expected exception',
+      message: message || 'Missing expected exception.',
       operator: 'throws'
     });
   }

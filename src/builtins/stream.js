@@ -75,6 +75,7 @@ Stream.prototype.destroy = function(error, callback) {
 };
 
 function Readable(options) {
+  if (!(this instanceof Readable)) return new Readable(options);
   Stream.call(this);
   this._data = [];
   this._ended = false;
@@ -123,7 +124,7 @@ function Readable(options) {
     endedFlowing: false,
     emittedClose: true,
     autoDestroy: true,
-    awaitDrainWriters: [],
+    awaitDrainWriters: null,
     defaultEncoding: 'utf8',
     encoding: (options && options.encoding) || null,
     readable: true,
@@ -224,17 +225,24 @@ Readable.prototype.push = function(chunk) {
   if (chunk === null || chunk === undefined) {
     this._ended = true;
     this.readableEnded = true;
-    this.readable = false;
     this._readableState.ended = true;
-    this._updateReadableLength();
-    if (this._readableState.length > 0) {
+    // If flowing, emit end immediately; otherwise buffer the end signal
+    if (this.readableFlowing === true) {
+      this.readable = false;
+      this._updateReadableLength();
+      if (this._readableState.length > 0) {
+        this._syncReadableState();
+        this._emitReadableIfNeeded();
+      }
+      this._readableState.endEmitted = true;
+      this._readableState.endedEmitted = true;
+      this.emit('end');
+      this._emitClose();
+    } else {
+      // Buffered end - will be emitted when the buffer is flushed via resume
+      this._updateReadableLength();
       this._syncReadableState();
-      this._emitReadableIfNeeded();
     }
-    this._readableState.endEmitted = true;
-    this._readableState.endedEmitted = true;
-    this.emit('end');
-    this._emitClose();
     return false;
   }
   this._data.push(chunk);
@@ -242,9 +250,12 @@ Readable.prototype.push = function(chunk) {
   this._syncReadableState();
   this._readableState.needReadable = true;
   this._readableState.emittedReadable = false;
-  this.emit('data', chunk);
+  // Only emit 'data' immediately if in flowing mode
+  if (this.readableFlowing === true) {
+    this.emit('data', chunk);
+  }
   this._emitReadableIfNeeded();
-  return true;
+  return this._readableState.length < this._readableState.highWaterMark;
 };
 
 Readable.prototype.read = function() {
@@ -279,15 +290,38 @@ Readable.prototype.setEncoding = function(enc) {
 };
 
 Readable.prototype.resume = function() {
-  this.readableFlowing = true;
-  this._readableState.reading = false;
-  this._readableState.resumeScheduled = false;
+  if (this.readableFlowing !== true) {
+    this.readableFlowing = true;
+    this._readableState.reading = false;
+    this._readableState.resumeScheduled = false;
+    // Flush buffered data asynchronously
+    var self = this;
+    setTimeout(function() {
+      if (self._destroyed || self.readableFlowing !== true) return;
+      while (self._data.length > 0 && self.readableFlowing === true) {
+        var chunk = self._data.shift();
+        self._updateReadableLength();
+        self.emit('data', chunk);
+      }
+      // If ended and buffer is empty, emit end
+      if (self._ended && self._data.length === 0 && !self._readableState.endEmitted) {
+        self.readable = false;
+        self._readableState.endEmitted = true;
+        self._readableState.endedEmitted = true;
+        self.emit('end');
+        self._emitClose();
+      }
+    }, 0);
+  }
   return this;
 };
 
 Readable.prototype.pause = function() {
-  this.readableFlowing = false;
-  this._syncReadableState();
+  if (this.readableFlowing !== false) {
+    this.readableFlowing = false;
+    this._syncReadableState();
+    this.emit('pause');
+  }
   return this;
 };
 
@@ -307,27 +341,11 @@ Readable.prototype.on = function(event, listener) {
       }, 0);
     }
   }
-  // Replay buffered data for streams created from sync iterables
-  if ((event === 'data' || event === 'end') && this._needsReplay && !this._replayScheduled) {
-    this._replayScheduled = true;
-    var self = this;
-    Promise.resolve().then(function() {
-      self._replayScheduled = false;
-      self._needsReplay = false;
-      // Drain buffered data
-      while (self._data.length > 0 && !self._destroyed) {
-        var chunk = self._data.shift();
-        self._updateReadableLength();
-        self.emit('data', chunk);
-      }
-      // Emit end if stream was ended
-      if (self._ended && !self._destroyed && !self._readableState.endEmitted) {
-        self._readableState.endEmitted = true;
-        self._readableState.endedEmitted = true;
-        self.emit('end');
-        self._emitClose();
-      }
-    });
+  // Adding a 'data' listener starts flowing mode (unless explicitly paused)
+  if (event === 'data') {
+    if (this.readableFlowing !== false) {
+      this.resume();
+    }
   }
   return result;
 };
@@ -1102,6 +1120,7 @@ Readable.fromWeb = function(webStream, options) {
 };
 
 function Writable(options) {
+  if (!(this instanceof Writable) && !(this instanceof Duplex)) return new Writable(options);
   Stream.call(this);
   // Determine objectMode: writableObjectMode overrides objectMode if present
   var objMode = (options && options.writableObjectMode != null) ? !!options.writableObjectMode :
@@ -1289,13 +1308,21 @@ Writable.prototype.end = function(chunk, encoding, callback) {
   if (typeof chunk === 'function') { callback = chunk; chunk = null; encoding = null; }
   if (typeof encoding === 'function') { callback = encoding; encoding = null; }
 
-  // If already ended, send ERR_STREAM_WRITE_AFTER_END to callback
-  if (this.writableEnded) {
-    var writeAfterEndErr = new Error('write after end');
-    writeAfterEndErr.code = 'ERR_STREAM_WRITE_AFTER_END';
+  // If already finished, async callback with ERR_STREAM_ALREADY_FINISHED
+  if (this.writableFinished) {
+    var finishedErr = new Error('write after end');
+    finishedErr.code = 'ERR_STREAM_ALREADY_FINISHED';
     if (typeof callback === 'function') {
-      var self2 = this;
-      setTimeout(function() { callback(writeAfterEndErr); }, 0);
+      setTimeout(function() { callback(finishedErr); }, 0);
+    }
+    return this;
+  }
+
+  // If already ended but not yet finished, just queue the callback
+  if (this.writableEnded) {
+    if (typeof callback === 'function') {
+      if (!this._endCallbacks) this._endCallbacks = [];
+      this._endCallbacks.push(callback);
     }
     return this;
   }
@@ -1397,6 +1424,7 @@ Writable.fromWeb = function(webWritable, options) {
 };
 
 function Duplex(options) {
+  if (!(this instanceof Duplex)) return new Duplex(options);
   // For Duplex, we need to handle construct once (not twice)
   var construct = options && options.construct;
   if (construct) {
@@ -1450,6 +1478,7 @@ Object.keys(Writable.prototype).forEach(function(k) {
 Duplex.prototype.constructor = Duplex;
 
 function Transform(options) {
+  if (!(this instanceof Transform)) return new Transform(options);
   Duplex.call(this, options);
   if (options && typeof options.transform === 'function') this._transform = options.transform;
   if (options && typeof options.flush === 'function') this._flush = options.flush;
@@ -1497,15 +1526,25 @@ Stream.prototype.pipe = function(dest, options) {
     if (dest && typeof dest.write === 'function') {
       var ok = dest.write(chunk);
       if (ok === false && typeof source.pause === 'function') {
+        // Track which writer caused backpressure
+        if (state) {
+          state.awaitDrainWriters = dest;
+        }
         source.pause();
-        dest.once('drain', function() {
-          if (typeof source.resume === 'function') {
-            source.resume();
-          }
-        });
       }
     }
   }
+
+  function ondrain() {
+    if (state) {
+      state.awaitDrainWriters = null;
+    }
+    if (typeof source.resume === 'function') {
+      source.resume();
+    }
+  }
+
+  dest.on('drain', ondrain);
 
   function onend() {
     if ((!options || options.end !== false) && dest && typeof dest.end === 'function') {
@@ -1520,14 +1559,26 @@ Stream.prototype.pipe = function(dest, options) {
     }
   }
 
+  // When dest closes/finishes, clean up the pipe
+  function onclose() {
+    unpipe();
+  }
+
+  dest.on('close', onclose);
+
   function unpipe() {
     source.removeListener('data', ondata);
     source.removeListener('end', onend);
     source.removeListener('error', onerror);
+    dest.removeListener('drain', ondrain);
+    dest.removeListener('close', onclose);
     if (state) {
       var idx = state.pipes.indexOf(dest);
       if (idx !== -1) state.pipes.splice(idx, 1);
       state.pipesCount = state.pipes.length;
+      if (state.pipes.length === 0) {
+        state.awaitDrainWriters = null;
+      }
     }
   }
 
