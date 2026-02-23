@@ -6,6 +6,14 @@ var Console = function(stdout, stderr) {
   this._counts = {};
   this._groups = 0;
 };
+var _clearSequence = '\x1b[1;1H\x1b[0J';
+
+function _clearTTY(stream) {
+  if (!stream || stream.isTTY !== true || typeof stream.write !== 'function') {
+    return;
+  }
+  stream.write(_clearSequence);
+}
 Console.prototype.log = function() { console.log.apply(console, arguments); };
 Console.prototype.info = function() { console.info.apply(console, arguments); };
 Console.prototype.warn = function() { console.warn.apply(console, arguments); };
@@ -55,7 +63,7 @@ Console.prototype.groupEnd = function() {
 Console.prototype.table = function(data) {
   console.log(data);
 };
-Console.prototype.clear = function() {};
+Console.prototype.clear = function() { _clearTTY(this._stdout); };
 
 module.exports = console;
 module.exports.Console = Console;

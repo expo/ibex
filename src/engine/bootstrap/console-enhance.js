@@ -4,6 +4,14 @@
   var _groupDepth = 0;
   var _origLog = console.log;
   var _origError = console.error;
+  var _clearSequence = '\x1b[1;1H\x1b[0J';
+
+  function clearTTY(stream) {
+    if (!stream || !stream.isTTY || typeof stream.write !== 'function') {
+      return;
+    }
+    stream.write(_clearSequence);
+  }
 
   console.time = function(label) {
     _times[label || 'default'] = Date.now();
@@ -71,7 +79,9 @@
       _origError.apply(console, args);
     }
   };
-  console.clear = function() {};
+  console.clear = function() {
+    clearTTY(typeof process === 'object' ? process.stdout : undefined);
+  };
 
   // Console constructor — creates a new console instance that writes to given streams
   function Console(stdout, stderr, opts) {
@@ -152,7 +162,9 @@
       }
     };
     this.assert.name = 'assert';
-    this.clear = function() {};
+    this.clear = function() {
+      clearTTY(self._stdout);
+    };
     this.clear.name = 'clear';
     this.count = function(label) {
       label = label || 'default';

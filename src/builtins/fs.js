@@ -448,31 +448,246 @@ function createWriteStream(path, options) {
 function FSWatcher() {
   this._events = {};
   this._closed = false;
+  this._stopped = false;
+  this._unrefed = false;
 }
 FSWatcher.prototype.on = function(ev, fn) { if (!this._events[ev]) this._events[ev] = []; this._events[ev].push(fn); return this; };
 FSWatcher.prototype.emit = function(ev) { var a = [].slice.call(arguments, 1); var l = this._events[ev] || []; for (var i = 0; i < l.length; i++) l[i].apply(this, a); return l.length > 0; };
 FSWatcher.prototype.once = function(ev, fn) { var self = this; function w() { self.removeListener(ev, w); fn.apply(this, arguments); } this.on(ev, w); return this; };
 FSWatcher.prototype.removeListener = function(ev, fn) { var l = this._events[ev]; if (l) { var n = []; for (var i = 0; i < l.length; i++) { if (l[i] !== fn) n.push(l[i]); } this._events[ev] = n; } return this; };
-FSWatcher.prototype.close = function() { this._closed = true; if (this._timer) clearInterval(this._timer); this.emit('close'); };
-FSWatcher.prototype.ref = function() { return this; };
-FSWatcher.prototype.unref = function() { return this; };
+FSWatcher.prototype.close = function() {
+  if (this._closed) return this;
+  this._closed = true;
+  if (this._stop) this._stop();
+  else if (this._timer) clearInterval(this._timer);
+  this.emit('close');
+  return this;
+};
+FSWatcher.prototype.stop = function() {
+  if (this._stopped) return this;
+  this._stopped = true;
+  this.close();
+  this.emit('stop');
+  return this;
+};
+FSWatcher.prototype.ref = function() {
+  this._unrefed = false;
+  if (this._start) this._start();
+  if (this._timer && this._timer.ref) this._timer.ref();
+  return this;
+};
+FSWatcher.prototype.unref = function() {
+  this._unrefed = true;
+  if (this._stop) this._stop();
+  return this;
+};
+FSWatcher.prototype.listenerCount = function(ev) { return this._events[ev] ? this._events[ev].length : 0; };
+
+function pathBasename(filePath) {
+  var slash = filePath.lastIndexOf('/');
+  var backslash = filePath.lastIndexOf('\\');
+  if (backslash > slash) slash = backslash;
+  if (slash === -1) return filePath;
+  return filePath.slice(slash + 1);
+}
+function pathJoin(base, child) {
+  if (!base) return child;
+  var last = base.charAt(base.length - 1);
+  if (last === '/' || last === '\\') return base + child;
+  return base + '/' + child;
+}
+function watchFilename(filename, encoding) {
+  if (filename === null || filename === undefined) return filename;
+  if (typeof encoding === 'string') encoding = encoding.toLowerCase();
+  if (encoding === 'buffer') {
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+      return Buffer.from(filename);
+    }
+    return toUint8Array(filename);
+  }
+  if (!encoding || encoding === 'utf8' || encoding === 'utf-8') return filename;
+  if (encoding === 'hex') {
+    var bytes = toUint8Array(filename);
+    var hex = '';
+    for (var i = 0; i < bytes.length; i++) {
+      hex += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+    }
+    return hex;
+  }
+  return decodeBytes(toUint8Array(filename), encoding);
+}
+function buildWatchDirState(dirname, recursive, prefix) {
+  var entries = {};
+  try {
+    var dirStat = statSync(dirname);
+    entries.__meta = {
+      mtime: dirStat.mtimeMs || 0
+    };
+  } catch(e) {
+    return null;
+  }
+  var files = [];
+  try { files = readdirSync(dirname); } catch(e) { return null; }
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    var fullPath = pathJoin(dirname, file);
+    var stat;
+    try { stat = statSync(fullPath); } catch(e) { continue; }
+    var key = prefix ? prefix + '/' + file : file;
+    entries[key] = {
+      isDirectory: typeof stat.isDirectory === 'function' && stat.isDirectory(),
+      mtime: stat.mtimeMs || 0,
+      size: stat.size || 0
+    };
+    if (recursive && entries[key].isDirectory) {
+      var childState = buildWatchDirState(fullPath, true, key);
+      if (childState) {
+        for (var k in childState) {
+          if (k === '__meta') continue;
+          entries[k] = childState[k];
+        }
+      }
+    }
+  }
+  return entries;
+}
+function emitWatchDirectoryChanges(watcher, encoding, prevState, nextState) {
+  if (!prevState) prevState = {};
+  if (!nextState) nextState = {};
+  var prevMeta = prevState.__meta || {};
+  var nextMeta = nextState.__meta || {};
+  if ((prevMeta.mtime || 0) !== (nextMeta.mtime || 0)) {
+    watcher.emit('change', 'rename', watchFilename(null, encoding));
+  }
+  for (var key in nextState) {
+    if (key === '__meta') continue;
+    if (!prevState[key]) {
+      watcher.emit('change', 'rename', watchFilename(pathBasename(key), encoding));
+      continue;
+    }
+    if (!nextState[key].isDirectory && !prevState[key].isDirectory &&
+        (nextState[key].mtime !== prevState[key].mtime || nextState[key].size !== prevState[key].size)) {
+      watcher.emit('change', 'change', watchFilename(pathBasename(key), encoding));
+    }
+  }
+  for (var key2 in prevState) {
+    if (key2 === '__meta') continue;
+    if (!nextState[key2]) watcher.emit('change', 'rename', watchFilename(pathBasename(key2), encoding));
+  }
+}
+function makeZeroStats() {
+  var zero = new Date(0);
+  return {
+    dev: 0,
+    mode: 0,
+    nlink: 0,
+    uid: 0,
+    gid: 0,
+    rdev: 0,
+    blksize: 0,
+    ino: 0,
+    size: 0,
+    blocks: 0,
+    atimeMs: 0,
+    mtimeMs: 0,
+    ctimeMs: 0,
+    birthtimeMs: 0,
+    atime: zero,
+    mtime: zero,
+    ctime: zero,
+    birthtime: zero,
+    isFile: function() { return false; },
+    isDirectory: function() { return false; },
+    isSymbolicLink: function() { return false; },
+    isBlockDevice: function() { return false; },
+    isCharacterDevice: function() { return false; },
+    isFIFO: function() { return false; },
+    isSocket: function() { return false; }
+  };
+}
 
 function watch(filename, options, listener) {
   if (typeof options === 'function') { listener = options; options = {}; }
+  if (typeof options === 'string') options = { encoding: options };
   options = options || {};
+  if (listener && typeof listener !== 'function') _validateCallback(listener);
+  _validatePath(filename, 'filename');
   var watcher = new FSWatcher();
+  watcher._filename = filename;
+  if (options.recursive !== undefined && typeof options.recursive !== 'boolean') {
+    throw _fsInvalidArgType('options.recursive', 'boolean', options.recursive);
+  }
+
+  var encoding = options.encoding || 'utf8';
   if (listener) watcher.on('change', listener);
-  // Poll-based watch using stat
-  var lastMtime = 0;
-  try { var s = statSync(filename); lastMtime = s.mtimeMs || 0; } catch(e) {}
-  watcher._timer = setInterval(function() {
-    if (watcher._closed) return;
-    try {
-      var s = statSync(filename);
-      var mtime = s.mtimeMs || 0;
-      if (mtime !== lastMtime) { lastMtime = mtime; watcher.emit('change', 'change', filename); }
-    } catch(e) { watcher.emit('change', 'rename', filename); }
-  }, options.interval || 1007);
+
+  var stat;
+  var targetIsDirectory = false;
+  try { stat = statSync(filename); targetIsDirectory = !!(stat && stat.isDirectory && stat.isDirectory()); } catch(e) {}
+
+  if (targetIsDirectory) {
+    watcher._isDirectory = true;
+    watcher._recursive = !!options.recursive;
+    watcher._prevState = buildWatchDirState(filename, watcher._recursive);
+    var directoryInterval = options.interval || 25;
+    watcher._poll = function() {
+      if (watcher._closed || watcher._stopped) return;
+      var nextState = buildWatchDirState(filename, watcher._recursive);
+      if (!nextState) {
+        watcher.emit('change', 'rename', watchFilename(pathBasename(filename), encoding));
+        watcher._prevState = {};
+        return;
+      }
+      emitWatchDirectoryChanges(watcher, encoding, watcher._prevState, nextState);
+      watcher._prevState = nextState;
+    };
+    watcher._pollInterval = directoryInterval;
+    watcher._start = function() {
+      if (watcher._timer || watcher._closed || watcher._stopped || watcher._unrefed) return;
+      watcher._timer = setInterval(watcher._poll, watcher._pollInterval);
+    };
+    watcher._stop = function() {
+      if (watcher._timer) {
+        clearInterval(watcher._timer);
+        watcher._timer = null;
+      }
+    };
+    watcher._start();
+  } else {
+    var lastMtime = 0;
+    try { var s = stat || statSync(filename); lastMtime = s.mtimeMs || 0; } catch(e) {}
+    var fileInterval = options.interval || 25;
+    watcher._poll = function() {
+      if (watcher._closed) return;
+      try {
+        var s2 = statSync(filename);
+        var mtime = s2.mtimeMs || 0;
+        if (mtime !== lastMtime) {
+          lastMtime = mtime;
+          watcher.emit('change', 'change', watchFilename(pathBasename(filename), encoding));
+        }
+      } catch(e) {
+        if (lastMtime !== 0) {
+          lastMtime = 0;
+          watcher.emit('change', 'rename', watchFilename(pathBasename(filename), encoding));
+        }
+      }
+    };
+    watcher._pollInterval = fileInterval;
+    watcher._start = function() {
+      if (watcher._timer || watcher._closed || watcher._stopped || watcher._unrefed) return;
+      watcher._timer = setInterval(watcher._poll, watcher._pollInterval);
+    };
+    watcher._stop = function() {
+      if (watcher._timer) {
+        clearInterval(watcher._timer);
+        watcher._timer = null;
+      }
+    };
+    watcher._start();
+  }
+
+  if (options.persistent === false) watcher.unref();
   return watcher;
 }
 
@@ -480,19 +695,90 @@ var _watchedFiles = {};
 function watchFile(filename, options, listener) {
   if (typeof options === 'function') { listener = options; options = {}; }
   options = options || {};
-  var interval = options.interval || 5007;
-  var prev;
-  try { prev = statSync(filename); } catch(e) { prev = { size: 0, mtimeMs: 0 }; }
-  var timer = setInterval(function() {
-    var curr;
-    try { curr = statSync(filename); } catch(e) { curr = { size: 0, mtimeMs: 0 }; }
-    if ((curr.mtimeMs || 0) !== (prev.mtimeMs || 0)) { if (listener) listener(curr, prev); prev = curr; }
-  }, interval);
-  _watchedFiles[filename] = timer;
+  if (listener && typeof listener !== 'function') _validateCallback(listener);
+  _validatePath(filename, 'filename');
+  var watcher = _watchedFiles[filename];
+  if (!watcher) {
+    watcher = new FSWatcher();
+    watcher._filename = filename;
+    watcher._listeners = [];
+    watcher._initialized = false;
+    watcher._hadInitialStat = false;
+    watcher._timer = null;
+    watcher._prev = makeZeroStats();
+    try { watcher._prev = statSync(filename); watcher._hadInitialStat = true; } catch(e) {}
+    var watchFileInterval = options.interval || 5007;
+    watcher._poll = function() {
+      if (watcher._closed || watcher._stopped) return;
+      var curr;
+      try { curr = statSync(filename); } catch(e) { curr = makeZeroStats(); }
+      if (!watcher._initialized) {
+        watcher._initialized = true;
+        if (!watcher._hadInitialStat) watcher.emit('change', curr, watcher._prev);
+        watcher._prev = curr;
+        return;
+      }
+      if ((curr.mtimeMs || 0) !== (watcher._prev.mtimeMs || 0) || (curr.size || 0) !== (watcher._prev.size || 0)) {
+        watcher.emit('change', curr, watcher._prev);
+        watcher._prev = curr;
+      }
+    };
+    watcher._pollInterval = watchFileInterval;
+    watcher._start = function() {
+      if (watcher._timer || watcher._closed || watcher._stopped || watcher._unrefed) return;
+      watcher._timer = setInterval(watcher._poll, watcher._pollInterval);
+    };
+    watcher._stop = function() {
+      if (watcher._timer) {
+        clearInterval(watcher._timer);
+        watcher._timer = null;
+      }
+    };
+    watcher._start();
+    if (options.persistent === false) watcher.unref();
+    _watchedFiles[filename] = watcher;
+  }
+
+  if (listener) {
+    var wrapped = function(curr, prev) {
+      listener(curr, prev);
+    };
+    wrapped._exactListener = listener;
+    watcher._listeners.push(wrapped);
+    watcher.on('change', wrapped);
+  }
+
+  return watcher;
 }
 
 function unwatchFile(filename) {
-  if (_watchedFiles[filename]) { clearInterval(_watchedFiles[filename]); delete _watchedFiles[filename]; }
+  _validatePath(filename, 'filename');
+  var watcher = _watchedFiles[filename];
+  if (!watcher) return;
+  if (!watcher._listeners) watcher._listeners = [];
+  if (arguments.length > 1 && arguments[1] !== undefined) {
+    if (typeof arguments[1] !== 'function') _validateCallback(arguments[1]);
+    var listener = arguments[1];
+    var next = [];
+    var removed = false;
+    for (var i = 0; i < watcher._listeners.length; i++) {
+      var entry = watcher._listeners[i];
+      if (!removed && entry._exactListener === listener) {
+        watcher.removeListener('change', entry);
+        removed = true;
+        continue;
+      }
+      next.push(entry);
+    }
+    watcher._listeners = next;
+    if (watcher._listeners.length === 0) {
+      watcher.stop();
+      delete _watchedFiles[filename];
+    }
+    return;
+  }
+  watcher.stop();
+  delete _watchedFiles[filename];
 }
 
 // fs.symlink/link/readlink/truncate/chown/utimes/rm
