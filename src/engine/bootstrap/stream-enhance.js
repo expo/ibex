@@ -364,10 +364,12 @@
 
   // process.emitWarning()
   p.emitWarning = function(warning, type, code, ctor) {
-    if (typeof type === 'object' && type !== null) {
+    var detail;
+    if (typeof type === 'object' && type !== null && !Array.isArray(type)) {
       // emitWarning(msg, options)
       code = type.code;
       ctor = type.ctor;
+      detail = type.detail;
       type = type.type || 'Warning';
     }
     if (typeof code === 'function') {
@@ -379,17 +381,36 @@
       type = 'Warning';
       code = undefined;
     }
+    // Validate arguments
+    if (warning === undefined) {
+      var e = new TypeError('The "warning" argument must be of type string or an instance of Error. Received undefined');
+      e.code = 'ERR_INVALID_ARG_TYPE';
+      throw e;
+    }
+    if (typeof warning !== 'string' && !(warning instanceof Error)) {
+      var e = new TypeError('The "warning" argument must be of type string or an instance of Error. Received type ' + typeof warning);
+      e.code = 'ERR_INVALID_ARG_TYPE';
+      throw e;
+    }
+    if (type !== undefined && typeof type !== 'string') {
+      var e = new TypeError('The "type" argument must be of type string. Received type ' + typeof type);
+      e.code = 'ERR_INVALID_ARG_TYPE';
+      throw e;
+    }
+    if (code !== undefined && typeof code !== 'string') {
+      var e = new TypeError('The "code" argument must be of type string. Received type ' + typeof code);
+      e.code = 'ERR_INVALID_ARG_TYPE';
+      throw e;
+    }
     var warningObj;
     if (typeof warning === 'string') {
       warningObj = new Error(warning);
       warningObj.name = type || 'Warning';
-    } else if (warning instanceof Error) {
-      warningObj = warning;
     } else {
-      warningObj = new Error(String(warning));
-      warningObj.name = type || 'Warning';
+      warningObj = warning;
     }
     if (code) warningObj.code = code;
+    if (typeof detail === 'string') warningObj.detail = detail;
     // Emit asynchronously like Node.js
     setTimeout(function() {
       p.emit('warning', warningObj);
@@ -469,6 +490,33 @@
   // process.cpuUsage()
   if (!p.cpuUsage) {
     p.cpuUsage = function(prevValue) {
+      if (prevValue !== undefined) {
+        if (typeof prevValue !== 'object' || prevValue === null || Array.isArray(prevValue)) {
+          var e = new TypeError('The "prevValue" argument must be of type object. Received type ' + typeof prevValue + (prevValue !== null ? ' (' + String(prevValue) + ')' : ''));
+          e.code = 'ERR_INVALID_ARG_TYPE';
+          throw e;
+        }
+        if (typeof prevValue.user !== 'number') {
+          var e = new TypeError('The "prevValue.user" property must be of type number.' + (prevValue.user == null ? ' Received ' + prevValue.user : typeof prevValue.user === 'string' ? ' Received type string (\'' + prevValue.user + '\')' : ' Received type ' + typeof prevValue.user + ' (' + String(prevValue.user) + ')'));
+          e.code = 'ERR_INVALID_ARG_TYPE';
+          throw e;
+        }
+        if (typeof prevValue.system !== 'number') {
+          var e = new TypeError('The "prevValue.system" property must be of type number.' + (prevValue.system == null ? ' Received ' + prevValue.system : typeof prevValue.system === 'string' ? ' Received type string (\'' + prevValue.system + '\')' : ' Received type ' + typeof prevValue.system + ' (' + String(prevValue.system) + ')'));
+          e.code = 'ERR_INVALID_ARG_TYPE';
+          throw e;
+        }
+        if (prevValue.user < 0 || !Number.isFinite(prevValue.user)) {
+          var e2 = new RangeError("The property 'prevValue.user' is invalid. Received " + prevValue.user);
+          e2.code = 'ERR_INVALID_ARG_VALUE';
+          throw e2;
+        }
+        if (prevValue.system < 0 || !Number.isFinite(prevValue.system)) {
+          var e2 = new RangeError("The property 'prevValue.system' is invalid. Received " + prevValue.system);
+          e2.code = 'ERR_INVALID_ARG_VALUE';
+          throw e2;
+        }
+      }
       var usage = { user: 0, system: 0 };
       if (prevValue) {
         usage.user = Math.max(0, usage.user - prevValue.user);
@@ -547,6 +595,22 @@
     var _emptyFlags = new Set();
     Object.freeze(_emptyFlags);
     p.allowedNodeEnvironmentFlags = _emptyFlags;
+  }
+
+  // process.umask()
+  if (!p.umask) {
+    var _currentUmask = 0o022;
+    p.umask = function(mask) {
+      if (mask === undefined) return _currentUmask;
+      var old = _currentUmask;
+      if (typeof mask === 'string') {
+        mask = parseInt(mask, 8);
+      }
+      if (typeof mask === 'number' && mask === (mask | 0)) {
+        _currentUmask = mask & 0o777;
+      }
+      return old;
+    };
   }
 
   // process.release
