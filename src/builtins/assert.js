@@ -52,7 +52,7 @@ class AssertionError extends Error {
     this.expected = opts.expected;
     this.operator = opts.operator;
     this.code = 'ERR_ASSERTION';
-    this.generatedMessage = opts.message ? false : true;
+    this.generatedMessage = opts.generatedMessage !== undefined ? opts.generatedMessage : (opts.message ? false : true);
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, AssertionError);
     }
@@ -96,7 +96,93 @@ function _deepEqual(a, b) {
   if (a === b) return true;
   if (a === null || b === null) return false;
   if (typeof a !== typeof b) return false;
+
+  // Handle NaN
+  if (typeof a === 'number' && isNaN(a) && isNaN(b)) return true;
+
   if (typeof a !== 'object') return false;
+
+  // Handle Date
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
+
+  // Handle RegExp
+  if (a instanceof RegExp && b instanceof RegExp) {
+    return a.source === b.source && a.flags === b.flags;
+  }
+
+  // Handle Error
+  if (a instanceof Error && b instanceof Error) {
+    return a.message === b.message && a.name === b.name;
+  }
+
+  // Handle ArrayBuffer
+  if (typeof ArrayBuffer !== 'undefined' && a instanceof ArrayBuffer && b instanceof ArrayBuffer) {
+    if (a.byteLength !== b.byteLength) return false;
+    var viewA = new Uint8Array(a);
+    var viewB = new Uint8Array(b);
+    for (var i = 0; i < viewA.length; i++) {
+      if (viewA[i] !== viewB[i]) return false;
+    }
+    return true;
+  }
+
+  // Handle TypedArrays
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
+    if (a.constructor !== b.constructor) return false;
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  // Handle Map
+  if (typeof Map !== 'undefined' && a instanceof Map && b instanceof Map) {
+    if (a.size !== b.size) return false;
+    var aEntries = Array.from(a.entries());
+    for (var i = 0; i < aEntries.length; i++) {
+      var key = aEntries[i][0];
+      if (!b.has(key)) return false;
+      if (!_deepEqual(aEntries[i][1], b.get(key))) return false;
+    }
+    return true;
+  }
+
+  // Handle Set
+  if (typeof Set !== 'undefined' && a instanceof Set && b instanceof Set) {
+    if (a.size !== b.size) return false;
+    var aArr = Array.from(a);
+    var bArr = Array.from(b);
+    // For primitive values, use direct comparison
+    // For objects, try to find matching elements
+    var matched = new Array(bArr.length);
+    for (var i = 0; i < aArr.length; i++) {
+      var found = false;
+      for (var j = 0; j < bArr.length; j++) {
+        if (!matched[j] && _deepEqual(aArr[i], bArr[j])) {
+          matched[j] = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found) return false;
+    }
+    return true;
+  }
+
+  // Ensure same constructor/prototype
+  if (a.constructor !== b.constructor) {
+    // Allow comparison between plain objects and Object.create(null)
+    if (!(
+      (a.constructor === Object || a.constructor === undefined) &&
+      (b.constructor === Object || b.constructor === undefined)
+    )) {
+      return false;
+    }
+  }
+
   if (Array.isArray(a)) {
     if (!Array.isArray(b) || a.length !== b.length) return false;
     for (var i = 0; i < a.length; i++) {
@@ -212,6 +298,31 @@ function throws(fn, expected, message) {
       if (expected.test(String(caught))) return;
       throw new AssertionError({ message: message || 'Unexpected exception', actual: caught, expected: expected, operator: 'throws' });
     }
+    // Plain object: validate each property against caught error
+    if (typeof expected === 'object' && expected !== null) {
+      var keys = Object.keys(expected);
+      for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
+        if (expected[key] instanceof RegExp) {
+          if (!expected[key].test(String(caught[key]))) {
+            throw new AssertionError({
+              message: message || 'The error property "' + key + '" ("' + caught[key] + '") does not match ' + expected[key],
+              actual: caught,
+              expected: expected,
+              operator: 'throws'
+            });
+          }
+        } else if (!_deepEqual(caught[key], expected[key])) {
+          throw new AssertionError({
+            message: message || 'Expected error property "' + key + '" to be ' + _inspect(expected[key]) + ', got ' + _inspect(caught[key]),
+            actual: caught,
+            expected: expected,
+            operator: 'throws'
+          });
+        }
+      }
+      return;
+    }
   }
 }
 
@@ -239,6 +350,16 @@ function ifError(err) {
 }
 
 function fail(message) {
+  if (message === undefined) {
+    throw new AssertionError({
+      message: 'Failed',
+      operator: 'fail',
+      generatedMessage: true
+    });
+  }
+  if (message instanceof Error) {
+    throw message;
+  }
   throw new AssertionError({
     message: message || 'Failed',
     operator: 'fail'
@@ -307,7 +428,7 @@ async function rejects(asyncFn, expected, message) {
               operator: 'rejects'
             });
           }
-        } else if (caught[key] !== expected[key]) {
+        } else if (!_deepEqual(caught[key], expected[key])) {
           throw new AssertionError({
             message: message || 'Error property "' + key + '" mismatch',
             actual: caught[key],
