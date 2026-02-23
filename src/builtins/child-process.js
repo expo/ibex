@@ -6,7 +6,7 @@ function _fallbackSpawnCommand(command) {
   }
   var procPath = (typeof process !== 'undefined' && process !== null && process.execPath) ? String(process.execPath) : '';
   if (command === procPath && /(^|[\\/])exact/.test(command)) {
-    return 'node';
+    return command;
   }
   return command;
 }
@@ -359,7 +359,7 @@ function ChildProcess(handle, pid, stdioModes) {
   if (modes.stdin === 'pipe') {
     this.stdin = new Stream.Writable({
       write: function(chunk, encoding, callback) {
-        var data = _toByteString(chunk);
+        var data = _toUint8String(chunk);
         var ok = globalThis.__exactSpawnWrite(self._handle, data);
         if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
       }

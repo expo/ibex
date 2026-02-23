@@ -1134,7 +1134,18 @@
             return;
           }
           if (data.length > 0 && handlers.data) {
-            var buf = (typeof Buffer !== 'undefined') ? Buffer.from(data, 'utf8') : data;
+            var buf = data;
+            if (typeof Buffer !== 'undefined' && Buffer.from) {
+              if (typeof data === 'string') {
+                buf = Buffer.from(data);
+              } else if (data instanceof Uint8Array || (Buffer.isBuffer && Buffer.isBuffer(data))) {
+                buf = Buffer.from(data.buffer || data, data.byteOffset || 0, data.byteLength || data.length);
+              } else {
+                try {
+                  buf = Buffer.from(data);
+                } catch (e) {}
+              }
+            }
             try { handlers.data(self, buf); } catch(e) {
               if (handlers.error) { try { handlers.error(self, e); } catch(e2) {} }
             }

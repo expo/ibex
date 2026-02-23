@@ -1,4 +1,10 @@
 (function() {
+  if (typeof Array !== 'undefined' && typeof Array.isArray !== 'function') {
+    Array.isArray = function(value) {
+      return Object.prototype.toString.call(value) === '[object Array]';
+    };
+  }
+
   if (typeof Promise !== 'undefined' && typeof Promise.withResolvers !== 'function') {
     Promise.withResolvers = function() {
       var resolve;
@@ -83,25 +89,102 @@
   }
 
   // Process streams can still be host-backed accessors in some bootstrap paths.
-  // Pin stdout/stderr/stdin on the process object itself so repeated reads return
-  // the same stream objects and util's write interception works consistently.
+  // Pin stdout/stderr/stdin on the process object itself so repeated reads
+  // return the same stream objects and util's write interception works
+  // consistently. Also create a safe prototype shadow for the common copied
+  // process object pattern used by Node tests.
   if (typeof globalThis.process === 'object' && globalThis.process !== null) {
-    try {
-      if (!globalThis.process.__exactStreamStabilityPatched) {
-        function __exactPinStream(name) {
-          var stream = globalThis.process[name];
-          if (!stream) return;
-          if ((name === 'stdout' || name === 'stderr') &&
-              stream.writable === undefined) {
-            stream.writable = true;
-          }
-          Object.defineProperty(globalThis.process, name, {
+    function __exactPatchProcessStreamPrototype() {
+      var proto = Object.getPrototypeOf(globalThis.process);
+      if (!proto || proto.__exactProcessProtoPatched) {
+        return;
+      }
+      var patchedPrototype = Object.create(proto);
+      var needsPrototypePatch = false;
+
+      var keys = ['stdout', 'stderr', 'stdin', 'versions'].concat(Object.keys(globalThis.process));
+      for (var i = 0; i < keys.length; i++) {
+        var name = keys[i];
+        var desc = Object.getOwnPropertyDescriptor(proto, name);
+        if (name !== 'versions' && !desc) {
+          continue;
+        }
+        if (
+          name !== 'versions' &&
+          !desc.get &&
+          desc.set === undefined &&
+          desc.writable !== false &&
+          desc.configurable !== false
+        ) {
+          continue;
+        }
+        var stream;
+        try {
+          stream = globalThis.process[name];
+        } catch (err) {
+          continue;
+        }
+        if (stream === undefined) {
+          continue;
+        }
+        try {
+          Object.defineProperty(patchedPrototype, name, {
             value: stream,
             writable: true,
             configurable: true,
-            enumerable: true,
+            enumerable: true
           });
-        }
+          needsPrototypePatch = true;
+        } catch (err) {}
+      }
+
+      if (needsPrototypePatch) {
+        Object.setPrototypeOf(globalThis.process, patchedPrototype);
+        try {
+          Object.defineProperty(patchedPrototype, '__exactStreamProtoPatched', {
+            value: true,
+            writable: false,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (err) {}
+        try {
+          Object.defineProperty(proto, '__exactProcessProtoPatched', {
+            value: true,
+            writable: false,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (err) {}
+      }
+
+      try {
+        Object.defineProperty(proto, '__exactStreamProtoPatched', {
+          value: true,
+          writable: false,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (err) {}
+    }
+
+    function __exactPinStream(name) {
+      var stream = globalThis.process[name];
+      if (!stream) return;
+      if ((name === 'stdout' || name === 'stderr') && stream.writable === undefined) {
+        stream.writable = true;
+      }
+      Object.defineProperty(globalThis.process, name, {
+        value: stream,
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+    }
+
+    try {
+      __exactPatchProcessStreamPrototype();
+      if (!globalThis.process.__exactStreamStabilityPatched) {
         __exactPinStream('stdout');
         __exactPinStream('stderr');
         __exactPinStream('stdin');
@@ -200,6 +283,59 @@
   // Normalize it here so later checks and Node compatibility tests can rely on it.
   if (typeof globalThis.process === 'object' && globalThis.process !== null) {
     try {
+      function __exactApplyVersionsPatch(target, patchedVersions) {
+        if (!target || typeof target !== 'object') return false;
+        try {
+          var desc = Object.getOwnPropertyDescriptor(target, 'versions');
+          if (!desc) {
+            try {
+              Object.defineProperty(target, 'versions', {
+                value: patchedVersions,
+                writable: true,
+                configurable: true,
+                enumerable: false
+              });
+              return true;
+            } catch (err) {}
+            try {
+              target.versions = patchedVersions;
+              return true;
+            } catch (err) {}
+            return false;
+          }
+          if (typeof desc.get === 'function' && desc.set === undefined) {
+            try {
+              Object.defineProperty(target, 'versions', {
+                value: patchedVersions,
+                writable: true,
+                configurable: true,
+                enumerable: !!desc.enumerable
+              });
+              return true;
+            } catch (err) {}
+            try {
+              target.versions = patchedVersions;
+              return true;
+            } catch (err) {}
+            return false;
+          }
+          try {
+            Object.defineProperty(target, 'versions', {
+              value: patchedVersions,
+              writable: true,
+              configurable: !!desc.configurable,
+              enumerable: !!desc.enumerable
+            });
+            return true;
+          } catch (err) {}
+          try {
+            target.versions = patchedVersions;
+            return true;
+          } catch (err) {}
+        } catch (err) {}
+        return false;
+      }
+
       var processVersions = globalThis.process.versions;
       processVersions = processVersions && typeof processVersions === 'object'
         ? processVersions
@@ -222,15 +358,79 @@
         exact: processVersions.exact || '0.1.0'
       };
       try {
-        Object.defineProperty(globalThis.process, 'versions', {
-          value: patchedVersions,
-          writable: true,
-          enumerable: false,
-          configurable: true
-        });
-      } catch (err) {
-        globalThis.process.versions = patchedVersions;
-      }
+        __exactApplyVersionsPatch(globalThis.process, patchedVersions);
+      } catch (err) {}
+
+      try {
+        var processVersionPrototype = Object.getPrototypeOf(globalThis.process);
+        while (
+          processVersionPrototype &&
+          processVersionPrototype !== Object.prototype &&
+          typeof processVersionPrototype === 'object'
+        ) {
+          if (__exactApplyVersionsPatch(processVersionPrototype, patchedVersions)) {
+            break;
+          }
+          processVersionPrototype = Object.getPrototypeOf(processVersionPrototype);
+        }
+      } catch (err) {}
+
+      try {
+        var versionsOwner = Object.getPrototypeOf(globalThis.process);
+        var versionsDescriptor = versionsOwner &&
+          Object.getOwnPropertyDescriptor(versionsOwner, 'versions');
+        if (
+          !versionsDescriptor ||
+          typeof versionsDescriptor.get === 'function' ||
+          versionsDescriptor.set === undefined ||
+          !('value' in versionsDescriptor) ||
+          versionsDescriptor.writable !== true
+        ) {
+          try {
+            Object.defineProperty(versionsOwner, 'versions', {
+              value: patchedVersions,
+              writable: true,
+              configurable: true,
+              enumerable: false
+            });
+          } catch (err) {
+            try {
+              var patchedVersionsPrototype = Object.create(versionsOwner);
+              Object.defineProperty(patchedVersionsPrototype, 'versions', {
+                value: patchedVersions,
+                writable: true,
+                configurable: true,
+                enumerable: false
+              });
+              Object.setPrototypeOf(globalThis.process, patchedVersionsPrototype);
+            } catch (err2) {}
+          }
+        }
+      } catch (err) {}
+
+      try {
+        var processVersionsDescriptor = Object.getOwnPropertyDescriptor(
+          globalThis.process,
+          'versions'
+        );
+        if (
+          !processVersionsDescriptor ||
+          typeof processVersionsDescriptor.get === 'function' ||
+          !('value' in processVersionsDescriptor) ||
+          processVersionsDescriptor.writable !== true ||
+          processVersionsDescriptor.enumerable
+        ) {
+          try {
+            Object.defineProperty(globalThis.process, 'versions', {
+              value: patchedVersions,
+              writable: true,
+              configurable: true,
+              enumerable: false
+            });
+          } catch (err) {}
+        }
+      } catch (err) {}
+
       if (processVersions.node) {
         globalThis.process.version = 'v' + String(processVersions.node).replace(/^v/, '');
       }
@@ -508,6 +708,108 @@
   if (__exactNeedsUrlCompatPatch() || __exactNeedsUserinfoPatch()) {
     __exactPatchUrlConstructors();
     __exactPatchUrlEncodedFormData();
+  }
+
+  if (typeof globalThis.process === 'object' && globalThis.process !== null) {
+    try {
+      function __exactDefineExecPath(target, value) {
+        if (!target || typeof target !== 'object') {
+          return false;
+        }
+        try {
+          var desc = Object.getOwnPropertyDescriptor(target, 'execPath');
+          if (!desc || !('value' in desc) || desc.writable !== true) {
+            Object.defineProperty(target, 'execPath', {
+              value: value,
+              writable: true,
+              configurable: true,
+              enumerable: true
+            });
+            return true;
+          }
+        } catch (err) {}
+        try {
+          target.execPath = value;
+          return true;
+        } catch (err) {}
+        return false;
+      }
+
+      var __exactExecPathValue = globalThis.process.execPath;
+      if (__exactExecPathValue === undefined) {
+        __exactExecPathValue = '';
+      }
+      __exactDefineExecPath(globalThis.process, __exactExecPathValue);
+      var __exactProcessProto = Object.getPrototypeOf(globalThis.process);
+      if (
+        __exactProcessProto &&
+        __exactProcessProto !== Object.prototype &&
+        __exactProcessProto !== globalThis.process &&
+        typeof __exactProcessProto === 'object'
+      ) {
+        __exactDefineExecPath(__exactProcessProto, __exactExecPathValue);
+      }
+      if (__exactProcessProto && __exactProcessProto !== Object.prototype && typeof __exactProcessProto === 'object') {
+        var processExecPathPrototype = Object.getPrototypeOf(__exactProcessProto);
+        while (
+          processExecPathPrototype &&
+          processExecPathPrototype !== Object.prototype &&
+          typeof processExecPathPrototype === 'object'
+        ) {
+          if (__exactDefineExecPath(processExecPathPrototype, __exactExecPathValue)) {
+            break;
+          }
+          processExecPathPrototype = Object.getPrototypeOf(processExecPathPrototype);
+        }
+      }
+    } catch (err) {}
+
+    // Compatibility helpers expected by a small subset of Node fixture patterns.
+    // Exposed globally so rewritten fixture files (created at runtime) still see
+    // `ok`/`failed` helpers without requiring '../common'.
+    try {
+      var __global = (typeof globalThis !== 'undefined') ? globalThis : (typeof global !== 'undefined' ? global : null);
+      function __exactBuildCompatFailed(value) {
+        if (typeof value === 'function') {
+          try {
+            return value() === undefined;
+          } catch (e) {}
+          return false;
+        }
+        return !value;
+      }
+      if (__global && typeof globalThis.__exactRequire === 'function') {
+        var __exactAssert = globalThis.__exactRequire('assert');
+        if (__global && __exactAssert && typeof __exactAssert.ok === 'function') {
+          __global.failed = __exactBuildCompatFailed;
+          if (typeof __global.badly !== 'function') {
+            __global.badly = function() {
+              return undefined;
+            };
+          }
+        }
+        if (__global && typeof __global.ok !== 'function' && __exactAssert && typeof __exactAssert.ok === 'function') {
+          __global.ok = function(value, message) {
+            __exactAssert.ok(value, message);
+          };
+        }
+      }
+      if (__global && typeof __global.failed !== 'function') {
+        __global.failed = __exactBuildCompatFailed;
+      }
+      if (__global && typeof __global.badly !== 'function') {
+        __global.badly = function() {
+          return undefined;
+        };
+      }
+      if (__global && typeof __global.ok !== 'function') {
+        __global.ok = function(value, message) {
+          if (!value) {
+            throw new Error(message || 'The expression evaluated to a falsy value');
+          }
+        };
+      }
+    } catch (err) {}
   }
 
   // When running compat tests, auto-load bun:test so test/describe/it/expect

@@ -42,6 +42,19 @@ function hexToRaw(hex) {
   return raw;
 }
 
+function _toBinaryString(data) {
+  if (typeof data === 'string') return data;
+  if (!data || typeof data.length !== 'number') return '';
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) {
+    return data.toString('binary');
+  }
+  var out = '';
+  for (var i = 0; i < data.length; i++) {
+    out += String.fromCharCode(data[i] & 0xFF);
+  }
+  return out;
+}
+
 // ========================================================
 // Utility: compute Sec-WebSocket-Accept value
 // ========================================================
@@ -242,6 +255,7 @@ WebSocketConnection.prototype._startReading = function() {
         self._handleTransportClose();
         return;
       }
+      data = _toBinaryString(data);
       if (data.length > 0) {
         self._buffer += data;
         self._processBuffer();
@@ -585,6 +599,7 @@ WebSocketServer.prototype._handleRawConnection = function(tcpHandle) {
         try { __exactTcpClose(tcpHandle); } catch(e) {}
         return;
       }
+      data = _toBinaryString(data);
       if (data.length > 0) {
         buffer += data;
       }

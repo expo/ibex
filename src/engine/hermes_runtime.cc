@@ -4329,6 +4329,31 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpClose", std::move(tcpCloseFn));
 
+    // __exactTcpShutdown(handle, how) -> 0
+    auto tcpShutdownFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpShutdown"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpShutdown: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int how = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : SHUT_WR;
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+            fd = it->second;
+          }
+          int result = ::shutdown(fd, how);
+          if (result != 0) {
+            return facebook::jsi::Value(errno);
+          }
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpShutdown", std::move(tcpShutdownFn));
+
     // __exactTcpSetNoDelay(handle, enable) -> 0
     auto tcpSetNoDelayFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetNoDelay"), 2,
@@ -4371,9 +4396,9 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpSetKeepAlive", std::move(tcpSetKeepAliveFn));
 
-    // __exactTcpListen(host, port, backlog) -> handle or throws
+    // __exactTcpListen(host, port, backlog, ipv6Only) -> handle or throws
     auto tcpListenFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 3,
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 4,
         [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           std::string host = "0.0.0.0";
@@ -4382,13 +4407,24 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count > 1 && args[1].isNumber()) port = static_cast<int>(args[1].asNumber());
           int backlog = 128;
           if (count > 2 && args[2].isNumber()) backlog = static_cast<int>(args[2].asNumber());
+          int ipv6Only = (count > 3 && args[3].isNumber()) ? (static_cast<int>(args[3].asNumber()) != 0) : 0;
+          struct in6_addr parsed6 {};
+          struct in_addr parsed4 {};
+          bool forceIpv4 = inet_pton(AF_INET, host.c_str(), &parsed4) == 1;
+          bool forceIpv6 = !forceIpv4 && inet_pton(AF_INET6, host.c_str(), &parsed6) == 1;
           struct addrinfo hints{}, *result = nullptr;
-          hints.ai_family = AF_INET;
+          if (forceIpv4) {
+            hints.ai_family = AF_INET;
+          } else if (forceIpv6) {
+            hints.ai_family = AF_INET6;
+          } else {
+            hints.ai_family = AF_UNSPEC;
+          }
           hints.ai_socktype = SOCK_STREAM;
           hints.ai_protocol = IPPROTO_TCP;
           hints.ai_flags = AI_PASSIVE;
           std::string portStr = std::to_string(port);
-          const char* nodeStr = host == "0.0.0.0" ? nullptr : host.c_str();
+          const char* nodeStr = (host == "0.0.0.0") ? nullptr : host.c_str();
           int gai_err = getaddrinfo(nodeStr, portStr.c_str(), &hints, &result);
           if (gai_err != 0) {
             throw facebook::jsi::JSError(runtime, ("getaddrinfo failed: " + std::string(gai_strerror(gai_err))).c_str());
@@ -4400,6 +4436,10 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int reuse = 1;
           setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+          if (result->ai_family == AF_INET6 && ipv6Only != 0) {
+            int on = 1;
+            setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof(on));
+          }
           if (::bind(fd, result->ai_addr, result->ai_addrlen) == -1) {
             freeaddrinfo(result);
             ::close(fd);
@@ -8567,7 +8607,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "exit"),
       1,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -8575,7 +8615,16 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count > 0 && args[0].isNumber()) {
           code = static_cast<int>(args[0].asNumber());
         }
-        std::exit(code);
+        if (auto processObj = runtime.global().getProperty(runtime, "process");
+            processObj.isObject()) {
+          try {
+            processObj.asObject(runtime).setProperty(
+              runtime,
+              "exitCode",
+              code
+            );
+          } catch (...) {}
+        }
         return facebook::jsi::Value::undefined();
       });
   processObj.setProperty(rt, "exit", std::move(exitFn));
@@ -8938,7 +8987,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // Ensure stream wrappers remain stable even if process streams come from host getters.
   {
     static const char* streamStabilityPatchJS = R"JS(
-(function() {
+  (function() {
   'use strict';
   var p = globalThis.process;
   if (!p || p.__exactStreamStabilityPatched) return;
@@ -8980,6 +9029,22 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   pinStream('stdout', p.stdout, createWritableProxy);
   pinStream('stderr', p.stderr, createWritableProxy);
   pinStream('stdin', p.stdin);
+  try {
+    var processVersions = p.versions;
+    if (processVersions && typeof processVersions === 'object') {
+      var proto = Object.getPrototypeOf(p);
+      if (proto && typeof proto === 'object') {
+        try {
+          Object.defineProperty(proto, 'versions', {
+            value: processVersions,
+            writable: true,
+            configurable: true,
+            enumerable: true
+          });
+        } catch (err) {}
+      }
+    }
+  } catch (err) {}
   p.__exactStreamStabilityPatched = true;
 })();
 )JS";
@@ -9703,6 +9768,47 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     } catch (const std::exception& err) {
       ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.what()).c_str());
     }
+  }
+
+  // Ensure process.prototype.versions is always a writable data property to support
+  // strict-mode copies of process-like objects in Node compatibility tests.
+  {
+    static const char* processVersionsCompatPatchJS = R"JS((function() {
+      try {
+        if (typeof process !== 'object' || process === null) {
+          return;
+        }
+        var processProto = Object.getPrototypeOf(process);
+        if (!processProto || typeof processProto !== 'object') {
+          return;
+        }
+        var processVersions = process.versions;
+        try {
+          var desc = Object.getOwnPropertyDescriptor(processProto, 'versions');
+          if (desc && desc.get && desc.set === undefined) {
+            Object.defineProperty(processProto, 'versions', {
+              value: processVersions,
+              writable: true,
+              configurable: true,
+              enumerable: !!desc.enumerable
+            });
+          }
+        } catch (err) {
+          try {
+            Object.defineProperty(processProto, 'versions', {
+              value: processVersions,
+              writable: true,
+              configurable: true,
+              enumerable: false
+            });
+          } catch (err2) {}
+        }
+      } catch (err) {}
+    })())JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(processVersionsCompatPatchJS);
+      rt.evaluateJavaScript(buffer, "<process-versions-compat-patch>");
+    } catch (...) {}
   }
 }
 

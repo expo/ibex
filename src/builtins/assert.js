@@ -38,9 +38,40 @@ function _inspect(v) {
 
 var __assertSourceCache = {};
 var __assertFailDeprecationWarned = false;
+var __sharedArrayBufferZeroBug = null;
+
+try {
+  if (typeof SharedArrayBuffer === 'function') {
+    var __sab = new SharedArrayBuffer(3);
+    var __sabArray = new Uint8Array(__sab);
+    __sabArray.fill(1);
+    if (__sabArray.byteLength === 0 || __sabArray.buffer.byteLength === 0) {
+      __sharedArrayBufferZeroBug = true;
+    }
+  }
+} catch (e) {}
 
 function _quoteString(value) {
   return "'" + String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+}
+
+function _isSharedArrayBufferByteLengthBug() {
+  if (__sharedArrayBufferZeroBug !== null) {
+    return __sharedArrayBufferZeroBug;
+  }
+  if (typeof SharedArrayBuffer !== 'function') {
+    __sharedArrayBufferZeroBug = false;
+    return false;
+  }
+  try {
+    var __sab = new SharedArrayBuffer(3);
+    var __sabArray = new Uint8Array(__sab);
+    __sabArray.fill(1);
+    __sharedArrayBufferZeroBug = (__sabArray.byteLength === 0 || __sabArray.buffer.byteLength === 0);
+  } catch (e) {
+    __sharedArrayBufferZeroBug = false;
+  }
+  return __sharedArrayBufferZeroBug;
 }
 
 function _isFunction(value) {
@@ -185,7 +216,7 @@ function _getCallerLine(stackStartFunction) {
 
 function _formatFailValue(value) {
   if (typeof value === 'string') return _quoteString(value);
-  if (value instanceof RegExp) return String(value);
+  if (value instanceof RegExp || Object.prototype.toString.call(value) === '[object RegExp]') return String(value);
   return _inspect(value);
 }
 
@@ -193,7 +224,7 @@ function _objectKeys(value) {
   return Object.keys(value);
 }
 
-function _formatValue(value, seen) {
+function _formatValue(value, seen, strictMode) {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   if (seen === undefined) seen = [];
@@ -220,13 +251,17 @@ function _formatValue(value, seen) {
       dateText = value.toISOString();
     } catch (e) {}
     if (value.constructor && value.constructor.name && value.constructor.name !== 'Date') {
-      if (_objectKeys(value).length === 0) {
+      if (strictMode) {
+        if (_objectKeys(value).length === 0) {
+          seen.pop();
+          return 'Date {}';
+        }
+        var namedDate = value.constructor.name + ' ' + (dateText || 'Invalid Date') + _formatObjectBody(value, 0, seen);
         seen.pop();
-        return 'Date {}';
+        return namedDate;
       }
-      var namedDate = value.constructor.name + ' ' + (dateText || 'Invalid Date') + _formatObjectBody(value, 0, seen);
       seen.pop();
-      return namedDate;
+      return dateText || 'Date {}';
     }
     seen.pop();
     return dateText || 'Date {}';
@@ -236,9 +271,21 @@ function _formatValue(value, seen) {
     seen.pop();
     return typedArrayValue;
   }
-  if (value instanceof RegExp) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      seen.pop();
+      return '[]';
+    }
+    var arrayRows = [];
+    for (var ai = 0; ai < value.length; ai++) {
+      arrayRows.push(_formatValue(value[ai], seen));
+    }
+    seen.pop();
+    return '[ ' + arrayRows.join(', ') + ' ]';
+  }
+  if (value instanceof RegExp || Object.prototype.toString.call(value) === '[object RegExp]') {
     var regText = String(value);
-    if (value.constructor && value.constructor.name && value.constructor.name !== 'RegExp') {
+    if (strictMode && value.constructor && value.constructor.name && value.constructor.name !== 'RegExp') {
       var namedRegExp = value.constructor.name + ' ' + regText + _formatObjectBody(value, 0, seen);
       seen.pop();
       return namedRegExp;
@@ -253,12 +300,24 @@ function _formatValue(value, seen) {
 
   var keys = _objectKeys(value);
   if (keys.length === 0) {
+    if (
+      (typeof Set !== 'undefined' && value instanceof Set) ||
+      (typeof Map !== 'undefined' && value instanceof Map)
+    ) {
+      seen.pop();
+      return '{}';
+    }
     if (value.constructor && value.constructor.name && value.constructor.name !== 'Object') {
       seen.pop();
       return value.constructor.name + ' {}';
     }
     seen.pop();
     return '{}';
+  }
+  if (keys.length === 1) {
+    var compactBody = '{ ' + _formatPropertyKey(keys[0]) + ': ' + _formatValue(value[keys[0]], seen) + ' }';
+    seen.pop();
+    return compactBody;
   }
   var ctorName = value.constructor && value.constructor.name ? value.constructor.name : '';
   if (ctorName === 'Object' || ctorName === '') {
@@ -349,6 +408,31 @@ function _toByteArray(value, seen) {
 
   var byteLength = value.byteLength;
   if (byteLength === 0) {
+    if (Object.prototype.toString.call(value) === '[object SharedArrayBuffer]' &&
+        _isSharedArrayBufferByteLengthBug()
+    ) {
+      seen.pop();
+      return null;
+    }
+    if (value._buffer !== undefined && value._buffer !== value) {
+      var nestedBytes = _toByteArray(value._buffer, seen);
+      if (nestedBytes !== null) {
+        seen.pop();
+        return nestedBytes;
+      }
+      seen.pop();
+      return null;
+    }
+    if (value.buffer && value.buffer !== value &&
+        value.buffer.constructor === undefined && value.buffer.byteLength === 0) {
+      seen.pop();
+      return null;
+    }
+    if (value.constructor && value.constructor.name === 'SharedArrayBuffer' &&
+        value._buffer === undefined) {
+      seen.pop();
+      return null;
+    }
     if (value.length !== undefined && value.length > 0) {
       seen.pop();
       return null;
@@ -358,7 +442,7 @@ function _toByteArray(value, seen) {
 
   if (value._buffer !== undefined && value._buffer !== value) {
     var nestedBytes = _toByteArray(value._buffer, seen);
-    if (nestedBytes) {
+    if (nestedBytes !== null) {
       seen.pop();
       return nestedBytes;
     }
@@ -427,7 +511,27 @@ function _typedArrayBytesEqual(a, b) {
 function _buffersAreByteEqual(a, b) {
   if (!a || !b) return false;
   if (a.byteLength !== b.byteLength) return false;
-  if (a.byteLength === 0) return true;
+  if (a.byteLength === 0) {
+    if (Object.prototype.toString.call(a) === '[object SharedArrayBuffer]' &&
+        _isSharedArrayBufferByteLengthBug() &&
+        a !== b
+    ) {
+      return false;
+    }
+    if (
+      _isSharedArrayBufferByteLengthBug() &&
+      Object.prototype.toString.call(a) === '[object ArrayBuffer]' &&
+      Object.prototype.toString.call(b) === '[object ArrayBuffer]' &&
+      a !== b
+    ) {
+      return false;
+    }
+    var aZeroBytes = _toByteArray(a);
+    var bZeroBytes = _toByteArray(b);
+    if (aZeroBytes === null || bZeroBytes === null) return false;
+    if (aZeroBytes.length !== bZeroBytes.length) return false;
+    return true;
+  }
 
   var aBytes = _toByteArray(a);
   var bBytes = _toByteArray(b);
@@ -446,22 +550,61 @@ function _collapseDiffLines(actualOut, expectedOut) {
   if (actualOut[0] === expectedOut[0]) {
     return null;
   }
+  var actualHeader = actualOut[0];
+  var expectedHeader = expectedOut[0];
+  function _isTypedArraySummaryHeader(line) {
+    if (typeof line !== 'string' || line.length < 3) return false;
+    if (line.charCodeAt(1) !== 32) return false;
+    if (line[0] !== '+' && line[0] !== '-') return false;
+    var header = line.slice(2);
+    return header.indexOf('Buffer(') === 0 || header.indexOf('Array(') !== -1;
+  }
   for (var i = 1; i < actualOut.length - 2; i++) {
     if (actualOut[i] !== expectedOut[i]) {
       return null;
     }
   }
+  if (
+    _isTypedArraySummaryHeader(actualHeader) &&
+    _isTypedArraySummaryHeader(expectedHeader)
+  ) {
+    var expectedBodyFirst = expectedOut[1];
+    var expectedBodyMid = expectedOut.length > 3 ? expectedOut[expectedOut.length - 3] : '';
+    var expectedTail = [
+      expectedBodyFirst,
+      '...',
+      expectedBodyMid,
+      expectedOut[expectedOut.length - 2],
+      expectedOut[expectedOut.length - 1]
+    ].join('\n');
+    expectedTail = expectedTail.replace(/^ {4}\]$/m, '  ]');
+    return {
+      actual: actualHeader,
+      expected: expectedHeader + '\n' +
+                expectedTail
+    };
+  }
+  var actualTail = [
+    actualOut[actualOut.length - 3],
+    actualOut[actualOut.length - 2],
+    actualOut[actualOut.length - 1]
+  ].join('\n');
+  var expectedTail = [
+    expectedOut[expectedOut.length - 3],
+    expectedOut[expectedOut.length - 2],
+    expectedOut[expectedOut.length - 1]
+  ].join('\n');
+  actualTail = actualTail.replace(/^ {4}\]$/m, '  ]');
+  expectedTail = expectedTail.replace(/^ {4}\]$/m, '  ]');
   return {
     actual: actualOut[0] + '\n' +
             actualOut[1] + '\n' +
             '...' + '\n' +
-            actualOut[actualOut.length - 2] + '\n' +
-            actualOut[actualOut.length - 1],
+            actualTail,
     expected: expectedOut[0] + '\n' +
               expectedOut[1] + '\n' +
               '...' + '\n' +
-              expectedOut[expectedOut.length - 2] + '\n' +
-              expectedOut[expectedOut.length - 1]
+              expectedTail
   };
 }
 
@@ -484,6 +627,39 @@ function _shouldUseLinesSkippedHeader(a, b) {
     if (_typedArrayBytesEqual(a, b)) return true;
   }
   return false;
+}
+
+function _normalizeDiffLine(line) {
+  if (typeof line !== 'string') {
+    return line;
+  }
+  if (line.length > 0 && line.charCodeAt(line.length - 1) === 44) {
+    return line.slice(0, -1);
+  }
+  return line;
+}
+
+function _normalizeDiffLines(lines) {
+  if (!lines) return lines;
+  var normalized = [];
+  for (var i = 0; i < lines.length; i++) {
+    normalized.push((lines[i] || '').replace(/^ {4}\]$/m, '  ]'));
+  }
+  return normalized;
+}
+
+function _trimTrailingNewline(text) {
+  if (!text) {
+    return text;
+  }
+  return text.replace(/\n+$/, '');
+}
+
+function _trimLeadingNewline(text) {
+  if (!text) {
+    return text;
+  }
+  return text.replace(/^\n+/, '');
 }
 
 function _diffLines(actualText, expectedText) {
@@ -512,7 +688,10 @@ function _diffLines(actualText, expectedText) {
   var j;
   for (i = 1; i <= actualLength; i++) {
     for (j = 1; j <= expectedLength; j++) {
-      if (actualLines[i - 1] === expectedLines[j - 1]) {
+      if (
+        actualLines[i - 1] === expectedLines[j - 1] ||
+        _normalizeDiffLine(actualLines[i - 1]) === _normalizeDiffLine(expectedLines[j - 1])
+      ) {
         dp[i][j] = dp[i - 1][j - 1] + 1;
       } else {
         dp[i][j] = dp[i - 1][j] >= dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1];
@@ -523,8 +702,16 @@ function _diffLines(actualText, expectedText) {
   var ops = [];
   i = actualLength;
   j = expectedLength;
+  var hasActualOnly = false;
+  var hasExpectedOnly = false;
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && actualLines[i - 1] === expectedLines[j - 1]) {
+    if (
+      i > 0 &&
+      j > 0 &&
+      (actualLines[i - 1] === expectedLines[j - 1] ||
+       _normalizeDiffLine(actualLines[i - 1]) ===
+       _normalizeDiffLine(expectedLines[j - 1]))
+    ) {
       ops.push({ type: 'equal', actualLine: actualLines[i - 1], expectedLine: expectedLines[j - 1] });
       i--;
       j--;
@@ -532,11 +719,13 @@ function _diffLines(actualText, expectedText) {
     }
     if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
       ops.push({ type: 'expected-only', expectedLine: expectedLines[j - 1] });
+      hasExpectedOnly = true;
       j--;
       continue;
     }
     if (i > 0) {
       ops.push({ type: 'actual-only', actualLine: actualLines[i - 1] });
+      hasActualOnly = true;
       i--;
       continue;
     }
@@ -557,6 +746,22 @@ function _diffLines(actualText, expectedText) {
     }
   }
 
+  actualOut = _normalizeDiffLines(actualOut);
+  expectedOut = _normalizeDiffLines(expectedOut);
+
+  if (hasActualOnly && !hasExpectedOnly) {
+    return {
+      actual: actualOut.join('\n'),
+      expected: ''
+    };
+  }
+  if (hasExpectedOnly && !hasActualOnly) {
+    return {
+      actual: '',
+      expected: expectedOut.join('\n')
+    };
+  }
+
   var collapsed = _collapseDiffLines(actualOut, expectedOut);
   if (collapsed) {
     return collapsed;
@@ -570,14 +775,28 @@ function _diffLines(actualText, expectedText) {
 
 function _buildDeepEqualMessage(actual, expected, strict) {
   var header = strict ? 'Expected values to be strictly deep-equal:' : 'Expected values to be loosely deep-equal:';
+  if (!strict) {
+    return header + '\n\n' + _formatValue(actual, undefined, false) + '\n\nshould loosely deep-equal\n\n' + _formatValue(expected, undefined, false);
+  }
   var message = header + '\n+ actual - expected';
   if (_shouldUseLinesSkippedHeader(actual, expected)) {
     message += ' ... Lines skipped';
   }
-  var actualText = _formatValue(actual);
-  var expectedText = _formatValue(expected);
+  var actualText = _formatValue(actual, undefined, strict);
+  var expectedText = _formatValue(expected, undefined, strict);
   var diff = _diffLines(actualText, expectedText);
-  return message + '\n\n' + diff.actual + '\n' + diff.expected;
+  var trimmedActual = _trimLeadingNewline(_trimTrailingNewline(diff.actual));
+  var trimmedExpected = _trimLeadingNewline(_trimTrailingNewline(diff.expected));
+  if (trimmedActual && trimmedExpected) {
+    return message + '\n\n' + trimmedActual + '\n' + trimmedExpected;
+  }
+  if (trimmedActual) {
+    return message + '\n\n' + trimmedActual;
+  }
+  if (trimmedExpected) {
+    return message + '\n\n' + trimmedExpected;
+  }
+  return message + '\n\n';
 }
 
 class AssertionError extends Error {
@@ -598,7 +817,28 @@ class AssertionError extends Error {
     this.code = 'ERR_ASSERTION';
     this.generatedMessage = opts.generatedMessage !== undefined ? opts.generatedMessage : (opts.message ? false : true);
     if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, opts.stackStartFn || AssertionError);
+      var stackStart = opts.stackStartFn || opts.stackStartFunction;
+      Error.captureStackTrace(this, stackStart || AssertionError);
+      if (typeof this.stack === 'string') {
+        var lines = this.stack.split('\n');
+        var firstStackLine = 1;
+        while (firstStackLine < lines.length) {
+          var frame = lines[firstStackLine];
+          if (frame === '    at apply (native)' || frame === '    at call (native)') {
+            firstStackLine++;
+            continue;
+          }
+          if (frame.indexOf('(events') !== -1 || frame.indexOf('(node:events') !== -1) {
+            firstStackLine++;
+            continue;
+          }
+          break;
+        }
+        if (firstStackLine > 1) {
+          lines.splice(1, firstStackLine - 1);
+          this.stack = lines.join('\n');
+        }
+      }
     }
   }
 }
@@ -659,12 +899,39 @@ function _deepEqual(a, b, aSeen, bSeen, strict) {
   if (aTag !== bTag) return false;
 
   if (aTag === '[object Date]') {
+    if (!(a instanceof Date) || !(b instanceof Date)) {
+      return false;
+    }
+    if (a.constructor !== b.constructor) {
+      return false;
+    }
     return a.getTime() === b.getTime();
   }
 
   // Handle RegExp
   if (aTag === '[object RegExp]') {
-    return a.source === b.source && a.flags === b.flags;
+    return (
+      a.source === b.source &&
+      a.flags === b.flags &&
+      a.constructor === b.constructor &&
+      (function() {
+        var aKeys = Object.keys(a);
+        var bKeys = Object.keys(b);
+        if (aKeys.length !== bKeys.length) {
+          return false;
+        }
+        for (var i = 0; i < aKeys.length; i++) {
+          var key = aKeys[i];
+          if (!Object.prototype.hasOwnProperty.call(b, key)) {
+            return false;
+          }
+          if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) {
+            return false;
+          }
+        }
+        return true;
+      })()
+    );
   }
 
   // Handle Error
@@ -680,7 +947,7 @@ function _deepEqual(a, b, aSeen, bSeen, strict) {
 
   // Handle TypedArrays
   if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
-    if (a.constructor !== b.constructor) return false;
+    if (strict && a.constructor !== b.constructor) return false;
     if (a.length !== b.length) return false;
     var aKeys = Object.keys(a);
     var bKeys = Object.keys(b);
@@ -1462,14 +1729,6 @@ function assert(value, message) {
   }
   var defaultMessage = _formatValue(value) + ' == ' + _formatValue(true);
   var generatedMessage = true;
-  var line = _getCallerLine(assert);
-  if (line && line.indexOf('.emit(') !== -1) {
-    line = '';
-  }
-  if (line) {
-    defaultMessage = 'The expression evaluated to a falsy value' +
-                     ':\n\n' + line + '\n';
-  }
   if (message === undefined) {
     message = defaultMessage;
   } else {

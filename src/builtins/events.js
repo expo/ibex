@@ -46,6 +46,16 @@ EventEmitter.init = function init(opts) {
 EventEmitter.prototype._events = undefined;
 EventEmitter.prototype._maxListeners = undefined;
 
+function _invokeListener(listener, thisArg, args) {
+  var argc = args.length;
+  if (argc === 0) return listener.call(thisArg);
+  if (argc === 1) return listener.call(thisArg, args[0]);
+  if (argc === 2) return listener.call(thisArg, args[0], args[1]);
+  if (argc === 3) return listener.call(thisArg, args[0], args[1], args[2]);
+  if (argc === 4) return listener.call(thisArg, args[0], args[1], args[2], args[3]);
+  return listener.apply(thisArg, args);
+}
+
 Object.defineProperty(EventEmitter, 'defaultMaxListeners', {
   enumerable: true,
   get: function() {
@@ -318,11 +328,11 @@ EventEmitter.prototype.emit = function emit(eventName) {
       for (var k = 1; k < arguments.length; k++) monitorArgs.push(arguments[k]);
       var monitorListeners = events[errorMonitorSymbol];
       if (typeof monitorListeners === 'function') {
-        monitorListeners.apply(this, monitorArgs);
+        _invokeListener(monitorListeners, this, monitorArgs);
       } else {
         var monitorCopy = monitorListeners.slice();
         for (var k = 0; k < monitorCopy.length; k++) {
-          monitorCopy[k].apply(this, monitorArgs);
+          _invokeListener(monitorCopy[k], this, monitorArgs);
         }
       }
     }
@@ -381,11 +391,11 @@ EventEmitter.prototype.emit = function emit(eventName) {
   }
 
   if (typeof handler === 'function') {
-    handler.apply(this, args);
+    _invokeListener(handler, this, args);
   } else {
     var current = handler.slice();
     for (var i = 0; i < current.length; i++) {
-      current[i].apply(this, args);
+      _invokeListener(current[i], this, args);
     }
   }
 
