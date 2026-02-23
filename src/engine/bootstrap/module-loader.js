@@ -350,6 +350,17 @@
       .replace(/import\.meta\.main/g, "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))")
       .replace(/import\.meta\.require/g, "require");
   }
+  function transformDynamicImport(source) {
+    if (!source || source.indexOf("import(") === -1) {
+      return source;
+    }
+    // Replace dynamic import() calls with globalThis["import"]() polyfill.
+    // Be careful not to match:
+    //   - Static import declarations (import ... from, import "...")
+    //   - import.meta (already handled by transformImportMeta)
+    // The pattern matches: word-boundary "import" followed by "(" but not ".meta"
+    return source.replace(/\bimport\s*\(/g, 'globalThis["import"](');
+  }
   function transformEsmToCjs(source) {
     if (!source) {
       return "";
@@ -776,7 +787,7 @@
     const previousNodeDirname = g.__dirname;
     try {
       const directSource =
-        transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename)) +
+        transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename))) +
         "\n//# sourceURL=" + filename;
       g.__exactDebugModuleSources = (g.__exactDebugModuleSources || []);
       if (Array.isArray(g.__exactDebugModuleSources)) {
@@ -805,7 +816,7 @@
           throw err;
         }
         const runtimeSource =
-          applyRolldownCjsDirnameBindings(fixForOfScoping(transformEsmToCjs(directSource)), filename) +
+          transformDynamicImport(applyRolldownCjsDirnameBindings(fixForOfScoping(transformEsmToCjs(directSource)), filename)) +
             "\n//# sourceURL=" + filename;
         if (Array.isArray(g.__exactDebugModuleSources)) {
           g.__exactDebugModuleSources.push({ id: id, filename: filename, source: runtimeSource.slice(0, 2000), fallback: true });
