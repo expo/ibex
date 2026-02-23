@@ -348,6 +348,8 @@ function _normalizeCipherAlgorithm(algorithm) {
   normalized = normalized.replace(/^id-/, '');
   if (/^aes\d{3}(gcm|cbc|ctr)$/.test(normalized)) {
     normalized = normalized.replace(/^aes(\d{3})(gcm|cbc|ctr)$/, 'aes-$1-$2');
+  } else if (/^aes\d{3}-wrap(-pad)?$/.test(normalized)) {
+    normalized = normalized.replace(/^aes(\d{3})(-wrap(?:-pad)?)$/, 'aes-$1$2');
   } else if (/^aes-\d{3}(gcm|cbc|ctr)$/.test(normalized)) {
     normalized = normalized.replace(/^(aes-\d{3})(gcm|cbc|ctr)$/, '$1-$2');
   } else if (/^aes-\d{3}$/.test(normalized)) {
@@ -358,8 +360,18 @@ function _normalizeCipherAlgorithm(algorithm) {
   return normalized;
 }
 
+function _isWrapAlgorithm(algorithm) {
+  return algorithm.indexOf('wrap') !== -1;
+}
+
 // Map of known cipher algorithms to their key sizes and OpenSSL names
 var _cipherInfo = {
+  'aes-128-wrap': { keyBytes: 16, openssl: 'aes-128-wrap' },
+  'aes-192-wrap': { keyBytes: 24, openssl: 'aes-192-wrap' },
+  'aes-256-wrap': { keyBytes: 32, openssl: 'aes-256-wrap' },
+  'aes-128-wrap-pad': { keyBytes: 16, openssl: 'aes-128-wrap-pad' },
+  'aes-192-wrap-pad': { keyBytes: 24, openssl: 'aes-192-wrap-pad' },
+  'aes-256-wrap-pad': { keyBytes: 32, openssl: 'aes-256-wrap-pad' },
   'aes-128-cbc': { keyBytes: 16, openssl: 'aes-128-cbc' },
   'aes-192-cbc': { keyBytes: 24, openssl: 'aes-192-cbc' },
   'aes-256-cbc': { keyBytes: 32, openssl: 'aes-256-cbc' },
@@ -431,7 +443,10 @@ function _normalizeCipherOptions(algorithm, options) {
 function _requireCipherMode(algorithm) {
   // AES modes handled by dedicated native functions
   if (algorithm.indexOf('aes-') === 0) {
-    return algorithm.indexOf('gcm') !== -1 || algorithm.indexOf('cbc') !== -1 || algorithm.indexOf('ctr') !== -1;
+    if (algorithm.indexOf('gcm') !== -1 || algorithm.indexOf('cbc') !== -1 || algorithm.indexOf('ctr') !== -1) {
+      return true;
+    }
+    return !!_cipherInfo[algorithm] && typeof __exactEvpCipherEncrypt === 'function';
   }
   // All other algorithms handled by generic EVP bridge
   return !!_cipherInfo[algorithm] || typeof __exactEvpCipherEncrypt === 'function';
@@ -483,13 +498,30 @@ function Cipher(algorithm, key, iv, options) {
   this._cipherKeyBytes = normalized.keyBytes;
   this._isAead = normalized.isAead;
   this._opensslName = normalized.opensslName;
+  this._inlineFinalized = false;
+  this._inlineFinalResult = null;
 }
 Cipher.prototype.update = function(data, inputEncoding, outputEncoding) {
   this._chunks.push(_parseInputData(data, inputEncoding));
+  if (_isWrapAlgorithm(this._algo)) {
+    if (this._inlineFinalized && this._finalized) {
+      if (outputEncoding) return '';
+      return typeof Buffer !== 'undefined' && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
+    }
+    var wrapResult = this.final();
+    this._inlineFinalized = true;
+    this._inlineFinalResult = wrapResult;
+    if (outputEncoding) return wrapResult.toString(outputEncoding);
+    return wrapResult;
+  }
   if (outputEncoding) return '';
   return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
 };
 Cipher.prototype.final = function(outputEncoding) {
+  if (this._inlineFinalized && this._finalized) {
+    if (outputEncoding) return '';
+    return typeof Buffer !== 'undefined' && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
+  }
   this._finalized = true;
   var combined = _concatChunks(this._chunks);
 
@@ -570,13 +602,30 @@ function Decipher(algorithm, key, iv, options) {
   this._cipherKeyBytes = normalized.keyBytes;
   this._isAead = normalized.isAead;
   this._opensslName = normalized.opensslName;
+  this._inlineFinalized = false;
+  this._inlineFinalResult = null;
 }
 Decipher.prototype.update = function(data, inputEncoding, outputEncoding) {
   this._chunks.push(_parseInputData(data, inputEncoding));
+  if (_isWrapAlgorithm(this._algo)) {
+    if (this._inlineFinalized && this._finalized) {
+      if (outputEncoding) return '';
+      return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
+    }
+    var decodeResult = this.final();
+    this._inlineFinalized = true;
+    this._inlineFinalResult = decodeResult;
+    if (outputEncoding) return decodeResult.toString(outputEncoding);
+    return decodeResult;
+  }
   if (outputEncoding) return '';
   return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
 };
 Decipher.prototype.final = function(outputEncoding) {
+  if (this._inlineFinalized && this._finalized) {
+    if (outputEncoding) return '';
+    return typeof Buffer !== 'undefined' && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
+  }
   this._finalized = true;
   var combined = _concatChunks(this._chunks);
 

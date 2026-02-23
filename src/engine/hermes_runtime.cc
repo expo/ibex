@@ -5676,7 +5676,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
         // Output buffer: data + block size + possible tag
         int blockSize = EVP_CIPHER_block_size(cipher);
-        std::vector<uint8_t> out(data.size() + blockSize + (isAEAD ? 16 : 0));
+        std::vector<uint8_t> out(data.size() + (blockSize * 2) + (isAEAD ? 16 : 0));
 
         if (EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) != 1) {
           EVP_CIPHER_CTX_free(ctx);
@@ -5786,7 +5786,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         }
 
         int blockSize = EVP_CIPHER_block_size(cipher);
-        std::vector<uint8_t> out(data.size() + blockSize);
+        std::vector<uint8_t> out(data.size() + (blockSize * 2));
         int outLen = 0;
         int finalLen = 0;
 
