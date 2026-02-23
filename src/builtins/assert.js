@@ -36,6 +36,550 @@ function _inspect(v) {
   }
 }
 
+var __assertSourceCache = {};
+var __assertFailDeprecationWarned = false;
+
+function _quoteString(value) {
+  return "'" + String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+}
+
+function _isFunction(value) {
+  return typeof value === 'function';
+}
+
+function _parseCallerInfo(stackLine) {
+  if (typeof stackLine !== 'string') return null;
+  var m = stackLine.match(/\(([^()]+):(\d+):(\d+)\)$/);
+  if (!m) {
+    m = stackLine.match(/at\s+(.+):(\d+):(\d+)$/);
+  }
+  if (!m || m.length < 4) return null;
+  return {
+    file: m[1],
+    line: Number(m[2]),
+    column: Number(m[3])
+  };
+}
+
+function _extractCallerLineSnippet(sourceLine, column, stackStartFunctionName) {
+  if (typeof sourceLine !== 'string') {
+    return '';
+  }
+  var line = sourceLine;
+  function _extractStatement(lineStart) {
+    var start = lineStart;
+    if (start < 0) {
+      start = 0;
+    }
+    if (start >= line.length) {
+      start = line.length - 1;
+    }
+    while (start > 0 && line.charCodeAt(start - 1) !== 59) {
+      start--;
+    }
+    if (start > 0 && line.charCodeAt(start - 1) === 59) {
+      start++;
+    }
+    while (start < line.length && line.charCodeAt(start) === 32) {
+      start++;
+    }
+
+    var end = lineStart;
+    if (end < 0) {
+      end = 0;
+    }
+    if (end >= line.length) {
+      end = line.length - 1;
+    }
+    while (end < line.length && line.charCodeAt(end) !== 59) {
+      end++;
+    }
+
+    var extracted = line.slice(start, end).trim();
+    return extracted === ')' ? line.trim() : extracted;
+  }
+  if (stackStartFunctionName) {
+    var tokenIndex = line.lastIndexOf('.' + stackStartFunctionName + '(');
+    if (tokenIndex !== -1) {
+      return _extractStatement(tokenIndex);
+    }
+    tokenIndex = line.lastIndexOf(stackStartFunctionName + '(');
+    if (tokenIndex !== -1) {
+      return _extractStatement(tokenIndex);
+    }
+  }
+  if (column && isFinite(column) && column > 0) {
+    var hasToken = stackStartFunctionName ? true : false;
+    var idx = column - 1;
+    if (idx < 0) idx = 0;
+    if (idx >= line.length) idx = line.length - 1;
+
+    if (hasToken && line.indexOf('.' + stackStartFunctionName + '(') !== -1) {
+      var tokenIndex = line.lastIndexOf('.' + stackStartFunctionName + '(', idx);
+      if (tokenIndex === -1) {
+        tokenIndex = line.indexOf('.' + stackStartFunctionName + '(', 0);
+      }
+      if (tokenIndex !== -1) {
+        return _extractStatement(tokenIndex);
+      }
+    }
+
+    return _extractStatement(idx);
+  }
+  return line.trim();
+}
+
+function _getCallerLine(stackStartFunction) {
+  try {
+    var stack = (new Error()).stack || '';
+    var lines = String(stack).split('\n');
+    var stackStartName = stackStartFunction && stackStartFunction.name ? stackStartFunction.name : '';
+    for (var i = 0; i < lines.length; i++) {
+      var parsed = _parseCallerInfo(lines[i]);
+      if (!parsed) continue;
+      if (!parsed.file || parsed.file === '[native]' || parsed.file === '<anonymous>' || parsed.file === '[stdin]') {
+        continue;
+      }
+      if (
+        parsed.file === 'assert' ||
+        parsed.file === 'assert.js' ||
+        /^node:/.test(parsed.file) ||
+        /(^|[/\\])assert(\.js)?$/.test(parsed.file)
+      ) {
+        continue;
+      }
+      if (/events\.js$/.test(parsed.file) && lines[i].indexOf('emit') !== -1) {
+        continue;
+      }
+      if (/[/\\]module-loader\.js$/.test(parsed.file)) {
+        continue;
+      }
+      if (stackStartFunction) {
+        if (
+          stackStartName &&
+          (lines[i].indexOf(stackStartName + '(') !== -1 ||
+           lines[i].indexOf('.' + stackStartName + '(') !== -1)
+        ) {
+          continue;
+        }
+      }
+      var cacheKey = parsed.file + ':' + parsed.line;
+      if (!__assertSourceCache[cacheKey]) {
+        try {
+          var fs = require('fs');
+          var data = fs.readFileSync(parsed.file, 'utf8');
+          var sourceLines = data.split(/\r?\n/);
+          __assertSourceCache[cacheKey] = sourceLines[parsed.line - 1] || '';
+        } catch (e) {
+          __assertSourceCache[cacheKey] = '';
+        }
+      }
+      var sourceLine = __assertSourceCache[cacheKey];
+      if (sourceLine) {
+        return '  ' + _extractCallerLineSnippet(sourceLine, parsed.column, stackStartName);
+      }
+    }
+  } catch (e) {}
+  return '';
+}
+
+function _formatFailValue(value) {
+  if (typeof value === 'string') return _quoteString(value);
+  if (value instanceof RegExp) return String(value);
+  return _inspect(value);
+}
+
+function _objectKeys(value) {
+  return Object.keys(value);
+}
+
+function _formatValue(value, seen) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (seen === undefined) seen = [];
+  var type = _typeof(value);
+  if (type === 'string') return _quoteString(value);
+  if (type === 'number' || type === 'boolean' || type === 'bigint') return String(value);
+  if (type === 'symbol') return value.toString();
+  if (type === 'function') {
+    return '[Function: ' + (value.name || 'anonymous') + ']';
+  }
+  if (type !== 'object') return String(value);
+
+  if (seen.indexOf(value) !== -1) return '[Circular]';
+  seen.push(value);
+
+  if (typeof Buffer !== 'undefined' && (value instanceof Buffer || Buffer.isBuffer(value))) {
+    var bufferValue = _formatTypedArray(value, seen);
+    seen.pop();
+    return bufferValue;
+  }
+  if (typeof ArrayBuffer !== 'undefined' && value instanceof Date) {
+    var dateText = '';
+    try {
+      dateText = value.toISOString();
+    } catch (e) {}
+    if (value.constructor && value.constructor.name && value.constructor.name !== 'Date') {
+      if (_objectKeys(value).length === 0) {
+        seen.pop();
+        return 'Date {}';
+      }
+      var namedDate = value.constructor.name + ' ' + (dateText || 'Invalid Date') + _formatObjectBody(value, 0, seen);
+      seen.pop();
+      return namedDate;
+    }
+    seen.pop();
+    return dateText || 'Date {}';
+  }
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(value)) {
+    var typedArrayValue = _formatTypedArray(value, seen);
+    seen.pop();
+    return typedArrayValue;
+  }
+  if (value instanceof RegExp) {
+    var regText = String(value);
+    if (value.constructor && value.constructor.name && value.constructor.name !== 'RegExp') {
+      var namedRegExp = value.constructor.name + ' ' + regText + _formatObjectBody(value, 0, seen);
+      seen.pop();
+      return namedRegExp;
+    }
+    seen.pop();
+    return regText;
+  }
+  if (value instanceof Error) {
+    seen.pop();
+    return '[' + (value.name || 'Error') + ': ' + (value.message || '') + ']';
+  }
+
+  var keys = _objectKeys(value);
+  if (keys.length === 0) {
+    if (value.constructor && value.constructor.name && value.constructor.name !== 'Object') {
+      seen.pop();
+      return value.constructor.name + ' {}';
+    }
+    seen.pop();
+    return '{}';
+  }
+  var ctorName = value.constructor && value.constructor.name ? value.constructor.name : '';
+  if (ctorName === 'Object' || ctorName === '') {
+    var objectText = '{\n  ' + keys.map(function(k) {
+      return k + ': ' + _formatValue(value[k], seen);
+    }).join(',\n  ') + '\n}';
+    seen.pop();
+    return objectText;
+  }
+  var finalObject = ctorName + _formatObjectBody(value, 0, seen);
+  seen.pop();
+  return finalObject;
+}
+
+function _formatObjectBody(value, depth, seen) {
+  var indent = '';
+  for (var i = 0; i < depth; i++) indent += '  ';
+  var keys = _objectKeys(value);
+  if (keys.length === 0) return ' {}';
+  var rows = [];
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    rows.push(_formatPropertyKey(key) + ': ' + _formatValue(value[key], seen));
+  }
+  var sep = '\n' + indent + '  ';
+  return ' {\n' + indent + '  ' + rows.join(sep) + '\n' + indent + '}';
+}
+
+function _formatPropertyKey(key) {
+  if (typeof key === 'number') return _quoteString(String(key));
+  if (/^[A-Za-z_$][0-9A-Za-z_$]*$/.test(key)) return key;
+  return _quoteString(key);
+}
+
+function _formatTypedArray(value, seen) {
+  var isBuffer = typeof Buffer !== 'undefined' && value instanceof Buffer;
+  var name = isBuffer ? 'Buffer' : (value.constructor && value.constructor.name ? value.constructor.name : 'TypedArray');
+  var lines = [];
+  var keys = _objectKeys(value);
+  var hasExtraProps = false;
+  var extraKeys = [];
+  var i;
+
+  for (i = 0; i < keys.length; i++) {
+    if (!/^\d+$/.test(keys[i]) || Number(keys[i]) >= value.length) {
+      hasExtraProps = true;
+      extraKeys.push(keys[i]);
+    }
+  }
+
+  var indices = [];
+  if (!hasExtraProps && value.length > 8) {
+    indices.push(0);
+    indices.push(1);
+    var start = Math.max(3, value.length - 2);
+    for (i = start; i < value.length; i++) indices.push(i);
+  } else {
+    for (i = 0; i < value.length; i++) indices.push(i);
+  }
+  for (i = 0; i < indices.length; i++) {
+    var index = indices[i];
+    var prev = i === 0 ? null : indices[i - 1];
+    if (prev !== null && index > prev + 1) {
+      lines.push('...');
+    }
+    lines.push('  ' + _formatValue(value[index], seen) + (index !== value.length - 1 ? ',' : ''));
+  }
+  for (i = 0; i < extraKeys.length; i++) {
+    if (lines.length > 0 && lines[lines.length - 1].slice(-1) !== ',') {
+      lines[lines.length - 1] += ',';
+    }
+    lines.push('  ' + _formatPropertyKey(extraKeys[i]) + ': ' + _formatValue(value[extraKeys[i]], seen));
+  }
+  var header = isBuffer ? 'Buffer(' + value.length + ') [Uint8Array] [\n' : name + '(' + value.length + ') [\n';
+  if (lines.length === 0) return header + ']';
+  return header + lines.join('\n') + '\n  ]';
+}
+
+function _prefixLines(text, sign) {
+  return text.split('\n').map(function(line) { return sign + ' ' + line; }).join('\n');
+}
+
+function _toByteArray(value, seen) {
+  if (!value || value.byteLength === undefined) return null;
+  if (!seen) seen = [];
+  if (seen.indexOf(value) !== -1) return null;
+  seen.push(value);
+
+  var byteLength = value.byteLength;
+  if (byteLength === 0) {
+    if (value.length !== undefined && value.length > 0) {
+      seen.pop();
+      return null;
+    }
+    return [];
+  }
+
+  if (value._buffer !== undefined && value._buffer !== value) {
+    var nestedBytes = _toByteArray(value._buffer, seen);
+    if (nestedBytes) {
+      seen.pop();
+      return nestedBytes;
+    }
+  }
+
+  if (typeof DataView !== 'undefined') {
+    try {
+      if (typeof value.length === 'number' && value.BYTES_PER_ELEMENT === 1) {
+        var directBytes = new Array(byteLength);
+        for (var j = 0; j < value.length; j++) {
+          var byteValue = value[j];
+          if (typeof byteValue !== 'number') {
+            break;
+          }
+          directBytes[j] = byteValue & 0xff;
+        }
+        if (j === value.length) {
+          seen.pop();
+          return directBytes;
+        }
+      }
+      var dataView = value.buffer !== undefined ? new DataView(value.buffer, value.byteOffset || 0, byteLength) : new DataView(value, 0, byteLength);
+      var dataBytes = new Array(byteLength);
+      for (var i = 0; i < byteLength; i++) {
+        dataBytes[i] = dataView.getUint8(i);
+      }
+      seen.pop();
+      return dataBytes;
+    } catch (e) {}
+  }
+
+  try {
+    var typedArray = value.buffer !== undefined ?
+      new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength) :
+      new Uint8Array(value);
+    var typedLength = typedArray.length;
+    if (typedLength === byteLength) {
+      var typedBytes = new Array(typedLength);
+      for (var i = 0; i < typedLength; i++) typedBytes[i] = typedArray[i];
+      seen.pop();
+      return typedBytes;
+    }
+  } catch (e) {}
+  seen.pop();
+  return null;
+}
+
+function _typedArrayBytesEqual(a, b) {
+  if (!a || !b) return false;
+  var aByteLength = a.byteLength;
+  var bByteLength = b.byteLength;
+  if (aByteLength === undefined || bByteLength === undefined) return false;
+  if (aByteLength !== bByteLength) return false;
+  if (aByteLength === 0) return true;
+
+  var aBytes = _toByteArray(a);
+  var bBytes = _toByteArray(b);
+  if (aBytes === null || bBytes === null) return false;
+  if (aBytes.length !== bBytes.length) return false;
+  for (var i = 0; i < aByteLength; i++) {
+    if (aBytes[i] !== bBytes[i]) return false;
+  }
+  return true;
+}
+
+function _buffersAreByteEqual(a, b) {
+  if (!a || !b) return false;
+  if (a.byteLength !== b.byteLength) return false;
+  if (a.byteLength === 0) return true;
+
+  var aBytes = _toByteArray(a);
+  var bBytes = _toByteArray(b);
+  if (aBytes === null || bBytes === null) return false;
+  if (aBytes.length !== bBytes.length) return false;
+  for (var i = 0; i < aBytes.length; i++) {
+    if (aBytes[i] !== bBytes[i]) return false;
+  }
+  return true;
+}
+
+function _collapseDiffLines(actualOut, expectedOut) {
+  if (actualOut.length !== expectedOut.length || actualOut.length < 6) {
+    return null;
+  }
+  if (actualOut[0] === expectedOut[0]) {
+    return null;
+  }
+  for (var i = 1; i < actualOut.length - 2; i++) {
+    if (actualOut[i] !== expectedOut[i]) {
+      return null;
+    }
+  }
+  return {
+    actual: actualOut[0] + '\n' +
+            actualOut[1] + '\n' +
+            '...' + '\n' +
+            actualOut[actualOut.length - 2] + '\n' +
+            actualOut[actualOut.length - 1],
+    expected: expectedOut[0] + '\n' +
+              expectedOut[1] + '\n' +
+              '...' + '\n' +
+              expectedOut[expectedOut.length - 2] + '\n' +
+              expectedOut[expectedOut.length - 1]
+  };
+}
+
+function _hasSeenPair(aSeen, bSeen, a, b) {
+  for (var i = 0; i < aSeen.length; i++) {
+    if (aSeen[i] === a) {
+      return bSeen[i] === b;
+    }
+    if (bSeen[i] === b) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function _shouldUseLinesSkippedHeader(a, b) {
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
+    if (!a || !b || a.constructor === b.constructor) return false;
+    if (a.length !== b.length) return false;
+    if (_typedArrayBytesEqual(a, b)) return true;
+  }
+  return false;
+}
+
+function _diffLines(actualText, expectedText) {
+  var actualLines = actualText.split('\n');
+  var expectedLines = expectedText.split('\n');
+  var actualLength = actualLines.length;
+  var expectedLength = expectedLines.length;
+  if (actualLength === 1 && expectedLength === 1) {
+    return {
+      actual: '+ ' + actualText,
+      expected: '- ' + expectedText
+    };
+  }
+
+  var dp = new Array(actualLength + 1);
+  var x;
+  for (x = 0; x <= actualLength; x++) {
+    dp[x] = new Array(expectedLength + 1);
+    dp[x][0] = 0;
+  }
+  for (x = 0; x <= expectedLength; x++) {
+    dp[0][x] = 0;
+  }
+
+  var i;
+  var j;
+  for (i = 1; i <= actualLength; i++) {
+    for (j = 1; j <= expectedLength; j++) {
+      if (actualLines[i - 1] === expectedLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = dp[i - 1][j] >= dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1];
+      }
+    }
+  }
+
+  var ops = [];
+  i = actualLength;
+  j = expectedLength;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && actualLines[i - 1] === expectedLines[j - 1]) {
+      ops.push({ type: 'equal', actualLine: actualLines[i - 1], expectedLine: expectedLines[j - 1] });
+      i--;
+      j--;
+      continue;
+    }
+    if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      ops.push({ type: 'expected-only', expectedLine: expectedLines[j - 1] });
+      j--;
+      continue;
+    }
+    if (i > 0) {
+      ops.push({ type: 'actual-only', actualLine: actualLines[i - 1] });
+      i--;
+      continue;
+    }
+    j--;
+  }
+
+  var actualOut = [];
+  var expectedOut = [];
+  for (i = ops.length - 1; i >= 0; i--) {
+    var op = ops[i];
+    if (op.type === 'equal') {
+      actualOut.push('  ' + op.actualLine);
+      expectedOut.push('  ' + op.expectedLine);
+    } else if (op.type === 'actual-only') {
+      actualOut.push('+ ' + op.actualLine);
+    } else if (op.type === 'expected-only') {
+      expectedOut.push('- ' + op.expectedLine);
+    }
+  }
+
+  var collapsed = _collapseDiffLines(actualOut, expectedOut);
+  if (collapsed) {
+    return collapsed;
+  }
+
+  return {
+    actual: actualOut.join('\n'),
+    expected: expectedOut.join('\n')
+  };
+}
+
+function _buildDeepEqualMessage(actual, expected, strict) {
+  var header = strict ? 'Expected values to be strictly deep-equal:' : 'Expected values to be loosely deep-equal:';
+  var message = header + '\n+ actual - expected';
+  if (_shouldUseLinesSkippedHeader(actual, expected)) {
+    message += ' ... Lines skipped';
+  }
+  var actualText = _formatValue(actual);
+  var expectedText = _formatValue(expected);
+  var diff = _diffLines(actualText, expectedText);
+  return message + '\n\n' + diff.actual + '\n' + diff.expected;
+}
+
 class AssertionError extends Error {
   constructor(opts) {
     if (!opts || _typeof(opts) !== 'object') {
@@ -54,7 +598,7 @@ class AssertionError extends Error {
     this.code = 'ERR_ASSERTION';
     this.generatedMessage = opts.generatedMessage !== undefined ? opts.generatedMessage : (opts.message ? false : true);
     if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, AssertionError);
+      Error.captureStackTrace(this, opts.stackStartFn || AssertionError);
     }
   }
 }
@@ -92,15 +636,22 @@ function _errorTypeName(err) {
   return _inspect(err);
 }
 
-function _deepEqual(a, b) {
+function _deepEqual(a, b, aSeen, bSeen, strict) {
   if (a === b) return true;
   if (a === null || b === null) return false;
   if (typeof a !== typeof b) return false;
+  if (strict === undefined) strict = false;
 
   // Handle NaN
   if (typeof a === 'number' && isNaN(a) && isNaN(b)) return true;
 
   if (typeof a !== 'object') return false;
+
+  if (aSeen === undefined) aSeen = [];
+  if (bSeen === undefined) bSeen = [];
+  if (_hasSeenPair(aSeen, bSeen, a, b)) return true;
+  aSeen.push(a);
+  bSeen.push(b);
 
   // Handle Date - use toString tag check to avoid calling getTime on non-Date objects
   var aTag = Object.prototype.toString.call(a);
@@ -123,22 +674,22 @@ function _deepEqual(a, b) {
 
   // Handle ArrayBuffer and SharedArrayBuffer - different types are not equal
   if (typeof ArrayBuffer !== 'undefined' && (aTag === '[object ArrayBuffer]' || aTag === '[object SharedArrayBuffer]')) {
-    if (a.byteLength !== b.byteLength) return false;
-    var viewA = new Uint8Array(a);
-    var viewB = new Uint8Array(b);
-    for (var i = 0; i < viewA.length; i++) {
-      if (viewA[i] !== viewB[i]) return false;
-    }
-    return true;
+    if (aTag !== bTag) return false;
+    return _buffersAreByteEqual(a, b);
   }
 
   // Handle TypedArrays
   if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
     if (a.constructor !== b.constructor) return false;
     if (a.length !== b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (!_deepEqual(a[i], b[i])) return false;
+    var aKeys = Object.keys(a);
+    var bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    for (var i = 0; i < aKeys.length; i++) {
+      var key = aKeys[i];
+      if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
     }
+    if (strict && _buffersAreByteEqual(a, b) === false) return false;
     return true;
   }
 
@@ -149,7 +700,7 @@ function _deepEqual(a, b) {
     for (var i = 0; i < aEntries.length; i++) {
       var key = aEntries[i][0];
       if (!b.has(key)) return false;
-      if (!_deepEqual(aEntries[i][1], b.get(key))) return false;
+      if (!_deepEqual(aEntries[i][1], b.get(key), aSeen, bSeen, strict)) return false;
     }
     return true;
   }
@@ -161,11 +712,11 @@ function _deepEqual(a, b) {
     var bArr = Array.from(b);
     // For primitive values, use direct comparison
     // For objects, try to find matching elements
-    var matched = new Array(bArr.length);
-    for (var i = 0; i < aArr.length; i++) {
-      var found = false;
-      for (var j = 0; j < bArr.length; j++) {
-        if (!matched[j] && _deepEqual(aArr[i], bArr[j])) {
+      var matched = new Array(bArr.length);
+      for (var i = 0; i < aArr.length; i++) {
+        var found = false;
+        for (var j = 0; j < bArr.length; j++) {
+        if (!matched[j] && _deepEqual(aArr[i], bArr[j], aSeen, bSeen, strict)) {
           matched[j] = true;
           found = true;
           break;
@@ -190,7 +741,7 @@ function _deepEqual(a, b) {
   if (Array.isArray(a)) {
     if (!Array.isArray(b) || a.length !== b.length) return false;
     for (var i = 0; i < a.length; i++) {
-      if (!_deepEqual(a[i], b[i])) return false;
+      if (!_deepEqual(a[i], b[i], aSeen, bSeen, strict)) return false;
     }
     return true;
   }
@@ -200,67 +751,121 @@ function _deepEqual(a, b) {
   for (var i = 0; i < keysA.length; i++) {
     var key = keysA[i];
     if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
-    if (!_deepEqual(a[key], b[key])) return false;
+    if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
   }
   return true;
 }
 
 function ok(value, message) {
   if (!value) {
+    var defaultMessage = 'The expression evaluated to a falsy value';
+    var line = message ? '' : _getCallerLine(ok);
+    if (line) {
+      defaultMessage += ':\n\n' + line + '\n';
+    }
     throw new AssertionError({
-      message: message || 'The expression evaluated to a falsy value',
+      message: message || defaultMessage,
       actual: value,
       expected: true,
-      operator: '=='
+      operator: '==',
+      stackStartFn: ok
     });
   }
 }
 
 function equal(actual, expected, message) {
   if (actual != expected) {
-    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: '==' });
+    throw new AssertionError({
+      message: message,
+      actual: actual,
+      expected: expected,
+      operator: '==',
+      stackStartFn: equal
+    });
   }
 }
 
 function notEqual(actual, expected, message) {
   if (actual == expected) {
-    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: '!=' });
+    throw new AssertionError({
+      message: message,
+      actual: actual,
+      expected: expected,
+      operator: '!=',
+      stackStartFn: notEqual
+    });
   }
 }
 
 function strictEqual(actual, expected, message) {
   if (actual !== expected) {
-    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: '===' });
+    throw new AssertionError({
+      message: message,
+      actual: actual,
+      expected: expected,
+      operator: '===',
+      stackStartFn: strictEqual
+    });
   }
 }
 
 function notStrictEqual(actual, expected, message) {
   if (actual === expected) {
-    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: '!==' });
+    throw new AssertionError({
+      message: message,
+      actual: actual,
+      expected: expected,
+      operator: '!==',
+      stackStartFn: notStrictEqual
+    });
   }
 }
 
 function deepEqual(actual, expected, message) {
-  if (!_deepEqual(actual, expected)) {
-    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: 'deepEqual' });
+  if (!_deepEqual(actual, expected, undefined, undefined, false)) {
+    throw new AssertionError({
+      message: message || _buildDeepEqualMessage(actual, expected, false),
+      actual: actual,
+      expected: expected,
+      operator: 'deepEqual',
+      stackStartFn: deepEqual
+    });
   }
 }
 
 function deepStrictEqual(actual, expected, message) {
-  if (!_deepEqual(actual, expected)) {
-    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: 'deepStrictEqual' });
+  if (!_deepEqual(actual, expected, undefined, undefined, true)) {
+    throw new AssertionError({
+      message: message || _buildDeepEqualMessage(actual, expected, true),
+      actual: actual,
+      expected: expected,
+      operator: 'deepStrictEqual',
+      stackStartFn: deepStrictEqual
+    });
   }
 }
 
 function notDeepEqual(actual, expected, message) {
-  if (_deepEqual(actual, expected)) {
-    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: 'notDeepEqual' });
+  if (_deepEqual(actual, expected, undefined, undefined, false)) {
+    throw new AssertionError({
+      message: message,
+      actual: actual,
+      expected: expected,
+      operator: 'notDeepEqual',
+      stackStartFn: notDeepEqual
+    });
   }
 }
 
 function notDeepStrictEqual(actual, expected, message) {
-  if (_deepEqual(actual, expected)) {
-    throw new AssertionError({ message: message, actual: actual, expected: expected, operator: 'notDeepStrictEqual' });
+  if (_deepEqual(actual, expected, undefined, undefined, true)) {
+    throw new AssertionError({
+      message: message,
+      actual: actual,
+      expected: expected,
+      operator: 'notDeepStrictEqual',
+      stackStartFn: notDeepStrictEqual
+    });
   }
 }
 
@@ -559,7 +1164,8 @@ function throws(fn, expected, message) {
   if (!threw) {
     throw new AssertionError({
       message: message || 'Missing expected exception.',
-      operator: 'throws'
+      operator: 'throws',
+      stackStartFn: throws
     });
   }
   if (expected) {
@@ -573,20 +1179,40 @@ function throws(fn, expected, message) {
             _inspect(caught),
         actual: caught,
         expected: expected,
-        operator: 'throws'
+        operator: 'throws',
+        stackStartFn: throws
       });
     }
 
     if (typeof expected === 'function') {
       if (expected(caught) === true) return;
-      throw new AssertionError({ message: message || 'Unexpected exception', actual: caught, expected: expected, operator: 'throws' });
+      throw new AssertionError({
+        message: message || 'Unexpected exception',
+        actual: caught,
+        expected: expected,
+        operator: 'throws',
+        stackStartFn: throws
+      });
     }
     if (expected instanceof RegExp) {
       if (expected.test(String(caught))) return;
-      throw new AssertionError({ message: message || 'Unexpected exception', actual: caught, expected: expected, operator: 'throws' });
+      throw new AssertionError({
+        message: message || 'Unexpected exception',
+        actual: caught,
+        expected: expected,
+        operator: 'throws',
+        stackStartFn: throws
+      });
     }
     // Plain object: validate each property against caught error
     if (typeof expected === 'object' && expected !== null) {
+      if (caught == null) {
+        throw new AssertionError({
+          message: message || 'Missing expected exception.',
+          operator: 'throws',
+          stackStartFn: throws
+        });
+      }
       var keys = Object.keys(expected);
       for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
@@ -596,7 +1222,8 @@ function throws(fn, expected, message) {
               message: message || 'The error property "' + key + '" ("' + caught[key] + '") does not match ' + expected[key],
               actual: caught,
               expected: expected,
-              operator: 'throws'
+              operator: 'throws',
+              stackStartFn: throws
             });
           }
         } else if (!_deepEqual(caught[key], expected[key])) {
@@ -604,7 +1231,8 @@ function throws(fn, expected, message) {
             message: message || 'Expected error property "' + key + '" to be ' + _inspect(expected[key]) + ', got ' + _inspect(caught[key]),
             actual: caught,
             expected: expected,
-            operator: 'throws'
+            operator: 'throws',
+            stackStartFn: throws
           });
         }
       }
@@ -620,7 +1248,8 @@ function doesNotThrow(fn, expected, message) {
     throw new AssertionError({
       message: message || 'Got unwanted exception',
       actual: e,
-      operator: 'doesNotThrow'
+      operator: 'doesNotThrow',
+      stackStartFn: doesNotThrow
     });
   }
 }
@@ -631,37 +1260,105 @@ function ifError(err) {
       message: 'ifError got unwanted exception: ' + _ifErrorValue(err),
       actual: err,
       expected: null,
-      operator: 'ifError'
+      operator: 'ifError',
+      stackStartFn: ifError
     });
   }
 }
 
 function fail(message) {
-  if (message === undefined) {
+  if (typeof process !== 'undefined' && arguments.length > 1) {
+    if (!__assertFailDeprecationWarned) {
+      __assertFailDeprecationWarned = true;
+      var warning = new Error('assert.fail() with more than one argument is deprecated. ' +
+        'Please use assert.strictEqual() instead or only pass a message.');
+      warning.name = 'DeprecationWarning';
+      warning.code = 'DEP0094';
+      try {
+        if (typeof process.emitWarning === 'function') {
+          process.emitWarning(warning);
+        } else if (typeof process.emit === 'function') {
+          process.emit('warning', warning);
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (message === undefined && arguments.length === 0) {
     throw new AssertionError({
       message: 'Failed',
       operator: 'fail',
-      generatedMessage: true
+      generatedMessage: true,
+      stackStartFn: _isFunction(arguments[4]) ? arguments[4] : null
     });
   }
   if (message instanceof Error) {
     throw message;
   }
+  if (arguments.length === 1) {
+    var failMessage = typeof message === 'string' ? message : _formatFailValue(message);
+    throw new AssertionError({
+      actual: undefined,
+      expected: undefined,
+      operator: 'fail',
+      message: failMessage,
+      generatedMessage: false,
+      stackStartFn: _isFunction(arguments[4]) ? arguments[4] : null
+    });
+  }
+  if (arguments.length === 2) {
+    throw new AssertionError({
+      actual: arguments[0],
+      expected: arguments[1],
+      operator: '!=',
+      message: _formatFailValue(arguments[0]) + ' != ' + _formatFailValue(arguments[1]),
+      generatedMessage: true,
+      stackStartFn: _isFunction(arguments[4]) ? arguments[4] : null
+    });
+  }
+
+  if (arguments[3] === undefined && arguments[2] instanceof Error) {
+    throw arguments[2];
+  }
+  var operator = arguments[3] || 'fail';
+  var failMessage = arguments[2];
+  var generated = true;
+  if (failMessage !== undefined) {
+    generated = false;
+  } else {
+    failMessage = _formatFailValue(arguments[0]) + ' ' + operator + ' ' + _formatFailValue(arguments[1]);
+  }
   throw new AssertionError({
-    message: message || 'Failed',
-    operator: 'fail'
+    actual: arguments[0],
+    expected: arguments[1],
+    operator: operator,
+    message: failMessage,
+    generatedMessage: generated,
+    stackStartFn: _isFunction(arguments[4]) ? arguments[4] : null
   });
 }
 
 function match(string, regexp, message) {
   if (!regexp.test(string)) {
-    throw new AssertionError({ message: message, actual: string, expected: regexp, operator: 'match' });
+    throw new AssertionError({
+      message: message,
+      actual: string,
+      expected: regexp,
+      operator: 'match',
+      stackStartFn: match
+    });
   }
 }
 
 function doesNotMatch(string, regexp, message) {
   if (regexp.test(string)) {
-    throw new AssertionError({ message: message, actual: string, expected: regexp, operator: 'doesNotMatch' });
+    throw new AssertionError({
+      message: message,
+      actual: string,
+      expected: regexp,
+      operator: 'doesNotMatch',
+      stackStartFn: doesNotMatch
+    });
   }
 }
 
@@ -678,7 +1375,8 @@ async function rejects(asyncFn, expected, message) {
   if (!threw) {
     throw new AssertionError({
       message: message || 'Missing expected rejection',
-      operator: 'rejects'
+      operator: 'rejects',
+      stackStartFn: rejects
     });
   }
   if (expected !== undefined && expected !== null) {
@@ -690,16 +1388,29 @@ async function rejects(asyncFn, expected, message) {
             'Received "' + _errorTypeName(caught) + '"',
         actual: caught,
         expected: expected,
-        operator: 'rejects'
+        operator: 'rejects',
+        stackStartFn: rejects
       });
     }
     if (typeof expected === 'function') {
       if (expected(caught) === true) return;
-      throw new AssertionError({ message: message || 'Unexpected rejection', actual: caught, expected: expected, operator: 'rejects' });
+      throw new AssertionError({
+        message: message || 'Unexpected rejection',
+        actual: caught,
+        expected: expected,
+        operator: 'rejects',
+        stackStartFn: rejects
+      });
     }
     if (expected instanceof RegExp) {
       if (expected.test(String(caught))) return;
-      throw new AssertionError({ message: message || 'Unexpected rejection', actual: caught, expected: expected, operator: 'rejects' });
+      throw new AssertionError({
+        message: message || 'Unexpected rejection',
+        actual: caught,
+        expected: expected,
+        operator: 'rejects',
+        stackStartFn: rejects
+      });
     }
     if (typeof expected === 'object') {
       // Validate error properties
@@ -712,7 +1423,8 @@ async function rejects(asyncFn, expected, message) {
               message: message || 'Error message mismatch',
               actual: caught.message,
               expected: expected.message,
-              operator: 'rejects'
+              operator: 'rejects',
+              stackStartFn: rejects
             });
           }
         } else if (!_deepEqual(caught[key], expected[key])) {
@@ -720,7 +1432,8 @@ async function rejects(asyncFn, expected, message) {
             message: message || 'Error property "' + key + '" mismatch',
             actual: caught[key],
             expected: expected[key],
-            operator: 'rejects'
+            operator: 'rejects',
+            stackStartFn: rejects
           });
         }
       }
@@ -737,13 +1450,39 @@ async function doesNotReject(asyncFn, expected, message) {
     throw new AssertionError({
       message: message || 'Got unwanted rejection: ' + _ifErrorValue(e),
       actual: e,
-      operator: 'doesNotReject'
+      operator: 'doesNotReject',
+      stackStartFn: doesNotReject
     });
   }
 }
 
 function assert(value, message) {
-  ok(value, message);
+  if (value) {
+    return;
+  }
+  var defaultMessage = _formatValue(value) + ' == ' + _formatValue(true);
+  var generatedMessage = true;
+  var line = _getCallerLine(assert);
+  if (line && line.indexOf('.emit(') !== -1) {
+    line = '';
+  }
+  if (line) {
+    defaultMessage = 'The expression evaluated to a falsy value' +
+                     ':\n\n' + line + '\n';
+  }
+  if (message === undefined) {
+    message = defaultMessage;
+  } else {
+    generatedMessage = false;
+  }
+  throw new AssertionError({
+    message: message,
+    actual: value,
+    expected: true,
+    operator: '==',
+    generatedMessage: generatedMessage,
+    stackStartFn: assert
+  });
 }
 
 assert.ok = ok;

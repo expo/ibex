@@ -6,6 +6,7 @@ function FileHandle(fd, path, flags) {
   this._path = path;
   this._flags = flags || 'r';
   this._closed = false;
+  this._listeners = {};
 }
 
 Object.defineProperty(FileHandle.prototype, 'fd', {
@@ -62,10 +63,56 @@ FileHandle.prototype.close = function() {
       fs.closeSync(fd);
     }
     this._fd = null;
+    if (this._listeners && this._listeners.close) {
+      var closeListeners = this._listeners.close.slice();
+      for (var i = 0; i < closeListeners.length; i++) {
+        closeListeners[i]();
+      }
+    }
     return Promise.resolve();
   } catch (err) {
     return Promise.reject(handleError(err));
   }
+};
+
+FileHandle.prototype.on = function(event, listener) {
+  if (!this._listeners[event]) this._listeners[event] = [];
+  this._listeners[event].push(listener);
+  return this;
+};
+
+FileHandle.prototype.emit = function(event) {
+  var listeners = this._listeners[event] || [];
+  var args = [].slice.call(arguments, 1);
+  for (var i = 0; i < listeners.length; i++) {
+    listeners[i].apply(this, args);
+  }
+};
+
+FileHandle.prototype.read = function(buffer, offset, length, position, callback) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  if (typeof callback === 'function') {
+    return fs.read(fd, buffer, offset, length, position, callback);
+  }
+  if (arguments.length === 1) {
+    var out = new Uint8Array(offset || 0);
+    offset = 0;
+    length = out.length;
+    position = null;
+    buffer = out;
+  }
+  return new Promise(function(resolve, reject) {
+    fs.read(fd, buffer, offset, length, position, function(err, bytesRead, data) {
+      if (err) {
+        reject(handleError(err));
+        return;
+      }
+      resolve({ bytesRead: bytesRead, buffer: data });
+    });
+  });
 };
 
 FileHandle.prototype.truncate = function(len) {

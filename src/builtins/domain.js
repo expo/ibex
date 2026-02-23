@@ -6,10 +6,20 @@ function Domain() {
 }
 Domain.prototype = Object.create(EventEmitter.prototype);
 Domain.prototype.constructor = Domain;
-Domain.prototype.add = function(emitter) { this.members.push(emitter); };
+Domain.prototype.add = function(emitter) {
+  this.members.push(emitter);
+  if (emitter && (typeof emitter === 'object' || typeof emitter === 'function')) {
+    emitter.domain = this;
+  }
+};
 Domain.prototype.remove = function(emitter) {
   var idx = this.members.indexOf(emitter);
-  if (idx !== -1) this.members.splice(idx, 1);
+  if (idx !== -1) {
+    this.members.splice(idx, 1);
+    if (emitter && emitter.domain === this) {
+      emitter.domain = null;
+    }
+  }
 };
 Domain.prototype.run = function(fn) {
   try { return fn(); }

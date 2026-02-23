@@ -207,8 +207,10 @@
       if (!list) return false;
       var keep = [];
       for (var i = 0; i < list.length; i++) {
-        list[i].fn.apply(p, args);
-        if (!list[i].once) keep.push(list[i]);
+        var entry = list[i];
+        if (!entry || typeof entry.fn !== 'function') continue;
+        entry.fn.apply(p, args);
+        if (!entry.once) keep.push(entry);
       }
       listeners[event] = keep;
       return true;
@@ -218,7 +220,10 @@
       if (!list) return p;
       var keep = [];
       for (var i = 0; i < list.length; i++) {
-        if (list[i].fn !== fn && list[i].fn !== undefined) keep.push(list[i]);
+        var entry = list[i];
+        if (!entry || entry.fn === fn) continue;
+        if (typeof entry.fn !== 'function') continue;
+        keep.push(entry);
       }
       listeners[event] = keep;
       return p;

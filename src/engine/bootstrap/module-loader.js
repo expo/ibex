@@ -41,6 +41,92 @@
     }
     return minutes + ':' + secondPart;
   }
+  function _createNodeTestModule() {
+    var context = {
+      tests: [],
+      afters: []
+    };
+    function _runAfterQueue(afters) {
+      var promise = Promise.resolve();
+      for (var i = 0; i < afters.length; i++) {
+        (function(hook) {
+          promise = promise.then(function() {
+            return hook();
+          });
+        })(afters[i]);
+      }
+      return promise;
+    }
+    function describe() {
+      var fn = arguments[1];
+      if (typeof fn !== 'function') {
+        return Promise.resolve();
+      }
+      var localContext = { tests: [], afters: [] };
+      var previousContext = context;
+      context = localContext;
+      var result;
+      try {
+        result = fn();
+      } catch (err) {
+        context = previousContext;
+        throw err;
+      }
+      context = previousContext;
+      var done = Promise.resolve(result)
+        .then(function() {
+          return Promise.all(localContext.tests);
+        })
+        .then(function() {
+          return _runAfterQueue(localContext.afters);
+        });
+      done.catch(function(err) { setTimeout(function() { throw err; }, 0); });
+      return done;
+    }
+    function it() {
+      var fn = arguments[1];
+      if (typeof fn !== 'function') {
+        return Promise.resolve();
+      }
+      var promise;
+      try {
+        promise = Promise.resolve(fn());
+      } catch (err) {
+        promise = Promise.reject(err);
+      }
+      if (context) {
+        context.tests.push(promise);
+      }
+      return promise;
+    }
+    function test() {
+      return it.apply(this, arguments);
+    }
+    function suite(name, fn) {
+      return describe(name, fn);
+    }
+    function before() {}
+    function beforeEach() {}
+    function afterEach() {}
+    function after(fn) {
+      if (typeof fn !== 'function') return Promise.resolve();
+      if (context) {
+        context.afters.push(fn);
+        return;
+      }
+      return Promise.resolve(fn());
+    }
+    return {
+      describe: describe,
+      it: it,
+      test: test,
+      suite: suite,
+      before: before,
+      beforeEach: beforeEach,
+      afterEach: afterEach,
+      after: after
+    };
+  }
   var internalModules = {
     'internal/util/debuglog': {
       formatTime: formatTime,
@@ -70,8 +156,73 @@
       }
     }
   };
+
+  function createEventTargetModule() {
+    return {
+      get kEvents() { return Symbol.for('nodejs.internal.event_target.kEvents'); },
+      get kWeakHandler() { return Symbol.for('nodejs.internal.event_target.kWeakHandler'); },
+      get Event() { return globalThis.Event; },
+      get EventTarget() { return globalThis.EventTarget; },
+      get CustomEvent() { return globalThis.CustomEvent; },
+      get NodeEventTarget() {
+        if (globalThis.EventTarget) {
+          return globalThis.EventTarget;
+        }
+        return undefined;
+      }
+    };
+  }
   function loadInternal(specifier) {
     var normalized = normalizeSpecifier(specifier);
+    if (normalized === 'assert/strict') {
+      var assertModule = load('assert', '');
+      if (!cache[normalized]) {
+        cache[normalized] = {
+          exports: assertModule && assertModule.strict ? assertModule.strict : assert,
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      if (cache[normalized].exports === undefined && assertModule && assertModule.strict) {
+        cache[normalized].exports = assertModule.strict;
+      }
+      return cache[normalized].exports;
+    }
+    if (normalized === 'test') {
+      if (!cache[normalized]) {
+        cache[normalized] = {
+          exports: _createNodeTestModule(),
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
+    }
+    if (normalized === 'internal/event_target') {
+      if (!cache[normalized]) {
+        cache[normalized] = {
+          exports: createEventTargetModule(),
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
+    }
     if (normalized.indexOf('internal/util/debuglog') !== -1) {
       normalized = 'internal/util/debuglog';
     }

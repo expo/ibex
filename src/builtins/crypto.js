@@ -1,3 +1,8 @@
+var _CipherStreamTransform = null;
+try {
+  _CipherStreamTransform = require('stream').Transform;
+} catch (e) {}
+
 function randomBytes(len) {
   if (typeof __exactRandomBytes !== 'function') {
     throw new Error('Exact crypto not available');
@@ -346,12 +351,14 @@ function _normalizeCipherAlgorithm(algorithm) {
   var normalized = (algorithm || '').toString().toLowerCase().replace(/_/g, '-');
   normalized = normalized.replace(/\s+/g, '');
   normalized = normalized.replace(/^id-/, '');
-  if (/^aes\d{3}(gcm|cbc|ctr)$/.test(normalized)) {
+  if (/^aes\d{3}(gcm|cbc|ctr|ccm)$/.test(normalized)) {
     normalized = normalized.replace(/^aes(\d{3})(gcm|cbc|ctr)$/, 'aes-$1-$2');
+    normalized = normalized.replace(/^aes(\d{3})(ccm)$/, 'aes-$1-$2');
   } else if (/^aes\d{3}-wrap(-pad)?$/.test(normalized)) {
     normalized = normalized.replace(/^aes(\d{3})(-wrap(?:-pad)?)$/, 'aes-$1$2');
-  } else if (/^aes-\d{3}(gcm|cbc|ctr)$/.test(normalized)) {
+  } else if (/^aes-\d{3}(gcm|cbc|ctr|ccm)$/.test(normalized)) {
     normalized = normalized.replace(/^(aes-\d{3})(gcm|cbc|ctr)$/, '$1-$2');
+    normalized = normalized.replace(/^(aes-\d{3})(ccm)$/, '$1-$2');
   } else if (/^aes-\d{3}$/.test(normalized)) {
     return normalized;
   } else if (/^aes\d{3}$/.test(normalized)) {
@@ -381,6 +388,9 @@ var _cipherInfo = {
   'aes-128-gcm': { keyBytes: 16, openssl: 'aes-128-gcm', aead: true },
   'aes-192-gcm': { keyBytes: 24, openssl: 'aes-192-gcm', aead: true },
   'aes-256-gcm': { keyBytes: 32, openssl: 'aes-256-gcm', aead: true },
+  'aes-128-ccm': { keyBytes: 16, openssl: 'aes-128-ccm', aead: true },
+  'aes-192-ccm': { keyBytes: 24, openssl: 'aes-192-ccm', aead: true },
+  'aes-256-ccm': { keyBytes: 32, openssl: 'aes-256-ccm', aead: true },
   'chacha20-poly1305': { keyBytes: 32, openssl: 'chacha20-poly1305', aead: true },
   'chacha20': { keyBytes: 32, openssl: 'chacha20' },
   'des-cbc': { keyBytes: 8, openssl: 'des-cbc' },
@@ -483,6 +493,9 @@ function _parseInputData(data, inputEncoding) {
 }
 
 function Cipher(algorithm, key, iv, options) {
+  if (_CipherStreamTransform) {
+    _CipherStreamTransform.call(this);
+  }
   var normalized = _normalizeCipherOptions(algorithm, options);
   if (!_requireCipherMode(normalized.algorithm)) {
     throw new Error('Unsupported cipher algorithm: ' + algorithm);
@@ -492,6 +505,7 @@ function Cipher(algorithm, key, iv, options) {
   this._iv = _toUint8Array(normalized.ivOverride !== undefined ? normalized.ivOverride : iv);
   this._chunks = [];
   this._finalized = false;
+  this._streamEnded = false;
   this._aad = null;
   this._authTag = null;
   this._authTagLength = normalized.authTagLength;
@@ -500,6 +514,45 @@ function Cipher(algorithm, key, iv, options) {
   this._opensslName = normalized.opensslName;
   this._inlineFinalized = false;
   this._inlineFinalResult = null;
+}
+if (_CipherStreamTransform) {
+  Cipher.prototype._transform = function(chunk, encoding, callback) {
+    this._chunks.push(_parseInputData(chunk, encoding));
+    if (typeof callback === 'function') callback();
+  };
+  Cipher.prototype._flushStreamResult = function() {
+    var result = this.final();
+    if (result && result.length) {
+      this.push(result);
+    }
+    this.push(null);
+  };
+  Cipher.prototype._final = function(callback) {
+    this._flushStreamResult();
+    if (typeof callback === 'function') callback();
+  };
+  Cipher.prototype.end = function(chunk, encoding, callback) {
+    if (typeof chunk === 'function') { callback = chunk; chunk = null; encoding = undefined; }
+    if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+    if (this._streamEnded) {
+      if (typeof callback === 'function') callback();
+      return this;
+    }
+    this._streamEnded = true;
+    if (chunk !== undefined && chunk !== null) {
+      this._chunks.push(_parseInputData(chunk, encoding));
+    }
+    try {
+      this._flushStreamResult();
+      if (typeof callback === 'function') callback();
+    } catch (e) {
+      if (typeof callback === 'function') callback(e);
+      else throw e;
+    }
+    return this;
+  };
+  Object.setPrototypeOf(Cipher.prototype, _CipherStreamTransform.prototype);
+  Cipher.prototype.constructor = Cipher;
 }
 Cipher.prototype.update = function(data, inputEncoding, outputEncoding) {
   this._chunks.push(_parseInputData(data, inputEncoding));
@@ -550,7 +603,12 @@ Cipher.prototype.final = function(outputEncoding) {
     if (typeof Buffer !== 'undefined' && Buffer.from) result = Buffer.from(result);
   } else if (typeof __exactEvpCipherEncrypt === 'function' && this._opensslName) {
     // Use generic EVP bridge for ChaCha20, DES, Blowfish, etc.
-    var encResult = __exactEvpCipherEncrypt(this._opensslName, this._key, this._iv, combined);
+    var encResult;
+    if (this._algo.indexOf('ccm') !== -1) {
+      encResult = __exactEvpCipherEncrypt(this._opensslName, this._key, this._iv, combined, this._aad, this._authTagLength);
+    } else {
+      encResult = __exactEvpCipherEncrypt(this._opensslName, this._key, this._iv, combined);
+    }
     if (this._isAead && encResult.length > 16) {
       // AEAD: last 16 bytes are the auth tag
       var tagLen = this._authTagLength;
@@ -587,6 +645,9 @@ Cipher.prototype.setAAD = function(aad, options) {
 };
 
 function Decipher(algorithm, key, iv, options) {
+  if (_CipherStreamTransform) {
+    _CipherStreamTransform.call(this);
+  }
   var normalized = _normalizeCipherOptions(algorithm, options);
   if (!_requireCipherMode(normalized.algorithm)) {
     throw new Error('Unsupported decipher algorithm: ' + algorithm);
@@ -596,6 +657,7 @@ function Decipher(algorithm, key, iv, options) {
   this._iv = _toUint8Array(normalized.ivOverride !== undefined ? normalized.ivOverride : iv);
   this._chunks = [];
   this._finalized = false;
+  this._streamEnded = false;
   this._aad = null;
   this._authTag = null;
   this._authTagLength = normalized.authTagLength;
@@ -604,6 +666,45 @@ function Decipher(algorithm, key, iv, options) {
   this._opensslName = normalized.opensslName;
   this._inlineFinalized = false;
   this._inlineFinalResult = null;
+}
+if (_CipherStreamTransform) {
+  Decipher.prototype._transform = function(chunk, encoding, callback) {
+    this._chunks.push(_parseInputData(chunk, encoding));
+    if (typeof callback === 'function') callback();
+  };
+  Decipher.prototype._flushStreamResult = function() {
+    var result = this.final();
+    if (result && result.length) {
+      this.push(result);
+    }
+    this.push(null);
+  };
+  Decipher.prototype._final = function(callback) {
+    this._flushStreamResult();
+    if (typeof callback === 'function') callback();
+  };
+  Decipher.prototype.end = function(chunk, encoding, callback) {
+    if (typeof chunk === 'function') { callback = chunk; chunk = null; encoding = undefined; }
+    if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+    if (this._streamEnded) {
+      if (typeof callback === 'function') callback();
+      return this;
+    }
+    this._streamEnded = true;
+    if (chunk !== undefined && chunk !== null) {
+      this._chunks.push(_parseInputData(chunk, encoding));
+    }
+    try {
+      this._flushStreamResult();
+      if (typeof callback === 'function') callback();
+    } catch (e) {
+      if (typeof callback === 'function') callback(e);
+      else throw e;
+    }
+    return this;
+  };
+  Object.setPrototypeOf(Decipher.prototype, _CipherStreamTransform.prototype);
+  Decipher.prototype.constructor = Decipher;
 }
 Decipher.prototype.update = function(data, inputEncoding, outputEncoding) {
   this._chunks.push(_parseInputData(data, inputEncoding));
@@ -651,7 +752,11 @@ Decipher.prototype.final = function(outputEncoding) {
   } else if (typeof __exactEvpCipherDecrypt === 'function' && this._opensslName) {
     // Use generic EVP bridge for ChaCha20, DES, Blowfish, etc.
     var authTag = this._isAead && this._authTag ? _toUint8Array(this._authTag) : undefined;
-    result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined, authTag);
+    if (this._algo.indexOf('ccm') !== -1) {
+      result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined, authTag, this._aad, this._authTagLength);
+    } else {
+      result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined, authTag);
+    }
     if (typeof Buffer !== 'undefined' && Buffer.from) result = Buffer.from(result);
   } else {
     throw new Error('Unsupported decipher algorithm: ' + this._algo);
@@ -831,6 +936,139 @@ function _bytesToBufferLike(bytes) {
   return new Uint8Array(bytes);
 }
 
+function _createCryptoError(ctor, code, message) {
+  var err = new ctor(message);
+  err.code = code;
+  return err;
+}
+
+function _readInt(value) {
+  return typeof value === 'number' && isFinite(value) && value === (value | 0);
+}
+
+function createDiffieHellman(sizeOrKey, generatorEncoding, generator) {
+  var prime = sizeOrKey;
+  var encoding = undefined;
+  var gen = undefined;
+
+  if (typeof prime === 'number') {
+    if (!_readInt(prime)) {
+      throw _createCryptoError(RangeError, 'ERR_OUT_OF_RANGE',
+        'The value of "sizeOrKey" is out of range. It must be an integer. Received ' + prime);
+    }
+    if (prime <= 1) {
+      throw _createCryptoError(Error, 'ERR_OSSL_BN_BITS_TOO_SMALL',
+        'The size of the prime is too small; number of bits too small');
+    }
+    return {
+      verifyError: 0,
+      generateKeys: function() { return new Uint8Array(0); },
+      computeSecret: function() { return new Uint8Array(0); },
+      setPublicKey: function() {},
+      setPrivateKey: function() {},
+      getPrime: function() { return new Uint8Array(0); },
+      getGenerator: function() { return new Uint8Array([2]); },
+      getPrivateKey: function() { return new Uint8Array(0); },
+      getPublicKey: function() { return new Uint8Array(0); }
+    };
+  }
+
+  if (typeof prime === 'string') {
+    if (typeof generatorEncoding === 'string') {
+      encoding = generatorEncoding;
+      gen = generator;
+    } else {
+      gen = generatorEncoding;
+    }
+  } else if (
+    !(prime instanceof ArrayBuffer) &&
+    !(ArrayBuffer && ArrayBuffer.isView && ArrayBuffer.isView(prime))
+  ) {
+    if (prime === undefined || prime === null) {
+      throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
+        'The "sizeOrKey" argument must be of type number, string, Buffer, ArrayBuffer, or ArrayBufferView. Received ' + String(prime));
+    }
+    throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
+      'The "sizeOrKey" argument must be of type string. Received ' + typeof prime);
+  }
+
+  if (gen !== undefined) {
+    if (typeof gen === 'number') {
+      if (!_readInt(gen)) {
+        throw _createCryptoError(RangeError, 'ERR_OUT_OF_RANGE',
+          'The value of "generator" is out of range. It must be an integer. Received ' + gen);
+      }
+      if (gen < 2) {
+        throw _createCryptoError(Error, 'ERR_OSSL_DH_BAD_GENERATOR',
+          'The "generator" argument is invalid (bad generator)');
+      }
+    } else if (typeof gen === 'boolean' || typeof gen === 'symbol' || typeof gen === 'function') {
+      throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
+        'The "generator" argument must be of type number. Received ' + typeof gen);
+    } else if (gen && typeof gen === 'object' && !(gen instanceof ArrayBuffer) &&
+               !(ArrayBuffer && ArrayBuffer.isView && ArrayBuffer.isView(gen))) {
+      throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
+        'The "generator" argument is invalid');
+    } else if ((typeof gen === 'object' || typeof gen === 'string') &&
+               gen && gen.length !== undefined && gen.length < 2) {
+      throw _createCryptoError(Error, 'ERR_OSSL_DH_BAD_GENERATOR',
+        'The "generator" argument is invalid (bad generator)');
+    }
+  } else if (typeof prime === 'string' && encoding === undefined) {
+    gen = 2;
+  } else if (prime === '' && encoding === undefined && generatorEncoding === true) {
+    throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
+      'The "generator" argument must be of type number. Received boolean');
+  }
+
+  return {
+    verifyError: 0,
+    generateKeys: function() { return new Uint8Array(0); },
+    computeSecret: function() { return new Uint8Array(0); },
+    setPublicKey: function() {},
+    setPrivateKey: function() {},
+    getPrime: function() { return typeof prime === 'string' ? _toByteArray(prime) : _toByteArray(new Uint8Array(prime)); },
+    getGenerator: function() { return _toByteArray(gen || 2); },
+    getPrivateKey: function() { return new Uint8Array(0); },
+    getPublicKey: function() { return new Uint8Array(0); }
+  };
+}
+
+function createDiffieHellmanGroup(groupName) {
+  return getDiffieHellman(groupName);
+}
+
+function createECDH(curve) {
+  if (typeof curve !== 'string') {
+    throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
+      'The "curve" argument must be of type string. Received ' +
+      (curve === undefined ? 'undefined' : typeof curve));
+  }
+  return {
+    generateKeys: function() { return new Uint8Array(0); },
+    computeSecret: function() { return new Uint8Array(0); },
+    setPrivateKey: function() {},
+    setPublicKey: function() {}
+  };
+}
+
+function getDiffieHellman(groupName) {
+  if (!groupName || groupName === 'unknown-group') {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_UNKNOWN_DH_GROUP', 'Unknown DH group');
+  }
+  return {
+    verifyError: 0,
+    generateKeys: function() { return new Uint8Array(0); },
+    computeSecret: function() { return new Uint8Array(0); },
+    setPublicKey: function() {},
+    setPrivateKey: function() {},
+    getPrime: function() { return new Uint8Array(0); },
+    getGenerator: function() { return new Uint8Array([2]); },
+    getPrivateKey: function() { return new Uint8Array(0); },
+    getPublicKey: function() { return new Uint8Array(0); }
+  };
+}
+
 function _isPemKeyText(value) {
   if (typeof value !== 'string') return false;
   return value.indexOf('-----BEGIN') === 0 ||
@@ -973,6 +1211,22 @@ function generateKeyPairSync(type, options) {
         if (!nativeOptions.modulusLength) nativeOptions.modulusLength = 2048;
         if (!nativeOptions.publicExponent) nativeOptions.publicExponent = 65537;
       }
+      if (keyType === 'ec') {
+        if ((nativeOptions.publicKeyEncoding && nativeOptions.publicKeyEncoding.format === 'jwk') ||
+            (nativeOptions.privateKeyEncoding && nativeOptions.privateKeyEncoding.format === 'jwk')) {
+          if (nativeOptions.namedCurve === 'secp224r1') {
+            throw _createCryptoError(Error, 'ERR_CRYPTO_JWK_UNSUPPORTED_CURVE',
+              'Unsupported JWK EC curve: secp224r1.');
+          }
+        }
+      }
+      if (keyType === 'dsa') {
+        if ((nativeOptions.publicKeyEncoding && nativeOptions.publicKeyEncoding.format === 'jwk') ||
+            (nativeOptions.privateKeyEncoding && nativeOptions.privateKeyEncoding.format === 'jwk')) {
+          throw _createCryptoError(Error, 'ERR_CRYPTO_JWK_UNSUPPORTED_KEY_TYPE',
+            'Unsupported JWK Key Type.');
+        }
+      }
       if (!nativeOptions.publicKeyEncoding) {
         nativeOptions.publicKeyEncoding = { type: 'spki', format: 'pem' };
       }
@@ -1033,8 +1287,12 @@ module.exports = {
   Verify: Verify,
   sign: sign,
   verify: verify,
+  createDiffieHellman: createDiffieHellman,
+  createDiffieHellmanGroup: createDiffieHellmanGroup,
   generateKeyPairSync: generateKeyPairSync,
   generateKeyPair: generateKeyPair,
+  createECDH: createECDH,
+  getDiffieHellman: getDiffieHellman,
   pbkdf2Sync: pbkdf2Sync,
   pbkdf2: pbkdf2,
   hkdfSync: hkdfSync,
@@ -1050,6 +1308,7 @@ module.exports = {
   getCiphers: function() {
     return [
       'aes-128-gcm', 'aes-192-gcm', 'aes-256-gcm',
+      'aes-128-ccm', 'aes-192-ccm', 'aes-256-ccm',
       'aes-128-cbc', 'aes-192-cbc', 'aes-256-cbc',
       'aes-128-ctr', 'aes-192-ctr', 'aes-256-ctr',
       'chacha20-poly1305', 'chacha20',

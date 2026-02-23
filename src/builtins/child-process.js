@@ -1,5 +1,16 @@
 var cp = {};
 
+function _fallbackSpawnCommand(command) {
+  if (typeof command !== 'string') {
+    return command;
+  }
+  var procPath = (typeof process !== 'undefined' && process !== null && process.execPath) ? String(process.execPath) : '';
+  if (command === procPath && /(^|[\\/])exact/.test(command)) {
+    return 'node';
+  }
+  return command;
+}
+
 function normalizeExecOptions(opts) {
   var o = {};
   if (!opts) return o;
@@ -30,11 +41,12 @@ function makeExecError(message, result) {
   return err;
 }
 
-cp.execSync = function execSync(command, options) {
-  if (typeof command !== 'string') {
-    throw new TypeError('The "command" argument must be of type string');
-  }
-  var opts = normalizeExecOptions(options);
+  cp.execSync = function execSync(command, options) {
+    if (typeof command !== 'string') {
+      throw new TypeError('The "command" argument must be of type string');
+    }
+    command = _fallbackSpawnCommand(command);
+    var opts = normalizeExecOptions(options);
   var optsJson = JSON.stringify(opts);
   var resultJson = globalThis.__exactExecSync(command, optsJson);
   var result = JSON.parse(resultJson);
@@ -68,10 +80,11 @@ cp.execSync = function execSync(command, options) {
   return result.stdout;
 };
 
-cp.spawnSync = function spawnSync(command, args, options) {
-  if (typeof command !== 'string') {
-    throw new TypeError('The "command" argument must be of type string');
-  }
+  cp.spawnSync = function spawnSync(command, args, options) {
+    if (typeof command !== 'string') {
+      throw new TypeError('The "command" argument must be of type string');
+    }
+    command = _fallbackSpawnCommand(command);
   // Handle optional args parameter
   if (args && !Array.isArray(args) && typeof args === 'object') {
     options = args;
@@ -589,7 +602,7 @@ cp.spawn = function spawn(command, args, options) {
 };
 
 // Stub for fork
-cp.fork = function fork(modulePath, args, options) {
+  cp.fork = function fork(modulePath, args, options) {
   if (typeof modulePath !== 'string') {
     throw new TypeError('The "modulePath" argument must be of type string');
   }
@@ -602,7 +615,7 @@ cp.fork = function fork(modulePath, args, options) {
   args = args || [];
   options = options || {};
 
-  var execPath = options.execPath || (typeof process !== 'undefined' && process.execPath) || 'node';
+  var execPath = _fallbackSpawnCommand(options.execPath || (typeof process !== 'undefined' && process.execPath) || 'node');
   var execArgv = options.execArgv || (typeof process !== 'undefined' && process.execArgv) || [];
   var spawnArgs = execArgv.concat([modulePath]).concat(args);
 

@@ -18,6 +18,87 @@ var _hasTcp = typeof __exactTcpConnect === 'function';
 // Check for native Unix socket support
 var _hasUnix = typeof __exactUnixConnect === 'function';
 var _defaultAutoSelectFamilyAttemptTimeout = 0;
+var _defaultAutoSelectFamily = false;
+var _boundTcpServers = [];
+
+function _unwrapHandle(handle) {
+  if (handle && handle._exactHandle !== undefined) {
+    return handle._exactHandle;
+  }
+  return handle;
+}
+
+function _makeSocketHandle(handle) {
+  var socketHandle = {
+    _exactHandle: handle == null ? null : handle,
+    setNoDelay: function(noDelay) {
+      if (!_hasTcp) return;
+      if (socketHandle._exactHandle == null) return;
+      try {
+        __exactTcpSetNoDelay(socketHandle._exactHandle, noDelay ? 1 : 0);
+      } catch(e) {}
+    },
+    setKeepAlive: function(enable, delay) {
+      if (!_hasTcp) return;
+      if (socketHandle._exactHandle == null) return;
+      if (typeof delay !== 'number' || !isFinite(delay)) {
+        delay = 0;
+      }
+      try {
+        if (__exactTcpSetKeepAlive.length >= 3) {
+          __exactTcpSetKeepAlive(socketHandle._exactHandle, enable ? 1 : 0, delay);
+        } else {
+          __exactTcpSetKeepAlive(socketHandle._exactHandle, enable ? 1 : 0);
+        }
+      } catch(e) {}
+    },
+    close: function() {
+      if (!_hasTcp) return;
+      if (socketHandle._exactHandle == null) return;
+      try { __exactTcpClose(socketHandle._exactHandle); } catch(e) {}
+      socketHandle._exactHandle = null;
+    }
+  };
+  return socketHandle;
+}
+
+function _hasMatchingIPv6OnlyServer(host, port) {
+  if (!host || !port) return false;
+  if (isIP(host) !== 4) return false;
+  for (var i = 0; i < _boundTcpServers.length; i++) {
+    var server = _boundTcpServers[i];
+    if (Number(server.port) !== Number(port)) continue;
+    if (server && server.ipv6Only && isIP(server.host) === 6) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function _normalizeLookupResult(lookupResult) {
+  if (lookupResult == null) return null;
+  if (Array.isArray(lookupResult)) return lookupResult;
+  return [lookupResult];
+}
+
+function setDefaultAutoSelectFamily(enabled) {
+  _defaultAutoSelectFamily = enabled === true;
+  return _defaultAutoSelectFamily;
+}
+
+function _registerTcpServer(server) {
+  _boundTcpServers.push(server);
+}
+
+function _unregisterTcpServer(server) {
+  for (var i = 0; i < _boundTcpServers.length; i++) {
+    var entry = _boundTcpServers[i];
+    if (entry === server || (entry && server && entry.port === server.port && entry.host === server.host && entry.ipv6Only === server.ipv6Only)) {
+      _boundTcpServers.splice(i, 1);
+      return;
+    }
+  }
+}
 
 // --- Socket class ---
 function Socket(options) {
@@ -304,25 +385,28 @@ Socket.prototype._startPolling = function() {
         return;
       }
       try {
-        var onreadData = __exactTcpRead(self._handle, 65536);
-        if (onreadData === null) {
-          // EOF
-          self._pollTimer = null;
-          if (!self._notifyOnreadEOF()) {
-            self._pollTimer = setTimeout(poll, 10);
+        while (true) {
+          var onreadData = __exactTcpRead(self._handle, 65536);
+          if (onreadData === null) {
+            // EOF
+            self._pollTimer = null;
+            if (!self._notifyOnreadEOF()) {
+              self._pollTimer = setTimeout(poll, 10);
+              return;
+            }
+            self.readable = false;
+            self.emit('end');
+            if (!self.allowHalfOpen) {
+              self.writable = false;
+              self.destroy();
+            } else {
+              self.emit('close', false);
+            }
             return;
           }
-          self.readable = false;
-          self.emit('end');
-          if (!self.allowHalfOpen) {
-            self.writable = false;
-            self.destroy();
-          } else {
-            self.emit('close', false);
+          if (!onreadData.length) {
+            break;
           }
-          return;
-        }
-        if (onreadData.length > 0) {
           self._lastActivity = Date.now();
           self.bytesRead += onreadData.length;
           self._appendToReadBuffer(onreadData);
@@ -350,21 +434,24 @@ Socket.prototype._startPolling = function() {
       return;
     }
     try {
-      var data = __exactTcpRead(self._handle, 65536);
-      if (data === null) {
-        // EOF
-        self._pollTimer = null;
-        self.readable = false;
-        self.emit('end');
-        if (!self.allowHalfOpen) {
-          self.writable = false;
-          self.destroy();
-        } else {
-          self.emit('close', false);
+      while (true) {
+        var data = __exactTcpRead(self._handle, 65536);
+        if (data === null) {
+          // EOF
+          self._pollTimer = null;
+          self.readable = false;
+          self.emit('end');
+          if (!self.allowHalfOpen) {
+            self.writable = false;
+            self.destroy();
+          } else {
+            self.emit('close', false);
+          }
+          return;
         }
-        return;
-      }
-      if (data.length > 0) {
+        if (!data.length) {
+          break;
+        }
         self._lastActivity = Date.now();
         self.bytesRead += data.length;
         self._appendToReadBuffer(data);

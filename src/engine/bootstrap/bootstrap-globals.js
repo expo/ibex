@@ -170,6 +170,35 @@
     return (d > 0) ? d : 0;
   }
 
+  var __exactEventTargetKEvents = Symbol.for('nodejs.internal.event_target.kEvents');
+  var __exactEventTargetKWeakHandler = Symbol.for('nodejs.internal.event_target.kWeakHandler');
+
+  function __ensureEventTargetEventMap(target) {
+    if (!target[__exactEventTargetKEvents]) {
+      target[__exactEventTargetKEvents] = new Map();
+    }
+    return target[__exactEventTargetKEvents];
+  }
+
+  function __addEventTargetEventListener(target, type, listener) {
+    var map = __ensureEventTargetEventMap(target);
+    var listeners = map.get(type);
+    if (!listeners) {
+      listeners = new Set();
+      map.set(type, listeners);
+    }
+    listeners.add(listener);
+  }
+
+  function __removeEventTargetEventListener(target, type, listener) {
+    var map = target[__exactEventTargetKEvents];
+    if (!map) return;
+    var listeners = map.get(type);
+    if (!listeners) return;
+    listeners.delete(listener);
+    if (listeners.size === 0) map.delete(type);
+  }
+
   // Wrap native setTimeout with callback validation and delay clamping
   if (typeof globalThis.setTimeout === 'function') {
     var _nativeSetTimeout = globalThis.setTimeout;
@@ -227,19 +256,24 @@
 
   // AbortController / AbortSignal — lazy (Web API)
   if (typeof globalThis.AbortController === 'undefined') {
-    function _initAbort() {
+      function _initAbort() {
       function AbortSignal() {
         this.aborted = false;
         this.reason = undefined;
         this._listeners = [];
+        this[__exactEventTargetKEvents] = new Map();
       }
       AbortSignal.prototype.addEventListener = function(type, listener) {
-        if (type === 'abort') this._listeners.push(listener);
+        if (type === 'abort') {
+          this._listeners.push(listener);
+          __addEventTargetEventListener(this, type, listener);
+        }
       };
       AbortSignal.prototype.removeEventListener = function(type, listener) {
         if (type === 'abort') {
           var idx = this._listeners.indexOf(listener);
           if (idx !== -1) this._listeners.splice(idx, 1);
+          __removeEventTargetEventListener(this, type, listener);
         }
       };
       AbortSignal.prototype.throwIfAborted = function() {
@@ -326,6 +360,7 @@
     function _initEvents() {
       function EventTarget() {
         this._listeners = {};
+        this[__exactEventTargetKEvents] = new Map();
       }
       EventTarget.prototype.addEventListener = function(type, listener, options) {
         var capture = false;
@@ -344,10 +379,12 @@
           }
         }
         listeners.push({ fn: listener, once: once, capture: capture });
+        __addEventTargetEventListener(this, type, listener);
       };
       EventTarget.prototype.removeEventListener = function(type, listener) {
         if (!this._listeners[type]) return;
         this._listeners[type] = this._listeners[type].filter(function(l) { return l.fn !== listener; });
+        __removeEventTargetEventListener(this, type, listener);
       };
       EventTarget.prototype.dispatchEvent = function(event) {
         if (!event || !event.type) return true;
@@ -365,6 +402,7 @@
           if (listener.once && current) {
             current = current.filter(function(entry) { return entry.fn !== listener.fn || entry.capture !== listener.capture; });
             this._listeners[event.type] = current;
+            __removeEventTargetEventListener(this, event.type, listener.fn);
           }
           try { listener.fn.call(this, event); } catch(e) {}
         }

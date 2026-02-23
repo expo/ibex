@@ -5683,6 +5683,14 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto keyBytes = extractBytes(runtime, args[1]);
         auto ivBytes = extractBytes(runtime, args[2]);
         auto data = extractBytes(runtime, args[3]);
+        auto aad = (count > 4 && !args[4].isUndefined() && !args[4].isNull())
+                       ? extractBytes(runtime, args[4])
+                       : std::vector<uint8_t>();
+        auto tagLen = (size_t)16;
+        if (count > 5 && !args[5].isUndefined() && !args[5].isNull()) {
+          auto requestedTagLen = static_cast<int>(args[5].asNumber());
+          if (requestedTagLen >= 1 && requestedTagLen <= 16) tagLen = static_cast<size_t>(requestedTagLen);
+        }
 
         const EVP_CIPHER* cipher = EVP_get_cipherbyname(algo.c_str());
         if (!cipher) {
@@ -5695,10 +5703,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         int outLen = 0;
         int finalLen = 0;
         bool isAEAD = (EVP_CIPHER_flags(cipher) & EVP_CIPH_FLAG_AEAD_CIPHER) != 0;
+        bool isCCM = algo.find("-ccm") != std::string::npos;
 
         // Output buffer: data + block size + possible tag
         int blockSize = EVP_CIPHER_block_size(cipher);
-        std::vector<uint8_t> out(data.size() + (blockSize * 2) + (isAEAD ? 16 : 0));
+        std::vector<uint8_t> out(data.size() + (blockSize * 2) + (isAEAD ? static_cast<int>(tagLen) : 0));
 
         if (EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) != 1) {
           EVP_CIPHER_CTX_free(ctx);
@@ -5710,9 +5719,32 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, ivBytes.size(), nullptr);
         }
 
+        if (isCCM) {
+          if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_TAG, static_cast<int>(tagLen), nullptr) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher set CCM tag length failed");
+          }
+        }
+
         if (EVP_EncryptInit_ex(ctx, nullptr, nullptr, keyBytes.data(), ivBytes.data()) != 1) {
           EVP_CIPHER_CTX_free(ctx);
           throw facebook::jsi::JSError(runtime, "Cipher key/iv init failed");
+        }
+
+        if (isCCM && isAEAD) {
+          int msgLen = static_cast<int>(data.size());
+          int msgLenOut = 0;
+          if (EVP_EncryptUpdate(ctx, nullptr, &msgLenOut, nullptr, msgLen) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher set CCM message length failed");
+          }
+        }
+        if (!aad.empty() && isAEAD) {
+          int aadLen = 0;
+          if (EVP_EncryptUpdate(ctx, nullptr, &aadLen, aad.data(), static_cast<int>(aad.size())) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher encrypt aad failed");
+          }
         }
 
         if (EVP_EncryptUpdate(ctx, out.data(), &outLen, data.data(), data.size()) != 1) {
@@ -5729,13 +5761,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
         // For AEAD ciphers, append the auth tag
         if (isAEAD) {
-          uint8_t tag[16];
-          if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, 16, tag) != 1) {
+          std::vector<uint8_t> tag(tagLen);
+          if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, static_cast<int>(tagLen), tag.data()) != 1) {
             EVP_CIPHER_CTX_free(ctx);
             throw facebook::jsi::JSError(runtime, "Failed to get auth tag");
           }
-          memcpy(out.data() + totalLen, tag, 16);
-          totalLen += 16;
+          memcpy(out.data() + totalLen, tag.data(), tag.size());
+          totalLen += static_cast<int>(tag.size());
         }
 
         EVP_CIPHER_CTX_free(ctx);
@@ -5761,6 +5793,18 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto keyBytes = extractBytes(runtime, args[1]);
         auto ivBytes = extractBytes(runtime, args[2]);
         auto data = extractBytes(runtime, args[3]);
+        auto authTag = (count > 4 && !args[4].isUndefined() && !args[4].isNull())
+                           ? extractBytes(runtime, args[4])
+                           : std::vector<uint8_t>();
+        auto aad = (count > 5 && !args[5].isUndefined() && !args[5].isNull())
+                       ? extractBytes(runtime, args[5])
+                       : std::vector<uint8_t>();
+        auto tagLen = (size_t)16;
+        if (!authTag.empty()) tagLen = authTag.size();
+        if (count > 6 && !args[6].isUndefined() && !args[6].isNull()) {
+          auto requestedTagLen = static_cast<int>(args[6].asNumber());
+          if (requestedTagLen >= 1 && requestedTagLen <= 16) tagLen = static_cast<size_t>(requestedTagLen);
+        }
 
         const EVP_CIPHER* cipher = EVP_get_cipherbyname(algo.c_str());
         if (!cipher) {
@@ -5768,6 +5812,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         }
 
         bool isAEAD = (EVP_CIPHER_flags(cipher) & EVP_CIPH_FLAG_AEAD_CIPHER) != 0;
+        bool isCCM = algo.find("-ccm") != std::string::npos;
 
         EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
         if (!ctx) throw facebook::jsi::JSError(runtime, "Failed to create cipher context");
@@ -5782,6 +5827,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, ivBytes.size(), nullptr);
         }
 
+        if (isCCM && isAEAD) {
+          if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_TAG, static_cast<int>(tagLen), nullptr) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher set CCM tag length failed");
+          }
+        }
+
         if (EVP_DecryptInit_ex(ctx, nullptr, nullptr, keyBytes.data(), ivBytes.data()) != 1) {
           EVP_CIPHER_CTX_free(ctx);
           throw facebook::jsi::JSError(runtime, "Cipher key/iv init failed");
@@ -5789,21 +5841,42 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
         // For AEAD ciphers, set the auth tag (from arg 4 or last 16 bytes of data)
         if (isAEAD) {
-          if (count >= 5 && !args[4].isUndefined() && !args[4].isNull()) {
-            auto tag = extractBytes(runtime, args[4]);
-            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, tag.size(), tag.data()) != 1) {
+          if (!authTag.empty()) {
+            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, static_cast<int>(tagLen), authTag.data()) != 1) {
               EVP_CIPHER_CTX_free(ctx);
               throw facebook::jsi::JSError(runtime, "Failed to set auth tag");
             }
           } else if (data.size() >= 16) {
             // Tag appended to end of data
-            uint8_t tag[16];
-            memcpy(tag, data.data() + data.size() - 16, 16);
+            auto tag = std::vector<uint8_t>(tagLen);
+            if (tag.empty()) {
+              tag.resize(16);
+            }
+            if (tag.size() < 16) {
+              tag.resize(16);
+            }
+            memcpy(tag.data(), data.data() + data.size() - 16, 16);
             data.resize(data.size() - 16);
-            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, 16, tag) != 1) {
+            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, static_cast<int>(tag.size()), tag.data()) != 1) {
               EVP_CIPHER_CTX_free(ctx);
               throw facebook::jsi::JSError(runtime, "Failed to set auth tag");
             }
+          }
+        }
+
+        if (isCCM && isAEAD) {
+          int msgLen = static_cast<int>(data.size());
+          int msgLenOut = 0;
+          if (EVP_DecryptUpdate(ctx, nullptr, &msgLenOut, nullptr, msgLen) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher set CCM message length failed");
+          }
+        }
+        if (!aad.empty() && isAEAD) {
+          int aadLen = 0;
+          if (EVP_DecryptUpdate(ctx, nullptr, &aadLen, aad.data(), static_cast<int>(aad.size())) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher decrypt aad failed");
           }
         }
 

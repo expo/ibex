@@ -204,28 +204,33 @@
       processVersions = processVersions && typeof processVersions === 'object'
         ? processVersions
         : {};
-      Object.defineProperty(globalThis.process, 'versions', {
-        value: {
-          node: processVersions.node || '24.13.1',
-          v8: processVersions.v8 || '0.0.0',
-          uv: processVersions.uv || '0.0.0',
-          zlib: processVersions.zlib || '1.3.1',
-          brotli: processVersions.brotli || '0.0.0',
-          ares: processVersions.ares || '0.0.0',
-          modules: processVersions.modules || '127',
-          nghttp2: processVersions.nghttp2 || '0.0.0',
-          napi: processVersions.napi || '9',
-          llhttp: processVersions.llhttp || '0.0.0',
-          uvwasi: processVersions.uvwasi || '0.0.0',
-          unicode: processVersions.unicode || '15.1',
-          openssl: processVersions.openssl || '0.0.0',
-          hermes: processVersions.hermes || '0.12.0',
-          exact: processVersions.exact || '0.1.0'
-        },
-        writable: true,
-        enumerable: true,
-        configurable: true
-      });
+      var patchedVersions = {
+        node: processVersions.node || '24.13.1',
+        v8: processVersions.v8 || '0.0.0',
+        uv: processVersions.uv || '0.0.0',
+        zlib: processVersions.zlib || '1.3.1',
+        brotli: processVersions.brotli || '0.0.0',
+        ares: processVersions.ares || '0.0.0',
+        modules: processVersions.modules || '127',
+        nghttp2: processVersions.nghttp2 || '0.0.0',
+        napi: processVersions.napi || '9',
+        llhttp: processVersions.llhttp || '0.0.0',
+        uvwasi: processVersions.uvwasi || '0.0.0',
+        unicode: processVersions.unicode || '15.1',
+        openssl: processVersions.openssl || '0.0.0',
+        hermes: processVersions.hermes || '0.12.0',
+        exact: processVersions.exact || '0.1.0'
+      };
+      try {
+        Object.defineProperty(globalThis.process, 'versions', {
+          value: patchedVersions,
+          writable: true,
+          enumerable: false,
+          configurable: true
+        });
+      } catch (err) {
+        globalThis.process.versions = patchedVersions;
+      }
       if (processVersions.node) {
         globalThis.process.version = 'v' + String(processVersions.node).replace(/^v/, '');
       }

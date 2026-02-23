@@ -8,14 +8,29 @@ function Stream() {
   this._closed = false;
   this._destroyed = false;
   this.destroyed = false;
+  this._needsClose = false;
 }
 Stream.prototype = Object.create(EventEmitter.prototype);
 Stream.prototype.constructor = Stream;
 
 Stream.prototype._emitClose = function() {
+  this._close(true);
+};
+
+Stream.prototype._close = function(force) {
   if (this._closed) {
     return;
   }
+  if (
+    !force &&
+    this._readableState &&
+    this._writableState &&
+    (!this._readableState.endEmitted || !this._writableState.finished)
+  ) {
+    this._needsClose = true;
+    return;
+  }
+  this._needsClose = false;
   this._closed = true;
   this.emit('close');
 };
@@ -55,11 +70,36 @@ Stream.prototype.destroy = function(error, callback) {
       self.errored = err;
       if (self._readableState) self._readableState.errored = err;
       if (self._writableState) self._writableState.errored = err;
-      self.emit('error', err);
+      try {
+        self.emit('error', err);
+      } catch (emitErr) {
+        if (
+          typeof process === 'object' &&
+          process &&
+          typeof process.emit === 'function' &&
+          typeof process.listenerCount === 'function' &&
+          process.listenerCount('uncaughtException') > 0
+        ) {
+          try {
+            process.emit('uncaughtException', emitErr);
+            return;
+          } catch (emitToProcessErr) {
+            throw emitToProcessErr;
+          }
+        }
+        if (
+          typeof globalThis.__exactUncaughtExceptionHandler === 'function' &&
+          globalThis.__exactUncaughtExceptionHandler(emitErr)
+        ) {
+          // routed to process uncaughtException
+        } else {
+          throw emitErr;
+        }
+      }
       if (self._readableState) self._readableState.errorEmitted = true;
       if (self._writableState) self._writableState.errorEmitted = true;
     }
-    self._emitClose();
+    self._close(true);
     if (typeof callback === 'function') callback(err);
   }
   if (typeof this._destroy === 'function') {
@@ -220,6 +260,16 @@ Readable.prototype._emitReadableIfNeeded = function() {
   this.emit('readable');
 };
 
+Readable.prototype._readFromSource = function() {
+  if (this._destroyed || this._readableState.reading || typeof this._read !== 'function') return;
+  this._readableState.reading = true;
+  try {
+    this._read();
+  } finally {
+    this._readableState.reading = false;
+  }
+};
+
 Readable.prototype.push = function(chunk) {
   if (this._destroyed) return false;
   if (chunk === null || chunk === undefined) {
@@ -237,7 +287,7 @@ Readable.prototype.push = function(chunk) {
       this._readableState.endEmitted = true;
       this._readableState.endedEmitted = true;
       this.emit('end');
-      this._emitClose();
+      this._close();
     } else {
       // Buffered end - will be emitted when the buffer is flushed via resume
       this._updateReadableLength();
@@ -261,6 +311,9 @@ Readable.prototype.push = function(chunk) {
 Readable.prototype.read = function() {
   if (this._destroyed) return null;
   this.readableDidRead = true;
+  if (this._data.length === 0 && !this._ended) {
+    this._readFromSource();
+  }
   var chunk = this._data.shift();
   if (chunk === undefined) return null;
   this._updateReadableLength();
@@ -296,20 +349,25 @@ Readable.prototype.resume = function() {
     this._readableState.resumeScheduled = false;
     // Flush buffered data asynchronously
     var self = this;
-    setTimeout(function() {
+  setTimeout(function() {
       if (self._destroyed || self.readableFlowing !== true) return;
-      while (self._data.length > 0 && self.readableFlowing === true) {
+      while (self.readableFlowing === true) {
+        if (self._data.length === 0 && !self._ended) {
+          self._readFromSource();
+        }
+        if (self._data.length === 0) {
+          if (self._ended && !self._readableState.endEmitted) {
+            self.readable = false;
+            self._readableState.endEmitted = true;
+            self._readableState.endedEmitted = true;
+            self.emit('end');
+            self._close();
+          }
+          return;
+        }
         var chunk = self._data.shift();
         self._updateReadableLength();
         self.emit('data', chunk);
-      }
-      // If ended and buffer is empty, emit end
-      if (self._ended && self._data.length === 0 && !self._readableState.endEmitted) {
-        self.readable = false;
-        self._readableState.endEmitted = true;
-        self._readableState.endedEmitted = true;
-        self.emit('end');
-        self._emitClose();
       }
     }, 0);
   }
@@ -1261,6 +1319,22 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     throw makeError(TypeError, 'ERR_STREAM_NULL_VALUES', 'May not write null values to stream');
   }
   // ERR_INVALID_ARG_TYPE - in non-objectMode, only strings, Buffers, and Uint8Arrays are valid
+  if (!this.writableObjectMode && typeof chunk === 'string') {
+    var enc = this._writableState && this._writableState.defaultEncoding ? this._writableState.defaultEncoding : (encoding || 'utf8');
+    if (typeof Buffer !== 'undefined' && Buffer.from) {
+      chunk = Buffer.from(chunk, enc);
+    } else {
+      if (typeof TextEncoder !== 'undefined') {
+        chunk = new TextEncoder().encode(chunk);
+      } else {
+        var textBytes = new Uint8Array(chunk.length);
+        for (var ti = 0; ti < chunk.length; ti++) {
+          textBytes[ti] = chunk.charCodeAt(ti) & 0xff;
+        }
+        chunk = textBytes;
+      }
+    }
+  }
   if (!this.writableObjectMode && typeof chunk !== 'string' &&
       !(typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) &&
       !(chunk instanceof Uint8Array)) {
@@ -1348,34 +1422,34 @@ Writable.prototype.end = function(chunk, encoding, callback) {
       for (var j = 0; j < cbs.length; j++) { cbs[j](self.errored || null); }
       return;
     }
-    self.writableFinished = true;
-    self._writableState.finished = true;
     self.emit('prefinish');
     // Defer finish emission
     setTimeout(function() {
       if (self._destroyed || self.errored) return;
+      self.writableFinished = true;
+      self._writableState.finished = true;
       self.emit('finish');
-      self._emitClose();
+      self._close();
       var cbs = self._endCallbacks;
       self._endCallbacks = [];
       for (var j = 0; j < cbs.length; j++) { cbs[j](null); }
     }, 0);
   };
 
-  if (typeof this._final === 'function') {
-    this._final(function(err) {
-      if (err) {
-        self.destroy(err);
-        var cbs = self._endCallbacks;
+    if (typeof this._final === 'function') {
+      this._final(function(err) {
+        if (err) {
+          self.destroy(err);
+          var cbs = self._endCallbacks;
         self._endCallbacks = [];
         for (var j = 0; j < cbs.length; j++) { cbs[j](err); }
         return;
       }
       done();
-    });
-  } else {
-    done();
-  }
+      });
+    } else {
+      done();
+    }
 };
 
 Writable.prototype.cork = function() {
@@ -1388,7 +1462,13 @@ Writable.prototype.uncork = function() {
     this._writableState.corked--;
   }
 };
-Writable.prototype.setDefaultEncoding = function(enc) { return this; };
+Writable.prototype.setDefaultEncoding = function(enc) {
+  if (!this._writableState) return this;
+  if (typeof enc === 'string') {
+    this._writableState.defaultEncoding = enc;
+  }
+  return this;
+};
 
 // Writable.toWeb / fromWeb
 Writable.toWeb = function(nodeWritable) {
@@ -1480,6 +1560,12 @@ Duplex.prototype.constructor = Duplex;
 function Transform(options) {
   if (!(this instanceof Transform)) return new Transform(options);
   Duplex.call(this, options);
+  if (!options || typeof options.final !== 'function') {
+    this._final = function(callback) {
+      this.push(null);
+      if (typeof callback === 'function') callback();
+    };
+  }
   if (options && typeof options.transform === 'function') this._transform = options.transform;
   if (options && typeof options.flush === 'function') this._flush = options.flush;
 }
@@ -1516,6 +1602,7 @@ PassThrough.prototype._transform = function(chunk, encoding, callback) {
 Stream.prototype.pipe = function(dest, options) {
   var source = this;
   var state = source._readableState;
+  var hasDrainListener = false;
 
   if (state) {
     state.pipes.push(dest);
@@ -1530,6 +1617,10 @@ Stream.prototype.pipe = function(dest, options) {
         if (state) {
           state.awaitDrainWriters = dest;
         }
+        if (!hasDrainListener) {
+          dest.on('drain', ondrain);
+          hasDrainListener = true;
+        }
         source.pause();
       }
     }
@@ -1539,12 +1630,14 @@ Stream.prototype.pipe = function(dest, options) {
     if (state) {
       state.awaitDrainWriters = null;
     }
+    if (hasDrainListener) {
+      dest.removeListener('drain', ondrain);
+      hasDrainListener = false;
+    }
     if (typeof source.resume === 'function') {
       source.resume();
     }
   }
-
-  dest.on('drain', ondrain);
 
   function onend() {
     if ((!options || options.end !== false) && dest && typeof dest.end === 'function') {
@@ -1564,14 +1657,32 @@ Stream.prototype.pipe = function(dest, options) {
     unpipe();
   }
 
+  function ondestroy() {
+    unpipe();
+  }
+
+  // If the destination is destroyed or errors, stop piping to avoid writes
+  // to a destroyed destination.
+  if (dest && typeof dest.on === 'function') {
+    dest.on('error', onerror);
+    dest.on('close', ondestroy);
+    dest.on('destroy', ondestroy);
+  }
+
   dest.on('close', onclose);
 
   function unpipe() {
     source.removeListener('data', ondata);
     source.removeListener('end', onend);
     source.removeListener('error', onerror);
-    dest.removeListener('drain', ondrain);
+    if (hasDrainListener) {
+      dest.removeListener('drain', ondrain);
+      hasDrainListener = false;
+    }
     dest.removeListener('close', onclose);
+    dest.removeListener('error', onerror);
+    dest.removeListener('close', ondestroy);
+    dest.removeListener('destroy', ondestroy);
     if (state) {
       var idx = state.pipes.indexOf(dest);
       if (idx !== -1) state.pipes.splice(idx, 1);
