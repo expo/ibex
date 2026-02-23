@@ -5,7 +5,16 @@ var _clearTimeout = globalThis.clearTimeout;
 var _setInterval = globalThis.setInterval;
 var _clearInterval = globalThis.clearInterval;
 
+function _validateTimerCallback(callback, name) {
+  if (typeof callback !== 'function') {
+    var err = new TypeError('[ERR_INVALID_ARG_TYPE]: The "' + name + '" argument must be of type function. Received type ' + typeof callback);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+}
+
 function setTimeout$1(callback, delay) {
+  _validateTimerCallback(callback, 'callback');
   var args = [];
   for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
   if (typeof _setTimeout !== "function") {
@@ -23,6 +32,7 @@ function clearTimeout$1(handle) {
 }
 
 function setInterval$1(callback, delay) {
+  _validateTimerCallback(callback, 'callback');
   var args = [];
   for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
   if (typeof _setInterval !== "function") {
@@ -40,6 +50,7 @@ function clearInterval$1(handle) {
 }
 
 function setImmediate$1(callback) {
+  _validateTimerCallback(callback, 'callback');
   var args = [];
   for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
   return setTimeout$1(function() {

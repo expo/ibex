@@ -648,12 +648,63 @@ function isIP(input) {
 }
 
 function isIPv4(input) {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(input);
+  if (typeof input !== 'string') return false;
+  var parts = input.split('.');
+  if (parts.length !== 4) return false;
+  for (var i = 0; i < 4; i++) {
+    if (!/^\d{1,3}$/.test(parts[i])) return false;
+    var num = parseInt(parts[i], 10);
+    if (num < 0 || num > 255) return false;
+    // Reject leading zeros (e.g. "01")
+    if (parts[i].length > 1 && parts[i][0] === '0') return false;
+  }
+  return true;
 }
 
 function isIPv6(input) {
-  return /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(input) ||
-         /^::1$/.test(input) || /^::$/.test(input);
+  if (typeof input !== 'string') return false;
+  // Strip zone ID (e.g. %eth0, %25eth0)
+  var zoneIdx = input.indexOf('%');
+  if (zoneIdx !== -1) input = input.substring(0, zoneIdx);
+  // Handle embedded IPv4 (last 32 bits as dotted-quad)
+  var v4Suffix = false;
+  var lastColon = input.lastIndexOf(':');
+  if (lastColon !== -1) {
+    var tail = input.substring(lastColon + 1);
+    if (tail.indexOf('.') !== -1) {
+      if (!isIPv4(tail)) return false;
+      v4Suffix = true;
+      input = input.substring(0, lastColon) + ':0:0';
+    }
+  }
+  // Reject ::: (triple colon)
+  if (input.indexOf(':::') !== -1) return false;
+  // Reject leading single colon (but not ::)
+  if (input.charAt(0) === ':' && input.charAt(1) !== ':') return false;
+  // Reject trailing single colon (but not ::)
+  if (input.charAt(input.length - 1) === ':' && input.charAt(input.length - 2) !== ':') return false;
+
+  var hasDoubleColon = input.indexOf('::') !== -1;
+  if (hasDoubleColon) {
+    // Only one :: allowed
+    if (input.indexOf('::') !== input.lastIndexOf('::')) return false;
+  }
+  var parts = input.split(':');
+  // Validate each group
+  for (var j = 0; j < parts.length; j++) {
+    if (parts[j] === '') continue;
+    if (!/^[0-9a-fA-F]{1,4}$/.test(parts[j])) return false;
+  }
+  if (hasDoubleColon) {
+    // Count non-empty groups; :: must represent at least 1 group, so non-empty ≤ 7
+    var nonEmpty = 0;
+    for (var k = 0; k < parts.length; k++) {
+      if (parts[k] !== '') nonEmpty++;
+    }
+    return nonEmpty <= 7;
+  } else {
+    return parts.length === 8;
+  }
 }
 
 // --- SocketAddress class ---

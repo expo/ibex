@@ -183,6 +183,16 @@ Buffer.from = function(value, encoding) {
 };
 
 Buffer.alloc = function(size, fill, encoding) {
+  if (typeof size !== 'number' || size !== size) {
+    var sizeErr = new RangeError('The value of "size" is out of range. It must be a non-negative integer. Received ' + (size !== size ? 'NaN' : size));
+    sizeErr.code = 'ERR_OUT_OF_RANGE';
+    throw sizeErr;
+  }
+  if (size < 0) {
+    var negErr = new RangeError('The value of "size" is out of range. It must be >= 0 && <= 2147483647. Received ' + size);
+    negErr.code = 'ERR_OUT_OF_RANGE';
+    throw negErr;
+  }
   var bytes = new Uint8Array(size || 0);
   if (fill === undefined || fill === null) {
     return makeBuffer(bytes);
@@ -208,10 +218,32 @@ Buffer.alloc = function(size, fill, encoding) {
   return makeBuffer(bytes);
 };
 
-Buffer.allocUnsafe = Buffer.alloc;
+Buffer.allocUnsafe = function(size) {
+  if (typeof size !== 'number' || size !== size) {
+    var sizeErr = new RangeError('The value of "size" is out of range. It must be a non-negative integer. Received ' + (size !== size ? 'NaN' : size));
+    sizeErr.code = 'ERR_OUT_OF_RANGE';
+    throw sizeErr;
+  }
+  if (size < 0) {
+    var negErr = new RangeError('The value of "size" is out of range. It must be >= 0 && <= 2147483647. Received ' + size);
+    negErr.code = 'ERR_OUT_OF_RANGE';
+    throw negErr;
+  }
+  return makeBuffer(new Uint8Array(size || 0));
+};
+Buffer.allocUnsafeSlow = Buffer.allocUnsafe;
 
 Buffer.byteLength = function(string, encoding) {
-  return encodeString(String(string), encoding || "utf8").length;
+  if (typeof string !== 'string' && !(string && string.__isExactBuffer) &&
+      !(string instanceof ArrayBuffer) && !ArrayBuffer.isView(string)) {
+    var err = new TypeError('The "string" argument must be of type string or an instance of Buffer or ArrayBuffer. Received type ' + typeof string);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (typeof string !== 'string') {
+    return string.byteLength !== undefined ? string.byteLength : string.length;
+  }
+  return encodeString(string, encoding || "utf8").length;
 };
 
 Buffer.compare = function(a, b) {
@@ -307,8 +339,25 @@ BufferProto.write = function(value, offset, length, encoding) {
     length = null;
   }
 
-  var bytes = encodeString(String(value), encoding || "utf8");
   if (offset == null) offset = 0;
+  if (typeof offset !== 'number') {
+    var offErr = new TypeError('The "offset" argument must be of type number. Received type ' + typeof offset);
+    offErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw offErr;
+  }
+  if (offset < 0 || offset > this.length) {
+    var rangeErr = new RangeError('The value of "offset" is out of range. It must be >= 0 && <= ' + this.length + '. Received ' + offset);
+    rangeErr.code = 'ERR_OUT_OF_RANGE';
+    throw rangeErr;
+  }
+
+  var _validEncodings = { 'utf8': 1, 'utf-8': 1, 'ascii': 1, 'latin1': 1, 'binary': 1, 'hex': 1, 'base64': 1, 'base64url': 1, 'ucs2': 1, 'ucs-2': 1, 'utf16le': 1, 'utf-16le': 1 };
+  var _enc = (encoding || 'utf8').toLowerCase();
+  if (!_validEncodings[_enc]) {
+    throw new TypeError('Unknown encoding: ' + encoding);
+  }
+
+  var bytes = encodeString(String(value), _enc);
   if (length == null || length > bytes.length) length = bytes.length;
   for (var i = 0; i < length && (offset + i) < this.length; i++) {
     this[offset + i] = bytes[i];
@@ -427,10 +476,21 @@ for (var _bk in BufferProto) {
 Buffer.prototype.__isExactBuffer = true;
 Buffer._protoReady = true;
 
+var kMaxLength = 2147483647; // 2^31 - 1
+var INSPECT_MAX_BYTES = 50;
+
+var constants = {
+  MAX_LENGTH: kMaxLength,
+  MAX_STRING_LENGTH: kMaxLength,
+};
+
 module.exports = {
   Buffer: Buffer,
   atob: typeof atob === "function" ? atob : undefined,
   btoa: typeof btoa === "function" ? btoa : undefined,
   SlowBuffer: Buffer,
   Blob: typeof Blob === "undefined" ? undefined : Blob,
+  kMaxLength: kMaxLength,
+  INSPECT_MAX_BYTES: INSPECT_MAX_BYTES,
+  constants: constants,
 };

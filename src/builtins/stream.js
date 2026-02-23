@@ -1,9 +1,13 @@
 var EventEmitter = require('node:events').EventEmitter;
 
+var defaultHighWaterMark = 16384;
+var defaultHighWaterMarkObjectMode = 16;
+
 function Stream() {
   EventEmitter.call(this);
   this._closed = false;
   this._destroyed = false;
+  this.destroyed = false;
 }
 Stream.prototype = Object.create(EventEmitter.prototype);
 Stream.prototype.constructor = Stream;
@@ -16,51 +20,57 @@ Stream.prototype._emitClose = function() {
   this.emit('close');
 };
 
-Stream.prototype.destroy = function(error) {
-  if (this._destroyed) return this;
+Stream.prototype.destroy = function(error, callback) {
+  if (this._destroyed || this.destroyed) {
+    if (typeof callback === 'function') {
+      setTimeout(function() { callback(); }, 0);
+    }
+    return this;
+  }
   this._destroyed = true;
+  this.destroyed = true;
   // Set readableAborted: true when destroyed before end was consumed by a listener
   if (this._readableState) {
     if (!this._readableState.endConsumed) {
       this.readableAborted = true;
     }
     this._readableState.destroyed = true;
+    this.readable = false;
     if (error) {
       this._readableState.errored = error;
+      this.errored = error;
     }
   }
   if (this._writableState) {
     this._writableState.destroyed = true;
+    this.writable = false;
     if (error) {
       this._writableState.errored = error;
+      this.errored = error;
     }
+  }
+  var self = this;
+  function emitErrorAndClose(err) {
+    if (err) {
+      self.errored = err;
+      if (self._readableState) self._readableState.errored = err;
+      if (self._writableState) self._writableState.errored = err;
+      self.emit('error', err);
+      if (self._readableState) self._readableState.errorEmitted = true;
+      if (self._writableState) self._writableState.errorEmitted = true;
+    }
+    self._emitClose();
+    if (typeof callback === 'function') callback(err);
   }
   if (typeof this._destroy === 'function') {
-    var self = this;
     this._destroy(error || null, function(err) {
-      if (err) {
-        if (self._readableState) {
-          self._readableState.errored = err;
-        }
-        if (self._writableState) {
-          self._writableState.errored = err;
-        }
-        self.emit('error', err);
-        if (self._readableState) {
-          self._readableState.errorEmitted = true;
-        }
-      }
-      self._emitClose();
+      // Defer error/close when using custom _destroy
+      setTimeout(function() { emitErrorAndClose(err); }, 0);
     });
-    return this;
+  } else {
+    // Synchronous path when no _destroy
+    emitErrorAndClose(error || null);
   }
-  if (error !== undefined && error !== null) {
-    this.emit('error', error);
-    if (this._readableState) {
-      this._readableState.errorEmitted = true;
-    }
-  }
-  this._emitClose();
   return this;
 };
 
@@ -68,16 +78,30 @@ function Readable(options) {
   Stream.call(this);
   this._data = [];
   this._ended = false;
-  this.readableHighWaterMark = (options && options.highWaterMark) || 16384;
-  this.readableObjectMode = !!(options && options.objectMode);
+  // Determine objectMode: readableObjectMode overrides objectMode if present
+  var objMode = (options && options.readableObjectMode != null) ? !!options.readableObjectMode :
+                !!(options && options.objectMode);
+  // Determine highWaterMark: explicit highWaterMark wins, then readableHighWaterMark, then default
+  var hwm;
+  if (options && options.highWaterMark != null) {
+    hwm = options.highWaterMark;
+  } else if (options && options.readableHighWaterMark != null) {
+    hwm = options.readableHighWaterMark;
+  } else {
+    hwm = objMode ? defaultHighWaterMarkObjectMode : defaultHighWaterMark;
+  }
+  this.readableHighWaterMark = hwm;
+  this.readableObjectMode = objMode;
   this.readableEncoding = (options && options.encoding) || null;
   this.readableFlowing = null;
   this.readableEnded = false;
   this.readableAborted = false;
   this.readableDidRead = false;
+  this.readable = true;
+  this.errored = null;
   this._readableState = {
-    highWaterMark: (options && options.highWaterMark) || 16384,
-    objectMode: !!(options && options.objectMode),
+    highWaterMark: hwm,
+    objectMode: objMode,
     length: 0,
     reading: false,
     ended: false,
@@ -110,6 +134,15 @@ function Readable(options) {
     needDrain: false,
     pendingcb: 0,
   };
+  if (options && options.defaultEncoding !== undefined) {
+    var _validEncodings = { 'utf8': 1, 'utf-8': 1, 'ascii': 1, 'latin1': 1, 'binary': 1, 'hex': 1, 'base64': 1, 'base64url': 1, 'ucs2': 1, 'ucs-2': 1, 'utf16le': 1, 'utf-16le': 1 };
+    if (!_validEncodings[String(options.defaultEncoding).toLowerCase()]) {
+      var encErr = new TypeError('Unknown encoding: ' + options.defaultEncoding);
+      encErr.code = 'ERR_UNKNOWN_ENCODING';
+      throw encErr;
+    }
+    this._readableState.defaultEncoding = options.defaultEncoding;
+  }
   if (options && typeof options.read === 'function') this._read = options.read;
   if (options && typeof options.destroy === 'function') this._destroy = options.destroy;
   // construct callback support
@@ -191,6 +224,7 @@ Readable.prototype.push = function(chunk) {
   if (chunk === null || chunk === undefined) {
     this._ended = true;
     this.readableEnded = true;
+    this.readable = false;
     this._readableState.ended = true;
     this._updateReadableLength();
     if (this._readableState.length > 0) {
@@ -921,9 +955,6 @@ Readable.prototype.compose = function(val, options) {
 };
 
 // setDefaultHighWaterMark / getDefaultHighWaterMark
-var defaultHighWaterMark = 16384;
-var defaultHighWaterMarkObjectMode = 16;
-
 Readable.setDefaultHighWaterMark = function(objectMode, value) {
   if (objectMode) {
     defaultHighWaterMarkObjectMode = value;
@@ -1072,17 +1103,33 @@ Readable.fromWeb = function(webStream, options) {
 
 function Writable(options) {
   Stream.call(this);
+  // Determine objectMode: writableObjectMode overrides objectMode if present
+  var objMode = (options && options.writableObjectMode != null) ? !!options.writableObjectMode :
+                !!(options && options.objectMode);
+  // Determine highWaterMark: explicit highWaterMark wins, then writableHighWaterMark, then default
+  var hwm;
+  if (options && options.highWaterMark != null) {
+    hwm = options.highWaterMark;
+  } else if (options && options.writableHighWaterMark != null) {
+    hwm = options.writableHighWaterMark;
+  } else {
+    hwm = objMode ? defaultHighWaterMarkObjectMode : defaultHighWaterMark;
+  }
   this.writableEnded = false;
   this.writableFinished = false;
-  this.writableHighWaterMark = (options && options.highWaterMark) || 16384;
-  this.writableObjectMode = !!(options && options.objectMode);
+  this.writableHighWaterMark = hwm;
+  this.writableObjectMode = objMode;
   this.writableLength = 0;
   this.writableAborted = false;
+  this.writableCorked = 0;
+  this.writableNeedDrain = false;
+  this.writable = true;
+  this.errored = null;
   this._written = [];
   this._needDrain = false;
   this._writableState = {
-    highWaterMark: (options && options.highWaterMark) || 16384,
-    objectMode: !!(options && options.objectMode),
+    highWaterMark: hwm,
+    objectMode: objMode,
     length: 0,
     writing: false,
     ended: false,
@@ -1104,6 +1151,15 @@ function Writable(options) {
     emittedClose: false,
     corked: 0,
   };
+  if (options && options.defaultEncoding !== undefined) {
+    var _validEncs = { 'utf8': 1, 'utf-8': 1, 'ascii': 1, 'latin1': 1, 'binary': 1, 'hex': 1, 'base64': 1, 'base64url': 1, 'ucs2': 1, 'ucs-2': 1, 'utf16le': 1, 'utf-16le': 1 };
+    if (!_validEncs[String(options.defaultEncoding).toLowerCase()]) {
+      var encErr = new TypeError('Unknown encoding: ' + options.defaultEncoding);
+      encErr.code = 'ERR_UNKNOWN_ENCODING';
+      throw encErr;
+    }
+    this._writableState.defaultEncoding = options.defaultEncoding;
+  }
   if (options && typeof options.write === 'function') this._write = options.write;
   if (options && typeof options.writev === 'function') this._writev = options.writev;
   if (options && typeof options.destroy === 'function') this._destroy = options.destroy;
@@ -1133,8 +1189,29 @@ function Writable(options) {
 Writable.prototype = Object.create(Stream.prototype);
 Writable.prototype.constructor = Writable;
 
+Writable.prototype._undestroy = function() {
+  this._destroyed = false;
+  this.destroyed = false;
+  if (this._writableState) {
+    this._writableState.destroyed = false;
+    this._writableState.ended = false;
+    this._writableState.ending = false;
+    this._writableState.finished = false;
+    this._writableState.errored = null;
+    this._writableState.errorEmitted = false;
+  }
+  this.writable = true;
+  this.writableEnded = false;
+  this.writableFinished = false;
+  this.errored = null;
+  this._closed = false;
+};
+
 Writable.prototype._write = function(chunk, encoding, callback) {
-  if (typeof callback === 'function') callback();
+  var err = new Error('The _write() method is not implemented');
+  err.code = 'ERR_METHOD_NOT_IMPLEMENTED';
+  if (typeof callback === 'function') callback(err);
+  else throw err;
 };
 
 Writable.prototype.write = function(chunk, encoding, callback) {
@@ -1144,10 +1221,21 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     var destroyErr = new Error('Cannot call write after a stream was destroyed');
     destroyErr.code = 'ERR_STREAM_DESTROYED';
     if (typeof callback === 'function') {
-      callback(destroyErr);
+      setTimeout(function() { callback(destroyErr); }, 0);
       return false;
     }
     throw destroyErr;
+  }
+  // ERR_STREAM_WRITE_AFTER_END - reject writes after end
+  if (this.writableEnded) {
+    var endErr = new Error('write after end');
+    endErr.code = 'ERR_STREAM_WRITE_AFTER_END';
+    if (typeof callback === 'function') {
+      setTimeout(function() { callback(endErr); }, 0);
+      return false;
+    }
+    this.emit('error', endErr);
+    return false;
   }
   // ERR_STREAM_NULL_VALUES - null is never valid in objectMode or otherwise
   if (chunk === null) {
@@ -1166,46 +1254,113 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     this.writableLength += chunkLen;
   }
   var self = this;
+  this._writableState.writing = true;
   this._write(chunk, encoding || 'utf8', function(err) {
+    self._writableState.writing = false;
     self.writableLength -= chunkLen;
     if (self.writableLength < 0) self.writableLength = 0;
-    if (self._needDrain && self.writableLength < self.writableHighWaterMark) {
+    if (!self._destroyed && self._needDrain && self.writableLength < self.writableHighWaterMark) {
       self._needDrain = false;
+      self.writableNeedDrain = false;
       self.emit('drain');
     }
-    if (err) { if (typeof callback === 'function') callback(err); }
-    else { if (typeof callback === 'function') callback(); }
+    if (err) {
+      self.writable = false;
+      self.errored = err;
+      if (self._writableState) self._writableState.errored = err;
+      if (typeof callback === 'function') callback(err);
+      // autoDestroy on write error
+      if (self._writableState && self._writableState.autoDestroy && !self._destroyed) {
+        self.destroy(err);
+      }
+    } else {
+      if (typeof callback === 'function') callback();
+    }
   });
   if (this.writableLength >= this.writableHighWaterMark) {
     this._needDrain = true;
+    this.writableNeedDrain = true;
     return false;
   }
   return true;
 };
 
 Writable.prototype.end = function(chunk, encoding, callback) {
-  if (typeof chunk === 'function') { callback = chunk; chunk = null; }
+  if (typeof chunk === 'function') { callback = chunk; chunk = null; encoding = null; }
   if (typeof encoding === 'function') { callback = encoding; encoding = null; }
+
+  // If already ended, send ERR_STREAM_WRITE_AFTER_END to callback
+  if (this.writableEnded) {
+    var writeAfterEndErr = new Error('write after end');
+    writeAfterEndErr.code = 'ERR_STREAM_WRITE_AFTER_END';
+    if (typeof callback === 'function') {
+      var self2 = this;
+      setTimeout(function() { callback(writeAfterEndErr); }, 0);
+    }
+    return this;
+  }
+
   if (chunk !== undefined && chunk !== null) {
     this.write(chunk, encoding);
   }
   this.writableEnded = true;
+  this.writable = false;
+  this._writableState.ending = true;
+  this._writableState.ended = true;
+
   var self = this;
+  // Collect end callbacks (if multiple end() calls happened before writableEnded)
+  if (!this._endCallbacks) this._endCallbacks = [];
+  if (typeof callback === 'function') this._endCallbacks.push(callback);
+
   var done = function() {
+    if (self._destroyed || self.errored) {
+      // If destroyed or errored before finish fires, don't emit finish
+      var cbs = self._endCallbacks;
+      self._endCallbacks = [];
+      for (var j = 0; j < cbs.length; j++) { cbs[j](self.errored || null); }
+      return;
+    }
     self.writableFinished = true;
-    self.emit('finish');
-    self._emitClose();
-    if (typeof callback === 'function') callback();
+    self._writableState.finished = true;
+    self.emit('prefinish');
+    // Defer finish emission
+    setTimeout(function() {
+      if (self._destroyed || self.errored) return;
+      self.emit('finish');
+      self._emitClose();
+      var cbs = self._endCallbacks;
+      self._endCallbacks = [];
+      for (var j = 0; j < cbs.length; j++) { cbs[j](null); }
+    }, 0);
   };
+
   if (typeof this._final === 'function') {
-    this._final(done);
+    this._final(function(err) {
+      if (err) {
+        self.destroy(err);
+        var cbs = self._endCallbacks;
+        self._endCallbacks = [];
+        for (var j = 0; j < cbs.length; j++) { cbs[j](err); }
+        return;
+      }
+      done();
+    });
   } else {
     done();
   }
 };
 
-Writable.prototype.cork = function() {};
-Writable.prototype.uncork = function() {};
+Writable.prototype.cork = function() {
+  this.writableCorked++;
+  this._writableState.corked++;
+};
+Writable.prototype.uncork = function() {
+  if (this.writableCorked > 0) {
+    this.writableCorked--;
+    this._writableState.corked--;
+  }
+};
 Writable.prototype.setDefaultEncoding = function(enc) { return this; };
 
 // Writable.toWeb / fromWeb
@@ -1303,8 +1458,10 @@ Transform.prototype = Object.create(Duplex.prototype);
 Transform.prototype.constructor = Transform;
 
 Transform.prototype._transform = function(chunk, encoding, callback) {
-  this.push(chunk);
-  if (typeof callback === 'function') callback();
+  var err = new Error('The _transform() method is not implemented');
+  err.code = 'ERR_METHOD_NOT_IMPLEMENTED';
+  if (typeof callback === 'function') callback(err);
+  else throw err;
 };
 
 Transform.prototype.write = function(chunk, encoding, callback) {
@@ -1322,6 +1479,10 @@ function PassThrough(options) {
 }
 PassThrough.prototype = Object.create(Transform.prototype);
 PassThrough.prototype.constructor = PassThrough;
+PassThrough.prototype._transform = function(chunk, encoding, callback) {
+  this.push(chunk);
+  if (typeof callback === 'function') callback();
+};
 
 Stream.prototype.pipe = function(dest, options) {
   var source = this;
@@ -1440,10 +1601,13 @@ function pipeline() {
   }
 
   var streams = args;
+  if (streams.length === 0) {
+    var err = makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams[0]" argument must be of type Stream. Received undefined');
+    throw err;
+  }
   if (streams.length < 2) {
-    var err = new Error('pipeline requires at least 2 streams');
-    if (callback) { callback(err); return; }
-    return Promise.reject(err);
+    var err = makeError(Error, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified');
+    throw err;
   }
 
   var signal = options && options.signal;
@@ -1537,6 +1701,12 @@ function finished(stream, options, callback) {
     options = {};
   }
   options = options || {};
+
+  // Validate that the first argument is a stream
+  if (!stream || (typeof stream.on !== 'function' && typeof stream.pipe !== 'function')) {
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "stream" argument must be an instance of Stream. Received ' + (stream === null ? 'null' : typeof stream));
+  }
+
   var called = false;
 
   function done(err) {

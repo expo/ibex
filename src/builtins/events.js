@@ -331,8 +331,7 @@ EventEmitter.prototype.emit = function emit(eventName) {
     }
     var stringifiedEr;
     try {
-      stringifiedEr = typeof er === 'object' && er !== null ?
-        require('util').inspect(er) : String(er);
+      stringifiedEr = require('util').inspect(er);
     } catch (e) {
       stringifiedEr = '[object Object]';
     }

@@ -229,6 +229,16 @@
       if (processVersions.node) {
         globalThis.process.version = 'v' + String(processVersions.node).replace(/^v/, '');
       }
+      // Node compat: set process.release.name to 'node' for compatibility
+      // process is a HostObject, so we need Object.defineProperty to override
+      try {
+        var existingRelease = globalThis.process.release;
+        var releaseObj = (existingRelease && typeof existingRelease === 'object') ?
+          Object.assign({}, existingRelease, { name: 'node' }) : { name: 'node' };
+        Object.defineProperty(globalThis.process, 'release', {
+          value: releaseObj, writable: true, configurable: true, enumerable: true
+        });
+      } catch (e) {}
     } catch (err) {
       // Keep bootstrap resilient if process version patching fails.
     }

@@ -33,6 +33,11 @@ function _validatePath(path, propName) {
   if (typeof path !== 'string' && !Buffer.isBuffer(path)) {
     throw _fsInvalidArgType(propName || 'path', 'string', path);
   }
+  if (typeof path === 'string' && path.indexOf('\u0000') !== -1) {
+    var err = new TypeError('The argument "' + (propName || 'path') + '" must be a string, Uint8Array, or URL without null bytes. Received ' + JSON.stringify(path));
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
 }
 
 function _validateCallback(cb) {
@@ -99,6 +104,7 @@ function wrapBuffer(bytes) {
 }
 
 function readFileSync(path, options) {
+  _validatePath(path);
   ensureExactFs();
   var encoding = typeof options === 'string' ? options : (options && options.encoding);
   var bytes = g.__exactReadFile(path);
@@ -107,16 +113,19 @@ function readFileSync(path, options) {
 }
 
 function writeFileSync(path, data, options) {
+  _validatePath(path);
   ensureExactFs();
   g.__exactWriteFile(path, toUint8Array(data));
 }
 
 function appendFileSync(path, data, options) {
+  _validatePath(path);
   ensureExactFs();
   g.__exactAppendFile(path, toUint8Array(data));
 }
 
 function statSync(path) {
+  _validatePath(path);
   ensureExactFs();
   var json = g.__exactStat(path);
   var raw = JSON.parse(json);
@@ -137,6 +146,7 @@ function statSync(path) {
 }
 
 function lstatSync(path) {
+  _validatePath(path);
   ensureExactFs();
   var json = g.__exactLstat(path);
   var raw = JSON.parse(json);
@@ -153,24 +163,26 @@ function lstatSync(path) {
 }
 
 function readdirSync(path) {
+  _validatePath(path);
   ensureExactFs();
   return JSON.parse(g.__exactReaddir(path));
 }
 
 function mkdirSync(path, options) {
+  _validatePath(path);
   ensureExactFs();
   var recursive = typeof options === 'object' && options !== null ? !!options.recursive : false;
   g.__exactMkdir(path, recursive);
 }
 
-function rmdirSync(path) { ensureExactFs(); g.__exactRmdir(path); }
-function unlinkSync(path) { ensureExactFs(); g.__exactUnlink(path); }
-function renameSync(oldPath, newPath) { ensureExactFs(); g.__exactRename(oldPath, newPath); }
-function copyFileSync(src, dest) { ensureExactFs(); g.__exactCopyFile(src, dest); }
-function accessSync(path, mode) { ensureExactFs(); g.__exactAccess(path, mode || 0); }
-function chmodSync(path, mode) { ensureExactFs(); g.__exactChmod(path, mode); }
-function realpathSync(path) { ensureExactFs(); return g.__exactRealpath(path); }
-function mkdtempSync(prefix) { ensureExactFs(); return g.__exactMkdtemp(prefix); }
+function rmdirSync(path) { _validatePath(path); ensureExactFs(); g.__exactRmdir(path); }
+function unlinkSync(path) { _validatePath(path); ensureExactFs(); g.__exactUnlink(path); }
+function renameSync(oldPath, newPath) { _validatePath(oldPath, 'oldPath'); _validatePath(newPath, 'newPath'); ensureExactFs(); g.__exactRename(oldPath, newPath); }
+function copyFileSync(src, dest) { _validatePath(src, 'src'); _validatePath(dest, 'dest'); ensureExactFs(); g.__exactCopyFile(src, dest); }
+function accessSync(path, mode) { _validatePath(path); ensureExactFs(); g.__exactAccess(path, mode || 0); }
+function chmodSync(path, mode) { _validatePath(path); ensureExactFs(); g.__exactChmod(path, mode); }
+function realpathSync(path) { _validatePath(path); ensureExactFs(); return g.__exactRealpath(path); }
+function mkdtempSync(prefix) { _validatePath(prefix, 'prefix'); ensureExactFs(); return g.__exactMkdtemp(prefix); }
 
 function existsSync(path) {
   ensureExactFs();

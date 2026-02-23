@@ -8796,7 +8796,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   {
     facebook::jsi::Object releaseObj(rt);
     releaseObj.setProperty(rt, "name",
-        facebook::jsi::String::createFromUtf8(rt, "ex"));
+        facebook::jsi::String::createFromUtf8(rt, "node"));
     processObj.setProperty(rt, "release", std::move(releaseObj));
   }
 

@@ -22,6 +22,11 @@ function _coerceUrl(value) {
 
 function _patchUrlStatics(URLCtor) {
   URLCtor.canParse = function(input, base) {
+    if (arguments.length === 0) {
+      var err = new TypeError('The "url" argument must be specified');
+      err.code = 'ERR_MISSING_ARGS';
+      throw err;
+    }
     if (typeof input === "undefined") {
       return false;
     }
@@ -96,14 +101,38 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
     _patchUrlComponentSetter(URLExport, "username");
     _patchUrlComponentSetter(URLExport, "password");
 
+  // Create wrapped canParse that validates arguments
+  var _nativeCanParse = URLExport.canParse ? URLExport.canParse.bind(URLExport) : null;
+  function _wrappedCanParse(input, base) {
+    if (arguments.length === 0) {
+      var err = new TypeError('The "url" argument must be specified');
+      err.code = 'ERR_MISSING_ARGS';
+      throw err;
+    }
+    if (_nativeCanParse) {
+      return arguments.length === 1 ? _nativeCanParse(input) : _nativeCanParse(input, base);
+    }
+    try {
+      arguments.length === 1 ? new URLExport(input) : new URLExport(input, base);
+      return true;
+    } catch(e) { return false; }
+  }
+
   function fileURLToPath(path) {
+    if (typeof path !== 'string' && !(typeof path === 'object' && path !== null && typeof path.href === 'string')) {
+      var typeErr = new TypeError('The "path" argument must be of type string or an instance of URL. Received ' + (path === null ? 'null' : typeof path === 'object' ? 'an instance of ' + (path.constructor ? path.constructor.name : 'Object') : 'type ' + typeof path));
+      typeErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw typeErr;
+    }
     // If already a plain filesystem path (not a URL), return it directly
     if (typeof path === 'string' && !path.startsWith('file:') && !path.startsWith('http:') && !path.startsWith('https:')) {
       return path;
     }
     var url = _coerceUrl(path);
     if (url && url.protocol && url.protocol !== "file:") {
-      throw new TypeError("Invalid URL protocol");
+      var schemeErr = new TypeError('The URL must be of scheme file');
+      schemeErr.code = 'ERR_INVALID_URL_SCHEME';
+      throw schemeErr;
     }
     var value = url.pathname || "";
     if (typeof value === "string" && value.length >= 4 && value.charAt(0) === "/" && value.charAt(2) === ":") {
@@ -134,11 +163,43 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
     return new URLExport("file:///" + pathValue);
   }
 
-  function format(urlObj) {
-    return _coerceUrl(urlObj).href;
+  function format(urlObj, options) {
+    if (options !== undefined && options !== null && typeof options !== 'object') {
+      var err = new TypeError('The "options" argument must be of type object. Received type ' + typeof options);
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+    var url = _coerceUrl(urlObj);
+    var href = url.href;
+    if (options) {
+      if (options.auth === false) {
+        // Remove userinfo from URL
+        var authority = url.username ? (url.password ? url.username + ':' + url.password + '@' : url.username + '@') : '';
+        if (authority) {
+          href = href.replace(authority, '');
+        }
+      }
+      if (options.fragment === false) {
+        var hashIdx = href.indexOf('#');
+        if (hashIdx !== -1) href = href.substring(0, hashIdx);
+      }
+      if (options.search === false) {
+        var searchIdx = href.indexOf('?');
+        var hashIdx2 = href.indexOf('#');
+        if (searchIdx !== -1) {
+          href = href.substring(0, searchIdx) + (hashIdx2 !== -1 ? href.substring(hashIdx2) : '');
+        }
+      }
+    }
+    return href;
   }
 
   function parse(value) {
+    if (typeof value !== 'string') {
+      var err = new TypeError('The "url" argument must be of type string. Received type ' + (value === null ? 'null' : typeof value));
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
     return URLExport.parse(value);
   }
 
@@ -153,7 +214,10 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
     parse: parse,
     resolve: resolve,
     fileURLToPath: fileURLToPath,
-    pathToFileURL: pathToFileURL
+    pathToFileURL: pathToFileURL,
+    canParse: _wrappedCanParse,
+    domainToASCII: typeof URLExport.domainToASCII === 'function' ? URLExport.domainToASCII.bind(URLExport) : function(domain) { return domain; },
+    domainToUnicode: typeof URLExport.domainToUnicode === 'function' ? URLExport.domainToUnicode.bind(URLExport) : function(domain) { return domain; },
   };
   return;
 }

@@ -142,7 +142,17 @@ function timingSafeEqual(a, b) {
   return result === 0;
 }
 
-function randomUUID() {
+function randomUUID(options) {
+  if (options !== undefined && (typeof options !== 'object' || options === null)) {
+    var err = new TypeError('[ERR_INVALID_ARG_TYPE]: The "options" argument must be of type object. Received type ' + typeof options);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (options && options.disableEntropyCache !== undefined && typeof options.disableEntropyCache !== 'boolean') {
+    var err2 = new TypeError('[ERR_INVALID_ARG_TYPE]: The "options.disableEntropyCache" argument must be of type boolean. Received type ' + typeof options.disableEntropyCache);
+    err2.code = 'ERR_INVALID_ARG_TYPE';
+    throw err2;
+  }
   // Use globalThis.crypto if available
   if (typeof globalThis !== 'undefined' && globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
