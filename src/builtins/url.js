@@ -97,6 +97,10 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
     _patchUrlComponentSetter(URLExport, "password");
 
   function fileURLToPath(path) {
+    // If already a plain filesystem path (not a URL), return it directly
+    if (typeof path === 'string' && !path.startsWith('file:') && !path.startsWith('http:') && !path.startsWith('https:')) {
+      return path;
+    }
     var url = _coerceUrl(path);
     if (url && url.protocol && url.protocol !== "file:") {
       throw new TypeError("Invalid URL protocol");
@@ -1715,7 +1719,7 @@ function _coerceUrl(input) {
     throw new TypeError('Expected URL or string');
   }
   if (typeof input === "string") {
-    return new URL(input);
+    return new URLExport(input);
   }
   if (typeof input === 'object') {
     return input;
@@ -1724,6 +1728,10 @@ function _coerceUrl(input) {
 }
 
 function fileURLToPath(path) {
+  // If already a plain filesystem path (not a URL), return it directly
+  if (typeof path === 'string' && !path.startsWith('file:') && !path.startsWith('http:') && !path.startsWith('https:')) {
+    return path;
+  }
   var url = _coerceUrl(path);
   if (url.protocol && url.protocol !== 'file:') {
     throw new TypeError('Invalid URL protocol');
@@ -1747,7 +1755,7 @@ function pathToFileURL(path) {
   if (normalized.charAt(0) !== '/') {
     normalized = '/' + normalized;
   }
-  return new URL('file://' + normalized);
+  return new URLExport('file://' + normalized);
 }
 
 function format(urlObj) {
@@ -1755,11 +1763,11 @@ function format(urlObj) {
 }
 
 function parse(value) {
-  return new URL(value);
+  return new URLExport(value);
 }
 
 function resolve(from, to) {
-  return new URL(to, from).href;
+  return new URLExport(to, from).href;
 }
 
 module.exports = {

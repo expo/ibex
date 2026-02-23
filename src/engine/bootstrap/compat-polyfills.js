@@ -513,8 +513,11 @@
         globalThis.global = globalThis;
       }
       globalThis.__exactRequire('bun:test');
+      // Also load the 'bun' module to merge shim properties (unsafe, Glob, etc.)
+      // onto the runtime-provided globalThis.Bun object.
+      globalThis.__exactRequire('bun');
     } catch (err) {
-      // Keep bootstrap resilient if bun:test cannot be loaded.
+      // Keep bootstrap resilient if bun:test/bun cannot be loaded.
     }
   }
 })();
