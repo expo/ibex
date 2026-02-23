@@ -6,6 +6,16 @@
 
 var errorMonitorSymbol = Symbol('events.errorMonitor');
 
+function _invalidArgType(name, value) {
+  var type = value === null ? 'null' : (typeof value);
+  var err = new TypeError(
+    'The "' + name + '" argument must be of type object. Received ' +
+    (type === 'object' && value && value.constructor && value.constructor.name ? 'an instance of ' + value.constructor.name : type)
+  );
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  return err;
+}
+
 var _defaultMaxListeners = 10;
 
 function checkListener(listener) {
@@ -322,23 +332,44 @@ EventEmitter.prototype.emit = function emit(eventName) {
   }
 
   if (doError) {
-    var er;
-    if (arguments.length > 1) {
-      er = arguments[1];
+    var er = arguments.length > 1 ? arguments[1] : undefined;
+    if (this.domain && typeof this.domain.emit === 'function') {
+      if (er === undefined || er === null || er === false) {
+        er = new Error('Unhandled error.');
+      }
+      if (!(er instanceof Error)) {
+        this.domain.emit('error', er);
+      } else {
+        this.domain.emit('error', er);
+      }
+      return false;
     }
-    if (er instanceof Error) {
-      throw er;
+    var unhandledErr = er;
+    if (!(unhandledErr instanceof Error)) {
+      if (unhandledErr === undefined || unhandledErr === null || unhandledErr === false) {
+        unhandledErr = new Error('Unhandled error.');
+      } else {
+        var unhandledErrStringified;
+        try {
+          unhandledErrStringified = require('util').inspect(unhandledErr);
+        } catch (e) {
+          unhandledErrStringified = '[object Object]';
+        }
+        unhandledErr = new Error('Unhandled error.' + (unhandledErr !== undefined ? ' (' + unhandledErrStringified + ')' : ''));
+        unhandledErr.code = 'ERR_UNHANDLED_ERROR';
+        unhandledErr.context = er;
+      }
     }
-    var stringifiedEr;
-    try {
-      stringifiedEr = require('util').inspect(er);
-    } catch (e) {
-      stringifiedEr = '[object Object]';
+    if (typeof globalThis.__exactUncaughtExceptionHandler === 'function') {
+      var wasHandledByUncaught = globalThis.__exactUncaughtExceptionHandler(unhandledErr);
+      if (wasHandledByUncaught) {
+        return false;
+      }
     }
-    var err = new Error('Unhandled error.' + (er !== undefined ? ' (' + stringifiedEr + ')' : ''));
-    err.code = 'ERR_UNHANDLED_ERROR';
-    err.context = er;
-    throw err;
+    if (unhandledErr instanceof Error) {
+      throw unhandledErr;
+    }
+    throw unhandledErr;
   }
 
   var handler = events ? events[eventName] : undefined;
@@ -420,23 +451,101 @@ EventEmitter.prototype.eventNames = function eventNames() {
 // Static once
 function once(emitter, eventName, options) {
   return new Promise(function(resolve, reject) {
-    function errorListener(err) {
-      emitter.removeListener(eventName, resolver);
+    var isEmitterObject = (emitter !== null && (typeof emitter === 'object' || typeof emitter === 'function'));
+    if (!isEmitterObject) {
+      return reject(_invalidArgType('emitter', emitter));
+    }
+
+    if (options !== undefined) {
+      if (options === null || typeof options !== 'object') {
+        return reject(_invalidArgType('options', options));
+      }
+      if (options.signal !== undefined) {
+        if (options.signal === null || (typeof options.signal !== 'object' && typeof options.signal !== 'function') ||
+            typeof options.signal.addEventListener !== 'function' || typeof options.signal.removeEventListener !== 'function') {
+          var signalType = options.signal === null ? 'null' : (typeof options.signal);
+          var signalErr = new TypeError(
+            'The "options.signal" property must be an AbortSignal. Received ' + (signalType === 'object' && options.signal && options.signal.constructor && options.signal.constructor.name ?
+              ('an instance of ' + options.signal.constructor.name) : signalType)
+          );
+          signalErr.code = 'ERR_INVALID_ARG_TYPE';
+          return reject(signalErr);
+        }
+      }
+    }
+
+    var signal = options && options.signal;
+    var removeSignalListener = null;
+    var cleanup = function() {
+      if (typeof removeEventListenerFromEmitter === 'function') {
+        removeEventListenerFromEmitter();
+      }
+      if (typeof removeErrorListener === 'function') {
+        removeErrorListener();
+      }
+      if (typeof removeSignalListener === 'function') {
+        removeSignalListener();
+      }
+      removeEventListenerFromEmitter = null;
+      removeErrorListener = null;
+      removeSignalListener = null;
+      isFinished = true;
+    };
+    var isFinished = false;
+
+    function onAbort() {
+      if (isFinished) return;
+      cleanup();
+      var reason = signal && signal.reason;
+      if (reason === undefined) {
+        reason = new (globalThis.DOMException || Error)('The operation was aborted.', 'AbortError');
+      }
+      reject(reason);
+    }
+
+    function onError(err) {
+      if (isFinished) return;
+      cleanup();
       reject(err);
     }
+
     function resolver() {
-      if (typeof emitter.removeListener === 'function') {
-        emitter.removeListener('error', errorListener);
-      }
+      if (isFinished) return;
+      cleanup();
       var args = [];
       for (var i = 0; i < arguments.length; i++) {
         args.push(arguments[i]);
       }
       resolve(args);
     }
-    eventTargetAgnosticAddListener(emitter, eventName, resolver, { once: true });
+
+    var removeEventListenerFromEmitter;
+    try {
+      removeEventListenerFromEmitter = eventTargetAgnosticAddListener(emitter, eventName, resolver, { once: true });
+    } catch (err) {
+      if (signal) {
+        if (signal.aborted) {
+          return onAbort();
+        }
+      }
+      return reject(err);
+    }
+
+    if (signal) {
+      if (signal.aborted) {
+        cleanup();
+        return onAbort();
+      }
+      removeSignalListener = eventTargetAgnosticAddListener(signal, 'abort', onAbort, { once: true });
+    }
+
     if (eventName !== 'error' && typeof emitter.on === 'function') {
-      emitter.once('error', errorListener);
+      removeErrorListener = eventTargetAgnosticAddListener(
+        emitter,
+        'error',
+        onError,
+        { once: true }
+      );
     }
   });
 }
@@ -448,14 +557,29 @@ function eventTargetAgnosticAddListener(emitter, name, listener, flags) {
     } else {
       emitter.on(name, listener);
     }
+    return function() {
+      if (typeof emitter.removeListener === 'function') {
+        emitter.removeListener(name, listener);
+      } else if (typeof emitter.off === 'function') {
+        emitter.off(name, listener);
+      }
+    };
   } else if (typeof emitter.addEventListener === 'function') {
-    emitter.addEventListener(name, function wrapListener(arg) {
+    function wrapListener(arg) {
       if (flags && flags.once) {
         emitter.removeEventListener(name, wrapListener);
       }
       listener(arg);
-    });
+    }
+    emitter.addEventListener(name, wrapListener, flags);
+    return function() {
+      emitter.removeEventListener(name, wrapListener, flags);
+    };
   }
+  var err = _invalidArgType('emitter', emitter);
+  err.message = 'The "emitter" argument must be an instance of EventEmitter';
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  throw err;
 }
 
 // Static on (async iterator)

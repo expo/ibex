@@ -24,7 +24,9 @@
       if (!list) return false;
       var keep = [];
       for (var j = 0; j < list.length; j++) {
-        list[j].fn.apply(obj, args);
+        if (typeof list[j].fn === 'function') {
+          list[j].fn.apply(obj, args);
+        }
         if (!list[j].once) keep.push(list[j]);
       }
       listeners[event] = keep;
@@ -624,11 +626,22 @@
   }
 
   // --- uncaughtException / unhandledRejection support ---
-  // Store a global error handler that the native side can call into
+  // Store a global error handler that the native side can call into.
+  // Resolve the current global process at call time to handle cases where the
+  // process object is rebound after bootstrap.
+  var getProcessForUncaught = function() {
+    if (typeof process === 'object' && process !== null) {
+      return process;
+    }
+    return p;
+  };
   p._uncaughtExceptionHandler = function(err) {
-    if (p.listenerCount('uncaughtException') > 0) {
+    var target = getProcessForUncaught();
+    if (typeof target.listenerCount === 'function' &&
+        target.listenerCount('uncaughtException') > 0 &&
+        typeof target.emit === 'function') {
       try {
-        p.emit('uncaughtException', err);
+        target.emit('uncaughtException', err);
         return true; // handled
       } catch (e) {
         // Handler itself threw - fall through to crash
@@ -723,7 +736,7 @@
 
   // process.versions — many packages check process.versions.node
   if (!p.versions || !p.versions.node) {
-    p.versions = {
+    var compatibilityVersions = {
       node: '24.13.1',
       v8: '0.0.0',
       uv: '0.0.0',
@@ -740,6 +753,16 @@
       hermes: '0.12.0',
       exact: '0.1.0'
     };
+    try {
+      Object.defineProperty(p, 'versions', {
+        value: compatibilityVersions,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      });
+    } catch (err) {
+      p.versions = compatibilityVersions;
+    }
   }
 
   // process.version
