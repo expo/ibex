@@ -80,7 +80,8 @@
     }
   };
   console.clear = function() {
-    clearTTY(typeof process === 'object' ? process.stdout : undefined);
+    var stream = (this && this._stdout) ? this._stdout : (typeof process === 'object' ? process.stdout : undefined);
+    clearTTY(stream);
   };
 
   // Console constructor — creates a new console instance that writes to given streams
