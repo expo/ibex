@@ -1,14 +1,15 @@
 var EventEmitter;
+var _assertListenerArgument = null;
 try { EventEmitter = require('events'); } catch(e) {
   EventEmitter = function() { this._events = {}; };
-  function _assertListenerArgument(listener, argName) {
+  _assertListenerArgument = function(listener, argName) {
     if (typeof listener !== 'function') {
       var type = listener === undefined ? 'undefined' : listener === null ? 'null' : typeof listener;
       throw new TypeError(
         'The "' + argName + '" argument must be of type function. Received ' + type
       );
     }
-  }
+  };
   EventEmitter.prototype._on = function(e, fn) {
     if (!this._events[e]) this._events[e] = [];
     this._events[e].push(fn);
@@ -41,6 +42,17 @@ try { EventEmitter = require('events'); } catch(e) {
     if (!this._events[e]) this._events[e] = [];
     this._events[e].unshift(fn);
     return this;
+  };
+}
+
+if (!_assertListenerArgument) {
+  _assertListenerArgument = function(listener, argName) {
+    if (typeof listener !== 'function') {
+      var type = listener === undefined ? 'undefined' : listener === null ? 'null' : typeof listener;
+      throw new TypeError(
+        'The "' + argName + '" argument must be of type function. Received ' + type
+      );
+    }
   };
 }
 
@@ -77,9 +89,9 @@ function _makeSocketHandle(handle) {
       }
       try {
         if (__exactTcpSetKeepAlive.length >= 3) {
-          __exactTcpSetKeepAlive(socketHandle._exactHandle, enable ? 1 : 0, delay);
+          __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0, delay);
         } else {
-          __exactTcpSetKeepAlive(socketHandle._exactHandle, enable ? 1 : 0);
+          __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0);
         }
       } catch(e) {}
     },
@@ -91,6 +103,26 @@ function _makeSocketHandle(handle) {
     }
   };
   return socketHandle;
+}
+
+function _setSocketHandle(socket, nativeHandle) {
+  if (!socket) return;
+  if (socket._exactHandle !== undefined) {
+    socket._exactHandle = nativeHandle;
+  } else {
+    socket._exactHandle = null;
+    socket._exactHandle = nativeHandle;
+  }
+}
+
+function _shutdownSocketWrite(socket) {
+  if (!_hasTcp || !socket) return;
+  var nativeHandle = _unwrapHandle(socket._handle);
+  if (nativeHandle == null) return;
+  if (typeof __exactTcpShutdown !== 'function') return;
+  try {
+    __exactTcpShutdown(nativeHandle, 1);
+  } catch(e) {}
 }
 
 function _hasMatchingIPv6OnlyServer(host, port) {
@@ -170,7 +202,7 @@ function _parseLookupFamily(value) {
 
 function _toIntDelay(value, defaultValue) {
   if (!isFinite(value)) return defaultValue;
-  value = Math.floor(value);
+  value = Math.floor(value / 1000);
   if (value < 0) return 0;
   return value;
 }
@@ -370,7 +402,7 @@ Socket.prototype._drainWriteQueue = function() {
   if (this._writeQueue.length === 0) {
     if (this._closeAfterEnd) {
       this._closeAfterEnd = false;
-      this.destroy();
+      _shutdownSocketWrite(this);
       return;
     }
     var self = this;
@@ -565,7 +597,7 @@ Socket.prototype._startPolling = function() {
         self._appendToReadBuffer(data);
         self.emit('readable');
         if (self._encoding) {
-          self.emit('data', data);
+          self.emit('data', toBufferData(data).toString(self._encoding));
         } else {
           // Emit as Buffer if available, otherwise string
           if (typeof Buffer !== 'undefined') {
@@ -657,7 +689,7 @@ Socket.prototype.connect = function(options, connectListener) {
       if (self.destroyed) return;
       try {
         var unixHandle = __exactUnixConnect(self._socketPath);
-        self._handle = _makeSocketHandle(unixHandle);
+        _setSocketHandle(self._handle, unixHandle);
         self.connecting = false;
         self._connected = true;
         self.pending = false;
@@ -730,7 +762,9 @@ Socket.prototype.connect = function(options, connectListener) {
     var attemptErrors = [];
     var idx = 0;
     function nextAttempt() {
-      if (selfRef.destroyed) return;
+      if (typeof process !== 'undefined' && process._exactExiting) {
+        return;
+      }
       if (idx >= attemptList.length) {
         selfRef.connecting = false;
         selfRef.pending = false;
@@ -770,19 +804,24 @@ Socket.prototype.connect = function(options, connectListener) {
 
       try {
         var nativeHandle = __exactTcpConnect(address, selfRef.remotePort);
+        if (selfRef.destroyed) {
+          try { __exactTcpClose(nativeHandle); } catch(e) {}
+          return;
+        }
         selfRef.remoteAddress = address;
         if (family) selfRef.remoteFamily = _addressFamilyToName(family);
-        selfRef._handle = _makeSocketHandle(nativeHandle);
+        _setSocketHandle(selfRef._handle, nativeHandle);
         selfRef.connecting = false;
         selfRef._connected = true;
         selfRef.pending = false;
         selfRef.readyState = 'open';
         selfRef._updateAddressInfo();
-        if (selfRef._noDelay !== undefined) selfRef.setNoDelay(selfRef._noDelay);
-        if (selfRef._keepAlive !== undefined) {
-          selfRef.setKeepAlive(selfRef._keepAlive, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
+        if (selfRef._noDelay) selfRef.setNoDelay(selfRef._noDelay);
+        if (selfRef._keepAlive !== undefined && selfRef._keepAlive) {
+          selfRef.setKeepAlive(true, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
         }
         selfRef._startPolling();
+        selfRef._drainWriteQueue();
         selfRef.emit('connect');
         selfRef.emit('ready');
       } catch (err) {
@@ -797,7 +836,6 @@ Socket.prototype.connect = function(options, connectListener) {
   }
 
   setTimeout(function() {
-    if (self.destroyed) return;
     if (typeof lookup === 'function') {
       var lookupOptions = { family: lookupFamily };
       if (options.hints !== undefined) lookupOptions.hints = options.hints;
@@ -807,7 +845,6 @@ Socket.prototype.connect = function(options, connectListener) {
 
       try {
         lookup(self.remoteAddress, lookupOptions, function(err, lookupResult, candidateFamily) {
-          if (self.destroyed) return;
           if (err) {
             self.connecting = false;
             self.pending = false;
@@ -869,6 +906,30 @@ Socket.prototype.write = function(data, encoding, callback) {
     return false;
   }
   if (_unwrapHandle(this._handle) == null) {
+    if (this.connecting) {
+      var queuedData = null;
+      if (typeof data === 'string') {
+        var enc = encoding || 'utf8';
+        var cacheKey = enc + ':' + data;
+        var cached = this._writeBufferCache[cacheKey];
+        if (cached == null) {
+          cached = Buffer.from(data, enc);
+          this._writeBufferCache[cacheKey] = cached;
+        }
+        queuedData = cached;
+      } else {
+        queuedData = toBufferData(data, encoding);
+      }
+      if (queuedData == null) queuedData = '';
+
+      this._writeQueue.push({
+        data: queuedData,
+        offset: 0,
+        callback: callback,
+      });
+
+      return false;
+    }
     var err2 = new Error('Socket is not connected');
     err2.code = 'ERR_SOCKET_CLOSED';
     if (callback) callback(err2);
@@ -911,13 +972,9 @@ Socket.prototype.end = function(data, encoding, callback) {
   this.readyState = this.readable ? 'readOnly' : 'closed';
   if (callback) this.once('finish', callback);
   this.emit('finish');
-  // If not allowing half-open, close the whole socket
-  if (!this.allowHalfOpen && _unwrapHandle(this._handle) != null) {
-    var self = this;
-    self._closeAfterEnd = true;
-    if (!self._isWriting && self._writeQueue.length === 0) {
-      self.destroy();
-    }
+  if (_unwrapHandle(this._handle) != null) {
+    this._closeAfterEnd = true;
+    this._drainWriteQueue();
   }
   return this;
 };
@@ -1035,10 +1092,10 @@ Socket.prototype.pipe = function(dest, options) {
   var self = this;
   self.on('data', function(chunk) {
     var ok = dest.write(chunk);
-    if (ok === false && self.pause) self.pause();
+    if (ok === false && typeof self.pause === 'function') self.pause();
   });
   dest.on('drain', function() {
-    if (self.resume) self.resume();
+    if (typeof self.resume === 'function') self.resume();
   });
   self.on('end', function() {
     if (!options || options.end !== false) {
@@ -1136,6 +1193,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   // TCP server
   this._port = port || 0;
   this._host = host || '0.0.0.0';
+  this.host = this._host;
 
   if (!_hasTcp) {
     this.listening = true;
@@ -1145,8 +1203,8 @@ Server.prototype.listen = function(port, host, backlog, callback) {
 
   setTimeout(function() {
     if (listenToken !== self._listenToken) return;
-    try {
-      self._handle = __exactTcpListen(self._host, self._port, backlog || 128);
+      try {
+      self._handle = __exactTcpListen(self._host, self._port, backlog || 128, self.ipv6Only ? 1 : 0);
       _registerTcpServer(self);
       // Get actual bound port (useful when port=0)
       try {
@@ -1185,7 +1243,9 @@ Server.prototype._startAccepting = function() {
           socketOpts._socketPath = self._socketPath;
         }
         var socket = new Socket(socketOpts);
-        self.emit('connection', socket);
+        if (!self.emit('connection', socket)) {
+          socket.end();
+        }
       }
     } catch(e) {
       if (self.listening) {
@@ -1199,7 +1259,7 @@ Server.prototype._startAccepting = function() {
 };
 
 Server.prototype.close = function(callback) {
-  if (callback !== undefined) {
+  if (typeof callback === 'function') {
     _assertListenerArgument(callback, 'callback');
     this.once('close', callback);
   }

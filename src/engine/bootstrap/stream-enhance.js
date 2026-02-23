@@ -352,6 +352,7 @@
   var origExit = p.exit;
   p.exit = function(code) {
     if (code === undefined) code = p.exitCode || 0;
+    p._exactExiting = true;
     try { p.emit('exit', code); } catch(e) {}
     if (origExit) origExit(code);
   };
