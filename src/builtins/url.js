@@ -20,6 +20,30 @@ function _coerceUrl(value) {
   throw new TypeError("Expected URL or string");
 }
 
+var _objectURLCounter = 0;
+var _objectURLRegistry = {};
+
+function _createObjectURL(object) {
+  if (arguments.length === 0) {
+    var err = new TypeError('The "object" argument must be specified');
+    err.code = 'ERR_MISSING_ARGS';
+    throw err;
+  }
+
+  var url = "blob:exact:" + (++_objectURLCounter);
+  _objectURLRegistry[url] = object;
+  return url;
+}
+
+function _revokeObjectURL(url) {
+  if (arguments.length === 0) {
+    var err = new TypeError('The "url" argument must be specified');
+    err.code = 'ERR_MISSING_ARGS';
+    throw err;
+  }
+  delete _objectURLRegistry[String(url)];
+}
+
 function _patchUrlStatics(URLCtor) {
   URLCtor.canParse = function(input, base) {
     if (arguments.length === 0) {
@@ -100,6 +124,12 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
     _patchProtocol(URLExport);
     _patchUrlComponentSetter(URLExport, "username");
     _patchUrlComponentSetter(URLExport, "password");
+    if (typeof URLExport.createObjectURL !== "function") {
+      URLExport.createObjectURL = _createObjectURL;
+    }
+    if (typeof URLExport.revokeObjectURL !== "function") {
+      URLExport.revokeObjectURL = _revokeObjectURL;
+    }
 
   // Create wrapped canParse that validates arguments
   var _nativeCanParse = URLExport.canParse ? URLExport.canParse.bind(URLExport) : null;
@@ -210,6 +240,8 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
   module.exports = {
     URL: URLExport,
     URLSearchParams: URLSearchParamsExport,
+    createObjectURL: URLExport.createObjectURL,
+    revokeObjectURL: URLExport.revokeObjectURL,
     format: format,
     parse: parse,
     resolve: resolve,
@@ -1834,9 +1866,14 @@ function resolve(from, to) {
   return new URLExport(to, from).href;
 }
 
+URL.createObjectURL = _createObjectURL;
+URL.revokeObjectURL = _revokeObjectURL;
+
 module.exports = {
   URL: URLExport,
   URLSearchParams: URLSearchParamsExport,
+  createObjectURL: _createObjectURL,
+  revokeObjectURL: _revokeObjectURL,
   format: format,
   parse: parse,
   resolve: resolve,
