@@ -91,6 +91,7 @@ function inspect(value, options) {
   var depth = opts.depth !== undefined ? opts.depth : 2;
   var colors = opts.colors || false;
   var seen = [];
+  var cache = new Map();
   function _inspect(val, currentDepth) {
     if (val === null) return 'null';
     if (val === undefined) return 'undefined';
@@ -105,39 +106,55 @@ function inspect(value, options) {
     if (t === 'bigint') return val.toString() + 'n';
     // Object types
     if (seen.indexOf(val) !== -1) return '[Circular]';
+    if (cache.has(val)) return cache.get(val);
+
     seen.push(val);
-    if (currentDepth > depth) {
-      var _pop = seen.pop();
-      return Array.isArray(val) ? '[Array]' : '[Object]';
-    }
-    if (Array.isArray(val)) {
-      if (val.length === 0) { seen.pop(); return '[]'; }
-      var items = [];
-      for (var i = 0; i < val.length; i++) {
-        items.push(_inspect(val[i], currentDepth + 1));
+    var result;
+    try {
+      if (currentDepth > depth) {
+        result = Array.isArray(val) ? '[Array]' : '[Object]';
+      } else if (Array.isArray(val)) {
+        if (val.length === 0) {
+          result = '[]';
+        } else {
+          var items = [];
+          for (var i = 0; i < val.length; i++) {
+            items.push(_inspect(val[i], currentDepth + 1));
+          }
+          result = '[ ' + items.join(', ') + ' ]';
+        }
+      } else if (val instanceof Date) {
+        result = val.toISOString();
+      } else if (val instanceof RegExp) {
+        result = String(val);
+      } else if (val instanceof Error) {
+        result = '[' + (val.constructor.name || 'Error') + ': ' + val.message + ']';
+      } else if (typeof val.constructor === 'function' && val.constructor.name === 'Buffer') {
+        result = '<Buffer ' + Array.prototype.slice.call(val, 0, Math.min(val.length, 50)).map(function(b) { return (b < 16 ? '0' : '') + b.toString(16); }).join(' ') + (val.length > 50 ? ' ... ' + (val.length - 50) + ' more bytes' : '') + '>';
+      } else {
+        // Plain object
+        var keys = Object.keys(val);
+        if (keys.length === 0) {
+          result = '{}';
+        } else {
+          var parts = [];
+          for (var ki = 0; ki < keys.length; ki++) {
+            var k = keys[ki];
+            var v;
+            try { v = _inspect(val[k], currentDepth + 1); } catch(e) { v = '[Getter/Error]'; }
+            parts.push(k + ': ' + v);
+          }
+          result = '{ ' + parts.join(', ') + ' }';
+        }
       }
+    } finally {
       seen.pop();
-      return '[ ' + items.join(', ') + ' ]';
+      if (result !== undefined) {
+        cache.set(val, result);
+      }
     }
-    if (val instanceof Date) { seen.pop(); return val.toISOString(); }
-    if (val instanceof RegExp) { seen.pop(); return String(val); }
-    if (val instanceof Error) { seen.pop(); return '[' + (val.constructor.name || 'Error') + ': ' + val.message + ']'; }
-    if (typeof val.constructor === 'function' && val.constructor.name === 'Buffer') {
-      seen.pop();
-      return '<Buffer ' + Array.prototype.slice.call(val, 0, Math.min(val.length, 50)).map(function(b) { return (b < 16 ? '0' : '') + b.toString(16); }).join(' ') + (val.length > 50 ? ' ... ' + (val.length - 50) + ' more bytes' : '') + '>';
-    }
-    // Plain object
-    var keys = Object.keys(val);
-    if (keys.length === 0) { seen.pop(); return '{}'; }
-    var parts = [];
-    for (var ki = 0; ki < keys.length; ki++) {
-      var k = keys[ki];
-      var v;
-      try { v = _inspect(val[k], currentDepth + 1); } catch(e) { v = '[Getter/Error]'; }
-      parts.push(k + ': ' + v);
-    }
-    seen.pop();
-    return '{ ' + parts.join(', ') + ' }';
+
+    return result;
   }
   return _inspect(value, 0);
 }
