@@ -411,6 +411,27 @@ void drainMicrotasks(facebook::jsi::Runtime& rt) {
 
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 
+std::mutex g_runtimeRegistryMutex;
+std::unordered_set<ExactHermesRuntime*> g_activeRuntimes;
+
+void registerRuntime(ExactHermesRuntime* runtime) {
+  if (!runtime) return;
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  g_activeRuntimes.insert(runtime);
+}
+
+void unregisterRuntime(ExactHermesRuntime* runtime) {
+  if (!runtime) return;
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  g_activeRuntimes.erase(runtime);
+}
+
+bool runtimeIsAlive(ExactHermesRuntime* runtime) {
+  if (!runtime) return false;
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  return g_activeRuntimes.find(runtime) != g_activeRuntimes.end();
+}
+
 constexpr uint32_t EXACT_FETCH_TIMEOUT_MS = 30000;
 
 struct FetchCallbackEntry {
@@ -570,6 +591,7 @@ extern "C" void ex_hermes_notify_callback();
 
 void pushRuntimeCallback(ExactHermesRuntime* runtime,
                           std::function<void(facebook::jsi::Runtime&)> fn) {
+    if (!runtimeIsAlive(runtime)) return;
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     runtime->callbackQueue.push_back(std::move(fn));
     ex_hermes_notify_callback();
@@ -9692,6 +9714,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   TRACE_START(install_globals);
   installGlobals(handle);
   TRACE_END(install_globals);
+  registerRuntime(handle);
 
   TRACE_END(total);
   return handle;
@@ -9701,6 +9724,7 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   if (runtime == nullptr) {
     return;
   }
+  unregisterRuntime(runtime);
   delete runtime;
 }
 
