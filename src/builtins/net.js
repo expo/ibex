@@ -41,11 +41,15 @@ function Socket(options) {
   this._lastActivity = 0;
   this._handle = null;
   this._pollTimer = null;
+  this._writeQueue = [];
+  this._isWriting = false;
+  this._closeAfterEnd = false;
   this._paused = false;
   this._encoding = null;
   this._events = {};
   this._readBuffer = [];
   this._readBufferLength = 0;
+  this._onread = options.onread || null;
   this._isUnix = false;
   this._socketPath = null;
   this.allowHalfOpen = options.allowHalfOpen || false;
@@ -122,6 +126,118 @@ Socket.prototype._consumeReadBuffer = function(size) {
   return parts.length === 1 ? parts[0] : Buffer.concat(parts, size - remaining);
 };
 
+Socket.prototype._drainWriteQueue = function() {
+  if (this._isWriting || this._handle == null || this.destroyed) {
+    return;
+  }
+
+  this._isWriting = true;
+  while (this._writeQueue.length > 0 && !this.destroyed && this._handle != null) {
+    var item = this._writeQueue[0];
+    if (item.offset >= item.data.length) {
+      this._writeQueue.shift();
+      if (item.callback) {
+        setTimeout(item.callback, 0);
+      }
+      continue;
+    }
+
+    var remaining = item.data.slice(item.offset);
+    var written = 0;
+    try {
+      written = __exactTcpWrite(this._handle, remaining);
+    } catch (err) {
+      var writeErr = err instanceof Error ? err : new Error(String(err));
+      writeErr.code = 'EPIPE';
+      this._isWriting = false;
+      this._writeQueue = [];
+      if (item.callback) {
+        setTimeout(function() { item.callback(writeErr); }, 0);
+      }
+      this.destroy(writeErr);
+      return;
+    }
+
+    if (written === 0) {
+      break;
+    }
+
+    item.offset += written;
+    this.bytesWritten += written;
+    this._lastActivity = Date.now();
+
+    if (item.offset >= item.data.length) {
+      this._writeQueue.shift();
+      if (item.callback) {
+        setTimeout(item.callback, 0);
+      }
+    }
+  }
+
+  this._isWriting = false;
+  if (this._writeQueue.length === 0) {
+    if (this._closeAfterEnd) {
+      this._closeAfterEnd = false;
+      this.destroy();
+      return;
+    }
+    this.emit('drain');
+    return;
+  }
+
+  var self = this;
+  setTimeout(function() {
+    self._drainWriteQueue();
+  }, 0);
+};
+
+Socket.prototype._resolveOnreadBuffer = function() {
+  if (!this._onread || !this._onread.buffer) return null;
+  var buffer = this._onread.buffer;
+  return typeof buffer === 'function' ? buffer() : buffer;
+};
+
+Socket.prototype._notifyOnreadEOF = function() {
+  if (!this._onread || typeof this._onread.callback !== 'function') return true;
+  var buffer = this._resolveOnreadBuffer();
+  var cbResult = this._onread.callback.call(this, 0, buffer);
+  return cbResult !== false && !this._paused;
+};
+
+Socket.prototype._processOnreadBuffer = function() {
+  if (!this._onread || !this._onread.callback || this._readBufferLength === 0) {
+    return true;
+  }
+  var data = this._consumeReadBuffer();
+  if (data === null || !data.length) return true;
+  var onread = this._onread;
+  var offset = 0;
+  var remaining = data.length;
+  while (remaining > 0) {
+    var buffer = this._resolveOnreadBuffer();
+    if (!buffer || !buffer.length) {
+      onread.callback.call(this, 0, buffer);
+      return false;
+    }
+    var nread = remaining < buffer.length ? remaining : buffer.length;
+    var sourceEnd = offset + nread;
+    for (var i = 0; i < nread; i++) {
+      buffer[i] = data[offset + i];
+    }
+    offset = sourceEnd;
+    remaining = data.length - offset;
+
+    var cbResult = onread.callback.call(this, nread, buffer);
+    if (cbResult === false || this._paused) {
+      if (remaining > 0) {
+        this._appendToReadBuffer(data.slice(offset));
+      }
+      return false;
+    }
+  }
+  return true;
+};
+
 Socket.prototype._updateAddressInfo = function() {
   if (this._handle == null) return;
   // Unix sockets don't have IP address info
@@ -155,6 +271,52 @@ Socket.prototype._startPolling = function() {
   self._lastActivity = Date.now();
   function poll() {
     if (self.destroyed || self._handle == null) return;
+    if (self._onread) {
+      if (!self._processOnreadBuffer()) {
+        self._pollTimer = setTimeout(poll, 10);
+        return;
+      }
+      try {
+        var onreadData = __exactTcpRead(self._handle, 65536);
+        if (onreadData === null) {
+          // EOF
+          self._pollTimer = null;
+          if (!self._notifyOnreadEOF()) {
+            return;
+          }
+          self.readable = false;
+          self.emit('end');
+          if (!self.allowHalfOpen) {
+            self.writable = false;
+            self.destroy();
+          } else {
+            self.emit('close', false);
+          }
+          return;
+        }
+        if (onreadData.length > 0) {
+          self._lastActivity = Date.now();
+          self.bytesRead += onreadData.length;
+          self._appendToReadBuffer(onreadData);
+          if (!self._processOnreadBuffer()) {
+            self._pollTimer = setTimeout(poll, 10);
+            return;
+          }
+        }
+      } catch(e) {
+        self._pollTimer = null;
+        if (!self.destroyed) {
+          self.destroy(e);
+        }
+        return;
+      }
+      // Check idle timeout
+      if (self._timeoutMs > 0 && (Date.now() - self._lastActivity) >= self._timeoutMs) {
+        self.emit('timeout');
+      }
+      self._pollTimer = setTimeout(poll, 5);
+      return;
+    }
     if (self._paused) {
       self._pollTimer = setTimeout(poll, 10);
       return;
@@ -347,20 +509,17 @@ Socket.prototype.write = function(data, encoding, callback) {
     str = String(data);
   }
 
-  try {
-    var written = __exactTcpWrite(this._handle, str);
-    this.bytesWritten += written;
-    this._lastActivity = Date.now();
-    if (callback) setTimeout(callback, 0);
-    this.emit('drain');
-    return true;
-  } catch(e) {
-    var writeErr = new Error(e.message || String(e));
-    writeErr.code = 'EPIPE';
-    if (callback) callback(writeErr);
-    this.destroy(writeErr);
-    return false;
+  this._writeQueue.push({
+    data: str,
+    offset: 0,
+    callback: callback,
+  });
+
+  if (!this._isWriting) {
+    this._drainWriteQueue();
   }
+
+  return this._writeQueue.length === 0;
 };
 
 Socket.prototype.end = function(data, encoding, callback) {
@@ -374,12 +533,10 @@ Socket.prototype.end = function(data, encoding, callback) {
   // If not allowing half-open, close the whole socket
   if (!this.allowHalfOpen && this._handle != null) {
     var self = this;
-    // Let any pending reads finish
-    setTimeout(function() {
-      if (!self.destroyed) {
-        self.destroy();
-      }
-    }, 50);
+    self._closeAfterEnd = true;
+    if (!self._isWriting && self._writeQueue.length === 0) {
+      self.destroy();
+    }
   }
   return this;
 };
@@ -399,6 +556,19 @@ Socket.prototype.destroy = function(err) {
   if (this._timeoutTimer != null) {
     clearTimeout(this._timeoutTimer);
     this._timeoutTimer = null;
+  }
+  if (this._writeQueue.length) {
+    var endErr = err instanceof Error ? err : new Error(err ? String(err) : 'Socket destroyed');
+    for (var i = 0; i < this._writeQueue.length; i++) {
+      var queued = this._writeQueue[i];
+      if (queued.callback) {
+        setTimeout(function(cb, error) {
+          cb(error);
+        }, 0, queued.callback, endErr);
+      }
+    }
+    this._writeQueue = [];
+    this._isWriting = false;
   }
   if (this._handle != null && _hasTcp) {
     try { __exactTcpClose(this._handle); } catch(e) {}
