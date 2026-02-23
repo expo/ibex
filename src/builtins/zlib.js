@@ -20,6 +20,15 @@ function toBuffer(uint8) {
   return uint8;
 }
 
+function countBytesForChunk(chunk, encoding) {
+  if (chunk === null || chunk === undefined) return 0;
+  if (typeof chunk === 'string') return Buffer.byteLength(chunk, encoding || 'utf8');
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) return chunk.length;
+  if (chunk instanceof ArrayBuffer) return chunk.byteLength;
+  if (ArrayBuffer.isView(chunk)) return chunk.byteLength;
+  return chunk.length || 0;
+}
+
 // mode: 0 = deflate (zlib header), 1 = gzip, 2 = raw (no header/checksum)
 function deflateSync(data, options) {
   var bytes = toBytes(data);
@@ -147,15 +156,23 @@ function brotliDecompress(data, options, callback) {
 
 // --- Stream-based zlib API (Transform streams) ---
 // Base class for all zlib Transform streams
-function ZlibTransform(syncFn, opts) {
+function ZlibTransform(syncFn, opts, isDecoder, roundTripSync) {
   Transform.call(this, opts);
   this._syncFn = syncFn;
+  this._isDecoder = !!isDecoder;
+  this._roundTripSync = typeof roundTripSync === 'function' ? roundTripSync : null;
   this._chunks = [];
+  this._bytesWritten = 0;
+  this.bytesWritten = 0;
+  this.bytesRead = 0;
 }
 ZlibTransform.prototype = Object.create(Transform.prototype);
 ZlibTransform.prototype.constructor = ZlibTransform;
 
 ZlibTransform.prototype._transform = function(chunk, encoding, callback) {
+  this._bytesWritten += countBytesForChunk(chunk, encoding || 'utf8');
+  this.bytesWritten = this._bytesWritten;
+  this.bytesRead = this._bytesWritten;
   if (typeof chunk === 'string') {
     this._chunks.push(Buffer.from(chunk, encoding));
   } else {
@@ -168,9 +185,22 @@ ZlibTransform.prototype._flush = function(callback) {
   try {
     var input = Buffer.concat(this._chunks);
     var result = this._syncFn(input);
+
+    if (this._isDecoder) {
+      if (!this._roundTripSync) {
+        throw new Error('Missing reverse codec for zlib stream byte accounting');
+      }
+      this._bytesWritten = countBytesForChunk(this._roundTripSync(result));
+      this.bytesWritten = this._bytesWritten;
+      this.bytesRead = this._bytesWritten;
+    }
+
     this.push(result);
     callback();
   } catch (e) {
+    this._bytesWritten = 0;
+    this.bytesWritten = 0;
+    this.bytesRead = 0;
     callback(e);
   }
 };
@@ -182,16 +212,24 @@ ZlibTransform.prototype.end = function(chunk, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = null; }
   if (chunk !== undefined && chunk !== null) {
     if (typeof chunk === 'string') {
+      this._bytesWritten += countBytesForChunk(chunk, encoding || 'utf8');
+      this.bytesWritten = this._bytesWritten;
+      this.bytesRead = this._bytesWritten;
       this._chunks.push(Buffer.from(chunk, encoding || 'utf8'));
     } else {
+      this._bytesWritten += countBytesForChunk(chunk);
+      this.bytesWritten = this._bytesWritten;
+      this.bytesRead = this._bytesWritten;
       this._chunks.push(chunk);
     }
   }
   var self = this;
   this._flush(function(err) {
     if (err) {
-      self.emit('error', err);
-      if (typeof callback === 'function') callback(err);
+      setTimeout(function() {
+        self.emit('error', err);
+        if (typeof callback === 'function') callback(err);
+      }, 0);
       return;
     }
     self.push(null);
@@ -199,48 +237,52 @@ ZlibTransform.prototype.end = function(chunk, encoding, callback) {
     self.writableFinished = true;
     self.emit('finish');
     self._emitClose();
-    if (typeof callback === 'function') callback();
+  if (typeof callback === 'function') callback();
   });
+};
+
+ZlibTransform.prototype.close = function(callback) {
+  return this.destroy(null, callback);
 };
 
 // Deflate stream (zlib header)
 function Deflate(opts) {
-  ZlibTransform.call(this, deflateSync, opts);
+  ZlibTransform.call(this, deflateSync, opts, false, null);
 }
 Deflate.prototype = Object.create(ZlibTransform.prototype);
 Deflate.prototype.constructor = Deflate;
 
 // Inflate stream (zlib header)
 function Inflate(opts) {
-  ZlibTransform.call(this, inflateSync, opts);
+  ZlibTransform.call(this, inflateSync, opts, true, deflateSync);
 }
 Inflate.prototype = Object.create(ZlibTransform.prototype);
 Inflate.prototype.constructor = Inflate;
 
 // Gzip stream
 function Gzip(opts) {
-  ZlibTransform.call(this, gzipSync, opts);
+  ZlibTransform.call(this, gzipSync, opts, false, null);
 }
 Gzip.prototype = Object.create(ZlibTransform.prototype);
 Gzip.prototype.constructor = Gzip;
 
 // Gunzip stream
 function Gunzip(opts) {
-  ZlibTransform.call(this, gunzipSync, opts);
+  ZlibTransform.call(this, gunzipSync, opts, true, gzipSync);
 }
 Gunzip.prototype = Object.create(ZlibTransform.prototype);
 Gunzip.prototype.constructor = Gunzip;
 
 // DeflateRaw stream (no header/checksum)
 function DeflateRaw(opts) {
-  ZlibTransform.call(this, deflateRawSync, opts);
+  ZlibTransform.call(this, deflateRawSync, opts, false, null);
 }
 DeflateRaw.prototype = Object.create(ZlibTransform.prototype);
 DeflateRaw.prototype.constructor = DeflateRaw;
 
 // InflateRaw stream (no header/checksum)
 function InflateRaw(opts) {
-  ZlibTransform.call(this, inflateRawSync, opts);
+  ZlibTransform.call(this, inflateRawSync, opts, true, deflateRawSync);
 }
 InflateRaw.prototype = Object.create(ZlibTransform.prototype);
 InflateRaw.prototype.constructor = InflateRaw;
@@ -253,14 +295,14 @@ function createDeflateRaw(options) { return new DeflateRaw(options); }
 function createInflateRaw(options) { return new InflateRaw(options); }
 // BrotliCompress stream
 function BrotliCompress(opts) {
-  ZlibTransform.call(this, function(buf) { return brotliCompressSync(buf, opts); }, opts);
+  ZlibTransform.call(this, function(buf) { return brotliCompressSync(buf, opts); }, opts, false, null);
 }
 BrotliCompress.prototype = Object.create(ZlibTransform.prototype);
 BrotliCompress.prototype.constructor = BrotliCompress;
 
 // BrotliDecompress stream
 function BrotliDecompress(opts) {
-  ZlibTransform.call(this, function(buf) { return brotliDecompressSync(buf, opts); }, opts);
+  ZlibTransform.call(this, function(buf) { return brotliDecompressSync(buf, opts); }, opts, true, function(buf) { return brotliCompressSync(buf, opts); });
 }
 BrotliDecompress.prototype = Object.create(ZlibTransform.prototype);
 BrotliDecompress.prototype.constructor = BrotliDecompress;
