@@ -807,4 +807,70 @@ Stream.pipeline = pipeline;
 Stream.finished = finished;
 Stream.compose = compose;
 Stream.addAbortSignal = addAbortSignal;
+
+// destroy() — standalone function to destroy a stream
+Stream.destroy = function destroy(stream, err) {
+  if (stream && typeof stream.destroy === 'function') {
+    stream.destroy(err);
+  }
+  return stream;
+};
+
+// isReadable / isWritable / isDisturbed — stream state inspection
+Stream.isReadable = function isReadable(stream) {
+  if (!stream) return false;
+  if (typeof stream.readable === 'boolean') return stream.readable;
+  if (typeof stream._readableState === 'object') {
+    return !stream._readableState.destroyed && !stream._readableState.ended;
+  }
+  return false;
+};
+
+Stream.isWritable = function isWritable(stream) {
+  if (!stream) return false;
+  if (typeof stream.writable === 'boolean') return stream.writable;
+  if (typeof stream._writableState === 'object') {
+    return !stream._writableState.destroyed && !stream._writableState.ended;
+  }
+  return false;
+};
+
+Stream.isDisturbed = function isDisturbed(stream) {
+  if (!stream) return false;
+  if (stream._readableState) {
+    return stream._readableState.dataEmitted === true ||
+           stream._readableState.readableAborted === true;
+  }
+  return stream.readableDidRead === true || stream.readableAborted === true || false;
+};
+
+Stream.isErrored = function isErrored(stream) {
+  if (!stream) return false;
+  return stream._readableState ? stream._readableState.errored !== null :
+         stream._writableState ? stream._writableState.errored !== null :
+         false;
+};
+
+// promises namespace
+Stream.promises = {
+  pipeline: function() {
+    var args = Array.prototype.slice.call(arguments);
+    return new Promise(function(resolve, reject) {
+      args.push(function(err) {
+        if (err) reject(err);
+        else resolve();
+      });
+      pipeline.apply(null, args);
+    });
+  },
+  finished: function(stream, opts) {
+    return new Promise(function(resolve, reject) {
+      finished(stream, opts || {}, function(err) {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+};
+
 module.exports = Stream;

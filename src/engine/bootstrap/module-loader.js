@@ -75,7 +75,7 @@
     if (normalized.indexOf('internal/util/debuglog') !== -1) {
       normalized = 'internal/util/debuglog';
     }
-    var internal = internalModules[normalized];
+    var internal = internalModules.hasOwnProperty(normalized) ? internalModules[normalized] : undefined;
     if (!internal) return null;
     if (!cache[normalized]) {
       cache[normalized] = {
@@ -687,7 +687,7 @@
       }
     }
     var normalized = normalizeSpecifier(specifier);
-    if (internalModules[normalized]) {
+    if (internalModules.hasOwnProperty(normalized)) {
       if (!cache[normalized]) {
         cache[normalized] = { exports: internalModules[normalized], loaded: true };
       }

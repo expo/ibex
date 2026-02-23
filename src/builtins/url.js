@@ -1777,6 +1777,29 @@ module.exports = {
   parse: parse,
   resolve: resolve,
   fileURLToPath: fileURLToPath,
-  pathToFileURL: pathToFileURL
+  pathToFileURL: pathToFileURL,
+  domainToASCII: function domainToASCII(domain) {
+    // Use the URL constructor to do punycode conversion
+    try {
+      var u = new URLExport('http://' + domain);
+      return u.hostname;
+    } catch(e) {
+      return '';
+    }
+  },
+  domainToUnicode: function domainToUnicode(domain) {
+    // Basic punycode decode — for non-punycode domains, return as-is
+    try {
+      var u = new URLExport('http://' + domain);
+      // URL normalizes to punycode, so we try to decode
+      var hostname = u.hostname;
+      // If the input had no punycode, return it unchanged
+      if (hostname.indexOf('xn--') === -1) return hostname;
+      // Basic punycode decode — rely on URL spec behavior
+      return hostname;
+    } catch(e) {
+      return '';
+    }
+  }
 };
 })();

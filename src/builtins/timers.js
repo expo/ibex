@@ -50,5 +50,20 @@ module.exports = {
   setInterval: setInterval$1,
   clearInterval: clearInterval$1,
   setImmediate: setImmediate$1,
-  clearImmediate: clearImmediate$1
+  clearImmediate: clearImmediate$1,
+  // Deprecated Node.js APIs — stubs for compat
+  active: function active(item) {
+    // In Node.js, timers.active() resets the timer.
+    // Stub: no-op for compatibility.
+  },
+  _unrefActive: function _unrefActive(item) {
+    // Deprecated alias for timers.active() with unref behavior.
+    // Stub: no-op for compatibility.
+  },
+  enroll: function enroll(item, msecs) {
+    item._idleTimeout = msecs;
+  },
+  unenroll: function unenroll(item) {
+    item._idleTimeout = -1;
+  }
 };
