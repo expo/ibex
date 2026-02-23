@@ -494,4 +494,27 @@
     __exactPatchUrlConstructors();
     __exactPatchUrlEncodedFormData();
   }
+
+  // When running compat tests, auto-load bun:test so test/describe/it/expect
+  // globals are available even if the test file doesn't explicitly import them.
+  // This matches Bun's behavior where these globals are always present.
+  if (
+    typeof globalThis.process === 'object' &&
+    globalThis.process !== null &&
+    globalThis.process.env &&
+    globalThis.process.env.EXACT_COMPAT_TEST === '1' &&
+    typeof globalThis.__exactRequire === 'function' &&
+    typeof globalThis.test !== 'function'
+  ) {
+    try {
+      // Ensure 'global' is defined — bun-adapter.js uses it but it may not
+      // be set up this early in bootstrap.
+      if (typeof global === 'undefined') {
+        globalThis.global = globalThis;
+      }
+      globalThis.__exactRequire('bun:test');
+    } catch (err) {
+      // Keep bootstrap resilient if bun:test cannot be loaded.
+    }
+  }
 })();

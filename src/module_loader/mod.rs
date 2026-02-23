@@ -54,6 +54,9 @@ impl ModuleLoader {
         builtins.insert("bun".to_string(), bun_module());
         builtins.insert("bun:test".to_string(), bun_test_module());
         builtins.insert("harness".to_string(), bun_harness_module());
+        builtins.insert("node-harness".to_string(), node_harness_module());
+        builtins.insert("bun:jsc".to_string(), bun_jsc_module());
+        builtins.insert("bun:internal-for-testing".to_string(), bun_internal_for_testing_module());
 
         let node_fs_src = node_fs_module();
         builtins.insert("bun:fs".to_string(), node_fs_src.clone());
@@ -730,6 +733,18 @@ fn bun_module() -> String {
 
 fn bun_harness_module() -> String {
     include_str!("../../../../test/compat/harness/harness.js").to_string()
+}
+
+fn node_harness_module() -> String {
+    include_str!("../../../../test/compat/harness/node-harness.js").to_string()
+}
+
+fn bun_jsc_module() -> String {
+    include_str!("../../../../test/compat/harness/bun-jsc.js").to_string()
+}
+
+fn bun_internal_for_testing_module() -> String {
+    include_str!("../../../../test/compat/harness/bun-internal-for-testing.js").to_string()
 }
 
 fn exact_clipboard_module() -> String {

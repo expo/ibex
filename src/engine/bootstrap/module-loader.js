@@ -337,6 +337,19 @@
     }
     return source.replace(/\b__dirname\b/g, "globalThis.__dirname").replace(/\b__filename\b/g, "globalThis.__filename");
   }
+  function transformImportMeta(source) {
+    if (!source || source.indexOf("import.meta") === -1) {
+      return source;
+    }
+    return source
+      .replace(/import\.meta\.url/g, "__filename")
+      .replace(/import\.meta\.path/g, "__filename")
+      .replace(/import\.meta\.filename/g, "__filename")
+      .replace(/import\.meta\.file(?!name)/g, "(typeof __filename !== 'undefined' ? __filename.split('/').pop() : '')")
+      .replace(/import\.meta\.dir/g, "__dirname")
+      .replace(/import\.meta\.main/g, "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))")
+      .replace(/import\.meta\.require/g, "require");
+  }
   function transformEsmToCjs(source) {
     if (!source) {
       return "";
@@ -421,8 +434,8 @@
           }
         }
       }
-      if (line.indexOf("import.meta.url") !== -1) {
-        statement = statement.replace(/import\.meta\.url/g, "__filename");
+      if (line.indexOf("import.meta") !== -1) {
+        statement = transformImportMeta(statement);
       }
       var transformed = statement;
       trimmed = transformed.trim();
@@ -763,7 +776,7 @@
     const previousNodeDirname = g.__dirname;
     try {
       const directSource =
-        applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename) +
+        transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename)) +
         "\n//# sourceURL=" + filename;
       g.__exactDebugModuleSources = (g.__exactDebugModuleSources || []);
       if (Array.isArray(g.__exactDebugModuleSources)) {
