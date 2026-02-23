@@ -511,6 +511,7 @@ function Server(options, connectionListener) {
   this._connections = 0;
   this._isUnix = false;
   this._socketPath = null;
+  this._listenToken = 0;
   // Mixin EventEmitter
   if (typeof EventEmitter === 'function' && EventEmitter.prototype) {
     for (var k in EventEmitter.prototype) {
@@ -524,6 +525,8 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   if (typeof host === 'function') { callback = host; host = undefined; backlog = undefined; }
   if (typeof backlog === 'function') { callback = backlog; backlog = undefined; }
   var unixPath = null;
+  var self = this;
+  var listenToken = ++this._listenToken;
   if (typeof port === 'string') {
     // server.listen('/tmp/my.sock') - Unix socket path
     unixPath = port;
@@ -548,13 +551,12 @@ Server.prototype.listen = function(port, host, backlog, callback) {
 
     if (!_hasUnix) {
       this.listening = true;
-      var self = this;
       setTimeout(function() { self.emit('listening'); }, 0);
       return this;
     }
 
-    var self = this;
     setTimeout(function() {
+      if (listenToken !== self._listenToken) return;
       try {
         self._handle = __exactUnixListen(self._socketPath, backlog || 128);
         self.listening = true;
@@ -575,13 +577,12 @@ Server.prototype.listen = function(port, host, backlog, callback) {
 
   if (!_hasTcp) {
     this.listening = true;
-    var self = this;
     setTimeout(function() { self.emit('listening'); }, 0);
     return this;
   }
 
-  var self = this;
   setTimeout(function() {
+    if (listenToken !== self._listenToken) return;
     try {
       self._handle = __exactTcpListen(self._host, self._port, backlog || 128);
       // Get actual bound port (useful when port=0)
@@ -636,6 +637,7 @@ Server.prototype._startAccepting = function() {
 
 Server.prototype.close = function(callback) {
   if (callback) this.once('close', callback);
+  this._listenToken++;
   this.listening = false;
   if (this._acceptTimer != null) {
     clearTimeout(this._acceptTimer);
