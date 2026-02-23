@@ -35,6 +35,11 @@ function Interface(options) {
   // Listen for data events on the input stream to enable line buffering
   var self = this;
   if (this.input && typeof this.input.on === 'function') {
+    this._onError = function(err) {
+      if (self.closed) return;
+      self.emit('error', err);
+      self.close();
+    };
     this._onData = function(chunk) {
       if (self.closed) return;
       var str = typeof chunk === 'string' ? chunk : (chunk && typeof chunk.toString === 'function' ? chunk.toString('utf8') : String(chunk));
@@ -62,6 +67,7 @@ function Interface(options) {
     };
     this._onClose = function() { if (!self.closed) self.close(); };
     this.input.on('data', this._onData);
+    this.input.on('error', this._onError);
     this.input.on('end', this._onEnd);
     this.input.on('close', this._onClose);
     if (typeof this.input.resume === 'function') this.input.resume();
@@ -111,6 +117,7 @@ Interface.prototype.close = function() {
   this.closed = true;
   if (this.input && typeof this.input.removeListener === 'function') {
     if (this._onData) this.input.removeListener('data', this._onData);
+    if (this._onError) this.input.removeListener('error', this._onError);
     if (this._onEnd) this.input.removeListener('end', this._onEnd);
     if (this._onClose) this.input.removeListener('close', this._onClose);
   }
@@ -134,21 +141,53 @@ Interface.prototype.resume = function() {
 Interface.prototype[Symbol.asyncIterator] = function() {
   var self = this;
   var done = false;
+  var error = null;
   var queue = [];
   var resolve = null;
+  var reject = null;
+  function emitResult() {
+    if (resolve === null) return;
+    if (error !== null) {
+      var pendingReject = reject;
+      resolve = null;
+      reject = null;
+      pendingReject(error);
+      return;
+    }
+    if (done) {
+      var pendingResolve = resolve;
+      resolve = null;
+      reject = null;
+      pendingResolve({ value: undefined, done: true });
+      return;
+    }
+    if (queue.length > 0) {
+      var pendingResolve = resolve;
+      resolve = null;
+      pendingResolve({ value: queue.shift(), done: false });
+    }
+  }
   self.on('line', function(line) {
     if (resolve) { var r = resolve; resolve = null; r({ value: line, done: false }); }
     else queue.push(line);
   });
-  self.on('close', function() {
+  self.on('error', function(err) {
+    if (done) return;
     done = true;
-    if (resolve) { var r = resolve; resolve = null; r({ value: undefined, done: true }); }
+    error = err;
+    emitResult();
+  });
+  self.on('close', function() {
+    if (done) return;
+    done = true;
+    emitResult();
   });
   return {
     next: function() {
       if (queue.length > 0) return Promise.resolve({ value: queue.shift(), done: false });
+      if (error !== null) return Promise.reject(error);
       if (done) return Promise.resolve({ value: undefined, done: true });
-      return new Promise(function(r) { resolve = r; });
+      return new Promise(function(r, rej) { resolve = r; reject = rej; });
     }
   };
 };

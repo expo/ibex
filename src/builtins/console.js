@@ -9,7 +9,7 @@ var Console = function(stdout, stderr) {
 var _clearSequence = '\x1b[1;1H\x1b[0J';
 
 function _clearTTY(stream) {
-  if (!stream || stream.isTTY !== true || typeof stream.write !== 'function') {
+  if (!stream || !stream.isTTY || typeof stream.write !== 'function') {
     return;
   }
   stream.write(_clearSequence);
@@ -63,7 +63,9 @@ Console.prototype.groupEnd = function() {
 Console.prototype.table = function(data) {
   console.log(data);
 };
-Console.prototype.clear = function() { _clearTTY(this._stdout); };
+Console.prototype.clear = function() {
+  _clearTTY(this._stdout || (typeof process === 'object' ? process.stdout : undefined));
+};
 
 module.exports = console;
 module.exports.Console = Console;
