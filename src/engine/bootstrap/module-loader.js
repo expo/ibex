@@ -150,6 +150,12 @@
     return relativePath.replace(/\\/g, "/");
   }
   function applyRolldownCjsDirnameBindings(source, bundlePath) {
+    // Strip const/let/var __dirname/__filename declarations to avoid
+    // clashing with the function parameters injected by the module loader.
+    if (source && (source.indexOf("__dirname") !== -1 || source.indexOf("__filename") !== -1)) {
+      source = source.replace(/\b(const|let|var)\s+__dirname\s*=[^;\n]+[;\n]/g, '/* __dirname provided by loader */\n');
+      source = source.replace(/\b(const|let|var)\s+__filename\s*=[^;\n]+[;\n]/g, '/* __filename provided by loader */\n');
+    }
     return source;
   }
   function fixEsmCjsInterop(source) {
