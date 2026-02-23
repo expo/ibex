@@ -44,6 +44,8 @@ function Socket(options) {
   this._paused = false;
   this._encoding = null;
   this._events = {};
+  this._readBuffer = [];
+  this._readBufferLength = 0;
   this._isUnix = false;
   this._socketPath = null;
   this.allowHalfOpen = options.allowHalfOpen || false;
@@ -71,6 +73,54 @@ function Socket(options) {
     this._startPolling();
   }
 }
+
+function toBufferData(data, encoding) {
+  if (data == null) return null;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(data)) return data;
+  if (typeof data === 'string') {
+    if (typeof Buffer !== 'undefined') return Buffer.from(data, encoding || 'utf8');
+    return data;
+  }
+  return typeof Buffer !== 'undefined' ? Buffer.from(String(data), 'utf8') : String(data);
+}
+
+Socket.prototype._appendToReadBuffer = function(data) {
+  if (data == null) return;
+  if (!data.length) return;
+  var bufferData = toBufferData(data);
+  if (bufferData == null || !bufferData.length) return;
+  this._readBuffer.push(bufferData);
+  this._readBufferLength += bufferData.length;
+};
+
+Socket.prototype._consumeReadBuffer = function(size) {
+  if (this._readBufferLength === 0) return null;
+  if (typeof size !== 'number' || size <= 0) {
+    var allData = Buffer.concat(this._readBuffer, this._readBufferLength);
+    this._readBuffer = [];
+    this._readBufferLength = 0;
+    return allData;
+  }
+  if (size >= this._readBufferLength) return this._consumeReadBuffer();
+
+  var remaining = size;
+  var parts = [];
+  while (remaining > 0 && this._readBuffer.length > 0) {
+    var chunk = this._readBuffer[0];
+    if (chunk.length <= remaining) {
+      this._readBuffer.shift();
+      this._readBufferLength -= chunk.length;
+      parts.push(chunk);
+      remaining -= chunk.length;
+    } else {
+      parts.push(chunk.slice(0, remaining));
+      this._readBuffer[0] = chunk.slice(remaining);
+      this._readBufferLength -= remaining;
+      remaining = 0;
+    }
+  }
+  return parts.length === 1 ? parts[0] : Buffer.concat(parts, size - remaining);
+};
 
 Socket.prototype._updateAddressInfo = function() {
   if (this._handle == null) return;
@@ -127,12 +177,14 @@ Socket.prototype._startPolling = function() {
       if (data.length > 0) {
         self._lastActivity = Date.now();
         self.bytesRead += data.length;
+        self._appendToReadBuffer(data);
+        self.emit('readable');
         if (self._encoding) {
           self.emit('data', data);
         } else {
           // Emit as Buffer if available, otherwise string
           if (typeof Buffer !== 'undefined') {
-            self.emit('data', Buffer.from(data, 'utf8'));
+            self.emit('data', toBufferData(data));
           } else {
             self.emit('data', data);
           }
@@ -367,6 +419,18 @@ Socket.prototype.setTimeout = function(timeout, callback) {
     }
   }
   return this;
+};
+
+Socket.prototype.read = function(size) {
+  return this._consumeReadBuffer(typeof size === 'number' ? size : undefined);
+};
+
+Socket.prototype.unshift = function(chunk) {
+  if (chunk == null) return;
+  var unshiftData = toBufferData(chunk);
+  if (unshiftData == null || !unshiftData.length) return;
+  this._readBuffer.unshift(unshiftData);
+  this._readBufferLength += unshiftData.length;
 };
 
 Socket.prototype.setNoDelay = function(noDelay) {

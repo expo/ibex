@@ -70,6 +70,83 @@ function parseHeaders(response) {
   return result;
 }
 
+function toBuffer(value) {
+  if (value == null) return null;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return value;
+  if (typeof value === 'string') {
+    if (typeof Buffer !== 'undefined') return Buffer.from(value, 'utf8');
+    return value;
+  }
+  return typeof Buffer !== 'undefined' ? Buffer.from(String(value), 'utf8') : String(value);
+}
+
+function isValidMethodStart(byte) {
+  return (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte === 42;
+}
+
+function emitClientError(server, socket, rawPacket, bytesParsed) {
+  var raw = toBuffer(rawPacket);
+  var err = new Error('Parse Error: Invalid method encountered');
+  err.code = 'HPE_INVALID_METHOD';
+  err.rawPacket = raw || toBuffer('');
+  err.bytesParsed = bytesParsed;
+  if (server && typeof server.emit === 'function') {
+    server.emit('clientError', err, socket);
+  }
+}
+
+function parseInvalidClientRequest(server, socket, chunk) {
+  if (!chunk || !chunk.length) return;
+  if (!socket._exactHttpClientErrorState) return;
+  var state = socket._exactHttpClientErrorState;
+  if (state.done) return;
+
+  var data = toBuffer(chunk);
+  if (!data || !data.length) return;
+  if (state.awaitingReplay) {
+    emitClientError(server, socket, data, data.length);
+    state.done = true;
+    return;
+  }
+
+  if (isValidMethodStart(data[0])) {
+    state.done = true;
+    return;
+  }
+
+  emitClientError(server, socket, data.slice(0, 1), 1);
+  var remaining = data.slice(1);
+  if (remaining.length > 0) {
+    emitClientError(server, socket, remaining, remaining.length);
+    state.done = true;
+  } else {
+    state.awaitingReplay = true;
+  }
+}
+
+function setupHttpClientErrorParsing(server, socket) {
+  if (!socket || !socket.on) return;
+  if (socket._exactHttpClientParserAttached) return;
+  socket._exactHttpClientParserAttached = true;
+  socket._exactHttpClientErrorState = { done: false, awaitingReplay: false };
+
+  var onData = function(data) {
+    parseInvalidClientRequest(server, socket, data);
+    if (socket._exactHttpClientErrorState.done) {
+      socket.removeListener('data', onData);
+    }
+  };
+
+  socket.on('data', onData);
+  var buffered = socket.read();
+  if (buffered && buffered.length) {
+    parseInvalidClientRequest(server, socket, buffered);
+    if (socket._exactHttpClientErrorState.done) {
+      socket.removeListener('data', onData);
+    }
+  }
+}
+
 function IncomingMessage(response) {
   EventEmitter.call(this);
   this.statusCode = response.status;
@@ -568,9 +645,13 @@ function Server(requestListener) {
   this._listening = false;
   this._closing = false;
   this._requestListener = requestListener || null;
+  var self = this;
   if (typeof requestListener === 'function') {
     this.on('request', requestListener);
   }
+  this.on('connection', function(socket) {
+    setupHttpClientErrorParsing(self, socket);
+  });
 }
 Server.prototype = Object.create(EventEmitter.prototype);
 Server.prototype.constructor = Server;
