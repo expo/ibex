@@ -8,6 +8,39 @@ function ensureExactFs() {
   _exactFsInitialized = true;
 }
 
+// Argument validation helpers (match Node.js ERR_INVALID_ARG_TYPE format)
+function _fsInvalidArgType(name, expected, actual) {
+  var received;
+  if (actual === null) received = 'null';
+  else if (actual === undefined) received = 'undefined';
+  else if (Array.isArray(actual)) received = 'an instance of Array';
+  else if (typeof actual === 'string') received = "type string (" + actual + ")";
+  else if (typeof actual === 'number') received = 'type number (' + actual + ')';
+  else if (typeof actual === 'boolean') received = 'type boolean (' + actual + ')';
+  else received = 'type ' + typeof actual;
+  var err = new TypeError('The "' + name + '" argument must be of type ' + expected + '. Received ' + received);
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  return err;
+}
+
+function _validateFd(fd) {
+  if (typeof fd !== 'number' || fd < 0 || !Number.isInteger(fd)) {
+    throw _fsInvalidArgType('fd', 'number', fd);
+  }
+}
+
+function _validatePath(path, propName) {
+  if (typeof path !== 'string' && !Buffer.isBuffer(path)) {
+    throw _fsInvalidArgType(propName || 'path', 'string', path);
+  }
+}
+
+function _validateCallback(cb) {
+  if (typeof cb !== 'function') {
+    throw _fsInvalidArgType('callback', 'function', cb);
+  }
+}
+
 function toUint8Array(data) {
   if (typeof data === 'string') {
     if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(data);
@@ -564,6 +597,161 @@ var promises = {
 
 var constants = { F_OK: 0, R_OK: 1, W_OK: 2, X_OK: 4 };
 
+// fchmod/fchmodSync — file descriptor-based chmod
+function fchmod(fd, mode, callback) {
+  _validateFd(fd);
+  if (typeof mode !== 'number') throw _fsInvalidArgType('mode', 'number', mode);
+  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
+  ensureExactFs();
+  // Stub: not fully implemented, call callback with no error
+  if (typeof g.__exactFsFchmod === 'function') {
+    g.__exactFsFchmod(fd, mode, callback);
+  } else {
+    var err = new Error('fchmod is not supported');
+    err.code = 'ENOSYS';
+    callback(err);
+  }
+}
+function fchmodSync(fd, mode) {
+  _validateFd(fd);
+  if (typeof mode !== 'number') throw _fsInvalidArgType('mode', 'number', mode);
+  ensureExactFs();
+  if (typeof g.__exactFsFchmodSync === 'function') {
+    return g.__exactFsFchmodSync(fd, mode);
+  }
+  var err = new Error('fchmodSync is not supported');
+  err.code = 'ENOSYS';
+  throw err;
+}
+
+// fchown/fchownSync — file descriptor-based chown
+function fchown(fd, uid, gid, callback) {
+  _validateFd(fd);
+  if (typeof uid !== 'number') throw _fsInvalidArgType('uid', 'number', uid);
+  if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
+  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
+  ensureExactFs();
+  if (typeof g.__exactFsFchown === 'function') {
+    g.__exactFsFchown(fd, uid, gid, callback);
+  } else {
+    var err = new Error('fchown is not supported');
+    err.code = 'ENOSYS';
+    callback(err);
+  }
+}
+function fchownSync(fd, uid, gid) {
+  _validateFd(fd);
+  if (typeof uid !== 'number') throw _fsInvalidArgType('uid', 'number', uid);
+  if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
+  ensureExactFs();
+  if (typeof g.__exactFsFchownSync === 'function') {
+    return g.__exactFsFchownSync(fd, uid, gid);
+  }
+  var err = new Error('fchownSync is not supported');
+  err.code = 'ENOSYS';
+  throw err;
+}
+
+// ftruncate/ftruncateSync — file descriptor-based truncate
+function ftruncate(fd, len, callback) {
+  if (typeof len === 'function') { callback = len; len = 0; }
+  _validateFd(fd);
+  ensureExactFs();
+  if (typeof g.__exactFsFtruncate === 'function') {
+    g.__exactFsFtruncate(fd, len, callback);
+  } else {
+    callback(null);
+  }
+}
+function ftruncateSync(fd, len) {
+  _validateFd(fd);
+  ensureExactFs();
+  if (typeof g.__exactFsFtruncateSync === 'function') {
+    return g.__exactFsFtruncateSync(fd, len || 0);
+  }
+}
+
+// fdatasync/fdatasyncSync
+function fdatasync(fd, callback) {
+  _validateFd(fd);
+  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
+  callback(null);
+}
+function fdatasyncSync(fd) {
+  _validateFd(fd);
+}
+
+// fsync/fsyncSync
+function fsync(fd, callback) {
+  _validateFd(fd);
+  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
+  callback(null);
+}
+function fsyncSync(fd) {
+  _validateFd(fd);
+}
+
+// fstat/fstatSync
+function fstat(fd, opts, callback) {
+  if (typeof opts === 'function') { callback = opts; opts = {}; }
+  _validateFd(fd);
+  ensureExactFs();
+  if (typeof g.__exactFsFstat === 'function') {
+    g.__exactFsFstat(fd, callback);
+  } else {
+    var err = new Error('fstat is not supported');
+    err.code = 'ENOSYS';
+    callback(err);
+  }
+}
+function fstatSync(fd, opts) {
+  _validateFd(fd);
+  ensureExactFs();
+  if (typeof g.__exactFsFstatSync === 'function') {
+    return g.__exactFsFstatSync(fd);
+  }
+  var err = new Error('fstatSync is not supported');
+  err.code = 'ENOSYS';
+  throw err;
+}
+
+// futimes/futimesSync
+function futimes(fd, atime, mtime, callback) {
+  _validateFd(fd);
+  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
+  callback(null);
+}
+function futimesSync(fd, atime, mtime) {
+  _validateFd(fd);
+}
+
+// lchmod/lchmodSync  
+function lchmod(path, mode, callback) {
+  _validatePath(path);
+  callback(null);
+}
+function lchmodSync(path, mode) {
+  _validatePath(path);
+}
+
+// lchown/lchownSync
+function lchown(path, uid, gid, callback) {
+  _validatePath(path);
+  callback(null);
+}
+function lchownSync(path, uid, gid) {
+  _validatePath(path);
+}
+
+// lutimes/lutimesSync
+function lutimes(path, atime, mtime, callback) {
+  _validatePath(path);
+  callback(null);
+}
+function lutimesSync(path, atime, mtime) {
+  _validatePath(path);
+}
+
 module.exports = {
   readFile: readFile,
   readFileSync: readFileSync,
@@ -625,6 +813,26 @@ module.exports = {
   utimesSync: utimesSync,
   rm: rm,
   rmSync: rmSync,
+  fchmod: fchmod,
+  fchmodSync: fchmodSync,
+  fchown: fchown,
+  fchownSync: fchownSync,
+  ftruncate: ftruncate,
+  ftruncateSync: ftruncateSync,
+  fdatasync: fdatasync,
+  fdatasyncSync: fdatasyncSync,
+  fsync: fsync,
+  fsyncSync: fsyncSync,
+  fstat: fstat,
+  fstatSync: fstatSync,
+  futimes: futimes,
+  futimesSync: futimesSync,
+  lchmod: lchmod,
+  lchmodSync: lchmodSync,
+  lchown: lchown,
+  lchownSync: lchownSync,
+  lutimes: lutimes,
+  lutimesSync: lutimesSync,
   promises: promises,
   constants: constants
 };
