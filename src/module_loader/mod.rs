@@ -100,6 +100,10 @@ impl ModuleLoader {
         builtins.insert("node:stream".to_string(), stream_module.clone());
         builtins.insert("stream".to_string(), stream_module);
 
+        let stream_consumers_module = node_stream_consumers_module();
+        builtins.insert("node:stream/consumers".to_string(), stream_consumers_module.clone());
+        builtins.insert("stream/consumers".to_string(), stream_consumers_module);
+
         let stream_promises_module = node_stream_promises_module();
         builtins.insert("node:stream/promises".to_string(), stream_promises_module.clone());
         builtins.insert("stream/promises".to_string(), stream_promises_module);
@@ -189,6 +193,9 @@ impl ModuleLoader {
         builtins.insert("dns".to_string(), dns_module.clone());
         builtins.insert("node:dns/promises".to_string(), dns_module.clone());
         builtins.insert("dns/promises".to_string(), dns_module);
+
+        let internal_fs_utils_module = internal_fs_utils_module();
+        builtins.insert("internal/fs/utils".to_string(), internal_fs_utils_module);
 
         let net_module = node_net_module();
         builtins.insert("node:net".to_string(), net_module.clone());
@@ -780,6 +787,181 @@ fn node_stream_promises_module() -> String {
     include_str!(concat!(env!("OUT_DIR"), "/builtins/stream-promises.js")).to_string()
 }
 
+fn node_stream_consumers_module() -> String {
+    r#"var _bufferMod = require('buffer');
+var _Buffer = _bufferMod && _bufferMod.Buffer ? _bufferMod.Buffer : null;
+
+function _toUint8Array(chunk) {
+  if (!chunk) {
+    return new Uint8Array(0);
+  }
+  if (chunk instanceof Uint8Array) {
+    return chunk;
+  }
+  if (chunk instanceof ArrayBuffer) {
+    return new Uint8Array(chunk);
+  }
+  if (ArrayBuffer.isView(chunk)) {
+    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  if (typeof chunk === 'string') {
+    if (typeof TextEncoder === 'function') {
+      return new TextEncoder().encode(chunk);
+    }
+    if (_Buffer && typeof _Buffer.from === 'function') {
+      return _Buffer.from(chunk);
+    }
+    return new Uint8Array(chunk.length);
+  }
+  return _Buffer && _Buffer.isBuffer(chunk) ? chunk : new Uint8Array(0);
+}
+
+function _collect(stream) {
+  if (!stream) {
+    return Promise.reject(new TypeError('The "stream" argument must be of type stream. Received ' + String(stream)));
+  }
+  if (typeof stream.getReader === 'function') {
+    return new Promise(function(resolve, reject) {
+      var chunks = [];
+      var reader = stream.getReader();
+      function read() {
+        reader.read().then(function(result) {
+          if (result.done) {
+            resolve(chunks);
+            return;
+          }
+          chunks.push(_toUint8Array(result.value));
+          read();
+        }).catch(reject);
+      }
+      read();
+    });
+  }
+  if (typeof stream.on === 'function') {
+    return new Promise(function(resolve, reject) {
+      var chunks = [];
+      var ended = false;
+
+      function cleanup() {
+        stream.removeListener && stream.removeListener('data', onData);
+        stream.removeListener && stream.removeListener('error', onError);
+        stream.removeListener && stream.removeListener('end', onEnd);
+        stream.removeListener && stream.removeListener('close', onEnd);
+      }
+      function onData(chunk) {
+        chunks.push(_toUint8Array(chunk));
+      }
+      function onError(err) {
+        if (ended) {
+          return;
+        }
+        ended = true;
+        cleanup();
+        reject(err);
+      }
+      function onEnd() {
+        if (ended) {
+          return;
+        }
+        ended = true;
+        cleanup();
+        resolve(chunks);
+      }
+      stream.on('data', onData);
+      stream.on('error', onError);
+      stream.on('end', onEnd);
+      stream.on('close', onEnd);
+      if (stream.readableEnded) {
+        onEnd();
+      }
+    });
+  }
+  return Promise.reject(new TypeError('The "stream" argument must be of type stream. Received ' + String(stream)));
+}
+
+function _concatChunks(chunks) {
+  var total = 0;
+  for (var i = 0; i < chunks.length; i++) {
+    total += chunks[i].byteLength || 0;
+  }
+  var merged = new Uint8Array(total);
+  var offset = 0;
+  for (var j = 0; j < chunks.length; j++) {
+    var chunk = chunks[j];
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged;
+}
+
+function _streamToBuffer(chunks) {
+  if (_Buffer && _Buffer.concat) {
+    return _Buffer.concat(chunks);
+  }
+  var merged = _concatChunks(chunks);
+  return _Buffer ? _Buffer.from(merged) : merged;
+}
+
+function _decode(chunks) {
+  var merged = _concatChunks(chunks);
+  if (typeof TextDecoder === 'function') {
+    return new TextDecoder().decode(merged);
+  }
+  var out = '';
+  for (var i = 0; i < merged.length; i++) {
+    out += String.fromCharCode(merged[i]);
+  }
+  return out;
+}
+
+function buffer(stream) {
+  return _collect(stream).then(function(chunks) {
+    return _streamToBuffer(chunks);
+  });
+}
+
+function arrayBuffer(stream) {
+  return _collect(stream).then(function(chunks) {
+    return _concatChunks(chunks).buffer;
+  });
+}
+
+function text(stream) {
+  return _collect(stream).then(function(chunks) {
+    return _decode(chunks);
+  });
+}
+
+function blob(stream, options) {
+  return _collect(stream).then(function(chunks) {
+    if (typeof Blob === 'function') {
+      return new Blob(chunks, options);
+    }
+    var data = _concatChunks(chunks);
+    return {
+      size: data.length,
+      type: options && options.type || '',
+      arrayBuffer: function() {
+        return Promise.resolve(data.buffer);
+      }
+    };
+  });
+}
+
+function json(stream) {
+  return text(stream).then(JSON.parse);
+}
+
+module.exports = {
+  blob: blob,
+  buffer: buffer,
+  arrayBuffer: arrayBuffer,
+  text: text,
+  json: json
+};"#
+        .to_string()
+}
+
 fn node_stream_web_module() -> String {
     include_str!(concat!(env!("OUT_DIR"), "/builtins/stream-web.js")).to_string()
 }
@@ -850,6 +1032,41 @@ fn node_dns_module() -> String {
 
 fn node_net_module() -> String {
     include_str!(concat!(env!("OUT_DIR"), "/builtins/net.js")).to_string()
+}
+
+fn internal_fs_utils_module() -> String {
+    r#"function isFd(fd) {
+  return typeof fd === 'number' && Number.isInteger(fd) && fd >= 0;
+}
+
+function isFileMode(mode) {
+  return typeof mode === 'number' && Number.isInteger(mode);
+}
+
+function validateFd(fd) {
+  if (!isFd(fd)) {
+    throw new TypeError('The "fd" argument must be a non-negative integer. Received ' + String(fd));
+  }
+}
+
+function toPathIfFileURL(value) {
+  if (typeof value === 'string' || value instanceof String) {
+    return value;
+  }
+  if (value && typeof value === 'object' && typeof value.path === 'string') {
+    return value.path;
+  }
+  return value;
+}
+
+module.exports = {
+  isFd: isFd,
+  isFileMode: isFileMode,
+  validateFd: validateFd,
+  toPathIfFileURL: toPathIfFileURL,
+  kMinPoolSpace: 8192
+};"#
+        .to_string()
 }
 
 fn node_zlib_module() -> String {

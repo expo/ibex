@@ -264,6 +264,261 @@ function notDeepStrictEqual(actual, expected, message) {
   }
 }
 
+function _callTrackerTypeLabel(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'function' && value.name) {
+    return '[Function: ' + value.name + ']';
+  }
+  if (typeof value === 'function') {
+    return '[Function (anonymous)]';
+  }
+  return _typeof(value);
+}
+
+var __callTrackerExiting = false;
+if (typeof process === 'object' && process !== null && typeof process.on === 'function' && !process.__exactCallTrackerExitHook) {
+  process.__exactCallTrackerExitHook = true;
+  process.on('exit', function() {
+    __callTrackerExiting = true;
+  });
+}
+
+function _invalidExpectedType(expected) {
+  var actualType = expected === null ? 'null' : _typeof(expected);
+  var text = 'The "expected" argument must be of type number. Received';
+  if (actualType === 'string') {
+    text += ' type "string" (\'' + expected + '\')';
+  } else if (actualType === 'object' && expected !== null) {
+    var ctor = expected.constructor && expected.constructor.name ? expected.constructor.name : 'Object';
+    text += ' an instance of ' + ctor;
+  } else if (actualType === 'boolean' || actualType === 'number' || actualType === 'undefined') {
+    text += ' type "' + actualType + '" (' + String(expected) + ')';
+  } else {
+    text += ' type "' + actualType + '"';
+  }
+  var typeErr = new TypeError(text);
+  typeErr.code = 'ERR_INVALID_ARG_TYPE';
+  return typeErr;
+}
+
+function _cloneArguments(args) {
+  var cloned = new Array(args.length);
+  for (var i = 0; i < args.length; i++) {
+    cloned[i] = args[i];
+  }
+  return cloned;
+}
+
+function _freeze(obj) {
+  return Object.freeze(obj);
+}
+
+function _validateExpectedCalls(expected) {
+  if (typeof expected === 'undefined') {
+    return 1;
+  }
+  if (typeof expected !== 'number' || !isFinite(expected)) {
+    throw _invalidExpectedType(expected);
+  }
+  if (Math.floor(expected) !== expected) {
+    var rangeErr = new RangeError('The value of "expected" is out of range. It must be an integer. Received ' + expected);
+    rangeErr.code = 'ERR_OUT_OF_RANGE';
+    throw rangeErr;
+  }
+  if (expected < 1 || expected > 4294967295) {
+    var rangeErr2 = new RangeError('The value of "expected" is out of range. It must be >= 1 && <= 4294967295. Received ' + expected);
+    rangeErr2.code = 'ERR_OUT_OF_RANGE';
+    throw rangeErr2;
+  }
+  return expected;
+}
+
+function CallTrackerContext(expected, name, stackTrace) {
+  this._calls = [];
+  this._expected = expected;
+  this._stackTrace = stackTrace;
+  this._name = name;
+}
+
+CallTrackerContext.prototype.track = function(thisArg, args) {
+  _freeze(args);
+  this._calls.push(_freeze({
+    thisArg: thisArg,
+    arguments: args
+  }));
+};
+
+CallTrackerContext.prototype.getDelta = function() {
+  return this._calls.length - this._expected;
+};
+
+CallTrackerContext.prototype.getCalls = function() {
+  return _freeze(this._calls.slice());
+};
+
+CallTrackerContext.prototype.reset = function() {
+  this._calls = [];
+};
+
+CallTrackerContext.prototype.report = function() {
+  if (this.getDelta() !== 0) {
+    return {
+      message: 'Expected the ' + this._name + ' function to be executed ' +
+          this._expected + ' time(s) but was executed ' +
+          this._calls.length + ' time(s).',
+      actual: this._calls.length,
+      expected: this._expected,
+      operator: this._name,
+      stack: this._stackTrace
+    };
+  }
+};
+
+function _getContextName(fn) {
+  return fn && fn.name ? fn.name : 'calls';
+}
+
+function CallTracker() {
+  this._trackedFunctions = [];
+  this._contexts = new WeakMap();
+}
+
+CallTracker.prototype._getContext = function(tracked) {
+  var context = this._contexts.get(tracked);
+  if (!context) {
+    var invalidError = new TypeError('The argument \'tracked\' is not a tracked function. Received ' + _callTrackerTypeLabel(tracked));
+    invalidError.code = 'ERR_INVALID_ARG_VALUE';
+    throw invalidError;
+  }
+  return context;
+};
+
+CallTracker.prototype.calls = function(fn, expected) {
+  if (__callTrackerExiting) {
+    var unavailable = new Error('assert.CallTracker is not available during process exit');
+    unavailable.code = 'ERR_UNAVAILABLE_DURING_EXIT';
+    throw unavailable;
+  }
+  if (typeof fn === 'number') {
+    expected = fn;
+    fn = function() {};
+  } else {
+    if (fn === undefined) {
+      fn = function() {};
+    } else if (typeof fn !== 'function' && arguments.length > 1) {
+      expected = _validateExpectedCalls(expected);
+      // Mirror Node behavior on odd inputs (for example, bool/string/number with explicit expected).
+      return new Proxy(fn, {});
+    } else if (typeof fn !== 'function') {
+      var nonFnErr = _invalidExpectedType(fn);
+      nonFnErr.message = 'The first argument must be of type function. Received type "' + _callTrackerTypeLabel(fn) + '"';
+      nonFnErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw nonFnErr;
+    }
+  }
+  expected = _validateExpectedCalls(expected);
+
+  var context = new CallTrackerContext(expected, _getContextName(fn), new Error());
+  var wrapped = fn;
+  var originalLengthDescriptor = Object.getOwnPropertyDescriptor(fn, 'length');
+  var originalLength = (originalLengthDescriptor &&
+      originalLengthDescriptor.hasOwnProperty('value') &&
+      typeof originalLengthDescriptor.value === 'number') ? originalLengthDescriptor.value : 0;
+
+  var tracked = (function() {
+    var body = function() {
+      context.track(this, _cloneArguments(arguments));
+      return wrapped.apply(this, arguments);
+    };
+    switch (originalLength) {
+      case 0:
+        tracked = function() { return body.apply(this, arguments); };
+        break;
+      case 1:
+        tracked = function(arg1) { return body.apply(this, arguments); };
+        break;
+      case 2:
+        tracked = function(arg1, arg2) { return body.apply(this, arguments); };
+        break;
+      case 3:
+        tracked = function(arg1, arg2, arg3) { return body.apply(this, arguments); };
+        break;
+      case 4:
+        tracked = function(arg1, arg2, arg3, arg4) { return body.apply(this, arguments); };
+        break;
+      default:
+        tracked = function() { return body.apply(this, arguments); };
+    }
+    return tracked;
+  })();
+
+  if (originalLengthDescriptor) {
+    try { Object.defineProperty(tracked, 'length', originalLengthDescriptor); } catch (e) {}
+  } else {
+    try { delete tracked.length; } catch (e) {}
+  }
+  var properties = Object.getOwnPropertyNames(fn);
+  for (var p = 0; p < properties.length; p++) {
+    var key = properties[p];
+    if (key === 'length') continue;
+    if (key === 'prototype' && typeof fn === 'function') {
+      continue;
+    }
+    try {
+      Object.defineProperty(tracked, key, Object.getOwnPropertyDescriptor(fn, key));
+    } catch (e) {}
+  }
+  try { Object.defineProperty(tracked, 'name', Object.getOwnPropertyDescriptor(fn, 'name')); } catch (e) {}
+
+  
+
+  this._trackedFunctions.push(tracked);
+  this._contexts.set(tracked, context);
+
+  return tracked;
+};
+
+CallTracker.prototype.getCalls = function(tracked) {
+  return this._getContext(tracked).getCalls();
+};
+
+CallTracker.prototype.report = function() {
+  var errors = [];
+  for (var i = 0; i < this._trackedFunctions.length; i++) {
+    var context = this._getContext(this._trackedFunctions[i]);
+    var item = context.report();
+    if (item) {
+      errors.push(item);
+    }
+  }
+  return _freeze(errors);
+};
+
+CallTracker.prototype.reset = function(tracked) {
+  if (tracked === undefined) {
+    for (var i = 0; i < this._trackedFunctions.length; i++) {
+      this._getContext(this._trackedFunctions[i]).reset();
+    }
+    return;
+  }
+  this._getContext(tracked).reset();
+};
+
+CallTracker.prototype.verify = function() {
+  var errors = this.report();
+  if (errors.length > 0) {
+    var message = errors.length === 1 ? errors[0].message : 'Functions were not called the expected number of times';
+    throw new AssertionError({
+      message: message,
+      details: errors,
+      actual: undefined,
+      expected: undefined,
+      operator: 'verify'
+    });
+  }
+};
+
 function throws(fn, expected, message) {
   var threw = false;
   var caught;
@@ -481,6 +736,7 @@ assert.fail = fail;
 assert.match = match;
 assert.doesNotMatch = doesNotMatch;
 assert.AssertionError = AssertionError;
+assert.CallTracker = CallTracker;
 assert.strict = assert;
 
 module.exports = assert;
