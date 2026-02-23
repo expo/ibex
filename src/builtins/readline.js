@@ -222,6 +222,50 @@ function emitKeypressEvents(stream, iface) {
   // Stub: no-op that prevents errors when called
 }
 
+// CSI (Control Sequence Introducer) helpers for terminal control
+function CSI(strings) {
+  var args = [];
+  for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+  var out = '\x1b[';
+  for (var j = 0; j < strings.length; j++) {
+    out += strings[j];
+    if (j < args.length) out += String(args[j]);
+  }
+  return out;
+}
+CSI.kClearToLineBeginning = '\x1b[1K';
+CSI.kClearToLineEnd = '\x1b[0K';
+CSI.kClearLine = '\x1b[2K';
+CSI.kClearScreenDown = '\x1b[0J';
+
+// getStringWidth: estimate display width of a string (handles ANSI escapes)
+function getStringWidth(str) {
+  if (typeof str !== 'string') return 0;
+  // Strip ANSI escape sequences
+  str = str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  var width = 0;
+  for (var i = 0; i < str.length; i++) {
+    var code = str.codePointAt(i);
+    if (code > 0xFFFF) i++; // surrogate pair
+    // CJK Unified Ideographs, CJK Compatibility, fullwidth forms
+    if ((code >= 0x1100 && code <= 0x115F) ||
+        (code >= 0x2E80 && code <= 0xA4CF && code !== 0x303F) ||
+        (code >= 0xAC00 && code <= 0xD7A3) ||
+        (code >= 0xF900 && code <= 0xFAFF) ||
+        (code >= 0xFE10 && code <= 0xFE6F) ||
+        (code >= 0xFF01 && code <= 0xFF60) ||
+        (code >= 0xFFE0 && code <= 0xFFE6) ||
+        (code >= 0x20000 && code <= 0x2FFFD) ||
+        (code >= 0x30000 && code <= 0x3FFFD)) {
+      width += 2;
+    } else if (code >= 0x20) {
+      width += 1;
+    }
+    // control chars (< 0x20) contribute 0 width
+  }
+  return width;
+}
+
 module.exports = {
   createInterface: createInterface,
   Interface: Interface,
@@ -230,6 +274,13 @@ module.exports = {
   clearScreenDown: clearScreenDown,
   cursorTo: cursorTo,
   moveCursor: moveCursor,
-  emitKeypressEvents: emitKeypressEvents
+  emitKeypressEvents: emitKeypressEvents,
+  CSI: CSI
 };
 module.exports.default = module.exports;
+
+// Bun internals symbol for tests that access CSI and utils via Symbol
+module.exports[Symbol.for("__BUN_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED__")] = {
+  CSI: CSI,
+  utils: { getStringWidth: getStringWidth }
+};

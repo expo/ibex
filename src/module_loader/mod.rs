@@ -58,6 +58,9 @@ impl ModuleLoader {
         builtins.insert("bun:jsc".to_string(), bun_jsc_module());
         builtins.insert("bun:internal-for-testing".to_string(), bun_internal_for_testing_module());
 
+        let node_test_src = "module.exports = require('bun:test');".to_string();
+        builtins.insert("node:test".to_string(), node_test_src);
+
         let node_fs_src = node_fs_module();
         builtins.insert("bun:fs".to_string(), node_fs_src.clone());
         builtins.insert("node:fs".to_string(), node_fs_src.clone());
@@ -264,6 +267,8 @@ impl ModuleLoader {
                 ".ts".into(),
                 ".tsx".into(),
                 ".jsx".into(),
+                ".mts".into(),
+                ".cts".into(),
                 ".json".into(),
             ],
             condition_names: vec![
@@ -361,7 +366,7 @@ impl ModuleLoader {
     fn needs_transpile(path: &Path) -> bool {
         path.extension()
             .and_then(OsStr::to_str)
-            .map(|ext| matches!(ext, "ts" | "tsx" | "jsx"))
+            .map(|ext| matches!(ext, "ts" | "tsx" | "jsx" | "mts" | "cts"))
             .unwrap_or(false)
     }
 
