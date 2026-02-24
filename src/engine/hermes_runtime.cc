@@ -3553,6 +3553,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
     int stdinFd;   // parent writes to child's stdin
     int stdoutFd;  // parent reads from child's stdout
     int stderrFd;  // parent reads from child's stderr
+    int ipcFd;     // IPC channel fd (optional)
     bool exited;
     int exitCode;
     int exitSignal; // 0 if exited normally, >0 if signaled
@@ -3614,7 +3615,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Parse options
         std::string cwd;
         bool useShell = false;
-        std::string stdioModes[3] = {"pipe", "pipe", "pipe"};
+        std::string stdioModes[4] = {"pipe", "pipe", "pipe", "pipe"};
         std::vector<std::string> envEntries;
 
         auto skipJsonWhitespace = [](const std::string& value, size_t& pos) {
@@ -3651,7 +3652,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (value == "ignore") return std::string("ignore");
           if (value == "inherit") return std::string("inherit");
           if (value == "pipe") return std::string("pipe");
-          if (value == "overlapped" || value == "ipc") return std::string("pipe");
+          if (value == "overlapped") return std::string("pipe");
+          if (value == "ipc") return std::string("ipc");
           return std::string("pipe");
         };
 
@@ -3684,10 +3686,11 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
                 stdioModes[0] = normalized;
                 stdioModes[1] = normalized;
                 stdioModes[2] = normalized;
+                stdioModes[3] = normalized;
               } else if (optsJson[modePos] == '[') {
                 ++modePos;
                 int slot = 0;
-                while (modePos < optsJson.size() && slot < 3) {
+                while (modePos < optsJson.size() && slot < 4) {
                   skipJsonWhitespace(optsJson, modePos);
                   if (modePos >= optsJson.size() || optsJson[modePos] == ']') break;
                   std::string parsed;
@@ -3720,11 +3723,13 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         const bool stdinPipeRequested = stdioModes[0] == "pipe";
         const bool stdoutPipeRequested = stdioModes[1] == "pipe";
         const bool stderrPipeRequested = stdioModes[2] == "pipe";
+        const bool ipcRequested = stdioModes[3] == "ipc";
 
         // Create pipes for stdin, stdout, stderr
         int stdinPipeFd[2] = {-1, -1};
         int stdoutPipeFd[2] = {-1, -1};
         int stderrPipeFd[2] = {-1, -1};
+        int ipcPair[2] = {-1, -1};
 
         if (stdinPipeRequested && pipe(stdinPipeFd) != 0) {
           return facebook::jsi::Value(
@@ -3747,6 +3752,16 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create stderr pipe\"}"));
+        }
+        if (ipcRequested && socketpair(AF_UNIX, SOCK_STREAM, 0, ipcPair) != 0) {
+          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create IPC socketpair\"}"));
         }
 
         pid_t pid = fork();
@@ -3799,6 +3814,12 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             }
           }
 
+          if (ipcRequested) {
+            close(ipcPair[1]);
+            dup2(ipcPair[0], 3);
+            close(ipcPair[0]);
+          }
+
           if (!stdinPipeRequested) {
             if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
             if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
@@ -3810,6 +3831,10 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (!stderrPipeRequested) {
             if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
             if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          }
+          if (!ipcRequested) {
+            if (ipcPair[0] >= 0) close(ipcPair[0]);
+            if (ipcPair[1] >= 0) close(ipcPair[1]);
           }
 
           // Build envp array (must outlive execvp call)
@@ -3855,9 +3880,16 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         if (stdinPipeRequested) close(stdinPipeFd[0]);   // close read end of stdin pipe (child reads)
         if (stdoutPipeRequested) close(stdoutPipeFd[1]); // close write end of stdout pipe (child writes)
         if (stderrPipeRequested) close(stderrPipeFd[1]); // close write end of stderr pipe (child writes)
+        if (ipcRequested) close(ipcPair[0]); // close read end in parent
 
         if (stdoutPipeRequested) fcntl(stdoutPipeFd[0], F_SETFL, O_NONBLOCK);
         if (stderrPipeRequested) fcntl(stderrPipeFd[0], F_SETFL, O_NONBLOCK);
+        if (ipcRequested) {
+          int flags = fcntl(ipcPair[1], F_GETFL, 0);
+          if (flags >= 0) {
+            fcntl(ipcPair[1], F_SETFL, flags | O_NONBLOCK);
+          }
+        }
 
         // Store in map
         int handle;
@@ -3869,6 +3901,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           proc.stdinFd = stdinPipeRequested ? stdinPipeFd[1] : -1;
           proc.stdoutFd = stdoutPipeRequested ? stdoutPipeFd[0] : -1;
           proc.stderrFd = stderrPipeRequested ? stderrPipeFd[0] : -1;
+          proc.ipcFd = ipcRequested ? ipcPair[1] : -1;
           proc.exited = false;
           proc.exitCode = -1;
           proc.exitSignal = 0;
@@ -3883,7 +3916,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactSpawn", std::move(spawnFn));
 
   // __exactSpawnRead(handle, stream) -> string (data read, empty if nothing available)
-  // stream is "stdout" or "stderr". Non-blocking read.
+  // stream is "stdout", "stderr", or "ipc". Non-blocking read.
   auto spawnReadFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRead"),
@@ -3909,6 +3942,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             fd = it->second.stdoutFd;
           } else if (streamName == "stderr") {
             fd = it->second.stderrFd;
+          } else if (streamName == "ipc") {
+            fd = it->second.ipcFd;
           }
         }
 
@@ -3933,11 +3968,11 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactSpawnRead", std::move(spawnReadFn));
 
-  // __exactSpawnWrite(handle, data) -> boolean (success)
+  // __exactSpawnWrite(handle, data, stream?) -> boolean (success)
   auto spawnWriteFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnWrite"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -3947,6 +3982,10 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
         int handle = static_cast<int>(args[0].asNumber());
         auto data = args[1].toString(runtime).utf8(runtime);
+        auto streamName = std::string("stdin");
+        if (count > 2 && args[2].isString()) {
+          streamName = args[2].toString(runtime).utf8(runtime);
+        }
 
         int fd = -1;
         {
@@ -3955,7 +3994,11 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (it == s_spawnedProcesses.end()) {
             return facebook::jsi::Value(false);
           }
-          fd = it->second.stdinFd;
+          if (streamName == "stdin") {
+            fd = it->second.stdinFd;
+          } else if (streamName == "ipc") {
+            fd = it->second.ipcFd;
+          }
         }
 
         if (fd < 0) {
@@ -4073,12 +4116,13 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactSpawnKill", std::move(spawnKillFn));
 
   // __exactSpawnCloseStdin(handle) -> void
-  // Closes the stdin pipe so the child process sees EOF on its stdin.
+  // __exactSpawnCloseStdin(handle, stream?) -> void
+  // Closes the requested stream so the child process sees EOF.
   auto spawnCloseStdinFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnCloseStdin"),
-      1,
-      [](facebook::jsi::Runtime& /*runtime*/,
+      2,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -4086,6 +4130,10 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         int handle = static_cast<int>(args[0].asNumber());
+        auto streamName = std::string("stdin");
+        if (count > 1 && args[1].isString()) {
+          streamName = args[1].toString(runtime).utf8(runtime);
+        }
 
         std::lock_guard<std::mutex> lock(s_spawnMutex);
         auto it = s_spawnedProcesses.find(handle);
@@ -4097,6 +4145,12 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         if (proc.stdinFd >= 0) {
           close(proc.stdinFd);
           proc.stdinFd = -1;
+        }
+        if (streamName == "ipc") {
+          if (proc.ipcFd >= 0) {
+            close(proc.ipcFd);
+            proc.ipcFd = -1;
+          }
         }
         return facebook::jsi::Value::undefined();
       });

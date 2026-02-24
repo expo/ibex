@@ -812,6 +812,168 @@
     } catch (err) {}
   }
 
+  // Child-process IPC bootstrap for exact child runtimes.
+  if (
+    typeof globalThis.process === 'object' &&
+    globalThis.process !== null &&
+    globalThis.process.env &&
+    globalThis.process.env.EXACT_IPC_FD
+  ) {
+    var exactIpcFd = Number(globalThis.process.env.EXACT_IPC_FD);
+    if (isFinite(exactIpcFd) && exactIpcFd >= 0) {
+      var exactIpcBuffer = '';
+      var exactIpcConnected = true;
+      var exactIpcPollTimer = null;
+      var exactIpcPollActive = true;
+      var exactIpcPollInterval = 10;
+
+      function exactToString(bytes) {
+        if (typeof TextDecoder === 'function') {
+          try {
+            return new TextDecoder().decode(bytes);
+          } catch (err) {}
+        }
+        var out = '';
+        for (var i = 0; i < bytes.length; i++) {
+          out += String.fromCharCode(bytes[i]);
+        }
+        return out;
+      }
+
+      function exactBuildIpcPacket(type, data) {
+        return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\\n';
+      }
+
+      function exactCreateIpcError(code, message) {
+        var err = new Error(message);
+        err.code = code;
+        return err;
+      }
+
+      function exactCloseIpc() {
+        if (!exactIpcConnected) return;
+        exactIpcConnected = false;
+        exactIpcPollActive = false;
+        if (exactIpcPollTimer) {
+          clearTimeout(exactIpcPollTimer);
+          exactIpcPollTimer = null;
+        }
+        globalThis.process.connected = false;
+        globalThis.process.channel = null;
+        if (typeof globalThis.__exactFsClose === 'function') {
+          try {
+            globalThis.__exactFsClose(exactIpcFd);
+          } catch (err) {}
+        }
+        setTimeout(function() {
+          globalThis.process.emit('disconnect');
+        }, 0);
+      }
+
+      function exactProcessIncomingPackets(rawData) {
+        if (!rawData || !rawData.length) return;
+        exactIpcBuffer += exactToString(rawData);
+        while (exactIpcBuffer.length > 0) {
+          var lineEnd = exactIpcBuffer.indexOf('\\n');
+          if (lineEnd < 0) {
+            return;
+          }
+          var line = exactIpcBuffer.slice(0, lineEnd);
+          exactIpcBuffer = exactIpcBuffer.slice(lineEnd + 1);
+          if (!line) continue;
+          try {
+            var packet = JSON.parse(line);
+            if (!packet || packet.__exactIpc !== true) continue;
+            if (packet.type === 'message') {
+              globalThis.process.emit('message', packet.data);
+            } else if (packet.type === 'disconnect') {
+              exactCloseIpc();
+            }
+          } catch (err) {}
+        }
+      }
+
+      function exactPollIpc() {
+        if (!exactIpcPollActive || !globalThis.process) {
+          return;
+        }
+        if (!exactIpcConnected) {
+          return;
+        }
+        if (
+          typeof globalThis.__exactFsRead === 'function' &&
+          globalThis.__exactFsRead
+        ) {
+          var chunk;
+          try {
+            chunk = globalThis.__exactFsRead(exactIpcFd, 65536, -1);
+          } catch (err) {
+            exactCloseIpc();
+            return;
+          }
+          if (chunk && chunk.length) {
+            exactProcessIncomingPackets(chunk);
+          }
+        }
+        if (exactIpcPollActive) {
+          exactIpcPollTimer = setTimeout(exactPollIpc, exactIpcPollInterval);
+        }
+      }
+
+      globalThis.process.connected = true;
+      globalThis.process.channel = { fd: exactIpcFd };
+      globalThis.process.send = function(message, sendHandle, opts, callback) {
+        if (!exactIpcConnected) {
+          var ipcError = exactCreateIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is closed');
+          if (typeof callback === 'function') {
+            setTimeout(function() {
+              callback(ipcError);
+            }, 0);
+          }
+          return false;
+        }
+        if (typeof sendHandle === 'function') {
+          callback = sendHandle;
+          sendHandle = undefined;
+          opts = undefined;
+        } else if (typeof opts === 'function') {
+          callback = opts;
+          opts = undefined;
+        }
+        var packet = exactBuildIpcPacket('message', message);
+        var written = false;
+        if (typeof globalThis.__exactFsWrite === 'function') {
+          try {
+            written = globalThis.__exactFsWrite(exactIpcFd, packet, -1) > 0;
+          } catch (err) {
+            written = false;
+          }
+        }
+        if (typeof callback === 'function') {
+          setTimeout(function() {
+            callback(written ? null : exactCreateIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed'));
+          }, 0);
+        }
+        return written;
+      };
+
+      globalThis.process.disconnect = function() {
+        if (!exactIpcConnected) {
+          throw exactCreateIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is already disconnected');
+        }
+        if (typeof globalThis.__exactFsWrite === 'function' && exactIpcConnected) {
+          try {
+            var disconnectPacket = exactBuildIpcPacket('disconnect');
+            globalThis.__exactFsWrite(exactIpcFd, disconnectPacket, -1);
+          } catch (err) {}
+        }
+        exactCloseIpc();
+      };
+
+      exactIpcPollTimer = setTimeout(exactPollIpc, 0);
+    }
+  }
+
   // When running compat tests, auto-load bun:test so test/describe/it/expect
   // globals are available even if the test file doesn't explicitly import them.
   // This matches Bun's behavior where these globals are always present.

@@ -41,6 +41,16 @@ function makeExecError(message, result) {
   return err;
 }
 
+function _makeIpcError(code, message) {
+  var err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+function _createIpcPacket(type, data) {
+  return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
+}
+
   cp.execSync = function execSync(command, options) {
     if (typeof command !== 'string') {
       throw new TypeError('The "command" argument must be of type string');
@@ -223,7 +233,9 @@ cp.execFile = function execFile(file, args, options, callback) {
 function _normalizeSpawnMode(mode, fallbackMode) {
   var normalized = mode === undefined || mode === null ? fallbackMode : mode;
   if (typeof normalized === 'string') {
-    if (normalized === 'ignore' || normalized === 'overlapped' || normalized === 'inherit' || normalized === 'pipe' || normalized === 'ipc') return normalized === 'overlapped' || normalized === 'ipc' ? 'pipe' : normalized;
+    if (normalized === 'ignore' || normalized === 'overlapped' || normalized === 'inherit' || normalized === 'pipe' || normalized === 'ipc') {
+      return normalized === 'overlapped' ? 'pipe' : normalized;
+    }
   }
   if (normalized === 0) return 'ignore';
   if (normalized === 1) return 'pipe';
@@ -235,23 +247,73 @@ function _normalizeSpawnOptions(options) {
   var normalized = {
     cwd: options.cwd,
     env: options.env,
-    shell: options.shell
+    shell: options.shell,
+    detached: options.detached
   };
   var stdio = options.stdio;
   if (typeof stdio === 'string') {
-    normalized.stdio = [_normalizeSpawnMode(stdio, 'pipe'), _normalizeSpawnMode(stdio, 'pipe'), _normalizeSpawnMode(stdio, 'pipe')];
-  } else if (typeof stdio === 'number') {
-    normalized.stdio = [_normalizeSpawnMode(stdio, 'pipe'), _normalizeSpawnMode(stdio, 'pipe'), _normalizeSpawnMode(stdio, 'pipe')];
-  } else if (Array.isArray(stdio)) {
     normalized.stdio = [
-      _normalizeSpawnMode(stdio[0], 'pipe'),
-      _normalizeSpawnMode(stdio[1], 'pipe'),
-      _normalizeSpawnMode(stdio[2], 'pipe')
+      _normalizeSpawnMode(stdio, 'pipe'),
+      _normalizeSpawnMode(stdio, 'pipe'),
+      _normalizeSpawnMode(stdio, 'pipe'),
+      _normalizeSpawnMode(stdio, 'pipe')
     ];
+  } else if (typeof stdio === 'number') {
+    normalized.stdio = [
+      _normalizeSpawnMode(stdio, 'pipe'),
+      _normalizeSpawnMode(stdio, 'pipe'),
+      _normalizeSpawnMode(stdio, 'pipe'),
+      _normalizeSpawnMode(stdio, 'pipe')
+    ];
+  } else if (Array.isArray(stdio)) {
+    normalized.stdio = [];
+    normalized.stdio[0] = _normalizeSpawnMode(stdio[0], 'pipe');
+    normalized.stdio[1] = _normalizeSpawnMode(stdio[1], 'pipe');
+    normalized.stdio[2] = _normalizeSpawnMode(stdio[2], 'pipe');
+    normalized.stdio[3] = _normalizeSpawnMode(stdio[3], 'pipe');
   } else {
-    normalized.stdio = ['pipe', 'pipe', 'pipe'];
+    normalized.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
   }
   return normalized;
+}
+
+function _normalizeForkEnv(optionsEnv) {
+  var env = {};
+  if (typeof process === 'object' && process !== null && process.env) {
+    var processEnv = process.env;
+    for (var key in processEnv) {
+      if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
+        var value = processEnv[key];
+        if (value !== undefined && value !== null) env[key] = String(value);
+      }
+    }
+  }
+  if (optionsEnv && typeof optionsEnv === 'object') {
+    for (var key in optionsEnv) {
+      if (Object.prototype.hasOwnProperty.call(optionsEnv, key)) {
+        var v = optionsEnv[key];
+        if (v === undefined || v === null) {
+          delete env[key];
+        } else {
+          env[key] = String(v);
+        }
+      }
+    }
+  }
+  return env;
+}
+
+function _toUtf8String(bytes) {
+  if (typeof TextDecoder === 'function') {
+    try {
+      return new TextDecoder().decode(bytes);
+    } catch (err) {}
+  }
+  var out = '';
+  for (var i = 0; i < bytes.length; i++) {
+    out += String.fromCharCode(bytes[i]);
+  }
+  return out;
 }
 
 function _toUint8String(value) {
@@ -327,11 +389,27 @@ function ChildProcess(handle, pid, stdioModes) {
   this.exitCode = null;
   this.signalCode = null;
   this.killed = false;
-  this.connected = false;
+  this._exitHandled = false;
   this._exited = false;
+  this._ref = true;
   this._useNativePump = typeof globalThis.__exactSpawnPump === 'function';
   this._pumpInProgress = false;
-  var modes = stdioModes || { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' };
+  var modes = stdioModes || {
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    ipc: 'pipe'
+  };
+  this._ipcMode = modes.ipc === 'ipc';
+  this._ipcBuffer = '';
+  this._ipcQueueSize = 0;
+  this._ipcQueueMax = 2;
+  this._sendingQueue = false;
+  this._disconnectPending = false;
+  this._disconnectEmitted = false;
+  this._closeCallback = null;
+  this.connected = this._ipcMode;
+  this.channel = this._ipcMode ? { fd: 3, connected: true } : null;
 
   // Create stdout as a Readable stream
   var Stream = require('stream');
@@ -340,8 +418,6 @@ function ChildProcess(handle, pid, stdioModes) {
   if (modes.stdout === 'pipe') {
     this.stdout = new Stream.Readable();
     this.stdout._read = function() {};
-  } else if (modes.stdout === 'inherit' && typeof process !== 'undefined' && process.stdout) {
-    this.stdout = process.stdout;
   } else {
     this.stdout = null;
   }
@@ -349,8 +425,6 @@ function ChildProcess(handle, pid, stdioModes) {
   if (modes.stderr === 'pipe') {
     this.stderr = new Stream.Readable();
     this.stderr._read = function() {};
-  } else if (modes.stderr === 'inherit' && typeof process !== 'undefined' && process.stderr) {
-    this.stderr = process.stderr;
   } else {
     this.stderr = null;
   }
@@ -364,7 +438,7 @@ function ChildProcess(handle, pid, stdioModes) {
         if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
       }
     });
-    // Override end to also close the native stdin pipe
+        // Override end to also close the native stdin pipe
     this.stdin.end = function(chunk, encoding, callback) {
       if (typeof chunk === 'function') { callback = chunk; chunk = null; }
       if (typeof encoding === 'function') { callback = encoding; encoding = null; }
@@ -396,7 +470,7 @@ function ChildProcess(handle, pid, stdioModes) {
     }
     if (streamMode === 'inherit') {
       if (kind === 'stdout' && typeof process !== 'undefined' && process.stdout) process.stdout.write(value);
-      if (kind === 'stderr' && typeof process !== 'undefined' && process.stderr) process.stderr.write(value);
+      if (kind === 'stderr' && typeof process !== 'undefined' && process.stderr && process.stderr.write) process.stderr.write(value);
     }
   }
 
@@ -405,7 +479,69 @@ function ChildProcess(handle, pid, stdioModes) {
     globalThis.__exactSpawnProcesses[String(self._handle)] = self;
   }
 
-  // Start polling for stdout/stderr data and exit status
+  function emitDisconnect() {
+    if (self._disconnectEmitted) {
+      return;
+    }
+    self._disconnectEmitted = true;
+    self.connected = false;
+    self._ipcMode = false;
+    self.channel = null;
+    if (typeof process !== 'undefined' && self._closeCallback) {
+      try {
+        self._closeCallback();
+      } catch (err) {}
+      self._closeCallback = null;
+    }
+    if (typeof setTimeout === 'function') {
+      setTimeout(function() {
+        self.emit('disconnect');
+      }, 0);
+    } else {
+      self.emit('disconnect');
+    }
+  }
+
+  function closeIpcChannel() {
+    if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
+      globalThis.__exactSpawnCloseStdin(self._handle, 'ipc');
+    }
+    emitDisconnect();
+  }
+
+  function drainIpcPackets(rawData) {
+    if (!rawData || !rawData.length) {
+      return;
+    }
+    self._ipcBuffer += _toUtf8String(rawData);
+    while (self._ipcBuffer.length > 0) {
+      var lineEnd = self._ipcBuffer.indexOf('\n');
+      if (lineEnd < 0) {
+        return;
+      }
+      var line = self._ipcBuffer.slice(0, lineEnd);
+      self._ipcBuffer = self._ipcBuffer.slice(lineEnd + 1);
+      if (!line) {
+        continue;
+      }
+      var packet;
+      try {
+        packet = JSON.parse(line);
+      } catch (err) {
+        continue;
+      }
+      if (!packet || packet.__exactIpc !== true) {
+        continue;
+      }
+      if (packet.type === 'message') {
+        self.emit('message', packet.data);
+      } else if (packet.type === 'disconnect') {
+        closeIpcChannel();
+      }
+    }
+  }
+
+  // Start polling for stdout/stderr, ipc packets and exit status
   var pollInterval = 10; // ms
   var stdoutEnded = false;
   var stderrEnded = false;
@@ -452,6 +588,11 @@ function ChildProcess(handle, pid, stdioModes) {
       }
     }
 
+    if (self._ipcMode && !self._disconnectPending) {
+      var ipcData = globalThis.__exactSpawnRead(self._handle, 'ipc');
+      drainIpcPackets(ipcData);
+    }
+
     // Poll exit status
     if (!self._exited) {
       var statusJson = globalThis.__exactSpawnPoll(self._handle);
@@ -472,10 +613,18 @@ function ChildProcess(handle, pid, stdioModes) {
         if (finalErr && finalErr.length > 0) {
           pushStreamData('stderr', finalErr, modes.stderr);
         }
+        if (self._ipcMode) {
+          var finalIpc = globalThis.__exactSpawnRead(self._handle, 'ipc');
+          drainIpcPackets(finalIpc);
+          closeIpcChannel();
+        }
 
         // End the streams
         closeStreams();
 
+        if (self._disconnectEmitted) {
+          self.channel = null;
+        }
         // Set exit info
         if (status.signal > 0) {
           self.signalCode = signalNames[status.signal] || null;
@@ -501,7 +650,7 @@ function ChildProcess(handle, pid, stdioModes) {
       }
     }
 
-    if (!self._useNativePump) {
+    if (!self._useNativePump && self._ref) {
       self._pollTimer = setTimeout(pollStreams, pollInterval);
     }
     self._pumpInProgress = false;
@@ -517,7 +666,7 @@ function ChildProcess(handle, pid, stdioModes) {
       if (typeof self.__pumpFromNative === 'function') {
         self.__pumpFromNative();
       }
-      if (!self._exited) {
+      if (!self._exited && self._ref) {
         self._pollTimer = setTimeout(nativePollFallback, pollInterval);
       }
     };
@@ -528,7 +677,7 @@ function ChildProcess(handle, pid, stdioModes) {
     // Start polling for stdout/stderr data and exit status.
     var fallbackPoll = function() {
       pollStreams();
-      if (!self._exited) {
+      if (!self._exited && self._ref) {
         self._pollTimer = setTimeout(fallbackPoll, pollInterval);
       }
     };
@@ -550,8 +699,121 @@ ChildProcess.prototype.kill = function(signal) {
   return globalThis.__exactSpawnKill(this._handle, sig);
 };
 
-ChildProcess.prototype.ref = function() { return this; };
-ChildProcess.prototype.unref = function() { return this; };
+ChildProcess.prototype.ref = function() {
+  this._ref = true;
+  if (this._exited || this._pollTimer || !this._handle) {
+    return this;
+  }
+  var self = this;
+  if (this._useNativePump && this._handle >= 0) {
+    self._pollTimer = setTimeout(function() {
+      self.__pumpFromNative();
+    }, 0);
+  } else {
+    self._pollTimer = setTimeout(function() {
+      self.__pumpFromNative();
+    }, 0);
+  }
+  return this;
+};
+
+ChildProcess.prototype.unref = function() {
+  this._ref = false;
+  if (this._pollTimer) {
+    clearTimeout(this._pollTimer);
+    this._pollTimer = null;
+  }
+  return this;
+};
+
+ChildProcess.prototype._finalizeDisconnect = function() {
+  if (!this.channel) return;
+  this.channel = null;
+};
+
+ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
+  if (typeof sendHandle === 'function') {
+    callback = sendHandle;
+    sendHandle = undefined;
+    opts = undefined;
+  } else if (typeof opts === 'function') {
+    callback = opts;
+    opts = undefined;
+  }
+
+  if (!this._ipcMode || !this.connected) {
+    var disconnectedError = _makeIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is closed');
+    if (typeof callback === 'function') {
+      setTimeout(function() {
+        callback(disconnectedError);
+      }, 0);
+    } else if (this._events && this._events.error) {
+      this.emit('error', disconnectedError);
+    }
+    return false;
+  }
+
+  var returnValue = this._ipcQueueSize < this._ipcQueueMax;
+  this._ipcQueueSize++;
+  var packet = _createIpcPacket('message', message);
+  var writeSuccess = false;
+  var writeError = null;
+  if (typeof globalThis.__exactSpawnWrite === 'function') {
+    writeSuccess = globalThis.__exactSpawnWrite(this._handle, packet, 'ipc');
+  }
+  if (!writeSuccess) {
+    returnValue = false;
+    writeError = _makeIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed');
+  }
+
+  var self = this;
+  var callbackError = writeSuccess ? null : writeError;
+  if (typeof callback === 'function') {
+    setTimeout(function() {
+      if (self._ipcQueueSize > 0) {
+        self._ipcQueueSize--;
+      }
+      callback(callbackError);
+    }, 0);
+    return returnValue;
+  }
+
+  setTimeout(function() {
+    if (self._ipcQueueSize > 0) {
+      self._ipcQueueSize--;
+    }
+  }, 0);
+
+  if (!writeSuccess && writeError) {
+    setTimeout(function() {
+      self.emit('error', writeError);
+    }, 0);
+  }
+
+  return returnValue;
+};
+
+ChildProcess.prototype.disconnect = function() {
+  if (!this._ipcMode || !this.connected) {
+    throw _makeIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is already disconnected');
+  }
+  this._disconnectPending = true;
+  this.connected = false;
+  this._ipcMode = false;
+  if (typeof globalThis.__exactSpawnWrite === 'function') {
+    globalThis.__exactSpawnWrite(this._handle, _createIpcPacket('disconnect'), 'ipc');
+  }
+  var self = this;
+  setTimeout(function() {
+    self._disconnectPending = false;
+    if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
+      globalThis.__exactSpawnCloseStdin(self._handle, 'ipc');
+    }
+    self.channel = null;
+    self.emit('disconnect');
+  }, 0);
+  return this;
+};
 
 cp.ChildProcess = ChildProcess;
 
@@ -572,6 +834,7 @@ cp.spawn = function spawn(command, args, options) {
   if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
   if (normalizedOptions.env) opts.env = normalizedOptions.env;
+  if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
   if (options.stdio) opts.stdio = normalizedOptions.stdio;
 
   var argsJson = JSON.stringify(args);
@@ -597,12 +860,20 @@ cp.spawn = function spawn(command, args, options) {
     return errChild;
   }
 
-  var stdioCfg = { stdin: normalizedOptions.stdio[0], stdout: normalizedOptions.stdio[1], stderr: normalizedOptions.stdio[2] };
-  return new ChildProcess(result.handle, result.pid, stdioCfg);
+  var stdioCfg = {
+    stdin: normalizedOptions.stdio[0],
+    stdout: normalizedOptions.stdio[1],
+    stderr: normalizedOptions.stdio[2],
+    ipc: normalizedOptions.stdio[3]
+  };
+  var child = new ChildProcess(result.handle, result.pid, stdioCfg);
+  if (opts.detached) {
+    child.unref();
+  }
+  return child;
 };
 
-// Stub for fork
-  cp.fork = function fork(modulePath, args, options) {
+cp.fork = function fork(modulePath, args, options) {
   if (typeof modulePath !== 'string') {
     throw new TypeError('The "modulePath" argument must be of type string');
   }
@@ -618,28 +889,41 @@ cp.spawn = function spawn(command, args, options) {
   var execPath = _fallbackSpawnCommand(options.execPath || (typeof process !== 'undefined' && process.execPath) || 'node');
   var execArgv = options.execArgv || (typeof process !== 'undefined' && process.execArgv) || [];
   var spawnArgs = execArgv.concat([modulePath]).concat(args);
+  var silent = options.silent === true;
+  var stdio = options.stdio;
+  if (!stdio) {
+    stdio = [
+      silent ? 'pipe' : 'ignore',
+      silent ? 'pipe' : 'ignore',
+      silent ? 'pipe' : 'ignore',
+      'ipc'
+    ];
+  } else if (typeof stdio === 'string') {
+    stdio = [_normalizeSpawnMode(stdio, 'pipe'), _normalizeSpawnMode(stdio, 'pipe'), _normalizeSpawnMode(stdio, 'pipe'), 'ipc'];
+  } else if (Array.isArray(stdio)) {
+    stdio = [
+      _normalizeSpawnMode(stdio[0], silent ? 'pipe' : 'ignore'),
+      _normalizeSpawnMode(stdio[1], silent ? 'pipe' : 'ignore'),
+      _normalizeSpawnMode(stdio[2], silent ? 'pipe' : 'ignore'),
+      'ipc'
+    ];
+  }
+
+  var env = _normalizeForkEnv(options.env);
+  env.EXACT_IPC_FD = '3';
 
   var spawnOptions = {
     cwd: options.cwd,
-    env: options.env || (typeof process !== 'undefined' ? process.env : {}),
-    stdio: options.silent ? 'pipe' : undefined,
+    env: env,
+    stdio: stdio,
+    detached: options.detached,
     shell: false
   };
 
   var child = cp.spawn(execPath, spawnArgs, spawnOptions);
-  child.connected = true;
-
-  child.send = function(message, sendHandle, opts, callback) {
-    if (typeof sendHandle === 'function') { callback = sendHandle; sendHandle = undefined; opts = undefined; }
-    else if (typeof opts === 'function') { callback = opts; opts = undefined; }
-    if (callback) setTimeout(function() { callback(null); }, 0);
-    return true;
-  };
-
-  child.disconnect = function() {
-    child.connected = false;
-    child.emit('disconnect');
-  };
+  if (options.detached) {
+    child.unref();
+  }
 
   return child;
 };
