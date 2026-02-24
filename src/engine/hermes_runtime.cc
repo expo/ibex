@@ -4425,9 +4425,39 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpSetKeepAlive", std::move(tcpSetKeepAliveFn));
 
-    // __exactTcpListen(host, port, backlog) -> handle or throws
+    // __exactTcpShutdown(handle, how) -> 0
+    auto tcpShutdownFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpShutdown"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpShutdown: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+          }
+          int how = SHUT_WR;
+          if (count > 1 && args[1].isNumber()) {
+            how = static_cast<int>(args[1].asNumber());
+          }
+          if (how != SHUT_RD && how != SHUT_WR && how != SHUT_RDWR) {
+            how = SHUT_WR;
+          }
+          if (::shutdown(fd, how) == -1) {
+            throw facebook::jsi::JSError(runtime, ("__exactTcpShutdown: " + std::string(strerror(errno))).c_str());
+          }
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpShutdown", std::move(tcpShutdownFn));
+
+    // __exactTcpListen(host, port, backlog, ipv6Only) -> handle or throws
     auto tcpListenFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 3,
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 4,
         [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           std::string host = "0.0.0.0";
@@ -4436,8 +4466,14 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count > 1 && args[1].isNumber()) port = static_cast<int>(args[1].asNumber());
           int backlog = 128;
           if (count > 2 && args[2].isNumber()) backlog = static_cast<int>(args[2].asNumber());
+          int ipv6Only = 0;
+          if (count > 3 && args[3].isNumber()) ipv6Only = static_cast<int>(args[3].asNumber());
           struct addrinfo hints{}, *result = nullptr;
-          hints.ai_family = AF_INET;
+          if (ipv6Only || host.find(':') != std::string::npos) {
+            hints.ai_family = AF_INET6;
+          } else {
+            hints.ai_family = AF_UNSPEC;
+          }
           hints.ai_socktype = SOCK_STREAM;
           hints.ai_protocol = IPPROTO_TCP;
           hints.ai_flags = AI_PASSIVE;
@@ -4451,6 +4487,10 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (fd == -1) {
             freeaddrinfo(result);
             throw facebook::jsi::JSError(runtime, ("socket() failed: " + std::string(strerror(errno))).c_str());
+          }
+          if (hints.ai_family == AF_INET6 && ipv6Only) {
+            int flag = 1;
+            setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag));
           }
           int reuse = 1;
           setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));

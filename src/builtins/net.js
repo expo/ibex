@@ -1011,11 +1011,7 @@ Socket.prototype.destroy = function(err) {
   var nativeHandle = _unwrapHandle(this._handle);
   if (nativeHandle != null && _hasTcp) {
     try { __exactTcpClose(nativeHandle); } catch(e) {}
-    if (this._handle && this._handle._exactHandle !== undefined) {
-      this._handle._exactHandle = null;
-    } else {
-      this._handle = null;
-    }
+    this._handle = null;
   }
   if (err) this.emit('error', err);
   this.emit('close', !!err);
