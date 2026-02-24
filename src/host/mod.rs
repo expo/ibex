@@ -11,8 +11,8 @@
 //! - SQLite operations (via rusqlite)
 //! - Module resolution
 
-pub mod capability;
 pub mod abi;
+pub mod capability;
 pub mod policy;
 pub mod process;
 
@@ -91,7 +91,9 @@ impl Host {
                         }
                         policy_file = Some(policy);
                     }
-                    Err(err) => eprintln!("Failed to load policy {}: {}", policy_path.display(), err),
+                    Err(err) => {
+                        eprintln!("Failed to load policy {}: {}", policy_path.display(), err)
+                    }
                 }
             }
         }

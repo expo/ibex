@@ -5,15 +5,15 @@
 //! incrementally (see TODOs).
 
 use anyhow::{anyhow, Context, Result};
-use std::collections::HashMap;
+use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
+use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
-use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
-use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
@@ -56,7 +56,10 @@ impl ModuleLoader {
         builtins.insert("harness".to_string(), bun_harness_module());
         builtins.insert("node-harness".to_string(), node_harness_module());
         builtins.insert("bun:jsc".to_string(), bun_jsc_module());
-        builtins.insert("bun:internal-for-testing".to_string(), bun_internal_for_testing_module());
+        builtins.insert(
+            "bun:internal-for-testing".to_string(),
+            bun_internal_for_testing_module(),
+        );
 
         let node_test_src = "module.exports = require('bun:test');".to_string();
         builtins.insert("node:test".to_string(), node_test_src);
@@ -74,7 +77,10 @@ impl ModuleLoader {
         builtins.insert("bun:fs/promises".to_string(), node_fs_promises_src.clone());
         builtins.insert("node:fs/promises".to_string(), node_fs_promises_src.clone());
         builtins.insert("fs/promises".to_string(), node_fs_promises_src.clone());
-        builtins.insert("internal/fs/promises".to_string(), node_fs_promises_src.clone());
+        builtins.insert(
+            "internal/fs/promises".to_string(),
+            node_fs_promises_src.clone(),
+        );
 
         let path_module = node_path_module();
         builtins.insert("node:path".to_string(), path_module.clone());
@@ -101,11 +107,17 @@ impl ModuleLoader {
         builtins.insert("stream".to_string(), stream_module);
 
         let stream_consumers_module = node_stream_consumers_module();
-        builtins.insert("node:stream/consumers".to_string(), stream_consumers_module.clone());
+        builtins.insert(
+            "node:stream/consumers".to_string(),
+            stream_consumers_module.clone(),
+        );
         builtins.insert("stream/consumers".to_string(), stream_consumers_module);
 
         let stream_promises_module = node_stream_promises_module();
-        builtins.insert("node:stream/promises".to_string(), stream_promises_module.clone());
+        builtins.insert(
+            "node:stream/promises".to_string(),
+            stream_promises_module.clone(),
+        );
         builtins.insert("stream/promises".to_string(), stream_promises_module);
 
         let buffer_module = node_buffer_module();
@@ -115,15 +127,24 @@ impl ModuleLoader {
         let util_module = node_util_module();
         builtins.insert("node:util".to_string(), util_module.clone());
         builtins.insert("util".to_string(), util_module);
-        builtins.insert("util/types".to_string(), "module.exports = require('util').types;".to_string());
-        builtins.insert("node:util/types".to_string(), "module.exports = require('node:util').types;".to_string());
+        builtins.insert(
+            "util/types".to_string(),
+            "module.exports = require('util').types;".to_string(),
+        );
+        builtins.insert(
+            "node:util/types".to_string(),
+            "module.exports = require('node:util').types;".to_string(),
+        );
 
         let timers_module = node_timers_module();
         builtins.insert("node:timers".to_string(), timers_module.clone());
         builtins.insert("timers".to_string(), timers_module);
 
         let timers_promises_module = node_timers_promises_module();
-        builtins.insert("node:timers/promises".to_string(), timers_promises_module.clone());
+        builtins.insert(
+            "node:timers/promises".to_string(),
+            timers_promises_module.clone(),
+        );
         builtins.insert("timers/promises".to_string(), timers_promises_module);
 
         let http_module = node_http_module();
@@ -155,7 +176,10 @@ impl ModuleLoader {
         builtins.insert("assert/strict".to_string(), assert_module);
 
         let string_decoder_module = node_string_decoder_module();
-        builtins.insert("node:string_decoder".to_string(), string_decoder_module.clone());
+        builtins.insert(
+            "node:string_decoder".to_string(),
+            string_decoder_module.clone(),
+        );
         builtins.insert("string_decoder".to_string(), string_decoder_module);
 
         let querystring_module = node_querystring_module();
@@ -167,13 +191,19 @@ impl ModuleLoader {
         builtins.insert("punycode".to_string(), punycode_module);
 
         let child_process_module = node_child_process_module();
-        builtins.insert("node:child_process".to_string(), child_process_module.clone());
+        builtins.insert(
+            "node:child_process".to_string(),
+            child_process_module.clone(),
+        );
         builtins.insert("child_process".to_string(), child_process_module);
 
         let readline_module = node_readline_module();
         builtins.insert("node:readline".to_string(), readline_module.clone());
         builtins.insert("readline".to_string(), readline_module.clone());
-        builtins.insert("node:readline/promises".to_string(), readline_module.clone());
+        builtins.insert(
+            "node:readline/promises".to_string(),
+            readline_module.clone(),
+        );
         builtins.insert("readline/promises".to_string(), readline_module);
 
         let module_module = node_module_module();
@@ -210,7 +240,10 @@ impl ModuleLoader {
         builtins.insert("async_hooks".to_string(), async_hooks_module);
 
         let worker_threads_module = node_worker_threads_module();
-        builtins.insert("node:worker_threads".to_string(), worker_threads_module.clone());
+        builtins.insert(
+            "node:worker_threads".to_string(),
+            worker_threads_module.clone(),
+        );
         builtins.insert("worker_threads".to_string(), worker_threads_module);
 
         let vm_module = node_vm_module();
@@ -249,8 +282,14 @@ impl ModuleLoader {
         builtins.insert("http2".to_string(), http2_module);
 
         let diagnostics_channel_module = node_diagnostics_channel_module();
-        builtins.insert("node:diagnostics_channel".to_string(), diagnostics_channel_module.clone());
-        builtins.insert("diagnostics_channel".to_string(), diagnostics_channel_module);
+        builtins.insert(
+            "node:diagnostics_channel".to_string(),
+            diagnostics_channel_module.clone(),
+        );
+        builtins.insert(
+            "diagnostics_channel".to_string(),
+            diagnostics_channel_module,
+        );
 
         let trace_events_module = node_trace_events_module();
         builtins.insert("node:trace_events".to_string(), trace_events_module.clone());
@@ -259,7 +298,10 @@ impl ModuleLoader {
         let inspector_module = node_inspector_module();
         builtins.insert("node:inspector".to_string(), inspector_module.clone());
         builtins.insert("inspector".to_string(), inspector_module.clone());
-        builtins.insert("node:inspector/promises".to_string(), inspector_module.clone());
+        builtins.insert(
+            "node:inspector/promises".to_string(),
+            inspector_module.clone(),
+        );
         builtins.insert("inspector/promises".to_string(), inspector_module);
 
         let wasi_module = node_wasi_module();
@@ -367,7 +409,8 @@ impl ModuleLoader {
         if Self::needs_transpile(path) {
             return self.transpile_module(path);
         }
-        std::fs::read_to_string(path).with_context(|| format!("Failed to read module {}", path.display()))
+        std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read module {}", path.display()))
     }
 
     fn needs_transpile(path: &Path) -> bool {
@@ -380,8 +423,12 @@ impl ModuleLoader {
     fn transpile_module(&self, path: &Path) -> Result<String> {
         let cache_key = module_cache_key(path)?;
         let cache_dir = transpile_cache_dir()?;
-        std::fs::create_dir_all(&cache_dir)
-            .with_context(|| format!("Failed to create transpile cache directory {}", cache_dir.display()))?;
+        std::fs::create_dir_all(&cache_dir).with_context(|| {
+            format!(
+                "Failed to create transpile cache directory {}",
+                cache_dir.display()
+            )
+        })?;
 
         let output = cache_dir.join(format!("{cache_key}.js"));
         if should_rebuild_output(path, &output)? {
@@ -413,12 +460,7 @@ impl ModuleLoader {
                 let is_probably_file = resolved
                     .extension()
                     .and_then(|ext| ext.to_str())
-                    .map(|ext| {
-                        matches!(
-                            ext,
-                            "js" | "cjs" | "mjs" | "ts" | "tsx" | "jsx" | "json"
-                        )
-                    })
+                    .map(|ext| matches!(ext, "js" | "cjs" | "mjs" | "ts" | "tsx" | "jsx" | "json"))
                     .unwrap_or(false);
                 if is_probably_file {
                     resolved
@@ -562,7 +604,11 @@ fn normalize_import_target(base: &Path, target: PathBuf) -> Option<PathBuf> {
 }
 
 fn module_kind_from_path(path: &Path) -> ModuleKind {
-    match path.extension().and_then(OsStr::to_str).map(|ext| ext.to_ascii_lowercase()) {
+    match path
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|ext| ext.to_ascii_lowercase())
+    {
         Some(ext) if matches!(ext.as_str(), "mjs" | "ts" | "tsx" | "jsx") => ModuleKind::Esm,
         Some(ext) if ext == "json" => ModuleKind::Json,
         _ => ModuleKind::CommonJs,
@@ -620,17 +666,16 @@ fn ensure_transpile_cache_dir(dir: &Path) -> Result<()> {
     match std::fs::File::create(&probe_path) {
         Ok(handle) => {
             drop(handle);
-            std::fs::remove_file(&probe_path)
-                .with_context(|| format!("Failed to clean up probe file {}", probe_path.display()))?;
+            std::fs::remove_file(&probe_path).with_context(|| {
+                format!("Failed to clean up probe file {}", probe_path.display())
+            })?;
             Ok(())
         }
-        Err(err) => {
-            Err(anyhow::anyhow!(
-                "Transpile cache directory {} is not writable: {}",
-                dir.display(),
-                err
-            ))
-        }
+        Err(err) => Err(anyhow::anyhow!(
+            "Transpile cache directory {} is not writable: {}",
+            dir.display(),
+            err
+        )),
     }
 }
 
@@ -665,13 +710,7 @@ fn run_transpile_command(entry: &Path, output: &Path) -> Result<()> {
         .arg("--out")
         .arg(output)
         .status()
-        .with_context(|| {
-            format!(
-                "Failed to run {} for {}",
-                runner_name,
-                entry.display()
-            )
-        })?;
+        .with_context(|| format!("Failed to run {} for {}", runner_name, entry.display()))?;
 
     if !status.success() {
         anyhow::bail!(
@@ -693,7 +732,10 @@ fn run_transpile_command(entry: &Path, output: &Path) -> Result<()> {
 
 fn transpile_script_path() -> Result<PathBuf> {
     let root = repo_root()?;
-    let script = root.join("js").join("scripts").join("transpile-typescript.mjs");
+    let script = root
+        .join("js")
+        .join("scripts")
+        .join("transpile-typescript.mjs");
     if !script.exists() {
         anyhow::bail!("Transpile script not found at {}", script.display());
     }
@@ -1066,7 +1108,7 @@ module.exports = {
   toPathIfFileURL: toPathIfFileURL,
   kMinPoolSpace: 8192
 };"#
-        .to_string()
+    .to_string()
 }
 
 fn node_zlib_module() -> String {
@@ -1157,7 +1199,10 @@ mod tests {
             .resolve("./mod", Some(&dir.path().join("entry.js")))
             .unwrap();
         let resolved_path = resolved.path.unwrap();
-        assert_eq!(resolved_path.canonicalize().unwrap(), file.canonicalize().unwrap());
+        assert_eq!(
+            resolved_path.canonicalize().unwrap(),
+            file.canonicalize().unwrap()
+        );
     }
 
     #[test]
@@ -1166,18 +1211,17 @@ mod tests {
         let node_modules = dir.path().join("node_modules");
         let pkg_dir = node_modules.join("demo-pkg");
         std::fs::create_dir_all(&pkg_dir).unwrap();
-        std::fs::write(
-            pkg_dir.join("package.json"),
-            r#"{ "main": "index.js" }"#,
-        )
-        .unwrap();
+        std::fs::write(pkg_dir.join("package.json"), r#"{ "main": "index.js" }"#).unwrap();
         std::fs::write(pkg_dir.join("index.js"), "module.exports = { ok: true };").unwrap();
 
         let loader = ModuleLoader::new();
         let resolved = loader
             .resolve("demo-pkg", Some(&dir.path().join("entry.js")))
             .unwrap();
-        assert!(resolved.path.unwrap().ends_with("node_modules/demo-pkg/index.js"));
+        assert!(resolved
+            .path
+            .unwrap()
+            .ends_with("node_modules/demo-pkg/index.js"));
     }
 
     #[test]
@@ -1198,7 +1242,10 @@ mod tests {
         let resolved = loader
             .resolve("exports-pkg", Some(&dir.path().join("entry.js")))
             .unwrap();
-        assert!(resolved.path.unwrap().ends_with("node_modules/exports-pkg/cjs.js"));
+        assert!(resolved
+            .path
+            .unwrap()
+            .ends_with("node_modules/exports-pkg/cjs.js"));
     }
 
     #[test]
@@ -1572,7 +1619,9 @@ export const value = <span />;
         assert!(source.contains("exports.value ="));
         assert!(!source.contains(": number"));
 
-        let resolved_tsx = loader.resolve("./mod.tsx", Some(&dir.path().join("entry.ts"))).unwrap();
+        let resolved_tsx = loader
+            .resolve("./mod.tsx", Some(&dir.path().join("entry.ts")))
+            .unwrap();
         let tsx_source = resolved_tsx.source.unwrap();
         assert_eq!(resolved_tsx.kind, ModuleKind::CommonJs);
         assert!(tsx_source.contains("exports.value ="));

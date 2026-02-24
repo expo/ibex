@@ -11,13 +11,13 @@
 
 use super::Host;
 use getrandom::getrandom;
-use rusqlite::{params_from_iter, Connection, OpenFlags, types::ValueRef};
+use rusqlite::{params_from_iter, types::ValueRef, Connection, OpenFlags};
 use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
-use std::sync::OnceLock;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const EXACT_HOST_ABI_VERSION: u32 = 1;
@@ -194,8 +194,9 @@ fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
                 .map(|value| value.as_u64().unwrap_or_default() as u8)
                 .collect(),
         ),
-        serde_json::Value::Object(value) => {
-            rusqlite::types::Value::Text(value.iter().fold(String::new(), |mut out, (key, value)| {
+        serde_json::Value::Object(value) => rusqlite::types::Value::Text(value.iter().fold(
+            String::new(),
+            |mut out, (key, value)| {
                 if !out.is_empty() {
                     out.push(',');
                 }
@@ -203,8 +204,8 @@ fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
                 out.push('=');
                 out.push_str(&value.to_string());
                 out
-            }))
-        }
+            },
+        )),
     }
 }
 
@@ -232,9 +233,9 @@ fn sqlite_value_to_json(value: ValueRef<'_>) -> serde_json::Value {
             .map(std::string::ToString::to_string)
             .map(serde_json::Value::String)
             .unwrap_or(serde_json::Value::Null),
-        ValueRef::Blob(value) => serde_json::Value::Array(
-            value.iter().copied().map(serde_json::Value::from).collect(),
-        ),
+        ValueRef::Blob(value) => {
+            serde_json::Value::Array(value.iter().copied().map(serde_json::Value::from).collect())
+        }
     }
 }
 
@@ -274,10 +275,7 @@ pub extern "C" fn ex_host_is_allow_all() -> i32 {
 /// Read an entire file into a heap-allocated buffer in a single call.
 /// Returns null on error. Caller must free with `ex_host_free_buffer`.
 #[no_mangle]
-pub extern "C" fn ex_host_fs_read_file(
-    path: *const c_char,
-    out_len: *mut u32,
-) -> *mut u8 {
+pub extern "C" fn ex_host_fs_read_file(path: *const c_char, out_len: *mut u32) -> *mut u8 {
     if path.is_null() || out_len.is_null() {
         return ptr::null_mut();
     }
@@ -453,7 +451,9 @@ pub extern "C" fn ex_host_fs_open(path: *const c_char, flags: u32) -> *mut Exact
         return ptr::null_mut();
     }
 
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     let mut opts = std::fs::OpenOptions::new();
     opts.read(flags & FS_READ != 0);
     opts.write(flags & FS_WRITE != 0);
@@ -467,11 +467,7 @@ pub extern "C" fn ex_host_fs_open(path: *const c_char, flags: u32) -> *mut Exact
 }
 
 #[no_mangle]
-pub extern "C" fn ex_host_fs_read(
-    file: *mut ExactFileHandle,
-    buf: *mut u8,
-    len: u32,
-) -> i32 {
+pub extern "C" fn ex_host_fs_read(file: *mut ExactFileHandle, buf: *mut u8, len: u32) -> i32 {
     if file.is_null() || buf.is_null() {
         return -1;
     }
@@ -484,11 +480,7 @@ pub extern "C" fn ex_host_fs_read(
 }
 
 #[no_mangle]
-pub extern "C" fn ex_host_fs_write(
-    file: *mut ExactFileHandle,
-    buf: *const u8,
-    len: u32,
-) -> i32 {
+pub extern "C" fn ex_host_fs_write(file: *mut ExactFileHandle, buf: *const u8, len: u32) -> i32 {
     if file.is_null() || buf.is_null() {
         return -1;
     }
@@ -518,7 +510,9 @@ pub extern "C" fn ex_host_fs_stat(path: *const c_char) -> *mut c_char {
     if path.is_null() {
         return ptr::null_mut();
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     match std::fs::metadata(&path) {
         Ok(meta) => {
             let mtime_ms = meta
@@ -560,7 +554,9 @@ pub extern "C" fn ex_host_fs_lstat(path: *const c_char) -> *mut c_char {
     if path.is_null() {
         return ptr::null_mut();
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     match std::fs::symlink_metadata(&path) {
         Ok(meta) => {
             let mtime_ms = meta
@@ -605,7 +601,9 @@ pub extern "C" fn ex_host_fs_readdir(path: *const c_char) -> *mut c_char {
     if path.is_null() {
         return ptr::null_mut();
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     match std::fs::read_dir(&path) {
         Ok(entries) => {
             let names: Vec<String> = entries
@@ -629,7 +627,9 @@ pub extern "C" fn ex_host_fs_mkdir(path: *const c_char, recursive: i32) -> i32 {
     if path.is_null() {
         return -1;
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     let result = if recursive != 0 {
         std::fs::create_dir_all(&path)
     } else {
@@ -647,7 +647,9 @@ pub extern "C" fn ex_host_fs_rmdir(path: *const c_char) -> i32 {
     if path.is_null() {
         return -1;
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     match std::fs::remove_dir(&path) {
         Ok(_) => 0,
         Err(_) => -1,
@@ -660,7 +662,9 @@ pub extern "C" fn ex_host_fs_unlink(path: *const c_char) -> i32 {
     if path.is_null() {
         return -1;
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     match std::fs::remove_file(&path) {
         Ok(_) => 0,
         Err(_) => -1,
@@ -673,7 +677,9 @@ pub extern "C" fn ex_host_fs_rename(from: *const c_char, to: *const c_char) -> i
     if from.is_null() || to.is_null() {
         return -1;
     }
-    let from = unsafe { CStr::from_ptr(from) }.to_string_lossy().to_string();
+    let from = unsafe { CStr::from_ptr(from) }
+        .to_string_lossy()
+        .to_string();
     let to = unsafe { CStr::from_ptr(to) }.to_string_lossy().to_string();
     match std::fs::rename(&from, &to) {
         Ok(_) => 0,
@@ -687,7 +693,9 @@ pub extern "C" fn ex_host_fs_copy(from: *const c_char, to: *const c_char) -> i32
     if from.is_null() || to.is_null() {
         return -1;
     }
-    let from = unsafe { CStr::from_ptr(from) }.to_string_lossy().to_string();
+    let from = unsafe { CStr::from_ptr(from) }
+        .to_string_lossy()
+        .to_string();
     let to = unsafe { CStr::from_ptr(to) }.to_string_lossy().to_string();
     match std::fs::copy(&from, &to) {
         Ok(_) => 0,
@@ -701,14 +709,14 @@ pub extern "C" fn ex_host_fs_realpath(path: *const c_char) -> *mut c_char {
     if path.is_null() {
         return ptr::null_mut();
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     match std::fs::canonicalize(&path) {
-        Ok(canonical) => {
-            match CString::new(canonical.to_string_lossy().to_string()) {
-                Ok(cstr) => cstr.into_raw(),
-                Err(_) => ptr::null_mut(),
-            }
-        }
+        Ok(canonical) => match CString::new(canonical.to_string_lossy().to_string()) {
+            Ok(cstr) => cstr.into_raw(),
+            Err(_) => ptr::null_mut(),
+        },
         Err(_) => ptr::null_mut(),
     }
 }
@@ -720,7 +728,9 @@ pub extern "C" fn ex_host_fs_access(path: *const c_char, mode: i32) -> i32 {
     if path.is_null() {
         return -1;
     }
-    let path_str = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path_str = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     let p = std::path::Path::new(&path_str);
 
     // mode 0 = F_OK (existence check)
@@ -764,7 +774,9 @@ pub extern "C" fn ex_host_fs_chmod(path: *const c_char, mode: u32) -> i32 {
     if path.is_null() {
         return -1;
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -789,7 +801,9 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
     let prefix_str = if prefix.is_null() {
         "tmp".to_string()
     } else {
-        unsafe { CStr::from_ptr(prefix) }.to_string_lossy().to_string()
+        unsafe { CStr::from_ptr(prefix) }
+            .to_string_lossy()
+            .to_string()
     };
 
     let mut template = std::env::temp_dir();
@@ -824,15 +838,13 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
 
 /// Append data to a file. Returns bytes written or -1 on error.
 #[no_mangle]
-pub extern "C" fn ex_host_fs_append(
-    path: *const c_char,
-    data: *const u8,
-    len: u32,
-) -> i32 {
+pub extern "C" fn ex_host_fs_append(path: *const c_char, data: *const u8, len: u32) -> i32 {
     if path.is_null() || data.is_null() {
         return -1;
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     let slice = unsafe { std::slice::from_raw_parts(data, len as usize) };
 
     use std::io::Write;
@@ -853,7 +865,9 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
         return 0;
     }
 
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     let options = parse_sqlite_open_options(options);
     let flags = sqlite_open_flags(&options);
 
@@ -865,12 +879,7 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
     with_sqlite_state(|state| {
         let handle = state.next_db_handle;
         state.next_db_handle = state.next_db_handle.saturating_add(1);
-        state.dbs.insert(
-            handle,
-            SqliteConnectionRecord {
-                db,
-            },
-        );
+        state.dbs.insert(handle, SqliteConnectionRecord { db });
         handle
     })
 }
@@ -879,7 +888,9 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
 pub extern "C" fn ex_host_sqlite_close(handle: u64) -> i32 {
     with_sqlite_state(|state| {
         if state.dbs.remove(&handle).is_some() {
-            state.statements.retain(|_, statement| statement.db_id != handle);
+            state
+                .statements
+                .retain(|_, statement| statement.db_id != handle);
             0
         } else {
             -1
@@ -910,7 +921,12 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
 
         let column_count = statement.column_count();
         let column_names: Vec<String> = (0..column_count)
-            .filter_map(|index| statement.column_name(index).ok().map(|name| name.to_string()))
+            .filter_map(|index| {
+                statement
+                    .column_name(index)
+                    .ok()
+                    .map(|name| name.to_string())
+            })
             .collect();
 
         let declared_types: Vec<String> = statement
@@ -924,17 +940,18 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
         state.next_statement_handle = state.next_statement_handle.saturating_add(1);
         state.statements.insert(
             statement_handle,
-            SqliteStatementRecord { db_id: db_handle, sql },
+            SqliteStatementRecord {
+                db_id: db_handle,
+                sql,
+            },
         );
 
-        as_json_cstring(
-            &json!({
-                "handle": statement_handle,
-                "columnNames": column_names,
-                "declaredTypes": declared_types,
-                "paramsCount": params_count,
-            }),
-        )
+        as_json_cstring(&json!({
+            "handle": statement_handle,
+            "columnNames": column_names,
+            "declaredTypes": declared_types,
+            "paramsCount": params_count,
+        }))
     })
 }
 
@@ -1043,12 +1060,10 @@ pub extern "C" fn ex_host_sqlite_all(
             payload_rows.push(serde_json::Value::Object(object));
         }
 
-        as_json_cstring(
-            &json!({
-                "rows": payload_rows,
-                "columnTypes": column_types,
-            }),
-        )
+        as_json_cstring(&json!({
+            "rows": payload_rows,
+            "columnTypes": column_types,
+        }))
     })
 }
 
@@ -1214,12 +1229,10 @@ pub extern "C" fn ex_host_sqlite_run(
             return as_json_cstring(&json!({"error": err.to_string()}));
         }
 
-        as_json_cstring(
-            &json!({
-                "changes": connection.db.changes(),
-                "lastInsertRowid": connection.db.last_insert_rowid(),
-            }),
-        )
+        as_json_cstring(&json!({
+            "changes": connection.db.changes(),
+            "lastInsertRowid": connection.db.last_insert_rowid(),
+        }))
     })
 }
 
@@ -1253,12 +1266,10 @@ pub extern "C" fn ex_host_sqlite_exec(
             return as_json_cstring(&json!({"error": err.to_string()}));
         }
 
-        as_json_cstring(
-            &json!({
-                "changes": connection.db.changes(),
-                "lastInsertRowid": connection.db.last_insert_rowid(),
-            }),
-        )
+        as_json_cstring(&json!({
+            "changes": connection.db.changes(),
+            "lastInsertRowid": connection.db.last_insert_rowid(),
+        }))
     })
 }
 
@@ -1306,7 +1317,9 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
     if message.is_null() {
         return;
     }
-    let msg = unsafe { CStr::from_ptr(message) }.to_string_lossy().to_string();
+    let msg = unsafe { CStr::from_ptr(message) }
+        .to_string_lossy()
+        .to_string();
     match level {
         0 => println!("{}", msg),
         1 => eprintln!("{}", msg),

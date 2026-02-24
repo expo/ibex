@@ -223,8 +223,7 @@ pub fn rewrite_error(message: &str, source_map: &SourceMap, bundle_path: &str) -
         // Skip redundant "ErrorType: message" line
         if let Some(after_colon) = line.split_once(": ") {
             if after_colon.1 == first_line
-                && (after_colon.0.ends_with("Error")
-                    || after_colon.0.ends_with("Exception"))
+                && (after_colon.0.ends_with("Error") || after_colon.0.ends_with("Exception"))
             {
                 continue;
             }
@@ -309,7 +308,8 @@ fn rewrite_stack_line(line: &str, source_map: &SourceMap, bundle_path: &str) -> 
     }
 
     // gen_line is 1-based from the stack, source map uses 0-based
-    let (source, orig_line, orig_col) = source_map.lookup(gen_line.saturating_sub(1), col.saturating_sub(1))?;
+    let (source, orig_line, orig_col) =
+        source_map.lookup(gen_line.saturating_sub(1), col.saturating_sub(1))?;
 
     // Clean up the source path — resolve relative paths to absolute
     let mut display_source = source.to_string();
@@ -350,7 +350,10 @@ mod tests {
     #[test]
     fn test_extract_string_field() {
         let json = r#"{"version":3,"mappings":"AAAA","sources":["foo.ts"]}"#;
-        assert_eq!(extract_string_field(json, "mappings"), Some("AAAA".to_string()));
+        assert_eq!(
+            extract_string_field(json, "mappings"),
+            Some("AAAA".to_string())
+        );
     }
 
     #[test]

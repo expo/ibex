@@ -350,12 +350,20 @@
 
   // process.on('exit') — fire exit hooks before process exits
   var origExit = p.exit;
-  p.exit = function(code) {
-    if (code === undefined) code = p.exitCode || 0;
-    p._exactExiting = true;
-    try { p.emit('exit', code); } catch(e) {}
-    if (origExit) origExit(code);
-  };
+  if (!origExit || !origExit.__exactHostExit) {
+    p.exit = function(code) {
+      var currentProcess = (this && this !== null && typeof this === 'object') ? this : p;
+      if (!currentProcess) return;
+      if (code === undefined) {
+        code = currentProcess.exitCode || 0;
+      }
+      currentProcess._exactExiting = true;
+      try { currentProcess.emit('exit', code); } catch(e) {}
+      if (origExit) {
+        return origExit.call(currentProcess, code);
+      }
+    };
+  }
 
   // process.exitCode — settable exit code
   if (p.exitCode === undefined) p.exitCode = 0;

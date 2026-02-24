@@ -11,9 +11,9 @@
 //! The CLI wraps these in async Rust (via tokio). The iOS app calls the C API
 //! directly from Swift via the bridging header.
 
+pub mod engine;
 pub mod host;
 pub mod module_loader;
-pub mod engine;
 
 use anyhow::Result;
 use std::path::PathBuf;
