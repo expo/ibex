@@ -516,6 +516,29 @@
       protocol === 'file:' || protocol === 'ws:' || protocol === 'wss:';
   }
 
+  var __exactPatchedUrlStatics = false;
+  function __exactPatchUrlStatics() {
+    if (__exactPatchedUrlStatics) {
+      return;
+    }
+    if (typeof globalThis.URL !== 'function' || typeof globalThis.__exactRequire !== 'function') {
+      return;
+    }
+    try {
+      var urlMod = globalThis.__exactRequire('url');
+      if (!urlMod || typeof urlMod.URL !== 'function') {
+        return;
+      }
+      if (typeof globalThis.URL === 'function') {
+        globalThis.URL = urlMod.URL;
+      }
+      if (typeof globalThis.URLSearchParams === 'undefined' && urlMod.URLSearchParams) {
+        globalThis.URLSearchParams = urlMod.URLSearchParams;
+      }
+      __exactPatchedUrlStatics = true;
+    } catch (err) {}
+  }
+
   function __exactPatchUrlConstructors() {
     if (typeof globalThis.URL !== 'function' || typeof globalThis.URL.prototype !== 'object') {
       return;
@@ -704,6 +727,8 @@
       globalThis.Response.prototype.formData.__exactCompatPatched = true;
     }
   }
+
+  __exactPatchUrlStatics();
 
   if (__exactNeedsUrlCompatPatch() || __exactNeedsUserinfoPatch()) {
     __exactPatchUrlConstructors();

@@ -124,12 +124,8 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
     _patchProtocol(URLExport);
     _patchUrlComponentSetter(URLExport, "username");
     _patchUrlComponentSetter(URLExport, "password");
-    if (typeof URLExport.createObjectURL !== "function") {
-      URLExport.createObjectURL = _createObjectURL;
-    }
-    if (typeof URLExport.revokeObjectURL !== "function") {
-      URLExport.revokeObjectURL = _revokeObjectURL;
-    }
+    URLExport.createObjectURL = _createObjectURL;
+    URLExport.revokeObjectURL = _revokeObjectURL;
 
   // Create wrapped canParse that validates arguments
   var _nativeCanParse = URLExport.canParse ? URLExport.canParse.bind(URLExport) : null;
