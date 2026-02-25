@@ -30,6 +30,10 @@ Stream.prototype._close = function(force) {
     this._needsClose = true;
     return;
   }
+  // Respect emitClose: false on writable streams
+  if (this._writableState && this._writableState.emitClose === false) {
+    return;
+  }
   this._needsClose = false;
   this._closed = true;
   this.emit('close');
@@ -1219,7 +1223,7 @@ function Writable(options) {
     sync: false,
     bufferProcessing: false,
     errored: null,
-    emitClose: true,
+    emitClose: (options && options.emitClose !== undefined) ? options.emitClose !== false : true,
     autoDestroy: true,
     pendingcb: 0,
     constructed: true,

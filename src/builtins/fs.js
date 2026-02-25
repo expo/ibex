@@ -632,6 +632,16 @@ function createWriteStream(path, options) {
     ws.emit('close');
   };
 
+  var origClose = ws._close;
+  ws._close = function(force) {
+    if (!autoClose) return;
+    if (ws.closed || ws._closed) return;
+    ws._closed = true;
+    ws.closed = true;
+    ws.fd = null;
+    ws.emit('close');
+  };
+
   function closeWriteFd() {
     if (fd === null) return;
     try { closeSync(fd); } catch(e) {}

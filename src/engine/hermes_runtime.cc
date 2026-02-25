@@ -4486,36 +4486,6 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpSetKeepAlive", std::move(tcpSetKeepAliveFn));
 
-    // __exactTcpShutdown(handle, how) -> 0
-    auto tcpShutdownFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpShutdown"), 2,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
-           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
-          if (count < 1 || !args[0].isNumber()) {
-            throw facebook::jsi::JSError(runtime, "__exactTcpShutdown: handle required");
-          }
-          int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
-            fd = it->second;
-          }
-          int how = SHUT_WR;
-          if (count > 1 && args[1].isNumber()) {
-            how = static_cast<int>(args[1].asNumber());
-          }
-          if (how != SHUT_RD && how != SHUT_WR && how != SHUT_RDWR) {
-            how = SHUT_WR;
-          }
-          if (::shutdown(fd, how) == -1) {
-            throw facebook::jsi::JSError(runtime, ("__exactTcpShutdown: " + std::string(strerror(errno))).c_str());
-          }
-          return facebook::jsi::Value(0);
-        });
-    rt.global().setProperty(rt, "__exactTcpShutdown", std::move(tcpShutdownFn));
-
     // __exactTcpListen(host, port, backlog, ipv6Only) -> handle or throws
     auto tcpListenFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 4,
