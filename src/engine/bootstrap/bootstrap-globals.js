@@ -260,21 +260,78 @@
       function AbortSignal() {
         this.aborted = false;
         this.reason = undefined;
+        this.onabort = null;
         this._listeners = [];
         this[__exactEventTargetKEvents] = new Map();
       }
-      AbortSignal.prototype.addEventListener = function(type, listener) {
+      // Internal abort helper — shared by AbortController, timeout(), and any()
+      AbortSignal.prototype._abort = function(reason) {
+        if (this.aborted) return;
+        this.aborted = true;
+        this.reason = reason;
+        var event = { type: 'abort', target: this, currentTarget: this,
+                      bubbles: false, cancelable: false, isTrusted: true,
+                      timeStamp: Date.now(), preventDefault: function() {},
+                      stopPropagation: function() {},
+                      stopImmediatePropagation: function() {} };
+        // Call onabort handler property first
+        if (typeof this.onabort === 'function') {
+          try { this.onabort.call(this, event); } catch(e) {}
+        }
+        // Then fire addEventListener listeners
+        var listeners = this._listeners.slice();
+        for (var i = 0; i < listeners.length; i++) {
+          try { listeners[i](event); } catch(e) {}
+        }
+      };
+      AbortSignal.prototype.addEventListener = function(type, listener, options) {
         if (type === 'abort') {
-          this._listeners.push(listener);
-          __addEventTargetEventListener(this, type, listener);
+          var once = options && typeof options === 'object' && !!options.once;
+          if (once) {
+            var self = this;
+            var wrapped = function(e) {
+              self.removeEventListener(type, wrapped);
+              listener(e);
+            };
+            wrapped._original = listener;
+            this._listeners.push(wrapped);
+            __addEventTargetEventListener(this, type, wrapped);
+          } else {
+            this._listeners.push(listener);
+            __addEventTargetEventListener(this, type, listener);
+          }
         }
       };
       AbortSignal.prototype.removeEventListener = function(type, listener) {
         if (type === 'abort') {
           var idx = this._listeners.indexOf(listener);
-          if (idx !== -1) this._listeners.splice(idx, 1);
-          __removeEventTargetEventListener(this, type, listener);
+          if (idx === -1) {
+            // Check for once-wrapped listeners
+            for (var i = 0; i < this._listeners.length; i++) {
+              if (this._listeners[i]._original === listener) {
+                idx = i;
+                break;
+              }
+            }
+          }
+          if (idx !== -1) {
+            var removed = this._listeners.splice(idx, 1)[0];
+            __removeEventTargetEventListener(this, type, removed);
+          }
         }
+      };
+      AbortSignal.prototype.dispatchEvent = function(event) {
+        if (!event || event.type !== 'abort') return true;
+        event.target = this;
+        event.currentTarget = this;
+        if (typeof this.onabort === 'function') {
+          try { this.onabort.call(this, event); } catch(e) {}
+        }
+        var listeners = this._listeners.slice();
+        for (var i = 0; i < listeners.length; i++) {
+          try { listeners[i](event); } catch(e) {}
+        }
+        return true;
       };
       AbortSignal.prototype.throwIfAborted = function() {
         if (this.aborted) throw this.reason;
@@ -288,25 +345,42 @@
       AbortSignal.timeout = function(ms) {
         var s = new AbortSignal();
         globalThis.setTimeout(function() {
-          s.aborted = true;
-          s.reason = new (globalThis.DOMException || Error)('The operation was aborted due to timeout.', 'TimeoutError');
-          for (var i = 0; i < s._listeners.length; i++) {
-            try { s._listeners[i]({ type: 'abort', target: s }); } catch(e) {}
-          }
+          s._abort(new (globalThis.DOMException || Error)('The operation was aborted due to timeout.', 'TimeoutError'));
         }, ms);
+        return s;
+      };
+      AbortSignal.any = function(signals) {
+        var s = new AbortSignal();
+        if (!signals || signals.length === 0) return s;
+        // If any signal is already aborted, return an immediately aborted signal
+        for (var i = 0; i < signals.length; i++) {
+          if (signals[i].aborted) {
+            s.aborted = true;
+            s.reason = signals[i].reason;
+            return s;
+          }
+        }
+        // Listen for abort on all source signals
+        var onAbort = function() {
+          if (s.aborted) return;
+          for (var i = 0; i < signals.length; i++) {
+            if (signals[i].aborted) {
+              s._abort(signals[i].reason);
+              break;
+            }
+          }
+        };
+        for (var i = 0; i < signals.length; i++) {
+          signals[i].addEventListener('abort', onAbort, { once: true });
+        }
         return s;
       };
       function AbortController() {
         this.signal = new AbortSignal();
       }
       AbortController.prototype.abort = function(reason) {
-        if (this.signal.aborted) return;
-        this.signal.aborted = true;
-        this.signal.reason = reason !== undefined ? reason : new (globalThis.DOMException || Error)('The operation was aborted.', 'AbortError');
-        var listeners = this.signal._listeners.slice();
-        for (var i = 0; i < listeners.length; i++) {
-          try { listeners[i]({ type: 'abort', target: this.signal }); } catch(e) {}
-        }
+        var r = reason !== undefined ? reason : new (globalThis.DOMException || Error)('The operation was aborted.', 'AbortError');
+        this.signal._abort(r);
       };
       globalThis.AbortController = AbortController;
       globalThis.AbortSignal = AbortSignal;
