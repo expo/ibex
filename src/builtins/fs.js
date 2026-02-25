@@ -264,11 +264,13 @@ function existsSync(path) {
   try { g.__exactAccess(path, 0); return true; } catch(e) { return false; }
 }
 
-function wrapCallback(fn, cb) {
+function wrapCallback(fn, cb, arg1, arg2) {
   try {
     var result = fn();
-    if (typeof queueMicrotask === 'function') { queueMicrotask(function() { cb(null, result); }); }
-    else { cb(null, result); }
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(function() { cb(null, result, arg1, arg2); });
+    }
+    else { cb(null, result, arg1, arg2); }
   } catch(err) {
     var error = err instanceof Error ? err : new Error(String(err));
     if (typeof queueMicrotask === 'function') { queueMicrotask(function() { cb(error); }); }
@@ -384,20 +386,28 @@ function fsRead(fd, buffer, offset, length, position, cb) {
 function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position, cb) {
   if (typeof offsetOrPosition === 'function') {
     cb = offsetOrPosition;
-    wrapCallback(function() { return writeSync(fd, bufferOrString); }, cb);
+    wrapCallback(function() { return writeSync(fd, bufferOrString); }, cb, bufferOrString);
     return;
   }
   if (typeof lengthOrEncoding === 'function') {
     cb = lengthOrEncoding;
-    wrapCallback(function() { return writeSync(fd, bufferOrString, offsetOrPosition); }, cb);
+    wrapCallback(function() {
+      return writeSync(fd, bufferOrString, offsetOrPosition);
+    }, cb, bufferOrString);
     return;
   }
   if (typeof position === 'function') {
     cb = position;
-    wrapCallback(function() { return writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding); }, cb);
+    wrapCallback(function() {
+      return writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding);
+    }, cb, bufferOrString);
     return;
   }
-  wrapCallback(function() { return writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position); }, cb);
+  wrapCallback(
+    function() { return writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position); },
+    cb,
+    bufferOrString
+  );
 }
 
 function createReadStream(path, options) {
