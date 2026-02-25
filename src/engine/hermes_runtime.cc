@@ -2271,7 +2271,17 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         std::vector<uint8_t> data(length);
         ssize_t bytesRead = ::read(fd, data.data(), length);
         if (bytesRead < 0) {
+          if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Non-blocking fd with no data available — return empty array
+            return makeUint8Array(runtime, std::vector<uint8_t>());
+          }
+          if (startup_trace_enabled()) {
+            fprintf(stderr, "[fsRead] fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
+          }
           throw facebook::jsi::JSError(runtime, std::string("EIO: read error on fd ") + std::to_string(fd));
+        }
+        if (bytesRead > 0 && fd == 3 && startup_trace_enabled()) {
+          fprintf(stderr, "[fsRead] fd=3 got %zd bytes\n", bytesRead);
         }
         data.resize(static_cast<size_t>(bytesRead));
         return makeUint8Array(runtime, std::move(data));
@@ -3818,6 +3828,11 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(ipcPair[1]);
             dup2(ipcPair[0], 3);
             close(ipcPair[0]);
+            // Set IPC fd to non-blocking so child's poll reads don't hang
+            int ipcFlags = fcntl(3, F_GETFL, 0);
+            if (ipcFlags >= 0) {
+              fcntl(3, F_SETFL, ipcFlags | O_NONBLOCK);
+            }
           }
 
           if (!stdinPipeRequested) {
@@ -3948,6 +3963,9 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         if (fd < 0) {
+          if (streamName == "ipc" && startup_trace_enabled()) {
+            fprintf(stderr, "[spawn_read] ipc fd=-1 for handle %d\n", handle);
+          }
           return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
         }
 
@@ -3959,8 +3977,15 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (n > 0) {
             result.append(buf, static_cast<size_t>(n));
           } else {
+            if (streamName == "ipc" && startup_trace_enabled() && n < 0) {
+              fprintf(stderr, "[spawn_read] ipc fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
+            }
             break;  // EAGAIN/EWOULDBLOCK or EOF
           }
+        }
+
+        if (!result.empty() && streamName == "ipc" && startup_trace_enabled()) {
+          fprintf(stderr, "[spawn_read] ipc fd=%d got %zu bytes: %.80s\n", fd, result.size(), result.c_str());
         }
 
         return facebook::jsi::Value(
@@ -4002,7 +4027,14 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         if (fd < 0) {
+          if (streamName == "ipc" && startup_trace_enabled()) {
+            fprintf(stderr, "[spawn_write] ipc fd=-1 for handle %d\n", handle);
+          }
           return facebook::jsi::Value(false);
+        }
+
+        if (streamName == "ipc" && startup_trace_enabled()) {
+          fprintf(stderr, "[spawn_write] ipc fd=%d data_len=%zu: %.80s\n", fd, data.size(), data.c_str());
         }
 
         size_t totalWritten = 0;
@@ -4010,6 +4042,9 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           ssize_t n = write(fd, data.c_str() + totalWritten, data.size() - totalWritten);
           if (n < 0) {
             if (errno == EINTR) continue;
+            if (startup_trace_enabled()) {
+              fprintf(stderr, "[spawn_write] ipc write error: fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
+            }
             return facebook::jsi::Value(false);
           }
           totalWritten += static_cast<size_t>(n);
@@ -4382,6 +4417,32 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(0);
         });
     rt.global().setProperty(rt, "__exactTcpClose", std::move(tcpCloseFn));
+
+    // __exactTcpShutdown(handle, how) -> 0
+    // how: 0=SHUT_RD, 1=SHUT_WR, 2=SHUT_RDWR
+    auto tcpShutdownFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpShutdown"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpShutdown: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int how = SHUT_WR;
+          if (count > 1 && args[1].isNumber()) {
+            int h = static_cast<int>(args[1].asNumber());
+            if (h == 0) how = SHUT_RD;
+            else if (h == 2) how = SHUT_RDWR;
+          }
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+          }
+          ::shutdown(fd, how);
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpShutdown", std::move(tcpShutdownFn));
 
     // __exactTcpSetNoDelay(handle, enable) -> 0
     auto tcpSetNoDelayFn = facebook::jsi::Function::createFromHostFunction(

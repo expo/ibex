@@ -105,6 +105,20 @@ function _makeSocketHandle(handle) {
   return socketHandle;
 }
 
+function _makeServerHandle(nativeHandle) {
+  var serverHandle = {
+    _exactHandle: nativeHandle == null ? null : nativeHandle,
+    close: function() {
+      if (serverHandle._exactHandle == null) return;
+      if (_hasTcp) {
+        try { __exactTcpClose(serverHandle._exactHandle); } catch(e) {}
+      }
+      serverHandle._exactHandle = null;
+    }
+  };
+  return serverHandle;
+}
+
 function _setSocketHandle(socket, nativeHandle) {
   if (!socket) return;
   if (socket._exactHandle !== undefined) {
@@ -1173,7 +1187,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     setTimeout(function() {
       if (listenToken !== self._listenToken) return;
       try {
-        self._handle = __exactUnixListen(self._socketPath, backlog || 128);
+        self._handle = _makeServerHandle(__exactUnixListen(self._socketPath, backlog || 128));
         self.listening = true;
         self.emit('listening');
         self._startAccepting();
@@ -1200,11 +1214,11 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   setTimeout(function() {
     if (listenToken !== self._listenToken) return;
       try {
-      self._handle = __exactTcpListen(self._host, self._port, backlog || 128, self.ipv6Only ? 1 : 0);
+      self._handle = _makeServerHandle(__exactTcpListen(self._host, self._port, backlog || 128, self.ipv6Only ? 1 : 0));
       _registerTcpServer(self);
       // Get actual bound port (useful when port=0)
       try {
-        var info = __exactTcpLocalAddr(self._handle);
+        var info = __exactTcpLocalAddr(_unwrapHandle(self._handle));
         if (info) {
           var addr = JSON.parse(info);
           self._port = addr.port;
@@ -1230,7 +1244,7 @@ Server.prototype._startAccepting = function() {
   function acceptLoop() {
     if (!self.listening || self._handle == null) return;
     try {
-      var clientHandle = acceptFn(self._handle);
+      var clientHandle = acceptFn(_unwrapHandle(self._handle));
       if (clientHandle !== -1) {
         self._connections++;
         var socketOpts = { _handle: clientHandle, allowHalfOpen: false };
@@ -1268,7 +1282,7 @@ Server.prototype.close = function(callback) {
   if (this._handle != null) {
     // Close the fd (works for both TCP and Unix handles since they share g_tcp_sockets)
     if (_hasTcp) {
-      try { __exactTcpClose(this._handle); } catch(e) {}
+      try { __exactTcpClose(_unwrapHandle(this._handle)); } catch(e) {}
     }
     _unregisterTcpServer(this);
     this._handle = null;
@@ -1293,7 +1307,7 @@ Server.prototype.address = function() {
   }
   if (this._handle != null && _hasTcp) {
     try {
-      var info = __exactTcpLocalAddr(this._handle);
+      var info = __exactTcpLocalAddr(_unwrapHandle(this._handle));
       if (info) return JSON.parse(info);
     } catch(e) {}
   }

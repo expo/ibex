@@ -821,6 +821,10 @@
   ) {
     var exactIpcFd = Number(globalThis.process.env.EXACT_IPC_FD);
     if (isFinite(exactIpcFd) && exactIpcFd >= 0) {
+      // Ensure FS host functions are loaded (they are lazily initialized)
+      if (typeof globalThis.__exactEnsureFs === 'function') {
+        globalThis.__exactEnsureFs();
+      }
       var exactIpcBuffer = '';
       var exactIpcConnected = true;
       var exactIpcPollTimer = null;
@@ -841,7 +845,7 @@
       }
 
       function exactBuildIpcPacket(type, data) {
-        return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\\n';
+        return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
       }
 
       function exactCreateIpcError(code, message) {
@@ -874,7 +878,7 @@
         if (!rawData || !rawData.length) return;
         exactIpcBuffer += exactToString(rawData);
         while (exactIpcBuffer.length > 0) {
-          var lineEnd = exactIpcBuffer.indexOf('\\n');
+          var lineEnd = exactIpcBuffer.indexOf('\n');
           if (lineEnd < 0) {
             return;
           }

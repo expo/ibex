@@ -404,7 +404,8 @@ function ChildProcess(handle, pid, stdioModes) {
   this._ipcBuffer = '';
   this._ipcQueueSize = 0;
   this._ipcQueueMax = 2;
-  this._sendingQueue = false;
+  this._sendCallbackQueue = [];
+  this._sendCallbackDraining = false;
   this._disconnectPending = false;
   this._disconnectEmitted = false;
   this._closeCallback = null;
@@ -513,7 +514,8 @@ function ChildProcess(handle, pid, stdioModes) {
     if (!rawData || !rawData.length) {
       return;
     }
-    self._ipcBuffer += _toUtf8String(rawData);
+    var rawStr = (typeof rawData === 'string') ? rawData : _toUtf8String(rawData);
+    self._ipcBuffer += rawStr;
     while (self._ipcBuffer.length > 0) {
       var lineEnd = self._ipcBuffer.indexOf('\n');
       if (lineEnd < 0) {
@@ -769,20 +771,41 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
   var self = this;
   var callbackError = writeSuccess ? null : writeError;
   if (typeof callback === 'function') {
-    setTimeout(function() {
-      if (self._ipcQueueSize > 0) {
-        self._ipcQueueSize--;
-      }
-      callback(callbackError);
-    }, 0);
+    self._sendCallbackQueue.push({ callback: callback, error: callbackError });
+    if (!self._sendCallbackDraining) {
+      self._sendCallbackDraining = true;
+      setTimeout(function() {
+        while (self._sendCallbackQueue.length > 0) {
+          var entry = self._sendCallbackQueue.shift();
+          if (self._ipcQueueSize > 0) {
+            self._ipcQueueSize--;
+          }
+          if (typeof entry.callback === 'function') {
+            entry.callback(entry.error);
+          }
+        }
+        self._sendCallbackDraining = false;
+      }, 0);
+    }
     return returnValue;
   }
 
-  setTimeout(function() {
-    if (self._ipcQueueSize > 0) {
-      self._ipcQueueSize--;
-    }
-  }, 0);
+  self._sendCallbackQueue.push({ callback: null, error: null });
+  if (!self._sendCallbackDraining) {
+    self._sendCallbackDraining = true;
+    setTimeout(function() {
+      while (self._sendCallbackQueue.length > 0) {
+        var entry = self._sendCallbackQueue.shift();
+        if (self._ipcQueueSize > 0) {
+          self._ipcQueueSize--;
+        }
+        if (typeof entry.callback === 'function') {
+          entry.callback(entry.error);
+        }
+      }
+      self._sendCallbackDraining = false;
+    }, 0);
+  }
 
   if (!writeSuccess && writeError) {
     setTimeout(function() {
