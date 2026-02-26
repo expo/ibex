@@ -8230,9 +8230,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
         auto input = extractBytes(runtime, args[0]);
 
+        bool strictMode = false;
         int mode = 0; // 0=deflate, 1=gzip, 2=raw
         if (count > 1 && args[1].isNumber()) {
           mode = static_cast<int>(args[1].asNumber());
+        }
+        if (count > 2 && args[2].isBool()) {
+          strictMode = args[2].getBool();
         }
 
         z_stream strm = {};
@@ -8266,6 +8270,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           output.insert(output.end(), outBuf, outBuf + have);
         } while (ret != Z_STREAM_END && strm.avail_out == 0);
         inflateEnd(&strm);
+
+        if (strictMode && strm.avail_in > 0) {
+          throw facebook::jsi::JSError(runtime, "inflate failed: trailing data");
+        }
 
         return makeUint8Array(runtime, std::move(output));
       });
@@ -8327,9 +8335,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto brotliDecompressSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactBrotliDecompressSync"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
+        const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         if (count == 0) {
@@ -8337,6 +8345,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         }
 
         auto input = extractBytes(runtime, args[0]);
+
+        bool strictMode = false;
+        if (count > 1 && args[1].isBool()) {
+          strictMode = args[1].getBool();
+        }
 
         // Use streaming decoder for unknown output size
         BrotliDecoderState* state = BrotliDecoderCreateInstance(nullptr, nullptr, nullptr);
@@ -8348,6 +8361,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         const uint8_t* nextIn = input.data();
         size_t availableIn = input.size();
         BrotliDecoderResult result;
+        bool acceptedTrailingData = false;
 
         do {
           uint8_t outBuf[32768];
@@ -8366,14 +8380,41 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           output.insert(output.end(), outBuf, outBuf + have);
 
           if (result == BROTLI_DECODER_RESULT_ERROR) {
+            auto errorCode = BrotliDecoderGetErrorCode(state);
+            if (!strictMode &&
+                (errorCode == BROTLI_DECODER_ERROR_FORMAT_PADDING_1 ||
+                 errorCode == BROTLI_DECODER_ERROR_FORMAT_PADDING_2)) {
+              acceptedTrailingData = true;
+              break;
+            }
+            if (!strictMode && availableIn > 0 && BrotliDecoderIsFinished(state)) {
+              acceptedTrailingData = true;
+              break;
+            }
+
+            if (errorCode == BROTLI_DECODER_ERROR_FORMAT_PADDING_1 ||
+                errorCode == BROTLI_DECODER_ERROR_FORMAT_PADDING_2) {
+              if (strictMode) {
+                BrotliDecoderDestroyInstance(state);
+                throw facebook::jsi::JSError(
+                    runtime, "Brotli decompression failed: trailing data");
+              }
+            }
+
             BrotliDecoderDestroyInstance(state);
             throw facebook::jsi::JSError(runtime, "BrotliDecoderDecompressStream failed: corrupt data");
           }
         } while (result == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT);
 
+        if (strictMode && !acceptedTrailingData && availableIn > 0) {
+          BrotliDecoderDestroyInstance(state);
+          throw facebook::jsi::JSError(
+              runtime, "Brotli decompression failed: trailing data");
+        }
+
         BrotliDecoderDestroyInstance(state);
 
-        if (result != BROTLI_DECODER_RESULT_SUCCESS) {
+        if (!acceptedTrailingData && result != BROTLI_DECODER_RESULT_SUCCESS) {
           throw facebook::jsi::JSError(runtime, "Brotli decompression failed: incomplete data");
         }
 
