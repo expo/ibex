@@ -235,6 +235,69 @@
     };
   })();
 
+  // Compatibility shim: web stream queuing strategy constructors require
+  // unrestricted-double conversion only for highWaterMark.
+  (function installQueuingStrategyCompatibility() {
+    if (typeof g.CountQueuingStrategy !== 'function' || typeof g.ByteLengthQueuingStrategy !== 'function') {
+      return;
+    }
+    if (g.CountQueuingStrategy.__exactUnrestrictedDoublePatched) {
+      return;
+    }
+
+    function toUnrestrictedDouble(value) {
+      return Number(value);
+    }
+
+    function getHighWaterMark(options) {
+      if (options === null || (typeof options !== 'object' && typeof options !== 'function')) {
+        throw new TypeError('Cannot convert options to object');
+      }
+      if (!('highWaterMark' in options)) {
+        throw new TypeError('The options object must include a highWaterMark');
+      }
+      return toUnrestrictedDouble(options.highWaterMark);
+    }
+
+    var countSize = (function() {
+      return {
+        size: () => 1
+      }.size;
+    }()).size;
+
+    var byteLengthSize = (function() {
+      return {
+        size: (chunk) => {
+          if (chunk == null) {
+            throw new TypeError('The chunk argument must not be null or undefined');
+          }
+          return chunk.byteLength;
+        }
+      }.size;
+    }()).size;
+
+    function ExactCountQueuingStrategy(options) {
+      if (!(this instanceof ExactCountQueuingStrategy)) {
+        throw new TypeError('Class constructor CountQueuingStrategy cannot be invoked without new');
+      }
+      this.highWaterMark = getHighWaterMark(options);
+    }
+
+    function ExactByteLengthQueuingStrategy(options) {
+      if (!(this instanceof ExactByteLengthQueuingStrategy)) {
+        throw new TypeError('Class constructor ByteLengthQueuingStrategy cannot be invoked without new');
+      }
+      this.highWaterMark = getHighWaterMark(options);
+    }
+
+    ExactCountQueuingStrategy.prototype.size = countSize;
+    ExactByteLengthQueuingStrategy.prototype.size = byteLengthSize;
+
+    g.CountQueuingStrategy = ExactCountQueuingStrategy;
+    g.ByteLengthQueuingStrategy = ExactByteLengthQueuingStrategy;
+    g.CountQueuingStrategy.__exactUnrestrictedDoublePatched = true;
+  })();
+
   var MIME = {
     '.txt':'text/plain;charset=utf-8','.html':'text/html;charset=utf-8','.htm':'text/html;charset=utf-8',
     '.css':'text/css;charset=utf-8','.js':'text/javascript;charset=utf-8','.mjs':'text/javascript;charset=utf-8',
