@@ -583,6 +583,45 @@
     Promise.race([p.then(function(v){s='fulfilled';r=v},function(e){s='rejected';r=e}),Promise.resolve()]);
     return s === 'pending' ? { status: 'pending' } : s === 'fulfilled' ? { status: 'fulfilled', value: r } : { status: 'rejected', reason: r };
   };
+  E.concatArrayBuffers = function concatArrayBuffers(buffers) {
+    if (!Array.isArray(buffers)) {
+      throw new TypeError('First argument must be an array of ArrayBuffer-like values');
+    }
+    if (buffers.length === 0) {
+      return new Uint8Array(0).buffer;
+    }
+    var views = new Array(buffers.length);
+    var totalLength = 0;
+    var i;
+    for (i = 0; i < buffers.length; i++) {
+      var value = buffers[i];
+      if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+        views[i] = new Uint8Array(value);
+      } else if (value && typeof value === 'object' && ArrayBuffer.isView(value)) {
+        views[i] = new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength || value.length);
+      } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(value)) {
+        views[i] = new Uint8Array(value.buffer || value, value.byteOffset || 0, value.byteLength || value.length);
+      } else {
+        throw new TypeError('Bun.concatArrayBuffers expects an array of ArrayBuffers or typed arrays');
+      }
+      totalLength += views[i].length;
+      if (totalLength > 0x7fffffff) {
+        throw new Error('Failed to allocate ArrayBuffer');
+      }
+    }
+    var output;
+    try {
+      output = new Uint8Array(totalLength);
+    } catch (e) {
+      throw new Error('Failed to allocate ArrayBuffer');
+    }
+    var offset = 0;
+    for (i = 0; i < views.length; i++) {
+      output.set(views[i], offset);
+      offset += views[i].length;
+    }
+    return output.buffer;
+  };
 
   // --- Bun aliases ---
   E.fetch = (typeof fetch === 'function') ? fetch : undefined;

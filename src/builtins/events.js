@@ -5,6 +5,12 @@
 //   - Once-wrapped listeners have .listener property
 
 var errorMonitorSymbol = Symbol('events.errorMonitor');
+var __AsyncResource;
+try {
+  __AsyncResource = require('async_hooks').AsyncResource;
+} catch (e) {
+  __AsyncResource = null;
+}
 
 function _invalidArgType(name, value) {
   var type = value === null ? 'null' : (typeof value);
@@ -35,6 +41,31 @@ function EventEmitter() {
   }
   EventEmitter.init.call(this);
 }
+
+function EventEmitterAsyncResource(type, options) {
+  if (!(this instanceof EventEmitterAsyncResource)) {
+    return new EventEmitterAsyncResource(type, options);
+  }
+  EventEmitter.call(this);
+  if (__AsyncResource) {
+    this._asyncResource = new __AsyncResource(type || 'EventEmitterAsyncResource', options || undefined);
+  } else {
+    this._asyncResource = null;
+  }
+}
+
+EventEmitterAsyncResource.prototype = Object.create(EventEmitter.prototype);
+EventEmitterAsyncResource.prototype.constructor = EventEmitterAsyncResource;
+EventEmitterAsyncResource.prototype.emit = function emit(eventName) {
+  var args = [];
+  for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+  if (this._asyncResource && typeof this._asyncResource.runInAsyncScope === 'function') {
+    return this._asyncResource.runInAsyncScope(function() {
+      return EventEmitter.prototype.emit.apply(this, [eventName].concat(args));
+    }, this);
+  }
+  return EventEmitter.prototype.emit.apply(this, [eventName].concat(args));
+};
 
 EventEmitter.init = function init(opts) {
   if (this._events === undefined || this._events === Object.getPrototypeOf(this)._events) {
@@ -712,6 +743,7 @@ function setMaxListeners(n) {
 
 // Assign static properties
 EventEmitter.EventEmitter = EventEmitter;
+EventEmitter.EventEmitterAsyncResource = EventEmitterAsyncResource;
 EventEmitter.once = once;
 EventEmitter.on = on;
 EventEmitter.getEventListeners = getEventListeners;
@@ -724,6 +756,7 @@ EventEmitter.init = EventEmitter.init;
 module.exports = EventEmitter;
 module.exports.__esModule = true;
 module.exports.EventEmitter = EventEmitter;
+module.exports.EventEmitterAsyncResource = EventEmitterAsyncResource;
 module.exports.default = EventEmitter;
 module.exports.once = once;
 module.exports.on = on;

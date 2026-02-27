@@ -78,6 +78,40 @@ function _isFunction(value) {
   return typeof value === 'function';
 }
 
+function _formatReceivedValue(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  var type = typeof value;
+  if (type === 'number' || type === 'boolean') {
+    return 'type ' + type + ' (' + value + ')';
+  }
+  if (type === 'string') {
+    return 'type string';
+  }
+  if (type === 'function') {
+    return 'type function';
+  }
+  if (value && value.constructor && value.constructor.name) {
+    return 'an instance of ' + value.constructor.name;
+  }
+  return 'type ' + type;
+}
+
+function _formatPromiseExpectation(value) {
+  if (value && value.constructor && value.constructor.name) {
+    return 'an instance of ' + value.constructor.name;
+  }
+  return 'an instance of ' + (value === null ? 'null' : typeof value);
+}
+
+function _throwInvalidArgType(promiseFn, errMessage) {
+  var err = new TypeError(errMessage ||
+    'The "promiseFn" argument must be of type function or an instance of Promise. Received ' +
+    _formatReceivedValue(promiseFn));
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  throw err;
+}
+
 function _parseCallerInfo(stackLine) {
   if (typeof stackLine !== 'string') return null;
   var m = stackLine.match(/\(([^()]+):(\d+):(\d+)\)$/);
@@ -1710,8 +1744,34 @@ async function rejects(asyncFn, expected, message) {
 }
 
 async function doesNotReject(asyncFn, expected, message) {
+  var promise;
+
+  if (_isFunction(asyncFn)) {
+    promise = asyncFn();
+    if (!(promise instanceof Promise)) {
+      if (promise && typeof promise.then === 'function' && typeof promise.catch === 'function') {
+        promise = Promise.resolve(promise);
+      } else {
+        var expectedReturn = 'Expected instance of Promise to be returned from the "promiseFn" function but got ' +
+          _formatPromiseExpectation(promise);
+        var fnErr = new AssertionError({
+          message: message || expectedReturn,
+          actual: promise,
+          operator: 'doesNotReject',
+          stackStartFn: doesNotReject
+        });
+        throw fnErr;
+      }
+    }
+  } else if (asyncFn instanceof Promise) {
+    promise = asyncFn;
+  } else if (asyncFn && typeof asyncFn.then === 'function' && typeof asyncFn.catch === 'function') {
+    promise = Promise.resolve(asyncFn);
+  } else {
+    _throwInvalidArgType(asyncFn);
+  }
+
   try {
-    var promise = typeof asyncFn === 'function' ? asyncFn() : asyncFn;
     await promise;
   } catch (e) {
     throw new AssertionError({
