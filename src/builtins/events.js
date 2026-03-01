@@ -677,8 +677,17 @@ function on(emitter, eventName, options) {
 }
 
 function getEventListeners(emitter, eventName) {
-  if (emitter && typeof emitter.listeners === 'function') {
+  if (typeof emitter !== 'object' || emitter === null) {
+    var err = new TypeError('[ERR_INVALID_ARG_TYPE]: The "emitter" argument must be an instance of EventEmitter or EventTarget. Received type ' + typeof emitter + ' (' + String(emitter) + ')');
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (typeof emitter.listeners === 'function') {
     return emitter.listeners(eventName);
+  }
+  // Support EventTarget (stores listeners as {fn, once, capture} objects in _listeners)
+  if (emitter._listeners && emitter._listeners[eventName]) {
+    return emitter._listeners[eventName].map(function(l) { return l.fn; });
   }
   return [];
 }

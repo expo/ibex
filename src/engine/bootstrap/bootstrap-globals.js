@@ -398,9 +398,180 @@
   // structuredClone — lazy (Web API)
   if (typeof globalThis.structuredClone === 'undefined') {
     defineLazyGlobal('structuredClone', function() {
-      return function(value) {
-        return JSON.parse(JSON.stringify(value));
-      };
+      var _DOMException = globalThis.DOMException || (function() {
+        function DOMException(message, name) {
+          Error.call(this, message);
+          this.message = message || '';
+          this.name = name || 'Error';
+        }
+        DOMException.prototype = Object.create(Error.prototype);
+        DOMException.prototype.constructor = DOMException;
+        return DOMException;
+      })();
+
+      function _structuredClone(value) {
+        var originals = [];
+        var clones = [];
+
+        function _clone(v) {
+          if (v === null || v === undefined) return v;
+          var t = typeof v;
+          if (t === 'boolean' || t === 'string' || t === 'number' || t === 'bigint') return v;
+
+          if (t === 'symbol' || t === 'function') {
+            throw new _DOMException('The object could not be cloned.', 'DataCloneError');
+          }
+
+          // Cycle detection
+          for (var i = 0; i < originals.length; i++) {
+            if (originals[i] === v) return clones[i];
+          }
+
+          var result;
+
+          // Date
+          if (v instanceof Date) {
+            result = new Date(v.getTime());
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // RegExp
+          if (v instanceof RegExp) {
+            result = new RegExp(v.source, v.flags);
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // Error types
+          if (v instanceof Error) {
+            var Ctor = v.constructor;
+            if (typeof Ctor !== 'function') Ctor = Error;
+            try {
+              result = v.hasOwnProperty('message') ? new Ctor(v.message) : new Ctor();
+            } catch (e) {
+              result = v.hasOwnProperty('message') ? new Error(v.message) : new Error();
+            }
+            if (result.name !== v.name) result.name = v.name;
+            originals.push(v); clones.push(result);
+            if ('cause' in v) {
+              try { Object.defineProperty(result, 'cause', { value: _clone(v.cause), writable: true, enumerable: false, configurable: true }); } catch(e) { result.cause = _clone(v.cause); }
+            }
+            if (v.stack !== undefined) result.stack = v.stack;
+            return result;
+          }
+
+          // Boolean wrapper
+          if (v instanceof Boolean) {
+            result = new Boolean(v.valueOf());
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // Number wrapper
+          if (v instanceof Number) {
+            result = new Number(v.valueOf());
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // String wrapper
+          if (v instanceof String) {
+            result = new String(v.valueOf());
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // BigInt wrapper
+          if (typeof BigInt !== 'undefined' && t === 'object' && typeof v.valueOf() === 'bigint') {
+            result = Object(v.valueOf());
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // ArrayBuffer
+          if (typeof ArrayBuffer !== 'undefined' && v instanceof ArrayBuffer) {
+            result = v.slice(0);
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // SharedArrayBuffer
+          if (typeof SharedArrayBuffer !== 'undefined' && v instanceof SharedArrayBuffer) {
+            result = v;
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // DataView
+          if (typeof DataView !== 'undefined' && v instanceof DataView) {
+            result = new DataView(_clone(v.buffer), v.byteOffset, v.byteLength);
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // TypedArrays
+          var _taTypes = ['Int8Array','Uint8Array','Uint8ClampedArray','Int16Array','Uint16Array','Int32Array','Uint32Array','Float32Array','Float64Array','BigInt64Array','BigUint64Array'];
+          for (var j = 0; j < _taTypes.length; j++) {
+            var TA = globalThis[_taTypes[j]];
+            if (typeof TA === 'function' && v instanceof TA) {
+              result = new TA(_clone(v.buffer), v.byteOffset, v.length);
+              originals.push(v); clones.push(result);
+              return result;
+            }
+          }
+
+          // Map
+          if (typeof Map !== 'undefined' && v instanceof Map) {
+            result = new Map();
+            originals.push(v); clones.push(result);
+            v.forEach(function(val, key) { result.set(_clone(key), _clone(val)); });
+            return result;
+          }
+
+          // Set
+          if (typeof Set !== 'undefined' && v instanceof Set) {
+            result = new Set();
+            originals.push(v); clones.push(result);
+            v.forEach(function(val) { result.add(_clone(val)); });
+            return result;
+          }
+
+          // DOMException
+          if (typeof _DOMException !== 'undefined' && v instanceof _DOMException) {
+            result = new _DOMException(v.message, v.name);
+            originals.push(v); clones.push(result);
+            return result;
+          }
+
+          // Array
+          if (Array.isArray(v)) {
+            result = new Array(v.length);
+            originals.push(v); clones.push(result);
+            for (var k = 0; k < v.length; k++) {
+              if (k in v) result[k] = _clone(v[k]);
+            }
+            return result;
+          }
+
+          // Plain object
+          if (t === 'object') {
+            result = {};
+            originals.push(v); clones.push(result);
+            var keys = Object.keys(v);
+            for (var k = 0; k < keys.length; k++) {
+              result[keys[k]] = _clone(v[keys[k]]);
+            }
+            return result;
+          }
+
+          throw new _DOMException('The object could not be cloned.', 'DataCloneError');
+        }
+
+        return _clone(value);
+      }
+
+      return _structuredClone;
     });
   }
 
@@ -463,12 +634,19 @@
       EventTarget.prototype.dispatchEvent = function(event) {
         if (!event || !event.type) return true;
         var listeners = this._listeners[event.type];
-        if (!listeners) return true;
         event.target = this;
         event.currentTarget = this;
+        if (event.srcElement !== undefined) event.srcElement = this;
+        if (event.eventPhase !== undefined) event.eventPhase = 2; // AT_TARGET
+        if (!listeners || listeners.length === 0) {
+          event.eventPhase = 0;
+          event.currentTarget = null;
+          return !event.defaultPrevented;
+        }
         var snapshot = listeners.slice();
         var current = this._listeners[event.type];
         for (var i = 0; i < snapshot.length; i++) {
+          if (event._stopImmediatePropagation) break;
           var listener = snapshot[i];
           if (!listener) {
             continue;
@@ -478,38 +656,96 @@
             this._listeners[event.type] = current;
             __removeEventTargetEventListener(this, event.type, listener.fn);
           }
-          try { listener.fn.call(this, event); } catch(e) {}
+          if (typeof listener.fn === 'function') {
+            listener.fn.call(this, event);
+          } else if (listener.fn && typeof listener.fn.handleEvent === 'function') {
+            listener.fn.handleEvent(event);
+          }
         }
         if (current && current.length !== listeners.length) {
           this._listeners[event.type] = current;
         }
+        event.eventPhase = 0;
+        event.currentTarget = null;
         return !event.defaultPrevented;
       };
       globalThis.EventTarget = EventTarget;
 
       function Event(type, options) {
-        this.type = type;
-        this.bubbles = (options && options.bubbles) || false;
-        this.cancelable = (options && options.cancelable) || false;
-        this.composed = (options && options.composed) || false;
+        if (arguments.length === 0) {
+          throw new TypeError("Failed to construct 'Event': 1 argument required, but only 0 present.");
+        }
+        this.type = String(type);
+        this.bubbles = !!(options && options.bubbles);
+        this.cancelable = !!(options && options.cancelable);
+        this.composed = !!(options && options.composed);
         this.defaultPrevented = false;
         this.target = null;
         this.currentTarget = null;
+        this.srcElement = null;
         this.timeStamp = Date.now();
+        this.isTrusted = false;
+        this.eventPhase = 0;
+        this.returnValue = true;
+        this._cancelBubble = false;
+        this._stopPropagation = false;
+        this._stopImmediatePropagation = false;
       }
+      Object.defineProperty(Event.prototype, 'cancelBubble', {
+        get: function() { return this._cancelBubble; },
+        set: function(v) { if (v) this._cancelBubble = true; },
+        enumerable: true, configurable: true
+      });
+      Event.prototype.composedPath = function() {
+        return this.currentTarget ? [this.currentTarget] : [];
+      };
       Event.prototype.preventDefault = function() {
         if (this.cancelable) this.defaultPrevented = true;
       };
-      Event.prototype.stopPropagation = function() {};
-      Event.prototype.stopImmediatePropagation = function() {};
+      Event.prototype.stopPropagation = function() {
+        this._cancelBubble = true;
+        this._stopPropagation = true;
+      };
+      Event.prototype.stopImmediatePropagation = function() {
+        this._cancelBubble = true;
+        this._stopPropagation = true;
+        this._stopImmediatePropagation = true;
+      };
+      Event.NONE = 0;
+      Event.CAPTURING_PHASE = 1;
+      Event.AT_TARGET = 2;
+      Event.BUBBLING_PHASE = 3;
+      if (typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+        Event.prototype[Symbol.toStringTag] = 'Event';
+      }
       globalThis.Event = Event;
 
       function CustomEvent(type, options) {
+        if (arguments.length === 0) {
+          throw new TypeError("Failed to construct 'CustomEvent': 1 argument required, but only 0 present.");
+        }
+        if (typeof type === 'symbol') {
+          throw new TypeError("Cannot convert a Symbol value to a string");
+        }
+        if (options !== undefined && options !== null && typeof options !== 'object') {
+          var err = new TypeError('The "options" argument must be of type object.' +
+            ' Received type ' + typeof options + ' (' + options + ')');
+          err.code = 'ERR_INVALID_ARG_TYPE';
+          throw err;
+        }
         Event.call(this, type, options);
-        this.detail = (options && options.detail) || null;
+        this.detail = (options && options.detail !== undefined) ? options.detail : null;
       }
       CustomEvent.prototype = Object.create(Event.prototype);
       CustomEvent.prototype.constructor = CustomEvent;
+      CustomEvent.NONE = 0;
+      CustomEvent.CAPTURING_PHASE = 1;
+      CustomEvent.AT_TARGET = 2;
+      CustomEvent.BUBBLING_PHASE = 3;
+      CustomEvent.length = 1;
+      if (typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+        CustomEvent.prototype[Symbol.toStringTag] = 'CustomEvent';
+      }
       globalThis.CustomEvent = CustomEvent;
     }
 
