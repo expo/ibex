@@ -208,6 +208,14 @@
       ) {
         globalThis.process.config.variables = {};
       }
+      // Freeze process.config to match Node.js behavior (immutable config)
+      if (typeof globalThis.process.config === 'object' && globalThis.process.config !== null) {
+        try {
+          Object.freeze(globalThis.process.config.target_defaults);
+          Object.freeze(globalThis.process.config.variables);
+          Object.freeze(globalThis.process.config);
+        } catch (_) {}
+      }
     } catch (err) {
       // Keep compatibility bootstrap resilient if process/config cannot be patched.
     }
@@ -476,6 +484,23 @@
         var existingRelease = globalThis.process.release;
         var releaseObj = (existingRelease && typeof existingRelease === 'object') ?
           Object.assign({}, existingRelease, { name: 'node' }) : { name: 'node' };
+        // Determine LTS codename based on reported Node version
+        var __nodeVer = processVersions.node || '';
+        var __verParts = String(__nodeVer).split('.');
+        var __major = parseInt(__verParts[0], 10);
+        var __minor = parseInt(__verParts[1], 10);
+        var __ltsMap = [
+          [4, 2, 'Argon'], [6, 9, 'Boron'], [8, 9, 'Carbon'],
+          [10, 13, 'Dubnium'], [12, 13, 'Erbium'], [14, 15, 'Fermium'],
+          [16, 13, 'Gallium'], [18, 12, 'Hydrogen'], [20, 9, 'Iron'],
+          [22, 11, 'Jod'], [24, 11, 'Krypton'],
+        ];
+        for (var __li = 0; __li < __ltsMap.length; __li++) {
+          if (__major === __ltsMap[__li][0] && __minor >= __ltsMap[__li][1]) {
+            releaseObj.lts = __ltsMap[__li][2];
+            break;
+          }
+        }
         Object.defineProperty(globalThis.process, 'release', {
           value: releaseObj, writable: true, configurable: true, enumerable: true
         });
