@@ -115,6 +115,44 @@ function gunzip(data, options, callback) {
   }
 }
 
+function zstdCompressSync(data, options) {
+  var bytes = toBytes(data);
+  var level = -1;
+  if (options && options.level !== undefined) {
+    level = options.level;
+  } else if (options && options.params && options.params[100] !== undefined) {
+    level = options.params[100];
+  }
+  var result = __exactDeflateSync(bytes, level, 0);
+  return toBuffer(result);
+}
+
+function zstdDecompressSync(data, options) {
+  var bytes = toBytes(data);
+  var result = __exactInflateSync(bytes, 0);
+  return toBuffer(result);
+}
+
+function zstdCompress(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  try {
+    var result = zstdCompressSync(data, options);
+    if (callback) setTimeout(function() { callback(null, result); }, 0);
+  } catch(e) {
+    if (callback) setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function zstdDecompress(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  try {
+    var result = zstdDecompressSync(data, options);
+    if (callback) setTimeout(function() { callback(null, result); }, 0);
+  } catch(e) {
+    if (callback) setTimeout(function() { callback(e); }, 0);
+  }
+}
+
 // Brotli compression/decompression
 function brotliCompressSync(data, options) {
   var bytes = toBytes(data);
@@ -205,6 +243,56 @@ ZlibTransform.prototype._flush = function(callback) {
   }
 };
 
+ZlibTransform.prototype.flush = function(kind, callback) {
+  if (typeof kind === 'function') {
+    callback = kind;
+    kind = undefined;
+  }
+  var flushCallback = typeof callback === 'function' ? callback : null;
+  var state = this._transformState || (this._transformState = {});
+
+  if (state._flushing || (state.pendingWrites > 0) ||
+      (this._writableState && this._writableState.writing)) {
+    state._flushQueue = state._flushQueue || [];
+    state._flushQueue.push([kind, flushCallback]);
+    return this;
+  }
+
+  state._flushing = true;
+  var self = this;
+  this._flush(function(err) {
+    state._flushing = false;
+    if (!err) {
+      self._chunks = [];
+    }
+    if (typeof flushCallback === 'function') {
+      flushCallback(err);
+    }
+    if (state._flushQueue && state._flushQueue.length > 0) {
+      var next = state._flushQueue.shift();
+      self.flush(next[0], next[1]);
+    }
+  });
+  return this;
+};
+
+ZlibTransform.prototype.reset = function() {
+  this._chunks = [];
+  this._bytesWritten = 0;
+  this.bytesWritten = 0;
+  this.bytesRead = 0;
+  return this;
+};
+
+ZlibTransform.prototype.params = function(level, strategy, callback) {
+  this._level = level;
+  this._strategy = strategy;
+  if (typeof callback === 'function') {
+    setTimeout(function() { callback(); }, 0);
+  }
+  return this;
+};
+
 // Override end() to call _flush before finishing, since the base Transform
 // uses _final (not _flush) in this runtime's stream implementation
 ZlibTransform.prototype.end = function(chunk, encoding, callback) {
@@ -293,6 +381,23 @@ function createGzip(options) { return new Gzip(options); }
 function createGunzip(options) { return new Gunzip(options); }
 function createDeflateRaw(options) { return new DeflateRaw(options); }
 function createInflateRaw(options) { return new InflateRaw(options); }
+
+// Zstd placeholder stream classes
+function ZstdCompress(opts) {
+  Deflate.call(this, opts);
+}
+ZstdCompress.prototype = Object.create(Deflate.prototype);
+ZstdCompress.prototype.constructor = ZstdCompress;
+
+function ZstdDecompress(opts) {
+  Inflate.call(this, opts);
+}
+ZstdDecompress.prototype = Object.create(Inflate.prototype);
+ZstdDecompress.prototype.constructor = ZstdDecompress;
+
+function createZstdCompress(options) { return new ZstdCompress(options); }
+function createZstdDecompress(options) { return new ZstdDecompress(options); }
+
 // BrotliCompress stream
 function BrotliCompress(opts) {
   ZlibTransform.call(this, function(buf) { return brotliCompressSync(buf, opts); }, opts, false, null);
@@ -355,6 +460,69 @@ var constants = {
   BROTLI_PARAM_LARGE_WINDOW: 6,
   BROTLI_PARAM_NPOSTFIX: 7,
   BROTLI_PARAM_NDIRECT: 8,
+  ZSTD_CLEVEL_DEFAULT: 3,
+  ZSTD_btlazy2: 6,
+  ZSTD_btopt: 7,
+  ZSTD_btultra: 8,
+  ZSTD_btultra2: 9,
+  ZSTD_c_chainLog: 103,
+  ZSTD_c_checksumFlag: 201,
+  ZSTD_c_compressionLevel: 100,
+  ZSTD_c_contentSizeFlag: 200,
+  ZSTD_c_dictIDFlag: 202,
+  ZSTD_c_enableLongDistanceMatching: 160,
+  ZSTD_c_hashLog: 102,
+  ZSTD_c_jobSize: 401,
+  ZSTD_c_ldmBucketSizeLog: 163,
+  ZSTD_c_ldmHashLog: 161,
+  ZSTD_c_ldmHashRateLog: 164,
+  ZSTD_c_ldmMinMatch: 162,
+  ZSTD_c_minMatch: 105,
+  ZSTD_c_nbWorkers: 400,
+  ZSTD_c_overlapLog: 402,
+  ZSTD_c_searchLog: 104,
+  ZSTD_c_strategy: 107,
+  ZSTD_c_targetLength: 106,
+  ZSTD_c_windowLog: 101,
+  ZSTD_COMPRESS: 10,
+  ZSTD_DECOMPRESS: 11,
+  ZSTD_dfast: 2,
+  ZSTD_fast: 1,
+  ZSTD_greedy: 3,
+  ZSTD_lazy: 4,
+  ZSTD_lazy2: 5,
+  ZSTD_d_windowLogMax: 100,
+  ZSTD_e_continue: 0,
+  ZSTD_e_end: 2,
+  ZSTD_e_flush: 1,
+  ZSTD_error_checksum_wrong: 22,
+  ZSTD_error_corruption_detected: 20,
+  ZSTD_error_dictionary_corrupted: 30,
+  ZSTD_error_dictionary_wrong: 32,
+  ZSTD_error_dictionaryCreation_failed: 34,
+  ZSTD_error_dstBuffer_null: 74,
+  ZSTD_error_dstSize_tooSmall: 70,
+  ZSTD_error_frameParameter_unsupported: 14,
+  ZSTD_error_frameParameter_windowTooLarge: 16,
+  ZSTD_error_GENERIC: 1,
+  ZSTD_error_init_missing: 62,
+  ZSTD_error_literals_headerWrong: 24,
+  ZSTD_error_maxSymbolValue_tooLarge: 46,
+  ZSTD_error_maxSymbolValue_tooSmall: 48,
+  ZSTD_error_memory_allocation: 64,
+  ZSTD_error_no_error: 0,
+  ZSTD_error_noForwardProgress_destFull: 80,
+  ZSTD_error_noForwardProgress_inputEmpty: 82,
+  ZSTD_error_parameter_combination_unsupported: 41,
+  ZSTD_error_parameter_outOfBound: 42,
+  ZSTD_error_parameter_unsupported: 40,
+  ZSTD_error_prefix_unknown: 10,
+  ZSTD_error_srcSize_wrong: 72,
+  ZSTD_error_stabilityCondition_notRespected: 50,
+  ZSTD_error_stage_wrong: 60,
+  ZSTD_error_tableLog_tooLarge: 44,
+  ZSTD_error_version_unsupported: 12,
+  ZSTD_error_workSpace_tooSmall: 66,
   BROTLI_DECODER_RESULT_ERROR: 0,
   BROTLI_DECODER_RESULT_SUCCESS: 1,
   BROTLI_DECODER_RESULT_NEEDS_MORE_INPUT: 2,
@@ -373,6 +541,10 @@ module.exports = {
   inflate: inflate,
   gzip: gzip,
   gunzip: gunzip,
+  zstdCompressSync: zstdCompressSync,
+  zstdDecompressSync: zstdDecompressSync,
+  zstdCompress: zstdCompress,
+  zstdDecompress: zstdDecompress,
   brotliCompressSync: brotliCompressSync,
   brotliDecompressSync: brotliDecompressSync,
   brotliCompress: brotliCompress,
@@ -383,6 +555,10 @@ module.exports = {
   createGunzip: createGunzip,
   createDeflateRaw: createDeflateRaw,
   createInflateRaw: createInflateRaw,
+  createZstdCompress: createZstdCompress,
+  createZstdDecompress: createZstdDecompress,
+  ZstdCompress: ZstdCompress,
+  ZstdDecompress: ZstdDecompress,
   createBrotliCompress: createBrotliCompress,
   createBrotliDecompress: createBrotliDecompress,
   Deflate: Deflate,
