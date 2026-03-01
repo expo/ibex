@@ -1275,6 +1275,10 @@ Readable.from = function(iterable, options) {
         }
         if (result.done) {
           readable.push(null);
+        } else if (result.value === null) {
+          var nullErr = new TypeError('May not write null values to stream');
+          nullErr.code = 'ERR_STREAM_NULL_VALUES';
+          readable.destroy(nullErr);
         } else {
           readable.push(result.value);
           readNext();
