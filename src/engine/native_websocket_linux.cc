@@ -1,0 +1,403 @@
+/**
+ * native_websocket_linux.cc
+ *
+ * Linux WebSocket implementation.
+ *
+ * If libcurl headers are available (EXACT_HAS_CURL), this uses libcurl's
+ * websocket API. Otherwise it falls back to stubs so non-network flows still
+ * compile/run.
+ */
+
+#include <cstddef>
+#include <cstdint>
+
+#ifdef EXACT_HAS_CURL
+#include <curl/curl.h>
+
+#include <atomic>
+#include <chrono>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+#endif
+
+typedef void (*NativeWsOpenCallback)(uint32_t ws_id, const char* protocol, const char* extensions, void* context);
+typedef void (*NativeWsMessageCallback)(uint32_t ws_id, const uint8_t* data, size_t length, int is_text, void* context);
+typedef void (*NativeWsCloseCallback)(uint32_t ws_id, uint16_t code, const char* reason, int was_clean, void* context);
+typedef void (*NativeWsErrorCallback)(uint32_t ws_id, const char* message, void* context);
+typedef void (*NativeWsBytesSentCallback)(uint32_t ws_id, size_t bytes_sent, void* context);
+
+extern "C" void native_ws_retain_context(void* context);
+extern "C" void native_ws_release_context(void* context);
+
+#ifdef EXACT_HAS_CURL
+
+struct OutboundMessage {
+    std::vector<uint8_t> bytes;
+    bool is_text = false;
+};
+
+struct WebSocketEntry {
+    uint32_t ws_id = 0;
+    CURL* curl = nullptr;
+    curl_slist* headers = nullptr;
+
+    NativeWsOpenCallback open_cb = nullptr;
+    NativeWsMessageCallback message_cb = nullptr;
+    NativeWsCloseCallback close_cb = nullptr;
+    NativeWsErrorCallback error_cb = nullptr;
+    NativeWsBytesSentCallback bytes_sent_cb = nullptr;
+    void* context = nullptr;
+
+    std::mutex io_mutex;
+    std::queue<OutboundMessage> outbound;
+    std::atomic<bool> closed{false};
+    std::thread io_thread;
+};
+
+static std::mutex g_ws_mutex;
+static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> g_ws_connections;
+static std::atomic<uint32_t> g_next_ws_id{1};
+
+static void call_error(const std::shared_ptr<WebSocketEntry>& entry, const char* message) {
+    if (!entry || !entry->error_cb || !entry->context) {
+        return;
+    }
+    native_ws_retain_context(entry->context);
+    entry->error_cb(entry->ws_id, message ? message : "WebSocket error", entry->context);
+    native_ws_release_context(entry->context);
+}
+
+static void call_open(const std::shared_ptr<WebSocketEntry>& entry) {
+    if (!entry || !entry->open_cb || !entry->context) {
+        return;
+    }
+    native_ws_retain_context(entry->context);
+    entry->open_cb(entry->ws_id, "", "", entry->context);
+    native_ws_release_context(entry->context);
+}
+
+static void call_message(
+    const std::shared_ptr<WebSocketEntry>& entry,
+    const uint8_t* data,
+    size_t len,
+    bool is_text
+) {
+    if (!entry || !entry->message_cb || !entry->context) {
+        return;
+    }
+    native_ws_retain_context(entry->context);
+    entry->message_cb(entry->ws_id, data, len, is_text ? 1 : 0, entry->context);
+    native_ws_release_context(entry->context);
+}
+
+static void call_bytes_sent(const std::shared_ptr<WebSocketEntry>& entry, size_t bytes_sent) {
+    if (!entry || !entry->bytes_sent_cb || !entry->context) {
+        return;
+    }
+    native_ws_retain_context(entry->context);
+    entry->bytes_sent_cb(entry->ws_id, bytes_sent, entry->context);
+    native_ws_release_context(entry->context);
+}
+
+static void call_close(const std::shared_ptr<WebSocketEntry>& entry, uint16_t code, const char* reason, int was_clean) {
+    if (!entry || !entry->close_cb || !entry->context) {
+        return;
+    }
+    native_ws_retain_context(entry->context);
+    entry->close_cb(entry->ws_id, code, reason ? reason : "", was_clean, entry->context);
+    native_ws_release_context(entry->context);
+}
+
+static void remove_connection(uint32_t ws_id) {
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(g_ws_mutex);
+        auto it = g_ws_connections.find(ws_id);
+        if (it == g_ws_connections.end()) {
+            return;
+        }
+        entry = it->second;
+        g_ws_connections.erase(it);
+    }
+
+    if (!entry) {
+        return;
+    }
+    entry->closed.store(true, std::memory_order_relaxed);
+    if (entry->context) {
+        native_ws_release_context(entry->context);
+        entry->context = nullptr;
+    }
+}
+
+static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
+    call_open(entry);
+
+    while (!entry->closed.load(std::memory_order_relaxed)) {
+        // Drain outbound messages first.
+        for (;;) {
+            OutboundMessage msg;
+            {
+                std::lock_guard<std::mutex> lock(entry->io_mutex);
+                if (entry->outbound.empty()) {
+                    break;
+                }
+                msg = std::move(entry->outbound.front());
+                entry->outbound.pop();
+            }
+
+            size_t sent = 0;
+            const unsigned int flags = msg.is_text ? CURLWS_TEXT : CURLWS_BINARY;
+            const CURLcode send_rc = curl_ws_send(
+                entry->curl,
+                msg.bytes.data(),
+                msg.bytes.size(),
+                &sent,
+                0,
+                flags
+            );
+            if (send_rc != CURLE_OK) {
+                call_error(entry, curl_easy_strerror(send_rc));
+                entry->closed.store(true, std::memory_order_relaxed);
+                break;
+            }
+            call_bytes_sent(entry, sent);
+        }
+
+        if (entry->closed.load(std::memory_order_relaxed)) {
+            break;
+        }
+
+        uint8_t buffer[64 * 1024];
+        size_t nrecv = 0;
+        const struct curl_ws_frame* meta = nullptr;
+        const CURLcode recv_rc = curl_ws_recv(entry->curl, buffer, sizeof(buffer), &nrecv, &meta);
+        if (recv_rc == CURLE_OK) {
+            if (meta && (meta->flags & CURLWS_CLOSE)) {
+                call_close(entry, 1000, "Normal closure", 1);
+                entry->closed.store(true, std::memory_order_relaxed);
+                break;
+            }
+            if (nrecv > 0) {
+                const bool is_text = meta ? ((meta->flags & CURLWS_TEXT) != 0) : false;
+                call_message(entry, buffer, nrecv, is_text);
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            continue;
+        }
+
+        if (recv_rc == CURLE_AGAIN) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+
+        call_error(entry, curl_easy_strerror(recv_rc));
+        call_close(entry, 1006, "Connection error", 0);
+        entry->closed.store(true, std::memory_order_relaxed);
+        break;
+    }
+
+    if (entry->headers) {
+        curl_slist_free_all(entry->headers);
+        entry->headers = nullptr;
+    }
+    if (entry->curl) {
+        curl_easy_cleanup(entry->curl);
+        entry->curl = nullptr;
+    }
+
+    remove_connection(entry->ws_id);
+}
+
+#endif // EXACT_HAS_CURL
+
+extern "C" uint32_t native_ws_connect(
+    const char* url,
+    const char* protocols,
+    NativeWsOpenCallback open_cb,
+    NativeWsMessageCallback message_cb,
+    NativeWsCloseCallback close_cb,
+    NativeWsErrorCallback error_cb,
+    NativeWsBytesSentCallback bytes_sent_cb,
+    void* context
+) {
+#ifdef EXACT_HAS_CURL
+    if (!url || !open_cb || !message_cb || !close_cb || !error_cb) {
+        return 0;
+    }
+
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        if (error_cb && context) {
+            native_ws_retain_context(context);
+            error_cb(0, "Failed to initialize libcurl", context);
+            native_ws_release_context(context);
+        }
+        return 0;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L); // websocket mode
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
+    curl_slist* headers = nullptr;
+    if (protocols && *protocols) {
+        std::string proto_header = "Sec-WebSocket-Protocol: ";
+        proto_header += protocols;
+        headers = curl_slist_append(headers, proto_header.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    }
+
+    const CURLcode rc = curl_easy_perform(curl);
+    if (rc != CURLE_OK) {
+        if (headers) {
+            curl_slist_free_all(headers);
+        }
+        const char* msg = curl_easy_strerror(rc);
+        if (error_cb && context) {
+            native_ws_retain_context(context);
+            error_cb(0, msg ? msg : "WebSocket connect failed", context);
+            native_ws_release_context(context);
+        }
+        curl_easy_cleanup(curl);
+        return 0;
+    }
+
+    auto entry = std::make_shared<WebSocketEntry>();
+    entry->ws_id = g_next_ws_id.fetch_add(1, std::memory_order_relaxed);
+    entry->curl = curl;
+    entry->headers = headers;
+    entry->open_cb = open_cb;
+    entry->message_cb = message_cb;
+    entry->close_cb = close_cb;
+    entry->error_cb = error_cb;
+    entry->bytes_sent_cb = bytes_sent_cb;
+    entry->context = context;
+    if (entry->context) {
+        native_ws_retain_context(entry->context);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_ws_mutex);
+        g_ws_connections[entry->ws_id] = entry;
+    }
+
+    entry->io_thread = std::thread([entry]() { run_io_loop(entry); });
+    entry->io_thread.detach();
+
+    return entry->ws_id;
+#else
+    (void)url;
+    (void)protocols;
+    (void)open_cb;
+    (void)message_cb;
+    (void)close_cb;
+    (void)bytes_sent_cb;
+    if (error_cb) {
+        error_cb(0, "native_ws_connect is not implemented on Linux yet (libcurl not available)", context);
+    }
+    return 0;
+#endif
+}
+
+extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t length, int is_text) {
+#ifdef EXACT_HAS_CURL
+    if (!data || length == 0) {
+        return;
+    }
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(g_ws_mutex);
+        auto it = g_ws_connections.find(ws_id);
+        if (it == g_ws_connections.end()) {
+            return;
+        }
+        entry = it->second;
+    }
+    if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    OutboundMessage msg;
+    msg.bytes.assign(data, data + length);
+    msg.is_text = is_text != 0;
+    {
+        std::lock_guard<std::mutex> lock(entry->io_mutex);
+        entry->outbound.push(std::move(msg));
+    }
+#else
+    (void)ws_id;
+    (void)data;
+    (void)length;
+    (void)is_text;
+#endif
+}
+
+extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reason) {
+#ifdef EXACT_HAS_CURL
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(g_ws_mutex);
+        auto it = g_ws_connections.find(ws_id);
+        if (it == g_ws_connections.end()) {
+            return;
+        }
+        entry = it->second;
+    }
+    if (!entry) {
+        return;
+    }
+
+    entry->closed.store(true, std::memory_order_relaxed);
+    (void)reason;
+
+    size_t sent = 0;
+    const uint8_t close_payload[2] = {
+        static_cast<uint8_t>((code >> 8) & 0xFF),
+        static_cast<uint8_t>(code & 0xFF)
+    };
+    curl_ws_send(
+        entry->curl,
+        close_payload,
+        sizeof(close_payload),
+        &sent,
+        0,
+        CURLWS_CLOSE
+    );
+#else
+    (void)ws_id;
+    (void)code;
+    (void)reason;
+#endif
+}
+
+extern "C" void native_ws_destroy(uint32_t ws_id) {
+#ifdef EXACT_HAS_CURL
+    remove_connection(ws_id);
+#else
+    (void)ws_id;
+#endif
+}
+
+extern "C" int native_ws_has_active(void) {
+#ifdef EXACT_HAS_CURL
+    std::lock_guard<std::mutex> lock(g_ws_mutex);
+    for (const auto& pair : g_ws_connections) {
+        const auto& entry = pair.second;
+        if (entry && !entry->closed.load(std::memory_order_relaxed)) {
+            return 1;
+        }
+    }
+    return 0;
+#else
+    return 0;
+#endif
+}

@@ -28,6 +28,13 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
 CLEAN_CACHE=false
+HOST_ARCH_RAW="$(uname -m)"
+case "$HOST_ARCH_RAW" in
+    x86_64|amd64) HOST_ARCH="x64" ;;
+    arm64|aarch64) HOST_ARCH="arm64" ;;
+    *) HOST_ARCH="$HOST_ARCH_RAW" ;;
+esac
+HERMESC_DEST="$PROJECT_ROOT/tools/hermes/hermesc-macos-$HOST_ARCH"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -112,7 +119,7 @@ if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
     # Copy hermesc
     if [ -f "$VERSION_CACHE/bin/hermesc" ]; then
         mkdir -p "$PROJECT_ROOT/tools/hermes"
-        cp "$VERSION_CACHE/bin/hermesc" "$PROJECT_ROOT/tools/hermes/"
+        cp "$VERSION_CACHE/bin/hermesc" "$HERMESC_DEST"
         echo "[✓] hermesc installed"
     fi
 
@@ -303,7 +310,7 @@ mkdir -p "$FRAMEWORKS_DIR/hermes-headers"
 cp -R "$VERSION_CACHE/include/"* "$FRAMEWORKS_DIR/hermes-headers/"
 
 mkdir -p "$PROJECT_ROOT/tools/hermes"
-cp "$VERSION_CACHE/bin/hermesc" "$PROJECT_ROOT/tools/hermes/" 2>/dev/null || true
+cp "$VERSION_CACHE/bin/hermesc" "$HERMESC_DEST" 2>/dev/null || true
 
 echo ""
 echo "=== Build Complete ==="
@@ -311,7 +318,7 @@ echo ""
 echo "Installed:"
 echo "  Framework: $FRAMEWORKS_DIR/hermes.xcframework"
 echo "  Headers:   $FRAMEWORKS_DIR/hermes-headers/"
-echo "  CLI:       $PROJECT_ROOT/tools/hermes/hermesc"
+echo "  CLI:       $HERMESC_DEST"
 echo ""
 echo "Cached at: $VERSION_CACHE"
 echo ""
