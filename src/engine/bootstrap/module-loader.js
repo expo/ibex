@@ -1146,6 +1146,17 @@
   // Also provide as importModule() for convenience (since import(...) triggers parser)
   globalThis.importModule = importImpl;
 
+  // Wrap queueMicrotask to throw TypeError for non-function arguments (spec requirement)
+  if (typeof queueMicrotask === 'function') {
+    var _nativeQueueMicrotask = queueMicrotask;
+    globalThis.queueMicrotask = function queueMicrotask(callback) {
+      if (typeof callback !== 'function') {
+        throw new TypeError("Failed to execute 'queueMicrotask': parameter 1 is not of type 'Function'.");
+      }
+      return _nativeQueueMicrotask(callback);
+    };
+  }
+
   // Fix console global to match WPT/spec requirements:
   // - non-enumerable on globalThis
   // - Symbol.toStringTag = "console"
