@@ -500,6 +500,12 @@ struct ExactHermesRuntime {
   bool net_functions_loaded = false;
   bool sqlite_functions_loaded = false;
   bool http_functions_loaded = false;
+
+  // --- Valet host-call bridge ---
+  // Generic callback for embedding: JS calls __hostCall(op, argsJson) which
+  // invokes this function pointer. Returns a malloc'd JSON string (caller frees)
+  // or NULL on error (error message in out_error).
+  char* (*host_call_fn)(const char* op, const char* args_json) = nullptr;
 };
 
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
@@ -10201,6 +10207,63 @@ extern "C" int ex_hermes_eval(
     }
     return 1;
   }
+}
+
+// --- Valet host-call bridge ---
+
+extern "C" void ex_hermes_set_host_call(
+    ExactHermesRuntime* runtime,
+    char* (*callback)(const char* op, const char* args_json)) {
+  if (!runtime) return;
+  runtime->host_call_fn = callback;
+
+  // Install (or reinstall) the __hostCall JS function
+  auto& rt = *runtime->runtime;
+  auto hostCallFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__hostCall"),
+      2,
+      [runtime](facebook::jsi::Runtime& rt,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->host_call_fn || count < 2) {
+          throw facebook::jsi::JSError(rt, "__hostCall: no callback registered or wrong arity");
+        }
+        auto op = args[0].asString(rt).utf8(rt);
+        auto argsJson = args[1].asString(rt).utf8(rt);
+
+        char* result = runtime->host_call_fn(op.c_str(), argsJson.c_str());
+        if (!result) {
+          return facebook::jsi::Value::null();
+        }
+
+        // Parse the result — first char indicates success/error:
+        // '+' prefix = success, result JSON follows
+        // '-' prefix = error, error message follows
+        std::string resultStr(result);
+        free(result);
+
+        if (resultStr.empty()) {
+          return facebook::jsi::Value::null();
+        }
+
+        if (resultStr[0] == '-') {
+          throw facebook::jsi::JSError(rt, resultStr.substr(1));
+        }
+
+        // Parse the JSON result (skip '+' prefix)
+        std::string json = (resultStr[0] == '+') ? resultStr.substr(1) : resultStr;
+        if (json.empty() || json == "null" || json == "undefined") {
+          return facebook::jsi::Value::null();
+        }
+
+        // Use JSON.parse to convert
+        auto jsonGlobal = rt.global().getPropertyAsObject(rt, "JSON");
+        auto parseFn = jsonGlobal.getPropertyAsFunction(rt, "parse");
+        return parseFn.call(rt, facebook::jsi::String::createFromUtf8(rt, json));
+      });
+  rt.global().setProperty(rt, "__hostCall", std::move(hostCallFn));
 }
 
 extern "C" void ex_hermes_free_string(char* value) {
