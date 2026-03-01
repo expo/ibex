@@ -3,9 +3,32 @@ var stream = require('node:stream');
 function pipeline() {
   var args = [];
   for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
-  // stream.pipeline already returns a promise when no callback is given
+  // Prefer stream.promises.pipeline when available, and otherwise emulate promise mode
   if (typeof stream.pipeline === 'function') {
-    return stream.pipeline.apply(stream, args);
+    if (typeof args[args.length - 1] === 'function') {
+      return stream.pipeline.apply(stream, args);
+    }
+    if (stream.promises && typeof stream.promises.pipeline === 'function') {
+      try {
+        return stream.promises.pipeline.apply(stream.promises, args);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+    return new Promise(function(resolve, reject) {
+      args.push(function(err) {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve();
+      });
+      try {
+        stream.pipeline.apply(stream, args);
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
   return Promise.reject(new Error('stream.pipeline is not available'));
 }

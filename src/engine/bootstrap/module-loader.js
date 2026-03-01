@@ -212,8 +212,257 @@
         }
         return {};
       }
+    },
+    'bun:internal-for-testing': {
+      fsStreamInternals: {},
+      memfd_create: function() { return -1; },
+      setSyntheticAllocationLimitForTesting: function() {},
+      canonicalizeIP: function(ip) { return ip; },
+      nativeFrameForTesting: function() {},
+      getEventLoopStats: function() {
+        return { min: 0, max: 0, avg: 0, count: 0 };
+      },
+      timerInternals: {
+        timerClockMs: function() { return Date.now(); },
+      },
+      structuredCloneAdvanced: function(value) {
+        return JSON.parse(JSON.stringify(value));
+      },
     }
   };
+  var streamBuiltinsCache = null;
+  var streamInternalModuleCache = null;
+
+  function _resolveAbortError(name) {
+    var err = new Error(name + ' is missing');
+    err.code = 'ERR_STREAM_PREMATURE_CLOSE';
+    return err;
+  }
+
+  function _addAbortSignalCompat(signal, stream) {
+    if (!stream || typeof stream.destroy !== 'function') {
+      return stream;
+    }
+    if (signal && typeof signal.addEventListener === 'function') {
+      signal.addEventListener('abort', function() {
+        var abortErr = new Error('The operation was aborted');
+        abortErr.code = 'ABORT_ERR';
+        abortErr.name = 'AbortError';
+        stream.destroy(abortErr);
+      });
+    }
+    return stream;
+  }
+
+  function _getStreamBuiltins() {
+    if (!streamBuiltinsCache) {
+      try {
+        streamBuiltinsCache = load('stream');
+      } catch (err) {
+        streamBuiltinsCache = {};
+      }
+    }
+    return streamBuiltinsCache;
+  }
+
+  function _loadNamedStreamInternal(name) {
+    if (!streamInternalModuleCache) {
+      streamInternalModuleCache = Object.create(null);
+    }
+    if (Object.prototype.hasOwnProperty.call(streamInternalModuleCache, name)) {
+      return streamInternalModuleCache[name];
+    }
+    var stream = _getStreamBuiltins();
+    var result = null;
+
+    if (name === 'internal/streams/add-abort-signal') {
+      var streamAddAbortSignal = stream.addAbortSignal || _addAbortSignalCompat;
+      result = {
+        addAbortSignal: streamAddAbortSignal,
+        addAbortSignalNoValidate: function(_signal, streamInstance) {
+          return _addAbortSignalCompat(_signal, streamInstance);
+        }
+      };
+    } else if (name === 'internal/streams/compose') {
+      result = stream.compose || function() {
+        throw _resolveAbortError('compose');
+      };
+    } else if (name === 'internal/streams/state') {
+      result = {
+        getDefaultHighWaterMark: stream.getDefaultHighWaterMark || function(_objectMode) { return _objectMode ? 16 : 16384; },
+        setDefaultHighWaterMark: stream.setDefaultHighWaterMark || function() {}
+      };
+    } else if (name === 'internal/streams/destroy') {
+      result = {
+        destroy: function(streamInstance, err) {
+          if (streamInstance && typeof streamInstance.destroy === 'function') {
+            streamInstance.destroy(err);
+          }
+          return streamInstance;
+        },
+        undestroy: function(streamInstance) {
+          if (streamInstance && typeof streamInstance._undestroy === 'function') {
+            streamInstance._undestroy();
+          }
+        },
+        errorOrDestroy: function(streamInstance, err) {
+          if (err && streamInstance && typeof streamInstance.destroy === 'function') {
+            streamInstance.destroy(err);
+          }
+          return streamInstance;
+        },
+        destroyer: function(streamInstance, err) {
+          if (streamInstance && typeof streamInstance.destroy === 'function') {
+            streamInstance.destroy(err);
+          }
+          return streamInstance;
+        }
+      };
+    } else if (name === 'internal/streams/duplex') {
+      result = stream.Duplex;
+    } else if (name === 'internal/streams/end-of-stream') {
+      result = stream.finished || function() {};
+    } else if (name === 'internal/streams/from') {
+      var streamFrom = stream.Readable && stream.Readable.from ? stream.Readable.from : function() {};
+      streamFrom.from = streamFrom;
+      streamFrom.default = streamFrom;
+      result = streamFrom;
+    } else if (name === 'internal/streams/legacy') {
+      result = stream;
+    } else if (name === 'internal/streams/operators') {
+      if (stream && stream.Readable && stream.Readable.prototype) {
+        result = {
+          map: function(source, fn, options) { return stream.Readable.prototype.map.call(source, fn, options); },
+          filter: function(source, fn, options) { return stream.Readable.prototype.filter.call(source, fn, options); },
+          reduce: function(source, fn, initial, options) { return stream.Readable.prototype.reduce.call(source, fn, initial, options); },
+          toArray: function(source, options) { return stream.Readable.prototype.toArray.call(source, options); },
+          forEach: function(source, fn, options) { return stream.Readable.prototype.forEach.call(source, fn, options); },
+          some: function(source, fn, options) { return stream.Readable.prototype.some.call(source, fn, options); },
+          every: function(source, fn, options) { return stream.Readable.prototype.every.call(source, fn, options); },
+          find: function(source, fn, options) { return stream.Readable.prototype.find.call(source, fn, options); },
+          flatMap: function(source, fn, options) { return stream.Readable.prototype.flatMap.call(source, fn, options); },
+          drop: function(source, count, options) { return stream.Readable.prototype.drop.call(source, count, options); },
+          take: function(source, count, options) { return stream.Readable.prototype.take.call(source, count, options); }
+        };
+      } else {
+        result = {};
+      }
+    } else if (name === 'internal/streams/passthrough') {
+      result = stream.PassThrough;
+    } else if (name === 'internal/streams/pipeline') {
+      var streamPipeline = stream.pipeline;
+      var streamPromises = stream.promises && stream.promises.pipeline;
+      result = function() {
+        var args = [];
+        for (var pi = 0; pi < arguments.length; pi++) args.push(arguments[pi]);
+        var hasCallback = args.length > 0 && typeof args[args.length - 1] === 'function';
+
+        if (typeof streamPipeline !== 'function') {
+          throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "pipeline" method is not available');
+        }
+        if (hasCallback) {
+          return streamPipeline.apply(stream, args);
+        }
+
+        if (typeof streamPromises === 'function') {
+          return streamPromises.apply(stream.promises, args);
+        }
+
+        return new Promise(function(resolve, reject) {
+          args.push(function(err) {
+            if (err) {
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+          try {
+            streamPipeline.apply(stream, args);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      };
+    } else if (name === 'internal/streams/readable') {
+      result = stream.Readable;
+    } else if (name === 'internal/streams/transform') {
+      result = stream.Transform;
+    } else if (name === 'internal/streams/utils') {
+      result = {
+        isDisturbed: stream.isDisturbed || function() { return false; },
+        isReadable: stream.isReadable || function() { return false; },
+        isWritable: stream.isWritable || function() { return false; },
+        isErrored: stream.isErrored || function() { return false; }
+      };
+    } else if (name === 'internal/streams/writable') {
+      result = stream.Writable;
+    } else if (name === 'stream/promises') {
+      var streamPromisesModule = stream.promises || {};
+      var streamPromisesPipeline = streamPromisesModule.pipeline;
+      var streamPromisesFinished = streamPromisesModule.finished;
+      result = {
+        pipeline: function() {
+          var args = [];
+          for (var pi = 0; pi < arguments.length; pi++) args.push(arguments[pi]);
+          if (typeof streamPromisesPipeline === 'function') {
+            try {
+              return streamPromisesPipeline.apply(streamPromisesModule, args);
+            } catch (err) {
+              return Promise.reject(err);
+            }
+          }
+          return new Promise(function(resolve, reject) {
+            args.push(function(err) {
+              if (err) reject(err); else resolve();
+            });
+            try {
+              if (typeof stream.pipeline === 'function') {
+                stream.pipeline.apply(stream, args);
+                return;
+              }
+              reject(new Error('stream.pipeline is not available'));
+            } catch (err) {
+              reject(err);
+            }
+          });
+        },
+        finished: function() {
+          var args = [];
+          for (var pi = 0; pi < arguments.length; pi++) args.push(arguments[pi]);
+          if (typeof streamPromisesFinished === 'function') {
+            try {
+              return streamPromisesFinished.apply(streamPromisesModule, args);
+            } catch (err) {
+              return Promise.reject(err);
+            }
+          }
+          if (typeof stream.finished === 'function') {
+            try {
+              return stream.finished.apply(stream, args);
+            } catch (err) {
+              return Promise.reject(err);
+            }
+          }
+          return Promise.reject(new Error('stream.finished is not available'));
+        }
+      };
+    } else if (name === 'stream/consumers') {
+      result = stream.consumers || {};
+    } else if (name === '_stream_readable') {
+      result = stream.Readable;
+    } else if (name === '_stream_writable') {
+      result = stream.Writable;
+    } else if (name === '_stream_duplex') {
+      result = stream.Duplex;
+    } else if (name === '_stream_transform') {
+      result = stream.Transform;
+    } else if (name === '_stream_passthrough') {
+      result = stream.PassThrough;
+    }
+
+    streamInternalModuleCache[name] = result;
+    return result;
+  }
 
   function createEventTargetModule() {
     return {
@@ -283,6 +532,22 @@
     }
     if (normalized.indexOf('internal/util/debuglog') !== -1) {
       normalized = 'internal/util/debuglog';
+    }
+    var legacyStreamModule = _loadNamedStreamInternal(normalized);
+    if (legacyStreamModule !== null && legacyStreamModule !== undefined) {
+      if (!cache[normalized]) {
+        cache[normalized] = {
+          exports: legacyStreamModule,
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
     }
     var internal = internalModules.hasOwnProperty(normalized) ? internalModules[normalized] : undefined;
     if (!internal) return null;
