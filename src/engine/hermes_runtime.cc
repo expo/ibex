@@ -4795,6 +4795,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto _t_console_enhance = _t_now;
   auto _t_host_functions = _t_now;
   auto _t_compat_polyfills = _t_now;
+  auto _t_web_streams_polyfill = _t_now;
   auto _t_exact_global = _t_now;
   #define IG_TRACE_START(n) _t_##n = std::chrono::steady_clock::now()
   #define IG_TRACE_END(n) if (_tracing) { \
@@ -9890,6 +9891,33 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
   IG_TRACE_END(compat_polyfills);
+
+  // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream)
+  // Must run before exact-global.js which uses ReadableStream.
+  IG_TRACE_START(web_streams_polyfill);
+  {
+    static const char* webStreamsPolyfillJS = WEB_STREAMS_POLYFILL_SRC;
+
+    try {
+#ifdef HAS_PRECOMPILED_BOOTSTRAP
+      try {
+        auto hbcBuf = std::make_shared<StaticHBCBuffer>(WEB_STREAMS_POLYFILL_HBC, WEB_STREAMS_POLYFILL_HBC_LEN);
+        rt.evaluateJavaScript(hbcBuf, "<web-streams-polyfill>");
+      } catch (...) {
+        auto buffer = std::make_shared<facebook::jsi::StringBuffer>(webStreamsPolyfillJS);
+        rt.evaluateJavaScript(buffer, "<web-streams-polyfill>");
+      }
+#else
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(webStreamsPolyfillJS);
+      rt.evaluateJavaScript(buffer, "<web-streams-polyfill>");
+#endif
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.what()).c_str());
+    }
+  }
+  IG_TRACE_END(web_streams_polyfill);
 
   // Install Exact global (with Bun alias) including Exact.file() and Exact.write()
   IG_TRACE_START(exact_global);

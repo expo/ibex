@@ -8,15 +8,16 @@ if (cachedModule) {
 } else {
   var ReadableStream = g.ReadableStream;
   var ReadableStreamDefaultReader = g.ReadableStreamDefaultReader;
+  var ReadableStreamBYOBReader = g.ReadableStreamBYOBReader;
   var WritableStream = g.WritableStream;
   var WritableStreamDefaultWriter = g.WritableStreamDefaultWriter;
   var TransformStream = g.TransformStream;
+  var ByteLengthQueuingStrategy = g.ByteLengthQueuingStrategy;
+  var CountQueuingStrategy = g.CountQueuingStrategy;
 
   if (
     typeof ReadableStream !== 'function' ||
-    typeof ReadableStreamDefaultReader !== 'function' ||
     typeof WritableStream !== 'function' ||
-    typeof WritableStreamDefaultWriter !== 'function' ||
     typeof TransformStream !== 'function'
   ) {
     throw new TypeError('Web Streams API constructors are unavailable');
@@ -86,9 +87,12 @@ if (cachedModule) {
   cachedModule = {
     ReadableStream: ReadableStream,
     ReadableStreamDefaultReader: ReadableStreamDefaultReader,
+    ReadableStreamBYOBReader: ReadableStreamBYOBReader,
     WritableStream: WritableStream,
     WritableStreamDefaultWriter: WritableStreamDefaultWriter,
     TransformStream: TransformStream,
+    ByteLengthQueuingStrategy: ByteLengthQueuingStrategy,
+    CountQueuingStrategy: CountQueuingStrategy,
     isReadableStream: isReadableStream,
     isWritableStream: isWritableStream,
     fromWeb: fromWeb,

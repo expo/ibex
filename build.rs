@@ -113,6 +113,7 @@ fn main() {
         ("form-data.js", "FORM_DATA"),
         ("lazy-getters.js", "LAZY_GETTERS"),
         ("compat-polyfills.js", "COMPAT_POLYFILLS"),
+        ("web-streams-polyfill.js", "WEB_STREAMS_POLYFILL"),
         ("exact-global.js", "EXACT_GLOBAL"),
         ("process-compat-fix.js", "PROCESS_COMPAT_FIX"),
     ];
