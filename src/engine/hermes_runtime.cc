@@ -10807,8 +10807,25 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       runNextTickQueue(runtime);
       drainMicrotasks(*runtime->runtime);
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, err.getMessage().c_str());
-      return -1;
+      executed += 1;
+      // Try uncaughtException handler before terminating
+      bool handled = false;
+      try {
+        auto& rt = *runtime->runtime;
+        auto handler = rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
+        if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
+          auto errVal = facebook::jsi::Value(rt, err.value());
+          auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
+          if (result.isBool() && result.getBool()) handled = true;
+        }
+      } catch (...) {}
+      if (!handled) {
+        ex_host_console_log(1, err.getMessage().c_str());
+        return -1;
+      }
+      // Continue processing remaining timers after handled exception
+      runNextTickQueue(runtime);
+      drainMicrotasks(*runtime->runtime);
     } catch (const std::exception& err) {
       ex_host_console_log(1, err.what());
       return -1;

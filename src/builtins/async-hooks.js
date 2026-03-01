@@ -26,13 +26,15 @@ function _restoreContext(ctx) {
   return prev;
 }
 
+var _fnApply = Function.prototype.apply;
+
 function _wrapCallback(fn) {
   if (typeof fn !== 'function') return fn;
   var captured = _captureContext();
   return function() {
     var prev = _restoreContext(captured);
     try {
-      return fn.apply(this, arguments);
+      return _fnApply.call(fn, this, arguments);
     } finally {
       _restoreContext(prev);
     }
