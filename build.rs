@@ -482,6 +482,9 @@ fn main() {
             .file("src/engine/native_websocket_linux.cc")
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-fPIC");
+        if has_libcurl {
+            ws_build.define("EXACT_HAS_CURL", Some("1"));
+        }
         ws_build.compile("exact_native_websocket");
 
         println!(
