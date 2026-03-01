@@ -200,28 +200,78 @@ var _uvErrnoMap = {
   'ESPIPE': 29, 'EXDEV': 18, 'ETXTBSY': 26, 'UNKNOWN': 4094
 };
 
+var _uvErrnoMessage = {
+  'EACCES': 'permission denied',
+  'EBADF': 'bad file descriptor',
+  'EBUSY': 'resource busy or locked',
+  'EEXIST': 'file already exists',
+  'EFAULT': 'bad address in system call argument',
+  'EINVAL': 'invalid argument',
+  'EIO': 'i/o error',
+  'EISDIR': 'illegal operation on a directory',
+  'ELOOP': 'too many symbolic links encountered',
+  'EMFILE': 'too many open files',
+  'ENAMETOOLONG': 'name too long',
+  'ENOENT': 'no such file or directory',
+  'ENOMEM': 'not enough memory',
+  'ENOSPC': 'no space left on device',
+  'ENOSYS': 'function not implemented',
+  'ENOTDIR': 'not a directory',
+  'ENOTEMPTY': 'directory not empty',
+  'EPERM': 'operation not permitted',
+  'ERANGE': 'result too large',
+  'EROFS': 'read-only file system',
+  'ESPIPE': 'invalid seek',
+  'EXDEV': 'cross-device link not permitted',
+  'ETXTBSY': 'text file is busy'
+};
+
+function _extractFsCode(message) {
+  if (typeof message !== 'string') return null;
+  var match = message.match(/^([A-Z][A-Z0-9_]+):/);
+  return match ? match[1] : null;
+}
+
+function _buildFsErrorMessage(code, syscall, pathValue, destValue) {
+  var out = code + ': ' + (_uvErrnoMessage[code] || 'unknown error') + ', ' + syscall;
+  if (pathValue !== undefined) out += " '" + pathValue + "'";
+  if (destValue !== undefined) out += " -> '" + destValue + "'";
+  return out;
+}
+
 function _makeFsError(err, syscall, path, dest) {
-  if (
-    err &&
-    err.code &&
-    typeof err.message === 'string' &&
-    (!syscall || err.syscall === syscall) &&
-    (path === undefined || err.path === path || (typeof path === 'string' && path === '' && err.path === undefined)) &&
-    (dest === undefined || err.dest === dest)
-  ) return err;
-  var msg = (err && err.message) ? err.message : String(err);
-  var match = msg.match(/^([A-Z][A-Z0-9_]+):/);
-  var code = match ? match[1] : (err && err.code);
-  var fsErr = new Error(msg);
+  err = err || {};
+  var sourceMessage = typeof err.message === 'string' ? err.message : String(err);
+  var code = typeof err.code === 'string' ? err.code : _extractFsCode(sourceMessage);
+  var resolvedSyscall = syscall;
+  var resolvedPath = path;
+  var resolvedDest = dest;
+
+  if (resolvedSyscall === undefined && typeof err.syscall === 'string') {
+    resolvedSyscall = err.syscall;
+  }
+  if (resolvedPath === undefined && err.path !== undefined) {
+    resolvedPath = err.path;
+  }
+  if (resolvedDest === undefined && err.dest !== undefined) {
+    resolvedDest = err.dest;
+  }
+
+  var message = sourceMessage;
+  if (code && _uvErrnoMessage[code] && resolvedSyscall) {
+    message = _buildFsErrorMessage(code, resolvedSyscall, resolvedPath, resolvedDest);
+  }
+
+  var fsErr = new Error(message);
   if (code) fsErr.code = code;
-  if (syscall) fsErr.syscall = syscall;
-  if (path !== undefined) fsErr.path = path;
-  if (dest !== undefined) fsErr.dest = dest;
-  if (err && typeof err.errno === 'number' && !Number.isNaN(err.errno)) {
+  if (resolvedSyscall) fsErr.syscall = resolvedSyscall;
+  if (resolvedPath !== undefined) fsErr.path = resolvedPath;
+  if (resolvedDest !== undefined) fsErr.dest = resolvedDest;
+  if (typeof err.errno === 'number' && !Number.isNaN(err.errno)) {
     fsErr.errno = err.errno >= 0 ? -err.errno : err.errno;
   } else if (code && _uvErrnoMap[code] !== undefined) {
     fsErr.errno = -_uvErrnoMap[code];
-  } else if (err && err.code && _uvErrnoMap[err.code] !== undefined) {
+  } else if (err.code && _uvErrnoMap[err.code] !== undefined) {
     fsErr.errno = -_uvErrnoMap[err.code];
   } else {
     fsErr.errno = -_uvErrnoMap.UNKNOWN;
