@@ -1213,6 +1213,13 @@ static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
 void runNextTickQueue(ExactHermesRuntime* runtime);
 
 void installModuleLoader(ExactHermesRuntime* handle) {
+  if (env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER")) {
+    if (startup_trace_enabled()) {
+      fprintf(stderr, "[startup]   module_loader skipped (set EX_SKIP_STARTUP_MODULE_LOADER=0 to re-enable)\n");
+    }
+    return;
+  }
+
   auto& rt = *handle->runtime;
   static const char* loader = MODULE_LOADER_SRC;
 

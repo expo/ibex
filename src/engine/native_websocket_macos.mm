@@ -149,6 +149,38 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry);
     destroy_entry(entry->ws_id);
 }
 
+// Handle connection failures (DNS errors, TLS errors, connection refused, etc.)
+// Without this, failed connections silently disappear with no callback.
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
+    didCompleteWithError:(NSError *)error {
+    if (!error) return; // Normal completion, not an error
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(wsMutex);
+        auto it = wsConnections.find(self.wsId);
+        if (it == wsConnections.end() || it->second->closed) return;
+        entry = it->second;
+        entry->closed = true;
+    }
+
+    auto context = entry ? entry->context : nullptr;
+    if (entry && context) {
+        NSString* errMsg = [error localizedDescription] ?: @"WebSocket connection failed";
+        if (entry->error_cb) {
+            native_ws_retain_context(context);
+            auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+            entry->error_cb(entry->ws_id, [errMsg UTF8String], context);
+        }
+        if (entry->close_cb) {
+            native_ws_retain_context(context);
+            auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+            entry->close_cb(entry->ws_id, 1006, [errMsg UTF8String], 0, context);
+        }
+    }
+
+    destroy_entry(self.wsId);
+}
+
 @end
 
 // NSURLSessionWebSocketTask automatically responds to ping frames at the
