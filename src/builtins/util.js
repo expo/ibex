@@ -134,8 +134,14 @@ function inspect(value, options) {
     seen.push(val);
     var result;
     try {
-      if (currentDepth > depth) {
-        result = Array.isArray(val) ? '[Array]' : '[Object]';
+      if (currentDepth > depth && depth !== null) {
+        if (Array.isArray(val)) {
+          result = '[Array]';
+        } else if (val.constructor && val.constructor.name && val.constructor.name !== 'Object') {
+          result = val.constructor.name;
+        } else {
+          result = '[Object]';
+        }
       } else if (Array.isArray(val)) {
         if (val.length === 0) {
           result = '[]';
@@ -156,9 +162,13 @@ function inspect(value, options) {
         result = '<Buffer ' + Array.prototype.slice.call(val, 0, Math.min(val.length, 50)).map(function(b) { return (b < 16 ? '0' : '') + b.toString(16); }).join(' ') + (val.length > 50 ? ' ... ' + (val.length - 50) + ' more bytes' : '') + '>';
       } else {
         // Plain object
+        var ctorPrefix = '';
+        if (val.constructor && val.constructor.name && val.constructor.name !== 'Object') {
+          ctorPrefix = val.constructor.name + ' ';
+        }
         var keys = Object.keys(val);
         if (keys.length === 0) {
-          result = '{}';
+          result = ctorPrefix + '{}';
         } else {
           var parts = [];
           for (var ki = 0; ki < keys.length; ki++) {
@@ -167,7 +177,7 @@ function inspect(value, options) {
             try { v = _inspect(val[k], currentDepth + 1); } catch(e) { v = '[Getter/Error]'; }
             parts.push(k + ': ' + v);
           }
-          result = '{ ' + parts.join(', ') + ' }';
+          result = ctorPrefix + '{ ' + parts.join(', ') + ' }';
         }
       }
     } finally {

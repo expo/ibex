@@ -734,7 +734,12 @@
           throw err;
         }
         Event.call(this, type, options);
-        this.detail = (options && options.detail !== undefined) ? options.detail : null;
+        Object.defineProperty(this, 'detail', {
+          value: (options && options.detail !== undefined) ? options.detail : null,
+          writable: false,
+          enumerable: true,
+          configurable: false
+        });
       }
       CustomEvent.prototype = Object.create(Event.prototype);
       CustomEvent.prototype.constructor = CustomEvent;
@@ -742,7 +747,7 @@
       CustomEvent.CAPTURING_PHASE = 1;
       CustomEvent.AT_TARGET = 2;
       CustomEvent.BUBBLING_PHASE = 3;
-      CustomEvent.length = 1;
+      Object.defineProperty(CustomEvent, 'length', { value: 1, writable: false, configurable: true });
       if (typeof Symbol !== 'undefined' && Symbol.toStringTag) {
         CustomEvent.prototype[Symbol.toStringTag] = 'CustomEvent';
       }
