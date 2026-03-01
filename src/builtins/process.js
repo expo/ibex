@@ -10,9 +10,20 @@ function chdir(path) {
     throw new Error("process.chdir is not supported in this runtime");
   }
   if (typeof path !== 'string') {
-    throw new TypeError("path must be a string");
+    var err = new TypeError('The "path" argument must be of type string. Received type ' + typeof path);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
   }
-  __exactSetCwd(path);
+  try {
+    __exactSetCwd(path);
+  } catch (e) {
+    var syserr = new Error('ENOENT: no such file or directory, chdir \'' + cwd() + '\' -> \'' + path + '\'');
+    syserr.code = 'ENOENT';
+    syserr.syscall = 'chdir';
+    syserr.path = cwd();
+    syserr.dest = path;
+    throw syserr;
+  }
 }
 
 var argv = [];
@@ -67,7 +78,7 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
     };
   }
   // Ensure our module-level cwd/env/argv are present
-  if (!proc.chdir) proc.chdir = chdir;
+  proc.chdir = chdir;
   if (!proc.cwd) proc.cwd = cwd;
   if (!proc.env || (typeof proc.env === 'object' && Object.keys(proc.env).length === 0)) proc.env = env;
   if (!proc.argv || proc.argv.length === 0) proc.argv = argv;
