@@ -471,7 +471,7 @@ fn main() {
             fetch_build.define("EXACT_HAS_CURL", Some("1"));
         } else {
             println!(
-                "cargo:warning=libcurl dev package not detected; native Linux fetch will run in stub mode"
+                "cargo:warning=libcurl dev package not detected; native Linux fetch will use curl CLI fallback"
             );
         }
         fetch_build.compile("exact_native_fetch");
