@@ -188,7 +188,9 @@ extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
 extern "C" int32_t ex_host_fs_write(void* file, const uint8_t* buf, uint32_t len);
 extern "C" void ex_host_fs_close(void* file);
-extern "C" uint8_t* ex_host_fs_read_file(const char* path, uint32_t* out_len);
+extern "C" uint8_t* ex_host_fs_read_file(const char* path,
+                                         uint32_t* out_len,
+                                         int32_t* out_errno);
 extern "C" void ex_host_free_buffer(uint8_t* buf, uint32_t len);
 extern "C" char* ex_host_fs_stat(const char* path);
 extern "C" char* ex_host_fs_lstat(const char* path);
@@ -1792,9 +1794,13 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
 
         // Single FFI call: read entire file at once
         uint32_t len = 0;
-        uint8_t* buf = ex_host_fs_read_file(path.c_str(), &len);
+        int32_t read_errno = 0;
+        uint8_t* buf = ex_host_fs_read_file(path.c_str(), &len, &read_errno);
         if (!buf) {
-          throw facebook::jsi::JSError(runtime, "Failed to open file");
+          if (read_errno != 0) {
+            errno = read_errno;
+          }
+          throwFsError(runtime, "open", path);
         }
 
         // Move data into a vector and free the Rust buffer
@@ -2558,7 +2564,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           times[1].tv_usec = static_cast<suseconds_t>((mtimeVal - times[1].tv_sec) * 1e6);
         }
         if (::utimes(path.c_str(), times) != 0) {
-          throwFsError(runtime, "utimes", path);
+          throwFsError(runtime, "utime", path);
         }
         return facebook::jsi::Value::undefined();
   });
@@ -2742,16 +2748,28 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         double atime_ms = sb.st_atimespec.tv_sec * 1000.0 + sb.st_atimespec.tv_nsec / 1e6;
         double ctime_ms = sb.st_ctimespec.tv_sec * 1000.0 + sb.st_ctimespec.tv_nsec / 1e6;
         double birthtime_ms = sb.st_birthtimespec.tv_sec * 1000.0 + sb.st_birthtimespec.tv_nsec / 1e6;
+        long long atime_ns = sb.st_atimespec.tv_sec * 1000000000LL + sb.st_atimespec.tv_nsec;
+        long long mtime_ns = sb.st_mtimespec.tv_sec * 1000000000LL + sb.st_mtimespec.tv_nsec;
+        long long ctime_ns = sb.st_ctimespec.tv_sec * 1000000000LL + sb.st_ctimespec.tv_nsec;
+        long long birthtime_ns = sb.st_birthtimespec.tv_sec * 1000000000LL + sb.st_birthtimespec.tv_nsec;
 #else
         double mtime_ms = sb.st_mtim.tv_sec * 1000.0 + sb.st_mtim.tv_nsec / 1e6;
         double atime_ms = sb.st_atim.tv_sec * 1000.0 + sb.st_atim.tv_nsec / 1e6;
         double ctime_ms = sb.st_ctim.tv_sec * 1000.0 + sb.st_ctim.tv_nsec / 1e6;
         double birthtime_ms = ctime_ms;
+        long long atime_ns = sb.st_atim.tv_sec * 1000000000LL + sb.st_atim.tv_nsec;
+        long long mtime_ns = sb.st_mtim.tv_sec * 1000000000LL + sb.st_mtim.tv_nsec;
+        long long ctime_ns = sb.st_ctim.tv_sec * 1000000000LL + sb.st_ctim.tv_nsec;
+        long long birthtime_ns = ctime_ns;
 #endif
         oss << ",\"mtime_ms\":" << std::fixed << std::setprecision(3) << mtime_ms
             << ",\"atime_ms\":" << std::fixed << std::setprecision(3) << atime_ms
             << ",\"ctime_ms\":" << std::fixed << std::setprecision(3) << ctime_ms
             << ",\"birthtime_ms\":" << std::fixed << std::setprecision(3) << birthtime_ms
+            << ",\"atime_ns\":" << atime_ns
+            << ",\"mtime_ns\":" << mtime_ns
+            << ",\"ctime_ns\":" << ctime_ns
+            << ",\"birthtime_ns\":" << birthtime_ns
             << "}";
         return facebook::jsi::String::createFromUtf8(runtime, oss.str());
       });
@@ -9877,6 +9895,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                 auto wsObj = context->ws_instance;
                 auto protoCopy = std::string(protocol ? protocol : "");
                 auto extCopy = std::string(extensions ? extensions : "");
+                native_ws_retain_context(context);
                 auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
 
                 pushRuntimeCallback(runtime,
@@ -9895,6 +9914,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                 }
                 auto runtime = context->runtime;
                 auto wsObj = context->ws_instance;
+                native_ws_retain_context(context);
                 auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
                 if (is_text) {
                     auto textCopy = std::string(reinterpret_cast<const char*>(data), length);
@@ -9930,6 +9950,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                 auto reasonCopy = std::string(reason ? reason : "");
                 auto codeCopy = code;
                 auto cleanCopy = was_clean;
+                native_ws_retain_context(context);
                 auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
                 pushRuntimeCallback(
                     runtime,
@@ -9951,6 +9972,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                 auto runtime = context->runtime;
                 auto wsObj = context->ws_instance;
                 auto msgCopy = std::string(message ? message : "Unknown error");
+                native_ws_retain_context(context);
                 auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
                 pushRuntimeCallback(runtime,
                                    [wsObj, msgCopy, context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
@@ -9967,6 +9989,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                 auto runtime = context->runtime;
                 auto wsObj = context->ws_instance;
                 auto sentCopy = bytes_sent;
+                native_ws_retain_context(context);
                 auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
                 pushRuntimeCallback(
                     runtime,

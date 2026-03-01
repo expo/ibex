@@ -18,7 +18,11 @@ use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 
 pub const EXACT_HOST_ABI_VERSION: u32 = 1;
 
@@ -249,6 +253,117 @@ fn as_json_cstring(value: &serde_json::Value) -> *mut c_char {
     }
 }
 
+fn unix_time_millis(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .map(|value| value.as_nanos() / 1_000_000)
+        .unwrap_or(0) as u64
+}
+
+fn unix_time_nanos(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH).map(|value| value.as_nanos()).unwrap_or(0) as u64
+}
+
+fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value> {
+    let meta = if follow_links {
+        std::fs::metadata(path).ok()?
+    } else {
+        std::fs::symlink_metadata(path).ok()?
+    };
+
+    let mode = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            meta.permissions().mode()
+        }
+        #[cfg(not(unix))]
+        {
+            0u32
+        }
+    };
+
+    let (dev, ino, nlink, uid, gid, rdev, blksize, blocks) = {
+        #[cfg(unix)]
+        {
+            (
+                meta.dev(),
+                meta.ino(),
+                meta.nlink(),
+                meta.uid(),
+                meta.gid(),
+                meta.rdev(),
+                meta.blksize(),
+                meta.blocks(),
+            )
+        }
+        #[cfg(not(unix))]
+        {
+            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64)
+        }
+    };
+
+    let atime = meta.accessed().ok().unwrap_or(UNIX_EPOCH);
+    let mtime = meta.modified().ok().unwrap_or(UNIX_EPOCH);
+    let (ctime, birthtime) = {
+        #[cfg(unix)]
+        {
+            let ctime_sec = meta.ctime();
+            let ctime_nsec = meta.ctime_nsec() as u32;
+            let ctime = if ctime_sec >= 0 {
+                UNIX_EPOCH + Duration::new(ctime_sec as u64, ctime_nsec)
+            } else {
+                UNIX_EPOCH
+            };
+            (ctime, meta.created().ok().unwrap_or(ctime))
+        }
+        #[cfg(not(unix))]
+        {
+            let ctime = meta.modified().unwrap_or(UNIX_EPOCH);
+            let birthtime = meta.created().unwrap_or(ctime);
+            (ctime, birthtime)
+        }
+    };
+
+    let atime_ms = unix_time_millis(atime);
+    let mtime_ms = unix_time_millis(mtime);
+    let ctime_ms = unix_time_millis(ctime);
+    let birthtime_ms = unix_time_millis(birthtime);
+
+    let atime_ns = unix_time_nanos(atime);
+    let mtime_ns = unix_time_nanos(mtime);
+    let ctime_ns = unix_time_nanos(ctime);
+    let birthtime_ns = unix_time_nanos(birthtime);
+    let file_type = meta.file_type();
+
+    Some(json!({
+        "size": meta.len(),
+        "mode": mode,
+        "dev": dev,
+        "ino": ino,
+        "nlink": nlink,
+        "uid": uid,
+        "gid": gid,
+        "rdev": rdev,
+        "blksize": blksize,
+        "blocks": blocks,
+        "is_dir": file_type.is_dir(),
+        "is_file": file_type.is_file(),
+        "is_symlink": file_type.is_symlink(),
+        "is_char_device": file_type.is_char_device(),
+        "is_block_device": file_type.is_block_device(),
+        "is_fifo": file_type.is_fifo(),
+        "is_socket": file_type.is_socket(),
+        "atime_ms": atime_ms,
+        "mtime_ms": mtime_ms,
+        "ctime_ms": ctime_ms,
+        "birthtime_ms": birthtime_ms,
+        "atime_ns": atime_ns,
+        "mtime_ns": mtime_ns,
+        "ctime_ns": ctime_ns,
+        "birthtime_ns": birthtime_ns
+    }))
+}
+
 #[no_mangle]
 pub extern "C" fn ex_host_version() -> u32 {
     EXACT_HOST_ABI_VERSION
@@ -275,7 +390,11 @@ pub extern "C" fn ex_host_is_allow_all() -> i32 {
 /// Read an entire file into a heap-allocated buffer in a single call.
 /// Returns null on error. Caller must free with `ex_host_free_buffer`.
 #[no_mangle]
-pub extern "C" fn ex_host_fs_read_file(path: *const c_char, out_len: *mut u32) -> *mut u8 {
+pub extern "C" fn ex_host_fs_read_file(
+    path: *const c_char,
+    out_len: *mut u32,
+    out_errno: *mut i32,
+) -> *mut u8 {
     if path.is_null() || out_len.is_null() {
         return ptr::null_mut();
     }
@@ -287,8 +406,14 @@ pub extern "C" fn ex_host_fs_read_file(path: *const c_char, out_len: *mut u32) -
             unsafe { *out_len = len as u32 };
             Box::into_raw(boxed) as *mut u8
         }
-        Err(_) => {
-            unsafe { *out_len = 0 };
+        Err(err) => {
+            let errno_code = err.raw_os_error().unwrap_or(libc::EIO);
+            unsafe {
+                *out_len = 0;
+                if !out_errno.is_null() {
+                    *out_errno = errno_code;
+                }
+            }
             ptr::null_mut()
         }
     }
@@ -502,7 +627,7 @@ pub extern "C" fn ex_host_fs_close(file: *mut ExactFileHandle) {
     }
 }
 
-/// Return a JSON string with file metadata: {size, mtime_ms, is_dir, is_file, mode}
+/// Return a JSON string with file metadata matching Node-style Stats payload fields.
 /// Caller must free the returned string with `ex_host_free_string`.
 /// Returns null on error.
 #[no_mangle]
@@ -513,38 +638,9 @@ pub extern "C" fn ex_host_fs_stat(path: *const c_char) -> *mut c_char {
     let path = unsafe { CStr::from_ptr(path) }
         .to_string_lossy()
         .to_string();
-    match std::fs::metadata(&path) {
-        Ok(meta) => {
-            let mtime_ms = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let mode = {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    meta.permissions().mode()
-                }
-                #[cfg(not(unix))]
-                {
-                    0u32
-                }
-            };
-            let payload = json!({
-                "size": meta.len(),
-                "mtime_ms": mtime_ms,
-                "is_dir": meta.is_dir(),
-                "is_file": meta.is_file(),
-                "mode": mode
-            });
-            match CString::new(payload.to_string()) {
-                Ok(cstr) => cstr.into_raw(),
-                Err(_) => ptr::null_mut(),
-            }
-        }
-        Err(_) => ptr::null_mut(),
+    match make_stat_payload(&path, true) {
+        Some(payload) => as_json_cstring(&payload),
+        None => ptr::null_mut(),
     }
 }
 
@@ -557,40 +653,9 @@ pub extern "C" fn ex_host_fs_lstat(path: *const c_char) -> *mut c_char {
     let path = unsafe { CStr::from_ptr(path) }
         .to_string_lossy()
         .to_string();
-    match std::fs::symlink_metadata(&path) {
-        Ok(meta) => {
-            let mtime_ms = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let is_symlink = meta.file_type().is_symlink();
-            let mode = {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    meta.permissions().mode()
-                }
-                #[cfg(not(unix))]
-                {
-                    0u32
-                }
-            };
-            let payload = json!({
-                "size": meta.len(),
-                "mtime_ms": mtime_ms,
-                "is_dir": meta.is_dir(),
-                "is_file": meta.is_file(),
-                "is_symlink": is_symlink,
-                "mode": mode
-            });
-            match CString::new(payload.to_string()) {
-                Ok(cstr) => cstr.into_raw(),
-                Err(_) => ptr::null_mut(),
-            }
-        }
-        Err(_) => ptr::null_mut(),
+    match make_stat_payload(&path, false) {
+        Some(payload) => as_json_cstring(&payload),
+        None => ptr::null_mut(),
     }
 }
 
