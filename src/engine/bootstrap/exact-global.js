@@ -36,10 +36,11 @@
       this._destroyed = false;
       this._repeat = null;
       this._idleTimeout = -1;
+      this._refed = true;
     }
-    Timeout.prototype.ref = function() { return this; };
-    Timeout.prototype.unref = function() { return this; };
-    Timeout.prototype.hasRef = function() { return false; };
+    Timeout.prototype.ref = function() { this._refed = true; return this; };
+    Timeout.prototype.unref = function() { this._refed = false; return this; };
+    Timeout.prototype.hasRef = function() { return this._refed; };
     Timeout.prototype.refresh = function() {
       if (typeof this._clear === 'function' && this._exactHandle != null) {
         this._clear(this._exactHandle);
