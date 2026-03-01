@@ -106,21 +106,28 @@ function execve(execPath, args, envObj) {
 // with cwd/env/argv as fallback overrides
 if (typeof globalThis !== 'undefined' && globalThis.process) {
   var proc = globalThis.process;
-  if (typeof proc.umask !== 'function') {
+  {
+    var _nativeUmask = typeof proc.umask === 'function' ? proc.umask : null;
     proc.umask = function(mask) {
       if (arguments.length === 0) {
+        if (_nativeUmask) return _nativeUmask();
         return _umask;
       }
       if (typeof mask === 'string') {
-        if (!/^\d+$/.test(mask)) {
-          throw new TypeError("Bad argument");
+        if (!/^[0-7]+$/.test(mask)) {
+          var ve = new TypeError("The argument 'mask' is invalid. Received '" + mask + "'");
+          ve.code = 'ERR_INVALID_ARG_VALUE';
+          throw ve;
         }
         mask = parseInt(mask, 8);
       } else if (typeof mask !== 'number' || (mask !== (mask | 0))) {
-        throw new TypeError("Bad argument");
+        var te = new TypeError('The "mask" argument must be of type number. Received type ' + typeof mask);
+        te.code = 'ERR_INVALID_ARG_TYPE';
+        throw te;
       }
-      if (mask < 0 || mask > 0o7777 || !isFinite(mask)) {
-        throw new RangeError("Bad argument");
+      mask = mask & 0o7777;
+      if (_nativeUmask) {
+        return _nativeUmask(mask);
       }
       var old = _umask;
       _umask = mask & 0o7777;
