@@ -1684,11 +1684,83 @@ Readable.from = function(iterable, options) {
   }
   // Promise
   if (iterable instanceof Promise || (iterable && typeof iterable.then === 'function')) {
-    iterable.then(function(value) {
+    function pushFromResolvedValue(value) {
+      if (readable._destroyed) return;
+      if (value && (value instanceof Promise || typeof value.then === 'function')) {
+        value.then(pushFromResolvedValue).catch(function(err) {
+          if (!readable._destroyed) {
+            readable.destroy(err);
+          }
+        });
+        return;
+      }
+
+      if (value && typeof value[Symbol.asyncIterator] === 'function') {
+        var asyncIter = value[Symbol.asyncIterator]();
+        var reading = false;
+        function readNext() {
+          if (reading || readable._destroyed) return;
+          reading = true;
+          asyncIter.next().then(function(result) {
+            reading = false;
+            if (readable._destroyed) {
+              if (typeof asyncIter.return === 'function') {
+                asyncIter.return();
+              }
+              return;
+            }
+            if (result.done) {
+              readable.push(null);
+            } else {
+              readable.push(result.value);
+              readNext();
+            }
+          }).catch(function(err) {
+            reading = false;
+            if (!readable._destroyed) {
+              readable.destroy(err);
+            }
+          });
+        }
+        readNext();
+        return;
+      }
+
+      if (typeof value === 'string' || value instanceof Uint8Array) {
+        readable.push(value);
+        readable.push(null);
+        return;
+      }
+
+      if (value && typeof value[Symbol.iterator] === 'function') {
+        try {
+          var iterator = value[Symbol.iterator]();
+          var next = iterator.next();
+          while (!next.done) {
+            if (readable._destroyed) {
+              if (typeof iterator.return === 'function') {
+                iterator.return();
+              }
+              return;
+            }
+            readable.push(next.value);
+            next = iterator.next();
+          }
+          readable.push(null);
+        } catch (err) {
+          readable.destroy(err);
+        }
+        return;
+      }
+
       readable.push(value);
       readable.push(null);
-    }).catch(function(err) {
-      readable.destroy(err);
+    }
+
+    iterable.then(pushFromResolvedValue).catch(function(err) {
+      if (!readable._destroyed) {
+        readable.destroy(err);
+      }
     });
     return readable;
   }
