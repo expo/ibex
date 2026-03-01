@@ -161,6 +161,19 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
       throw schemeErr;
     }
     var value = url.pathname || "";
+    // Reject encoded slashes (%2F, %2f) and backslashes (%5C, %5c)
+    if (value.match(/%2[fF]/)) {
+      var pathErr = new TypeError('File URL path must not include encoded / characters');
+      pathErr.code = 'ERR_INVALID_FILE_URL_PATH';
+      pathErr.input = url;
+      throw pathErr;
+    }
+    if (value.match(/%5[cC]/)) {
+      var bsErr = new TypeError('File URL path must not include encoded \\ characters');
+      bsErr.code = 'ERR_INVALID_FILE_URL_PATH';
+      bsErr.input = url;
+      throw bsErr;
+    }
     if (typeof value === "string" && value.length >= 4 && value.charAt(0) === "/" && value.charAt(2) === ":") {
       value = value.slice(1);
     }
@@ -1829,6 +1842,19 @@ function fileURLToPath(path) {
     throw new TypeError('Invalid URL protocol');
   }
   var value = url.pathname || '';
+  // Reject encoded slashes (%2F, %2f) and backslashes (%5C, %5c)
+  if (value.match(/%2[fF]/)) {
+    var pathErr = new TypeError('File URL path must not include encoded / characters');
+    pathErr.code = 'ERR_INVALID_FILE_URL_PATH';
+    pathErr.input = url;
+    throw pathErr;
+  }
+  if (value.match(/%5[cC]/)) {
+    var bsErr = new TypeError('File URL path must not include encoded \\ characters');
+    bsErr.code = 'ERR_INVALID_FILE_URL_PATH';
+    bsErr.input = url;
+    throw bsErr;
+  }
   if (typeof value === 'string' && value[0] === '/' && value[2] === ':') {
     value = value.slice(1);
   }
