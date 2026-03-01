@@ -1,6 +1,11 @@
 (function() {
   'use strict';
 
+  var DOMException = globalThis.DOMException;
+  var Promise = globalThis.Promise;
+  var atob = globalThis.atob;
+  var btoa = globalThis.btoa;
+
   // Helper: wrap native errors as DOMException with the appropriate name
   function wrapNativeError(e, defaultName) {
     if (e instanceof DOMException) return e;

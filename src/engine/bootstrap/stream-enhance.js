@@ -1,6 +1,8 @@
 (function() {
   'use strict';
   var p = globalThis.process;
+  var setTimeout = globalThis.setTimeout;
+  var clearTimeout = globalThis.clearTimeout;
   if (!p) return;
 
   // --- Minimal EventEmitter mixin ---
