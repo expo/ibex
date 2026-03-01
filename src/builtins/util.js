@@ -106,8 +106,18 @@ function inspect(value, options) {
   var opts = options || {};
   var depth = opts.depth !== undefined ? opts.depth : 2;
   var colors = opts.colors || false;
+  var breakLength = opts.breakLength !== undefined ? opts.breakLength : 72;
   var seen = [];
   var cache = new Map();
+  var _indentCache = {};
+  function _makeIndent(n) {
+    if (n <= 0) return '';
+    if (_indentCache[n]) return _indentCache[n];
+    var s = '';
+    for (var i = 0; i < n; i++) s += ' ';
+    if (n < 100) _indentCache[n] = s;
+    return s;
+  }
   function _inspect(val, currentDepth) {
     if (val === null) return 'null';
     if (val === undefined) return 'undefined';
@@ -150,7 +160,20 @@ function inspect(value, options) {
           for (var i = 0; i < val.length; i++) {
             items.push(_inspect(val[i], currentDepth + 1));
           }
-          result = '[ ' + items.join(', ') + ' ]';
+          var singleLine = '[ ' + items.join(', ') + ' ]';
+          if (breakLength > 0 && currentDepth < 10 && singleLine.length > breakLength) {
+            var indent = _makeIndent((currentDepth + 1) * 2);
+            var baseIndent = _makeIndent(currentDepth * 2);
+            result = '[\n';
+            for (var ai = 0; ai < items.length; ai++) {
+              result += indent + items[ai];
+              if (ai < items.length - 1) result += ',';
+              result += '\n';
+            }
+            result += baseIndent + ']';
+          } else {
+            result = singleLine;
+          }
         }
       } else if (val instanceof Date) {
         result = val.toISOString();
@@ -177,7 +200,20 @@ function inspect(value, options) {
             try { v = _inspect(val[k], currentDepth + 1); } catch(e) { v = '[Getter/Error]'; }
             parts.push(k + ': ' + v);
           }
-          result = ctorPrefix + '{ ' + parts.join(', ') + ' }';
+          var singleObj = ctorPrefix + '{ ' + parts.join(', ') + ' }';
+          if (breakLength > 0 && currentDepth < 10 && singleObj.length > breakLength) {
+            var objIndent = _makeIndent((currentDepth + 1) * 2);
+            var objBase = _makeIndent(currentDepth * 2);
+            result = ctorPrefix + '{\n';
+            for (var pi = 0; pi < parts.length; pi++) {
+              result += objIndent + parts[pi];
+              if (pi < parts.length - 1) result += ',';
+              result += '\n';
+            }
+            result += objBase + '}';
+          } else {
+            result = singleObj;
+          }
         }
       }
     } finally {
