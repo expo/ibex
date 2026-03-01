@@ -258,6 +258,13 @@ ZlibTransform.prototype.flush = function(kind, callback) {
     return this;
   }
 
+  if (!this._chunks || this._chunks.length === 0) {
+    if (typeof flushCallback === 'function') {
+      setTimeout(function() { flushCallback(); }, 0);
+    }
+    return this;
+  }
+
   state._flushing = true;
   var self = this;
   this._flush(function(err) {
