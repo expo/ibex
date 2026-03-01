@@ -1399,6 +1399,27 @@ function lutimesSync(path, atime, mtime) {
   _validatePath(path);
 }
 
+// Valid encodings supported by Node.js
+var _validEncodings = ['utf8', 'utf-8', 'ascii', 'binary', 'base64', 'base64url',
+  'ucs2', 'ucs-2', 'utf16le', 'utf-16le', 'latin1', 'hex', 'buffer'];
+
+function _assertEncoding(encoding) {
+  if (encoding && _validEncodings.indexOf(encoding.toLowerCase()) === -1) {
+    var err = new TypeError("The argument 'encoding' is invalid encoding. Received '" + encoding + "'");
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+}
+
+// opendirSync
+function opendirSync(path, options) {
+  _validatePath(path);
+  if (options && options.encoding) {
+    _assertEncoding(options.encoding);
+  }
+  throw new Error('opendirSync is not supported in this runtime');
+}
+
 module.exports = {
   readFile: readFile,
   readFileSync: readFileSync,
@@ -1480,6 +1501,7 @@ module.exports = {
   lchownSync: lchownSync,
   lutimes: lutimes,
   lutimesSync: lutimesSync,
+  opendirSync: opendirSync,
   promises: promises,
   constants: constants
 };
