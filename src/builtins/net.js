@@ -1345,13 +1345,19 @@ function connect() {
 }
 
 function isIP(input) {
+  if (typeof input !== 'string') {
+    try { input = String(input); } catch (e) { return 0; }
+  }
   if (isIPv4(input)) return 4;
   if (isIPv6(input)) return 6;
   return 0;
 }
 
 function isIPv4(input) {
-  if (typeof input !== 'string') return false;
+  if (typeof input !== 'string') {
+    try { input = String(input); } catch (e) { return false; }
+    if (typeof input !== 'string') return false;
+  }
   var parts = input.split('.');
   if (parts.length !== 4) return false;
   for (var i = 0; i < 4; i++) {
@@ -1365,10 +1371,17 @@ function isIPv4(input) {
 }
 
 function isIPv6(input) {
-  if (typeof input !== 'string') return false;
-  // Strip zone ID (e.g. %eth0, %25eth0)
+  if (typeof input !== 'string') {
+    try { input = String(input); } catch (e) { return false; }
+    if (typeof input !== 'string') return false;
+  }
+  // Strip zone ID (e.g. %eth0, %25eth0) but validate zone ID chars
   var zoneIdx = input.indexOf('%');
-  if (zoneIdx !== -1) input = input.substring(0, zoneIdx);
+  if (zoneIdx !== -1) {
+    var zone = input.substring(zoneIdx + 1);
+    if (zone.length === 0 || !/^[a-zA-Z0-9._~\-]+$/.test(zone)) return false;
+    input = input.substring(0, zoneIdx);
+  }
   // Handle embedded IPv4 (last 32 bits as dotted-quad)
   var v4Suffix = false;
   var lastColon = input.lastIndexOf(':');
