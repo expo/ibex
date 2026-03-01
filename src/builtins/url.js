@@ -1880,8 +1880,112 @@ function format(urlObj) {
   return _coerceUrl(urlObj).href;
 }
 
-function parse(value) {
-  return new URLExport(value);
+function Url() {
+  this.protocol = null;
+  this.slashes = null;
+  this.auth = null;
+  this.host = null;
+  this.port = null;
+  this.hostname = null;
+  this.hash = null;
+  this.search = null;
+  this.query = null;
+  this.pathname = null;
+  this.path = null;
+  this.href = '';
+}
+
+function parse(value, parseQueryString, slashesDenoteHost) {
+  if (typeof value !== 'string') {
+    var received;
+    if (value == null) {
+      received = ' Received ' + String(value);
+    } else if (typeof value === 'function') {
+      received = ' Received function ' + value.name;
+    } else if (typeof value === 'object') {
+      if (value.constructor && value.constructor.name) {
+        received = ' Received an instance of ' + value.constructor.name;
+      } else {
+        received = ' Received ' + String(value);
+      }
+    } else {
+      received = ' Received type ' + typeof value + ' (' + String(value) + ')';
+    }
+    var err = new TypeError('The "url" argument must be of type string.' + received);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+
+  var result = new Url();
+  result.href = value;
+
+  try {
+    var u = new URLExport(value);
+    result.protocol = u.protocol || null;
+    result.slashes = u.protocol ? true : null;
+    result.host = u.host || null;
+    result.port = u.port || null;
+    result.hostname = u.hostname || null;
+    result.hash = u.hash || null;
+    result.search = u.search || null;
+    result.pathname = u.pathname || null;
+    result.path = (u.pathname || '') + (u.search || '') || null;
+    result.href = u.href;
+    if (u.username || u.password) {
+      result.auth = (u.username || '') + (u.password ? ':' + u.password : '');
+    }
+    if (parseQueryString) {
+      var qs = require('querystring');
+      result.query = qs.parse(u.search ? u.search.slice(1) : '');
+    } else {
+      result.query = u.search ? u.search.slice(1) : null;
+    }
+    return result;
+  } catch (e) {
+    // Fall through to legacy parsing for relative URLs
+  }
+
+  // Legacy parsing for relative URLs and other non-standard inputs
+  var rest = value;
+  var proto = null;
+  var protoMatch = /^([a-zA-Z][a-zA-Z0-9+\-.]*):/.exec(rest);
+  if (protoMatch) {
+    proto = protoMatch[0].toLowerCase();
+    result.protocol = proto;
+    rest = rest.slice(proto.length);
+  }
+
+  // Hash
+  var hashIdx = rest.indexOf('#');
+  if (hashIdx !== -1) {
+    result.hash = rest.slice(hashIdx);
+    rest = rest.slice(0, hashIdx);
+  }
+
+  // Search/query
+  var qIdx = rest.indexOf('?');
+  if (qIdx !== -1) {
+    result.search = rest.slice(qIdx);
+    if (parseQueryString) {
+      var qs = require('querystring');
+      result.query = qs.parse(result.search.slice(1));
+    } else {
+      result.query = result.search.slice(1);
+    }
+    rest = rest.slice(0, qIdx);
+  }
+
+  result.pathname = rest || null;
+  result.path = (result.pathname || '') + (result.search || '') || null;
+  result.href = value;
+
+  // When parseQueryString is true but no query was found, return empty null-prototype object
+  if (parseQueryString && result.query === null) {
+    var qs2 = require('querystring');
+    result.query = qs2.parse('');
+  }
+
+  return result;
 }
 
 function resolve(from, to) {
@@ -1917,6 +2021,7 @@ function urlToHttpOptions(url) {
 module.exports = {
   URL: URLExport,
   URLSearchParams: URLSearchParamsExport,
+  Url: Url,
   createObjectURL: _createObjectURL,
   revokeObjectURL: _revokeObjectURL,
   format: format,
