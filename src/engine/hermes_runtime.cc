@@ -8664,13 +8664,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   }
 
   // Set process.platform and process.version
+  std::string exact_platform = "unknown";
 #if defined(__APPLE__)
+  exact_platform = "darwin";
   processObj.setProperty(rt, "platform",
     facebook::jsi::String::createFromUtf8(rt, "darwin"));
 #elif defined(__linux__)
+  exact_platform = "linux";
   processObj.setProperty(rt, "platform",
     facebook::jsi::String::createFromUtf8(rt, "linux"));
 #elif defined(_WIN32)
+  exact_platform = "win32";
   processObj.setProperty(rt, "platform",
     facebook::jsi::String::createFromUtf8(rt, "win32"));
 #else
@@ -8678,16 +8682,27 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     facebook::jsi::String::createFromUtf8(rt, "unknown"));
 #endif
 
+  std::string exact_arch = "unknown";
 #if defined(__aarch64__) || defined(_M_ARM64)
+  exact_arch = "arm64";
   processObj.setProperty(rt, "arch",
     facebook::jsi::String::createFromUtf8(rt, "arm64"));
 #elif defined(__x86_64__) || defined(_M_X64)
+  exact_arch = "x64";
   processObj.setProperty(rt, "arch",
     facebook::jsi::String::createFromUtf8(rt, "x64"));
 #else
   processObj.setProperty(rt, "arch",
     facebook::jsi::String::createFromUtf8(rt, "unknown"));
 #endif
+  rt.global().setProperty(
+      rt,
+      "__exactPlatform",
+      facebook::jsi::String::createFromUtf8(rt, exact_platform));
+  rt.global().setProperty(
+      rt,
+      "__exactArch",
+      facebook::jsi::String::createFromUtf8(rt, exact_arch));
 
   processObj.setProperty(rt, "version",
     facebook::jsi::String::createFromUtf8(rt, "v24.13.1"));
