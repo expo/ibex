@@ -38,8 +38,28 @@
       this._idleTimeout = -1;
       this._refed = true;
     }
-    Timeout.prototype.ref = function() { this._refed = true; return this; };
-    Timeout.prototype.unref = function() { this._refed = false; return this; };
+    Timeout.prototype.ref = function() {
+      this._refed = true;
+      // Handle nested Timeout objects (e.g. setImmediate wrapping setTimeout)
+      var h = this._exactHandle;
+      if (h && typeof h === 'object' && typeof h.ref === 'function') {
+        h.ref();
+      } else if (typeof g.__exactTimerRef === 'function' && h != null) {
+        g.__exactTimerRef(h);
+      }
+      return this;
+    };
+    Timeout.prototype.unref = function() {
+      this._refed = false;
+      // Handle nested Timeout objects (e.g. setImmediate wrapping setTimeout)
+      var h = this._exactHandle;
+      if (h && typeof h === 'object' && typeof h.unref === 'function') {
+        h.unref();
+      } else if (typeof g.__exactTimerUnref === 'function' && h != null) {
+        g.__exactTimerUnref(h);
+      }
+      return this;
+    };
     Timeout.prototype.hasRef = function() { return this._refed; };
     Timeout.prototype.refresh = function() {
       if (typeof this._clear === 'function' && this._exactHandle != null) {
@@ -73,6 +93,7 @@
       this._schedule = schedule;
       this._args = args;
       this._destroyed = false;
+      this._refed = true;
     }
     Immediate.prototype = Object.create(Timeout.prototype);
     Immediate.prototype.constructor = Immediate;

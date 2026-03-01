@@ -15,6 +15,7 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
@@ -399,6 +400,7 @@ struct TimerEntry {
   uint64_t due_ms;
   uint64_t interval_ms;
   bool repeat;
+  bool referenced = true;
   facebook::jsi::Function callback;
 };
 
@@ -4885,6 +4887,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             nowMs() + delay,
             delay,
             false,
+            true,
             std::move(callback),
         };
         handle->timers.emplace(id, std::move(entry));
@@ -4931,6 +4934,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             nowMs() + delay,
             delay,
             true,
+            true,
             std::move(callback),
         };
         handle->timers.emplace(id, std::move(entry));
@@ -4971,11 +4975,52 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
 
+  // Timer ref/unref: controls whether a timer keeps the event loop alive
+  auto timerRefFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactTimerRef"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        (void)runtime;
+        if (count > 0 && args[0].isNumber()) {
+          uint64_t id = static_cast<uint64_t>(args[0].asNumber());
+          auto it = handle->timers.find(id);
+          if (it != handle->timers.end()) {
+            it->second.referenced = true;
+          }
+        }
+        return facebook::jsi::Value::undefined();
+      });
+
+  auto timerUnrefFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactTimerUnref"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        (void)runtime;
+        if (count > 0 && args[0].isNumber()) {
+          uint64_t id = static_cast<uint64_t>(args[0].asNumber());
+          auto it = handle->timers.find(id);
+          if (it != handle->timers.end()) {
+            it->second.referenced = false;
+          }
+        }
+        return facebook::jsi::Value::undefined();
+      });
+
   rt.global().setProperty(rt, "setTimeout", std::move(setTimeoutFn));
   rt.global().setProperty(rt, "clearTimeout", std::move(clearTimeoutFn));
   rt.global().setProperty(rt, "setInterval", std::move(setIntervalFn));
   rt.global().setProperty(rt, "clearInterval", std::move(clearIntervalFn));
   rt.global().setProperty(rt, "queueMicrotask", std::move(queueMicrotaskFn));
+  rt.global().setProperty(rt, "__exactTimerRef", std::move(timerRefFn));
+  rt.global().setProperty(rt, "__exactTimerUnref", std::move(timerUnrefFn));
 
   auto capabilityCheckFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -10355,12 +10400,41 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   runNextTickQueue(runtime);
   drainMicrotasks(*runtime->runtime);
 
+  // Check if there are any referenced tasks keeping the loop alive
+  // (excluding unref'd timers). If not, skip unref'd due timers.
+  bool has_referenced_work = false;
+  if (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()) {
+    has_referenced_work = true;
+  } else if (!runtime->next_tick.empty()) {
+    has_referenced_work = true;
+  } else if (runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
+    has_referenced_work = true;
+  } else {
+    std::lock_guard<std::mutex> lock(runtime->callbackMutex);
+    if (!runtime->callbackQueue.empty()) has_referenced_work = true;
+  }
+  if (!has_referenced_work) {
+    // Check if any referenced timer exists
+    for (const auto& kv : runtime->timers) {
+      if (kv.second.referenced) {
+        has_referenced_work = true;
+        break;
+      }
+    }
+  }
+
   std::vector<uint64_t> due;
   for (const auto& kv : runtime->timers) {
     if (kv.second.due_ms <= now_ms) {
+      // Skip unref'd timers if nothing else is keeping the loop alive
+      if (!kv.second.referenced && !has_referenced_work) {
+        continue;
+      }
       due.push_back(kv.first);
     }
   }
+  // Sort by timer ID to maintain insertion order (IDs are monotonically increasing)
+  std::sort(due.begin(), due.end());
 
   for (auto id : due) {
     auto it = runtime->timers.find(id);
@@ -10426,7 +10500,13 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     if (!runtime->callbackQueue.empty()) return 1;
   }
-  return runtime->timers.empty() ? 0 : 1;
+  // Only count referenced timers as keeping the loop alive
+  for (const auto& kv : runtime->timers) {
+    if (kv.second.referenced) {
+      return 1;
+    }
+  }
+  return 0;
 }
 
 extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
