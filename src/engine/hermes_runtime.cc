@@ -176,6 +176,11 @@ static bool startup_trace_enabled() {
   return cached == 1;
 }
 
+static bool env_flag_enabled(const char* env_name) {
+  const char* val = std::getenv(env_name);
+  return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y');
+}
+
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
@@ -10508,7 +10513,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream)
   // Must run before exact-global.js which uses ReadableStream.
   IG_TRACE_START(web_streams_polyfill);
-  {
+  if (env_flag_enabled("EX_WEB_STREAMS_POLYFILL")) {
     static const char* webStreamsPolyfillJS = WEB_STREAMS_POLYFILL_SRC;
 
     try {
@@ -10529,6 +10534,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     } catch (const std::exception& err) {
       ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.what()).c_str());
     }
+  } else if (_tracing) {
+    fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");
   }
   IG_TRACE_END(web_streams_polyfill);
 
