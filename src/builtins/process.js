@@ -10,7 +10,7 @@ function chdir(path) {
     throw new Error("process.chdir is not supported in this runtime");
   }
   if (typeof path !== 'string') {
-    var err = new TypeError('The "path" argument must be of type string. Received type ' + typeof path);
+    var err = new TypeError('The "directory" argument must be of type string. Received type ' + typeof path);
     err.code = 'ERR_INVALID_ARG_TYPE';
     throw err;
   }

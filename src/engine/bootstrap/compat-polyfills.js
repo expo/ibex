@@ -277,6 +277,43 @@
   }
   __exactInstallUmaskPolyfill();
 
+  // Wrap process.chdir to produce Node-compatible ENOENT errors with code,
+  // syscall, path, and dest properties.  The native C++ chdir throws a plain
+  // Error without those fields.
+  if (typeof globalThis.process === 'object' && globalThis.process !== null) {
+    try {
+      var __nativeChdir = globalThis.process.chdir;
+      var __nativeCwd = globalThis.process.cwd;
+      globalThis.process.chdir = function chdir(directory) {
+        if (typeof directory !== 'string') {
+          var te = new TypeError('The "directory" argument must be of type string. Received type ' + typeof directory);
+          te.code = 'ERR_INVALID_ARG_TYPE';
+          throw te;
+        }
+        try {
+          if (typeof __nativeChdir === 'function') {
+            __nativeChdir.call(globalThis.process, directory);
+          } else if (typeof __exactSetCwd === 'function') {
+            __exactSetCwd(directory);
+          } else {
+            throw new Error('process.chdir is not supported in this runtime');
+          }
+        } catch (e) {
+          var currentDir = '/';
+          try { currentDir = typeof __nativeCwd === 'function' ? __nativeCwd.call(globalThis.process) : (typeof __exactGetCwd === 'function' ? __exactGetCwd() : '/'); } catch (_) {}
+          var syserr = new Error("ENOENT: no such file or directory, chdir '" + currentDir + "' -> '" + directory + "'");
+          syserr.code = 'ENOENT';
+          syserr.syscall = 'chdir';
+          syserr.path = currentDir;
+          syserr.dest = directory;
+          throw syserr;
+        }
+      };
+    } catch (err) {
+      // Keep bootstrap resilient
+    }
+  }
+
   // Node-oriented packages expect `process.versions.node` to exist.
   // In some Hermes runtimes process.versions is a host-managed accessor object
   // that may not include the Node key even though the process object is writable.
