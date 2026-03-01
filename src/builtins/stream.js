@@ -666,6 +666,7 @@ Readable.prototype.read = function(size) {
     if (this._ended && !state.endEmitted) {
       state.endEmitted = true;
       this.readable = false;
+      this.emit('end');
       this._close();
     }
     return null;
@@ -2294,8 +2295,20 @@ Duplex.prototype.constructor = Duplex;
 function Transform(options) {
   if (!(this instanceof Transform)) return new Transform(options);
   Duplex.call(this, options);
+  this._transformState = {
+    pendingWrites: 0,
+    finalCallback: null,
+    finalizing: false
+  };
   if (!options || typeof options.final !== 'function') {
     this._final = function(callback) {
+      var state = this._transformState || {};
+      if (state.finalizing) return;
+      state.finalizing = true;
+      if (state.pendingWrites > 0) {
+        state.finalCallback = callback;
+        return;
+      }
       this.push(null);
       if (typeof callback === 'function') callback();
     };
@@ -2315,9 +2328,42 @@ Transform.prototype._transform = function(chunk, encoding, callback) {
 
 Transform.prototype._write = function(chunk, encoding, callback) {
   var self = this;
-  this._transform(chunk, encoding || 'utf8', function(err) {
-    if (typeof callback === 'function') callback(err);
-  });
+  var callbackCalled = false;
+  var state = self._transformState || {};
+  state.pendingWrites = (state.pendingWrites || 0) + 1;
+
+  function finalizeIfNeeded() {
+    if (!state.finalizing || state.pendingWrites > 0 || typeof state.finalCallback !== 'function') {
+      return;
+    }
+    var finalCallback = state.finalCallback;
+    state.finalCallback = null;
+    self.push(null);
+    finalCallback();
+  }
+
+  function done(err, transformedChunk) {
+    if (callbackCalled) return;
+    callbackCalled = true;
+    state.pendingWrites = Math.max(0, state.pendingWrites - 1);
+    if (err) {
+      if (typeof callback === 'function') callback(err);
+      return;
+    }
+    if (transformedChunk !== undefined) {
+      self.push(transformedChunk);
+    }
+    finalizeIfNeeded();
+    if (typeof callback === 'function') {
+      callback();
+    }
+  }
+  try {
+    this._transform(chunk, encoding || 'utf8', done);
+  } catch (err) {
+    state.pendingWrites = Math.max(0, state.pendingWrites - 1);
+    done(err);
+  }
 };
 
 function PassThrough(options) {
@@ -2383,7 +2429,17 @@ Stream.prototype.pipe = function(dest, options) {
   }
 
   function onend() {
-    if ((!options || options.end !== false) && dest && typeof dest.end === 'function') {
+    var canFinishDestination = true;
+    if (dest && dest._destroyed) {
+      canFinishDestination = false;
+    }
+    if (dest && dest._writableState && dest._writableState.errored) {
+      canFinishDestination = false;
+    }
+    if (dest && typeof dest.writable === 'boolean' && dest.writable === false) {
+      canFinishDestination = false;
+    }
+    if ((!options || options.end !== false) && canFinishDestination && dest && typeof dest.end === 'function') {
       dest.end();
     }
   }
