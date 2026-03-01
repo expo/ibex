@@ -257,29 +257,33 @@
       return;
     }
     var proc = globalThis.process;
-    if (typeof proc.umask === 'function') {
-      return;
-    }
+    var _nativeUmask = typeof proc.umask === 'function' ? proc.umask : null;
+    var _fallbackUmask = 0o022;
 
-    var currentUmask = 0o022;
     proc.umask = function(mask) {
       if (arguments.length === 0) {
-        return currentUmask;
+        if (_nativeUmask) return _nativeUmask();
+        return _fallbackUmask;
       }
       if (typeof mask === 'string') {
-        if (!/^\d+$/.test(mask)) {
-          throw new TypeError("Bad argument");
+        if (!/^[0-7]+$/.test(mask)) {
+          var ve = new TypeError("The argument 'mask' is invalid. Received '" + mask + "'");
+          ve.code = 'ERR_INVALID_ARG_VALUE';
+          throw ve;
         }
         mask = parseInt(mask, 8);
-      } else if (typeof mask !== 'number' || (mask | 0) !== mask) {
-        throw new TypeError("Bad argument");
+      } else if (typeof mask !== 'number' || (mask !== (mask | 0))) {
+        var te = new TypeError('The "mask" argument must be of type number. Received type ' + typeof mask);
+        te.code = 'ERR_INVALID_ARG_TYPE';
+        throw te;
       }
-      if (mask < 0 || mask > 0o7777 || !isFinite(mask)) {
-        throw new RangeError("Bad argument");
+      mask = mask & 0o7777;
+      if (_nativeUmask) {
+        return _nativeUmask(mask);
       }
-      var previousUmask = currentUmask;
-      currentUmask = mask & 0o7777;
-      return previousUmask;
+      var old = _fallbackUmask;
+      _fallbackUmask = mask;
+      return old;
     };
   }
   __exactInstallUmaskPolyfill();
