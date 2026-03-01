@@ -455,8 +455,20 @@ fn main() {
     }
 
     if target_os == "linux" {
-        let has_libcurl = std::process::Command::new("pkg-config")
-            .args(["--exists", "libcurl"])
+        const MIN_LIBCURL_VERSION: &str = "7.86.0";
+        let detected_libcurl_version = std::process::Command::new("pkg-config")
+            .args(["--modversion", "libcurl"])
+            .output()
+            .ok()
+            .and_then(|out| {
+                if out.status.success() {
+                    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            });
+        let has_minimum_libcurl = std::process::Command::new("pkg-config")
+            .args(["--atleast-version", MIN_LIBCURL_VERSION, "libcurl"])
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
@@ -467,12 +479,17 @@ fn main() {
             .file("src/engine/native_fetch_linux.cc")
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-fPIC");
-        if has_libcurl {
+        if has_minimum_libcurl {
             fetch_build.define("EXACT_HAS_CURL", Some("1"));
         } else {
-            println!(
-                "cargo:warning=libcurl dev package not detected; native Linux fetch will use curl CLI fallback"
-            );
+            match detected_libcurl_version.as_deref() {
+                Some(version) => println!(
+                    "cargo:warning=libcurl {version} detected, but >= {MIN_LIBCURL_VERSION} is required for native Linux networking; fetch will use curl CLI fallback and native websocket support is disabled"
+                ),
+                None => println!(
+                    "cargo:warning=libcurl dev package not detected; native Linux fetch will use curl CLI fallback and native websocket support is disabled"
+                ),
+            }
         }
         fetch_build.compile("exact_native_fetch");
 
@@ -482,7 +499,7 @@ fn main() {
             .file("src/engine/native_websocket_linux.cc")
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-fPIC");
-        if has_libcurl {
+        if has_minimum_libcurl {
             ws_build.define("EXACT_HAS_CURL", Some("1"));
         }
         ws_build.compile("exact_native_websocket");
@@ -511,7 +528,7 @@ fn main() {
         println!("cargo:rustc-link-lib=static=crypto");
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=z");
-        if has_libcurl {
+        if has_minimum_libcurl {
             println!("cargo:rustc-link-lib=curl");
         }
         println!("cargo:rustc-link-lib=resolv");
