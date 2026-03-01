@@ -3146,11 +3146,8 @@ function lchmod(path, mode, callback) {
   _validatePath(path);
   mode = _coerceMode(mode);
   _validateUint32('mode', mode);
-  if (callback !== undefined && typeof callback !== 'function') _validateCallback(callback);
-  if (typeof callback === 'function') {
-    return wrapCallback(function() { lchmodSync(path, mode); }, callback, 'lchmod', _pathToString(path));
-  }
-  return lchmodSync(path, mode);
+  _validateCallback(callback);
+  return wrapCallback(function() { lchmodSync(path, mode); }, callback, 'lchmod', _pathToString(path));
 }
 function lchmodSync(path, mode) {
   _validatePath(path);

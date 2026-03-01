@@ -191,8 +191,26 @@ var promises = {
   appendFile: base.appendFile || function(path, data) { fs.appendFileSync(path, data); return Promise.resolve(); },
   utimes: base.utimes || function(path, atime, mtime) { fs.utimesSync(path, atime, mtime); return Promise.resolve(); },
   chown: base.chown || function(path, uid, gid) { fs.chownSync(path, uid, gid); return Promise.resolve(); },
-  readv: base.readv || function(fd, buffers, position) { return Promise.resolve(); },
-  writev: base.writev || function(fd, buffers, position) { return Promise.resolve(); },
+  readv: base.readv || function(fd, buffers, position) {
+    try {
+      return Promise.resolve({
+        bytesRead: fs.readvSync(fd, buffers, position),
+        buffers: buffers,
+      });
+    } catch (err) {
+      return Promise.reject(handleError(err));
+    }
+  },
+  writev: base.writev || function(fd, buffers, position) {
+    try {
+      return Promise.resolve({
+        bytesWritten: fs.writevSync(fd, buffers, position),
+        buffers: buffers,
+      });
+    } catch (err) {
+      return Promise.reject(handleError(err));
+    }
+  },
   fdatasync: base.fdatasync || function(fd) { return Promise.resolve(); },
   fsync: base.fsync || function(fd) { return Promise.resolve(); },
   sendFile: base.sendFile,
