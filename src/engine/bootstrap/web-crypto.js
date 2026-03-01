@@ -1,6 +1,23 @@
 (function() {
   'use strict';
 
+  // Helper: wrap native errors as DOMException with the appropriate name
+  function wrapNativeError(e, defaultName) {
+    if (e instanceof DOMException) return e;
+    // Map known error message patterns to DOMException names
+    var msg = (e && e.message) ? e.message : String(e);
+    if (msg.indexOf('not supported') !== -1 || msg.indexOf('Unsupported') !== -1 || msg.indexOf('not available') !== -1 || msg.indexOf('unrecognized') !== -1) {
+      return new DOMException(msg, 'NotSupportedError');
+    }
+    if (msg.indexOf('Invalid key') !== -1 || msg.indexOf('invalid key') !== -1 || msg.indexOf('Bad key') !== -1) {
+      return new DOMException(msg, 'DataError');
+    }
+    if (msg.indexOf('not extractable') !== -1 || msg.indexOf('usage') !== -1) {
+      return new DOMException(msg, 'InvalidAccessError');
+    }
+    return new DOMException(msg, defaultName || 'OperationError');
+  }
+
   // getRandomValues - fills typed array with crypto-random values
   function getRandomValues(typedArray) {
     if (!typedArray || typeof typedArray.length !== 'number') {
@@ -62,16 +79,18 @@
     var algo = normalizeAlgo(algorithm);
     var nameMap = { 'SHA-1': 'sha1', 'SHA-256': 'sha256', 'SHA-384': 'sha384', 'SHA-512': 'sha512' };
     var hashName = nameMap[algo.name];
-    if (!hashName) return Promise.reject(new Error('Unsupported digest algorithm: ' + algo.name));
+    if (!hashName) return Promise.reject(new DOMException('Unsupported digest algorithm: ' + algo.name, 'NotSupportedError'));
     var bytes = toBytes(data);
     // Convert to string for native bridge
     var str = '';
     for (var i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
     if (typeof __exactHashRaw === 'function') {
-      var result = __exactHashRaw(hashName, str);
-      return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
+      try {
+        var result = __exactHashRaw(hashName, str);
+        return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
     }
-    return Promise.reject(new Error('Native hash not available'));
+    return Promise.reject(new DOMException('Native hash not available', 'NotSupportedError'));
   };
 
   // subtle.generateKey(algorithm, extractable, keyUsages) -> CryptoKey or CryptoKeyPair
@@ -80,7 +99,7 @@
     if (algo.name === 'AES-GCM' || algo.name === 'AES-CBC' || algo.name === 'AES-CTR') {
       var length = algo.length || 256;
       if (length !== 128 && length !== 192 && length !== 256) {
-        return Promise.reject(new Error('Invalid key length: ' + length));
+        return Promise.reject(new DOMException('Invalid key length: ' + length, 'OperationError'));
       }
       var keyBytes = new Uint8Array(length / 8);
       getRandomValues(keyBytes);
@@ -110,9 +129,9 @@
             privateKey: new CryptoKey('private', extractable, algorithmInfo,
               keyUsages.filter(function(u) { return u === 'sign'; }), privKeyData)
           });
-        } catch(e) { return Promise.reject(e); }
+        } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
       }
-      return Promise.reject(new Error('Native crypto not available for Ed25519 key generation'));
+      return Promise.reject(new DOMException('Native crypto not available for Ed25519 key generation', 'NotSupportedError'));
     }
     if (algo.name === 'X25519') {
       if (typeof __exactGenerateKeyPairSync === 'function') {
@@ -127,9 +146,9 @@
             privateKey: new CryptoKey('private', extractable, algorithmInfo,
               keyUsages.filter(function(u) { return u === 'deriveBits' || u === 'deriveKey'; }), privKeyData)
           });
-        } catch(e) { return Promise.reject(e); }
+        } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
       }
-      return Promise.reject(new Error('Native crypto not available for X25519 key generation'));
+      return Promise.reject(new DOMException('Native crypto not available for X25519 key generation', 'NotSupportedError'));
     }
     // RSA key pair generation via native bridge
     if (algo.name === 'RSA-OAEP' || algo.name === 'RSASSA-PKCS1-V1_5' || algo.name === 'RSA-PSS') {
@@ -152,9 +171,9 @@
             privateKey: new CryptoKey('private', extractable, algorithmInfo,
               keyUsages.filter(function(u) { return u === 'decrypt' || u === 'sign' || u === 'unwrapKey'; }), privKeyData)
           });
-        } catch(e) { return Promise.reject(e); }
+        } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
       }
-      return Promise.reject(new Error('Native crypto not available for RSA key generation'));
+      return Promise.reject(new DOMException('Native crypto not available for RSA key generation', 'NotSupportedError'));
     }
     // ECDSA / ECDH key pair generation via native bridge
     if (algo.name === 'ECDSA' || algo.name === 'ECDH') {
@@ -174,15 +193,17 @@
             publicKey: new CryptoKey('public', true, algorithmInfo, pubUsages, pubKeyData),
             privateKey: new CryptoKey('private', extractable, algorithmInfo, privUsages, privKeyData)
           });
-        } catch(e) { return Promise.reject(e); }
+        } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
       }
-      return Promise.reject(new Error('Native crypto not available for EC key generation'));
+      return Promise.reject(new DOMException('Native crypto not available for EC key generation', 'NotSupportedError'));
     }
-    return Promise.reject(new Error('Unsupported algorithm for generateKey: ' + algo.name));
+    return Promise.reject(new DOMException('Unsupported algorithm for generateKey: ' + algo.name, 'NotSupportedError'));
   };
 
   // subtle.importKey(format, keyData, algorithm, extractable, keyUsages) -> CryptoKey
   subtle.importKey = function(format, keyData, algorithm, extractable, keyUsages) {
+    // Normalize tentative "raw-secret" format to "raw"
+    if (format === 'raw-secret') format = 'raw';
     var algo = normalizeAlgo(algorithm);
     if (format === 'raw') {
       var raw = toBytes(keyData);
@@ -208,9 +229,9 @@
         var key = new CryptoKey('secret', extractable, keyAlgo, keyUsages, raw);
         return Promise.resolve(key);
       }
-      return Promise.reject(new Error('Unsupported JWK key type: ' + jwk.kty));
+      return Promise.reject(new DOMException('Unsupported JWK key type: ' + jwk.kty, 'NotSupportedError'));
     }
-    return Promise.reject(new Error('Unsupported key format: ' + format));
+    return Promise.reject(new DOMException('Unsupported key format: ' + format, 'NotSupportedError'));
   };
 
   // Base64url encode/decode helpers for JWK
@@ -231,7 +252,7 @@
 
   // subtle.exportKey(format, key) -> ArrayBuffer or JsonWebKey
   subtle.exportKey = function(format, key) {
-    if (!key.extractable) return Promise.reject(new Error('Key is not extractable'));
+    if (!key.extractable) return Promise.reject(new DOMException('Key is not extractable', 'InvalidAccessError'));
     if (format === 'raw') {
       return Promise.resolve(key._keyData.buffer.slice(key._keyData.byteOffset, key._keyData.byteOffset + key._keyData.byteLength));
     }
@@ -248,7 +269,7 @@
       }
       return Promise.resolve(jwk);
     }
-    return Promise.reject(new Error('Unsupported export format: ' + format));
+    return Promise.reject(new DOMException('Unsupported export format: ' + format, 'NotSupportedError'));
   };
 
   // subtle.encrypt(algorithm, key, data) -> ArrayBuffer
@@ -256,35 +277,35 @@
     var algo = normalizeAlgo(algorithm);
     var plaintext = toBytes(data);
     if (algo.name === 'AES-CBC') {
-      if (!algo.iv) return Promise.reject(new Error('AES-CBC requires iv'));
+      if (!algo.iv) return Promise.reject(new DOMException('AES-CBC requires iv', 'OperationError'));
       var iv = toBytes(algo.iv);
-      if (typeof __exactAesCbcEncrypt !== 'function') return Promise.reject(new Error('AES-CBC not available'));
+      if (typeof __exactAesCbcEncrypt !== 'function') return Promise.reject(new DOMException('AES-CBC not available', 'NotSupportedError'));
       try {
         var result = __exactAesCbcEncrypt(key._keyData, iv, plaintext);
         return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
-      } catch(e) { return Promise.reject(e); }
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
     }
     if (algo.name === 'AES-CTR') {
-      if (!algo.counter) return Promise.reject(new Error('AES-CTR requires counter'));
+      if (!algo.counter) return Promise.reject(new DOMException('AES-CTR requires counter', 'OperationError'));
       var counter = toBytes(algo.counter);
-      if (typeof __exactAesCtrEncrypt !== 'function') return Promise.reject(new Error('AES-CTR not available'));
+      if (typeof __exactAesCtrEncrypt !== 'function') return Promise.reject(new DOMException('AES-CTR not available', 'NotSupportedError'));
       try {
         var result = __exactAesCtrEncrypt(key._keyData, counter, plaintext);
         return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
-      } catch(e) { return Promise.reject(e); }
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
     }
     if (algo.name === 'AES-GCM') {
-      if (!algo.iv) return Promise.reject(new Error('AES-GCM requires iv'));
+      if (!algo.iv) return Promise.reject(new DOMException('AES-GCM requires iv', 'OperationError'));
       var iv = toBytes(algo.iv);
       var aad = algo.additionalData ? toBytes(algo.additionalData) : undefined;
       var tagLength = algo.tagLength || 128;
-      if (typeof __exactAesGcmEncrypt !== 'function') return Promise.reject(new Error('AES-GCM not available'));
+      if (typeof __exactAesGcmEncrypt !== 'function') return Promise.reject(new DOMException('AES-GCM not available', 'NotSupportedError'));
       try {
         var result = __exactAesGcmEncrypt(key._keyData, iv, plaintext, aad, tagLength);
         return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
-      } catch(e) { return Promise.reject(e); }
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
     }
-    return Promise.reject(new Error('Unsupported encrypt algorithm: ' + algo.name));
+    return Promise.reject(new DOMException('Unsupported encrypt algorithm: ' + algo.name, 'NotSupportedError'));
   };
 
   // subtle.decrypt(algorithm, key, data) -> ArrayBuffer
@@ -292,36 +313,36 @@
     var algo = normalizeAlgo(algorithm);
     var ciphertext = toBytes(data);
     if (algo.name === 'AES-CBC') {
-      if (!algo.iv) return Promise.reject(new Error('AES-CBC requires iv'));
+      if (!algo.iv) return Promise.reject(new DOMException('AES-CBC requires iv', 'OperationError'));
       var iv = toBytes(algo.iv);
-      if (typeof __exactAesCbcDecrypt !== 'function') return Promise.reject(new Error('AES-CBC not available'));
+      if (typeof __exactAesCbcDecrypt !== 'function') return Promise.reject(new DOMException('AES-CBC not available', 'NotSupportedError'));
       try {
         var result = __exactAesCbcDecrypt(key._keyData, iv, ciphertext);
         return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
-      } catch(e) { return Promise.reject(e); }
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
     }
     if (algo.name === 'AES-CTR') {
-      if (!algo.counter) return Promise.reject(new Error('AES-CTR requires counter'));
+      if (!algo.counter) return Promise.reject(new DOMException('AES-CTR requires counter', 'OperationError'));
       var counter = toBytes(algo.counter);
-      if (typeof __exactAesCtrEncrypt !== 'function') return Promise.reject(new Error('AES-CTR not available'));
+      if (typeof __exactAesCtrEncrypt !== 'function') return Promise.reject(new DOMException('AES-CTR not available', 'NotSupportedError'));
       try {
         // CTR mode encrypt and decrypt are the same operation
         var result = __exactAesCtrEncrypt(key._keyData, counter, ciphertext);
         return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
-      } catch(e) { return Promise.reject(e); }
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
     }
     if (algo.name === 'AES-GCM') {
-      if (!algo.iv) return Promise.reject(new Error('AES-GCM requires iv'));
+      if (!algo.iv) return Promise.reject(new DOMException('AES-GCM requires iv', 'OperationError'));
       var iv = toBytes(algo.iv);
       var aad = algo.additionalData ? toBytes(algo.additionalData) : undefined;
       var tagLength = algo.tagLength || 128;
-      if (typeof __exactAesGcmDecrypt !== 'function') return Promise.reject(new Error('AES-GCM not available'));
+      if (typeof __exactAesGcmDecrypt !== 'function') return Promise.reject(new DOMException('AES-GCM not available', 'NotSupportedError'));
       try {
         var result = __exactAesGcmDecrypt(key._keyData, iv, ciphertext, aad, tagLength);
         return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
-      } catch(e) { return Promise.reject(e); }
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
     }
-    return Promise.reject(new Error('Unsupported decrypt algorithm: ' + algo.name));
+    return Promise.reject(new DOMException('Unsupported decrypt algorithm: ' + algo.name, 'NotSupportedError'));
   };
 
   // subtle.sign(algorithm, key, data) -> ArrayBuffer
@@ -332,26 +353,60 @@
       var hashAlgo = typeof rawHash === 'string' ? rawHash : (rawHash && rawHash.name ? rawHash.name : 'SHA-256');
       var nameMap = { 'SHA-1': 'sha1', 'SHA-256': 'sha256', 'SHA-384': 'sha384', 'SHA-512': 'sha512' };
       var hashName = nameMap[hashAlgo.toUpperCase()];
-      if (!hashName) return Promise.reject(new Error('Unsupported hash: ' + hashAlgo));
+      if (!hashName) return Promise.reject(new DOMException('Unsupported hash: ' + hashAlgo, 'NotSupportedError'));
       var bytes = toBytes(data);
       // Convert to strings for native bridge
       var dataStr = '';
       for (var i = 0; i < bytes.length; i++) dataStr += String.fromCharCode(bytes[i]);
       var keyStr = '';
       for (var j = 0; j < key._keyData.length; j++) keyStr += String.fromCharCode(key._keyData[j]);
-      if (typeof __exactHmacSync !== 'function') return Promise.reject(new Error('HMAC not available'));
-      var hex = __exactHmacSync(hashName, keyStr, dataStr);
+      if (typeof __exactHmacSync !== 'function') return Promise.reject(new DOMException('HMAC not available', 'NotSupportedError'));
+      try { var hex = __exactHmacSync(hashName, keyStr, dataStr); } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
       var result = new Uint8Array(hex.length / 2);
       for (var k = 0; k < hex.length; k += 2) {
         result[k / 2] = parseInt(hex.substr(k, 2), 16);
       }
       return Promise.resolve(result.buffer);
     }
-    return Promise.reject(new Error('Unsupported sign algorithm: ' + algo.name));
+    if (algo.name === 'ECDSA') {
+      if (typeof __exactEcdsaSign !== 'function') return Promise.reject(new DOMException('ECDSA not available', 'NotSupportedError'));
+      try {
+        var ecHash = typeof algo.hash === 'string' ? algo.hash : (algo.hash && algo.hash.name ? algo.hash.name : 'SHA-256');
+        var ecCurve = key.algorithm && key.algorithm.namedCurve ? key.algorithm.namedCurve : 'P-256';
+        var ecResult = __exactEcdsaSign(ecCurve, ecHash, key._keyData, toBytes(data));
+        return Promise.resolve(ecResult.buffer.slice(ecResult.byteOffset, ecResult.byteOffset + ecResult.byteLength));
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
+    }
+    if (algo.name === 'ED25519' || algo.name === 'EDDSA') {
+      if (typeof __exactEd25519Sign !== 'function') return Promise.reject(new DOMException('Ed25519 not available', 'NotSupportedError'));
+      try {
+        var edKeyData = key._keyData;
+        var edPrivData = edKeyData.length === 64 ? edKeyData.slice(0, 32) : edKeyData;
+        var edResult = __exactEd25519Sign(edPrivData, toBytes(data));
+        return Promise.resolve(edResult.buffer.slice(edResult.byteOffset, edResult.byteOffset + edResult.byteLength));
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
+    }
+    return Promise.reject(new DOMException('Unsupported sign algorithm: ' + algo.name, 'NotSupportedError'));
   };
 
   // subtle.verify(algorithm, key, signature, data) -> boolean
   subtle.verify = function(algorithm, key, signature, data) {
+    var algo = normalizeAlgo(algorithm);
+    if (algo.name === 'ECDSA') {
+      if (typeof __exactEcdsaVerify !== 'function') return Promise.reject(new DOMException('ECDSA not available', 'NotSupportedError'));
+      try {
+        var ecHash = typeof algo.hash === 'string' ? algo.hash : (algo.hash && algo.hash.name ? algo.hash.name : 'SHA-256');
+        var ecCurve = key.algorithm && key.algorithm.namedCurve ? key.algorithm.namedCurve : 'P-256';
+        return Promise.resolve(__exactEcdsaVerify(ecCurve, ecHash, key._keyData, toBytes(signature), toBytes(data)));
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
+    }
+    if (algo.name === 'ED25519' || algo.name === 'EDDSA') {
+      if (typeof __exactEd25519Verify !== 'function') return Promise.reject(new DOMException('Ed25519 not available', 'NotSupportedError'));
+      try {
+        return Promise.resolve(__exactEd25519Verify(key._keyData, toBytes(signature), toBytes(data)));
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
+    }
+    // HMAC verify via sign-and-compare
     return subtle.sign(algorithm, key, data).then(function(computed) {
       var sig = toBytes(signature);
       var comp = new Uint8Array(computed);
@@ -366,16 +421,16 @@
   subtle.deriveBits = function(algorithm, baseKey, length) {
     var algo = normalizeAlgo(algorithm);
     if (algo.name === 'PBKDF2') {
-      if (!algo.salt || !algo.iterations) return Promise.reject(new Error('PBKDF2 requires salt and iterations'));
+      if (!algo.salt || !algo.iterations) return Promise.reject(new DOMException('PBKDF2 requires salt and iterations', 'OperationError'));
       var salt = toBytes(algo.salt);
       var hashName = typeof algo.hash === 'string' ? algo.hash : (algo.hash && algo.hash.name ? algo.hash.name : 'SHA-256');
-      if (typeof __exactPbkdf2 !== 'function') return Promise.reject(new Error('PBKDF2 not available'));
+      if (typeof __exactPbkdf2 !== 'function') return Promise.reject(new DOMException('PBKDF2 not available', 'NotSupportedError'));
       try {
         var result = __exactPbkdf2(baseKey._keyData, salt, algo.iterations, length / 8, hashName);
         return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
-      } catch(e) { return Promise.reject(e); }
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
     }
-    return Promise.reject(new Error('Unsupported deriveBits algorithm: ' + algo.name));
+    return Promise.reject(new DOMException('Unsupported deriveBits algorithm: ' + algo.name, 'NotSupportedError'));
   };
 
   // subtle.deriveKey(algorithm, baseKey, derivedKeyAlgorithm, extractable, keyUsages) -> CryptoKey
@@ -432,5 +487,20 @@
       configurable: true,
     });
     globalThis.crypto = cryptoObj;
+  }
+
+  // Expose CryptoKey and SubtleCrypto as globals (WPT tests check instanceof)
+  CryptoKey.prototype[Symbol.toStringTag] = 'CryptoKey';
+  if (typeof globalThis.CryptoKey === 'undefined') {
+    globalThis.CryptoKey = CryptoKey;
+  }
+
+  // SubtleCrypto constructor for instanceof checks
+  function SubtleCrypto() {}
+  SubtleCrypto.prototype = subtle;
+  SubtleCrypto.prototype[Symbol.toStringTag] = 'SubtleCrypto';
+  SubtleCrypto.prototype.constructor = SubtleCrypto;
+  if (typeof globalThis.SubtleCrypto === 'undefined') {
+    globalThis.SubtleCrypto = SubtleCrypto;
   }
 })();

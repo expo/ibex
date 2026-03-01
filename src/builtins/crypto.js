@@ -74,6 +74,8 @@ Hash.prototype.copy = function() {
   return h;
 };
 
+Hash.prototype[Symbol.toStringTag] = 'Hash';
+
 function createHash(algorithm) {
   return new Hash(algorithm);
 }
@@ -128,13 +130,15 @@ Hmac.prototype.digest = function(encoding) {
   throw new Error('Native HMAC not available');
 };
 
+Hmac.prototype[Symbol.toStringTag] = 'Hmac';
+
 function createHmac(algorithm, key) {
   return new Hmac(algorithm, key);
 }
 
 // --- getHashes() ---
 function getHashes() {
-  return ['md5', 'sha1', 'sha256', 'sha384', 'sha512'];
+  return ['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512'];
 }
 
 // --- timingSafeEqual ---
@@ -351,13 +355,13 @@ function _normalizeCipherAlgorithm(algorithm) {
   var normalized = (algorithm || '').toString().toLowerCase().replace(/_/g, '-');
   normalized = normalized.replace(/\s+/g, '');
   normalized = normalized.replace(/^id-/, '');
-  if (/^aes\d{3}(gcm|cbc|ctr|ccm)$/.test(normalized)) {
-    normalized = normalized.replace(/^aes(\d{3})(gcm|cbc|ctr)$/, 'aes-$1-$2');
+  if (/^aes\d{3}(gcm|cbc|ctr|ccm|ecb)$/.test(normalized)) {
+    normalized = normalized.replace(/^aes(\d{3})(gcm|cbc|ctr|ecb)$/, 'aes-$1-$2');
     normalized = normalized.replace(/^aes(\d{3})(ccm)$/, 'aes-$1-$2');
   } else if (/^aes\d{3}-wrap(-pad)?$/.test(normalized)) {
     normalized = normalized.replace(/^aes(\d{3})(-wrap(?:-pad)?)$/, 'aes-$1$2');
-  } else if (/^aes-\d{3}(gcm|cbc|ctr|ccm)$/.test(normalized)) {
-    normalized = normalized.replace(/^(aes-\d{3})(gcm|cbc|ctr)$/, '$1-$2');
+  } else if (/^aes-\d{3}(gcm|cbc|ctr|ccm|ecb)$/.test(normalized)) {
+    normalized = normalized.replace(/^(aes-\d{3})(gcm|cbc|ctr|ecb)$/, '$1-$2');
     normalized = normalized.replace(/^(aes-\d{3})(ccm)$/, '$1-$2');
   } else if (/^aes-\d{3}$/.test(normalized)) {
     return normalized;
@@ -379,6 +383,9 @@ var _cipherInfo = {
   'aes-128-wrap-pad': { keyBytes: 16, openssl: 'aes-128-wrap-pad' },
   'aes-192-wrap-pad': { keyBytes: 24, openssl: 'aes-192-wrap-pad' },
   'aes-256-wrap-pad': { keyBytes: 32, openssl: 'aes-256-wrap-pad' },
+  'aes-128-ecb': { keyBytes: 16, openssl: 'aes-128-ecb' },
+  'aes-192-ecb': { keyBytes: 24, openssl: 'aes-192-ecb' },
+  'aes-256-ecb': { keyBytes: 32, openssl: 'aes-256-ecb' },
   'aes-128-cbc': { keyBytes: 16, openssl: 'aes-128-cbc' },
   'aes-192-cbc': { keyBytes: 24, openssl: 'aes-192-cbc' },
   'aes-256-cbc': { keyBytes: 32, openssl: 'aes-256-cbc' },
@@ -605,7 +612,8 @@ Cipher.prototype.final = function(outputEncoding) {
     // Use generic EVP bridge for ChaCha20, DES, Blowfish, etc.
     var encResult;
     if (this._algo.indexOf('ccm') !== -1) {
-      encResult = __exactEvpCipherEncrypt(this._opensslName, this._key, this._iv, combined, this._aad, this._authTagLength);
+      var ccmAad = this._aad ? this._aad : new Uint8Array(0);
+      encResult = __exactEvpCipherEncrypt(this._opensslName, this._key, this._iv, combined, ccmAad, this._authTagLength);
     } else {
       encResult = __exactEvpCipherEncrypt(this._opensslName, this._key, this._iv, combined);
     }
@@ -634,6 +642,7 @@ Cipher.prototype.final = function(outputEncoding) {
   return result;
 };
 Cipher.prototype.setAutoPadding = function() { return this; };
+Cipher.prototype[Symbol.toStringTag] = 'Cipher';
 Cipher.prototype.getAuthTag = function() {
   if (!this._finalized) throw new Error('Cannot get auth tag before calling final()');
   if (this._authTag === null) return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
@@ -753,9 +762,13 @@ Decipher.prototype.final = function(outputEncoding) {
     // Use generic EVP bridge for ChaCha20, DES, Blowfish, etc.
     var authTag = this._isAead && this._authTag ? _toUint8Array(this._authTag) : undefined;
     if (this._algo.indexOf('ccm') !== -1) {
-      result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined, authTag, this._aad, this._authTagLength);
-    } else {
+      var ccmAad = this._aad ? this._aad : new Uint8Array(0);
+      result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined, authTag, ccmAad, this._authTagLength);
+    } else if (this._isAead) {
+      // AEAD modes (chacha20-poly1305 etc.) — pass authTag
       result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined, authTag);
+    } else {
+      result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined);
     }
     if (typeof Buffer !== 'undefined' && Buffer.from) result = Buffer.from(result);
   } else {
@@ -770,6 +783,7 @@ Decipher.prototype.final = function(outputEncoding) {
 Decipher.prototype.setAutoPadding = function() { return this; };
 Decipher.prototype.setAuthTag = function(tag) { this._authTag = _toUint8Array(tag); return this; };
 Decipher.prototype.setAAD = function(aad, options) { this._aad = _toUint8Array(aad); return this; };
+Decipher.prototype[Symbol.toStringTag] = 'Decipher';
 
 function createCipheriv(algorithm, key, iv, options) {
   return new Cipher(algorithm, key, iv, options);
@@ -1204,6 +1218,9 @@ function generateKeyPairSync(type, options) {
   }
   var keyType = (typeof type === 'string' ? type : (type && type.name) ? type.name : 'rsa').toLowerCase();
 
+    // Normalize rsa-pss to rsa — same key material, padding differs at sign time
+    if (keyType === 'rsa-pss') keyType = 'rsa';
+
     if (keyType === 'rsa' || keyType === 'ec' || keyType === 'dsa' || keyType === 'x25519' || keyType === 'ed25519') {
       if (typeof __exactGenerateKeyPairSync === 'function') {
         var nativeOptions = options || {};
@@ -1260,6 +1277,43 @@ function generateKeyPair(type, options, callback) {
   }
 }
 
+// --- generatePrime / generatePrimeSync stubs ---
+function generatePrimeSync(size, options) {
+  // Stub: generate random bytes of the requested bit size
+  var byteLen = Math.ceil((typeof size === 'number' ? size : 256) / 8);
+  var bytes = randomBytes(byteLen);
+  // Set high bit to ensure it's the right bit length, and low bit to make it odd
+  bytes[0] |= 0x80;
+  bytes[bytes.length - 1] |= 0x01;
+  if (options && options.bigint) {
+    var hex = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var h = bytes[i].toString(16);
+      if (h.length === 1) h = '0' + h;
+      hex += h;
+    }
+    return BigInt('0x' + hex);
+  }
+  return bytes;
+}
+
+function generatePrime(size, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  try {
+    var result = generatePrimeSync(size, options);
+    if (typeof callback === 'function') setTimeout(function() { callback(null, result); }, 0);
+  } catch(e) {
+    if (typeof callback === 'function') setTimeout(function() { callback(e); }, 0);
+    else throw e;
+  }
+}
+
+function checkPrimeSync() { return false; }
+function checkPrime(candidate, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback === 'function') setTimeout(function() { callback(null, false); }, 0);
+}
+
 var cryptoConstants = {
   SSL_OP_ALL: 0,
   SSL_OP_NO_SSLv2: 0,
@@ -1304,6 +1358,10 @@ module.exports = {
   createPublicKey: createPublicKey,
   createPrivateKey: createPrivateKey,
   generateKeySync: generateKeySync,
+  generatePrime: generatePrime,
+  generatePrimeSync: generatePrimeSync,
+  checkPrime: checkPrime,
+  checkPrimeSync: checkPrimeSync,
   getHashes: getHashes,
   getCiphers: function() {
     return [
@@ -1311,6 +1369,9 @@ module.exports = {
       'aes-128-ccm', 'aes-192-ccm', 'aes-256-ccm',
       'aes-128-cbc', 'aes-192-cbc', 'aes-256-cbc',
       'aes-128-ctr', 'aes-192-ctr', 'aes-256-ctr',
+      'aes-128-ecb', 'aes-192-ecb', 'aes-256-ecb',
+      'aes-128-wrap', 'aes-192-wrap', 'aes-256-wrap',
+      'aes-128-wrap-pad', 'aes-192-wrap-pad', 'aes-256-wrap-pad',
       'chacha20-poly1305', 'chacha20',
       'des-cbc', 'des-ecb', 'des-cfb', 'des-ofb',
       'des-ede3-cbc', 'des-ede3-cfb', 'des-ede3-ofb',
@@ -1318,6 +1379,9 @@ module.exports = {
       'rc4'
     ];
   },
+  getFips: function() { return 0; },
+  setFips: function() { /* no-op */ },
+  fips: false,
   timingSafeEqual: timingSafeEqual,
   Hash: Hash,
   Hmac: Hmac,
