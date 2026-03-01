@@ -1965,7 +1965,7 @@ Stream.prototype.pipe = function(dest, options) {
   if (dest && dest.writableNeedDrain === true) {
     pause();
   } else if (!state || source.readableFlowing !== true) {
-    source.resume();
+    if (typeof source.resume === 'function') source.resume();
   }
 
   dest.emit('pipe', source);
