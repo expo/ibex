@@ -1099,7 +1099,7 @@ function notEqual(actual, expected, message) {
 }
 
 function strictEqual(actual, expected, message) {
-  if (actual !== expected) {
+  if (!Object.is(actual, expected)) {
     throw new AssertionError({
       message: message,
       actual: actual,
@@ -1111,7 +1111,7 @@ function strictEqual(actual, expected, message) {
 }
 
 function notStrictEqual(actual, expected, message) {
-  if (actual === expected) {
+  if (Object.is(actual, expected)) {
     throw new AssertionError({
       message: message,
       actual: actual,

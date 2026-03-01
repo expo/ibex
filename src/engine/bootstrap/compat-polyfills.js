@@ -321,6 +321,44 @@
     }
   }
 
+  // Wrap process.nextTick to validate callback argument
+  if (typeof globalThis.process === 'object' && globalThis.process !== null &&
+      typeof globalThis.process.nextTick === 'function') {
+    try {
+      var __nativeNextTick = globalThis.process.nextTick;
+      globalThis.process.nextTick = function nextTick(callback) {
+        if (typeof callback !== 'function') {
+          var te = new TypeError('The "callback" argument must be of type function. Received type ' + typeof callback);
+          te.code = 'ERR_INVALID_ARG_TYPE';
+          throw te;
+        }
+        var args = [];
+        for (var __nti = 1; __nti < arguments.length; __nti++) args.push(arguments[__nti]);
+        if (args.length === 0) return __nativeNextTick.call(globalThis.process, callback);
+        return __nativeNextTick.call(globalThis.process, function() { callback.apply(null, args); });
+      };
+    } catch (err) {}
+  }
+
+  // Wrap process.hrtime to validate argument as Array
+  if (typeof globalThis.process === 'object' && globalThis.process !== null &&
+      typeof globalThis.process.hrtime === 'function') {
+    try {
+      var __nativeHrtime = globalThis.process.hrtime;
+      globalThis.process.hrtime = function hrtime(time) {
+        if (time !== undefined && !Array.isArray(time)) {
+          var te = new TypeError('The "time" argument must be an instance of Array. Received type ' + typeof time + ' (' + String(time) + ')');
+          te.code = 'ERR_INVALID_ARG_TYPE';
+          throw te;
+        }
+        return __nativeHrtime.call(globalThis.process, time);
+      };
+      if (__nativeHrtime.bigint) {
+        globalThis.process.hrtime.bigint = __nativeHrtime.bigint;
+      }
+    } catch (err) {}
+  }
+
   // Node-oriented packages expect `process.versions.node` to exist.
   // In some Hermes runtimes process.versions is a host-managed accessor object
   // that may not include the Node key even though the process object is writable.

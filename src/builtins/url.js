@@ -1865,6 +1865,29 @@ function resolve(from, to) {
 URL.createObjectURL = _createObjectURL;
 URL.revokeObjectURL = _revokeObjectURL;
 
+function urlToHttpOptions(url) {
+  if (url === null || typeof url !== 'object') {
+    var e = new TypeError("The \"url\" argument must be of type object. Received type " + typeof url + " (" + (typeof url === 'string' ? "'" + url + "'" : String(url)) + ")");
+    e.code = 'ERR_INVALID_ARG_TYPE';
+    throw e;
+  }
+  var options = {
+    protocol: url.protocol,
+    hostname: typeof url.hostname === 'string' && url.hostname.indexOf('[') === 0 ?
+      url.hostname.slice(1, -1) : url.hostname,
+    port: url.port !== '' && url.port !== undefined ? Number(url.port) : NaN,
+    path: (url.pathname || '') + (url.search || ''),
+    pathname: url.pathname,
+    search: url.search,
+    hash: url.hash,
+    href: url.href,
+  };
+  if (url.username || url.password) {
+    options.auth = (url.username || '') + (url.password ? ':' + url.password : '');
+  }
+  return options;
+}
+
 module.exports = {
   URL: URLExport,
   URLSearchParams: URLSearchParamsExport,
@@ -1875,6 +1898,7 @@ module.exports = {
   resolve: resolve,
   fileURLToPath: fileURLToPath,
   pathToFileURL: pathToFileURL,
+  urlToHttpOptions: urlToHttpOptions,
   domainToASCII: function domainToASCII(domain) {
     // Use the URL constructor to do punycode conversion
     try {
