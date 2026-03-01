@@ -5,6 +5,17 @@ var defaultHighWaterMarkObjectMode = 16;
 
 function Stream() {
   EventEmitter.call(this);
+  if (!this._events || typeof this._events !== 'object') {
+    this._events = {};
+  }
+  if (this._events.close === undefined) this._events.close = undefined;
+  if (this._events.error === undefined) this._events.error = undefined;
+  if (this._events.prefinish === undefined) this._events.prefinish = undefined;
+  if (this._events.finish === undefined) this._events.finish = undefined;
+  if (this._events.drain === undefined) this._events.drain = undefined;
+  if (this._events.data === undefined) this._events.data = undefined;
+  if (this._events.end === undefined) this._events.end = undefined;
+  if (this._events.readable === undefined) this._events.readable = undefined;
   this._closed = false;
   this._destroyed = false;
   this.destroyed = false;
@@ -2439,6 +2450,7 @@ Transform.prototype._write = function(chunk, encoding, callback) {
 };
 
 function PassThrough(options) {
+  if (!(this instanceof PassThrough)) return new PassThrough(options);
   Transform.call(this, options);
 }
 PassThrough.prototype = Object.create(Transform.prototype);
