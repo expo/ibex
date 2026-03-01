@@ -9,12 +9,17 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <unistd.h>
 
 #ifdef EXACT_HAS_CURL
 #include <curl/curl.h>
 #include <cstring>
-#include <string>
-#include <vector>
 #endif
 
 typedef void (*NativeFetchResponseCallback)(
@@ -149,21 +154,128 @@ extern "C" void native_fetch_perform(
         context
     );
 #else
-    (void)method;
-    (void)url;
-    (void)headers;
-    (void)body;
-    (void)body_length;
     if (!response_callback) {
         return;
     }
+    if (!method || !url) {
+        response_callback(request_id, 0, "Invalid request", nullptr, nullptr, 0, context);
+        return;
+    }
+
+    auto shell_quote = [](const std::string& input) -> std::string {
+        std::string out = "'";
+        for (char c : input) {
+            if (c == '\'') {
+                out += "'\"'\"'";
+            } else {
+                out.push_back(c);
+            }
+        }
+        out.push_back('\'');
+        return out;
+    };
+
+    auto make_temp_path = [](const char* tmpl) -> std::string {
+        char path[256];
+        std::snprintf(path, sizeof(path), "/tmp/%s", tmpl);
+        int fd = mkstemp(path);
+        if (fd >= 0) {
+            close(fd);
+        }
+        return std::string(path);
+    };
+
+    const std::string header_path = make_temp_path("exact_fetch_headers_XXXXXX");
+    const std::string body_path = make_temp_path("exact_fetch_body_XXXXXX");
+    const std::string code_path = make_temp_path("exact_fetch_code_XXXXXX");
+    std::string req_body_path;
+
+    if (body && body_length > 0) {
+        req_body_path = make_temp_path("exact_fetch_req_XXXXXX");
+        std::ofstream req_out(req_body_path, std::ios::binary);
+        req_out.write(reinterpret_cast<const char*>(body), static_cast<std::streamsize>(body_length));
+        req_out.close();
+    }
+
+    std::ostringstream cmd;
+    cmd << "curl -sS -L --connect-timeout 30 --max-time 300 "
+        << "-X " << shell_quote(method)
+        << " -D " << shell_quote(header_path)
+        << " -o " << shell_quote(body_path)
+        << " -w '%{http_code}' ";
+
+    if (headers && *headers) {
+        const char* line_start = headers;
+        const char* p = headers;
+        while (*p) {
+            if (*p == '\r' && *(p + 1) == '\n') {
+                if (p > line_start) {
+                    std::string line(line_start, static_cast<size_t>(p - line_start));
+                    cmd << "-H " << shell_quote(line) << " ";
+                }
+                p += 2;
+                line_start = p;
+                continue;
+            }
+            p++;
+        }
+        if (p > line_start) {
+            std::string line(line_start, static_cast<size_t>(p - line_start));
+            cmd << "-H " << shell_quote(line) << " ";
+        }
+    }
+
+    if (!req_body_path.empty()) {
+        cmd << "--data-binary @" << shell_quote(req_body_path) << " ";
+    }
+
+    cmd << shell_quote(url) << " > " << shell_quote(code_path) << " 2>/dev/null";
+
+    const int rc = std::system(cmd.str().c_str());
+    if (rc != 0) {
+        if (!header_path.empty()) std::remove(header_path.c_str());
+        if (!body_path.empty()) std::remove(body_path.c_str());
+        if (!code_path.empty()) std::remove(code_path.c_str());
+        if (!req_body_path.empty()) std::remove(req_body_path.c_str());
+        response_callback(request_id, 0, "curl command failed", nullptr, nullptr, 0, context);
+        return;
+    }
+
+    std::ifstream code_in(code_path);
+    std::string code_text;
+    std::getline(code_in, code_text);
+    code_in.close();
+    int status_code = 0;
+    try {
+        status_code = std::stoi(code_text);
+    } catch (...) {
+        status_code = 0;
+    }
+
+    std::ifstream headers_in(header_path, std::ios::binary);
+    std::string response_headers((std::istreambuf_iterator<char>(headers_in)),
+                                 std::istreambuf_iterator<char>());
+    headers_in.close();
+
+    std::ifstream body_in(body_path, std::ios::binary);
+    std::vector<uint8_t> response_body((std::istreambuf_iterator<char>(body_in)),
+                                       std::istreambuf_iterator<char>());
+    body_in.close();
+
+    if (!header_path.empty()) std::remove(header_path.c_str());
+    if (!body_path.empty()) std::remove(body_path.c_str());
+    if (!code_path.empty()) std::remove(code_path.c_str());
+    if (!req_body_path.empty()) std::remove(req_body_path.c_str());
+
+    const char* headers_ptr = response_headers.empty() ? nullptr : response_headers.c_str();
+    const uint8_t* body_ptr = response_body.empty() ? nullptr : response_body.data();
     response_callback(
         request_id,
-        0,
-        "native_fetch_perform is not implemented on Linux yet",
-        nullptr,
-        nullptr,
-        0,
+        status_code,
+        status_code > 0 ? "OK" : "Network Error",
+        headers_ptr,
+        body_ptr,
+        response_body.size(),
         context
     );
 #endif
