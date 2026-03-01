@@ -56,7 +56,15 @@ function _validateUidOrGid(name, value) {
 }
 
 function _validateUint32(name, value) {
-  _validateInt(name, value, 0, 4294967295);
+  if (typeof value !== 'number') {
+    throw _fsInvalidArgType(name, 'number', value);
+  }
+  if (!Number.isInteger(value)) {
+    throw _fsOutOfRange(name, value, null, null);
+  }
+  if (value < 0 || value > 4294967295) {
+    throw _fsOutOfRange(name, value, 0, 4294967295);
+  }
 }
 
 function _fsInvalidArgValue(name, value, reason) {
@@ -102,11 +110,20 @@ function _validateFd(fd) {
 }
 
 function _validatePath(path, propName) {
+  // Support URL objects with file: protocol
+  if (path && typeof path === 'object' && typeof path.href === 'string' && path.protocol === 'file:') {
+    return; // valid URL object
+  }
   if (typeof path !== 'string' && !Buffer.isBuffer(path)) {
-    throw _fsInvalidArgType(propName || 'path', 'string', path);
+    throw _fsInvalidArgType(propName || 'path', 'string or an instance of Buffer or URL', path);
   }
   if (typeof path === 'string' && path.indexOf('\u0000') !== -1) {
     var err = new TypeError('The argument "' + (propName || 'path') + '" must be a string, Uint8Array, or URL without null bytes. Received ' + JSON.stringify(path));
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+  if (Buffer.isBuffer(path) && path.indexOf(0) !== -1) {
+    var err = new TypeError('The argument "' + (propName || 'path') + '" must be a string, Uint8Array, or URL without null bytes. Received ' + JSON.stringify(path.toString()));
     err.code = 'ERR_INVALID_ARG_VALUE';
     throw err;
   }
@@ -116,6 +133,40 @@ function _validateCallback(cb) {
   if (typeof cb !== 'function') {
     throw _fsInvalidArgType('callback', 'function', cb);
   }
+}
+
+function _pathToString(path) {
+  if (typeof path === 'string') return path;
+  if (Buffer.isBuffer(path)) return path.toString();
+  if (path && typeof path === 'object' && typeof path.href === 'string' && path.protocol === 'file:') {
+    var pathname = path.pathname;
+    if (!pathname) throw new TypeError('The URL must have a pathname');
+    return decodeURIComponent(pathname);
+  }
+  return String(path);
+}
+
+var _uvErrnoMap = {
+  'EACCES': -13, 'EBADF': -9, 'EBUSY': -16, 'EEXIST': -17,
+  'EFAULT': -14, 'EINVAL': -22, 'EIO': -5, 'EISDIR': -21,
+  'ELOOP': -40, 'EMFILE': -24, 'ENAMETOOLONG': -63, 'ENOENT': -2,
+  'ENOMEM': -12, 'ENOSPC': -28, 'ENOSYS': -38, 'ENOTDIR': -20,
+  'ENOTEMPTY': -39, 'EPERM': -1, 'ERANGE': -34, 'EROFS': -30,
+  'ESPIPE': -29, 'EXDEV': -18, 'ETXTBSY': -26, 'UNKNOWN': -4094
+};
+
+function _makeFsError(err, syscall, path, dest) {
+  if (err && err.code && err.syscall) return err;
+  var msg = (err && err.message) ? err.message : String(err);
+  var match = msg.match(/^(E[A-Z]+):/);
+  var code = match ? match[1] : null;
+  var fsErr = new Error(msg);
+  if (code) fsErr.code = code;
+  if (syscall) fsErr.syscall = syscall;
+  if (path !== undefined) fsErr.path = path;
+  if (dest !== undefined) fsErr.dest = dest;
+  fsErr.errno = (code && _uvErrnoMap[code] !== undefined) ? _uvErrnoMap[code] : -4094;
+  return fsErr;
 }
 
 // Valid encodings supported by Node.js
@@ -196,104 +247,305 @@ function wrapBuffer(bytes) {
 }
 
 function readFileSync(path, options) {
+  // Support fd as first arg
+  if (typeof path === 'number') {
+    ensureExactFs();
+    var encoding = typeof options === 'string' ? options : (options && options.encoding);
+    var chunks = [];
+    var buf = new Uint8Array(65536);
+    var bytesRead;
+    do {
+      bytesRead = readSync(path, buf, 0, buf.length, -1);
+      if (bytesRead > 0) chunks.push(buf.slice(0, bytesRead));
+    } while (bytesRead > 0);
+    var totalLen = 0;
+    for (var ci = 0; ci < chunks.length; ci++) totalLen += chunks[ci].length;
+    var result = new Uint8Array(totalLen);
+    var pos = 0;
+    for (var cj = 0; cj < chunks.length; cj++) {
+      result.set(chunks[cj], pos);
+      pos += chunks[cj].length;
+    }
+    if (encoding) return decodeBytes(result, encoding);
+    return wrapBuffer(result);
+  }
   _validatePath(path);
   _validateEncodingOption(options);
   ensureExactFs();
+  var p = _pathToString(path);
   var encoding = typeof options === 'string' ? options : (options && options.encoding);
-  var bytes = g.__exactReadFile(path);
-  if (encoding) return decodeBytes(bytes, encoding);
-  return wrapBuffer(bytes);
+  try {
+    var bytes = g.__exactReadFile(p);
+    if (encoding) return decodeBytes(bytes, encoding);
+    return wrapBuffer(bytes);
+  } catch(e) {
+    throw _makeFsError(e, 'open', p);
+  }
 }
 
 function writeFileSync(path, data, options) {
+  _validateWriteData(data);
+  // Support fd as first arg
+  if (typeof path === 'number') {
+    ensureExactFs();
+    var encoding = typeof options === 'string' ? options : (options && options.encoding);
+    writeSync(path, toUint8Array(data, encoding), 0, undefined, -1);
+    return;
+  }
   _validatePath(path);
   _validateEncodingOption(options);
   ensureExactFs();
-  g.__exactWriteFile(path, toUint8Array(data));
+  var p = _pathToString(path);
+  var encoding = typeof options === 'string' ? options : (options && options.encoding);
+  try {
+    g.__exactWriteFile(p, toUint8Array(data, encoding));
+  } catch(e) {
+    throw _makeFsError(e, 'open', p);
+  }
+}
+
+function _validateWriteData(data) {
+  if (typeof data !== 'string' && !Buffer.isBuffer(data) && !(data instanceof Uint8Array) && !ArrayBuffer.isView(data)) {
+    throw _fsInvalidArgType('data', 'string or an instance of Buffer, TypedArray, or DataView', data);
+  }
 }
 
 function appendFileSync(path, data, options) {
+  _validateWriteData(data);
+  // Support fd as first arg
+  if (typeof path === 'number') {
+    ensureExactFs();
+    var encoding = typeof options === 'string' ? options : (options && options.encoding);
+    writeSync(path, toUint8Array(data, encoding));
+    return;
+  }
   _validatePath(path);
   _validateEncodingOption(options);
   ensureExactFs();
-  g.__exactAppendFile(path, toUint8Array(data));
+  var p = _pathToString(path);
+  var encoding = typeof options === 'string' ? options : (options && options.encoding);
+  try {
+    g.__exactAppendFile(p, toUint8Array(data, encoding));
+  } catch(e) {
+    throw _makeFsError(e, 'open', p);
+  }
 }
 
-function statSync(path) {
-  _validatePath(path);
-  ensureExactFs();
-  var json = g.__exactStat(path);
+function Stats(raw) {
+  this.dev = raw.dev || 0;
+  this.ino = raw.ino || 0;
+  this.mode = raw.mode || 0;
+  this.nlink = raw.nlink || 1;
+  this.uid = raw.uid || 0;
+  this.gid = raw.gid || 0;
+  this.rdev = raw.rdev || 0;
+  this.size = raw.size || 0;
+  this.blksize = raw.blksize || 4096;
+  this.blocks = raw.blocks || 0;
+  var mt = raw.mtime_ms || raw.mtimeMs || 0;
+  var at = raw.atime_ms || raw.atimeMs || mt;
+  var ct = raw.ctime_ms || raw.ctimeMs || mt;
+  var bt = raw.birthtime_ms || raw.birthtimeMs || mt;
+  this.atimeMs = at;
+  this.mtimeMs = mt;
+  this.ctimeMs = ct;
+  this.birthtimeMs = bt;
+  this.atime = new Date(at);
+  this.mtime = new Date(mt);
+  this.ctime = new Date(ct);
+  this.birthtime = new Date(bt);
+  this._isFile = !!raw.is_file;
+  this._isDir = !!raw.is_dir;
+  this._isSymlink = !!raw.is_symlink;
+  this._isChrDev = !!raw.is_char_device;
+  this._isBlkDev = !!raw.is_block_device;
+  this._isFifo = !!raw.is_fifo;
+  this._isSock = !!raw.is_socket;
+}
+Stats.prototype.isFile = function() { return this._isFile; };
+Stats.prototype.isDirectory = function() { return this._isDir; };
+Stats.prototype.isSymbolicLink = function() { return this._isSymlink; };
+Stats.prototype.isBlockDevice = function() { return this._isBlkDev; };
+Stats.prototype.isCharacterDevice = function() { return this._isChrDev; };
+Stats.prototype.isFIFO = function() { return this._isFifo; };
+Stats.prototype.isSocket = function() { return this._isSock; };
+
+function _makeStats(json) {
   var raw = JSON.parse(json);
-  raw.isFile = function() { return raw.is_file; };
-  raw.isDirectory = function() { return raw.is_dir; };
-  raw.isSymbolicLink = function() { return !!raw.is_symlink; };
-  raw.isBlockDevice = function() { return false; };
-  raw.isCharacterDevice = function() { return false; };
-  raw.isFIFO = function() { return false; };
-  raw.isSocket = function() { return false; };
-  raw.mtimeMs = raw.mtime_ms;
-  raw.mtime = new Date(raw.mtime_ms);
-  raw.atimeMs = raw.mtime_ms;
-  raw.atime = new Date(raw.mtime_ms);
-  raw.ctimeMs = raw.mtime_ms;
-  raw.ctime = new Date(raw.mtime_ms);
-  return raw;
+  return new Stats(raw);
 }
 
-function lstatSync(path) {
+function statSync(path, options) {
   _validatePath(path);
   ensureExactFs();
-  var json = g.__exactLstat(path);
-  var raw = JSON.parse(json);
-  raw.isFile = function() { return raw.is_file; };
-  raw.isDirectory = function() { return raw.is_dir; };
-  raw.isSymbolicLink = function() { return !!raw.is_symlink; };
-  raw.isBlockDevice = function() { return false; };
-  raw.isCharacterDevice = function() { return false; };
-  raw.isFIFO = function() { return false; };
-  raw.isSocket = function() { return false; };
-  raw.mtimeMs = raw.mtime_ms;
-  raw.mtime = new Date(raw.mtime_ms);
-  return raw;
+  var p = _pathToString(path);
+  try {
+    var json = g.__exactStat(p);
+    return _makeStats(json);
+  } catch(e) {
+    throw _makeFsError(e, 'stat', p);
+  }
 }
+
+function lstatSync(path, options) {
+  _validatePath(path);
+  ensureExactFs();
+  var p = _pathToString(path);
+  try {
+    var json = g.__exactLstat(p);
+    return _makeStats(json);
+  } catch(e) {
+    throw _makeFsError(e, 'lstat', p);
+  }
+}
+
+function Dirent(name, parentPath, stat) {
+  this.name = name;
+  this.parentPath = parentPath;
+  this.path = parentPath;
+  this._stat = stat;
+}
+Dirent.prototype.isFile = function() { return this._stat ? this._stat.isFile() : false; };
+Dirent.prototype.isDirectory = function() { return this._stat ? this._stat.isDirectory() : false; };
+Dirent.prototype.isSymbolicLink = function() { return this._stat ? this._stat.isSymbolicLink() : false; };
+Dirent.prototype.isBlockDevice = function() { return this._stat ? this._stat.isBlockDevice() : false; };
+Dirent.prototype.isCharacterDevice = function() { return this._stat ? this._stat.isCharacterDevice() : false; };
+Dirent.prototype.isFIFO = function() { return this._stat ? this._stat.isFIFO() : false; };
+Dirent.prototype.isSocket = function() { return this._stat ? this._stat.isSocket() : false; };
 
 function readdirSync(path, options) {
   _validatePath(path);
   _validateEncodingOption(options);
   ensureExactFs();
-  return JSON.parse(g.__exactReaddir(path));
+  var p = _pathToString(path);
+  var opts = typeof options === 'string' ? { encoding: options } : (options || {});
+  var withFileTypes = !!opts.withFileTypes;
+  var recursive = !!opts.recursive;
+  var encoding = opts.encoding;
+  try {
+    var entries = JSON.parse(g.__exactReaddir(p));
+    if (encoding === 'buffer') {
+      entries = entries.map(function(e) { return Buffer.from(e); });
+    }
+    if (!withFileTypes && !recursive) return entries;
+    if (withFileTypes) {
+      var dirents = [];
+      for (var i = 0; i < entries.length; i++) {
+        var fullPath = p + '/' + entries[i];
+        var st;
+        try { st = lstatSync(fullPath); } catch(e) { st = null; }
+        dirents.push(new Dirent(entries[i], p, st));
+      }
+      if (recursive) {
+        var more = [];
+        for (var j = 0; j < dirents.length; j++) {
+          if (dirents[j].isDirectory()) {
+            var sub = readdirSync(p + '/' + dirents[j].name, { withFileTypes: true, recursive: true });
+            for (var k = 0; k < sub.length; k++) more.push(sub[k]);
+          }
+        }
+        dirents = dirents.concat(more);
+      }
+      return dirents;
+    }
+    if (recursive) {
+      var all = entries.slice();
+      for (var ri = 0; ri < entries.length; ri++) {
+        var rFullPath = p + '/' + entries[ri];
+        try {
+          var rSt = lstatSync(rFullPath);
+          if (rSt.isDirectory()) {
+            var rSub = readdirSync(rFullPath, { recursive: true });
+            for (var rk = 0; rk < rSub.length; rk++) all.push(entries[ri] + '/' + rSub[rk]);
+          }
+        } catch(e) {}
+      }
+      return all;
+    }
+    return entries;
+  } catch(e) {
+    throw _makeFsError(e, 'scandir', p);
+  }
 }
 
 function mkdirSync(path, options) {
   _validatePath(path);
   ensureExactFs();
+  var p = _pathToString(path);
   var recursive = typeof options === 'object' && options !== null ? !!options.recursive : false;
-  g.__exactMkdir(path, recursive);
+  try {
+    g.__exactMkdir(p, recursive);
+    if (recursive) return p;
+  } catch(e) {
+    throw _makeFsError(e, 'mkdir', p);
+  }
 }
 
-function rmdirSync(path) { _validatePath(path); ensureExactFs(); g.__exactRmdir(path); }
-function unlinkSync(path) { _validatePath(path); ensureExactFs(); g.__exactUnlink(path); }
-function renameSync(oldPath, newPath) { _validatePath(oldPath, 'oldPath'); _validatePath(newPath, 'newPath'); ensureExactFs(); g.__exactRename(oldPath, newPath); }
-function copyFileSync(src, dest) { _validatePath(src, 'src'); _validatePath(dest, 'dest'); ensureExactFs(); g.__exactCopyFile(src, dest); }
-function accessSync(path, mode) { _validatePath(path); ensureExactFs(); g.__exactAccess(path, mode || 0); }
-function chmodSync(path, mode) { _validatePath(path); ensureExactFs(); g.__exactChmod(path, mode); }
-function realpathSync(path, options) { _validatePath(path); _validateEncodingOption(options); ensureExactFs(); return g.__exactRealpath(path); }
-function mkdtempSync(prefix, options) { _validatePath(prefix, 'prefix'); _validateEncodingOption(options); ensureExactFs(); return g.__exactMkdtemp(prefix); }
+function rmdirSync(path, options) {
+  _validatePath(path); ensureExactFs();
+  var p = _pathToString(path);
+  try { g.__exactRmdir(p); } catch(e) { throw _makeFsError(e, 'rmdir', p); }
+}
+function unlinkSync(path) {
+  _validatePath(path); ensureExactFs();
+  var p = _pathToString(path);
+  try { g.__exactUnlink(p); } catch(e) { throw _makeFsError(e, 'unlink', p); }
+}
+function renameSync(oldPath, newPath) {
+  _validatePath(oldPath, 'oldPath'); _validatePath(newPath, 'newPath'); ensureExactFs();
+  var op = _pathToString(oldPath); var np = _pathToString(newPath);
+  try { g.__exactRename(op, np); } catch(e) { throw _makeFsError(e, 'rename', op, np); }
+}
+function copyFileSync(src, dest, mode) {
+  _validatePath(src, 'src'); _validatePath(dest, 'dest'); ensureExactFs();
+  var s = _pathToString(src); var d = _pathToString(dest);
+  try { g.__exactCopyFile(s, d); } catch(e) { throw _makeFsError(e, 'copyfile', s, d); }
+}
+function accessSync(path, mode) {
+  _validatePath(path); ensureExactFs();
+  var p = _pathToString(path);
+  try { g.__exactAccess(p, mode || 0); } catch(e) { throw _makeFsError(e, 'access', p); }
+}
+function chmodSync(path, mode) {
+  _validatePath(path); ensureExactFs();
+  var p = _pathToString(path);
+  var m = typeof mode === 'string' ? parseInt(mode, 8) : mode;
+  try { g.__exactChmod(p, m); } catch(e) { throw _makeFsError(e, 'chmod', p); }
+}
+function realpathSync(path, options) {
+  _validatePath(path); _validateEncodingOption(options); ensureExactFs();
+  var p = _pathToString(path);
+  try { return g.__exactRealpath(p); } catch(e) { throw _makeFsError(e, 'realpath', p); }
+}
+function mkdtempSync(prefix, options) {
+  _validatePath(prefix, 'prefix'); _validateEncodingOption(options); ensureExactFs();
+  try { return g.__exactMkdtemp(prefix); } catch(e) { throw _makeFsError(e, 'mkdtemp', prefix); }
+}
 
 function existsSync(path) {
-  ensureExactFs();
-  try { g.__exactAccess(path, 0); return true; } catch(e) { return false; }
+  // existsSync never throws - returns false for invalid paths
+  try {
+    if (typeof path !== 'string' && !Buffer.isBuffer(path)) return false;
+    ensureExactFs();
+    g.__exactAccess(_pathToString(path), 0);
+    return true;
+  } catch(e) { return false; }
 }
 
-function wrapCallback(fn, cb, arg1, arg2) {
+function wrapCallback(fn, cb, syscall, path) {
   try {
     var result = fn();
     if (typeof queueMicrotask === 'function') {
-      queueMicrotask(function() { cb(null, result, arg1, arg2); });
+      queueMicrotask(function() {
+        if (result === undefined) cb(null);
+        else cb(null, result);
+      });
+    } else {
+      if (result === undefined) cb(null);
+      else cb(null, result);
     }
-    else { cb(null, result, arg1, arg2); }
   } catch(err) {
-    var error = err instanceof Error ? err : new Error(String(err));
+    var error = _makeFsError(err, syscall, path);
     if (typeof queueMicrotask === 'function') { queueMicrotask(function() { cb(error); }); }
     else { cb(error); }
   }
@@ -302,78 +554,144 @@ function wrapCallback(fn, cb, arg1, arg2) {
 function readFile(path, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateCallback(callback);
+  if (typeof path !== 'number') _validatePath(path);
   _validateEncodingOption(opts);
-  wrapCallback(function() { return readFileSync(path, opts); }, callback);
+  wrapCallback(function() { return readFileSync(path, opts); }, callback, 'open', typeof path === 'number' ? undefined : _pathToString(path));
 }
 
 function writeFile(path, data, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateCallback(callback);
+  if (typeof path !== 'number') _validatePath(path);
   _validateEncodingOption(opts);
-  wrapCallback(function() { writeFileSync(path, data, opts); }, callback);
+  wrapCallback(function() { writeFileSync(path, data, opts); }, callback, 'open', typeof path === 'number' ? undefined : _pathToString(path));
 }
 
 function appendFile(path, data, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateCallback(callback);
+  if (typeof path !== 'number') _validatePath(path);
   _validateEncodingOption(opts);
-  wrapCallback(function() { appendFileSync(path, data, opts); }, callback);
+  wrapCallback(function() { appendFileSync(path, data, opts); }, callback, 'open', typeof path === 'number' ? undefined : _pathToString(path));
 }
 
-function stat(path, cb) { wrapCallback(function() { return statSync(path); }, cb); }
-function lstat(path, cb) { wrapCallback(function() { return lstatSync(path); }, cb); }
+function stat(path, optOrCb, cb) {
+  var opts, callback;
+  if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateCallback(callback);
+  _validatePath(path);
+  wrapCallback(function() { return statSync(path, opts); }, callback, 'stat', _pathToString(path));
+}
+function lstat(path, optOrCb, cb) {
+  var opts, callback;
+  if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateCallback(callback);
+  _validatePath(path);
+  wrapCallback(function() { return lstatSync(path, opts); }, callback, 'lstat', _pathToString(path));
+}
 function readdir(path, optOrCb, cb) {
   var opts = typeof optOrCb === 'function' ? undefined : optOrCb;
   var callback = typeof optOrCb === 'function' ? optOrCb : cb;
+  _validateCallback(callback);
+  _validatePath(path);
   _validateEncodingOption(opts);
-  wrapCallback(function() { return readdirSync(path); }, callback);
+  wrapCallback(function() { return readdirSync(path, opts); }, callback, 'scandir', _pathToString(path));
 }
 function mkdir(path, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
-  wrapCallback(function() { mkdirSync(path, opts); }, callback);
+  _validateCallback(callback);
+  _validatePath(path);
+  wrapCallback(function() { mkdirSync(path, opts); }, callback, 'mkdir', _pathToString(path));
 }
-function rmdir(path, cb) { wrapCallback(function() { rmdirSync(path); }, cb); }
-function unlink(path, cb) { wrapCallback(function() { unlinkSync(path); }, cb); }
-function rename(o, n, cb) { wrapCallback(function() { renameSync(o, n); }, cb); }
-function copyFile(s, d, cb) { wrapCallback(function() { copyFileSync(s, d); }, cb); }
+function rmdir(path, optOrCb, cb) {
+  var opts, callback;
+  if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateCallback(callback);
+  _validatePath(path);
+  wrapCallback(function() { rmdirSync(path, opts); }, callback, 'rmdir', _pathToString(path));
+}
+function unlink(path, cb) { _validateCallback(cb); _validatePath(path); wrapCallback(function() { unlinkSync(path); }, cb, 'unlink', _pathToString(path)); }
+function rename(o, n, cb) { _validateCallback(cb); _validatePath(o, 'oldPath'); _validatePath(n, 'newPath'); wrapCallback(function() { renameSync(o, n); }, cb, 'rename', _pathToString(o)); }
+function copyFile(s, d, modeOrCb, cb) {
+  var mode, callback;
+  if (typeof modeOrCb === 'function') { callback = modeOrCb; } else { mode = modeOrCb; callback = cb; }
+  _validateCallback(callback);
+  _validatePath(s, 'src');
+  _validatePath(d, 'dest');
+  wrapCallback(function() { copyFileSync(s, d, mode); }, callback, 'copyfile', _pathToString(s));
+}
 function access(path, modeOrCb, cb) {
   var mode, callback;
   if (typeof modeOrCb === 'function') { callback = modeOrCb; } else { mode = modeOrCb; callback = cb; }
-  wrapCallback(function() { accessSync(path, mode); }, callback);
+  _validateCallback(callback);
+  _validatePath(path);
+  wrapCallback(function() { accessSync(path, mode); }, callback, 'access', _pathToString(path));
 }
-function chmod(path, mode, cb) { wrapCallback(function() { chmodSync(path, mode); }, cb); }
+function chmod(path, mode, cb) { _validateCallback(cb); _validatePath(path); wrapCallback(function() { chmodSync(path, mode); }, cb, 'chmod', _pathToString(path)); }
 function realpath(path, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateCallback(callback);
+  _validatePath(path);
   _validateEncodingOption(opts);
-  wrapCallback(function() { return realpathSync(path, opts); }, callback);
+  wrapCallback(function() { return realpathSync(path, opts); }, callback, 'realpath', _pathToString(path));
 }
 function mkdtemp(prefix, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateCallback(callback);
+  _validatePath(prefix, 'prefix');
   _validateEncodingOption(opts);
-  wrapCallback(function() { return mkdtempSync(prefix, opts); }, callback);
+  wrapCallback(function() { return mkdtempSync(prefix, opts); }, callback, 'mkdtemp', prefix);
 }
 function exists(path, cb) {
-  if (typeof queueMicrotask === 'function') { queueMicrotask(function() { cb(existsSync(path)); }); }
-  else { cb(existsSync(path)); }
+  _validateCallback(cb);
+  if (typeof queueMicrotask === 'function') { queueMicrotask(function() { try { cb(existsSync(path)); } catch(e) {} }); }
+  else { try { cb(existsSync(path)); } catch(e) {} }
 }
 
 function openSync(path, flags, mode) {
+  _validatePath(path);
   ensureExactFs();
+  var p = _pathToString(path);
   var f = flags || 'r';
-  var m = (mode !== undefined && mode !== null) ? mode : 438;
-  return g.__exactFsOpen(path, f, m);
+  var m;
+  if (mode === undefined || mode === null) {
+    m = 438; // 0o666
+  } else if (typeof mode === 'number') {
+    m = mode;
+  } else if (typeof mode === 'string') {
+    m = parseInt(mode, 8);
+    if (isNaN(m)) {
+      var err = new TypeError('The argument \'mode\' must be a 32-bit unsigned integer or an octal string. Received ' + JSON.stringify(mode));
+      err.code = 'ERR_INVALID_ARG_VALUE';
+      throw err;
+    }
+  } else {
+    throw _fsInvalidArgType('mode', 'number', mode);
+  }
+  try { return g.__exactFsOpen(p, f, m); } catch(e) { throw _makeFsError(e, 'open', p); }
 }
 
 function closeSync(fd) {
+  _validateFd(fd);
   ensureExactFs();
-  g.__exactFsClose(fd);
+  try { g.__exactFsClose(fd); } catch(e) { throw _makeFsError(e, 'close'); }
 }
 
 function readSync(fd, buffer, offset, length, position) {
   ensureExactFs();
+  // Handle readSync(fd, buffer, options) form
+  if (typeof offset === 'object' && offset !== null) {
+    var ropts = offset;
+    offset = ropts.offset || 0;
+    length = ropts.length;
+    position = ropts.position;
+  }
   var off = (typeof offset === 'number') ? offset : 0;
   var len = (typeof length === 'number') ? length : (buffer ? buffer.length - off : 0);
   var pos = (typeof position === 'number' && position !== null) ? position : -1;
@@ -388,10 +706,20 @@ function readSync(fd, buffer, offset, length, position) {
 
 function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
   ensureExactFs();
+  // Handle writeSync(fd, buffer, options) form
+  if (typeof bufferOrString !== 'string' && typeof offsetOrPosition === 'object' && offsetOrPosition !== null) {
+    var wopts = offsetOrPosition;
+    offsetOrPosition = wopts.offset || 0;
+    lengthOrEncoding = wopts.length;
+    position = wopts.position;
+  }
   if (typeof bufferOrString === 'string') {
     var pos = (typeof offsetOrPosition === 'number') ? offsetOrPosition : -1;
     var bytes = toUint8Array(bufferOrString);
     return g.__exactFsWrite(fd, bytes, pos);
+  }
+  if (!Buffer.isBuffer(bufferOrString) && !(bufferOrString instanceof Uint8Array) && !ArrayBuffer.isView(bufferOrString)) {
+    throw _fsInvalidArgType('buffer', 'string or an instance of Buffer or Uint8Array', bufferOrString);
   }
   var off = (typeof offsetOrPosition === 'number') ? offsetOrPosition : 0;
   var len = (typeof lengthOrEncoding === 'number') ? lengthOrEncoding : (bufferOrString ? bufferOrString.length - off : 0);
@@ -408,42 +736,162 @@ function open(path, flagsOrCb, modeOrCb, cb) {
   if (typeof flagsOrCb === 'function') { callback = flagsOrCb; flags = 'r'; mode = 438; }
   else if (typeof modeOrCb === 'function') { callback = modeOrCb; flags = flagsOrCb; mode = 438; }
   else { callback = cb; flags = flagsOrCb; mode = modeOrCb; }
-  wrapCallback(function() { return openSync(path, flags, mode); }, callback);
+  _validateCallback(callback);
+  _validatePath(path);
+  // Validate mode synchronously (Node.js throws for invalid modes before async)
+  if (mode !== undefined && mode !== null && mode !== 438) {
+    if (typeof mode === 'string') {
+      var parsed = parseInt(mode, 8);
+      if (isNaN(parsed)) {
+        var err = new TypeError('The argument \'mode\' must be a 32-bit unsigned integer or an octal string. Received ' + JSON.stringify(mode));
+        err.code = 'ERR_INVALID_ARG_VALUE';
+        throw err;
+      }
+    } else if (typeof mode !== 'number') {
+      throw _fsInvalidArgType('mode', 'number', mode);
+    }
+  }
+  wrapCallback(function() { return openSync(path, flags, mode); }, callback, 'open', _pathToString(path));
 }
 
 function close(fd, cb) {
-  wrapCallback(function() { closeSync(fd); }, cb);
+  if (typeof cb === 'function') {
+    wrapCallback(function() { closeSync(fd); }, cb, 'close');
+  } else if (cb !== undefined) {
+    _validateCallback(cb);
+  } else {
+    closeSync(fd);
+  }
 }
 
 function fsRead(fd, buffer, offset, length, position, cb) {
-  wrapCallback(function() { return readSync(fd, buffer, offset, length, position); }, cb);
+  // Support fs.read(fd, callback)
+  if (typeof buffer === 'function') {
+    cb = buffer;
+    buffer = Buffer.alloc(16384);
+    offset = 0;
+    length = buffer.length;
+    position = -1;
+  }
+  // Support fs.read(fd, options, callback)
+  else if (typeof buffer === 'object' && buffer !== null && !Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) {
+    var opts = buffer;
+    cb = offset;
+    buffer = opts.buffer || Buffer.alloc(16384);
+    offset = opts.offset || 0;
+    length = opts.length !== undefined ? opts.length : (buffer.length - offset);
+    position = opts.position !== undefined ? opts.position : -1;
+  }
+  // Handle various callback positions
+  if (typeof offset === 'function') {
+    cb = offset;
+    if (!buffer) buffer = Buffer.alloc(16384);
+    offset = 0; length = buffer.length; position = -1;
+  }
+  else if (typeof length === 'function') { cb = length; length = buffer ? buffer.length - (offset || 0) : 0; position = -1; }
+  else if (typeof position === 'function') { cb = position; position = -1; }
+  // Handle offset as options object: fs.read(fd, buffer, { offset, length, position }, cb)
+  if (cb === undefined && typeof offset === 'object' && offset !== null) {
+    var readOpts = offset;
+    cb = length; // the arg after options
+    offset = readOpts.offset || 0;
+    length = readOpts.length !== undefined ? readOpts.length : (buffer ? buffer.length - offset : 0);
+    position = readOpts.position !== undefined ? readOpts.position : -1;
+  }
+  _validateCallback(cb);
+  try {
+    var bytesRead = readSync(fd, buffer, offset, length, position);
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(function() { cb(null, bytesRead, buffer); });
+    } else {
+      cb(null, bytesRead, buffer);
+    }
+  } catch(err) {
+    var error = _makeFsError(err, 'read');
+    if (typeof queueMicrotask === 'function') { queueMicrotask(function() { cb(error); }); }
+    else { cb(error); }
+  }
 }
 
 function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position, cb) {
-  if (typeof offsetOrPosition === 'function') {
-    cb = offsetOrPosition;
-    wrapCallback(function() { return writeSync(fd, bufferOrString); }, cb, bufferOrString);
-    return;
-  }
-  if (typeof lengthOrEncoding === 'function') {
-    cb = lengthOrEncoding;
-    wrapCallback(function() {
-      return writeSync(fd, bufferOrString, offsetOrPosition);
-    }, cb, bufferOrString);
-    return;
-  }
+  // Determine which call signature is being used:
+  // 1. fs.write(fd, buffer[, offset[, length[, position]]], callback)
+  // 2. fs.write(fd, string[, position[, encoding]], callback)
+  // 3. fs.write(fd, buffer, options, callback) -- options is an object with offset/length/position
+
+  // First, figure out which argument is the callback
   if (typeof position === 'function') {
     cb = position;
-    wrapCallback(function() {
-      return writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding);
-    }, cb, bufferOrString);
-    return;
+    position = undefined;
+  } else if (typeof lengthOrEncoding === 'function') {
+    // Could be: (fd, buffer, options, cb) or (fd, string, position, cb) or (fd, buffer, offset, cb)
+    if (typeof offsetOrPosition === 'number' || typeof offsetOrPosition === 'undefined') {
+      // (fd, buffer, offset, cb) or (fd, string, position, cb)
+      cb = lengthOrEncoding;
+      lengthOrEncoding = undefined;
+      position = undefined;
+    } else {
+      // (fd, buffer, options, cb) where options may be valid object or invalid type
+      cb = lengthOrEncoding;
+      if (typeof offsetOrPosition === 'object' && offsetOrPosition !== null) {
+        var wopts = offsetOrPosition;
+        offsetOrPosition = wopts.offset;
+        lengthOrEncoding = wopts.length;
+        position = wopts.position;
+      } else {
+        // Invalid options type - will be validated below
+        // Keep offsetOrPosition as-is; it will fail type validation
+        lengthOrEncoding = undefined;
+        position = undefined;
+      }
+    }
+  } else if (typeof offsetOrPosition === 'function') {
+    cb = offsetOrPosition;
+    offsetOrPosition = typeof bufferOrString === 'string' ? undefined : 0;
+    lengthOrEncoding = typeof bufferOrString === 'string' ? undefined : (bufferOrString ? bufferOrString.length : 0);
+    position = undefined;
   }
-  wrapCallback(
-    function() { return writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position); },
-    cb,
-    bufferOrString
-  );
+
+  // Validate buffer/string argument
+  if (typeof bufferOrString !== 'string' && !Buffer.isBuffer(bufferOrString) && !(bufferOrString instanceof Uint8Array) && !ArrayBuffer.isView(bufferOrString)) {
+    throw _fsInvalidArgType('buffer', 'string or an instance of Buffer or Uint8Array', bufferOrString);
+  }
+  _validateCallback(cb);
+
+  // For buffer writes, validate offset/length/position
+  if (typeof bufferOrString !== 'string') {
+    var bufLen = bufferOrString.length;
+    var off = offsetOrPosition !== undefined && offsetOrPosition !== null ? offsetOrPosition : 0;
+    var len = lengthOrEncoding !== undefined && lengthOrEncoding !== null ? lengthOrEncoding : (bufLen - off);
+
+    // Validate types
+    if (typeof off !== 'number') {
+      throw _fsInvalidArgType('offset', 'number', off);
+    }
+    if (typeof len !== 'number') {
+      // length can be implicit
+    }
+
+    // Validate ranges
+    if (off < 0 || off > bufLen) {
+      throw _fsOutOfRange('offset', off, 0, bufLen);
+    }
+    if (typeof len === 'number' && (len < 0 || off + len > bufLen)) {
+      throw _fsOutOfRange('length', len, 0, bufLen - off);
+    }
+  }
+  try {
+    var written = writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position);
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(function() { cb(null, written, bufferOrString); });
+    } else {
+      cb(null, written, bufferOrString);
+    }
+  } catch(err) {
+    var error = _makeFsError(err, 'write');
+    if (typeof queueMicrotask === 'function') { queueMicrotask(function() { cb(error); }); }
+    else { cb(error); }
+  }
 }
 
 function createReadStream(path, options) {
@@ -915,35 +1363,9 @@ function emitWatchDirectoryChanges(watcher, encoding, prevState, nextState) {
   }
 }
 function makeZeroStats() {
-  var zero = new Date(0);
-  return {
-    __exactExists: false,
-    dev: 0,
-    mode: 0,
-    nlink: 0,
-    uid: 0,
-    gid: 0,
-    rdev: 0,
-    blksize: 0,
-    ino: 0,
-    size: 0,
-    blocks: 0,
-    atimeMs: 0,
-    mtimeMs: 0,
-    ctimeMs: 0,
-    birthtimeMs: 0,
-    atime: zero,
-    mtime: zero,
-    ctime: zero,
-    birthtime: zero,
-    isFile: function() { return false; },
-    isDirectory: function() { return false; },
-    isSymbolicLink: function() { return false; },
-    isBlockDevice: function() { return false; },
-    isCharacterDevice: function() { return false; },
-    isFIFO: function() { return false; },
-    isSocket: function() { return false; }
-  };
+  var s = new Stats({});
+  s.__exactExists = false;
+  return s;
 }
 
 function watch(filename, options, listener) {
@@ -1128,92 +1550,130 @@ function unwatchFile(filename) {
 
 // fs.symlink/link/readlink/truncate/chown/utimes/rm
 function symlinkSync(target, path, type) {
+  _validatePath(target, 'target');
+  _validatePath(path, 'path');
   ensureExactFs();
-  if (typeof g.__exactSymlink === 'function') return g.__exactSymlink(target, path);
-  throw new Error('symlink not available');
+  var t = _pathToString(target); var p = _pathToString(path);
+  try {
+    if (typeof g.__exactSymlink === 'function') return g.__exactSymlink(t, p);
+    throw new Error('ENOSYS: symlink not available');
+  } catch(e) { throw _makeFsError(e, 'symlink', t, p); }
 }
 function symlink(target, path, type, cb) {
   if (typeof type === 'function') { cb = type; type = null; }
-  try { symlinkSync(target, path, type); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
+  _validateCallback(cb);
+  _validatePath(target, 'target');
+  _validatePath(path);
+  wrapCallback(function() { symlinkSync(target, path, type); }, cb, 'symlink');
 }
 function linkSync(existingPath, newPath) {
+  _validatePath(existingPath, 'existingPath');
+  _validatePath(newPath, 'newPath');
   ensureExactFs();
-  if (typeof g.__exactLink === 'function') return g.__exactLink(existingPath, newPath);
-  throw new Error('link not available');
+  var ep = _pathToString(existingPath); var np = _pathToString(newPath);
+  try {
+    if (typeof g.__exactLink === 'function') return g.__exactLink(ep, np);
+    throw new Error('ENOSYS: link not available');
+  } catch(e) { throw _makeFsError(e, 'link', ep, np); }
 }
 function link(existingPath, newPath, cb) {
-  try { linkSync(existingPath, newPath); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
+  _validateCallback(cb);
+  _validatePath(existingPath, 'existingPath');
+  _validatePath(newPath, 'newPath');
+  wrapCallback(function() { linkSync(existingPath, newPath); }, cb, 'link');
 }
 function readlinkSync(path, options) {
   _validatePath(path, 'path');
   _validateEncodingOption(options);
   ensureExactFs();
-  if (typeof g.__exactReadlink === 'function') return g.__exactReadlink(path);
-  throw new Error('readlink not available');
+  var p = _pathToString(path);
+  try {
+    if (typeof g.__exactReadlink === 'function') return g.__exactReadlink(p);
+    throw new Error('ENOSYS: readlink not available');
+  } catch(e) { throw _makeFsError(e, 'readlink', p); }
 }
 function readlink(path, options, cb) {
   if (typeof options === 'function') { cb = options; options = undefined; }
+  _validateCallback(cb);
   _validatePath(path, 'path');
   _validateEncodingOption(options);
-  if (cb !== undefined) {
-    _validateCallback(cb);
-  }
-  try {
-    var r = readlinkSync(path);
-    if (cb) {
-      if (typeof queueMicrotask === 'function') {
-        queueMicrotask(function() { cb(null, r); });
-      } else {
-        cb(null, r);
-      }
-    } else {
-      return r;
-    }
-  } catch(e) {
-    if (cb) {
-      if (typeof queueMicrotask === 'function') {
-        queueMicrotask(function() { cb(e); });
-      } else {
-        cb(e);
-      }
-      return;
-    }
-    throw e;
-  }
+  wrapCallback(function() { return readlinkSync(path, options); }, cb, 'readlink', _pathToString(path));
 }
 function truncateSync(path, len) {
+  // Support fd as first arg (delegates to ftruncateSync)
+  if (typeof path === 'number') {
+    return ftruncateSync(path, len);
+  }
+  _validatePath(path);
   ensureExactFs();
-  if (typeof g.__exactTruncate === 'function') return g.__exactTruncate(path, len || 0);
-  throw new Error('truncate not available');
+  var p = _pathToString(path);
+  try {
+    if (typeof g.__exactTruncate === 'function') return g.__exactTruncate(p, len || 0);
+    throw new Error('ENOSYS: truncate not available');
+  } catch(e) { throw _makeFsError(e, 'truncate', p); }
 }
 function truncate(path, len, cb) {
   if (typeof len === 'function') { cb = len; len = 0; }
-  try { truncateSync(path, len); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
+  // Support fd as first arg
+  if (typeof path === 'number') {
+    return ftruncate(path, len, cb);
+  }
+  _validateCallback(cb);
+  _validatePath(path);
+  wrapCallback(function() { truncateSync(path, len); }, cb, 'truncate', _pathToString(path));
 }
 function chownSync(path, uid, gid) {
+  _validatePath(path);
+  _validateUint32('uid', uid);
+  _validateUint32('gid', gid);
   ensureExactFs();
-  if (typeof g.__exactChown === 'function') return g.__exactChown(path, uid, gid);
-  // No-op if native chown not available
+  var p = _pathToString(path);
+  try {
+    if (typeof g.__exactChown === 'function') return g.__exactChown(p, uid, gid);
+  } catch(e) { throw _makeFsError(e, 'chown', p); }
 }
 function chown(path, uid, gid, cb) {
-  try { chownSync(path, uid, gid); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
+  _validateCallback(cb);
+  _validatePath(path);
+  _validateUint32('uid', uid);
+  _validateUint32('gid', gid);
+  wrapCallback(function() { chownSync(path, uid, gid); }, cb, 'chown', _pathToString(path));
+}
+function lchownSync(path, uid, gid) {
+  _validatePath(path);
+  _validateUint32('uid', uid);
+  _validateUint32('gid', gid);
+  ensureExactFs();
+  var p = _pathToString(path);
+  try {
+    if (typeof g.__exactLchown === 'function') return g.__exactLchown(p, uid, gid);
+  } catch(e) { throw _makeFsError(e, 'lchown', p); }
 }
 function utimesSync(path, atime, mtime) {
+  _validatePath(path);
   ensureExactFs();
-  if (typeof g.__exactUtimes === 'function') return g.__exactUtimes(path, atime, mtime);
-  // No-op if native utimes not available
+  var p = _pathToString(path);
+  var at = atime instanceof Date ? atime.getTime() / 1000 : (typeof atime === 'string' ? Number(atime) : atime);
+  var mt = mtime instanceof Date ? mtime.getTime() / 1000 : (typeof mtime === 'string' ? Number(mtime) : mtime);
+  try {
+    if (typeof g.__exactUtimes === 'function') return g.__exactUtimes(p, at, mt);
+  } catch(e) { throw _makeFsError(e, 'utimes', p); }
 }
 function utimes(path, atime, mtime, cb) {
-  try { utimesSync(path, atime, mtime); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
+  _validateCallback(cb);
+  _validatePath(path);
+  wrapCallback(function() { utimesSync(path, atime, mtime); }, cb, 'utimes', _pathToString(path));
 }
 function rmSync(path, options) {
   ensureExactFs();
   options = options || {};
   try {
-    var info = statSync(path);
+    // Use lstatSync to not follow symlinks - symlinks should be unlinked, not traversed
+    var info = lstatSync(path);
     if (typeof info.isDirectory === 'function' ? info.isDirectory() : info.is_dir) {
       if (options.recursive) {
-        var entries = readdirSync(path);
+        var entries;
+        try { entries = readdirSync(path); } catch(e2) { entries = []; }
         for (var i = 0; i < entries.length; i++) {
           rmSync(path + '/' + entries[i], options);
         }
@@ -1222,46 +1682,43 @@ function rmSync(path, options) {
     } else {
       unlinkSync(path);
     }
-  } catch(e) { if (!(options.force)) throw e; }
+  } catch(e) {
+    if (options.force && e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return;
+    if (!(options.force)) throw e;
+  }
 }
 function rm(path, options, cb) {
   if (typeof options === 'function') { cb = options; options = {}; }
-  try { rmSync(path, options); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
+  _validateCallback(cb);
+  wrapCallback(function() { rmSync(path, options); }, cb, 'rm', _pathToString(path));
 }
 
 var promises = {
-  readFile: function(p, o) { return Promise.resolve(readFileSync(p, o)); },
-  writeFile: function(p, d, o) { writeFileSync(p, d, o); return Promise.resolve(); },
-  appendFile: function(p, d, o) { appendFileSync(p, d, o); return Promise.resolve(); },
-  stat: function(p) { return Promise.resolve(statSync(p)); },
-  lstat: function(p) { return Promise.resolve(lstatSync(p)); },
-  readdir: function(p) { return Promise.resolve(readdirSync(p)); },
-  mkdir: function(p, o) { mkdirSync(p, o); return Promise.resolve(); },
-  rmdir: function(p) { rmdirSync(p); return Promise.resolve(); },
-  unlink: function(p) { unlinkSync(p); return Promise.resolve(); },
-  rename: function(o, n) { renameSync(o, n); return Promise.resolve(); },
-  copyFile: function(s, d) { copyFileSync(s, d); return Promise.resolve(); },
-  access: function(p, m) { accessSync(p, m); return Promise.resolve(); },
-  chmod: function(p, m) { chmodSync(p, m); return Promise.resolve(); },
-  realpath: function(p) { return Promise.resolve(realpathSync(p)); },
-  mkdtemp: function(p) { return Promise.resolve(mkdtempSync(p)); },
-  rm: function(p, o) {
-    ensureExactFs();
-    try {
-      var info = statSync(p);
-      if (typeof info.isDirectory === 'function' ? info.isDirectory() : info.is_dir) rmdirSync(p);
-      else unlinkSync(p);
-    } catch(e) { if (!(o && o.force)) throw e; }
-    return Promise.resolve();
-  },
-  open: function(p, f, m) { return Promise.resolve(openSync(p, f, m)); },
-  close: function(fd) { closeSync(fd); return Promise.resolve(); },
-  symlink: function(t, p, ty) { symlinkSync(t, p, ty); return Promise.resolve(); },
-  link: function(e, n) { linkSync(e, n); return Promise.resolve(); },
-  readlink: function(p) { return Promise.resolve(readlinkSync(p)); },
-  truncate: function(p, l) { truncateSync(p, l); return Promise.resolve(); },
-  chown: function(p, u, g) { chownSync(p, u, g); return Promise.resolve(); },
-  utimes: function(p, a, m) { utimesSync(p, a, m); return Promise.resolve(); },
+  readFile: function(p, o) { try { return Promise.resolve(readFileSync(p, o)); } catch(e) { return Promise.reject(e); } },
+  writeFile: function(p, d, o) { try { writeFileSync(p, d, o); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  appendFile: function(p, d, o) { try { appendFileSync(p, d, o); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  stat: function(p, o) { try { return Promise.resolve(statSync(p, o)); } catch(e) { return Promise.reject(e); } },
+  lstat: function(p, o) { try { return Promise.resolve(lstatSync(p, o)); } catch(e) { return Promise.reject(e); } },
+  readdir: function(p, o) { try { return Promise.resolve(readdirSync(p, o)); } catch(e) { return Promise.reject(e); } },
+  mkdir: function(p, o) { try { mkdirSync(p, o); return Promise.resolve(o && o.recursive ? _pathToString(p) : undefined); } catch(e) { return Promise.reject(e); } },
+  rmdir: function(p, o) { try { rmdirSync(p, o); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  unlink: function(p) { try { unlinkSync(p); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  rename: function(o, n) { try { renameSync(o, n); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  copyFile: function(s, d, m) { try { copyFileSync(s, d, m); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  access: function(p, m) { try { accessSync(p, m); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  chmod: function(p, m) { try { chmodSync(p, m); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  realpath: function(p, o) { try { return Promise.resolve(realpathSync(p, o)); } catch(e) { return Promise.reject(e); } },
+  mkdtemp: function(p, o) { try { return Promise.resolve(mkdtempSync(p, o)); } catch(e) { return Promise.reject(e); } },
+  rm: function(p, o) { try { rmSync(p, o); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  open: function(p, f, m) { try { return Promise.resolve(openSync(p, f, m)); } catch(e) { return Promise.reject(e); } },
+  close: function(fd) { try { closeSync(fd); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  symlink: function(t, p, ty) { try { symlinkSync(t, p, ty); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  link: function(e, n) { try { linkSync(e, n); return Promise.resolve(); } catch(e2) { return Promise.reject(e2); } },
+  readlink: function(p, o) { try { return Promise.resolve(readlinkSync(p, o)); } catch(e) { return Promise.reject(e); } },
+  truncate: function(p, l) { try { truncateSync(p, l); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  chown: function(p, u, gi) { try { chownSync(p, u, gi); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  lchown: function(p, u, gi) { try { lchownSync(p, u, gi); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
+  utimes: function(p, a, m) { try { utimesSync(p, a, m); return Promise.resolve(); } catch(e) { return Promise.reject(e); } },
   watch: function(p, o) { return watch(p, o); },
   constants: constants
 };
@@ -1405,97 +1862,156 @@ function fchownSync(fd, uid, gid) {
 function ftruncate(fd, len, callback) {
   if (typeof len === 'function') { callback = len; len = 0; }
   _validateFd(fd);
+  _validateCallback(callback);
   ensureExactFs();
-  if (typeof g.__exactFsFtruncate === 'function') {
-    g.__exactFsFtruncate(fd, len, callback);
-  } else {
-    callback(null);
+  try {
+    ftruncateSync(fd, len);
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(null); });
+    else callback(null);
+  } catch(e) {
+    var err = _makeFsError(e, 'ftruncate');
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(err); });
+    else callback(err);
   }
 }
 function ftruncateSync(fd, len) {
   _validateFd(fd);
   ensureExactFs();
-  if (typeof g.__exactFsFtruncateSync === 'function') {
-    return g.__exactFsFtruncateSync(fd, len || 0);
-  }
+  try {
+    if (typeof g.__exactFsFtruncateSync === 'function') {
+      return g.__exactFsFtruncateSync(fd, len || 0);
+    }
+  } catch(e) { throw _makeFsError(e, 'ftruncate'); }
 }
 
 // fdatasync/fdatasyncSync
 function fdatasync(fd, callback) {
   _validateFd(fd);
-  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
-  callback(null);
+  _validateCallback(callback);
+  ensureExactFs();
+  try {
+    if (typeof g.__exactFsFdatasyncSync === 'function') g.__exactFsFdatasyncSync(fd);
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(null); });
+    else callback(null);
+  } catch(e) {
+    var err = _makeFsError(e, 'fdatasync');
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(err); });
+    else callback(err);
+  }
 }
 function fdatasyncSync(fd) {
   _validateFd(fd);
+  ensureExactFs();
+  try {
+    if (typeof g.__exactFsFdatasyncSync === 'function') g.__exactFsFdatasyncSync(fd);
+  } catch(e) { throw _makeFsError(e, 'fdatasync'); }
 }
 
 // fsync/fsyncSync
 function fsync(fd, callback) {
   _validateFd(fd);
-  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
-  callback(null);
+  _validateCallback(callback);
+  ensureExactFs();
+  try {
+    if (typeof g.__exactFsFsyncSync === 'function') g.__exactFsFsyncSync(fd);
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(null); });
+    else callback(null);
+  } catch(e) {
+    var err = _makeFsError(e, 'fsync');
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(err); });
+    else callback(err);
+  }
 }
 function fsyncSync(fd) {
   _validateFd(fd);
+  ensureExactFs();
+  try {
+    if (typeof g.__exactFsFsyncSync === 'function') g.__exactFsFsyncSync(fd);
+  } catch(e) { throw _makeFsError(e, 'fsync'); }
 }
 
 // fstat/fstatSync
 function fstat(fd, opts, callback) {
   if (typeof opts === 'function') { callback = opts; opts = {}; }
   _validateFd(fd);
+  _validateCallback(callback);
   ensureExactFs();
-  if (typeof g.__exactFsFstat === 'function') {
-    g.__exactFsFstat(fd, callback);
-  } else {
-    var err = new Error('fstat is not supported');
-    err.code = 'ENOSYS';
-    callback(err);
+  try {
+    var result = fstatSync(fd, opts);
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(null, result); });
+    else callback(null, result);
+  } catch(e) {
+    var err = _makeFsError(e, 'fstat');
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(err); });
+    else callback(err);
   }
 }
 function fstatSync(fd, opts) {
   _validateFd(fd);
   ensureExactFs();
-  if (typeof g.__exactFsFstatSync === 'function') {
-    return g.__exactFsFstatSync(fd);
-  }
-  var err = new Error('fstatSync is not supported');
-  err.code = 'ENOSYS';
-  throw err;
+  try {
+    if (typeof g.__exactFsFstatSync === 'function') {
+      var json = g.__exactFsFstatSync(fd);
+      return _makeStats(json);
+    }
+    var err = new Error('ENOSYS: fstatSync is not supported');
+    err.code = 'ENOSYS';
+    throw err;
+  } catch(e) { throw _makeFsError(e, 'fstat'); }
 }
 
 // futimes/futimesSync
 function futimes(fd, atime, mtime, callback) {
   _validateFd(fd);
-  if (typeof callback !== 'function') throw _fsInvalidArgType('callback', 'function', callback);
-  callback(null);
+  _validateCallback(callback);
+  ensureExactFs();
+  try {
+    futimesSync(fd, atime, mtime);
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(null); });
+    else callback(null);
+  } catch(e) {
+    var err = _makeFsError(e, 'futimes');
+    if (typeof queueMicrotask === 'function') queueMicrotask(function() { callback(err); });
+    else callback(err);
+  }
 }
 function futimesSync(fd, atime, mtime) {
   _validateFd(fd);
+  ensureExactFs();
+  try {
+    if (typeof g.__exactFsFutimesSync === 'function') {
+      var at = atime instanceof Date ? atime.getTime() : (typeof atime === 'number' ? atime : 0);
+      var mt = mtime instanceof Date ? mtime.getTime() : (typeof mtime === 'number' ? mtime : 0);
+      g.__exactFsFutimesSync(fd, at, mt);
+    }
+  } catch(e) { throw _makeFsError(e, 'futimes'); }
 }
 
-// lchmod/lchmodSync  
+// lchmod/lchmodSync
 function lchmod(path, mode, callback) {
   _validatePath(path);
-  callback(null);
+  _validateCallback(callback);
+  wrapCallback(function() { lchmodSync(path, mode); }, callback, 'lchmod', _pathToString(path));
 }
 function lchmodSync(path, mode) {
   _validatePath(path);
+  // lchmod is only implemented on macOS
 }
 
-// lchown/lchownSync
+// lchown/lchownSync is defined above with error enrichment
 function lchown(path, uid, gid, callback) {
   _validatePath(path);
-  callback(null);
-}
-function lchownSync(path, uid, gid) {
-  _validatePath(path);
+  _validateUint32('uid', uid);
+  _validateUint32('gid', gid);
+  _validateCallback(callback);
+  wrapCallback(function() { lchownSync(path, uid, gid); }, callback, 'lchown', _pathToString(path));
 }
 
 // lutimes/lutimesSync
 function lutimes(path, atime, mtime, callback) {
   _validatePath(path);
-  callback(null);
+  _validateCallback(callback);
+  wrapCallback(function() { lutimesSync(path, atime, mtime); }, callback, 'lutimes', _pathToString(path));
 }
 function lutimesSync(path, atime, mtime) {
   _validatePath(path);
@@ -1559,6 +2075,8 @@ module.exports = {
   watchFile: watchFile,
   unwatchFile: unwatchFile,
   FSWatcher: FSWatcher,
+  Stats: Stats,
+  Dirent: Dirent,
   symlink: symlink,
   symlinkSync: symlinkSync,
   link: link,

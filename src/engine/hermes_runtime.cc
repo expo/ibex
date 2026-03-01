@@ -1722,6 +1722,51 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
 
 }
 
+static std::string fsErrorMessage(int errn, const char* syscall, const std::string& path, const std::string& dest = "") {
+  const char* code = "UNKNOWN";
+  const char* description = "unknown error";
+  switch (errn) {
+    case EACCES: code = "EACCES"; description = "permission denied"; break;
+    case EBADF: code = "EBADF"; description = "bad file descriptor"; break;
+    case EBUSY: code = "EBUSY"; description = "resource busy or locked"; break;
+    case EEXIST: code = "EEXIST"; description = "file already exists"; break;
+    case EINVAL: code = "EINVAL"; description = "invalid argument"; break;
+    case EIO: code = "EIO"; description = "i/o error"; break;
+    case EISDIR: code = "EISDIR"; description = "illegal operation on a directory"; break;
+    case ELOOP: code = "ELOOP"; description = "too many symbolic links encountered"; break;
+    case EMFILE: code = "EMFILE"; description = "too many open files"; break;
+    case ENAMETOOLONG: code = "ENAMETOOLONG"; description = "name too long"; break;
+    case ENOENT: code = "ENOENT"; description = "no such file or directory"; break;
+    case ENOMEM: code = "ENOMEM"; description = "not enough memory"; break;
+    case ENOSPC: code = "ENOSPC"; description = "no space left on device"; break;
+    case ENOSYS: code = "ENOSYS"; description = "function not implemented"; break;
+    case ENOTDIR: code = "ENOTDIR"; description = "not a directory"; break;
+    case ENOTEMPTY: code = "ENOTEMPTY"; description = "directory not empty"; break;
+    case EPERM: code = "EPERM"; description = "operation not permitted"; break;
+    case EROFS: code = "EROFS"; description = "read-only file system"; break;
+    case ESPIPE: code = "ESPIPE"; description = "invalid seek"; break;
+    case EXDEV: code = "EXDEV"; description = "cross-device link not permitted"; break;
+    case ETXTBSY: code = "ETXTBSY"; description = "text file is busy"; break;
+#ifdef ENOTSUP
+    case ENOTSUP: code = "ENOTSUP"; description = "operation not supported"; break;
+#endif
+    default: break;
+  }
+  std::string msg = std::string(code) + ": " + description + ", " + syscall;
+  if (!path.empty()) {
+    msg += " '" + path + "'";
+  }
+  if (!dest.empty()) {
+    msg += " -> '" + dest + "'";
+  }
+  return msg;
+}
+
+static void throwFsError(facebook::jsi::Runtime& runtime, const char* syscall, const std::string& path, const std::string& dest = "") {
+  int errn = errno;
+  throw facebook::jsi::JSError(runtime, fsErrorMessage(errn, syscall, path, dest));
+}
+
 static void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   auto readFileFn = facebook::jsi::Function::createFromHostFunction(
@@ -1879,7 +1924,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         char* json = ex_host_fs_stat(path.c_str());
         if (!json) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, stat '") + path + "'");
+          throwFsError(runtime, "stat", path);
         }
         auto result = facebook::jsi::String::createFromUtf8(runtime, json);
         ex_host_free_string(json);
@@ -1906,7 +1951,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         char* json = ex_host_fs_lstat(path.c_str());
         if (!json) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, lstat '") + path + "'");
+          throwFsError(runtime, "lstat", path);
         }
         auto result = facebook::jsi::String::createFromUtf8(runtime, json);
         ex_host_free_string(json);
@@ -1933,7 +1978,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         char* json = ex_host_fs_readdir(path.c_str());
         if (!json) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, readdir '") + path + "'");
+          throwFsError(runtime, "scandir", path);
         }
         auto result = facebook::jsi::String::createFromUtf8(runtime, json);
         ex_host_free_string(json);
@@ -1965,7 +2010,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           recursive = args[1].asNumber() != 0 ? 1 : 0;
         }
         if (ex_host_fs_mkdir(path.c_str(), recursive) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: failed to create directory '") + path + "'");
+          throwFsError(runtime, "mkdir", path);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -1989,7 +2034,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (ex_host_fs_rmdir(path.c_str()) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: failed to remove directory '") + path + "'");
+          throwFsError(runtime, "rmdir", path);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -2013,7 +2058,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (ex_host_fs_unlink(path.c_str()) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, unlink '") + path + "'");
+          throwFsError(runtime, "unlink", path);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -2038,7 +2083,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (ex_host_fs_rename(from.c_str(), to.c_str()) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("Failed to rename '") + from + "' to '" + to + "'");
+          throwFsError(runtime, "rename", from, to);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -2067,7 +2112,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (ex_host_fs_copy(from.c_str(), to.c_str()) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("Failed to copy '") + from + "' to '" + to + "'");
+          throwFsError(runtime, "copyfile", from, to);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -2092,7 +2137,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         char* resolved = ex_host_fs_realpath(path.c_str());
         if (!resolved) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, realpath '") + path + "'");
+          throwFsError(runtime, "realpath", path);
         }
         auto result = facebook::jsi::String::createFromUtf8(runtime, resolved);
         ex_host_free_string(resolved);
@@ -2122,7 +2167,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           mode = static_cast<int32_t>(args[1].asNumber());
         }
         if (ex_host_fs_access(path.c_str(), mode) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, access '") + path + "'");
+          throwFsError(runtime, "access", path);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -2147,7 +2192,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t mode = static_cast<uint32_t>(args[1].asNumber());
         if (ex_host_fs_chmod(path.c_str(), mode) != 0) {
-          throw facebook::jsi::JSError(runtime, std::string("Failed to chmod '") + path + "'");
+          throwFsError(runtime, "chmod", path);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -2232,7 +2277,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
 
         int fd = ::open(path.c_str(), posixFlags, mode);
         if (fd < 0) {
-          throw facebook::jsi::JSError(runtime, std::string("ENOENT: no such file or directory, open '") + path + "'");
+          throwFsError(runtime, "open", path);
         }
         return facebook::jsi::Value(fd);
       });
@@ -2252,7 +2297,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         if (::close(fd) < 0) {
-          throw facebook::jsi::JSError(runtime, std::string("EBADF: bad file descriptor, close fd ") + std::to_string(fd));
+          throwFsError(runtime, "close", "");
         }
         return facebook::jsi::Value::undefined();
       });
@@ -2335,6 +2380,321 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value(static_cast<int>(bytesWritten));
       });
   rt.global().setProperty(rt, "__exactFsWrite", std::move(fsWriteFn));
+
+  // __exactSymlink(target, path) -> void
+  auto symlinkFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactSymlink"), 2,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactSymlink: target and path required");
+        }
+        auto target = args[0].toString(runtime).utf8(runtime);
+        auto path = args[1].toString(runtime).utf8(runtime);
+        if (::symlink(target.c_str(), path.c_str()) != 0) {
+          throwFsError(runtime, "symlink", target, path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactSymlink", std::move(symlinkFn));
+
+  // __exactLink(existingPath, newPath) -> void
+  auto linkFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactLink"), 2,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactLink: existingPath and newPath required");
+        }
+        auto existing = args[0].toString(runtime).utf8(runtime);
+        auto newp = args[1].toString(runtime).utf8(runtime);
+        if (::link(existing.c_str(), newp.c_str()) != 0) {
+          throwFsError(runtime, "link", existing, newp);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactLink", std::move(linkFn));
+
+  // __exactReadlink(path) -> string
+  auto readlinkFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactReadlink"), 1,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactReadlink: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        char buf[PATH_MAX];
+        ssize_t len = ::readlink(path.c_str(), buf, sizeof(buf) - 1);
+        if (len < 0) {
+          throwFsError(runtime, "readlink", path);
+        }
+        buf[len] = '\0';
+        return facebook::jsi::String::createFromUtf8(runtime, buf);
+      });
+  rt.global().setProperty(rt, "__exactReadlink", std::move(readlinkFn));
+
+  // __exactTruncate(path, len) -> void
+  auto truncateFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTruncate"), 2,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactTruncate: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        off_t len = 0;
+        if (count > 1 && args[1].isNumber()) len = static_cast<off_t>(args[1].asNumber());
+        if (::truncate(path.c_str(), len) != 0) {
+          throwFsError(runtime, "truncate", path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactTruncate", std::move(truncateFn));
+
+  // __exactChown(path, uid, gid) -> void
+  auto chownFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactChown"), 3,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactChown: path, uid, gid required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        uid_t uid = static_cast<uid_t>(args[1].asNumber());
+        gid_t gid = static_cast<gid_t>(args[2].asNumber());
+        if (::chown(path.c_str(), uid, gid) != 0) {
+          throwFsError(runtime, "chown", path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactChown", std::move(chownFn));
+
+  // __exactLchown(path, uid, gid) -> void
+  auto lchownFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactLchown"), 3,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactLchown: path, uid, gid required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        uid_t uid = static_cast<uid_t>(args[1].asNumber());
+        gid_t gid = static_cast<gid_t>(args[2].asNumber());
+        if (::lchown(path.c_str(), uid, gid) != 0) {
+          throwFsError(runtime, "lchown", path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactLchown", std::move(lchownFn));
+
+  // __exactUtimes(path, atime, mtime) -> void
+  auto utimesFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUtimes"), 3,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactUtimes: path, atime, mtime required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        double atimeVal = args[1].asNumber();
+        double mtimeVal = args[2].asNumber();
+        // Convert seconds or Date ms to timeval
+        struct timeval times[2];
+        if (atimeVal > 1e12) { // likely milliseconds from Date
+          times[0].tv_sec = static_cast<time_t>(atimeVal / 1000.0);
+          times[0].tv_usec = static_cast<suseconds_t>((static_cast<long long>(atimeVal) % 1000) * 1000);
+        } else {
+          times[0].tv_sec = static_cast<time_t>(atimeVal);
+          times[0].tv_usec = static_cast<suseconds_t>((atimeVal - times[0].tv_sec) * 1e6);
+        }
+        if (mtimeVal > 1e12) {
+          times[1].tv_sec = static_cast<time_t>(mtimeVal / 1000.0);
+          times[1].tv_usec = static_cast<suseconds_t>((static_cast<long long>(mtimeVal) % 1000) * 1000);
+        } else {
+          times[1].tv_sec = static_cast<time_t>(mtimeVal);
+          times[1].tv_usec = static_cast<suseconds_t>((mtimeVal - times[1].tv_sec) * 1e6);
+        }
+        if (::utimes(path.c_str(), times) != 0) {
+          throwFsError(runtime, "utimes", path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactUtimes", std::move(utimesFn));
+
+  // __exactFsFtruncateSync(fd, len) -> void
+  auto ftruncateSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFtruncateSync"), 2,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFtruncateSync: fd required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        off_t len = 0;
+        if (count > 1 && args[1].isNumber()) len = static_cast<off_t>(args[1].asNumber());
+        if (::ftruncate(fd, len) != 0) {
+          throwFsError(runtime, "ftruncate", "");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFtruncateSync", std::move(ftruncateSyncFn));
+
+  // __exactFsFstatSync(fd) -> JSON string (same format as __exactStat)
+  auto fstatSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFstatSync"), 1,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFstatSync: fd required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        struct stat sb;
+        if (::fstat(fd, &sb) != 0) {
+          throwFsError(runtime, "fstat", "");
+        }
+        std::ostringstream oss;
+        oss << "{\"size\":" << sb.st_size
+            << ",\"mode\":" << sb.st_mode
+            << ",\"dev\":" << sb.st_dev
+            << ",\"ino\":" << sb.st_ino
+            << ",\"nlink\":" << sb.st_nlink
+            << ",\"uid\":" << sb.st_uid
+            << ",\"gid\":" << sb.st_gid
+            << ",\"rdev\":" << sb.st_rdev
+            << ",\"blksize\":" << sb.st_blksize
+            << ",\"blocks\":" << sb.st_blocks
+            << ",\"is_file\":" << (S_ISREG(sb.st_mode) ? "true" : "false")
+            << ",\"is_dir\":" << (S_ISDIR(sb.st_mode) ? "true" : "false")
+            << ",\"is_symlink\":" << (S_ISLNK(sb.st_mode) ? "true" : "false")
+            << ",\"is_char_device\":" << (S_ISCHR(sb.st_mode) ? "true" : "false")
+            << ",\"is_block_device\":" << (S_ISBLK(sb.st_mode) ? "true" : "false")
+            << ",\"is_fifo\":" << (S_ISFIFO(sb.st_mode) ? "true" : "false")
+            << ",\"is_socket\":" << (S_ISSOCK(sb.st_mode) ? "true" : "false");
+#if defined(__APPLE__)
+        double mtime_ms = sb.st_mtimespec.tv_sec * 1000.0 + sb.st_mtimespec.tv_nsec / 1e6;
+        double atime_ms = sb.st_atimespec.tv_sec * 1000.0 + sb.st_atimespec.tv_nsec / 1e6;
+        double ctime_ms = sb.st_ctimespec.tv_sec * 1000.0 + sb.st_ctimespec.tv_nsec / 1e6;
+        double birthtime_ms = sb.st_birthtimespec.tv_sec * 1000.0 + sb.st_birthtimespec.tv_nsec / 1e6;
+#else
+        double mtime_ms = sb.st_mtim.tv_sec * 1000.0 + sb.st_mtim.tv_nsec / 1e6;
+        double atime_ms = sb.st_atim.tv_sec * 1000.0 + sb.st_atim.tv_nsec / 1e6;
+        double ctime_ms = sb.st_ctim.tv_sec * 1000.0 + sb.st_ctim.tv_nsec / 1e6;
+        double birthtime_ms = ctime_ms;
+#endif
+        oss << ",\"mtime_ms\":" << std::fixed << std::setprecision(3) << mtime_ms
+            << ",\"atime_ms\":" << std::fixed << std::setprecision(3) << atime_ms
+            << ",\"ctime_ms\":" << std::fixed << std::setprecision(3) << ctime_ms
+            << ",\"birthtime_ms\":" << std::fixed << std::setprecision(3) << birthtime_ms
+            << "}";
+        return facebook::jsi::String::createFromUtf8(runtime, oss.str());
+      });
+  rt.global().setProperty(rt, "__exactFsFstatSync", std::move(fstatSyncFn));
+
+  // __exactFsFsyncSync(fd) -> void
+  auto fsyncSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFsyncSync"), 1,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFsyncSync: fd required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        if (::fsync(fd) != 0) {
+          throwFsError(runtime, "fsync", "");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFsyncSync", std::move(fsyncSyncFn));
+
+  // __exactFsFdatasyncSync(fd) -> void
+  auto fdatasyncSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFdatasyncSync"), 1,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFdatasyncSync: fd required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+#if defined(__APPLE__)
+        // macOS doesn't have fdatasync, use fsync instead
+        if (::fsync(fd) != 0) {
+#else
+        if (::fdatasync(fd) != 0) {
+#endif
+          throwFsError(runtime, "fdatasync", "");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFdatasyncSync", std::move(fdatasyncSyncFn));
+
+  // __exactFsFchmodSync(fd, mode) -> void
+  auto fchmodSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFchmodSync"), 2,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFchmodSync: fd and mode required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        mode_t mode = static_cast<mode_t>(args[1].asNumber());
+        if (::fchmod(fd, mode) != 0) {
+          throwFsError(runtime, "fchmod", "");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFchmodSync", std::move(fchmodSyncFn));
+
+  // __exactFsFchownSync(fd, uid, gid) -> void
+  auto fchownSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFchownSync"), 3,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFchownSync: fd, uid, gid required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        uid_t uid = static_cast<uid_t>(args[1].asNumber());
+        gid_t gid = static_cast<gid_t>(args[2].asNumber());
+        if (::fchown(fd, uid, gid) != 0) {
+          throwFsError(runtime, "fchown", "");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFchownSync", std::move(fchownSyncFn));
+
+  // __exactFsFutimesSync(fd, atime, mtime) -> void
+  auto futimesSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFutimesSync"), 3,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFutimesSync: fd, atime, mtime required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        double atimeVal = args[1].asNumber();
+        double mtimeVal = args[2].asNumber();
+        struct timeval times[2];
+        if (atimeVal > 1e12) {
+          times[0].tv_sec = static_cast<time_t>(atimeVal / 1000.0);
+          times[0].tv_usec = static_cast<suseconds_t>((static_cast<long long>(atimeVal) % 1000) * 1000);
+        } else {
+          times[0].tv_sec = static_cast<time_t>(atimeVal);
+          times[0].tv_usec = static_cast<suseconds_t>((atimeVal - times[0].tv_sec) * 1e6);
+        }
+        if (mtimeVal > 1e12) {
+          times[1].tv_sec = static_cast<time_t>(mtimeVal / 1000.0);
+          times[1].tv_usec = static_cast<suseconds_t>((static_cast<long long>(mtimeVal) % 1000) * 1000);
+        } else {
+          times[1].tv_sec = static_cast<time_t>(mtimeVal);
+          times[1].tv_usec = static_cast<suseconds_t>((mtimeVal - times[1].tv_sec) * 1e6);
+        }
+        if (::futimes(fd, times) != 0) {
+          throwFsError(runtime, "futimes", "");
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFutimesSync", std::move(futimesSyncFn));
 
 }
 
