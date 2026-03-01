@@ -1582,7 +1582,7 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
         while (p < rdlen) {
           uint8_t sl = static_cast<uint8_t>(rdata[p]);
           p++;
-          if (p + sl > static_cast<size_t>(rdlen)) {
+          if (p + static_cast<int>(sl) > rdlen) {
             valid = false;
             break;
           }
