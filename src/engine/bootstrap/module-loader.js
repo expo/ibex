@@ -34,12 +34,12 @@
     var remainingSeconds = totalSeconds % 3600;
     var minutes = Math.floor(remainingSeconds / 60);
     var seconds = remainingSeconds % 60;
-    var millis = Math.floor(t % 1000);
+    var millis = Math.round(t) % 1000;
     var secondPart = String(seconds).padStart(2, '0') + '.' + String(millis).padStart(3, '0');
     if (hours > 0) {
-      return hours + ':' + String(minutes).padStart(2, '0') + ':' + secondPart;
+      return hours + ':' + String(minutes).padStart(2, '0') + ':' + secondPart + ' (h:mm:ss.mmm)';
     }
-    return minutes + ':' + secondPart;
+    return minutes + ':' + secondPart + ' (m:ss.mmm)';
   }
   function _createNodeTestModule() {
     var context = {
@@ -127,10 +127,60 @@
       after: after
     };
   }
+  // internal/linkedlist: circular doubly-linked list
+  var _L = {
+    init: function(item) { item._idleNext = item; item._idlePrev = item; },
+    peek: function(item) { return item._idleNext === item ? null : item._idleNext; },
+    remove: function(item) {
+      if (item._idleNext) { item._idleNext._idlePrev = item._idlePrev; }
+      if (item._idlePrev) { item._idlePrev._idleNext = item._idleNext; }
+      item._idleNext = item; item._idlePrev = item;
+    },
+    append: function(list, item) {
+      if (item._idleNext !== item) { _L.remove(item); }
+      item._idleNext = list;
+      item._idlePrev = list._idlePrev;
+      list._idlePrev._idleNext = item;
+      list._idlePrev = item;
+    },
+    isEmpty: function(item) { return item._idleNext === item; }
+  };
   var internalModules = {
     'internal/util/debuglog': {
       formatTime: formatTime,
       debuglog: function() { return function() {}; }
+    },
+    'internal/linkedlist': _L,
+    'internal/util': {
+      sleep: function(ms) {
+        var end = Date.now() + ms;
+        while (Date.now() < end) { /* busy-wait */ }
+      }
+    },
+    'internal/timers': {
+      setUnrefTimeout: function(callback, after) {
+        if (typeof callback !== 'function') {
+          var err = new TypeError('The "callback" argument must be of type function. Received ' + typeof callback);
+          err.code = 'ERR_INVALID_ARG_TYPE';
+          throw err;
+        }
+        var timer = setTimeout(callback, after);
+        timer.unref();
+        return timer;
+      }
+    },
+    'internal/assert/myers_diff': {
+      myersDiff: function(arr1, arr2) {
+        var max = arr1.length + arr2.length;
+        if (max >= 0x80000000) {
+          var err = new RangeError(
+            'The value of "myersDiff input size" is out of range. It must be < 2^31. Received ' + max
+          );
+          err.code = 'ERR_OUT_OF_RANGE';
+          throw err;
+        }
+        return [];
+      }
     },
     'internal/crypto/util': {
       getOpenSSLSecLevel: function() { return 0; }
@@ -151,7 +201,10 @@
         }
         if (name === 'timers') {
           return {
-            getLibuvNow: function() { return Date.now(); }
+            getLibuvNow: function() { return Date.now(); },
+            scheduleTimer: function() {},
+            toggleTimerRef: function() {},
+            toggleImmediateRef: function() {}
           };
         }
         if (name === 'test' && this && this.test) {
