@@ -30,6 +30,8 @@ function normalizeExecOptions(opts) {
 function makeExecError(message, result) {
   var err = new Error(message);
   err.status = result.status;
+  err.code = result.status;
+  err.cmd = result.cmd || '';
   err.stdout = result.stdout || '';
   err.stderr = result.stderr || '';
   err.signal = null;
@@ -187,21 +189,77 @@ cp.exec = function exec(command, options, callback) {
     callback = options;
     options = {};
   }
-  if (typeof callback !== 'function') {
-    callback = function() {};
-  }
-  // Simulate async with setTimeout
-  var cmd = command;
-  var opts = options;
-  var cb = callback;
-  setTimeout(function() {
-    try {
-      var result = cp.execSync(cmd, opts);
-      cb(null, result, '');
-    } catch (err) {
-      cb(err, err.stdout || '', err.stderr || '');
+  if (!options) options = {};
+  var opts = normalizeExecOptions(options);
+  var maxBuffer = opts.maxBuffer || 1024 * 1024;
+  var encoding = opts.encoding !== undefined ? opts.encoding : 'utf8';
+  var child = cp.spawn(command, [], {
+    shell: opts.shell !== undefined ? opts.shell : true,
+    cwd: opts.cwd,
+    env: opts.env
+  });
+  child._cmd = command;
+  var stdoutChunks = [];
+  var stderrChunks = [];
+  var stdoutLen = 0;
+  var stderrLen = 0;
+  var killed = false;
+  var exited = false;
+  var timeoutId = null;
+
+  function exitHandler(code, signal) {
+    if (exited) return;
+    exited = true;
+    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+    var stdout = stdoutChunks.join('');
+    var stderr = stderrChunks.join('');
+    if (code !== 0 || killed) {
+      var err = makeExecError(
+        'Command failed: ' + command + (stderr ? '\n' + stderr : ''),
+        { status: code, stdout: stdout, stderr: stderr, pid: child.pid, cmd: command }
+      );
+      err.killed = killed || child.killed;
+      if (typeof callback === 'function') callback(err, stdout, stderr);
+    } else {
+      if (typeof callback === 'function') callback(null, stdout, stderr);
     }
-  }, 0);
+  }
+
+  if (child.stdout) {
+    child.stdout.on('data', function(chunk) {
+      var str = typeof chunk === 'string' ? chunk : String(chunk);
+      stdoutLen += str.length;
+      if (stdoutLen > maxBuffer) {
+        killed = true;
+        child.kill();
+        return;
+      }
+      stdoutChunks.push(str);
+    });
+  }
+  if (child.stderr) {
+    child.stderr.on('data', function(chunk) {
+      var str = typeof chunk === 'string' ? chunk : String(chunk);
+      stderrLen += str.length;
+      if (stderrLen > maxBuffer) {
+        killed = true;
+        child.kill();
+        return;
+      }
+      stderrChunks.push(str);
+    });
+  }
+
+  child.on('close', exitHandler);
+
+  if (opts.timeout && opts.timeout > 0) {
+    timeoutId = setTimeout(function() {
+      killed = true;
+      child.kill();
+    }, opts.timeout);
+  }
+
+  return child;
 };
 
 cp.execFile = function execFile(file, args, options, callback) {
@@ -209,25 +267,86 @@ cp.execFile = function execFile(file, args, options, callback) {
     callback = args;
     args = [];
     options = {};
+  } else if (args && !Array.isArray(args) && typeof args === 'object') {
+    callback = options;
+    options = args;
+    args = [];
   } else if (typeof options === 'function') {
     callback = options;
     options = {};
   }
-  if (typeof callback !== 'function') {
-    callback = function() {};
-  }
-  var f = file;
-  var a = args;
-  var o = options;
-  var cb = callback;
-  setTimeout(function() {
-    try {
-      var result = cp.execFileSync(f, a, o);
-      cb(null, result, '');
-    } catch (err) {
-      cb(err, err.stdout || '', err.stderr || '');
+  if (!args) args = [];
+  if (!options) options = {};
+  var opts = normalizeExecOptions(options);
+  var maxBuffer = opts.maxBuffer || 1024 * 1024;
+  var encoding = opts.encoding !== undefined ? opts.encoding : 'utf8';
+  var child = cp.spawn(file, args, {
+    shell: false,
+    cwd: opts.cwd,
+    env: opts.env
+  });
+  child._cmd = file + ' ' + args.join(' ');
+  var stdoutChunks = [];
+  var stderrChunks = [];
+  var stdoutLen = 0;
+  var stderrLen = 0;
+  var killed = false;
+  var exited = false;
+  var timeoutId = null;
+
+  function exitHandler(code, signal) {
+    if (exited) return;
+    exited = true;
+    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+    var stdout = stdoutChunks.join('');
+    var stderr = stderrChunks.join('');
+    if (code !== 0 || killed) {
+      var err = makeExecError(
+        'Command failed: ' + file + (stderr ? '\n' + stderr : ''),
+        { status: code, stdout: stdout, stderr: stderr, pid: child.pid, cmd: file + ' ' + args.join(' ') }
+      );
+      err.killed = killed || child.killed;
+      if (typeof callback === 'function') callback(err, stdout, stderr);
+    } else {
+      if (typeof callback === 'function') callback(null, stdout, stderr);
     }
-  }, 0);
+  }
+
+  if (child.stdout) {
+    child.stdout.on('data', function(chunk) {
+      var str = typeof chunk === 'string' ? chunk : String(chunk);
+      stdoutLen += str.length;
+      if (stdoutLen > maxBuffer) {
+        killed = true;
+        child.kill();
+        return;
+      }
+      stdoutChunks.push(str);
+    });
+  }
+  if (child.stderr) {
+    child.stderr.on('data', function(chunk) {
+      var str = typeof chunk === 'string' ? chunk : String(chunk);
+      stderrLen += str.length;
+      if (stderrLen > maxBuffer) {
+        killed = true;
+        child.kill();
+        return;
+      }
+      stderrChunks.push(str);
+    });
+  }
+
+  child.on('close', exitHandler);
+
+  if (opts.timeout && opts.timeout > 0) {
+    timeoutId = setTimeout(function() {
+      killed = true;
+      child.kill();
+    }, opts.timeout);
+  }
+
+  return child;
 };
 
 function _normalizeSpawnMode(mode, fallbackMode) {
@@ -389,6 +508,8 @@ function ChildProcess(handle, pid, stdioModes) {
   this.exitCode = null;
   this.signalCode = null;
   this.killed = false;
+  this.spawnfile = '';
+  this.spawnargs = [];
   this._exitHandled = false;
   this._exited = false;
   this._ref = true;
@@ -697,8 +818,9 @@ ChildProcess.prototype.kill = function(signal) {
   } else {
     sig = 15; // SIGTERM
   }
-  this.killed = true;
-  return globalThis.__exactSpawnKill(this._handle, sig);
+  var ok = globalThis.__exactSpawnKill(this._handle, sig);
+  if (ok) this.killed = true;
+  return ok;
 };
 
 ChildProcess.prototype.ref = function() {
@@ -873,6 +995,8 @@ cp.spawn = function spawn(command, args, options) {
   if (result.error) {
     // Return a ChildProcess that immediately emits error
     var errChild = new ChildProcess(-1, 0);
+    errChild.spawnfile = command;
+    errChild.spawnargs = [command].concat(args);
     setTimeout(function() {
       errChild.emit('error', new Error(result.error));
       errChild._exited = true;
@@ -890,9 +1014,12 @@ cp.spawn = function spawn(command, args, options) {
     ipc: normalizedOptions.stdio[3]
   };
   var child = new ChildProcess(result.handle, result.pid, stdioCfg);
+  child.spawnfile = command;
+  child.spawnargs = [command].concat(args);
   if (opts.detached) {
     child.unref();
   }
+  setTimeout(function() { child.emit('spawn'); }, 0);
   return child;
 };
 

@@ -296,6 +296,10 @@ BufferProto.toString = function(encoding, start, end) {
   return decodeBytes(this, encoding, start, end);
 };
 
+BufferProto._toByteString = function(encoding) {
+  return decodeBytes(this, encoding || 'latin1');
+};
+
 BufferProto.equals = function(other) {
   if (!other || !other.__isExactBuffer) return false;
   if (other.length !== this.length) return false;

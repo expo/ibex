@@ -149,6 +149,11 @@
             }
           };
         }
+        if (name === 'timers') {
+          return {
+            getLibuvNow: function() { return Date.now(); }
+          };
+        }
         if (name === 'test' && this && this.test) {
           return this.test;
         }
