@@ -118,6 +118,23 @@ function _validateCallback(cb) {
   }
 }
 
+// Valid encodings supported by Node.js
+var _validEncodings = ['utf8', 'utf-8', 'ascii', 'binary', 'base64', 'base64url',
+  'ucs2', 'ucs-2', 'utf16le', 'utf-16le', 'latin1', 'hex', 'buffer'];
+
+function _assertEncoding(encoding) {
+  if (encoding && _validEncodings.indexOf(encoding.toLowerCase()) === -1) {
+    var err = new TypeError("The argument 'encoding' is invalid encoding. Received '" + encoding + "'");
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+}
+
+function _validateEncodingOption(options) {
+  var encoding = typeof options === 'string' ? options : (options && options.encoding);
+  if (encoding) _assertEncoding(encoding);
+}
+
 function toUint8Array(data, encoding) {
   if (typeof data === 'string') {
     if (typeof Buffer !== 'undefined' && Buffer.from) {
@@ -180,6 +197,7 @@ function wrapBuffer(bytes) {
 
 function readFileSync(path, options) {
   _validatePath(path);
+  _validateEncodingOption(options);
   ensureExactFs();
   var encoding = typeof options === 'string' ? options : (options && options.encoding);
   var bytes = g.__exactReadFile(path);
@@ -189,12 +207,14 @@ function readFileSync(path, options) {
 
 function writeFileSync(path, data, options) {
   _validatePath(path);
+  _validateEncodingOption(options);
   ensureExactFs();
   g.__exactWriteFile(path, toUint8Array(data));
 }
 
 function appendFileSync(path, data, options) {
   _validatePath(path);
+  _validateEncodingOption(options);
   ensureExactFs();
   g.__exactAppendFile(path, toUint8Array(data));
 }
@@ -237,8 +257,9 @@ function lstatSync(path) {
   return raw;
 }
 
-function readdirSync(path) {
+function readdirSync(path, options) {
   _validatePath(path);
+  _validateEncodingOption(options);
   ensureExactFs();
   return JSON.parse(g.__exactReaddir(path));
 }
@@ -256,8 +277,8 @@ function renameSync(oldPath, newPath) { _validatePath(oldPath, 'oldPath'); _vali
 function copyFileSync(src, dest) { _validatePath(src, 'src'); _validatePath(dest, 'dest'); ensureExactFs(); g.__exactCopyFile(src, dest); }
 function accessSync(path, mode) { _validatePath(path); ensureExactFs(); g.__exactAccess(path, mode || 0); }
 function chmodSync(path, mode) { _validatePath(path); ensureExactFs(); g.__exactChmod(path, mode); }
-function realpathSync(path) { _validatePath(path); ensureExactFs(); return g.__exactRealpath(path); }
-function mkdtempSync(prefix) { _validatePath(prefix, 'prefix'); ensureExactFs(); return g.__exactMkdtemp(prefix); }
+function realpathSync(path, options) { _validatePath(path); _validateEncodingOption(options); ensureExactFs(); return g.__exactRealpath(path); }
+function mkdtempSync(prefix, options) { _validatePath(prefix, 'prefix'); _validateEncodingOption(options); ensureExactFs(); return g.__exactMkdtemp(prefix); }
 
 function existsSync(path) {
   ensureExactFs();
@@ -281,25 +302,30 @@ function wrapCallback(fn, cb, arg1, arg2) {
 function readFile(path, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateEncodingOption(opts);
   wrapCallback(function() { return readFileSync(path, opts); }, callback);
 }
 
 function writeFile(path, data, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateEncodingOption(opts);
   wrapCallback(function() { writeFileSync(path, data, opts); }, callback);
 }
 
 function appendFile(path, data, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateEncodingOption(opts);
   wrapCallback(function() { appendFileSync(path, data, opts); }, callback);
 }
 
 function stat(path, cb) { wrapCallback(function() { return statSync(path); }, cb); }
 function lstat(path, cb) { wrapCallback(function() { return lstatSync(path); }, cb); }
 function readdir(path, optOrCb, cb) {
+  var opts = typeof optOrCb === 'function' ? undefined : optOrCb;
   var callback = typeof optOrCb === 'function' ? optOrCb : cb;
+  _validateEncodingOption(opts);
   wrapCallback(function() { return readdirSync(path); }, callback);
 }
 function mkdir(path, optOrCb, cb) {
@@ -317,8 +343,18 @@ function access(path, modeOrCb, cb) {
   wrapCallback(function() { accessSync(path, mode); }, callback);
 }
 function chmod(path, mode, cb) { wrapCallback(function() { chmodSync(path, mode); }, cb); }
-function realpath(path, cb) { wrapCallback(function() { return realpathSync(path); }, cb); }
-function mkdtemp(prefix, cb) { wrapCallback(function() { return mkdtempSync(prefix); }, cb); }
+function realpath(path, optOrCb, cb) {
+  var opts, callback;
+  if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateEncodingOption(opts);
+  wrapCallback(function() { return realpathSync(path, opts); }, callback);
+}
+function mkdtemp(prefix, optOrCb, cb) {
+  var opts, callback;
+  if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
+  _validateEncodingOption(opts);
+  wrapCallback(function() { return mkdtempSync(prefix, opts); }, callback);
+}
 function exists(path, cb) {
   if (typeof queueMicrotask === 'function') { queueMicrotask(function() { cb(existsSync(path)); }); }
   else { cb(existsSync(path)); }
@@ -411,6 +447,7 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
 }
 
 function createReadStream(path, options) {
+  _validateEncodingOption(options);
   ensureExactFs();
   var Stream = require('node:stream');
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
@@ -594,6 +631,7 @@ function createReadStream(path, options) {
 }
 
 function createWriteStream(path, options) {
+  _validateEncodingOption(options);
   ensureExactFs();
   var Stream = require('node:stream');
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
@@ -910,8 +948,9 @@ function makeZeroStats() {
 
 function watch(filename, options, listener) {
   if (typeof options === 'function') { listener = options; options = {}; }
-  if (typeof options === 'string') options = { encoding: options };
+  if (typeof options === 'string') { _assertEncoding(options); options = { encoding: options }; }
   options = options || {};
+  _validateEncodingOption(options);
   if (listener && typeof listener !== 'function') _validateCallback(listener);
   _validatePath(filename, 'filename');
   var watcher = new FSWatcher();
@@ -1105,15 +1144,17 @@ function linkSync(existingPath, newPath) {
 function link(existingPath, newPath, cb) {
   try { linkSync(existingPath, newPath); if (cb) cb(null); } catch(e) { if (cb) cb(e); }
 }
-function readlinkSync(path) {
+function readlinkSync(path, options) {
   _validatePath(path, 'path');
+  _validateEncodingOption(options);
   ensureExactFs();
   if (typeof g.__exactReadlink === 'function') return g.__exactReadlink(path);
   throw new Error('readlink not available');
 }
 function readlink(path, options, cb) {
-  if (typeof options === 'function') { cb = options; }
+  if (typeof options === 'function') { cb = options; options = undefined; }
   _validatePath(path, 'path');
+  _validateEncodingOption(options);
   if (cb !== undefined) {
     _validateCallback(cb);
   }
@@ -1399,18 +1440,6 @@ function lutimesSync(path, atime, mtime) {
   _validatePath(path);
 }
 
-// Valid encodings supported by Node.js
-var _validEncodings = ['utf8', 'utf-8', 'ascii', 'binary', 'base64', 'base64url',
-  'ucs2', 'ucs-2', 'utf16le', 'utf-16le', 'latin1', 'hex', 'buffer'];
-
-function _assertEncoding(encoding) {
-  if (encoding && _validEncodings.indexOf(encoding.toLowerCase()) === -1) {
-    var err = new TypeError("The argument 'encoding' is invalid encoding. Received '" + encoding + "'");
-    err.code = 'ERR_INVALID_ARG_VALUE';
-    throw err;
-  }
-}
-
 // opendirSync
 function opendirSync(path, options) {
   _validatePath(path);
@@ -1463,6 +1492,8 @@ module.exports = {
   writeSync: writeSync,
   createReadStream: createReadStream,
   createWriteStream: createWriteStream,
+  ReadStream: createReadStream,
+  WriteStream: createWriteStream,
   watch: watch,
   watchFile: watchFile,
   unwatchFile: unwatchFile,
