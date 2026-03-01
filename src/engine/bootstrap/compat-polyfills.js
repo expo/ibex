@@ -215,29 +215,28 @@
 
   if (typeof globalThis.process === 'object' && globalThis.process !== null) {
     try {
+      var defaultFeatures = {
+        inspector: true,
+        debug: false,
+        uv: false,
+        ipv6: true,
+        openssl_is_boringssl: false,
+        tls_alpn: false,
+        tls_sni: false,
+        tls_ocsp: false,
+        tls: false,
+        cached_builtins: true,
+        require_module: false,
+        typescript: false,
+      };
       if (!globalThis.process.features || typeof globalThis.process.features !== 'object') {
-        globalThis.process.features = {
-          inspector: true,
-          debug: false,
-          uv: false,
-          ipv6: true,
-          tls_alpn: false,
-          tls_sni: false,
-          tls_ocsp: false,
-          tls: false,
-        };
+        globalThis.process.features = defaultFeatures;
       } else {
-        if (globalThis.process.features.tls === undefined) {
-          globalThis.process.features.tls = false;
-        }
-        if (globalThis.process.features.tls_alpn === undefined) {
-          globalThis.process.features.tls_alpn = false;
-        }
-        if (globalThis.process.features.tls_sni === undefined) {
-          globalThis.process.features.tls_sni = false;
-        }
-        if (globalThis.process.features.tls_ocsp === undefined) {
-          globalThis.process.features.tls_ocsp = false;
+        var dfKeys = Object.keys(defaultFeatures);
+        for (var dfi = 0; dfi < dfKeys.length; dfi++) {
+          if (globalThis.process.features[dfKeys[dfi]] === undefined) {
+            globalThis.process.features[dfKeys[dfi]] = defaultFeatures[dfKeys[dfi]];
+          }
         }
       }
     } catch (err) {

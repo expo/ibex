@@ -1,10 +1,26 @@
 function inherits(constructor, superConstructor) {
-  if (typeof constructor !== "function" || typeof superConstructor !== "function") {
-    throw new TypeError("util.inherits() requires two functions");
+  if (typeof constructor !== 'function') {
+    var e1 = new TypeError('The "ctor" argument must be of type function. Received ' + (constructor === null ? 'null' : typeof constructor));
+    e1.code = 'ERR_INVALID_ARG_TYPE';
+    throw e1;
   }
-  constructor.super_ = superConstructor;
-  constructor.prototype = Object.create(superConstructor.prototype);
-  constructor.prototype.constructor = constructor;
+  if (superConstructor === null || (typeof superConstructor !== 'function' && typeof superConstructor !== 'object')) {
+    var e2 = new TypeError('The "superCtor" argument must be of type function. Received ' + (superConstructor === null ? 'null' : typeof superConstructor));
+    e2.code = 'ERR_INVALID_ARG_TYPE';
+    throw e2;
+  }
+  if (superConstructor.prototype === undefined) {
+    var e3 = new TypeError('The "superCtor.prototype" property must be of type object. Received undefined');
+    e3.code = 'ERR_INVALID_ARG_TYPE';
+    throw e3;
+  }
+  Object.defineProperty(constructor, 'super_', {
+    value: superConstructor,
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  });
+  Object.setPrototypeOf(constructor.prototype, superConstructor.prototype);
 }
 
 function promisify(fn) {
