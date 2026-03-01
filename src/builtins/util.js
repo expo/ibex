@@ -124,6 +124,13 @@ function inspect(value, options) {
     if (seen.indexOf(val) !== -1) return '[Circular]';
     if (cache.has(val)) return cache.get(val);
 
+    // Support util.inspect.custom symbol
+    var customInspect = inspect.custom && val[inspect.custom];
+    if (typeof customInspect === 'function') {
+      var customResult = customInspect.call(val, currentDepth, opts);
+      return typeof customResult === 'string' ? customResult : _inspect(customResult, currentDepth);
+    }
+
     seen.push(val);
     var result;
     try {
@@ -174,6 +181,7 @@ function inspect(value, options) {
   }
   return _inspect(value, 0);
 }
+inspect.custom = Symbol.for('nodejs.util.inspect.custom');
 inspect.styles = {};
 inspect.colors = {};
 inspect.defaultOptions = { depth: 2, colors: false };
