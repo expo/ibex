@@ -1145,4 +1145,36 @@
 
   // Also provide as importModule() for convenience (since import(...) triggers parser)
   globalThis.importModule = importImpl;
+
+  // Fix console global to match WPT/spec requirements:
+  // - non-enumerable on globalThis
+  // - Symbol.toStringTag = "console"
+  // - prototype chain: console -> {} -> Object.prototype
+  if (typeof console !== 'undefined') {
+    // Make the console property non-enumerable (spec requirement)
+    Object.defineProperty(globalThis, 'console', {
+      value: console,
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+
+    // Add Symbol.toStringTag so Object.prototype.toString returns "[object console]"
+    if (typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+      Object.defineProperty(console, Symbol.toStringTag, {
+        value: 'console',
+        writable: false,
+        enumerable: false,
+        configurable: true
+      });
+    }
+
+    // Fix prototype chain: console should have an empty prototype object
+    // between it and Object.prototype (per WebIDL namespace spec)
+    var consoleProto = Object.getPrototypeOf(console);
+    if (consoleProto === Object.prototype || (consoleProto && Object.getOwnPropertyNames(consoleProto).length > 0)) {
+      var emptyProto = Object.create(Object.prototype);
+      Object.setPrototypeOf(console, emptyProto);
+    }
+  }
 })();
