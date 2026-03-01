@@ -106,6 +106,28 @@ impl ModuleLoader {
         builtins.insert("node:stream".to_string(), stream_module.clone());
         builtins.insert("stream".to_string(), stream_module);
 
+        // Legacy _stream_* aliases (Node.js internal compat)
+        builtins.insert(
+            "_stream_readable".to_string(),
+            "module.exports = require('stream').Readable;".to_string(),
+        );
+        builtins.insert(
+            "_stream_writable".to_string(),
+            "module.exports = require('stream').Writable;".to_string(),
+        );
+        builtins.insert(
+            "_stream_duplex".to_string(),
+            "module.exports = require('stream').Duplex;".to_string(),
+        );
+        builtins.insert(
+            "_stream_transform".to_string(),
+            "module.exports = require('stream').Transform;".to_string(),
+        );
+        builtins.insert(
+            "_stream_passthrough".to_string(),
+            "module.exports = require('stream').PassThrough;".to_string(),
+        );
+
         let stream_consumers_module = node_stream_consumers_module();
         builtins.insert(
             "node:stream/consumers".to_string(),
