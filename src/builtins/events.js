@@ -696,6 +696,10 @@ function getMaxListeners(emitter) {
   if (typeof emitter.getMaxListeners === 'function') {
     return emitter.getMaxListeners();
   }
+  // AbortSignal uses maxListeners = 0 (unlimited) by default in Node.js
+  if (typeof AbortSignal !== 'undefined' && emitter instanceof AbortSignal) {
+    return emitter._maxListeners !== undefined ? emitter._maxListeners : 0;
+  }
   return _getMaxListeners(emitter);
 }
 
