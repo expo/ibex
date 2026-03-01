@@ -18,7 +18,7 @@ fn main() {
     let hermes_include_dir = std::env::var("HERMES_INCLUDE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            if target_os == "linux" && default_linux_headers.exists() {
+            if target_os == "linux" {
                 default_linux_headers.clone()
             } else {
                 default_ios_headers.clone()
@@ -29,12 +29,27 @@ fn main() {
     let hermes_lib_dir = std::env::var("HERMES_LIB_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            if target_os == "linux" && default_linux_lib.exists() {
+            if target_os == "linux" {
                 default_linux_lib.clone()
             } else {
                 default_ios_lib.clone()
             }
         });
+
+    if target_os == "linux" {
+        if !hermes_include_dir.exists() {
+            panic!(
+                "Linux Hermes headers not found at {}. Run ./scripts/build-hermes-linux.sh or set HERMES_INCLUDE_DIR.",
+                hermes_include_dir.display()
+            );
+        }
+        if !hermes_lib_dir.exists() {
+            panic!(
+                "Linux Hermes library dir not found at {}. Run ./scripts/build-hermes-linux.sh or set HERMES_LIB_DIR.",
+                hermes_lib_dir.display()
+            );
+        }
+    }
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_macos.mm");
@@ -440,12 +455,25 @@ fn main() {
     }
 
     if target_os == "linux" {
+        let has_libcurl = std::process::Command::new("pkg-config")
+            .args(["--exists", "libcurl"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
         let mut fetch_build = cc::Build::new();
         fetch_build
             .cpp(true)
             .file("src/engine/native_fetch_linux.cc")
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-fPIC");
+        if has_libcurl {
+            fetch_build.define("EXACT_HAS_CURL", Some("1"));
+        } else {
+            println!(
+                "cargo:warning=libcurl dev package not detected; native Linux fetch will run in stub mode"
+            );
+        }
         fetch_build.compile("exact_native_fetch");
 
         let mut ws_build = cc::Build::new();
@@ -480,6 +508,9 @@ fn main() {
         println!("cargo:rustc-link-lib=static=crypto");
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=z");
+        if has_libcurl {
+            println!("cargo:rustc-link-lib=curl");
+        }
         println!("cargo:rustc-link-lib=resolv");
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=dl");

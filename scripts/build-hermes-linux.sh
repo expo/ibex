@@ -132,13 +132,18 @@ else
     exit 1
 fi
 
-# Public headers used by exact-runtime build.rs
-cp -R "$SRC_DIR/API/jsi" "$INSTALL_DIR/include/"
-cp -R "$SRC_DIR/API/hermes" "$INSTALL_DIR/include/"
+# Public headers used by exact-runtime build.rs.
+# Preserve include shapes expected by Hermes headers:
+#   <jsi/...> and <hermes/...>
+mkdir -p "$INSTALL_DIR/include/jsi" "$INSTALL_DIR/include/hermes"
+cp -R "$SRC_DIR/API/jsi/jsi/"* "$INSTALL_DIR/include/jsi/"
+cp -R "$SRC_DIR/API/hermes/"* "$INSTALL_DIR/include/hermes/"
 cp -R "$SRC_DIR/public/hermes/Public" "$INSTALL_DIR/include/hermes/"
 
 # Install into repo conventions used by build.rs
 mkdir -p "$LINUX_LIB_DIR" "$LINUX_HEADERS_DIR" "$TOOLS_DIR"
+rm -rf "$LINUX_HEADERS_DIR"
+mkdir -p "$LINUX_HEADERS_DIR"
 cp -R "$INSTALL_DIR/include/"* "$LINUX_HEADERS_DIR/"
 cp -f "$INSTALL_DIR/lib/"libhermesvm.* "$LINUX_LIB_DIR/" 2>/dev/null || true
 cp -f "$INSTALL_DIR/bin/hermesc" "$TOOLS_DIR/hermesc"
