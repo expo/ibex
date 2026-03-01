@@ -1333,5 +1333,20 @@ module.exports = {
     for (var i = 0; i < view.length; i++) view[i] = bytes[i];
     return arr;
   },
-  webcrypto: typeof globalThis.crypto === 'object' ? globalThis.crypto : { getRandomValues: function(arr) { var bytes = randomBytes(arr.length); for (var i = 0; i < arr.length; i++) arr[i] = bytes[i]; return arr; } }
+  webcrypto: typeof globalThis.crypto === 'object' ? globalThis.crypto : { getRandomValues: function(arr) { var bytes = randomBytes(arr.length); for (var i = 0; i < arr.length; i++) arr[i] = bytes[i]; return arr; } },
+  argon2: function() {
+    var e = new Error('argon2 is not supported');
+    e.code = 'ERR_CRYPTO_ARGON2_NOT_SUPPORTED';
+    throw e;
+  },
+  encapsulate: function() {
+    var e = new Error('KEM operations are not supported');
+    e.code = 'ERR_CRYPTO_KEM_NOT_SUPPORTED';
+    throw e;
+  },
+  decapsulate: function() {
+    var e = new Error('KEM operations are not supported');
+    e.code = 'ERR_CRYPTO_KEM_NOT_SUPPORTED';
+    throw e;
+  }
 };
