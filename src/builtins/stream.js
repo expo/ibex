@@ -20,15 +20,15 @@ function _addAwaitDrainWriter(readableState, writer) {
   if (!readableState) return;
   var current = readableState.awaitDrainWriters;
   if (!current) {
-    readableState.awaitDrainWriters = writer;
+    readableState.awaitDrainWriters = new Set([writer]);
     return;
   }
-  if (current === writer || (current instanceof Set && current.has(writer))) return;
-  if (current instanceof Set) {
-    current.add(writer);
-    return;
+  if (!(current instanceof Set)) {
+    if (current === writer) return;
+    current = new Set([current]);
+    readableState.awaitDrainWriters = current;
   }
-  readableState.awaitDrainWriters = new Set([current, writer]);
+  current.add(writer);
 }
 
 function _removeAwaitDrainWriter(readableState, writer) {
@@ -39,10 +39,6 @@ function _removeAwaitDrainWriter(readableState, writer) {
     current.delete(writer);
     if (current.size === 0) {
       readableState.awaitDrainWriters = null;
-    } else if (current.size === 1) {
-      current.forEach(function(value) {
-        readableState.awaitDrainWriters = value;
-      });
     }
     return;
   }
@@ -513,13 +509,7 @@ Readable.prototype._updateReadableLength = function(delta) {
     state.readableListening = this._events && this._events.readable !== undefined;
     return;
   }
-
-  state.length = 0;
-  for (var i = 0; i < this._data.length; i++) {
-    state.length += readableStateChunkLength(this._data[i], state.objectMode);
-  }
-  this.readableLength = state.length;
-  state.readableListening = this._events && this._events.readable !== undefined;
+  throw new Error("The \"delta\" argument must be a finite number");
 };
 
 Readable.prototype._syncReadableState = function() {
@@ -1755,6 +1745,7 @@ Readable.fromWeb = function(webStream, options) {
 function Writable(options) {
   if (!(this instanceof Writable) && !(this instanceof Duplex)) return new Writable(options);
   Stream.call(this);
+  var self = this;
   // Determine objectMode: writableObjectMode overrides objectMode if present
   var objMode = (options && options.writableObjectMode != null) ? !!options.writableObjectMode :
                 !!(options && options.objectMode);
@@ -1803,6 +1794,16 @@ function Writable(options) {
     emittedClose: false,
     corked: 0,
   };
+  Object.defineProperty(this._writableState, "corked", {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return self.writableCorked;
+    },
+    set: function(value) {
+      self.writableCorked = value;
+    }
+  });
   if (options && options.defaultEncoding !== undefined) {
     var _validEncs = { 'utf8': 1, 'utf-8': 1, 'ascii': 1, 'latin1': 1, 'binary': 1, 'hex': 1, 'base64': 1, 'base64url': 1, 'ucs2': 1, 'ucs-2': 1, 'utf16le': 1, 'utf-16le': 1 };
     if (!_validEncs[String(options.defaultEncoding).toLowerCase()]) {
@@ -1819,7 +1820,6 @@ function Writable(options) {
   // construct callback support
   if (options && typeof options.construct === 'function') {
     this._writableState.constructed = false;
-    var self = this;
     var called = false;
     setTimeout(function() {
       options.construct(function(err) {
@@ -1905,7 +1905,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     chunkLen = readableStateChunkLength(chunk, this.writableObjectMode || (this._writableState && this._writableState.objectMode));
     this.writableLength += chunkLen;
   }
-  if (this.writableCorked > 0 || this._writableState.corked > 0) {
+  if (this.writableCorked > 0) {
     if (!this._writeQueue) this._writeQueue = [];
     this._writeQueue.push({
       chunk: chunk,
@@ -1957,15 +1957,11 @@ Writable.prototype.write = function(chunk, encoding, callback) {
       if (typeof callback === 'function') callback();
     }
   };
-  var written;
   try {
-    written = self._write(chunk, encoding || 'utf8', onWriteComplete);
+    self._write(chunk, encoding || 'utf8', onWriteComplete);
   } catch (err) {
     onWriteComplete(err);
     return false;
-  }
-  if (written === false) {
-    shouldNeedDrain = true;
   }
   if (shouldNeedDrain) {
     this._needDrain = true;
@@ -2191,13 +2187,11 @@ Writable.prototype.end = function(chunk, encoding, callback) {
 
 Writable.prototype.cork = function() {
   this.writableCorked++;
-  this._writableState.corked++;
 };
 Writable.prototype.uncork = function() {
   if (this.writableCorked > 0) {
     this.writableCorked--;
-    this._writableState.corked--;
-    if (this.writableCorked <= 0 && this._writableState.corked <= 0) {
+    if (this.writableCorked <= 0) {
       this._flushWriteQueue();
     }
   }
@@ -2558,12 +2552,20 @@ function pipeline() {
   for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
   var callback = null;
   var options = null;
+  var last = null;
 
-  // Last arg can be callback or options
+  // Last arg can be callback
   if (typeof args[args.length - 1] === 'function') {
     callback = args.pop();
   }
-  if (args.length > 1 && typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null && !args[args.length - 1].pipe) {
+  last = args[args.length - 1];
+  if (
+    args.length > 1 &&
+    last &&
+    typeof last === 'object' &&
+    !Array.isArray(last) &&
+    !last.pipe
+  ) {
     options = args.pop();
   }
 
@@ -2742,14 +2744,12 @@ function finished(stream, options, callback) {
   var hasReadableCapability = !!(
     stream &&
     (stream._readableState ||
-     typeof stream.read === 'function' ||
-     typeof stream.pipe === 'function')
+     (typeof stream.read === 'function' && stream.readable !== false))
   );
   var hasWritableCapability = !!(
     stream &&
     (stream._writableState ||
-     typeof stream.write === 'function' ||
-     typeof stream._write === 'function')
+     (typeof stream.write === 'function' && stream.writable !== false))
   );
 
   // Validate that the first argument is a stream
