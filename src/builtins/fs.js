@@ -226,6 +226,17 @@ var _uvErrnoMessage = {
   'ETXTBSY': 'text file is busy'
 };
 
+function _uvCodeFromErrno(errno) {
+  if (typeof errno !== 'number' || Number.isNaN(errno)) return null;
+  var normalized = Math.abs(errno);
+  for (var code in _uvErrnoMap) {
+    if (Object.prototype.hasOwnProperty.call(_uvErrnoMap, code) && _uvErrnoMap[code] === normalized) {
+      return code;
+    }
+  }
+  return null;
+}
+
 function _extractFsCode(message) {
   if (typeof message !== 'string') return null;
   var match = message.match(/^([A-Z][A-Z0-9_]+):/);
@@ -242,7 +253,10 @@ function _buildFsErrorMessage(code, syscall, pathValue, destValue) {
 function _makeFsError(err, syscall, path, dest) {
   err = err || {};
   var sourceMessage = typeof err.message === 'string' ? err.message : String(err);
-  var code = typeof err.code === 'string' ? err.code : _extractFsCode(sourceMessage);
+  var code = typeof err.code === 'string' ? err.code : null;
+  if (!code || !Object.prototype.hasOwnProperty.call(_uvErrnoMessage, code)) {
+    code = _extractFsCode(sourceMessage) || _uvCodeFromErrno(err.errno);
+  }
   var resolvedSyscall = syscall;
   var resolvedPath = path;
   var resolvedDest = dest;
@@ -2718,6 +2732,17 @@ FileHandlePromise.prototype.close = function() {
     return closeSync(fd);
   })();
 };
+
+if (typeof Symbol !== 'undefined' && typeof Symbol.asyncDispose === 'symbol') {
+  FileHandlePromise.prototype[Symbol.asyncDispose] = function() {
+    return this.close();
+  };
+} else {
+  FileHandlePromise.prototype.asyncDispose = function() {
+    return this.close();
+  };
+}
+
 FileHandlePromise.prototype.read = function(buffer, offset, length, position) {
   var handle = this;
   return _resolveAsync(function() {
