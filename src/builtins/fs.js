@@ -1263,10 +1263,71 @@ var promises = {
   chown: function(p, u, g) { chownSync(p, u, g); return Promise.resolve(); },
   utimes: function(p, a, m) { utimesSync(p, a, m); return Promise.resolve(); },
   watch: function(p, o) { return watch(p, o); },
-  constants: { F_OK: 0, R_OK: 1, W_OK: 2, X_OK: 4 }
+  constants: constants
 };
 
-var constants = { F_OK: 0, R_OK: 1, W_OK: 2, X_OK: 4 };
+var constants = Object.create(null);
+// Access mode constants
+constants.F_OK = 0;
+constants.R_OK = 4;
+constants.W_OK = 2;
+constants.X_OK = 1;
+// File open constants
+constants.O_RDONLY = 0;
+constants.O_WRONLY = 1;
+constants.O_RDWR = 2;
+constants.O_CREAT = 512;
+constants.O_EXCL = 2048;
+constants.O_NOCTTY = 131072;
+constants.O_TRUNC = 1024;
+constants.O_APPEND = 8;
+constants.O_DIRECTORY = 1048576;
+constants.O_NOFOLLOW = 256;
+constants.O_SYNC = 128;
+constants.O_DSYNC = 4194304;
+constants.O_SYMLINK = 2097152;
+constants.O_NONBLOCK = 4;
+// File type constants
+constants.S_IFMT = 61440;
+constants.S_IFREG = 32768;
+constants.S_IFDIR = 16384;
+constants.S_IFCHR = 8192;
+constants.S_IFBLK = 24576;
+constants.S_IFIFO = 4096;
+constants.S_IFLNK = 40960;
+constants.S_IFSOCK = 49152;
+// File permission constants
+constants.S_IRWXU = 448;
+constants.S_IRUSR = 256;
+constants.S_IWUSR = 128;
+constants.S_IXUSR = 64;
+constants.S_IRWXG = 56;
+constants.S_IRGRP = 32;
+constants.S_IWGRP = 16;
+constants.S_IXGRP = 8;
+constants.S_IRWXO = 7;
+constants.S_IROTH = 4;
+constants.S_IWOTH = 2;
+constants.S_IXOTH = 1;
+// UV constants
+constants.UV_FS_SYMLINK_DIR = 1;
+constants.UV_FS_SYMLINK_JUNCTION = 2;
+constants.UV_DIRENT_UNKNOWN = 0;
+constants.UV_DIRENT_FILE = 1;
+constants.UV_DIRENT_DIR = 2;
+constants.UV_DIRENT_LINK = 3;
+constants.UV_DIRENT_FIFO = 4;
+constants.UV_DIRENT_SOCKET = 5;
+constants.UV_DIRENT_CHAR = 6;
+constants.UV_DIRENT_BLOCK = 7;
+constants.UV_FS_O_FILEMAP = 0;
+// Copy file constants
+constants.UV_FS_COPYFILE_EXCL = 1;
+constants.COPYFILE_EXCL = 1;
+constants.UV_FS_COPYFILE_FICLONE = 2;
+constants.COPYFILE_FICLONE = 2;
+constants.UV_FS_COPYFILE_FICLONE_FORCE = 4;
+constants.COPYFILE_FICLONE_FORCE = 4;
 
 // fchmod/fchmodSync — file descriptor-based chmod
 function fchmod(fd, mode, callback) {
@@ -1536,3 +1597,13 @@ module.exports = {
   promises: promises,
   constants: constants
 };
+
+// Add F_OK, R_OK, W_OK, X_OK as read-only properties (deprecated but still accessible)
+['F_OK', 'R_OK', 'W_OK', 'X_OK'].forEach(function(name) {
+  Object.defineProperty(module.exports, name, {
+    get: function() { return constants[name]; },
+    set: function() { throw new TypeError('Cannot assign to read only property \'' + name + '\' of object \'#<Object>\''); },
+    enumerable: false,
+    configurable: false
+  });
+});
