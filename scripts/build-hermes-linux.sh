@@ -15,6 +15,7 @@ set -euo pipefail
 
 HERMES_VERSION="static_h"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
+HERMES_INTL="${HERMES_ENABLE_INTL:-false}"
 CLEAN_CACHE=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,6 +38,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --debug)
             HERMES_DEBUGGER=true
+            shift
+            ;;
+        --intl)
+            HERMES_INTL=true
+            shift
+            ;;
+        --no-intl)
+            HERMES_INTL=false
             shift
             ;;
         *)
@@ -84,6 +93,7 @@ fi
 ACTUAL_COMMIT="$(git rev-parse HEAD | cut -c1-12)"
 echo "Building Hermes for Linux from commit: $ACTUAL_COMMIT"
 echo "Debugger enabled: $HERMES_DEBUGGER"
+echo "Intl enabled: $HERMES_INTL"
 
 rm -rf "$BUILD_DIR" "$INSTALL_DIR"
 mkdir -p "$BUILD_DIR" "$INSTALL_DIR"
@@ -96,7 +106,7 @@ fi
 cmake -S . -B "$BUILD_DIR" "${GENERATOR[@]}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DHERMES_ENABLE_DEBUGGER="$HERMES_DEBUGGER" \
-    -DHERMES_ENABLE_INTL=ON \
+    -DHERMES_ENABLE_INTL="$HERMES_INTL" \
     -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \
     -DHERMES_BUILD_SHARED_JSI=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
