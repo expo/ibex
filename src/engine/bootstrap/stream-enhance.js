@@ -5,7 +5,7 @@
 
   // --- Minimal EventEmitter mixin ---
   function addEventEmitter(obj) {
-    var listeners = {};
+    var listeners = Object.create(null);
     obj.on = function(event, fn) {
       if (!listeners[event]) listeners[event] = [];
       listeners[event].push({ fn: fn, once: false });
@@ -44,7 +44,7 @@
     };
     obj.off = obj.removeListener;
     obj.removeAllListeners = function(event) {
-      if (event) { listeners[event] = []; } else { listeners = {}; }
+      if (event) { listeners[event] = []; } else { listeners = Object.create(null); }
       return obj;
     };
     obj.listenerCount = function(event) {
