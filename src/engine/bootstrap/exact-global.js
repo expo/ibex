@@ -99,24 +99,10 @@
     var _call = Function.prototype.call;
 
     function wrapSetTimeout(callback, delay) {
+      _validateTimerCb(callback);
       // WebIDL `long` conversion and HTML spec delay clamping
       delay = delay | 0;
       if (delay < 0) delay = 0;
-
-      if (typeof callback !== 'function') {
-        // HTML spec: convert non-function to string and eval when timer fires
-        var code = String(callback);
-        var timer;
-        var cb = function() {
-          timer._destroyed = true;
-          (0, eval)(code);
-        };
-        var handle = nativeSetTimeout(cb, delay);
-        timer = createTimeoutObject(handle, nativeClearTimeout, function() {
-          return nativeSetTimeout(cb, delay);
-        }, [callback, delay]);
-        return timer;
-      }
 
       var args = [];
       for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
@@ -133,23 +119,10 @@
     }
 
     function wrapSetInterval(callback, delay) {
+      _validateTimerCb(callback);
       // WebIDL `long` conversion and HTML spec delay clamping
       delay = delay | 0;
       if (delay < 0) delay = 0;
-
-      if (typeof callback !== 'function') {
-        // HTML spec: convert non-function to string and eval when timer fires
-        var code = String(callback);
-        var timer;
-        var cb = function() {
-          (0, eval)(code);
-        };
-        var handle = nativeSetInterval(cb, delay);
-        timer = createTimeoutObject(handle, nativeClearInterval, function() {
-          return nativeSetInterval(cb, delay);
-        }, [callback, delay]);
-        return timer;
-      }
 
       var args = [];
       for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
