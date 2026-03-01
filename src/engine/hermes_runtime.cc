@@ -575,7 +575,9 @@ extern "C" void native_ws_release_context(void* context) {
 struct CFUniqueReleaser {
   void operator()(const void* ptr) const {
     if (ptr) {
+#if defined(__APPLE__)
       CFRelease(ptr);
+#endif
     }
   }
 };

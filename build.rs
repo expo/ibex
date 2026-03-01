@@ -7,21 +7,46 @@ fn main() {
         .and_then(|p| p.parent())
         .expect("Failed to resolve repo root");
 
-    let hermes_headers = repo_root
-        .join("ios")
-        .join("Frameworks")
-        .join("hermes-headers");
-    let hermes_frameworks = repo_root.join("ios").join("Frameworks");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
 
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let default_ios_headers = repo_root
+        .join("ios")
+        .join("Frameworks")
+        .join("hermes-headers");
+    let default_linux_headers = repo_root.join("linux").join("hermes-headers");
+    let hermes_include_dir = std::env::var("HERMES_INCLUDE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            if target_os == "linux" && default_linux_headers.exists() {
+                default_linux_headers.clone()
+            } else {
+                default_ios_headers.clone()
+            }
+        });
+    let default_ios_lib = repo_root.join("ios").join("Frameworks");
+    let default_linux_lib = repo_root.join("linux").join("lib");
+    let hermes_lib_dir = std::env::var("HERMES_LIB_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            if target_os == "linux" && default_linux_lib.exists() {
+                default_linux_lib.clone()
+            } else {
+                default_ios_lib.clone()
+            }
+        });
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
+    println!("cargo:rerun-if-changed=src/engine/native_fetch_linux.cc");
+    println!("cargo:rerun-if-changed=src/engine/native_websocket_linux.cc");
     println!("cargo:rerun-if-changed=src/engine/bootstrap");
     println!("cargo:rerun-if-changed=src/builtins");
     println!("cargo:rerun-if-env-changed=HERMES_ENABLE_DEBUGGER");
+    println!("cargo:rerun-if-env-changed=HERMES_INCLUDE_DIR");
+    println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
     let allow_fallback = matches!(
         std::env::var("EXACT_ALLOW_FALLBACK")
@@ -259,10 +284,11 @@ fn main() {
     build
         .cpp(true)
         .file("src/engine/hermes_runtime.cc")
-        .include(&hermes_headers)
+        .include(&hermes_include_dir)
         .include(&out_dir) // For bootstrap_bytecode.h
         .flag_if_supported("-std=c++17")
-        .flag_if_supported("-stdlib=libc++");
+        .flag_if_supported("-stdlib=libc++")
+        .flag_if_supported("-fPIC");
 
     // Set minimum deployment targets to match Xcode project settings.
     // This avoids "was built for newer version" linker warnings for our C++ files.
@@ -296,6 +322,13 @@ fn main() {
             build.define("EXACT_NO_BROTLI", None);
             build.define("EXACT_NO_OPENSSL", None);
             build.define("EXACT_PLATFORM_IOS", None);
+        }
+        "linux" => {
+            if let Ok(openssl_include) = std::env::var("DEP_OPENSSL_INCLUDE") {
+                build.include(&openssl_include);
+            }
+            let brotli_include = manifest_dir.join("vendor").join("brotli").join("include");
+            build.include(&brotli_include);
         }
         _ => {}
     }
@@ -352,12 +385,12 @@ fn main() {
         if target_os == "macos" {
             println!(
                 "cargo:rustc-link-search=framework={}",
-                hermes_frameworks.display()
+                hermes_lib_dir.display()
             );
             println!("cargo:rustc-link-lib=framework=hermesvm");
             println!(
                 "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                hermes_frameworks.display()
+                hermes_lib_dir.display()
             );
         }
         // On iOS, Hermes is linked by Xcode (via hermes.xcframework dependency)
@@ -404,6 +437,68 @@ fn main() {
             // Link libresolv for DNS on iOS too
             println!("cargo:rustc-link-lib=resolv");
         }
+    }
+
+    if target_os == "linux" {
+        let mut fetch_build = cc::Build::new();
+        fetch_build
+            .cpp(true)
+            .file("src/engine/native_fetch_linux.cc")
+            .flag_if_supported("-std=c++17")
+            .flag_if_supported("-fPIC");
+        fetch_build.compile("exact_native_fetch");
+
+        let mut ws_build = cc::Build::new();
+        ws_build
+            .cpp(true)
+            .file("src/engine/native_websocket_linux.cc")
+            .flag_if_supported("-std=c++17")
+            .flag_if_supported("-fPIC");
+        ws_build.compile("exact_native_websocket");
+
+        println!(
+            "cargo:rustc-link-search=native={}",
+            hermes_lib_dir.display()
+        );
+        let static_link = std::env::var("HERMES_LINK_STATIC")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
+        if static_link {
+            println!("cargo:rustc-link-lib=static=hermesvm");
+        } else {
+            println!("cargo:rustc-link-lib=dylib=hermesvm");
+            println!(
+                "cargo:rustc-link-arg=-Wl,-rpath,{}",
+                hermes_lib_dir.display()
+            );
+        }
+
+        if let Ok(lib_dir) = std::env::var("DEP_OPENSSL_LIB_DIR") {
+            println!("cargo:rustc-link-search=native={}", lib_dir);
+        }
+        println!("cargo:rustc-link-lib=static=ssl");
+        println!("cargo:rustc-link-lib=static=crypto");
+        println!("cargo:rustc-link-lib=stdc++");
+        println!("cargo:rustc-link-lib=z");
+        println!("cargo:rustc-link-lib=resolv");
+        println!("cargo:rustc-link-lib=pthread");
+        println!("cargo:rustc-link-lib=dl");
+
+        let brotli_dir = manifest_dir.join("vendor").join("brotli");
+        let mut brotli_build = cc::Build::new();
+        brotli_build
+            .include(brotli_dir.join("include"))
+            .flag_if_supported("-fPIC");
+        for subdir in &["common", "dec", "enc"] {
+            let dir = brotli_dir.join(subdir);
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.extension().is_some_and(|e| e == "c") {
+                    brotli_build.file(&path);
+                }
+            }
+        }
+        brotli_build.compile("brotli");
     }
 }
 
