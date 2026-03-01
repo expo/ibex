@@ -146,13 +146,19 @@ rm -rf "$LINUX_HEADERS_DIR"
 mkdir -p "$LINUX_HEADERS_DIR"
 cp -R "$INSTALL_DIR/include/"* "$LINUX_HEADERS_DIR/"
 cp -f "$INSTALL_DIR/lib/"libhermesvm.* "$LINUX_LIB_DIR/" 2>/dev/null || true
-cp -f "$INSTALL_DIR/bin/hermesc" "$TOOLS_DIR/hermesc"
+ARCH="$(uname -m)"
+case "$ARCH" in
+    x86_64|amd64) HERMESC_ARCH="x64" ;;
+    arm64|aarch64) HERMESC_ARCH="arm64" ;;
+    *) HERMESC_ARCH="$ARCH" ;;
+esac
+cp -f "$INSTALL_DIR/bin/hermesc" "$TOOLS_DIR/hermesc-linux-$HERMESC_ARCH"
 
 echo ""
 echo "Installed Linux Hermes artifacts:"
 echo "  headers: $LINUX_HEADERS_DIR"
 echo "  libs:    $LINUX_LIB_DIR"
-echo "  hermesc: $TOOLS_DIR/hermesc"
+echo "  hermesc: $TOOLS_DIR/hermesc-linux-$HERMESC_ARCH"
 echo ""
 echo "Suggested env (optional):"
 echo "  export HERMES_INCLUDE_DIR=$LINUX_HEADERS_DIR"

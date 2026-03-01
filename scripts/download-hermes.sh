@@ -17,6 +17,13 @@ CLI_SHA256="b051e3f099023c5d131fcd7b5a6d664e845588db440c9ea8ee0396ade370bf99a"
 
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
 TOOLS_DIR="$PROJECT_ROOT/tools/hermes"
+ARCH_RAW="$(uname -m)"
+case "$ARCH_RAW" in
+    x86_64|amd64) ARCH="x64" ;;
+    arm64|aarch64) ARCH="arm64" ;;
+    *) ARCH="$ARCH_RAW" ;;
+esac
+HERMESC_DEST="$TOOLS_DIR/hermesc-macos-$ARCH"
 TEMP_DIR=$(mktemp -d)
 
 cleanup() {
@@ -117,7 +124,7 @@ fi
 # Download Hermes CLI Tools
 # -----------------------------------------------------------------------------
 
-if [ -f "$TOOLS_DIR/hermesc" ]; then
+if [ -f "$HERMESC_DEST" ]; then
     echo "[✓] Hermes CLI tools already exist"
 else
     echo "[↓] Downloading Hermes CLI tools..."
@@ -134,6 +141,10 @@ else
 
     # Keep only the tools we need
     if [ -f "$TOOLS_DIR/hermesc" ]; then
+        mv "$TOOLS_DIR/hermesc" "$HERMESC_DEST"
+    fi
+
+    if [ -f "$HERMESC_DEST" ]; then
         # Remove tools we don't need to save space
         rm -f "$TOOLS_DIR/hermes" "$TOOLS_DIR/hdb" "$TOOLS_DIR/hvm" 2>/dev/null || true
         echo "[✓] Hermes CLI tools installed"
@@ -163,8 +174,8 @@ else
     echo "[✗] hermes-headers: MISSING"
 fi
 
-if [ -f "$TOOLS_DIR/hermesc" ]; then
-    VERSION=$("$TOOLS_DIR/hermesc" --version 2>&1 | grep "Hermes release" | head -1 || echo "unknown")
+if [ -f "$HERMESC_DEST" ]; then
+    VERSION=$("$HERMESC_DEST" --version 2>&1 | grep "Hermes release" | head -1 || echo "unknown")
     echo "[✓] hermesc: $VERSION"
 else
     echo "[✗] hermesc: MISSING"

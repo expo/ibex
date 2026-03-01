@@ -88,10 +88,20 @@ fi
 # Copy CLI tools (hermesc, hermes compiler)
 TOOLS_DIR="$PROJECT_ROOT/tools/hermes"
 mkdir -p "$TOOLS_DIR"
+ARCH_RAW="$(uname -m)"
+case "$ARCH_RAW" in
+    x86_64|amd64) ARCH="x64" ;;
+    arm64|aarch64) ARCH="arm64" ;;
+    *) ARCH="$ARCH_RAW" ;;
+esac
+HERMESC_DEST="$TOOLS_DIR/hermesc-macos-$ARCH"
 
 if [ -d "Pods/hermes-engine/destroot/bin" ]; then
     echo "   Copying Hermes CLI tools (hermesc, etc.)..."
     cp -R Pods/hermes-engine/destroot/bin/* "$TOOLS_DIR/" 2>/dev/null || true
+    if [ -f "$TOOLS_DIR/hermesc" ]; then
+        mv "$TOOLS_DIR/hermesc" "$HERMESC_DEST"
+    fi
 fi
 
 # Get version info
@@ -107,11 +117,11 @@ POD_VERSION=$(cat ../../HermesExtract/node_modules/react-native/package.json | g
 echo "   React Native version: $POD_VERSION"
 
 # Check hermesc version if available
-if [ -f "$TOOLS_DIR/hermesc" ]; then
-    chmod +x "$TOOLS_DIR/hermesc"
+if [ -f "$HERMESC_DEST" ]; then
+    chmod +x "$HERMESC_DEST"
     echo "   hermesc tool: Available"
     # Try to get version (may not work depending on hermesc build)
-    "$TOOLS_DIR/hermesc" --version 2>/dev/null || echo "     (version command not available)"
+    "$HERMESC_DEST" --version 2>/dev/null || echo "     (version command not available)"
 fi
 
 # Clean up
