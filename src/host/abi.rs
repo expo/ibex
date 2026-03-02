@@ -19,6 +19,24 @@ use std::ptr;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+#[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "tvos"), not(target_os = "watchos")))]
+#[inline]
+fn set_errno_from_io_error(err: &std::io::Error) {
+    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    unsafe { *libc::__errno_location() = code; }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos"))]
+#[inline]
+fn set_errno_from_io_error(err: &std::io::Error) {
+    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    unsafe { *libc::__error() = code; }
+}
+
+#[cfg(not(unix))]
+#[inline]
+fn set_errno_from_io_error(_err: &std::io::Error) {}
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 #[cfg(unix)]
@@ -587,7 +605,10 @@ pub extern "C" fn ex_host_fs_open(path: *const c_char, flags: u32) -> *mut Exact
 
     match opts.open(path) {
         Ok(file) => Box::into_raw(Box::new(ExactFileHandle { file })),
-        Err(_) => ptr::null_mut(),
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            ptr::null_mut()
+        }
     }
 }
 
@@ -600,7 +621,10 @@ pub extern "C" fn ex_host_fs_read(file: *mut ExactFileHandle, buf: *mut u8, len:
     let slice = unsafe { std::slice::from_raw_parts_mut(buf, len as usize) };
     match std::io::Read::read(&mut handle.file, slice) {
         Ok(bytes) => bytes as i32,
-        Err(_) => -1,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
     }
 }
 
@@ -613,7 +637,10 @@ pub extern "C" fn ex_host_fs_write(file: *mut ExactFileHandle, buf: *const u8, l
     let slice = unsafe { std::slice::from_raw_parts(buf, len as usize) };
     match std::io::Write::write(&mut handle.file, slice) {
         Ok(bytes) => bytes as i32,
-        Err(_) => -1,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
     }
 }
 
@@ -640,7 +667,18 @@ pub extern "C" fn ex_host_fs_stat(path: *const c_char) -> *mut c_char {
         .to_string();
     match make_stat_payload(&path, true) {
         Some(payload) => as_json_cstring(&payload),
-        None => ptr::null_mut(),
+        None => {
+            match std::fs::metadata(&path) {
+                Ok(_) => {
+                    set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "stat payload failed"));
+                    ptr::null_mut()
+                }
+                Err(err) => {
+                    set_errno_from_io_error(&err);
+                    ptr::null_mut()
+                }
+            }
+        }
     }
 }
 
@@ -655,7 +693,18 @@ pub extern "C" fn ex_host_fs_lstat(path: *const c_char) -> *mut c_char {
         .to_string();
     match make_stat_payload(&path, false) {
         Some(payload) => as_json_cstring(&payload),
-        None => ptr::null_mut(),
+        None => {
+            match std::fs::symlink_metadata(&path) {
+                Ok(_) => {
+                    set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "lstat payload failed"));
+                    ptr::null_mut()
+                }
+                Err(err) => {
+                    set_errno_from_io_error(&err);
+                    ptr::null_mut()
+                }
+            }
+        }
     }
 }
 
@@ -678,10 +727,16 @@ pub extern "C" fn ex_host_fs_readdir(path: *const c_char) -> *mut c_char {
             let payload = serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string());
             match CString::new(payload) {
                 Ok(cstr) => cstr.into_raw(),
-                Err(_) => ptr::null_mut(),
+                Err(_) => {
+                    set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "invalid JSON payload"));
+                    ptr::null_mut()
+                }
             }
         }
-        Err(_) => ptr::null_mut(),
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            ptr::null_mut()
+        }
     }
 }
 
@@ -702,7 +757,10 @@ pub extern "C" fn ex_host_fs_mkdir(path: *const c_char, recursive: i32) -> i32 {
     };
     match result {
         Ok(_) => 0,
-        Err(_) => -1,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
     }
 }
 
@@ -717,7 +775,10 @@ pub extern "C" fn ex_host_fs_rmdir(path: *const c_char) -> i32 {
         .to_string();
     match std::fs::remove_dir(&path) {
         Ok(_) => 0,
-        Err(_) => -1,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
     }
 }
 
@@ -732,7 +793,10 @@ pub extern "C" fn ex_host_fs_unlink(path: *const c_char) -> i32 {
         .to_string();
     match std::fs::remove_file(&path) {
         Ok(_) => 0,
-        Err(_) => -1,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
     }
 }
 
@@ -748,7 +812,10 @@ pub extern "C" fn ex_host_fs_rename(from: *const c_char, to: *const c_char) -> i
     let to = unsafe { CStr::from_ptr(to) }.to_string_lossy().to_string();
     match std::fs::rename(&from, &to) {
         Ok(_) => 0,
-        Err(_) => -1,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
     }
 }
 
@@ -764,7 +831,10 @@ pub extern "C" fn ex_host_fs_copy(from: *const c_char, to: *const c_char) -> i32
     let to = unsafe { CStr::from_ptr(to) }.to_string_lossy().to_string();
     match std::fs::copy(&from, &to) {
         Ok(_) => 0,
-        Err(_) => -1,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
     }
 }
 
@@ -780,9 +850,15 @@ pub extern "C" fn ex_host_fs_realpath(path: *const c_char) -> *mut c_char {
     match std::fs::canonicalize(&path) {
         Ok(canonical) => match CString::new(canonical.to_string_lossy().to_string()) {
             Ok(cstr) => cstr.into_raw(),
-            Err(_) => ptr::null_mut(),
+            Err(_) => {
+                set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "invalid canonical path"));
+                ptr::null_mut()
+            }
         },
-        Err(_) => ptr::null_mut(),
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            ptr::null_mut()
+        }
     }
 }
 
@@ -793,43 +869,42 @@ pub extern "C" fn ex_host_fs_access(path: *const c_char, mode: i32) -> i32 {
     if path.is_null() {
         return -1;
     }
-    let path_str = unsafe { CStr::from_ptr(path) }
-        .to_string_lossy()
-        .to_string();
-    let p = std::path::Path::new(&path_str);
-
-    // mode 0 = F_OK (existence check)
-    if !p.exists() {
-        return -1;
-    }
-    if mode == 0 {
-        return 0;
-    }
-
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        match std::fs::metadata(&path_str) {
-            Ok(meta) => {
-                let perms = meta.permissions().mode();
-                // Simple check: mode 1=read(R_OK), 2=write(W_OK), 4=execute(X_OK)
-                if mode & 1 != 0 && perms & 0o444 == 0 {
-                    return -1;
-                }
-                if mode & 2 != 0 && perms & 0o222 == 0 {
-                    return -1;
-                }
-                if mode & 4 != 0 && perms & 0o111 == 0 {
-                    return -1;
-                }
-                0
+        let c_path = unsafe { CStr::from_ptr(path) };
+        let flags = if mode == 0 {
+            libc::F_OK
+        } else {
+            let mut requested = 0;
+            if mode & 1 != 0 {
+                requested |= libc::R_OK;
             }
-            Err(_) => -1,
+            if mode & 2 != 0 {
+                requested |= libc::W_OK;
+            }
+            if mode & 4 != 0 {
+                requested |= libc::X_OK;
+            }
+            requested
+        };
+
+        let result = unsafe { libc::access(c_path.as_ptr(), flags) };
+        if result == 0 {
+            0
+        } else {
+            set_errno_from_io_error(&std::io::Error::last_os_error());
+            -1
         }
     }
     #[cfg(not(unix))]
     {
-        0
+        let _ = path;
+        let _ = mode;
+        if mode == 0 {
+            0
+        } else {
+            return -1;
+        }
     }
 }
 
@@ -848,7 +923,10 @@ pub extern "C" fn ex_host_fs_chmod(path: *const c_char, mode: u32) -> i32 {
         let perms = std::fs::Permissions::from_mode(mode);
         match std::fs::set_permissions(&path, perms) {
             Ok(_) => 0,
-            Err(_) => -1,
+            Err(err) => {
+                set_errno_from_io_error(&err);
+                -1
+            }
         }
     }
     #[cfg(not(unix))]
@@ -895,9 +973,15 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
     match std::fs::create_dir(&dir_path) {
         Ok(_) => match CString::new(dir_path.to_string_lossy().to_string()) {
             Ok(cstr) => cstr.into_raw(),
-            Err(_) => ptr::null_mut(),
+            Err(_) => {
+                set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "invalid temp path"));
+                ptr::null_mut()
+            }
         },
-        Err(_) => ptr::null_mut(),
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            ptr::null_mut()
+        }
     }
 }
 
@@ -918,9 +1002,15 @@ pub extern "C" fn ex_host_fs_append(path: *const c_char, data: *const u8, len: u
     match opts.open(&path) {
         Ok(mut file) => match file.write(slice) {
             Ok(n) => n as i32,
-            Err(_) => -1,
+            Err(err) => {
+                set_errno_from_io_error(&err);
+                -1
+            }
         },
-        Err(_) => -1,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
     }
 }
 
