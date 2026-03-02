@@ -2262,7 +2262,7 @@ Readable.from = function(iterable, options) {
           throw err;
         }
         if (nextResult && typeof nextResult.then === 'function') {
-          nextResult.then(function() {}, function(err) {
+          nextResult.catch(function(err) {
             markAsyncIterError(err);
           });
         }
@@ -4080,7 +4080,7 @@ function isStreamDone(stream) {
       return;
     }
     if (typeof callback === 'function') {
-      callback(null, finalValue);
+      callback(undefined, finalValue);
       return;
     }
   }
