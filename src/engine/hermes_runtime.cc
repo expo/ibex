@@ -1083,13 +1083,18 @@ std::vector<uint8_t> extractBytes(facebook::jsi::Runtime& rt, const facebook::js
   return {};
 }
 
+struct IoVecMetadata {
+  bool isArrayBuffer;
+  size_t byteOffset;
+  size_t byteLength;
+};
+
 static bool parseIoVecArguments(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::Value& value,
     std::vector<std::vector<uint8_t>>& buffers,
     std::vector<struct iovec>& iovecs,
-    std::vector<facebook::jsi::Object>* targetObjects,
-    std::vector<size_t>* targetOffsets) {
+    std::vector<IoVecMetadata>* metadata) {
   if (!value.isObject()) {
     return false;
   }
@@ -1104,11 +1109,8 @@ static bool parseIoVecArguments(
   auto length = static_cast<size_t>(lengthValue.asNumber());
   buffers.reserve(length);
   iovecs.reserve(length);
-  if (targetObjects) {
-    targetObjects->reserve(length);
-  }
-  if (targetOffsets) {
-    targetOffsets->reserve(length);
+  if (metadata) {
+    metadata->reserve(length);
   }
   for (size_t i = 0; i < length; i++) {
     std::string index = std::to_string(i);
@@ -1120,10 +1122,12 @@ static bool parseIoVecArguments(
     size_t byteOffset = 0;
     size_t byteLength = 0;
     const uint8_t* source = nullptr;
+    bool isArrayBuffer = false;
     if (entryObj.isArrayBuffer(runtime)) {
       auto ab = entryObj.getArrayBuffer(runtime);
       source = ab.data(runtime);
       byteLength = ab.size(runtime);
+      isArrayBuffer = true;
     } else if (entryObj.hasProperty(runtime, "buffer")) {
       auto bufferValue = entryObj.getProperty(runtime, "buffer");
       if (!bufferValue.isObject()) {
@@ -1162,9 +1166,8 @@ static bool parseIoVecArguments(
       .iov_len = bytesRef.size()
     };
     iovecs.push_back(iov);
-    if (targetObjects) {
-      targetObjects->push_back(entryObj);
-      targetOffsets->push_back(byteOffset);
+    if (metadata) {
+      metadata->push_back({isArrayBuffer, byteOffset, byteLength});
     }
   }
   return true;
@@ -2688,11 +2691,11 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = static_cast<int>(args[0].asNumber());
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
-        std::vector<facebook::jsi::Object> targetObjects;
-        std::vector<size_t> targetOffsets;
-        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, &targetObjects, &targetOffsets)) {
+        std::vector<IoVecMetadata> targetMetadata;
+        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, &targetMetadata)) {
           throw facebook::jsi::JSError(runtime, "__exactFsReadv: buffers must be Uint8Array-like objects");
         }
+        auto listObj = args[1].asObject(runtime);
         if (count > 2 && args[2].isNumber()) {
           double pos = args[2].asNumber();
           if (pos >= 0) {
@@ -2702,7 +2705,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           }
         }
         bool hasCallback = false;
-        facebook::jsi::Function callback;
+        std::optional<facebook::jsi::Function> callback;
         if (count > 3 && args[3].isObject() && args[3].asObject(runtime).isFunction(runtime)) {
           callback = args[3].asObject(runtime).asFunction(runtime);
           hasCallback = true;
@@ -2714,7 +2717,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (bytesRead < 0) {
           auto errorMessage = fsErrorMessage(errno, "readv", "", "");
           if (hasCallback) {
-            callback.call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
+            callback->call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
             return facebook::jsi::Value::undefined();
           }
           throw facebook::jsi::JSError(runtime, errorMessage.c_str());
@@ -2722,11 +2725,17 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
 
         size_t copied = 0;
         size_t remaining = static_cast<size_t>(bytesRead);
-        for (size_t i = 0; i < targetObjects.size() && remaining > 0; i++) {
-          auto& target = targetObjects[i];
-          size_t copyLen = buffers[i].size();
+        for (size_t i = 0; i < targetMetadata.size() && remaining > 0; i++) {
+          auto entry = listObj.getProperty(
+              runtime, facebook::jsi::PropNameID::forAscii(runtime, std::to_string(i)));
+          if (!entry.isObject()) {
+            throw facebook::jsi::JSError(runtime, "__exactFsReadv: buffer entry invalid");
+          }
+          auto target = entry.asObject(runtime);
+          auto& info = targetMetadata[i];
+          size_t copyLen = info.byteLength;
           if (copyLen > remaining) copyLen = remaining;
-          size_t byteOffset = targetOffsets[i];
+          size_t byteOffset = info.byteOffset;
           if (target.isArrayBuffer(runtime)) {
             auto ab = target.getArrayBuffer(runtime);
             size_t available = ab.size(runtime);
@@ -2751,7 +2760,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto result = static_cast<int>(copied);
         if (hasCallback) {
-          callback.call(runtime,
+          callback->call(runtime,
                         facebook::jsi::Value::undefined(),
                         facebook::jsi::Value(result),
                         args[1]);
@@ -2776,7 +2785,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = static_cast<int>(args[0].asNumber());
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
-        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr, nullptr)) {
+        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
           throw facebook::jsi::JSError(runtime, "__exactFsWritev: buffers must be Uint8Array-like objects");
         }
         if (count > 2 && args[2].isNumber()) {
@@ -2788,7 +2797,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
           }
         }
         bool hasCallback = false;
-        facebook::jsi::Function callback;
+        std::optional<facebook::jsi::Function> callback;
         if (count > 3 && args[3].isObject() && args[3].asObject(runtime).isFunction(runtime)) {
           callback = args[3].asObject(runtime).asFunction(runtime);
           hasCallback = true;
@@ -2799,14 +2808,14 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (bytesWritten < 0) {
           auto errorMessage = fsErrorMessage(errno, "writev", "", "");
           if (hasCallback) {
-            callback.call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
+            callback->call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
             return facebook::jsi::Value::undefined();
           }
           throw facebook::jsi::JSError(runtime, errorMessage.c_str());
         }
         auto result = static_cast<int>(bytesWritten);
         if (hasCallback) {
-          callback.call(runtime,
+          callback->call(runtime,
                         facebook::jsi::Value::undefined(),
                         facebook::jsi::Value(result),
                         args[1]);
@@ -3254,7 +3263,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = static_cast<int>(args[0].asNumber());
         mode_t mode = static_cast<mode_t>(args[1].asNumber());
         bool hasCallback = false;
-        facebook::jsi::Function callback;
+        std::optional<facebook::jsi::Function> callback;
         if (count > 2 && args[2].isObject() && args[2].asObject(runtime).isFunction(runtime)) {
           callback = args[2].asObject(runtime).asFunction(runtime);
           hasCallback = true;
@@ -3264,13 +3273,13 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (::fchmod(fd, mode) != 0) {
           auto errorMessage = fsErrorMessage(errno, "fchmod", "");
           if (hasCallback) {
-            callback.call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
+            callback->call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
             return facebook::jsi::Value::undefined();
           }
           throwFsError(runtime, "fchmod", "");
         }
         if (hasCallback) {
-          callback.call(runtime, facebook::jsi::Value::undefined());
+          callback->call(runtime, facebook::jsi::Value::undefined());
         }
         return facebook::jsi::Value::undefined();
       });
@@ -3288,7 +3297,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         uid_t uid = static_cast<uid_t>(args[1].asNumber());
         gid_t gid = static_cast<gid_t>(args[2].asNumber());
         bool hasCallback = false;
-        facebook::jsi::Function callback;
+        std::optional<facebook::jsi::Function> callback;
         if (count > 3 && args[3].isObject() && args[3].asObject(runtime).isFunction(runtime)) {
           callback = args[3].asObject(runtime).asFunction(runtime);
           hasCallback = true;
@@ -3298,13 +3307,13 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (::fchown(fd, uid, gid) != 0) {
           auto errorMessage = fsErrorMessage(errno, "fchown", "");
           if (hasCallback) {
-            callback.call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
+            callback->call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
             return facebook::jsi::Value::undefined();
           }
           throwFsError(runtime, "fchown", "");
         }
         if (hasCallback) {
-          callback.call(runtime, facebook::jsi::Value::undefined());
+          callback->call(runtime, facebook::jsi::Value::undefined());
         }
         return facebook::jsi::Value::undefined();
       });
