@@ -2149,6 +2149,18 @@ function _initReadStream(rs, path, options) {
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
   var fsModule = opts.fs || require('node:fs');
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'read']);
+  var fsHasOverrides = opts.fs !== undefined && opts.fs !== null;
+  var openSyncFn = fsHasOverrides && typeof fsModule.openSync === 'function' ? fsModule.openSync : null;
+  var openFn = fsHasOverrides && typeof fsModule.open === 'function' ? fsModule.open : null;
+  var readFn = fsHasOverrides && typeof fsModule.read === 'function' ? fsModule.read : read;
+  var closeSyncFn = fsHasOverrides && typeof fsModule.closeSync === 'function' ? fsModule.closeSync : null;
+  var closeFn = fsHasOverrides && typeof fsModule.close === 'function' ? fsModule.close : null;
+  if (!openSyncFn && !openFn) {
+    openSyncFn = openSync;
+  }
+  if (!closeSyncFn && !closeFn) {
+    closeSyncFn = closeSync;
+  }
   var encoding = opts.encoding || null;
   var start = 0;
   var end = opts.end;
@@ -2222,8 +2234,11 @@ function _initReadStream(rs, path, options) {
       if (rs._opened && rs._shouldAutoClose) {
         try {
           if (typeof rs._openFd === 'number') {
-            if (typeof fsModule.closeSync === 'function') closeSync(rs._openFd);
-            else fsModule.close(rs._openFd, function() {});
+            if (typeof closeSyncFn === 'function') {
+              closeSyncFn(rs._openFd);
+            } else if (typeof closeFn === 'function') {
+              closeFn(rs._openFd, function() {});
+            }
           }
         } catch (e) {}
       }
@@ -2256,12 +2271,33 @@ function _initReadStream(rs, path, options) {
     rs._opening = true;
     try {
       if (!sourceIsHandle && sourceFd === null) {
-        rs._openFd = fsModule.openSync(path, opts.flags || 'r', opts.mode || 438);
-        rs._opened = true;
-        rs._shouldAutoClose = rs._autoClose;
-        rs.fd = rs._openFd;
-        rs.emit('open', rs._openFd);
-        markReady();
+        if (openSyncFn) {
+          rs._openFd = openSyncFn(path, opts.flags || 'r', opts.mode || 438);
+          rs._opened = true;
+          rs._shouldAutoClose = rs._autoClose;
+          rs.fd = rs._openFd;
+          rs.emit('open', rs._openFd);
+          markReady();
+          rs._opening = false;
+          return;
+        }
+        if (!openFn) throw _fsInvalidArgType('options.fs.open', 'function', undefined);
+        openFn(path, opts.flags || 'r', opts.mode || 438, function(err, fd) {
+          rs._opening = false;
+          if (err) {
+            rs.emit('error', err);
+            if (autoClose) closeFd();
+            return;
+          }
+          rs._openFd = fd;
+          rs._opened = true;
+          rs._shouldAutoClose = rs._autoClose;
+          rs.fd = rs._openFd;
+          rs.emit('open', rs._openFd);
+          markReady();
+          rs._read();
+        });
+        return;
       }
     } catch(err) {
       rs._opening = false;
@@ -2333,7 +2369,7 @@ function _initReadStream(rs, path, options) {
         sourceHandle.read(buf, 0, chunkSize, rs._position, readDone);
       } else {
         var readArgs = [rs.fd, buf, 0, chunkSize, rs._position];
-        fsModule.read.apply(null, readArgs.concat(readDone));
+        readFn.apply(null, readArgs.concat(readDone));
       }
     } catch(err) {
       rs.emit('error', err);
