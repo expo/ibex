@@ -213,6 +213,71 @@
         return {};
       }
     },
+    'internal/child_process': (function() {
+      var kChannelHandle = Symbol('kChannelHandle');
+      function getValidStdio(stdio, sync) {
+        if (typeof stdio === 'string') {
+          if (stdio !== 'ignore' && stdio !== 'pipe' && stdio !== 'inherit' && stdio !== 'overlapped') {
+            var err1 = new TypeError('The value "' + stdio + '" is invalid for option "stdio"');
+            err1.code = 'ERR_INVALID_ARG_VALUE';
+            throw err1;
+          }
+          stdio = [stdio, stdio, stdio];
+        } else if (!Array.isArray(stdio)) {
+          var err2 = new TypeError('The value "' + String(stdio) + '" is invalid for option "stdio"');
+          err2.code = 'ERR_INVALID_ARG_VALUE';
+          throw err2;
+        }
+        while (stdio.length < 3) stdio.push(undefined);
+        var result = { stdio: [], ipc: undefined, ipcFd: undefined };
+        for (var i = 0; i < stdio.length; i++) {
+          var s = stdio[i];
+          if (s === 'ignore' || s === undefined || s === null) {
+            result.stdio.push({ type: 'ignore' });
+          } else if (s === 'pipe' || s === 'overlapped') {
+            result.stdio.push({ type: 'pipe' });
+          } else if (s === 'inherit') {
+            result.stdio.push({ type: 'fd', fd: i });
+          } else if (s === 'ipc') {
+            if (sync) {
+              var err3 = new Error('IPC is not supported with synchronous forks');
+              err3.code = 'ERR_IPC_SYNC_FORK';
+              throw err3;
+            }
+            if (result.ipc !== undefined) {
+              var err4 = new Error('Only one IPC pipe is allowed');
+              err4.code = 'ERR_IPC_ONE_PIPE';
+              throw err4;
+            }
+            result.ipc = { type: 'ipc' };
+            result.ipcFd = i;
+            result.stdio.push({ type: 'ipc' });
+          } else if (typeof s === 'number') {
+            result.stdio.push({ type: 'fd', fd: s });
+          } else if (s && typeof s === 'object') {
+            if (typeof s.fd === 'number') {
+              result.stdio.push({ type: 'fd', fd: s.fd });
+            } else if (s._handle || s.handle || s._writableState || s._readableState) {
+              result.stdio.push({ type: 'fd', fd: i });
+            } else {
+              var err5 = new TypeError('The value "' + String(s) + '" is invalid for option "stdio"');
+              err5.code = 'ERR_INVALID_ARG_VALUE';
+              throw err5;
+            }
+          } else {
+            var err6 = new TypeError('The value "' + String(s) + '" is invalid for option "stdio"');
+            err6.code = 'ERR_INVALID_SYNC_FORK_INPUT';
+            throw err6;
+          }
+        }
+        return result;
+      }
+      return {
+        getValidStdio: getValidStdio,
+        kChannelHandle: kChannelHandle,
+        ChildProcess: null  // Will be set after child_process is loaded
+      };
+    })(),
     'bun:internal-for-testing': {
       fsStreamInternals: {},
       memfd_create: function() { return -1; },

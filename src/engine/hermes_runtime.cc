@@ -4487,8 +4487,28 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create IPC socketpair\"}"));
         }
 
+        // Create an exec error pipe to detect ENOENT and other exec failures.
+        // The write end has CLOEXEC so it auto-closes on successful exec.
+        // If exec fails, the child writes errno to this pipe before _exit.
+        int execErrPipe[2] = {-1, -1};
+        if (pipe(execErrPipe) != 0) {
+          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          if (ipcPair[0] >= 0) close(ipcPair[0]);
+          if (ipcPair[1] >= 0) close(ipcPair[1]);
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create exec error pipe\"}"));
+        }
+        fcntl(execErrPipe[1], F_SETFD, FD_CLOEXEC);
+
         pid_t pid = fork();
         if (pid < 0) {
+          close(execErrPipe[0]);
+          close(execErrPipe[1]);
           if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
           if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
           if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
@@ -4501,6 +4521,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         if (pid == 0) {
           // Child process
+          close(execErrPipe[0]); // close read end in child
           if (stdinPipeRequested) {
             close(stdinPipeFd[1]);
             dup2(stdinPipeFd[0], STDIN_FILENO);
@@ -4582,6 +4603,9 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
           if (!cwd.empty()) {
             if (chdir(cwd.c_str()) != 0) {
+              int chdirErrno = errno;
+              ssize_t nw = write(execErrPipe[1], &chdirErrno, sizeof(chdirErrno));
+              (void)nw;
               _exit(127);
             }
           }
@@ -4601,10 +4625,47 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             argv.push_back(nullptr);
             execvp(file.c_str(), argv.data());
           }
+          // exec failed - write errno to parent via the error pipe
+          {
+            int execErrno = errno;
+            ssize_t nw = write(execErrPipe[1], &execErrno, sizeof(execErrno));
+            (void)nw;
+          }
           _exit(127);
         }
 
-        // Parent process
+        // Parent process - check if exec succeeded or failed
+        close(execErrPipe[1]); // close write end in parent
+        {
+          int childErrno = 0;
+          ssize_t n = read(execErrPipe[0], &childErrno, sizeof(childErrno));
+          close(execErrPipe[0]);
+
+          if (n > 0) {
+            // Exec failed in the child - reap it and return error
+            int wstatus;
+            waitpid(pid, &wstatus, 0);
+            // Clean up all pipe fds
+            if (stdinPipeRequested && stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+            if (stdoutPipeRequested && stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+            if (stderrPipeRequested && stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+            if (ipcRequested && ipcPair[1] >= 0) close(ipcPair[1]);
+
+            std::string errName;
+            if (childErrno == ENOENT) errName = "ENOENT";
+            else if (childErrno == EACCES) errName = "EACCES";
+            else if (childErrno == EPERM) errName = "EPERM";
+            else if (childErrno == ENOEXEC) errName = "ENOEXEC";
+            else errName = "UNKNOWN";
+
+            std::string errorJson = "{\"error\":\"" + errName
+                + "\",\"errno\":" + std::to_string(childErrno)
+                + ",\"path\":\"" + file + "\"}";
+            return facebook::jsi::Value(
+                facebook::jsi::String::createFromUtf8(runtime, errorJson));
+          }
+        }
+
         if (stdinPipeRequested) close(stdinPipeFd[0]);   // close read end of stdin pipe (child reads)
         if (stdoutPipeRequested) close(stdoutPipeFd[1]); // close write end of stdout pipe (child writes)
         if (stderrPipeRequested) close(stderrPipeFd[1]); // close write end of stderr pipe (child writes)
@@ -5927,13 +5988,21 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactExit"),
       1,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         int code = 0;
-        if (count > 0 && args[0].isNumber()) {
-          code = static_cast<int>(args[0].asNumber());
+        if (count > 0) {
+          if (args[0].isNumber()) {
+            code = static_cast<int>(args[0].asNumber());
+          } else if (args[0].isString()) {
+            try {
+              code = std::stoi(args[0].getString(runtime).utf8(runtime));
+            } catch (...) {
+              code = 0;
+            }
+          }
         }
         std::exit(code);
         return facebook::jsi::Value::undefined();
@@ -9583,6 +9652,45 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   processObj.setProperty(rt, "chdir", std::move(chdirFn));
 
+  // process.exit()
+  auto makeHardExitFn = [&]() {
+    auto fn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "exit"),
+        1,
+        [](facebook::jsi::Runtime& runtime,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value* args,
+           size_t count) -> facebook::jsi::Value {
+          int code = 0;
+          if (count > 0) {
+            if (args[0].isNumber()) {
+              code = static_cast<int>(args[0].asNumber());
+            } else if (args[0].isString()) {
+              try {
+                code = std::stoi(args[0].getString(runtime).utf8(runtime));
+              } catch (...) {
+                code = 0;
+              }
+            }
+          }
+          try {
+            auto processObj = runtime.global().getProperty(runtime, "process");
+            if (!processObj.isObject()) {
+              std::exit(code);
+              return facebook::jsi::Value::undefined();
+            }
+            auto process = processObj.asObject(runtime);
+            process.setProperty(runtime, "exitCode", facebook::jsi::Value(code));
+          } catch (...) {}
+          std::exit(code);
+          return facebook::jsi::Value::undefined();
+        });
+    try {
+      fn.setProperty(rt, "__exactHostExit", facebook::jsi::Value(true));
+    } catch (...) {}
+    return fn;
+  };
   auto exitFn = makeHardExitFn();
   processObj.setProperty(rt, "exit", std::move(exitFn));
   try {
@@ -9878,6 +9986,31 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value(static_cast<int>(getgid()));
       });
   processObj.setProperty(rt, "getgid", std::move(getgidFn));
+
+  // process.getgroups()
+  auto getgroupsFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "getgroups"),
+      0,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        int ngroups = getgroups(0, nullptr);
+        if (ngroups < 0) {
+          return facebook::jsi::Value::undefined();
+        }
+        std::vector<gid_t> groups(ngroups);
+        if (getgroups(ngroups, groups.data()) < 0) {
+          return facebook::jsi::Value::undefined();
+        }
+        auto arr = facebook::jsi::Array(runtime, ngroups);
+        for (int i = 0; i < ngroups; i++) {
+          arr.setValueAtIndex(runtime, i, facebook::jsi::Value(static_cast<int>(groups[i])));
+        }
+        return std::move(arr);
+      });
+  processObj.setProperty(rt, "getgroups", std::move(getgroupsFn));
 
   // process.kill(pid, signal)
   auto killFn = facebook::jsi::Function::createFromHostFunction(

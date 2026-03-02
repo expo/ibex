@@ -20,10 +20,12 @@ function normalizeExecOptions(opts) {
   }
   if (opts.cwd) o.cwd = String(opts.cwd);
   if (opts.timeout) o.timeout = Number(opts.timeout);
-  if (opts.maxBuffer) o.maxBuffer = Number(opts.maxBuffer);
+  // Pass large maxBuffer to C++ to prevent C++ truncation - JS handles actual enforcement
+  o.maxBuffer = 268435456; // 256MB
   if (opts.encoding !== undefined) o.encoding = opts.encoding;
   if (opts.env) o.env = opts.env;
   if (opts.shell !== undefined) o.shell = opts.shell;
+  if (opts.input !== undefined) o.input = opts.input;
   return o;
 }
 
@@ -53,15 +55,149 @@ function _createIpcPacket(type, data) {
   return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
 }
 
+function _invalidArgTypeHelper(input) {
+  if (input == null) return ' Received ' + input;
+  if (typeof input === 'function') return ' Received function ' + input.name;
+  if (typeof input === 'object') {
+    if (input.constructor && input.constructor.name) return ' Received an instance of ' + input.constructor.name;
+    return ' Received ' + String(input);
+  }
+  return ' Received type ' + typeof input + ' (' + String(input) + ')';
+}
+
+function _throwInvalidArgType(name, expected, actual) {
+  var err = new TypeError('The "' + name + '" ' + (name.indexOf('.') !== -1 ? 'property' : 'argument') + ' must be ' + expected + '.' + _invalidArgTypeHelper(actual));
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  throw err;
+}
+
+function _throwOutOfRange(name, range, actual) {
+  var err = new RangeError('The value of "' + name + '" is out of range. It must be ' + range + '. Received ' + String(actual));
+  err.code = 'ERR_OUT_OF_RANGE';
+  throw err;
+}
+
+function _throwUnknownSignal(signal) {
+  var err = new TypeError('Unknown signal: ' + signal);
+  err.code = 'ERR_UNKNOWN_SIGNAL';
+  throw err;
+}
+
+var _signalMap = {
+  SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
+  SIGIOT: 6, SIGBUS: 10, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 30, SIGSEGV: 11,
+  SIGUSR2: 31, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGCHLD: 20,
+  SIGCONT: 19, SIGSTOP: 17, SIGTSTP: 18, SIGTTIN: 21, SIGTTOU: 22,
+  SIGURG: 16, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27,
+  SIGWINCH: 28, SIGIO: 23, SIGINFO: 29, SIGSYS: 12
+};
+var _signalNumbers = {};
+for (var _sk in _signalMap) _signalNumbers[_signalMap[_sk]] = _sk;
+
+function _isValidSignal(signal) {
+  if (typeof signal === 'number') {
+    return Number.isInteger(signal) && signal > 0 && _signalNumbers[signal] !== undefined;
+  }
+  if (typeof signal === 'string') {
+    var upper = signal.toUpperCase();
+    return _signalMap[upper] !== undefined;
+  }
+  return false;
+}
+
+function _validateSpawnSyncInput(options) {
+  if (options.input != null) {
+    if (typeof options.input !== 'string' && !ArrayBuffer.isView(options.input) && !(options.input instanceof ArrayBuffer)) {
+      _throwInvalidArgType('options.input', 'of type string or an instance of Buffer, TypedArray, or DataView', options.input);
+    }
+  }
+}
+
+function _validateSpawnSyncOptions(options) {
+  if (options.cwd != null && typeof options.cwd !== 'string') {
+    if (!(options.cwd instanceof URL)) {
+      _throwInvalidArgType('options.cwd', 'of type string, an instance of URL, or undefined', options.cwd);
+    }
+  }
+  if (options.detached != null && typeof options.detached !== 'boolean') {
+    _throwInvalidArgType('options.detached', 'of type boolean or undefined', options.detached);
+  }
+  if (options.uid != null) {
+    if (typeof options.uid !== 'number' || !Number.isInteger(options.uid) || options.uid < 0) {
+      _throwInvalidArgType('options.uid', 'an int32', options.uid);
+    }
+  }
+  if (options.gid != null) {
+    if (typeof options.gid !== 'number' || !Number.isInteger(options.gid) || options.gid < 0) {
+      _throwInvalidArgType('options.gid', 'an int32', options.gid);
+    }
+  }
+  if (options.shell != null && typeof options.shell !== 'boolean' && typeof options.shell !== 'string') {
+    _throwInvalidArgType('options.shell', 'of type boolean or of type string or undefined', options.shell);
+  }
+  if (options.argv0 != null && typeof options.argv0 !== 'string') {
+    _throwInvalidArgType('options.argv0', 'of type string or undefined', options.argv0);
+  }
+  if (options.windowsHide != null && typeof options.windowsHide !== 'boolean') {
+    _throwInvalidArgType('options.windowsHide', 'of type boolean or undefined', options.windowsHide);
+  }
+  if (options.windowsVerbatimArguments != null && typeof options.windowsVerbatimArguments !== 'boolean') {
+    _throwInvalidArgType('options.windowsVerbatimArguments', 'of type boolean or undefined', options.windowsVerbatimArguments);
+  }
+  if (options.timeout != null) {
+    if (typeof options.timeout !== 'number' || !Number.isFinite(options.timeout) || !Number.isInteger(options.timeout) || options.timeout < 0) {
+      _throwOutOfRange('options.timeout', 'a non-negative integer', options.timeout);
+    }
+  }
+  if (options.maxBuffer != null) {
+    if (typeof options.maxBuffer !== 'number' || options.maxBuffer !== options.maxBuffer || options.maxBuffer < 0) {
+      _throwOutOfRange('options.maxBuffer', 'a non-negative number', options.maxBuffer);
+    }
+  }
+  if (options.killSignal != null) {
+    if (typeof options.killSignal !== 'string' && typeof options.killSignal !== 'number') {
+      _throwInvalidArgType('options.killSignal', 'of type string or of type number or undefined', options.killSignal);
+    }
+    if (!_isValidSignal(options.killSignal)) {
+      _throwUnknownSignal(options.killSignal);
+    }
+  }
+}
+
   cp.execSync = function execSync(command, options) {
     if (typeof command !== 'string') {
       throw new TypeError('The "command" argument must be of type string');
     }
+    _validateNullBytes(command, 'command');
+    _validateOptionsNullBytes(options);
     command = _fallbackSpawnCommand(command);
     var opts = normalizeExecOptions(options);
   var optsJson = JSON.stringify(opts);
   var resultJson = globalThis.__exactExecSync(command, optsJson);
   var result = JSON.parse(resultJson);
+
+  var _Buffer = require('buffer').Buffer;
+  var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'buffer';
+
+  // Convert stdout/stderr to proper types
+  var stdoutBuf = _Buffer.from(result.stdout || '', 'utf8');
+  var stderrBuf = _Buffer.from(result.stderr || '', 'utf8');
+
+  // Check maxBuffer enforcement (read from original options, not normalized opts)
+  var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
+  if (maxBuffer !== Infinity) {
+    if (stdoutBuf.length > maxBuffer || stderrBuf.length > maxBuffer) {
+      var maxBufErr = new Error('Command failed: ' + command + '\nENOBUFS');
+      maxBufErr.code = 'ENOBUFS';
+      maxBufErr.errno = -55;
+      maxBufErr.status = result.status;
+      maxBufErr.stdout = stdoutBuf;
+      maxBufErr.stderr = stderrBuf;
+      maxBufErr.pid = result.pid || 0;
+      maxBufErr.cmd = command;
+      throw maxBufErr;
+    }
+  }
 
   if (result.error) {
     throw makeExecError(result.error, result);
@@ -75,18 +211,8 @@ function _createIpcPacket(type, data) {
     throw err;
   }
 
-  var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'utf8';
   if (encoding === 'buffer' || encoding === null) {
-    // Return as Buffer-like Uint8Array
-    var encoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
-    if (encoder) {
-      return encoder.encode(result.stdout);
-    }
-    var buf = new Uint8Array(result.stdout.length);
-    for (var i = 0; i < result.stdout.length; i++) {
-      buf[i] = result.stdout.charCodeAt(i);
-    }
-    return buf;
+    return stdoutBuf;
   }
 
   return result.stdout;
@@ -94,8 +220,9 @@ function _createIpcPacket(type, data) {
 
   cp.spawnSync = function spawnSync(command, args, options) {
     if (typeof command !== 'string') {
-      throw new TypeError('The "command" argument must be of type string');
+      _throwInvalidArgType('file', 'of type string', command);
     }
+    _validateNullBytes(command, 'command');
     command = _fallbackSpawnCommand(command);
   // Handle optional args parameter
   if (args && !Array.isArray(args) && typeof args === 'object') {
@@ -103,31 +230,46 @@ function _createIpcPacket(type, data) {
     args = [];
   }
   if (!args) args = [];
+  _validateArgsNullBytes(args);
+  if (options == null) options = {};
+  _validateOptionsNullBytes(options);
+  _validateSpawnSyncInput(options);
+  _validateSpawnSyncOptions(options);
   var opts = normalizeExecOptions(options);
+  // Pass input to native side if provided
+  if (options.input != null) {
+    if (typeof options.input === 'string') {
+      opts.input = options.input;
+    } else if (ArrayBuffer.isView(options.input)) {
+      // Convert typed array to string for JSON transport
+      var inputBytes = new Uint8Array(options.input.buffer, options.input.byteOffset, options.input.byteLength);
+      var inputStr = '';
+      for (var ib = 0; ib < inputBytes.length; ib++) inputStr += String.fromCharCode(inputBytes[ib]);
+      opts.input = inputStr;
+    }
+  }
   var argsJson = JSON.stringify(args);
   var optsJson = JSON.stringify(opts);
-  var resultJson = globalThis.__exactSpawnSync(command, argsJson, optsJson);
-  var result = JSON.parse(resultJson);
+  var result;
+  try {
+    var resultJson = globalThis.__exactSpawnSync(command, argsJson, optsJson);
+    result = JSON.parse(resultJson);
+  } catch (e) {
+    result = { error: e.message || 'spawnSync failed', status: null, stdout: '', stderr: '' };
+  }
 
-  var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'utf8';
+  var encoding = (options && options.encoding !== undefined) ? options.encoding : 'buffer';
 
   var stdoutOutput = result.stdout || '';
   var stderrOutput = result.stderr || '';
 
+  var _Buffer = require('buffer').Buffer;
+
   if (encoding === 'buffer' || encoding === null) {
-    var encoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
-    if (encoder) {
-      stdoutOutput = encoder.encode(stdoutOutput);
-      stderrOutput = encoder.encode(stderrOutput);
-    } else {
-      var toBuf = function(s) {
-        var buf = new Uint8Array(s.length);
-        for (var i = 0; i < s.length; i++) buf[i] = s.charCodeAt(i);
-        return buf;
-      };
-      stdoutOutput = toBuf(stdoutOutput);
-      stderrOutput = toBuf(stderrOutput);
-    }
+    stdoutOutput = typeof stdoutOutput === 'string' ? _Buffer.from(stdoutOutput, 'utf8') : _Buffer.from(stdoutOutput || '');
+    stderrOutput = typeof stderrOutput === 'string' ? _Buffer.from(stderrOutput, 'utf8') : _Buffer.from(stderrOutput || '');
+  } else if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
+    // For other encodings, keep as string (best effort)
   }
 
   var output = [null, stdoutOutput, stderrOutput];
@@ -142,10 +284,40 @@ function _createIpcPacket(type, data) {
     error: undefined
   };
 
-  if (result.error) {
-    spawnResult.error = new Error(result.error);
+  // Check maxBuffer enforcement
+  var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
+  if (maxBuffer !== Infinity && !result.error) {
+    var stdoutLen = typeof stdoutOutput === 'string' ? stdoutOutput.length : (stdoutOutput ? stdoutOutput.length : 0);
+    var stderrLen = typeof stderrOutput === 'string' ? stderrOutput.length : (stderrOutput ? stderrOutput.length : 0);
+    if (stdoutLen > maxBuffer || stderrLen > maxBuffer) {
+      var maxBufErr = new Error('spawnSync ' + command + ' ENOBUFS');
+      maxBufErr.code = 'ENOBUFS';
+      maxBufErr.errno = -55;
+      maxBufErr.syscall = 'spawnSync ' + command;
+      maxBufErr.spawnargs = args;
+      maxBufErr.path = command;
+      spawnResult.error = maxBufErr;
+    }
   }
-  if (result.status < 0) {
+
+  if (!spawnResult.error && result.error) {
+    var spawnErr = _makeSpawnError(command, 'ENOENT', -2, 'spawnSync ' + command);
+    if (result.error.indexOf('not found') !== -1 || result.error.indexOf('No such file') !== -1) {
+      spawnErr.code = 'ENOENT';
+      spawnErr.errno = -2;
+    } else if (result.error.indexOf('Permission denied') !== -1 || result.error.indexOf('EACCES') !== -1) {
+      spawnErr.code = 'EACCES';
+      spawnErr.errno = -13;
+    } else if (result.error.indexOf('timed out') !== -1 || result.error.indexOf('Timed out') !== -1) {
+      spawnErr.code = 'ETIMEDOUT';
+      spawnErr.errno = -60;
+    }
+    spawnErr.spawnargs = args;
+    spawnResult.error = spawnErr;
+  }
+  if (result.signal) {
+    spawnResult.signal = result.signal;
+  } else if (result.status < 0) {
     spawnResult.signal = 'SIGKILL';
   }
 
@@ -154,17 +326,25 @@ function _createIpcPacket(type, data) {
 
 cp.execFileSync = function execFileSync(file, args, options) {
   if (typeof file !== 'string') {
-    throw new TypeError('The "file" argument must be of type string');
+    _throwInvalidArgType('file', 'of type string', file);
   }
+  _validateNullBytes(file, 'file');
   // Handle optional args parameter
   if (args && !Array.isArray(args) && typeof args === 'object') {
     options = args;
     args = [];
   }
   if (!args) args = [];
+  _validateArgsNullBytes(args);
+  _validateOptionsNullBytes(options);
   var result = cp.spawnSync(file, args, options);
 
   if (result.error) {
+    // Attach stdout/stderr to the error object (Node compat)
+    if (result.error.stdout === undefined) result.error.stdout = result.stdout;
+    if (result.error.stderr === undefined) result.error.stderr = result.stderr;
+    if (result.error.status === undefined) result.error.status = result.status;
+    if (result.error.pid === undefined) result.error.pid = result.pid;
     throw result.error;
   }
 
@@ -177,7 +357,7 @@ cp.execFileSync = function execFileSync(file, args, options) {
   }
 
   var opts = normalizeExecOptions(options);
-  var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'utf8';
+  var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'buffer';
   if (encoding === 'buffer' || encoding === null) {
     return result.stdout;
   }
@@ -190,8 +370,10 @@ cp.exec = function exec(command, options, callback) {
     options = {};
   }
   if (!options) options = {};
+  _validateNullBytes(command, 'command');
+  _validateOptionsNullBytes(options);
   var opts = normalizeExecOptions(options);
-  var maxBuffer = opts.maxBuffer || 1024 * 1024;
+  var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
   var encoding = opts.encoding !== undefined ? opts.encoding : 'utf8';
   var child = cp.spawn(command, [], {
     shell: opts.shell !== undefined ? opts.shell : true,
@@ -251,6 +433,12 @@ cp.exec = function exec(command, options, callback) {
   }
 
   child.on('close', exitHandler);
+  child.on('error', function(err) {
+    if (exited) return;
+    exited = true;
+    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+    if (typeof callback === 'function') callback(err, '', '');
+  });
 
   if (opts.timeout && opts.timeout > 0) {
     timeoutId = setTimeout(function() {
@@ -263,22 +451,47 @@ cp.exec = function exec(command, options, callback) {
 };
 
 cp.execFile = function execFile(file, args, options, callback) {
+  // Flexible argument parsing: execFile(file [,args] [,options] [,callback])
   if (typeof args === 'function') {
     callback = args;
-    args = [];
-    options = {};
-  } else if (args && !Array.isArray(args) && typeof args === 'object') {
-    callback = options;
+    args = null;
+    options = null;
+  } else if (typeof args === 'object' && args !== null && !Array.isArray(args)) {
+    // args is actually options
+    if (typeof options === 'function') {
+      callback = options;
+    } else if (typeof options === 'string') {
+      _throwInvalidArgType('args', 'an instance of Array or undefined', args);
+    } else {
+      callback = options;
+    }
     options = args;
-    args = [];
-  } else if (typeof options === 'function') {
-    callback = options;
-    options = {};
+    args = null;
+  } else if (args !== null && args !== undefined && !Array.isArray(args)) {
+    _throwInvalidArgType('args', 'an instance of Array or undefined', args);
+  } else {
+    if (typeof options === 'function') {
+      callback = options;
+      options = null;
+    } else if (typeof options === 'string') {
+      _throwInvalidArgType('options', 'of type object or undefined', options);
+    } else if (Array.isArray(options)) {
+      _throwInvalidArgType('options', 'of type object or undefined', options);
+    }
+  }
+  // Validate callback if 4th arg was provided as string
+  if (callback !== null && callback !== undefined && typeof callback !== 'function') {
+    if (typeof callback === 'string') {
+      _throwInvalidArgType('callback', 'of type function or undefined', callback);
+    }
   }
   if (!args) args = [];
   if (!options) options = {};
+  _validateNullBytes(file, 'file');
+  _validateArgsNullBytes(args);
+  _validateOptionsNullBytes(options);
   var opts = normalizeExecOptions(options);
-  var maxBuffer = opts.maxBuffer || 1024 * 1024;
+  var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
   var encoding = opts.encoding !== undefined ? opts.encoding : 'utf8';
   var child = cp.spawn(file, args, {
     shell: false,
@@ -338,6 +551,13 @@ cp.execFile = function execFile(file, args, options, callback) {
   }
 
   child.on('close', exitHandler);
+  child.on('error', function(err) {
+    if (exited) return;
+    exited = true;
+    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+    if (!err.cmd) err.cmd = file + (args.length ? ' ' + args.join(' ') : '');
+    if (typeof callback === 'function') callback(err, '', '');
+  });
 
   if (opts.timeout && opts.timeout > 0) {
     timeoutId = setTimeout(function() {
@@ -485,26 +705,75 @@ if (typeof globalThis.__exactSpawnDispose !== 'function') {
   };
 }
 
-// ChildProcess constructor (extends EventEmitter)
-function ChildProcess(handle, pid, stdioModes) {
-  var EventEmitter;
-  try { EventEmitter = require('events'); } catch(e) {
-    EventEmitter = function() { this._events = {}; };
-    EventEmitter.prototype.on = function(ev, fn) { if (!this._events) this._events = {}; if (!this._events[ev]) this._events[ev] = []; this._events[ev].push(fn); return this; };
-    EventEmitter.prototype.emit = function(ev) { if (!this._events) this._events = {}; var a = [].slice.call(arguments, 1); var l = this._events[ev] || []; for (var i = 0; i < l.length; i++) l[i].apply(this, a); return l.length > 0; };
-    EventEmitter.prototype.once = function(ev, fn) { var self = this; function w() { self.removeListener(ev, w); fn.apply(this, arguments); } this.on(ev, w); return this; };
-    EventEmitter.prototype.removeListener = function(ev, fn) { if (!this._events) this._events = {}; var l = this._events[ev]; if (l) { var n = []; for (var i = 0; i < l.length; i++) { if (l[i] !== fn) n.push(l[i]); } this._events[ev] = n; } return this; };
-    EventEmitter.prototype.removeAllListeners = function(ev) { if (!this._events) this._events = {}; if (ev) delete this._events[ev]; else this._events = {}; return this; };
+// Validation helpers
+function _validateNullBytes(value, name) {
+  if (typeof value === 'string' && value.indexOf('\0') !== -1) {
+    var err = new TypeError('The value of "' + name + '" is invalid. Received ' + JSON.stringify(value));
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
   }
-  EventEmitter.call(this);
-  if (EventEmitter.prototype) {
-    for (var k in EventEmitter.prototype) {
-      if (!this[k]) this[k] = EventEmitter.prototype[k];
+}
+
+function _validateArgsNullBytes(args) {
+  if (Array.isArray(args)) {
+    for (var i = 0; i < args.length; i++) {
+      _validateNullBytes(args[i], 'options.args[' + i + ']');
+    }
+  }
+}
+
+function _validateOptionsNullBytes(options) {
+  if (!options) return;
+  if (typeof options.cwd === 'string') _validateNullBytes(options.cwd, 'options.cwd');
+  if (typeof options.argv0 === 'string') _validateNullBytes(options.argv0, 'options.argv0');
+  if (typeof options.shell === 'string') _validateNullBytes(options.shell, 'options.shell');
+  if (typeof options.execPath === 'string') _validateNullBytes(options.execPath, 'options.execPath');
+  if (Array.isArray(options.execArgv)) {
+    for (var i = 0; i < options.execArgv.length; i++) {
+      _validateNullBytes(options.execArgv[i], 'options.execArgv[' + i + ']');
+    }
+  }
+  if (options.env && typeof options.env === 'object') {
+    var keys = Object.keys(options.env);
+    for (var j = 0; j < keys.length; j++) {
+      _validateNullBytes(keys[j], 'options.env');
+      _validateNullBytes(String(options.env[keys[j]]), 'options.env[\'' + keys[j] + '\']');
+    }
+  }
+}
+
+function _makeSpawnError(command, code, errno, syscall) {
+  var msg = syscall + ' ' + code;
+  var err = new Error(msg);
+  err.code = code;
+  err.errno = errno || 0;
+  err.syscall = syscall || 'spawn ' + command;
+  err.path = command;
+  err.spawnargs = [];
+  return err;
+}
+
+// ChildProcess constructor (extends EventEmitter)
+var _EventEmitter;
+try { _EventEmitter = require('events'); } catch(e) {
+  _EventEmitter = function() { this._events = {}; };
+  _EventEmitter.prototype.on = function(ev, fn) { if (!this._events) this._events = {}; if (!this._events[ev]) this._events[ev] = []; this._events[ev].push(fn); return this; };
+  _EventEmitter.prototype.emit = function(ev) { if (!this._events) this._events = {}; var a = [].slice.call(arguments, 1); var l = this._events[ev] || []; for (var i = 0; i < l.length; i++) l[i].apply(this, a); return l.length > 0; };
+  _EventEmitter.prototype.once = function(ev, fn) { var self = this; function w() { self.removeListener(ev, w); fn.apply(this, arguments); } this.on(ev, w); return this; };
+  _EventEmitter.prototype.removeListener = function(ev, fn) { if (!this._events) this._events = {}; var l = this._events[ev]; if (l) { var n = []; for (var i = 0; i < l.length; i++) { if (l[i] !== fn) n.push(l[i]); } this._events[ev] = n; } return this; };
+  _EventEmitter.prototype.removeAllListeners = function(ev) { if (!this._events) this._events = {}; if (ev) delete this._events[ev]; else this._events = {}; return this; };
+}
+
+function ChildProcess(handle, pid, stdioModes) {
+  _EventEmitter.call(this);
+  if (_EventEmitter.prototype) {
+    for (var k in _EventEmitter.prototype) {
+      if (!this[k]) this[k] = _EventEmitter.prototype[k];
     }
   }
   this._events = this._events || {};
-  this._handle = handle;
-  this.pid = pid;
+  this._handle = handle !== undefined ? handle : null;
+  this.pid = pid !== undefined ? pid : undefined;
   this.exitCode = null;
   this.signalCode = null;
   this.killed = false;
@@ -515,13 +784,12 @@ function ChildProcess(handle, pid, stdioModes) {
   this._ref = true;
   this._useNativePump = typeof globalThis.__exactSpawnPump === 'function';
   this._pumpInProgress = false;
-  var modes = stdioModes || {
-    stdin: 'pipe',
-    stdout: 'pipe',
-    stderr: 'pipe',
-    ipc: 'pipe'
-  };
-  this._ipcMode = modes.ipc === 'ipc';
+  var modes = stdioModes || null;
+  if (modes) {
+    this._ipcMode = modes.ipc === 'ipc';
+  } else {
+    this._ipcMode = false;
+  }
   this._ipcBuffer = '';
   this._ipcQueueSize = 0;
   this._ipcQueueMax = 2;
@@ -532,6 +800,13 @@ function ChildProcess(handle, pid, stdioModes) {
   this._closeCallback = null;
   this.connected = this._ipcMode;
   this.channel = this._ipcMode ? { fd: 3, connected: true } : null;
+  this.stdin = null;
+  this.stdout = null;
+  this.stderr = null;
+  this.stdio = [null, null, null];
+
+  // Only set up streams if modes were provided (i.e., actual spawn, not bare constructor)
+  if (!modes) return;
 
   // Create stdout as a Readable stream
   var Stream = require('stream');
@@ -582,6 +857,8 @@ function ChildProcess(handle, pid, stdioModes) {
   } else {
     this.stdin = null;
   }
+
+  this.stdio = [this.stdin, this.stdout, this.stderr];
 
   function pushStreamData(kind, value, streamMode) {
     if (!value || !value.length) return;
@@ -795,7 +1072,13 @@ function ChildProcess(handle, pid, stdioModes) {
     };
     // Keep the JS event loop alive until the spawn settles for top-level await cases
     // where no other pending tasks exist.
-    self._pollTimer = setTimeout(nativePollFallback, 0);
+    if (self._handle >= 0) {
+      self._pollTimer = setTimeout(function() {
+        if (self._exited) return;
+        if (!self._spawnEmitted) { self._spawnEmitted = true; self.emit('spawn'); }
+        nativePollFallback();
+      }, 0);
+    }
   } else {
     // Start polling for stdout/stderr data and exit status.
     var fallbackPoll = function() {
@@ -804,20 +1087,211 @@ function ChildProcess(handle, pid, stdioModes) {
         self._pollTimer = setTimeout(fallbackPoll, pollInterval);
       }
     };
-    self._pollTimer = setTimeout(fallbackPoll, 0);
+    if (self._handle >= 0) {
+      self._pollTimer = setTimeout(function() {
+        if (self._exited) return;
+        if (!self._spawnEmitted) { self._spawnEmitted = true; self.emit('spawn'); }
+        fallbackPoll();
+      }, 0);
+    }
   }
 }
+
+// spawn() method for ChildProcess - validates options and spawns process
+ChildProcess.prototype.spawn = function(options) {
+  if (options === null || typeof options !== 'object') {
+    _throwInvalidArgType('options', 'of type object', options);
+  }
+  if (options.envPairs !== undefined && !Array.isArray(options.envPairs)) {
+    _throwInvalidArgType('options.envPairs', 'an instance of Array', options.envPairs);
+  }
+  if (options.args !== undefined && !Array.isArray(options.args)) {
+    _throwInvalidArgType('options.args', 'an instance of Array', options.args);
+  }
+  if (typeof options.file !== 'string') {
+    _throwInvalidArgType('options.file', 'of type string', options.file);
+  }
+
+  // Actually spawn the process
+  var command = options.file;
+  var args = options.args || [];
+  var normalizedOptions = _normalizeSpawnOptions(options);
+  var opts = {};
+  if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
+  if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
+  if (normalizedOptions.env) opts.env = normalizedOptions.env;
+  if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
+  if (options.stdio) opts.stdio = normalizedOptions.stdio;
+
+  var argsJson = JSON.stringify(args);
+  var optsJson = JSON.stringify(opts);
+  var result;
+  try {
+    var resultJson = globalThis.__exactSpawn(command, argsJson, optsJson);
+    result = JSON.parse(resultJson);
+  } catch (e) {
+    result = { error: 'Failed to initialize spawn' };
+  }
+
+  if (result.error) {
+    var self = this;
+    self.spawnfile = command;
+    self.spawnargs = [command].concat(args);
+    var spawnErrCode = result.error === 'EACCES' ? 'EACCES' : result.error === 'EPERM' ? 'EPERM' : 'ENOENT';
+    var spawnErrErrno = result.errno ? -result.errno : -2;
+    var spawnErr = _makeSpawnError(command, spawnErrCode, spawnErrErrno, 'spawn ' + command);
+    spawnErr.spawnargs = self.spawnargs;
+    setTimeout(function() {
+      self.emit('error', spawnErr);
+      self._exited = true;
+      self.exitCode = -1;
+      self.emit('close', -1, null);
+    }, 0);
+    return;
+  }
+
+  var stdioCfg = {
+    stdin: normalizedOptions.stdio[0],
+    stdout: normalizedOptions.stdio[1],
+    stderr: normalizedOptions.stdio[2],
+    ipc: normalizedOptions.stdio[3]
+  };
+  this._handle = result.handle;
+  this.pid = result.pid;
+  this.spawnfile = command;
+  this.spawnargs = [command].concat(args);
+
+  // Set up streams now
+  this._ipcMode = stdioCfg.ipc === 'ipc';
+  this.connected = this._ipcMode;
+  this.channel = this._ipcMode ? { fd: 3, connected: true } : null;
+
+  var Stream = require('stream');
+  var self2 = this;
+  if (stdioCfg.stdout === 'pipe') {
+    this.stdout = new Stream.Readable();
+    this.stdout._read = function() {};
+  }
+  if (stdioCfg.stderr === 'pipe') {
+    this.stderr = new Stream.Readable();
+    this.stderr._read = function() {};
+  }
+  if (stdioCfg.stdin === 'pipe') {
+    this.stdin = new Stream.Writable({
+      write: function(chunk, encoding, callback) {
+        var data = _toUint8String(chunk);
+        var ok = globalThis.__exactSpawnWrite(self2._handle, data);
+        if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+      }
+    });
+  }
+  this.stdio = [this.stdin, this.stdout, this.stderr];
+
+  // Start polling
+  if (!globalThis.__exactSpawnProcesses) globalThis.__exactSpawnProcesses = {};
+  globalThis.__exactSpawnProcesses[String(result.handle)] = this;
+  var self3 = this;
+  self3._exited = false;
+  self3._ref = true;
+  self3._useNativePump = typeof globalThis.__exactSpawnRead === 'function';
+  var pollInterval = 50;
+
+  var signalNames2 = { 1: 'SIGHUP', 2: 'SIGINT', 3: 'SIGQUIT', 6: 'SIGABRT', 9: 'SIGKILL', 14: 'SIGALRM', 15: 'SIGTERM' };
+
+  function closeStreams2() {
+    if (self3.stdout && typeof self3.stdout.push === 'function') self3.stdout.push(null);
+    if (self3.stderr && typeof self3.stderr.push === 'function') self3.stderr.push(null);
+    if (self3.stdin && typeof self3.stdin.end === 'function') self3.stdin.end();
+  }
+
+  function parseStatus2(jsonText) {
+    if (!jsonText) return { exited: false };
+    try { return JSON.parse(jsonText); } catch(e) { return { exited: false }; }
+  }
+
+  function pollStreams2() {
+    if (self3._exited) return;
+    // Read stdout
+    if (self3.stdout && self3._useNativePump) {
+      try {
+        var out = globalThis.__exactSpawnRead(self3._handle, 1);
+        if (out && out.length > 0) self3.stdout.push(out);
+      } catch(e) {}
+    }
+    // Read stderr
+    if (self3.stderr && self3._useNativePump) {
+      try {
+        var errOut = globalThis.__exactSpawnRead(self3._handle, 2);
+        if (errOut && errOut.length > 0) self3.stderr.push(errOut);
+      } catch(e) {}
+    }
+    // Poll exit status
+    if (!self3._exited) {
+      try {
+        var statusJson = globalThis.__exactSpawnPoll(self3._handle);
+        var status = parseStatus2(statusJson);
+        if (status.exited) {
+          self3._exited = true;
+          // Do one final read
+          if (self3._useNativePump) {
+            try {
+              var finalOut = globalThis.__exactSpawnRead(self3._handle, 1);
+              if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(finalOut);
+            } catch(e) {}
+            try {
+              var finalErr = globalThis.__exactSpawnRead(self3._handle, 2);
+              if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(finalErr);
+            } catch(e) {}
+          }
+          closeStreams2();
+          if (status.signal > 0) {
+            self3.signalCode = signalNames2[status.signal] || null;
+            self3.exitCode = null;
+          } else {
+            self3.exitCode = status.exitCode;
+            self3.signalCode = null;
+          }
+          self3.emit('exit', self3.exitCode, self3.signalCode);
+          setTimeout(function() {
+            self3.emit('close', self3.exitCode, self3.signalCode);
+            if (globalThis.__exactSpawnProcesses) {
+              delete globalThis.__exactSpawnProcesses[String(self3._handle)];
+            }
+            if (typeof globalThis.__exactSpawnDispose === 'function') {
+              globalThis.__exactSpawnDispose(self3._handle);
+            }
+          }, 0);
+          return;
+        }
+      } catch(e) {}
+    }
+    if (!self3._exited && self3._ref) {
+      self3._pollTimer = setTimeout(pollStreams2, pollInterval);
+    }
+  }
+
+  setTimeout(function() { self3.emit('spawn'); }, 0);
+  self3._pollTimer = setTimeout(pollStreams2, 0);
+};
 
 ChildProcess.prototype.kill = function(signal) {
   if (this._exited) return false;
   var sig;
-  if (typeof signal === 'string') {
-    sig = signalMap[signal] || 15; // default SIGTERM
+  if (signal === undefined || signal === null || signal === 0) {
+    sig = signal === 0 ? 0 : 15; // SIGTERM default
+  } else if (typeof signal === 'string') {
+    if (!signalMap.hasOwnProperty(signal)) {
+      var err = new TypeError('Unknown signal: ' + signal);
+      err.code = 'ERR_UNKNOWN_SIGNAL';
+      throw err;
+    }
+    sig = signalMap[signal];
   } else if (typeof signal === 'number') {
     sig = signal;
   } else {
     sig = 15; // SIGTERM
   }
+  if (this._handle === null || this._handle === undefined || this._handle < 0) return false;
   var ok = globalThis.__exactSpawnKill(this._handle, sig);
   if (ok) this.killed = true;
   return ok;
@@ -964,15 +1438,63 @@ cp.ChildProcess = ChildProcess;
 
 cp.spawn = function spawn(command, args, options) {
   if (typeof command !== 'string') {
-    throw new TypeError('The "command" argument must be of type string');
+    _throwInvalidArgType('file', 'of type string', command);
   }
+  if (command.length === 0) {
+    var valErr = new TypeError('The argument \'file\' cannot be empty. Received \'\'');
+    valErr.code = 'ERR_INVALID_ARG_VALUE';
+    throw valErr;
+  }
+  _validateNullBytes(command, 'file');
   // Handle optional args parameter
-  if (args && !Array.isArray(args) && typeof args === 'object') {
+  if (args != null && !Array.isArray(args) && typeof args === 'object') {
     options = args;
     args = [];
+  } else if (args != null && !Array.isArray(args)) {
+    _throwInvalidArgType('args', 'an instance of Array or undefined', args);
   }
   if (!args) args = [];
+  if (options === null || (options !== undefined && typeof options !== 'object') || Array.isArray(options)) {
+    _throwInvalidArgType('options', 'of type object or undefined', options);
+  }
   if (!options) options = {};
+  _validateArgsNullBytes(args);
+  _validateOptionsNullBytes(options);
+  // Validate serialization option
+  if (options.serialization !== undefined && options.serialization !== 'json' && options.serialization !== 'advanced') {
+    var serErr = new TypeError("The property 'options.serialization' must be one of: undefined, 'json', 'advanced'. Received " + require('util').inspect(options.serialization));
+    serErr.code = 'ERR_INVALID_ARG_VALUE';
+    throw serErr;
+  }
+  // Validate uid/gid
+  if (options.uid != null && (typeof options.uid !== 'number' || !Number.isInteger(options.uid) || options.uid < 0 || options.uid > 2147483647)) {
+    _throwInvalidArgType('options.uid', 'an int32', options.uid);
+  }
+  if (options.gid != null && (typeof options.gid !== 'number' || !Number.isInteger(options.gid) || options.gid < 0 || options.gid > 2147483647)) {
+    _throwInvalidArgType('options.gid', 'an int32', options.gid);
+  }
+  // Check uid/gid permissions - throw EPERM if not root
+  if (options.uid != null && typeof process !== 'undefined' && typeof process.getuid === 'function') {
+    var currentUid = process.getuid();
+    if (currentUid !== 0 && options.uid !== currentUid) {
+      var uidErr = new Error('spawn EPERM');
+      uidErr.code = 'EPERM';
+      uidErr.errno = -1;
+      uidErr.syscall = 'spawn';
+      throw uidErr;
+    }
+  }
+  if (options.gid != null && typeof process !== 'undefined' && typeof process.getgid === 'function') {
+    var currentGid = process.getgid();
+    var groups = typeof process.getgroups === 'function' ? process.getgroups() : [];
+    if (currentGid !== 0 && !groups.some(function(g) { return g === options.gid; }) && options.gid !== currentGid) {
+      var gidErr = new Error('spawn EPERM');
+      gidErr.code = 'EPERM';
+      gidErr.errno = -1;
+      gidErr.syscall = 'spawn';
+      throw gidErr;
+    }
+  }
 
   var normalizedOptions = _normalizeSpawnOptions(options);
   var opts = {};
@@ -993,16 +1515,26 @@ cp.spawn = function spawn(command, args, options) {
   }
 
   if (result.error) {
-    // Return a ChildProcess that immediately emits error
-    var errChild = new ChildProcess(-1, 0);
+    // Return a ChildProcess that emits error, with stdio set up
+    var errStdioCfg = {
+      stdin: normalizedOptions.stdio[0],
+      stdout: normalizedOptions.stdio[1],
+      stderr: normalizedOptions.stdio[2],
+      ipc: normalizedOptions.stdio[3]
+    };
+    var errChild = new ChildProcess(-1, undefined, errStdioCfg);
+    errChild.pid = undefined;
+    errChild._exited = true; // prevent poll loop from running
+    errChild._spawnEmitted = true; // prevent spawn event
     errChild.spawnfile = command;
     errChild.spawnargs = [command].concat(args);
+    var errCode = result.error === 'EACCES' ? 'EACCES' : result.error === 'EPERM' ? 'EPERM' : 'ENOENT';
+    var errErrno = result.errno ? -result.errno : -2;
+    var spawnErr2 = _makeSpawnError(command, errCode, errErrno, 'spawn ' + command);
+    spawnErr2.spawnargs = args;
     setTimeout(function() {
-      errChild.emit('error', new Error(result.error));
-      errChild._exited = true;
-      errChild.exitCode = -1;
-      errChild.emit('exit', -1, null);
-      errChild.emit('close', -1, null);
+      errChild.emit('error', spawnErr2);
+      errChild.emit('close', null, null);
     }, 0);
     return errChild;
   }
@@ -1014,27 +1546,43 @@ cp.spawn = function spawn(command, args, options) {
     ipc: normalizedOptions.stdio[3]
   };
   var child = new ChildProcess(result.handle, result.pid, stdioCfg);
-  child.spawnfile = command;
-  child.spawnargs = [command].concat(args);
+  // Set spawnfile and spawnargs based on whether shell was used
+  if (opts.shell) {
+    var shellBin = typeof opts.shell === 'string' ? opts.shell : '/bin/sh';
+    var shellCmd = args.length > 0 ? command + ' ' + args.join(' ') : command;
+    child.spawnfile = shellBin;
+    child.spawnargs = [shellBin, '-c', shellCmd];
+  } else {
+    child.spawnfile = command;
+    child.spawnargs = [command].concat(args);
+  }
   if (opts.detached) {
     child.unref();
   }
-  setTimeout(function() { child.emit('spawn'); }, 0);
+  // 'spawn' event is now emitted from the constructor's poll loop start
   return child;
 };
 
 cp.fork = function fork(modulePath, args, options) {
   if (typeof modulePath !== 'string') {
-    throw new TypeError('The "modulePath" argument must be of type string');
+    _throwInvalidArgType('modulePath', 'of type string', modulePath);
   }
+  _validateNullBytes(modulePath, 'modulePath');
   if (Array.isArray(args)) {
     // args provided as array
-  } else if (typeof args === 'object' && args !== null && !Array.isArray(args)) {
+  } else if (args != null && typeof args === 'object' && !Array.isArray(args)) {
     options = args;
-    args = [];
+    args = null;
+  } else if (args != null && typeof args !== 'undefined') {
+    _throwInvalidArgType('args', 'an instance of Array or undefined', args);
   }
   args = args || [];
+  if (options != null && (typeof options !== 'object' || Array.isArray(options))) {
+    _throwInvalidArgType('options', 'of type object or undefined', options);
+  }
   options = options || {};
+  _validateArgsNullBytes(args);
+  _validateOptionsNullBytes(options);
 
   var execPath = _fallbackSpawnCommand(options.execPath || (typeof process !== 'undefined' && process.execPath) || 'node');
   var execArgv = options.execArgv || (typeof process !== 'undefined' && process.execArgv) || [];

@@ -449,4 +449,29 @@ util.debuglog = function debuglog(set) {
   };
 };
 
+// System error name mapping (errno -> string code)
+var _errnoMap = {
+  1: 'EPERM', 2: 'ENOENT', 3: 'ESRCH', 4: 'EINTR', 5: 'EIO',
+  9: 'EBADF', 12: 'ENOMEM', 13: 'EACCES', 14: 'EFAULT', 17: 'EEXIST',
+  20: 'ENOTDIR', 21: 'EISDIR', 22: 'EINVAL', 23: 'ENFILE', 24: 'EMFILE',
+  28: 'ENOSPC', 32: 'EPIPE', 34: 'ERANGE', 35: 'EAGAIN', 36: 'EINPROGRESS',
+  38: 'ENOTSOCK', 40: 'EMSGSIZE', 43: 'EPROTONOSUPPORT', 47: 'EAFNOSUPPORT',
+  48: 'EADDRINUSE', 49: 'EADDRNOTAVAIL', 51: 'ENETUNREACH',
+  53: 'ECONNABORTED', 54: 'ECONNRESET', 55: 'ENOBUFS', 56: 'EISCONN',
+  57: 'ENOTCONN', 60: 'ETIMEDOUT', 61: 'ECONNREFUSED', 63: 'ENAMETOOLONG',
+  65: 'EHOSTUNREACH', 66: 'ENOTEMPTY'
+};
+
+util.getSystemErrorName = function getSystemErrorName(err) {
+  if (typeof err !== 'number') {
+    var e = new TypeError('The "err" argument must be of type number. Received type ' + typeof err);
+    e.code = 'ERR_INVALID_ARG_TYPE';
+    throw e;
+  }
+  var code = _errnoMap[Math.abs(err)];
+  return code || ('Unknown system error ' + err);
+};
+
+util._errnoMap = _errnoMap;
+
 module.exports = util;
