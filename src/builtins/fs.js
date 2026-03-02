@@ -736,7 +736,7 @@ function _writeFileToDescriptor(fd, data, options) {
   if (_isAsyncIterable(data)) {
     return _writeFileFromAsyncIterable(fd, data, encoding);
   }
-  if (_isSyncIterable(data) && typeof data !== 'string') {
+  if (_isSyncIterable(data) && typeof data !== 'string' && !_isBufferLike(data)) {
     _writeFileFromSyncIterable(fd, data, encoding);
     if (options && options.flush === true) {
       _callFsyncSync(fd);
@@ -904,12 +904,36 @@ function readFileSync(path, options) {
   ensureExactFs();
   var p = _pathToString(path);
   var encoding = typeof options === 'string' ? options : (options && options.encoding);
+  var fd;
   try {
-    var bytes = g.__exactReadFile(p);
-    if (encoding) return decodeBytes(bytes, encoding);
-    return wrapBuffer(bytes);
+    fd = openSync(p, 'r');
   } catch(e) {
     throw _makeFsError(e, 'open', p);
+  }
+  try {
+    var chunks = [];
+    var fileBuffer = new Uint8Array(65536);
+    var fileBytesRead;
+    do {
+      fileBytesRead = readSync(fd, fileBuffer, 0, fileBuffer.length, -1);
+      if (fileBytesRead > 0) chunks.push(fileBuffer.slice(0, fileBytesRead));
+    } while (fileBytesRead > 0);
+    var totalLen = 0;
+    for (var fileChunkIndex = 0; fileChunkIndex < chunks.length; fileChunkIndex++) {
+      totalLen += chunks[fileChunkIndex].length;
+    }
+    var fileResult = new Uint8Array(totalLen);
+    var filePos = 0;
+    for (var fileChunk = 0; fileChunk < chunks.length; fileChunk++) {
+      fileResult.set(chunks[fileChunk], filePos);
+      filePos += chunks[fileChunk].length;
+    }
+    if (encoding) return decodeBytes(fileResult, encoding);
+    return wrapBuffer(fileResult);
+  } catch(e) {
+    throw _makeFsError(e, 'read', p);
+  } finally {
+    try { closeSync(fd); } catch(_ignore) {}
   }
 }
 
@@ -2124,6 +2148,7 @@ function closeSync(fd) {
 
 function readSync(fd, buffer, offset, length, position) {
   ensureExactFs();
+  _validateFd(fd);
   // Handle readSync(fd, buffer, options) form
   if (typeof offset === 'object' && offset !== null) {
     var ropts = offset;
@@ -2133,6 +2158,9 @@ function readSync(fd, buffer, offset, length, position) {
   }
   if (!_isBufferLike(buffer)) {
     throw _fsInvalidArgType('buffer', 'Buffer, TypedArray, or DataView', buffer);
+  }
+  if (buffer.length === 0) {
+    throw _throwEmptyBufferError('buffer', buffer);
   }
   var off = _validateOffset('offset', offset === undefined || offset === null ? 0 : offset, buffer.length);
   var len = _validateReadSyncLength(length, buffer.length - off);
@@ -2152,6 +2180,7 @@ function readSync(fd, buffer, offset, length, position) {
 
 function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
   ensureExactFs();
+  _validateFd(fd);
   // Handle writeSync(fd, buffer, options) form
   if (typeof bufferOrString !== 'string' && typeof offsetOrPosition === 'object' && offsetOrPosition !== null) {
     var wopts = offsetOrPosition;

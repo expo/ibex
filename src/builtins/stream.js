@@ -2241,6 +2241,34 @@ Readable.from = function(iterable, options) {
   // Async iterable (including async generators)
   if (typeof iterable[Symbol.asyncIterator] === 'function') {
     var asyncIter = iterable[Symbol.asyncIterator]();
+    var asyncIterError = null;
+    var asyncIterErrorSeen = false;
+    var asyncIterNext = asyncIter.next;
+    function markAsyncIterError(err) {
+      if (asyncIterErrorSeen) return;
+      asyncIterErrorSeen = true;
+      asyncIterError = err;
+      if (!readableStream._destroyed) {
+        _destroyStreamWithError(readableStream, err);
+      }
+    }
+    if (typeof asyncIterNext === 'function') {
+      asyncIter.next = function() {
+        var nextResult;
+        try {
+          nextResult = asyncIterNext.apply(asyncIter, arguments);
+        } catch (err) {
+          markAsyncIterError(err);
+          throw err;
+        }
+        if (nextResult && typeof nextResult.then === 'function') {
+          nextResult.then(function() {}, function(err) {
+            markAsyncIterError(err);
+          });
+        }
+        return nextResult;
+      };
+    }
     var reading = false;
     var scheduleRead = typeof process === 'object' &&
       process &&
@@ -2271,7 +2299,13 @@ Readable.from = function(iterable, options) {
           return;
         }
         if (result.done) {
-          readableStream.push(null);
+          if (asyncIterErrorSeen && asyncIterError) {
+            if (!readableStream._destroyed) {
+              _destroyStreamWithError(readableStream, asyncIterError);
+            }
+          } else {
+            readableStream.push(null);
+          }
         } else if (result.value === null) {
           var nullErr = new TypeError('May not write null values to stream');
           nullErr.code = 'ERR_STREAM_NULL_VALUES';

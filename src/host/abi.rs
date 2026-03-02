@@ -416,9 +416,24 @@ pub extern "C" fn ex_host_fs_read_file(
     if path.is_null() || out_len.is_null() {
         return ptr::null_mut();
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
-    match std::fs::read(path.as_ref()) {
-        Ok(data) => {
+    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(err) => {
+            let errno_code = err.raw_os_error().unwrap_or(libc::EIO);
+            unsafe {
+                *out_len = 0;
+                if !out_errno.is_null() {
+                    *out_errno = errno_code;
+                }
+            }
+            return ptr::null_mut();
+        }
+    };
+
+    let mut data = Vec::new();
+    match std::io::Read::read_to_end(&mut file, &mut data) {
+        Ok(_) => {
             let boxed = data.into_boxed_slice();
             let len = boxed.len();
             unsafe { *out_len = len as u32 };
