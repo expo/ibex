@@ -110,18 +110,20 @@
     }
 
     function _validateTimerCb(callback) {
-      if (typeof callback !== 'function') {
-        var err = new TypeError('[ERR_INVALID_ARG_TYPE]: The "callback" argument must be of type function. Received ' + (callback === null ? 'null' : typeof callback));
-        err.code = 'ERR_INVALID_ARG_TYPE';
-        throw err;
+      if (typeof callback === 'function') {
+        return callback;
       }
+      // HTML spec: non-function arguments are stringified and eval'd.
+      // This handles both string literals and objects with toString().
+      var code = String(callback);
+      return function() { (0, eval)(code); };
     }
 
     var _apply = Function.prototype.apply;
     var _call = Function.prototype.call;
 
     function wrapSetTimeout(callback, delay) {
-      _validateTimerCb(callback);
+      callback = _validateTimerCb(callback);
       // WebIDL `long` conversion and HTML spec delay clamping
       delay = delay | 0;
       if (delay < 0) delay = 0;
@@ -141,7 +143,7 @@
     }
 
     function wrapSetInterval(callback, delay) {
-      _validateTimerCb(callback);
+      callback = _validateTimerCb(callback);
       // WebIDL `long` conversion and HTML spec delay clamping
       delay = delay | 0;
       if (delay < 0) delay = 0;
@@ -180,7 +182,7 @@
       var nativeClearImmediate = g.clearImmediate;
 
       g.setImmediate = function(callback) {
-        _validateTimerCb(callback);
+        callback = _validateTimerCb(callback);
         var args = [];
         for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
         var timer;
