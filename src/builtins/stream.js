@@ -3889,6 +3889,12 @@ function pipeline() {
 
 function isReadableDone(stream) {
   if (!stream) return true;
+  if (
+    stream._destroyed ||
+    stream.destroyed ||
+    (stream._readableState && stream._readableState.destroyed) ||
+    (stream._writableState && stream._writableState.destroyed)
+  ) return true;
   if (stream._readableState) {
     if (stream._readableState.endEmitted || stream._readableState.ended) return true;
     if (stream.readable === false && !stream._writableState) return false;
@@ -3905,6 +3911,12 @@ function isReadableDone(stream) {
 }
 
 function isWritableDone(stream) {
+  if (
+    stream._destroyed ||
+    stream.destroyed ||
+    (stream._readableState && stream._readableState.destroyed) ||
+    (stream._writableState && stream._writableState.destroyed)
+  ) return true;
   if (!stream) return true;
   if (stream.writableEnded || stream.writableFinished) return true;
   if (stream.writable === false) return true;
@@ -3963,6 +3975,24 @@ function isStreamDone(stream) {
     return true;
   }
 
+  function allStreamsDestroyed() {
+    var allDestroyed = true;
+    for (var i = 0; i < streamErrors.length; i++) {
+      var stream = streamErrors[i];
+      if (!stream) continue;
+      if (
+        !stream.destroyed &&
+        !stream._destroyed &&
+        !(stream._readableState && stream._readableState.destroyed) &&
+        !(stream._writableState && stream._writableState.destroyed)
+      ) {
+        allDestroyed = false;
+        break;
+      }
+    }
+    return allDestroyed;
+  }
+
   function allStreamsClosed() {
     for (var i = 0; i < streamErrors.length; i++) {
       var stream = streamErrors[i];
@@ -3976,7 +4006,16 @@ function isStreamDone(stream) {
   var errorSettleAttempts = 0;
   function settleAfterError() {
     if (settled || awaitingResult) return;
-    if (allStreamsDone() || allStreamsClosed()) {
+    var allDone = allStreamsDone();
+    var allClosed = allStreamsClosed();
+    var allDestroyed = allStreamsDestroyed();
+    if (allDone || allClosed) {
+      if (allDone && !allClosed && allDestroyed && errorSettleAttempts < 50) {
+        errorSettleAttempts += 1;
+        var fastScheduler = typeof setTimeout === 'function' ? function(fn) { setTimeout(fn, 1); } : function(fn) { setTimeout(fn, 0); };
+        fastScheduler(settleAfterError);
+        return;
+      }
       settle(error);
       return;
     }
