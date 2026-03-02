@@ -1232,9 +1232,11 @@ void installModuleLoader(ExactHermesRuntime* handle) {
     }
   } else {
   bool source_module_loader = env_flag_enabled("EX_MODULE_LOADER_SOURCE");
+  // Keep module-loader bootstrap HBC opt-in for now.
+  bool module_loader_hbc = env_flag_enabled("EX_MODULE_LOADER_HBC");
   try {
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
-    if (source_module_loader) {
+    if (source_module_loader || !module_loader_hbc) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(loader);
       rt.evaluateJavaScript(buffer, "<module-loader>");
     } else {
@@ -1272,10 +1274,12 @@ void installModuleLoader(ExactHermesRuntime* handle) {
     }
   } else {
     bool source_bootstrap_globals = env_flag_enabled("EX_BOOTSTRAP_GLOBALS_SOURCE");
+    // Keep bootstrap globals HBC opt-in for now.
+    bool bootstrap_globals_hbc = env_flag_enabled("EX_BOOTSTRAP_GLOBALS_HBC");
     try {
       const char* globals = BOOTSTRAP_GLOBALS_SRC;
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
-      if (source_bootstrap_globals) {
+      if (source_bootstrap_globals || !bootstrap_globals_hbc) {
         auto globalsBuf = std::make_shared<facebook::jsi::StringBuffer>(globals);
         rt.evaluateJavaScript(globalsBuf, "<bootstrap>");
       } else {
@@ -5435,6 +5439,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     // Enhance console with time/count/group/table/assert/clear via JS
     bool skip_console_enhance = env_flag_enabled("EX_SKIP_STARTUP_CONSOLE_ENHANCE");
     bool source_console_enhance = env_flag_enabled("EX_CONSOLE_ENHANCE_SOURCE");
+    bool console_enhance_hbc = env_flag_enabled("EX_CONSOLE_ENHANCE_HBC");
     if (skip_console_enhance) {
       if (_tracing) {
         fprintf(stderr, "[startup]   console_enhance skipped (set EX_SKIP_STARTUP_CONSOLE_ENHANCE=0 to re-enable)\n");
@@ -5444,7 +5449,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       try {
         const char* consoleEnhance = CONSOLE_ENHANCE_SRC;
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
-        if (source_console_enhance) {
+        if (source_console_enhance || !console_enhance_hbc) {
           auto enhBuf = std::make_shared<facebook::jsi::StringBuffer>(consoleEnhance);
           rt.evaluateJavaScript(enhBuf, "<console>");
         } else {
@@ -10737,7 +10742,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   TRACE_START(hermes_config);
   auto config = ::hermes::vm::RuntimeConfig::Builder()
                     .withMicrotaskQueue(true)
-                    .withEnableEval(true)  // Required for debugger eval
+                    .withEnableEval(true)
                     .build();
   TRACE_END(hermes_config);
 
