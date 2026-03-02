@@ -1,7 +1,81 @@
 var EventEmitter = require('node:events').EventEmitter;
+var StringDecoder;
+try {
+  StringDecoder = require('node:string_decoder').StringDecoder;
+} catch (e) {
+  StringDecoder = null;
+}
 
-var defaultHighWaterMark = 16384;
+var defaultHighWaterMark = 65536;
 var defaultHighWaterMarkObjectMode = 16;
+var awaitDrainWriterStateSymbol = typeof Symbol === 'function' ? Symbol('exact-await-drain-writer-state') : '__exactAwaitDrainWriterState';
+
+function _awaitDrainSizeGetter() {
+  var state = this && this[awaitDrainWriterStateSymbol];
+  if (!state) return 0;
+  var current = state.awaitDrainWriters;
+  if (!current) return 0;
+  if (current === this) return 1;
+  if (typeof current.has === 'function' && current.has(this)) return current.size;
+  return 0;
+}
+
+_awaitDrainSizeGetter.__exactAwaitDrainSizeGetter = true;
+
+function _hasOwnAwaitDrainSizeDescriptor(value) {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) return false;
+  var desc = Object.getOwnPropertyDescriptor(value, 'size');
+  return !!(desc && desc.get && desc.get.__exactAwaitDrainSizeGetter);
+}
+
+function _attachAwaitDrainSizeAccessor(value, state) {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) return;
+  if (typeof Object.defineProperty !== 'function') return;
+  value[awaitDrainWriterStateSymbol] = state;
+  if (_hasOwnAwaitDrainSizeDescriptor(value)) return;
+  try {
+    Object.defineProperty(value, 'size', {
+      configurable: true,
+      enumerable: false,
+      get: _awaitDrainSizeGetter
+    });
+  } catch (_err) {}
+}
+
+function _clearAwaitDrainSizeAccessor(value, state) {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) return;
+  if (value[awaitDrainWriterStateSymbol] !== state) return;
+  if (_hasOwnAwaitDrainSizeDescriptor(value)) {
+    try {
+      delete value.size;
+    } catch (_err) {}
+  }
+  try {
+    delete value[awaitDrainWriterStateSymbol];
+  } catch (_err) {}
+}
+
+function _defineStateAlias(obj, publicName, internalName) {
+  if (typeof obj !== 'object' || obj === null) return;
+  if (typeof Object.defineProperty !== 'function') {
+    obj[publicName] = obj[internalName];
+    return;
+  }
+  try {
+    Object.defineProperty(obj, publicName, {
+      configurable: true,
+      enumerable: true,
+      get: function() {
+        return obj[internalName];
+      },
+      set: function(value) {
+        obj[internalName] = value;
+      }
+    });
+  } catch (_err) {
+    obj[publicName] = obj[internalName];
+  }
+}
 
 function Stream() {
   EventEmitter.call(this);
@@ -31,15 +105,18 @@ function _addAwaitDrainWriter(readableState, writer) {
   if (!readableState) return;
   var current = readableState.awaitDrainWriters;
   if (!current) {
-    readableState.awaitDrainWriters = new Set([writer]);
+    readableState.awaitDrainWriters = writer;
+    _attachAwaitDrainSizeAccessor(writer, readableState);
     return;
   }
   if (!(current instanceof Set)) {
     if (current === writer) return;
     current = new Set([current]);
     readableState.awaitDrainWriters = current;
+    _clearAwaitDrainSizeAccessor(current, readableState);
   }
   current.add(writer);
+  _attachAwaitDrainSizeAccessor(writer, readableState);
 }
 
 function _removeAwaitDrainWriter(readableState, writer) {
@@ -48,12 +125,17 @@ function _removeAwaitDrainWriter(readableState, writer) {
   if (!current) return;
   if (current instanceof Set) {
     current.delete(writer);
+    _clearAwaitDrainSizeAccessor(writer, readableState);
     if (current.size === 0) {
+      current.forEach(function(entry) {
+        _clearAwaitDrainSizeAccessor(entry, readableState);
+      });
       readableState.awaitDrainWriters = null;
     }
     return;
   }
   if (current === writer) {
+    _clearAwaitDrainSizeAccessor(current, readableState);
     readableState.awaitDrainWriters = null;
   }
 }
@@ -64,6 +146,81 @@ function _hasAwaitDrainWriters(readableState) {
   if (!current) return false;
   if (current instanceof Set) return current.size > 0;
   return true;
+}
+
+function _isZeroLengthChunk(chunk, objectMode) {
+  if (objectMode) return false;
+  if (chunk === null || chunk === undefined) return false;
+  if (typeof chunk === 'string') return chunk.length === 0;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) return chunk.length === 0;
+  if (chunk instanceof ArrayBuffer) return chunk.byteLength === 0;
+  if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) return chunk.byteLength === 0;
+  if (typeof chunk.length === 'number') return chunk.length === 0;
+  return false;
+}
+
+function _bufferFromChunk(chunk) {
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+    return chunk;
+  }
+  if (chunk instanceof ArrayBuffer) {
+    return Buffer ? Buffer.from(new Uint8Array(chunk)) : new Uint8Array(chunk);
+  }
+  if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
+    return Buffer ? Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0) : new Uint8Array(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
+  }
+  if (typeof chunk === 'string') {
+    return Buffer ? Buffer.from(chunk) : new TextEncoder().encode(chunk);
+  }
+  return Buffer ? Buffer.from(String(chunk)) : new TextEncoder().encode(String(chunk));
+}
+
+function _decodeChunk(state, chunk) {
+  if (!state || !state.encoding || !state.decoder) return chunk;
+  if (chunk == null) return chunk;
+  var asBuffer = _bufferFromChunk(chunk);
+  return state.decoder.write(asBuffer);
+}
+
+function _nextTick(fn) {
+  if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
+    return process.nextTick(fn);
+  }
+  return setTimeout(fn, 0);
+}
+
+function _setReadableEncoding(state, enc) {
+  if (!enc) {
+    state.encoding = null;
+    state.decoder = null;
+    return;
+  }
+  if (!StringDecoder) {
+    if (typeof enc !== 'string') {
+      throw TypeError('Must have string encoding');
+    }
+    state.encoding = enc;
+    state.decoder = null;
+    return;
+  }
+  var normalized = String(enc).toLowerCase();
+  try {
+    state.decoder = new StringDecoder(normalized);
+  } catch (err) {
+    throw err;
+  }
+  state.encoding = normalized;
+  state.readableEncoding = normalized;
+  state.readable = true;
+  var content = '';
+  if (state.buffer && state.buffer.length) {
+    for (var i = 0; i < state.buffer.length; i++) {
+      content += state.decoder.write(_bufferFromChunk(state.buffer[i]));
+    }
+    state.buffer = content === '' ? [] : [content];
+    state.length = state.objectMode ? state.buffer.length : content.length;
+    if (state.length === 0) state.ended = state.ended;
+  }
 }
 Stream.prototype = Object.create(EventEmitter.prototype);
 Stream.prototype.constructor = Stream;
@@ -288,9 +445,10 @@ function Readable(options) {
     errored: null,
     endedFlowing: false,
     emittedClose: true,
-    autoDestroy: true,
+    autoDestroy: (options && options.autoDestroy !== undefined) ? options.autoDestroy !== false : true,
     defaultEncoding: 'utf8',
     encoding: (options && options.encoding) || null,
+    decoder: null,
     readable: true,
     readableDidRead: false,
     dataEmitted: false,
@@ -301,6 +459,10 @@ function Readable(options) {
     pendingcb: 0,
     awaitDrainWriters: null,
   };
+  _defineStateAlias(this, 'readableState', '_readableState');
+  if (options && options.encoding != null) {
+    _setReadableEncoding(this._readableState, options.encoding);
+  }
   Object.defineProperty(this._readableState, 'endedEmitted', {
     configurable: true,
     enumerable: true,
@@ -538,7 +700,13 @@ Readable.prototype._emitReadableIfNeeded = function() {
   }
   state.emittedReadable = true;
   state.needReadable = false;
-  this.emit('readable');
+  var self = this;
+  _nextTick(function() {
+    if (self._destroyed || self._closed) {
+      return;
+    }
+    self.emit('readable');
+  });
 };
 
 Readable.prototype._readFromSource = function(size) {
@@ -584,7 +752,13 @@ Readable.prototype.push = function(chunk) {
     }
     return false;
   }
-  var chunkLength = readableStateChunkLength(chunk, this._readableState.objectMode);
+  if (state.encoding && state.decoder && !state.objectMode) {
+    chunk = _decodeChunk(state, chunk);
+  }
+  var chunkLength = readableStateChunkLength(chunk, state.objectMode);
+  if (_isZeroLengthChunk(chunk, this._readableState.objectMode)) {
+    return this._readableState.length < this._readableState.highWaterMark;
+  }
 
   if (this.readableFlowing === true) {
     this._data.push(chunk);
@@ -593,10 +767,10 @@ Readable.prototype.push = function(chunk) {
     this._readableState.needReadable = false;
     this._readableState.emittedReadable = false;
     if (this._readableState.reading) {
-      return this._readableState.length < this._readableState.highWaterMark;
+      return state.length < state.highWaterMark;
     }
     if (this.readableFlowing !== true) {
-      return this._readableState.length < this._readableState.highWaterMark;
+      return state.length < state.highWaterMark;
     }
     var flowingChunk = this._data.shift();
     this._updateReadableLength(-readableStateChunkLength(flowingChunk, this._readableState.objectMode));
@@ -605,13 +779,13 @@ Readable.prototype.push = function(chunk) {
       this._data.unshift(flowingChunk);
       this._updateReadableLength(readableStateChunkLength(flowingChunk, this._readableState.objectMode));
       this._syncReadableState();
-      return this._readableState.length < this._readableState.highWaterMark;
+      return state.length < state.highWaterMark;
     }
     if (this._readableState) {
       this._readableState.dataEmitted = true;
     }
     this.emit('data', flowingChunk);
-    return this._readableState.length < this._readableState.highWaterMark;
+    return state.length < state.highWaterMark;
   }
 
   this._data.push(chunk);
@@ -620,7 +794,7 @@ Readable.prototype.push = function(chunk) {
   this._readableState.needReadable = true;
   this._readableState.emittedReadable = false;
   this._emitReadableIfNeeded();
-  return this._readableState.length < this._readableState.highWaterMark;
+  return state.length < state.highWaterMark;
 };
 
 Readable.prototype.read = function(size) {
@@ -630,15 +804,17 @@ Readable.prototype.read = function(size) {
     this._readableState.readableDidRead = true;
   }
   var n = _coerceReadSize(size);
+  var requestedSize = n;
   var state = this._readableState;
 
   if (size === 0) {
-  if (state.length === 0 && !this._ended) {
+    if (state.length === 0 && !this._ended && !state.reading) {
       this._readFromSource(state.highWaterMark);
     }
     if (state.length > 0 && !state.endEmitted) {
       state.needReadable = true;
       state.emittedReadable = false;
+      state.reading = false;
     }
     return null;
   }
@@ -647,21 +823,28 @@ Readable.prototype.read = function(size) {
     state.highWaterMark = _nextPowerOf2(n);
   }
 
-  if (!this._ended) {
-    if (!isNaN(n) && state.length < n) {
-      this._readFromSource(n);
-    } else if (state.length === 0) {
-      this._readFromSource(state.highWaterMark);
-    } else if (!isNaN(n) && (state.length - n < state.highWaterMark)) {
-      this._readFromSource(n);
-    } else if (
-      isNaN(n) &&
-      this.readableFlowing === true &&
-      state.length > 0 &&
-      this._data.length > 0 &&
-      (state.length - readableStateChunkLength(this._data[0], state.objectMode) < state.highWaterMark)
-    ) {
-      this._readFromSource(state.highWaterMark);
+  if (!this._ended && !state.reading) {
+    if (!isNaN(n)) {
+      if (state.length < n) {
+        this._readFromSource(n);
+      }
+    } else {
+      var shouldReadMore = state.needReadable || state.length === 0;
+      while (shouldReadMore && state.length < state.highWaterMark) {
+        var beforeRead = state.length;
+        this._readFromSource(state.highWaterMark);
+        if (state.length === beforeRead) {
+          break;
+        }
+        if (state.length >= state.highWaterMark && state.needReadable) {
+          beforeRead = state.length;
+          this._readFromSource(state.highWaterMark);
+          if (state.length === beforeRead) {
+            break;
+          }
+        }
+        shouldReadMore = false;
+      }
     }
   }
 
@@ -678,24 +861,76 @@ Readable.prototype.read = function(size) {
       state.endEmitted = true;
       this.readable = false;
       this.emit('end');
-      this._close();
+      if (state.autoDestroy && !this._destroyed) {
+        this.destroy();
+      } else {
+        this._close();
+      }
     }
     return null;
   }
 
-  var chunk = _consumeReadableChunk(this, isNaN(n) ? null : n);
-  if (chunk === undefined || chunk === null) return null;
+  if (size !== 0 && state.ended && state.endEmitted && state.length === 0) {
+    return null;
+  }
+
+  if (state.objectMode) {
+    n = isNaN(n) ? 1 : n;
+  }
+  if (isNaN(requestedSize) && !state.objectMode) {
+    n = state.length;
+  } else if (state.length < n) {
+    n = state.length;
+  }
+
+  var chunk;
+  while (true) {
+    chunk = _consumeReadableChunk(this, isNaN(requestedSize) ? null : n);
+    if (chunk === undefined || chunk === null) {
+      chunk = null;
+      break;
+    }
+    if (!state.objectMode && typeof chunk === 'string' && chunk.length === 0) {
+      chunk = null;
+    }
+    if (chunk === null && state.length > 0) {
+      continue;
+    }
+    break;
+  }
+  if (chunk === null) {
+    return null;
+  }
   this._syncReadableState();
-  this._readableState.needReadable = (!this._ended && this._data.length <= this._readableState.highWaterMark);
+  this._readableState.needReadable = (!this._ended && state.length <= state.highWaterMark);
   this._readableState.emittedReadable = false;
   if (this._readableState) {
     this._readableState.dataEmitted = true;
   }
-  this.emit('data', chunk);
+  if (this.readableFlowing === true) {
+    this.emit('data', chunk);
+  }
+  if (state.autoDestroy && state.endEmitted && state.ended && !this._destroyed && state.length === 0) {
+    this.destroy();
+  }
+  if (state.length === 0 && !this._ended) {
+    var self = this;
+    _nextTick(function() {
+      if (!self._destroyed && !state.ended && !state.reading) {
+        self._readFromSource(state.highWaterMark);
+      }
+    });
+  }
   return chunk;
 };
 
 Readable.prototype.unshift = function(chunk) {
+  if (this._readableState && this._readableState.encoding && this._readableState.decoder && !this._readableState.objectMode) {
+    chunk = _decodeChunk(this._readableState, chunk);
+  }
+  if (_isZeroLengthChunk(chunk, this._readableState.objectMode)) {
+    return false;
+  }
   this._data.unshift(chunk);
   this._updateReadableLength(readableStateChunkLength(chunk, this._readableState.objectMode));
   this._syncReadableState();
@@ -705,7 +940,8 @@ Readable.prototype.unshift = function(chunk) {
 };
 
 Readable.prototype.setEncoding = function(enc) {
-  this.readableEncoding = enc;
+  _setReadableEncoding(this._readableState, enc);
+  this.readableEncoding = this._readableState.encoding;
   return this;
 };
 
@@ -1870,7 +2106,7 @@ function Writable(options) {
     bufferProcessing: false,
     errored: null,
     emitClose: (options && options.emitClose !== undefined) ? options.emitClose !== false : true,
-    autoDestroy: true,
+    autoDestroy: (options && options.autoDestroy !== undefined) ? options.autoDestroy !== false : true,
     pendingcb: 0,
     constructed: true,
     prefinished: false,
@@ -1878,6 +2114,7 @@ function Writable(options) {
     emittedClose: false,
     corked: 0,
   };
+  _defineStateAlias(this, 'writableState', '_writableState');
   Object.defineProperty(this._writableState, "corked", {
     configurable: true,
     enumerable: true,
@@ -1924,6 +2161,18 @@ function Writable(options) {
 }
 Writable.prototype = Object.create(Stream.prototype);
 Writable.prototype.constructor = Writable;
+if (typeof Object.defineProperty === 'function' && !Object.prototype.hasOwnProperty.call(Writable.prototype, '_writableState')) {
+  Object.defineProperty(Writable.prototype, '_writableState', {
+    configurable: true,
+    enumerable: false,
+    get: function() {
+      return this.writableState;
+    },
+    set: function(value) {
+      this.writableState = value;
+    }
+  });
+}
 
 Writable.prototype._undestroy = Stream.prototype._undestroy;
 
@@ -1952,9 +2201,16 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     endErr.code = 'ERR_STREAM_WRITE_AFTER_END';
     if (typeof callback === 'function') {
       setTimeout(function() { callback(endErr); }, 0);
+    }
+    if (this._writableState && this._writableState.autoDestroy === false) {
+      this.emit('error', endErr);
+      this.errored = endErr;
+      if (this._writableState) {
+        this._writableState.errored = endErr;
+      }
       return false;
     }
-    this.emit('error', endErr);
+    this.destroy(endErr);
     return false;
   }
   // ERR_STREAM_NULL_VALUES - null is never valid in objectMode or otherwise
@@ -2001,12 +2257,16 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     if (shouldNeedDrainNow) {
       this._needDrain = true;
       this.writableNeedDrain = true;
+      if (this._writableState) {
+        this._writableState.needDrain = true;
+      }
       return false;
     }
     return true;
   }
   var shouldNeedDrain = this.writableLength > this.writableHighWaterMark;
   var self = this;
+  var state = this._writableState;
   this._writableState.writing = true;
   var hadNeedDrain = this._needDrain || this.writableNeedDrain;
   var callbackCalled = false;
@@ -2016,17 +2276,16 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     self._writableState.writing = false;
     self.writableLength -= chunkLen;
     if (self.writableLength < 0) self.writableLength = 0;
-    if ((hadNeedDrain || shouldNeedDrain) && !self._destroyed && self.writableLength < self.writableHighWaterMark) {
+    var shouldEmitDrain = !err && (hadNeedDrain || shouldNeedDrain) &&
+                          !(state && state.ending) &&
+                          !self._destroyed &&
+                          self.writableLength < self.writableHighWaterMark;
+    if (shouldEmitDrain) {
       self._needDrain = false;
       self.writableNeedDrain = false;
-      var emitDrain = typeof process === 'object' &&
-                      process &&
-                      typeof process.nextTick === 'function'
-                      ? process.nextTick
-                      : function(fn) { setTimeout(fn, 0); };
-      emitDrain(function() {
-        self.emit('drain');
-      });
+      if (self._writableState) {
+        self._writableState.needDrain = false;
+      }
     }
     if (err) {
       self.writable = false;
@@ -2040,19 +2299,31 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     } else {
       if (typeof callback === 'function') callback();
     }
+    if (shouldEmitDrain) {
+      var emitDrain = typeof process === 'object' &&
+                      process &&
+                      typeof process.nextTick === 'function'
+                      ? process.nextTick
+                      : function(fn) { setTimeout(fn, 0); };
+      emitDrain(function() {
+        self.emit('drain');
+      });
+    }
   };
+  if (shouldNeedDrain) {
+    this._needDrain = true;
+    this.writableNeedDrain = true;
+    if (this._writableState) {
+      this._writableState.needDrain = true;
+    }
+  }
   try {
     self._write(chunk, encoding || 'utf8', onWriteComplete);
   } catch (err) {
     onWriteComplete(err);
     return false;
   }
-  if (shouldNeedDrain) {
-    this._needDrain = true;
-    this.writableNeedDrain = true;
-    return false;
-  }
-  return true;
+  return !shouldNeedDrain;
 };
 
 Writable.prototype._flushWriteQueue = function() {
@@ -2076,27 +2347,17 @@ Writable.prototype._flushWriteQueue = function() {
     totalLen += batch[bi].chunkLen || 0;
   }
 
-  var finalDrain = function() {
-    if (state === null || state === undefined) return;
+  var maybeEmitDrain = function() {
     if (self._destroyed) return;
-    if (!hadNeedDrain && shouldNeedDrain && !self._destroyed && self.writableLength < self.writableHighWaterMark) {
-      self._needDrain = false;
-      self.writableNeedDrain = false;
-      var emitDrainWhenNeeded = typeof process === 'object' &&
-                      process &&
-                      typeof process.nextTick === 'function'
-                      ? process.nextTick
-                      : function(fn) { setTimeout(fn, 0); };
-      emitDrainWhenNeeded(function() {
-        self.emit('drain');
-      });
-    }
-    if (self._needDrain && !hadNeedDrain) {
-      hadNeedDrain = true;
-    }
-    if (self.writableLength > self.writableHighWaterMark) return;
+    if (state && state.ending) return;
+    if (!hadNeedDrain && !shouldNeedDrain) return;
+    if (self.writableLength >= self.writableHighWaterMark) return;
+    if (!self._needDrain && !self.writableNeedDrain) return;
     self._needDrain = false;
     self.writableNeedDrain = false;
+    if (self._writableState) {
+      self._writableState.needDrain = false;
+    }
     var emitDrain = typeof process === 'object' &&
                     process &&
                     typeof process.nextTick === 'function'
@@ -2112,9 +2373,6 @@ Writable.prototype._flushWriteQueue = function() {
     state.writing = false;
     self.writableLength -= totalLen;
     if (self.writableLength < 0) self.writableLength = 0;
-    if (hadNeedDrain) {
-      finalDrain();
-    }
     if (err) {
       self.writable = false;
       self.errored = err;
@@ -2129,6 +2387,7 @@ Writable.prototype._flushWriteQueue = function() {
       }
       return;
     }
+    maybeEmitDrain();
     for (var bi3 = 0; bi3 < batch.length; bi3++) {
       if (typeof batch[bi3].callback === 'function') batch[bi3].callback();
     }
@@ -2168,14 +2427,6 @@ Writable.prototype._flushWriteQueue = function() {
         if (itemDone) return;
         itemDone = true;
         if (err) {
-          if (typeof item.callback === 'function') {
-            item.callback(err);
-          }
-          for (var ri = index; ri < batch.length; ri++) {
-            if (typeof batch[ri].callback === 'function') {
-              batch[ri].callback(err);
-            }
-          }
           cleanup(err);
           return;
         }
@@ -2183,12 +2434,6 @@ Writable.prototype._flushWriteQueue = function() {
         runNext();
       });
     } catch (err) {
-      if (typeof item.callback === 'function') item.callback(err);
-      for (var rj = index; rj < batch.length; rj++) {
-        if (typeof batch[rj].callback === 'function') {
-          batch[rj].callback(err);
-        }
-      }
       cleanup(err);
     }
   }
@@ -2225,6 +2470,12 @@ Writable.prototype.end = function(chunk, encoding, callback) {
   this.writable = false;
   this._writableState.ending = true;
   this._writableState.ended = true;
+  var state = this._writableState;
+  var scheduleDone = typeof process === 'object' &&
+                     process &&
+                     typeof process.nextTick === 'function'
+                     ? process.nextTick
+                     : function(fn) { setTimeout(fn, 0); };
 
   var self = this;
   // Collect end callbacks (if multiple end() calls happened before writableEnded)
@@ -2233,24 +2484,39 @@ Writable.prototype.end = function(chunk, encoding, callback) {
 
   var done = function() {
     if (self._destroyed || self.errored) {
-      // If destroyed or errored before finish fires, don't emit finish
-      var cbs = self._endCallbacks;
+      var errorCbs = self._endCallbacks;
       self._endCallbacks = [];
-      for (var j = 0; j < cbs.length; j++) { cbs[j](self.errored || null); }
+      for (var e = 0; e < errorCbs.length; e++) { errorCbs[e](self.errored || null); }
       return;
     }
-    self.emit('prefinish');
-    // Defer finish emission
-    setTimeout(function() {
+    if (state && (state.writing || state.bufferProcessing || (self._writeQueue && self._writeQueue.length))) {
+      return scheduleDone(done);
+    }
+    return scheduleDone(function() {
+      if (self._destroyed || self.errored) {
+        // If destroyed or errored before finish fires, don't emit finish
+        var cbs = self._endCallbacks;
+        self._endCallbacks = [];
+        for (var j = 0; j < cbs.length; j++) { cbs[j](self.errored || null); }
+        return;
+      }
+      if (state && state.prefinished) return;
+      if (state) state.prefinished = true;
+      self.emit('prefinish');
+      // Defer finish emission
       if (self._destroyed || self.errored) return;
       self.writableFinished = true;
       self._writableState.finished = true;
       self.emit('finish');
-      self._close();
+      if (self._writableState.autoDestroy && !self._destroyed) {
+        self.destroy();
+      } else {
+        self._close();
+      }
       var cbs = self._endCallbacks;
       self._endCallbacks = [];
       for (var j = 0; j < cbs.length; j++) { cbs[j](null); }
-    }, 0);
+    });
   };
 
     if (typeof this._final === 'function') {
@@ -2378,6 +2644,9 @@ Duplex.prototype.constructor = Duplex;
 function Transform(options) {
   if (!(this instanceof Transform)) return new Transform(options);
   Duplex.call(this, options);
+  if (!this._writableState) {
+    Writable.call(this, options);
+  }
   this._transformState = {
     pendingWrites: 0,
     finalCallback: null,
@@ -2470,7 +2739,34 @@ Stream.prototype.pipe = function(dest, options) {
     state.pipesCount = state.pipes.length;
   }
 
+  function isWritableTarget() {
+    if (!dest) return false;
+    if (dest.writable === false) return false;
+    if (dest._destroyed) return false;
+    if (dest._writableState) {
+      if (dest._writableState.destroyed || dest._writableState.ended || dest._writableState.ending) return false;
+      if (dest._writableState.writable === false) return false;
+    }
+    return true;
+  }
+
+  function handlePipeError(err) {
+    if (typeof process === 'object' && process && typeof process.emit === 'function' && typeof process.listenerCount === 'function' && process.listenerCount('uncaughtException') > 0) {
+      process.emit('uncaughtException', err);
+      return;
+    }
+    if (typeof globalThis.__exactUncaughtExceptionHandler === 'function' && globalThis.__exactUncaughtExceptionHandler(err)) {
+      return;
+    }
+    throw err;
+  }
+
   function ondata(chunk) {
+    if (!isWritableTarget()) {
+      unpipe();
+      return;
+    }
+
     if (dest && typeof dest.write === 'function') {
       try {
         var ok = dest.write(chunk);
@@ -2533,28 +2829,30 @@ Stream.prototype.pipe = function(dest, options) {
     if (dest && typeof dest.removeListener === 'function') {
       dest.removeListener('error', onerror);
     }
+    var shouldForwardToDestination = false;
+    if (dest && typeof dest.listenerCount === 'function') {
+      shouldForwardToDestination = dest.listenerCount('error') > 0;
+    } else if (dest && dest._events && dest._events.error) {
+      shouldForwardToDestination = true;
+    }
+
+    if (shouldForwardToDestination) {
+      if (dest && typeof dest.emit === 'function') {
+        try {
+          dest.emit('error', err);
+        } catch (destEmitErr) {
+          handlePipeError(destEmitErr);
+        }
+      }
+      return;
+    }
+
     if (dest && typeof dest.destroy === 'function') {
       try {
         dest.destroy(err);
       } catch (destroyErr) {
-        if (
-          typeof process === 'object' &&
-          process &&
-          typeof process.emit === 'function' &&
-          typeof process.listenerCount === 'function' &&
-          process.listenerCount('uncaughtException') > 0
-        ) {
-          process.emit('uncaughtException', destroyErr);
-          return;
-        }
-        if (
-          typeof globalThis.__exactUncaughtExceptionHandler === 'function' &&
-          globalThis.__exactUncaughtExceptionHandler(destroyErr)
-        ) {
-          return;
-        }
+        handlePipeError(destroyErr);
       }
-      return;
     }
   }
 
@@ -2606,7 +2904,11 @@ Stream.prototype.pipe = function(dest, options) {
   }
 
   source.on('data', ondata);
-  source.on('end', onend);
+  if (state && state.endEmitted) {
+    _nextTick(onend);
+  } else {
+    source.on('end', onend);
+  }
 
   // Store unpipe function for later
   if (!source._pipeCleanups) source._pipeCleanups = new Map();
