@@ -1213,7 +1213,9 @@ static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
 void runNextTickQueue(ExactHermesRuntime* runtime);
 
 void installModuleLoader(ExactHermesRuntime* handle) {
-  if (env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER")) {
+  bool skip_module_loader = env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER");
+  bool skip_module_loader_script = env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER_SCRIPT");
+  if (skip_module_loader) {
     if (startup_trace_enabled()) {
       fprintf(stderr, "[startup]   module_loader skipped (set EX_SKIP_STARTUP_MODULE_LOADER=0 to re-enable)\n");
     }
@@ -1224,24 +1226,36 @@ void installModuleLoader(ExactHermesRuntime* handle) {
   static const char* loader = MODULE_LOADER_SRC;
 
   auto _t0 = std::chrono::steady_clock::now();
+  if (skip_module_loader_script) {
+    if (startup_trace_enabled()) {
+      fprintf(stderr, "[startup]   module_loader_script skipped (set EX_SKIP_STARTUP_MODULE_LOADER_SCRIPT=0 to re-enable)\n");
+    }
+  } else {
+  bool source_module_loader = env_flag_enabled("EX_MODULE_LOADER_SOURCE");
   try {
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
-    try {
-      auto buffer = std::make_shared<StaticHBCBuffer>(MODULE_LOADER_HBC, MODULE_LOADER_HBC_LEN);
-      rt.evaluateJavaScript(buffer, "<module-loader>");
-    } catch (...) {
-      // HBC failed (version mismatch, alignment, etc.) — fall back to source
+    if (source_module_loader) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(loader);
       rt.evaluateJavaScript(buffer, "<module-loader>");
+    } else {
+      try {
+        auto buffer = std::make_shared<StaticHBCBuffer>(MODULE_LOADER_HBC, MODULE_LOADER_HBC_LEN);
+        rt.evaluateJavaScript(buffer, "<module-loader>");
+      } catch (...) {
+        // HBC failed (version mismatch, alignment, etc.) — fall back to source
+        auto buffer = std::make_shared<facebook::jsi::StringBuffer>(loader);
+        rt.evaluateJavaScript(buffer, "<module-loader>");
+      }
     }
 #else
     auto buffer = std::make_shared<facebook::jsi::StringBuffer>(loader);
     rt.evaluateJavaScript(buffer, "<module-loader>");
 #endif
-  } catch (const facebook::jsi::JSError& err) {
-    ex_host_console_log(1, err.getMessage().c_str());
-  } catch (const std::exception& err) {
-    ex_host_console_log(1, err.what());
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(1, err.getMessage().c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1, err.what());
+    }
   }
   if (startup_trace_enabled()) {
     auto _el = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -1252,26 +1266,38 @@ void installModuleLoader(ExactHermesRuntime* handle) {
 
   // Expose common globals from modules (Buffer, URL, URLSearchParams, setImmediate, etc.)
   _t0 = std::chrono::steady_clock::now();
-  try {
-    const char* globals = BOOTSTRAP_GLOBALS_SRC;
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
+  if (env_flag_enabled("EX_SKIP_STARTUP_BOOTSTRAP_GLOBALS")) {
+    if (startup_trace_enabled()) {
+      fprintf(stderr, "[startup]   bootstrap_globals skipped (set EX_SKIP_STARTUP_BOOTSTRAP_GLOBALS=0 to re-enable)\n");
+    }
+  } else {
+    bool source_bootstrap_globals = env_flag_enabled("EX_BOOTSTRAP_GLOBALS_SOURCE");
     try {
-      auto hbcBuf = std::make_shared<StaticHBCBuffer>(BOOTSTRAP_GLOBALS_HBC, BOOTSTRAP_GLOBALS_HBC_LEN);
-      rt.evaluateJavaScript(hbcBuf, "<bootstrap>");
-    } catch (...) {
+      const char* globals = BOOTSTRAP_GLOBALS_SRC;
+#ifdef HAS_PRECOMPILED_BOOTSTRAP
+      if (source_bootstrap_globals) {
+        auto globalsBuf = std::make_shared<facebook::jsi::StringBuffer>(globals);
+        rt.evaluateJavaScript(globalsBuf, "<bootstrap>");
+      } else {
+        try {
+          auto hbcBuf = std::make_shared<StaticHBCBuffer>(BOOTSTRAP_GLOBALS_HBC, BOOTSTRAP_GLOBALS_HBC_LEN);
+          rt.evaluateJavaScript(hbcBuf, "<bootstrap>");
+        } catch (...) {
+          auto globalsBuf = std::make_shared<facebook::jsi::StringBuffer>(globals);
+          rt.evaluateJavaScript(globalsBuf, "<bootstrap>");
+        }
+      }
+#else
       auto globalsBuf = std::make_shared<facebook::jsi::StringBuffer>(globals);
       rt.evaluateJavaScript(globalsBuf, "<bootstrap>");
-    }
-#else
-    auto globalsBuf = std::make_shared<facebook::jsi::StringBuffer>(globals);
-    rt.evaluateJavaScript(globalsBuf, "<bootstrap>");
 #endif
-  } catch (...) {}
-  if (startup_trace_enabled()) {
-    auto _el = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now() - _t0).count();
-    fprintf(stderr, "[startup]   %-28s %6lld us (%5.1f ms)\n",
-            "bootstrap_globals", (long long)_el, _el / 1000.0);
+    } catch (...) {}
+    if (startup_trace_enabled()) {
+      auto _el = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - _t0).count();
+      fprintf(stderr, "[startup]   %-28s %6lld us (%5.1f ms)\n",
+              "bootstrap_globals", (long long)_el, _el / 1000.0);
+    }
   }
 }
 
@@ -5369,56 +5395,113 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             #n, (long long)_el, _el / 1000.0); }
 
   auto& rt = *handle->runtime;
-  auto printFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "print"),
-      1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
-        std::string message;
-        for (size_t i = 0; i < count; ++i) {
-          if (i > 0) {
-            message += " ";
-          }
-          message += valueToString(runtime, args[i]);
-        }
-        ex_host_console_log(0, message.c_str());
-        return facebook::jsi::Value::undefined();
-      });
-
-  rt.global().setProperty(rt, "print", std::move(printFn));
-
-  facebook::jsi::Object console(rt);
-  console.setProperty(rt, "log", makeLogFunction(rt, 0));
-  console.setProperty(rt, "info", makeLogFunction(rt, 0));
-  console.setProperty(rt, "debug", makeLogFunction(rt, 0));
-  console.setProperty(rt, "error", makeLogFunction(rt, 1));
-  console.setProperty(rt, "warn", makeLogFunction(rt, 1));
-  console.setProperty(rt, "trace", makeLogFunction(rt, 0));
-  console.setProperty(rt, "dir", makeLogFunction(rt, 0));
-  rt.global().setProperty(rt, "console", std::move(console));
-
-  // Enhance console with time/count/group/table/assert/clear via JS
-  IG_TRACE_START(console_enhance);
-  try {
-    const char* consoleEnhance = CONSOLE_ENHANCE_SRC;
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-    try {
-      auto hbcBuf = std::make_shared<StaticHBCBuffer>(CONSOLE_ENHANCE_HBC, CONSOLE_ENHANCE_HBC_LEN);
-      rt.evaluateJavaScript(hbcBuf, "<console>");
-    } catch (...) {
-      auto enhBuf = std::make_shared<facebook::jsi::StringBuffer>(consoleEnhance);
-      rt.evaluateJavaScript(enhBuf, "<console>");
+  bool skip_console_init = env_flag_enabled("EX_SKIP_STARTUP_CONSOLE_INIT");
+  if (skip_console_init) {
+    if (_tracing) {
+      fprintf(stderr, "[startup]   console_init skipped (set EX_SKIP_STARTUP_CONSOLE_INIT=0 to re-enable)\n");
     }
-#else
-    auto enhBuf = std::make_shared<facebook::jsi::StringBuffer>(consoleEnhance);
-    rt.evaluateJavaScript(enhBuf, "<console>");
-#endif
-  } catch (...) {}
-  IG_TRACE_END(console_enhance);
+  } else {
+    auto printFn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "print"),
+        1,
+        [](facebook::jsi::Runtime& runtime,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value* args,
+           size_t count) -> facebook::jsi::Value {
+          std::string message;
+          for (size_t i = 0; i < count; ++i) {
+            if (i > 0) {
+              message += " ";
+            }
+            message += valueToString(runtime, args[i]);
+          }
+          ex_host_console_log(0, message.c_str());
+          return facebook::jsi::Value::undefined();
+        });
 
+    rt.global().setProperty(rt, "print", std::move(printFn));
+
+    facebook::jsi::Object console(rt);
+    console.setProperty(rt, "log", makeLogFunction(rt, 0));
+    console.setProperty(rt, "info", makeLogFunction(rt, 0));
+    console.setProperty(rt, "debug", makeLogFunction(rt, 0));
+    console.setProperty(rt, "error", makeLogFunction(rt, 1));
+    console.setProperty(rt, "warn", makeLogFunction(rt, 1));
+    console.setProperty(rt, "trace", makeLogFunction(rt, 0));
+    console.setProperty(rt, "dir", makeLogFunction(rt, 0));
+    rt.global().setProperty(rt, "console", std::move(console));
+
+    // Enhance console with time/count/group/table/assert/clear via JS
+    bool skip_console_enhance = env_flag_enabled("EX_SKIP_STARTUP_CONSOLE_ENHANCE");
+    bool source_console_enhance = env_flag_enabled("EX_CONSOLE_ENHANCE_SOURCE");
+    if (skip_console_enhance) {
+      if (_tracing) {
+        fprintf(stderr, "[startup]   console_enhance skipped (set EX_SKIP_STARTUP_CONSOLE_ENHANCE=0 to re-enable)\n");
+      }
+    } else {
+      IG_TRACE_START(console_enhance);
+      try {
+        const char* consoleEnhance = CONSOLE_ENHANCE_SRC;
+#ifdef HAS_PRECOMPILED_BOOTSTRAP
+        if (source_console_enhance) {
+          auto enhBuf = std::make_shared<facebook::jsi::StringBuffer>(consoleEnhance);
+          rt.evaluateJavaScript(enhBuf, "<console>");
+        } else {
+          try {
+            auto hbcBuf = std::make_shared<StaticHBCBuffer>(CONSOLE_ENHANCE_HBC, CONSOLE_ENHANCE_HBC_LEN);
+            rt.evaluateJavaScript(hbcBuf, "<console>");
+          } catch (...) {
+            auto enhBuf = std::make_shared<facebook::jsi::StringBuffer>(consoleEnhance);
+            rt.evaluateJavaScript(enhBuf, "<console>");
+          }
+        }
+#else
+        auto enhBuf = std::make_shared<facebook::jsi::StringBuffer>(consoleEnhance);
+        rt.evaluateJavaScript(enhBuf, "<console>");
+#endif
+      } catch (...) {}
+      IG_TRACE_END(console_enhance);
+    }
+  }
+
+  auto makeHardExitFn = [&rt]() {
+    auto fn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "exit"),
+        1,
+        [](facebook::jsi::Runtime& runtime,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value* args,
+           size_t count) -> facebook::jsi::Value {
+          int code = 0;
+          if (count > 0 && args[0].isNumber()) {
+            code = static_cast<int>(args[0].asNumber());
+          }
+          try {
+            auto processObj = runtime.global().getProperty(runtime, "process");
+            if (!processObj.isObject()) {
+              std::exit(code);
+              return facebook::jsi::Value::undefined();
+            }
+            auto process = processObj.asObject(runtime);
+            process.setProperty(runtime, "exitCode", facebook::jsi::Value(code));
+          } catch (...) {}
+          std::exit(code);
+          return facebook::jsi::Value::undefined();
+        });
+    try {
+      fn.setProperty(rt, "__exactHostExit", facebook::jsi::Value(true));
+    } catch (...) {}
+    return fn;
+  };
+
+  bool skip_host_functions = env_flag_enabled("EX_SKIP_STARTUP_HOST_FUNCTIONS");
+  if (skip_host_functions) {
+    if (_tracing) {
+      fprintf(stderr, "[startup]   host_functions skipped (set EX_SKIP_STARTUP_HOST_FUNCTIONS=0 to re-enable)\n");
+    }
+  } else {
   IG_TRACE_START(host_functions);
   auto setTimeoutFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -9373,37 +9456,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   processObj.setProperty(rt, "chdir", std::move(chdirFn));
 
-  // process.exit()
-  auto makeHardExitFn = [&]() {
-    auto fn = facebook::jsi::Function::createFromHostFunction(
-        rt,
-        facebook::jsi::PropNameID::forAscii(rt, "exit"),
-        1,
-        [](facebook::jsi::Runtime& runtime,
-           const facebook::jsi::Value&,
-           const facebook::jsi::Value* args,
-           size_t count) -> facebook::jsi::Value {
-          int code = 0;
-          if (count > 0 && args[0].isNumber()) {
-            code = static_cast<int>(args[0].asNumber());
-          }
-          try {
-            auto processObj = runtime.global().getProperty(runtime, "process");
-            if (!processObj.isObject()) {
-              std::exit(code);
-              return facebook::jsi::Value::undefined();
-            }
-            auto process = processObj.asObject(runtime);
-            process.setProperty(runtime, "exitCode", facebook::jsi::Value(code));
-          } catch (...) {}
-          std::exit(code);
-          return facebook::jsi::Value::undefined();
-        });
-    try {
-      fn.setProperty(rt, "__exactHostExit", facebook::jsi::Value(true));
-    } catch (...) {}
-    return fn;
-  };
   auto exitFn = makeHardExitFn();
   processObj.setProperty(rt, "exit", std::move(exitFn));
   try {
@@ -10444,6 +10496,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
   // --- Register lazy-load host functions and install lazy getters ---
   // These defer evaluation of non-essential bootstrap blocks until first use.
+  if (env_flag_enabled("EX_SKIP_STARTUP_LAZY_GETTERS")) {
+    if (_tracing) {
+      fprintf(stderr, "[startup]   lazy_getters skipped (set EX_SKIP_STARTUP_LAZY_GETTERS=0 to re-enable)\n");
+    }
+  } else {
   {
     auto ensureStreamFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureStreamEnhance"), 0,
@@ -10488,34 +10545,48 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       rt.evaluateJavaScript(buf, "<lazy-getters>");
     } catch (...) {}
   }
+  }
 #endif // HAS_PRECOMPILED_BOOTSTRAP
   IG_TRACE_END(host_functions);
+  }
 
   // Compatibility polyfills for modern ECMAScript APIs used by npm modules.
-  IG_TRACE_START(compat_polyfills);
-  {
-    static const char* compatibilityPolyfillsJS = COMPAT_POLYFILLS_SRC;
+  if (env_flag_enabled("EX_SKIP_STARTUP_COMPAT_POLYFILLS")) {
+    if (_tracing) {
+      fprintf(stderr, "[startup]   compat_polyfills skipped (set EX_SKIP_STARTUP_COMPAT_POLYFILLS=0 to re-enable)\n");
+    }
+  } else {
+    IG_TRACE_START(compat_polyfills);
+    {
+      static const char* compatibilityPolyfillsJS = COMPAT_POLYFILLS_SRC;
+      bool source_compat_polyfills = env_flag_enabled("EX_COMPAT_POLYFILLS_SOURCE");
 
-    try {
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
       try {
-        auto hbcBuf = std::make_shared<StaticHBCBuffer>(COMPAT_POLYFILLS_HBC, COMPAT_POLYFILLS_HBC_LEN);
-        rt.evaluateJavaScript(hbcBuf, "<compat-polyfills>");
-      } catch (...) {
+#ifdef HAS_PRECOMPILED_BOOTSTRAP
+        if (source_compat_polyfills) {
+          auto buffer = std::make_shared<facebook::jsi::StringBuffer>(compatibilityPolyfillsJS);
+          rt.evaluateJavaScript(buffer, "<compat-polyfills>");
+        } else {
+          try {
+            auto hbcBuf = std::make_shared<StaticHBCBuffer>(COMPAT_POLYFILLS_HBC, COMPAT_POLYFILLS_HBC_LEN);
+            rt.evaluateJavaScript(hbcBuf, "<compat-polyfills>");
+          } catch (...) {
+            auto buffer = std::make_shared<facebook::jsi::StringBuffer>(compatibilityPolyfillsJS);
+            rt.evaluateJavaScript(buffer, "<compat-polyfills>");
+          }
+        }
+#else
         auto buffer = std::make_shared<facebook::jsi::StringBuffer>(compatibilityPolyfillsJS);
         rt.evaluateJavaScript(buffer, "<compat-polyfills>");
-      }
-#else
-      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(compatibilityPolyfillsJS);
-      rt.evaluateJavaScript(buffer, "<compat-polyfills>");
 #endif
-    } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.getMessage()).c_str());
-    } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.what()).c_str());
+      } catch (const facebook::jsi::JSError& err) {
+        ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.getMessage()).c_str());
+      } catch (const std::exception& err) {
+        ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.what()).c_str());
+      }
     }
+    IG_TRACE_END(compat_polyfills);
   }
-  IG_TRACE_END(compat_polyfills);
 
   // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream)
   // Must run before exact-global.js which uses ReadableStream.
@@ -10547,28 +10618,41 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   IG_TRACE_END(web_streams_polyfill);
 
   // Install Exact global (with Bun alias) including Exact.file() and Exact.write()
-  IG_TRACE_START(exact_global);
-  static const char* exactGlobalJS = EXACT_GLOBAL_SRC;
+  bool skip_exact_global = env_flag_enabled("EX_SKIP_STARTUP_EXACT_GLOBAL");
+  bool source_exact_global = env_flag_enabled("EX_EXACT_GLOBAL_SOURCE");
+  if (skip_exact_global) {
+    if (_tracing) {
+      fprintf(stderr, "[startup]   exact_global skipped (set EX_SKIP_STARTUP_EXACT_GLOBAL=0 to re-enable)\n");
+    }
+  } else {
+    IG_TRACE_START(exact_global);
+    static const char* exactGlobalJS = EXACT_GLOBAL_SRC;
 
-  try {
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
     try {
-      auto hbcBuf = std::make_shared<StaticHBCBuffer>(EXACT_GLOBAL_HBC, EXACT_GLOBAL_HBC_LEN);
-      rt.evaluateJavaScript(hbcBuf, "<exact-global>");
-    } catch (...) {
+#ifdef HAS_PRECOMPILED_BOOTSTRAP
+      if (source_exact_global) {
+        auto buffer = std::make_shared<facebook::jsi::StringBuffer>(exactGlobalJS);
+        rt.evaluateJavaScript(buffer, "<exact-global>");
+      } else {
+        try {
+          auto hbcBuf = std::make_shared<StaticHBCBuffer>(EXACT_GLOBAL_HBC, EXACT_GLOBAL_HBC_LEN);
+          rt.evaluateJavaScript(hbcBuf, "<exact-global>");
+        } catch (...) {
+          auto buffer = std::make_shared<facebook::jsi::StringBuffer>(exactGlobalJS);
+          rt.evaluateJavaScript(buffer, "<exact-global>");
+        }
+      }
+#else
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(exactGlobalJS);
       rt.evaluateJavaScript(buffer, "<exact-global>");
-    }
-#else
-    auto buffer = std::make_shared<facebook::jsi::StringBuffer>(exactGlobalJS);
-    rt.evaluateJavaScript(buffer, "<exact-global>");
 #endif
-  } catch (const facebook::jsi::JSError& err) {
-    ex_host_console_log(1, err.getMessage().c_str());
-  } catch (const std::exception& err) {
-    ex_host_console_log(1, err.what());
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(1, err.getMessage().c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1, err.what());
+    }
+    IG_TRACE_END(exact_global);
   }
-  IG_TRACE_END(exact_global);
 
   // Compatibility post-bootstrap fixups for host shims used by test suites.
   {
