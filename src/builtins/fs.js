@@ -2140,6 +2140,9 @@ ReadStream.prototype = Object.create(require('node:stream').Readable.prototype);
 ReadStream.prototype.constructor = ReadStream;
 
 function _initReadStream(rs, path, options) {
+  if (options !== undefined && options !== null && typeof options !== 'string' && typeof options !== 'object') {
+    throw _fsInvalidArgType('options', 'string or an object', options);
+  }
   _validateEncodingOption(options);
   ensureExactFs();
   var Stream = require('node:stream');
@@ -2147,8 +2150,25 @@ function _initReadStream(rs, path, options) {
   var fsModule = opts.fs || require('node:fs');
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'read']);
   var encoding = opts.encoding || null;
-  var start = typeof opts.start === 'number' ? opts.start : 0;
+  var start = 0;
   var end = opts.end;
+
+  if (opts.start !== undefined) {
+    if (typeof opts.start !== 'number') throw _fsInvalidArgType('start', 'number', opts.start);
+    _validateInt('start', opts.start, 0, Number.MAX_SAFE_INTEGER);
+    start = opts.start;
+  }
+  if (end !== undefined) {
+    if (typeof end !== 'number') throw _fsInvalidArgType('end', 'number', end);
+    if (end !== Infinity) {
+      _validateInt('end', end, 0, Number.MAX_SAFE_INTEGER);
+    }
+  }
+  if (end !== undefined && end !== Infinity && start > end) {
+    var startAfterEnd = _fsOutOfRange('start', start, 0, end);
+    startAfterEnd.message = 'The value of "start" is out of range. It must be <= "end" (here: ' + end + '). Received ' + start;
+    throw startAfterEnd;
+  }
   var highWaterMark = opts.highWaterMark || opts.bufferSize || 65536;
   var autoClose = opts.autoClose !== false;
   var fdOption = opts.fd;
@@ -2179,7 +2199,10 @@ function _initReadStream(rs, path, options) {
     Stream.Readable.call(rs, { highWaterMark: highWaterMark });
     rs._exactReadStreamInitialized = true;
   }
-  rs.path = path;
+  rs.path = ((fdOption === undefined || fdOption === null) || path !== null && path !== undefined) ? path : undefined;
+  rs.start = start;
+  rs.end = end;
+  rs.autoClose = autoClose;
   rs.readable = true;
   rs.bytesRead = 0;
   rs.closed = false;
@@ -2335,6 +2358,7 @@ function _initReadStream(rs, path, options) {
     return rs;
   };
   rs.on('error', function() {
+    if (!autoClose) return;
     rs.destroyed = true;
     closeFd();
   });
