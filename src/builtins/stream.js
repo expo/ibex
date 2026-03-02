@@ -2513,20 +2513,22 @@ Writable.prototype.end = function(chunk, encoding, callback) {
     });
   };
 
-    if (typeof this._final === 'function') {
-      this._final(function(err) {
-        if (err) {
-          self.destroy(err);
-          var cbs = self._endCallbacks;
+  if (typeof this._final === 'function') {
+    this._final(function(err) {
+      if (err) {
+        self.destroy(err);
+        var cbs = self._endCallbacks;
         self._endCallbacks = [];
         for (var j = 0; j < cbs.length; j++) { cbs[j](err); }
         return;
       }
       done();
-      });
-    } else {
-      done();
-    }
+    });
+  } else {
+    done();
+  }
+
+  return this;
 };
 
 Writable.prototype.cork = function() {
@@ -3763,10 +3765,10 @@ function _blobStreamConsumer(stream, options) {
 // addAbortSignal utility
 function addAbortSignal(signal, stream) {
   if (!signal || typeof signal.addEventListener !== 'function') {
-    throw new Error('The first argument must be an AbortSignal');
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "signal" argument must be of type AbortSignal.');
   }
   if (!stream || typeof stream.destroy !== 'function') {
-    throw new Error('The second argument must be a stream');
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "stream" argument must be an instance of Stream. Received ' + (stream === null ? 'null' : typeof stream));
   }
   signal.addEventListener('abort', function() {
     var err = new Error('The operation was aborted');
