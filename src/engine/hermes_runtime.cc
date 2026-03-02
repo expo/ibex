@@ -336,6 +336,35 @@ class MemoryBuffer : public facebook::jsi::Buffer {
   std::vector<uint8_t> data_;
 };
 
+class AlignedBytecodeBuffer : public facebook::jsi::Buffer {
+ public:
+  AlignedBytecodeBuffer(const uint8_t* data, size_t len) : size_(len), data_(nullptr) {
+    if (len == 0) {
+      return;
+    }
+    const size_t alignment = alignof(std::max_align_t);
+    size_t padded = (len + alignment - 1) & ~(alignment - 1);
+    if (posix_memalign(reinterpret_cast<void**>(&data_), alignment, padded) != 0) {
+      data_ = nullptr;
+      throw std::bad_alloc();
+    }
+    memcpy(data_, data, len);
+  }
+
+  ~AlignedBytecodeBuffer() {
+    if (data_) {
+      free(data_);
+    }
+  }
+
+  size_t size() const override { return size_; }
+  const uint8_t* data() const override { return data_; }
+
+ private:
+  size_t size_{0};
+  uint8_t* data_;
+};
+
 std::string valueToString(facebook::jsi::Runtime& rt, const facebook::jsi::Value& value) {
   if (value.isUndefined()) {
     return "undefined";
@@ -1441,6 +1470,44 @@ static void evalHBCWithFallback(facebook::jsi::Runtime& rt,
 // The ensure functions are called from JS host functions set up in installGlobals,
 // which capture the source string pointers.
 
+// Used for startup bootstrap scripts to preserve the same execution path as `ex_hermes_eval`.
+extern "C" int ex_hermes_eval(
+    struct ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* source_url,
+    int is_bytecode,
+    char** out_value);
+
+// Execute bootstrap source/HBC with bytecode-first fallback semantics while reusing
+// the same runtime/microtask flow as normal `ex eval`.
+static bool eval_bootstrap_script(
+    ExactHermesRuntime* handle,
+    const char* source,
+    const uint8_t* hbc,
+    size_t hbcLen,
+    const char* sourceUrl,
+    bool preferSource,
+    bool allowHbc) {
+  if (!handle || !source || !sourceUrl) {
+    return false;
+  }
+
+#ifdef HAS_PRECOMPILED_BOOTSTRAP
+  if (!preferSource && allowHbc && hbc != nullptr && hbcLen > 0) {
+    if (ex_hermes_eval(handle, hbc, hbcLen, sourceUrl, 1, nullptr) == 0) {
+      return true;
+    }
+  }
+#endif
+  return ex_hermes_eval(handle,
+                        reinterpret_cast<const uint8_t*>(source),
+                        std::strlen(source),
+                        sourceUrl,
+                        0,
+                        nullptr) == 0;
+}
+
 // Store source string pointers for lazy-load fallback
 static const char* g_streamEnhanceJS = nullptr;
 static const char* g_webCryptoJS = nullptr;
@@ -1472,8 +1539,16 @@ void ensureWebCrypto(ExactHermesRuntime* handle) {
   handle->web_crypto_loaded = true;
   auto& rt = *handle->runtime;
   try {
-    evalHBCWithFallback(rt, WEB_CRYPTO_HBC, WEB_CRYPTO_HBC_LEN,
-                        g_webCryptoJS, "<web-crypto>");
+    // WebCrypto bootstrap is source-first by default to avoid startup regressions
+    // from potentially incompatible precompiled bytecode. Opt in to HBC with
+    // EX_WEB_CRYPTO_HBC=1 only.
+    if (g_webCryptoJS && !env_flag_enabled("EX_WEB_CRYPTO_HBC")) {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(g_webCryptoJS);
+      rt.evaluateJavaScript(buffer, "<web-crypto>");
+      return;
+    }
+    evalHBCWithFallback(rt, WEB_CRYPTO_HBC, WEB_CRYPTO_HBC_LEN, g_webCryptoJS,
+                        "<web-crypto>");
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(1, (std::string("Web Crypto error: ") + err.getMessage()).c_str());
   } catch (...) {}
@@ -1484,6 +1559,12 @@ void ensureWebStorage(ExactHermesRuntime* handle) {
   handle->web_storage_loaded = true;
   auto& rt = *handle->runtime;
   try {
+    // Source-first by default; enable HBC with EX_WEB_STORAGE_HBC=1.
+    if (g_webStorageJS && !env_flag_enabled("EX_WEB_STORAGE_HBC")) {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(g_webStorageJS);
+      rt.evaluateJavaScript(buffer, "<web-storage>");
+      return;
+    }
     evalHBCWithFallback(rt, WEB_STORAGE_HBC, WEB_STORAGE_HBC_LEN,
                         g_webStorageJS, "<web-storage>");
   } catch (const facebook::jsi::JSError& err) {
@@ -1496,6 +1577,12 @@ void ensureFormData(ExactHermesRuntime* handle) {
   handle->form_data_loaded = true;
   auto& rt = *handle->runtime;
   try {
+    // Source-first by default; enable HBC with EX_FORM_DATA_HBC=1.
+    if (g_formDataJS && !env_flag_enabled("EX_FORM_DATA_HBC")) {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(g_formDataJS);
+      rt.evaluateJavaScript(buffer, "<form-data>");
+      return;
+    }
     evalHBCWithFallback(rt, FORM_DATA_HBC, FORM_DATA_HBC_LEN,
                         g_formDataJS, "<form-data>");
   } catch (const facebook::jsi::JSError& err) {
@@ -5465,6 +5552,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto enhBuf = std::make_shared<facebook::jsi::StringBuffer>(consoleEnhance);
         rt.evaluateJavaScript(enhBuf, "<console>");
 #endif
+
       } catch (...) {}
       IG_TRACE_END(console_enhance);
     }
@@ -10555,6 +10643,40 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   IG_TRACE_END(host_functions);
   }
 
+  // Compatibility post-bootstrap fixups for host shims used by test suites.
+  // Run these before other high-level bootstrap scripts that expect stable
+  // process metadata/config wiring.
+  {
+  static const char* processCompatFixJS = PROCESS_COMPAT_FIX_SRC;
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(processCompatFixJS);
+      rt.evaluateJavaScript(buffer, "<process-compat-fix>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.getMessage()).c_str());
+  } catch (const std::exception& err) {
+      ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.what()).c_str());
+    }
+  }
+
+  // Reinstall a hard process.exit on the process object itself after compatibility
+  // patches so JS wrappers (if any) can't shadow termination semantics.
+  {
+    auto processValue = rt.global().getProperty(rt, "process");
+    if (processValue.isObject()) {
+      auto processObjFinal = processValue.asObject(rt);
+      auto hardExitFn = makeHardExitFn();
+      auto hardExitProtoFn = makeHardExitFn();
+      processObjFinal.setProperty(rt, "exit", std::move(hardExitFn));
+      try {
+        auto processProtoValue = processObjFinal.getProperty(rt, "__proto__");
+        if (processProtoValue.isObject()) {
+          auto processProtoObj = processProtoValue.asObject(rt);
+          processProtoObj.setProperty(rt, "exit", std::move(hardExitProtoFn));
+        }
+      } catch (...) {}
+    }
+  }
+
   // Compatibility polyfills for modern ECMAScript APIs used by npm modules.
   if (env_flag_enabled("EX_SKIP_STARTUP_COMPAT_POLYFILLS")) {
     if (_tracing) {
@@ -10562,33 +10684,32 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   } else {
     IG_TRACE_START(compat_polyfills);
+    bool compatEvaluated = false;
     {
       static const char* compatibilityPolyfillsJS = COMPAT_POLYFILLS_SRC;
       bool source_compat_polyfills = env_flag_enabled("EX_COMPAT_POLYFILLS_SOURCE");
+      bool compat_polyfills_hbc = env_flag_enabled("EX_COMPAT_POLYFILLS_HBC");
 
       try {
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-        if (source_compat_polyfills) {
-          auto buffer = std::make_shared<facebook::jsi::StringBuffer>(compatibilityPolyfillsJS);
-          rt.evaluateJavaScript(buffer, "<compat-polyfills>");
-        } else {
-          try {
-            auto hbcBuf = std::make_shared<StaticHBCBuffer>(COMPAT_POLYFILLS_HBC, COMPAT_POLYFILLS_HBC_LEN);
-            rt.evaluateJavaScript(hbcBuf, "<compat-polyfills>");
-          } catch (...) {
-            auto buffer = std::make_shared<facebook::jsi::StringBuffer>(compatibilityPolyfillsJS);
-            rt.evaluateJavaScript(buffer, "<compat-polyfills>");
-          }
+        compatEvaluated = eval_bootstrap_script(
+            handle,
+            compatibilityPolyfillsJS,
+            reinterpret_cast<const uint8_t*>(COMPAT_POLYFILLS_HBC),
+            COMPAT_POLYFILLS_HBC_LEN,
+            "<compat-polyfills>",
+            source_compat_polyfills || !compat_polyfills_hbc,
+            compat_polyfills_hbc);
+        if (!compatEvaluated) {
+          throw std::runtime_error("Compatibility polyfills failed to evaluate");
         }
-#else
-        auto buffer = std::make_shared<facebook::jsi::StringBuffer>(compatibilityPolyfillsJS);
-        rt.evaluateJavaScript(buffer, "<compat-polyfills>");
-#endif
       } catch (const facebook::jsi::JSError& err) {
         ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.getMessage()).c_str());
       } catch (const std::exception& err) {
         ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.what()).c_str());
       }
+    }
+    if (compatEvaluated) {
+      drainMicrotasks(rt);
     }
     IG_TRACE_END(compat_polyfills);
   }
@@ -10625,6 +10746,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // Install Exact global (with Bun alias) including Exact.file() and Exact.write()
   bool skip_exact_global = env_flag_enabled("EX_SKIP_STARTUP_EXACT_GLOBAL");
   bool source_exact_global = env_flag_enabled("EX_EXACT_GLOBAL_SOURCE");
+  bool exact_global_hbc = env_flag_enabled("EX_EXACT_GLOBAL_HBC");
   if (skip_exact_global) {
     if (_tracing) {
       fprintf(stderr, "[startup]   exact_global skipped (set EX_SKIP_STARTUP_EXACT_GLOBAL=0 to re-enable)\n");
@@ -10632,63 +10754,53 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   } else {
     IG_TRACE_START(exact_global);
     static const char* exactGlobalJS = EXACT_GLOBAL_SRC;
+    bool exactEvaluated = false;
 
     try {
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
-      if (source_exact_global) {
-        auto buffer = std::make_shared<facebook::jsi::StringBuffer>(exactGlobalJS);
-        rt.evaluateJavaScript(buffer, "<exact-global>");
+      // Keep exact_global source-first by default to avoid startup regressions from
+      // precompiled bootstrap bytecode incompatibilities.
+      if (source_exact_global || !exact_global_hbc) {
+        exactEvaluated = eval_bootstrap_script(
+            handle,
+            exactGlobalJS,
+            reinterpret_cast<const uint8_t*>(EXACT_GLOBAL_HBC),
+            EXACT_GLOBAL_HBC_LEN,
+            "<exact-global>",
+            true,
+            false);
       } else {
-        try {
-          auto hbcBuf = std::make_shared<StaticHBCBuffer>(EXACT_GLOBAL_HBC, EXACT_GLOBAL_HBC_LEN);
-          rt.evaluateJavaScript(hbcBuf, "<exact-global>");
-        } catch (...) {
-          auto buffer = std::make_shared<facebook::jsi::StringBuffer>(exactGlobalJS);
-          rt.evaluateJavaScript(buffer, "<exact-global>");
-        }
+        exactEvaluated = eval_bootstrap_script(
+            handle,
+            exactGlobalJS,
+            reinterpret_cast<const uint8_t*>(EXACT_GLOBAL_HBC),
+            EXACT_GLOBAL_HBC_LEN,
+            "<exact-global>",
+            false,
+            exact_global_hbc);
       }
 #else
-      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(exactGlobalJS);
-      rt.evaluateJavaScript(buffer, "<exact-global>");
+      exactEvaluated = eval_bootstrap_script(
+          handle,
+          exactGlobalJS,
+          nullptr,
+          0,
+          "<exact-global>",
+          true,
+          false);
 #endif
+        if (!exactEvaluated) {
+          throw std::runtime_error("Exact global script failed to evaluate");
+        }
     } catch (const facebook::jsi::JSError& err) {
       ex_host_console_log(1, err.getMessage().c_str());
     } catch (const std::exception& err) {
       ex_host_console_log(1, err.what());
     }
+    if (exactEvaluated) {
+      drainMicrotasks(rt);
+    }
     IG_TRACE_END(exact_global);
-  }
-
-  // Compatibility post-bootstrap fixups for host shims used by test suites.
-  {
-  static const char* processCompatFixJS = PROCESS_COMPAT_FIX_SRC;
-    try {
-      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(processCompatFixJS);
-      rt.evaluateJavaScript(buffer, "<process-compat-fix>");
-    } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.getMessage()).c_str());
-  } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.what()).c_str());
-    }
-  }
-
-  // Reinstall a hard process.exit on the process object itself after compatibility
-  // patches so JS wrappers (if any) can't shadow termination semantics.
-  {
-    auto processValue = rt.global().getProperty(rt, "process");
-    if (processValue.isObject()) {
-      auto processObjFinal = processValue.asObject(rt);
-      auto hardExitFn = makeHardExitFn();
-      auto hardExitProtoFn = makeHardExitFn();
-      processObjFinal.setProperty(rt, "exit", std::move(hardExitFn));
-      try {
-        auto processProtoValue = processObjFinal.getProperty(rt, "__proto__");
-        if (processProtoValue.isObject()) {
-          auto processProtoObj = processProtoValue.asObject(rt);
-          processProtoObj.setProperty(rt, "exit", std::move(hardExitProtoFn));
-        }
-      } catch (...) {}
-    }
   }
 }
 
@@ -10816,8 +10928,35 @@ extern "C" int ex_hermes_eval(
   }
 
   try {
-    auto buffer = std::make_shared<MemoryBuffer>(data, len);
-    auto result = runtime->runtime->evaluateJavaScript(buffer, source);
+    facebook::jsi::Value result;
+    std::shared_ptr<facebook::jsi::Buffer> source_buffer;
+    if (is_bytecode) {
+      source_buffer = std::make_shared<AlignedBytecodeBuffer>(data, len);
+      auto aligned_data = source_buffer->data();
+      const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
+      auto* hermes = facebook::jsi::castInterface<::facebook::hermes::IHermes>(runtime->runtime.get());
+      auto* hermes_root = hermes ? facebook::jsi::castInterface<::facebook::hermes::IHermesRootAPI>(
+                                       hermes->getHermesRootAPI())
+                                 : nullptr;
+      if (!disable_check && hermes_root) {
+        std::string reason;
+        if (!hermes_root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
+          if (out_value) {
+            char* heap = static_cast<char*>(malloc(reason.size() + 1));
+            if (heap) {
+              memcpy(heap, reason.data(), reason.size());
+              heap[reason.size()] = '\0';
+              *out_value = heap;
+            }
+          }
+          return 1;
+        }
+      }
+      result = runtime->runtime->evaluateJavaScript(source_buffer, source);
+    } else {
+      source_buffer = std::make_shared<MemoryBuffer>(data, len);
+      result = runtime->runtime->evaluateJavaScript(source_buffer, source);
+    }
     runNextTickQueue(runtime);
     drainMicrotasks(*runtime->runtime);
     if (runtime->debugger_attached.load()) {

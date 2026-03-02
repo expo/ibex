@@ -1,4 +1,4 @@
-use std::io::ErrorKind;
+use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -37,6 +37,16 @@ fn main() {
                 default_ios_lib.clone()
             }
         });
+    let hermes_framework_dir = if target_os == "macos" {
+        let xcframework_macos = hermes_lib_dir.join("hermes.xcframework").join("macos-arm64_x86_64");
+        if xcframework_macos.exists() {
+            xcframework_macos
+        } else {
+            hermes_lib_dir.clone()
+        }
+    } else {
+        hermes_lib_dir.clone()
+    };
 
     if target_os == "linux" {
         if !hermes_include_dir.exists() {
@@ -477,12 +487,12 @@ fn main() {
         if target_os == "macos" {
             println!(
                 "cargo:rustc-link-search=framework={}",
-                hermes_lib_dir.display()
+                hermes_framework_dir.display()
             );
             println!("cargo:rustc-link-lib=framework=hermesvm");
             println!(
                 "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                hermes_lib_dir.display()
+                hermes_framework_dir.display()
             );
         }
         // On iOS, Hermes is linked by Xcode (via hermes.xcframework dependency)
@@ -702,6 +712,32 @@ fn extract_hbc_version(binary_path: &Path) -> Option<u32> {
 }
 
 fn bytecode_file_version(hermesc: &Path, hbc_path: &Path) -> Option<u32> {
-    run_tool_output(hermesc, &["-dump-bytecode", &hbc_path.to_string_lossy()])
-        .and_then(|text| extract_u32_after_prefix(&text, "Bytecode version number:"))
+    let mut child = std::process::Command::new(hermesc)
+        .arg("-dump-bytecode")
+        .arg(hbc_path)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    let stdout = child.stdout.take()?;
+    let mut reader = BufReader::new(stdout);
+
+    for _ in 0..128 {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                if let Some(version) =
+                    extract_u32_after_prefix(line.trim(), "Bytecode version number:")
+                {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Some(version);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    let _ = child.wait();
+    None
 }
