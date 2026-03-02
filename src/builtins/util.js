@@ -27,6 +27,18 @@ function promisify(fn) {
   if (typeof fn !== "function") {
     throw new TypeError("util.promisify requires a function");
   }
+  var customSymbol = promisify.custom;
+  if (customSymbol != null) {
+    var custom = fn[customSymbol];
+    if (custom != null) {
+      if (typeof custom !== "function") {
+        var customErr = new TypeError("The promisify custom value must be a function");
+        customErr.code = 'ERR_INVALID_ARG_TYPE';
+        throw customErr;
+      }
+      return custom;
+    }
+  }
   return function() {
     var args = [];
     var i = 0;

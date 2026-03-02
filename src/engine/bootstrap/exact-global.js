@@ -164,6 +164,9 @@
     g.clearTimeout = function(handle) {
       if (handle && typeof handle === 'object' && handle._exactHandle != null) {
         handle._destroyed = true;
+        if (typeof handle._clear === 'function') {
+          return handle._clear(handle._exactHandle);
+        }
         return nativeClearTimeout(handle._exactHandle);
       }
       return nativeClearTimeout(handle);
@@ -172,6 +175,9 @@
     g.clearInterval = function(handle) {
       if (handle && typeof handle === 'object' && handle._exactHandle != null) {
         handle._destroyed = true;
+        if (typeof handle._clear === 'function') {
+          return handle._clear(handle._exactHandle);
+        }
         return nativeClearInterval(handle._exactHandle);
       }
       return nativeClearInterval(handle);

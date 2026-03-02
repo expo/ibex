@@ -9,8 +9,6 @@ var _nativeFs = (function() {
 var _nativeFsOpen = _nativeFs ? _nativeFs.open : null;
 var _nativeFsClose = _nativeFs ? _nativeFs.close : null;
 var _exactFsInitialized = false;
-var _exactReaddirSyncCachePath = null;
-var _exactReaddirSyncCacheEntries = null;
 function ensureExactFs() {
   if (_exactFsInitialized) return;
   if (typeof g.__exactEnsureFs === 'function') {
@@ -615,7 +613,55 @@ function _makeAbortError() {
   var err = new Error('The operation was aborted');
   err.name = 'AbortError';
   err.code = 'ABORT_ERR';
+  if (arguments.length > 0) {
+    err.cause = arguments[0];
+  }
   return err;
+}
+
+function _normalizeWatchOptions(options) {
+  if (options === undefined || options === null) {
+    return {};
+  }
+  if (typeof options === 'string') {
+    _assertEncoding(options);
+    return { encoding: options };
+  }
+  if (typeof options !== 'object') {
+    throw _fsInvalidArgType('options', 'string or an object', options);
+  }
+  _validateEncodingOption(options);
+  if (options.recursive !== undefined && typeof options.recursive !== 'boolean') {
+    throw _fsInvalidArgType('options.recursive', 'boolean', options.recursive);
+  }
+  if (options.persistent !== undefined && typeof options.persistent !== 'boolean') {
+    throw _fsInvalidArgType('options.persistent', 'boolean', options.persistent);
+  }
+  if (options.signal !== undefined && options.signal !== null && (typeof options.signal !== 'object' || typeof options.signal.addEventListener !== 'function')) {
+    throw _fsInvalidArgType('options.signal', 'AbortSignal', options.signal);
+  }
+  return options;
+}
+
+function _normalizeWatchFileOptions(path, options) {
+  options = _normalizeWatchOptions(options);
+  if (options.signal && options.signal.aborted === true) {
+    throw _makeAbortError(options.signal.reason);
+  }
+  if (options.maxQueue !== undefined) {
+    if (typeof options.maxQueue !== 'number' || !Number.isFinite(options.maxQueue) || options.maxQueue % 1 !== 0) {
+      throw _fsInvalidArgValue('options.maxQueue', options.maxQueue, 'a number');
+    }
+    if (options.maxQueue < 0) {
+      throw _fsInvalidArgValue('options.maxQueue', options.maxQueue, 'a non-negative number');
+    }
+  }
+  if (options.overflow !== undefined) {
+    if (options.overflow !== 'throw' && options.overflow !== 'ignore') {
+      throw _fsInvalidArgValue('options.overflow', options.overflow, 'one of "throw", "ignore"');
+    }
+  }
+  return options;
 }
 
 function _checkForAbortedSignal(options) {
@@ -642,6 +688,98 @@ function _normalizeWriteOptions(options) {
 function _validateEncodingOption(options) {
   var encoding = typeof options === 'string' ? options : (options && options.encoding);
   if (encoding) _assertEncoding(encoding);
+}
+
+function _isAsyncIterable(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (typeof Symbol === 'undefined' || !Symbol.asyncIterator) return false;
+  return typeof value[Symbol.asyncIterator] === 'function';
+}
+
+function _isSyncIterable(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (typeof Symbol === 'undefined' || !Symbol.iterator) return false;
+  return typeof value[Symbol.iterator] === 'function';
+}
+
+function _coerceWriteFileChunk(value, encoding) {
+  if (typeof value === 'string' || _isBufferLike(value) || (typeof ArrayBuffer === 'object' && value instanceof ArrayBuffer)) {
+    return toUint8Array(value, encoding);
+  }
+  throw _fsInvalidArgType('data', 'string or an instance of Buffer, TypedArray, or DataView', value);
+}
+
+function _writeFileFromSyncIterable(fd, iterable, encoding) {
+  var iterator = iterable[Symbol.iterator]();
+  while (true) {
+    var step = iterator.next();
+    if (step.done) break;
+    var bytes = _coerceWriteFileChunk(step.value, encoding);
+    writeSync(fd, bytes, 0, bytes.length, -1);
+  }
+}
+
+function _writeFileFromAsyncIterable(fd, iterable, encoding) {
+  var iterator = iterable[Symbol.asyncIterator]();
+  return Promise.resolve().then(function readNext() {
+    return Promise.resolve(iterator.next()).then(function(step) {
+      if (!step || step.done) return;
+      var bytes = _coerceWriteFileChunk(step.value, encoding);
+      writeSync(fd, bytes, 0, bytes.length, -1);
+      return readNext();
+    });
+  });
+}
+
+function _writeFileToDescriptor(fd, data, options) {
+  var encoding = options && options.encoding;
+  if (_isAsyncIterable(data)) {
+    return _writeFileFromAsyncIterable(fd, data, encoding);
+  }
+  if (_isSyncIterable(data) && typeof data !== 'string') {
+    _writeFileFromSyncIterable(fd, data, encoding);
+    if (options && options.flush === true) {
+      _callFsyncSync(fd);
+    }
+    return Promise.resolve();
+  }
+  var bytes = _coerceWriteFileChunk(data, encoding);
+  writeSync(fd, bytes, 0, bytes.length, -1);
+  if (options && options.flush === true) {
+    _callFsyncSync(fd);
+  }
+  return Promise.resolve();
+}
+
+function _promisesWriteFile(target, data, options) {
+  var writeOptions;
+  try {
+    writeOptions = _normalizeWriteOptions(options);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+  var targetInfo = _getFdOrPath(target, 'path');
+  var signal = writeOptions && writeOptions.signal;
+  if (signal && signal.aborted === true) {
+    return Promise.reject(_makeAbortError());
+  }
+
+  var fd = targetInfo.fd;
+  var needsClose = false;
+  if (fd === null) {
+    fd = openSync(targetInfo.path, writeOptions.flag || writeOptions.flags || 'w', writeOptions.mode);
+    needsClose = true;
+  }
+
+  return _writeFileToDescriptor(fd, data, writeOptions).then(function() {
+    if (needsClose) closeSync(fd);
+    return;
+  }, function(err) {
+    if (needsClose) {
+      try { closeSync(fd); } catch(e) {}
+    }
+    throw err;
+  });
 }
 
 function _validateFsOptions(optionName, value, requiredMethods) {
@@ -865,6 +1003,60 @@ function _coerceStatsValue(raw, useBigInt) {
     return BigInt(raw || 0);
   }
   return raw || 0;
+}
+
+var _internalFsUtilsBigIntStats;
+
+function _getInternalBigIntStats() {
+  if (_internalFsUtilsBigIntStats === undefined) {
+    var ctor = null;
+    try {
+      var fsUtils = require('internal/fs/utils');
+      if (fsUtils && typeof fsUtils.BigIntStats === 'function') {
+        ctor = fsUtils.BigIntStats;
+      }
+    } catch (e) {}
+    _internalFsUtilsBigIntStats = ctor;
+  }
+  return _internalFsUtilsBigIntStats;
+}
+
+function _coerceToBigInt(raw) {
+  if (typeof raw === 'bigint') return raw;
+  if (typeof raw === 'number' && !isNaN(raw)) return BigInt(raw);
+  return 0n;
+}
+
+function _makeBigIntStats(raw) {
+  var ctor = _getInternalBigIntStats();
+  if (typeof ctor !== 'function') {
+    return new Stats(raw || {}, true);
+  }
+  var safe = raw || {};
+  var mt = safe.mtime_ms || safe.mtimeMs || 0;
+  var at = safe.atime_ms || safe.atimeMs || mt;
+  var ct = safe.ctime_ms || safe.ctimeMs || mt;
+  var bt = safe.birthtime_ms || safe.birthtimeMs || mt;
+  return new ctor(
+    _coerceToBigInt(safe.dev),
+    _coerceToBigInt(safe.mode),
+    _coerceToBigInt(safe.nlink || 1),
+    _coerceToBigInt(safe.uid),
+    _coerceToBigInt(safe.gid),
+    _coerceToBigInt(safe.rdev),
+    _coerceToBigInt(safe.blksize || 4096),
+    _coerceToBigInt(safe.ino),
+    _coerceToBigInt(safe.size),
+    _coerceToBigInt(safe.blocks),
+    _coerceToBigInt(at),
+    _coerceToBigInt(mt),
+    _coerceToBigInt(ct),
+    _coerceToBigInt(bt),
+    _coerceToBigInt(safe.atime_ns || safe.atimeNs || 0),
+    _coerceToBigInt(safe.mtime_ns || safe.mtimeNs || 0),
+    _coerceToBigInt(safe.ctime_ns || safe.ctimeNs || 0),
+    _coerceToBigInt(safe.birthtime_ns || safe.birthtimeNs || 0)
+  );
 }
 
 function _coerceStatsDate(raw) {
@@ -1250,11 +1442,6 @@ function readdirSync(path, options) {
   var withFileTypes = !!opts.withFileTypes;
   var recursive = !!opts.recursive;
   var encoding = opts.encoding;
-  var cacheable = !withFileTypes && !recursive &&
-      (encoding === undefined || encoding === 'utf8' || encoding === 'utf-8');
-  if (cacheable && _exactReaddirSyncCachePath === p && _exactReaddirSyncCacheEntries) {
-    return _exactReaddirSyncCacheEntries.slice();
-  }
   try {
     var rawEntries = JSON.parse(g.__exactReaddir(p));
     var entries = rawEntries;
@@ -1266,10 +1453,6 @@ function readdirSync(path, options) {
       });
     }
     if (!withFileTypes && !recursive) {
-      if (cacheable) {
-        _exactReaddirSyncCachePath = p;
-        _exactReaddirSyncCacheEntries = entries.slice();
-      }
       return entries;
     }
     if (withFileTypes) {
@@ -1857,6 +2040,7 @@ function access(path, modeOrCb, cb) {
   if (typeof modeOrCb === 'function') { callback = modeOrCb; } else { mode = modeOrCb; callback = cb; }
   _validateCallback(callback);
   _validatePath(path);
+  if (mode !== undefined && mode !== null) _validateAccessMode(mode);
   wrapCallback(function() { accessSync(path, mode); }, callback, 'access', _pathToString(path));
 }
 function chmod(path, mode, cb) { _validateCallback(cb); _validatePath(path); wrapCallback(function() { chmodSync(path, mode); }, cb, 'chmod', _pathToString(path)); }
@@ -3236,12 +3420,17 @@ function FSWatcher() {
   this._unrefed = false;
 }
 FSWatcher.prototype.on = function(ev, fn) { if (!this._events[ev]) this._events[ev] = []; this._events[ev].push(fn); return this; };
+FSWatcher.prototype.addListener = FSWatcher.prototype.on;
 FSWatcher.prototype.emit = function(ev) { var a = [].slice.call(arguments, 1); var l = this._events[ev] || []; for (var i = 0; i < l.length; i++) l[i].apply(this, a); return l.length > 0; };
-FSWatcher.prototype.once = function(ev, fn) { var self = this; function w() { self.removeListener(ev, w); fn.apply(this, arguments); } this.on(ev, w); return this; };
-FSWatcher.prototype.removeListener = function(ev, fn) { var l = this._events[ev]; if (l) { var n = []; for (var i = 0; i < l.length; i++) { if (l[i] !== fn) n.push(l[i]); } this._events[ev] = n; } return this; };
+FSWatcher.prototype.once = function(ev, fn) { var self = this; function w() { self.removeListener(ev, w); fn.apply(this, arguments); } w.listener = fn; this.on(ev, w); return this; };
+FSWatcher.prototype.removeListener = function(ev, fn) { var l = this._events[ev]; if (l) { var n = []; for (var i = 0; i < l.length; i++) { if (l[i] !== fn && l[i].listener !== fn) n.push(l[i]); } this._events[ev] = n; } return this; };
+FSWatcher.prototype.off = function(ev, fn) { return this.removeListener(ev, fn); };
 FSWatcher.prototype.close = function() {
   if (this._closed) return this;
   this._closed = true;
+  if (this._onSignalAbort && this._signal && typeof this._signal.removeEventListener === 'function') {
+    this._signal.removeEventListener('abort', this._onSignalAbort);
+  }
   if (this._stop) this._stop();
   else if (this._timer) clearInterval(this._timer);
   this.emit('close');
@@ -3251,7 +3440,11 @@ FSWatcher.prototype.stop = function() {
   if (this._stopped) return this;
   this._stopped = true;
   this.close();
-  this.emit('stop');
+  _deferFsCallback((function() {
+    if (this._stopped) {
+      this.emit('stop');
+    }
+  }).bind(this));
   return this;
 };
 FSWatcher.prototype.ref = function() {
@@ -3279,6 +3472,10 @@ function pathJoin(base, child) {
   var last = base.charAt(base.length - 1);
   if (last === '/' || last === '\\') return base + child;
   return base + '/' + child;
+}
+function _watchEventPath(filename, encoding, recursive) {
+  if (filename === null || filename === undefined) return watchFilename(filename, encoding);
+  return watchFilename(recursive ? filename : pathBasename(filename), encoding);
 }
 function watchFilename(filename, encoding) {
   if (filename === null || filename === undefined) return filename;
@@ -3336,46 +3533,75 @@ function buildWatchDirState(dirname, recursive, prefix) {
   return entries;
 }
 function emitWatchDirectoryChanges(watcher, encoding, prevState, nextState) {
+  var changed = false;
   if (!prevState) prevState = {};
   if (!nextState) nextState = {};
-  var prevMeta = prevState.__meta || {};
-  var nextMeta = nextState.__meta || {};
-  if ((prevMeta.mtime || 0) !== (nextMeta.mtime || 0)) {
-    watcher.emit('change', 'rename', watchFilename(null, encoding));
-  }
   for (var key in nextState) {
     if (key === '__meta') continue;
     if (!prevState[key]) {
-      watcher.emit('change', 'rename', watchFilename(pathBasename(key), encoding));
+      watcher.emit('change', 'rename', _watchEventPath(key, encoding, watcher._recursive));
+      changed = true;
       continue;
     }
     if (!nextState[key].isDirectory && !prevState[key].isDirectory &&
         (nextState[key].mtime !== prevState[key].mtime || nextState[key].size !== prevState[key].size)) {
-      watcher.emit('change', 'change', watchFilename(pathBasename(key), encoding));
+      watcher.emit('change', 'change', _watchEventPath(key, encoding, watcher._recursive));
+      changed = true;
     }
   }
   for (var key2 in prevState) {
     if (key2 === '__meta') continue;
-    if (!nextState[key2]) watcher.emit('change', 'rename', watchFilename(pathBasename(key2), encoding));
+    if (!nextState[key2]) {
+      watcher.emit('change', 'rename', _watchEventPath(key2, encoding, watcher._recursive));
+      changed = true;
+    }
   }
+  return changed;
 }
-function makeZeroStats() {
-  var s = new Stats({});
+function makeZeroStats(bigint) {
+  var s = !!bigint ? _makeBigIntStats({}) : new Stats({}, false);
   s.__exactExists = false;
   return s;
 }
 
 function watch(filename, options, listener) {
-  if (typeof options === 'function') { listener = options; options = {}; }
-  if (typeof options === 'string') { _assertEncoding(options); options = { encoding: options }; }
-  options = options || {};
-  _validateEncodingOption(options);
+  if (typeof options === 'function') {
+    listener = options;
+    options = {};
+  }
+  options = _normalizeWatchOptions(options);
   if (listener && typeof listener !== 'function') _validateCallback(listener);
   _validatePath(filename, 'filename');
   var watcher = new FSWatcher();
-  watcher._filename = filename;
-  if (options.recursive !== undefined && typeof options.recursive !== 'boolean') {
-    throw _fsInvalidArgType('options.recursive', 'boolean', options.recursive);
+  watcher._filename = _pathToString(filename);
+  watcher._signal = options.signal;
+  watcher._handle = {
+    onchange: function(code, errorName, pathValue) {
+      var errCode = errorName || _uvCodeFromErrno(code);
+      var err = _makeFsError(
+        {
+          errno: code,
+          code: typeof errCode === 'string' ? errCode : undefined,
+          path: pathValue,
+          filename: pathValue,
+          syscall: 'watch'
+        },
+        'watch',
+        pathValue
+      );
+      watcher.emit('error', err);
+    }
+  };
+  watcher._onSignalAbort = function() {
+    watcher.close();
+  };
+  if (watcher._signal && typeof watcher._signal.addEventListener === 'function') {
+    watcher._signal.addEventListener('abort', watcher._onSignalAbort);
+  }
+
+  if (watcher._signal && watcher._signal.aborted === true) {
+    _deferFsCallback(function() { watcher.close(); });
+    return watcher;
   }
 
   var encoding = options.encoding || 'utf8';
@@ -3383,22 +3609,31 @@ function watch(filename, options, listener) {
 
   var stat;
   var targetIsDirectory = false;
-  try { stat = statSync(filename); targetIsDirectory = !!(stat && stat.isDirectory && stat.isDirectory()); } catch(e) {}
+  try {
+    stat = statSync(watcher._filename);
+    targetIsDirectory = !!(stat && stat.isDirectory && stat.isDirectory());
+  } catch(e) {
+    throw _makeFsError(e, 'watch', watcher._filename);
+  }
 
   if (targetIsDirectory) {
     watcher._isDirectory = true;
     watcher._recursive = !!options.recursive;
-    watcher._prevState = buildWatchDirState(filename, watcher._recursive);
+    watcher._prevState = buildWatchDirState(watcher._filename, watcher._recursive);
     var directoryInterval = options.interval || 25;
     watcher._poll = function() {
       if (watcher._closed || watcher._stopped) return;
-      var nextState = buildWatchDirState(filename, watcher._recursive);
+      var nextState = buildWatchDirState(watcher._filename, watcher._recursive);
       if (!nextState) {
-        watcher.emit('change', 'rename', watchFilename(pathBasename(filename), encoding));
+        watcher.emit('change', 'rename', watchFilename(pathBasename(watcher._filename), encoding));
         watcher._prevState = {};
         return;
       }
-      emitWatchDirectoryChanges(watcher, encoding, watcher._prevState, nextState);
+      var changed = emitWatchDirectoryChanges(watcher, encoding, watcher._prevState, nextState);
+      if (!changed && watcher._prevState && nextState.__meta && watcher._prevState.__meta &&
+          nextState.__meta.mtime !== watcher._prevState.__meta.mtime) {
+        watcher.emit('change', 'rename', null);
+      }
       watcher._prevState = nextState;
     };
     watcher._pollInterval = directoryInterval;
@@ -3415,21 +3650,21 @@ function watch(filename, options, listener) {
     watcher._start();
   } else {
     var lastMtime = 0;
-    try { var s = stat || statSync(filename); lastMtime = s.mtimeMs || 0; } catch(e) {}
+    try { var s = stat || statSync(watcher._filename); lastMtime = s.mtimeMs || 0; } catch(e) {}
     var fileInterval = options.interval || 25;
     watcher._poll = function() {
       if (watcher._closed) return;
       try {
-        var s2 = statSync(filename);
+        var s2 = statSync(watcher._filename);
         var mtime = s2.mtimeMs || 0;
         if (mtime !== lastMtime) {
           lastMtime = mtime;
-          watcher.emit('change', 'change', watchFilename(pathBasename(filename), encoding));
+          watcher.emit('change', 'change', watchFilename(pathBasename(watcher._filename), encoding));
         }
       } catch(e) {
         if (lastMtime !== 0) {
           lastMtime = 0;
-          watcher.emit('change', 'rename', watchFilename(pathBasename(filename), encoding));
+          watcher.emit('change', 'rename', watchFilename(pathBasename(watcher._filename), encoding));
         }
       }
     };
@@ -3451,31 +3686,127 @@ function watch(filename, options, listener) {
   return watcher;
 }
 
+function _promisesWatch(path, options) {
+  options = _normalizeWatchFileOptions(path, options);
+  var signal = options && options.signal;
+  var syncWatcher = watch(path, options);
+  var queue = [];
+  var waiting = null;
+  var closed = false;
+  var abortError = null;
+
+  function onChange(eventType, filename) {
+    if (closed) return;
+    var payload = { eventType: eventType, filename: filename };
+    if (waiting) {
+      var waitingNext = waiting;
+      waiting = null;
+      waitingNext(Promise.resolve({ done: false, value: payload }));
+    } else {
+      queue.push(payload);
+    }
+  }
+
+  function closeWatch() {
+    if (closed) return;
+    closed = true;
+    syncWatcher.removeListener('change', onChange);
+    syncWatcher.close();
+    if (waiting) {
+      var pending = waiting;
+      waiting = null;
+      if (abortError) {
+        pending(Promise.reject(abortError));
+      } else {
+        pending(Promise.resolve({ done: true }));
+      }
+    }
+  }
+
+  function onSignalAbort() {
+    abortError = _makeAbortError(signal && signal.reason);
+    closeWatch();
+  }
+  if (signal && typeof signal.addEventListener === 'function') {
+    signal.addEventListener('abort', onSignalAbort);
+  }
+
+  syncWatcher.on('change', onChange);
+
+  return {
+    next: function() {
+      if (closed) {
+        if (abortError) {
+          return Promise.reject(abortError);
+        }
+        return Promise.resolve({ done: true });
+      }
+      if (queue.length > 0) {
+        return Promise.resolve({ done: false, value: queue.shift() });
+      }
+      return new Promise(function(resolve, reject) {
+        waiting = function(nextValue) {
+          Promise.resolve(nextValue).then(function(resolved) {
+            resolve(resolved);
+          }, function(rejected) {
+            reject(rejected);
+          });
+        };
+      });
+    },
+    return: function() {
+      if (!closed) {
+        closeWatch();
+      }
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onSignalAbort);
+      }
+      return Promise.resolve({ done: true });
+    },
+    [Symbol.asyncIterator]: function() { return this; }
+  };
+}
+
 var _watchedFiles = {};
 function watchFile(filename, options, listener) {
   if (typeof options === 'function') { listener = options; options = {}; }
   options = options || {};
-  if (listener && typeof listener !== 'function') _validateCallback(listener);
+  options = _normalizeWatchFileOptions(filename, options);
+  if (!listener) {
+    throw _fsInvalidArgType('listener', 'function', listener);
+  }
+  if (typeof listener !== 'function') _validateCallback(listener);
   _validatePath(filename, 'filename');
-  var watcher = _watchedFiles[filename];
+  var resolvedFilename = _pathToString(filename);
+  var statOptions = { bigint: options.bigint };
+  var watcher = _watchedFiles[resolvedFilename];
   if (!watcher) {
     watcher = new FSWatcher();
-    watcher._filename = filename;
+    watcher._filename = resolvedFilename;
     watcher._listeners = [];
     watcher._initialized = false;
     watcher._hadInitialStat = false;
     watcher._timer = null;
-    watcher._prev = makeZeroStats();
-    try { watcher._prev = statSync(filename); watcher._prev.__exactExists = true; watcher._hadInitialStat = true; } catch(e) { watcher._prev.__exactExists = false; }
+    watcher._statOptions = statOptions;
+    watcher._prev = makeZeroStats(watcher._statOptions.bigint);
+    try {
+      var prevStats = statSync(resolvedFilename, watcher._statOptions);
+      watcher._prev = watcher._statOptions.bigint ? _makeBigIntStats(prevStats) : prevStats;
+      watcher._prev.__exactExists = true;
+      watcher._hadInitialStat = true;
+    } catch(e) {
+      watcher._prev.__exactExists = false;
+    }
     var watchFileInterval = options.interval || 5007;
     watcher._poll = function() {
       if (watcher._closed || watcher._stopped) return;
       var curr;
       try {
-        curr = statSync(filename);
+        var rawCurr = statSync(resolvedFilename, watcher._statOptions);
+        curr = watcher._statOptions.bigint ? _makeBigIntStats(rawCurr) : rawCurr;
         curr.__exactExists = true;
       } catch(e) {
-        curr = makeZeroStats();
+        curr = makeZeroStats(watcher._statOptions.bigint);
         curr.__exactExists = false;
       }
       if (!watcher._initialized) watcher._initialized = true;
@@ -3500,7 +3831,14 @@ function watchFile(filename, options, listener) {
     };
     watcher._start();
     if (options.persistent === false) watcher.unref();
-    _watchedFiles[filename] = watcher;
+    _watchedFiles[resolvedFilename] = watcher;
+    if (!watcher._prev.__exactExists) {
+      _deferFsCallback(function() {
+        if (!watcher._closed) {
+          watcher.emit('change', watcher._prev, watcher._prev);
+        }
+      });
+    }
   }
 
   if (listener) {
@@ -3517,7 +3855,8 @@ function watchFile(filename, options, listener) {
 
 function unwatchFile(filename) {
   _validatePath(filename, 'filename');
-  var watcher = _watchedFiles[filename];
+  var resolvedFilename = _pathToString(filename);
+  var watcher = _watchedFiles[resolvedFilename];
   if (!watcher) return;
   if (!watcher._listeners) watcher._listeners = [];
   if (arguments.length > 1 && arguments[1] !== undefined) {
@@ -3537,12 +3876,12 @@ function unwatchFile(filename) {
     watcher._listeners = next;
     if (watcher._listeners.length === 0) {
       watcher.stop();
-      delete _watchedFiles[filename];
+      delete _watchedFiles[resolvedFilename];
     }
     return;
   }
   watcher.stop();
-  delete _watchedFiles[filename];
+  delete _watchedFiles[resolvedFilename];
 }
 
 // fs.symlink/link/readlink/truncate/chown/utimes/rm
@@ -3668,12 +4007,18 @@ function utimes(path, atime, mtime, cb) {
 }
 function rmSync(path, options) {
   ensureExactFs();
-  options = options || {};
+  if (typeof options === 'boolean') {
+    options = { recursive: true, force: true };
+  } else {
+    options = options || {};
+  }
+  var recursive = !!(options && options.recursive);
+  var force = !!(options && options.force);
   try {
     // Use lstatSync to not follow symlinks - symlinks should be unlinked, not traversed
     var info = lstatSync(path);
     if (typeof info.isDirectory === 'function' ? info.isDirectory() : info.is_dir) {
-      if (options.recursive) {
+      if (recursive) {
         var entries;
         try { entries = readdirSync(path); } catch(e2) { entries = []; }
         for (var i = 0; i < entries.length; i++) {
@@ -3685,8 +4030,8 @@ function rmSync(path, options) {
       unlinkSync(path);
     }
   } catch(e) {
-    if (options.force && e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return;
-    if (!(options.force)) throw e;
+    if (force && e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return;
+    if (!force) throw e;
   }
 }
 function rm(path, options, cb) {
@@ -3788,8 +4133,7 @@ FileHandlePromise.prototype.writeFile = function(data, options) {
   var handle = this;
   return _resolveAsync(function() {
     handle._ensureOpen();
-    writeFileSync(handle.fd, data, options);
-    return toUint8Array(data, options && options.encoding).length;
+    return _promisesWriteFile(handle.fd, data, options);
   })();
 };
 FileHandlePromise.prototype.appendFile = function(data, options) {
@@ -3873,10 +4217,7 @@ function _extend(target, source) {
 var promises = {
   readFile: function(p, o) { return _resolveAsync(function() { return readFileSync(p, o); })(); },
   writeFile: function(p, d, o) {
-    return _resolveAsync(function() {
-      writeFileSync(p, d, o);
-      return toUint8Array(d, o && o.encoding).length;
-    })();
+    return _promisesWriteFile(p, d, o);
   },
   appendFile: function(p, d, o) {
     return _resolveAsync(function() {
@@ -3912,7 +4253,9 @@ var promises = {
   fdatasync: function(fd) { return _resolveAsync(function() { fdatasyncSync(fd); })(); },
   fsync: function(fd) { return _resolveAsync(function() { fsyncSync(fd); })(); },
   fstat: function(fd) { return _resolveAsync(function() { return fstatSync(fd); })(); },
-  watch: function(p, o) { return watch(p, o); },
+  watch: function(p, o) {
+    return _promisesWatch(p, o);
+  },
   read: function(fd, buffer, offset, length, position) { return _resolveAsync(function() { return { bytesRead: readSync(fd, buffer, offset, length, position), buffer: buffer }; })(); },
   write: function(fd, bufferOrString, offset, length, position) { return _resolveAsync(function() { return { bytesWritten: writeSync(fd, bufferOrString, offset, length, position), buffer: bufferOrString }; })(); },
   open: function(p, f, m) {
@@ -4000,6 +4343,7 @@ constants.UV_FS_COPYFILE_FICLONE = 2;
 constants.COPYFILE_FICLONE = 2;
 constants.UV_FS_COPYFILE_FICLONE_FORCE = 4;
 constants.COPYFILE_FICLONE_FORCE = 4;
+promises.constants = constants;
 
 // fchmod/fchmodSync — file descriptor-based chmod
 function fchmod(fd, mode, callback) {

@@ -5,11 +5,40 @@ var _uvErrnoMapFallback = {
   ENOTDIR: 20
 };
 
+var _processCwd = "/";
+
+function _stringifyPathPart(path) {
+  if (typeof path === 'string') return path;
+  if (Buffer.isBuffer && Buffer.isBuffer(path)) return path.toString();
+  return String(path);
+}
+
+function _normalizeCwdPath(value) {
+  var path = _stringifyPathPart(value);
+  if (path.length === 0) return "/";
+  if (path.charAt(0) === '/') return path;
+  return "/" + path;
+}
+
+function _resolveCwd(path) {
+  if (typeof path === 'string' && (path.charAt(0) === '/' || /^[A-Za-z]:[\\/]/.test(path))) {
+    return path;
+  }
+  var cwd = typeof process === 'object' && process && typeof process.cwd === 'function' ? process.cwd() : "/";
+  if (cwd.charAt(cwd.length - 1) !== '/') {
+    return cwd + "/" + path;
+  }
+  return cwd + path;
+}
+
 function cwd() {
-  if (typeof __exactGetCwd === 'function') {
+  if (typeof __exactGetCwd === 'function' && typeof __exactSetCwd === 'function') {
     return __exactGetCwd();
   }
-  return "/";
+  if (!_processCwd || _processCwd === "/") {
+    _processCwd = _normalizeCwdPath(typeof __exactGetCwd === 'function' ? __exactGetCwd() : "/");
+  }
+  return _processCwd;
 }
 
 function _coerceChdirError(err, path) {
@@ -54,13 +83,23 @@ function chdir(path) {
     err.code = 'ERR_INVALID_ARG_TYPE';
     throw err;
   }
+  var resolvedPath = _resolveCwd(path);
   if (typeof __exactSetCwd !== 'function') {
-    throw new Error("process.chdir is not supported in this runtime");
+    if (typeof __exactAccess === 'function') {
+      try {
+        __exactAccess(resolvedPath, 0);
+      } catch (e) {
+        throw _coerceChdirError(e, resolvedPath);
+      }
+    }
+    _processCwd = resolvedPath;
+    return;
   }
   try {
-    __exactSetCwd(path);
+    __exactSetCwd(resolvedPath);
+    _processCwd = resolvedPath;
   } catch (e) {
-    throw _coerceChdirError(e, path);
+    throw _coerceChdirError(e, resolvedPath);
   }
 }
 

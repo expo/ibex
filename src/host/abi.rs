@@ -862,7 +862,8 @@ pub extern "C" fn ex_host_fs_realpath(path: *const c_char) -> *mut c_char {
     }
 }
 
-/// Check access to a path. `mode` is a bitmask: 0=existence, 1=read, 2=write, 4=execute.
+/// Check access to a path. `mode` is a bitmask that matches Node.js `fs.access`
+/// constants: 0=existence, 1=execute, 2=write, 4=read.
 /// Returns 0 if accessible, -1 if not.
 #[no_mangle]
 pub extern "C" fn ex_host_fs_access(path: *const c_char, mode: i32) -> i32 {
@@ -877,13 +878,13 @@ pub extern "C" fn ex_host_fs_access(path: *const c_char, mode: i32) -> i32 {
         } else {
             let mut requested = 0;
             if mode & 1 != 0 {
-                requested |= libc::R_OK;
+                requested |= libc::X_OK;
             }
             if mode & 2 != 0 {
                 requested |= libc::W_OK;
             }
             if mode & 4 != 0 {
-                requested |= libc::X_OK;
+                requested |= libc::R_OK;
             }
             requested
         };

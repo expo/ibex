@@ -228,12 +228,40 @@ ZlibTransform.prototype._transform = function(chunk, encoding, callback) {
   this._bytesWritten += countBytesForChunk(chunk, encoding || 'utf8');
   this.bytesWritten = this._bytesWritten;
   this.bytesRead = this._bytesWritten;
+  var self = this;
+  var transformState = self._transformState || {};
+
+  var wrappedCallback = callback;
+  callback = function(err) {
+    if (typeof wrappedCallback === 'function') {
+      wrappedCallback(err);
+    }
+    if (!transformState || !transformState._flushQueue || !transformState._flushQueue.length) {
+      return;
+    }
+    if (transformState._flushing || (transformState.pendingWrites > 0)) {
+      return;
+    }
+    if (self._writableState && self._writableState.writing) {
+      return;
+    }
+    var next = transformState._flushQueue.shift();
+    if (next && typeof self._flush === 'function') {
+      self._flush(next[1]);
+    }
+  };
+
   if (typeof chunk === 'string') {
     this._chunks.push(Buffer.from(chunk, encoding));
   } else {
     this._chunks.push(chunk);
   }
-  callback();
+  if (typeof callback !== 'function') return;
+  if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
+    process.nextTick(callback);
+  } else {
+    setTimeout(callback, 0);
+  }
 };
 
 ZlibTransform.prototype._flush = function(callback) {
@@ -322,7 +350,9 @@ ZlibTransform.prototype.flush = function(kind, callback) {
     }
     if (state._flushQueue && state._flushQueue.length > 0) {
       var next = state._flushQueue.shift();
-      self.flush(next[0], next[1]);
+      if (next && typeof self._flush === 'function') {
+        self._flush(next[1]);
+      }
     }
   });
   return this;

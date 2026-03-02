@@ -116,11 +116,16 @@ if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
         cp -R "$VERSION_CACHE/include/"* "$FRAMEWORKS_DIR/hermes-headers/"
     fi
 
-    # Copy hermesc
+    # Copy hermesc / hermes binaries
     if [ -f "$VERSION_CACHE/bin/hermesc" ]; then
         mkdir -p "$PROJECT_ROOT/tools/hermes"
         cp "$VERSION_CACHE/bin/hermesc" "$HERMESC_DEST"
         echo "[✓] hermesc installed"
+    fi
+    if [ -f "$VERSION_CACHE/bin/hermes" ]; then
+        mkdir -p "$PROJECT_ROOT/tools/hermes"
+        cp "$VERSION_CACHE/bin/hermes" "$PROJECT_ROOT/tools/hermes/hermes"
+        echo "[✓] hermes installed"
     fi
 
     echo "[✓] Installed to $FRAMEWORKS_DIR"
@@ -192,6 +197,7 @@ cmake -S . -B build_host_hermesc -DCMAKE_BUILD_TYPE=Release \
     -DHAVE_CXX_ATOMICS_WITHOUT_LIB=ON \
     -DHAVE_CXX_ATOMICS64_WITHOUT_LIB=ON
 cmake --build ./build_host_hermesc --target hermesc -j "${NUM_CORES}"
+cmake --build ./build_host_hermesc --target hermes -j "${NUM_CORES}"
 
 # Build for iOS device
 echo ""
@@ -297,6 +303,7 @@ cp -R "$HERMES_SRC/destroot/include" "$VERSION_CACHE/"
 mkdir -p "$VERSION_CACHE/bin"
 cp "$HERMES_SRC/destroot/bin/hermesc" "$VERSION_CACHE/bin/" 2>/dev/null || true
 cp "$HERMES_SRC/build_host_hermesc/bin/hermesc" "$VERSION_CACHE/bin/" 2>/dev/null || true
+cp "$HERMES_SRC/build_host_hermesc/bin/hermes" "$VERSION_CACHE/bin/" 2>/dev/null || true
 
 # Install to project
 echo ""
@@ -311,6 +318,7 @@ cp -R "$VERSION_CACHE/include/"* "$FRAMEWORKS_DIR/hermes-headers/"
 
 mkdir -p "$PROJECT_ROOT/tools/hermes"
 cp "$VERSION_CACHE/bin/hermesc" "$HERMESC_DEST" 2>/dev/null || true
+cp "$VERSION_CACHE/bin/hermes" "$PROJECT_ROOT/tools/hermes/hermes" 2>/dev/null || true
 
 echo ""
 echo "=== Build Complete ==="

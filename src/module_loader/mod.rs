@@ -1125,11 +1125,320 @@ function toPathIfFileURL(value) {
   return value;
 }
 
+function _invalidValueError(name, value, extra) {
+  var received;
+  if (value === null) {
+    received = 'null';
+  } else if (value === undefined) {
+    received = 'undefined';
+  } else if (typeof value === 'number') {
+    received = 'type number (' + value + ')';
+  } else if (value === '') {
+    received = 'type string';
+  } else {
+    received = 'type ' + typeof value;
+  }
+  if (extra) {
+    return new TypeError('The "' + name + '" argument ' + extra + '. Received ' + received);
+  }
+  return new TypeError('The "' + name + '" argument must be of type object. Received ' + received);
+}
+
+function _invalidArgType(name, value, expected, check) {
+  var err = new TypeError('The "' + name + '" argument must be of type ' + expected + '. Received ' + (value === null ? 'null' : typeof value));
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  if (check) throw err;
+  return err;
+}
+
+function _invalidArgValue(name, value, reason) {
+  var err = new TypeError('The "' + name + '" argument must be ' + reason + '. Received ' + (value === null ? 'null' : value));
+  err.code = 'ERR_INVALID_ARG_VALUE';
+  return err;
+}
+
+function _stringToInt(value) {
+  return Number.parseInt(value, 10);
+}
+
+function _rangeError(name, value, min, max) {
+  var err = new RangeError('The value of "' + name + '" is out of range. It must be ' + min + '. Received ' + value);
+  err.code = 'ERR_OUT_OF_RANGE';
+  return err;
+}
+
+function _validateOffsetLength(offset, length, byteLength, mode, maxLength) {
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw _rangeError('offset', offset, '>= 0', offset);
+  }
+  if (!Number.isInteger(length) || length < 0) {
+    throw _rangeError('length', length, '>= 0', length);
+  }
+  if (mode === 'write') {
+    if (offset > byteLength) {
+      var offsetErr = new RangeError('The value of "offset" is out of range. It must be <= ' + byteLength + '. Received ' + offset);
+      offsetErr.code = 'ERR_OUT_OF_RANGE';
+      throw offsetErr;
+    }
+  }
+  if (length > maxLength) {
+    var maxLenErr = new RangeError('The value of "length" is out of range. It must be <= ' + maxLength + '. Received ' + length);
+    maxLenErr.code = 'ERR_OUT_OF_RANGE';
+    throw maxLenErr;
+  }
+  var max = byteLength - offset;
+  if (length > max) {
+    var err = new RangeError('The value of "length" is out of range. It must be <= ' + max + '. Received ' + length);
+    err.code = 'ERR_OUT_OF_RANGE';
+    throw err;
+  }
+}
+
+function validateOffsetLengthRead(offset, length, byteLength, lengthIsBigInt) {
+  if (lengthIsBigInt !== undefined && lengthIsBigInt) {
+    if (typeof offset === 'bigint' || typeof length === 'bigint') {
+      offset = _stringToInt(offset);
+      length = _stringToInt(length);
+    }
+  }
+  _validateOffsetLength(offset, length, byteLength, 'read', (2 ** 31) - 1);
+}
+
+function validateOffsetLengthWrite(offset, length, byteLength, lengthIsBigInt) {
+  if (lengthIsBigInt !== undefined && lengthIsBigInt) {
+    if (typeof offset === 'bigint' || typeof length === 'bigint') {
+      offset = _stringToInt(offset);
+      length = _stringToInt(length);
+    }
+  }
+  _validateOffsetLength(offset, length, byteLength, 'write', (2 ** 31) - 1);
+}
+
+function _validateOption(name, value, expectedType) {
+  if (value === undefined) return;
+  if (expectedType === 'boolean' && typeof value !== 'boolean') {
+    var boolErr = new TypeError('The "options.' + name + '" property must be of type boolean. Received type ' + typeof value + '.');
+    boolErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw boolErr;
+  }
+  if (expectedType === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
+    var rangeError = new RangeError('The value of "options.' + name + '" is out of range. Received ' + value);
+    rangeError.code = 'ERR_OUT_OF_RANGE';
+    throw rangeError;
+  }
+}
+
+function validateRmdirOptions(options) {
+  if (options === undefined) {
+    return { retryDelay: 100, maxRetries: 0, recursive: false };
+  }
+  if (options === null || typeof options !== 'object') {
+    var e = _invalidArgType('options', options, 'object');
+    e.code = 'ERR_INVALID_ARG_TYPE';
+    throw e;
+  }
+  if (options.recursive !== undefined) {
+    _validateOption('recursive', options.recursive, 'boolean');
+  }
+  if (options.retryDelay !== undefined) {
+    if (typeof options.retryDelay !== 'number' || !Number.isFinite(options.retryDelay) || options.retryDelay < 0) {
+      var retryErr = new RangeError('The value of "options.retryDelay" is out of range. Received ' + options.retryDelay);
+      retryErr.code = 'ERR_OUT_OF_RANGE';
+      throw retryErr;
+    }
+  }
+  if (options.maxRetries !== undefined) {
+    if (typeof options.maxRetries !== 'number' || !Number.isFinite(options.maxRetries) || options.maxRetries < 0) {
+      var maxErr = new RangeError('The value of "options.maxRetries" is out of range. Received ' + options.maxRetries);
+      maxErr.code = 'ERR_OUT_OF_RANGE';
+      throw maxErr;
+    }
+  }
+  return {
+    retryDelay: options.retryDelay === undefined ? 100 : options.retryDelay,
+    maxRetries: options.maxRetries === undefined ? 0 : options.maxRetries,
+    recursive: options.recursive === undefined ? false : options.recursive
+  };
+}
+
+function validateRmOptionsSync(path, options) {
+  var base = validateRmdirOptions(options);
+  var force = options && options.force;
+  if (options && options.force !== undefined) {
+    _validateOption('force', options.force, 'boolean');
+  }
+  return {
+    retryDelay: base.retryDelay,
+    maxRetries: base.maxRetries,
+    recursive: base.recursive,
+    force: options && options.force !== undefined ? options.force : false
+  };
+}
+
+function _validatePathLike(value, name) {
+  if (typeof value === 'string' || Buffer.isBuffer(value)) return;
+  if (value && typeof value === 'object' && typeof value.href === 'string' && value.protocol === 'file:') {
+    return;
+  }
+  var err = new TypeError('The "' + name + '" argument must be of type string or an instance of Buffer. Received type ' + (value === null ? 'object' : typeof value) + ' (' + String(value) + ')');
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  throw err;
+}
+
+function Dirent(name, parentPath, type) {
+  this.name = name;
+  this.path = parentPath;
+  this.parentPath = parentPath;
+  this._type = type;
+}
+
+Dirent.prototype.isFile = function() { return this._type === 1; };
+Dirent.prototype.isDirectory = function() { return this._type === 2; };
+Dirent.prototype.isSymbolicLink = function() { return this._type === 3; };
+Dirent.prototype.isFIFO = function() { return this._type === 4; };
+Dirent.prototype.isSocket = function() { return this._type === 5; };
+Dirent.prototype.isCharacterDevice = function() { return this._type === 6; };
+Dirent.prototype.isBlockDevice = function() { return this._type === 7; };
+
+function getDirent(path, name, type, callback) {
+  _validatePathLike(path, 'path');
+  var dirent = new Dirent(name, path, type);
+  if (callback) {
+    callback(null, dirent);
+    return null;
+  }
+  return dirent;
+}
+
+function getDirents(path, entries, callback) {
+  _validatePathLike(path, 'path');
+  var result = [];
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i];
+    if (!entry || !entry.length) {
+      continue;
+    }
+    result.push(getDirent(path, entry[0], entry[1]));
+  }
+  callback(null, result);
+}
+
+function stringToFlags(flags) {
+  if (typeof flags !== 'string' || flags === '') {
+    var err = new TypeError('The flags argument must be a valid flags string. Received ' + flags);
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+  var hasPlus = flags.indexOf('+') !== -1;
+  if (flags.indexOf('+') !== flags.lastIndexOf('+')) {
+    throw _invalidArgValue('flags', flags, 'a valid flag string');
+  }
+  if (hasPlus && flags.indexOf('+') !== flags.length - 1) {
+    throw _invalidArgValue('flags', flags, 'a valid flag string');
+  }
+  var flagChars = hasPlus ? flags.slice(0, -1) : flags;
+  var hasSync = false;
+  var hasExclusive = false;
+  var modeFlags = '';
+  for (var i = 0; i < flagChars.length; i++) {
+    var ch = flagChars.charAt(i);
+    if (ch === 's') {
+      if (hasSync) throw _invalidArgValue('flags', flags, 'a valid flag string');
+      hasSync = true;
+    } else if (ch === 'x') {
+      if (hasExclusive) throw _invalidArgValue('flags', flags, 'a valid flag string');
+      hasExclusive = true;
+    } else if (ch === 'r' || ch === 'w' || ch === 'a') {
+      if (modeFlags.length >= 1) throw _invalidArgValue('flags', flags, 'a valid flag string');
+      modeFlags = ch;
+    } else {
+      throw _invalidArgValue('flags', flags, 'a valid flag string');
+    }
+  }
+
+  if (modeFlags.length !== 1) {
+    throw _invalidArgValue('flags', flags, 'a valid flag string');
+  }
+  if (hasExclusive && modeFlags === 'r') {
+    throw _invalidArgValue('flags', flags, 'a valid flag string');
+  }
+  var result = 0;
+  if (modeFlags === 'r') {
+    result = hasPlus ? 2 : 0;
+  } else if (modeFlags === 'w') {
+    result = 0x200 | 0x400 | 0x1;
+  } else {
+    result = 0x8 | 0x200 | 0x1;
+  }
+  if (hasPlus) {
+    result = (result & ~0x1) | 0x2;
+  }
+  if (hasExclusive) result |= 0x800;
+  if (hasSync) result |= 0x80;
+  return result;
+}
+
+function BigIntStats(dev, mode, nlink, uid, gid, rdev, blksize, ino, size, blocks, atimeMs, mtimeMs, ctimeMs, birthtimeMs, atimeNs, mtimeNs, ctimeNs, birthtimeNs) {
+  this.dev = BigInt(dev);
+  this.mode = BigInt(mode);
+  this.nlink = BigInt(nlink);
+  this.uid = BigInt(uid);
+  this.gid = BigInt(gid);
+  this.rdev = BigInt(rdev);
+  this.size = BigInt(size);
+  this.blksize = BigInt(blksize);
+  this.blocks = BigInt(blocks);
+  this.atimeMs = BigInt(atimeMs);
+  this.mtimeMs = BigInt(mtimeMs);
+  this.ctimeMs = BigInt(ctimeMs);
+  this.birthtimeMs = BigInt(birthtimeMs);
+  this.atimeNs = BigInt(atimeNs || 0);
+  this.mtimeNs = BigInt(mtimeNs || 0);
+  this.ctimeNs = BigInt(ctimeNs || 0);
+  this.birthtimeNs = BigInt(birthtimeNs || 0);
+  this.atime = new Date(Number(this.atimeMs));
+  this.mtime = new Date(Number(this.mtimeMs));
+  this.ctime = new Date(Number(this.ctimeMs));
+  this.birthtime = new Date(Number(this.birthtimeMs));
+  this._isFile = (mode & 0o170000) === 0o100000;
+  this._isDir = (mode & 0o170000) === 0o40000;
+  this._isChrDev = (mode & 0o170000) === 0o20000;
+  this._isBlkDev = (mode & 0o170000) === 0o60000;
+  this._isFifo = (mode & 0o170000) === 0o10000;
+  this._isSocket = (mode & 0o170000) === 0o140000;
+  this._isSymlink = (mode & 0o170000) === 0o120000;
+}
+BigIntStats.prototype.isFile = function() { return this._isFile; };
+BigIntStats.prototype.isDirectory = function() { return this._isDir; };
+BigIntStats.prototype.isBlockDevice = function() { return this._isBlkDev; };
+BigIntStats.prototype.isCharacterDevice = function() { return this._isChrDev; };
+BigIntStats.prototype.isFIFO = function() { return this._isFifo; };
+BigIntStats.prototype.isSocket = function() { return this._isSocket; };
+BigIntStats.prototype.isSymbolicLink = function() { return this._isSymlink; };
+
+function SyncWriteStream() {}
+SyncWriteStream.prototype = {
+  _write: function(chunk, encoding, cb) {
+    if (cb && typeof cb === 'function') {
+      cb();
+    }
+  }
+};
+
 module.exports = {
   isFd: isFd,
   isFileMode: isFileMode,
   validateFd: validateFd,
   toPathIfFileURL: toPathIfFileURL,
+  stringToFlags: stringToFlags,
+  validateOffsetLengthRead: validateOffsetLengthRead,
+  validateOffsetLengthWrite: validateOffsetLengthWrite,
+  validateRmdirOptions: validateRmdirOptions,
+  validateRmOptionsSync: validateRmOptionsSync,
+  getDirents: getDirents,
+  getDirent: getDirent,
+  BigIntStats: BigIntStats,
+  SyncWriteStream: SyncWriteStream,
   kMinPoolSpace: 8192
 };"#
     .to_string()

@@ -422,9 +422,22 @@ EventEmitter.prototype.emit = function emit(eventName) {
   }
 
   if (typeof handler === 'function') {
+    if (process && process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === '1' &&
+      typeof handler !== 'function') {
+      console.error('[stream-debug] emit non-function handler', eventName, typeof handler, handler);
+      console.error(new Error().stack);
+    }
     _invokeListener(handler, this, args);
   } else {
     var current = handler.slice();
+    if (process && process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === '1') {
+      for (var i = 0; i < current.length; i++) {
+        if (typeof current[i] !== 'function') {
+          console.error('[stream-debug] emit list non-function handler', eventName, i, typeof current[i], current[i]);
+          console.error(new Error().stack);
+        }
+      }
+    }
     for (var i = 0; i < current.length; i++) {
       _invokeListener(current[i], this, args);
     }

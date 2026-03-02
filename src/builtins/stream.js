@@ -3616,8 +3616,20 @@ Readable.prototype.wrap = function(stream) {
 };
 
 function pipeline() {
-  var __pipelineDebug = typeof process === 'object' && process && process.env &&
-    process.env.EXACT_PIPELINE_DEBUG === '1';
+  var __pipelineDebug = (typeof process === 'object' && process && process.env &&
+    process.env.EXACT_PIPELINE_DEBUG === '1') || !!(typeof process === 'object' && process && process.__exactPipelineDebug);
+  function __pipelineGetCallerLine() {
+    if (!__pipelineDebug) return 'unknown';
+    var stack = new Error().stack || '';
+    var lines = stack.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var match = /test-stream-pipeline\.js:(\\d+):(\\d+)\\)/.exec(lines[i]);
+      if (match) {
+        return match[1];
+      }
+    }
+    return 'unknown';
+  }
   var __pipelineDebugId = (parseInt(process.__exactPipelineId || '0', 10) + 1);
   if (typeof process === 'object' && process) {
     process.__exactPipelineId = __pipelineDebugId;
@@ -3633,6 +3645,10 @@ function pipeline() {
   var awaitingResult = false;
   var listeners = [];
   var streams = [];
+  var __pipelineCallerLine = __pipelineGetCallerLine();
+  if (__pipelineDebug) {
+    console.log('pipeline', __pipelineDebugId, 'start', __pipelineCallerLine, 'streamCount', args.length);
+  }
   if (typeof args[args.length - 1] === 'function') {
     callback = args.pop();
     hasCallback = true;

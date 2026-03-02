@@ -640,6 +640,9 @@ ServerIncomingMessage.prototype.destroy = function() {
 
 // Server wraps exact:http native server infrastructure
 function Server(requestListener) {
+  if (!(this instanceof Server)) {
+    return new Server(requestListener);
+  }
   EventEmitter.call(this);
   this._serverId = 0;
   this._listening = false;

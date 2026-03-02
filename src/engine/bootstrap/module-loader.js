@@ -386,6 +386,66 @@
         }
         return result;
       },
+      BigIntStats: function(
+        dev,
+        mode,
+        nlink,
+        uid,
+        gid,
+        rdev,
+        blksize,
+        ino,
+        size,
+        blocks,
+        atimeMs,
+        mtimeMs,
+        ctimeMs,
+        birthtimeMs,
+        atimeNs,
+        mtimeNs,
+        ctimeNs,
+        birthtimeNs
+      ) {
+        function coerceBigInt(value) {
+          if (typeof value === 'bigint') return value;
+          return BigInt(typeof value === 'number' ? value : 0);
+        }
+        function coerceNumber(value) {
+          if (typeof value === 'bigint') return Number(value);
+          return typeof value === 'number' ? value : 0;
+        }
+        var modeBigint = coerceBigInt(mode);
+        var modeType = modeBigint & 0xF000n;
+        this.dev = coerceBigInt(dev);
+        this.ino = coerceBigInt(ino);
+        this.mode = coerceBigInt(mode);
+        this.nlink = coerceBigInt(nlink);
+        this.uid = coerceBigInt(uid);
+        this.gid = coerceBigInt(gid);
+        this.rdev = coerceBigInt(rdev);
+        this.size = coerceBigInt(size);
+        this.blksize = coerceBigInt(blksize);
+        this.blocks = coerceBigInt(blocks);
+        this.atimeMs = coerceBigInt(atimeMs);
+        this.mtimeMs = coerceBigInt(mtimeMs);
+        this.ctimeMs = coerceBigInt(ctimeMs);
+        this.birthtimeMs = coerceBigInt(birthtimeMs);
+        this.atimeNs = coerceBigInt(atimeNs);
+        this.mtimeNs = coerceBigInt(mtimeNs);
+        this.ctimeNs = coerceBigInt(ctimeNs);
+        this.birthtimeNs = coerceBigInt(birthtimeNs);
+        this.atime = new Date(coerceNumber(this.atimeMs));
+        this.mtime = new Date(coerceNumber(this.mtimeMs));
+        this.ctime = new Date(coerceNumber(this.ctimeMs));
+        this.birthtime = new Date(coerceNumber(this.birthtimeMs));
+        this._isFile = modeType === 0x8000n;
+        this._isDir = modeType === 0x4000n;
+        this._isSymlink = modeType === 0xA000n;
+        this._isBlkDev = modeType === 0x6000n;
+        this._isChrDev = modeType === 0x2000n;
+        this._isFifo = modeType === 0x1000n;
+        this._isSock = modeType === 0xC000n;
+      },
       getDirents: function(path, entries, callback) {
         if (callback === undefined || callback === null) {
           callback = null;
@@ -1646,6 +1706,33 @@
         __exactEnsureSqlite();
       }
     }
+    var normalized = normalizeSpecifier(specifier);
+    if (normalized === 'fs/promises') {
+      if (cache[normalized] && cache[normalized].loaded) {
+        return cache[normalized].exports;
+      }
+      var fsModule = cache.fs || cache['node:fs'] || cache['fs/promises'] || cache['node:fs/promises'];
+      if (!fsModule || !fsModule.exports || !fsModule.exports.promises) {
+        fsModule = load('fs', referrer, parent);
+      }
+      if (fsModule && fsModule.exports && fsModule.exports.promises) {
+        var cachedFsPromises = {
+          exports: fsModule.exports.promises,
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+        cache[normalized] = cache[normalized] || cachedFsPromises;
+        cache[normalized].exports = cachedFsPromises.exports;
+        cache[normalized].loaded = true;
+        return cache[normalized].exports;
+      }
+      return {};
+    }
     if (typeof __exactEnsureHttp === 'function') {
       if (specifier === 'http' || specifier === 'node:http' ||
           specifier === 'https' || specifier === 'node:https' ||
@@ -1653,7 +1740,7 @@
         __exactEnsureHttp();
       }
     }
-    var normalized = normalizeSpecifier(specifier);
+    normalized = normalizeSpecifier(specifier);
     if (internalModules.hasOwnProperty(normalized)) {
       if (!cache[normalized]) {
         cache[normalized] = { exports: internalModules[normalized], loaded: true };
