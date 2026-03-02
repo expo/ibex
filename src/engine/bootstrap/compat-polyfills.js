@@ -302,12 +302,18 @@
           throw te;
         }
         try {
+          if (typeof __exactSetCwd === 'function') {
+            __exactSetCwd(directory);
+            return;
+          }
+          var currentChdir = globalThis.process && globalThis.process.chdir;
+          if (typeof currentChdir === 'function' && currentChdir !== chdir && currentChdir !== __nativeChdir) {
+            currentChdir.call(globalThis.process, directory);
+            return;
+          }
           if (typeof __nativeChdir === 'function') {
             __nativeChdir.call(globalThis.process, directory);
-          } else if (typeof __exactSetCwd === 'function') {
-            __exactSetCwd(directory);
-          } else {
-            throw new Error('process.chdir is not supported in this runtime');
+            return;
           }
         } catch (e) {
           var currentDir = '/';
