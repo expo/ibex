@@ -106,11 +106,7 @@ function _drainPendingEnd(stream) {
 function _shouldAutoDestroyOnReadableEnd(stream, readableState) {
   if (!stream || !readableState) return false;
   if (!readableState.autoDestroy || stream._destroyed || stream._closed) return false;
-  if (stream.allowHalfOpen === false &&
-      stream._writableState &&
-      !stream._writableState.ending &&
-      !stream._writableState.ended &&
-      !stream._writableState.finished) {
+  if (stream.allowHalfOpen === false && stream.writable !== false && stream._writableState) {
     return false;
   }
   return true;
