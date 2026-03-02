@@ -3,11 +3,11 @@ var stream = require('node:stream');
 function pipeline() {
   var args = [];
   for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
+  if (args.length > 0 && typeof args[args.length - 1] === 'function') {
+    return Promise.reject(new TypeError('The callback argument is not supported'));
+  }
   // Prefer stream.promises.pipeline when available, and otherwise emulate promise mode
   if (typeof stream.pipeline === 'function') {
-    if (typeof args[args.length - 1] === 'function') {
-      return stream.pipeline.apply(stream, args);
-    }
     if (stream.promises && typeof stream.promises.pipeline === 'function') {
       try {
         return stream.promises.pipeline.apply(stream.promises, args);
@@ -34,6 +34,9 @@ function pipeline() {
 }
 
 function finished(streamLike, options) {
+  if (typeof options === 'function') {
+    return Promise.reject(new TypeError('The callback argument is not supported'));
+  }
   if (typeof stream.finished === 'function') {
     return stream.finished(streamLike, options || {});
   }
