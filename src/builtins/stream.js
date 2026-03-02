@@ -2059,6 +2059,7 @@ Readable.from = function(iterable, options) {
   }
 
   var readable = new Readable(options);
+  var readableStream = readable;
   // Handle signal option
   if (options && options.signal) {
     var sig = options.signal;
@@ -2077,12 +2078,14 @@ Readable.from = function(iterable, options) {
     });
   }
   if (!iterable) {
-    readable.push(null);
+    if (readableStream) {
+      readableStream.push(null);
+    }
     return readable;
   }
   if (typeof iterable === 'string' || iterable instanceof Uint8Array) {
-    readable.push(iterable);
-    readable.push(null);
+    readableStream.push(iterable);
+    readableStream.push(null);
     return readable;
   }
   // Async iterable (including async generators)
@@ -2090,7 +2093,7 @@ Readable.from = function(iterable, options) {
     var asyncIter = iterable[Symbol.asyncIterator]();
     var reading = false;
     function readNext() {
-      if (reading || readable._destroyed) return;
+      if (reading || !readableStream || readableStream._destroyed) return;
       reading = true;
       _suppressHermesAsyncIteratorUnhandledRejections();
       var next;
@@ -2098,33 +2101,39 @@ Readable.from = function(iterable, options) {
         next = asyncIter.next();
       } catch (err) {
         reading = false;
-        if (!readable._destroyed) {
-          _destroyStreamWithError(readable, err);
+        if (!readableStream || readableStream._destroyed) {
+          return;
+        }
+        if (!readableStream._destroyed) {
+          _destroyStreamWithError(readableStream, err);
         }
         return;
       }
       Promise.resolve(next).then(function(result) {
         reading = false;
-        if (readable._destroyed) {
+        if (!readableStream || readableStream._destroyed) {
           _safelyReturnAsyncIterator(asyncIter);
           return;
         }
         if (result.done) {
-          readable.push(null);
+          readableStream.push(null);
         } else if (result.value === null) {
           var nullErr = new TypeError('May not write null values to stream');
           nullErr.code = 'ERR_STREAM_NULL_VALUES';
-          if (!readable._destroyed) {
-            _destroyStreamWithError(readable, nullErr);
+          if (!readableStream._destroyed) {
+            _destroyStreamWithError(readableStream, nullErr);
           }
         } else {
-          readable.push(result.value);
+          readableStream.push(result.value);
           readNext();
         }
       }).catch(function(err) {
         reading = false;
-        if (!readable._destroyed) {
-          _destroyStreamWithError(readable, err);
+        if (!readableStream || readableStream._destroyed) {
+          return;
+        }
+        if (!readableStream._destroyed) {
+          _destroyStreamWithError(readableStream, err);
         }
       });
     }
@@ -2151,43 +2160,46 @@ Readable.from = function(iterable, options) {
         if (next.value === null) {
           var nullErr = new TypeError('May not write null values to stream');
           nullErr.code = 'ERR_STREAM_NULL_VALUES';
-          if (!readable._destroyed) {
-            _destroyStreamWithError(readable, nullErr);
+          if (!readableStream._destroyed) {
+            _destroyStreamWithError(readableStream, nullErr);
           }
           _safelyReturnAsyncIterator(iterator);
           return readable;
         }
-        readable._data.push(next.value);
-        readable._updateReadableLength(readableStateChunkLength(next.value, readable._readableState.objectMode));
+        readableStream._data.push(next.value);
+        readableStream._updateReadableLength(
+          readableStateChunkLength(next.value, readableStream._readableState.objectMode)
+        );
         next = iterator.next();
       }
     } catch (err) {
-      if (!readable._destroyed) {
-        _destroyStreamWithError(readable, err);
+      if (!readableStream._destroyed) {
+        _destroyStreamWithError(readableStream, err);
       }
       if (iterator) {
         _safelyReturnAsyncIterator(iterator);
       }
       return readable;
     }
-    readable._syncIterableHasData = hasSyncIterableData;
-    readable._syncReadableState();
-    readable._ended = true;
-    readable.readableEnded = true;
-    readable._readableState.ended = true;
-    readable._readableState.needReadable = true;
+    readableStream._syncIterableHasData = hasSyncIterableData;
+    readableStream._syncReadableState();
+    readableStream._ended = true;
+    readableStream.readableEnded = true;
+    readableStream._readableState.ended = true;
+    readableStream._readableState.needReadable = true;
     // Mark as needing replay when consumers attach
-    readable._needsReplay = true;
+    readableStream._needsReplay = true;
     return readable;
   }
   // Promise
   if (iterable instanceof Promise || (iterable && typeof iterable.then === 'function')) {
     function pushFromResolvedValue(value) {
-      if (readable._destroyed) return;
+      if (!readableStream || readableStream._destroyed) return;
       if (value && (value instanceof Promise || typeof value.then === 'function')) {
         value.then(pushFromResolvedValue).catch(function(err) {
-          if (!readable._destroyed) {
-            _destroyStreamWithError(readable, err);
+          if (!readableStream || readableStream._destroyed) return;
+          if (!readableStream._destroyed) {
+            _destroyStreamWithError(readableStream, err);
           }
         });
         return;
@@ -2197,7 +2209,7 @@ Readable.from = function(iterable, options) {
         var asyncIter = value[Symbol.asyncIterator]();
         var reading = false;
         function readNext() {
-          if (reading || readable._destroyed) return;
+          if (reading || !readableStream || readableStream._destroyed) return;
           reading = true;
           _suppressHermesAsyncIteratorUnhandledRejections();
           var next;
@@ -2205,27 +2217,29 @@ Readable.from = function(iterable, options) {
             next = asyncIter.next();
           } catch (err) {
             reading = false;
-            if (!readable._destroyed) {
-              _destroyStreamWithError(readable, err);
+            if (!readableStream || readableStream._destroyed) return;
+            if (!readableStream._destroyed) {
+              _destroyStreamWithError(readableStream, err);
             }
             return;
           }
           Promise.resolve(next).then(function(result) {
             reading = false;
-            if (readable._destroyed) {
+            if (!readableStream || readableStream._destroyed) {
               _safelyReturnAsyncIterator(asyncIter);
               return;
             }
             if (result.done) {
-              readable.push(null);
+              readableStream.push(null);
             } else {
-              readable.push(result.value);
+              readableStream.push(result.value);
               readNext();
             }
           }).catch(function(err) {
             reading = false;
-            if (!readable._destroyed) {
-              _destroyStreamWithError(readable, err);
+            if (!readableStream || readableStream._destroyed) return;
+            if (!readableStream._destroyed) {
+              _destroyStreamWithError(readableStream, err);
             }
           });
         }
@@ -2234,8 +2248,8 @@ Readable.from = function(iterable, options) {
       }
 
       if (typeof value === 'string' || value instanceof Uint8Array) {
-        readable.push(value);
-        readable.push(null);
+        readableStream.push(value);
+        readableStream.push(null);
         return;
       }
 
@@ -2244,7 +2258,7 @@ Readable.from = function(iterable, options) {
           var iterator = value[Symbol.iterator]();
           var next = iterator.next();
           while (!next.done) {
-            if (readable._destroyed) {
+            if (!readableStream || readableStream._destroyed) {
               if (typeof iterator.return === 'function') {
                 iterator.return();
               }
@@ -2253,18 +2267,20 @@ Readable.from = function(iterable, options) {
             if (next.value === null) {
               var nullErr = new TypeError('May not write null values to stream');
               nullErr.code = 'ERR_STREAM_NULL_VALUES';
-              if (!readable._destroyed) {
-                _destroyStreamWithError(readable, nullErr);
+              if (!readableStream._destroyed) {
+                _destroyStreamWithError(readableStream, nullErr);
               }
               _safelyReturnAsyncIterator(iterator);
               return;
             }
-            readable.push(next.value);
+            readableStream.push(next.value);
             next = iterator.next();
           }
-          readable.push(null);
+          readableStream.push(null);
         } catch (err) {
-          _destroyStreamWithError(readable, err);
+          if (readableStream && !readableStream._destroyed) {
+            _destroyStreamWithError(readableStream, err);
+          }
           if (typeof iterator === 'object' && iterator && typeof iterator.return === 'function') {
             _safelyReturnAsyncIterator(iterator);
           }
@@ -2272,18 +2288,19 @@ Readable.from = function(iterable, options) {
         return;
       }
 
-      readable.push(value);
-      readable.push(null);
+      readableStream.push(value);
+      readableStream.push(null);
     }
 
     iterable.then(pushFromResolvedValue).catch(function(err) {
-      if (!readable._destroyed) {
-        _destroyStreamWithError(readable, err);
+      if (!readableStream || readableStream._destroyed) return;
+      if (!readableStream._destroyed) {
+        _destroyStreamWithError(readableStream, err);
       }
     });
     return readable;
   }
-  readable.push(null);
+  readableStream.push(null);
   return readable;
 };
 
@@ -2361,6 +2378,8 @@ function Writable(options) {
   this.writable = true;
   this.errored = null;
   this._written = [];
+  this._writeQueue = [];
+  this._pipeCleanups = null;
   this._needDrain = false;
   this._writableState = {
     highWaterMark: hwm,
@@ -2641,14 +2660,18 @@ Writable.prototype._flushWriteQueue = function() {
     _syncWritableBufferState(self);
     if (err) {
       for (var bi2 = 0; bi2 < batch.length; bi2++) {
-        batch[bi2].callback(err);
+        if (typeof batch[bi2].callback === 'function') {
+          batch[bi2].callback(err);
+        }
       }
       _finishIfError(self, err);
       return;
     }
     maybeEmitDrain();
     for (var bi3 = 0; bi3 < batch.length; bi3++) {
-      batch[bi3].callback();
+      if (typeof batch[bi3].callback === 'function') {
+        batch[bi3].callback();
+      }
     }
     if (!self._destroyed && self._writeQueue && self._writeQueue.length) {
       self._flushWriteQueue();
@@ -2691,7 +2714,9 @@ Writable.prototype._flushWriteQueue = function() {
           cleanup(err);
           return;
         }
-        item.callback();
+        if (typeof item.callback === 'function') {
+          item.callback();
+        }
         runNext();
       });
     } catch (err) {
@@ -2729,13 +2754,13 @@ Writable.prototype.end = function(chunk, encoding, callback) {
     return this;
   }
 
+  if (chunk !== undefined && chunk !== null) {
+    this.write(chunk, encoding);
+  }
+
   if (this.writableCorked > 0) {
     this.writableCorked = 1;
     this.uncork();
-  }
-
-  if (chunk !== undefined && chunk !== null) {
-    this.write(chunk, encoding);
   }
 
   this.writableEnded = true;
@@ -2749,11 +2774,9 @@ Writable.prototype.end = function(chunk, encoding, callback) {
     this._endCallbacks.push(callback);
   }
 
-  var scheduleDone = typeof process === 'object' &&
-                     process &&
-                     typeof process.nextTick === 'function'
-                     ? process.nextTick
-                     : function(fn) { setTimeout(fn, 0); };
+  var scheduleDone = typeof setTimeout === 'function'
+                     ? function(fn) { setTimeout(fn, 0); }
+                     : function(fn) { fn(); };
 
   var done = function(err) {
     if (self._destroyed) {
@@ -2780,6 +2803,17 @@ Writable.prototype.end = function(chunk, encoding, callback) {
     }
     state.prefinished = true;
     self.emit('prefinish');
+    if (self._destroyed) {
+      var endError = self.errored || null;
+      var endCallbacks = self._endCallbacks;
+      self._endCallbacks = [];
+      if (endCallbacks) {
+        for (var d = 0; d < endCallbacks.length; d++) {
+          endCallbacks[d](endError);
+        }
+      }
+      return;
+    }
     self.writableFinished = true;
     state.finished = true;
     self.emit('finish');
@@ -3309,8 +3343,6 @@ function pipeline() {
   for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
   var callback = null;
   var hasCallback = false;
-  var hasPromiseMode = false;
-  var promiseResult = null;
   var options = null;
   var shouldPipeEnd = true;
   var error = null;
@@ -3321,21 +3353,6 @@ function pipeline() {
   if (typeof args[args.length - 1] === 'function') {
     callback = args.pop();
     hasCallback = true;
-  }
-  if (!hasCallback) {
-    hasPromiseMode = true;
-    var settledByPromise = false;
-    promiseResult = new Promise(function(resolve, reject) {
-      callback = function(err, finalValue) {
-        if (settledByPromise) return;
-        settledByPromise = true;
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(finalValue);
-      };
-    });
   }
 
   try {
@@ -3403,22 +3420,14 @@ function pipeline() {
   if (options && options.end === false) {
     shouldPipeEnd = false;
   }
-  if (streams.length === 0) {
-    var err = hasCallback ? makeError(Error, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified')
-                         : makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams[0]" argument must be of type Stream. Received undefined');
-    if (!hasCallback) {
-      callback(err);
-      return promiseResult;
-    }
-    throw err;
+  if (!hasCallback && streams.length === 0) {
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams[0]" argument must be of type Stream. Received undefined');
   }
   if (streams.length < 2) {
-    var err = makeError(Error, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified');
-    if (!hasCallback) {
-      callback(err);
-      return promiseResult;
-    }
-    throw err;
+    throw makeError(Error, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified');
+  }
+  if (!hasCallback) {
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "callback" argument must be of type function. Received undefined');
   }
 
   var signal = options && options.signal;
@@ -3636,7 +3645,7 @@ function pipeline() {
   if (signal) {
     if (signal.aborted) {
       onAbort();
-      return hasPromiseMode ? promiseResult : last;
+      return last;
     }
     if (signal.addEventListener) {
       signal.addEventListener('abort', onAbort);
@@ -3687,7 +3696,7 @@ function pipeline() {
     onClose(last);
   });
 
-  return hasPromiseMode ? promiseResult : last;
+  return last;
   } catch (err) {
     throw err;
   }
