@@ -103,6 +103,19 @@ function _drainPendingEnd(stream) {
   pending();
 }
 
+function _shouldAutoDestroyOnReadableEnd(stream, readableState) {
+  if (!stream || !readableState) return false;
+  if (!readableState.autoDestroy || stream._destroyed || stream._closed) return false;
+  if (stream.allowHalfOpen === false &&
+      stream._writableState &&
+      !stream._writableState.ending &&
+      !stream._writableState.ended &&
+      !stream._writableState.finished) {
+    return false;
+  }
+  return true;
+}
+
 function _createWriteQueueItem(chunk, encoding, callback, chunkLen) {
   return {
     chunk: chunk,
@@ -1019,7 +1032,7 @@ Readable.prototype.read = function(size) {
       this.readableEnded = true;
       this._syncReadableState();
       this.emit('end');
-      if (state.autoDestroy && !this._destroyed) {
+      if (_shouldAutoDestroyOnReadableEnd(this, state)) {
         this.destroy();
       } else {
         this._close();
@@ -1044,7 +1057,7 @@ Readable.prototype.read = function(size) {
       this.readableEnded = true;
       this._syncReadableState();
       this.emit('end');
-      if (state.autoDestroy && !this._destroyed) {
+      if (_shouldAutoDestroyOnReadableEnd(this, state)) {
         this.destroy();
       } else {
         this._close();
@@ -1090,7 +1103,7 @@ Readable.prototype.read = function(size) {
     this.readableEnded = true;
     this._syncReadableState();
     this.emit('end');
-    if (state.autoDestroy && !this._destroyed) {
+    if (_shouldAutoDestroyOnReadableEnd(this, state)) {
       this.destroy();
     } else {
       this._close();
@@ -1135,7 +1148,7 @@ Readable.prototype.read = function(size) {
       this.readable = false;
       this.readableEnded = true;
       this.emit('end');
-      if (state.autoDestroy && !this._destroyed) {
+      if (_shouldAutoDestroyOnReadableEnd(this, state)) {
         this.destroy();
       } else {
         this._close();
