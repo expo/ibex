@@ -3815,9 +3815,9 @@ function pipeline() {
     }
   }
 
-function addListener(stream, event, handler) {
+  function addListener(stream, event, handler) {
     if (!stream || typeof stream.on !== 'function' || typeof stream.removeListener !== 'function') return;
-    if (handler !== undefined && typeof handler !== 'function') return;
+    if (typeof handler !== 'function') return;
     stream.on(event, handler);
     listeners.push([stream, event, handler]);
   }
@@ -3942,7 +3942,7 @@ function isStreamDone(stream) {
   var errorSettleAttempts = 0;
   function settleAfterError() {
     if (settled || awaitingResult) return;
-    if (allStreamsDone() && allStreamsClosed()) {
+    if (allStreamsDone() || allStreamsClosed()) {
       settle(error);
       return;
     }
