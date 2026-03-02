@@ -257,24 +257,46 @@
     return (typeof process === 'object' && process && process.stderr) ? process.stderr : null;
   }
 
+  var _writing = false;
+
   function _writeStdout(msg) {
-    var stdout = _getStdout();
-    if (stdout && typeof stdout.write === 'function') {
-      stdout.write(_groupIndent ? msg.split('\n').map(function(line, i, arr) {
-        return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
-      }).join('\n') : msg);
-    } else {
+    if (_writing) {
+      // Re-entrant call — fall back to native log to avoid infinite recursion
       _nativeLog.call(console, msg.replace(/\n$/, ''));
+      return;
+    }
+    _writing = true;
+    try {
+      var stdout = _getStdout();
+      if (stdout && typeof stdout.write === 'function') {
+        stdout.write(_groupIndent ? msg.split('\n').map(function(line, i, arr) {
+          return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
+        }).join('\n') : msg);
+      } else {
+        _nativeLog.call(console, msg.replace(/\n$/, ''));
+      }
+    } finally {
+      _writing = false;
     }
   }
   function _writeStderr(msg) {
-    var stderr = _getStderr();
-    if (stderr && typeof stderr.write === 'function') {
-      stderr.write(_groupIndent ? msg.split('\n').map(function(line, i, arr) {
-        return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
-      }).join('\n') : msg);
-    } else {
+    if (_writing) {
+      // Re-entrant call — fall back to native error to avoid infinite recursion
       _nativeError.call(console, msg.replace(/\n$/, ''));
+      return;
+    }
+    _writing = true;
+    try {
+      var stderr = _getStderr();
+      if (stderr && typeof stderr.write === 'function') {
+        stderr.write(_groupIndent ? msg.split('\n').map(function(line, i, arr) {
+          return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
+        }).join('\n') : msg);
+      } else {
+        _nativeError.call(console, msg.replace(/\n$/, ''));
+      }
+    } finally {
+      _writing = false;
     }
   }
 
