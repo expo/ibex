@@ -3,6 +3,15 @@
   var p = globalThis.process;
   var setTimeout = globalThis.setTimeout;
   var clearTimeout = globalThis.clearTimeout;
+  function _getStreamFsModule() {
+    if (typeof require !== 'function') return null;
+    try {
+      var candidate = require('fs');
+      return candidate && typeof candidate.writeSync === 'function' ? candidate : null;
+    } catch (_) {
+      return null;
+    }
+  }
   if (!p) return;
 
   // --- Minimal EventEmitter mixin ---
@@ -116,6 +125,7 @@
   function enhanceWritable(stream) {
     if (!stream) return;
     var origWrite = stream.write;
+    var _streamFsWriteReady = false;
     addEventEmitter(stream);
 
     stream.writable = true;
@@ -129,10 +139,49 @@
         callback = encoding;
         encoding = undefined;
       }
-      if (typeof chunk !== 'string' && chunk != null) {
+      if (typeof chunk !== 'string' && chunk != null && typeof chunk !== 'object') {
         chunk = String(chunk);
       }
-      var result = origWrite.call(stream, chunk, encoding, callback);
+      if (!_streamFsWriteReady) {
+        if (typeof globalThis === 'object' &&
+            globalThis !== null &&
+            typeof globalThis.__exactEnsureFs === 'function') {
+          try {
+            globalThis.__exactEnsureFs();
+          } catch (_) {}
+        }
+        _streamFsWriteReady = true;
+      }
+      var fsHostWrite =
+        (typeof globalThis === 'object' &&
+        globalThis !== null &&
+        typeof globalThis.__exactFsWrite === 'function')
+        ? globalThis.__exactFsWrite
+        : null;
+      var fsMod = _getStreamFsModule();
+      var result;
+      if (
+        fsHostWrite &&
+        typeof stream.fd === 'number'
+      ) {
+        try {
+          fsHostWrite(stream.fd, chunk, -1);
+          if (typeof callback === 'function') callback();
+          result = true;
+        } catch (_) {
+          result = origWrite.call(stream, chunk, encoding, callback);
+        }
+      } else if (fsMod && typeof fsMod.writeSync === 'function' && typeof stream.fd === 'number') {
+        try {
+          fsMod.writeSync(stream.fd, chunk);
+          if (typeof callback === 'function') callback();
+          result = true;
+        } catch (_) {
+          result = origWrite.call(stream, chunk, encoding, callback);
+        }
+      } else {
+        result = origWrite.call(stream, chunk, encoding, callback);
+      }
       return result;
     };
 

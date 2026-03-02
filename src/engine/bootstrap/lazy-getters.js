@@ -40,7 +40,7 @@
   var p = globalThis.process;
   if (p) {
     var streams = ['stdout', 'stderr', 'stdin'];
-    var methods = ['on', 'once', 'pipe', 'cork', 'uncork', 'end',
+    var methods = ['on', 'once', 'pipe', 'cork', 'uncork', 'end', 'write',
                    'addListener', 'removeListener', 'emit'];
     for (var si = 0; si < streams.length; si++) {
       var stream = p[streams[si]];

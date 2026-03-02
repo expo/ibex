@@ -273,6 +273,63 @@
     };
   })();
 
+  // Normalize stream writes: native stdout/stderr writes are currently appending
+  // extra newlines, which breaks Node-style stream semantics in tests and user
+  // scripts. Use the fs-backed exact write path when available.
+  (function normalizeProcessStreamWrites() {
+    var p = g.process;
+    if (!p) return;
+
+    function patchStreamWrite(stream) {
+      if (!stream) return;
+      if (stream.__exactWritePatched) return;
+      if (typeof stream.write !== 'function' || typeof stream.fd !== 'number') return;
+
+      var originalWrite = stream.write;
+      var fd = stream.fd;
+
+      stream.write = function(chunk, encoding, callback) {
+        if (typeof encoding === 'function') {
+          callback = encoding;
+          encoding = undefined;
+        }
+
+        if (!Number.isFinite(fd)) {
+          if (typeof originalWrite === 'function') {
+            return originalWrite.call(this, chunk, encoding, callback);
+          }
+          return true;
+        }
+
+        if (typeof g.__exactEnsureFs === 'function') {
+          try { g.__exactEnsureFs(); } catch (_) {}
+        }
+
+        if (typeof g.__exactFsWrite === 'function') {
+          try {
+            g.__exactFsWrite(fd, chunk, -1);
+            if (typeof callback === 'function') {
+              callback();
+            }
+            return true;
+          } catch (_) {
+            // Continue to fallback below.
+          }
+        }
+
+        if (typeof originalWrite === 'function') {
+          return originalWrite.call(this, chunk, encoding, callback);
+        }
+        return true;
+      };
+
+      stream.__exactWritePatched = true;
+    }
+
+    patchStreamWrite(p.stdout);
+    patchStreamWrite(p.stderr);
+  })();
+
   // Compatibility shim: web stream queuing strategy constructors require
   // unrestricted-double conversion only for highWaterMark.
   (function installQueuingStrategyCompatibility() {
