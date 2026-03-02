@@ -245,7 +245,7 @@ function _describeBufferLike(value) {
 }
 
 function _throwEmptyBufferError(name, value) {
-  var err = new TypeError('The argument "' + name + '" is empty and cannot be written. Received ' + _describeBufferLike(value));
+  var err = new TypeError('The argument \'' + name + '\' is empty and cannot be written. Received ' + _describeBufferLike(value));
   err.code = 'ERR_INVALID_ARG_VALUE';
   return err;
 }
@@ -2519,6 +2519,9 @@ function fsRead(fd, buffer, offset, length, position, cb) {
     var bytesRead = readSync(fd, buffer, offset, length, position);
     _deferFsCallback(function() { cb(null, bytesRead, buffer); });
   } catch(err) {
+    if (err && typeof err.code === 'string' && err.code.indexOf('ERR_') === 0) {
+      throw err;
+    }
     var error = _makeFsError(err, 'read');
     _deferFsCallback(function() { cb(error); });
   }

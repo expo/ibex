@@ -10129,16 +10129,26 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         3,
         [fd](facebook::jsi::Runtime& runtime,
              const facebook::jsi::Value&,
-             const facebook::jsi::Value* args,
-             size_t count) -> facebook::jsi::Value {
-          if (count > 0 && args[0].isString()) {
-            auto str = args[0].asString(runtime).utf8(runtime);
-            if (fd == 1) {
-              fprintf(stdout, "%s", str.c_str());
-              fflush(stdout);
-            } else {
-              fprintf(stderr, "%s", str.c_str());
-              fflush(stderr);
+          const facebook::jsi::Value* args,
+          size_t count) -> facebook::jsi::Value {
+          if (count > 0) {
+            auto data = extractBytes(runtime, args[0]);
+            size_t written = 0;
+            while (written < data.size()) {
+              ssize_t bytes = ::write(
+                  fd,
+                  data.data() + written,
+                  static_cast<size_t>(data.size() - written));
+              if (bytes < 0) {
+                if (errno == EINTR) {
+                  continue;
+                }
+                throwFsError(runtime, "write");
+              }
+              if (bytes == 0) {
+                break;
+              }
+              written += static_cast<size_t>(bytes);
             }
           }
           // If a callback is provided (2nd or 3rd arg), call it
@@ -10985,92 +10995,129 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                        const char* resp_headers, const uint8_t* resp_body,
                        size_t resp_body_length, void* ctx) {
                       auto* wrapper = static_cast<ExactHermesRuntime*>(ctx);
-                      if (!wrapper || !wrapper->runtime) return;
+                      if (!wrapper) return;
+
+                      std::vector<uint8_t> bodyCopy;
+                      if (resp_body && resp_body_length > 0) {
+                        bodyCopy.assign(resp_body, resp_body + resp_body_length);
+                      }
+                      std::string statusTextCopy = status_text ? status_text : "";
+                      std::string headersCopy = resp_headers ? resp_headers : "";
+                      int statusCopy = status;
 
                       // Find and remove callbacks
-                    std::shared_ptr<facebook::jsi::Function> resolve;
-                    std::shared_ptr<facebook::jsi::Function> reject;
-                    std::string requestUrl;
-                    {
-                      std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
+                      std::shared_ptr<facebook::jsi::Function> resolve;
+                      std::shared_ptr<facebook::jsi::Function> reject;
+                      std::string requestUrl;
+                      {
+                        std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
                         auto it = wrapper->fetchCallbacks.find(req_id);
                         if (it == wrapper->fetchCallbacks.end()) return;
-                        resolve = it->second.resolve;
-                        reject = it->second.reject;
+                        resolve = std::move(it->second.resolve);
+                        reject = std::move(it->second.reject);
                         requestUrl = std::move(it->second.url);
                         wrapper->fetchCallbacks.erase(it);
                       }
 
-                      auto& rt = *wrapper->runtime;
                       if (!resolve || !reject) {
                         return;
                       }
 
-                      try {
-                        if (status == 0) {
-                          reject->call(rt, facebook::jsi::JSError(rt,
-                              status_text ? status_text : "Network error").value());
-                          return;
-                        }
+                      pushRuntimeCallback(
+                          wrapper,
+                          [resolve,
+                           reject,
+                           statusCopy,
+                           statusTextCopy,
+                           headersCopy,
+                           requestUrl = std::move(requestUrl),
+                           bodyCopy = std::move(bodyCopy)](
+                              facebook::jsi::Runtime& rt) {
+                            try {
+                              if (statusCopy == 0) {
+                                reject->call(
+                                    rt,
+                                    facebook::jsi::JSError(rt,
+                                                          statusTextCopy.empty()
+                                                              ? "Network error"
+                                                              : statusTextCopy)
+                                        .value());
+                                return;
+                              }
 
-                        // Build NativeResponse object
-                        facebook::jsi::Object response(rt);
-                        response.setProperty(rt, "status", facebook::jsi::Value(status));
-                        response.setProperty(rt, "statusText",
-                            facebook::jsi::String::createFromUtf8(rt,
-                                status_text ? status_text : ""));
-                        response.setProperty(rt, "url",
-                            facebook::jsi::String::createFromUtf8(rt, requestUrl));
-                        response.setProperty(rt, "redirected", facebook::jsi::Value(false));
+                              // Build NativeResponse object
+                              facebook::jsi::Object response(rt);
+                              response.setProperty(rt, "status",
+                                                  facebook::jsi::Value(statusCopy));
+                              response.setProperty(rt, "statusText",
+                                                  facebook::jsi::String::createFromUtf8(
+                                                      rt,
+                                                      statusTextCopy));
+                              response.setProperty(rt, "url",
+                                                  facebook::jsi::String::createFromUtf8(
+                                                      rt, requestUrl));
+                              response.setProperty(rt, "redirected",
+                                                  facebook::jsi::Value(false));
 
-                        // Parse response headers from "Key: Value\r\n" to [[name, value], ...]
-                        facebook::jsi::Array headersArray(rt, 0);
-                        if (resp_headers) {
-                          std::vector<std::pair<std::string, std::string>> headerPairs;
-                          std::string headersStr(resp_headers);
-                          size_t pos = 0;
-                          while (pos < headersStr.size()) {
-                            size_t lineEnd = headersStr.find("\r\n", pos);
-                            if (lineEnd == std::string::npos) lineEnd = headersStr.size();
-                            std::string line = headersStr.substr(pos, lineEnd - pos);
-                            size_t colonPos = line.find(':');
-                            if (colonPos != std::string::npos) {
-                              std::string key = line.substr(0, colonPos);
-                              std::string value = line.substr(colonPos + 1);
-                              while (!value.empty() && value[0] == ' ') value.erase(0, 1);
-                              headerPairs.push_back({key, value});
+                              // Parse response headers from "Key: Value\r\n" to [[name, value], ...]
+                              facebook::jsi::Array headersArray(rt, 0);
+                              if (!headersCopy.empty()) {
+                                std::vector<std::pair<std::string, std::string>> headerPairs;
+                                size_t pos = 0;
+                                while (pos < headersCopy.size()) {
+                                  size_t lineEnd = headersCopy.find("\r\n", pos);
+                                  if (lineEnd == std::string::npos) lineEnd = headersCopy.size();
+                                  std::string line = headersCopy.substr(pos, lineEnd - pos);
+                                  size_t colonPos = line.find(':');
+                                  if (colonPos != std::string::npos) {
+                                    std::string key = line.substr(0, colonPos);
+                                    std::string value = line.substr(colonPos + 1);
+                                    while (!value.empty() && value[0] == ' ') value.erase(0, 1);
+                                    headerPairs.push_back({key, value});
+                                  }
+                                  pos = lineEnd + 2;
+                                }
+                                headersArray = facebook::jsi::Array(rt, headerPairs.size());
+                                for (size_t i = 0; i < headerPairs.size(); i++) {
+                                  facebook::jsi::Array tuple(rt, 2);
+                                  tuple.setValueAtIndex(
+                                      rt, 0,
+                                      facebook::jsi::String::createFromUtf8(
+                                          rt, headerPairs[i].first));
+                                  tuple.setValueAtIndex(
+                                      rt, 1,
+                                      facebook::jsi::String::createFromUtf8(
+                                          rt, headerPairs[i].second));
+                                  headersArray.setValueAtIndex(rt, i, tuple);
+                                }
+                              }
+                              response.setProperty(rt, "headers", headersArray);
+
+                              // Body as ArrayBuffer
+                              if (!bodyCopy.empty()) {
+                                auto arrayBufferCtor =
+                                    rt.global().getPropertyAsFunction(rt, "ArrayBuffer");
+                                auto arrayBuffer =
+                                    arrayBufferCtor
+                                        .callAsConstructor(
+                                            rt, static_cast<double>(bodyCopy.size()))
+                                        .getObject(rt);
+                                auto ab = arrayBuffer.getArrayBuffer(rt);
+                                memcpy(ab.data(rt), bodyCopy.data(), bodyCopy.size());
+                                response.setProperty(rt, "body", arrayBuffer);
+                              } else {
+                                response.setProperty(rt, "body", facebook::jsi::Value::null());
+                              }
+
+                              resolve->call(rt, response);
+                            } catch (const std::exception& e) {
+                              try {
+                                reject->call(rt, facebook::jsi::JSError(rt, e.what()).value());
+                              } catch (...) {}
+                            } catch (...) {
+                              // Ignore callback failures
                             }
-                            pos = lineEnd + 2;
-                          }
-                          headersArray = facebook::jsi::Array(rt, headerPairs.size());
-                          for (size_t i = 0; i < headerPairs.size(); i++) {
-                            facebook::jsi::Array tuple(rt, 2);
-                            tuple.setValueAtIndex(rt, 0,
-                                facebook::jsi::String::createFromUtf8(rt, headerPairs[i].first));
-                            tuple.setValueAtIndex(rt, 1,
-                                facebook::jsi::String::createFromUtf8(rt, headerPairs[i].second));
-                            headersArray.setValueAtIndex(rt, i, tuple);
-                          }
-                        }
-                        response.setProperty(rt, "headers", headersArray);
-
-                        // Body as ArrayBuffer
-                        if (resp_body && resp_body_length > 0) {
-                          auto arrayBufferCtor = rt.global().getPropertyAsFunction(rt, "ArrayBuffer");
-                          auto arrayBuffer = arrayBufferCtor
-                              .callAsConstructor(rt, static_cast<double>(resp_body_length))
-                              .getObject(rt);
-                          auto ab = arrayBuffer.getArrayBuffer(rt);
-                          memcpy(ab.data(rt), resp_body, resp_body_length);
-                          response.setProperty(rt, "body", arrayBuffer);
-                        } else {
-                          response.setProperty(rt, "body", facebook::jsi::Value::null());
-                        }
-
-                        resolve->call(rt, response);
-                      } catch (const std::exception& e) {
-                        reject->call(rt, facebook::jsi::JSError(rt, e.what()).value());
-                      } catch (...) {}
+                          });
                 },
                    handle  // context pointer
                 );
