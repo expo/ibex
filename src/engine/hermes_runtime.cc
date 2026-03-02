@@ -1241,6 +1241,25 @@ static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
 
 void runNextTickQueue(ExactHermesRuntime* runtime);
 
+// Used for startup bootstrap scripts to preserve the same evaluation path as `ex_hermes_eval`.
+extern "C" int ex_hermes_eval(
+    struct ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* source_url,
+    int is_bytecode,
+    char** out_value);
+
+// Evaluate bootstrap source/HBC with shared semantics used by REPL startup scripts.
+static bool eval_bootstrap_script(
+    ExactHermesRuntime* handle,
+    const char* source,
+    const uint8_t* hbc,
+    size_t hbcLen,
+    const char* sourceUrl,
+    bool preferSource,
+    bool allowHbc);
+
 void installModuleLoader(ExactHermesRuntime* handle) {
   bool skip_module_loader = env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER");
   bool skip_module_loader_script = env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER_SCRIPT");
@@ -1251,7 +1270,6 @@ void installModuleLoader(ExactHermesRuntime* handle) {
     return;
   }
 
-  auto& rt = *handle->runtime;
   static const char* loader = MODULE_LOADER_SRC;
 
   auto _t0 = std::chrono::steady_clock::now();
@@ -1459,22 +1477,6 @@ static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) 
 // The source strings are declared extern here — they're defined as function-scope statics
 // in installGlobals() which share the same linkage.
 
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-
-// Forward declarations — source strings are defined in installGlobals as static locals
-// but we also need them for ensure fallback. We pass them as arguments instead.
-// The ensure functions are called from JS host functions set up in installGlobals,
-// which capture the source string pointers.
-
-// Used for startup bootstrap scripts to preserve the same execution path as `ex_hermes_eval`.
-extern "C" int ex_hermes_eval(
-    struct ExactHermesRuntime* runtime,
-    const uint8_t* data,
-    size_t len,
-    const char* source_url,
-    int is_bytecode,
-    char** out_value);
-
 // Execute bootstrap source/HBC with bytecode-first fallback semantics while reusing
 // the same runtime/microtask flow as normal `ex eval`.
 static bool eval_bootstrap_script(
@@ -1503,6 +1505,8 @@ static bool eval_bootstrap_script(
                         0,
                         nullptr) == 0;
 }
+
+#ifdef HAS_PRECOMPILED_BOOTSTRAP
 
 // Store source string pointers for lazy-load fallback
 static const char* g_streamEnhanceJS = nullptr;
