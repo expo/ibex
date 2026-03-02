@@ -23,6 +23,9 @@ function _fsInvalidArgType(name, expected, actual) {
   else received = 'type ' + typeof actual;
   var err = new TypeError('The "' + name + '" argument must be of type ' + expected + '. Received ' + received);
   err.code = 'ERR_INVALID_ARG_TYPE';
+  err.toString = function() {
+    return 'TypeError [ERR_INVALID_ARG_TYPE]: ' + this.message;
+  };
   return err;
 }
 
@@ -241,6 +244,27 @@ function _extractFsCode(message) {
   if (typeof message !== 'string') return null;
   var match = message.match(/^([A-Z][A-Z0-9_]+):/);
   return match ? match[1] : null;
+}
+
+function _makeFsThisError(name) {
+  var err = new TypeError('The "' + name + '" property was accessed on an object that is not a Dir.');
+  err.code = 'ERR_INVALID_THIS';
+  return err;
+}
+
+function _makeDirError(code, message, path) {
+  var err = new Error(code + ': ' + message + (path ? " '" + path + "'" : ''));
+  err.code = code;
+  if (path) err.path = path;
+  return err;
+}
+
+function _makeDirClosedError(path) {
+  return _makeDirError('ERR_DIR_CLOSED', 'Directory handle is closed', path);
+}
+
+function _makeDirConcurrentOperationError(path) {
+  return _makeDirError('ERR_DIR_CONCURRENT_OPERATION', 'Directory handle is busy', path);
 }
 
 function _buildFsErrorMessage(code, syscall, pathValue, destValue) {
@@ -770,7 +794,7 @@ function _buildDirEntries(path, options) {
     var stat = null;
     try { stat = lstatSync(fullPath); } catch(e) {}
     var entryName = _normalizeDirEntryName(name, encoding);
-    var entry = new Dirent(entryName, fullPath, stat);
+    var entry = new Dirent(entryName, dirPath, stat);
     entry.path = dirPath;
     list.push(entry);
     if (recursive && stat && typeof stat.isDirectory === 'function' && stat.isDirectory()) {
@@ -784,47 +808,188 @@ function _buildDirEntries(path, options) {
 }
 
 function Dir(path, options) {
-  this.path = path;
+  this._path = path;
   this._entries = _buildDirEntries(path, options || {});
   this._index = 0;
   this._closed = false;
+  this._closing = false;
+  this._asyncReads = 0;
+  this._closeCallbacks = [];
+}
+
+Object.defineProperty(Dir.prototype, 'path', {
+  get: function() {
+    if (!(this instanceof Dir)) throw _makeFsThisError('path');
+    return this._path;
+  },
+  set: function(value) {
+    if (!(this instanceof Dir)) throw _makeFsThisError('path');
+    this._path = value;
+  },
+  configurable: true
+});
+
+function _ensureDirReadableState(dir) {
+  if (dir._closed) {
+    throw _makeDirClosedError(dir._path);
+  }
+  if (dir._asyncReads > 0) {
+    throw _makeDirConcurrentOperationError(dir._path);
+  }
+  if (dir._closing) {
+    throw _makeDirClosedError(dir._path);
+  }
+}
+
+function _completeDirClose(dir, error) {
+  dir._closed = true;
+  dir._closing = false;
+  var callbacks = dir._closeCallbacks || [];
+  dir._closeCallbacks = [];
+  if (!error) {
+    for (var i = 0; i < callbacks.length; i++) {
+      _deferFsCallback((function(cb) {
+        return function() { cb(null); };
+      })(callbacks[i]));
+    }
+    return;
+  }
+  for (var j = 0; j < callbacks.length; j++) {
+    _deferFsCallback((function(cb, e) {
+      return function() { cb(e); };
+    })(callbacks[j], error));
+  }
+}
+
+function _drainDirReadResult(dir, callback, err, value) {
+  dir._asyncReads -= 1;
+  if (!dir._closed && dir._closing && dir._asyncReads === 0) {
+    _completeDirClose(dir, null);
+  }
+  _deferFsCallback(function() {
+    callback(err, value);
+  });
 }
 
 Dir.prototype.readSync = function() {
-  if (this._closed) {
-    throw new Error('Cannot read from a closed Directory');
-  }
+  _ensureDirReadableState(this);
+  if (this._index >= this._entries.length) return null;
+  return this._entries[this._index++];
+};
+
+Dir.prototype._nextEntry = function() {
   if (this._index >= this._entries.length) return null;
   return this._entries[this._index++];
 };
 
 Dir.prototype.read = function(callback) {
-  _validateCallback(callback);
-  if (this._closed) {
-    _deferFsCallback(function() { callback(new Error('Directory handle is closed')); });
-    return;
+  if (typeof callback === 'undefined') {
+    var self = this;
+    return new Promise(function(resolve, reject) {
+      try {
+        self.read(function(err, value) {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(value);
+          }
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
+  _validateCallback(callback);
+  if (this._closed || this._closing) {
+    return _deferFsCallback(function() {
+      callback(_makeDirClosedError(this._path));
+    }.bind(this));
+  }
+  this._asyncReads += 1;
   _deferFsCallback(function() {
-    callback(null, this.readSync());
+    var err = null;
+    var value = null;
+    try {
+      value = this._nextEntry();
+    } catch(e) {
+      err = e;
+    }
+    _drainDirReadResult(this, callback, err, value);
   }.bind(this));
 };
 
 Dir.prototype.close = function(callback) {
-  this._closed = true;
+  if (typeof callback === 'undefined') {
+    var self = this;
+    return new Promise(function(resolve, reject) {
+      try {
+        self.close(function(err) {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+  if (callback !== undefined && callback !== null) _validateCallback(callback);
+  if (this._closed || this._closing) {
+    if (typeof callback === 'function') {
+      _deferFsCallback(function() { callback(_makeDirClosedError(this._path)); }.bind(this));
+    }
+    return;
+  }
+  this._closing = true;
   if (typeof callback === 'function') {
-    _deferFsCallback(function() { callback(); });
+    this._closeCallbacks.push(callback);
+  }
+  if (this._asyncReads === 0) {
+    _completeDirClose(this, null);
   }
 };
-Dir.prototype.closeSync = function() { this._closed = true; };
+
+Dir.prototype.closeSync = function() {
+  if (this._closed || this._closing) {
+    throw _makeDirClosedError(this._path);
+  }
+  if (this._asyncReads > 0) {
+    throw _makeDirConcurrentOperationError(this._path);
+  }
+  this._closed = true;
+};
 
 Dir.prototype[Symbol.asyncIterator] = function() {
   var self = this;
   return {
     next: function() {
       return Promise.resolve().then(function() {
-        var value = self.readSync();
+        var value;
+        try {
+          value = self.readSync();
+        } catch (e) {
+          return { done: true, value: undefined };
+        }
         if (value === null) return { done: true };
         return { done: false, value: value };
+      });
+    },
+    return: function() {
+      return new Promise(function(resolve, reject) {
+        try {
+          self.close(function(err) {
+            if (err) reject(err);
+            else resolve({ done: true });
+          });
+        } catch (e) {
+          if (e && e.code) {
+            reject(e);
+          } else {
+            reject(_makeDirConcurrentOperationError(self._path));
+          }
+        }
       });
     }
   };
@@ -835,6 +1000,12 @@ function opendirSync(path, options) {
   if (options && typeof options === 'object') {
     if (options.encoding) {
       _validateEncodingOption(options.encoding);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'bufferSize')) {
+      if (typeof options.bufferSize !== 'number') {
+        throw _fsInvalidArgType('bufferSize', 'number', options.bufferSize);
+      }
+      _validateInt('bufferSize', options.bufferSize, 1, 0x7fffffff);
     }
   }
   return new Dir(path, options);
@@ -3327,6 +3498,7 @@ module.exports = {
   unwatchFile: unwatchFile,
   FSWatcher: FSWatcher,
   Stats: Stats,
+  Dir: Dir,
   Dirent: Dirent,
   symlink: symlink,
   symlinkSync: symlinkSync,
