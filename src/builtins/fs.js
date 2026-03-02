@@ -1,5 +1,16 @@
 var g = globalThis;
+var _nativeFs = (function() {
+  try {
+    return require('fs');
+  } catch (e) {
+    return null;
+  }
+})();
+var _nativeFsOpen = _nativeFs ? _nativeFs.open : null;
+var _nativeFsClose = _nativeFs ? _nativeFs.close : null;
 var _exactFsInitialized = false;
+var _exactReaddirSyncCachePath = null;
+var _exactReaddirSyncCacheEntries = null;
 function ensureExactFs() {
   if (_exactFsInitialized) return;
   if (typeof g.__exactEnsureFs === 'function') {
@@ -124,6 +135,13 @@ function _coerceMode(mode) {
 }
 
 function _validateFd(fd) {
+  if (typeof fd !== 'number') {
+    throw _fsInvalidArgType('fd', 'number', fd);
+  }
+  _validateInt('fd', fd, -1, 2147483647);
+}
+
+function _validateFdNonNegative(fd) {
   if (typeof fd !== 'number') {
     throw _fsInvalidArgType('fd', 'number', fd);
   }
@@ -794,7 +812,6 @@ function _validateWriteData(data) {
     throw _fsInvalidArgType('data', 'string or an instance of Buffer, TypedArray, or DataView', data);
   }
 }
-}
 
 function appendFileSync(path, data, options) {
   _validateWriteData(data);
@@ -1233,6 +1250,11 @@ function readdirSync(path, options) {
   var withFileTypes = !!opts.withFileTypes;
   var recursive = !!opts.recursive;
   var encoding = opts.encoding;
+  var cacheable = !withFileTypes && !recursive &&
+      (encoding === undefined || encoding === 'utf8' || encoding === 'utf-8');
+  if (cacheable && _exactReaddirSyncCachePath === p && _exactReaddirSyncCacheEntries) {
+    return _exactReaddirSyncCacheEntries.slice();
+  }
   try {
     var rawEntries = JSON.parse(g.__exactReaddir(p));
     var entries = rawEntries;
@@ -1243,7 +1265,13 @@ function readdirSync(path, options) {
         return decodeBytes(Buffer.from(e), encoding);
       });
     }
-    if (!withFileTypes && !recursive) return entries;
+    if (!withFileTypes && !recursive) {
+      if (cacheable) {
+        _exactReaddirSyncCachePath = p;
+        _exactReaddirSyncCacheEntries = entries.slice();
+      }
+      return entries;
+    }
     if (withFileTypes) {
       var dirents = [];
       for (var i = 0; i < entries.length; i++) {
@@ -2382,19 +2410,10 @@ function _initReadStream(rs, path, options) {
   ensureExactFs();
   var Stream = require('node:stream');
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
-  var fsModule = opts.fs || require('node:fs');
+  var fsModule = opts.fs || require('fs');
+  var useNativeFs = opts.fs === undefined && _nativeFs !== null && fsModule === _nativeFs &&
+    fsModule.open === _nativeFsOpen && fsModule.close === _nativeFsClose;
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'read']);
-  var openSyncFn = typeof fsModule.openSync === 'function' ? fsModule.openSync : null;
-  var openFn = typeof fsModule.open === 'function' ? fsModule.open : null;
-  var readFn = typeof fsModule.read === 'function' ? fsModule.read : fsRead;
-  var closeSyncFn = typeof fsModule.closeSync === 'function' ? fsModule.closeSync : null;
-  var closeFn = typeof fsModule.close === 'function' ? fsModule.close : null;
-  if (!openSyncFn && !openFn) {
-    openSyncFn = openSync;
-  }
-  if (!closeSyncFn && !closeFn) {
-    closeSyncFn = closeSync;
-  }
   var encoding = opts.encoding || null;
   var start = 0;
   var end = opts.end;
@@ -2458,28 +2477,57 @@ function _initReadStream(rs, path, options) {
   rs._position = start;
   rs._end = end;
   rs._autoClose = autoClose;
+  function closeOpenDescriptor(fdToClose, callback) {
+    if (typeof fdToClose !== 'number') {
+      if (typeof callback === 'function') _deferFsCallback(callback);
+      return;
+    }
+    var closeSyncFn = typeof fsModule.closeSync === 'function' ? fsModule.closeSync : closeSync;
+    var closeFn = typeof fsModule.close === 'function' ? fsModule.close : null;
+    var done = function() {
+      rs._openFd = null;
+      rs.fd = null;
+      if (typeof callback === 'function') _deferFsCallback(callback);
+    };
+    try {
+      if (typeof closeFn === 'function') {
+        closeFn.call(fsModule, fdToClose, function() { done(); });
+        return;
+      }
+      if (typeof closeSyncFn === 'function') {
+        closeSyncFn(fdToClose);
+        done();
+        return;
+      }
+    } catch (e) {}
+    done();
+  }
 
   function closeFd() {
     if (rs.closed) return;
     rs.destroyed = true;
     rs.closed = true;
-    rs.fd = null;
+    var afterClose = function() {
+      rs.fd = null;
+      rs.emit('close');
+    };
     if (!sourceIsHandle) {
-      if (rs._opened && rs._shouldAutoClose) {
-        try {
-          if (typeof rs._openFd === 'number') {
-            if (typeof closeFn === 'function') {
-              closeFn.call(fsModule, rs._openFd, function() {});
-            } else if (typeof closeSyncFn === 'function') {
-              closeSyncFn(rs._openFd);
-            }
-          }
-        } catch (e) {}
+      if (typeof rs._openFd === 'number' && rs._shouldAutoClose) {
+        closeOpenDescriptor(rs._openFd, afterClose);
+        return;
       }
     } else if (sourceHandle && typeof sourceHandle.close === 'function') {
-      try { sourceHandle.close(); } catch (e) {}
+      try {
+        var handleCloseResult = sourceHandle.close();
+        if (handleCloseResult && typeof handleCloseResult.then === 'function') {
+          handleCloseResult.then(afterClose, afterClose);
+          return;
+        }
+      } catch (e) {}
+      afterClose();
+      return;
     }
-    rs.emit('close');
+    afterClose();
   }
 
   rs._openFd = sourceFd;
@@ -2503,45 +2551,64 @@ function _initReadStream(rs, path, options) {
   function ensureOpen() {
     if (rs.closed || rs.destroyed || rs._opened || rs._opening) return;
     rs._opening = true;
+    if (sourceIsHandle || sourceFd !== null) {
+      rs._opening = false;
+      return;
+    }
     try {
-      if (!sourceIsHandle && sourceFd === null) {
-        if (openFn) {
-          openFn.call(fsModule, path, opts.flags || 'r', opts.mode || 438, function(err, fd) {
-            rs._opening = false;
-            if (err) {
-              rs.emit('error', _makeFsError(err, 'open', path));
-              if (autoClose) closeFd();
-              return;
+      var openSyncFn = typeof fsModule.openSync === 'function' ? fsModule.openSync : openSync;
+      var openFn = typeof fsModule.open === 'function' ? fsModule.open : null;
+      if (!openFn && !openSyncFn) {
+        throw new Error('open is not a function');
+      }
+      if (openFn) {
+        openFn.call(fsModule, path, opts.flags || 'r', opts.mode || 438, function(err, fd) {
+          rs._opening = false;
+          if (err) {
+            rs.emit('error', _makeFsError(err, 'open', path));
+            if (autoClose) closeFd();
+            return;
+          }
+          if (rs.closed || rs.destroyed) {
+            if (typeof fd === 'number' && rs._shouldAutoClose) {
+              closeOpenDescriptor(fd);
             }
-            rs._openFd = fd;
-            rs._opened = true;
-            rs._shouldAutoClose = rs._autoClose;
-            rs.fd = rs._openFd;
-            rs.emit('open', rs._openFd);
-            markReady();
-            rs._read();
-          });
-          return;
-        }
-        rs._openFd = openSyncFn(path, opts.flags || 'r', opts.mode || 438);
-        rs._opened = true;
-        rs._shouldAutoClose = rs._autoClose;
-        rs.fd = rs._openFd;
-        rs.emit('open', rs._openFd);
-        markReady();
-        rs._opening = false;
+            return;
+          }
+          rs._openFd = fd;
+          rs._opened = true;
+          rs._shouldAutoClose = rs._autoClose;
+          rs.fd = rs._openFd;
+          rs.emit('open', rs._openFd);
+          markReady();
+          rs._read();
+        });
         return;
       }
+      rs._openFd = openSyncFn(path, opts.flags || 'r', opts.mode || 438);
+        if (rs.closed || rs.destroyed) {
+          closeOpenDescriptor(rs._openFd);
+          rs._opened = false;
+          rs._opening = false;
+          return;
+        }
+      rs._opened = true;
+      rs._shouldAutoClose = rs._autoClose;
+      rs.fd = rs._openFd;
+      rs.emit('open', rs._openFd);
+      markReady();
+      rs._read();
     } catch(err) {
       rs._opening = false;
       rs.emit('error', err);
       if (autoClose) closeFd();
+      return;
     }
     rs._opening = false;
   }
 
-  if (!rs._opened && rs._shouldAutoClose) {
-    _deferFsCallback(ensureOpen);
+    if (!rs._opened && rs._shouldAutoClose) {
+      _deferFsCallback(ensureOpen);
   }
 
   rs._read = function() {
@@ -2607,11 +2674,12 @@ function _initReadStream(rs, path, options) {
       if (sourceIsHandle && sourceHandle && typeof sourceHandle.read === 'function') {
         sourceHandle.read(buf, 0, chunkSize, rs._position, readDone);
       } else {
+        var readFn = typeof fsModule.read === 'function' ? fsModule.read : fsRead;
         var readArgs = [rs.fd, buf, 0, chunkSize, rs._position];
         readFn.apply(fsModule, readArgs.concat(readDone));
       }
-    } catch(err) {
-      rs.emit('error', err);
+  } catch(err) {
+    rs.emit('error', err);
       if (autoClose) closeFd();
     }
   };
@@ -2665,7 +2733,7 @@ function _initWriteStream(ws, path, options) {
   _validateFlushOption(opts.flush);
   ensureExactFs();
   var Stream = require('node:stream');
-  var fsModule = opts.fs || require('node:fs');
+  var fsModule = opts.fs || require('fs');
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'write', 'writev']);
   var flags = opts.flags || 'w';
   var mode = opts.mode || 438;
@@ -2673,14 +2741,6 @@ function _initWriteStream(ws, path, options) {
   var autoClose = opts.autoClose !== false;
   var start = typeof opts.start === 'number' ? opts.start : null;
   var openError = null;
-  var openSyncFn = typeof fsModule.openSync === 'function' ? fsModule.openSync : openSync;
-  var openFn = typeof fsModule.open === 'function' ? fsModule.open : null;
-  var closeSyncFn = typeof fsModule.closeSync === 'function' ? fsModule.closeSync : closeSync;
-  var closeFn = typeof fsModule.close === 'function' ? fsModule.close : null;
-  var writeSyncFn = typeof fsModule.writeSync === 'function' ? fsModule.writeSync : writeSync;
-  var writeFn = typeof fsModule.write === 'function' ? fsModule.write : null;
-  var writevSyncFn = typeof fsModule.writevSync === 'function' ? fsModule.writevSync : writevSync;
-  var writevFn = typeof fsModule.writev === 'function' ? fsModule.writev : null;
   var fdOption = opts.fd;
   var fd = null;
   var opened = false;
@@ -2724,6 +2784,7 @@ function _initWriteStream(ws, path, options) {
   ws._shouldWriteAt = typeof start === 'number' ? start : null;
   ws._readyEmitted = false;
   ws._flush = opts.flush === true;
+  ws._writeErrorClosed = false;
 
   ws._emitClose = function() {
     if (ws.closed || ws._closed) return;
@@ -2738,6 +2799,8 @@ function _initWriteStream(ws, path, options) {
       if (typeof callback === 'function') _deferFsCallback(callback);
       return;
     }
+    var closeSyncFn = typeof fsModule.closeSync === 'function' ? fsModule.closeSync : closeSync;
+    var closeFn = typeof fsModule.close === 'function' ? fsModule.close : null;
     var done = function(err) {
       var closeErr = err ? _makeFsError(err, 'close', path) : null;
       fd = null;
@@ -2779,14 +2842,39 @@ function _initWriteStream(ws, path, options) {
     }
   }
 
-  function makeWriteError(err, operation) {
-    return (err && err.code) ? err : _makeFsError(err, operation || 'write', path);
+function makeWriteError(err, operation) {
+    if (!err) {
+      return _makeFsError(new Error((operation || 'write') + ' failed'), operation || 'write', path);
+    }
+    if (typeof err.code === 'string') {
+      return _makeFsError(err, operation || 'write', path);
+    }
+    if (err instanceof Error) {
+      return err;
+    }
+    return _makeFsError(err, operation || 'write', path);
   }
 
-  function emitWriteError(err, callback, operation) {
+function emitWriteError(err, callback, operation) {
     var writeErr = makeWriteError(err, operation);
-    if (typeof callback === 'function') callback(writeErr);
-    else ws.emit('error', writeErr);
+    if (ws._writableState) {
+      ws._writableState.autoDestroy = false;
+    }
+    if (typeof callback === 'function') {
+      callback(writeErr);
+    }
+    if (!ws._writeErrorClosed && autoClose) {
+      ws._writeErrorClosed = true;
+      closeWriteFd(function(closeErr) {
+        if (closeErr) {
+          ws.emit('error', closeErr);
+        }
+        ws._emitClose();
+        ws.emit('error', writeErr);
+      });
+      return;
+    }
+    ws.emit('error', writeErr);
   }
 
   function normalizeWritePosition() {
@@ -2822,6 +2910,8 @@ function _initWriteStream(ws, path, options) {
 
   function ensureOpen() {
     if (opened || ws.closed || ws.destroyed || opening) return;
+    var openSyncFn = typeof fsModule.openSync === 'function' ? fsModule.openSync : openSync;
+    var openFn = typeof fsModule.open === 'function' ? fsModule.open : null;
     if (!fdOption && !openFn && !openSyncFn) {
       var openFnError = makeWriteError(new Error('open is not a function'), 'open');
       openError = openFnError;
@@ -2856,6 +2946,8 @@ function _initWriteStream(ws, path, options) {
   function performWrite(chunk, enc, callback) {
     var bytes = toUint8Array(chunk, enc || encoding);
     var position = normalizeWritePosition();
+    var writeSyncFn = typeof fsModule.writeSync === 'function' ? fsModule.writeSync : writeSync;
+    var writeFn = typeof fsModule.write === 'function' ? fsModule.write : null;
     var done = function(err, written) {
       if (err) {
         emitWriteError(err, callback, 'write');
@@ -2932,9 +3024,10 @@ function _initWriteStream(ws, path, options) {
     return total;
   }
 
-function performWritev(chunks, callback) {
+  function performWritev(chunks, callback) {
   var buffers = buffersFromChunks(chunks);
   var position = normalizeWritePosition();
+    var writeSyncFn = typeof fsModule.writeSync === 'function' ? fsModule.writeSync : writeSync;
     var done = function(err, written) {
       if (err) {
         emitWriteError(err, callback, 'writev');
@@ -3459,10 +3552,12 @@ function symlinkSync(target, path, type) {
   _validatePath(path, 'path');
   ensureExactFs();
   var p = _pathToString(path);
+  var targetPath = typeof t === 'string' ? t : Buffer.isBuffer(t) ? t.toString() : _coercePathFromURL(t, 'target');
+  var linkPath = '' + p;
   try {
-    if (typeof g.__exactSymlink === 'function') return g.__exactSymlink(_pathToString(t), p);
+    if (typeof g.__exactSymlink === 'function') return g.__exactSymlink(targetPath, linkPath);
     throw new Error('ENOSYS: symlink not available');
-  } catch(e) { throw _makeFsError(e, 'symlink', t, p); }
+  } catch(e) { throw _makeFsError(e, 'symlink', targetPath, linkPath); }
 }
 function symlink(target, path, type, cb) {
   if (typeof type === 'function') { cb = type; type = null; }
@@ -3908,7 +4003,7 @@ constants.COPYFILE_FICLONE_FORCE = 4;
 
 // fchmod/fchmodSync — file descriptor-based chmod
 function fchmod(fd, mode, callback) {
-  _validateFd(fd);
+  _validateFdNonNegative(fd);
   mode = _coerceMode(mode);
   _validateUint32('mode', mode);
   if (callback !== undefined && typeof callback !== 'function') _validateCallback(callback);
@@ -3929,7 +4024,7 @@ function fchmod(fd, mode, callback) {
   return fchmodSync(fd, mode);
 }
 function fchmodSync(fd, mode) {
-  _validateFd(fd);
+  _validateFdNonNegative(fd);
   mode = _coerceMode(mode);
   _validateUint32('mode', mode);
   ensureExactFs();
@@ -3947,7 +4042,7 @@ function fchmodSync(fd, mode) {
 
 // fchown/fchownSync — file descriptor-based chown
 function fchown(fd, uid, gid, callback) {
-  _validateFd(fd);
+  _validateFdNonNegative(fd);
   if (typeof uid !== 'number') throw _fsInvalidArgType('uid', 'number', uid);
   if (typeof uid === 'number') _validateUidOrGid('uid', uid);
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
@@ -3980,7 +4075,7 @@ function fchown(fd, uid, gid, callback) {
   throw err;
 }
 function fchownSync(fd, uid, gid) {
-  _validateFd(fd);
+  _validateFdNonNegative(fd);
   if (typeof uid !== 'number') throw _fsInvalidArgType('uid', 'number', uid);
   if (typeof uid === 'number') _validateUidOrGid('uid', uid);
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
