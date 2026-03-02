@@ -3618,21 +3618,18 @@ function pipeline() {
   }
 
   if (!hasCallback) {
-    return new Promise(function(resolve, reject) {
-      var promiseArgs = args.slice();
-      promiseArgs.push(function(err, value) {
+    var resultPromise = new Promise(function(resolve, reject) {
+      var callbackIndex = args.length;
+      args[callbackIndex] = function(err, value) {
         if (err) {
           reject(err);
           return;
         }
         resolve(value);
-      });
-      try {
-        pipeline.apply(null, promiseArgs);
-      } catch (err) {
-        reject(err);
-      }
+      };
     });
+    pipeline.apply(null, args);
+    return resultPromise;
   }
 
   try {
