@@ -126,7 +126,18 @@ function _validateFd(fd) {
   if (typeof fd !== 'number') {
     throw _fsInvalidArgType('fd', 'number', fd);
   }
-  _validateInt('fd', fd, 0, 2147483647);
+  _validateInt('fd', fd, -1, 2147483647);
+}
+
+function _getFdOrPath(path, propName) {
+  if (typeof path === 'number') {
+    return { fd: path, path: undefined };
+  }
+  if (path && typeof path === 'object' && typeof path.fd === 'number') {
+    return { fd: path.fd, path: undefined };
+  }
+  _validatePath(path, propName);
+  return { fd: null, path: _pathToString(path) };
 }
 
 function _validatePath(path, propName) {
@@ -153,7 +164,12 @@ function _validatePath(path, propName) {
 
 function _coercePathFromURL(path, propName) {
   if (!path || typeof path !== 'object') return path;
-  if (typeof path.href !== 'string' || path.protocol !== 'file:') return path;
+  if (typeof path.href !== 'string' || typeof path.protocol !== 'string') return path;
+  if (path.protocol !== 'file:') {
+    var schemeErr = new TypeError('The URL must be of scheme file');
+    schemeErr.code = 'ERR_INVALID_URL_SCHEME';
+    throw schemeErr;
+  }
   var pathname = path.pathname;
   if (!pathname) {
     var err = new TypeError('The URL must have a pathname');
@@ -171,6 +187,97 @@ function _coercePathFromURL(path, propName) {
     throw nullErr;
   }
   return decoded;
+}
+
+function _emitFsDeprecation(code, message) {
+  if (typeof process === 'object' && process !== null && typeof process.emitWarning === 'function') {
+    process.emitWarning(message, 'DeprecationWarning', code);
+  }
+}
+
+function _isBufferLike(value) {
+  if (!value) return false;
+  if (Buffer.isBuffer(value)) return true;
+  if (typeof ArrayBuffer === 'object' && typeof ArrayBuffer.isView === 'function') {
+    return ArrayBuffer.isView(value);
+  }
+  return false;
+}
+
+function _describeBufferLike(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  var name = value.constructor && value.constructor.name ? value.constructor.name : 'Object';
+  var length = typeof value.length === 'number' ? value.length : 0;
+  return name + '(' + length + ') []';
+}
+
+function _throwEmptyBufferError(name, value) {
+  var err = new TypeError('The argument "' + name + '" is empty and cannot be written. Received ' + _describeBufferLike(value));
+  err.code = 'ERR_INVALID_ARG_VALUE';
+  return err;
+}
+
+function _validateCopyFileMode(mode) {
+  if (typeof mode !== 'number') {
+    var err = new TypeError('mode must be int32 or null/undefined');
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  _validateInt('mode', mode, 0, 7);
+}
+
+function _validateAccessMode(mode) {
+  if (mode === undefined || mode === null) return 0;
+  if (typeof mode !== 'number') {
+    var err = new TypeError('mode must be int32 or null/undefined');
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  _validateInt('mode', mode, 0, 7);
+  return mode;
+}
+
+function _validateReadSyncLength(length, bufferLength) {
+  if (typeof length === 'undefined' || length === null) {
+    return bufferLength;
+  }
+  if (typeof length !== 'number' || !Number.isFinite(length) || length % 1 !== 0) {
+    return bufferLength;
+  }
+  if (length < 0 || length > bufferLength) {
+    throw _fsOutOfRange('length', length, 0, bufferLength);
+  }
+  return length;
+}
+
+function _validateReadWritePosition(name, position) {
+  if (position === undefined || position === null) {
+    return -1;
+  }
+  if (typeof position !== 'number') {
+    throw _fsInvalidArgType(name, 'bigint or integer', position);
+  }
+  if (!Number.isFinite(position) || position % 1 !== 0) {
+    throw _fsOutOfRange(name, position, null, null);
+  }
+  if (position < -1 || position > Number.MAX_SAFE_INTEGER) {
+    throw _fsOutOfRange(name, position, -1, Number.MAX_SAFE_INTEGER);
+  }
+  return position;
+}
+
+function _validateOffset(name, offset, bufferLength) {
+  if (typeof offset !== 'number') {
+    throw _fsInvalidArgType(name, 'number', offset);
+  }
+  if (!Number.isFinite(offset) || offset % 1 !== 0) {
+    throw _fsOutOfRange(name, offset, null, null);
+  }
+  if (offset < 0 || offset > bufferLength) {
+    throw _fsOutOfRange(name, offset, 0, bufferLength);
+  }
+  return offset;
 }
 
 function _validateCallback(cb) {
@@ -675,19 +782,21 @@ function _validateWriteData(data) {
 function appendFileSync(path, data, options) {
   _validateWriteData(data);
   var writeOptions = _normalizeWriteOptions(options);
-  // Support fd as first arg
-  if (typeof path === 'number') {
+  var target = _getFdOrPath(path, 'path');
+
+  // Support fd and FileHandle-like objects as first arg
+  if (target.fd !== null) {
     ensureExactFs();
     var fdData = toUint8Array(data, writeOptions.encoding);
-    writeSync(path, fdData, 0, fdData.length, -1);
+    writeSync(target.fd, fdData, 0, fdData.length, -1);
     if (writeOptions.flush === true) {
-      _callFsyncSync(path);
+      _callFsyncSync(target.fd);
     }
     return;
   }
-  _validatePath(path);
+
   ensureExactFs();
-  var p = _pathToString(path);
+  var p = target.path;
   try {
     if (writeOptions.flush === true) {
       var appendData = toUint8Array(data, writeOptions.encoding);
@@ -700,7 +809,17 @@ function appendFileSync(path, data, options) {
       }
       return;
     }
-    g.__exactAppendFile(p, toUint8Array(data, writeOptions.encoding));
+    if (typeof g.__exactAppendFile === 'function') {
+      g.__exactAppendFile(p, toUint8Array(data, writeOptions.encoding));
+      return;
+    }
+    var appendFallback = toUint8Array(data, writeOptions.encoding);
+    var appendFallbackFd = openSync(p, writeOptions.flag || writeOptions.flags || 'a', writeOptions.mode);
+    try {
+      writeSync(appendFallbackFd, appendFallback, 0, appendFallback.length, -1);
+    } finally {
+      closeSync(appendFallbackFd);
+    }
   } catch(e) {
     throw _makeFsError(e, 'open', p);
   }
@@ -1098,15 +1217,20 @@ function readdirSync(path, options) {
   var recursive = !!opts.recursive;
   var encoding = opts.encoding;
   try {
-    var entries = JSON.parse(g.__exactReaddir(p));
+    var rawEntries = JSON.parse(g.__exactReaddir(p));
+    var entries = rawEntries;
     if (encoding === 'buffer') {
-      entries = entries.map(function(e) { return Buffer.from(e); });
+      entries = rawEntries.map(function(e) { return Buffer.from(e); });
+    } else if (typeof encoding === 'string' && encoding !== 'utf8' && encoding !== 'utf-8') {
+      entries = rawEntries.map(function(e) {
+        return decodeBytes(Buffer.from(e), encoding);
+      });
     }
     if (!withFileTypes && !recursive) return entries;
     if (withFileTypes) {
       var dirents = [];
       for (var i = 0; i < entries.length; i++) {
-        var fullPath = p + '/' + entries[i];
+        var fullPath = p + '/' + rawEntries[i];
         var st;
         try { st = lstatSync(fullPath); } catch(e) { st = null; }
         dirents.push(new Dirent(entries[i], p, st));
@@ -1115,7 +1239,8 @@ function readdirSync(path, options) {
         var more = [];
         for (var j = 0; j < dirents.length; j++) {
           if (dirents[j].isDirectory()) {
-            var sub = readdirSync(p + '/' + dirents[j].name, { withFileTypes: true, recursive: true });
+            var recursePath = p + '/' + rawEntries[j];
+            var sub = readdirSync(recursePath, { withFileTypes: true, recursive: true });
             for (var k = 0; k < sub.length; k++) more.push(sub[k]);
           }
         }
@@ -1126,7 +1251,7 @@ function readdirSync(path, options) {
     if (recursive) {
       var all = entries.slice();
       for (var ri = 0; ri < entries.length; ri++) {
-        var rFullPath = p + '/' + entries[ri];
+        var rFullPath = p + '/' + rawEntries[ri];
         try {
           var rSt = lstatSync(rFullPath);
           if (rSt.isDirectory()) {
@@ -1430,7 +1555,7 @@ function copyFileSync(src, dest, mode) {
   _validatePath(src, 'src'); _validatePath(dest, 'dest'); ensureExactFs();
   var s = _pathToString(src); var d = _pathToString(dest);
   if (mode !== undefined && mode !== null) {
-    _validateInt('mode', mode, 0, 2147483647);
+    _validateCopyFileMode(mode);
   }
   // Keep behavior aligned with Node.js:
   // copyFile with COPYFILE_EXCL (mode bit 1) must fail if destination exists.
@@ -1463,7 +1588,8 @@ function copyFileSync(src, dest, mode) {
 function accessSync(path, mode) {
   _validatePath(path); ensureExactFs();
   var p = _pathToString(path);
-  try { g.__exactAccess(p, mode || 0); } catch(e) { throw _makeFsError(e, 'access', p); }
+  var validatedMode = _validateAccessMode(mode);
+  try { g.__exactAccess(p, validatedMode); } catch(e) { throw _makeFsError(e, 'access', p); }
 }
 function chmodSync(path, mode) {
   _validatePath(path); ensureExactFs();
@@ -1552,7 +1678,14 @@ function mkdtempDisposableSync(prefix, options) {
 function existsSync(path) {
   // existsSync never throws - returns false for invalid paths
   try {
-    if (typeof path !== 'string' && !Buffer.isBuffer(path)) return false;
+    if (
+      typeof path !== 'string' &&
+      !Buffer.isBuffer(path) &&
+      !(path && typeof path === 'object' && path.href !== undefined && path.protocol !== undefined)
+    ) {
+      _emitFsDeprecation('DEP0187', 'Passing invalid argument types to fs.existsSync is deprecated');
+      return false;
+    }
     ensureExactFs();
     g.__exactAccess(_pathToString(path), 0);
     return true;
@@ -1585,26 +1718,48 @@ function writeFile(path, data, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
-  if (typeof path !== 'number') _validatePath(path);
-  var writeOptions = _normalizeWriteOptions(opts);
-  if (writeOptions.flush === true) {
-    _writeFileWithFlushCallback(path, data, writeOptions, false, callback);
+  var target = _getFdOrPath(path, 'path');
+  var writeOptions;
+  try {
+    writeOptions = _normalizeWriteOptions(opts);
+  } catch(err) {
+    var writeError = err && err.code === 'ABORT_ERR' ? err : _makeFsError(err, 'open', target.path);
+    _deferFsCallback(function() { callback(writeError); });
     return;
   }
-  wrapCallback(function() { writeFileSync(path, data, writeOptions); }, callback, 'open', typeof path === 'number' ? undefined : _pathToString(path));
+  if (writeOptions && writeOptions.signal && writeOptions.signal.aborted) {
+    _deferFsCallback(function() { callback(_makeAbortError()); });
+    return;
+  }
+  if (writeOptions.flush === true) {
+    _writeFileWithFlushCallback(target, data, writeOptions, false, callback);
+    return;
+  }
+  wrapCallback(function() { writeFileSync(target.path || target.fd, data, writeOptions); }, callback, 'open', target.path);
 }
 
 function appendFile(path, data, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
-  if (typeof path !== 'number') _validatePath(path);
-  var writeOptions = _normalizeWriteOptions(opts);
-  if (writeOptions.flush === true) {
-    _writeFileWithFlushCallback(path, data, writeOptions, true, callback);
+  var target = _getFdOrPath(path, 'path');
+  var writeOptions;
+  try {
+    writeOptions = _normalizeWriteOptions(opts);
+  } catch(err) {
+    var appendError = err && err.code === 'ABORT_ERR' ? err : _makeFsError(err, 'open', target.path);
+    _deferFsCallback(function() { callback(appendError); });
     return;
   }
-  wrapCallback(function() { appendFileSync(path, data, writeOptions); }, callback, 'open', typeof path === 'number' ? undefined : _pathToString(path));
+  if (writeOptions && writeOptions.signal && writeOptions.signal.aborted) {
+    _deferFsCallback(function() { callback(_makeAbortError()); });
+    return;
+  }
+  if (writeOptions.flush === true) {
+    _writeFileWithFlushCallback(target, data, writeOptions, true, callback);
+    return;
+  }
+  wrapCallback(function() { appendFileSync(target.path || target.fd, data, writeOptions); }, callback, 'open', target.path);
 }
 
 function stat(path, optOrCb, cb) {
@@ -1652,7 +1807,7 @@ function copyFile(s, d, modeOrCb, cb) {
   _validatePath(s, 'src');
   _validatePath(d, 'dest');
   if (mode !== undefined && mode !== null) {
-    _validateInt('mode', mode, 0, 2147483647);
+    _validateCopyFileMode(mode);
   }
   wrapCallback(function() { copyFileSync(s, d, mode); }, callback, 'copyfile', _pathToString(s));
 }
@@ -1747,13 +1902,19 @@ function readSync(fd, buffer, offset, length, position) {
   // Handle readSync(fd, buffer, options) form
   if (typeof offset === 'object' && offset !== null) {
     var ropts = offset;
-    offset = ropts.offset || 0;
+    offset = ropts.offset === undefined ? 0 : ropts.offset;
     length = ropts.length;
     position = ropts.position;
   }
-  var off = (typeof offset === 'number') ? offset : 0;
-  var len = (typeof length === 'number') ? length : (buffer ? buffer.length - off : 0);
-  var pos = (typeof position === 'number' && position !== null) ? position : -1;
+  if (!_isBufferLike(buffer)) {
+    throw _fsInvalidArgType('buffer', 'Buffer, TypedArray, or DataView', buffer);
+  }
+  if (buffer.length === 0) {
+    throw _throwEmptyBufferError('buffer', buffer);
+  }
+  var off = _validateOffset('offset', offset === undefined || offset === null ? 0 : offset, buffer.length);
+  var len = _validateReadSyncLength(length, buffer.length - off);
+  var pos = _validateReadWritePosition('position', position);
   try {
     var data = g.__exactFsRead(fd, len, pos);
     if (buffer && data.length > 0) {
@@ -1772,23 +1933,36 @@ function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, posit
   // Handle writeSync(fd, buffer, options) form
   if (typeof bufferOrString !== 'string' && typeof offsetOrPosition === 'object' && offsetOrPosition !== null) {
     var wopts = offsetOrPosition;
-    offsetOrPosition = wopts.offset || 0;
+    offsetOrPosition = wopts.offset === undefined ? 0 : wopts.offset;
     lengthOrEncoding = wopts.length;
     position = wopts.position;
   }
   if (typeof bufferOrString === 'string') {
-    var pos = (typeof offsetOrPosition === 'number') ? offsetOrPosition : -1;
-    var bytes = toUint8Array(bufferOrString);
+    if (offsetOrPosition !== undefined && offsetOrPosition !== null && typeof offsetOrPosition !== 'number') {
+      throw _fsInvalidArgType('position', 'bigint or integer', offsetOrPosition);
+    }
+    var pos = _validateReadWritePosition('position', offsetOrPosition);
+    if (lengthOrEncoding !== undefined && lengthOrEncoding !== null && typeof lengthOrEncoding === 'string') {
+      _assertEncoding(lengthOrEncoding);
+    }
+    var bytes = toUint8Array(bufferOrString, lengthOrEncoding);
     try {
       return g.__exactFsWrite(fd, bytes, pos);
     } catch(err) { throw _makeFsError(err, 'write'); }
   }
-  if (!Buffer.isBuffer(bufferOrString) && !(bufferOrString instanceof Uint8Array) && !ArrayBuffer.isView(bufferOrString)) {
-    throw _fsInvalidArgType('buffer', 'string or an instance of Buffer or Uint8Array', bufferOrString);
+  if (!_isBufferLike(bufferOrString)) {
+    throw _fsInvalidArgType('buffer', 'Buffer, TypedArray, or DataView', bufferOrString);
   }
-  var off = (typeof offsetOrPosition === 'number') ? offsetOrPosition : 0;
+  var off = _validateOffset('offset', offsetOrPosition === undefined || offsetOrPosition === null ? 0 : offsetOrPosition, bufferOrString.length);
   var len = (typeof lengthOrEncoding === 'number') ? lengthOrEncoding : (bufferOrString ? bufferOrString.length - off : 0);
-  var pos = (typeof position === 'number' && position !== null) ? position : -1;
+  if (typeof len === 'number') {
+    if (!Number.isFinite(len) || len % 1 !== 0 || off + len > bufferOrString.length || len < 0) {
+      throw _fsOutOfRange('length', len, 0, bufferOrString.length - off);
+    }
+  } else {
+    len = bufferOrString ? bufferOrString.length - off : 0;
+  }
+  var pos = _validateReadWritePosition('position', position);
   var slice = bufferOrString;
   if (off !== 0 || len !== bufferOrString.length) {
     slice = bufferOrString.slice(off, off + len);
@@ -1798,25 +1972,26 @@ function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, posit
   } catch(err) { throw _makeFsError(err, 'write'); }
 }
 
-function _writeFileWithFlushCallback(path, data, writeOptions, isAppend, callback) {
-  var p = typeof path === 'number' ? undefined : _pathToString(path);
+function _writeFileWithFlushCallback(target, data, writeOptions, isAppend, callback) {
+  var p = target && target.path;
+  var fd = target && target.fd;
   var bytes = toUint8Array(data, writeOptions && writeOptions.encoding);
   var done = function(err) {
     _deferFsCallback(function() { callback(err); });
   };
 
-  if (typeof path === 'number') {
+  if (fd !== null && fd !== undefined) {
     try {
-      writeSync(path, bytes, 0, bytes.length, -1);
+      writeSync(fd, bytes, 0, bytes.length, -1);
     } catch(err) {
       done(_makeFsError(err, 'write', p));
       return;
     }
-  if (writeOptions && writeOptions.flush === true) {
-    _callFsync(path, function(err) {
-      done(err ? _makeFsError(err, 'fsync', p) : null);
-    });
-  } else {
+    if (writeOptions && writeOptions.flush === true) {
+      _callFsync(fd, function(err) {
+        done(err ? _makeFsError(err, 'fsync', p) : null);
+      });
+    } else {
       done(null);
     }
     return;
@@ -1906,9 +2081,9 @@ function writevSync(fd, buffers, position) {
   if (position !== undefined && position !== null && typeof position !== 'number') {
     throw _fsInvalidArgType('position', 'number', position);
   }
-  if (typeof g.__exactFsWritev === 'function') {
+  if (typeof g.__exactFsWritev === 'function' && typeof position === 'number') {
     try {
-      var pos = (typeof position === 'number') ? position : -1;
+      var pos = position;
       return g.__exactFsWritev(fd, buffers, pos);
     } catch(err) {
       throw _makeFsError(err, 'writev');
@@ -1990,13 +2165,13 @@ function writev(fd, buffers, position, callback) {
     }
   }
   try {
-    if (typeof g.__exactFsWritev === 'function') {
-      var pos = (typeof position === 'number') ? position : -1;
-      g.__exactFsWritev(fd, buffers, pos, function(err, bytesWritten) {
-        _deferFsCallback(function() {
-          if (err) {
-            callback(_makeFsError(err, 'writev'));
-          } else {
+  if (typeof g.__exactFsWritev === 'function' && typeof position === 'number') {
+    var pos = position;
+    g.__exactFsWritev(fd, buffers, pos, function(err, bytesWritten) {
+      _deferFsCallback(function() {
+        if (err) {
+          callback(_makeFsError(err, 'writev'));
+        } else {
             callback(null, bytesWritten, buffers);
           }
         });
@@ -2189,12 +2364,11 @@ function _initReadStream(rs, path, options) {
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
   var fsModule = opts.fs || require('node:fs');
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'read']);
-  var fsHasOverrides = opts.fs !== undefined && opts.fs !== null;
-  var openSyncFn = fsHasOverrides && typeof fsModule.openSync === 'function' ? fsModule.openSync : null;
-  var openFn = fsHasOverrides && typeof fsModule.open === 'function' ? fsModule.open : null;
-  var readFn = fsHasOverrides && typeof fsModule.read === 'function' ? fsModule.read : fsRead;
-  var closeSyncFn = fsHasOverrides && typeof fsModule.closeSync === 'function' ? fsModule.closeSync : null;
-  var closeFn = fsHasOverrides && typeof fsModule.close === 'function' ? fsModule.close : null;
+  var openSyncFn = typeof fsModule.openSync === 'function' ? fsModule.openSync : null;
+  var openFn = typeof fsModule.open === 'function' ? fsModule.open : null;
+  var readFn = typeof fsModule.read === 'function' ? fsModule.read : fsRead;
+  var closeSyncFn = typeof fsModule.closeSync === 'function' ? fsModule.closeSync : null;
+  var closeFn = typeof fsModule.close === 'function' ? fsModule.close : null;
   if (!openSyncFn && !openFn) {
     openSyncFn = openSync;
   }
@@ -2274,10 +2448,10 @@ function _initReadStream(rs, path, options) {
       if (rs._opened && rs._shouldAutoClose) {
         try {
           if (typeof rs._openFd === 'number') {
-            if (typeof closeSyncFn === 'function') {
+            if (typeof closeFn === 'function') {
+              closeFn.call(fsModule, rs._openFd, function() {});
+            } else if (typeof closeSyncFn === 'function') {
               closeSyncFn(rs._openFd);
-            } else if (typeof closeFn === 'function') {
-              closeFn(rs._openFd, function() {});
             }
           }
         } catch (e) {}
@@ -2311,32 +2485,31 @@ function _initReadStream(rs, path, options) {
     rs._opening = true;
     try {
       if (!sourceIsHandle && sourceFd === null) {
-        if (openSyncFn) {
-          rs._openFd = openSyncFn(path, opts.flags || 'r', opts.mode || 438);
-          rs._opened = true;
-          rs._shouldAutoClose = rs._autoClose;
-          rs.fd = rs._openFd;
-          rs.emit('open', rs._openFd);
-          markReady();
-          rs._opening = false;
+        if (openFn) {
+          openFn.call(fsModule, path, opts.flags || 'r', opts.mode || 438, function(err, fd) {
+            rs._opening = false;
+            if (err) {
+              rs.emit('error', _makeFsError(err, 'open', path));
+              if (autoClose) closeFd();
+              return;
+            }
+            rs._openFd = fd;
+            rs._opened = true;
+            rs._shouldAutoClose = rs._autoClose;
+            rs.fd = rs._openFd;
+            rs.emit('open', rs._openFd);
+            markReady();
+            rs._read();
+          });
           return;
         }
-        if (!openFn) throw _fsInvalidArgType('options.fs.open', 'function', undefined);
-        openFn(path, opts.flags || 'r', opts.mode || 438, function(err, fd) {
-          rs._opening = false;
-          if (err) {
-            rs.emit('error', err);
-            if (autoClose) closeFd();
-            return;
-          }
-          rs._openFd = fd;
-          rs._opened = true;
-          rs._shouldAutoClose = rs._autoClose;
-          rs.fd = rs._openFd;
-          rs.emit('open', rs._openFd);
-          markReady();
-          rs._read();
-        });
+        rs._openFd = openSyncFn(path, opts.flags || 'r', opts.mode || 438);
+        rs._opened = true;
+        rs._shouldAutoClose = rs._autoClose;
+        rs.fd = rs._openFd;
+        rs.emit('open', rs._openFd);
+        markReady();
+        rs._opening = false;
         return;
       }
     } catch(err) {
@@ -2415,7 +2588,7 @@ function _initReadStream(rs, path, options) {
         sourceHandle.read(buf, 0, chunkSize, rs._position, readDone);
       } else {
         var readArgs = [rs.fd, buf, 0, chunkSize, rs._position];
-        readFn.apply(null, readArgs.concat(readDone));
+        readFn.apply(fsModule, readArgs.concat(readDone));
       }
     } catch(err) {
       rs.emit('error', err);
@@ -2479,24 +2652,39 @@ function _initWriteStream(ws, path, options) {
   var encoding = opts.encoding || 'utf8';
   var autoClose = opts.autoClose !== false;
   var start = typeof opts.start === 'number' ? opts.start : null;
+  var openSyncFn = typeof fsModule.openSync === 'function' ? fsModule.openSync : openSync;
+  var openFn = typeof fsModule.open === 'function' ? fsModule.open : null;
+  var closeSyncFn = typeof fsModule.closeSync === 'function' ? fsModule.closeSync : closeSync;
+  var closeFn = typeof fsModule.close === 'function' ? fsModule.close : null;
+  var writeSyncFn = typeof fsModule.writeSync === 'function' ? fsModule.writeSync : writeSync;
+  var writeFn = typeof fsModule.write === 'function' ? fsModule.write : null;
+  var writevSyncFn = typeof fsModule.writevSync === 'function' ? fsModule.writevSync : writevSync;
+  var writevFn = typeof fsModule.writev === 'function' ? fsModule.writev : null;
   var fdOption = opts.fd;
   var fd = null;
   var opened = false;
+  var opening = false;
   var fileHandle = null;
-
   var usingHandle = false;
+  var pendingWrites = [];
+  var processingWrite = false;
+
   if (fdOption !== undefined && fdOption !== null) {
     if (typeof fdOption === 'number') {
       fd = fdOption;
       opened = true;
+      if (typeof _validateFd === 'function') _validateFd(fd);
     } else if (typeof fdOption === 'object' && typeof fdOption.fd === 'number') {
       fd = fdOption.fd;
       opened = true;
       fileHandle = fdOption;
       usingHandle = true;
+      if (typeof _validateFd === 'function') _validateFd(fd);
     } else {
       throw _fsInvalidArgType('fd', 'number', fdOption);
     }
+  } else {
+    _validatePath(path, 'path');
   }
 
   if (!ws._exactWriteStreamInitialized) {
@@ -2506,128 +2694,347 @@ function _initWriteStream(ws, path, options) {
   ws.path = path;
   ws.fd = fd;
   ws.closed = false;
+  ws._closed = false;
+  ws.destroyed = false;
   ws.pending = !opened;
   ws.bytesWritten = 0;
   ws._encoding = encoding;
   ws._shouldAutoClose = autoClose;
-  ws._shouldWriteAt = start;
+  ws._shouldWriteAt = typeof start === 'number' ? start : null;
   ws._readyEmitted = false;
   ws._flush = opts.flush === true;
 
-  if (fdOption === undefined || fdOption === null) {
-    _validatePath(path, 'path');
-  }
-
   ws._emitClose = function() {
-    if (!autoClose || ws.closed || ws._closed) return;
-    ws._closed = true;
-    ws.closed = true;
-    ws.emit('close');
-  };
-
-  var origClose = ws._close;
-  ws._close = function(force) {
-    if (!autoClose) return;
     if (ws.closed || ws._closed) return;
-    ws._closed = true;
     ws.closed = true;
+    ws._closed = true;
     ws.fd = null;
     ws.emit('close');
   };
 
-  function closeWriteFd() {
-    if (fd === null) return;
-    if (usingHandle && fileHandle && typeof fileHandle.close === 'function') {
-      try {
-        fileHandle.close();
-      } catch (_ignored) {
-        try {
-          closeSync(fd);
-        } catch (_ignored2) {}
-      }
-      fd = null;
-      ws.fd = null;
+  function closeWriteFd(callback) {
+    if (!autoClose || fd === null) {
+      if (typeof callback === 'function') _deferFsCallback(callback);
       return;
     }
-    try { closeSync(fd); } catch(e) {}
-    fd = null;
-    ws.fd = null;
-  }
+    var done = function(err) {
+      var closeErr = err ? _makeFsError(err, 'close', path) : null;
+      fd = null;
+      ws.fd = null;
+      if (typeof callback === 'function') {
+        _deferFsCallback(function() { callback(closeErr); });
+      }
+    };
 
-  function ensureOpen() {
-    if (!opened) {
-      if (ws.closed || ws.destroyed) return;
+    if (usingHandle && fileHandle && typeof fileHandle.close === 'function') {
       try {
-        opened = true;
-        fd = fsModule.openSync(path, flags, mode);
-        ws.fd = fd;
-        if (start !== null && start >= 0) {
-          ws._shouldWriteAt = start;
+        var handleCloseResult = fileHandle.close();
+        if (handleCloseResult && typeof handleCloseResult.then === 'function') {
+          handleCloseResult.then(function() { done(); }, function(err) { done(err); });
+          return;
         }
-        ws.emit('open', fd);
-        if (!ws._readyEmitted) {
-          ws._readyEmitted = true;
-          ws.pending = false;
-          ws.emit('ready');
-        }
-      } catch (err) {
-        opened = false;
-        ws.emit('error', _makeFsError(err, 'open', path));
+      } catch (_ignore) {
+        try {
+          if (typeof closeSyncFn === 'function') closeSyncFn(fd);
+        } catch (_ignored) {}
+      }
+      done();
+      return;
+    }
+
+    try {
+      if (typeof closeFn === 'function') {
+        closeFn.call(fsModule, fd, function(err) { done(err); });
         return;
       }
-    } else if (!ws._readyEmitted) {
+      if (typeof closeSyncFn === 'function') {
+        closeSyncFn(fd);
+        done();
+      } else {
+        done();
+      }
+    } catch (err) {
+      done(err);
+    }
+  }
+
+  function makeWriteError(err, operation) {
+    return (err && err.code) ? err : _makeFsError(err, operation || 'write', path);
+  }
+
+  function emitWriteError(err, callback, operation) {
+    var writeErr = makeWriteError(err, operation);
+    if (typeof callback === 'function') callback(writeErr);
+    else ws.emit('error', writeErr);
+  }
+
+  function normalizeWritePosition() {
+    return typeof ws._shouldWriteAt === 'number' ? ws._shouldWriteAt : null;
+  }
+
+  function failPendingWrites(err) {
+    var next;
+    while ((next = pendingWrites.shift())) {
+      emitWriteError(err, next.callback, 'open');
+    }
+    processingWrite = false;
+  }
+
+  function setOpened(newFd) {
+    if (!opened && typeof _validateFd === 'function') _validateFd(newFd);
+    opened = true;
+    opening = false;
+    fd = newFd;
+    ws.fd = fd;
+    if (typeof start === 'number') {
+      ws._shouldWriteAt = start;
+    }
+    ws.emit('open', fd);
+    if (!ws._readyEmitted) {
       ws._readyEmitted = true;
       ws.pending = false;
       ws.emit('ready');
     }
+    drainPendingWrites();
   }
 
-  if (!opened) {
-    setTimeout(ensureOpen, 0);
-  } else if (opened) {
-    ws.pending = false;
+  function ensureOpen() {
+    if (opened || ws.closed || ws.destroyed || opening) return;
+    if (!fdOption && !openFn && !openSyncFn) {
+      var openFnError = makeWriteError(new Error('open is not a function'), 'open');
+      ws.emit('error', openFnError);
+      failPendingWrites(openFnError);
+      return;
+    }
+    opening = true;
+    if (openFn) {
+      openFn.call(fsModule, path, flags, mode, function(err, openedFd) {
+        if (err) {
+          opening = false;
+          failPendingWrites(err);
+          ws.emit('error', makeWriteError(err, 'open'));
+          return;
+        }
+        setOpened(openedFd);
+      });
+      return;
+    }
+    try {
+      setOpened(openSyncFn.call(fsModule, path, flags, mode));
+    } catch(err) {
+      opening = false;
+      failPendingWrites(err);
+      ws.emit('error', makeWriteError(err, 'open'));
+    }
+  }
+
+  function performWrite(chunk, enc, callback) {
+    var bytes = toUint8Array(chunk, enc || encoding);
+    var position = normalizeWritePosition();
+    var done = function(err, written) {
+      if (err) {
+        emitWriteError(err, callback, 'write');
+        return;
+      }
+      var writtenBytes = typeof written === 'number' ? written : bytes.length;
+      if (typeof position === 'number') {
+        ws._shouldWriteAt += writtenBytes;
+      }
+      ws.bytesWritten += writtenBytes;
+      if (typeof callback === 'function') callback();
+    };
+
+    if (usingHandle && fileHandle && typeof fileHandle.write === 'function') {
+      try {
+        var handleResult = fileHandle.write(bytes, 0, bytes.length, position);
+        if (handleResult && typeof handleResult.then === 'function') {
+          handleResult.then(function(result) {
+            if (typeof result === 'object' && result !== null && typeof result.bytesWritten === 'number') {
+              done(null, result.bytesWritten);
+              return;
+            }
+            done(null, bytes.length);
+          }).catch(function(err) {
+            done(err);
+          });
+          return;
+        }
+        if (typeof handleResult === 'number') {
+          done(null, handleResult);
+        } else {
+          done();
+        }
+        return;
+      } catch(err) {
+        done(err);
+      }
+      return;
+    }
+
+    if (typeof writeFn === 'function') {
+      try {
+        writeFn.call(fsModule, fd, bytes, 0, bytes.length, position, function(err, written) {
+          done(err, written);
+        });
+      } catch(err) {
+        done(err);
+      }
+      return;
+    }
+
+    try {
+      var written = writeSyncFn.call(fsModule, fd, bytes, 0, bytes.length, position === null ? -1 : position);
+      done(null, written);
+    } catch(err) {
+      done(err);
+    }
+  }
+
+  function buffersFromChunks(chunks) {
+    var buffers = new Array(chunks.length);
+    for (var i = 0; i < chunks.length; i++) {
+      var chunk = chunks[i];
+      buffers[i] = toUint8Array(chunk.chunk, chunk.encoding || encoding);
+    }
+    return buffers;
+  }
+
+  function sumBufferLengths(buffers) {
+    var total = 0;
+    for (var i = 0; i < buffers.length; i++) {
+      total += buffers[i].length;
+    }
+    return total;
+  }
+
+  function performWritev(chunks, callback) {
+    var buffers = buffersFromChunks(chunks);
+    var position = normalizeWritePosition();
+    var done = function(err, written) {
+      if (err) {
+        emitWriteError(err, callback, 'writev');
+        return;
+      }
+      var writtenBytes = typeof written === 'number' ? written : sumBufferLengths(buffers);
+      if (typeof position === 'number') {
+        ws._shouldWriteAt += writtenBytes;
+      }
+      ws.bytesWritten += writtenBytes;
+      if (typeof callback === 'function') callback();
+    };
+
+    if (usingHandle && fileHandle && typeof fileHandle.writev === 'function') {
+      try {
+        var handleWritevResult = fileHandle.writev(buffers, position);
+        if (handleWritevResult && typeof handleWritevResult.then === 'function') {
+          handleWritevResult.then(function(result) {
+            if (result && typeof result.bytesWritten === 'number') {
+              done(null, result.bytesWritten);
+            } else {
+              done(null, sumBufferLengths(buffers));
+            }
+          }).catch(function(err) {
+            done(err);
+          });
+        } else if (handleWritevResult && typeof handleWritevResult.bytesWritten === 'number') {
+          done(null, handleWritevResult.bytesWritten);
+        } else {
+          done(null, sumBufferLengths(buffers));
+        }
+      } catch(err) {
+        done(err);
+      }
+      return;
+    }
+
+    if (typeof writevFn === 'function') {
+      try {
+        writevFn.call(fsModule, fd, buffers, position, function(err, bytesWritten) {
+          done(err, bytesWritten);
+        });
+      } catch(err) {
+        done(err);
+      }
+      return;
+    }
+
+    if (typeof writevSyncFn === 'function') {
+      try {
+        var bytes = writevSyncFn.call(fsModule, fd, buffers, position);
+        done(null, bytes);
+      } catch(err) {
+        done(err);
+      }
+      return;
+    }
+
+    try {
+      var writtenTotal = 0;
+      for (var i = 0; i < buffers.length; i++) {
+        var buf = buffers[i];
+        var currentOffset = position === null ? -1 : position + writtenTotal;
+        writtenTotal += writeSyncFn.call(fsModule, fd, buf, 0, buf.length, currentOffset);
+      }
+      done(null, writtenTotal);
+    } catch(err) {
+      done(err);
+    }
+  }
+
+  function drainPendingWrites() {
+    if (processingWrite || !opened || ws.closed || ws.destroyed) return;
+    var next = pendingWrites.shift();
+    if (!next) {
+      return;
+    }
+    processingWrite = true;
+    var finishWrite = function(err) {
+      processingWrite = false;
+      if (typeof next.callback === 'function') next.callback(err);
+      drainPendingWrites();
+    };
+    if (next.type === 'write') {
+      performWrite(next.chunk, next.encoding, finishWrite);
+      return;
+    }
+    performWritev(next.chunks, finishWrite);
+  }
+
+  function enqueueWrite(type, payload, callback) {
+    if (ws.closed || ws.destroyed) {
+      emitWriteError(new Error('Write stream closed'), callback, 'write');
+      return;
+    }
+    pendingWrites.push({
+      type: type,
+      chunk: payload && payload.chunk ? payload.chunk : null,
+      encoding: payload && payload.encoding,
+      chunks: payload && payload.chunks ? payload.chunks : null,
+      callback: callback
+    });
+    if (!opened) {
+      if (!opening) ensureOpen();
+      return;
+    }
+    if (!processingWrite) {
+      drainPendingWrites();
+    }
+  }
+
+  if (!opened && !fdOption) {
+    _deferFsCallback(ensureOpen);
+  } else if (opened && !ws._readyEmitted) {
     ws._readyEmitted = true;
+    ws.pending = false;
     ws.emit('ready');
   }
 
   ws._write = function(chunk, enc, callback) {
-    try {
-      ensureOpen();
-      if (usingHandle && fileHandle && typeof fileHandle.write === 'function') {
-        try {
-          var promise = fileHandle.write(toUint8Array(chunk, encoding), 0, chunk.length, ws._shouldWriteAt);
-          if (promise && typeof promise.then === 'function') {
-            promise.then(function(result) {
-              if (typeof ws._shouldWriteAt === 'number' && result && typeof result.bytesWritten === 'number') {
-                ws._shouldWriteAt += result.bytesWritten;
-              }
-              if (result && typeof result.bytesWritten === 'number') {
-                ws.bytesWritten += result.bytesWritten;
-              } else {
-                ws.bytesWritten += chunk.length;
-              }
-              if (typeof callback === 'function') callback();
-            }).catch(function(err) {
-              if (typeof callback === 'function') callback(err);
-            });
-            return;
-          }
-        } catch (err) {
-          if (typeof callback === 'function') callback(err);
-          return;
-        }
-      }
-      var bytes = toUint8Array(chunk, encoding);
-      var position = ws._shouldWriteAt;
-      var written = fsModule.writeSync(fd, bytes, 0, bytes.length, typeof position === 'number' ? position : -1);
-      if (typeof ws._shouldWriteAt === 'number') {
-        ws._shouldWriteAt += written;
-      }
-      ws.bytesWritten += written;
-      if (typeof callback === 'function') callback();
-    } catch(err) {
-      if (typeof callback === 'function') callback(err);
-    }
+    enqueueWrite('write', { chunk: chunk, encoding: enc }, callback);
+  };
+
+  ws._writev = function(chunks, callback) {
+    enqueueWrite('writev', { chunks: chunks }, callback);
   };
 
   ws._final = function(callback) {
@@ -2640,7 +3047,15 @@ function _initWriteStream(ws, path, options) {
         return;
       }
       if (autoClose) {
-        closeWriteFd();
+        closeWriteFd(function(closeErr) {
+          if (closeErr) {
+            callback(closeErr);
+            return;
+          }
+          ws._emitClose();
+          callback();
+        });
+        return;
       }
       callback();
     };
@@ -2658,32 +3073,39 @@ function _initWriteStream(ws, path, options) {
       });
     };
 
-    if (!opened) {
-      setTimeout(function() {
-        try {
-          ensureOpen();
-          flushAndClose();
-        } catch(err) {
-          callback(err);
+    if (!opened && !fdOption) {
+      ensureOpen();
+      var waitForOpen = function() {
+        if (opening) {
+          _deferFsCallback(waitForOpen);
+          return;
         }
-      }, 0);
+        if (processingWrite) {
+          _deferFsCallback(waitForOpen);
+          return;
+        }
+        flushAndClose();
+      };
+      waitForOpen();
       return;
     }
     flushAndClose();
   };
 
   ws.destroy = function(err) {
-    if (!ws.destroyed && autoClose) {
-      closeWriteFd();
-    }
-    if (!autoClose) {
-      ws.destroyed = true;
-      return ws;
-    }
+    if (ws.destroyed) return ws;
+    ws.destroyed = true;
     if (err) ws.emit('error', err);
-    ws._emitClose();
+    if (autoClose) {
+      closeWriteFd(function() {
+        ws._emitClose();
+      });
+    } else {
+      ws._emitClose();
+    }
     return ws;
   };
+
   ws.open = function() {
     if (opened) {
       if (!ws._readyEmitted) {
@@ -2696,30 +3118,33 @@ function _initWriteStream(ws, path, options) {
     ensureOpen();
     return ws;
   };
+
   ws.close = function(callback) {
     if (typeof callback === 'function') {
       if (ws.closed || ws._closed) {
-        setTimeout(callback, 0);
+        _deferFsCallback(callback);
+        return ws;
+      }
+      ws.once('close', callback);
+      if (!autoClose) {
+        ws._emitClose();
       } else {
-        var onClose = function() {
-          callback();
-          ws.removeListener('close', onClose);
-        };
-        ws.once('close', onClose);
-        if (!autoClose) {
-          ws.closed = true;
-          ws.emit('close');
-        } else {
-          closeWriteFd();
+        closeWriteFd(function(err) {
+          if (err) {
+            ws.emit('error', err);
+          }
           ws._emitClose();
-        }
+        });
       }
       return ws;
     }
     if (autoClose && !ws.closed && !ws._closed) {
-      closeWriteFd();
-      ws._emitClose();
+      closeWriteFd(function() {
+        ws._emitClose();
+      });
+      return ws;
     }
+    ws._emitClose();
     return ws;
   };
 
@@ -3045,10 +3470,11 @@ function unwatchFile(filename) {
 
 // fs.symlink/link/readlink/truncate/chown/utimes/rm
 function symlinkSync(target, path, type) {
-  _validatePath(target, 'target');
+  var t = _coercePathFromURL(target, 'target');
+  _validatePath(t, 'target');
   _validatePath(path, 'path');
   ensureExactFs();
-  var t = _pathToString(target); var p = _pathToString(path);
+  var p = _pathToString(path);
   try {
     if (typeof g.__exactSymlink === 'function') return g.__exactSymlink(t, p);
     throw new Error('ENOSYS: symlink not available');
@@ -3883,7 +4309,10 @@ module.exports = {
 // Add F_OK, R_OK, W_OK, X_OK as read-only properties (deprecated but still accessible)
 ['F_OK', 'R_OK', 'W_OK', 'X_OK'].forEach(function(name) {
   Object.defineProperty(module.exports, name, {
-    get: function() { return constants[name]; },
+    get: function() {
+      _emitFsDeprecation('DEP0176', 'fs.' + name + ' is deprecated, use fs.constants.' + name + ' instead');
+      return constants[name];
+    },
     set: function() { throw new TypeError('Cannot assign to read only property \'' + name + '\' of object \'#<Object>\''); },
     enumerable: false,
     configurable: false
