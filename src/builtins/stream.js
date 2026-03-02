@@ -1107,7 +1107,7 @@ Readable.prototype.read = function(size) {
     return null;
   }
 
-  if (state.length === 0) {
+  if (state.length === 0 && !this.readableFlowing) {
     state.needReadable = true;
     if (state.constructed !== false && !state.reading && !this._destroyed) {
       _nextTick(function() {
@@ -3546,6 +3546,9 @@ Stream.prototype.pipe = function(dest, options) {
       var idx = state.pipes.indexOf(dest);
       if (idx !== -1) state.pipes.splice(idx, 1);
       state.pipesCount = state.pipes.length;
+      if (state.pipes.length === 0 && typeof source.pause === 'function') {
+        source.pause();
+      }
       if (emitUnpipe !== false && dest && typeof dest.emit === 'function') {
         dest.emit('unpipe', source);
       }
@@ -3709,6 +3712,14 @@ function pipeline() {
   var awaitingResult = false;
   var listeners = [];
   var streams = [];
+  function isPipelineOptions(value) {
+    return value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      typeof value.pipe !== 'function' &&
+      typeof value.write !== 'function' &&
+      typeof value.read !== 'function';
+  }
   var __pipelineCallerLine = __pipelineGetCallerLine();
   if (__pipelineDebug) {
     console.log('pipeline', __pipelineDebugId, 'start', __pipelineCallerLine, 'streamCount', args.length);
@@ -3716,9 +3727,7 @@ function pipeline() {
   if (typeof args[args.length - 1] === 'function') {
     callback = args.pop();
     hasCallback = true;
-  }
-
-  if (!hasCallback) {
+  } else {
     var invalidCallbackCandidate = args[args.length - 1];
     var receivedMessage = 'undefined';
     if (typeof invalidCallbackCandidate === 'string') {
@@ -3742,17 +3751,11 @@ function pipeline() {
       'The "streams[stream.length - 1]" property must be of type function. Received ' + receivedMessage
     );
   }
-
-  try {
-  function isPipelineOptions(value) {
-    return value &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      typeof value.pipe !== 'function' &&
-      typeof value.write !== 'function' &&
-      typeof value.read !== 'function';
+  if (hasCallback && args.length > 1 && isPipelineOptions(args[args.length - 1])) {
+    options = args.pop();
   }
 
+  try {
   var parsedArrayAsStreams = false;
   if (Array.isArray(args[0])) {
     var isArrayOfStreams = true;
@@ -3885,6 +3888,7 @@ function pipeline() {
 
 function isReadableDone(stream) {
   if (!stream) return true;
+  if (stream.closed === true) return true;
   if (
     stream._destroyed ||
     stream.destroyed ||
@@ -3907,6 +3911,7 @@ function isReadableDone(stream) {
 }
 
 function isWritableDone(stream) {
+  if (stream && stream.closed === true) return true;
   if (
     stream._destroyed ||
     stream.destroyed ||
@@ -4255,15 +4260,16 @@ function isStreamDone(stream) {
   for (var i = 0; i + 1 < streams.length; i++) {
     var src = streams[i];
     var dst = streams[i + 1];
+    var shouldPipeEndForThisPair = i + 1 === streams.length - 1 ? shouldPipeEnd : true;
     addPairCloseGuard(src, dst);
     if (typeof src.pipe === 'function') {
       try {
-        src.pipe(dst, { end: shouldPipeEnd });
+        src.pipe(dst, { end: shouldPipeEndForThisPair });
       } catch (err) {
         onError(err);
         break;
       }
-    } else if (!connectWithoutPipe(src, dst, shouldPipeEnd)) {
+    } else if (!connectWithoutPipe(src, dst, shouldPipeEndForThisPair)) {
       onError(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams[' + (i + 1) + ']" argument must be of type Stream. Received ' + typeof dst));
       break;
     }
@@ -4288,7 +4294,7 @@ function isStreamDone(stream) {
   addListener(last, 'close', function() {
     onClose(last);
   });
-  return undefined;
+  return hasCallback ? undefined : last;
   } catch (err) {
     throw err;
   }

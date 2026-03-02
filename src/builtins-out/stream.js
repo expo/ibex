@@ -3126,11 +3126,13 @@ function pipeline() {
 	var awaitingResult = false;
 	var listeners = [];
 	var streams = [];
+	function isPipelineOptions(value) {
+		return value && typeof value === "object" && !Array.isArray(value) && typeof value.pipe !== "function" && typeof value.write !== "function" && typeof value.read !== "function";
+	}
 	if (typeof args[args.length - 1] === "function") {
 		callback = args.pop();
 		hasCallback = true;
-	}
-	if (!hasCallback) {
+	} else {
 		var invalidCallbackCandidate = args[args.length - 1];
 		var receivedMessage = "undefined";
 		if (typeof invalidCallbackCandidate === "string") receivedMessage = "type string ('" + invalidCallbackCandidate + "')";
@@ -3140,10 +3142,10 @@ function pipeline() {
 		else receivedMessage = "type " + typeof invalidCallbackCandidate;
 		throw makeError(TypeError, "ERR_INVALID_ARG_TYPE", "The \"streams[stream.length - 1]\" property must be of type function. Received " + receivedMessage);
 	}
+	if (hasCallback && args.length > 1 && isPipelineOptions(args[args.length - 1])) {
+		options = args.pop();
+	}
 	try {
-		function isPipelineOptions(value) {
-			return value && typeof value === "object" && !Array.isArray(value) && typeof value.pipe !== "function" && typeof value.write !== "function" && typeof value.read !== "function";
-		}
 		var parsedArrayAsStreams = false;
 		if (Array.isArray(args[0])) {
 			var isArrayOfStreams = true;
@@ -3511,7 +3513,7 @@ function pipeline() {
 		addListener(last, "close", function() {
 			onClose(last);
 		});
-		return void 0;
+		return hasCallback ? void 0 : last;
 	} catch (err) {
 		throw err;
 	}
