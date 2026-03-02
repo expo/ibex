@@ -38,7 +38,23 @@ function finished(streamLike, options) {
     return Promise.reject(new TypeError('The callback argument is not supported'));
   }
   if (typeof stream.finished === 'function') {
-    return stream.finished(streamLike, options || {});
+    return new Promise(function(resolve, reject) {
+      var called = false;
+      function done(err) {
+        if (called) return;
+        called = true;
+        if (err) reject(err);
+        else resolve();
+      }
+      try {
+        var result = stream.finished(streamLike, options || {}, done);
+        if (result && typeof result.then === 'function') {
+          result.then(resolve, reject);
+        }
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
   return Promise.reject(new Error('stream.finished is not available'));
 }

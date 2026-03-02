@@ -1216,6 +1216,27 @@ Readable.prototype.pause = function() {
 };
 
 Readable.prototype.on = function(event, listener) {
+  if (event === 'readable' && arguments.length === 1) {
+    var state = this._readableState;
+    this.readableFlowing = false;
+    if (state) {
+      state.readableListening = true;
+      state.needReadable = true;
+      state.emittedReadable = false;
+      if (state.length > 0) {
+        this._emitReadableIfNeeded();
+      } else if (!state.reading) {
+        var self = this;
+        var tick = typeof process === 'object' &&
+          process &&
+          typeof process.nextTick === 'function'
+          ? process.nextTick
+          : function(fn) { setTimeout(fn, 0); };
+        tick(function() { self.read(0); });
+      }
+    }
+    return this;
+  }
   var result = EventEmitter.prototype.on.call(this, event, listener);
   if (event === 'readable') {
     var state = this._readableState;
@@ -3980,11 +4001,21 @@ function isStreamDone(stream) {
     function onData(chunk) {
       if (ended || settled || error) return;
       var canContinue = true;
+      var wrote = false;
+      var onWrite = function(err) {
+        if (err) {
+          onError(err);
+        }
+        wrote = true;
+      };
       try {
-        canContinue = dst.write(chunk);
+        canContinue = dst.write(chunk, 'utf8', onWrite);
       } catch (_err) {
         onError(_err);
         return;
+      }
+      if (!wrote && dst && dst._writableState && dst._writableState.writing) {
+        wrote = true;
       }
       if (canContinue === false) {
         if (typeof src.pause === 'function') {
@@ -4209,7 +4240,7 @@ function isStreamDone(stream) {
   addListener(last, 'close', function() {
     onClose(last);
   });
-  return hasCallback ? last : undefined;
+  return undefined;
   } catch (err) {
     throw err;
   }
