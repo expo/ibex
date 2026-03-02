@@ -55,7 +55,15 @@ function _validateInt32(name, value) {
 }
 
 function _validateUidOrGid(name, value) {
-  _validateInt(name, value, -1, 4294967295);
+  if (typeof value !== 'number') {
+    throw _fsInvalidArgType(name, 'number', value);
+  }
+  if (!Number.isInteger(value)) {
+    throw _fsOutOfRange(name, value, null, null);
+  }
+  if (value < -1 || value > 4294967295) {
+    throw _fsOutOfRange(name, value, -1, 4294967295);
+  }
 }
 
 function _validateUint32(name, value) {
@@ -2261,6 +2269,7 @@ function createWriteStream(path, options) {
   var fdOption = opts.fd;
   var fd = null;
   var opened = false;
+  var fileHandle = null;
 
   var usingHandle = false;
   if (fdOption !== undefined && fdOption !== null) {
@@ -2270,6 +2279,7 @@ function createWriteStream(path, options) {
     } else if (typeof fdOption === 'object' && typeof fdOption.fd === 'number') {
       fd = fdOption.fd;
       opened = true;
+      fileHandle = fdOption;
       usingHandle = true;
     } else {
       throw _fsInvalidArgType('fd', 'number', fdOption);
@@ -2311,6 +2321,18 @@ function createWriteStream(path, options) {
 
   function closeWriteFd() {
     if (fd === null) return;
+    if (usingHandle && fileHandle && typeof fileHandle.close === 'function') {
+      try {
+        fileHandle.close();
+      } catch (_ignored) {
+        try {
+          closeSync(fd);
+        } catch (_ignored2) {}
+      }
+      fd = null;
+      ws.fd = null;
+      return;
+    }
     try { closeSync(fd); } catch(e) {}
     fd = null;
     ws.fd = null;
@@ -2349,6 +2371,30 @@ function createWriteStream(path, options) {
   ws._write = function(chunk, enc, callback) {
     try {
       ensureOpen();
+      if (usingHandle && fileHandle && typeof fileHandle.write === 'function') {
+        try {
+          var promise = fileHandle.write(toUint8Array(chunk, encoding), 0, chunk.length, ws._shouldWriteAt);
+          if (promise && typeof promise.then === 'function') {
+            promise.then(function(result) {
+              if (typeof ws._shouldWriteAt === 'number' && result && typeof result.bytesWritten === 'number') {
+                ws._shouldWriteAt += result.bytesWritten;
+              }
+              if (result && typeof result.bytesWritten === 'number') {
+                ws.bytesWritten += result.bytesWritten;
+              } else {
+                ws.bytesWritten += chunk.length;
+              }
+              if (typeof callback === 'function') callback();
+            }).catch(function(err) {
+              if (typeof callback === 'function') callback(err);
+            });
+            return;
+          }
+        } catch (err) {
+          if (typeof callback === 'function') callback(err);
+          return;
+        }
+      }
       var bytes = toUint8Array(chunk, encoding);
       var position = ws._shouldWriteAt;
       var written = fsModule.writeSync(fd, bytes, 0, bytes.length, typeof position === 'number' ? position : -1);

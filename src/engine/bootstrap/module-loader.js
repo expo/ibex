@@ -145,6 +145,50 @@
     },
     isEmpty: function(item) { return item._idleNext === item; }
   };
+  function _internalFsUtilsInvalidArgValue(name, value, reason) {
+    var err = new TypeError('The "' + name + '" argument must be ' + reason + '. Received ' + value);
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    return err;
+  }
+  function _internalFsUtilsRangeError(name, value, min, max) {
+    var message = 'The value of "' + name + '" is out of range. It must be >= ' + min + ' && <= ' + max + '. Received ' + value;
+    var err = new RangeError(message);
+    err.code = 'ERR_OUT_OF_RANGE';
+    return err;
+  }
+  function _internalFsUtilsStringToInt(value) {
+    return parseInt(value, 10);
+  }
+  function _internalFsUtilsValidateOffsetLength(offset, length, byteLength, mode, maxLength) {
+    if (!Number.isInteger(offset) || offset < 0) {
+      var offsetErr = new RangeError('The value of "offset" is out of range. It must be >= 0. Received ' + offset);
+      offsetErr.code = 'ERR_OUT_OF_RANGE';
+      throw offsetErr;
+    }
+    if (!Number.isInteger(length) || length < 0) {
+      var lengthErr = new RangeError('The value of "length" is out of range. It must be >= 0. Received ' + length);
+      lengthErr.code = 'ERR_OUT_OF_RANGE';
+      throw lengthErr;
+    }
+    if (mode === 'write') {
+      if (offset > byteLength) {
+        var writeOffsetErr = new RangeError('The value of "offset" is out of range. It must be <= ' + byteLength + '. Received ' + offset);
+        writeOffsetErr.code = 'ERR_OUT_OF_RANGE';
+        throw writeOffsetErr;
+      }
+    }
+    if (length > maxLength) {
+      var maxLenErr = new RangeError('The value of "length" is out of range. It must be <= ' + maxLength + '. Received ' + length);
+      maxLenErr.code = 'ERR_OUT_OF_RANGE';
+      throw maxLenErr;
+    }
+    var max = byteLength - offset;
+    if (length > max) {
+      var lenErr = new RangeError('The value of "length" is out of range. It must be <= ' + max + '. Received ' + length);
+      lenErr.code = 'ERR_OUT_OF_RANGE';
+      throw lenErr;
+    }
+  }
   var internalModules = {
     'internal/util/debuglog': {
       formatTime: formatTime,
@@ -190,13 +234,371 @@
         return !!(value && value.constructor && value.constructor.name === 'X509Certificate');
       }
     },
+    'internal/fs/utils': {
+      validateOffsetLengthRead: function(offset, length, byteLength, lengthIsBigInt) {
+        if (lengthIsBigInt !== undefined && lengthIsBigInt) {
+          if (typeof offset === 'bigint' || typeof length === 'bigint') {
+            offset = _internalFsUtilsStringToInt(offset);
+            length = _internalFsUtilsStringToInt(length);
+          }
+        }
+        _internalFsUtilsValidateOffsetLength(offset, length, byteLength, 'read', (2 ** 31) - 1);
+      },
+      validateOffsetLengthWrite: function(offset, length, byteLength, lengthIsBigInt) {
+        if (lengthIsBigInt !== undefined && lengthIsBigInt) {
+          if (typeof offset === 'bigint' || typeof length === 'bigint') {
+            offset = _internalFsUtilsStringToInt(offset);
+            length = _internalFsUtilsStringToInt(length);
+          }
+        }
+        _internalFsUtilsValidateOffsetLength(offset, length, byteLength, 'write', (2 ** 31) - 1);
+      },
+      stringToFlags: function(flag) {
+        var constants = require('fs').constants || {};
+        if (typeof flag !== 'string' || flag === '') {
+          var err = new TypeError('The flags argument must be a valid flags string. Received ' + flag);
+          err.code = 'ERR_INVALID_ARG_VALUE';
+          throw err;
+        }
+        var hasPlus = flag.indexOf('+') !== -1;
+        if (flag.indexOf('+') !== flag.lastIndexOf('+')) {
+          throw _internalFsUtilsInvalidArgValue('flags', flag, 'a valid flag string');
+        }
+        if (hasPlus && flag.indexOf('+') !== flag.length - 1) {
+          throw _internalFsUtilsInvalidArgValue('flags', flag, 'a valid flag string');
+        }
+        var flagChars = hasPlus ? flag.slice(0, -1) : flag;
+        var hasSync = false;
+        var hasExclusive = false;
+        var modeFlags = '';
+        for (var i = 0; i < flagChars.length; i++) {
+          var ch = flagChars.charAt(i);
+          if (ch === 's') {
+            if (hasSync) throw _internalFsUtilsInvalidArgValue('flags', flag, 'a valid flag string');
+            hasSync = true;
+          } else if (ch === 'x') {
+            if (hasExclusive) throw _internalFsUtilsInvalidArgValue('flags', flag, 'a valid flag string');
+            hasExclusive = true;
+          } else if (ch === 'r' || ch === 'w' || ch === 'a') {
+            if (modeFlags.length >= 1) throw _internalFsUtilsInvalidArgValue('flags', flag, 'a valid flag string');
+            modeFlags = ch;
+          } else {
+            throw _internalFsUtilsInvalidArgValue('flags', flag, 'a valid flag string');
+          }
+        }
+        if (modeFlags.length !== 1) {
+          throw _internalFsUtilsInvalidArgValue('flags', flag, 'a valid flag string');
+        }
+        if (hasExclusive && modeFlags === 'r') {
+          throw _internalFsUtilsInvalidArgValue('flags', flag, 'a valid flag string');
+        }
+        var oSync = constants.O_SYNC || 0;
+        var result = 0;
+        if (modeFlags === 'r') {
+          result = hasPlus ? constants.O_RDWR || 2 : constants.O_RDONLY || 0;
+        } else if (modeFlags === 'w') {
+          result = (constants.O_WRONLY || 1) | (constants.O_CREAT || 64) | (constants.O_TRUNC || 512);
+        } else {
+          result = (constants.O_APPEND || 1024) | (constants.O_CREAT || 64) | (constants.O_WRONLY || 1);
+        }
+        if (hasPlus) {
+          result = (result & ~(constants.O_WRONLY || 1)) | (constants.O_RDWR || 2);
+        }
+        if (hasExclusive) {
+          result |= constants.O_EXCL || 128;
+        }
+        if (hasSync) {
+          result |= oSync;
+        }
+        return result;
+      },
+      getDirents: function(path, entries, callback) {
+        if (callback === undefined || callback === null) {
+          callback = null;
+        }
+        if (callback !== null && typeof callback !== 'function') {
+          var callbackErr = new TypeError(
+            'The "callback" argument must be of type function. Received ' + typeof callback
+          );
+          callbackErr.code = 'ERR_INVALID_ARG_TYPE';
+          throw callbackErr;
+        }
+        var pair = entries || [];
+        var names = Array.isArray(pair[0]) ? pair[0] : [];
+        var types = Array.isArray(pair[1]) ? pair[1] : [];
+        if (typeof path !== 'string' && !Buffer.isBuffer(path)) {
+          var err = new TypeError('The "path" argument must be of type string or an ' +
+            'instance of Buffer. Received type ' + (path === null ? 'null' : typeof path) +
+            ' (' + path + ')');
+          if (callback) return callback(err);
+          throw err;
+        }
+        var fs = require('fs');
+        var direntTypeUnknown = 0;
+        var direntTypeFile = 1;
+        var direntTypeDir = 2;
+        var direntTypeLink = 3;
+        var direntTypeFifo = 4;
+        var direntTypeSocket = 5;
+        var direntTypeChar = 6;
+        var direntTypeBlock = 7;
+        function statFromType(parentPath, entryName, type) {
+          if (type === direntTypeFile) {
+            return {
+              isFile: function() { return true; },
+              isDirectory: function() { return false; },
+              isSymbolicLink: function() { return false; },
+              isBlockDevice: function() { return false; },
+              isCharacterDevice: function() { return false; },
+              isFIFO: function() { return false; },
+              isSocket: function() { return false; },
+            };
+          }
+          if (type === direntTypeDir) {
+            return {
+              isFile: function() { return false; },
+              isDirectory: function() { return true; },
+              isSymbolicLink: function() { return false; },
+              isBlockDevice: function() { return false; },
+              isCharacterDevice: function() { return false; },
+              isFIFO: function() { return false; },
+              isSocket: function() { return false; },
+            };
+          }
+          if (type === direntTypeLink) {
+            return {
+              isFile: function() { return false; },
+              isDirectory: function() { return false; },
+              isSymbolicLink: function() { return true; },
+              isBlockDevice: function() { return false; },
+              isCharacterDevice: function() { return false; },
+              isFIFO: function() { return false; },
+              isSocket: function() { return false; },
+            };
+          }
+          if (type === direntTypeFifo) {
+            return {
+              isFile: function() { return false; },
+              isDirectory: function() { return false; },
+              isSymbolicLink: function() { return false; },
+              isBlockDevice: function() { return false; },
+              isCharacterDevice: function() { return false; },
+              isFIFO: function() { return true; },
+              isSocket: function() { return false; },
+            };
+          }
+          if (type === direntTypeSocket) {
+            return {
+              isFile: function() { return false; },
+              isDirectory: function() { return false; },
+              isSymbolicLink: function() { return false; },
+              isBlockDevice: function() { return false; },
+              isCharacterDevice: function() { return false; },
+              isFIFO: function() { return false; },
+              isSocket: function() { return true; },
+            };
+          }
+          if (type === direntTypeChar) {
+            return {
+              isFile: function() { return false; },
+              isDirectory: function() { return false; },
+              isSymbolicLink: function() { return false; },
+              isBlockDevice: function() { return false; },
+              isCharacterDevice: function() { return true; },
+              isFIFO: function() { return false; },
+              isSocket: function() { return false; },
+            };
+          }
+          if (type === direntTypeBlock) {
+            return {
+              isFile: function() { return false; },
+              isDirectory: function() { return false; },
+              isSymbolicLink: function() { return false; },
+              isBlockDevice: function() { return true; },
+              isCharacterDevice: function() { return false; },
+              isFIFO: function() { return false; },
+              isSocket: function() { return false; },
+            };
+          }
+          var fullPath = String(path);
+          if (typeof entryName === 'string') {
+            fullPath += '/' + entryName;
+          } else {
+            fullPath += '/' + String(entryName);
+          }
+          try {
+            return fs.lstatSync(fullPath);
+          } catch (_ignored) {
+            return null;
+          }
+        }
+        var out = [];
+        for (var i = 0; i < names.length; i++) {
+          out.push(new (require('fs').Dirent)(
+            names[i],
+            path,
+            statFromType(path, names[i], types[i])
+          ));
+        }
+        if (callback) {
+          return callback(null, out);
+        }
+        return out;
+      },
+      getDirent: function(path, name, type, callback) {
+        if (callback !== undefined && typeof callback !== 'function') {
+          var callbackErr = new TypeError(
+            'The "callback" argument must be of type function. Received ' + typeof callback
+          );
+          callbackErr.code = 'ERR_INVALID_ARG_TYPE';
+          throw callbackErr;
+        }
+        if (typeof path !== 'string' && !Buffer.isBuffer(path)) {
+          var err = new TypeError('The "path" argument must be of type string or an ' +
+            'instance of Buffer. Received type ' + (path === null ? 'null' : typeof path) +
+            ' (' + path + ')');
+          if (callback) return callback(err);
+          throw err;
+        }
+        if (typeof name !== 'string' && !Buffer.isBuffer(name)) {
+          var nameErr = new TypeError('The "name" argument must be of type string or an ' +
+            'instance of Buffer. Received type ' + (name === null ? 'null' : typeof name) +
+            ' (' + name + ')');
+          if (callback) return callback(nameErr);
+          throw nameErr;
+        }
+        var fs = require('fs');
+        var constants = internalModules['internal/test/binding'].internalBinding.call(
+          internalModules['internal/test/binding'],
+          'constants'
+        ).fs;
+        var unknown = constants && constants.UV_DIRENT_UNKNOWN;
+        var stat = null;
+        if (type === unknown) {
+          try {
+            stat = fs.lstatSync(String(path) + '/' + name);
+          } catch (_ignored) {}
+        } else {
+          stat = {
+            isFile: function() { return type === constants.UV_DIRENT_FILE; },
+            isDirectory: function() { return type === constants.UV_DIRENT_DIR; },
+            isSymbolicLink: function() { return type === constants.UV_DIRENT_LINK; },
+            isBlockDevice: function() { return type === constants.UV_DIRENT_BLOCK; },
+            isCharacterDevice: function() { return type === constants.UV_DIRENT_CHAR; },
+            isFIFO: function() { return type === constants.UV_DIRENT_FIFO; },
+            isSocket: function() { return type === constants.UV_DIRENT_SOCKET; },
+          };
+        }
+        var result = new (require('fs').Dirent)(name, path, stat);
+        if (callback) return callback(null, result);
+        return result;
+      }
+    },
     'internal/test/binding': {
       internalBinding: function(name) {
-        if (name === 'crypto') {
-          return {
-            testFipsCrypto: function() {
-              return 0;
+      if (name === 'crypto') {
+        return {
+          testFipsCrypto: function() {
+            return 0;
+          }
+        };
+      }
+      if (name === 'fs') {
+        return {
+          FSReqCallback: function() {},
+          fstat: function() {
+            return [0, 0, 0, 0, 0, 0, 0, 0, 0];
+          },
+          readdir: function(path, encoding, types, req, ctx) {
+            var entries = [];
+            var entryTypes = [];
+            var name = typeof _pathToString === 'function' ? _pathToString(path) : String(path);
+            var dirs = require('fs').readdirSync(name);
+            for (var i = 0; i < dirs.length; i++) {
+              entries.push(dirs[i]);
+              entryTypes.push(types ? 1 : 0);
             }
+            if (req && typeof req.oncomplete === 'function') {
+              req.oncomplete(null, [entries, entryTypes]);
+              return;
+            }
+            return [entries, entryTypes];
+          },
+          writeFileUtf8: function(path, data) {
+            var buffer = (typeof data === 'string') ? Buffer.from(data, 'utf8') : Buffer.from(data);
+            return require('fs').writeFileSync(String(path), buffer);
+          },
+          openFileHandle: function(path, flags, mode, cb, ctx) {
+            var handle = {
+              fd: -1,
+              close: function() {
+                var closePath = this.path;
+                if (typeof this.fd === 'number' && this.fd >= 0) {
+                  require('fs').closeSync(this.fd);
+                  this.fd = -1;
+                }
+              }
+            };
+            try {
+              handle.fd = require('fs').openSync(String(path), flags, mode);
+              if (ctx && typeof ctx === 'object') {
+                ctx.errno = undefined;
+              }
+              handle.path = String(path);
+            } catch (err) {
+              if (ctx && typeof ctx === 'object') {
+                ctx.errno = err && err.errno;
+              }
+              throw err;
+            }
+            return handle;
+          },
+        };
+      }
+      if (name === 'uv') {
+        return {
+          UV_EACCES: -13,
+            UV_EBADF: -9,
+            UV_EBUSY: -16,
+            UV_EEXIST: -17,
+            UV_EIO: -5,
+            UV_EISDIR: -21,
+            UV_ELOOP: -40,
+            UV_EMFILE: -24,
+            UV_ENAMETOOLONG: -63,
+            UV_ENOENT: -2,
+            UV_ENOMEM: -12,
+            UV_ENOSPC: -28,
+            UV_ENOSYS: -78,
+            UV_ENOTDIR: -20,
+            UV_ENOTEMPTY: -66,
+            UV_EPERM: -1,
+            UV_ERANGE: -34,
+            UV_EROFS: -30,
+            UV_ESPIPE: -29,
+            UV_EXDEV: -18,
+            UV_ETXTBSY: -26,
+            UV_UNKNOWN: -4094,
+          };
+        }
+        if (name === 'constants') {
+          return {
+            fs: {
+              UV_FS_SYMLINK_DIR: 1,
+              UV_FS_SYMLINK_JUNCTION: 2,
+              UV_DIRENT_UNKNOWN: 0,
+              UV_DIRENT_FILE: 1,
+              UV_DIRENT_DIR: 2,
+              UV_DIRENT_LINK: 3,
+              UV_DIRENT_FIFO: 4,
+              UV_DIRENT_SOCKET: 5,
+              UV_DIRENT_CHAR: 6,
+              UV_DIRENT_BLOCK: 7,
+              UV_FS_O_FILEMAP: 0,
+              UV_FS_COPYFILE_EXCL: 1,
+              UV_FS_COPYFILE_FICLONE: 2,
+              UV_FS_COPYFILE_FICLONE_FORCE: 4,
+            },
           };
         }
         if (name === 'timers') {
