@@ -203,6 +203,23 @@ function ZlibTransform(syncFn, opts, isDecoder, roundTripSync) {
   this._bytesWritten = 0;
   this.bytesWritten = 0;
   this.bytesRead = 0;
+
+  var defaultFinal = this._final;
+  this._final = function(callback) {
+    var finalSelf = this;
+    if (typeof callback !== 'function') callback = function() {};
+    this._flush(function(err) {
+      if (err) {
+        callback(err);
+        return;
+      }
+      if (typeof defaultFinal === 'function') {
+        defaultFinal.call(finalSelf, callback);
+      } else {
+        callback();
+      }
+    });
+  };
 }
 ZlibTransform.prototype = Object.create(Transform.prototype);
 ZlibTransform.prototype.constructor = ZlibTransform;
@@ -267,13 +284,41 @@ ZlibTransform.prototype.flush = function(kind, callback) {
 
   state._flushing = true;
   var self = this;
+  var writableState = self._writableState || {};
   this._flush(function(err) {
     state._flushing = false;
+    var shouldEmitDrain = false;
+    if (!err) {
+      shouldEmitDrain = self._needDrain || self.writableNeedDrain || writableState.needDrain;
+      if (shouldEmitDrain) {
+        self._needDrain = false;
+        self.writableNeedDrain = false;
+        writableState.needDrain = false;
+      }
+    }
     if (!err) {
       self._chunks = [];
     }
     if (typeof flushCallback === 'function') {
       flushCallback(err);
+    }
+    if (
+      shouldEmitDrain &&
+      !err &&
+      !self._destroyed &&
+      !writableState.writing &&
+      (writableState.writableLength == null || writableState.writableLength < writableState.highWaterMark)
+    ) {
+      var drain = function() {
+        self.emit('drain');
+      };
+      if (typeof process === 'object' &&
+          process &&
+          typeof process.nextTick === 'function') {
+        process.nextTick(drain);
+      } else {
+        setTimeout(drain, 0);
+      }
     }
     if (state._flushQueue && state._flushQueue.length > 0) {
       var next = state._flushQueue.shift();
@@ -298,42 +343,6 @@ ZlibTransform.prototype.params = function(level, strategy, callback) {
     setTimeout(function() { callback(); }, 0);
   }
   return this;
-};
-
-// Override end() to call _flush before finishing, since the base Transform
-// uses _final (not _flush) in this runtime's stream implementation
-ZlibTransform.prototype.end = function(chunk, encoding, callback) {
-  if (typeof chunk === 'function') { callback = chunk; chunk = null; encoding = null; }
-  if (typeof encoding === 'function') { callback = encoding; encoding = null; }
-  if (chunk !== undefined && chunk !== null) {
-    if (typeof chunk === 'string') {
-      this._bytesWritten += countBytesForChunk(chunk, encoding || 'utf8');
-      this.bytesWritten = this._bytesWritten;
-      this.bytesRead = this._bytesWritten;
-      this._chunks.push(Buffer.from(chunk, encoding || 'utf8'));
-    } else {
-      this._bytesWritten += countBytesForChunk(chunk);
-      this.bytesWritten = this._bytesWritten;
-      this.bytesRead = this._bytesWritten;
-      this._chunks.push(chunk);
-    }
-  }
-  var self = this;
-  this._flush(function(err) {
-    if (err) {
-      setTimeout(function() {
-        self.emit('error', err);
-        if (typeof callback === 'function') callback(err);
-      }, 0);
-      return;
-    }
-    self.push(null);
-    self.writableEnded = true;
-    self.writableFinished = true;
-    self.emit('finish');
-    self._emitClose();
-  if (typeof callback === 'function') callback();
-  });
 };
 
 ZlibTransform.prototype.close = function(callback) {
