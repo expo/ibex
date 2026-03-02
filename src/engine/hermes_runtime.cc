@@ -10111,10 +10111,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   if (process.exit) {
     try { process.exit.__exactHostExit = true; } catch (_) {}
   }
-  var proto = Object.getPrototypeOf(process);
-  if (proto && typeof proto === 'object' && proto.exit) {
-    try { proto.exit.__exactHostExit = true; } catch (_) {}
-  }
+  // Note: Do NOT mark exit on process prototype as that pollutes Object.prototype
 })();
 )EXACT_MARKER_JS");
     rt.evaluateJavaScript(markerBuffer, "<process-exit-marker>");
@@ -11291,13 +11288,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       auto hardExitFn = makeHardExitFn();
       auto hardExitProtoFn = makeHardExitFn();
       processObjFinal.setProperty(rt, "exit", std::move(hardExitFn));
-      try {
-        auto processProtoValue = processObjFinal.getProperty(rt, "__proto__");
-        if (processProtoValue.isObject()) {
-          auto processProtoObj = processProtoValue.asObject(rt);
-          processProtoObj.setProperty(rt, "exit", std::move(hardExitProtoFn));
-        }
-      } catch (...) {}
+      // Note: Do NOT set exit on process.__proto__ as that would pollute
+      // Object.prototype and make 'exit' enumerable on all objects, breaking
+      // for...in loops (e.g., in WPT headers-basic tests).
     }
   }
 

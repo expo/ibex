@@ -22,18 +22,28 @@
   }
 
   if (typeof Array.prototype.toSorted !== 'function') {
-    Array.prototype.toSorted = function(compareFn) {
-      var sorted = this.slice();
-      return sorted.sort(compareFn);
-    };
+    Object.defineProperty(Array.prototype, 'toSorted', {
+      value: function(compareFn) {
+        var sorted = this.slice();
+        return sorted.sort(compareFn);
+      },
+      writable: true,
+      configurable: true,
+      enumerable: false
+    });
   }
 
   if (typeof Array.prototype.toReversed !== 'function') {
-    Array.prototype.toReversed = function() {
-      var result = [];
-      for (var i = this.length - 1; i >= 0; i--) result.push(this[i]);
-      return result;
-    };
+    Object.defineProperty(Array.prototype, 'toReversed', {
+      value: function() {
+        var result = [];
+        for (var i = this.length - 1; i >= 0; i--) result.push(this[i]);
+        return result;
+      },
+      writable: true,
+      configurable: true,
+      enumerable: false
+    });
   }
 
   if (typeof FinalizationRegistry === 'undefined') {
