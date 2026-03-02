@@ -651,18 +651,16 @@ function writeFileSync(path, data, options) {
   ensureExactFs();
   var p = _pathToString(path);
   try {
-    if (writeOptions.flush === true) {
-      var writeData = toUint8Array(data, writeOptions.encoding);
-      var writeFd = openSync(p, writeOptions.flag || writeOptions.flags || 'w', writeOptions.mode);
-      try {
-        writeSync(writeFd, writeData, 0, writeData.length, -1);
+    var writeData = toUint8Array(data, writeOptions.encoding);
+    var writeFd = openSync(p, writeOptions.flag || writeOptions.flags || 'w', writeOptions.mode);
+    try {
+      writeSync(writeFd, writeData, 0, writeData.length, -1);
+      if (writeOptions.flush === true) {
         _callFsyncSync(writeFd);
-      } finally {
-        closeSync(writeFd);
       }
-      return;
+    } finally {
+      closeSync(writeFd);
     }
-    g.__exactWriteFile(p, toUint8Array(data, writeOptions.encoding));
   } catch(e) {
     throw _makeFsError(e, 'open', p);
   }
@@ -1876,6 +1874,14 @@ function readvSync(fd, buffers, position) {
   if (position !== undefined && position !== null && typeof position !== 'number') {
     throw _fsInvalidArgType('position', 'number', position);
   }
+  if (typeof g.__exactFsReadv === 'function') {
+    try {
+      var pos = (typeof position === 'number') ? position : -1;
+      return g.__exactFsReadv(fd, buffers, pos);
+    } catch(err) {
+      throw _makeFsError(err, 'readv');
+    }
+  }
   if (buffers.length === 0) return 0;
   var pos = (typeof position === 'number') ? position : -1;
   var bytesRead = 0;
@@ -1899,6 +1905,14 @@ function writevSync(fd, buffers, position) {
   }
   if (position !== undefined && position !== null && typeof position !== 'number') {
     throw _fsInvalidArgType('position', 'number', position);
+  }
+  if (typeof g.__exactFsWritev === 'function') {
+    try {
+      var pos = (typeof position === 'number') ? position : -1;
+      return g.__exactFsWritev(fd, buffers, pos);
+    } catch(err) {
+      throw _makeFsError(err, 'writev');
+    }
   }
   if (buffers.length === 0) return 0;
   var pos = (typeof position === 'number') ? position : -1;
@@ -1935,6 +1949,19 @@ function readv(fd, buffers, position, callback) {
     }
   }
   try {
+    if (typeof g.__exactFsReadv === 'function') {
+      var pos = (typeof position === 'number') ? position : -1;
+      g.__exactFsReadv(fd, buffers, pos, function(err, bytesRead) {
+        _deferFsCallback(function() {
+          if (err) {
+            callback(_makeFsError(err, 'readv'));
+          } else {
+            callback(null, bytesRead, buffers);
+          }
+        });
+      });
+      return;
+    }
     var bytesRead = readvSync(fd, buffers, position);
     _deferFsCallback(function() { callback(null, bytesRead, buffers); });
   } catch(err) {
@@ -1963,6 +1990,19 @@ function writev(fd, buffers, position, callback) {
     }
   }
   try {
+    if (typeof g.__exactFsWritev === 'function') {
+      var pos = (typeof position === 'number') ? position : -1;
+      g.__exactFsWritev(fd, buffers, pos, function(err, bytesWritten) {
+        _deferFsCallback(function() {
+          if (err) {
+            callback(_makeFsError(err, 'writev'));
+          } else {
+            callback(null, bytesWritten, buffers);
+          }
+        });
+      });
+      return;
+    }
     var bytesWritten = writevSync(fd, buffers, position);
     _deferFsCallback(function() { callback(null, bytesWritten, buffers); });
   } catch(err) {
@@ -2152,7 +2192,7 @@ function _initReadStream(rs, path, options) {
   var fsHasOverrides = opts.fs !== undefined && opts.fs !== null;
   var openSyncFn = fsHasOverrides && typeof fsModule.openSync === 'function' ? fsModule.openSync : null;
   var openFn = fsHasOverrides && typeof fsModule.open === 'function' ? fsModule.open : null;
-  var readFn = fsHasOverrides && typeof fsModule.read === 'function' ? fsModule.read : read;
+  var readFn = fsHasOverrides && typeof fsModule.read === 'function' ? fsModule.read : fsRead;
   var closeSyncFn = fsHasOverrides && typeof fsModule.closeSync === 'function' ? fsModule.closeSync : null;
   var closeFn = fsHasOverrides && typeof fsModule.close === 'function' ? fsModule.close : null;
   if (!openSyncFn && !openFn) {
@@ -2358,10 +2398,16 @@ function _initReadStream(rs, path, options) {
         rs.bytesRead += bytesRead;
         rs._position += bytesRead;
         var chunk = data ? data.slice(0, bytesRead) : buf.slice(0, bytesRead);
-        if (encoding) {
-          rs.push(decodeBytes(chunk, encoding));
-        } else {
-          rs.push(wrapBuffer(chunk));
+        var shouldContinue = encoding ? rs.push(decodeBytes(chunk, encoding)) : rs.push(wrapBuffer(chunk));
+        if (bytesRead < chunkSize) {
+          rs.push(null);
+          if (autoClose) closeFd();
+          return;
+        }
+        if (shouldContinue && !rs.destroyed && !rs.closed) {
+          _deferFsCallback(function() {
+            rs._read();
+          });
         }
       };
 
@@ -3459,7 +3505,12 @@ function fchmod(fd, mode, callback) {
   ensureExactFs();
   if (typeof callback === 'function') {
     if (typeof g.__exactFsFchmod === 'function') {
-      g.__exactFsFchmod(fd, mode, callback);
+      g.__exactFsFchmod(fd, mode, function(err) {
+        _deferFsCallback(function() {
+          if (err) callback(_makeFsError(err, 'fchmod'));
+          else callback(null);
+        });
+      });
     } else {
       wrapCallback(function() { fchmodSync(fd, mode); }, callback, 'fchmod');
     }
@@ -3495,7 +3546,12 @@ function fchown(fd, uid, gid, callback) {
   ensureExactFs();
   if (typeof callback === 'function') {
     if (typeof g.__exactFsFchown === 'function') {
-      g.__exactFsFchown(fd, uid, gid, callback);
+      g.__exactFsFchown(fd, uid, gid, function(err) {
+        _deferFsCallback(function() {
+          if (err) callback(_makeFsError(err, 'fchown'));
+          else callback(null);
+        });
+      });
     } else {
       wrapCallback(function() { fchownSync(fd, uid, gid); }, callback, 'fchown');
     }

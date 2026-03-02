@@ -54,9 +54,11 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/uio.h>
 #include <sys/time.h>
 #include <csignal>
 #include <pwd.h>
+#include <dirent.h>
 #include <sys/types.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -1079,6 +1081,93 @@ std::vector<uint8_t> extractBytes(facebook::jsi::Runtime& rt, const facebook::js
     }
   }
   return {};
+}
+
+static bool parseIoVecArguments(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    std::vector<std::vector<uint8_t>>& buffers,
+    std::vector<struct iovec>& iovecs,
+    std::vector<facebook::jsi::Object>* targetObjects,
+    std::vector<size_t>* targetOffsets) {
+  if (!value.isObject()) {
+    return false;
+  }
+  auto listObj = value.asObject(runtime);
+  if (!listObj.isArray(runtime)) {
+    return false;
+  }
+  auto lengthValue = listObj.getProperty(runtime, "length");
+  if (!lengthValue.isNumber()) {
+    return false;
+  }
+  auto length = static_cast<size_t>(lengthValue.asNumber());
+  buffers.reserve(length);
+  iovecs.reserve(length);
+  if (targetObjects) {
+    targetObjects->reserve(length);
+  }
+  if (targetOffsets) {
+    targetOffsets->reserve(length);
+  }
+  for (size_t i = 0; i < length; i++) {
+    std::string index = std::to_string(i);
+    auto entry = listObj.getProperty(runtime, facebook::jsi::PropNameID::forAscii(runtime, index));
+    if (!entry.isObject()) {
+      return false;
+    }
+    auto entryObj = entry.asObject(runtime);
+    size_t byteOffset = 0;
+    size_t byteLength = 0;
+    const uint8_t* source = nullptr;
+    if (entryObj.isArrayBuffer(runtime)) {
+      auto ab = entryObj.getArrayBuffer(runtime);
+      source = ab.data(runtime);
+      byteLength = ab.size(runtime);
+    } else if (entryObj.hasProperty(runtime, "buffer")) {
+      auto bufferValue = entryObj.getProperty(runtime, "buffer");
+      if (!bufferValue.isObject()) {
+        return false;
+      }
+      auto bufferObj = bufferValue.asObject(runtime);
+      if (!bufferObj.isArrayBuffer(runtime)) {
+        return false;
+      }
+      auto ab = bufferObj.getArrayBuffer(runtime);
+      size_t available = ab.size(runtime);
+      byteOffset = entryObj.hasProperty(runtime, "byteOffset")
+          ? static_cast<size_t>(entryObj.getProperty(runtime, "byteOffset").asNumber())
+          : 0;
+      byteLength = entryObj.hasProperty(runtime, "byteLength")
+          ? static_cast<size_t>(entryObj.getProperty(runtime, "byteLength").asNumber())
+          : (available - byteOffset);
+      if (byteOffset > available) {
+        return false;
+      }
+      if (byteOffset + byteLength > available) {
+        byteLength = available - byteOffset;
+      }
+      source = ab.data(runtime) + byteOffset;
+    } else {
+      return false;
+    }
+    if (byteLength > 0 && !source) {
+      return false;
+    }
+    auto bytes = source ? std::vector<uint8_t>(source, source + byteLength) : std::vector<uint8_t>();
+    buffers.push_back(std::move(bytes));
+    auto& bytesRef = buffers.back();
+    struct iovec iov {
+      .iov_base = bytesRef.empty() ? nullptr : bytesRef.data(),
+      .iov_len = bytesRef.size()
+    };
+    iovecs.push_back(iov);
+    if (targetObjects) {
+      targetObjects->push_back(entryObj);
+      targetOffsets->push_back(byteOffset);
+    }
+  }
+  return true;
 }
 
 #if defined(__APPLE__)
@@ -2584,6 +2673,193 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactFsWrite", std::move(fsWriteFn));
 
+  // __exactFsReadv(fd, buffers, position, callback?)
+  auto fsReadvFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadv"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsReadv: fd and buffers required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        std::vector<std::vector<uint8_t>> buffers;
+        std::vector<struct iovec> iovecs;
+        std::vector<facebook::jsi::Object> targetObjects;
+        std::vector<size_t> targetOffsets;
+        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, &targetObjects, &targetOffsets)) {
+          throw facebook::jsi::JSError(runtime, "__exactFsReadv: buffers must be Uint8Array-like objects");
+        }
+        if (count > 2 && args[2].isNumber()) {
+          double pos = args[2].asNumber();
+          if (pos >= 0) {
+            if (::lseek(fd, static_cast<off_t>(pos), SEEK_SET) < 0) {
+              throwFsError(runtime, "readv");
+            }
+          }
+        }
+        bool hasCallback = false;
+        facebook::jsi::Function callback;
+        if (count > 3 && args[3].isObject() && args[3].asObject(runtime).isFunction(runtime)) {
+          callback = args[3].asObject(runtime).asFunction(runtime);
+          hasCallback = true;
+        } else if (count > 3) {
+          throw facebook::jsi::JSError(runtime, "__exactFsReadv: callback must be a function");
+        }
+
+        ssize_t bytesRead = ::readv(fd, iovecs.data(), static_cast<int>(iovecs.size()));
+        if (bytesRead < 0) {
+          auto errorMessage = fsErrorMessage(errno, "readv", "", "");
+          if (hasCallback) {
+            callback.call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
+            return facebook::jsi::Value::undefined();
+          }
+          throw facebook::jsi::JSError(runtime, errorMessage.c_str());
+        }
+
+        size_t copied = 0;
+        size_t remaining = static_cast<size_t>(bytesRead);
+        for (size_t i = 0; i < targetObjects.size() && remaining > 0; i++) {
+          auto& target = targetObjects[i];
+          size_t copyLen = buffers[i].size();
+          if (copyLen > remaining) copyLen = remaining;
+          size_t byteOffset = targetOffsets[i];
+          if (target.isArrayBuffer(runtime)) {
+            auto ab = target.getArrayBuffer(runtime);
+            size_t available = ab.size(runtime);
+            if (byteOffset + copyLen > available) {
+              throw facebook::jsi::JSError(runtime, "__exactFsReadv: buffer length insufficient");
+            }
+            std::copy(buffers[i].data(), buffers[i].data() + copyLen, ab.data(runtime) + byteOffset);
+          } else if (target.hasProperty(runtime, "buffer")) {
+            auto bufferValue = target.getProperty(runtime, "buffer");
+            if (bufferValue.isObject() && bufferValue.asObject(runtime).isArrayBuffer(runtime)) {
+              auto ab = bufferValue.asObject(runtime).getArrayBuffer(runtime);
+              size_t available = ab.size(runtime);
+              if (byteOffset + copyLen > available) {
+                throw facebook::jsi::JSError(runtime, "__exactFsReadv: buffer length insufficient");
+              }
+              std::copy(buffers[i].data(), buffers[i].data() + copyLen, ab.data(runtime) + byteOffset);
+            }
+          }
+          remaining -= copyLen;
+          copied += copyLen;
+          (void)copied;
+        }
+        auto result = static_cast<int>(copied);
+        if (hasCallback) {
+          callback.call(runtime,
+                        facebook::jsi::Value::undefined(),
+                        facebook::jsi::Value(result),
+                        args[1]);
+          return facebook::jsi::Value::undefined();
+        }
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactFsReadv", std::move(fsReadvFn));
+
+  // __exactFsWritev(fd, buffers, position, callback?)
+  auto fsWritevFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsWritev"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsWritev: fd and buffers required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        std::vector<std::vector<uint8_t>> buffers;
+        std::vector<struct iovec> iovecs;
+        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr, nullptr)) {
+          throw facebook::jsi::JSError(runtime, "__exactFsWritev: buffers must be Uint8Array-like objects");
+        }
+        if (count > 2 && args[2].isNumber()) {
+          double pos = args[2].asNumber();
+          if (pos >= 0) {
+            if (::lseek(fd, static_cast<off_t>(pos), SEEK_SET) < 0) {
+              throwFsError(runtime, "writev");
+            }
+          }
+        }
+        bool hasCallback = false;
+        facebook::jsi::Function callback;
+        if (count > 3 && args[3].isObject() && args[3].asObject(runtime).isFunction(runtime)) {
+          callback = args[3].asObject(runtime).asFunction(runtime);
+          hasCallback = true;
+        } else if (count > 3) {
+          throw facebook::jsi::JSError(runtime, "__exactFsWritev: callback must be a function");
+        }
+        ssize_t bytesWritten = ::writev(fd, iovecs.data(), static_cast<int>(iovecs.size()));
+        if (bytesWritten < 0) {
+          auto errorMessage = fsErrorMessage(errno, "writev", "", "");
+          if (hasCallback) {
+            callback.call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
+            return facebook::jsi::Value::undefined();
+          }
+          throw facebook::jsi::JSError(runtime, errorMessage.c_str());
+        }
+        auto result = static_cast<int>(bytesWritten);
+        if (hasCallback) {
+          callback.call(runtime,
+                        facebook::jsi::Value::undefined(),
+                        facebook::jsi::Value(result),
+                        args[1]);
+          return facebook::jsi::Value::undefined();
+        }
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactFsWritev", std::move(fsWritevFn));
+
+  // __exactOpendir(path) -> JSON string of child names
+  auto opendirFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactOpendir"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactOpendir: path required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        if (!isAllowAll()) {
+          std::string cap = "fs:read:" + path;
+          if (!checkCapability(cap)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        }
+        DIR* dir = ::opendir(path.c_str());
+        if (!dir) {
+          throwFsError(runtime, "opendir", path);
+        }
+        std::ostringstream entriesJson;
+        entriesJson << "[";
+        bool first = true;
+        while (auto entry = ::readdir(dir)) {
+          std::string name = entry->d_name;
+          if (name == "." || name == "..") {
+            continue;
+          }
+          if (!first) {
+            entriesJson << ",";
+          }
+          first = false;
+          entriesJson << "\""
+                     << name << "\"";
+        }
+        ::closedir(dir);
+        entriesJson << "]";
+        return facebook::jsi::String::createFromUtf8(runtime, entriesJson.str());
+      });
+  rt.global().setProperty(rt, "__exactOpendir", std::move(opendirFn));
+
   // __exactSymlink(target, path) -> void
   auto symlinkFn = facebook::jsi::Function::createFromHostFunction(
       rt, facebook::jsi::PropNameID::forAscii(rt, "__exactSymlink"), 2,
@@ -2966,6 +3242,73 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactFsFdatasyncSync", std::move(fdatasyncSyncFn));
+
+  // __exactFsFchmod(fd, mode, callback?)
+  auto fchmodFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFchmod"), 3,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFchmod: fd and mode required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        mode_t mode = static_cast<mode_t>(args[1].asNumber());
+        bool hasCallback = false;
+        facebook::jsi::Function callback;
+        if (count > 2 && args[2].isObject() && args[2].asObject(runtime).isFunction(runtime)) {
+          callback = args[2].asObject(runtime).asFunction(runtime);
+          hasCallback = true;
+        } else if (count > 2) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFchmod: callback must be a function");
+        }
+        if (::fchmod(fd, mode) != 0) {
+          auto errorMessage = fsErrorMessage(errno, "fchmod", "");
+          if (hasCallback) {
+            callback.call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
+            return facebook::jsi::Value::undefined();
+          }
+          throwFsError(runtime, "fchmod", "");
+        }
+        if (hasCallback) {
+          callback.call(runtime, facebook::jsi::Value::undefined());
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFchmod", std::move(fchmodFn));
+
+  // __exactFsFchown(fd, uid, gid, callback?)
+  auto fchownFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFchown"), 4,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFchown: fd, uid, gid required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        uid_t uid = static_cast<uid_t>(args[1].asNumber());
+        gid_t gid = static_cast<gid_t>(args[2].asNumber());
+        bool hasCallback = false;
+        facebook::jsi::Function callback;
+        if (count > 3 && args[3].isObject() && args[3].asObject(runtime).isFunction(runtime)) {
+          callback = args[3].asObject(runtime).asFunction(runtime);
+          hasCallback = true;
+        } else if (count > 3) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFchown: callback must be a function");
+        }
+        if (::fchown(fd, uid, gid) != 0) {
+          auto errorMessage = fsErrorMessage(errno, "fchown", "");
+          if (hasCallback) {
+            callback.call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));
+            return facebook::jsi::Value::undefined();
+          }
+          throwFsError(runtime, "fchown", "");
+        }
+        if (hasCallback) {
+          callback.call(runtime, facebook::jsi::Value::undefined());
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFchown", std::move(fchownFn));
 
   // __exactFsFchmodSync(fd, mode) -> void
   auto fchmodSyncFn = facebook::jsi::Function::createFromHostFunction(
