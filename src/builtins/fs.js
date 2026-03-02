@@ -2652,6 +2652,7 @@ function _initWriteStream(ws, path, options) {
   var encoding = opts.encoding || 'utf8';
   var autoClose = opts.autoClose !== false;
   var start = typeof opts.start === 'number' ? opts.start : null;
+  var openError = null;
   var openSyncFn = typeof fsModule.openSync === 'function' ? fsModule.openSync : openSync;
   var openFn = typeof fsModule.open === 'function' ? fsModule.open : null;
   var closeSyncFn = typeof fsModule.closeSync === 'function' ? fsModule.closeSync : closeSync;
@@ -2781,6 +2782,7 @@ function _initWriteStream(ws, path, options) {
   }
 
   function setOpened(newFd) {
+    openError = null;
     if (!opened && typeof _validateFd === 'function') _validateFd(newFd);
     opened = true;
     opening = false;
@@ -2802,6 +2804,7 @@ function _initWriteStream(ws, path, options) {
     if (opened || ws.closed || ws.destroyed || opening) return;
     if (!fdOption && !openFn && !openSyncFn) {
       var openFnError = makeWriteError(new Error('open is not a function'), 'open');
+      openError = openFnError;
       ws.emit('error', openFnError);
       failPendingWrites(openFnError);
       return;
@@ -2811,8 +2814,9 @@ function _initWriteStream(ws, path, options) {
       openFn.call(fsModule, path, flags, mode, function(err, openedFd) {
         if (err) {
           opening = false;
+          openError = makeWriteError(err, 'open');
           failPendingWrites(err);
-          ws.emit('error', makeWriteError(err, 'open'));
+          ws.emit('error', openError);
           return;
         }
         setOpened(openedFd);
@@ -2823,8 +2827,9 @@ function _initWriteStream(ws, path, options) {
       setOpened(openSyncFn.call(fsModule, path, flags, mode));
     } catch(err) {
       opening = false;
+      openError = makeWriteError(err, 'open');
       failPendingWrites(err);
-      ws.emit('error', makeWriteError(err, 'open'));
+      ws.emit('error', openError);
     }
   }
 
@@ -3078,6 +3083,10 @@ function _initWriteStream(ws, path, options) {
       var waitForOpen = function() {
         if (opening) {
           _deferFsCallback(waitForOpen);
+          return;
+        }
+        if (openError) {
+          callback(openError);
           return;
         }
         if (processingWrite) {
