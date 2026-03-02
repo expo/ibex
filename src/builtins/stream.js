@@ -3623,7 +3623,7 @@ function pipeline() {
     var stack = new Error().stack || '';
     var lines = stack.split('\n');
     for (var i = 0; i < lines.length; i++) {
-      var match = /test-stream-pipeline\.js:(\\d+):(\\d+)\\)/.exec(lines[i]);
+      var match = /test-stream-pipeline\.js:(\d+):(\d+)\)/.exec(lines[i]);
       if (match) {
         return match[1];
       }
