@@ -1949,6 +1949,14 @@ function _toWritable(value, options) {
 
 function _connectReadableToDuplex(readable, duplex) {
   if (!readable || !duplex) return;
+  var sourceEnded = false;
+  function endDuplexStream() {
+    if (sourceEnded) return;
+    sourceEnded = true;
+    if (!duplex._destroyed) {
+      duplex.push(null);
+    }
+  }
   readable.on('data', function(chunk) {
     if (!duplex.push(chunk) && typeof readable.pause === 'function') {
       readable.pause();
@@ -1958,10 +1966,17 @@ function _connectReadableToDuplex(readable, duplex) {
     _destroyStreamWithError(duplex, err);
   });
   readable.on('end', function() {
-    duplex.push(null);
+    endDuplexStream();
   });
   readable.on('close', function() {
-    duplex.push(null);
+    var readableState = readable._readableState;
+    if (
+      readableState &&
+      readableState.errored
+    ) {
+      return;
+    }
+    endDuplexStream();
   });
   duplex.on('pause', function() {
     if (typeof readable.pause === 'function') readable.pause();
@@ -3618,18 +3633,28 @@ function pipeline() {
   }
 
   if (!hasCallback) {
-    var resultPromise = new Promise(function(resolve, reject) {
-      var callbackIndex = args.length;
-      args[callbackIndex] = function(err, value) {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(value);
-      };
-    });
-    pipeline.apply(null, args);
-    return resultPromise;
+    var invalidCallbackCandidate = args[args.length - 1];
+    var receivedMessage = 'undefined';
+    if (typeof invalidCallbackCandidate === 'string') {
+      receivedMessage = "type string ('" + invalidCallbackCandidate + "')";
+    } else if (invalidCallbackCandidate === null) {
+      receivedMessage = 'null';
+    } else if (typeof invalidCallbackCandidate === 'function') {
+      receivedMessage = 'an instance of Function';
+    } else if (typeof invalidCallbackCandidate === 'object') {
+      var callbackCandidateType = invalidCallbackCandidate && invalidCallbackCandidate.constructor &&
+        invalidCallbackCandidate.constructor.name
+        ? invalidCallbackCandidate.constructor.name
+        : typeof invalidCallbackCandidate;
+      receivedMessage = 'an instance of ' + callbackCandidateType;
+    } else {
+      receivedMessage = 'type ' + typeof invalidCallbackCandidate;
+    }
+    throw makeError(
+      TypeError,
+      'ERR_INVALID_ARG_TYPE',
+      'The "streams[stream.length - 1]" property must be of type function. Received ' + receivedMessage
+    );
   }
 
   try {
@@ -3698,6 +3723,15 @@ function pipeline() {
     shouldPipeEnd = false;
   }
   if (streams.length < 2) {
+    if (streams.length === 1 && (!_isReadableLike(streams[0]) && !_isWritableLike(streams[0]))) {
+      var receivedValue = streams[0];
+      var receivedType = typeof receivedValue === 'undefined' ? 'undefined' : typeof receivedValue;
+      throw makeError(
+        TypeError,
+        'ERR_INVALID_ARG_TYPE',
+        'The "streams[stream.length - 1]" property must be of type function. Received ' + receivedType
+      );
+    }
     throw makeError(Error, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified');
   }
 
@@ -3732,52 +3766,90 @@ function addListener(stream, event, handler) {
     listeners.push([stream, event, handler]);
   }
 
-  function addPairCloseGuard(src, dst) {
-    var state = {
-      src: src,
-      dst: dst,
-      ended: false
-    };
-    if (!src || !dst) return state;
-    addListener(src, 'end', function() {
-      state.ended = true;
-    });
-    addListener(src, 'close', function() {
-      state.ended = true;
-    });
-    addListener(dst, 'close', function() {
+function addPairCloseGuard(src, dst) {
+  var state = {
+    src: src,
+    dst: dst,
+    ended: false
+  };
+  if (!src || !dst) return state;
+  addListener(src, 'end', function() {
+    state.ended = true;
+  });
+  addListener(src, 'close', function() {
+    state.ended = true;
+  });
+  addListener(src, 'error', function() {
+    state.ended = true;
+  });
+  addListener(dst, 'close', function() {
+    if (state.ended) return;
+    var scheduler = typeof process === 'object' && process && typeof process.nextTick === 'function'
+      ? process.nextTick
+      : function(fn) { setTimeout(fn, 1); };
+    scheduler(function() {
       if (!state.ended) {
         onError(makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close'));
       }
     });
-    return state;
-  }
+  });
+  return state;
+}
 
 function isReadableDone(stream) {
   if (!stream) return true;
-  if (stream._destroyed) return true;
-  if (stream.readableAborted) return true;
-  if (stream.readable === false) return true;
   if (stream.closed) return true;
-  if (stream._readableState && stream._readableState.destroyed) return true;
   if (stream._readableState) {
-    return stream._readableState.endEmitted || stream._readableState.ended;
+    if (stream._readableState.endEmitted || stream._readableState.ended) return true;
+    if (stream.readable === false && !stream._writableState) return false;
+    if (stream.readable === false && stream._writableState) {
+      if (stream.writableEnded || stream._writableState.finished || stream._writableState.ended) {
+        return true;
+      }
+      return false;
+    }
+    return false;
   }
+  if (stream.readable === false) return true;
   return !_isReadableLike(stream);
 }
 
 function isWritableDone(stream) {
   if (!stream) return true;
-  if (stream._destroyed) return true;
-  if (stream.writableAborted) return true;
-  if (stream.writable === false) return true;
   if (stream.closed) return true;
-  if (stream._writableState && stream._writableState.destroyed) return true;
   if (stream.writableEnded || stream.writableFinished) return true;
+  if (stream.writable === false) return true;
   if (stream._writableState) {
     return stream._writableState.finished || stream._writableState.ended;
   }
   return !_isWritableLike(stream);
+}
+
+  function getStreamError(stream) {
+    if (!stream) return null;
+    if (stream._readableState && stream._readableState.errored) return stream._readableState.errored;
+    if (stream._writableState && stream._writableState.errored) return stream._writableState.errored;
+    return stream.errored || null;
+  }
+
+  function getAnyStreamError() {
+    for (var errIndex = 0; errIndex < streamErrors.length; errIndex++) {
+      var streamError = getStreamError(streamErrors[errIndex]);
+      if (streamError) {
+        return normalizePipelineError(streamError);
+      }
+    }
+    return null;
+  }
+
+  function allStreamsDone() {
+    for (var i = 0; i < streamErrors.length; i++) {
+      var stream = streamErrors[i];
+      if (!isReadableDone(stream) || !isWritableDone(stream)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   function connectWithoutPipe(src, dst, shouldPipeEnd) {
@@ -3856,6 +3928,8 @@ function isWritableDone(stream) {
     if (awaitingResult) return;
     if (err) {
       error = err;
+    } else if (!error) {
+      error = getAnyStreamError();
     }
     var lastResult = last && last._pipelineResult;
     if (lastResult && typeof lastResult.then === 'function') {
@@ -3906,33 +3980,37 @@ function isWritableDone(stream) {
   function onFinish() {
     if (settled || error) return;
     if (lastAppearsEarlier) return;
-    settle(null);
-  }
-
-  function onClose(stream) {
-    if (settled || error) return;
-    if (typeof globalThis.__exactPipelineTrace === 'function') {
-      try {
-        globalThis.__exactPipelineTrace('pipeline:onClose', {
-          objectType: typeof stream && stream.constructor && stream.constructor.name,
-          readable: stream && stream.readable,
-          writable: stream && stream.writable,
-          closed: stream && stream.closed,
-          destroyed: stream && stream.destroyed,
-          _destroyed: stream && stream._destroyed,
-          readableAborted: stream && stream.readableAborted,
-          writableAborted: stream && stream.writableAborted,
-          readableDone: isReadableDone(stream),
-          writableDone: isWritableDone(stream)
-        });
-      } catch (_err) {}
+    if (!allStreamsDone()) return;
+    var finalError = getAnyStreamError();
+    if (finalError) {
+      settle(finalError);
+      return;
     }
     var scheduler = typeof process === 'object' && process && typeof process.nextTick === 'function'
       ? process.nextTick
       : function(fn) { setTimeout(fn, 0); };
     scheduler(function() {
       if (settled || error) return;
-      if (!isReadableDone(stream) || !isWritableDone(stream)) {
+      settle(getAnyStreamError());
+    });
+  }
+
+  function onClose(stream) {
+    if (settled || error) return;
+    var streamError = getAnyStreamError() || getStreamError(stream);
+    if (streamError) {
+      onError(streamError);
+      return;
+    }
+    var scheduler = function(fn) { setTimeout(fn, 1); };
+    scheduler(function() {
+      if (settled || error) return;
+      var delayedStreamError = getAnyStreamError() || getStreamError(stream);
+      if (delayedStreamError) {
+        onError(delayedStreamError);
+        return;
+      }
+      if (!isWritableDone(stream)) {
         onError(makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close'));
       }
     });
@@ -4001,7 +4079,7 @@ function isWritableDone(stream) {
     onClose(last);
   });
 
-  return undefined;
+  return hasCallback ? last : undefined;
   } catch (err) {
     throw err;
   }
