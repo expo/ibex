@@ -2161,19 +2161,6 @@ function Writable(options) {
 }
 Writable.prototype = Object.create(Stream.prototype);
 Writable.prototype.constructor = Writable;
-if (typeof Object.defineProperty === 'function' && !Object.prototype.hasOwnProperty.call(Writable.prototype, '_writableState')) {
-  Object.defineProperty(Writable.prototype, '_writableState', {
-    configurable: true,
-    enumerable: false,
-    get: function() {
-      return this.writableState;
-    },
-    set: function(value) {
-      this.writableState = value;
-    }
-  });
-}
-
 Writable.prototype._undestroy = Stream.prototype._undestroy;
 
 Writable.prototype._write = function(chunk, encoding, callback) {
@@ -2466,6 +2453,10 @@ Writable.prototype.end = function(chunk, encoding, callback) {
   if (chunk !== undefined && chunk !== null) {
     this.write(chunk, encoding);
   }
+  if (this.writableCorked > 0) {
+    this.writableCorked = 1;
+    this.uncork();
+  }
   this.writableEnded = true;
   this.writable = false;
   this._writableState.ending = true;
@@ -2490,6 +2481,9 @@ Writable.prototype.end = function(chunk, encoding, callback) {
       return;
     }
     if (state && (state.writing || state.bufferProcessing || (self._writeQueue && self._writeQueue.length))) {
+      if (typeof setTimeout === 'function') {
+        return setTimeout(done, 0);
+      }
       return scheduleDone(done);
     }
     return scheduleDone(function() {
