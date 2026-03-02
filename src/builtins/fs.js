@@ -188,12 +188,51 @@ function _deferFsCallback(callback) {
 }
 
 function _pathToString(path) {
-  if (typeof path === 'string') return path;
-  if (Buffer.isBuffer(path)) return path.toString();
+  if (typeof path === 'string') return _resolvePathFromCwd(path);
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(path)) return path.toString();
   if (path && typeof path === 'object' && typeof path.href === 'string' && path.protocol === 'file:') {
     return _coercePathFromURL(path);
   }
-  return String(path);
+  var resolved = String(path);
+  return _resolvePathFromCwd(resolved);
+}
+
+function _isAbsolutePath(path) {
+  if (!path || typeof path !== 'string') return false;
+  return path.charAt(0) === '/' || path.charAt(1) === ':' || path.indexOf('\\\\') === 0;
+}
+
+function _normalizePathSegments(parts) {
+  var out = [];
+  for (var i = 0; i < parts.length; i++) {
+    var segment = parts[i];
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (out.length > 0) out.pop();
+    } else {
+      out.push(segment);
+    }
+  }
+  return out;
+}
+
+function _resolvePathFromCwd(path) {
+  if (!_isAbsolutePath(path)) {
+    var cwd = typeof process === 'object' && process && typeof process.cwd === 'function' ? process.cwd() : "/";
+    if (!cwd) cwd = "/";
+    var separator = '/';
+    var cwdParts = cwd.replace(/\\\\/g, separator).split(separator);
+    var pathParts = path.replace(/\\\\/g, separator).split(separator);
+    if (cwd === separator && cwdParts.length === 1) {
+      cwdParts = [];
+    }
+    var combined = _normalizePathSegments(cwdParts.concat(pathParts));
+    if (path === '.' && combined.length === 0) {
+      return separator;
+    }
+    return separator + combined.join(separator);
+  }
+  return path;
 }
 
 function _dirnamePath(value) {
@@ -2086,6 +2125,21 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
 }
 
 function createReadStream(path, options) {
+  return new ReadStream(path, options);
+}
+
+function ReadStream(path, options) {
+  var Stream = require('node:stream');
+  if (!(this instanceof Stream.Readable)) {
+    return new ReadStream(path, options);
+  }
+  return _initReadStream(this, path, options);
+}
+
+ReadStream.prototype = Object.create(require('node:stream').Readable.prototype);
+ReadStream.prototype.constructor = ReadStream;
+
+function _initReadStream(rs, path, options) {
   _validateEncodingOption(options);
   ensureExactFs();
   var Stream = require('node:stream');
@@ -2121,11 +2175,15 @@ function createReadStream(path, options) {
     _validateFd(sourceFd);
   }
 
-  var rs = new Stream.Readable({ highWaterMark: highWaterMark });
+  if (!rs._exactReadStreamInitialized) {
+    Stream.Readable.call(rs, { highWaterMark: highWaterMark });
+    rs._exactReadStreamInitialized = true;
+  }
   rs.path = path;
   rs.readable = true;
   rs.bytesRead = 0;
   rs.closed = false;
+  rs.destroyed = false;
   rs.fd = null;
   rs.pending = true;
   rs._position = start;
@@ -2134,6 +2192,7 @@ function createReadStream(path, options) {
 
   function closeFd() {
     if (rs.closed) return;
+    rs.destroyed = true;
     rs.closed = true;
     rs.fd = null;
     if (!sourceIsHandle) {
@@ -2189,7 +2248,7 @@ function createReadStream(path, options) {
     rs._opening = false;
   }
 
-  if (!rs._opened) {
+  if (!rs._opened && rs._shouldAutoClose) {
     _deferFsCallback(ensureOpen);
   }
 
@@ -2258,8 +2317,27 @@ function createReadStream(path, options) {
       if (autoClose) closeFd();
     }
   };
-  rs.close = function() { if (!rs.closed) closeFd(); };
-  rs.on('error', function() { closeFd(); });
+  rs.open = function() {
+    if (rs._opened || rs._opening || rs.closed) return rs;
+    ensureOpen();
+    return rs;
+  };
+  rs.close = function() {
+    if (!rs.closed) {
+      rs.destroyed = true;
+      closeFd();
+    }
+  };
+  rs.destroy = function() {
+    if (rs.destroyed) return rs;
+    rs.destroyed = true;
+    closeFd();
+    return rs;
+  };
+  rs.on('error', function() {
+    rs.destroyed = true;
+    closeFd();
+  });
   if (sourceIsHandle && sourceHandle && typeof sourceHandle.on === 'function') {
     sourceHandle.on('close', rs.close);
   }
@@ -2268,6 +2346,21 @@ function createReadStream(path, options) {
 }
 
 function createWriteStream(path, options) {
+  return new WriteStream(path, options);
+}
+
+function WriteStream(path, options) {
+  var Stream = require('node:stream');
+  if (!(this instanceof Stream.Writable)) {
+    return new WriteStream(path, options);
+  }
+  return _initWriteStream(this, path, options);
+}
+
+WriteStream.prototype = Object.create(require('node:stream').Writable.prototype);
+WriteStream.prototype.constructor = WriteStream;
+
+function _initWriteStream(ws, path, options) {
   var opts = _normalizeWriteOptions(options);
   _validateEncodingOption(opts);
   _validateFlushOption(opts.flush);
@@ -2300,7 +2393,10 @@ function createWriteStream(path, options) {
     }
   }
 
-  var ws = new Stream.Writable({ emitClose: autoClose });
+  if (!ws._exactWriteStreamInitialized) {
+    Stream.Writable.call(ws, { emitClose: autoClose });
+    ws._exactWriteStreamInitialized = true;
+  }
   ws.path = path;
   ws.fd = fd;
   ws.closed = false;
@@ -2355,17 +2451,23 @@ function createWriteStream(path, options) {
   function ensureOpen() {
     if (!opened) {
       if (ws.closed || ws.destroyed) return;
-      opened = true;
-      fd = fsModule.openSync(path, flags, mode);
-      ws.fd = fd;
-      if (start !== null && start >= 0) {
-        ws._shouldWriteAt = start;
-      }
-      ws.emit('open', fd);
-      if (!ws._readyEmitted) {
-        ws._readyEmitted = true;
-        ws.pending = false;
-        ws.emit('ready');
+      try {
+        opened = true;
+        fd = fsModule.openSync(path, flags, mode);
+        ws.fd = fd;
+        if (start !== null && start >= 0) {
+          ws._shouldWriteAt = start;
+        }
+        ws.emit('open', fd);
+        if (!ws._readyEmitted) {
+          ws._readyEmitted = true;
+          ws.pending = false;
+          ws.emit('ready');
+        }
+      } catch (err) {
+        opened = false;
+        ws.emit('error', _makeFsError(err, 'open', path));
+        return;
       }
     } else if (!ws._readyEmitted) {
       ws._readyEmitted = true;
@@ -2474,6 +2576,44 @@ function createWriteStream(path, options) {
     }
     if (err) ws.emit('error', err);
     ws._emitClose();
+    return ws;
+  };
+  ws.open = function() {
+    if (opened) {
+      if (!ws._readyEmitted) {
+        ws._readyEmitted = true;
+        ws.pending = false;
+        ws.emit('ready');
+      }
+      return ws;
+    }
+    ensureOpen();
+    return ws;
+  };
+  ws.close = function(callback) {
+    if (typeof callback === 'function') {
+      if (ws.closed || ws._closed) {
+        setTimeout(callback, 0);
+      } else {
+        var onClose = function() {
+          callback();
+          ws.removeListener('close', onClose);
+        };
+        ws.once('close', onClose);
+        if (!autoClose) {
+          ws.closed = true;
+          ws.emit('close');
+        } else {
+          closeWriteFd();
+          ws._emitClose();
+        }
+      }
+      return ws;
+    }
+    if (autoClose && !ws.closed && !ws._closed) {
+      closeWriteFd();
+      ws._emitClose();
+    }
     return ws;
   };
 
@@ -3565,8 +3705,8 @@ module.exports = {
   writeSync: writeSync,
   createReadStream: createReadStream,
   createWriteStream: createWriteStream,
-  ReadStream: createReadStream,
-  WriteStream: createWriteStream,
+  ReadStream: ReadStream,
+  WriteStream: WriteStream,
   watch: watch,
   watchFile: watchFile,
   unwatchFile: unwatchFile,

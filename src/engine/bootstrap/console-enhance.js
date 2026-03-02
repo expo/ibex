@@ -1,7 +1,16 @@
 (function() {
+  if (console.__exactConsoleEnhanced) return;
+  console.__exactConsoleEnhanced = true;
+
   var _nativeLog = console.log;
   var _nativeError = console.error;
   var _clearSequence = '\x1b[1;1H\x1b[0J';
+  var _stdoutWriteInProgress = false;
+  var _stderrWriteInProgress = false;
+
+  function _isValidStreamWrite(stream, candidate) {
+    return stream && typeof stream.write === 'function' && stream.write === candidate;
+  }
 
   function clearTTY(stream) {
     if (!stream || !stream.isTTY || typeof stream.write !== 'function') {
@@ -257,47 +266,56 @@
     return (typeof process === 'object' && process && process.stderr) ? process.stderr : null;
   }
 
-  var _writing = false;
 
   function _writeStdout(msg) {
-    if (_writing) {
-      // Re-entrant call — fall back to native log to avoid infinite recursion
-      _nativeLog.call(console, msg.replace(/\n$/, ''));
+    var stdout = _getStdout();
+    if (_stdoutWriteInProgress) {
+      if (typeof _nativeLog === 'function') _nativeLog.call(console, msg.replace(/\n$/, ''));
       return;
     }
-    _writing = true;
-    try {
-      var stdout = _getStdout();
-      if (stdout && typeof stdout.write === 'function') {
-        stdout.write(_groupIndent ? msg.split('\n').map(function(line, i, arr) {
-          return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
-        }).join('\n') : msg);
-      } else {
-        _nativeLog.call(console, msg.replace(/\n$/, ''));
+
+    var encoded = _groupIndent ? msg.split('\n').map(function(line, i, arr) {
+      return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
+    }).join('\n') : msg;
+
+    if (!_isValidStreamWrite(stdout, _writeStdout) && stdout && typeof stdout.write === 'function') {
+      _stdoutWriteInProgress = true;
+      try {
+        stdout.write(encoded);
+      } finally {
+        _stdoutWriteInProgress = false;
       }
-    } finally {
-      _writing = false;
+      return;
+    }
+    if (typeof _nativeLog === 'function') {
+      _nativeLog.call(console, msg.replace(/\n$/, ''));
     }
   }
   function _writeStderr(msg) {
-    if (_writing) {
-      // Re-entrant call — fall back to native error to avoid infinite recursion
+    var stderr = _getStderr();
+    if (_stderrWriteInProgress) {
+      if (typeof _nativeError === 'function') {
+        _nativeError.call(console, msg.replace(/\n$/, ''));
+      }
+      return;
+    }
+
+    var encoded = _groupIndent ? msg.split('\n').map(function(line, i, arr) {
+      return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
+    }).join('\n') : msg;
+
+    if (!_isValidStreamWrite(stderr, _writeStderr) && stderr && typeof stderr.write === 'function') {
+      _stderrWriteInProgress = true;
+      try {
+        stderr.write(encoded);
+      } finally {
+        _stderrWriteInProgress = false;
+      }
+    } else if (typeof _nativeError === 'function') {
       _nativeError.call(console, msg.replace(/\n$/, ''));
       return;
     }
-    _writing = true;
-    try {
-      var stderr = _getStderr();
-      if (stderr && typeof stderr.write === 'function') {
-        stderr.write(_groupIndent ? msg.split('\n').map(function(line, i, arr) {
-          return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
-        }).join('\n') : msg);
-      } else {
-        _nativeError.call(console, msg.replace(/\n$/, ''));
-      }
-    } finally {
-      _writing = false;
-    }
+    return;
   }
 
   console.log = function() {
