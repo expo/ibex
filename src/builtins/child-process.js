@@ -230,6 +230,8 @@ function _validateSpawnSyncOptions(options) {
     args = [];
   }
   if (!args) args = [];
+  // Coerce args to strings (Node.js does this automatically)
+  args = args.map(function(a) { return String(a); });
   _validateArgsNullBytes(args);
   if (options == null) options = {};
   _validateOptionsNullBytes(options);
@@ -374,7 +376,8 @@ cp.exec = function exec(command, options, callback) {
   _validateOptionsNullBytes(options);
   var opts = normalizeExecOptions(options);
   var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
-  var encoding = opts.encoding !== undefined ? opts.encoding : 'utf8';
+  var encoding = (options && 'encoding' in options) ? options.encoding : 'utf8';
+  var useBuffer = !encoding || encoding === 'buffer';
   var child = cp.spawn(command, [], {
     shell: opts.shell !== undefined ? opts.shell : true,
     cwd: opts.cwd,
@@ -393,11 +396,13 @@ cp.exec = function exec(command, options, callback) {
     if (exited) return;
     exited = true;
     if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-    var stdout = stdoutChunks.join('');
-    var stderr = stderrChunks.join('');
+    var stdoutStr = stdoutChunks.join('');
+    var stderrStr = stderrChunks.join('');
+    var stdout = useBuffer ? Buffer.from(stdoutStr) : stdoutStr;
+    var stderr = useBuffer ? Buffer.from(stderrStr) : stderrStr;
     if (code !== 0 || killed) {
       var err = makeExecError(
-        'Command failed: ' + command + (stderr ? '\n' + stderr : ''),
+        'Command failed: ' + command + (stderrStr ? '\n' + stderrStr : ''),
         { status: code, stdout: stdout, stderr: stderr, pid: child.pid, cmd: command }
       );
       err.killed = killed || child.killed;
@@ -492,7 +497,8 @@ cp.execFile = function execFile(file, args, options, callback) {
   _validateOptionsNullBytes(options);
   var opts = normalizeExecOptions(options);
   var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
-  var encoding = opts.encoding !== undefined ? opts.encoding : 'utf8';
+  var encoding = (options && 'encoding' in options) ? options.encoding : 'utf8';
+  var useBuffer = !encoding || encoding === 'buffer';
   var child = cp.spawn(file, args, {
     shell: false,
     cwd: opts.cwd,
@@ -511,11 +517,13 @@ cp.execFile = function execFile(file, args, options, callback) {
     if (exited) return;
     exited = true;
     if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-    var stdout = stdoutChunks.join('');
-    var stderr = stderrChunks.join('');
+    var stdoutStr = stdoutChunks.join('');
+    var stderrStr = stderrChunks.join('');
+    var stdout = useBuffer ? Buffer.from(stdoutStr) : stdoutStr;
+    var stderr = useBuffer ? Buffer.from(stderrStr) : stderrStr;
     if (code !== 0 || killed) {
       var err = makeExecError(
-        'Command failed: ' + file + (stderr ? '\n' + stderr : ''),
+        'Command failed: ' + file + (stderrStr ? '\n' + stderrStr : ''),
         { status: code, stdout: stdout, stderr: stderr, pid: child.pid, cmd: file + ' ' + args.join(' ') }
       );
       err.killed = killed || child.killed;
@@ -606,10 +614,9 @@ function _normalizeSpawnOptions(options) {
     ];
   } else if (Array.isArray(stdio)) {
     normalized.stdio = [];
-    normalized.stdio[0] = _normalizeSpawnMode(stdio[0], 'pipe');
-    normalized.stdio[1] = _normalizeSpawnMode(stdio[1], 'pipe');
-    normalized.stdio[2] = _normalizeSpawnMode(stdio[2], 'pipe');
-    normalized.stdio[3] = _normalizeSpawnMode(stdio[3], 'pipe');
+    for (var si = 0; si < Math.max(stdio.length, 3); si++) {
+      normalized.stdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+    }
   } else {
     normalized.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
   }
@@ -1114,7 +1121,7 @@ ChildProcess.prototype.spawn = function(options) {
 
   // Actually spawn the process
   var command = options.file;
-  var args = options.args || [];
+  var args = (options.args || []).map(function(a) { return String(a); });
   var normalizedOptions = _normalizeSpawnOptions(options);
   var opts = {};
   if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
@@ -1454,6 +1461,8 @@ cp.spawn = function spawn(command, args, options) {
     _throwInvalidArgType('args', 'an instance of Array or undefined', args);
   }
   if (!args) args = [];
+  // Coerce args to strings (Node.js does this automatically)
+  args = args.map(function(a) { return String(a); });
   if (options === null || (options !== undefined && typeof options !== 'object') || Array.isArray(options)) {
     _throwInvalidArgType('options', 'of type object or undefined', options);
   }
@@ -1497,6 +1506,19 @@ cp.spawn = function spawn(command, args, options) {
   }
 
   var normalizedOptions = _normalizeSpawnOptions(options);
+  // Validate only one IPC pipe
+  if (normalizedOptions.stdio) {
+    var ipcCount = 0;
+    for (var si = 0; si < normalizedOptions.stdio.length; si++) {
+      if (normalizedOptions.stdio[si] === 'ipc') ipcCount++;
+    }
+    if (ipcCount > 1) {
+      var ipcErr = new Error('Child process can have only one IPC pipe');
+      ipcErr.code = 'ERR_IPC_ONE_PIPE';
+      ipcErr.name = 'Error';
+      throw ipcErr;
+    }
+  }
   var opts = {};
   if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;

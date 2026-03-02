@@ -4083,6 +4083,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         uint32_t timeout_ms = 0;
         uint32_t max_buffer = 1024 * 1024;
         std::vector<std::string> envEntries;
+        std::string stdinInput;
+        bool hasStdinInput = false;
 
         if (count > 2 && args[2].isString()) {
           auto optsJson = args[2].toString(runtime).utf8(runtime);
@@ -4112,6 +4114,26 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
           }
           envEntries = s_parseEnvFromOpts(optsJson);
+          // Parse input option for stdin
+          auto inputPos = optsJson.find("\"input\":\"");
+          if (inputPos != std::string::npos) {
+            auto start = inputPos + 9;
+            std::string inputStr;
+            while (start < optsJson.size() && optsJson[start] != '"') {
+              if (optsJson[start] == '\\' && start + 1 < optsJson.size()) {
+                start++;
+                if (optsJson[start] == 'n') inputStr += '\n';
+                else if (optsJson[start] == 't') inputStr += '\t';
+                else if (optsJson[start] == 'r') inputStr += '\r';
+                else inputStr += optsJson[start];
+              } else {
+                inputStr += optsJson[start];
+              }
+              start++;
+            }
+            stdinInput = inputStr;
+            hasStdinInput = true;
+          }
         }
 
         // JSON escape helper
@@ -4141,16 +4163,24 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return result;
         };
 
-        // Create pipes for stdout and stderr
-        int stdoutPipe[2], stderrPipe[2];
+        // Create pipes for stdout, stderr, and optionally stdin
+        int stdoutPipe[2], stderrPipe[2], stdinPipe[2] = {-1, -1};
         if (pipe(stdoutPipe) != 0 || pipe(stderrPipe) != 0) {
           throw facebook::jsi::JSError(runtime, "Failed to create pipes");
+        }
+        if (hasStdinInput) {
+          if (pipe(stdinPipe) != 0) {
+            close(stdoutPipe[0]); close(stdoutPipe[1]);
+            close(stderrPipe[0]); close(stderrPipe[1]);
+            throw facebook::jsi::JSError(runtime, "Failed to create stdin pipe");
+          }
         }
 
         pid_t pid = fork();
         if (pid < 0) {
           close(stdoutPipe[0]); close(stdoutPipe[1]);
           close(stderrPipe[0]); close(stderrPipe[1]);
+          if (hasStdinInput) { close(stdinPipe[0]); close(stdinPipe[1]); }
           throw facebook::jsi::JSError(runtime, "Failed to fork process");
         }
 
@@ -4162,10 +4192,20 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           dup2(stderrPipe[1], STDERR_FILENO);
           close(stdoutPipe[1]);
           close(stderrPipe[1]);
+          if (hasStdinInput) {
+            close(stdinPipe[1]);
+            dup2(stdinPipe[0], STDIN_FILENO);
+            close(stdinPipe[0]);
+          }
+
+          // Suppress runtime bundle note in child processes
+          setenv("EXACT_QUIET", "1", 1);
 
           // Build envp array (must outlive execvp call)
           std::vector<char*> envp;
           if (!envEntries.empty()) {
+            // Ensure EXACT_QUIET is included in custom env
+            envEntries.push_back("EXACT_QUIET=1");
             envp.reserve(envEntries.size() + 1);
             for (auto& e : envEntries) {
               envp.push_back(const_cast<char*>(e.c_str()));
@@ -4205,6 +4245,19 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Parent process
         close(stdoutPipe[1]);
         close(stderrPipe[1]);
+        if (hasStdinInput) {
+          close(stdinPipe[0]);
+          // Write input to child's stdin
+          const char* data = stdinInput.c_str();
+          size_t remaining = stdinInput.size();
+          while (remaining > 0) {
+            ssize_t written = write(stdinPipe[1], data, remaining);
+            if (written <= 0) break;
+            data += written;
+            remaining -= written;
+          }
+          close(stdinPipe[1]);
+        }
 
         std::string stdoutStr, stderrStr;
         char buf[4096];
@@ -4586,9 +4639,14 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             if (ipcPair[1] >= 0) close(ipcPair[1]);
           }
 
+          // Suppress runtime bundle note in child processes
+          setenv("EXACT_QUIET", "1", 1);
+
           // Build envp array (must outlive execvp call)
           std::vector<char*> envp;
           if (!envEntries.empty()) {
+            // Ensure EXACT_QUIET is included in custom env
+            envEntries.push_back("EXACT_QUIET=1");
             envp.reserve(envEntries.size() + 1);
             for (auto& e : envEntries) {
               envp.push_back(const_cast<char*>(e.c_str()));
