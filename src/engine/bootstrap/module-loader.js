@@ -46,6 +46,57 @@
       tests: [],
       afters: []
     };
+    function _createMock() {
+      return {
+        method: function(target, propertyName) {
+          if (typeof propertyName !== 'string') {
+            throw new TypeError('The "propertyName" argument must be a string');
+          }
+          if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+            throw new TypeError('Cannot mock property on non-object target');
+          }
+          if (typeof target[propertyName] !== 'function') {
+            throw new TypeError('Cannot mock a non-function property');
+          }
+
+          var calls = [];
+          var original = target[propertyName];
+          var restored = false;
+
+          var mocked = function() {
+            var call = {
+              thisArg: this,
+              arguments: Array.prototype.slice.call(arguments),
+              result: undefined,
+              error: undefined
+            };
+            calls.push(call);
+            try {
+              call.result = original.apply(this, arguments);
+              return call.result;
+            } catch (e) {
+              call.error = e;
+              throw e;
+            }
+          };
+          mocked.mock = { calls: calls };
+          mocked.restore = function() {
+            if (!restored) {
+              target[propertyName] = original;
+              restored = true;
+            }
+          };
+
+          target[propertyName] = mocked;
+          return mocked;
+        }
+      };
+    }
+    function _createTestContext() {
+      return {
+        mock: _createMock()
+      };
+    }
     function _runAfterQueue(afters) {
       var promise = Promise.resolve();
       for (var i = 0; i < afters.length; i++) {
@@ -89,10 +140,33 @@
         return Promise.resolve();
       }
       var promise;
-      try {
-        promise = Promise.resolve(fn());
-      } catch (err) {
-        promise = Promise.reject(err);
+      var testContext = _createTestContext();
+      if (fn.length >= 2) {
+        promise = new Promise(function(resolve, reject) {
+          var doneCalled = false;
+          var done = function(error) {
+            if (doneCalled) return;
+            doneCalled = true;
+            if (error) {
+              reject(error);
+            } else {
+              resolve();
+            }
+          };
+          try {
+            fn(testContext, done);
+          } catch (err) {
+            if (!doneCalled) {
+              reject(err);
+            }
+          }
+        });
+      } else {
+        try {
+          promise = Promise.resolve(fn(testContext));
+        } catch (err) {
+          promise = Promise.reject(err);
+        }
       }
       if (context) {
         context.tests.push(promise);
@@ -864,55 +938,7 @@
     } else if (name === 'internal/streams/writable') {
       result = stream.Writable;
     } else if (name === 'stream/promises') {
-      var streamPromisesModule = stream.promises || {};
-      var streamPromisesPipeline = streamPromisesModule.pipeline;
-      var streamPromisesFinished = streamPromisesModule.finished;
-      result = {
-        pipeline: function() {
-          var args = [];
-          for (var pi = 0; pi < arguments.length; pi++) args.push(arguments[pi]);
-          if (typeof streamPromisesPipeline === 'function') {
-            try {
-              return streamPromisesPipeline.apply(streamPromisesModule, args);
-            } catch (err) {
-              return Promise.reject(err);
-            }
-          }
-          return new Promise(function(resolve, reject) {
-            args.push(function(err) {
-              if (err) reject(err); else resolve();
-            });
-            try {
-              if (typeof stream.pipeline === 'function') {
-                stream.pipeline.apply(stream, args);
-                return;
-              }
-              reject(new Error('stream.pipeline is not available'));
-            } catch (err) {
-              reject(err);
-            }
-          });
-        },
-        finished: function() {
-          var args = [];
-          for (var pi = 0; pi < arguments.length; pi++) args.push(arguments[pi]);
-          if (typeof streamPromisesFinished === 'function') {
-            try {
-              return streamPromisesFinished.apply(streamPromisesModule, args);
-            } catch (err) {
-              return Promise.reject(err);
-            }
-          }
-          if (typeof stream.finished === 'function') {
-            try {
-              return stream.finished.apply(stream, args);
-            } catch (err) {
-              return Promise.reject(err);
-            }
-          }
-          return Promise.reject(new Error('stream.finished is not available'));
-        }
-      };
+      result = stream.promises || {};
     } else if (name === 'stream/consumers') {
       result = stream.consumers || {};
     } else if (name === '_stream_readable') {
