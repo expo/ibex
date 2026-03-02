@@ -165,6 +165,7 @@ function Stream() {
   if (this._events.end === undefined) this._events.end = undefined;
   if (this._events.readable === undefined) this._events.readable = undefined;
   this._closed = false;
+  _defineStateAlias(this, 'closed', '_closed');
   this._destroyed = false;
   this.destroyed = false;
   this._needsClose = false;
@@ -842,15 +843,7 @@ Readable.prototype._readFromSource = function(size) {
   } catch (err) {
     if (!state.errored) {
       state.errored = err;
-      if (typeof this.emit === 'function') {
-        try {
-          this.emit('error', err);
-        } catch (_err) {
-          if (this._writableState && this._writableState.errorEmitted) {
-            state.errored = err;
-          }
-        }
-      }
+      _destroyStreamWithError(this, err);
     }
   } finally {
     state.reading = false;
@@ -1061,23 +1054,28 @@ Readable.prototype.read = function(size) {
   }
 
   var shouldRead = state.needReadable || state.length === 0 || state.length - n < state.highWaterMark;
-  if (shouldRead &&
-      !state.reading &&
-      !state.ended &&
-      !state.errored &&
-      !state.destroyed &&
-      state.constructed !== false) {
-    state.reading = true;
-    state.sync = true;
-    if (state.length === 0) {
-      state.needReadable = true;
-    }
-    try {
-      this._read(state.highWaterMark);
-    } finally {
-      state.reading = false;
-      state.sync = false;
-    }
+    if (shouldRead &&
+        !state.reading &&
+        !state.ended &&
+        !state.errored &&
+        !state.destroyed &&
+        state.constructed !== false) {
+      state.reading = true;
+      state.sync = true;
+      if (state.length === 0) {
+        state.needReadable = true;
+      }
+      try {
+        this._read(state.highWaterMark);
+      } catch (err) {
+        if (!state.errored) {
+          state.errored = err;
+          _destroyStreamWithError(this, err);
+        }
+      } finally {
+        state.reading = false;
+        state.sync = false;
+      }
     if (!state.reading) {
       n = _howMuchToRead(nOrig, state);
     }
@@ -2048,6 +2046,7 @@ function _duplexFromFunction(value, options) {
         sink.destroy(err);
       }
     });
+    sink._isPipelineFunction = true;
     return sink;
   }
   var readable = _toReadable(output, options);
@@ -2058,7 +2057,9 @@ function _duplexFromFunction(value, options) {
   ) {
     throw makeError(TypeError, 'ERR_INVALID_RETURN_VALUE', 'The "source" argument must return a value');
   }
-  return _duplexFromReadableWritable(readable, src, options);
+  var duplex = _duplexFromReadableWritable(readable, src, options);
+  duplex._isPipelineFunction = true;
+  return duplex;
 }
 
 Duplex.from = function(value, options) {
@@ -2241,6 +2242,11 @@ Readable.from = function(iterable, options) {
   if (typeof iterable[Symbol.asyncIterator] === 'function') {
     var asyncIter = iterable[Symbol.asyncIterator]();
     var reading = false;
+    var scheduleRead = typeof process === 'object' &&
+      process &&
+      typeof process.nextTick === 'function'
+      ? process.nextTick
+      : function(fn) { setTimeout(fn, 0); };
     function readNext() {
       if (reading || !readableStream || readableStream._destroyed) return;
       reading = true;
@@ -2286,7 +2292,7 @@ Readable.from = function(iterable, options) {
         }
       });
     }
-    readNext();
+    scheduleRead(readNext);
     return readable;
   }
   // Sync iterable - store data in buffer without emitting events
@@ -2328,7 +2334,7 @@ Readable.from = function(iterable, options) {
       if (iterator) {
         _safelyReturnAsyncIterator(iterator);
       }
-      throw err;
+      return readable;
     }
     readableStream._syncIterableHasData = hasSyncIterableData;
     readableStream._syncReadableState();
@@ -2361,7 +2367,7 @@ Readable.from = function(iterable, options) {
           if (reading || !readableStream || readableStream._destroyed) return;
           reading = true;
           _suppressHermesAsyncIteratorUnhandledRejections();
-          var next;
+        var next;
           try {
             next = asyncIter.next();
           } catch (err) {
@@ -2390,11 +2396,11 @@ Readable.from = function(iterable, options) {
             if (!readableStream._destroyed) {
               _destroyStreamWithError(readableStream, err);
             }
-          });
-        }
-        readNext();
-        return;
-      }
+      });
+    }
+    scheduleRead(readNext);
+    return;
+  }
 
       if (typeof value === 'string' || value instanceof Uint8Array) {
         readableStream.push(value);
@@ -3394,10 +3400,6 @@ Stream.prototype.pipe = function(dest, options) {
     }
   }
 
-  function onsourceclose() {
-    onend();
-  }
-
   function cleanup() {
     unpipe(true);
   }
@@ -3467,7 +3469,6 @@ Stream.prototype.pipe = function(dest, options) {
   function unpipe(emitUnpipe) {
     source.removeListener('data', ondata);
     source.removeListener('end', onend);
-    source.removeListener('close', onsourceclose);
     source.removeListener('close', cleanup);
     if (hasDrainListener) {
       dest.removeListener('drain', ondrain);
@@ -3507,7 +3508,6 @@ Stream.prototype.pipe = function(dest, options) {
     _nextTick(onend);
   } else {
     source.on('end', onend);
-    source.on('close', onsourceclose);
     source.on('close', cleanup);
   }
 
@@ -3616,6 +3616,12 @@ Readable.prototype.wrap = function(stream) {
 };
 
 function pipeline() {
+  var __pipelineDebug = typeof process === 'object' && process && process.env &&
+    process.env.EXACT_PIPELINE_DEBUG === '1';
+  var __pipelineDebugId = (parseInt(process.__exactPipelineId || '0', 10) + 1);
+  if (typeof process === 'object' && process) {
+    process.__exactPipelineId = __pipelineDebugId;
+  }
   var args = [];
   for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
   var callback = null;
@@ -3766,13 +3772,14 @@ function addListener(stream, event, handler) {
     listeners.push([stream, event, handler]);
   }
 
-function addPairCloseGuard(src, dst) {
+  function addPairCloseGuard(src, dst) {
   var state = {
     src: src,
     dst: dst,
     ended: false
   };
   if (!src || !dst) return state;
+
   addListener(src, 'end', function() {
     state.ended = true;
   });
@@ -3798,7 +3805,6 @@ function addPairCloseGuard(src, dst) {
 
 function isReadableDone(stream) {
   if (!stream) return true;
-  if (stream.closed) return true;
   if (stream._readableState) {
     if (stream._readableState.endEmitted || stream._readableState.ended) return true;
     if (stream.readable === false && !stream._writableState) return false;
@@ -3816,13 +3822,25 @@ function isReadableDone(stream) {
 
 function isWritableDone(stream) {
   if (!stream) return true;
-  if (stream.closed) return true;
   if (stream.writableEnded || stream.writableFinished) return true;
   if (stream.writable === false) return true;
   if (stream._writableState) {
     return stream._writableState.finished || stream._writableState.ended;
   }
   return !_isWritableLike(stream);
+}
+
+function isStreamDone(stream) {
+  if (!stream) return true;
+  var readableDone = !_isReadableLike(stream) || isReadableDone(stream);
+  var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
+  if (!shouldPipeEnd && stream === last) {
+    writableDone = true;
+  }
+  if (stream === streams[0] && stream._isPipelineFunction) {
+    writableDone = true;
+  }
+  return readableDone && writableDone;
 }
 
   function getStreamError(stream) {
@@ -3845,11 +3863,46 @@ function isWritableDone(stream) {
   function allStreamsDone() {
     for (var i = 0; i < streamErrors.length; i++) {
       var stream = streamErrors[i];
-      if (!isReadableDone(stream) || !isWritableDone(stream)) {
+      var readableDone = !_isReadableLike(stream) || isReadableDone(stream);
+      var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
+      var streamIsFirst = stream === streams[0];
+      if (stream === last && !shouldPipeEnd) {
+        writableDone = true;
+      }
+      if (streamIsFirst && stream && stream._isPipelineFunction) {
+        writableDone = true;
+      }
+      if (!readableDone || !writableDone) {
         return false;
       }
     }
     return true;
+  }
+
+  function allStreamsClosed() {
+    for (var i = 0; i < streamErrors.length; i++) {
+      var stream = streamErrors[i];
+      if (!stream || stream.closed !== true) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  var errorSettleAttempts = 0;
+  function settleAfterError() {
+    if (settled || awaitingResult) return;
+    if (allStreamsDone() && allStreamsClosed()) {
+      settle(error);
+      return;
+    }
+    if (errorSettleAttempts > 500) {
+      settle(error);
+      return;
+    }
+    errorSettleAttempts += 1;
+    var scheduler = typeof setTimeout === 'function' ? function(fn) { setTimeout(fn, 1); } : function(fn) { setTimeout(fn, 0); };
+    scheduler(settleAfterError);
   }
 
   function connectWithoutPipe(src, dst, shouldPipeEnd) {
@@ -3924,6 +3977,9 @@ function isWritableDone(stream) {
   }
 
   function settle(err) {
+    if (__pipelineDebug) {
+      console.log('pipeline', __pipelineDebugId, 'settle', err && (err.message || err.code || err));
+    }
     if (settled) return;
     if (awaitingResult) return;
     if (err) {
@@ -3934,16 +3990,22 @@ function isWritableDone(stream) {
     var lastResult = last && last._pipelineResult;
     if (lastResult && typeof lastResult.then === 'function') {
       awaitingResult = true;
-      var scheduleSettle = typeof process === 'object' &&
+    var scheduleSettle = typeof process === 'object' &&
         process &&
         typeof process.nextTick === 'function'
         ? process.nextTick
         : function(fn) { setTimeout(fn, 0); };
-      lastResult.then(function(value) {
-        awaitingResult = false;
-        scheduleSettle(function() {
-          settleWithResult(error, value);
-        });
+      if (__pipelineDebug) {
+        console.log('pipeline', __pipelineDebugId, 'awaitingResult');
+      }
+    lastResult.then(function(value) {
+      awaitingResult = false;
+      if (__pipelineDebug) {
+        console.log('pipeline', __pipelineDebugId, 'resultThen', value);
+      }
+      scheduleSettle(function() {
+        settleWithResult(error, value);
+      });
       }, function(pipelineErr) {
         awaitingResult = false;
         settleWithResult(error || pipelineErr);
@@ -3954,6 +4016,9 @@ function isWritableDone(stream) {
   }
 
   function settleWithResult(finalErr, finalValue) {
+    if (__pipelineDebug) {
+      console.log('pipeline', __pipelineDebugId, 'settleWithResult', finalErr && (finalErr.message || finalErr.code || finalErr));
+    }
     if (settled) return;
     settled = true;
     cleanup();
@@ -3971,13 +4036,19 @@ function isWritableDone(stream) {
   }
 
   function onError(err) {
+    if (__pipelineDebug) {
+      console.log('pipeline', __pipelineDebugId, 'onError', err && (err.message || err.code || err));
+    }
     if (error) return;
     error = normalizePipelineError(err);
     destroyAll(error);
-    settle(error);
+    settleAfterError();
   }
 
   function onFinish() {
+    if (__pipelineDebug) {
+      console.log('pipeline', __pipelineDebugId, 'onFinish start', settled ? 'settled' : 'open', error ? 'error' : 'ok');
+    }
     if (settled || error) return;
     if (lastAppearsEarlier) return;
     if (!allStreamsDone()) return;
@@ -3989,13 +4060,22 @@ function isWritableDone(stream) {
     var scheduler = typeof process === 'object' && process && typeof process.nextTick === 'function'
       ? process.nextTick
       : function(fn) { setTimeout(fn, 0); };
+    if (__pipelineDebug) {
+      console.log('pipeline', __pipelineDebugId, 'onFinish scheduling settle');
+    }
     scheduler(function() {
       if (settled || error) return;
+      if (__pipelineDebug) {
+        console.log('pipeline', __pipelineDebugId, 'onFinish delayed settle');
+      }
       settle(getAnyStreamError());
     });
   }
 
   function onClose(stream) {
+    if (__pipelineDebug) {
+      console.log('pipeline', __pipelineDebugId, 'onClose', stream === last ? 'last' : 'other');
+    }
     if (settled || error) return;
     var streamError = getAnyStreamError() || getStreamError(stream);
     if (streamError) {
@@ -4005,13 +4085,18 @@ function isWritableDone(stream) {
     var scheduler = function(fn) { setTimeout(fn, 1); };
     scheduler(function() {
       if (settled || error) return;
+      if (__pipelineDebug) {
+        console.log('pipeline', __pipelineDebugId, 'onClose delayed');
+      }
       var delayedStreamError = getAnyStreamError() || getStreamError(stream);
       if (delayedStreamError) {
         onError(delayedStreamError);
         return;
       }
-      if (!isWritableDone(stream)) {
+      if (!isStreamDone(stream)) {
         onError(makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close'));
+      } else if (stream === last && !settled && !error) {
+        settle(null);
       }
     });
   }
@@ -4037,7 +4122,7 @@ function isWritableDone(stream) {
     }
   }
 
-  var streamErrors = [];
+  var streamErrors = streams.slice(0);
   for (var i = 0; i + 1 < streams.length; i++) {
     var src = streams[i];
     var dst = streams[i + 1];
@@ -4053,9 +4138,7 @@ function isWritableDone(stream) {
       onError(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams[' + (i + 1) + ']" argument must be of type Stream. Received ' + typeof dst));
       break;
     }
-    streamErrors.push(src);
   }
-  streamErrors.push(streams[streams.length - 1]);
   var seen = [];
   for (var se = 0; se < streamErrors.length; se++) {
     if (seen.indexOf(streamErrors[se]) === -1) {
@@ -4065,6 +4148,8 @@ function isWritableDone(stream) {
           onClose(stream);
         };
       }(streamErrors[se]));
+      addListener(streamErrors[se], 'end', onFinish);
+      addListener(streamErrors[se], 'finish', onFinish);
       seen.push(streamErrors[se]);
     }
   }
@@ -4072,13 +4157,8 @@ function isWritableDone(stream) {
   addListener(last, 'finish', onFinish);
   addListener(last, 'end', onFinish);
   addListener(last, 'close', function() {
-    if (lastAppearsEarlier && !settled && !error) {
-      settle(null);
-      return;
-    }
     onClose(last);
   });
-
   return hasCallback ? last : undefined;
   } catch (err) {
     throw err;
