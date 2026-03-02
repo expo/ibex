@@ -431,6 +431,19 @@ function _validateFlushOption(value) {
   throw _fsInvalidArgType('options.flush', 'boolean', value);
 }
 
+function _makeAbortError() {
+  var err = new Error('The operation was aborted');
+  err.name = 'AbortError';
+  err.code = 'ABORT_ERR';
+  return err;
+}
+
+function _checkForAbortedSignal(options) {
+  if (options && typeof options === 'object' && options.signal && options.signal.aborted === true) {
+    throw _makeAbortError();
+  }
+}
+
 function _normalizeWriteOptions(options) {
   if (options === undefined || options === null) return {};
   if (typeof options === 'string') {
@@ -442,6 +455,7 @@ function _normalizeWriteOptions(options) {
   }
   _validateEncodingOption(options);
   _validateFlushOption(options.flush);
+  _checkForAbortedSignal(options);
   return options;
 }
 
@@ -2932,7 +2946,9 @@ function rm(path, options, cb) {
 
 function _resolveAsync(value) {
   return function() {
-    try { return Promise.resolve(value()); } catch(e) { return Promise.reject(e); }
+    return Promise.resolve().then(function() {
+      return value();
+    });
   };
 }
 function _fileHandleErrorFromClosed() {

@@ -1,3 +1,10 @@
+var _uvErrnoMapFallback = {
+  EACCES: 13,
+  EINVAL: 22,
+  ENOENT: 2,
+  ENOTDIR: 20
+};
+
 function cwd() {
   if (typeof __exactGetCwd === 'function') {
     return __exactGetCwd();
@@ -5,24 +12,55 @@ function cwd() {
   return "/";
 }
 
-function chdir(path) {
-  if (typeof __exactSetCwd !== 'function') {
-    throw new Error("process.chdir is not supported in this runtime");
+function _coerceChdirError(err, path) {
+  if (err && typeof err.message === 'string') {
+    var message = err.message;
+    var lower = message.toLowerCase();
+    var code;
+    if (lower.indexOf('no such file') !== -1 || lower.indexOf('does not exist') !== -1) {
+      code = 'ENOENT';
+    } else if (lower.indexOf('permission denied') !== -1) {
+      code = 'EACCES';
+    } else if (lower.indexOf('not a directory') !== -1) {
+      code = 'ENOTDIR';
+    }
+    if (code) {
+      var mapped = new Error(message + " '" + path + "'");
+      mapped.code = code;
+      var fallbackErrno = _uvErrnoMap && _uvErrnoMap[code];
+      if (fallbackErrno === undefined) {
+        fallbackErrno = _uvErrnoMapFallback[code];
+      }
+      if (fallbackErrno !== undefined) {
+        mapped.errno = -fallbackErrno;
+      }
+      mapped.syscall = 'chdir';
+      mapped.path = cwd();
+      mapped.dest = path;
+      return mapped;
+    }
   }
+  var fallback = new Error('process.chdir failed');
+  fallback.code = 'EINVAL';
+  fallback.syscall = 'chdir';
+  fallback.path = cwd();
+  fallback.dest = path;
+  return fallback;
+}
+
+function chdir(path) {
   if (typeof path !== 'string') {
     var err = new TypeError('The "directory" argument must be of type string. Received type ' + typeof path);
     err.code = 'ERR_INVALID_ARG_TYPE';
     throw err;
   }
+  if (typeof __exactSetCwd !== 'function') {
+    throw new Error("process.chdir is not supported in this runtime");
+  }
   try {
     __exactSetCwd(path);
   } catch (e) {
-    var syserr = new Error('ENOENT: no such file or directory, chdir \'' + cwd() + '\' -> \'' + path + '\'');
-    syserr.code = 'ENOENT';
-    syserr.syscall = 'chdir';
-    syserr.path = cwd();
-    syserr.dest = path;
-    throw syserr;
+    throw _coerceChdirError(e, path);
   }
 }
 
