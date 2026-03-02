@@ -826,7 +826,13 @@ Readable.prototype._emitReadableIfNeeded = function() {
 
 Readable.prototype._readFromSource = function(size) {
   var state = this._readableState;
-  if (this._destroyed || !state || state.reading || typeof this._read !== 'function') return;
+  if (this.readableFlowing === true ||
+      this._destroyed ||
+      !state ||
+      state.reading ||
+      typeof this._read !== 'function') {
+    return;
+  }
   state.reading = true;
   state.sync = true;
   try {
@@ -946,7 +952,8 @@ Readable.prototype.push = function(chunk) {
   }
   var chunkLength = readableStateChunkLength(chunk, state.objectMode);
   if (_isZeroLengthChunk(chunk, this._readableState.objectMode)) {
-    return this._readableState.length < this._readableState.highWaterMark;
+    return this._readableState.length < this._readableState.highWaterMark ||
+      this._readableState.length === 0;
   }
 
   if (this.readableFlowing === true) {
@@ -956,10 +963,10 @@ Readable.prototype.push = function(chunk) {
     this._readableState.needReadable = false;
     this._readableState.emittedReadable = false;
     if (this._readableState.reading) {
-      return state.length < state.highWaterMark;
+      return state.length < state.highWaterMark || state.length === 0;
     }
     if (this.readableFlowing !== true) {
-      return state.length < state.highWaterMark;
+      return state.length < state.highWaterMark || state.length === 0;
     }
     var flowingChunk = this._data.shift();
     this._updateReadableLength(-readableStateChunkLength(flowingChunk, this._readableState.objectMode));
@@ -968,13 +975,14 @@ Readable.prototype.push = function(chunk) {
       this._data.unshift(flowingChunk);
       this._updateReadableLength(readableStateChunkLength(flowingChunk, this._readableState.objectMode));
       this._syncReadableState();
-      return state.length < state.highWaterMark;
+      return state.length < state.highWaterMark || state.length === 0;
     }
     if (this._readableState) {
       this._readableState.dataEmitted = true;
     }
+    _maybeReadMore(this, state);
     this.emit('data', flowingChunk);
-    return state.length < state.highWaterMark;
+    return state.length < state.highWaterMark || state.length === 0;
   }
 
   this._data.push(chunk);
@@ -984,7 +992,7 @@ Readable.prototype.push = function(chunk) {
   this._readableState.emittedReadable = false;
   _maybeReadMore(this, state);
   this._emitReadableIfNeeded();
-  return state.length < state.highWaterMark;
+  return state.length < state.highWaterMark || state.length === 0;
 };
 
 Readable.prototype.read = function(size) {
@@ -1102,10 +1110,11 @@ Readable.prototype.read = function(size) {
     return null;
   }
 
+  var shouldReadAll = isNaN(nOrig) && state.encoding && state.decoder && !state.objectMode;
   var chunk;
-  var readAmount = isNaN(nOrig) ? (state.objectMode ? 1 : state.length) : n;
+  var readAmount = isNaN(nOrig) ? (state.objectMode ? 1 : (shouldReadAll ? Number.MAX_SAFE_INTEGER : state.length)) : n;
   while (true) {
-    chunk = _consumeReadableChunk(this, isNaN(nOrig) ? null : readAmount);
+    chunk = _consumeReadableChunk(this, shouldReadAll ? readAmount : (isNaN(nOrig) ? null : readAmount));
     if (chunk === undefined || chunk === null) {
       chunk = null;
       break;
@@ -1209,18 +1218,6 @@ Readable.prototype.pause = function() {
 };
 
 Readable.prototype.on = function(event, listener) {
-  if (process && typeof process === 'object' && process.env && process.env.EXACT_DEBUG_STREAM_LISTENERS === '1') {
-    if (listener !== undefined && typeof listener !== 'function') {
-      console.error('[stream-debug] Readable.on received non-function listener', {
-        event: event,
-        listenerType: typeof listener,
-        readable: this && this.constructor && this.constructor.name
-      });
-      if (typeof console !== 'undefined' && console.trace) {
-        console.trace('[stream-debug] Readable.on stack');
-      }
-    }
-  }
   var result = EventEmitter.prototype.on.call(this, event, listener);
   if (event === 'readable') {
     var state = this._readableState;
@@ -3619,6 +3616,25 @@ function pipeline() {
     callback = args.pop();
     hasCallback = true;
   }
+
+  if (!hasCallback) {
+    return new Promise(function(resolve, reject) {
+      var promiseArgs = args.slice();
+      promiseArgs.push(function(err, value) {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(value);
+      });
+      try {
+        pipeline.apply(null, promiseArgs);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
   try {
   function isPipelineOptions(value) {
     return value &&
@@ -3684,14 +3700,8 @@ function pipeline() {
   if (options && options.end === false) {
     shouldPipeEnd = false;
   }
-  if (!hasCallback && streams.length === 0) {
-    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams[0]" argument must be of type Stream. Received undefined');
-  }
   if (streams.length < 2) {
     throw makeError(Error, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified');
-  }
-  if (!hasCallback) {
-    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "callback" argument must be of type function. Received undefined');
   }
 
   var signal = options && options.signal;
@@ -3720,18 +3730,6 @@ function pipeline() {
 
 function addListener(stream, event, handler) {
     if (!stream || typeof stream.on !== 'function' || typeof stream.removeListener !== 'function') return;
-    if (process && typeof process === 'object' && process.env && process.env.EXACT_DEBUG_STREAM_LISTENERS === '1') {
-      if (handler !== undefined && typeof handler !== 'function') {
-        console.error('[stream-debug] addListener received non-function handler', {
-          event: event,
-          handlerType: typeof handler,
-          stream: stream && stream.constructor && stream.constructor.name
-        });
-        if (typeof console !== 'undefined' && console.trace) {
-          console.trace('[stream-debug] addListener stack');
-        }
-      }
-    }
     if (handler !== undefined && typeof handler !== 'function') return;
     stream.on(event, handler);
     listeners.push([stream, event, handler]);
