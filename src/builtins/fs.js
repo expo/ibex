@@ -59,6 +59,15 @@ function _validateUidOrGid(name, value) {
 }
 
 function _validateUint32(name, value) {
+  if ((name === 'uid' || name === 'gid') && value === -1) {
+    if (typeof value !== 'number') {
+      throw _fsInvalidArgType(name, 'number', value);
+    }
+    if (!Number.isInteger(value)) {
+      throw _fsOutOfRange(name, value, null, null);
+    }
+    return;
+  }
   if (typeof value !== 'number') {
     throw _fsInvalidArgType(name, 'number', value);
   }
@@ -2804,8 +2813,9 @@ function truncate(path, len, cb) {
 }
 function chownSync(path, uid, gid) {
   _validatePath(path);
-  _validateUint32('uid', uid);
-  _validateUint32('gid', gid);
+  _validateUidOrGid('uid', uid);
+  _validateUidOrGid('gid', gid);
+  if (uid === -1 && gid === -1) return;
   ensureExactFs();
   var p = _pathToString(path);
   try {
@@ -2815,14 +2825,15 @@ function chownSync(path, uid, gid) {
 function chown(path, uid, gid, cb) {
   _validateCallback(cb);
   _validatePath(path);
-  _validateUint32('uid', uid);
-  _validateUint32('gid', gid);
+  _validateUidOrGid('uid', uid);
+  _validateUidOrGid('gid', gid);
   wrapCallback(function() { chownSync(path, uid, gid); }, cb, 'chown', _pathToString(path));
 }
 function lchownSync(path, uid, gid) {
   _validatePath(path);
-  _validateUint32('uid', uid);
-  _validateUint32('gid', gid);
+  _validateUidOrGid('uid', uid);
+  _validateUidOrGid('gid', gid);
+  if (uid === -1 && gid === -1) return;
   ensureExactFs();
   var p = _pathToString(path);
   try {
@@ -3246,6 +3257,7 @@ function fchownSync(fd, uid, gid) {
   if (typeof uid === 'number') _validateUidOrGid('uid', uid);
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
   _validateUidOrGid('gid', gid);
+  if (uid === -1 && gid === -1) return;
   ensureExactFs();
   try {
     if (typeof g.__exactFsFchownSync === 'function') {
@@ -3416,8 +3428,8 @@ function lchmodSync(path, mode) {
 // lchown/lchownSync is defined above with error enrichment
 function lchown(path, uid, gid, callback) {
   _validatePath(path);
-  _validateUint32('uid', uid);
-  _validateUint32('gid', gid);
+  _validateUidOrGid('uid', uid);
+  _validateUidOrGid('gid', gid);
   _validateCallback(callback);
   wrapCallback(function() { lchownSync(path, uid, gid); }, callback, 'lchown', _pathToString(path));
 }
