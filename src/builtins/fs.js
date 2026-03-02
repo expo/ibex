@@ -14,6 +14,7 @@ function _fsInvalidArgType(name, expected, actual) {
   if (actual === null) received = 'null';
   else if (actual === undefined) received = 'undefined';
   else if (Array.isArray(actual)) received = 'an instance of Array';
+  else if (typeof actual === 'function') received = actual.name ? 'function ' + actual.name : 'function ';
   else if (typeof actual === 'object') {
     var className = actual.constructor && actual.constructor.name ? actual.constructor.name : 'Object';
     received = 'an instance of ' + className;
@@ -126,7 +127,7 @@ function _validateFd(fd) {
   if (typeof fd !== 'number') {
     throw _fsInvalidArgType('fd', 'number', fd);
   }
-  _validateInt('fd', fd, -1, 2147483647);
+  _validateInt('fd', fd, 0, 2147483647);
 }
 
 function _getFdOrPath(path, propName) {
@@ -199,7 +200,22 @@ function _isBufferLike(value) {
   if (!value) return false;
   if (Buffer.isBuffer(value)) return true;
   if (typeof ArrayBuffer === 'object' && typeof ArrayBuffer.isView === 'function') {
-    return ArrayBuffer.isView(value);
+    if (ArrayBuffer.isView(value)) return true;
+  }
+  if (typeof value === 'object' && value !== null) {
+    if (typeof value.byteLength === 'number' && typeof value.byteOffset === 'number' && typeof value.buffer === 'object') {
+      return true;
+    }
+    if (typeof value.byteLength === 'number' && typeof value.length === 'number' && value.constructor && typeof value.constructor.BYTES_PER_ELEMENT === 'number') {
+      return true;
+    }
+    var typeTag = Object.prototype.toString.call(value);
+    if (typeTag !== '[object Array]' && typeTag.indexOf('Array') !== -1) {
+      return true;
+    }
+    if (typeTag === '[object DataView]') {
+      return true;
+    }
   }
   return false;
 }
@@ -243,7 +259,7 @@ function _validateReadSyncLength(length, bufferLength) {
     return bufferLength;
   }
   if (typeof length !== 'number' || !Number.isFinite(length) || length % 1 !== 0) {
-    return bufferLength;
+    throw _fsInvalidArgType('length', 'number', length);
   }
   if (length < 0 || length > bufferLength) {
     throw _fsOutOfRange('length', length, 0, bufferLength);
@@ -774,9 +790,10 @@ function writeFileSync(path, data, options) {
 }
 
 function _validateWriteData(data) {
-  if (typeof data !== 'string' && !Buffer.isBuffer(data) && !(data instanceof Uint8Array) && !ArrayBuffer.isView(data)) {
+  if (typeof data !== 'string' && !_isBufferLike(data)) {
     throw _fsInvalidArgType('data', 'string or an instance of Buffer, TypedArray, or DataView', data);
   }
+}
 }
 
 function appendFileSync(path, data, options) {
@@ -1723,13 +1740,11 @@ function writeFile(path, data, optOrCb, cb) {
   try {
     writeOptions = _normalizeWriteOptions(opts);
   } catch(err) {
-    var writeError = err && err.code === 'ABORT_ERR' ? err : _makeFsError(err, 'open', target.path);
-    _deferFsCallback(function() { callback(writeError); });
-    return;
-  }
-  if (writeOptions && writeOptions.signal && writeOptions.signal.aborted) {
-    _deferFsCallback(function() { callback(_makeAbortError()); });
-    return;
+    if (err && err.code === 'ABORT_ERR') {
+      _deferFsCallback(function() { callback(err); });
+      return;
+    }
+    throw err;
   }
   if (writeOptions.flush === true) {
     _writeFileWithFlushCallback(target, data, writeOptions, false, callback);
@@ -1747,13 +1762,11 @@ function appendFile(path, data, optOrCb, cb) {
   try {
     writeOptions = _normalizeWriteOptions(opts);
   } catch(err) {
-    var appendError = err && err.code === 'ABORT_ERR' ? err : _makeFsError(err, 'open', target.path);
-    _deferFsCallback(function() { callback(appendError); });
-    return;
-  }
-  if (writeOptions && writeOptions.signal && writeOptions.signal.aborted) {
-    _deferFsCallback(function() { callback(_makeAbortError()); });
-    return;
+    if (err && err.code === 'ABORT_ERR') {
+      _deferFsCallback(function() { callback(err); });
+      return;
+    }
+    throw err;
   }
   if (writeOptions.flush === true) {
     _writeFileWithFlushCallback(target, data, writeOptions, true, callback);
@@ -1909,9 +1922,6 @@ function readSync(fd, buffer, offset, length, position) {
   if (!_isBufferLike(buffer)) {
     throw _fsInvalidArgType('buffer', 'Buffer, TypedArray, or DataView', buffer);
   }
-  if (buffer.length === 0) {
-    throw _throwEmptyBufferError('buffer', buffer);
-  }
   var off = _validateOffset('offset', offset === undefined || offset === null ? 0 : offset, buffer.length);
   var len = _validateReadSyncLength(length, buffer.length - off);
   var pos = _validateReadWritePosition('position', position);
@@ -2000,7 +2010,7 @@ function _writeFileWithFlushCallback(target, data, writeOptions, isAppend, callb
   var flags = (writeOptions && (writeOptions.flag || writeOptions.flags)) || (isAppend ? 'a' : 'w');
   var fd = null;
   try {
-    fd = openSync(path, flags, writeOptions && writeOptions.mode);
+    fd = openSync(p, flags, writeOptions && writeOptions.mode);
   } catch(err) {
     done(_makeFsError(err, 'open', p));
     return;
@@ -2046,6 +2056,11 @@ function readvSync(fd, buffers, position) {
   if (!Array.isArray(buffers)) {
     throw _fsInvalidArgType('buffers', 'Array', buffers);
   }
+  for (var i = 0; i < buffers.length; i++) {
+    if (!_isBufferLike(buffers[i])) {
+      throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffers[i]);
+    }
+  }
   if (position !== undefined && position !== null && typeof position !== 'number') {
     throw _fsInvalidArgType('position', 'number', position);
   }
@@ -2077,6 +2092,11 @@ function writevSync(fd, buffers, position) {
   _validateFd(fd);
   if (!Array.isArray(buffers)) {
     throw _fsInvalidArgType('buffers', 'Array', buffers);
+  }
+  for (var i = 0; i < buffers.length; i++) {
+    if (!_isBufferLike(buffers[i])) {
+      throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffers[i]);
+    }
   }
   if (position !== undefined && position !== null && typeof position !== 'number') {
     throw _fsInvalidArgType('position', 'number', position);
@@ -2119,7 +2139,7 @@ function readv(fd, buffers, position, callback) {
   }
   for (var i = 0; i < buffers.length; i++) {
     var buffer = buffers[i];
-    if (!Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) {
+    if (!_isBufferLike(buffer)) {
       throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffer);
     }
   }
@@ -2160,7 +2180,7 @@ function writev(fd, buffers, position, callback) {
   }
   for (var i = 0; i < buffers.length; i++) {
     var buffer = buffers[i];
-    if (!Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) {
+    if (!_isBufferLike(buffer)) {
       throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffer);
     }
   }
@@ -2912,9 +2932,9 @@ function _initWriteStream(ws, path, options) {
     return total;
   }
 
-  function performWritev(chunks, callback) {
-    var buffers = buffersFromChunks(chunks);
-    var position = normalizeWritePosition();
+function performWritev(chunks, callback) {
+  var buffers = buffersFromChunks(chunks);
+  var position = normalizeWritePosition();
     var done = function(err, written) {
       if (err) {
         emitWriteError(err, callback, 'writev');
@@ -2927,51 +2947,6 @@ function _initWriteStream(ws, path, options) {
       ws.bytesWritten += writtenBytes;
       if (typeof callback === 'function') callback();
     };
-
-    if (usingHandle && fileHandle && typeof fileHandle.writev === 'function') {
-      try {
-        var handleWritevResult = fileHandle.writev(buffers, position);
-        if (handleWritevResult && typeof handleWritevResult.then === 'function') {
-          handleWritevResult.then(function(result) {
-            if (result && typeof result.bytesWritten === 'number') {
-              done(null, result.bytesWritten);
-            } else {
-              done(null, sumBufferLengths(buffers));
-            }
-          }).catch(function(err) {
-            done(err);
-          });
-        } else if (handleWritevResult && typeof handleWritevResult.bytesWritten === 'number') {
-          done(null, handleWritevResult.bytesWritten);
-        } else {
-          done(null, sumBufferLengths(buffers));
-        }
-      } catch(err) {
-        done(err);
-      }
-      return;
-    }
-
-    if (typeof writevFn === 'function') {
-      try {
-        writevFn.call(fsModule, fd, buffers, position, function(err, bytesWritten) {
-          done(err, bytesWritten);
-        });
-      } catch(err) {
-        done(err);
-      }
-      return;
-    }
-
-    if (typeof writevSyncFn === 'function') {
-      try {
-        var bytes = writevSyncFn.call(fsModule, fd, buffers, position);
-        done(null, bytes);
-      } catch(err) {
-        done(err);
-      }
-      return;
-    }
 
     try {
       var writtenTotal = 0;
@@ -3485,7 +3460,7 @@ function symlinkSync(target, path, type) {
   ensureExactFs();
   var p = _pathToString(path);
   try {
-    if (typeof g.__exactSymlink === 'function') return g.__exactSymlink(t, p);
+    if (typeof g.__exactSymlink === 'function') return g.__exactSymlink(_pathToString(t), p);
     throw new Error('ENOSYS: symlink not available');
   } catch(e) { throw _makeFsError(e, 'symlink', t, p); }
 }
