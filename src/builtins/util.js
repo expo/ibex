@@ -23,10 +23,13 @@ function inherits(constructor, superConstructor) {
   Object.setPrototypeOf(constructor.prototype, superConstructor.prototype);
 }
 
+var kCustomPromisifiedSymbol = Symbol.for('nodejs.util.promisify.custom');
+
 function promisify(fn) {
   if (typeof fn !== "function") {
     throw new TypeError("util.promisify requires a function");
   }
+  // Check for custom promisify implementation
   var customSymbol = promisify.custom;
   if (customSymbol != null) {
     var custom = fn[customSymbol];
@@ -46,25 +49,26 @@ function promisify(fn) {
       args.push(arguments[i]);
       i += 1;
     }
-    return new Promise(function(resolve, reject) {
-      args.push(function(err) {
-        if (err) {
-          return reject(err);
-        }
-        if (arguments.length <= 1) return resolve(undefined);
-        if (arguments.length === 2) return resolve(arguments[1]);
-        var output = [];
-        for (var j = 1; j < arguments.length; j++) {
-          output.push(arguments[j]);
-        }
-        return resolve(output);
-      });
-      try {
-        fn.apply(this, args);
-      } catch (err) {
-        reject(err);
+    var self = this;
+    var resolve, reject;
+    var promise = new Promise(function(res, rej) {
+      resolve = res;
+      reject = rej;
+    });
+    args.push(function(err) {
+      if (err) {
+        return reject(err);
       }
-    }.bind(this));
+      if (arguments.length <= 1) return resolve(undefined);
+      if (arguments.length === 2) return resolve(arguments[1]);
+      var output = [];
+      for (var j = 1; j < arguments.length; j++) {
+        output.push(arguments[j]);
+      }
+      return resolve(output);
+    });
+    fn.apply(self, args);
+    return promise;
   };
 }
 
@@ -337,7 +341,7 @@ var util = {
   }
 };
 
-util.promisify.custom = {};
+util.promisify.custom = kCustomPromisifiedSymbol;
 
 util.parseArgs = function parseArgs(config) {
   config = config || {};

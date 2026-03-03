@@ -51,8 +51,122 @@ function _makeIpcError(code, message) {
   return err;
 }
 
-function _createIpcPacket(type, data) {
-  return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
+function _createIpcPacket(type, data, handleType) {
+  var pkt = { __exactIpc: true, type: type, data: data };
+  if (handleType) pkt.handleType = handleType;
+  return JSON.stringify(pkt) + '\n';
+}
+
+// Extract a native file descriptor from a handle object (net.Socket, net.Server, dgram.Socket, etc.)
+function _extractHandleFd(handle) {
+  if (!handle) return -1;
+  // dgram.Socket: use _getFd() or __exactUdpGetFd
+  if (typeof handle._getFd === 'function') {
+    var dgramFd = handle._getFd();
+    if (dgramFd >= 0) return dgramFd;
+  }
+  if (typeof handle._handle === 'number' && handle._handle >= 0 && (handle.type === 'udp4' || handle.type === 'udp6')) {
+    if (typeof globalThis.__exactUdpGetFd === 'function') {
+      var udpFd = globalThis.__exactUdpGetFd(handle._handle);
+      if (udpFd >= 0) return udpFd;
+    }
+  }
+  // Our native handle system: _handle._exactHandle is an ID into g_tcp_sockets.
+  // Use __exactTcpGetFd to get the raw fd from the handle ID.
+  if (handle._handle && typeof handle._handle._exactHandle === 'number' && handle._handle._exactHandle > 0) {
+    if (typeof globalThis.__exactTcpGetFd === 'function') {
+      var rawFd = globalThis.__exactTcpGetFd(handle._handle._exactHandle);
+      if (rawFd >= 0) return rawFd;
+    }
+  }
+  // Direct _exactHandle (e.g., raw server handle passed as { _exactHandle: N, close: fn })
+  if (typeof handle._exactHandle === 'number' && handle._exactHandle > 0) {
+    if (typeof globalThis.__exactTcpGetFd === 'function') {
+      var rawFd = globalThis.__exactTcpGetFd(handle._exactHandle);
+      if (rawFd >= 0) return rawFd;
+    }
+  }
+  // net.Socket / net.Server store the fd on _handle.fd or _handle._fd
+  if (handle._handle) {
+    if (typeof handle._handle.fd === 'number' && handle._handle.fd >= 0) return handle._handle.fd;
+    if (typeof handle._handle._fd === 'number' && handle._handle._fd >= 0) return handle._handle._fd;
+    // Also check _exactHandle directly for server handles
+    if (typeof handle._handle === 'number' && handle._handle > 0) {
+      if (typeof globalThis.__exactTcpGetFd === 'function') {
+        var rawFd = globalThis.__exactTcpGetFd(handle._handle);
+        if (rawFd >= 0) return rawFd;
+      }
+    }
+  }
+  // Direct fd
+  if (typeof handle.fd === 'number' && handle.fd >= 0) return handle.fd;
+  if (typeof handle._fd === 'number' && handle._fd >= 0) return handle._fd;
+  // Try to get from the internal socket
+  if (handle._socket && handle._socket._handle) {
+    if (typeof handle._socket._handle.fd === 'number') return handle._socket._handle.fd;
+    if (typeof handle._socket._handle._exactHandle === 'number') {
+      if (typeof globalThis.__exactTcpGetFd === 'function') {
+        var rawFd = globalThis.__exactTcpGetFd(handle._socket._handle._exactHandle);
+        if (rawFd >= 0) return rawFd;
+      }
+    }
+  }
+  return -1;
+}
+
+// Determine the handle type for IPC serialization
+function _getHandleType(handle) {
+  if (!handle) return null;
+  // Check dgram.Socket first (has _getFd method and type like 'udp4')
+  if (handle.type === 'udp4' || handle.type === 'udp6') return 'dgram.Socket';
+  if (typeof handle._getFd === 'function' && (handle.type === 'udp4' || handle.type === 'udp6')) return 'dgram.Socket';
+  var dgram;
+  try { dgram = require('dgram'); } catch (e) {}
+  if (dgram && dgram.Socket && handle instanceof dgram.Socket) return 'dgram.Socket';
+  var net;
+  try { net = require('net'); } catch (e) { return null; }
+  if (net.Socket && handle instanceof net.Socket) return 'net.Socket';
+  if (net.Server && handle instanceof net.Server) return 'net.Server';
+  // Fallback: check constructor name
+  var name = handle.constructor && handle.constructor.name;
+  if (name === 'Socket' || name === 'TCP') return 'net.Socket';
+  if (name === 'Server') return 'net.Server';
+  return 'net.Socket'; // default to socket
+}
+
+// Reconstruct a handle from a received file descriptor
+function _reconstructHandle(handleType, fd) {
+  var net;
+  try { net = require('net'); } catch (e) { return null; }
+  if (handleType === 'net.Socket' || handleType === 'net.Native') {
+    // Register the raw fd as a native TCP handle, then wrap it
+    if (typeof globalThis.__exactTcpFromFd === 'function') {
+      var nativeHandle = globalThis.__exactTcpFromFd(fd);
+      return new net.Socket({ _handle: nativeHandle });
+    }
+    return new net.Socket({ fd: fd, readable: true, writable: true });
+  } else if (handleType === 'dgram.Socket' || handleType === 'dgram.Native') {
+    var dgram;
+    try { dgram = require('dgram'); } catch (e) { return null; }
+    var sock = dgram.createSocket('udp4');
+    sock._fromFd(fd);
+    return sock;
+  } else if (handleType === 'net.Server') {
+    // Register the raw fd as a native TCP handle for the server
+    if (typeof globalThis.__exactTcpFromFd === 'function') {
+      var nativeHandle = globalThis.__exactTcpFromFd(fd);
+      var server = net.createServer();
+      server._handle = { _exactHandle: nativeHandle, close: function() {
+        try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
+      }};
+      return server;
+    }
+    var server = net.createServer();
+    server._handle = { fd: fd };
+    try { server.listen({ fd: fd }); } catch (e) {}
+    return server;
+  }
+  return null;
 }
 
 function _invalidArgTypeHelper(input) {
@@ -65,22 +179,67 @@ function _invalidArgTypeHelper(input) {
   return ' Received type ' + typeof input + ' (' + String(input) + ')';
 }
 
+// Lazy-loaded getSystemErrorName for translating negative exit codes
+var _getSystemErrorName = null;
+try {
+  _getSystemErrorName = require('util').getSystemErrorName;
+} catch (e) {}
+
+// Node.js internal errors override toString() to include the code:
+// "TypeError [ERR_INVALID_ARG_TYPE]: message..."
+// This is needed because assert.throws(fn, /ERR_.../) tests against String(err)
+function _addCodeToString(err) {
+  if (err.code) {
+    var _origName = err.name || 'Error';
+    var _origCode = err.code;
+    var _origMsg = err.message || '';
+    err.toString = function() { return _origName + ' [' + _origCode + ']: ' + _origMsg; };
+  }
+  return err;
+}
+
 function _throwInvalidArgType(name, expected, actual) {
   var err = new TypeError('The "' + name + '" ' + (name.indexOf('.') !== -1 ? 'property' : 'argument') + ' must be ' + expected + '.' + _invalidArgTypeHelper(actual));
   err.code = 'ERR_INVALID_ARG_TYPE';
+  _addCodeToString(err);
   throw err;
 }
 
 function _throwOutOfRange(name, range, actual) {
   var err = new RangeError('The value of "' + name + '" is out of range. It must be ' + range + '. Received ' + String(actual));
   err.code = 'ERR_OUT_OF_RANGE';
+  _addCodeToString(err);
   throw err;
 }
 
 function _throwUnknownSignal(signal) {
   var err = new TypeError('Unknown signal: ' + signal);
   err.code = 'ERR_UNKNOWN_SIGNAL';
+  _addCodeToString(err);
   throw err;
+}
+
+function _makeAbortError(reason) {
+  var err = new Error('The operation was aborted');
+  err.name = 'AbortError';
+  err.code = 'ABORT_ERR';
+  if (reason !== undefined) {
+    err.cause = reason;
+  }
+  return err;
+}
+
+function _validateSignalOption(signal) {
+  if (signal != null) {
+    // Duck-type check: AbortSignal has 'aborted' property and 'addEventListener' method
+    var isAbortSignal = (typeof signal === 'object' && 'aborted' in signal && typeof signal.addEventListener === 'function');
+    if (!isAbortSignal) {
+      var sigErr = new TypeError('The "options.signal" property must be an instance of AbortSignal.' + _invalidArgTypeHelper(signal));
+      sigErr.code = 'ERR_INVALID_ARG_TYPE';
+      _addCodeToString(sigErr);
+      throw sigErr;
+    }
+  }
 }
 
 var _signalMap = {
@@ -136,7 +295,7 @@ function _validateSpawnSyncOptions(options) {
     _throwInvalidArgType('options.shell', 'of type boolean or of type string or undefined', options.shell);
   }
   if (options.argv0 != null && typeof options.argv0 !== 'string') {
-    _throwInvalidArgType('options.argv0', 'of type string or undefined', options.argv0);
+    _throwInvalidArgType('options.argv0', 'of type string', options.argv0);
   }
   if (options.windowsHide != null && typeof options.windowsHide !== 'boolean') {
     _throwInvalidArgType('options.windowsHide', 'of type boolean or undefined', options.windowsHide);
@@ -218,6 +377,68 @@ function _validateSpawnSyncOptions(options) {
   return result.stdout;
 };
 
+  // Internal spawnSync that takes a single normalized opts object.
+  // This is the function exposed as internal/child_process.spawnSync.
+  // The opts object has already-resolved file/args (shell expansion done by caller).
+  function _internalSpawnSync(opts) {
+    var file = opts.file;
+    var args = opts.args || [];
+    var nativeOpts = {};
+    if (opts.cwd) nativeOpts.cwd = String(opts.cwd);
+    if (opts.timeout) nativeOpts.timeout = Number(opts.timeout);
+    nativeOpts.maxBuffer = 268435456; // 256MB - JS handles actual enforcement
+    if (opts.encoding !== undefined) nativeOpts.encoding = opts.encoding;
+    if (opts.envPairs) {
+      var envObj = {};
+      for (var ei = 0; ei < opts.envPairs.length; ei++) {
+        var pair = opts.envPairs[ei];
+        var eqIdx = pair.indexOf('=');
+        if (eqIdx !== -1) envObj[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+      }
+      nativeOpts.env = envObj;
+    } else if (opts.env) {
+      nativeOpts.env = opts.env;
+    }
+    if (opts.input !== undefined) nativeOpts.input = opts.input;
+    if (opts.argv0 && typeof opts.argv0 === 'string') nativeOpts.argv0 = opts.argv0;
+    // Pass stdio mode to native layer
+    if (opts.stdio) {
+      if (typeof opts.stdio === 'string') {
+        nativeOpts.stdio = opts.stdio;
+      } else if (Array.isArray(opts.stdio) && opts.stdio.length > 0) {
+        // Check if all stdio modes are the same simple string
+        var allSame = true;
+        var firstMode = opts.stdio[0];
+        if (typeof firstMode === 'string') {
+          for (var si = 1; si < Math.min(opts.stdio.length, 3); si++) {
+            if (opts.stdio[si] !== firstMode) { allSame = false; break; }
+          }
+          if (allSame && firstMode.indexOf('fd:') !== 0) {
+            nativeOpts.stdio = firstMode;
+          } else {
+            // Pass as array for mixed modes or fd: redirects
+            nativeOpts.stdio = opts.stdio;
+          }
+        } else {
+          nativeOpts.stdio = opts.stdio;
+        }
+      }
+    }
+    // Do NOT pass shell to native - file/args are already resolved by the caller
+
+    var argsWithoutFile = args.length > 0 ? args.slice(1) : [];
+    var argsJson = JSON.stringify(argsWithoutFile);
+    var optsJson = JSON.stringify(nativeOpts);
+    var result;
+    try {
+      var resultJson = globalThis.__exactSpawnSync(file, argsJson, optsJson);
+      result = JSON.parse(resultJson);
+    } catch (e) {
+      result = { error: e.message || 'spawnSync failed', status: null, stdout: '', stderr: '' };
+    }
+    return result;
+  }
+
   cp.spawnSync = function spawnSync(command, args, options) {
     if (typeof command !== 'string') {
       _throwInvalidArgType('file', 'of type string', command);
@@ -237,27 +458,90 @@ function _validateSpawnSyncOptions(options) {
   _validateOptionsNullBytes(options);
   _validateSpawnSyncInput(options);
   _validateSpawnSyncOptions(options);
-  var opts = normalizeExecOptions(options);
-  // Pass input to native side if provided
+
+  // Resolve shell option - convert shell:true/string to actual file and args
+  var file = command;
+  var spawnArgs = [command].concat(args);
+  var shellValue = options.shell;
+  if (shellValue && args.length > 0 && typeof process !== 'undefined' && typeof process.emitWarning === 'function') {
+    process.emitWarning(
+      'Passing args to a child process with shell option true can lead to security ' +
+      'vulnerabilities, as the arguments are not escaped, only concatenated.',
+      'DeprecationWarning', 'DEP0190');
+  }
+  if (shellValue) {
+    var shellBin;
+    if (typeof shellValue === 'string') {
+      shellBin = shellValue;
+    } else {
+      // Default shells by platform
+      var plat = (typeof process !== 'undefined' && process.platform) || 'darwin';
+      if (plat === 'win32') {
+        shellBin = process.env.comspec || 'cmd.exe';
+      } else if (plat === 'android') {
+        shellBin = '/system/bin/sh';
+      } else {
+        shellBin = '/bin/sh';
+      }
+    }
+    var isCmd = /^(?:.*\\)?cmd(?:\.exe)?$/i.test(shellBin);
+    var shellFlags = isCmd ? ['/d', '/s', '/c'] : ['-c'];
+    var shellCmd = args.length > 0 ? command + ' ' + args.join(' ') : command;
+    var outputCmd = isCmd ? '"' + shellCmd + '"' : shellCmd;
+    file = shellBin;
+    spawnArgs = [shellBin].concat(shellFlags, [outputCmd]);
+  }
+
+  // Resolve killSignal to numeric value
+  var killSignal = options.killSignal;
+  if (typeof killSignal === 'string') {
+    var upper = killSignal.toUpperCase();
+    if (_signalMap[upper] === undefined) {
+      var sigErr = new TypeError('Unknown signal: ' + killSignal);
+      sigErr.code = 'ERR_UNKNOWN_SIGNAL';
+      throw sigErr;
+    }
+    killSignal = _signalMap[upper];
+  }
+
+  // Build internal opts object
+  var internalOpts = {
+    file: file,
+    args: spawnArgs,
+    cwd: options.cwd ? String(options.cwd) : undefined,
+    env: options.env,
+    timeout: options.timeout ? Number(options.timeout) : undefined,
+    encoding: options.encoding,
+    maxBuffer: options.maxBuffer,
+    killSignal: killSignal,
+    shell: shellValue,
+    windowsHide: options.windowsHide !== undefined ? !!options.windowsHide : false,
+    windowsVerbatimArguments: shellValue ? !!(/^(?:.*\\)?cmd(?:\.exe)?$/i.test(file)) : !!(options.windowsVerbatimArguments),
+    argv0: options.argv0,
+    stdio: options.stdio,
+  };
+
+  // Pass input
   if (options.input != null) {
     if (typeof options.input === 'string') {
-      opts.input = options.input;
+      internalOpts.input = options.input;
     } else if (ArrayBuffer.isView(options.input)) {
-      // Convert typed array to string for JSON transport
       var inputBytes = new Uint8Array(options.input.buffer, options.input.byteOffset, options.input.byteLength);
       var inputStr = '';
       for (var ib = 0; ib < inputBytes.length; ib++) inputStr += String.fromCharCode(inputBytes[ib]);
-      opts.input = inputStr;
+      internalOpts.input = inputStr;
     }
   }
-  var argsJson = JSON.stringify(args);
-  var optsJson = JSON.stringify(opts);
-  var result;
+
+  // Call internal spawnSync (can be monkey-patched via internal/child_process)
+  var _internalFn = _internalSpawnSync;
   try {
-    var resultJson = globalThis.__exactSpawnSync(command, argsJson, optsJson);
-    result = JSON.parse(resultJson);
-  } catch (e) {
-    result = { error: e.message || 'spawnSync failed', status: null, stdout: '', stderr: '' };
+    var _icp = require('internal/child_process');
+    if (_icp && typeof _icp.spawnSync === 'function') _internalFn = _icp.spawnSync;
+  } catch (e) {}
+  var result = _internalFn(internalOpts);
+  if (!result || typeof result !== 'object') {
+    result = { stdout: '', stderr: '', status: null, pid: 0 };
   }
 
   var encoding = (options && options.encoding !== undefined) ? options.encoding : 'buffer';
@@ -303,24 +587,48 @@ function _validateSpawnSyncOptions(options) {
   }
 
   if (!spawnResult.error && result.error) {
-    var spawnErr = _makeSpawnError(command, 'ENOENT', -2, 'spawnSync ' + command);
-    if (result.error.indexOf('not found') !== -1 || result.error.indexOf('No such file') !== -1) {
-      spawnErr.code = 'ENOENT';
-      spawnErr.errno = -2;
-    } else if (result.error.indexOf('Permission denied') !== -1 || result.error.indexOf('EACCES') !== -1) {
-      spawnErr.code = 'EACCES';
-      spawnErr.errno = -13;
-    } else if (result.error.indexOf('timed out') !== -1 || result.error.indexOf('Timed out') !== -1) {
-      spawnErr.code = 'ETIMEDOUT';
-      spawnErr.errno = -60;
+    // When shell:true is used and the shell ran (status >= 0), the native
+    // "error" is from stderr parsing (e.g. "command not found"), not a real
+    // spawn failure. The shell itself ran fine. Skip creating a JS error.
+    // Exception: timeout errors are always real.
+    var isShellSuccess = (shellValue && typeof result.status === 'number' && result.status >= 0);
+    var isTimeoutError = (typeof result.error === 'string' &&
+      (result.error.indexOf('timed out') !== -1 || result.error.indexOf('Timed out') !== -1));
+    if (!isShellSuccess || isTimeoutError) {
+      var spawnErr = _makeSpawnError(command, 'ENOENT', -2, 'spawnSync ' + command);
+      if (result.error.indexOf('not found') !== -1 || result.error.indexOf('No such file') !== -1) {
+        spawnErr.code = 'ENOENT';
+        spawnErr.errno = -2;
+      } else if (result.error.indexOf('Permission denied') !== -1 || result.error.indexOf('EACCES') !== -1) {
+        spawnErr.code = 'EACCES';
+        spawnErr.errno = -13;
+      } else if (result.error.indexOf('timed out') !== -1 || result.error.indexOf('Timed out') !== -1) {
+        spawnErr.code = 'ETIMEDOUT';
+        spawnErr.errno = -60;
+      }
+      spawnErr.spawnargs = args;
+      spawnResult.error = spawnErr;
     }
-    spawnErr.spawnargs = args;
-    spawnResult.error = spawnErr;
   }
   if (result.signal) {
     spawnResult.signal = result.signal;
+    spawnResult.status = null;
+  } else if (spawnResult.error && spawnResult.error.code === 'ETIMEDOUT') {
+    // For timeouts, use the specified killSignal (default SIGTERM)
+    var timeoutSig = options.killSignal;
+    if (typeof timeoutSig === 'number') {
+      spawnResult.signal = _signalNumbers[timeoutSig] || 'SIGTERM';
+    } else if (typeof timeoutSig === 'string') {
+      spawnResult.signal = timeoutSig.toUpperCase();
+    } else {
+      spawnResult.signal = 'SIGTERM';
+    }
+    spawnResult.status = null;
   } else if (result.status < 0) {
-    spawnResult.signal = 'SIGKILL';
+    // Negative status means killed by signal
+    var sigNum = Math.abs(result.status);
+    spawnResult.signal = _signalNumbers[sigNum] || 'SIGKILL';
+    spawnResult.status = null;
   }
 
   return spawnResult;
@@ -377,8 +685,13 @@ cp.exec = function exec(command, options, callback) {
   var opts = normalizeExecOptions(options);
   var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
   var encoding = (options && 'encoding' in options) ? options.encoding : 'utf8';
-  var useBuffer = !encoding || encoding === 'buffer';
+  var _validEncodings = { utf8: 1, utf16le: 1, latin1: 1, ascii: 1, base64: 1, hex: 1, ucs2: 1, binary: 1, 'utf-8': 1 };
+  var useBuffer = !encoding || encoding === 'buffer' || !_validEncodings[encoding];
   var killSignal = options.killSignal || 'SIGTERM';
+  // Validate signal option early (before spawn) so sync throw propagates
+  if (options.signal != null) {
+    _validateSignalOption(options.signal);
+  }
   var child = cp.spawn(command, [], {
     shell: opts.shell !== undefined ? opts.shell : true,
     cwd: opts.cwd,
@@ -400,9 +713,41 @@ cp.exec = function exec(command, options, callback) {
     if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
     var stdoutStr = stdoutChunks.join('');
     var stderrStr = stderrChunks.join('');
-    var stdout = useBuffer ? Buffer.from(stdoutStr) : stdoutStr;
-    var stderr = useBuffer ? Buffer.from(stderrStr) : stderrStr;
-    if (maxBufferExceeded) {
+    // Compute output with proper truncation
+    var stdout, stderr;
+    if (useBuffer && _BufferRef) {
+      // Buffer mode (encoding is null or 'buffer')
+      var stdoutHasEnc = child.stdout && child.stdout.readableEncoding;
+      var stderrHasEnc = child.stderr && child.stderr.readableEncoding;
+      if (stdoutHasEnc) {
+        // setEncoding was called - return string, truncate by chars
+        stdout = (maxBufferExceeded === 'stdout') ? stdoutStr.slice(0, maxBuffer) : stdoutStr;
+      } else {
+        // No setEncoding - return Buffer, truncate by bytes
+        var stdoutBuf = _BufferRef.from(stdoutStr, 'utf8');
+        stdout = (maxBufferExceeded === 'stdout' && stdoutBuf.length > maxBuffer) ? stdoutBuf.slice(0, maxBuffer) : stdoutBuf;
+      }
+      if (stderrHasEnc) {
+        stderr = (maxBufferExceeded === 'stderr') ? stderrStr.slice(0, maxBuffer) : stderrStr;
+      } else {
+        var stderrBuf = _BufferRef.from(stderrStr, 'utf8');
+        stderr = (maxBufferExceeded === 'stderr' && stderrBuf.length > maxBuffer) ? stderrBuf.slice(0, maxBuffer) : stderrBuf;
+      }
+    } else {
+      // String mode - truncate by characters
+      if (maxBufferExceeded === 'stdout' && stdoutStr.length > maxBuffer) {
+        stdoutStr = stdoutStr.slice(0, maxBuffer);
+      }
+      if (maxBufferExceeded === 'stderr' && stderrStr.length > maxBuffer) {
+        stderrStr = stderrStr.slice(0, maxBuffer);
+      }
+      stdout = stdoutStr;
+      stderr = stderrStr;
+    }
+    if (_killError) {
+      // If kill() threw an error (e.g. monkey-patched kill), report that error
+      if (typeof callback === 'function') callback(_killError, stdout, stderr);
+    } else if (maxBufferExceeded) {
       var mbErr = new RangeError(maxBufferExceeded + ' maxBuffer length exceeded');
       mbErr.code = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
       mbErr.cmd = command;
@@ -416,37 +761,38 @@ cp.exec = function exec(command, options, callback) {
       );
       err.killed = killed || child.killed;
       err.signal = signal || null;
-      err.code = signal ? null : code;
+      err.code = signal ? null : (code < 0 ? (_getSystemErrorName ? _getSystemErrorName(code) : code) : code);
       if (typeof callback === 'function') callback(err, stdout, stderr);
     } else {
       if (typeof callback === 'function') callback(null, stdout, stderr);
     }
   }
 
+  var _BufferRef = typeof Buffer !== 'undefined' ? Buffer : null;
+  var _killError = null;
   if (child.stdout) {
     child.stdout.on('data', function(chunk) {
       var str = typeof chunk === 'string' ? chunk : String(chunk);
-      stdoutLen += str.length;
+      stdoutChunks.push(str);
+      // Always count bytes for maxBuffer (Node.js behavior)
+      stdoutLen += _BufferRef ? _BufferRef.byteLength(str, 'utf8') : str.length;
       if (stdoutLen > maxBuffer) {
         if (!maxBufferExceeded) maxBufferExceeded = 'stdout';
         killed = true;
-        child.kill(killSignal);
-        return;
+        try { child.kill(killSignal); } catch (e) { _killError = e; }
       }
-      stdoutChunks.push(str);
     });
   }
   if (child.stderr) {
     child.stderr.on('data', function(chunk) {
       var str = typeof chunk === 'string' ? chunk : String(chunk);
-      stderrLen += str.length;
+      stderrChunks.push(str);
+      stderrLen += _BufferRef ? _BufferRef.byteLength(str, 'utf8') : str.length;
       if (stderrLen > maxBuffer) {
         if (!maxBufferExceeded) maxBufferExceeded = 'stderr';
         killed = true;
-        child.kill(killSignal);
-        return;
+        try { child.kill(killSignal); } catch (e) { _killError = e; }
       }
-      stderrChunks.push(str);
     });
   }
 
@@ -465,7 +811,51 @@ cp.exec = function exec(command, options, callback) {
     }, opts.timeout);
   }
 
+  // Handle AbortController signal
+  if (options.signal) {
+    _validateSignalOption(options.signal);
+    var execSig = options.signal;
+    var _execDoAbort = function() {
+      if (!exited) {
+        killed = true;
+        child.kill(killSignal);
+        var abortErr = _makeAbortError(execSig.reason);
+        if (typeof callback === 'function') {
+          exited = true;
+          if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+          callback(abortErr);
+        }
+      }
+    };
+    if (execSig.aborted) {
+      process.nextTick(_execDoAbort);
+    } else {
+      execSig.addEventListener('abort', _execDoAbort, { once: true });
+      child.on('close', function() {
+        execSig.removeEventListener('abort', _execDoAbort);
+      });
+    }
+  }
+
   return child;
+};
+
+// Custom promisify for exec - returns promise with .child property
+var _kCustomPromisify = Symbol.for('nodejs.util.promisify.custom');
+cp.exec[_kCustomPromisify] = function execPromisified(command, options) {
+  var resolve, reject;
+  var promise = new Promise(function(res, rej) { resolve = res; reject = rej; });
+  var child = cp.exec(command, options, function(err, stdout, stderr) {
+    if (err) {
+      err.stdout = stdout;
+      err.stderr = stderr;
+      reject(err);
+    } else {
+      resolve({ stdout: stdout, stderr: stderr });
+    }
+  });
+  promise.child = child;
+  return promise;
 };
 
 cp.execFile = function execFile(file, args, options, callback) {
@@ -511,10 +901,15 @@ cp.execFile = function execFile(file, args, options, callback) {
   var opts = normalizeExecOptions(options);
   var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
   var encoding = (options && 'encoding' in options) ? options.encoding : 'utf8';
-  var useBuffer = !encoding || encoding === 'buffer';
+  var _validEncodings2 = { utf8: 1, utf16le: 1, latin1: 1, ascii: 1, base64: 1, hex: 1, ucs2: 1, binary: 1, 'utf-8': 1 };
+  var useBuffer = !encoding || encoding === 'buffer' || !_validEncodings2[encoding];
   var killSignal = options.killSignal || 'SIGTERM';
+  // Validate signal option early (before spawn) so sync throw propagates
+  if (options.signal != null) {
+    _validateSignalOption(options.signal);
+  }
   var child = cp.spawn(file, args, {
-    shell: false,
+    shell: options.shell || false,
     cwd: opts.cwd,
     env: opts.env
   });
@@ -534,8 +929,33 @@ cp.execFile = function execFile(file, args, options, callback) {
     if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
     var stdoutStr = stdoutChunks.join('');
     var stderrStr = stderrChunks.join('');
-    var stdout = useBuffer ? Buffer.from(stdoutStr) : stdoutStr;
-    var stderr = useBuffer ? Buffer.from(stderrStr) : stderrStr;
+    // Compute output with proper truncation
+    var stdout, stderr;
+    if (useBuffer && _BufferRefEF) {
+      var stdoutHasEnc = child.stdout && child.stdout.readableEncoding;
+      var stderrHasEnc = child.stderr && child.stderr.readableEncoding;
+      if (stdoutHasEnc) {
+        stdout = (maxBufferExceeded === 'stdout') ? stdoutStr.slice(0, maxBuffer) : stdoutStr;
+      } else {
+        var stdoutBuf = _BufferRefEF.from(stdoutStr, 'utf8');
+        stdout = (maxBufferExceeded === 'stdout' && stdoutBuf.length > maxBuffer) ? stdoutBuf.slice(0, maxBuffer) : stdoutBuf;
+      }
+      if (stderrHasEnc) {
+        stderr = (maxBufferExceeded === 'stderr') ? stderrStr.slice(0, maxBuffer) : stderrStr;
+      } else {
+        var stderrBuf = _BufferRefEF.from(stderrStr, 'utf8');
+        stderr = (maxBufferExceeded === 'stderr' && stderrBuf.length > maxBuffer) ? stderrBuf.slice(0, maxBuffer) : stderrBuf;
+      }
+    } else {
+      if (maxBufferExceeded === 'stdout' && stdoutStr.length > maxBuffer) {
+        stdoutStr = stdoutStr.slice(0, maxBuffer);
+      }
+      if (maxBufferExceeded === 'stderr' && stderrStr.length > maxBuffer) {
+        stderrStr = stderrStr.slice(0, maxBuffer);
+      }
+      stdout = stdoutStr;
+      stderr = stderrStr;
+    }
     if (maxBufferExceeded) {
       var mbErr = new RangeError(maxBufferExceeded + ' maxBuffer length exceeded');
       mbErr.code = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
@@ -550,37 +970,37 @@ cp.execFile = function execFile(file, args, options, callback) {
       );
       err.killed = killed || child.killed;
       err.signal = signal || null;
-      err.code = signal ? null : code;
+      err.code = signal ? null : (code < 0 ? (_getSystemErrorName ? _getSystemErrorName(code) : code) : code);
       if (typeof callback === 'function') callback(err, stdout, stderr);
     } else {
       if (typeof callback === 'function') callback(null, stdout, stderr);
     }
   }
 
+  var _BufferRefEF = typeof Buffer !== 'undefined' ? Buffer : null;
   if (child.stdout) {
     child.stdout.on('data', function(chunk) {
       var str = typeof chunk === 'string' ? chunk : String(chunk);
-      stdoutLen += str.length;
+      stdoutChunks.push(str);
+      // Always count bytes for maxBuffer (Node.js behavior)
+      stdoutLen += _BufferRefEF ? _BufferRefEF.byteLength(str, 'utf8') : str.length;
       if (stdoutLen > maxBuffer) {
         if (!maxBufferExceeded) maxBufferExceeded = 'stdout';
         killed = true;
         child.kill(killSignal);
-        return;
       }
-      stdoutChunks.push(str);
     });
   }
   if (child.stderr) {
     child.stderr.on('data', function(chunk) {
       var str = typeof chunk === 'string' ? chunk : String(chunk);
-      stderrLen += str.length;
+      stderrChunks.push(str);
+      stderrLen += _BufferRefEF ? _BufferRefEF.byteLength(str, 'utf8') : str.length;
       if (stderrLen > maxBuffer) {
         if (!maxBufferExceeded) maxBufferExceeded = 'stderr';
         killed = true;
         child.kill(killSignal);
-        return;
       }
-      stderrChunks.push(str);
     });
   }
 
@@ -600,7 +1020,55 @@ cp.execFile = function execFile(file, args, options, callback) {
     }, opts.timeout);
   }
 
+  // Handle AbortController signal
+  if (options.signal) {
+    _validateSignalOption(options.signal);
+    var execFileSig = options.signal;
+    var _execFileDoAbort = function() {
+      if (!exited) {
+        killed = true;
+        child.kill(killSignal);
+        var abortErr = _makeAbortError(execFileSig.reason);
+        if (typeof callback === 'function') {
+          exited = true;
+          if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+          callback(abortErr);
+        }
+      }
+    };
+    if (execFileSig.aborted) {
+      process.nextTick(_execFileDoAbort);
+    } else {
+      execFileSig.addEventListener('abort', _execFileDoAbort, { once: true });
+      child.on('close', function() {
+        execFileSig.removeEventListener('abort', _execFileDoAbort);
+      });
+    }
+  }
+
   return child;
+};
+
+// Custom promisify for execFile - returns promise with .child property
+cp.execFile[_kCustomPromisify] = function execFilePromisified(file, args, options) {
+  // Handle flexible args: execFilePromisified(file [,args] [,options])
+  if (args != null && typeof args === 'object' && !Array.isArray(args)) {
+    options = args;
+    args = null;
+  }
+  var resolve, reject;
+  var promise = new Promise(function(res, rej) { resolve = res; reject = rej; });
+  var child = cp.execFile(file, args, options, function(err, stdout, stderr) {
+    if (err) {
+      err.stdout = stdout;
+      err.stderr = stderr;
+      reject(err);
+    } else {
+      resolve({ stdout: stdout, stderr: stderr });
+    }
+  });
+  promise.child = child;
+  return promise;
 };
 
 function _normalizeSpawnMode(mode, fallbackMode) {
@@ -610,9 +1078,18 @@ function _normalizeSpawnMode(mode, fallbackMode) {
       return normalized === 'overlapped' ? 'pipe' : normalized;
     }
   }
-  if (normalized === 0) return 'ignore';
-  if (normalized === 1) return 'pipe';
-  if (normalized === 2) return 'inherit';
+  if (typeof normalized === 'number') {
+    if (normalized === 0) return 'ignore';
+    if (normalized === 1) return 'pipe';
+    if (normalized === 2) return 'inherit';
+    // Raw fd number - pass through as fd:N
+    return 'fd:' + normalized;
+  }
+  // Stream/Socket object - extract the raw fd
+  if (normalized && typeof normalized === 'object') {
+    var fd = _extractHandleFd(normalized);
+    if (fd >= 0) return 'fd:' + fd;
+  }
   return 'pipe';
 }
 
@@ -743,6 +1220,7 @@ function _validateNullBytes(value, name) {
   if (typeof value === 'string' && value.indexOf('\0') !== -1) {
     var err = new TypeError('The value of "' + name + '" is invalid. Received ' + JSON.stringify(value));
     err.code = 'ERR_INVALID_ARG_VALUE';
+    _addCodeToString(err);
     throw err;
   }
 }
@@ -848,6 +1326,7 @@ function ChildProcess(handle, pid, stdioModes) {
   if (modes.stdout === 'pipe') {
     this.stdout = new Stream.Readable();
     this.stdout._read = function() {};
+    this.stdout._handle = { readStart: function() {}, readStop: function() {} };
   } else {
     this.stdout = null;
   }
@@ -855,6 +1334,7 @@ function ChildProcess(handle, pid, stdioModes) {
   if (modes.stderr === 'pipe') {
     this.stderr = new Stream.Readable();
     this.stderr._read = function() {};
+    this.stderr._handle = { readStart: function() {}, readStop: function() {} };
   } else {
     this.stderr = null;
   }
@@ -866,25 +1346,16 @@ function ChildProcess(handle, pid, stdioModes) {
         var data = _toUint8String(chunk);
         var ok = globalThis.__exactSpawnWrite(self._handle, data);
         if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+      },
+      final: function(callback) {
+        // Close native stdin pipe when all writes have drained
+        if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
+          globalThis.__exactSpawnCloseStdin(self._handle);
+        }
+        if (typeof callback === 'function') callback();
       }
     });
     this.stdin.readable = false;
-        // Override end to also close the native stdin pipe
-    this.stdin.end = function(chunk, encoding, callback) {
-      if (typeof chunk === 'function') { callback = chunk; chunk = null; }
-      if (typeof encoding === 'function') { callback = encoding; encoding = null; }
-      if (chunk !== undefined && chunk !== null) {
-        self.stdin.write(chunk, encoding);
-      }
-      if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
-        globalThis.__exactSpawnCloseStdin(self._handle);
-      }
-      self.stdin.writableEnded = true;
-      self.stdin.writableFinished = true;
-      self.stdin.emit('finish');
-      self.stdin.emit('close');
-      if (typeof callback === 'function') callback();
-    };
   } else if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
     globalThis.__exactSpawnCloseStdin(this._handle);
     this.stdin = null;
@@ -893,6 +1364,13 @@ function ChildProcess(handle, pid, stdioModes) {
   }
 
   this.stdio = [this.stdin, this.stdout, this.stderr];
+
+  // Populate raw fd on each stream so they can be passed as stdio to other processes
+  if (typeof globalThis.__exactSpawnGetFd === 'function' && this._handle != null) {
+    if (this.stdin) this.stdin._fd = globalThis.__exactSpawnGetFd(this._handle, 0);
+    if (this.stdout) this.stdout._fd = globalThis.__exactSpawnGetFd(this._handle, 1);
+    if (this.stderr) this.stderr._fd = globalThis.__exactSpawnGetFd(this._handle, 2);
+  }
 
   function pushStreamData(kind, value, streamMode) {
     if (!value || !value.length) return;
@@ -908,6 +1386,28 @@ function ChildProcess(handle, pid, stdioModes) {
   }
 
   this.stdio = [this.stdin, this.stdout, this.stderr];
+
+  // Create streams for extra stdio entries (index 4+)
+  if (modes.extra && modes.extra.length > 0) {
+    // IPC occupies slot 3 in stdio, push null for it
+    this.stdio.push(this._ipcMode ? null : undefined);
+    for (var extraIdx = 0; extraIdx < modes.extra.length; extraIdx++) {
+      if (modes.extra[extraIdx] === 'pipe') {
+        var extraStream = new Stream.Writable({
+          write: function(chunk, encoding, callback) {
+            var data = _toUint8String(chunk);
+            var ok = globalThis.__exactSpawnWrite(self._handle, data, 'extra:' + this._extraIndex);
+            if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+          }
+        });
+        extraStream._extraIndex = extraIdx;
+        this.stdio.push(extraStream);
+      } else {
+        this.stdio.push(null);
+      }
+    }
+  }
+
   if (self._useNativePump && self._handle >= 0) {
     globalThis.__exactSpawnProcesses[String(self._handle)] = self;
   }
@@ -920,6 +1420,21 @@ function ChildProcess(handle, pid, stdioModes) {
     self.connected = false;
     self._ipcMode = false;
     self.channel = null;
+    // Flush remaining _sentSocketServers: decrement _connections for any
+    // sockets that were sent to this child but whose NODE_SOCKET_CLOSED
+    // notification will never arrive (child disconnected/exited).
+    if (self._sentSocketServers && self._sentSocketServers.length > 0) {
+      while (self._sentSocketServers.length > 0) {
+        var srv = self._sentSocketServers.shift();
+        if (srv) {
+          srv._connections--;
+          if (srv._connections < 0) srv._connections = 0;
+          if (srv._closing && srv._connections === 0) {
+            srv.emit('close');
+          }
+        }
+      }
+    }
     if (typeof process !== 'undefined' && self._closeCallback) {
       try {
         self._closeCallback();
@@ -942,7 +1457,13 @@ function ChildProcess(handle, pid, stdioModes) {
     emitDisconnect();
   }
 
-  function drainIpcPackets(rawData) {
+  // Pending fd received via SCM_RIGHTS, to be attached to next parsed packet
+  var _pendingRecvFd = -1;
+
+  function drainIpcPackets(rawData, recvFd) {
+    if (typeof recvFd === 'number' && recvFd >= 0) {
+      _pendingRecvFd = recvFd;
+    }
     if (!rawData || !rawData.length) {
       return;
     }
@@ -968,7 +1489,31 @@ function ChildProcess(handle, pid, stdioModes) {
         continue;
       }
       if (packet.type === 'message') {
-        self.emit('message', packet.data);
+        // Handle internal NODE_SOCKET_CLOSED messages from SocketList protocol
+        if (packet.data && packet.data.cmd === 'NODE_SOCKET_CLOSED') {
+          if (self._sentSocketServers && self._sentSocketServers.length > 0) {
+            var closedSrv = self._sentSocketServers.shift();
+            if (closedSrv) {
+              closedSrv._connections--;
+              if (closedSrv._connections < 0) closedSrv._connections = 0;
+              if (closedSrv._closing && closedSrv._connections === 0) {
+                closedSrv.emit('close');
+              }
+            }
+          }
+          continue; // Don't emit as regular message
+        }
+        // Reconstruct handle from received fd if present
+        var handle = null;
+        if (packet.handleType && _pendingRecvFd >= 0) {
+          handle = _reconstructHandle(packet.handleType, _pendingRecvFd);
+          _pendingRecvFd = -1;
+        }
+        if (handle) {
+          self.emit('message', packet.data, handle);
+        } else {
+          self.emit('message', packet.data);
+        }
       } else if (packet.type === 'disconnect') {
         closeIpcChannel();
       }
@@ -1023,8 +1568,16 @@ function ChildProcess(handle, pid, stdioModes) {
     }
 
     if (self._ipcMode && !self._disconnectPending) {
-      var ipcData = globalThis.__exactSpawnRead(self._handle, 'ipc');
-      drainIpcPackets(ipcData);
+      // Use recvmsg to receive IPC data + optional SCM_RIGHTS fd
+      if (typeof globalThis.__exactSpawnRecvMsg === 'function') {
+        var ipcResult = globalThis.__exactSpawnRecvMsg(self._handle);
+        if (ipcResult) {
+          drainIpcPackets(ipcResult.data, ipcResult.fd);
+        }
+      } else {
+        var ipcData = globalThis.__exactSpawnRead(self._handle, 'ipc');
+        drainIpcPackets(ipcData);
+      }
     }
 
     // Poll exit status
@@ -1048,8 +1601,13 @@ function ChildProcess(handle, pid, stdioModes) {
           pushStreamData('stderr', finalErr, modes.stderr);
         }
         if (self._ipcMode) {
-          var finalIpc = globalThis.__exactSpawnRead(self._handle, 'ipc');
-          drainIpcPackets(finalIpc);
+          if (typeof globalThis.__exactSpawnRecvMsg === 'function') {
+            var finalIpcResult = globalThis.__exactSpawnRecvMsg(self._handle);
+            if (finalIpcResult) drainIpcPackets(finalIpcResult.data, finalIpcResult.fd);
+          } else {
+            var finalIpc = globalThis.__exactSpawnRead(self._handle, 'ipc');
+            drainIpcPackets(finalIpc);
+          }
           closeIpcChannel();
         }
 
@@ -1155,7 +1713,7 @@ ChildProcess.prototype.spawn = function(options) {
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
   if (normalizedOptions.env) opts.env = normalizedOptions.env;
   if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
-  if (options.stdio) opts.stdio = normalizedOptions.stdio;
+  opts.stdio = normalizedOptions.stdio;
 
   var argsJson = JSON.stringify(args);
   var optsJson = JSON.stringify(opts);
@@ -1188,7 +1746,8 @@ ChildProcess.prototype.spawn = function(options) {
     stdin: normalizedOptions.stdio[0],
     stdout: normalizedOptions.stdio[1],
     stderr: normalizedOptions.stdio[2],
-    ipc: normalizedOptions.stdio[3]
+    ipc: normalizedOptions.stdio[3],
+    extra: normalizedOptions.stdio.slice(4)
   };
   this._handle = result.handle;
   this.pid = result.pid;
@@ -1205,10 +1764,12 @@ ChildProcess.prototype.spawn = function(options) {
   if (stdioCfg.stdout === 'pipe') {
     this.stdout = new Stream.Readable();
     this.stdout._read = function() {};
+    this.stdout._handle = { readStart: function() {}, readStop: function() {} };
   }
   if (stdioCfg.stderr === 'pipe') {
     this.stderr = new Stream.Readable();
     this.stderr._read = function() {};
+    this.stderr._handle = { readStart: function() {}, readStop: function() {} };
   }
   if (stdioCfg.stdin === 'pipe') {
     this.stdin = new Stream.Writable({
@@ -1221,6 +1782,38 @@ ChildProcess.prototype.spawn = function(options) {
     this.stdin.readable = false;
   }
   this.stdio = [this.stdin, this.stdout, this.stderr];
+
+  // Create streams for extra stdio entries (index 4+)
+  if (stdioCfg.extra && stdioCfg.extra.length > 0) {
+    // IPC occupies slot 3 in stdio, so push null for it
+    this.stdio.push(this._ipcMode ? null : undefined);
+    for (var extraIdx = 0; extraIdx < stdioCfg.extra.length; extraIdx++) {
+      if (stdioCfg.extra[extraIdx] === 'pipe') {
+        var extraStreamIdx = extraIdx;
+        var extraStream = new Stream.Writable({
+          write: function(chunk, encoding, callback) {
+            var data = _toUint8String(chunk);
+            var ok = globalThis.__exactSpawnWrite(self2._handle, data, 'extra:' + this._extraIndex);
+            if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+          }
+        });
+        extraStream._extraIndex = extraIdx;
+        this.stdio.push(extraStream);
+      } else {
+        this.stdio.push(null);
+      }
+    }
+  }
+
+  // Populate raw fd on each stream so they can be passed as stdio to other processes
+  if (typeof globalThis.__exactSpawnGetFd === 'function') {
+    if (this.stdin) this.stdin._fd = globalThis.__exactSpawnGetFd(result.handle, 0);
+    if (this.stdout) this.stdout._fd = globalThis.__exactSpawnGetFd(result.handle, 1);
+    if (this.stderr) this.stderr._fd = globalThis.__exactSpawnGetFd(result.handle, 2);
+    for (var ei = 0; ei < (stdioCfg.extra ? stdioCfg.extra.length : 0); ei++) {
+      if (this.stdio[ei + 4]) this.stdio[ei + 4]._fd = globalThis.__exactSpawnGetFd(result.handle, ei + 4);
+    }
+  }
 
   // Start polling
   if (!globalThis.__exactSpawnProcesses) globalThis.__exactSpawnProcesses = {};
@@ -1286,6 +1879,19 @@ ChildProcess.prototype.spawn = function(options) {
             self3.exitCode = status.exitCode;
             self3.signalCode = null;
           }
+          // Flush remaining _sentSocketServers on exit
+          if (self3._sentSocketServers && self3._sentSocketServers.length > 0) {
+            while (self3._sentSocketServers.length > 0) {
+              var exitSrv = self3._sentSocketServers.shift();
+              if (exitSrv) {
+                exitSrv._connections--;
+                if (exitSrv._connections < 0) exitSrv._connections = 0;
+                if (exitSrv._closing && exitSrv._connections === 0) {
+                  exitSrv.emit('close');
+                }
+              }
+            }
+          }
           self3.emit('exit', self3.exitCode, self3.signalCode);
           setTimeout(function() {
             self3.emit('close', self3.exitCode, self3.signalCode);
@@ -1318,6 +1924,7 @@ ChildProcess.prototype.kill = function(signal) {
     if (!signalMap.hasOwnProperty(signal)) {
       var err = new TypeError('Unknown signal: ' + signal);
       err.code = 'ERR_UNKNOWN_SIGNAL';
+      _addCodeToString(err);
       throw err;
     }
     sig = signalMap[signal];
@@ -1328,7 +1935,7 @@ ChildProcess.prototype.kill = function(signal) {
   }
   if (this._handle === null || this._handle === undefined || this._handle < 0) return false;
   var ok = globalThis.__exactSpawnKill(this._handle, sig);
-  if (ok) this.killed = true;
+  if (ok && sig !== 0) this.killed = true;
   return ok;
 };
 
@@ -1369,6 +1976,20 @@ ChildProcess.prototype._finalizeDisconnect = function() {
 };
 
 ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
+  // Validate message argument
+  if (message === undefined) {
+    var missingErr = new TypeError('The "message" argument must be specified');
+    missingErr.code = 'ERR_MISSING_ARGS';
+    _addCodeToString(missingErr);
+    throw missingErr;
+  }
+  if (typeof message === 'symbol') {
+    var symErr = new TypeError('The "message" argument must be one of type string, object, number, or boolean. Received type symbol (' + String(message) + ')');
+    symErr.code = 'ERR_INVALID_ARG_TYPE';
+    _addCodeToString(symErr);
+    throw symErr;
+  }
+
   if (typeof sendHandle === 'function') {
     callback = sendHandle;
     sendHandle = undefined;
@@ -1376,10 +1997,36 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
   } else if (typeof opts === 'function') {
     callback = opts;
     opts = undefined;
+  } else if (opts !== undefined) {
+    if (opts === null || typeof opts !== 'object') {
+      var optsErr = new TypeError('The "options" argument must be of type object.' + _invalidArgTypeHelper(opts));
+      optsErr.code = 'ERR_INVALID_ARG_TYPE';
+      _addCodeToString(optsErr);
+      throw optsErr;
+    }
+  }
+
+  // Validate callback
+  if (callback !== undefined && typeof callback !== 'function') {
+    var cbErr = new TypeError('The "callback" argument must be of type function.' + _invalidArgTypeHelper(callback));
+    cbErr.code = 'ERR_INVALID_ARG_TYPE';
+    _addCodeToString(cbErr);
+    throw cbErr;
+  }
+
+  // Validate sendHandle - must be an object (net.Socket, net.Server, dgram.Socket handle) or falsy
+  // Reject non-object types like strings and numbers (e.g. send('msg', 'meow') → ERR_INVALID_HANDLE_TYPE)
+  if (sendHandle != null && sendHandle !== false) {
+    if (typeof sendHandle !== 'object' && typeof sendHandle !== 'function') {
+      var handleErr = new TypeError('This handle type can\'t be sent');
+      handleErr.code = 'ERR_INVALID_HANDLE_TYPE';
+      _addCodeToString(handleErr);
+      throw handleErr;
+    }
   }
 
   if (!this._ipcMode || !this.connected) {
-    var disconnectedError = _makeIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is closed');
+    var disconnectedError = _makeIpcError('ERR_IPC_CHANNEL_CLOSED', 'Channel closed');
     if (typeof callback === 'function') {
       setTimeout(function() {
         callback(disconnectedError);
@@ -1392,10 +2039,66 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
 
   var returnValue = this._ipcQueueSize < this._ipcQueueMax;
   this._ipcQueueSize++;
-  var packet = _createIpcPacket('message', message);
+  var handleFd = -1;
+  var handleType = null;
+  if (sendHandle != null && sendHandle !== false) {
+    handleType = _getHandleType(sendHandle);
+    handleFd = _extractHandleFd(sendHandle);
+  }
+  var packet = _createIpcPacket('message', message, handleType);
   var writeSuccess = false;
   var writeError = null;
-  if (typeof globalThis.__exactSpawnWrite === 'function') {
+  if (handleFd >= 0 && typeof globalThis.__exactSpawnSendMsg === 'function') {
+    // Use sendmsg with SCM_RIGHTS to pass the file descriptor
+    writeSuccess = globalThis.__exactSpawnSendMsg(this._handle, packet, handleFd);
+    // When keepOpen is not set, Node.js detaches the handle from the sender.
+    // The fd is dup'd via SCM_RIGHTS so closing sender's copy is safe.
+    var keepOpen = opts && opts.keepOpen;
+    // Don't destroy dgram sockets or servers after sending - they're shared.
+    // Also skip detachment for raw native handles (not proper socket instances).
+    var isDgram = handleType === 'dgram.Socket';
+    var isServer = handleType === 'net.Server';
+    var net2;
+    try { net2 = require('net'); } catch(e) {}
+    var isRawHandle = !isDgram && !isServer && !(net2 && net2.Socket && sendHandle instanceof net2.Socket);
+    if (writeSuccess && sendHandle && !keepOpen && !isDgram && !isServer && !isRawHandle) {
+      // Track the server for SocketList-like protocol: don't decrement
+      // _connections now; instead wait for NODE_SOCKET_CLOSED from child.
+      if (sendHandle._server) {
+        if (!this._sentSocketServers) this._sentSocketServers = [];
+        this._sentSocketServers.push(sendHandle._server);
+        sendHandle._server = null;
+        sendHandle.server = null;
+      }
+      // Clean up HTTP state if present
+      if (sendHandle.parser) sendHandle.parser = null;
+      if (sendHandle._httpMessage) sendHandle._httpMessage = null;
+      var kTimeout = Symbol.for('kTimeout');
+      sendHandle[kTimeout] = null;
+      // Detach the handle from the sender without emitting 'close'.
+      // The fd was dup'd via SCM_RIGHTS so closing the sender's copy is safe.
+      if (sendHandle._pollTimer != null) {
+        clearTimeout(sendHandle._pollTimer);
+        sendHandle._pollTimer = null;
+      }
+      if (sendHandle._timeoutTimer != null) {
+        clearTimeout(sendHandle._timeoutTimer);
+        sendHandle._timeoutTimer = null;
+      }
+      // Close the native fd
+      var nativeHandle = sendHandle._handle;
+      if (nativeHandle && nativeHandle._exactHandle !== undefined) {
+        nativeHandle = nativeHandle._exactHandle;
+      }
+      if (nativeHandle != null && typeof globalThis.__exactTcpClose === 'function') {
+        try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
+      }
+      sendHandle._handle = null;
+      sendHandle.destroyed = true;
+      sendHandle.readable = false;
+      sendHandle.writable = false;
+    }
+  } else if (typeof globalThis.__exactSpawnWrite === 'function') {
     writeSuccess = globalThis.__exactSpawnWrite(this._handle, packet, 'ipc');
   }
   if (!writeSuccess) {
@@ -1467,6 +2170,19 @@ ChildProcess.prototype.disconnect = function() {
     if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
       globalThis.__exactSpawnCloseStdin(self._handle, 'ipc');
     }
+    // Flush remaining _sentSocketServers on disconnect
+    if (self._sentSocketServers && self._sentSocketServers.length > 0) {
+      while (self._sentSocketServers.length > 0) {
+        var srv = self._sentSocketServers.shift();
+        if (srv) {
+          srv._connections--;
+          if (srv._connections < 0) srv._connections = 0;
+          if (srv._closing && srv._connections === 0) {
+            srv.emit('close');
+          }
+        }
+      }
+    }
     self.channel = null;
     self.emit('disconnect');
   }, 0);
@@ -1482,6 +2198,7 @@ cp.spawn = function spawn(command, args, options) {
   if (command.length === 0) {
     var valErr = new TypeError('The argument \'file\' cannot be empty. Received \'\'');
     valErr.code = 'ERR_INVALID_ARG_VALUE';
+    _addCodeToString(valErr);
     throw valErr;
   }
   _validateNullBytes(command, 'file');
@@ -1506,6 +2223,7 @@ cp.spawn = function spawn(command, args, options) {
     if (typeof options.timeout !== 'number' || !(options.timeout >= 0) || options.timeout !== (options.timeout | 0) && options.timeout !== Infinity) {
       var toErr = new RangeError('The value of "options.timeout" is out of range. It must be an unsigned integer. Received ' + require('util').inspect(options.timeout));
       toErr.code = 'ERR_OUT_OF_RANGE';
+      _addCodeToString(toErr);
       throw toErr;
     }
   }
@@ -1514,11 +2232,13 @@ cp.spawn = function spawn(command, args, options) {
     if (typeof options.killSignal !== 'string' && typeof options.killSignal !== 'number') {
       var ksErr = new TypeError('The "options.killSignal" property must be of type string or number. Received ' + typeof options.killSignal);
       ksErr.code = 'ERR_INVALID_ARG_TYPE';
+      _addCodeToString(ksErr);
       throw ksErr;
     }
     if (typeof options.killSignal === 'string' && !signalMap.hasOwnProperty(options.killSignal)) {
       var uksErr = new TypeError('Unknown signal: ' + options.killSignal);
       uksErr.code = 'ERR_UNKNOWN_SIGNAL';
+      _addCodeToString(uksErr);
       throw uksErr;
     }
   }
@@ -1526,6 +2246,7 @@ cp.spawn = function spawn(command, args, options) {
   if (options.serialization !== undefined && options.serialization !== 'json' && options.serialization !== 'advanced') {
     var serErr = new TypeError("The property 'options.serialization' must be one of: undefined, 'json', 'advanced'. Received " + require('util').inspect(options.serialization));
     serErr.code = 'ERR_INVALID_ARG_VALUE';
+    _addCodeToString(serErr);
     throw serErr;
   }
   // Validate uid/gid
@@ -1579,6 +2300,7 @@ cp.spawn = function spawn(command, args, options) {
       var ipcErr = new Error('Child process can have only one IPC pipe');
       ipcErr.code = 'ERR_IPC_ONE_PIPE';
       ipcErr.name = 'Error';
+      _addCodeToString(ipcErr);
       throw ipcErr;
     }
   }
@@ -1587,7 +2309,7 @@ cp.spawn = function spawn(command, args, options) {
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
   if (normalizedOptions.env) opts.env = normalizedOptions.env;
   if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
-  if (options.stdio) opts.stdio = normalizedOptions.stdio;
+  opts.stdio = normalizedOptions.stdio;
 
   var argsJson = JSON.stringify(args);
   var optsJson = JSON.stringify(opts);
@@ -1628,7 +2350,8 @@ cp.spawn = function spawn(command, args, options) {
     stdin: normalizedOptions.stdio[0],
     stdout: normalizedOptions.stdio[1],
     stderr: normalizedOptions.stdio[2],
-    ipc: normalizedOptions.stdio[3]
+    ipc: normalizedOptions.stdio[3],
+    extra: normalizedOptions.stdio.slice(4)
   };
   var child = new ChildProcess(result.handle, result.pid, stdioCfg);
   // Set spawnfile and spawnargs based on whether shell was used
@@ -1657,16 +2380,21 @@ cp.spawn = function spawn(command, args, options) {
   // Handle signal (AbortController) option
   if (options.signal) {
     var sig = options.signal;
+    var _killSigForAbort = options.killSignal || 'SIGTERM';
+    var _doAbort = function() {
+      if (!child.killed) {
+        child.kill(_killSigForAbort);
+        var abortErr = _makeAbortError(sig.reason);
+        child.emit('error', abortErr);
+      }
+    };
     if (sig.aborted) {
       // Already aborted
-      process.nextTick(function() { child.kill(); });
+      process.nextTick(_doAbort);
     } else {
-      var onAbort = function() {
-        child.kill();
-      };
-      sig.addEventListener('abort', onAbort, { once: true });
+      sig.addEventListener('abort', _doAbort, { once: true });
       child.on('exit', function() {
-        sig.removeEventListener('abort', onAbort);
+        sig.removeEventListener('abort', _doAbort);
         if (child._timeoutTimer) { clearTimeout(child._timeoutTimer); child._timeoutTimer = null; }
       });
     }
@@ -1696,16 +2424,37 @@ cp.fork = function fork(modulePath, args, options) {
   _validateArgsNullBytes(args);
   _validateOptionsNullBytes(options);
 
+  // Resolve module path - try adding .js extension like Node.js does
+  var _resolvedModule = modulePath;
+  try {
+    var _fs = require('fs');
+    var _pathMod = require('path');
+    if (!_pathMod.isAbsolute(_resolvedModule)) {
+      _resolvedModule = _pathMod.resolve(options.cwd || (typeof process !== 'undefined' && process.cwd()) || '.', _resolvedModule);
+    }
+    if (!_fs.existsSync(_resolvedModule)) {
+      var _exts = ['.js', '.mjs', '.json', '.node'];
+      for (var _ei = 0; _ei < _exts.length; _ei++) {
+        if (_fs.existsSync(_resolvedModule + _exts[_ei])) {
+          _resolvedModule = _resolvedModule + _exts[_ei];
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    _resolvedModule = modulePath;
+  }
+
   var execPath = _fallbackSpawnCommand(options.execPath || (typeof process !== 'undefined' && process.execPath) || 'node');
   var execArgv = options.execArgv || (typeof process !== 'undefined' && process.execArgv) || [];
-  var spawnArgs = execArgv.concat([modulePath]).concat(args);
+  var spawnArgs = execArgv.concat([_resolvedModule]).concat(args);
   var silent = options.silent === true;
   var stdio = options.stdio;
   if (!stdio) {
     stdio = [
-      silent ? 'pipe' : 'ignore',
-      silent ? 'pipe' : 'ignore',
-      silent ? 'pipe' : 'ignore',
+      silent ? 'pipe' : 'inherit',
+      silent ? 'pipe' : 'inherit',
+      silent ? 'pipe' : 'inherit',
       'ipc'
     ];
   } else if (typeof stdio === 'string') {
@@ -1713,6 +2462,7 @@ cp.fork = function fork(modulePath, args, options) {
     if (stdio !== 'pipe' && stdio !== 'inherit' && stdio !== 'ignore') {
       var strvErr = new TypeError("The property 'options.stdio' is invalid. Received " + require('util').inspect(stdio));
       strvErr.code = 'ERR_INVALID_ARG_VALUE';
+      _addCodeToString(strvErr);
       throw strvErr;
     }
     stdio = [_normalizeSpawnMode(stdio, 'pipe'), _normalizeSpawnMode(stdio, 'pipe'), _normalizeSpawnMode(stdio, 'pipe'), 'ipc'];
@@ -1726,6 +2476,7 @@ cp.fork = function fork(modulePath, args, options) {
       var ipcReqErr = new Error("Forked processes must have an IPC channel, missing value 'ipc' in options.stdio");
       ipcReqErr.code = 'ERR_CHILD_PROCESS_IPC_REQUIRED';
       ipcReqErr.name = 'Error';
+      _addCodeToString(ipcReqErr);
       throw ipcReqErr;
     }
     // Normalize each entry, keeping ipc entries
@@ -1734,7 +2485,7 @@ cp.fork = function fork(modulePath, args, options) {
       if (stdio[si] === 'ipc') {
         normalizedStdio[si] = 'ipc';
       } else if (si < 3) {
-        normalizedStdio[si] = _normalizeSpawnMode(stdio[si], silent ? 'pipe' : 'ignore');
+        normalizedStdio[si] = _normalizeSpawnMode(stdio[si], silent ? 'pipe' : 'inherit');
       } else {
         normalizedStdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
       }
@@ -1771,10 +2522,11 @@ module.exports = cp;
 // Wire up internal/child_process to reference the real ChildProcess
 try {
   var internalCp = require('internal/child_process');
-  if (internalCp && internalCp.ChildProcess === null) {
+  if (internalCp) {
+    // Always set ChildProcess to our implementation (not just when null)
     internalCp.ChildProcess = ChildProcess;
-  }
-  if (internalCp && !internalCp.spawnSync) {
-    internalCp.spawnSync = cp.spawnSync;
+    if (!internalCp.spawnSync) {
+      internalCp.spawnSync = _internalSpawnSync;
+    }
   }
 } catch (e) {}

@@ -2640,6 +2640,164 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactFsRead", std::move(fsReadFn));
 
+  // __exactFdPollHup(fd) -> boolean
+  // Returns true if the file descriptor has received a hangup (pipe closed).
+  // Uses poll() with zero timeout for non-blocking check.
+  auto fdPollHupFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFdPollHup"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value(false);
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        int ret = ::poll(&pfd, 1, 0);
+        if (ret > 0 && (pfd.revents & (POLLHUP | POLLERR | POLLNVAL))) {
+          return facebook::jsi::Value(true);
+        }
+        return facebook::jsi::Value(false);
+      });
+  rt.global().setProperty(rt, "__exactFdPollHup", std::move(fdPollHupFn));
+
+  // __exactIpcSendMsg(socketFd, data, sendFd?) -> number (bytes sent)
+  // Sends data over a Unix domain socket. If sendFd >= 0, passes it via
+  // SCM_RIGHTS ancillary data (file descriptor passing).
+  auto ipcSendMsgFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactIpcSendMsg"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactIpcSendMsg: socketFd and data required");
+        }
+        int sockFd = static_cast<int>(args[0].asNumber());
+        auto dataBytes = extractBytes(runtime, args[1]);
+        int sendFd = -1;
+        if (count > 2 && args[2].isNumber()) {
+          sendFd = static_cast<int>(args[2].asNumber());
+        }
+
+        struct iovec iov;
+        iov.iov_base = const_cast<uint8_t*>(dataBytes.data());
+        iov.iov_len = dataBytes.size();
+
+        struct msghdr msg = {};
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+
+        // Ancillary data buffer for SCM_RIGHTS
+        union {
+          char buf[CMSG_SPACE(sizeof(int))];
+          struct cmsghdr align;
+        } cmsgBuf;
+
+        if (sendFd >= 0) {
+          memset(&cmsgBuf, 0, sizeof(cmsgBuf));
+          msg.msg_control = cmsgBuf.buf;
+          msg.msg_controllen = sizeof(cmsgBuf.buf);
+
+          struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+          cmsg->cmsg_level = SOL_SOCKET;
+          cmsg->cmsg_type = SCM_RIGHTS;
+          cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+          memcpy(CMSG_DATA(cmsg), &sendFd, sizeof(int));
+        }
+
+        ssize_t sent = ::sendmsg(sockFd, &msg, 0);
+        if (sent < 0) {
+          if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return facebook::jsi::Value(0);
+          }
+          throw facebook::jsi::JSError(runtime, std::string("sendmsg failed: ") + strerror(errno));
+        }
+        return facebook::jsi::Value(static_cast<int>(sent));
+      });
+  rt.global().setProperty(rt, "__exactIpcSendMsg", std::move(ipcSendMsgFn));
+
+  // __exactIpcRecvMsg(socketFd, bufSize) -> {data: Uint8Array, fd: number}
+  // Receives data from a Unix domain socket using recvmsg. If a file
+  // descriptor was passed via SCM_RIGHTS, it is returned in the fd field
+  // (otherwise fd is -1).
+  auto ipcRecvMsgFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactIpcRecvMsg"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactIpcRecvMsg: socketFd and bufSize required");
+        }
+        int sockFd = static_cast<int>(args[0].asNumber());
+        int bufSize = static_cast<int>(args[1].asNumber());
+        if (bufSize <= 0) bufSize = 65536;
+
+        std::vector<uint8_t> buf(static_cast<size_t>(bufSize));
+
+        struct iovec iov;
+        iov.iov_base = buf.data();
+        iov.iov_len = buf.size();
+
+        // Ancillary data buffer for receiving SCM_RIGHTS
+        union {
+          char buf[CMSG_SPACE(sizeof(int))];
+          struct cmsghdr align;
+        } cmsgBuf;
+        memset(&cmsgBuf, 0, sizeof(cmsgBuf));
+
+        struct msghdr msg = {};
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = cmsgBuf.buf;
+        msg.msg_controllen = sizeof(cmsgBuf.buf);
+
+        ssize_t bytesRead = ::recvmsg(sockFd, &msg, 0);
+        if (bytesRead < 0) {
+          if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Return empty result with no fd
+            auto result = facebook::jsi::Object(runtime);
+            result.setProperty(runtime, "data", makeUint8Array(runtime, {}));
+            result.setProperty(runtime, "fd", facebook::jsi::Value(-1));
+            return result;
+          }
+          throw facebook::jsi::JSError(runtime, std::string("recvmsg failed: ") + strerror(errno));
+        }
+
+        // Check for received file descriptor
+        int recvFd = -1;
+        struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+        while (cmsg != nullptr) {
+          if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+            memcpy(&recvFd, CMSG_DATA(cmsg), sizeof(int));
+            // Set CLOEXEC on received fd
+            if (recvFd >= 0) {
+              fcntl(recvFd, F_SETFD, FD_CLOEXEC);
+            }
+            break;
+          }
+          cmsg = CMSG_NXTHDR(&msg, cmsg);
+        }
+
+        buf.resize(static_cast<size_t>(bytesRead));
+        auto result = facebook::jsi::Object(runtime);
+        result.setProperty(runtime, "data", makeUint8Array(runtime, std::move(buf)));
+        result.setProperty(runtime, "fd", facebook::jsi::Value(recvFd));
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactIpcRecvMsg", std::move(ipcRecvMsgFn));
+
   // __exactFsWrite(fd, data, position) -> number (bytes written)
   // data can be a string or Uint8Array; position = -1 means use current position
   auto fsWriteFn = facebook::jsi::Function::createFromHostFunction(
@@ -4437,6 +4595,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         std::vector<std::string> envEntries;
         std::string stdinInput;
         bool hasStdinInput = false;
+        std::string argv0;
+        std::string syncStdioMode = "pipe"; // default: pipe stdout/stderr
 
         if (count > 2 && args[2].isString()) {
           auto optsJson = args[2].toString(runtime).utf8(runtime);
@@ -4466,6 +4626,15 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
           }
           envEntries = s_parseEnvFromOpts(optsJson);
+          // Parse stdio option (string form: "inherit", "pipe", "ignore")
+          auto stdioPos = optsJson.find("\"stdio\":\"");
+          if (stdioPos != std::string::npos) {
+            auto start = stdioPos + 9;
+            auto end = optsJson.find("\"", start);
+            if (end != std::string::npos) {
+              syncStdioMode = optsJson.substr(start, end - start);
+            }
+          }
           // Parse input option for stdin
           auto inputPos = optsJson.find("\"input\":\"");
           if (inputPos != std::string::npos) {
@@ -4486,7 +4655,30 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             stdinInput = inputStr;
             hasStdinInput = true;
           }
+          // Parse argv0 option for custom process.argv[0]
+          auto argv0Pos = optsJson.find("\"argv0\":\"");
+          if (argv0Pos != std::string::npos) {
+            auto start = argv0Pos + 9;
+            std::string argv0Str;
+            while (start < optsJson.size() && optsJson[start] != '"') {
+              if (optsJson[start] == '\\' && start + 1 < optsJson.size()) {
+                start++;
+                if (optsJson[start] == 'n') argv0Str += '\n';
+                else if (optsJson[start] == 't') argv0Str += '\t';
+                else if (optsJson[start] == 'r') argv0Str += '\r';
+                else argv0Str += optsJson[start];
+              } else {
+                argv0Str += optsJson[start];
+              }
+              start++;
+            }
+            argv0 = argv0Str;
+          }
         }
+
+        const bool syncStdoutPipe = (syncStdioMode == "pipe");
+        const bool syncStderrPipe = (syncStdioMode == "pipe");
+        const bool syncStdioIgnore = (syncStdioMode == "ignore");
 
         // JSON escape helper
         auto jsonEscape = [](const std::string& s) -> std::string {
@@ -4516,38 +4708,63 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         };
 
         // Create pipes for stdout, stderr, and optionally stdin
-        int stdoutPipe[2], stderrPipe[2], stdinPipe[2] = {-1, -1};
-        if (pipe(stdoutPipe) != 0 || pipe(stderrPipe) != 0) {
-          throw facebook::jsi::JSError(runtime, "Failed to create pipes");
+        int stdoutPipe[2] = {-1, -1}, stderrPipe[2] = {-1, -1}, stdinPipe[2] = {-1, -1};
+        if (syncStdoutPipe) {
+          if (pipe(stdoutPipe) != 0) {
+            throw facebook::jsi::JSError(runtime, "Failed to create stdout pipe");
+          }
+        }
+        if (syncStderrPipe) {
+          if (pipe(stderrPipe) != 0) {
+            if (stdoutPipe[0] >= 0) { close(stdoutPipe[0]); close(stdoutPipe[1]); }
+            throw facebook::jsi::JSError(runtime, "Failed to create stderr pipe");
+          }
         }
         if (hasStdinInput) {
           if (pipe(stdinPipe) != 0) {
-            close(stdoutPipe[0]); close(stdoutPipe[1]);
-            close(stderrPipe[0]); close(stderrPipe[1]);
+            if (stdoutPipe[0] >= 0) { close(stdoutPipe[0]); close(stdoutPipe[1]); }
+            if (stderrPipe[0] >= 0) { close(stderrPipe[0]); close(stderrPipe[1]); }
             throw facebook::jsi::JSError(runtime, "Failed to create stdin pipe");
           }
         }
 
         pid_t pid = fork();
         if (pid < 0) {
-          close(stdoutPipe[0]); close(stdoutPipe[1]);
-          close(stderrPipe[0]); close(stderrPipe[1]);
+          if (stdoutPipe[0] >= 0) { close(stdoutPipe[0]); close(stdoutPipe[1]); }
+          if (stderrPipe[0] >= 0) { close(stderrPipe[0]); close(stderrPipe[1]); }
           if (hasStdinInput) { close(stdinPipe[0]); close(stdinPipe[1]); }
           throw facebook::jsi::JSError(runtime, "Failed to fork process");
         }
 
         if (pid == 0) {
           // Child process
-          close(stdoutPipe[0]);
-          close(stderrPipe[0]);
-          dup2(stdoutPipe[1], STDOUT_FILENO);
-          dup2(stderrPipe[1], STDERR_FILENO);
-          close(stdoutPipe[1]);
-          close(stderrPipe[1]);
+          if (syncStdoutPipe) {
+            close(stdoutPipe[0]);
+            dup2(stdoutPipe[1], STDOUT_FILENO);
+            close(stdoutPipe[1]);
+          } else if (syncStdioIgnore) {
+            int nullFd = open("/dev/null", O_WRONLY);
+            if (nullFd >= 0) { dup2(nullFd, STDOUT_FILENO); close(nullFd); }
+          }
+          // else inherit: do nothing, keep parent's stdout
+
+          if (syncStderrPipe) {
+            close(stderrPipe[0]);
+            dup2(stderrPipe[1], STDERR_FILENO);
+            close(stderrPipe[1]);
+          } else if (syncStdioIgnore) {
+            int nullFd = open("/dev/null", O_WRONLY);
+            if (nullFd >= 0) { dup2(nullFd, STDERR_FILENO); close(nullFd); }
+          }
+          // else inherit: do nothing, keep parent's stderr
+
           if (hasStdinInput) {
             close(stdinPipe[1]);
             dup2(stdinPipe[0], STDIN_FILENO);
             close(stdinPipe[0]);
+          } else if (syncStdioIgnore) {
+            int nullFd = open("/dev/null", O_RDONLY);
+            if (nullFd >= 0) { dup2(nullFd, STDIN_FILENO); close(nullFd); }
           }
 
           // Suppress runtime bundle note in child processes
@@ -4584,7 +4801,9 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             execl("/bin/sh", "sh", "-c", fullCmd.c_str(), nullptr);
           } else {
             std::vector<char*> argv;
-            argv.push_back(const_cast<char*>(file.c_str()));
+            // Use custom argv0 if provided, otherwise use file as argv[0]
+            std::string argv0Str = argv0.empty() ? file : argv0;
+            argv.push_back(const_cast<char*>(argv0Str.c_str()));
             for (auto& a : spawnArgs) {
               argv.push_back(const_cast<char*>(a.c_str()));
             }
@@ -4595,8 +4814,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         // Parent process
-        close(stdoutPipe[1]);
-        close(stderrPipe[1]);
+        if (syncStdoutPipe) close(stdoutPipe[1]);
+        if (syncStderrPipe) close(stderrPipe[1]);
         if (hasStdinInput) {
           close(stdinPipe[0]);
           // Write input to child's stdin
@@ -4625,25 +4844,29 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }).detach();
         }
 
-        // Read stdout
-        while (true) {
-          ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
-          if (bytesRead <= 0) break;
-          if (stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
-            stdoutStr.append(buf, max_buffer - stdoutStr.size());
-            break;
+        // Read stdout (only if piped)
+        if (syncStdoutPipe) {
+          while (true) {
+            ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
+            if (bytesRead <= 0) break;
+            if (stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
+              stdoutStr.append(buf, max_buffer - stdoutStr.size());
+              break;
+            }
+            stdoutStr.append(buf, static_cast<size_t>(bytesRead));
           }
-          stdoutStr.append(buf, static_cast<size_t>(bytesRead));
+          close(stdoutPipe[0]);
         }
-        close(stdoutPipe[0]);
 
-        // Read stderr
-        while (true) {
-          ssize_t bytesRead = read(stderrPipe[0], buf, sizeof(buf));
-          if (bytesRead <= 0) break;
-          stderrStr.append(buf, static_cast<size_t>(bytesRead));
+        // Read stderr (only if piped)
+        if (syncStderrPipe) {
+          while (true) {
+            ssize_t bytesRead = read(stderrPipe[0], buf, sizeof(buf));
+            if (bytesRead <= 0) break;
+            stderrStr.append(buf, static_cast<size_t>(bytesRead));
+          }
+          close(stderrPipe[0]);
         }
-        close(stderrPipe[0]);
 
         // Wait for child
         int status = 0;
@@ -4682,6 +4905,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
     int stdoutFd;  // parent reads from child's stdout
     int stderrFd;  // parent reads from child's stderr
     int ipcFd;     // IPC channel fd (optional)
+    std::vector<int> extraFds; // parent-side fds for stdio indices 4+
     bool exited;
     int exitCode;
     int exitSignal; // 0 if exited normally, >0 if signaled
@@ -4743,7 +4967,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Parse options
         std::string cwd;
         bool useShell = false;
-        std::string stdioModes[4] = {"pipe", "pipe", "pipe", "pipe"};
+        std::vector<std::string> stdioModes = {"pipe", "pipe", "pipe", "pipe"};
         std::vector<std::string> envEntries;
 
         auto skipJsonWhitespace = [](const std::string& value, size_t& pos) {
@@ -4782,6 +5006,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (value == "pipe") return std::string("pipe");
           if (value == "overlapped") return std::string("pipe");
           if (value == "ipc") return std::string("ipc");
+          // fd:N - redirect to existing file descriptor
+          if (value.size() > 3 && value.substr(0, 3) == "fd:") return value;
           return std::string("pipe");
         };
 
@@ -4818,7 +5044,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               } else if (optsJson[modePos] == '[') {
                 ++modePos;
                 int slot = 0;
-                while (modePos < optsJson.size() && slot < 4) {
+                while (modePos < optsJson.size()) {
                   skipJsonWhitespace(optsJson, modePos);
                   if (modePos >= optsJson.size() || optsJson[modePos] == ']') break;
                   std::string parsed;
@@ -4835,7 +5061,11 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
                       }
                     }
                   }
-                  stdioModes[slot] = normalizeStdioMode(parsed);
+                  if (slot < (int)stdioModes.size()) {
+                    stdioModes[slot] = normalizeStdioMode(parsed);
+                  } else {
+                    stdioModes.push_back(normalizeStdioMode(parsed));
+                  }
                   slot++;
                   skipJsonWhitespace(optsJson, modePos);
                   if (modePos < optsJson.size() && optsJson[modePos] == ',') {
@@ -4852,6 +5082,18 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         const bool stdoutPipeRequested = stdioModes[1] == "pipe";
         const bool stderrPipeRequested = stdioModes[2] == "pipe";
         const bool ipcRequested = stdioModes[3] == "ipc";
+
+        // Parse fd:N modes for stdio redirection to existing file descriptors
+        int stdinFdRedirect = -1, stdoutFdRedirect = -1, stderrFdRedirect = -1;
+        auto parseFdMode = [](const std::string& mode) -> int {
+          if (mode.substr(0, 3) == "fd:") {
+            return std::atoi(mode.c_str() + 3);
+          }
+          return -1;
+        };
+        stdinFdRedirect = parseFdMode(stdioModes[0]);
+        stdoutFdRedirect = parseFdMode(stdioModes[1]);
+        stderrFdRedirect = parseFdMode(stdioModes[2]);
 
         // Create pipes for stdin, stdout, stderr
         int stdinPipeFd[2] = {-1, -1};
@@ -4890,6 +5132,47 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create IPC socketpair\"}"));
+        }
+
+        // Set FD_CLOEXEC on parent-retained pipe fds so they don't leak
+        // to subsequently spawned child processes.  Without this, piping
+        // echo | grep | sed fails because sed inherits the write end of
+        // grep's stdin pipe, preventing grep from seeing EOF.
+        if (stdinPipeRequested && stdinPipeFd[1] >= 0)
+          fcntl(stdinPipeFd[1], F_SETFD, FD_CLOEXEC);
+        if (stdoutPipeRequested && stdoutPipeFd[0] >= 0)
+          fcntl(stdoutPipeFd[0], F_SETFD, FD_CLOEXEC);
+        if (stderrPipeRequested && stderrPipeFd[0] >= 0)
+          fcntl(stderrPipeFd[0], F_SETFD, FD_CLOEXEC);
+        if (ipcRequested) {
+          if (ipcPair[0] >= 0) fcntl(ipcPair[0], F_SETFD, FD_CLOEXEC);
+          if (ipcPair[1] >= 0) fcntl(ipcPair[1], F_SETFD, FD_CLOEXEC);
+        }
+
+        // Create pipes for extra stdio entries (index 4+)
+        std::vector<std::pair<int,int>> extraPipes; // (parentFd, childFd) pairs
+        for (size_t i = 4; i < stdioModes.size(); i++) {
+          if (stdioModes[i] == "pipe") {
+            int ep[2] = {-1, -1};
+            if (socketpair(AF_UNIX, SOCK_STREAM, 0, ep) != 0) {
+              // Clean up on failure
+              for (auto& p : extraPipes) { close(p.first); close(p.second); }
+              if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+              if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+              if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+              if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+              if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+              if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+              if (ipcPair[0] >= 0) close(ipcPair[0]);
+              if (ipcPair[1] >= 0) close(ipcPair[1]);
+              return facebook::jsi::Value(
+                  facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create extra stdio pipe\"}"));
+            }
+            fcntl(ep[0], F_SETFD, FD_CLOEXEC);
+            extraPipes.push_back({ep[0], ep[1]});
+          } else {
+            extraPipes.push_back({-1, -1});
+          }
         }
 
         // Create an exec error pipe to detect ENOENT and other exec failures.
@@ -4931,6 +5214,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stdinPipeFd[1]);
             dup2(stdinPipeFd[0], STDIN_FILENO);
             close(stdinPipeFd[0]);
+          } else if (stdinFdRedirect >= 0) {
+            dup2(stdinFdRedirect, STDIN_FILENO);
           } else if (stdioModes[0] == "ignore") {
             int nullStdin = open("/dev/null", O_RDONLY);
             if (nullStdin >= 0) {
@@ -4943,6 +5228,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stdoutPipeFd[0]);
             dup2(stdoutPipeFd[1], STDOUT_FILENO);
             close(stdoutPipeFd[1]);
+          } else if (stdoutFdRedirect >= 0) {
+            dup2(stdoutFdRedirect, STDOUT_FILENO);
           } else if (stdioModes[1] == "ignore") {
             int nullStdout = open("/dev/null", O_WRONLY);
             if (nullStdout >= 0) {
@@ -4955,6 +5242,8 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stderrPipeFd[0]);
             dup2(stderrPipeFd[1], STDERR_FILENO);
             close(stderrPipeFd[1]);
+          } else if (stderrFdRedirect >= 0) {
+            dup2(stderrFdRedirect, STDERR_FILENO);
           } else if (stdioModes[2] == "ignore") {
             int nullStderr = open("/dev/null", O_WRONLY);
             if (nullStderr >= 0) {
@@ -4971,6 +5260,16 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             int ipcFlags = fcntl(3, F_GETFL, 0);
             if (ipcFlags >= 0) {
               fcntl(3, F_SETFL, ipcFlags | O_NONBLOCK);
+            }
+          }
+
+          // Set up extra stdio pipes (index 4+)
+          for (size_t i = 0; i < extraPipes.size(); i++) {
+            if (extraPipes[i].second >= 0) {
+              close(extraPipes[i].first); // close parent end in child
+              int targetFd = static_cast<int>(i + 4);
+              dup2(extraPipes[i].second, targetFd);
+              close(extraPipes[i].second);
             }
           }
 
@@ -4994,11 +5293,31 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           // Suppress runtime bundle note in child processes
           setenv("EXACT_QUIET", "1", 1);
 
+          // Set EXACT_IPC_FD so the child knows which fd is the IPC channel
+          if (ipcRequested) {
+            for (size_t si = 0; si < stdioModes.size(); si++) {
+              if (stdioModes[si] == "ipc") {
+                std::string ipcFdStr = std::to_string(si);
+                setenv("EXACT_IPC_FD", ipcFdStr.c_str(), 1);
+                break;
+              }
+            }
+          }
+
           // Build envp array (must outlive execvp call)
           std::vector<char*> envp;
           if (!envEntries.empty()) {
             // Ensure EXACT_QUIET is included in custom env
             envEntries.push_back("EXACT_QUIET=1");
+            // Include EXACT_IPC_FD in custom env if IPC requested
+            if (ipcRequested) {
+              for (size_t si = 0; si < stdioModes.size(); si++) {
+                if (stdioModes[si] == "ipc") {
+                  envEntries.push_back("EXACT_IPC_FD=" + std::to_string(si));
+                  break;
+                }
+              }
+            }
             envp.reserve(envEntries.size() + 1);
             for (auto& e : envEntries) {
               envp.push_back(const_cast<char*>(e.c_str()));
@@ -5101,10 +5420,15 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           proc.stdoutFd = stdoutPipeRequested ? stdoutPipeFd[0] : -1;
           proc.stderrFd = stderrPipeRequested ? stderrPipeFd[0] : -1;
           proc.ipcFd = ipcRequested ? ipcPair[1] : -1;
+          // Store parent-side fds for extra stdio pipes and close child ends
+          for (size_t i = 0; i < extraPipes.size(); i++) {
+            proc.extraFds.push_back(extraPipes[i].first);
+            if (extraPipes[i].second >= 0) close(extraPipes[i].second); // close child end in parent
+          }
           proc.exited = false;
           proc.exitCode = -1;
           proc.exitSignal = 0;
-          s_spawnedProcesses[handle] = proc;
+          s_spawnedProcesses[handle] = std::move(proc);
         }
 
         std::string resultJson = "{\"handle\":" + std::to_string(handle)
@@ -5177,6 +5501,41 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactSpawnRead", std::move(spawnReadFn));
 
+  // __exactSpawnGetFd(handle, streamIndex) -> raw fd or -1
+  // streamIndex: 0=stdin, 1=stdout, 2=stderr, 3=ipc
+  auto spawnGetFdFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnGetFd"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
+          return facebook::jsi::Value(-1);
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        int streamIndex = static_cast<int>(args[1].asNumber());
+        std::lock_guard<std::mutex> lock(s_spawnMutex);
+        auto it = s_spawnedProcesses.find(handle);
+        if (it == s_spawnedProcesses.end()) return facebook::jsi::Value(-1);
+        const auto& proc = it->second;
+        switch (streamIndex) {
+          case 0: return facebook::jsi::Value(proc.stdinFd);
+          case 1: return facebook::jsi::Value(proc.stdoutFd);
+          case 2: return facebook::jsi::Value(proc.stderrFd);
+          case 3: return facebook::jsi::Value(proc.ipcFd);
+          default: {
+            int extraIdx = streamIndex - 4;
+            if (extraIdx >= 0 && extraIdx < (int)proc.extraFds.size()) {
+              return facebook::jsi::Value(proc.extraFds[extraIdx]);
+            }
+            return facebook::jsi::Value(-1);
+          }
+        }
+      });
+  rt.global().setProperty(rt, "__exactSpawnGetFd", std::move(spawnGetFdFn));
+
   // __exactSpawnWrite(handle, data, stream?) -> boolean (success)
   auto spawnWriteFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -5207,6 +5566,11 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             fd = it->second.stdinFd;
           } else if (streamName == "ipc") {
             fd = it->second.ipcFd;
+          } else if (streamName.substr(0, 6) == "extra:") {
+            int extraIdx = std::atoi(streamName.c_str() + 6);
+            if (extraIdx >= 0 && extraIdx < (int)it->second.extraFds.size()) {
+              fd = it->second.extraFds[extraIdx];
+            }
           }
         }
 
@@ -5236,6 +5600,131 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value(true);
       });
   rt.global().setProperty(rt, "__exactSpawnWrite", std::move(spawnWriteFn));
+
+  // __exactSpawnSendMsg(handle, data, sendFd?) -> boolean
+  // Sends data to the child's IPC socket using sendmsg. If sendFd >= 0,
+  // passes the file descriptor via SCM_RIGHTS.
+  auto spawnSendMsgFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSendMsg"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          return facebook::jsi::Value(false);
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto data = args[1].toString(runtime).utf8(runtime);
+        int sendFd = -1;
+        if (count > 2 && args[2].isNumber()) {
+          sendFd = static_cast<int>(args[2].asNumber());
+        }
+
+        int ipcFd = -1;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          auto it = s_spawnedProcesses.find(handle);
+          if (it == s_spawnedProcesses.end()) return facebook::jsi::Value(false);
+          ipcFd = it->second.ipcFd;
+        }
+        if (ipcFd < 0) return facebook::jsi::Value(false);
+
+        struct iovec iov;
+        iov.iov_base = const_cast<char*>(data.c_str());
+        iov.iov_len = data.size();
+
+        struct msghdr msg = {};
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+
+        union {
+          char buf[CMSG_SPACE(sizeof(int))];
+          struct cmsghdr align;
+        } cmsgBuf;
+
+        if (sendFd >= 0) {
+          memset(&cmsgBuf, 0, sizeof(cmsgBuf));
+          msg.msg_control = cmsgBuf.buf;
+          msg.msg_controllen = sizeof(cmsgBuf.buf);
+          struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+          cmsg->cmsg_level = SOL_SOCKET;
+          cmsg->cmsg_type = SCM_RIGHTS;
+          cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+          memcpy(CMSG_DATA(cmsg), &sendFd, sizeof(int));
+        }
+
+        ssize_t sent = ::sendmsg(ipcFd, &msg, 0);
+        return facebook::jsi::Value(sent > 0);
+      });
+  rt.global().setProperty(rt, "__exactSpawnSendMsg", std::move(spawnSendMsgFn));
+
+  // __exactSpawnRecvMsg(handle) -> {data: string, fd: number} or null
+  // Receives data from the child's IPC socket using recvmsg. Returns
+  // any SCM_RIGHTS file descriptor in the fd field (-1 if none).
+  auto spawnRecvMsgFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRecvMsg"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+
+        int ipcFd = -1;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          auto it = s_spawnedProcesses.find(handle);
+          if (it == s_spawnedProcesses.end()) return facebook::jsi::Value::null();
+          ipcFd = it->second.ipcFd;
+        }
+        if (ipcFd < 0) return facebook::jsi::Value::null();
+
+        char buf[65536];
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+
+        union {
+          char cbuf[CMSG_SPACE(sizeof(int))];
+          struct cmsghdr align;
+        } cmsgBuf;
+        memset(&cmsgBuf, 0, sizeof(cmsgBuf));
+
+        struct msghdr msg = {};
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = cmsgBuf.cbuf;
+        msg.msg_controllen = sizeof(cmsgBuf.cbuf);
+
+        ssize_t bytesRead = ::recvmsg(ipcFd, &msg, 0);
+        if (bytesRead <= 0) {
+          return facebook::jsi::Value::null();
+        }
+
+        int recvFd = -1;
+        struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+        while (cmsg != nullptr) {
+          if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+            memcpy(&recvFd, CMSG_DATA(cmsg), sizeof(int));
+            if (recvFd >= 0) fcntl(recvFd, F_SETFD, FD_CLOEXEC);
+            break;
+          }
+          cmsg = CMSG_NXTHDR(&msg, cmsg);
+        }
+
+        auto result = facebook::jsi::Object(runtime);
+        result.setProperty(runtime, "data",
+            facebook::jsi::String::createFromUtf8(runtime, std::string(buf, static_cast<size_t>(bytesRead))));
+        result.setProperty(runtime, "fd", facebook::jsi::Value(recvFd));
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactSpawnRecvMsg", std::move(spawnRecvMsgFn));
 
   // __exactSpawnPoll(handle) -> JSON string {"exited":bool,"exitCode":N,"signal":N}
   // Uses waitpid with WNOHANG for non-blocking check.
@@ -5361,14 +5850,17 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         auto& proc = it->second;
-        if (proc.stdinFd >= 0) {
-          close(proc.stdinFd);
-          proc.stdinFd = -1;
-        }
         if (streamName == "ipc") {
+          // Only close the IPC fd, not stdin
           if (proc.ipcFd >= 0) {
             close(proc.ipcFd);
             proc.ipcFd = -1;
+          }
+        } else {
+          // Close stdin (default behavior)
+          if (proc.stdinFd >= 0) {
+            close(proc.stdinFd);
+            proc.stdinFd = -1;
           }
         }
         return facebook::jsi::Value::undefined();
@@ -5602,6 +6094,52 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpClose", std::move(tcpCloseFn));
 
+    // __exactTcpFromFd(fd) -> handle
+    // Register an existing raw file descriptor as a TCP handle in g_tcp_sockets.
+    // Used for SCM_RIGHTS: after receiving an fd via recvmsg, register it so
+    // net.Socket can wrap it with full read/write/close support.
+    auto tcpFromFdFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpFromFd"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpFromFd: fd (number) required");
+          }
+          int fd = static_cast<int>(args[0].asNumber());
+          if (fd < 0) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpFromFd: invalid fd");
+          }
+          // Set non-blocking mode
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactTcpFromFd", std::move(tcpFromFdFn));
+
+    // __exactTcpGetFd(handle) -> raw fd
+    // Get the underlying raw file descriptor for a TCP handle.
+    // Used for SCM_RIGHTS: need the raw fd to send via sendmsg.
+    auto tcpGetFdFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpGetFd"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            return facebook::jsi::Value(-1);
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          std::lock_guard<std::mutex> lock(g_tcp_mutex);
+          auto it = g_tcp_sockets.find(handle);
+          if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+          return facebook::jsi::Value(it->second);
+        });
+    rt.global().setProperty(rt, "__exactTcpGetFd", std::move(tcpGetFdFn));
+
     // __exactTcpShutdown(handle, how) -> 0
     // how: 0=SHUT_RD, 1=SHUT_WR, 2=SHUT_RDWR
     auto tcpShutdownFn = facebook::jsi::Function::createFromHostFunction(
@@ -5670,9 +6208,9 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpSetKeepAlive", std::move(tcpSetKeepAliveFn));
 
-    // __exactTcpListen(host, port, backlog, ipv6Only) -> handle or throws
+    // __exactTcpListen(host, port, backlog, ipv6Only, reusePort) -> handle or throws
     auto tcpListenFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 4,
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 5,
         [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           std::string host = "0.0.0.0";
@@ -5683,6 +6221,8 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count > 2 && args[2].isNumber()) backlog = static_cast<int>(args[2].asNumber());
           int ipv6Only = 0;
           if (count > 3 && args[3].isNumber()) ipv6Only = static_cast<int>(args[3].asNumber());
+          int reusePort = 0;
+          if (count > 4 && args[4].isNumber()) reusePort = static_cast<int>(args[4].asNumber());
           struct addrinfo hints{}, *result = nullptr;
           if (ipv6Only || host.find(':') != std::string::npos) {
             hints.ai_family = AF_INET6;
@@ -5709,6 +6249,12 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int reuse = 1;
           setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+          if (reusePort) {
+#ifdef SO_REUSEPORT
+            int rp = 1;
+            setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &rp, sizeof(rp));
+#endif
+          }
           if (::bind(fd, result->ai_addr, result->ai_addrlen) == -1) {
             freeaddrinfo(result);
             ::close(fd);
@@ -5963,6 +6509,318 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactUnixAccept", std::move(unixAcceptFn));
 
+  // ============================================================
+    // UDP (dgram) host functions
+    // Reuses g_tcp_sockets/g_tcp_next_handle/g_tcp_mutex for
+    // the handle→fd mapping (same pattern as Unix sockets).
+    // ============================================================
+
+    // __exactUdpSocket(type) -> handle  (type: "udp4" or "udp6")
+    auto udpSocketFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpSocket"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          int family = AF_INET;
+          if (count > 0 && args[0].isString()) {
+            std::string type = args[0].toString(runtime).utf8(runtime);
+            if (type == "udp6") family = AF_INET6;
+          }
+          int fd = socket(family, SOCK_DGRAM, IPPROTO_UDP);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("socket(SOCK_DGRAM) failed: " + std::string(strerror(errno))).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          // Enable SO_REUSEADDR so parent+child can both receive
+          int reuse = 1;
+          setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+#ifdef SO_REUSEPORT
+          setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
+#endif
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactUdpSocket", std::move(udpSocketFn));
+
+    // __exactUdpBind(handle, host, port) -> JSON {address, port, family}
+    auto udpBindFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpBind"), 3,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpBind: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          std::string host = "0.0.0.0";
+          int port = 0;
+          if (count > 1 && args[1].isString()) host = args[1].toString(runtime).utf8(runtime);
+          if (count > 2 && args[2].isNumber()) port = static_cast<int>(args[2].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpBind: invalid handle");
+            fd = it->second;
+          }
+          struct sockaddr_in addr4;
+          struct sockaddr_in6 addr6;
+          struct sockaddr* sa; socklen_t sa_len;
+          if (host.find(':') != std::string::npos) {
+            memset(&addr6, 0, sizeof(addr6));
+            addr6.sin6_family = AF_INET6;
+            addr6.sin6_port = htons(port);
+            inet_pton(AF_INET6, host.c_str(), &addr6.sin6_addr);
+            sa = reinterpret_cast<struct sockaddr*>(&addr6);
+            sa_len = sizeof(addr6);
+          } else {
+            memset(&addr4, 0, sizeof(addr4));
+            addr4.sin_family = AF_INET;
+            addr4.sin_port = htons(port);
+            inet_pton(AF_INET, host.c_str(), &addr4.sin_addr);
+            sa = reinterpret_cast<struct sockaddr*>(&addr4);
+            sa_len = sizeof(addr4);
+          }
+          if (::bind(fd, sa, sa_len) == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("bind failed: " + std::string(strerror(errno))).c_str());
+          }
+          // Get actual bound address
+          struct sockaddr_storage bound; socklen_t boundLen = sizeof(bound);
+          getsockname(fd, reinterpret_cast<struct sockaddr*>(&bound), &boundLen);
+          char ipStr[INET6_ADDRSTRLEN]; int boundPort = 0; std::string family;
+          if (bound.ss_family == AF_INET) {
+            auto* s = reinterpret_cast<struct sockaddr_in*>(&bound);
+            inet_ntop(AF_INET, &s->sin_addr, ipStr, sizeof(ipStr));
+            boundPort = ntohs(s->sin_port); family = "IPv4";
+          } else {
+            auto* s = reinterpret_cast<struct sockaddr_in6*>(&bound);
+            inet_ntop(AF_INET6, &s->sin6_addr, ipStr, sizeof(ipStr));
+            boundPort = ntohs(s->sin6_port); family = "IPv6";
+          }
+          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(boundPort) + ",\"family\":\"" + family + "\"}";
+          return facebook::jsi::String::createFromUtf8(runtime, json);
+        });
+    rt.global().setProperty(rt, "__exactUdpBind", std::move(udpBindFn));
+
+    // __exactUdpSend(handle, data, port, host) -> bytes sent
+    auto udpSendFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpSend"), 4,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 4 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpSend: handle, data, port, host required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int port = static_cast<int>(args[2].asNumber());
+          std::string host = args[3].toString(runtime).utf8(runtime);
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpSend: invalid handle");
+            fd = it->second;
+          }
+          // Get data bytes
+          const uint8_t* dataPtr = nullptr; size_t dataLen = 0;
+          std::string strData;
+          if (args[1].isString()) {
+            strData = args[1].toString(runtime).utf8(runtime);
+            dataPtr = reinterpret_cast<const uint8_t*>(strData.data());
+            dataLen = strData.size();
+          } else if (args[1].isObject()) {
+            auto obj = args[1].asObject(runtime);
+            if (obj.isArrayBuffer(runtime)) {
+              auto ab = obj.getArrayBuffer(runtime);
+              dataPtr = ab.data(runtime);
+              dataLen = ab.size(runtime);
+            } else {
+              // Try as TypedArray (Uint8Array, Buffer)
+              auto bufProp = obj.getProperty(runtime, "buffer");
+              auto byteLenProp = obj.getProperty(runtime, "byteLength");
+              auto byteOffProp = obj.getProperty(runtime, "byteOffset");
+              if (bufProp.isObject() && byteLenProp.isNumber()) {
+                auto ab = bufProp.asObject(runtime).getArrayBuffer(runtime);
+                size_t offset = byteOffProp.isNumber() ? static_cast<size_t>(byteOffProp.asNumber()) : 0;
+                dataLen = static_cast<size_t>(byteLenProp.asNumber());
+                dataPtr = ab.data(runtime) + offset;
+              }
+            }
+          }
+          if (!dataPtr || dataLen == 0) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpSend: invalid data");
+          }
+          // Build destination address
+          struct sockaddr_in addr4;
+          struct sockaddr_in6 addr6;
+          struct sockaddr* sa; socklen_t sa_len;
+          if (host.find(':') != std::string::npos) {
+            memset(&addr6, 0, sizeof(addr6));
+            addr6.sin6_family = AF_INET6;
+            addr6.sin6_port = htons(port);
+            inet_pton(AF_INET6, host.c_str(), &addr6.sin6_addr);
+            sa = reinterpret_cast<struct sockaddr*>(&addr6);
+            sa_len = sizeof(addr6);
+          } else {
+            memset(&addr4, 0, sizeof(addr4));
+            addr4.sin_family = AF_INET;
+            addr4.sin_port = htons(port);
+            inet_pton(AF_INET, host.c_str(), &addr4.sin_addr);
+            sa = reinterpret_cast<struct sockaddr*>(&addr4);
+            sa_len = sizeof(addr4);
+          }
+          ssize_t sent = ::sendto(fd, dataPtr, dataLen, 0, sa, sa_len);
+          if (sent == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(0);
+            throw facebook::jsi::JSError(runtime,
+                ("sendto failed: " + std::string(strerror(errno))).c_str());
+          }
+          return facebook::jsi::Value(static_cast<int>(sent));
+        });
+    rt.global().setProperty(rt, "__exactUdpSend", std::move(udpSendFn));
+
+    // __exactUdpRecv(handle) -> JSON {data (base64), address, port, family} or null (EAGAIN)
+    auto udpRecvFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpRecv"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpRecv: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpRecv: invalid handle");
+            fd = it->second;
+          }
+          uint8_t buf[65536];
+          struct sockaddr_storage from; socklen_t fromLen = sizeof(from);
+          ssize_t n = ::recvfrom(fd, buf, sizeof(buf), 0,
+              reinterpret_cast<struct sockaddr*>(&from), &fromLen);
+          if (n == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value::null();
+            throw facebook::jsi::JSError(runtime,
+                ("recvfrom failed: " + std::string(strerror(errno))).c_str());
+          }
+          if (n == 0) return facebook::jsi::Value::null();
+          // Return data as Uint8Array + sender info as JSON
+          char ipStr[INET6_ADDRSTRLEN]; int fromPort = 0; std::string family;
+          if (from.ss_family == AF_INET) {
+            auto* s = reinterpret_cast<struct sockaddr_in*>(&from);
+            inet_ntop(AF_INET, &s->sin_addr, ipStr, sizeof(ipStr));
+            fromPort = ntohs(s->sin_port); family = "IPv4";
+          } else {
+            auto* s = reinterpret_cast<struct sockaddr_in6*>(&from);
+            inet_ntop(AF_INET6, &s->sin6_addr, ipStr, sizeof(ipStr));
+            fromPort = ntohs(s->sin6_port); family = "IPv6";
+          }
+          // Return as object with Uint8Array data and rinfo
+          auto result = facebook::jsi::Object(runtime);
+          // Create Uint8Array from data using makeUint8Array helper
+          std::vector<uint8_t> dataVec(buf, buf + n);
+          auto typedArray = makeUint8Array(runtime, std::move(dataVec));
+          result.setProperty(runtime, "data", std::move(typedArray));
+          result.setProperty(runtime, "address", facebook::jsi::String::createFromUtf8(runtime, ipStr));
+          result.setProperty(runtime, "port", facebook::jsi::Value(fromPort));
+          result.setProperty(runtime, "family", facebook::jsi::String::createFromUtf8(runtime, family));
+          result.setProperty(runtime, "size", facebook::jsi::Value(static_cast<int>(n)));
+          return result;
+        });
+    rt.global().setProperty(rt, "__exactUdpRecv", std::move(udpRecvFn));
+
+    // __exactUdpClose(handle) -> 0
+    auto udpCloseFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpClose"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactUdpClose: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+            g_tcp_sockets.erase(it);
+          }
+          ::close(fd);
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactUdpClose", std::move(udpCloseFn));
+
+    // __exactUdpAddress(handle) -> JSON {address, port, family}
+    auto udpAddressFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpAddress"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
+            fd = it->second;
+          }
+          struct sockaddr_storage addr; socklen_t addrLen = sizeof(addr);
+          if (getsockname(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1)
+            return facebook::jsi::Value::null();
+          char ipStr[INET6_ADDRSTRLEN]; int port = 0; std::string family;
+          if (addr.ss_family == AF_INET) {
+            auto* s = reinterpret_cast<struct sockaddr_in*>(&addr);
+            inet_ntop(AF_INET, &s->sin_addr, ipStr, sizeof(ipStr));
+            port = ntohs(s->sin_port); family = "IPv4";
+          } else {
+            auto* s = reinterpret_cast<struct sockaddr_in6*>(&addr);
+            inet_ntop(AF_INET6, &s->sin6_addr, ipStr, sizeof(ipStr));
+            port = ntohs(s->sin6_port); family = "IPv6";
+          }
+          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(port) + ",\"family\":\"" + family + "\"}";
+          return facebook::jsi::String::createFromUtf8(runtime, json);
+        });
+    rt.global().setProperty(rt, "__exactUdpAddress", std::move(udpAddressFn));
+
+    // __exactUdpFromFd(fd) -> handle
+    auto udpFromFdFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpFromFd"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactUdpFromFd: fd required");
+          int fd = static_cast<int>(args[0].asNumber());
+          if (fd < 0) throw facebook::jsi::JSError(runtime, "__exactUdpFromFd: invalid fd");
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactUdpFromFd", std::move(udpFromFdFn));
+
+    // __exactUdpGetFd(handle) -> fd
+    auto udpGetFdFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpGetFd"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value(-1);
+          int handle = static_cast<int>(args[0].asNumber());
+          std::lock_guard<std::mutex> lock(g_tcp_mutex);
+          auto it = g_tcp_sockets.find(handle);
+          if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+          return facebook::jsi::Value(it->second);
+        });
+    rt.global().setProperty(rt, "__exactUdpGetFd", std::move(udpGetFdFn));
+
   } // end TCP + Unix socket host functions
 
 }
@@ -6073,8 +6931,16 @@ void installGlobals(struct ExactHermesRuntime* handle) {
            const facebook::jsi::Value* args,
            size_t count) -> facebook::jsi::Value {
           int code = 0;
-          if (count > 0 && args[0].isNumber()) {
-            code = static_cast<int>(args[0].asNumber());
+          if (count > 0) {
+            if (args[0].isNumber()) {
+              code = static_cast<int>(args[0].asNumber());
+            } else if (args[0].isString()) {
+              try {
+                code = std::stoi(args[0].getString(runtime).utf8(runtime));
+              } catch (...) {
+                code = 0;
+              }
+            }
           }
           try {
             auto processObj = runtime.global().getProperty(runtime, "process");
@@ -11281,12 +12147,14 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
   // Reinstall a hard process.exit on the process object itself after compatibility
   // patches so JS wrappers (if any) can't shadow termination semantics.
+  // NOTE: Only set exit on the process object itself, NOT on its prototype.
+  // At this point process.__proto__ is Object.prototype, so setting exit there
+  // would pollute every object's for...in enumeration.
   {
     auto processValue = rt.global().getProperty(rt, "process");
     if (processValue.isObject()) {
       auto processObjFinal = processValue.asObject(rt);
       auto hardExitFn = makeHardExitFn();
-      auto hardExitProtoFn = makeHardExitFn();
       processObjFinal.setProperty(rt, "exit", std::move(hardExitFn));
       // Note: Do NOT set exit on process.__proto__ as that would pollute
       // Object.prototype and make 'exit' enumerable on all objects, breaking

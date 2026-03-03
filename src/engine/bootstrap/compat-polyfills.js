@@ -200,6 +200,15 @@
         __exactPinStream('stdin');
         globalThis.process.__exactStreamStabilityPatched = true;
       }
+      // Add ref/unref stubs to stdout/stderr/stdin for Node.js compatibility
+      var _stdioNames = ['stdout', 'stderr', 'stdin'];
+      for (var si = 0; si < _stdioNames.length; si++) {
+        var _sio = globalThis.process[_stdioNames[si]];
+        if (_sio && typeof _sio === 'object') {
+          if (typeof _sio.ref !== 'function') _sio.ref = function() { return this; };
+          if (typeof _sio.unref !== 'function') _sio.unref = function() { return this; };
+        }
+      }
     } catch (err) {
       // Keep compatibility bootstrap resilient if process stream patching fails.
     }
@@ -1008,6 +1017,7 @@
         }
         globalThis.process.connected = false;
         globalThis.process.channel = null;
+        globalThis.process[Symbol.for('kChannelHandle')] = null;
         if (typeof globalThis.__exactFsClose === 'function') {
           try {
             globalThis.__exactFsClose(exactIpcFd);
@@ -1018,7 +1028,12 @@
         }, 0);
       }
 
-      function exactProcessIncomingPackets(rawData) {
+      var _exactPendingRecvFd = -1;
+
+      function exactProcessIncomingPackets(rawData, recvFd) {
+        if (typeof recvFd === 'number' && recvFd >= 0) {
+          _exactPendingRecvFd = recvFd;
+        }
         if (!rawData || !rawData.length) return;
         exactIpcBuffer += exactToString(rawData);
         while (exactIpcBuffer.length > 0) {
@@ -1029,16 +1044,73 @@
           var line = exactIpcBuffer.slice(0, lineEnd);
           exactIpcBuffer = exactIpcBuffer.slice(lineEnd + 1);
           if (!line) continue;
+          var packet;
           try {
-            var packet = JSON.parse(line);
-            if (!packet || packet.__exactIpc !== true) continue;
-            if (packet.type === 'message') {
-              globalThis.process.emit('message', packet.data);
-            } else if (packet.type === 'disconnect') {
-              exactCloseIpc();
+            packet = JSON.parse(line);
+          } catch (err) { continue; }
+          if (!packet || packet.__exactIpc !== true) continue;
+          if (packet.type === 'message') {
+            // Reconstruct handle from received fd if present
+            var handle = null;
+            if (packet.handleType && _exactPendingRecvFd >= 0) {
+              handle = exactReconstructHandle(packet.handleType, _exactPendingRecvFd);
+              _exactPendingRecvFd = -1;
             }
-          } catch (err) {}
+            if (handle) {
+              globalThis.process.emit('message', packet.data, handle);
+            } else {
+              globalThis.process.emit('message', packet.data);
+            }
+          } else if (packet.type === 'disconnect') {
+            exactCloseIpc();
+          }
         }
+      }
+
+      function exactReconstructHandle(handleType, fd) {
+        try {
+          if (handleType === 'dgram.Socket' || handleType === 'dgram.Native') {
+            var dgram = require('dgram');
+            var sock = dgram.createSocket('udp4');
+            sock._fromFd(fd);
+            return sock;
+          }
+          var net = require('net');
+          if (handleType === 'net.Socket' || handleType === 'net.Native') {
+            // Register the raw fd as a native TCP handle, then wrap it
+            var recvSocket;
+            if (typeof globalThis.__exactTcpFromFd === 'function') {
+              var nativeHandle = globalThis.__exactTcpFromFd(fd);
+              recvSocket = new net.Socket({ _handle: nativeHandle });
+            } else {
+              recvSocket = new net.Socket({ fd: fd, readable: true, writable: true });
+            }
+            // SocketList protocol: notify parent when this socket closes
+            // so server._connections is decremented correctly.
+            recvSocket.on('close', function() {
+              if (globalThis.process && globalThis.process.connected) {
+                try {
+                  globalThis.process.send({ cmd: 'NODE_SOCKET_CLOSED' });
+                } catch(e) {}
+              }
+            });
+            return recvSocket;
+          } else if (handleType === 'net.Server') {
+            if (typeof globalThis.__exactTcpFromFd === 'function') {
+              var nativeHandle = globalThis.__exactTcpFromFd(fd);
+              var server = net.createServer();
+              server._handle = { _exactHandle: nativeHandle, close: function() {
+                try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
+              }};
+              return server;
+            }
+            var server = net.createServer();
+            server._handle = { fd: fd };
+            try { server.listen({ fd: fd }); } catch (e) {}
+            return server;
+          }
+        } catch (e) {}
+        return null;
       }
 
       function exactPollIpc() {
@@ -1048,7 +1120,24 @@
         if (!exactIpcConnected) {
           return;
         }
-        if (
+        // Read any available data FIRST, before checking for hangup.
+        // When the other end closes the pipe, there may still be buffered
+        // data in the kernel that we need to drain before closing.
+        var hadData = false;
+        // Prefer recvmsg to receive SCM_RIGHTS file descriptors
+        if (typeof globalThis.__exactIpcRecvMsg === 'function') {
+          var recvResult;
+          try {
+            recvResult = globalThis.__exactIpcRecvMsg(exactIpcFd, 65536);
+          } catch (err) {
+            exactCloseIpc();
+            return;
+          }
+          if (recvResult && recvResult.data && recvResult.data.length) {
+            hadData = true;
+            exactProcessIncomingPackets(recvResult.data, recvResult.fd);
+          }
+        } else if (
           typeof globalThis.__exactFsRead === 'function' &&
           globalThis.__exactFsRead
         ) {
@@ -1060,17 +1149,141 @@
             return;
           }
           if (chunk && chunk.length) {
+            hadData = true;
             exactProcessIncomingPackets(chunk);
           }
         }
+        // Check if IPC fd has been closed (pipe hangup) AFTER draining data.
+        // Only close if we got no data this round (all buffered data consumed).
+        if (!hadData && typeof globalThis.__exactFdPollHup === 'function') {
+          try {
+            if (globalThis.__exactFdPollHup(exactIpcFd)) {
+              exactCloseIpc();
+              return;
+            }
+          } catch (e) {}
+        }
         if (exactIpcPollActive) {
           exactIpcPollTimer = setTimeout(exactPollIpc, exactIpcPollInterval);
+          // Ref/unref based on current channel ref state
+          if (exactIpcPollTimer) {
+            if (exactIpcChannelRefed) {
+              if (typeof exactIpcPollTimer.ref === 'function') exactIpcPollTimer.ref();
+            } else {
+              if (typeof exactIpcPollTimer.unref === 'function') exactIpcPollTimer.unref();
+            }
+          }
         }
       }
 
       globalThis.process.connected = true;
-      globalThis.process.channel = { fd: exactIpcFd };
+      // IPC channel timer starts unref'd so the process can exit when idle.
+      // It is auto-ref'd when 'message'/'disconnect' listeners are added and
+      // auto-unref'd when the last such listener is removed.
+      var exactIpcChannelRefed = false;
+      function exactRefIpcTimer() {
+        if (exactIpcChannelRefed) return;
+        exactIpcChannelRefed = true;
+        if (exactIpcPollTimer && typeof exactIpcPollTimer.ref === 'function') {
+          exactIpcPollTimer.ref();
+        } else if (exactIpcPollTimer) {
+          // Timer is a raw number (native setTimeout from before wrapper was installed).
+          // Cancel it and re-create with the (now-wrapped) setTimeout so we get
+          // a proper Timeout object with .ref()/.unref().
+          clearTimeout(exactIpcPollTimer);
+          exactIpcPollTimer = setTimeout(exactPollIpc, 0);
+          if (exactIpcPollTimer && typeof exactIpcPollTimer.ref === 'function') {
+            exactIpcPollTimer.ref();
+          }
+        }
+      }
+      function exactUnrefIpcTimer() {
+        if (!exactIpcChannelRefed) return;
+        exactIpcChannelRefed = false;
+        if (exactIpcPollTimer && typeof exactIpcPollTimer.unref === 'function') {
+          exactIpcPollTimer.unref();
+        }
+      }
+      globalThis.process.channel = {
+        fd: exactIpcFd,
+        ref: function() { exactRefIpcTimer(); },
+        unref: function() { exactUnrefIpcTimer(); }
+      };
+      // Expose kChannelHandle for internal/child_process compatibility
+      var kChannelHandle = Symbol.for('kChannelHandle');
+      globalThis.process[kChannelHandle] = {
+        readStop: function() {
+          exactIpcPollActive = false;
+          if (exactIpcPollTimer) {
+            clearTimeout(exactIpcPollTimer);
+            exactIpcPollTimer = null;
+          }
+        },
+        readStart: function() {
+          if (!exactIpcPollActive) {
+            exactIpcPollActive = true;
+            exactPollIpc();
+          }
+        }
+      };
+      // Auto-ref IPC timer when process gets message/disconnect listeners,
+      // and auto-unref when all such listeners are removed.
+      var exactIpcListenerCount = 0;
+      var _origProcessOn = globalThis.process.on;
+      var _origProcessOnce = globalThis.process.once;
+      var _origProcessRemoveListener = globalThis.process.removeListener;
+      if (typeof _origProcessOn === 'function') {
+        globalThis.process.on = function(event, listener) {
+          var result = _origProcessOn.apply(this, arguments);
+          if (event === 'message' || event === 'disconnect') {
+            exactIpcListenerCount++;
+            exactRefIpcTimer();
+          }
+          return result;
+        };
+        globalThis.process.addListener = globalThis.process.on;
+      }
+      // Hook process.once because EventEmitter.once may not call through
+      // process.on (it may call the prototype method directly).
+      if (typeof _origProcessOnce === 'function') {
+        globalThis.process.once = function(event, listener) {
+          if (event === 'message' || event === 'disconnect') {
+            exactIpcListenerCount++;
+            exactRefIpcTimer();
+            var wrappedListener = function() {
+              exactIpcListenerCount--;
+              if (exactIpcListenerCount <= 0) {
+                exactIpcListenerCount = 0;
+                exactUnrefIpcTimer();
+              }
+              return listener.apply(this, arguments);
+            };
+            return _origProcessOnce.call(this, event, wrappedListener);
+          }
+          return _origProcessOnce.apply(this, arguments);
+        };
+      }
+      if (typeof _origProcessRemoveListener === 'function') {
+        globalThis.process.removeListener = function(event, listener) {
+          var result = _origProcessRemoveListener.apply(this, arguments);
+          if (event === 'message' || event === 'disconnect') {
+            exactIpcListenerCount--;
+            if (exactIpcListenerCount <= 0) {
+              exactIpcListenerCount = 0;
+              exactUnrefIpcTimer();
+            }
+          }
+          return result;
+        };
+        globalThis.process.off = globalThis.process.removeListener;
+      }
       globalThis.process.send = function(message, sendHandle, opts, callback) {
+        // Validate message argument
+        if (message === undefined) {
+          var missingErr = new TypeError('The "message" argument must be specified');
+          missingErr.code = 'ERR_MISSING_ARGS';
+          throw missingErr;
+        }
         if (!exactIpcConnected) {
           var ipcError = exactCreateIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is closed');
           if (typeof callback === 'function') {
@@ -1087,10 +1300,94 @@
         } else if (typeof opts === 'function') {
           callback = opts;
           opts = undefined;
+        } else if (opts !== undefined) {
+          if (opts === null || typeof opts !== 'object') {
+            var optsErr = new TypeError('The "options" argument must be of type object. Received type ' + typeof opts);
+            optsErr.code = 'ERR_INVALID_ARG_TYPE';
+            throw optsErr;
+          }
         }
-        var packet = exactBuildIpcPacket('message', message);
+        // Validate sendHandle
+        if (sendHandle != null && sendHandle !== false) {
+          if (typeof sendHandle !== 'object' && typeof sendHandle !== 'function') {
+            var handleErr = new TypeError("This handle type can't be sent");
+            handleErr.code = 'ERR_INVALID_HANDLE_TYPE';
+            throw handleErr;
+          }
+        }
+        // Extract fd from sendHandle if present
+        var handleFd = -1;
+        var handleType = null;
+        if (sendHandle != null && sendHandle !== false && typeof sendHandle === 'object') {
+          // dgram.Socket: use _getFd() or __exactUdpGetFd
+          if (typeof sendHandle._getFd === 'function') {
+            handleFd = sendHandle._getFd();
+          } else if (typeof sendHandle._handle === 'number' && sendHandle._handle >= 0 && (sendHandle.type === 'udp4' || sendHandle.type === 'udp6')) {
+            if (typeof globalThis.__exactUdpGetFd === 'function') handleFd = globalThis.__exactUdpGetFd(sendHandle._handle);
+          }
+          // Our native handle system: _handle._exactHandle is an ID into g_tcp_sockets
+          else if (sendHandle._handle && typeof sendHandle._handle._exactHandle === 'number' && sendHandle._handle._exactHandle > 0 && typeof globalThis.__exactTcpGetFd === 'function') {
+            handleFd = globalThis.__exactTcpGetFd(sendHandle._handle._exactHandle);
+          } else if (sendHandle._handle && typeof sendHandle._handle.fd === 'number') handleFd = sendHandle._handle.fd;
+          else if (typeof sendHandle.fd === 'number') handleFd = sendHandle.fd;
+          else if (typeof sendHandle._fd === 'number') handleFd = sendHandle._fd;
+          // Determine type
+          if (sendHandle.type === 'udp4' || sendHandle.type === 'udp6') {
+            handleType = 'dgram.Socket';
+          } else {
+            var hn = sendHandle.constructor && sendHandle.constructor.name;
+            if (hn === 'Server') handleType = 'net.Server';
+            else handleType = 'net.Socket';
+          }
+        }
+        var pktObj = { __exactIpc: true, type: 'message', data: message };
+        if (handleType) pktObj.handleType = handleType;
+        var packet = JSON.stringify(pktObj) + '\n';
         var written = false;
-        if (typeof globalThis.__exactFsWrite === 'function') {
+        if (handleFd >= 0 && typeof globalThis.__exactIpcSendMsg === 'function') {
+          try {
+            written = globalThis.__exactIpcSendMsg(exactIpcFd, packet, handleFd) > 0;
+          } catch (err) {
+            written = false;
+          }
+          // When keepOpen is not set, Node.js detaches the handle from the sender.
+          // Don't destroy dgram sockets or servers - they're shared.
+          var keepOpen = opts && opts.keepOpen;
+          var isDgramHandle = sendHandle && (sendHandle.type === 'udp4' || sendHandle.type === 'udp6');
+          var isServerHandle = handleType === 'net.Server';
+          if (written && sendHandle && !keepOpen && !isDgramHandle && !isServerHandle) {
+            // Clear server reference but don't decrement _connections
+            // (SocketList protocol handles this via NODE_SOCKET_CLOSED)
+            if (sendHandle._server) {
+              sendHandle._server = null;
+              sendHandle.server = null;
+            }
+            if (sendHandle.parser) sendHandle.parser = null;
+            if (sendHandle._httpMessage) sendHandle._httpMessage = null;
+            var kt = Symbol.for('kTimeout');
+            sendHandle[kt] = null;
+            // Detach the handle without emitting 'close'.
+            if (sendHandle._pollTimer != null) {
+              clearTimeout(sendHandle._pollTimer);
+              sendHandle._pollTimer = null;
+            }
+            if (sendHandle._timeoutTimer != null) {
+              clearTimeout(sendHandle._timeoutTimer);
+              sendHandle._timeoutTimer = null;
+            }
+            var nativeH = sendHandle._handle;
+            if (nativeH && nativeH._exactHandle !== undefined) {
+              nativeH = nativeH._exactHandle;
+            }
+            if (nativeH != null && typeof globalThis.__exactTcpClose === 'function') {
+              try { globalThis.__exactTcpClose(nativeH); } catch(e) {}
+            }
+            sendHandle._handle = null;
+            sendHandle.destroyed = true;
+            sendHandle.readable = false;
+            sendHandle.writable = false;
+          }
+        } else if (typeof globalThis.__exactFsWrite === 'function') {
           try {
             written = globalThis.__exactFsWrite(exactIpcFd, packet, -1) > 0;
           } catch (err) {
@@ -1119,6 +1416,10 @@
       };
 
       exactIpcPollTimer = setTimeout(exactPollIpc, 0);
+      // The initial timer is from native setTimeout (returns a number).
+      // We can't unref it (no .unref() method), but it fires immediately
+      // (timeout=0). The first poll will create a new timer with the wrapped
+      // setTimeout (returns Timeout object) which will be properly unref'd.
     }
   }
 
@@ -1147,4 +1448,18 @@
       // Keep bootstrap resilient if bun:test/bun cannot be loaded.
     }
   }
+  // Defensive cleanup: remove any properties that leaked onto Object.prototype
+  // during bootstrap (e.g. from setProperty on process.__proto__ when it was
+  // Object.prototype). These pollute for...in on all objects.
+  try {
+    var _objProto = Object.prototype;
+    var _pollutedKeys = ['exit', 'abort', 'on', 'emit', 'addListener', 'removeListener',
+      'removeAllListeners', 'once', 'listeners', 'listenerCount', 'prependListener',
+      'prependOnceListener', 'rawListeners', 'eventNames', 'emitWarning'];
+    for (var _pi = 0; _pi < _pollutedKeys.length; _pi++) {
+      if (_objProto.hasOwnProperty(_pollutedKeys[_pi])) {
+        try { delete _objProto[_pollutedKeys[_pi]]; } catch (e) {}
+      }
+    }
+  } catch (err) {}
 })();

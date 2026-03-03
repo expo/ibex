@@ -372,6 +372,7 @@
 
     // Auto-start polling when 'data' listener is added
     var _origStdinOn = stream.on;
+    var _origStdinOnce = stream.once;
     stream.on = function(event, fn) {
       _origStdinOn.call(stream, event, fn);
       if (event === 'data' && !stream._ended && stream._paused) {
@@ -380,6 +381,13 @@
       return stream;
     };
     stream.addListener = stream.on;
+    stream.once = function(event, fn) {
+      _origStdinOnce.call(stream, event, fn);
+      if (event === 'data' && !stream._ended && stream._paused) {
+        stream.resume();
+      }
+      return stream;
+    };
   }
 
   // Cache stdout/stderr/stdin as own properties since prototype getters
@@ -418,6 +426,12 @@
 
   // process.exitCode — settable exit code
   if (p.exitCode === undefined) p.exitCode = 0;
+
+  // process.openStdin() - legacy method that returns process.stdin and resumes it
+  p.openStdin = function() {
+    p.stdin.resume();
+    return p.stdin;
+  };
 
   // process.abort()
   p.abort = function() {

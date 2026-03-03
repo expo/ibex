@@ -921,7 +921,26 @@ Readable.prototype.push = function(chunk) {
       });
     }
     this._syncReadableState();
-    if (state.sync) {
+    // If flowing mode and buffer is empty, directly schedule 'end' event
+    var isFlowing = state.readableFlowing || this.readableFlowing === true;
+    if (isFlowing && this._data.length === 0 && !state.endEmitted) {
+      var self = this;
+      var _schedEnd = typeof process === 'object' && process && typeof process.nextTick === 'function'
+        ? process.nextTick
+        : function(fn) { setTimeout(fn, 0); };
+      _schedEnd(function() {
+        if (!state.endEmitted) {
+          state.endEmitted = true;
+          self.readable = false;
+          self.emit('end');
+          if (state.autoDestroy && !self._destroyed) {
+            self.destroy();
+          } else {
+            self._close();
+          }
+        }
+      });
+    } else if (state.sync) {
       var emitReadable = typeof process === 'object' &&
         process &&
         typeof process.nextTick === 'function'

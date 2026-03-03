@@ -304,6 +304,22 @@ function Socket(options) {
     this.readyState = 'open';
     this._updateAddressInfo();
     this._startPolling();
+  } else if (typeof options.fd === 'number' && options.fd >= 0) {
+    // Create socket from raw file descriptor (e.g., extra stdio pipe fd)
+    var fdHandle;
+    if (typeof __exactTcpFromFd === 'function') {
+      fdHandle = __exactTcpFromFd(options.fd);
+    } else {
+      fdHandle = options.fd;
+    }
+    this._handle = _makeSocketHandle(fdHandle);
+    this._connected = true;
+    this.connecting = false;
+    this.pending = false;
+    this.readyState = 'open';
+    if (options.readable !== false) this.readable = true;
+    if (options.writable !== false) this.writable = true;
+    this._startPolling();
   }
 }
 
@@ -1032,6 +1048,9 @@ Socket.prototype.destroy = function(err) {
   return this;
 };
 
+// Alias close to destroy for Node.js compatibility (e.g., handle.close())
+Socket.prototype.close = Socket.prototype.destroy;
+
 Socket.prototype.setTimeout = function(timeout, callback) {
   this._timeoutMs = timeout || 0;
   if (callback) {
@@ -1070,8 +1089,19 @@ Socket.prototype.setKeepAlive = function(enable, delay) {
   return this;
 };
 
-Socket.prototype.ref = function() { return this; };
-Socket.prototype.unref = function() { return this; };
+Socket.prototype.ref = function() {
+  this._unrefed = false;
+  return this;
+};
+Socket.prototype.unref = function() {
+  this._unrefed = true;
+  // Stop the polling timer so this socket doesn't keep the event loop alive
+  if (this._pollTimer != null) {
+    clearTimeout(this._pollTimer);
+    this._pollTimer = null;
+  }
+  return this;
+};
 
 Socket.prototype.address = function() {
   if (this._isUnix) {
@@ -1134,6 +1164,8 @@ function Server(options, connectionListener) {
   this._handle = null;
   this._acceptTimer = null;
   this._connections = 0;
+  this._closing = false;
+  this._workers = [];
   this._isUnix = false;
   this._socketPath = null;
   this._listenToken = 0;
@@ -1165,6 +1197,9 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     }
     if (opts.ipv6Only !== undefined) {
       this.ipv6Only = opts.ipv6Only === true;
+    }
+    if (opts.reusePort !== undefined) {
+      this._reusePort = opts.reusePort === true;
     }
     port = opts.port;
     host = opts.host || host;
@@ -1214,7 +1249,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   setTimeout(function() {
     if (listenToken !== self._listenToken) return;
       try {
-      self._handle = _makeServerHandle(__exactTcpListen(self._host, self._port, backlog || 128, self.ipv6Only ? 1 : 0));
+      self._handle = _makeServerHandle(__exactTcpListen(self._host, self._port, backlog || 128, self.ipv6Only ? 1 : 0, self._reusePort ? 1 : 0));
       _registerTcpServer(self);
       // Get actual bound port (useful when port=0)
       try {
@@ -1243,8 +1278,10 @@ Server.prototype._startAccepting = function() {
   var acceptFn = self._isUnix ? __exactUnixAccept : __exactTcpAccept;
   function acceptLoop() {
     if (!self.listening || self._handle == null) return;
+    var nativeH = _unwrapHandle(self._handle);
+    if (nativeH == null) return;
     try {
-      var clientHandle = acceptFn(_unwrapHandle(self._handle));
+      var clientHandle = acceptFn(nativeH);
       if (clientHandle !== -1) {
         self._connections++;
         var socketOpts = { _handle: clientHandle, allowHalfOpen: false };
@@ -1253,6 +1290,18 @@ Server.prototype._startAccepting = function() {
           socketOpts._socketPath = self._socketPath;
         }
         var socket = new Socket(socketOpts);
+        socket.server = self;
+        socket._server = self;
+        socket.once('close', function() {
+          // If socket was sent to a child via IPC, _server is cleared.
+          // In that case, the SocketList protocol handles _connections decrement.
+          if (socket._server !== self) return;
+          self._connections--;
+          if (self._connections < 0) self._connections = 0;
+          if (self._closing && self._connections === 0) {
+            self.emit('close');
+          }
+        });
         if (!self.emit('connection', socket)) {
           socket.end();
         }
@@ -1295,8 +1344,14 @@ Server.prototype.close = function(callback) {
     } catch(e) {}
     this._socketPath = null;
   }
+  // Only emit 'close' immediately if there are no active connections.
+  // Otherwise, set _closing flag and wait for connections to close.
   var self = this;
-  setTimeout(function() { self.emit('close'); }, 0);
+  if (this._connections > 0) {
+    this._closing = true;
+  } else {
+    setTimeout(function() { self.emit('close'); }, 0);
+  }
   return this;
 };
 

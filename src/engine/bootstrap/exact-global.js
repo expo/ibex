@@ -247,7 +247,23 @@
       for (var i = 0; i < list.length; i++) {
         var entry = list[i];
         if (!entry || typeof entry.fn !== 'function') continue;
-        entry.fn.apply(p, args);
+        try {
+          entry.fn.apply(p, args);
+        } catch (err) {
+          if (event === 'uncaughtException') {
+            throw err;
+          }
+          var uncaughtList = listeners['uncaughtException'];
+          if (uncaughtList && uncaughtList.length > 0) {
+            for (var j = 0; j < uncaughtList.length; j++) {
+              if (uncaughtList[j] && typeof uncaughtList[j].fn === 'function') {
+                uncaughtList[j].fn.call(p, err);
+              }
+            }
+          } else {
+            throw err;
+          }
+        }
         if (!entry.once) keep.push(entry);
       }
       listeners[event] = keep;

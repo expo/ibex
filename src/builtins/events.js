@@ -698,9 +698,13 @@ function getEventListeners(emitter, eventName) {
   if (typeof emitter.listeners === 'function') {
     return emitter.listeners(eventName);
   }
-  // Support EventTarget (stores listeners as {fn, once, capture} objects in _listeners)
-  if (emitter._listeners && emitter._listeners[eventName]) {
+  // Support EventTarget (stores listeners as {fn, once, capture} objects in _listeners[type])
+  if (emitter._listeners && !Array.isArray(emitter._listeners) && emitter._listeners[eventName]) {
     return emitter._listeners[eventName].map(function(l) { return l.fn; });
+  }
+  // Support AbortSignal (stores 'abort' listeners as flat array in _listeners)
+  if (eventName === 'abort' && Array.isArray(emitter._listeners) && emitter._listeners.length > 0) {
+    return emitter._listeners.map(function(l) { return l._original || l; });
   }
   return [];
 }

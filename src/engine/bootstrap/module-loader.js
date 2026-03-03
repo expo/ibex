@@ -190,6 +190,46 @@
       }
       return Promise.resolve(fn());
     }
+    // mock support for node:test
+    var _mockRestoreList = [];
+    var mock = {
+      method: function(obj, methodName, impl) {
+        var original = obj[methodName];
+        var calls = [];
+        var wrapper = function() {
+          var result;
+          var error;
+          try {
+            result = impl.apply(this, arguments);
+          } catch (e) {
+            error = e;
+            throw e;
+          } finally {
+            calls.push({ arguments: Array.prototype.slice.call(arguments), result: result, error: error, this: this });
+          }
+          return result;
+        };
+        wrapper.mock = { calls: calls, callCount: function() { return calls.length; }, restore: function() { obj[methodName] = original; } };
+        obj[methodName] = wrapper;
+        _mockRestoreList.push(function() { obj[methodName] = original; });
+        return wrapper;
+      },
+      fn: function(impl) {
+        impl = impl || function() {};
+        var calls = [];
+        var wrapper = function() {
+          var result = impl.apply(this, arguments);
+          calls.push({ arguments: Array.prototype.slice.call(arguments), result: result });
+          return result;
+        };
+        wrapper.mock = { calls: calls, callCount: function() { return calls.length; } };
+        return wrapper;
+      },
+      restoreAll: function() {
+        for (var i = 0; i < _mockRestoreList.length; i++) _mockRestoreList[i]();
+        _mockRestoreList = [];
+      }
+    };
     return {
       describe: describe,
       it: it,
@@ -198,7 +238,8 @@
       before: before,
       beforeEach: beforeEach,
       afterEach: afterEach,
-      after: after
+      after: after,
+      mock: mock
     };
   }
   // internal/linkedlist: circular doubly-linked list
@@ -276,6 +317,10 @@
       }
     },
     'internal/timers': {
+      kTimeout: Symbol.for('kTimeout'),
+      enroll: function() {},
+      unenroll: function() {},
+      active: function() {},
       setUnrefTimeout: function(callback, after) {
         if (typeof callback !== 'function') {
           var err = new TypeError('The "callback" argument must be of type function. Received ' + typeof callback);
@@ -750,7 +795,7 @@
       }
     },
     'internal/child_process': (function() {
-      var kChannelHandle = Symbol('kChannelHandle');
+      var kChannelHandle = Symbol.for('kChannelHandle');
       function getValidStdio(stdio, sync) {
         if (typeof stdio === 'string') {
           if (stdio !== 'ignore' && stdio !== 'pipe' && stdio !== 'inherit' && stdio !== 'overlapped') {
