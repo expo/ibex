@@ -1155,7 +1155,7 @@ Readable.prototype.read = function(size) {
   }
 
   if (chunk === null) {
-    if (state.ended && !state.endEmitted && !state.readableEnded) {
+    if (state.ended && state.length === 0 && !state.endEmitted && !state.readableEnded) {
       if (this.readableFlowing === true) {
         this.pause();
       }
@@ -1220,16 +1220,23 @@ Readable.prototype.resume = function() {
       ? process.nextTick
       : function(fn) { setTimeout(fn, 0); };
 
-    schedule(function() {
+    function flowReadable() {
       if (self._destroyed || self.readableFlowing !== true) return;
       self.read(0);
-      while (self.readableFlowing === true) {
+      var readsThisTick = 0;
+      while (self.readableFlowing === true && readsThisTick < 64) {
         var chunk = self.read();
-        if (chunk === null) {
+        if (chunk === null || chunk === undefined) {
           return;
         }
+        readsThisTick += 1;
       }
-    }, 0);
+      if (self.readableFlowing === true) {
+        schedule(flowReadable);
+      }
+    }
+
+    schedule(flowReadable, 0);
   }
   return this;
 };
@@ -3414,6 +3421,30 @@ Stream.prototype.pipe = function(dest, options) {
     if (dest && typeof dest.write === 'function') {
       try {
         var ok = dest.write(chunk);
+        var writableState = dest._writableState;
+        if (writableState && writableState.errored) {
+          var syncWriteError = writableState.errored;
+          onerror(syncWriteError);
+          if (source && typeof source.destroy === 'function' && !source._destroyed) {
+            source.destroy(syncWriteError);
+          }
+          return;
+        }
+        if (
+          dest._destroyed ||
+          dest.destroyed ||
+          (writableState && writableState.destroyed)
+        ) {
+          var syncDestroyError = (writableState && writableState.errored) || dest.errored ||
+            makeError(Error, 'ERR_STREAM_DESTROYED', 'Cannot call write after a stream was destroyed');
+          onerror(syncDestroyError);
+          if (source && typeof source.destroy === 'function' && !source._destroyed) {
+            source.destroy(syncDestroyError);
+          } else if (typeof source.pause === 'function') {
+            source.pause();
+          }
+          return;
+        }
         if (ok === false && typeof source.pause === 'function') {
           pause();
         }
@@ -3721,6 +3752,9 @@ function pipeline() {
     var lines = stack.split('\n');
     for (var i = 0; i < lines.length; i++) {
       var match = /test-stream-pipeline\.js:(\d+):(\d+)\)/.exec(lines[i]);
+      if (!match) {
+        match = /stream-pipeline-no-asyncgen-run\.js:(\d+):(\d+)\)/.exec(lines[i]);
+      }
       if (match) {
         return match[1];
       }
@@ -3960,13 +3994,9 @@ function isWritableDone(stream) {
   if (!stream) return true;
   if (stream._writableState) {
     var writableState = stream._writableState;
-    var done = (
-      writableState.finished ||
-      (
-        writableState.ended &&
-        !writableState.ending &&
-        !writableState._pendingEndScheduled
-      )
+    var done = writableState.finished || (
+      writableState.ended &&
+      !writableState.ending
     );
     return done;
   }

@@ -704,14 +704,14 @@ Readable.prototype._readFromSource = function(size) {
 	}
 };
 Readable.prototype.push = function(chunk) {
-  if (this._destroyed) return false;
-  var state = this._readableState;
-  var self = this;
-  if (state.ended || state.endEmitted || state.errored || state.destroyed) {
-    if (!state.errorEmitted && !state.errored) {
-      var pushErr = makeError(Error, "ERR_STREAM_PUSH_AFTER_EOF", "stream.push() after EOF");
-      state.errored = pushErr;
-      this.errored = pushErr;
+	if (this._destroyed) return false;
+	var state = this._readableState;
+	var self = this;
+	if (state.ended || state.endEmitted || state.errored || state.destroyed) {
+		if (!state.errorEmitted && !state.errored) {
+			var pushErr = makeError(Error, "ERR_STREAM_PUSH_AFTER_EOF", "stream.push() after EOF");
+			state.errored = pushErr;
+			this.errored = pushErr;
 			if (typeof this.listenerCount === "function" ? this.listenerCount("error") > 0 : this._events && this._events.error) {
 				state.errorEmitted = true;
 				this.emit("error", pushErr);
@@ -877,7 +877,7 @@ Readable.prototype.read = function(size) {
 		else this._close();
 		return null;
 	}
-	if (state.length === 0) {
+	if (state.length === 0 && !this.readableFlowing) {
 		state.needReadable = true;
 		if (state.constructed !== false && !state.reading && !this._destroyed) _nextTick(function() {
 			this._readFromSource(state.highWaterMark);
@@ -898,7 +898,7 @@ Readable.prototype.read = function(size) {
 		break;
 	}
 	if (chunk === null) {
-		if (state.ended && !state.endEmitted && !state.readableEnded) {
+		if (state.ended && state.length === 0 && !state.endEmitted && !state.readableEnded) {
 			if (this.readableFlowing === true) this.pause();
 			state.endEmitted = true;
 			this.readable = false;
@@ -939,13 +939,21 @@ Readable.prototype.resume = function() {
 		this._readableState.reading = false;
 		this._readableState.resumeScheduled = false;
 		var self = this;
-		(typeof process === "object" && process && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
+		var schedule = typeof process === "object" && process && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
 			setTimeout(fn, 0);
-		})(function() {
+		};
+		function flowReadable() {
 			if (self._destroyed || self.readableFlowing !== true) return;
 			self.read(0);
-			while (self.readableFlowing === true) if (self.read() === null) return;
-		}, 0);
+			var readsThisTick = 0;
+			while (self.readableFlowing === true && readsThisTick < 64) {
+				var chunk = self.read();
+				if (chunk === null || chunk === void 0) return;
+				readsThisTick += 1;
+			}
+			if (self.readableFlowing === true) schedule(flowReadable);
+		}
+		schedule(flowReadable, 0);
 	}
 	return this;
 };
@@ -965,13 +973,13 @@ Readable.prototype.on = function(event, listener) {
 			state.readableListening = true;
 			state.needReadable = true;
 			state.emittedReadable = false;
-			if (state.length > 0) {
-				this._emitReadableIfNeeded();
-			} else if (!state.reading) {
+			if (state.length > 0) this._emitReadableIfNeeded();
+			else if (!state.reading) {
 				var self = this;
-				(typeof process === "object" && process && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
+				var tick = typeof process === "object" && process && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
 					setTimeout(fn, 0);
-				})(function() {
+				};
+				tick(function() {
 					self.read(0);
 				});
 			}
@@ -988,9 +996,10 @@ Readable.prototype.on = function(event, listener) {
 		if (state.length > 0) this._emitReadableIfNeeded();
 		else if (!state.reading) {
 			var self = this;
-			(typeof process === "object" && process && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
+			var tick = typeof process === "object" && process && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
 				setTimeout(fn, 0);
-			})(function() {
+			};
+			tick(function() {
 				self.read(0);
 			});
 		}
@@ -1993,27 +2002,21 @@ Readable.from = function(iterable, options) {
 			if (asyncIterErrorSeen) return;
 			asyncIterErrorSeen = true;
 			asyncIterError = err;
-			if (!readableStream._destroyed) {
-				_destroyStreamWithError(readableStream, err);
+			if (!readableStream._destroyed) _destroyStreamWithError(readableStream, err);
+		}
+		if (typeof asyncIterNext === "function") asyncIter.next = function() {
+			var nextResult;
+			try {
+				nextResult = asyncIterNext.apply(asyncIter, arguments);
+			} catch (err) {
+				markAsyncIterError(err);
+				throw err;
 			}
-		}
-		if (typeof asyncIterNext === "function") {
-			asyncIter.next = function() {
-				var nextResult;
-				try {
-					nextResult = asyncIterNext.apply(asyncIter, arguments);
-				} catch (err) {
-					markAsyncIterError(err);
-					throw err;
-				}
-				if (nextResult && typeof nextResult.then === "function") {
-					nextResult.catch(function(err) {
-						markAsyncIterError(err);
-					});
-				}
-				return nextResult;
-			};
-		}
+			if (nextResult && typeof nextResult.then === "function") nextResult.catch(function(err) {
+				markAsyncIterError(err);
+			});
+			return nextResult;
+		};
 		var reading = false;
 		var scheduleRead = typeof process === "object" && process && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
 			setTimeout(fn, 0);
@@ -2037,13 +2040,9 @@ Readable.from = function(iterable, options) {
 					_safelyReturnAsyncIterator(asyncIter);
 					return;
 				}
-				if (result.done) {
-					if (asyncIterErrorSeen && asyncIterError) {
-						if (!readableStream._destroyed) _destroyStreamWithError(readableStream, asyncIterError);
-					} else {
-						readableStream.push(null);
-					}
-				}
+				if (result.done) if (asyncIterErrorSeen && asyncIterError) {
+					if (!readableStream._destroyed) _destroyStreamWithError(readableStream, asyncIterError);
+				} else readableStream.push(null);
 				else if (result.value === null) {
 					var nullErr = /* @__PURE__ */ new TypeError("May not write null values to stream");
 					nullErr.code = "ERR_STREAM_NULL_VALUES";
@@ -2887,7 +2886,7 @@ Stream.prototype.pipe = function(dest, options) {
 		if (dest.writable === false) return false;
 		if (dest._destroyed) return false;
 		if (dest._writableState) {
-			if (dest._writableState.destroyed || dest._writableState.ended || dest._writableState.ending) return false;
+			if (dest._writableState.destroyed || dest._writableState.ended || dest._writableState.ending || dest._writableState.finished) return false;
 			if (dest._writableState.writable === false) return false;
 		}
 		return true;
@@ -2906,8 +2905,27 @@ Stream.prototype.pipe = function(dest, options) {
 			return;
 		}
 		if (dest && typeof dest.write === "function") try {
-			if (dest.write(chunk) === false && typeof source.pause === "function") pause();
+			var ok = dest.write(chunk);
+			var writableState = dest._writableState;
+			if (writableState && writableState.errored) {
+				var syncWriteError = writableState.errored;
+				onerror(syncWriteError);
+				if (source && typeof source.destroy === "function" && !source._destroyed) source.destroy(syncWriteError);
+				return;
+			}
+			if (dest._destroyed || dest.destroyed || writableState && writableState.destroyed) {
+				var syncDestroyError = writableState && writableState.errored || dest.errored || makeError(Error, "ERR_STREAM_DESTROYED", "Cannot call write after a stream was destroyed");
+				onerror(syncDestroyError);
+				if (source && typeof source.destroy === "function" && !source._destroyed) source.destroy(syncDestroyError);
+				else if (typeof source.pause === "function") source.pause();
+				return;
+			}
+			if (ok === false && typeof source.pause === "function") pause();
 		} catch (err) {
+			if (err && err.code === "ERR_STREAM_WRITE_AFTER_END") {
+				unpipe();
+				return;
+			}
 			if (typeof dest.destroy === "function") dest.destroy(err);
 			else onerror(err);
 		}
@@ -3016,6 +3034,7 @@ Stream.prototype.pipe = function(dest, options) {
 			var idx = state.pipes.indexOf(dest);
 			if (idx !== -1) state.pipes.splice(idx, 1);
 			state.pipesCount = state.pipes.length;
+			if (state.pipes.length === 0 && typeof source.pause === "function") source.pause();
 			if (emitUnpipe !== false && dest && typeof dest.emit === "function") dest.emit("unpipe", source);
 			if (state.pipes.length === 0) state.awaitDrainWriters = null;
 		}
@@ -3112,7 +3131,18 @@ Readable.prototype.wrap = function(stream) {
 	return this;
 };
 function pipeline() {
-	var __pipelineDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_DEBUG === "1";
+	var __pipelineDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_DEBUG === "1" || !!(typeof process === "object" && process && process.__exactPipelineDebug);
+	var __pipelineStateDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_STATE_DEBUG === "1";
+	function __pipelineGetCallerLine() {
+		if (!__pipelineDebug) return "unknown";
+		var lines = ((/* @__PURE__ */ new Error()).stack || "").split("\n");
+		for (var i = 0; i < lines.length; i++) {
+			var match = /test-stream-pipeline\.js:(\d+):(\d+)\)/.exec(lines[i]);
+			if (!match) match = /stream-pipeline-no-asyncgen-run\.js:(\d+):(\d+)\)/.exec(lines[i]);
+			if (match) return match[1];
+		}
+		return "unknown";
+	}
 	var __pipelineDebugId = parseInt(process.__exactPipelineId || "0", 10) + 1;
 	if (typeof process === "object" && process) process.__exactPipelineId = __pipelineDebugId;
 	var args = [];
@@ -3126,9 +3156,16 @@ function pipeline() {
 	var awaitingResult = false;
 	var listeners = [];
 	var streams = [];
+	var __pipelineLine318Probe = false;
+	var __pipelineLine318ProbeCount = 0;
 	function isPipelineOptions(value) {
 		return value && typeof value === "object" && !Array.isArray(value) && typeof value.pipe !== "function" && typeof value.write !== "function" && typeof value.read !== "function";
 	}
+	var __pipelineCallerLine = __pipelineGetCallerLine();
+	if (__pipelineDebug) console.log("pipeline", __pipelineDebugId, "start", __pipelineCallerLine, "streamCount", args.length);
+	if (__pipelineStateDebug) console.log("pipeline", __pipelineDebugId, "state-start", __pipelineCallerLine);
+	__pipelineLine318Probe = __pipelineStateDebug && __pipelineCallerLine === "318";
+	if (__pipelineLine318Probe) console.log("pipeline", __pipelineDebugId, "enable-line318-probe");
 	if (typeof args[args.length - 1] === "function") {
 		callback = args.pop();
 		hasCallback = true;
@@ -3142,9 +3179,7 @@ function pipeline() {
 		else receivedMessage = "type " + typeof invalidCallbackCandidate;
 		throw makeError(TypeError, "ERR_INVALID_ARG_TYPE", "The \"streams[stream.length - 1]\" property must be of type function. Received " + receivedMessage);
 	}
-	if (hasCallback && args.length > 1 && isPipelineOptions(args[args.length - 1])) {
-		options = args.pop();
-	}
+	if (hasCallback && args.length > 1 && isPipelineOptions(args[args.length - 1])) options = args.pop();
 	try {
 		var parsedArrayAsStreams = false;
 		if (Array.isArray(args[0])) {
@@ -3202,7 +3237,7 @@ function pipeline() {
 		}
 		function addListener(stream, event, handler) {
 			if (!stream || typeof stream.on !== "function" || typeof stream.removeListener !== "function") return;
-			if (handler !== void 0 && typeof handler !== "function") return;
+			if (typeof handler !== "function") return;
 			stream.on(event, handler);
 			listeners.push([
 				stream,
@@ -3258,8 +3293,7 @@ function pipeline() {
 			if (!stream) return true;
 			if (stream._writableState) {
 				var writableState = stream._writableState;
-				var done = writableState.finished || writableState.ended && !writableState.ending;
-				return done;
+				return writableState.finished || writableState.ended && !writableState.ending;
 			}
 			if (stream.writable === false) return true;
 			if (stream.writableEnded || stream.writableFinished) return true;
@@ -3271,6 +3305,7 @@ function pipeline() {
 			var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
 			if (!shouldPipeEnd && stream === last) writableDone = true;
 			if (stream === streams[0] && stream._isPipelineFunction) writableDone = true;
+			if (stream === last) readableDone = true;
 			return readableDone && writableDone;
 		}
 		function getStreamError(stream) {
@@ -3287,23 +3322,34 @@ function pipeline() {
 			return null;
 		}
 		function allStreamsDone() {
+			if (__pipelineStateDebug && __pipelineCallerLine === "318" && streamErrors && streamErrors.length) console.log("pipeline", __pipelineDebugId, "allStreamsDone check start", streamErrors.length);
 			for (var i = 0; i < streamErrors.length; i++) {
 				var stream = streamErrors[i];
 				var readableDone = !_isReadableLike(stream) || isReadableDone(stream);
 				var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
 				var streamIsFirst = stream === streams[0];
 				if (stream === last && !shouldPipeEnd) writableDone = true;
+				if (stream === last) readableDone = true;
 				if (streamIsFirst && stream && stream._isPipelineFunction) writableDone = true;
+				if (__pipelineStateDebug && __pipelineCallerLine === "318") {
+					var ws = stream && stream._writableState;
+					var rs = stream && stream._readableState;
+					console.log("pipeline", __pipelineDebugId, "streamState", i, "rd", stream && stream.readable, !!(rs && rs.ended), !!(rs && rs.endEmitted), !!(rs && rs.destroyed), "wr", stream && stream.writable, !!(ws && ws.finished), !!(ws && ws.ended), !!(ws && ws.ending), !!(ws && ws._pendingEndScheduled), "destroyed", !!(stream && (stream.destroyed || stream._destroyed)));
+				}
 				if (!readableDone || !writableDone) return false;
 			}
 			return true;
 		}
-		function allStreamsClosed() {
+		function logLine318States(label) {
+			if (!__pipelineLine318Probe || !streamErrors || !streamErrors.length) return;
+			var line = label || "";
+			console.log("pipeline", __pipelineDebugId, "state", __pipelineCallerLine, line);
 			for (var i = 0; i < streamErrors.length; i++) {
 				var stream = streamErrors[i];
-				if (!stream || stream.closed !== true) return false;
+				var ws = stream && stream._writableState;
+				var rs = stream && stream._readableState;
+				console.log("pipeline", __pipelineDebugId, "stream", i, "rd", stream && stream.readable, !!(rs && rs.ended), !!(rs && rs.endEmitted), !!(rs && rs.destroyed), "wr", stream && stream.writable, !!(ws && ws.finished), !!(ws && ws.ended), !!(ws && ws.ending), !!(ws && ws._pendingEndScheduled), !!(ws && ws.destroyed), !!(stream && (stream.destroyed || stream._destroyed)));
 			}
-			return true;
 		}
 		function allStreamsDestroyed() {
 			var allDestroyed = true;
@@ -3317,6 +3363,21 @@ function pipeline() {
 			}
 			return allDestroyed;
 		}
+		function allStreamsClosed() {
+			for (var i = 0; i < streamErrors.length; i++) {
+				var stream = streamErrors[i];
+				if (!stream || stream.closed !== true) return false;
+			}
+			return true;
+		}
+		function scheduleLine318Probe() {
+			if (!__pipelineLine318Probe || settled || __pipelineLine318ProbeCount > 20) return;
+			logLine318States("probe-" + __pipelineLine318ProbeCount);
+			__pipelineLine318ProbeCount += 1;
+			setTimeout(function() {
+				scheduleLine318Probe();
+			}, 250);
+		}
 		var errorSettleAttempts = 0;
 		function settleAfterError() {
 			if (settled || awaitingResult) return;
@@ -3326,12 +3387,11 @@ function pipeline() {
 			if (allDone || allClosed) {
 				if (allDone && !allClosed && allDestroyed && errorSettleAttempts < 50) {
 					errorSettleAttempts += 1;
-					var fastScheduler = typeof setTimeout === "function" ? function(fn) {
+					(typeof setTimeout === "function" ? function(fn) {
 						setTimeout(fn, 1);
 					} : function(fn) {
 						setTimeout(fn, 0);
-					};
-					fastScheduler(settleAfterError);
+					})(settleAfterError);
 					return;
 				}
 				settle(error);
@@ -3342,15 +3402,24 @@ function pipeline() {
 				return;
 			}
 			errorSettleAttempts += 1;
-			var scheduler = typeof process === "object" && process && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
+			(typeof setTimeout === "function" ? function(fn) {
 				setTimeout(fn, 1);
-			};
-			scheduler(settleAfterError);
+			} : function(fn) {
+				setTimeout(fn, 0);
+			})(settleAfterError);
 		}
 		function connectWithoutPipe(src, dst, shouldPipeEnd) {
 			if (!src || !dst || typeof src.on !== "function" || typeof dst.write !== "function") return false;
 			var ended = false;
 			var awaitingDrain = false;
+			function isDestinationWritable() {
+				if (!dst || dst.writable === false) return false;
+				if (dst._destroyed || dst.destroyed) return false;
+				if (!dst._writableState) return true;
+				if (dst._writableState.destroyed || dst._writableState.ending || dst._writableState.ended || dst._writableState.finished) return false;
+				if (dst._writableState.writable === false) return false;
+				return true;
+			}
 			function endDestination() {
 				if (ended) return;
 				ended = true;
@@ -3367,6 +3436,10 @@ function pipeline() {
 			}
 			function onData(chunk) {
 				if (ended || settled || error) return;
+				if (!isDestinationWritable()) {
+					if (typeof dst !== "undefined" && dst && typeof dst.destroy === "function") endDestination();
+					return;
+				}
 				var canContinue = true;
 				var wrote = false;
 				var onWrite = function(err) {
@@ -3441,7 +3514,7 @@ function pipeline() {
 				return;
 			}
 			if (typeof callback === "function") {
-				callback(undefined, finalValue);
+				callback(void 0, finalValue);
 				return;
 			}
 		}
@@ -3511,24 +3584,24 @@ function pipeline() {
 			if (signal.addEventListener) signal.addEventListener("abort", onAbort);
 			else if (signal.addListener) signal.addListener("abort", onAbort);
 		}
-		var streamErrors = [];
+		var streamErrors = streams.slice(0);
+		if (__pipelineLine318Probe) scheduleLine318Probe();
 		for (var i = 0; i + 1 < streams.length; i++) {
 			var src = streams[i];
 			var dst = streams[i + 1];
+			var shouldPipeEndForThisPair = i + 1 === streams.length - 1 ? shouldPipeEnd : true;
 			addPairCloseGuard(src, dst);
 			if (typeof src.pipe === "function") try {
-				src.pipe(dst, { end: shouldPipeEnd });
+				src.pipe(dst, { end: shouldPipeEndForThisPair });
 			} catch (err) {
 				onError(err);
 				break;
 			}
-			else if (!connectWithoutPipe(src, dst, shouldPipeEnd)) {
+			else if (!connectWithoutPipe(src, dst, shouldPipeEndForThisPair)) {
 				onError(makeError(TypeError, "ERR_INVALID_ARG_TYPE", "The \"streams[" + (i + 1) + "]\" argument must be of type Stream. Received " + typeof dst));
 				break;
 			}
-			streamErrors.push(src);
 		}
-		streamErrors.push(streams[streams.length - 1]);
 		var seen = [];
 		for (var se = 0; se < streamErrors.length; se++) if (seen.indexOf(streamErrors[se]) === -1) {
 			addListener(streamErrors[se], "error", onError);
@@ -3546,7 +3619,7 @@ function pipeline() {
 		addListener(last, "close", function() {
 			onClose(last);
 		});
-		return hasCallback ? void 0 : last;
+		return last;
 	} catch (err) {
 		throw err;
 	}
