@@ -161,6 +161,18 @@ didCompleteWithError:(NSError *)error {
     // Completion handled by the dataTask completion handler
 }
 
+// Intercept redirects: return nil to prevent auto-follow.
+// This lets the JS layer handle redirect logic (method changes,
+// cookie storage per-hop, header stripping, redirect modes).
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+willPerformHTTPRedirection:(NSHTTPURLResponse *)response
+        newRequest:(NSURLRequest *)request
+ completionHandler:(void (^)(NSURLRequest * _Nullable))completionHandler {
+    // Return nil to prevent auto-follow — let JS handle redirects
+    completionHandler(nil);
+}
+
 @end
 
 // Shared URLSession instance — ephemeral config with cookies disabled

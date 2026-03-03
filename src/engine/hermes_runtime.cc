@@ -12027,6 +12027,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                               response.setProperty(rt, "url",
                                                   facebook::jsi::String::createFromUtf8(
                                                       rt, requestUrl));
+                              // redirected is tracked by the JS redirect loop,
+                              // not the native layer (which no longer auto-follows)
                               response.setProperty(rt, "redirected",
                                                   facebook::jsi::Value(false));
 

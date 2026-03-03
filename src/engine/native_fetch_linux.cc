@@ -76,7 +76,8 @@ extern "C" void native_fetch_perform(
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    // Don't auto-follow redirects — let JS handle redirect logic
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result.response_body);
@@ -198,7 +199,8 @@ extern "C" void native_fetch_perform(
     }
 
     std::ostringstream cmd;
-    cmd << "curl -sS -L --connect-timeout 30 --max-time 300 "
+    // No -L flag: don't auto-follow redirects — let JS handle redirect logic
+    cmd << "curl -sS --connect-timeout 30 --max-time 300 "
         << "-X " << shell_quote(method)
         << " -D " << shell_quote(header_path)
         << " -o " << shell_quote(body_path)
