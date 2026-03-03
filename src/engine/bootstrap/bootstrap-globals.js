@@ -60,15 +60,40 @@
   // DOMException polyfill — lazy (needed by AbortController, so define first)
   if (typeof globalThis.DOMException === 'undefined') {
     defineLazyGlobal('DOMException', function() {
+      var legacyCodes = {
+        IndexSizeError:1,HierarchyRequestError:3,WrongDocumentError:4,
+        InvalidCharacterError:5,NoModificationAllowedError:7,NotFoundError:8,
+        NotSupportedError:9,InUseAttributeError:10,InvalidStateError:11,
+        SyntaxError:12,InvalidModificationError:13,NamespaceError:14,
+        InvalidAccessError:15,TypeMismatchError:17,SecurityError:18,
+        NetworkError:19,AbortError:20,URLMismatchError:21,
+        QuotaExceededError:22,TimeoutError:23,InvalidNodeTypeError:24,
+        DataCloneError:25
+      };
       function DOMException(message, name) {
+        var err = Error.call(this, message || '');
         this.message = message || '';
         this.name = name || 'Error';
-        if (this.code === undefined && this.name === 'InvalidCharacterError') {
-          this.code = 5;
-        }
+        this.code = legacyCodes[this.name] || 0;
+        this.stack = err.stack;
       }
       DOMException.prototype = Object.create(Error.prototype);
       DOMException.prototype.constructor = DOMException;
+      DOMException.prototype.toString = function() { return this.name + ': ' + this.message; };
+      // Static constants
+      DOMException.INDEX_SIZE_ERR = 1;
+      DOMException.NOT_FOUND_ERR = 8;
+      DOMException.NOT_SUPPORTED_ERR = 9;
+      DOMException.INVALID_STATE_ERR = 11;
+      DOMException.SYNTAX_ERR = 12;
+      DOMException.INVALID_MODIFICATION_ERR = 13;
+      DOMException.NAMESPACE_ERR = 14;
+      DOMException.SECURITY_ERR = 18;
+      DOMException.NETWORK_ERR = 19;
+      DOMException.ABORT_ERR = 20;
+      DOMException.QUOTA_EXCEEDED_ERR = 22;
+      DOMException.TIMEOUT_ERR = 23;
+      DOMException.DATA_CLONE_ERR = 25;
       return DOMException;
     });
   }
@@ -845,9 +870,15 @@
         return Promise.resolve(result.buffer);
       };
       Blob.prototype.slice = function(start, end, contentType) {
-        return this.text().then(function(text) {
-          return new Blob([text.slice(start, end)], { type: contentType || '' });
-        });
+        var bytes = this._getBytes ? this._getBytes() : new Uint8Array(0);
+        var size = bytes.length;
+        // Normalize start
+        var s = start === undefined ? 0 : (start < 0 ? Math.max(size + start, 0) : Math.min(start, size));
+        // Normalize end
+        var e = end === undefined ? size : (end < 0 ? Math.max(size + end, 0) : Math.min(end, size));
+        var span = Math.max(e - s, 0);
+        var sliced = span > 0 ? bytes.slice(s, s + span) : new Uint8Array(0);
+        return new Blob([sliced], { type: (contentType !== undefined && contentType !== null) ? String(contentType).toLowerCase() : '' });
       };
       Blob.prototype._getBytes = function() {
         var totalSize = this.size;
