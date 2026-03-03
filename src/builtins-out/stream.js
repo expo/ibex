@@ -3256,9 +3256,13 @@ function pipeline() {
 			if (stream && stream.closed === true) return true;
 			if (stream._destroyed || stream.destroyed || stream._readableState && stream._readableState.destroyed || stream._writableState && stream._writableState.destroyed) return true;
 			if (!stream) return true;
-			if (stream.writableEnded || stream.writableFinished) return true;
+			if (stream._writableState) {
+				var writableState = stream._writableState;
+				var done = writableState.finished || writableState.ended && !writableState.ending && !writableState._pendingEndScheduled;
+				return done;
+			}
 			if (stream.writable === false) return true;
-			if (stream._writableState) return stream._writableState.finished || stream._writableState.ended;
+			if (stream.writableEnded || stream.writableFinished) return true;
 			return !_isWritableLike(stream);
 		}
 		function isStreamDone(stream) {
