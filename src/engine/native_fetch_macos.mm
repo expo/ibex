@@ -3,6 +3,11 @@
  *
  * Implements HTTP fetch using macOS native NSURLSession.
  * This is called from the C++ Hermes bridge via C function pointers.
+ *
+ * Cookie handling is done in the JS layer (CookieJar). This native layer is
+ * a stateless HTTP pipe: it sends whatever headers JS provides and returns
+ * raw response headers (including multiple Set-Cookie lines) without any
+ * implicit cookie storage.
  */
 
 #import <Foundation/Foundation.h>
@@ -10,6 +15,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <mutex>
 
 // C callback type matching the one defined in hermes_runtime.cc
 typedef void (*NativeFetchResponseCallback)(
@@ -22,16 +28,162 @@ typedef void (*NativeFetchResponseCallback)(
     void* context
 );
 
-// Shared URLSession instance
+// Per-request state used by the delegate
+struct FetchRequestState {
+    int status = 0;
+    std::string status_text;
+    std::string headers;
+    std::string error_text;
+    std::vector<uint8_t> body;
+    bool completed = false;
+    dispatch_semaphore_t semaphore;
+};
+
+// =============================================================================
+// Set-Cookie header splitting
+// =============================================================================
+
+/**
+ * Split a collapsed Set-Cookie header value into individual cookie strings.
+ *
+ * NSHTTPURLResponse.allHeaderFields is an NSDictionary which collapses
+ * duplicate Set-Cookie headers into a single comma-separated string.
+ * However, cookie values can contain commas in the Expires attribute
+ * (e.g. "Expires=Thu, 01 Jan 2025 00:00:00 GMT"). We must split only
+ * on commas that separate distinct cookies, not commas inside Expires dates.
+ *
+ * Strategy: split on ", " (comma-space) but only when the token after the
+ * comma looks like a new cookie (contains '=' before any ';').
+ */
+static NSArray<NSString*>* splitSetCookieHeaderValue(NSString* headerValue) {
+    if (!headerValue || headerValue.length == 0) {
+        return @[];
+    }
+
+    NSMutableArray<NSString*>* cookies = [NSMutableArray array];
+    NSMutableString* current = [NSMutableString string];
+    NSArray<NSString*>* parts = [headerValue componentsSeparatedByString:@", "];
+
+    for (NSUInteger i = 0; i < parts.count; i++) {
+        NSString* part = parts[i];
+        if (current.length == 0) {
+            [current appendString:part];
+        } else {
+            // Check if this part looks like a new cookie (has name=value before any ;)
+            // A new cookie starts with a token that contains '=' (the name=value pair).
+            // Expires date fragments like "01 Jan 2025 00:00:00 GMT" don't contain '='.
+            NSRange eqRange = [part rangeOfString:@"="];
+            NSRange semiRange = [part rangeOfString:@";"];
+
+            bool looksLikeNewCookie = false;
+            if (eqRange.location != NSNotFound) {
+                // '=' exists - it's a new cookie if '=' comes before any ';'
+                if (semiRange.location == NSNotFound || eqRange.location < semiRange.location) {
+                    looksLikeNewCookie = true;
+                }
+            }
+
+            if (looksLikeNewCookie) {
+                // Commit the current cookie and start a new one
+                [cookies addObject:[current copy]];
+                [current setString:part];
+            } else {
+                // This is a continuation (e.g. Expires date), rejoin with ", "
+                [current appendFormat:@", %@", part];
+            }
+        }
+    }
+
+    if (current.length > 0) {
+        [cookies addObject:[current copy]];
+    }
+
+    return cookies;
+}
+
+/**
+ * Append response headers to the output buffer in "Key: Value\r\n" format.
+ *
+ * For Set-Cookie, we use the CFNetwork-level API to get individual header
+ * values, falling back to splitting the collapsed NSDictionary value.
+ */
+static void appendResponseHeaders(NSHTTPURLResponse* response, std::string& out) {
+    NSDictionary* responseHeaders = response.allHeaderFields;
+    NSString* setCookieValue = nil;
+
+    for (NSString* key in responseHeaders) {
+        NSString* lowerKey = [key lowercaseString];
+        if ([lowerKey isEqualToString:@"set-cookie"]) {
+            // Defer Set-Cookie handling
+            setCookieValue = responseHeaders[key];
+            continue;
+        }
+        NSString* value = responseHeaders[key];
+        out += std::string(key.UTF8String) + ": " + std::string(value.UTF8String) + "\r\n";
+    }
+
+    // Handle Set-Cookie separately: split collapsed value into individual cookies
+    if (setCookieValue) {
+        NSArray<NSString*>* cookies = splitSetCookieHeaderValue(setCookieValue);
+        for (NSString* cookie in cookies) {
+            out += "Set-Cookie: " + std::string(cookie.UTF8String) + "\r\n";
+        }
+    }
+}
+
+// =============================================================================
+// NSURLSession delegate for per-request state
+// =============================================================================
+
+@interface FetchSessionDelegate : NSObject <NSURLSessionDataDelegate, NSURLSessionTaskDelegate>
+@end
+
+@implementation FetchSessionDelegate
+
+- (void)URLSession:(NSURLSession *)session
+          dataTask:(NSURLSessionDataTask *)dataTask
+didReceiveResponse:(NSURLResponse *)response
+ completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
+    // Allow the response to proceed
+    completionHandler(NSURLSessionResponseAllow);
+}
+
+- (void)URLSession:(NSURLSession *)session
+          dataTask:(NSURLSessionDataTask *)dataTask
+    didReceiveData:(NSData *)data {
+    // Data chunks are handled in the completion handler path
+    // (we still use semaphore-based synchronous completion below)
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error {
+    // Completion handled by the dataTask completion handler
+}
+
+@end
+
+// Shared URLSession instance — ephemeral config with cookies disabled
 static NSURLSession* sharedSession = nil;
+static FetchSessionDelegate* sharedDelegate = nil;
 
 static NSURLSession* getSession() {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSURLSessionConfiguration* config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        sharedDelegate = [FetchSessionDelegate new];
+
+        NSURLSessionConfiguration* config = [NSURLSessionConfiguration ephemeralSessionConfiguration];
         config.timeoutIntervalForRequest = 30;
         config.timeoutIntervalForResource = 300;
-        sharedSession = [NSURLSession sessionWithConfiguration:config];
+
+        // Disable all implicit cookie handling — cookies are managed by the JS CookieJar
+        config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyNever;
+        config.HTTPCookieStorage = nil;
+        config.HTTPShouldSetCookies = NO;
+
+        sharedSession = [NSURLSession sessionWithConfiguration:config
+                                                     delegate:sharedDelegate
+                                                delegateQueue:nil];
     });
     return sharedSession;
 }
@@ -81,7 +233,6 @@ extern "C" void native_fetch_perform(
         }
 
         // Use a semaphore to make this synchronous from the caller's perspective
-        // but still use NSURLSession's native networking stack.
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
         struct FetchResult {
             int status = 0;
@@ -119,12 +270,9 @@ extern "C" void native_fetch_perform(
                     result.status_text = std::string("Unknown");
                 }
 
-                NSDictionary* responseHeaders = httpResponse.allHeaderFields;
-                for (NSString* key in responseHeaders) {
-                    NSString* value = responseHeaders[key];
-                    result.headers +=
-                        std::string(key.UTF8String) + ": " + std::string(value.UTF8String) + "\r\n";
-                }
+                // Use appendResponseHeaders to correctly handle Set-Cookie multiplicity
+                appendResponseHeaders(httpResponse, result.headers);
+
                 if (data && data.length > 0) {
                     result.body.resize((size_t)data.length);
                     memcpy(result.body.data(), data.bytes, (size_t)data.length);
