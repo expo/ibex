@@ -648,7 +648,7 @@ function _coerceReadSize(value) {
   if (typeof value !== 'number') {
     value = Number(value);
   }
-  if (isNaN(value) || value <= 0) return NaN;
+  if (isNaN(value)) return NaN;
   return Math.floor(value);
 }
 

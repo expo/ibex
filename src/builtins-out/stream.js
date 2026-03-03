@@ -542,7 +542,7 @@ function _nextPowerOf2(value) {
 function _coerceReadSize(value) {
 	if (value === void 0 || value === null) return NaN;
 	if (typeof value !== "number") value = Number(value);
-	if (isNaN(value) || value <= 0) return NaN;
+	if (isNaN(value)) return NaN;
 	return Math.floor(value);
 }
 function _howMuchToRead(n, state) {
@@ -704,14 +704,14 @@ Readable.prototype._readFromSource = function(size) {
 	}
 };
 Readable.prototype.push = function(chunk) {
-	if (this._destroyed) return false;
-	var state = this._readableState;
-	var self = this;
-	if (state.ended || state.endEmitted || state.errored || state.destroyed) {
-		if (!state.errorEmitted && !state.errored) {
-			var pushErr = makeError(Error, "ERR_STREAM_PUSH_AFTER_EOF", "stream.push() after EOF");
-			state.errored = pushErr;
-			this.errored = pushErr;
+  if (this._destroyed) return false;
+  var state = this._readableState;
+  var self = this;
+  if (state.ended || state.endEmitted || state.errored || state.destroyed) {
+    if (!state.errorEmitted && !state.errored) {
+      var pushErr = makeError(Error, "ERR_STREAM_PUSH_AFTER_EOF", "stream.push() after EOF");
+      state.errored = pushErr;
+      this.errored = pushErr;
 			if (typeof this.listenerCount === "function" ? this.listenerCount("error") > 0 : this._events && this._events.error) {
 				state.errorEmitted = true;
 				this.emit("error", pushErr);
@@ -3258,7 +3258,7 @@ function pipeline() {
 			if (!stream) return true;
 			if (stream._writableState) {
 				var writableState = stream._writableState;
-				var done = writableState.finished || writableState.ended && !writableState.ending && !writableState._pendingEndScheduled;
+				var done = writableState.finished || writableState.ended && !writableState.ending;
 				return done;
 			}
 			if (stream.writable === false) return true;
