@@ -4239,77 +4239,24 @@ function _patchWebStreamPrototypeInterop() {
 // Per-stream state tracking is still wired via instance trackers when
 // _getWebStreamState(stream) is used.
 // _patchWebStreamPrototypeInterop();
-function _sanitizeReadableStreamIterator(iterator) {
-	if (!iterator || typeof iterator !== "object") return iterator;
-	var nextMethod = iterator.next;
-	var returnMethod = iterator.return;
-	if (typeof nextMethod !== "function" || typeof returnMethod !== "function") return iterator;
-
-	var iteratorPrototype = Object.getPrototypeOf(iterator);
-	var sanitizedPrototype = Object.create(
-		iteratorPrototype && Object.getPrototypeOf(iteratorPrototype) || Object.prototype
-	);
-
-	Object.defineProperty(sanitizedPrototype, "next", {
-		configurable: true,
-		enumerable: true,
-		writable: true,
-		value: function() {
-			return nextMethod.apply(iterator, arguments);
-		}
-	});
-	Object.defineProperty(sanitizedPrototype, "return", {
-		configurable: true,
-		enumerable: true,
-		writable: true,
-		value: function(value) {
-			return returnMethod.call(iterator, value);
-		}
-	});
-
-	if (typeof Symbol === "function" && typeof Symbol.asyncIterator === "symbol" && !Object.prototype.hasOwnProperty.call(sanitizedPrototype, Symbol.asyncIterator)) {
-		Object.defineProperty(sanitizedPrototype, Symbol.asyncIterator, {
-			value: function() {
-				return this;
-			},
-			writable: true,
-			configurable: true,
-			enumerable: false
-		});
-	}
-
-	return Object.create(sanitizedPrototype);
-}
 function _installReadableStreamIteratorNormalizer() {
 	if (typeof globalThis.ReadableStream !== "function") return;
 	if (typeof globalThis.ReadableStream.prototype !== "object" || globalThis.ReadableStream.prototype === null) return;
 
 	var prototype = globalThis.ReadableStream.prototype;
-	if (typeof prototype.values !== "function") return;
 	if (prototype.__exactReadableStreamIteratorPatched) return;
-
 	var originalValues = prototype.values;
-	var asyncIteratorSymbol = typeof Symbol === "function" ? Symbol.asyncIterator : null;
-	var originalAsyncIterator = asyncIteratorSymbol && prototype[asyncIteratorSymbol];
+	if (typeof originalValues !== "function") return;
 	var originalGetReader = prototype.getReader;
 
 	if (typeof originalGetReader === "function" && !originalGetReader.__exactReadableStreamGetReaderPatched) {
 		prototype.getReader = function(options) {
+			if (options === null) {
+				return originalGetReader.call(this);
+			}
 			return originalGetReader.call(this, options);
 		};
 		prototype.getReader.__exactReadableStreamGetReaderPatched = true;
-	}
-
-	if (typeof originalValues === "function") {
-		prototype.values = function() {
-			return _sanitizeReadableStreamIterator(originalValues.apply(this, arguments));
-		};
-	}
-
-	if (typeof originalAsyncIterator === "function" && asyncIteratorSymbol) {
-		prototype[asyncIteratorSymbol] = function() {
-			return _sanitizeReadableStreamIterator(originalAsyncIterator.apply(this, arguments));
-		};
 	}
 
 	prototype.__exactReadableStreamIteratorPatched = true;

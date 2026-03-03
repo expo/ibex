@@ -1448,6 +1448,53 @@
       // Keep bootstrap resilient if bun:test/bun cannot be loaded.
     }
   }
+
+  // Ensure ReadableStream iteration surfaces match the spec and accept `null`
+  // for getReader options in environments where the host implementation expects
+  // an options object.
+  var installReadableStreamIteratorCompat = function () {
+    if (
+      typeof globalThis.ReadableStream === 'function' &&
+      globalThis.ReadableStream &&
+      typeof globalThis.ReadableStream.prototype === 'object' &&
+      globalThis.ReadableStream.prototype !== null &&
+      !globalThis.ReadableStream.prototype.__exactReadableStreamCompatIteratorPatched
+    ) {
+      var ReadableStream = globalThis.ReadableStream;
+      var readableStreamPrototype = ReadableStream.prototype;
+      var originalGetReader = readableStreamPrototype.getReader;
+
+      if (typeof originalGetReader === 'function') {
+        readableStreamPrototype.getReader = function (options) {
+          if (options === null) {
+            return originalGetReader.call(this);
+          }
+          return originalGetReader.call(this, options);
+        };
+        readableStreamPrototype.getReader.__exactReadableStreamCompatGetReaderPatched = true;
+      }
+
+      ReadableStream.prototype.__exactReadableStreamCompatIteratorPatched = true;
+    }
+  };
+
+  globalThis.__exactInstallReadableStreamIteratorCompat = installReadableStreamIteratorCompat;
+
+  installReadableStreamIteratorCompat();
+  if (
+    (!globalThis.ReadableStream ||
+      !globalThis.ReadableStream.prototype ||
+      !globalThis.ReadableStream.prototype.__exactReadableStreamCompatIteratorPatched) &&
+    !globalThis.__exactReadableStreamCompatIteratorPatchScheduled
+  ) {
+    globalThis.__exactReadableStreamCompatIteratorPatchScheduled = true;
+    if (typeof setTimeout === 'function') {
+      setTimeout(installReadableStreamIteratorCompat, 0);
+    } else if (typeof queueMicrotask === 'function') {
+      queueMicrotask(installReadableStreamIteratorCompat);
+    }
+  }
+
   // Defensive cleanup: remove any properties that leaked onto Object.prototype
   // during bootstrap (e.g. from setProperty on process.__proto__ when it was
   // Object.prototype). These pollute for...in on all objects.

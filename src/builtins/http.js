@@ -309,8 +309,19 @@ ClientRequest.prototype._send = function() {
   this._sent = true;
   var body = this._bodyParts.join("");
 
-  // Try fetch first, then fall back to TCP
-  if (typeof fetch === "function") {
+  // Prefer the raw TCP path for plain HTTP to preserve Node-like behavior for
+  // local servers (fetch can block loopback requests in this runtime).
+  var useFetch = typeof fetch === "function";
+  if (useFetch) {
+    try {
+      var parsedUrl = new URL(this._url);
+      if (parsedUrl.protocol === "http:") {
+        useFetch = false;
+      }
+    } catch (_err) {}
+  }
+
+  if (useFetch) {
     this._sendViaFetch(body);
   } else {
     this._sendViaTcp(body);
@@ -356,9 +367,27 @@ ClientRequest.prototype._sendViaTcp = function(body) {
     return;
   }
   var self = this;
-  var options = this.options;
-  var host = options.hostname || options.host || 'localhost';
-  var port = options.port || 80;
+  var options = (this.options && typeof this.options === 'object') ? this.options : {};
+  var host = options.hostname || options.host;
+  var port = options.port;
+  if (!host || !port) {
+    try {
+      var parsed = new URL(this._url);
+      if (!host) host = parsed.hostname;
+      if (!port) {
+        if (parsed.port) {
+          port = Number(parsed.port);
+        } else {
+          port = parsed.protocol === 'https:' ? 443 : 80;
+        }
+      }
+      if ((!options.path || options.path === '/') && parsed.pathname) {
+        this.path = parsed.pathname + (parsed.search || '');
+      }
+    } catch (_err) {}
+  }
+  if (!host) host = 'localhost';
+  if (!port) port = 80;
 
   // Build raw HTTP request
   var reqLine = this.method + ' ' + this.path + ' HTTP/1.1\r\n';

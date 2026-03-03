@@ -12199,45 +12199,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     IG_TRACE_END(compat_polyfills);
   }
 
-  // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream)
-  // Must run before exact-global.js which uses ReadableStream.
-  IG_TRACE_START(web_streams_polyfill);
-  if (env_flag_enabled("EX_WEB_STREAMS_POLYFILL")) {
-    static const char* webStreamsPolyfillJS = WEB_STREAMS_POLYFILL_SRC;
-
-    try {
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-      bool webStreamsPolyfillEvaluated = eval_bootstrap_script(
-          handle,
-          webStreamsPolyfillJS,
-          reinterpret_cast<const uint8_t*>(WEB_STREAMS_POLYFILL_HBC),
-          WEB_STREAMS_POLYFILL_HBC_LEN,
-          "<web-streams-polyfill>",
-          false,
-          true);
-#else
-      bool webStreamsPolyfillEvaluated = eval_bootstrap_script(
-          handle,
-          webStreamsPolyfillJS,
-          nullptr,
-          0,
-          "<web-streams-polyfill>",
-          true,
-          false);
-#endif
-      if (!webStreamsPolyfillEvaluated) {
-        throw std::runtime_error("Web Streams polyfill failed to evaluate");
-      }
-    } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.getMessage()).c_str());
-    } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.what()).c_str());
-    }
-  } else if (_tracing) {
-    fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");
-  }
-  IG_TRACE_END(web_streams_polyfill);
-
   // Install Exact global (with Bun alias) including Exact.file() and Exact.write()
   bool skip_exact_global = env_flag_enabled("EX_SKIP_STARTUP_EXACT_GLOBAL");
   bool source_exact_global = env_flag_enabled("EX_EXACT_GLOBAL_SOURCE");
@@ -12297,6 +12258,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
     IG_TRACE_END(exact_global);
   }
+
 }
 
 void runNextTickQueue(ExactHermesRuntime* runtime) {
@@ -12392,6 +12354,46 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   TRACE_START(install_globals);
   installGlobals(handle);
   TRACE_END(install_globals);
+
+  // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream).
+  // Run after all global bootstrap scripts so ReadableStream can be wrapped
+  // on the final runtime surface that user code observes.
+  if (env_flag_enabled("EX_WEB_STREAMS_POLYFILL")) {
+    TRACE_START(web_streams_polyfill);
+    static const char* webStreamsPolyfillJS = WEB_STREAMS_POLYFILL_SRC;
+
+    try {
+#ifdef HAS_PRECOMPILED_BOOTSTRAP
+      bool webStreamsPolyfillEvaluated = eval_bootstrap_script(
+          handle,
+          webStreamsPolyfillJS,
+          reinterpret_cast<const uint8_t*>(WEB_STREAMS_POLYFILL_HBC),
+          WEB_STREAMS_POLYFILL_HBC_LEN,
+          "<web-streams-polyfill>",
+          true,
+          true);
+#else
+      bool webStreamsPolyfillEvaluated = eval_bootstrap_script(
+          handle,
+          webStreamsPolyfillJS,
+          nullptr,
+          0,
+          "<web-streams-polyfill>",
+          true,
+          false);
+#endif
+      if (!webStreamsPolyfillEvaluated) {
+        throw std::runtime_error("Web Streams polyfill failed to evaluate");
+      }
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.what()).c_str());
+    }
+    TRACE_END(web_streams_polyfill);
+  } else if (startup_trace_enabled()) {
+    fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");
+  }
   registerRuntime(handle);
 
   TRACE_END(total);
