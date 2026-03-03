@@ -334,12 +334,14 @@ function _formatValue(value, seen, strictMode) {
 
   var keys = _objectKeys(value);
   if (keys.length === 0) {
-    if (
-      (typeof Set !== 'undefined' && value instanceof Set) ||
-      (typeof Map !== 'undefined' && value instanceof Map)
-    ) {
+    // Sets and Maps have no enumerable string keys, so show as Type {}
+    if (typeof Set !== 'undefined' && value instanceof Set) {
       seen.pop();
-      return '{}';
+      return 'Set {}';
+    }
+    if (typeof Map !== 'undefined' && value instanceof Map) {
+      seen.pop();
+      return 'Map {}';
     }
     if (value.constructor && value.constructor.name && value.constructor.name !== 'Object') {
       seen.pop();
@@ -348,22 +350,22 @@ function _formatValue(value, seen, strictMode) {
     seen.pop();
     return '{}';
   }
-  if (keys.length === 1) {
-    var compactBody = '{ ' + _formatPropertyKey(keys[0]) + ': ' + _formatValue(value[keys[0]], seen) + ' }';
-    seen.pop();
-    return compactBody;
-  }
   var ctorName = value.constructor && value.constructor.name ? value.constructor.name : '';
-  if (ctorName === 'Object' || ctorName === '') {
-    var objectText = '{\n  ' + keys.map(function(k) {
-      return k + ': ' + _formatValue(value[k], seen);
-    }).join(',\n  ') + '\n}';
-    seen.pop();
-    return objectText;
+  var prefix = (ctorName && ctorName !== 'Object') ? ctorName + ' ' : '';
+  // Format properties
+  var parts = [];
+  for (var ki = 0; ki < keys.length; ki++) {
+    parts.push(_formatPropertyKey(keys[ki]) + ': ' + _formatValue(value[keys[ki]], seen));
   }
-  var finalObject = ctorName + _formatObjectBody(value, 0, seen);
+  var compact = prefix + '{ ' + parts.join(', ') + ' }';
+  // Use compact format for short representations
+  if (compact.length <= 72 || keys.length <= 5) {
+    seen.pop();
+    return compact;
+  }
+  var multiline = prefix + '{\n  ' + parts.join(',\n  ') + '\n}';
   seen.pop();
-  return finalObject;
+  return multiline;
 }
 
 function _formatObjectBody(value, depth, seen) {
@@ -644,11 +646,8 @@ function _collapseDiffLines(actualOut, expectedOut) {
 
 function _hasSeenPair(aSeen, bSeen, a, b) {
   for (var i = 0; i < aSeen.length; i++) {
-    if (aSeen[i] === a) {
-      return bSeen[i] === b;
-    }
-    if (bSeen[i] === b) {
-      return false;
+    if (aSeen[i] === a && bSeen[i] === b) {
+      return true;
     }
   }
   return false;
@@ -912,12 +911,27 @@ function _errorTypeName(err) {
 
 function _deepEqual(a, b, aSeen, bSeen, strict) {
   if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) {
+    // In loose mode, null == undefined is true
+    if (!strict && a == b) return true;
+    return false;
+  }
   if (strict === undefined) strict = false;
 
   // Handle NaN
   if (typeof a === 'number' && isNaN(a) && isNaN(b)) return true;
+
+  // For primitives with different types
+  if (typeof a !== typeof b) {
+    if (strict) return false;
+    // In loose mode, both must be objects or both must coerce-equal
+    if (typeof a !== 'object' && typeof b !== 'object') {
+      // Use == for loose primitive comparison (e.g., "1" == 1)
+      return a == b;
+    }
+    // One is object, one is primitive - not equal in deep comparison
+    return false;
+  }
 
   if (typeof a !== 'object') return false;
 
@@ -936,10 +950,17 @@ function _deepEqual(a, b, aSeen, bSeen, strict) {
     if (!(a instanceof Date) || !(b instanceof Date)) {
       return false;
     }
-    if (a.constructor !== b.constructor) {
+    // Verify both are real Date objects by checking their internal [[DateValue]] slot.
+    // Fake dates (e.g. objects with Date.prototype) will throw on valueOf/getTime.
+    var aTime, bTime;
+    try { aTime = Date.prototype.valueOf.call(a); } catch (e) { return false; }
+    try { bTime = Date.prototype.valueOf.call(b); } catch (e) { return false; }
+    if (strict && a.constructor !== b.constructor) {
       return false;
     }
-    return a.getTime() === b.getTime();
+    if (aTime !== bTime) return false;
+    // Fall through to property comparison below to catch extra enumerable
+    // properties (e.g. Date subclasses that set indexed properties).
   }
 
   // Handle RegExp
@@ -981,16 +1002,37 @@ function _deepEqual(a, b, aSeen, bSeen, strict) {
 
   // Handle TypedArrays
   if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
-    if (strict && a.constructor !== b.constructor) return false;
+    if (strict) {
+      // Strict mode: constructors must match exactly
+      if (a.constructor !== b.constructor) return false;
+    } else {
+      // Loose mode: underlying TypedArray type must match, but allow
+      // Buffer (a Uint8Array subclass) to equal plain Uint8Array.
+      if (a.constructor !== b.constructor) {
+        if (!(a instanceof b.constructor) && !(b instanceof a.constructor)) {
+          return false;
+        }
+      }
+    }
     if (a.length !== b.length) return false;
-    var aKeys = Object.keys(a);
-    var bKeys = Object.keys(b);
+    if (strict) {
+      // Strict mode: byte-level comparison (catches +0/-0 difference)
+      if (_buffersAreByteEqual(a, b) === false) return false;
+    } else {
+      // Loose mode: element-wise comparison using ==
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) return false;
+      }
+    }
+    // Compare own non-indexed properties
+    var aKeys = Object.keys(a).filter(function(k) { return isNaN(Number(k)); });
+    var bKeys = Object.keys(b).filter(function(k) { return isNaN(Number(k)); });
     if (aKeys.length !== bKeys.length) return false;
     for (var i = 0; i < aKeys.length; i++) {
       var key = aKeys[i];
+      if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
       if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
     }
-    if (strict && _buffersAreByteEqual(a, b) === false) return false;
     return true;
   }
 
@@ -998,10 +1040,57 @@ function _deepEqual(a, b, aSeen, bSeen, strict) {
   if (typeof Map !== 'undefined' && a instanceof Map && b instanceof Map) {
     if (a.size !== b.size) return false;
     var aEntries = Array.from(a.entries());
-    for (var i = 0; i < aEntries.length; i++) {
-      var key = aEntries[i][0];
-      if (!b.has(key)) return false;
-      if (!_deepEqual(aEntries[i][1], b.get(key), aSeen, bSeen, strict)) return false;
+    if (strict) {
+      // In strict mode, use exact key matching for primitive keys,
+      // but deep-equal matching for object keys
+      var hasPrimitiveOnlyKeys = true;
+      for (var i = 0; i < aEntries.length; i++) {
+        if (typeof aEntries[i][0] === 'object' && aEntries[i][0] !== null) {
+          hasPrimitiveOnlyKeys = false;
+          break;
+        }
+      }
+      if (hasPrimitiveOnlyKeys) {
+        for (var i = 0; i < aEntries.length; i++) {
+          var key = aEntries[i][0];
+          if (!b.has(key)) return false;
+          if (!_deepEqual(aEntries[i][1], b.get(key), aSeen, bSeen, strict)) return false;
+        }
+      } else {
+        // Fall through to entry-matching for Maps with object keys
+        var bEntries2 = Array.from(b.entries());
+        var matched2 = new Array(bEntries2.length);
+        for (var i = 0; i < aEntries.length; i++) {
+          var found2 = false;
+          for (var j = 0; j < bEntries2.length; j++) {
+            if (!matched2[j] &&
+                _deepEqual(aEntries[i][0], bEntries2[j][0], aSeen, bSeen, strict) &&
+                _deepEqual(aEntries[i][1], bEntries2[j][1], aSeen, bSeen, strict)) {
+              matched2[j] = true;
+              found2 = true;
+              break;
+            }
+          }
+          if (!found2) return false;
+        }
+      }
+    } else {
+      // In loose mode, match entries by deep-equal keys
+      var bEntries = Array.from(b.entries());
+      var matched = new Array(bEntries.length);
+      for (var i = 0; i < aEntries.length; i++) {
+        var found = false;
+        for (var j = 0; j < bEntries.length; j++) {
+          if (!matched[j] &&
+              _deepEqual(aEntries[i][0], bEntries[j][0], aSeen, bSeen, strict) &&
+              _deepEqual(aEntries[i][1], bEntries[j][1], aSeen, bSeen, strict)) {
+            matched[j] = true;
+            found = true;
+            break;
+          }
+        }
+        if (!found) return false;
+      }
     }
     return true;
   }
@@ -1013,10 +1102,10 @@ function _deepEqual(a, b, aSeen, bSeen, strict) {
     var bArr = Array.from(b);
     // For primitive values, use direct comparison
     // For objects, try to find matching elements
-      var matched = new Array(bArr.length);
-      for (var i = 0; i < aArr.length; i++) {
-        var found = false;
-        for (var j = 0; j < bArr.length; j++) {
+    var matched = new Array(bArr.length);
+    for (var i = 0; i < aArr.length; i++) {
+      var found = false;
+      for (var j = 0; j < bArr.length; j++) {
         if (!matched[j] && _deepEqual(aArr[i], bArr[j], aSeen, bSeen, strict)) {
           matched[j] = true;
           found = true;
@@ -1664,22 +1753,67 @@ function doesNotMatch(string, regexp, message) {
 }
 
 async function rejects(asyncFn, expected, message) {
+  // Validate asyncFn argument type
+  if (typeof asyncFn !== 'function' && !(asyncFn instanceof Promise) &&
+      !(asyncFn && typeof asyncFn === 'object' && typeof asyncFn.then === 'function' && typeof asyncFn.catch === 'function')) {
+    var argTypeErr = new TypeError(
+      'The "promiseFn" argument must be of type function or an instance of Promise. Received type ' +
+      _typeof(asyncFn) + ' (' + _inspect(asyncFn) + ')'
+    );
+    argTypeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw argTypeErr;
+  }
+
   var threw = false;
   var caught;
+  var promise;
+
+  if (typeof asyncFn === 'function') {
+    var result = asyncFn();
+    if (result instanceof Promise) {
+      promise = result;
+    } else if (result && typeof result === 'object' && typeof result.then === 'function' && typeof result.catch === 'function') {
+      promise = Promise.resolve(result);
+    } else {
+      var invalidReturn = new TypeError(
+        'Expected instance of Promise to be returned from the "promiseFn" function but got ' +
+        (result === undefined ? 'undefined' : _formatPromiseExpectation(result)) + '.'
+      );
+      invalidReturn.code = 'ERR_INVALID_RETURN_VALUE';
+      throw invalidReturn;
+    }
+  } else if (asyncFn instanceof Promise) {
+    promise = asyncFn;
+  } else if (asyncFn && typeof asyncFn === 'object' && typeof asyncFn.then === 'function' && typeof asyncFn.catch === 'function') {
+    promise = Promise.resolve(asyncFn);
+  } else if (asyncFn && typeof asyncFn === 'object' && typeof asyncFn.then === 'function') {
+    var argTypeErr2 = new TypeError(
+      'The "promiseFn" argument must be of type function or an instance of Promise. Received an instance of Object'
+    );
+    argTypeErr2.code = 'ERR_INVALID_ARG_TYPE';
+    throw argTypeErr2;
+  }
+
   try {
-    var promise = typeof asyncFn === 'function' ? asyncFn() : asyncFn;
     await promise;
   } catch (e) {
     threw = true;
     caught = e;
   }
+
   if (!threw) {
+    var missingFnName = typeof asyncFn === 'function' ? (asyncFn.name || 'anonymous') : '';
+    var missingMsg = message || ('Missing expected rejection' + (missingFnName ? ' (' + missingFnName + ')' : '') + '.');
     throw new AssertionError({
-      message: message || 'Missing expected rejection',
+      message: missingMsg,
+      actual: undefined,
+      expected: expected,
       operator: 'rejects',
+      generatedMessage: !message,
       stackStartFn: rejects
     });
   }
+
   if (expected !== undefined && expected !== null) {
     if (_isErrorConstructor(expected)) {
       if (caught instanceof expected) return;
@@ -1694,12 +1828,16 @@ async function rejects(asyncFn, expected, message) {
       });
     }
     if (typeof expected === 'function') {
-      if (expected(caught) === true) return;
+      var validationResult = expected(caught);
+      if (validationResult === true) return;
       throw new AssertionError({
-        message: message || 'Unexpected rejection',
+        message: 'The "validate" validation function is expected to return "true". Received ' +
+            _inspect(validationResult) + '\n\nCaught error:\n\n' +
+            (caught instanceof Error ? caught.constructor.name + ': ' + caught.message : _inspect(caught)),
         actual: caught,
         expected: expected,
         operator: 'rejects',
+        code: 'ERR_ASSERTION',
         stackStartFn: rejects
       });
     }
@@ -1714,7 +1852,6 @@ async function rejects(asyncFn, expected, message) {
       });
     }
     if (typeof expected === 'object') {
-      // Validate error properties
       var keys = Object.keys(expected);
       for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
@@ -1722,18 +1859,20 @@ async function rejects(asyncFn, expected, message) {
           if (!expected.message.test(caught.message)) {
             throw new AssertionError({
               message: message || 'Error message mismatch',
-              actual: caught.message,
-              expected: expected.message,
+              actual: caught[key],
+              expected: expected[key],
               operator: 'rejects',
               stackStartFn: rejects
             });
           }
         } else if (!_deepEqual(caught[key], expected[key])) {
           throw new AssertionError({
-            message: message || 'Error property "' + key + '" mismatch',
-            actual: caught[key],
-            expected: expected[key],
+            message: message || 'Expected the ' + key + ' property on the thrown error to be ' +
+                _inspect(expected[key]) + ', got ' + _inspect(caught[key]),
+            actual: caught,
+            expected: expected,
             operator: 'rejects',
+            generatedMessage: !message,
             stackStartFn: rejects
           });
         }
@@ -1744,38 +1883,45 @@ async function rejects(asyncFn, expected, message) {
 }
 
 async function doesNotReject(asyncFn, expected, message) {
+  if (typeof expected === 'string') {
+    message = expected;
+    expected = undefined;
+  }
+
   var promise;
 
   if (_isFunction(asyncFn)) {
-    promise = asyncFn();
-    if (!(promise instanceof Promise)) {
-      if (promise && typeof promise.then === 'function' && typeof promise.catch === 'function') {
-        promise = Promise.resolve(promise);
-      } else {
-        var expectedReturn = 'Expected instance of Promise to be returned from the "promiseFn" function but got ' +
-          _formatPromiseExpectation(promise);
-        var fnErr = new AssertionError({
-          message: message || expectedReturn,
-          actual: promise,
-          operator: 'doesNotReject',
-          stackStartFn: doesNotReject
-        });
-        throw fnErr;
-      }
+    var result = asyncFn();
+    if (result instanceof Promise) {
+      promise = result;
+    } else if (result && typeof result === 'object' && typeof result.then === 'function' && typeof result.catch === 'function') {
+      promise = Promise.resolve(result);
+    } else {
+      var expectedReturn = 'Expected instance of Promise to be returned from the "promiseFn" function but got ' +
+        _formatPromiseExpectation(result) + '.';
+      var fnErr = new TypeError(expectedReturn);
+      fnErr.code = 'ERR_INVALID_RETURN_VALUE';
+      throw fnErr;
     }
   } else if (asyncFn instanceof Promise) {
     promise = asyncFn;
-  } else if (asyncFn && typeof asyncFn.then === 'function' && typeof asyncFn.catch === 'function') {
+  } else if (asyncFn && typeof asyncFn === 'object' && typeof asyncFn.then === 'function' && typeof asyncFn.catch === 'function') {
     promise = Promise.resolve(asyncFn);
-  } else {
+  } else if (asyncFn && typeof asyncFn === 'object' && typeof asyncFn.then === 'function') {
     _throwInvalidArgType(asyncFn);
+  } else {
+    _throwInvalidArgType(asyncFn, 'The "promiseFn" argument must be of type function or an instance of Promise. Received type ' +
+      _typeof(asyncFn) + ' (' + _inspect(asyncFn) + ')');
   }
 
   try {
     await promise;
   } catch (e) {
+    if (typeof expected === 'function') {
+      expected(e);
+    }
     throw new AssertionError({
-      message: message || 'Got unwanted rejection: ' + _ifErrorValue(e),
+      message: message || 'Got unwanted rejection.\nActual message: "' + _ifErrorValue(e) + '"',
       actual: e,
       operator: 'doesNotReject',
       stackStartFn: doesNotReject
@@ -1823,6 +1969,68 @@ assert.match = match;
 assert.doesNotMatch = doesNotMatch;
 assert.AssertionError = AssertionError;
 assert.CallTracker = CallTracker;
-assert.strict = assert;
 
+// Build assert.strict as a separate facade that defaults to strict methods
+var strict = function strict(value, message) {
+  if (!value) {
+    var defaultMessage = 'The expression evaluated to a falsy value';
+    var line = message ? '' : _getCallerLine(strict);
+    if (line) {
+      defaultMessage += ':\n\n' + line + '\n';
+    }
+    throw new AssertionError({
+      message: message || defaultMessage,
+      actual: value,
+      expected: true,
+      operator: '==',
+      stackStartFn: strict
+    });
+  }
+};
+strict.ok = ok;
+strict.equal = strictEqual;
+strict.notEqual = notStrictEqual;
+strict.deepEqual = deepStrictEqual;
+strict.notDeepEqual = notDeepStrictEqual;
+strict.strictEqual = strictEqual;
+strict.notStrictEqual = notStrictEqual;
+strict.deepStrictEqual = deepStrictEqual;
+strict.notDeepStrictEqual = notDeepStrictEqual;
+strict.throws = throws;
+strict.doesNotThrow = doesNotThrow;
+strict.rejects = rejects;
+strict.doesNotReject = doesNotReject;
+strict.ifError = ifError;
+strict.fail = fail;
+strict.match = match;
+strict.doesNotMatch = doesNotMatch;
+strict.AssertionError = AssertionError;
+strict.CallTracker = CallTracker;
+strict.strict = strict;
+
+assert.strict = strict;
+
+// Export all properties on module.exports directly to prevent tree-shaking.
+// Rolldown strips dynamic property assignments on function objects when it
+// cannot trace the reference through module.exports.
 module.exports = assert;
+module.exports.ok = ok;
+module.exports.equal = equal;
+module.exports.notEqual = notEqual;
+module.exports.strictEqual = strictEqual;
+module.exports.notStrictEqual = notStrictEqual;
+module.exports.deepEqual = deepEqual;
+module.exports.deepStrictEqual = deepStrictEqual;
+module.exports.notDeepEqual = notDeepEqual;
+module.exports.notDeepStrictEqual = notDeepStrictEqual;
+module.exports.throws = throws;
+module.exports.doesNotThrow = doesNotThrow;
+module.exports.rejects = rejects;
+module.exports.doesNotReject = doesNotReject;
+module.exports.ifError = ifError;
+module.exports.fail = fail;
+module.exports.match = match;
+module.exports.doesNotMatch = doesNotMatch;
+module.exports.AssertionError = AssertionError;
+module.exports.CallTracker = CallTracker;
+module.exports.strict = strict;
