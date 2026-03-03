@@ -106,7 +106,7 @@ function _drainPendingEnd(stream) {
 function _shouldAutoDestroyOnReadableEnd(stream, readableState) {
   if (!stream || !readableState) return false;
   if (!readableState.autoDestroy || stream._destroyed || stream._closed) return false;
-  if (stream.allowHalfOpen === false && stream.writable !== false && stream._writableState) {
+  if (stream._writableState && stream.writable !== false) {
     return false;
   }
   return true;
@@ -933,7 +933,7 @@ Readable.prototype.push = function(chunk) {
           state.endEmitted = true;
           self.readable = false;
           self.emit('end');
-          if (state.autoDestroy && !self._destroyed) {
+          if (_shouldAutoDestroyOnReadableEnd(self, state)) {
             self.destroy();
           } else {
             self._close();
@@ -2603,6 +2603,7 @@ function Writable(options) {
   // Determine objectMode: writableObjectMode overrides objectMode if present
   var objMode = (options && options.writableObjectMode != null) ? !!options.writableObjectMode :
                 !!(options && options.objectMode);
+  var decodeStrings = options && options.decodeStrings != null ? !!options.decodeStrings : true;
   // Determine highWaterMark: explicit highWaterMark wins, then writableHighWaterMark, then default
   var hwm;
   if (options && options.highWaterMark != null) {
@@ -2629,12 +2630,12 @@ function Writable(options) {
   this._writableState = {
     highWaterMark: hwm,
     objectMode: objMode,
+    decodeStrings: decodeStrings,
     length: 0,
     writing: false,
     ended: false,
     finished: false,
     destroyed: false,
-    decodeStrings: true,
     bufferedRequest: null,
     bufferedRequestCount: 0,
     defaultEncoding: 'utf8',
@@ -2791,7 +2792,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     throw makeError(TypeError, 'ERR_STREAM_NULL_VALUES', 'May not write null values to stream');
   }
 
-  if (!this.writableObjectMode && typeof chunk === 'string') {
+  if (!this.writableObjectMode && this._writableState.decodeStrings !== false && typeof chunk === 'string') {
     var enc = state && state.defaultEncoding ? state.defaultEncoding : (encoding || 'utf8');
     if (typeof Buffer !== 'undefined' && Buffer.from) {
       chunk = Buffer.from(chunk, enc);
@@ -3098,7 +3099,11 @@ Writable.prototype.end = function(chunk, encoding, callback) {
     state.finished = true;
     self.emit('finish');
     state.errorEmitted = false;
-    if (self._writableState.autoDestroy && !self._destroyed) {
+    var shouldDestroy = self._writableState.autoDestroy && !self._destroyed;
+    if (self._readableState && self.readable !== false && self._readableState.readable !== false) {
+      shouldDestroy = false;
+    }
+    if (shouldDestroy) {
       self.destroy();
     } else {
       self._close();
@@ -3531,6 +3536,14 @@ Stream.prototype.pipe = function(dest, options) {
     unpipe(false);
   }
 
+  function onsourceclose() {
+    if (!sourceEnded) {
+      sourceEnded = true;
+      maybeEndDestination();
+    }
+    cleanup();
+  }
+
   function onerror(err) {
     unpipe(true);
     if (dest && typeof dest.removeListener === 'function') {
@@ -3592,7 +3605,7 @@ Stream.prototype.pipe = function(dest, options) {
   function unpipe(emitUnpipe) {
     source.removeListener('data', ondata);
     source.removeListener('end', onend);
-    source.removeListener('close', cleanup);
+    source.removeListener('close', onsourceclose);
     if (hasDrainListener) {
       dest.removeListener('drain', ondrain);
       hasDrainListener = false;
@@ -3634,7 +3647,7 @@ Stream.prototype.pipe = function(dest, options) {
     _nextTick(onend);
   } else {
     source.on('end', onend);
-    source.on('close', cleanup);
+    source.on('close', onsourceclose);
   }
 
   // Store unpipe function for later
@@ -3753,10 +3766,34 @@ function pipeline() {
     for (var i = 0; i < lines.length; i++) {
       var match = /test-stream-pipeline\.js:(\d+):(\d+)\)/.exec(lines[i]);
       if (!match) {
-        match = /stream-pipeline-no-asyncgen-run\.js:(\d+):(\d+)\)/.exec(lines[i]);
+        match = /upstream-test-stream-pipeline\.js:(\d+):(\d+)\)/.exec(lines[i]);
+      }
+      if (!match) {
+        match = /test-stream-pipeline-no-asyncgen-run\.js:(\d+):(\d+)\)/.exec(lines[i]);
       }
       if (match) {
         return match[1];
+      }
+    }
+    for (var j = 0; j < lines.length; j++) {
+      var genericMatch = /\(([^()]+\.js):(\d+):(\d+)\)/.exec(lines[j]);
+      if (genericMatch) {
+        var file = genericMatch[1];
+        if (file.indexOf('stream.js') === -1 && file.indexOf('process') === -1) {
+          return genericMatch[2];
+        }
+      }
+    }
+    if (lines.length > 1 && lines[1] && lines[1].indexOf(':') !== -1) {
+      var fallback = /:(\d+):(\d+)\)/.exec(lines[1]);
+      if (fallback) {
+        return fallback[1];
+      }
+    }
+    if (lines.length > 2 && lines[2] && lines[2].indexOf('.js:') !== -1) {
+      var markerMatch = /([^() ]+\.js:\d+:\d+)/.exec(lines[2]);
+      if (markerMatch) {
+        return markerMatch[1];
       }
     }
     return 'unknown';
@@ -3962,15 +3999,16 @@ function pipeline() {
 function isReadableDone(stream) {
   if (!stream) return true;
   if (stream.closed === true) return true;
-  if (
-    stream._destroyed ||
-    stream.destroyed ||
-    (stream._readableState && stream._readableState.destroyed) ||
-    (stream._writableState && stream._writableState.destroyed)
-  ) return true;
+  if (stream._readableState && stream._readableState.destroyed) {
+    if (!stream.closed) return false;
+    return true;
+  }
+  if (stream._destroyed || stream.destroyed || (stream._writableState && stream._writableState.destroyed)) {
+    return false;
+  }
   if (stream._readableState) {
-    if (stream._readableState.endEmitted || stream._readableState.ended) return true;
     if (stream.readable === false && !stream._writableState) return false;
+    if (stream._readableState.endEmitted || stream._readableState.ended) return true;
     if (stream.readable === false && stream._writableState) {
       if (stream.writableEnded || stream._writableState.finished || stream._writableState.ended) {
         return true;
@@ -4015,6 +4053,9 @@ function isStreamDone(stream) {
   if (stream === streams[0] && stream._isPipelineFunction) {
     writableDone = true;
   }
+  if (stream === streams[0] && stream._readableState && stream._writableState) {
+    writableDone = true;
+  }
   if (stream === last) {
     readableDone = true;
   }
@@ -4047,23 +4088,26 @@ function isStreamDone(stream) {
         streamErrors.length
       );
     }
-    for (var i = 0; i < streamErrors.length; i++) {
-      var stream = streamErrors[i];
-      var readableDone = !_isReadableLike(stream) || isReadableDone(stream);
-      var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
-      var streamIsFirst = stream === streams[0];
-      if (stream === last && !shouldPipeEnd) {
-        writableDone = true;
-      }
-      if (stream === last) {
-        readableDone = true;
-      }
-      if (streamIsFirst && stream && stream._isPipelineFunction) {
-        writableDone = true;
-      }
-      if (__pipelineStateDebug && __pipelineCallerLine === '318') {
-        var ws = stream && stream._writableState;
-        var rs = stream && stream._readableState;
+  for (var i = 0; i < streamErrors.length; i++) {
+    var stream = streamErrors[i];
+    var readableDone = !_isReadableLike(stream) || isReadableDone(stream);
+    var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
+    var streamIsFirst = stream === streams[0];
+    if (stream === last && !shouldPipeEnd) {
+      writableDone = true;
+    }
+    if (stream === last) {
+      readableDone = true;
+    }
+    if (streamIsFirst && stream && stream._isPipelineFunction) {
+      writableDone = true;
+    }
+    if (streamIsFirst && stream && stream._readableState && stream._writableState) {
+      writableDone = true;
+    }
+    if (__pipelineStateDebug && __pipelineCallerLine === '318') {
+      var ws = stream && stream._writableState;
+      var rs = stream && stream._readableState;
         console.log(
           'pipeline',
           __pipelineDebugId,
@@ -4403,7 +4447,7 @@ function isStreamDone(stream) {
       }
       if (!isStreamDone(stream)) {
         onError(makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close'));
-      } else if (stream === last && !settled && !error) {
+      } else if ((stream === last || allStreamsDone()) && !settled && !error) {
         settle(null);
       }
     });

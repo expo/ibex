@@ -90,7 +90,7 @@ function _drainPendingEnd(stream) {
 function _shouldAutoDestroyOnReadableEnd(stream, readableState) {
 	if (!stream || !readableState) return false;
 	if (!readableState.autoDestroy || stream._destroyed || stream._closed) return false;
-	if (stream.allowHalfOpen === false && stream.writable !== false && stream._writableState) return false;
+	if (stream._writableState && stream.writable !== false) return false;
 	return true;
 }
 function _createWriteQueueItem(chunk, encoding, callback, chunkLen) {
@@ -2231,6 +2231,7 @@ function Writable(options) {
 	Stream.call(this);
 	var self = this;
 	var objMode = options && options.writableObjectMode != null ? !!options.writableObjectMode : !!(options && options.objectMode);
+	var decodeStrings = options && options.decodeStrings != null ? !!options.decodeStrings : true;
 	var hwm;
 	if (options && options.highWaterMark != null) hwm = options.highWaterMark;
 	else if (options && options.writableHighWaterMark != null) hwm = options.writableHighWaterMark;
@@ -2252,12 +2253,12 @@ function Writable(options) {
 	this._writableState = {
 		highWaterMark: hwm,
 		objectMode: objMode,
+		decodeStrings: decodeStrings,
 		length: 0,
 		writing: false,
 		ended: false,
 		finished: false,
 		destroyed: false,
-		decodeStrings: true,
 		bufferedRequest: null,
 		bufferedRequestCount: 0,
 		defaultEncoding: "utf8",
@@ -2409,7 +2410,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 		return false;
 	}
 	if (chunk === null) throw makeError(TypeError, "ERR_STREAM_NULL_VALUES", "May not write null values to stream");
-	if (!this.writableObjectMode && typeof chunk === "string") {
+	if (!this.writableObjectMode && this._writableState.decodeStrings !== false && typeof chunk === "string") {
 		var enc = state && state.defaultEncoding ? state.defaultEncoding : encoding || "utf8";
 		if (typeof Buffer !== "undefined" && Buffer.from) chunk = Buffer.from(chunk, enc);
 		else if (typeof TextEncoder !== "undefined") chunk = new TextEncoder().encode(chunk);
@@ -2637,8 +2638,12 @@ Writable.prototype.end = function(chunk, encoding, callback) {
 		state.finished = true;
 		self.emit("finish");
 		state.errorEmitted = false;
-		if (self._writableState.autoDestroy && !self._destroyed) self.destroy();
-		else self._close();
+		if (self._writableState.autoDestroy && !self._destroyed) {
+			if (self._readableState && self.readable !== false && self._readableState.readable !== false) self._close();
+			else self.destroy();
+		} else {
+			self._close();
+		}
 		var callbacks = self._endCallbacks;
 		self._endCallbacks = [];
 		for (var j = 0; j < callbacks.length; j++) callbacks[j](null);
@@ -3274,10 +3279,16 @@ function pipeline() {
 		function isReadableDone(stream) {
 			if (!stream) return true;
 			if (stream.closed === true) return true;
-			if (stream._destroyed || stream.destroyed || stream._readableState && stream._readableState.destroyed || stream._writableState && stream._writableState.destroyed) return true;
+			if (stream._readableState && stream._readableState.destroyed) {
+				if (!stream.closed) return false;
+				return true;
+			}
+			if (stream._destroyed || stream.destroyed || stream._writableState && stream._writableState.destroyed) {
+				return false;
+			}
 			if (stream._readableState) {
-				if (stream._readableState.endEmitted || stream._readableState.ended) return true;
 				if (stream.readable === false && !stream._writableState) return false;
+				if (stream._readableState.endEmitted || stream._readableState.ended) return true;
 				if (stream.readable === false && stream._writableState) {
 					if (stream.writableEnded || stream._writableState.finished || stream._writableState.ended) return true;
 					return false;
@@ -3305,6 +3316,7 @@ function pipeline() {
 			var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
 			if (!shouldPipeEnd && stream === last) writableDone = true;
 			if (stream === streams[0] && stream._isPipelineFunction) writableDone = true;
+			if (stream === streams[0] && stream._readableState && stream._writableState) writableDone = true;
 			if (stream === last) readableDone = true;
 			return readableDone && writableDone;
 		}
@@ -3331,6 +3343,7 @@ function pipeline() {
 				if (stream === last && !shouldPipeEnd) writableDone = true;
 				if (stream === last) readableDone = true;
 				if (streamIsFirst && stream && stream._isPipelineFunction) writableDone = true;
+				if (streamIsFirst && stream && stream._readableState && stream._writableState) writableDone = true;
 				if (__pipelineStateDebug && __pipelineCallerLine === "318") {
 					var ws = stream && stream._writableState;
 					var rs = stream && stream._readableState;
@@ -3565,7 +3578,7 @@ function pipeline() {
 					return;
 				}
 				if (!isStreamDone(stream)) onError(makeError(Error, "ERR_STREAM_PREMATURE_CLOSE", "Premature close"));
-				else if (stream === last && !settled && !error) settle(null);
+				else if ((stream === last || allStreamsDone()) && !settled && !error) settle(null);
 			});
 		}
 		function onAbort() {
@@ -4221,7 +4234,87 @@ function _patchWebStreamPrototypeInterop() {
 		globalThis.WritableStream.prototype.__exactWebStreamInteropPatched = true;
 	}
 }
-_patchWebStreamPrototypeInterop();
+// Avoid monkey-patching web stream prototypes so global stream tests can
+// validate native async iterator/readable behaviors without host overrides.
+// Per-stream state tracking is still wired via instance trackers when
+// _getWebStreamState(stream) is used.
+// _patchWebStreamPrototypeInterop();
+function _sanitizeReadableStreamIterator(iterator) {
+	if (!iterator || typeof iterator !== "object") return iterator;
+	var nextMethod = iterator.next;
+	var returnMethod = iterator.return;
+	if (typeof nextMethod !== "function" || typeof returnMethod !== "function") return iterator;
+
+	var iteratorPrototype = Object.getPrototypeOf(iterator);
+	var sanitizedPrototype = Object.create(
+		iteratorPrototype && Object.getPrototypeOf(iteratorPrototype) || Object.prototype
+	);
+
+	Object.defineProperty(sanitizedPrototype, "next", {
+		configurable: true,
+		enumerable: true,
+		writable: true,
+		value: function() {
+			return nextMethod.apply(iterator, arguments);
+		}
+	});
+	Object.defineProperty(sanitizedPrototype, "return", {
+		configurable: true,
+		enumerable: true,
+		writable: true,
+		value: function(value) {
+			return returnMethod.call(iterator, value);
+		}
+	});
+
+	if (typeof Symbol === "function" && typeof Symbol.asyncIterator === "symbol" && !Object.prototype.hasOwnProperty.call(sanitizedPrototype, Symbol.asyncIterator)) {
+		Object.defineProperty(sanitizedPrototype, Symbol.asyncIterator, {
+			value: function() {
+				return this;
+			},
+			writable: true,
+			configurable: true,
+			enumerable: false
+		});
+	}
+
+	return Object.create(sanitizedPrototype);
+}
+function _installReadableStreamIteratorNormalizer() {
+	if (typeof globalThis.ReadableStream !== "function") return;
+	if (typeof globalThis.ReadableStream.prototype !== "object" || globalThis.ReadableStream.prototype === null) return;
+
+	var prototype = globalThis.ReadableStream.prototype;
+	if (typeof prototype.values !== "function") return;
+	if (prototype.__exactReadableStreamIteratorPatched) return;
+
+	var originalValues = prototype.values;
+	var asyncIteratorSymbol = typeof Symbol === "function" ? Symbol.asyncIterator : null;
+	var originalAsyncIterator = asyncIteratorSymbol && prototype[asyncIteratorSymbol];
+	var originalGetReader = prototype.getReader;
+
+	if (typeof originalGetReader === "function" && !originalGetReader.__exactReadableStreamGetReaderPatched) {
+		prototype.getReader = function(options) {
+			return originalGetReader.call(this, options);
+		};
+		prototype.getReader.__exactReadableStreamGetReaderPatched = true;
+	}
+
+	if (typeof originalValues === "function") {
+		prototype.values = function() {
+			return _sanitizeReadableStreamIterator(originalValues.apply(this, arguments));
+		};
+	}
+
+	if (typeof originalAsyncIterator === "function" && asyncIteratorSymbol) {
+		prototype[asyncIteratorSymbol] = function() {
+			return _sanitizeReadableStreamIterator(originalAsyncIterator.apply(this, arguments));
+		};
+	}
+
+	prototype.__exactReadableStreamIteratorPatched = true;
+}
+_installReadableStreamIteratorNormalizer();
 function _installWebStreamReaderTracker(stream, state) {
 	if (!stream || typeof stream.getReader !== "function" || !stream.getReader) return;
 	try {
