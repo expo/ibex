@@ -773,7 +773,9 @@
     function _initBlob() {
       function Blob(parts, options) {
         this._parts = parts || [];
-        this.type = (options && options.type) || '';
+        var rawType = (options && options.type) || '';
+        // Per spec: Blob type must be ASCII-lowercased
+        this.type = rawType.toLowerCase();
         var totalSize = 0;
         for (var i = 0; i < this._parts.length; i++) {
           var part = this._parts[i];
@@ -792,22 +794,86 @@
           if (typeof part === 'string') result += part;
           else if (part instanceof Uint8Array) {
             for (var j = 0; j < part.length; j++) result += String.fromCharCode(part[j]);
+          } else if (part instanceof ArrayBuffer) {
+            var view = new Uint8Array(part);
+            for (var j = 0; j < view.length; j++) result += String.fromCharCode(view[j]);
+          } else if (ArrayBuffer.isView(part)) {
+            var bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
+            for (var j = 0; j < bytes.length; j++) result += String.fromCharCode(bytes[j]);
+          } else if (part && part._parts) {
+            // Blob-like object: recursively get text
+            var subParts = part._parts;
+            for (var k = 0; k < subParts.length; k++) {
+              var sub = subParts[k];
+              if (typeof sub === 'string') result += sub;
+              else if (sub instanceof Uint8Array) {
+                for (var j = 0; j < sub.length; j++) result += String.fromCharCode(sub[j]);
+              } else if (sub instanceof ArrayBuffer) {
+                var sv = new Uint8Array(sub);
+                for (var j = 0; j < sv.length; j++) result += String.fromCharCode(sv[j]);
+              }
+            }
           } else result += String(part);
         }
         return Promise.resolve(result);
       };
       Blob.prototype.arrayBuffer = function() {
-        var self = this;
-        return this.text().then(function(text) {
-          var buf = new Uint8Array(text.length);
-          for (var i = 0; i < text.length; i++) buf[i] = text.charCodeAt(i);
-          return buf.buffer;
-        });
+        var parts = this._parts;
+        var totalSize = this.size;
+        var result = new Uint8Array(totalSize);
+        var offset = 0;
+        for (var i = 0; i < parts.length; i++) {
+          var part = parts[i];
+          if (typeof part === 'string') {
+            for (var j = 0; j < part.length; j++) result[offset++] = part.charCodeAt(j) & 0xff;
+          } else if (part instanceof Uint8Array) {
+            result.set(part, offset);
+            offset += part.length;
+          } else if (part instanceof ArrayBuffer) {
+            result.set(new Uint8Array(part), offset);
+            offset += part.byteLength;
+          } else if (ArrayBuffer.isView(part)) {
+            var bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
+            result.set(bytes, offset);
+            offset += bytes.length;
+          } else if (part && part._parts) {
+            var subBytes = part._getBytes ? part._getBytes() : new Uint8Array(0);
+            result.set(subBytes, offset);
+            offset += subBytes.length;
+          }
+        }
+        return Promise.resolve(result.buffer);
       };
       Blob.prototype.slice = function(start, end, contentType) {
         return this.text().then(function(text) {
           return new Blob([text.slice(start, end)], { type: contentType || '' });
         });
+      };
+      Blob.prototype._getBytes = function() {
+        var totalSize = this.size;
+        var result = new Uint8Array(totalSize);
+        var offset = 0;
+        for (var i = 0; i < this._parts.length; i++) {
+          var part = this._parts[i];
+          if (typeof part === 'string') {
+            for (var j = 0; j < part.length; j++) result[offset++] = part.charCodeAt(j) & 0xff;
+          } else if (part instanceof Uint8Array) {
+            result.set(part, offset);
+            offset += part.length;
+          } else if (part instanceof ArrayBuffer) {
+            result.set(new Uint8Array(part), offset);
+            offset += part.byteLength;
+          } else if (ArrayBuffer.isView(part)) {
+            var bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
+            result.set(bytes, offset);
+            offset += bytes.length;
+          } else if (part && part._getBytes) {
+            var subBytes = part._getBytes();
+            result.set(subBytes, offset);
+            offset += subBytes.length;
+          }
+        }
+        return result;
       };
       Blob.prototype.stream = function() { return null; };
       globalThis.Blob = Blob;
