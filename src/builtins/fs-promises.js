@@ -115,16 +115,121 @@ FileHandle.prototype.read = function(buffer, offset, length, position, callback)
   });
 };
 
+FileHandle.prototype.write = function(buffer, offset, length, position) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  return new Promise(function(resolve, reject) {
+    fs.write(fd, buffer, offset, length, position, function(err, bytesWritten, data) {
+      if (err) {
+        reject(handleError(err));
+        return;
+      }
+      resolve({ bytesWritten: bytesWritten, buffer: data });
+    });
+  });
+};
+
+FileHandle.prototype.readFile = function(options) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  try {
+    return Promise.resolve(fs.readFileSync(fd, options));
+  } catch (err) {
+    return Promise.reject(handleError(err));
+  }
+};
+
+FileHandle.prototype.writeFile = function(data, options) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  try {
+    fs.writeFileSync(fd, data, options);
+    return Promise.resolve();
+  } catch (err) {
+    return Promise.reject(handleError(err));
+  }
+};
+
+FileHandle.prototype.stat = function(options) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  try {
+    return Promise.resolve(fs.fstatSync(fd, options));
+  } catch (err) {
+    return Promise.reject(handleError(err));
+  }
+};
+
+FileHandle.prototype.chmod = function(mode) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  try {
+    fs.fchmodSync(fd, mode);
+    return Promise.resolve();
+  } catch (err) {
+    return Promise.reject(handleError(err));
+  }
+};
+
+FileHandle.prototype.chown = function(uid, gid) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  try {
+    fs.fchownSync(fd, uid, gid);
+    return Promise.resolve();
+  } catch (err) {
+    return Promise.reject(handleError(err));
+  }
+};
+
+FileHandle.prototype.readv = function(buffers, position) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  try {
+    var bytesRead = fs.readvSync(fd, buffers, position);
+    return Promise.resolve({ bytesRead: bytesRead, buffers: buffers });
+  } catch (err) {
+    return Promise.reject(handleError(err));
+  }
+};
+
+FileHandle.prototype.writev = function(buffers, position) {
+  var fd = this.fd;
+  if (fd === null || fd === undefined) {
+    return Promise.reject(new Error('File descriptor is not open'));
+  }
+  try {
+    var bytesWritten = fs.writevSync(fd, buffers, position);
+    return Promise.resolve({ bytesWritten: bytesWritten, buffers: buffers });
+  } catch (err) {
+    return Promise.reject(handleError(err));
+  }
+};
+
 FileHandle.prototype.truncate = function(len) {
   var fd = this.fd;
   if (fd === null || fd === undefined) {
     return Promise.reject(new Error('File descriptor is not open'));
   }
   try {
-    if (typeof fs.truncateSync === 'function') {
-      fs.truncateSync(this._path, len);
-    } else {
+    if (typeof fs.ftruncateSync === 'function') {
       fs.ftruncateSync(fd, len);
+    } else if (typeof fs.truncateSync === 'function') {
+      fs.truncateSync(this._path, len);
     }
     return Promise.resolve();
   } catch (err) {
@@ -190,7 +295,23 @@ var promises = {
   readdir: base.readdir || function(path) { return Promise.resolve(fs.readdirSync(path)); },
   appendFile: base.appendFile || function(path, data) { fs.appendFileSync(path, data); return Promise.resolve(); },
   utimes: base.utimes || function(path, atime, mtime) { fs.utimesSync(path, atime, mtime); return Promise.resolve(); },
+  chmod: base.chmod || function(path, mode) {
+    try { fs.chmodSync(path, mode); return Promise.resolve(); }
+    catch (err) { return Promise.reject(handleError(err)); }
+  },
   chown: base.chown || function(path, uid, gid) { fs.chownSync(path, uid, gid); return Promise.resolve(); },
+  lchown: base.lchown || function(path, uid, gid) {
+    try { fs.lchownSync(path, uid, gid); return Promise.resolve(); }
+    catch (err) { return Promise.reject(handleError(err)); }
+  },
+  lutimes: base.lutimes || function(path, atime, mtime) {
+    try { fs.lutimesSync(path, atime, mtime); return Promise.resolve(); }
+    catch (err) { return Promise.reject(handleError(err)); }
+  },
+  statfs: base.statfs || function(path, options) {
+    try { return Promise.resolve(fs.statfsSync(path, options)); }
+    catch (err) { return Promise.reject(handleError(err)); }
+  },
   readv: base.readv || function(fd, buffers, position) {
     try {
       return Promise.resolve({
@@ -214,7 +335,14 @@ var promises = {
   fdatasync: base.fdatasync || function(fd) { return Promise.resolve(); },
   fsync: base.fsync || function(fd) { return Promise.resolve(); },
   sendFile: base.sendFile,
-  opendir: base.opendir || function(path, options) { return Promise.resolve({ path: path, options: options }); },
+  opendir: base.opendir || function(path, options) {
+    try {
+      var dir = fs.opendirSync(path, options);
+      return Promise.resolve(dir);
+    } catch (err) {
+      return Promise.reject(handleError(err));
+    }
+  },
   rm: base.rm || function(path, options) { fs.rmSync(path, options || {}); return Promise.resolve(); },
   mkdtemp: base.mkdtemp || function(prefix) { return Promise.resolve(fs.mkdtempSync(prefix)); },
   readFileSync: function(path, options) { return fs.readFileSync(path, options); },

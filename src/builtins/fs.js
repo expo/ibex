@@ -1658,6 +1658,12 @@ function statfsSync(path, options) {
     throw _makeFsError(e, 'statfs', p);
   }
 }
+function statfs(path, options, cb) {
+  if (typeof options === 'function') { cb = options; options = undefined; }
+  _validateCallback(cb);
+  _validatePath(path);
+  wrapCallback(function() { return statfsSync(path, options); }, cb, 'statfs', _pathToString(path));
+}
 
 function _patternToRegex(pattern) {
   var escaped = '';
@@ -4219,10 +4225,32 @@ FileHandlePromise.prototype.readLines = function() {
     return _makeAsyncIteratorFromArray(lines);
   })();
 };
-FileHandlePromise.prototype.stat = function() {
+FileHandlePromise.prototype.stat = function(options) {
   var handle = this;
   return _resolveAsync(function() {
-    return fstatSync(handle.fd);
+    handle._ensureOpen();
+    return fstatSync(handle.fd, options);
+  })();
+};
+FileHandlePromise.prototype.chmod = function(mode) {
+  var handle = this;
+  return _resolveAsync(function() {
+    handle._ensureOpen();
+    fchmodSync(handle.fd, mode);
+  })();
+};
+FileHandlePromise.prototype.chown = function(uid, gid) {
+  var handle = this;
+  return _resolveAsync(function() {
+    handle._ensureOpen();
+    fchownSync(handle.fd, uid, gid);
+  })();
+};
+FileHandlePromise.prototype.utimes = function(atime, mtime) {
+  var handle = this;
+  return _resolveAsync(function() {
+    handle._ensureOpen();
+    futimesSync(handle.fd, atime, mtime);
   })();
 };
 function _makeAsyncIteratorFromArray(values) {
@@ -4420,10 +4448,17 @@ function fchmodSync(fd, mode) {
 function fchown(fd, uid, gid, callback) {
   _validateFdNonNegative(fd);
   if (typeof uid !== 'number') throw _fsInvalidArgType('uid', 'number', uid);
-  if (typeof uid === 'number') _validateUidOrGid('uid', uid);
+  _validateUidOrGid('uid', uid);
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
   _validateUidOrGid('gid', gid);
   if (callback !== undefined && typeof callback !== 'function') _validateCallback(callback);
+  // Match fchownSync: no-op when both uid and gid are -1
+  if (uid === -1 && gid === -1) {
+    if (typeof callback === 'function') {
+      _deferFsCallback(function() { callback(null); });
+    }
+    return;
+  }
   ensureExactFs();
   if (typeof callback === 'function') {
     if (typeof g.__exactFsFchown === 'function') {
@@ -4453,7 +4488,7 @@ function fchown(fd, uid, gid, callback) {
 function fchownSync(fd, uid, gid) {
   _validateFdNonNegative(fd);
   if (typeof uid !== 'number') throw _fsInvalidArgType('uid', 'number', uid);
-  if (typeof uid === 'number') _validateUidOrGid('uid', uid);
+  _validateUidOrGid('uid', uid);
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
   _validateUidOrGid('gid', gid);
   if (uid === -1 && gid === -1) return;
@@ -4723,7 +4758,7 @@ module.exports = {
   globSync: globSync,
   truncate: truncate,
   truncateSync: truncateSync,
-  statfs: statfsSync,
+  statfs: statfs,
   statfsSync: statfsSync,
   chown: chown,
   chownSync: chownSync,
