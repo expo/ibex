@@ -1369,8 +1369,22 @@ Server.prototype.address = function() {
   return { address: this._host || '0.0.0.0', port: this._port || 0, family: 'IPv4' };
 };
 
-Server.prototype.ref = function() { return this; };
-Server.prototype.unref = function() { return this; };
+Server.prototype.ref = function() {
+  this._unrefed = false;
+  if (this.listening && this._handle != null && this._acceptTimer == null) {
+    this._startAccepting();
+  }
+  return this;
+};
+Server.prototype.unref = function() {
+  this._unrefed = true;
+  // Stop the accept polling timer so this server doesn't keep the event loop alive
+  if (this._acceptTimer != null) {
+    clearTimeout(this._acceptTimer);
+    this._acceptTimer = null;
+  }
+  return this;
+};
 Server.prototype.getConnections = function(cb) {
   var count = this._connections || 0;
   if (cb) setTimeout(function() { cb(null, count); }, 0);

@@ -10,6 +10,13 @@ function resolveHeaderName(value) {
   return value.toLowerCase();
 }
 
+// Convert a lowercase header name to HTTP title case (e.g. content-length -> Content-Length)
+function toHeaderCase(name) {
+  return name.replace(/(?:^|-)([a-z])/g, function(match, letter, offset) {
+    return offset === 0 ? letter.toUpperCase() : '-' + letter.toUpperCase();
+  });
+}
+
 function toHttpUrl(options) {
   if (typeof options === "string") {
     return options;
@@ -723,8 +730,8 @@ HttpRequestParser.prototype._emitRequest = function() {
     method: this._method,
     url: this._url,
     httpVersion: this._httpVersion,
-    httpVersionMajor: parseInt(verParts[0], 10) || 1,
-    httpVersionMinor: parseInt(verParts[1], 10) || 1,
+    httpVersionMajor: verParts[0] !== undefined ? (parseInt(verParts[0], 10) || 1) : 1,
+    httpVersionMinor: verParts[1] !== undefined ? parseInt(verParts[1], 10) : 1,
     headers: this._headers,
     rawHeaders: this._rawHeaders,
     body: this._bodyData
@@ -864,7 +871,47 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
     }
   }
   if (callback) setTimeout(callback, 0);
+  // Signal backpressure if the underlying socket's write queue is backed up.
+  // When backpressure is detected, also pause the socket so it stops reading new
+  // requests. This prevents an unbounded flood of pipelined requests from building
+  // up in memory. The socket will be resumed when it drains.
+  if (this.socket && this.socket._writeQueue && this.socket._writeQueue.length > 0) {
+    var self = this;
+    var sock = this.socket;
+    if (sock._paused !== true) {
+      sock._paused = true;
+      // Resume reading when the socket drains
+      sock.once('drain', function() {
+        if (sock._paused) {
+          sock._paused = false;
+          sock._lastActivity = Date.now();
+        }
+      });
+    }
+    return false;
+  }
   return true;
+};
+
+// Stream a chunk directly to the socket (enables incremental response delivery)
+ServerResponse.prototype._streamChunk = function(data, callback) {
+  if (!this._headersSent) {
+    // Send headers without content-length (streaming mode)
+    var statusMsg = this.statusMessage || STATUS_CODES[this.statusCode] || 'Unknown';
+    var head = 'HTTP/1.1 ' + this.statusCode + ' ' + statusMsg + '\r\n';
+    for (var k in this._headers) {
+      if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
+        head += toHeaderCase(k) + ': ' + this._headers[k] + '\r\n';
+      }
+    }
+    head += '\r\n';
+    this._headersSent = true;
+    this._streaming = true;
+    // Write headers + first chunk together
+    this.socket.write(head + data, callback ? function() { setTimeout(callback, 0); } : undefined);
+  } else {
+    this.socket.write(data, callback ? function() { setTimeout(callback, 0); } : undefined);
+  }
 };
 
 ServerResponse.prototype.end = function(chunk, encoding, callback) {
@@ -912,34 +959,137 @@ ServerResponse.prototype._sendNativeResponse = function() {
 
 // Socket-based response (Node.js compat)
 ServerResponse.prototype._sendSocketResponse = function() {
-  if (this.socket) {
+  var socket = this.socket;
+  if (socket) {
+    // Determine connection behavior from request/response headers
+    var req = this._req;
+    var reqConnection = (req && req.headers && req.headers['connection']) || '';
+    var reqTE = (req && req.headers && req.headers['te']) || '';
+    // Use != null to properly handle httpVersionMinor === 0 (HTTP/1.0) without falsy coercion
+    var httpVersionMajor = (req && req.httpVersionMajor != null) ? req.httpVersionMajor : 1;
+    var httpVersionMinor = (req && req.httpVersionMinor != null) ? req.httpVersionMinor : 1;
+    var respConnection = this._headers['connection'] || '';
+    var reqConnectionLower = reqConnection.toLowerCase();
+    var respConnectionLower = respConnection.toLowerCase();
+
+    // For HTTP/1.0, keep-alive is only possible if:
+    // 1. Client explicitly sends Connection: keep-alive
+    // 2. AND the response body length is known (either via Content-Length or Transfer-Encoding: chunked)
+    //    so the client can determine where the response ends without closing the connection.
+    // Without framing, HTTP/1.0 clients rely on connection close to detect response end.
+    var clientSupportsKeepAlive;
+    if (httpVersionMajor === 1 && httpVersionMinor === 0) {
+      // HTTP/1.0: only keep-alive if client explicitly requests it
+      clientSupportsKeepAlive = reqConnectionLower.indexOf('keep-alive') !== -1;
+      // But we also need body-length framing (checked below when we know the response headers)
+    } else {
+      // HTTP/1.1+: keep-alive unless client says close
+      clientSupportsKeepAlive = reqConnectionLower.indexOf('close') === -1;
+    }
+
+    // Server can override by setting Connection: close
+    var keepAlive = clientSupportsKeepAlive
+      && respConnectionLower.indexOf('close') === -1;
+
     if (!this._headersSent) {
       var body = this._bodyParts.join('');
       var statusMsg = this.statusMessage || STATUS_CODES[this.statusCode] || 'Unknown';
       var head = 'HTTP/1.1 ' + this.statusCode + ' ' + statusMsg + '\r\n';
+      // For HTTP/1.0 keep-alive: check framing BEFORE auto-adding Content-Length.
+      // Keep-alive is only allowed if:
+      //   1. The server EXPLICITLY set Content-Length or Transfer-Encoding: chunked in
+      //      the response headers (set via writeHead/setHeader before end()), OR
+      //   2. The client sent TE: chunked in the request.
+      // Auto-computed Content-Length (added below) does NOT count because the node.js
+      // reference implementation only honors keep-alive if the server explicitly signals
+      // that the client can determine the message boundary without closing the connection.
+      if (httpVersionMajor === 1 && httpVersionMinor === 0) {
+        // Check framing before auto-add (while _headers reflect only explicitly-set headers)
+        var hasExplicitFraming = this._headers['content-length'] != null
+          || (this._headers['transfer-encoding'] || '').toLowerCase().indexOf('chunked') !== -1;
+        var clientSendsTE = reqTE.toLowerCase().indexOf('chunked') !== -1;
+        if (!hasExplicitFraming && !clientSendsTE) {
+          // No framing: force close regardless of client/server connection preference
+          keepAlive = false;
+          // Also override any server-set connection header
+          if (this._headers['connection']) {
+            this._headers['connection'] = 'close';
+          }
+        }
+      }
       if (!this._headers['content-length']) {
         var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
           ? Buffer.byteLength(body) : body.length;
         this._headers['content-length'] = String(bodyLen);
       }
+      // Add connection header if not already set
+      if (!this._headers['connection']) {
+        this._headers['connection'] = keepAlive ? 'keep-alive' : 'close';
+      } else {
+        // Server pre-set the connection header; use it (framing check above already enforced)
+        keepAlive = this._headers['connection'].toLowerCase().indexOf('keep-alive') !== -1;
+      }
       for (var k in this._headers) {
         if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
-          head += k + ': ' + this._headers[k] + '\r\n';
+          head += toHeaderCase(k) + ': ' + this._headers[k] + '\r\n';
         }
       }
       head += '\r\n';
       this._headersSent = true;
-      try { this.socket.write(head + body); } catch(e) {}
+
+      if (keepAlive) {
+        // Keep-alive: write response and keep socket open for next request.
+        // Socket is re-used; mark as idle so server.close() can clean it up.
+        try { socket.write(head + body); } catch(e) {}
+        this.detachSocket(socket);
+        socket._httpMessage = null;
+        socket._isIdle = true;
+      } else {
+        // Close connection: write response then gracefully half-close (FIN).
+        // Using socket.end() instead of socket.destroy() avoids RST when
+        // there is unread data in the receive buffer.
+        this.detachSocket(socket);
+        socket.parser = null;
+        socket[kTimeout] = null;
+        try {
+          socket.write(head + body, function() {
+            try { socket.end(); } catch(e) {
+              try { socket.destroy(); } catch(e2) {}
+            }
+          });
+        } catch(e) {
+          try { socket.destroy(); } catch(e2) {}
+        }
+      }
+    } else {
+      // Headers already sent (streaming mode): send remaining buffered body
+      var remainingBody = this._bodyParts.join('');
+      // Re-check keep-alive using the connection header already sent in headers
+      var streamKeepAlive = (this._headers['connection'] || '').toLowerCase().indexOf('keep-alive') !== -1;
+      if (!streamKeepAlive) {
+        streamKeepAlive = keepAlive;
+      }
+      if (streamKeepAlive) {
+        // Keep-alive streaming: write remaining body, keep socket open
+        try { socket.write(remainingBody || ''); } catch(e) {}
+        this.detachSocket(socket);
+        socket._httpMessage = null;
+        socket._isIdle = true;
+      } else {
+        this.detachSocket(socket);
+        socket.parser = null;
+        socket[kTimeout] = null;
+        try {
+          socket.write(remainingBody || '', function() {
+            try { socket.end(); } catch(e) {
+              try { socket.destroy(); } catch(e2) {}
+            }
+          });
+        } catch(e) {
+          try { socket.destroy(); } catch(e2) {}
+        }
+      }
     }
-
-    // Clean up HTTP state on socket
-    var socket = this.socket;
-    this.detachSocket(socket);
-    socket.parser = null;
-    socket[kTimeout] = null;
-
-    // End the socket so the client gets EOF
-    try { socket.end(); } catch(e) {}
   }
 
   this.writableFinished = true;
@@ -958,8 +1108,8 @@ function ServerIncomingMessage(requestData, serverId) {
   this.method = requestData.method || 'GET';
   this.url = requestData.url || '/';
   this.httpVersion = requestData.httpVersion || '1.1';
-  this.httpVersionMajor = requestData.httpVersionMajor || 1;
-  this.httpVersionMinor = requestData.httpVersionMinor || 1;
+  this.httpVersionMajor = requestData.httpVersionMajor != null ? requestData.httpVersionMajor : 1;
+  this.httpVersionMinor = requestData.httpVersionMinor != null ? requestData.httpVersionMinor : 1;
   this.headers = {};
   this.rawHeaders = [];
   this.path = requestData.path || requestData.url || '/';
@@ -1017,7 +1167,10 @@ function ServerIncomingMessage(requestData, serverId) {
 }
 ServerIncomingMessage.prototype = Object.create(EventEmitter.prototype);
 ServerIncomingMessage.prototype.constructor = ServerIncomingMessage;
-ServerIncomingMessage.prototype.setEncoding = function() { return this; };
+ServerIncomingMessage.prototype.setEncoding = function(enc) {
+  this._encoding = enc;
+  return this;
+};
 ServerIncomingMessage.prototype.pause = function() { return this; };
 ServerIncomingMessage.prototype.resume = function() {
   if (this._consumed) return this;
@@ -1027,14 +1180,29 @@ ServerIncomingMessage.prototype.resume = function() {
   setTimeout(function() {
     if (self._body) self.emit('data', self._body);
     self.emit('end');
+    self.emit('close');
   }, 0);
   return this;
 };
-ServerIncomingMessage.prototype.read = function() { return null; };
+ServerIncomingMessage.prototype.read = function() {
+  if (this._consumed) return null;
+  var body = this._body || null;
+  if (body) this._body = '';
+  return body;
+};
 ServerIncomingMessage.prototype.destroy = function() {
   this.emit('close');
   return this;
 };
+// Auto-resume when 'data' listener is attached
+ServerIncomingMessage.prototype.on = function(event, listener) {
+  EventEmitter.prototype.on.call(this, event, listener);
+  if (event === 'data' && !this._consumed) {
+    this.resume();
+  }
+  return this;
+};
+ServerIncomingMessage.prototype.addListener = ServerIncomingMessage.prototype.on;
 
 // ---------------------------------------------------------------------------
 // Server - built on net.js for real socket access (Node.js compat)
@@ -1053,6 +1221,11 @@ function Server(requestListener) {
   // Native bridge fallback
   this._serverId = 0;
   this._useNative = false;
+  // Track all active connections for closeAllConnections / closeIdleConnections
+  this._sockets = typeof Set === 'function' ? new Set() : null;
+  // Server-level timeout state
+  this._socketTimeout = 0;
+  this._serverTimeoutId = null;
 
   if (typeof requestListener === 'function') {
     this.on('request', requestListener);
@@ -1076,10 +1249,22 @@ Server.prototype._onConnection = function(socket) {
   socket[kTimeout] = null;
   socket.parser = null;
   socket._httpMessage = null;
+  socket._isIdle = true;
+  socket._httpServer = this;
+
+  var self = this;
+  // Track socket so we can close it when server closes
+  if (self._sockets) self._sockets.add(socket);
+
+  // Apply server socket timeout if set
+  if (self._socketTimeout && typeof socket.setTimeout === 'function') {
+    socket.setTimeout(self._socketTimeout, function() {
+      self.emit('timeout', socket);
+    });
+  }
 
   this.emit('connection', socket);
 
-  var self = this;
   var parser = new HttpRequestParser();
   socket.parser = parser;
 
@@ -1090,10 +1275,9 @@ Server.prototype._onConnection = function(socket) {
   socket.on('close', function() {
     socket.parser = null;
     socket[kTimeout] = null;
-    if (socket._httpMessage) {
-      socket._httpMessage = null;
-    }
+    if (socket._httpMessage) socket._httpMessage = null;
     if (parser) parser.close();
+    if (self._sockets) self._sockets.delete(socket);
   });
 
   socket.on('error', function() {});
@@ -1104,7 +1288,19 @@ Server.prototype._onConnection = function(socket) {
     req.connection = socket;
 
     var res = new ServerResponse(req);
+    res.req = req;
     res.assignSocket(socket);
+    socket._isIdle = false;
+
+    // When the response closes, mark socket as idle and close if server is closing
+    res.once('close', function() {
+      socket._isIdle = true;
+      if (self._closing && !socket.destroyed) {
+        try { socket.end(); } catch(e) {
+          try { socket.destroy(); } catch(e2) {}
+        }
+      }
+    });
 
     self.emit('request', req, res);
   };
@@ -1223,6 +1419,13 @@ Server.prototype.close = function(callback) {
   if (typeof callback === 'function') this.once('close', callback);
   this._closing = true;
   this._listening = false;
+  // Cancel any pending wall-clock server timeout
+  if (this._serverTimeoutId) {
+    clearTimeout(this._serverTimeoutId);
+    this._serverTimeoutId = null;
+  }
+  // Close idle keep-alive connections so the event loop can drain
+  this.closeIdleConnections();
 
   var self = this;
   if (this._netServer) {
@@ -1238,6 +1441,27 @@ Server.prototype.close = function(callback) {
     setTimeout(function() { self.emit('close'); }, 0);
   }
   return this;
+};
+
+Server.prototype.closeAllConnections = function() {
+  if (!this._sockets) return;
+  var sockets = [];
+  this._sockets.forEach(function(s) { sockets.push(s); });
+  for (var i = 0; i < sockets.length; i++) {
+    try { sockets[i].destroy(); } catch(e) {}
+  }
+};
+
+Server.prototype.closeIdleConnections = function() {
+  if (!this._sockets) return;
+  var sockets = [];
+  this._sockets.forEach(function(s) { sockets.push(s); });
+  for (var i = 0; i < sockets.length; i++) {
+    var sock = sockets[i];
+    if (sock._isIdle) {
+      try { sock.destroy(); } catch(e) {}
+    }
+  }
 };
 
 Server.prototype.address = function() {
@@ -1256,7 +1480,50 @@ Server.prototype.address = function() {
   return null;
 };
 
-Server.prototype.setTimeout = function() { return this; };
+Server.prototype.setTimeout = function(msecs, callback) {
+  if (typeof msecs === 'function') {
+    callback = msecs;
+    msecs = undefined;
+  }
+  if (msecs == null || msecs <= 0) return this;
+  var self = this;
+  this._socketTimeout = msecs;
+  if (typeof callback === 'function') {
+    this.on('timeout', callback);
+  }
+  // Use a wall-clock timer to fire the server timeout after msecs milliseconds.
+  // This matches Node.js behavior where server.setTimeout sets a deadline that
+  // applies globally. For more granular socket-level idle timeouts, the socket
+  // timeout is also applied when connections are created.
+  var self = this;
+  if (this._serverTimeoutId) clearTimeout(this._serverTimeoutId);
+  this._serverTimeoutId = setTimeout(function() {
+    self._serverTimeoutId = null;
+    // Emit timeout for each connected socket
+    if (self._sockets && self._sockets.size > 0) {
+      var sockets = [];
+      self._sockets.forEach(function(s) { sockets.push(s); });
+      for (var i = 0; i < sockets.length; i++) {
+        self.emit('timeout', sockets[i]);
+      }
+    } else {
+      self.emit('timeout');
+    }
+  }, msecs);
+  // Also apply socket-level idle timeout for more precise per-socket tracking
+  function applyTimeout(socket) {
+    if (socket && typeof socket.setTimeout === 'function') {
+      socket.setTimeout(msecs, function() {
+        self.emit('timeout', socket);
+      });
+    }
+  }
+  if (this._sockets) {
+    this._sockets.forEach(applyTimeout);
+  }
+  this._socketTimeoutApplier = applyTimeout;
+  return this;
+};
 Server.prototype.ref = function() {
   if (this._netServer && typeof this._netServer.ref === 'function') {
     this._netServer.ref();
