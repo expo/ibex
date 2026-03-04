@@ -635,12 +635,23 @@
       EventTarget.prototype.addEventListener = function(type, listener, options) {
         var capture = false;
         var once = false;
+        var passive = false;
+        var signal = null;
         if (options === true || options === false) {
           capture = !!options;
-        } else if (options && typeof options === 'object') {
+        } else if (options !== null && options !== undefined && typeof options === 'object') {
           capture = !!options.capture;
           once = !!options.once;
+          passive = !!options.passive;
+          if ('signal' in options) {
+            var rawSignal = options.signal;
+            if (rawSignal === null || (rawSignal !== undefined && !(rawSignal && typeof rawSignal === 'object' && 'aborted' in rawSignal))) {
+              throw new TypeError("Failed to execute 'addEventListener': The provided value is not of type 'AbortSignal'.");
+            }
+            signal = rawSignal || null;
+          }
         }
+        if (signal && signal.aborted) return;
         if (!this._listeners[type]) this._listeners[type] = [];
         var listeners = this._listeners[type];
         for (var i = 0; i < listeners.length; i++) {
@@ -648,12 +659,28 @@
             return;
           }
         }
-        listeners.push({ fn: listener, once: once, capture: capture });
+        var entry = { fn: listener, once: once, capture: capture, passive: passive, signal: signal };
+        listeners.push(entry);
         __addEventTargetEventListener(this, type, listener);
+        if (signal) {
+          var self = this;
+          var abortHandler = function() {
+            self.removeEventListener(type, listener, { capture: capture });
+          };
+          signal.addEventListener('abort', abortHandler, { once: true });
+        }
       };
-      EventTarget.prototype.removeEventListener = function(type, listener) {
+      EventTarget.prototype.removeEventListener = function(type, listener, options) {
         if (!this._listeners[type]) return;
-        this._listeners[type] = this._listeners[type].filter(function(l) { return l.fn !== listener; });
+        var capture = false;
+        if (options === true || options === false) {
+          capture = !!options;
+        } else if (options && typeof options === 'object') {
+          capture = !!options.capture;
+        }
+        this._listeners[type] = this._listeners[type].filter(function(l) {
+          return !(l.fn === listener && l.capture === capture);
+        });
         __removeEventTargetEventListener(this, type, listener);
       };
       EventTarget.prototype.dispatchEvent = function(event) {
@@ -662,33 +689,52 @@
         event.target = this;
         event.currentTarget = this;
         if (event.srcElement !== undefined) event.srcElement = this;
-        if (event.eventPhase !== undefined) event.eventPhase = 2; // AT_TARGET
+        if (event.eventPhase !== undefined) event.eventPhase = 2;
         if (!listeners || listeners.length === 0) {
           event.eventPhase = 0;
           event.currentTarget = null;
           return !event.defaultPrevented;
         }
         var snapshot = listeners.slice();
-        var current = this._listeners[event.type];
+        var self = this;
         for (var i = 0; i < snapshot.length; i++) {
           if (event._stopImmediatePropagation) break;
           var listener = snapshot[i];
-          if (!listener) {
-            continue;
+          if (!listener) continue;
+          var current = self._listeners[event.type];
+          if (!current) break;
+          var stillPresent = false;
+          for (var j = 0; j < current.length; j++) {
+            if (current[j].fn === listener.fn && current[j].capture === listener.capture) {
+              stillPresent = true;
+              break;
+            }
           }
-          if (listener.once && current) {
-            current = current.filter(function(entry) { return entry.fn !== listener.fn || entry.capture !== listener.capture; });
-            this._listeners[event.type] = current;
-            __removeEventTargetEventListener(this, event.type, listener.fn);
+          if (!stillPresent) continue;
+          if (listener.once) {
+            self._listeners[event.type] = current.filter(function(entry) {
+              return !(entry.fn === listener.fn && entry.capture === listener.capture);
+            });
+            __removeEventTargetEventListener(self, event.type, listener.fn);
           }
-          if (typeof listener.fn === 'function') {
-            listener.fn.call(this, event);
-          } else if (listener.fn && typeof listener.fn.handleEvent === 'function') {
-            listener.fn.handleEvent(event);
+          if (listener.passive) {
+            event._passive = true;
+            try {
+              if (typeof listener.fn === 'function') {
+                listener.fn.call(self, event);
+              } else if (listener.fn && typeof listener.fn.handleEvent === 'function') {
+                listener.fn.handleEvent(event);
+              }
+            } finally {
+              event._passive = false;
+            }
+          } else {
+            if (typeof listener.fn === 'function') {
+              listener.fn.call(self, event);
+            } else if (listener.fn && typeof listener.fn.handleEvent === 'function') {
+              listener.fn.handleEvent(event);
+            }
           }
-        }
-        if (current && current.length !== listeners.length) {
-          this._listeners[event.type] = current;
         }
         event.eventPhase = 0;
         event.currentTarget = null;
@@ -696,7 +742,13 @@
       };
       globalThis.EventTarget = EventTarget;
 
+      // Shared isTrusted getter - same function reference across all Event instances (per spec)
+      var _isTrustedGetter = function() { return false; };
+
       function Event(type, options) {
+        if (!(this instanceof Event)) {
+          throw new TypeError("Failed to construct 'Event': Please use the 'new' operator.");
+        }
         if (arguments.length === 0) {
           throw new TypeError("Failed to construct 'Event': 1 argument required, but only 0 present.");
         }
@@ -709,23 +761,36 @@
         this.currentTarget = null;
         this.srcElement = null;
         this.timeStamp = Date.now();
-        this.isTrusted = false;
         this.eventPhase = 0;
-        this.returnValue = true;
         this._cancelBubble = false;
         this._stopPropagation = false;
         this._stopImmediatePropagation = false;
+        this._passive = false;
+        Object.defineProperty(this, 'isTrusted', {
+          get: _isTrustedGetter,
+          enumerable: true,
+          configurable: false
+        });
       }
       Object.defineProperty(Event.prototype, 'cancelBubble', {
         get: function() { return this._cancelBubble; },
         set: function(v) { if (v) this._cancelBubble = true; },
         enumerable: true, configurable: true
       });
+      Object.defineProperty(Event.prototype, 'returnValue', {
+        get: function() { return !this.defaultPrevented; },
+        set: function(v) {
+          if (v === false && !this._passive) {
+            if (this.cancelable) this.defaultPrevented = true;
+          }
+        },
+        enumerable: true, configurable: true
+      });
       Event.prototype.composedPath = function() {
         return this.currentTarget ? [this.currentTarget] : [];
       };
       Event.prototype.preventDefault = function() {
-        if (this.cancelable) this.defaultPrevented = true;
+        if (this.cancelable && !this._passive) this.defaultPrevented = true;
       };
       Event.prototype.stopPropagation = function() {
         this._cancelBubble = true;
@@ -735,6 +800,11 @@
         this._cancelBubble = true;
         this._stopPropagation = true;
         this._stopImmediatePropagation = true;
+      };
+      Event.prototype.initEvent = function(type, bubbles, cancelable) {
+        this.type = String(type);
+        this.bubbles = !!bubbles;
+        this.cancelable = !!cancelable;
       };
       Event.NONE = 0;
       Event.CAPTURING_PHASE = 1;
@@ -746,6 +816,9 @@
       globalThis.Event = Event;
 
       function CustomEvent(type, options) {
+        if (!(this instanceof CustomEvent)) {
+          throw new TypeError("Failed to construct 'CustomEvent': Please use the 'new' operator.");
+        }
         if (arguments.length === 0) {
           throw new TypeError("Failed to construct 'CustomEvent': 1 argument required, but only 0 present.");
         }
