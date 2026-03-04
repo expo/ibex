@@ -173,6 +173,11 @@
         }
         return nativeClearTimeout(handle._exactHandle);
       }
+      // Accept string IDs (e.g. `${timeout}`) by coercing to number
+      if (typeof handle === 'string') {
+        var numId = +handle;
+        if (!isNaN(numId)) return nativeClearTimeout(numId);
+      }
       return nativeClearTimeout(handle);
     };
 
@@ -183,6 +188,11 @@
           return handle._clear(handle._exactHandle);
         }
         return nativeClearInterval(handle._exactHandle);
+      }
+      // Accept string IDs by coercing to number
+      if (typeof handle === 'string') {
+        var numId = +handle;
+        if (!isNaN(numId)) return nativeClearInterval(numId);
       }
       return nativeClearInterval(handle);
     };
@@ -216,11 +226,32 @@
 
     g.setTimeout = wrapSetTimeout;
     g.setInterval = wrapSetInterval;
+
+    // Unref all timers that were created during bootstrap (before user code runs).
+    // Bootstrap timers (e.g. ReadableStream compat patch, decompression filter) are
+    // internal and should not keep the event loop alive for user code.
+    // We probe the next timer ID, then unref all IDs from 1 to (probeId - 1).
+    if (typeof g.__exactTimerUnref === 'function') {
+      try {
+        var _bProbe = nativeSetTimeout(function() {}, 0);
+        var _bCutoff = typeof _bProbe === 'number' ? _bProbe : (typeof _bProbe === 'object' && _bProbe !== null ? _bProbe._exactHandle : null);
+        if (typeof _bCutoff === 'number' && _bCutoff > 1) {
+          for (var _bi = 1; _bi < _bCutoff; _bi++) {
+            g.__exactTimerUnref(_bi);
+          }
+        }
+        nativeClearTimeout(_bProbe);
+      } catch (_e) {}
+    }
   })();
 
   (function ensureProcessEventEmitter() {
     var p = g.process;
     if (!p) return;
+    // Set process.domain = null when no domain is active (Node.js compatibility)
+    if (p.domain === undefined) {
+      p.domain = null;
+    }
     // If process.on already exists, just ensure addListener alias is also set.
     if (typeof p.on === 'function') {
       if (typeof p.addListener !== 'function') {

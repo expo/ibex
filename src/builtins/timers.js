@@ -212,6 +212,33 @@ function clearImmediate$1(handle) {
   _clearTimeout(handle);
 }
 
+// Add util.promisify.custom so that promisify(timers.setTimeout) ===
+// timerPromises.setTimeout (same for setImmediate).
+// We need to use a lazy getter since timers/promises requires timers,
+// and we don't want circular dep issues at load time.
+var _promisifyCustomSymbol = (
+  typeof Symbol === 'function' && typeof Symbol.for === 'function'
+    ? Symbol.for('nodejs.util.promisify.custom')
+    : null
+);
+
+if (_promisifyCustomSymbol) {
+  Object.defineProperty(setTimeout$1, _promisifyCustomSymbol, {
+    get: function() {
+      return require('timers/promises').setTimeout;
+    },
+    configurable: true,
+    enumerable: false,
+  });
+  Object.defineProperty(setImmediate$1, _promisifyCustomSymbol, {
+    get: function() {
+      return require('timers/promises').setImmediate;
+    },
+    configurable: true,
+    enumerable: false,
+  });
+}
+
 module.exports = {
   setTimeout: setTimeout$1,
   clearTimeout: clearTimeout$1,
@@ -221,12 +248,35 @@ module.exports = {
   clearImmediate: clearImmediate$1,
   // Deprecated Node.js APIs -- stubs for compat
   active: function active(item) {
-    // In Node.js, timers.active() resets the timer.
-    // Stub: no-op for compatibility.
+    // In Node.js, active() re-activates the timer and sets linked-list fields.
+    // Only process items with a valid (non-negative) _idleTimeout.
+    if (item && typeof item._idleTimeout === 'number' && item._idleTimeout >= 0) {
+      item._idleStart = Date.now();
+      item._idleNext = item._idleNext || item;
+      item._idlePrev = item._idlePrev || item;
+    }
   },
   _unrefActive: function _unrefActive(item) {
-    // Deprecated alias for timers.active() with unref behavior.
-    // Stub: no-op for compatibility.
+    // Deprecated Node.js API: schedule item._onTimeout() after item._idleTimeout ms.
+    // The timer is "unref'd" — won't keep the event loop alive by itself.
+    if (!item || typeof item._idleTimeout !== 'number' || item._idleTimeout < 0) return;
+    if (item._exactUnrefHandle) {
+      _clearTimeout(item._exactUnrefHandle);
+    }
+    var delay = item._idleTimeout;
+    var handle = _setTimeout(function() {
+      item._exactUnrefHandle = null;
+      if (typeof item._onTimeout === 'function') {
+        item._onTimeout();
+      }
+    }, delay);
+    item._exactUnrefHandle = handle;
+    // Unref the timer so it doesn't keep the event loop alive on its own
+    if (handle && typeof handle === 'object' && typeof handle.unref === 'function') {
+      handle.unref();
+    } else if (typeof globalThis.__exactTimerUnref === 'function' && typeof handle === 'number') {
+      globalThis.__exactTimerUnref(handle);
+    }
   },
   enroll: function enroll(item, msecs) {
     if (typeof msecs !== 'number') {
@@ -243,6 +293,11 @@ module.exports = {
   },
   unenroll: function unenroll(item) {
     item._idleTimeout = -1;
+    // Cancel any pending _unrefActive timer handle
+    if (item._exactUnrefHandle) {
+      _clearTimeout(item._exactUnrefHandle);
+      item._exactUnrefHandle = null;
+    }
   },
   // promises sub-module
   promises: (typeof require === 'function') ? require('timers/promises') : {}
