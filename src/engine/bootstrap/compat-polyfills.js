@@ -1452,6 +1452,49 @@
   // Ensure ReadableStream iteration surfaces match the spec and accept `null`
   // for getReader options in environments where the host implementation expects
   // an options object.
+  // Wrap an iterator result object {value, done} to ensure it inherits from
+  // Object.prototype. Hermes's native ReadableStream returns null-prototype
+  // objects from read(), which breaks WPT tests that use hasOwnProperty.
+  var _wrapIterResult = function(result) {
+    if (result !== null && typeof result === 'object' && Object.getPrototypeOf(result) === null) {
+      return { value: result.value, done: result.done };
+    }
+    return result;
+  };
+
+  // Wrap an async iterator to ensure next()/return()/throw() results have
+  // Object.prototype (not null). Creates a wrapper object that delegates
+  // to the original iterator but wraps each result with _wrapIterResult.
+  var _makeAsyncIterWrapper = function(origIter) {
+    if (!origIter || typeof origIter !== 'object') return origIter;
+    var origNext = typeof origIter.next === 'function' ? origIter.next.bind(origIter) : null;
+    var origReturn = typeof origIter['return'] === 'function' ? origIter['return'].bind(origIter) : null;
+    var origThrow = typeof origIter['throw'] === 'function' ? origIter['throw'].bind(origIter) : null;
+    // Build a plain object wrapper with correct .name properties
+    var wrapper = Object.create(null);
+    if (origNext) {
+      wrapper.next = function next() {
+        return origNext().then(_wrapIterResult);
+      };
+    }
+    if (origReturn) {
+      wrapper['return'] = function _return(value) {
+        return origReturn(value).then(_wrapIterResult);
+      };
+    }
+    if (origThrow) {
+      wrapper['throw'] = function _throw(value) {
+        return origThrow(value).then(_wrapIterResult);
+      };
+    }
+    var asyncIterKey = typeof Symbol !== 'undefined' && Symbol.asyncIterator ? Symbol.asyncIterator : null;
+    if (asyncIterKey) {
+      wrapper[asyncIterKey] = function() { return wrapper; };
+    }
+    wrapper.__exactAsyncIterWrapper = true;
+    return wrapper;
+  };
+
   var installReadableStreamIteratorCompat = function () {
     if (
       typeof globalThis.ReadableStream === 'function' &&
@@ -1466,12 +1509,51 @@
 
       if (typeof originalGetReader === 'function') {
         readableStreamPrototype.getReader = function (options) {
+          var reader;
           if (options === null) {
-            return originalGetReader.call(this);
+            reader = originalGetReader.call(this);
+          } else {
+            reader = originalGetReader.call(this, options);
           }
-          return originalGetReader.call(this, options);
+          // Wrap the reader's read() to return proper-prototype objects
+          if (reader && typeof reader.read === 'function' && !reader.__exactReadWrapped) {
+            var origRead = reader.read.bind(reader);
+            reader.read = function() {
+              return origRead().then(_wrapIterResult);
+            };
+            reader.__exactReadWrapped = true;
+          }
+          return reader;
         };
         readableStreamPrototype.getReader.__exactReadableStreamCompatGetReaderPatched = true;
+      }
+
+      // Wrap Symbol.asyncIterator and values() to return iterator wrappers
+      // so that next()/return()/throw() results have Object.prototype.
+      var asyncIterKey = typeof Symbol !== 'undefined' && Symbol.asyncIterator ? Symbol.asyncIterator : null;
+      var originalValues = readableStreamPrototype.values;
+      if (typeof originalValues === 'function') {
+        readableStreamPrototype.values = function patchedValues(options) {
+          var iter;
+          if (arguments.length === 0) {
+            iter = originalValues.call(this);
+          } else {
+            iter = originalValues.call(this, options);
+          }
+          return _makeAsyncIterWrapper(iter);
+        };
+      }
+      if (asyncIterKey && typeof readableStreamPrototype[asyncIterKey] === 'function') {
+        var origAsyncIter = readableStreamPrototype[asyncIterKey];
+        readableStreamPrototype[asyncIterKey] = function patchedAsyncIterator(options) {
+          var iter;
+          if (arguments.length === 0) {
+            iter = origAsyncIter.call(this);
+          } else {
+            iter = origAsyncIter.call(this, options);
+          }
+          return _makeAsyncIterWrapper(iter);
+        };
       }
 
       ReadableStream.prototype.__exactReadableStreamCompatIteratorPatched = true;

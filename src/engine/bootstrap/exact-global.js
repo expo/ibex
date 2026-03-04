@@ -113,10 +113,14 @@
       if (typeof callback === 'function') {
         return callback;
       }
-      // HTML spec: non-function arguments are stringified and eval'd.
-      // This handles both string literals and objects with toString().
-      var code = String(callback);
-      return function() { (0, eval)(code); };
+      // Node.js spec: throw TypeError for non-function callbacks
+      var err = new TypeError(
+        'The "callback" argument must be of type function. Received type ' +
+        (callback === null ? 'null' : typeof callback) +
+        (callback !== null && callback !== undefined ? ' (' + String(callback) + ')' : '')
+      );
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
     }
 
     var _apply = Function.prototype.apply;
@@ -217,7 +221,13 @@
   (function ensureProcessEventEmitter() {
     var p = g.process;
     if (!p) return;
-    if (typeof p.on === 'function') return;
+    // If process.on already exists, just ensure addListener alias is also set.
+    if (typeof p.on === 'function') {
+      if (typeof p.addListener !== 'function') {
+        p.addListener = p.on;
+      }
+      return;
+    }
 
     if (typeof __exactEnsureStreamEnhance === 'function') {
       try {
@@ -372,40 +382,40 @@
 
     var countSize = (function() {
       return {
-        size: () => 1
-      }.size;
+        size: function() { return 1; }
+      };
     }()).size;
 
     var byteLengthSize = (function() {
       return {
-        size: (chunk) => {
+        size: function(chunk) {
           if (chunk == null) {
             throw new TypeError('The chunk argument must not be null or undefined');
           }
           return chunk.byteLength;
         }
-      }.size;
+      };
     }()).size;
 
-    function ExactCountQueuingStrategy(options) {
-      if (!(this instanceof ExactCountQueuingStrategy)) {
+    function CountQueuingStrategy(options) {
+      if (!(this instanceof CountQueuingStrategy)) {
         throw new TypeError('Class constructor CountQueuingStrategy cannot be invoked without new');
       }
       this.highWaterMark = getHighWaterMark(options);
     }
 
-    function ExactByteLengthQueuingStrategy(options) {
-      if (!(this instanceof ExactByteLengthQueuingStrategy)) {
+    function ByteLengthQueuingStrategy(options) {
+      if (!(this instanceof ByteLengthQueuingStrategy)) {
         throw new TypeError('Class constructor ByteLengthQueuingStrategy cannot be invoked without new');
       }
       this.highWaterMark = getHighWaterMark(options);
     }
 
-    ExactCountQueuingStrategy.prototype.size = countSize;
-    ExactByteLengthQueuingStrategy.prototype.size = byteLengthSize;
+    CountQueuingStrategy.prototype.size = countSize;
+    ByteLengthQueuingStrategy.prototype.size = byteLengthSize;
 
-    g.CountQueuingStrategy = ExactCountQueuingStrategy;
-    g.ByteLengthQueuingStrategy = ExactByteLengthQueuingStrategy;
+    g.CountQueuingStrategy = CountQueuingStrategy;
+    g.ByteLengthQueuingStrategy = ByteLengthQueuingStrategy;
     g.CountQueuingStrategy.__exactUnrestrictedDoublePatched = true;
   })();
 
