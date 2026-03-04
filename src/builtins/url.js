@@ -2961,7 +2961,9 @@ function _legacyFormat(urlObj) {
     result += hostname;
     if (port) result += ':' + port;
   }
-  if (pathname && pathname.charAt(0) !== '/' && result && result.charAt(result.length - 1) !== '/') {
+  // Add separator / before pathname if needed, but only if there's an authority (host/slashes).
+  // For opaque paths (no slashes, no host), pathname may not start with /.
+  if (pathname && pathname.charAt(0) !== '/' && (host || hostname || slashes) && result && result.charAt(result.length - 1) !== '/') {
     result += '/';
   }
   result += pathname;
@@ -3028,13 +3030,19 @@ function _legacyResolveHref(urlObj) {
 }
 
 function encodeAuth(str) {
-  // Encode auth component (minimal encoding for special chars)
+  // Encode auth component per Node.js behavior.
+  // These characters must be percent-encoded in the auth (userinfo) component.
   var result = '';
   for (var i = 0; i < str.length; i++) {
     var ch = str.charAt(i);
     var cp = str.charCodeAt(i);
-    if (cp < 0x20 || cp === 0x7F) {
-      result += '%' + cp.toString(16).toUpperCase().replace(/^(.)$/, '0$1');
+    // Control chars, DEL, and special chars not allowed unencoded in userinfo
+    if (cp < 0x21 || cp === 0x7F ||
+        ch === '"' || ch === '<' || ch === '>' || ch === '`' ||
+        ch === ' ' || ch === '{' || ch === '}' || ch === '|' ||
+        ch === '\\' || ch === '^' || ch === '~' || ch === '@') {
+      var hex = cp.toString(16).toUpperCase();
+      result += '%' + (hex.length === 1 ? '0' + hex : hex);
     } else {
       result += ch;
     }
@@ -3207,6 +3215,9 @@ function _legacyEncodePath(str) {
   return result;
 }
 
+// Protocols that never have a host (used in legacy parse)
+var _hostlessStr = { 'javascript:': true, 'javascript': true };
+
 function parse(value, parseQueryString, slashesDenoteHost) {
   if (typeof value !== 'string') {
     var received;
@@ -3231,57 +3242,99 @@ function parse(value, parseQueryString, slashesDenoteHost) {
   var result = new Url();
   result.href = value;
 
-  // Try WHATWG URL parser for absolute URLs
-  var hasProtocol = /^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(value);
+  // Try WHATWG URL parser for absolute URLs.
+  // Skip WHATWG URL when slashesDenoteHost=true (used internally by resolveObject).
+  // Also skip for non-special protocols (like zz:, foo:, mailto:) because WHATWG and
+  // Node.js legacy parse them very differently (WHATWG uses opaque path, Node.js uses host).
+  var _specialProtoRe = /^(https?|ftp|file|wss?):(?:\/\/|\\)/i;
+  var hasProtocol = !slashesDenoteHost &&
+    /^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(value) &&
+    (_specialProtoRe.test(value) || /^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//.test(value));
   if (hasProtocol) {
-    var whatwgProtocolMatch = /^([a-zA-Z][a-zA-Z0-9+\-.]*):/.exec(value);
-    var whatwgProtocol = whatwgProtocolMatch ? whatwgProtocolMatch[1].toLowerCase() : '';
-    var whatwgRest = whatwgProtocolMatch ? value.slice(whatwgProtocolMatch[0].length) : '';
-    var isLegacyTripleSlashSpecial =
-      /^(https?|ftp|gopher|ws|wss)$/.test(whatwgProtocol) &&
-      whatwgRest.slice(0, 3) === '///';
-    var shouldUseWhatwgAbsolute = whatwgRest.slice(0, 2) === '//' && !isLegacyTripleSlashSpecial;
-    if (shouldUseWhatwgAbsolute) {
-      try {
-        var protocolMatch = /^([a-zA-Z][a-zA-Z0-9+\-.]*):/.exec(value);
-        if (protocolMatch) {
-          _validateSpecialHostForParse(value, protocolMatch[1].toLowerCase());
+    try {
+      // Check for null characters in the authority portion - Node.js throws ERR_INVALID_URL.
+      // WHATWG URL strips null chars silently, but legacy url.parse must throw.
+      var _protoEndIdx = value.indexOf('//');
+      if (_protoEndIdx !== -1) {
+        var _afterSlashes = value.slice(_protoEndIdx + 2);
+        var _pathStart = _afterSlashes.search(/[/?#]/);
+        var _authorityPart = _pathStart !== -1 ? _afterSlashes.slice(0, _pathStart) : _afterSlashes;
+        if (_authorityPart.indexOf('\x00') !== -1) {
+          var _nullErr = new TypeError('Invalid URL: ' + value);
+          _nullErr.code = 'ERR_INVALID_URL';
+          _nullErr.input = value;
+          throw _nullErr;
         }
-        _validateLegacyParseAuthEncoding(value);
-        var u = new URL(value);
-        result.protocol = u.protocol || null;
-        result.slashes = u.protocol ? true : null;
-        result.host = u.host || null;
-        result.port = u.port || null;
-        result.hostname = u.hostname || null;
-        if (
-          typeof result.hostname === 'string' &&
-          result.hostname.charAt(0) === '[' &&
-          result.hostname.charAt(result.hostname.length - 1) === ']'
-        ) {
-          result.hostname = result.hostname.slice(1, -1);
-        }
-        result.hash = u.hash || null;
-        result.search = u.search || null;
-        result.pathname = u.pathname || null;
-        result.path = (u.pathname || '') + (u.search || '') || null;
-        result.href = u.href;
-        if (u.username || u.password) {
-          result.auth = (u.username || '') + (u.password ? ':' + u.password : '');
-        }
-        if (parseQueryString) {
-          var qs = require('querystring');
-          result.query = qs.parse(u.search ? u.search.slice(1) : '');
-        } else {
-          result.query = u.search ? u.search.slice(1) : null;
-        }
-        return result;
-      } catch (e) {
-        // Propagate URIError (bad percent encoding like %E0%A4%A)
-        if (e instanceof URIError) throw e;
-        if (e && e.__exactInvalidUrl) throw e;
-        // Other parse errors: fall through to legacy parsing
       }
+
+      // Before trying WHATWG URL, check for malformed percent-encoding in auth
+      // WHATWG URL replaces invalid sequences with replacement chars, but
+      // legacy url.parse should throw URIError for them (Node.js behavior).
+      var _authAtIdx = value.indexOf('@');
+      if (_authAtIdx !== -1) {
+        // Find the start of authority (after protocol://)
+        var _protoEnd = value.indexOf('//');
+        if (_protoEnd !== -1) {
+          var _authPart = value.slice(_protoEnd + 2, _authAtIdx);
+          // decodeURIComponent throws URIError for malformed sequences
+          decodeURIComponent(_authPart.replace(/\+/g, '%2B'));
+        }
+      }
+
+      var u = new URL(value);
+
+      // If WHATWG URL accepted an invalid hostname (containing chars like " space < >),
+      // fall through to legacy parsing which handles these correctly.
+      var _rawHostname = u.hostname;
+      if (_rawHostname && /["' <>]/.test(_rawHostname)) {
+        throw new Error('Invalid hostname');
+      }
+
+      result.protocol = u.protocol || null;
+      // slashes is true only if the URL has // (or \\ for http-like) after the protocol
+      // This matches Node.js legacy url.parse behavior
+      var _protoStr = u.protocol || '';
+      var _protoSlashIdx = value.toLowerCase().indexOf(_protoStr.toLowerCase());
+      var _afterProto = _protoSlashIdx >= 0 ? value.slice(_protoSlashIdx + _protoStr.length) : '';
+      var _firstTwo = _afterProto.slice(0, 2);
+      result.slashes = (_firstTwo === '//' || _firstTwo === '\\\\') ? true : null;
+      // Preserve empty string for host/hostname when there's an explicit authority (slashes=true)
+      // e.g. file:///foo has empty host '' not null
+      var _hasAuthority = result.slashes === true;
+      result.host = u.host ? u.host : (_hasAuthority ? u.host : null); // '' or null
+      result.port = u.port || null;
+      result.hostname = u.hostname ? u.hostname : (_hasAuthority ? u.hostname : null);
+      // Strip IPv6 brackets from hostname (WHATWG URL returns [::1], Node.js legacy returns ::1)
+      if (
+        typeof result.hostname === 'string' &&
+        result.hostname.charAt(0) === '[' &&
+        result.hostname.charAt(result.hostname.length - 1) === ']'
+      ) {
+        result.hostname = result.hostname.slice(1, -1);
+      }
+      result.hash = u.hash || null;
+      result.search = u.search || null;
+      result.pathname = u.pathname || null;
+      result.path = (u.pathname || '') + (u.search || '') || null;
+      if (u.username || u.password) {
+        result.auth = (u.username || '') + (u.password ? ':' + u.password : '');
+      }
+      // Reconstruct href using our format to ensure correct // for slashed protocols
+      // WHATWG URL may collapse https:///#hash to https:/#hash which is wrong for Node.js compat
+      result.href = _legacyFormat(result);
+      if (parseQueryString) {
+        var qs = require('querystring');
+        result.query = qs.parse(u.search ? u.search.slice(1) : '');
+      } else {
+        result.query = u.search ? u.search.slice(1) : null;
+      }
+      return result;
+    } catch (e) {
+      // Propagate URIError (bad percent encoding like %E0%A4%A)
+      if (e instanceof URIError) throw e;
+      // Propagate ERR_INVALID_URL for null chars in hostname etc.
+      if (e && e.code === 'ERR_INVALID_URL' && e.input !== undefined) throw e;
+      // Other parse errors: fall through to legacy parsing
     }
   }
 
@@ -3299,21 +3352,75 @@ function parse(value, parseQueryString, slashesDenoteHost) {
     isSpecial = /^(https?|ftp|gopher|file):$/.test(proto);
   }
 
-  // Check for authority slashes
-  // In Node.js, // only denotes an authority if there is a protocol, or if slashesDenoteHost is true
-  var hasSlashes = rest.slice(0, 2) === '//';
-  if (hasSlashes && (proto || slashesDenoteHost)) {
-    result.slashes = true;
-    rest = rest.slice(2);
-  } else if (!proto && slashesDenoteHost && rest.charAt(0) === '/') {
-    result.slashes = true;
+  // Extract hash FIRST (before normalizing backslashes) so backslashes in
+  // the fragment are percent-encoded rather than replaced with forward slashes.
+  var hashIdx = rest.indexOf('#');
+  var _hashFragment = null;
+  if (hashIdx !== -1) {
+    _hashFragment = rest.slice(hashIdx);
+    rest = rest.slice(0, hashIdx);
   }
 
-  // Extract hash
-  var hashIdx = rest.indexOf('#');
-  if (hashIdx !== -1) {
-    result.hash = rest.slice(hashIdx);
-    rest = rest.slice(0, hashIdx);
+  // Check for authority slashes
+  // In Node.js, // (or \\ for special protocols) denotes an authority
+  var _firstTwoLeg = rest.slice(0, 2);
+  var hasSlashes = _firstTwoLeg === '//';
+  // For http/https/ftp/gopher/file, backslashes are treated as forward slashes (authority)
+  var hasBackslashes = !hasSlashes && isSpecial && _firstTwoLeg === '\\\\';
+  if ((hasSlashes || hasBackslashes) && (proto || slashesDenoteHost)) {
+    result.slashes = true;
+    rest = rest.slice(2);
+    // Normalize backslashes to forward slashes for the rest of parsing (not the hash)
+    if (hasBackslashes) {
+      rest = rest.replace(/\\/g, '/');
+    }
+  } else if (!proto && slashesDenoteHost && rest.slice(0, 2) === '//') {
+    // slashesDenoteHost only applies when the URL starts with // (not single /)
+    result.slashes = true;
+    rest = rest.slice(2);
+  } else if (isSpecial && rest.charAt(0) === '\\') {
+    // Single backslash for special protocol - treat as slash
+    result.slashes = true;
+    rest = '/' + rest.slice(1).replace(/\\/g, '/');
+  } else if (proto && !isSpecial && !_hostlessStr[proto]) {
+    // For non-special protocols (like zz:, foo:, mailto:), the part after the protocol
+    // is treated as host+path, not as an opaque path. This matches Node.js legacy behavior.
+    // Node.js: url.parse('zz:abc') → {host: 'abc'}, url.parse('foo:a/b') → {host: 'a', pathname: '/b'}
+    result.slashes = null; // no // prefix
+    // Extract query from rest before treating as host
+    var _qIdx3 = rest.indexOf('?');
+    if (_qIdx3 !== -1) {
+      result.search = rest.slice(_qIdx3);
+      if (parseQueryString) {
+        var _qsMod3 = require('querystring');
+        result.query = _qsMod3.parse(result.search.slice(1));
+      } else {
+        result.query = result.search.slice(1);
+      }
+      rest = rest.slice(0, _qIdx3);
+    }
+    // Extract path (everything after first /)
+    var _slashIdx = rest.indexOf('/');
+    var _hostStr, _pathStr;
+    if (_slashIdx !== -1) {
+      _hostStr = rest.slice(0, _slashIdx);
+      _pathStr = rest.slice(_slashIdx);
+    } else {
+      _hostStr = rest;
+      _pathStr = null;
+    }
+    result.host = _hostStr || null;
+    result.hostname = _hostStr || null;
+    result.pathname = _pathStr || null;
+    if (_hashFragment !== null) result.hash = _hashFragment.replace(/\\/g, '%5C');
+    result.path = (_pathStr || '') + (result.search || '') || null;
+    result.href = proto + (_hostStr || '') + (_pathStr || '') + (result.search || '') + (result.hash || '');
+    return result;
+  }
+
+  // Now store hash (backslashes in hash must be percent-encoded per Node.js behavior)
+  if (_hashFragment !== null) {
+    result.hash = _hashFragment.replace(/\\/g, '%5C');
   }
 
   // Extract query
@@ -3369,13 +3476,11 @@ function parse(value, parseQueryString, slashesDenoteHost) {
       }
     }
     result.auth = hostInfo.auth || null;
-    if (authorityStr === '' && isSpecial && proto !== 'file:') {
-      result.host = '';
-      result.hostname = '';
-    } else {
-      result.host = hostInfo.host != null ? hostInfo.host : null;
-      result.hostname = hostInfo.hostname != null ? hostInfo.hostname : null;
-    }
+    // When authorityStr is explicitly empty (file:///), preserve '' for host/hostname
+    // rather than null. Node.js legacy parser treats explicit empty authority as host=''.
+    var _emptyAuth = authorityStr === '' && !hostInfo.auth;
+    result.host = hostInfo.host !== null ? hostInfo.host : (_emptyAuth ? '' : null);
+    result.hostname = hostInfo.hostname !== null ? hostInfo.hostname : (_emptyAuth ? '' : null);
     result.port = hostInfo.port || null;
     // Invalid chars from hostname end become path prefix
     var pathFull = _legacyEncodePath(hostInfo.pathPrefix) + pathStr;
@@ -3407,7 +3512,33 @@ function parse(value, parseQueryString, slashesDenoteHost) {
 
 function resolve(from, to) {
   if (!from) return to;
-  return format(resolveObject(parse(from), to));
+  // Use legacy resolveObject to match Node.js behavior exactly.
+  // Pass slashesDenoteHost=true to match Node.js's internal parse behavior
+  // (non-special protocols like foo:abc treat 'abc' as the host, not path).
+  return format(resolveObject(parse(from, false, true), to));
+}
+
+// Protocols that always use // authority (slashed protocols)
+var _slashedProtocol = {
+  'http': true, 'http:': true,
+  'https': true, 'https:': true,
+  'ftp': true, 'ftp:': true,
+  'gopher': true, 'gopher:': true,
+  'file': true, 'file:': true,
+  'ws': true, 'ws:': true,
+  'wss': true, 'wss:': true,
+};
+
+// Protocols that never have a host
+var _hostlessProtocol = {
+  'javascript': true, 'javascript:': true,
+};
+
+function _spliceOne(list, index) {
+  for (var i = index, k = i + 1; k < list.length; i++, k++) {
+    list[i] = list[k];
+  }
+  list.pop();
 }
 
 function resolveObject(source, relative) {
@@ -3415,73 +3546,10 @@ function resolveObject(source, relative) {
     return relative;
   }
   if (typeof source === 'string') {
-    source = parse(source);
+    source = parse(source, false, true);
   }
   if (!source || typeof source !== 'object') {
-    return parse(relative);
-  }
-  var relativeSource = null;
-  if (typeof relative === 'string') {
-    relativeSource = relative;
-    if (!relative) {
-      // Empty string: return source without hash
-      var noHash = Object.create(Url.prototype);
-      for (var k in source) { if (Object.prototype.hasOwnProperty.call(source, k)) noHash[k] = source[k]; }
-      noHash.hash = null;
-      noHash.search = source.search || null;
-      noHash.query = source.query || null;
-      noHash.path = (source.pathname || '') + (source.search || '') || null;
-      noHash.href = _legacyResolveHref(noHash);
-      return noHash;
-    }
-    relative = parse(relative);
-  }
-  if (!relative || typeof relative !== 'object') return source;
-
-  // If the relative URL has a protocol that differs, just return it
-  if (relative.protocol && relative.protocol !== source.protocol) {
-    if (
-      /^(https?|ftp|gopher|file|ws|wss):$/i.test(relative.protocol) &&
-      !relative.auth &&
-      !relative.host &&
-      !relative.hostname
-    ) {
-      relative.slashes = true;
-      if (/^file:$/i.test(relative.protocol)) {
-        if (!relative.pathname || relative.pathname.charAt(0) !== '/') {
-          relative.pathname = '/';
-        }
-      } else {
-        relative.host = '';
-        relative.hostname = '';
-      }
-      if (/^file:$/i.test(relative.protocol)) {
-        relative.host = null;
-        relative.hostname = null;
-      } else if (relative.pathname && relative.pathname.charAt(0) === '/' && relative.pathname.length > 1) {
-        var authoritySegments = relative.pathname.slice(1).split('/');
-        var impliedHost = authoritySegments.shift();
-        if (impliedHost) {
-          relative.host = impliedHost;
-          relative.hostname = impliedHost;
-          relative.pathname = '/' + authoritySegments.join('/');
-          if (relative.pathname === '') {
-            relative.pathname = '/';
-          }
-        } else {
-          relative.host = '';
-          relative.hostname = '';
-          relative.pathname = '/';
-        }
-      } else {
-        relative.host = '';
-        relative.hostname = '';
-        relative.pathname = '/';
-      }
-      relative.path = (relative.pathname || '/') + (relative.search || '');
-    }
-    relative.href = _legacyResolveHref(relative);
-    return relative;
+    return parse(relative, false, true);
   }
 
   if (
@@ -3602,371 +3670,223 @@ function resolveObject(source, relative) {
   }
 
   var result = new Url();
-  if (
-    !relative.protocol &&
-    !relative.slashes &&
-    typeof relative.pathname === 'string' &&
-    relative.pathname.slice(0, 2) === '//' &&
-    source.protocol
-  ) {
-    var networkPath = relative.pathname.slice(2);
-    var networkPathIdx = networkPath.indexOf('/');
-    var networkAuthority = networkPathIdx === -1 ? networkPath : networkPath.slice(0, networkPathIdx);
-    var networkPathname = networkPathIdx === -1 ? '/' : networkPath.slice(networkPathIdx);
-    var networkHostInfo = _legacyParseHost(networkAuthority);
+  var keys = Object.keys(source);
+  for (var ki = 0; ki < keys.length; ki++) {
+    result[keys[ki]] = source[keys[ki]];
+  }
 
-    result.protocol = source.protocol;
-    result.slashes = true;
-    result.auth = networkHostInfo.auth || null;
-    result.host = networkHostInfo.host != null ? networkHostInfo.host : null;
-    result.hostname = networkHostInfo.hostname != null ? networkHostInfo.hostname : null;
-    if (
-      networkAuthority === '' &&
-      !URL._isSpecialProtocol(source.protocol.slice(0, -1))
-    ) {
-      result.host = null;
-      result.hostname = null;
-    }
-    result.port = networkHostInfo.port || null;
-    result.pathname = networkPathname || '/';
-    result.search = relative.search || null;
-    result.query = relative.query !== undefined ? relative.query : null;
-    result.hash = relative.hash !== undefined ? (relative.hash || null) : null;
-    result.path = (result.pathname || '') + (result.search || '') || null;
-    result.href = _legacyResolveHref(result);
+  if (typeof relative === 'string') {
+    relative = parse(relative, false, true);
+  }
+  if (!relative || typeof relative !== 'object') {
+    relative = parse(String(relative), false, true);
+  }
+
+  // Hash is always overridden
+  result.hash = relative.hash;
+
+  // If relative href is empty, return source (without hash)
+  if (relative.href === '') {
+    result.href = _legacyFormat(result);
     return result;
   }
-  var sourceUsesOpaquePath =
-    source.protocol &&
-    !source.slashes &&
-    !URL._isSpecialProtocol(source.protocol.slice(0, -1));
-  var canResolveOpaquePath =
-    sourceUsesOpaquePath &&
-    !relative.slashes &&
-    (!relative.protocol || relative.protocol === source.protocol);
 
-  if (canResolveOpaquePath) {
-    var sourceOpaque = (source.host || '') + (source.pathname || '');
-    var relativeOpaque = (relative.host || '') + (relative.pathname || '');
-    var resolvedOpaque = relativeOpaque
-      ? _resolveOpaquePath(sourceOpaque, relativeOpaque)
-      : sourceOpaque;
-
-    result.protocol = relative.protocol || source.protocol;
-    result.slashes = null;
-    result.auth = null;
-    result.port = null;
-    if (!resolvedOpaque) {
-      result.host = null;
-      result.hostname = null;
-      result.pathname = null;
-    } else if (resolvedOpaque.charAt(0) === '/') {
-      result.host = '';
-      result.hostname = '';
-      result.pathname = resolvedOpaque;
-    } else {
-      var opaqueSlashIdx = resolvedOpaque.indexOf('/');
-      if (opaqueSlashIdx === -1) {
-        result.host = resolvedOpaque;
-        result.hostname = resolvedOpaque;
-        result.pathname = null;
-      } else {
-        result.host = resolvedOpaque.slice(0, opaqueSlashIdx);
-        result.hostname = result.host;
-        result.pathname = resolvedOpaque.slice(opaqueSlashIdx);
+  // Hrefs like //foo/bar always cut to the protocol
+  if (relative.slashes && !relative.protocol) {
+    var relKeys = Object.keys(relative);
+    for (var rki = 0; rki < relKeys.length; rki++) {
+      if (relKeys[rki] !== 'protocol') {
+        result[relKeys[rki]] = relative[relKeys[rki]];
       }
     }
-    result.search = relative.search !== undefined ? (relative.search || null) : (source.search || null);
-    result.query = relative.query !== undefined ? (relative.query !== undefined ? relative.query : null) : (source.query || null);
-    result.hash = relative.hash !== undefined ? (relative.hash || null) : null;
-    result.path = (result.pathname || '') + (result.search || '') || null;
-    result.href = _legacyResolveHref(result);
+    if (_slashedProtocol[result.protocol] && result.hostname && !result.pathname) {
+      result.path = result.pathname = '/';
+    }
+    result.href = _legacyFormat(result);
     return result;
   }
 
-  if (
-    relativeSource &&
-    relativeSource.slice(0, 2) === '//' &&
-    !relative.protocol
-  ) {
-    result.protocol = source.protocol;
-    result.slashes = true;
-    result.auth = null;
-    var authorityPath = relative.pathname || '';
-    if (authorityPath.slice(0, 2) === '//') {
-      authorityPath = authorityPath.slice(2);
+  if (relative.protocol && relative.protocol !== result.protocol) {
+    if (!_slashedProtocol[relative.protocol]) {
+      var rKeys2 = Object.keys(relative);
+      for (var ri2 = 0; ri2 < rKeys2.length; ri2++) {
+        result[rKeys2[ri2]] = relative[rKeys2[ri2]];
+      }
+      result.href = _legacyFormat(result);
+      return result;
     }
-    var authorityPathSlashIdx = authorityPath.indexOf('/');
-    var authority = authorityPathSlashIdx === -1 ? authorityPath : authorityPath.slice(0, authorityPathSlashIdx);
-    var relativeHostInfo = _legacyParseHost(authority);
-    result.host = relativeHostInfo.host != null ? relativeHostInfo.host : null;
-    result.hostname = relativeHostInfo.hostname != null ? relativeHostInfo.hostname : null;
-    if (
-      authority === '' &&
-      !URL._isSpecialProtocol(source.protocol.slice(0, -1))
-    ) {
-      result.host = null;
-      result.hostname = null;
-    }
-    result.port = relativeHostInfo.port || null;
-    result.pathname = authorityPathSlashIdx === -1
-      ? (URL._isSpecialProtocol(source.protocol.slice(0, -1)) ? '/' : null)
-      : (authorityPath.slice(authorityPathSlashIdx) || '/');
-    result.search = relative.search !== undefined ? (relative.search || null) : null;
-    result.query = relative.query !== undefined ? (relative.query !== undefined ? relative.query : null) : null;
-    result.hash = relative.hash !== undefined ? (relative.hash || null) : null;
-    result.path = (result.pathname || '') + (result.search || '') || null;
-    result.href = _legacyResolveHref(result);
-    return result;
-  }
 
-  if (relative.protocol) {
     result.protocol = relative.protocol;
-    if (relative.slashes || relative.host) {
-      // Absolute reference with authority
-      result.slashes = relative.slashes;
-      result.auth = relative.auth;
-      result.host = relative.host;
-      result.hostname = relative.hostname;
-      result.port = relative.port;
+    if (!relative.host &&
+        !/^file:?$/.test(relative.protocol) &&
+        !_hostlessProtocol[relative.protocol]) {
+      var relPath = (relative.pathname || '').split('/');
+      while (relPath.length && !(relative.host = relPath.shift())) { /* empty */ }
+      if (!relative.host) relative.host = '';
+      if (!relative.hostname) relative.hostname = '';
+      if (relPath[0] !== '') relPath.unshift('');
+      if (relPath.length < 2) relPath.unshift('');
+      result.pathname = relPath.join('/');
+    } else {
       result.pathname = relative.pathname;
-      if (
-        relative.protocol === source.protocol &&
-        !relative.auth &&
-        relative.host &&
-        relative.host === source.host
-      ) {
-        result.auth = source.auth;
-      }
-    } else {
-      result.slashes = source.slashes;
-      result.auth = source.auth;
-      result.host = source.host;
-      result.hostname = source.hostname;
-      result.port = source.port;
-      result.pathname = _resolvePathname(source.pathname || '/', relative.pathname || '');
     }
-  } else if (relative.slashes) {
-    result.protocol = source.protocol;
-    result.slashes = relative.slashes;
+    result.search = relative.search;
+    result.query = relative.query;
+    result.host = relative.host || '';
     result.auth = relative.auth;
-    result.host = relative.host;
-    result.hostname = relative.hostname;
+    result.hostname = relative.hostname || relative.host;
     result.port = relative.port;
-    result.pathname = relative.pathname || '/';
+    if (result.pathname || result.search) {
+      var p1 = result.pathname || '';
+      var s1 = result.search || '';
+      result.path = p1 + s1;
+    }
+    result.slashes = result.slashes || relative.slashes;
+    result.href = _legacyFormat(result);
+    return result;
+  }
+
+  var isSourceAbs = !!(result.pathname && result.pathname.charAt(0) === '/');
+  var isRelAbs = !!(relative.host || (relative.pathname && relative.pathname.charAt(0) === '/'));
+  var mustEndAbs = isRelAbs || isSourceAbs || (result.host && relative.pathname);
+  var removeAllDots = mustEndAbs;
+  var srcPath = (result.pathname && result.pathname.split('/')) || [];
+  var relPath = (relative.pathname && relative.pathname.split('/')) || [];
+  var noLeadingSlashes = result.protocol && !_slashedProtocol[result.protocol];
+
+  if (noLeadingSlashes) {
+    result.hostname = '';
+    result.port = null;
+    if (result.host) {
+      if (srcPath[0] === '') srcPath[0] = result.host;
+      else srcPath.unshift(result.host);
+    }
+    result.host = '';
+    if (relative.protocol) {
+      relative.hostname = null;
+      relative.port = null;
+      result.auth = null;
+      if (relative.host) {
+        if (relPath[0] === '') relPath[0] = relative.host;
+        else relPath.unshift(relative.host);
+      }
+      relative.host = null;
+    }
+    mustEndAbs = mustEndAbs && (relPath[0] === '' || srcPath[0] === '');
+  }
+
+  if (isRelAbs) {
+    if (relative.host || relative.host === '') {
+      if (result.host !== relative.host) result.auth = null;
+      result.host = relative.host;
+      result.port = relative.port;
+    }
+    if (relative.hostname || relative.hostname === '') {
+      if (result.hostname !== relative.hostname) result.auth = null;
+      result.hostname = relative.hostname;
+    }
+    result.search = relative.search;
+    result.query = relative.query;
+    srcPath = relPath;
+  } else if (relPath.length) {
+    if (!srcPath) srcPath = [];
+    srcPath.pop();
+    srcPath = srcPath.concat(relPath);
+    result.search = relative.search;
+    result.query = relative.query;
+  } else if (relative.search !== null && relative.search !== undefined) {
+    if (noLeadingSlashes) {
+      result.hostname = result.host = srcPath.shift();
+      var authInHost1 = result.host && result.host.indexOf('@') > 0 ? result.host.split('@') : false;
+      if (authInHost1) {
+        result.auth = authInHost1.shift();
+        result.host = result.hostname = authInHost1.shift();
+      }
+    }
+    result.search = relative.search;
+    result.query = relative.query;
+    if (result.pathname !== null || result.search !== null) {
+      result.path = (result.pathname || '') + (result.search || '');
+    }
+    result.href = _legacyFormat(result);
+    return result;
+  }
+
+  if (!srcPath.length) {
+    result.pathname = null;
+    if (result.search) {
+      result.path = '/' + result.search;
+    } else {
+      result.path = null;
+    }
+    result.href = _legacyFormat(result);
+    return result;
+  }
+
+  var last = srcPath[srcPath.length - 1];
+  var hasTrailingSlash = (
+    ((result.host || relative.host || srcPath.length > 1) &&
+    (last === '.' || last === '..')) || last === '');
+
+  var up = 0;
+  for (var i = srcPath.length - 1; i >= 0; i--) {
+    last = srcPath[i];
+    if (last === '.') {
+      _spliceOne(srcPath, i);
+    } else if (last === '..') {
+      _spliceOne(srcPath, i);
+      up++;
+    } else if (up) {
+      _spliceOne(srcPath, i);
+      up--;
+    }
+  }
+
+  if (!mustEndAbs && !removeAllDots) {
+    while (up--) {
+      srcPath.unshift('..');
+    }
+  }
+
+  if (mustEndAbs && srcPath[0] !== '' &&
+      (!srcPath[0] || srcPath[0].charAt(0) !== '/')) {
+    srcPath.unshift('');
+  }
+
+  if (hasTrailingSlash && (srcPath.join('/').slice(-1) !== '/')) {
+    srcPath.push('');
+  }
+
+  var isAbsolute = srcPath[0] === '' || (srcPath[0] && srcPath[0].charAt(0) === '/');
+
+  if (noLeadingSlashes) {
+    result.hostname = result.host = isAbsolute ? '' : srcPath.length ? srcPath.shift() : '';
+    var authInHost2 = result.host && result.host.indexOf('@') > 0 ? result.host.split('@') : false;
+    if (authInHost2) {
+      result.auth = authInHost2.shift();
+      result.host = result.hostname = authInHost2.shift();
+    }
+  }
+
+  mustEndAbs = mustEndAbs || (result.host && srcPath.length);
+
+  if (mustEndAbs && !isAbsolute) {
+    srcPath.unshift('');
+  }
+
+  if (!srcPath.length) {
+    result.pathname = null;
+    result.path = null;
   } else {
-    result.protocol = source.protocol;
-    result.slashes = source.slashes;
-    result.auth = source.auth;
-    result.host = source.host;
-    result.hostname = source.hostname;
-    result.port = source.port;
-    if (relative.pathname) {
-      if (sourceUsesOpaquePath) {
-        var resolvedRelativeOpaque = _resolveOpaquePath(
-          (source.host || '') + (source.pathname || ''),
-          relative.pathname
-        );
-        result.auth = null;
-        result.port = null;
-        if (!resolvedRelativeOpaque) {
-          result.host = null;
-          result.hostname = null;
-          result.pathname = null;
-        } else if (resolvedRelativeOpaque.charAt(0) === '/') {
-          result.host = '';
-          result.hostname = '';
-          result.pathname = resolvedRelativeOpaque;
-        } else {
-          var relativeOpaqueSlashIdx = resolvedRelativeOpaque.indexOf('/');
-          if (relativeOpaqueSlashIdx === -1) {
-            result.host = resolvedRelativeOpaque;
-            result.hostname = resolvedRelativeOpaque;
-            result.pathname = null;
-          } else {
-            result.host = resolvedRelativeOpaque.slice(0, relativeOpaqueSlashIdx);
-            result.hostname = result.host;
-            result.pathname = resolvedRelativeOpaque.slice(relativeOpaqueSlashIdx);
-          }
-        }
-      } else if (relative.pathname.charAt(0) === '/') {
-        result.pathname = _normalizeLegacyPath(
-          relative.pathname,
-          /(?:\/|^)(?:\.{1,2})\/?$/.test(relative.pathname) || relative.pathname.slice(-1) === '/'
-        );
-      } else {
-        result.pathname = _resolvePathname(source.pathname || '/', relative.pathname);
-        if (source.host && result.pathname.slice(0, 2) === '//') {
-          result.pathname = result.pathname.slice(1);
-        }
-      }
-    } else {
-      result.pathname = source.pathname;
-    }
+    result.pathname = srcPath.join('/');
   }
 
-  var relativePathProvided =
-    typeof relative.pathname === 'string' &&
-    relative.pathname !== '';
-  var relativeHasSearch = relative.search !== undefined && relative.search !== null;
-  var relativeHasQuery = relative.query !== undefined && relative.query !== null;
-  result.search = (relativePathProvided || relativeHasSearch) ? (relative.search || null) : (source.search || null);
-  result.query = (relativePathProvided || relativeHasQuery) ? relative.query : (source.query || null);
-  result.hash = relative.hash !== undefined ? (relative.hash || null) : null;
-  result.path = (result.pathname || '') + (result.search || '') || null;
-  result.href = _legacyResolveHref(result);
-  return result;
-}
-
-function _resolvePathname(base, relative) {
-  if (!relative) return base;
-  if (relative.charAt(0) === '/') {
-    // Absolute path - normalize
-    return _normalizeLegacyPath(relative, /(?:\/|^)(?:\.{1,2})\/?$/.test(relative) || relative.slice(-1) === '/');
+  if (result.pathname !== null || result.search !== null) {
+    result.path = (result.pathname || '') + (result.search || '');
   }
-  if (base.indexOf('/') === -1 && (relative === '.' || relative === './')) {
-    return '';
-  }
-  if (base.indexOf('/') === -1) {
-    return _normalizeLegacyPath(
-      '/' + relative,
-      relative === '.' ||
-        relative === '..' ||
-        relative.slice(-1) === '/' ||
-        /(?:\/|^)(?:\.{1,2})\/?$/.test(relative)
-    ).replace(/^\//, '');
-  }
-  // Relative path - combine with base directory
-  var baseDir = base.slice(0, base.lastIndexOf('/') + 1);
-  var preserveTrailingSlash =
-    relative === '.' ||
-    relative === '..' ||
-    relative.slice(-1) === '/' ||
-    /(?:\/|^)(?:\.{1,2})\/?$/.test(relative);
-  return _normalizeLegacyPath(baseDir + relative, preserveTrailingSlash);
-}
-
-function _normalizeLegacyPath(path, preserveTrailingSlash) {
-  if (!path) return '/';
-  var isAbsolutePath = path.charAt(0) === '/';
-  var segments = path.split('/');
-  var normalized = [];
-  for (var i = 0; i < segments.length; i++) {
-    var seg = segments[i];
-    if (seg === '.') {
-      // skip
-    } else if (seg === '..') {
-      var consumedEmptyParent = false;
-      while (
-        normalized.length > 1 &&
-        normalized[normalized.length - 1] === '' &&
-        normalized[normalized.length - 2] !== ''
-      ) {
-        normalized.pop();
-        consumedEmptyParent = true;
-      }
-      if (
-        !consumedEmptyParent &&
-        normalized.length > 0 &&
-        normalized[normalized.length - 1] !== '' &&
-        normalized[normalized.length - 1] !== '..'
-      ) {
-        normalized.pop();
-      } else if (!isAbsolutePath) {
-        normalized.push('..');
-      }
-    } else {
-      normalized.push(seg);
-    }
-  }
-  var result = normalized.join('/');
-  // Ensure leading slash for absolute paths
-  if (path.charAt(0) === '/' && result.charAt(0) !== '/') {
-    result = '/' + result;
-  }
-  result = result || '/';
-  if (preserveTrailingSlash && result.charAt(result.length - 1) !== '/') {
-    result += '/';
-  }
-  return result;
-}
-
-function _normalizeOpaqueLegacyPath(path, preserveTrailingSlash) {
-  if (!path) return '';
-  var isAbsolutePath = path.charAt(0) === '/';
-  var segments = path.split('/');
-  var normalized = [];
-  for (var i = 0; i < segments.length; i++) {
-    var seg = segments[i];
-    if (seg === '.') {
-      continue;
-    }
-    if (seg === '..') {
-      if (
-        normalized.length > 0 &&
-        normalized[normalized.length - 1] !== '' &&
-        normalized[normalized.length - 1] !== '..'
-      ) {
-        normalized.pop();
-      } else if (!isAbsolutePath) {
-        normalized.push('..');
-      }
-      continue;
-    }
-    normalized.push(seg);
-  }
-  var result = normalized.join('/');
-  if (isAbsolutePath && result.charAt(0) !== '/') {
-    result = '/' + result;
-  }
-  if (result === '') {
-    return isAbsolutePath ? '/' : '';
-  }
-  if (preserveTrailingSlash && result !== '/' && result.charAt(result.length - 1) !== '/') {
-    result += '/';
-  }
-  return result;
-}
-
-function _resolveOpaquePath(base, relative) {
-  if (!relative) return base;
-  var preserveTrailingSlash =
-    relative === '.' ||
-    relative === '..' ||
-    relative.slice(-1) === '/' ||
-    /(?:\/|^)(?:\.{1,2})\/?$/.test(relative);
-  if (relative.charAt(0) === '/') {
-    return _normalizeOpaqueLegacyPath(relative, preserveTrailingSlash);
-  }
-  var baseDir = base.slice(0, base.lastIndexOf('/') + 1);
-  if (baseDir === '') {
-    if (relative === '.' || relative === '..') {
-      return '';
-    }
-    relative = relative.replace(/^(?:\.\.\/)+/, '');
-  }
-  var resolved = _normalizeOpaqueLegacyPath(baseDir + relative, preserveTrailingSlash);
-  if (baseDir === '' && base !== '' && resolved.charAt(0) !== '/') {
-    if (resolved === '..' || resolved === '../') {
-      return '';
-    }
-    resolved = resolved.replace(/^(?:\.\.\/)+/, '');
-  }
-  return resolved;
-}
-
-function _normalizeLegacyResolveObjectResult(result) {
-  if (
-    result &&
-    result.protocol &&
-    result.slashes === true &&
-    result.host === '' &&
-    result.hostname === '' &&
-    !URL._isSpecialProtocol(result.protocol.slice(0, -1))
-  ) {
-    result.host = null;
-    result.hostname = null;
-  }
+  result.auth = relative.auth || result.auth;
+  result.slashes = result.slashes || relative.slashes;
+  result.href = _legacyFormat(result);
   return result;
 }
 
