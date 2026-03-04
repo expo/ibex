@@ -10382,8 +10382,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactDeflateSync", std::move(deflateSyncFn));
 
-  // __exactInflateSync(data, mode) -> Uint8Array
+  // __exactInflateSync(data, mode, strict?, flags?) -> Uint8Array or [Uint8Array, bytesConsumed]
   // mode: 0 = deflate (zlib header, windowBits=15), 1 = gzip (windowBits=15+32), 2 = raw (windowBits=-15)
+  // flags: bitmask - bit0=lenientMode (ignore trailing data), bit1=returnConsumed (return [data, consumed])
   auto inflateSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactInflateSync"),
@@ -10399,12 +10400,20 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto input = extractBytes(runtime, args[0]);
 
         bool strictMode = false;
+        bool lenientMode = false;
+        bool returnConsumed = false;
         int mode = 0; // 0=deflate, 1=gzip, 2=raw
         if (count > 1 && args[1].isNumber()) {
           mode = static_cast<int>(args[1].asNumber());
         }
         if (count > 2 && args[2].isBool()) {
           strictMode = args[2].getBool();
+        }
+        // 4th arg: flags number (bit0=lenient, bit1=returnConsumed)
+        if (count > 3 && args[3].isNumber()) {
+          int flags = static_cast<int>(args[3].asNumber());
+          lenientMode = (flags & 1) != 0;
+          returnConsumed = (flags & 2) != 0;
         }
 
         z_stream strm = {};
@@ -10420,27 +10429,89 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "inflateInit2 failed");
         }
 
-        strm.next_in = input.data();
+        strm.next_in = const_cast<Bytef*>(input.data());
         strm.avail_in = static_cast<uInt>(input.size());
 
         std::vector<uint8_t> output;
         uint8_t outBuf[32768];
-        int ret;
+        int ret = Z_OK;
+
+        // For gzip mode, support multi-member streams by looping
         do {
-          strm.next_out = outBuf;
-          strm.avail_out = sizeof(outBuf);
-          ret = inflate(&strm, Z_NO_FLUSH);
-          if (ret == Z_MEM_ERROR || ret == Z_DATA_ERROR) {
+          do {
+            strm.next_out = outBuf;
+            strm.avail_out = sizeof(outBuf);
+            ret = inflate(&strm, Z_NO_FLUSH);
+            if (ret == Z_MEM_ERROR) {
+              inflateEnd(&strm);
+              throw facebook::jsi::JSError(runtime, "inflate failed: memory error");
+            }
+            if (ret == Z_DATA_ERROR) {
+              std::string msg = "inflate failed: data error";
+              if (strm.msg) { msg += ": "; msg += strm.msg; }
+              if (!lenientMode) {
+                inflateEnd(&strm);
+                throw facebook::jsi::JSError(runtime, msg);
+              }
+              // In lenient mode, stop processing but don't throw
+              ret = Z_STREAM_END;
+              break;
+            }
+            size_t have = sizeof(outBuf) - strm.avail_out;
+            output.insert(output.end(), outBuf, outBuf + have);
+          } while (strm.avail_out == 0);
+
+          // Multi-member gzip: after Z_STREAM_END, reset and continue if more data
+          if (ret == Z_STREAM_END && strm.avail_in > 0 && mode == 1) {
+            // Save remaining input pointer
+            uInt remaining = strm.avail_in;
+            const Bytef* nextIn = strm.next_in;
+
+            // Check if next chunk looks like a gzip header (magic bytes 0x1f 0x8b)
+            // If it doesn't start with gzip magic, it's trailing non-gzip data - stop
+            if (remaining < 2 || nextIn[0] != 0x1f || nextIn[1] != 0x8b) {
+              inflateEnd(&strm);
+              strm = {};
+              strm.next_in = const_cast<Bytef*>(nextIn);
+              strm.avail_in = remaining;
+              break;
+            }
+
+            // Reinitialize for next gzip member
             inflateEnd(&strm);
-            throw facebook::jsi::JSError(runtime, "inflate failed: data error");
+            strm = {};
+            if (inflateInit2(&strm, windowBits) != Z_OK) {
+              throw facebook::jsi::JSError(runtime, "inflateInit2 failed for next gzip member");
+            }
+            strm.next_in = const_cast<Bytef*>(nextIn);
+            strm.avail_in = remaining;
+            ret = Z_OK;
+          } else {
+            break;
           }
-          size_t have = sizeof(outBuf) - strm.avail_out;
-          output.insert(output.end(), outBuf, outBuf + have);
-        } while (ret != Z_STREAM_END && strm.avail_out == 0);
+        } while (true);
+
+        // Record bytes consumed before inflateEnd clears strm
+        size_t bytesConsumed = input.size() - strm.avail_in;
+
+        // Check for truncated input: all input consumed but stream didn't reach Z_STREAM_END
+        if (ret != Z_STREAM_END && strm.avail_in == 0 && !lenientMode) {
+          inflateEnd(&strm);
+          throw facebook::jsi::JSError(runtime, "inflate failed: unexpected end of file");
+        }
+
         inflateEnd(&strm);
 
-        if (strictMode && strm.avail_in > 0) {
+        if (strictMode && bytesConsumed < input.size()) {
           throw facebook::jsi::JSError(runtime, "inflate failed: trailing data");
+        }
+
+        if (returnConsumed) {
+          // Return [Uint8Array, bytesConsumed]
+          auto arr = facebook::jsi::Array(runtime, 2);
+          arr.setValueAtIndex(runtime, 0, makeUint8Array(runtime, std::move(output)));
+          arr.setValueAtIndex(runtime, 1, facebook::jsi::Value(static_cast<double>(bytesConsumed)));
+          return arr;
         }
 
         return makeUint8Array(runtime, std::move(output));
@@ -10499,7 +10570,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactBrotliCompressSync", std::move(brotliCompressSyncFn));
 
-  // __exactBrotliDecompressSync(data) -> Uint8Array
+  // __exactBrotliDecompressSync(data, strict?, flags?) -> Uint8Array or [Uint8Array, bytesConsumed]
+  // flags: bitmask - bit1=returnConsumed (return [data, consumed])
   auto brotliDecompressSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactBrotliDecompressSync"),
@@ -10515,8 +10587,14 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto input = extractBytes(runtime, args[0]);
 
         bool strictMode = false;
+        bool returnConsumed = false;
         if (count > 1 && args[1].isBool()) {
           strictMode = args[1].getBool();
+        }
+        // 3rd arg: flags number (bit1=returnConsumed)
+        if (count > 2 && args[2].isNumber()) {
+          int flags = static_cast<int>(args[2].asNumber());
+          returnConsumed = (flags & 2) != 0;
         }
 
         // Use streaming decoder for unknown output size
@@ -10572,7 +10650,15 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             BrotliDecoderDestroyInstance(state);
             throw facebook::jsi::JSError(runtime, "BrotliDecoderDecompressStream failed: corrupt data");
           }
+
+          // Stop after decompressing one complete brotli stream (trailing data = new stream or garbage)
+          if (result == BROTLI_DECODER_RESULT_SUCCESS) {
+            break;
+          }
         } while (result == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT);
+
+        // Record bytes consumed
+        size_t bytesConsumed = input.size() - availableIn;
 
         if (strictMode && !acceptedTrailingData && availableIn > 0) {
           BrotliDecoderDestroyInstance(state);
@@ -10584,6 +10670,14 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
         if (!acceptedTrailingData && result != BROTLI_DECODER_RESULT_SUCCESS) {
           throw facebook::jsi::JSError(runtime, "Brotli decompression failed: incomplete data");
+        }
+
+        if (returnConsumed) {
+          // Return [Uint8Array, bytesConsumed]
+          auto arr = facebook::jsi::Array(runtime, 2);
+          arr.setValueAtIndex(runtime, 0, makeUint8Array(runtime, std::move(output)));
+          arr.setValueAtIndex(runtime, 1, facebook::jsi::Value(static_cast<double>(bytesConsumed)));
+          return arr;
         }
 
         return makeUint8Array(runtime, std::move(output));

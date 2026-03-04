@@ -1,5 +1,58 @@
 var Transform = require('node:stream').Transform;
 
+// ---------------------------------------------------------------------------
+// Capture kMaxLength at module load time (Node.js behavior)
+// ---------------------------------------------------------------------------
+var _kMaxLength = (function() {
+  try {
+    var buf = require('buffer');
+    return buf.kMaxLength != null ? buf.kMaxLength : Infinity;
+  } catch(e) {
+    return Infinity;
+  }
+})();
+
+// Valid brotli parameter keys (0-8)
+var VALID_BROTLI_PARAMS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+function makeError(code, name, message) {
+  var Ctor = name === 'RangeError' ? RangeError : name === 'TypeError' ? TypeError : Error;
+  var err = new Ctor(message);
+  err.code = code;
+  return err;
+}
+
+function invalidArgTypeHelper(input) {
+  if (input == null) return ' Received ' + input;
+  if (typeof input === 'function') return ' Received function ' + (input.name || '');
+  if (typeof input === 'object') {
+    if (input.constructor && input.constructor.name) return ' Received an instance of ' + input.constructor.name;
+    return ' Received ' + String(input);
+  }
+  return ' Received type ' + typeof input + ' (' + String(input) + ')';
+}
+
+function validateInput(data) {
+  if (typeof data === 'string') return;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) return;
+  if (data instanceof ArrayBuffer) return;
+  if (ArrayBuffer.isView(data)) return;
+  var msg = 'The "buffer" argument must be of type string or an instance of Buffer, TypedArray, DataView, or ArrayBuffer.';
+  msg += invalidArgTypeHelper(data);
+  throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError', msg);
+}
+
+function checkKMaxLength(length) {
+  if (_kMaxLength !== Infinity && length > _kMaxLength) {
+    throw makeError('ERR_BUFFER_TOO_LARGE', 'RangeError',
+      'Cannot create a Buffer larger than ' + _kMaxLength + ' bytes');
+  }
+}
+
 function toBytes(data) {
   if (typeof data === 'string') {
     if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(data);
@@ -9,9 +62,10 @@ function toBytes(data) {
   }
   if (data instanceof Uint8Array) return data;
   if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) {
-    return new Uint8Array(data.buffer || data, data.byteOffset || 0, data.length);
+    return new Uint8Array(data.buffer, data.byteOffset || 0, data.length);
   }
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   return new Uint8Array(data);
 }
 
@@ -29,91 +83,218 @@ function countBytesForChunk(chunk, encoding) {
   return chunk.length || 0;
 }
 
-// mode: 0 = deflate (zlib header), 1 = gzip, 2 = raw (no header/checksum)
-function deflateSync(data, options) {
-  var bytes = toBytes(data);
-  var level = (options && options.level !== undefined) ? options.level : -1;
-  var result = __exactDeflateSync(bytes, level, 0);
-  return toBuffer(result);
+// Wrap inflate errors with Z_DATA_ERROR code
+function wrapInflateError(e) {
+  if (!e) return e;
+  if (e.code) return e; // Already has a code
+  var msg = e.message || String(e);
+  // Strip "inflate failed: data error: " prefix to match Node.js behavior
+  msg = msg.replace(/^inflate failed:\s*(data error:\s*)?/, '');
+  var err = new Error(msg);
+  err.code = 'Z_DATA_ERROR';
+  err.errno = -3;
+  return err;
 }
 
-function inflateSync(data) {
+// Internal: inflate and return [buffer, bytesConsumed]
+// flags=2 means returnConsumed=true (bit1), non-lenient
+function inflateSyncConsumed(bytes, mode) {
+  var raw = __exactInflateSync(bytes, mode, false, 2);
+  if (Array.isArray(raw)) {
+    return [toBuffer(raw[0]), raw[1]];
+  }
+  return [toBuffer(raw), bytes.length];
+}
+
+// Internal: brotli decompress and return [buffer, bytesConsumed]
+// flags=2 means returnConsumed=true (bit1)
+function brotliDecompressSyncConsumed(bytes) {
+  if (typeof __exactBrotliDecompressSync !== 'function') {
+    throw new Error('brotliDecompressSync not available');
+  }
+  var raw = __exactBrotliDecompressSync(bytes, false, 2);
+  if (Array.isArray(raw)) {
+    return [toBuffer(raw[0]), raw[1]];
+  }
+  return [toBuffer(raw), bytes.length];
+}
+
+// ---------------------------------------------------------------------------
+// Sync functions
+// ---------------------------------------------------------------------------
+
+// mode: 0 = deflate (zlib header), 1 = gzip, 2 = raw (no header/checksum)
+function deflateSync(data, options) {
+  validateInput(data);
   var bytes = toBytes(data);
-  var result = __exactInflateSync(bytes, 0);
-  return toBuffer(result);
+  var level = (options && options.level !== undefined) ? options.level : -1;
+  var buf = toBuffer(__exactDeflateSync(bytes, level, 0));
+  if (options && options.info) return { engine: new Deflate(options), buffer: buf }; // eslint-disable-line no-use-before-define
+  return buf;
+}
+
+function inflateSync(data, options) {
+  validateInput(data);
+  var bytes = toBytes(data);
+  var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
+  var result;
+  try {
+    result = toBuffer(__exactInflateSync(bytes, 0, false, lenient ? 1 : 0));
+  } catch (e) {
+    if (lenient) return toBuffer(new Uint8Array(0));
+    throw wrapInflateError(e);
+  }
+  checkKMaxLength(result.length);
+  if (options && options.info) return { engine: new Inflate(options), buffer: result }; // eslint-disable-line no-use-before-define
+  return result;
 }
 
 function gzipSync(data, options) {
+  validateInput(data);
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
-  var result = __exactDeflateSync(bytes, level, 1);
-  return toBuffer(result);
+  var buf = toBuffer(__exactDeflateSync(bytes, level, 1));
+  if (options && options.info) return { engine: new Gzip(options), buffer: buf }; // eslint-disable-line no-use-before-define
+  return buf;
 }
 
-function gunzipSync(data) {
+function gunzipSync(data, options) {
+  validateInput(data);
   var bytes = toBytes(data);
-  var result = __exactInflateSync(bytes, 1);
-  return toBuffer(result);
+  var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
+  var result;
+  try {
+    result = toBuffer(__exactInflateSync(bytes, 1, false, lenient ? 1 : 0));
+  } catch (e) {
+    if (lenient) return toBuffer(new Uint8Array(0));
+    throw wrapInflateError(e);
+  }
+  checkKMaxLength(result.length);
+  if (options && options.info) return { engine: new Gunzip(options), buffer: result }; // eslint-disable-line no-use-before-define
+  return result;
 }
 
 function deflateRawSync(data, options) {
+  validateInput(data);
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
-  var result = __exactDeflateSync(bytes, level, 2);
-  return toBuffer(result);
+  var buf = toBuffer(__exactDeflateSync(bytes, level, 2));
+  if (options && options.info) return { engine: new DeflateRaw(options), buffer: buf }; // eslint-disable-line no-use-before-define
+  return buf;
 }
 
-function inflateRawSync(data) {
+function inflateRawSync(data, options) {
+  validateInput(data);
   var bytes = toBytes(data);
-  var result = __exactInflateSync(bytes, 2);
-  return toBuffer(result);
-}
-
-function unzipSync(data) {
-  // Auto-detect gzip or deflate
-  return gunzipSync(data);
-}
-
-// Async wrappers (use sync under the hood with nextTick callback)
-function deflate(data, options, callback) {
-  if (typeof options === 'function') { callback = options; options = {}; }
+  var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
+  var result;
   try {
-    var result = deflateSync(data, options);
-    if (callback) setTimeout(function() { callback(null, result); }, 0);
-  } catch(e) {
-    if (callback) setTimeout(function() { callback(e); }, 0);
+    result = toBuffer(__exactInflateSync(bytes, 2, false, lenient ? 1 : 0));
+  } catch (e) {
+    if (lenient) return toBuffer(new Uint8Array(0));
+    throw wrapInflateError(e);
+  }
+  checkKMaxLength(result.length);
+  if (options && options.info) return { engine: new InflateRaw(options), buffer: result }; // eslint-disable-line no-use-before-define
+  return result;
+}
+
+function unzipSync(data, options) {
+  validateInput(data);
+  var bytes = toBytes(data);
+  var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
+  var result;
+  try {
+    // mode=1 auto-detects gzip/deflate; handles multi-member gzip
+    result = toBuffer(__exactInflateSync(bytes, 1, false, lenient ? 1 : 0));
+  } catch (e) {
+    if (lenient) return toBuffer(new Uint8Array(0));
+    throw wrapInflateError(e);
+  }
+  checkKMaxLength(result.length);
+  if (options && options.info) return { engine: new Unzip(options), buffer: result }; // eslint-disable-line no-use-before-define
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Brotli
+// ---------------------------------------------------------------------------
+
+// BROTLI_PARAM_DISABLE_LITERAL_CONTEXT_MODELING = 4, this is a boolean flag
+var BROTLI_BOOLEAN_PARAMS = [4];
+
+function validateBrotliParams(params) {
+  if (!params) return;
+  var paramKeys = Object.keys(params);
+  for (var i = 0; i < paramKeys.length; i++) {
+    var key = paramKeys[i];
+    var numKey = Number(key);
+    if (String(numKey) !== key || VALID_BROTLI_PARAMS.indexOf(numKey) === -1) {
+      throw makeError('ERR_BROTLI_INVALID_PARAM', 'RangeError', key + ' is not a valid Brotli parameter');
+    }
+    var val = params[key];
+    if (typeof val !== 'number' && typeof val !== 'boolean') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "params[' + key + ']" argument must be of type number or boolean. Received type ' + typeof val);
+    }
+    // Boolean-only params must be true or false (not arbitrary numbers)
+    if (BROTLI_BOOLEAN_PARAMS.indexOf(numKey) !== -1) {
+      if (typeof val === 'number' && val !== 0 && val !== 1) {
+        throw makeError('ERR_ZLIB_INITIALIZATION_FAILED', 'Error', 'Initialization failed');
+      }
+    }
   }
 }
 
-function inflate(data, options, callback) {
-  if (typeof options === 'function') { callback = options; options = {}; }
-  try {
-    var result = inflateSync(data, options);
-    if (callback) setTimeout(function() { callback(null, result); }, 0);
-  } catch(e) {
-    if (callback) setTimeout(function() { callback(e); }, 0);
+function brotliCompressSync(data, options) {
+  validateInput(data);
+  var bytes = toBytes(data);
+  var quality = 11; // BROTLI_DEFAULT_QUALITY
+  if (options) {
+    if (options.flush !== undefined) {
+      if (typeof options.flush !== 'number' || !isFinite(options.flush) || options.flush < 0 || options.flush > 3) {
+        throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+          'The value of "options.flush" is out of range. It must be >= 0 and <= 3. Received ' + String(options.flush));
+      }
+    }
+    if (options.finishFlush !== undefined) {
+      if (typeof options.finishFlush !== 'number' || !isFinite(options.finishFlush) || options.finishFlush < 0 || options.finishFlush > 3) {
+        throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+          'The value of "options.finishFlush" is out of range. It must be >= 0 and <= 3. Received ' + String(options.finishFlush));
+      }
+    }
+    if (options.params) {
+      validateBrotliParams(options.params);
+      if (options.params[1] !== undefined) {
+        quality = options.params[1];
+      }
+    }
   }
+  if (typeof __exactBrotliCompressSync !== 'function') throw new Error('brotliCompressSync not available');
+  var buf = toBuffer(__exactBrotliCompressSync(bytes, quality));
+  if (options && options.info) return { engine: new BrotliCompress(options), buffer: buf }; // eslint-disable-line no-use-before-define
+  return buf;
 }
 
-function gzip(data, options, callback) {
-  if (typeof options === 'function') { callback = options; options = {}; }
-  try {
-    var result = gzipSync(data, options);
-    if (callback) setTimeout(function() { callback(null, result); }, 0);
-  } catch(e) {
-    if (callback) setTimeout(function() { callback(e); }, 0);
+function brotliDecompressSync(data, options) {
+  validateInput(data);
+  var bytes = toBytes(data);
+  var maxOutputLength = options && options.maxOutputLength !== undefined ? options.maxOutputLength : Infinity;
+  if (typeof __exactBrotliDecompressSync !== 'function') throw new Error('brotliDecompressSync not available');
+  var result = __exactBrotliDecompressSync(bytes);
+  if (result.length > maxOutputLength) {
+    throw makeError('ERR_BUFFER_TOO_LARGE', 'RangeError',
+      'Cannot create a Buffer larger than ' + maxOutputLength + ' bytes');
   }
+  checkKMaxLength(result.length);
+  var buf = toBuffer(result);
+  if (options && options.info) return { engine: new BrotliDecompress(options), buffer: buf }; // eslint-disable-line no-use-before-define
+  return buf;
 }
 
-function gunzip(data, options, callback) {
-  if (typeof options === 'function') { callback = options; options = {}; }
-  try {
-    var result = gunzipSync(data, options);
-    if (callback) setTimeout(function() { callback(null, result); }, 0);
-  } catch(e) {
-    if (callback) setTimeout(function() { callback(e); }, 0);
-  }
-}
+// ---------------------------------------------------------------------------
+// Zstd (placeholder - uses deflate/inflate under the hood)
+// ---------------------------------------------------------------------------
 
 function zstdCompressSync(data, options) {
   var bytes = toBytes(data);
@@ -123,14 +304,12 @@ function zstdCompressSync(data, options) {
   } else if (options && options.params && options.params[100] !== undefined) {
     level = options.params[100];
   }
-  var result = __exactDeflateSync(bytes, level, 0);
-  return toBuffer(result);
+  return toBuffer(__exactDeflateSync(bytes, level, 0));
 }
 
 function zstdDecompressSync(data, options) {
   var bytes = toBytes(data);
-  var result = __exactInflateSync(bytes, 0);
-  return toBuffer(result);
+  return toBuffer(__exactInflateSync(bytes, 0));
 }
 
 function zstdCompress(data, options, callback) {
@@ -153,68 +332,373 @@ function zstdDecompress(data, options, callback) {
   }
 }
 
-// Brotli compression/decompression
-function brotliCompressSync(data, options) {
-  var bytes = toBytes(data);
-  var quality = 11; // BROTLI_DEFAULT_QUALITY
-  if (options && options.params) {
-    // BROTLI_PARAM_QUALITY = 1
-    if (options.params[1] !== undefined) {
-      quality = options.params[1];
-    }
+// ---------------------------------------------------------------------------
+// Options validation helpers
+// ---------------------------------------------------------------------------
+
+function validateLevelArg(val, name) {
+  if (typeof val !== 'number') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "' + name + '" argument must be of type number. Received type ' + typeof val + " ('" + String(val) + "')");
   }
-  if (typeof __exactBrotliCompressSync !== 'function') throw new Error('brotliCompressSync not available');
-  var result = __exactBrotliCompressSync(bytes, quality);
-  return toBuffer(result);
-}
-function brotliDecompressSync(data, options) {
-  var bytes = toBytes(data);
-  if (typeof __exactBrotliDecompressSync !== 'function') throw new Error('brotliDecompressSync not available');
-  var result = __exactBrotliDecompressSync(bytes);
-  return toBuffer(result);
-}
-function brotliCompress(data, options, callback) {
-  if (typeof options === 'function') { callback = options; options = {}; }
-  try {
-    var result = brotliCompressSync(data, options);
-    if (callback) setTimeout(function() { callback(null, result); }, 0);
-  } catch(e) {
-    if (callback) setTimeout(function() { callback(e); }, 0);
+  if (!isFinite(val)) {
+    throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+      'The value of "' + name + '" is out of range. It must be a finite number. Received ' + String(val));
   }
-}
-function brotliDecompress(data, options, callback) {
-  if (typeof options === 'function') { callback = options; options = {}; }
-  try {
-    var result = brotliDecompressSync(data, options);
-    if (callback) setTimeout(function() { callback(null, result); }, 0);
-  } catch(e) {
-    if (callback) setTimeout(function() { callback(e); }, 0);
+  if (val < -1 || val > 9) {
+    throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+      'The value of "' + name + '" is out of range. It must be >= -1 and <= 9. Received ' + String(val));
   }
 }
 
-// --- Stream-based zlib API (Transform streams) ---
-// Base class for all zlib Transform streams
-function ZlibTransform(syncFn, opts, isDecoder, roundTripSync) {
+function validateStrategyArg(val, name) {
+  if (typeof val !== 'number') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "' + name + '" argument must be of type number. Received type ' + typeof val + " ('" + String(val) + "')");
+  }
+  if (!isFinite(val)) {
+    throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+      'The value of "' + name + '" is out of range. It must be a finite number. Received ' + String(val));
+  }
+  if (val < 0 || val > 4) {
+    throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+      'The value of "' + name + '" is out of range. It must be >= 0 and <= 4. Received ' + String(val));
+  }
+}
+
+function validateZlibOptions(opts, isDeflater, isGzip) {
+  if (!opts) return;
+  if (opts.chunkSize !== undefined) {
+    if (typeof opts.chunkSize !== 'number') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "options.chunkSize" property must be of type number. Received type ' + typeof opts.chunkSize + " ('" + String(opts.chunkSize) + "')");
+    }
+    if (!isFinite(opts.chunkSize)) {
+      throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+        'The value of "options.chunkSize" is out of range. It must be a finite number. Received ' + String(opts.chunkSize));
+    }
+    if (opts.chunkSize < 64) {
+      throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+        'The value of "options.chunkSize" is out of range. It must be >= 64. Received ' + String(opts.chunkSize));
+    }
+  }
+  if (opts.windowBits !== undefined) {
+    if (typeof opts.windowBits !== 'number') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "options.windowBits" property must be of type number. Received type ' + typeof opts.windowBits + " ('" + String(opts.windowBits) + "')");
+    }
+    if (!isFinite(opts.windowBits)) {
+      throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+        'The value of "options.windowBits" is out of range. It must be a finite number. Received ' + String(opts.windowBits));
+    }
+    if (isDeflater) {
+      var minWin = isGzip ? 9 : 8;
+      if (opts.windowBits < minWin || opts.windowBits > 15) {
+        throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+          'The value of "options.windowBits" is out of range. It must be >= ' + minWin + ' and <= 15. Received ' + String(opts.windowBits));
+      }
+    }
+  }
+  if (opts.level !== undefined) {
+    if (typeof opts.level !== 'number') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "options.level" property must be of type number. Received type ' + typeof opts.level + " ('" + String(opts.level) + "')");
+    }
+    // NaN for level is treated as default (Z_DEFAULT_COMPRESSION) - matches Node.js behavior
+    if (!isNaN(opts.level)) {
+      if (!isFinite(opts.level)) {
+        throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+          'The value of "options.level" is out of range. It must be a finite number. Received ' + String(opts.level));
+      }
+      if (opts.level < -1 || opts.level > 9) {
+        throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+          'The value of "options.level" is out of range. It must be >= -1 and <= 9. Received ' + String(opts.level));
+      }
+    }
+  }
+  if (opts.memLevel !== undefined) {
+    if (typeof opts.memLevel !== 'number') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "options.memLevel" property must be of type number. Received type ' + typeof opts.memLevel + " ('" + String(opts.memLevel) + "')");
+    }
+    if (!isFinite(opts.memLevel)) {
+      throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+        'The value of "options.memLevel" is out of range. It must be a finite number. Received ' + String(opts.memLevel));
+    }
+    if (opts.memLevel < 1 || opts.memLevel > 9) {
+      throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+        'The value of "options.memLevel" is out of range. It must be >= 1 and <= 9. Received ' + String(opts.memLevel));
+    }
+  }
+  if (opts.strategy !== undefined) {
+    if (typeof opts.strategy !== 'number') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "options.strategy" property must be of type number. Received type ' + typeof opts.strategy + " ('" + String(opts.strategy) + "')");
+    }
+    // NaN for strategy is treated as default (Z_DEFAULT_STRATEGY) - matches Node.js behavior
+    if (!isNaN(opts.strategy)) {
+      if (!isFinite(opts.strategy)) {
+        throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+          'The value of "options.strategy" is out of range. It must be a finite number. Received ' + String(opts.strategy));
+      }
+      if (opts.strategy < 0 || opts.strategy > 4) {
+        throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+          'The value of "options.strategy" is out of range. It must be >= 0 and <= 4. Received ' + String(opts.strategy));
+      }
+    }
+  }
+  if (opts.flush !== undefined) {
+    if (typeof opts.flush !== 'number') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "options.flush" property must be of type number. Received type ' + typeof opts.flush + " ('" + String(opts.flush) + "')");
+    }
+    if (!isFinite(opts.flush) || opts.flush < 0 || opts.flush > 5) {
+      throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+        'The value of "options.flush" is out of range. It must be >= 0 and <= 5. Received ' + String(opts.flush));
+    }
+  }
+  if (opts.finishFlush !== undefined) {
+    if (typeof opts.finishFlush !== 'number') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "options.finishFlush" property must be of type number. Received type ' + typeof opts.finishFlush + " ('" + String(opts.finishFlush) + "')");
+    }
+    if (!isFinite(opts.finishFlush) || opts.finishFlush < 0 || opts.finishFlush > 5) {
+      throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+        'The value of "options.finishFlush" is out of range. It must be >= 0 and <= 5. Received ' + String(opts.finishFlush));
+    }
+  }
+  if (opts.dictionary !== undefined) {
+    if (!(typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(opts.dictionary)) &&
+        !(opts.dictionary instanceof ArrayBuffer) &&
+        !ArrayBuffer.isView(opts.dictionary)) {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "options.dictionary" property must be an instance of Buffer, TypedArray, DataView, or ArrayBuffer. Received type ' + typeof opts.dictionary + " ('" + String(opts.dictionary) + "')");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Async convenience functions
+// All require a callback; throw ERR_INVALID_ARG_TYPE if missing.
+// Note: Stream constructors (Deflate, Inflate, etc.) are function declarations
+// and thus hoisted, so they can be referenced here before their declaration.
+// ---------------------------------------------------------------------------
+
+function deflate(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new Deflate(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = deflateSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function inflate(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new Inflate(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = inflateSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function gzip(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new Gzip(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = gzipSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function gunzip(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new Gunzip(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = gunzipSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function unzip(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new Unzip(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = unzipSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function inflateRaw(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new InflateRaw(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = inflateRawSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function deflateRaw(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new DeflateRaw(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = deflateRawSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function brotliCompress(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new BrotliCompress(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = brotliCompressSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+function brotliDecompress(data, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new BrotliDecompress(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
+  try {
+    var result = brotliDecompressSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
+  } catch(e) {
+    setTimeout(function() { callback(e); }, 0);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stream wrapper functions - return { output, consumed } for decoders
+// ---------------------------------------------------------------------------
+
+function inflateStreamFn(buf) {
+  var r = inflateSyncConsumed(toBytes(buf), 0);
+  return { output: r[0], consumed: r[1] };
+}
+
+function gunzipStreamFn(buf) {
+  var r = inflateSyncConsumed(toBytes(buf), 1);
+  return { output: r[0], consumed: r[1] };
+}
+
+function inflateRawStreamFn(buf) {
+  var r = inflateSyncConsumed(toBytes(buf), 2);
+  return { output: r[0], consumed: r[1] };
+}
+
+function unzipStreamFn(buf) {
+  // mode=1: auto-detect gzip/deflate (handles both via windowBits=15+32)
+  var r = inflateSyncConsumed(toBytes(buf), 1);
+  return { output: r[0], consumed: r[1] };
+}
+
+// ---------------------------------------------------------------------------
+// ZlibTransform base class
+// ---------------------------------------------------------------------------
+
+function ZlibTransform(syncFn, opts, isDecoder) {
   Transform.call(this, opts);
   this._syncFn = syncFn;
   this._isDecoder = !!isDecoder;
-  this._roundTripSync = typeof roundTripSync === 'function' ? roundTripSync : null;
   this._chunks = [];
   this._bytesWritten = 0;
   this.bytesWritten = 0;
   this.bytesRead = 0;
+  this._handle = {};
 
+  this._level = (opts && opts.level !== undefined && !isNaN(opts.level) && isFinite(opts.level)) ? opts.level : -1;
+  this._strategy = (opts && opts.strategy !== undefined && !isNaN(opts.strategy) && isFinite(opts.strategy)) ? opts.strategy : 0;
+
+  var self = this;
   var defaultFinal = this._final;
   this._final = function(callback) {
-    var finalSelf = this;
     if (typeof callback !== 'function') callback = function() {};
-    this._flush(function(err) {
+    self._flush(function(err) {
       if (err) {
         callback(err);
         return;
       }
       if (typeof defaultFinal === 'function') {
-        defaultFinal.call(finalSelf, callback);
+        defaultFinal.call(self, callback);
       } else {
         callback();
       }
@@ -224,32 +708,45 @@ function ZlibTransform(syncFn, opts, isDecoder, roundTripSync) {
 ZlibTransform.prototype = Object.create(Transform.prototype);
 ZlibTransform.prototype.constructor = ZlibTransform;
 
+ZlibTransform.prototype.setEncoding = function(enc) {
+  if (Transform.prototype.setEncoding) {
+    return Transform.prototype.setEncoding.call(this, enc);
+  }
+  this._readableEncoding = enc;
+  return this;
+};
+
+ZlibTransform.prototype.write = function(chunk, encoding, callback) {
+  if (chunk !== null && chunk !== undefined &&
+      typeof chunk !== 'string' &&
+      !Buffer.isBuffer(chunk) &&
+      !(chunk instanceof ArrayBuffer) &&
+      !ArrayBuffer.isView(chunk)) {
+    // Always throw synchronously for invalid types, even in objectMode
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'Invalid data, chunk must be a string or Buffer, not ' + (typeof chunk));
+  }
+  return Transform.prototype.write.call(this, chunk, encoding, callback);
+};
+
 ZlibTransform.prototype._transform = function(chunk, encoding, callback) {
+  if (chunk !== null && chunk !== undefined &&
+      typeof chunk !== 'string' &&
+      !Buffer.isBuffer(chunk) &&
+      !(chunk instanceof ArrayBuffer) &&
+      !ArrayBuffer.isView(chunk)) {
+    var err = makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'Invalid data, chunk must be a string or Buffer, not ' + typeof chunk);
+    if (typeof callback === 'function') {
+      callback(err);
+    } else {
+      this.emit('error', err);
+    }
+    return;
+  }
+
   this._bytesWritten += countBytesForChunk(chunk, encoding || 'utf8');
   this.bytesWritten = this._bytesWritten;
-  this.bytesRead = this._bytesWritten;
-  var self = this;
-  var transformState = self._transformState || {};
-
-  var wrappedCallback = callback;
-  callback = function(err) {
-    if (typeof wrappedCallback === 'function') {
-      wrappedCallback(err);
-    }
-    if (!transformState || !transformState._flushQueue || !transformState._flushQueue.length) {
-      return;
-    }
-    if (transformState._flushing || (transformState.pendingWrites > 0)) {
-      return;
-    }
-    if (self._writableState && self._writableState.writing) {
-      return;
-    }
-    var next = transformState._flushQueue.shift();
-    if (next && typeof self._flush === 'function') {
-      self._flush(next[1]);
-    }
-  };
 
   if (typeof chunk === 'string') {
     this._chunks.push(Buffer.from(chunk, encoding));
@@ -265,26 +762,43 @@ ZlibTransform.prototype._transform = function(chunk, encoding, callback) {
 };
 
 ZlibTransform.prototype._flush = function(callback) {
+  if (typeof callback !== 'function') callback = function() {};
   try {
     var input = Buffer.concat(this._chunks);
-    var result = this._syncFn(input);
+    var resultRaw = this._syncFn(input);
+
+    var result;
+    if (resultRaw && typeof resultRaw === 'object' && resultRaw.output !== undefined) {
+      result = resultRaw.output;
+      if (this._isDecoder && typeof resultRaw.consumed === 'number') {
+        this._bytesWritten = resultRaw.consumed;
+        this.bytesWritten = resultRaw.consumed;
+      }
+    } else {
+      result = resultRaw;
+    }
 
     if (this._isDecoder) {
-      if (!this._roundTripSync) {
-        throw new Error('Missing reverse codec for zlib stream byte accounting');
-      }
-      this._bytesWritten = countBytesForChunk(this._roundTripSync(result));
-      this.bytesWritten = this._bytesWritten;
-      this.bytesRead = this._bytesWritten;
+      this.bytesRead = this.bytesWritten;
     }
 
     this.push(result);
     callback();
   } catch (e) {
-    this._bytesWritten = 0;
-    this.bytesWritten = 0;
-    this.bytesRead = 0;
-    callback(e);
+    var finalErr = e;
+    if (e && e.message) {
+      var msg = e.message;
+      // Map inflate error messages to Z_DATA_ERROR
+      if (/^inflate failed:/.test(msg)) {
+        var detail = msg.replace(/^inflate failed:\s*(data error:\s*)?/, '');
+        finalErr = new Error(detail);
+        finalErr.code = 'Z_DATA_ERROR';
+      } else if (!e.code && /unexpected end of file|invalid stored block|invalid block type|unknown compression method|incorrect data check/.test(msg)) {
+        finalErr = new Error(msg);
+        finalErr.code = 'Z_DATA_ERROR';
+      }
+    }
+    callback(finalErr);
   }
 };
 
@@ -296,16 +810,31 @@ ZlibTransform.prototype.flush = function(kind, callback) {
   var flushCallback = typeof callback === 'function' ? callback : null;
   var state = this._transformState || (this._transformState = {});
 
-  if (state._flushing || (state.pendingWrites > 0) ||
-      (this._writableState && this._writableState.writing)) {
+  if (state._flushing || (this._writableState && this._writableState.writing)) {
     state._flushQueue = state._flushQueue || [];
-    state._flushQueue.push([kind, flushCallback]);
+    state._flushQueue.push([kind, flushCallback || function() {}]);
+    return this;
+  }
+
+  // For decoders: just call the callback immediately without inflating partial data.
+  // Decompression happens at stream end (_final).
+  if (this._isDecoder) {
+    if (typeof flushCallback === 'function') {
+      setTimeout(flushCallback, 0);
+    }
+    // Drain any queued flushes
+    if (state._flushQueue && state._flushQueue.length > 0) {
+      var nextD = state._flushQueue.shift();
+      if (nextD && typeof nextD[1] === 'function') {
+        setTimeout(nextD[1], 0);
+      }
+    }
     return this;
   }
 
   if (!this._chunks || this._chunks.length === 0) {
     if (typeof flushCallback === 'function') {
-      setTimeout(function() { flushCallback(); }, 0);
+      setTimeout(flushCallback, 0);
     }
     return this;
   }
@@ -331,18 +860,11 @@ ZlibTransform.prototype.flush = function(kind, callback) {
       flushCallback(err);
     }
     if (
-      shouldEmitDrain &&
-      !err &&
-      !self._destroyed &&
-      !writableState.writing &&
+      shouldEmitDrain && !err && !self._destroyed && !writableState.writing &&
       (writableState.writableLength == null || writableState.writableLength < writableState.highWaterMark)
     ) {
-      var drain = function() {
-        self.emit('drain');
-      };
-      if (typeof process === 'object' &&
-          process &&
-          typeof process.nextTick === 'function') {
+      var drain = function() { self.emit('drain'); };
+      if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
         process.nextTick(drain);
       } else {
         setTimeout(drain, 0);
@@ -351,7 +873,7 @@ ZlibTransform.prototype.flush = function(kind, callback) {
     if (state._flushQueue && state._flushQueue.length > 0) {
       var next = state._flushQueue.shift();
       if (next && typeof self._flush === 'function') {
-        self._flush(next[1]);
+        self._flush(next[1] || function() {});
       }
     }
   });
@@ -367,6 +889,8 @@ ZlibTransform.prototype.reset = function() {
 };
 
 ZlibTransform.prototype.params = function(level, strategy, callback) {
+  validateLevelArg(level, 'level');
+  validateStrategyArg(strategy, 'strategy');
   this._level = level;
   this._strategy = strategy;
   if (typeof callback === 'function') {
@@ -379,47 +903,127 @@ ZlibTransform.prototype.close = function(callback) {
   return this.destroy(null, callback);
 };
 
-// Deflate stream (zlib header)
+ZlibTransform.prototype._destroy = function(err, callback) {
+  this._handle = null;
+  if (typeof callback === 'function') callback(err);
+};
+
+// _processChunk: synchronous compress/decompress (used by tests)
+ZlibTransform.prototype._processChunk = function(chunk, flushFlag) {
+  var resultRaw = this._syncFn(chunk);
+  if (resultRaw && typeof resultRaw === 'object' && resultRaw.output !== undefined) {
+    return resultRaw.output;
+  }
+  return resultRaw;
+};
+
+// ---------------------------------------------------------------------------
+// Concrete stream classes
+// ---------------------------------------------------------------------------
+
 function Deflate(opts) {
-  ZlibTransform.call(this, deflateSync, opts, false, null);
+  if (!(this instanceof Deflate)) return new Deflate(opts);
+  validateZlibOptions(opts, true, false);
+  var _opts = opts;
+  ZlibTransform.call(this, function(buf) {
+    var level = (_opts && _opts.level !== undefined) ? _opts.level : -1;
+    return toBuffer(__exactDeflateSync(toBytes(buf), level, 0));
+  }, opts, false);
 }
 Deflate.prototype = Object.create(ZlibTransform.prototype);
 Deflate.prototype.constructor = Deflate;
 
-// Inflate stream (zlib header)
 function Inflate(opts) {
-  ZlibTransform.call(this, inflateSync, opts, true, deflateSync);
+  if (!(this instanceof Inflate)) return new Inflate(opts);
+  ZlibTransform.call(this, inflateStreamFn, opts, true);
 }
 Inflate.prototype = Object.create(ZlibTransform.prototype);
 Inflate.prototype.constructor = Inflate;
 
-// Gzip stream
 function Gzip(opts) {
-  ZlibTransform.call(this, gzipSync, opts, false, null);
+  if (!(this instanceof Gzip)) return new Gzip(opts);
+  validateZlibOptions(opts, true, true);
+  var _opts = opts;
+  ZlibTransform.call(this, function(buf) {
+    var level = (_opts && _opts.level !== undefined) ? _opts.level : -1;
+    return toBuffer(__exactDeflateSync(toBytes(buf), level, 1));
+  }, opts, false);
 }
 Gzip.prototype = Object.create(ZlibTransform.prototype);
 Gzip.prototype.constructor = Gzip;
 
-// Gunzip stream
 function Gunzip(opts) {
-  ZlibTransform.call(this, gunzipSync, opts, true, gzipSync);
+  if (!(this instanceof Gunzip)) return new Gunzip(opts);
+  ZlibTransform.call(this, gunzipStreamFn, opts, true);
 }
 Gunzip.prototype = Object.create(ZlibTransform.prototype);
 Gunzip.prototype.constructor = Gunzip;
 
-// DeflateRaw stream (no header/checksum)
 function DeflateRaw(opts) {
-  ZlibTransform.call(this, deflateRawSync, opts, false, null);
+  if (!(this instanceof DeflateRaw)) return new DeflateRaw(opts);
+  validateZlibOptions(opts, true, false);
+  var _opts = opts;
+  ZlibTransform.call(this, function(buf) {
+    var level = (_opts && _opts.level !== undefined) ? _opts.level : -1;
+    return toBuffer(__exactDeflateSync(toBytes(buf), level, 2));
+  }, opts, false);
 }
 DeflateRaw.prototype = Object.create(ZlibTransform.prototype);
 DeflateRaw.prototype.constructor = DeflateRaw;
 
-// InflateRaw stream (no header/checksum)
 function InflateRaw(opts) {
-  ZlibTransform.call(this, inflateRawSync, opts, true, deflateRawSync);
+  if (!(this instanceof InflateRaw)) return new InflateRaw(opts);
+  ZlibTransform.call(this, inflateRawStreamFn, opts, true);
 }
 InflateRaw.prototype = Object.create(ZlibTransform.prototype);
 InflateRaw.prototype.constructor = InflateRaw;
+
+function Unzip(opts) {
+  if (!(this instanceof Unzip)) return new Unzip(opts);
+  ZlibTransform.call(this, unzipStreamFn, opts, true);
+}
+Unzip.prototype = Object.create(ZlibTransform.prototype);
+Unzip.prototype.constructor = Unzip;
+
+function BrotliCompress(opts) {
+  if (!(this instanceof BrotliCompress)) return new BrotliCompress(opts);
+  if (opts && opts.params) {
+    validateBrotliParams(opts.params);
+  }
+  var _opts = opts;
+  ZlibTransform.call(this, function(buf) { return brotliCompressSync(buf, _opts); }, opts, false);
+}
+BrotliCompress.prototype = Object.create(ZlibTransform.prototype);
+BrotliCompress.prototype.constructor = BrotliCompress;
+
+function BrotliDecompress(opts) {
+  if (!(this instanceof BrotliDecompress)) return new BrotliDecompress(opts);
+  ZlibTransform.call(this, function(buf) {
+    var r = brotliDecompressSyncConsumed(toBytes(buf));
+    return { output: r[0], consumed: r[1] };
+  }, opts, true);
+}
+BrotliDecompress.prototype = Object.create(ZlibTransform.prototype);
+BrotliDecompress.prototype.constructor = BrotliDecompress;
+
+// Zstd placeholder stream classes
+function ZstdCompress(opts) {
+  if (!(this instanceof ZstdCompress)) return new ZstdCompress(opts);
+  Deflate.call(this, opts);
+}
+ZstdCompress.prototype = Object.create(Deflate.prototype);
+ZstdCompress.prototype.constructor = ZstdCompress;
+
+function ZstdDecompress(opts) {
+  if (!(this instanceof ZstdDecompress)) return new ZstdDecompress(opts);
+  Inflate.call(this, opts);
+}
+ZstdDecompress.prototype = Object.create(Inflate.prototype);
+ZstdDecompress.prototype.constructor = ZstdDecompress;
+
+// ---------------------------------------------------------------------------
+// Factory functions
+// ---------------------------------------------------------------------------
 
 function createDeflate(options) { return new Deflate(options); }
 function createInflate(options) { return new Inflate(options); }
@@ -427,46 +1031,26 @@ function createGzip(options) { return new Gzip(options); }
 function createGunzip(options) { return new Gunzip(options); }
 function createDeflateRaw(options) { return new DeflateRaw(options); }
 function createInflateRaw(options) { return new InflateRaw(options); }
-
-// Zstd placeholder stream classes
-function ZstdCompress(opts) {
-  Deflate.call(this, opts);
-}
-ZstdCompress.prototype = Object.create(Deflate.prototype);
-ZstdCompress.prototype.constructor = ZstdCompress;
-
-function ZstdDecompress(opts) {
-  Inflate.call(this, opts);
-}
-ZstdDecompress.prototype = Object.create(Inflate.prototype);
-ZstdDecompress.prototype.constructor = ZstdDecompress;
-
+function createUnzip(options) { return new Unzip(options); }
+function createBrotliCompress(options) { return new BrotliCompress(options); }
+function createBrotliDecompress(options) { return new BrotliDecompress(options); }
 function createZstdCompress(options) { return new ZstdCompress(options); }
 function createZstdDecompress(options) { return new ZstdDecompress(options); }
 
-// BrotliCompress stream
-function BrotliCompress(opts) {
-  ZlibTransform.call(this, function(buf) { return brotliCompressSync(buf, opts); }, opts, false, null);
-}
-BrotliCompress.prototype = Object.create(ZlibTransform.prototype);
-BrotliCompress.prototype.constructor = BrotliCompress;
-
-// BrotliDecompress stream
-function BrotliDecompress(opts) {
-  ZlibTransform.call(this, function(buf) { return brotliDecompressSync(buf, opts); }, opts, true, function(buf) { return brotliCompressSync(buf, opts); });
-}
-BrotliDecompress.prototype = Object.create(ZlibTransform.prototype);
-BrotliDecompress.prototype.constructor = BrotliDecompress;
-
-function createBrotliCompress(options) { return new BrotliCompress(options); }
-function createBrotliDecompress(options) { return new BrotliDecompress(options); }
-
+// ---------------------------------------------------------------------------
 // Constants
-var constants = {
+// ---------------------------------------------------------------------------
+
+var constants = Object.freeze({
   Z_NO_COMPRESSION: 0,
   Z_BEST_SPEED: 1,
   Z_BEST_COMPRESSION: 9,
   Z_DEFAULT_COMPRESSION: -1,
+  Z_FILTERED: 1,
+  Z_HUFFMAN_ONLY: 2,
+  Z_RLE: 3,
+  Z_FIXED: 4,
+  Z_DEFAULT_STRATEGY: 0,
   Z_NO_FLUSH: 0,
   Z_PARTIAL_FLUSH: 1,
   Z_SYNC_FLUSH: 2,
@@ -483,6 +1067,7 @@ var constants = {
   Z_MEM_ERROR: -4,
   Z_BUF_ERROR: -5,
   Z_VERSION_ERROR: -6,
+  Z_MAX_CHUNK: Infinity,
   BROTLI_OPERATION_PROCESS: 0,
   BROTLI_OPERATION_FLUSH: 1,
   BROTLI_OPERATION_FINISH: 2,
@@ -573,9 +1158,26 @@ var constants = {
   BROTLI_DECODER_RESULT_SUCCESS: 1,
   BROTLI_DECODER_RESULT_NEEDS_MORE_INPUT: 2,
   BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT: 3
-};
+});
 
-module.exports = {
+// zlib.codes - frozen mapping
+var codes = Object.freeze({
+  Z_OK: 0,
+  Z_STREAM_END: 1,
+  Z_NEED_DICT: 2,
+  Z_ERRNO: -1,
+  Z_STREAM_ERROR: -2,
+  Z_DATA_ERROR: -3,
+  Z_MEM_ERROR: -4,
+  Z_BUF_ERROR: -5,
+  Z_VERSION_ERROR: -6
+});
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+
+var zlibExports = {
   deflateSync: deflateSync,
   inflateSync: inflateSync,
   gzipSync: gzipSync,
@@ -583,37 +1185,65 @@ module.exports = {
   deflateRawSync: deflateRawSync,
   inflateRawSync: inflateRawSync,
   unzipSync: unzipSync,
+  brotliCompressSync: brotliCompressSync,
+  brotliDecompressSync: brotliDecompressSync,
+  zstdCompressSync: zstdCompressSync,
+  zstdDecompressSync: zstdDecompressSync,
   deflate: deflate,
   inflate: inflate,
   gzip: gzip,
   gunzip: gunzip,
-  zstdCompressSync: zstdCompressSync,
-  zstdDecompressSync: zstdDecompressSync,
-  zstdCompress: zstdCompress,
-  zstdDecompress: zstdDecompress,
-  brotliCompressSync: brotliCompressSync,
-  brotliDecompressSync: brotliDecompressSync,
+  deflateRaw: deflateRaw,
+  inflateRaw: inflateRaw,
+  unzip: unzip,
   brotliCompress: brotliCompress,
   brotliDecompress: brotliDecompress,
+  zstdCompress: zstdCompress,
+  zstdDecompress: zstdDecompress,
   createDeflate: createDeflate,
   createInflate: createInflate,
   createGzip: createGzip,
   createGunzip: createGunzip,
   createDeflateRaw: createDeflateRaw,
   createInflateRaw: createInflateRaw,
-  createZstdCompress: createZstdCompress,
-  createZstdDecompress: createZstdDecompress,
-  ZstdCompress: ZstdCompress,
-  ZstdDecompress: ZstdDecompress,
+  createUnzip: createUnzip,
   createBrotliCompress: createBrotliCompress,
   createBrotliDecompress: createBrotliDecompress,
+  createZstdCompress: createZstdCompress,
+  createZstdDecompress: createZstdDecompress,
   Deflate: Deflate,
   Inflate: Inflate,
   Gzip: Gzip,
   Gunzip: Gunzip,
   DeflateRaw: DeflateRaw,
   InflateRaw: InflateRaw,
+  Unzip: Unzip,
   BrotliCompress: BrotliCompress,
   BrotliDecompress: BrotliDecompress,
+  ZstdCompress: ZstdCompress,
+  ZstdDecompress: ZstdDecompress,
   constants: constants
 };
+
+// Make 'codes' non-writable on module exports
+Object.defineProperty(zlibExports, 'codes', {
+  get: function() { return codes; },
+  set: function() {},
+  enumerable: true,
+  configurable: false
+});
+
+// Expose constants directly on exports as non-writable
+var constKeys = Object.keys(constants);
+for (var k = 0; k < constKeys.length; k++) {
+  (function(key) {
+    Object.defineProperty(zlibExports, key, {
+      get: function() { return constants[key]; },
+      set: function() {},
+      enumerable: true,
+      configurable: false
+    });
+  })(constKeys[k]);
+}
+
+module.exports = zlibExports;
