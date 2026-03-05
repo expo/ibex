@@ -12,6 +12,18 @@
     return stream && typeof stream.write === 'function' && stream.write === candidate;
   }
 
+  // Make a function non-constructible (new f() throws TypeError)
+  function _makeNonConstructible(fn) {
+    if (typeof Proxy === 'function') {
+      var p = new Proxy(fn, {
+        construct: function() { throw new TypeError(fn.name + ' is not a constructor'); },
+        apply: function(target, thisArg, args) { return target.apply(thisArg, args); }
+      });
+      return p;
+    }
+    return fn;
+  }
+
   function clearTTY(stream) {
     if (!stream || !stream.isTTY || typeof stream.write !== 'function') {
       return;
@@ -19,18 +31,32 @@
     stream.write(_clearSequence);
   }
 
-  // Format arguments like Node.js util.format: join with spaces, inspect non-strings
-  function _formatArgs(args) {
+  // Format arguments using util.format for proper %s, %d, etc. support
+  function _formatArgs(args, inspectOpts) {
+    try {
+      var util = globalThis.require ? globalThis.require('util') : null;
+      if (util && typeof util.format === 'function') {
+        if (inspectOpts) {
+          // Use formatWithOptions if available, otherwise fallback
+          if (typeof util.formatWithOptions === 'function') {
+            var fArgs = [inspectOpts];
+            for (var i = 0; i < args.length; i++) fArgs.push(args[i]);
+            return util.formatWithOptions.apply(util, fArgs);
+          }
+        }
+        return util.format.apply(util, args);
+      }
+    } catch(e) {}
+    // Fallback: join with spaces
     var parts = [];
     for (var i = 0; i < args.length; i++) {
       if (typeof args[i] === 'string') {
         parts.push(args[i]);
       } else {
         try {
-          var util = globalThis.require ? globalThis.require('util') : null;
-          parts.push(util && util.inspect ? util.inspect(args[i]) : String(args[i]));
-        } catch(e) {
           parts.push(String(args[i]));
+        } catch(e2) {
+          parts.push('[object]');
         }
       }
     }
@@ -44,7 +70,7 @@
       var result = '';
       for (var i = 0; i < lines.length; i++) {
         if (i === lines.length - 1 && lines[i] === '') {
-          // Trailing empty string from final \n — just stop
+          result += '';
           break;
         }
         result += groupIndent + lines[i] + '\n';
@@ -97,30 +123,38 @@
       }
     } else {
       stdout = options;
-      // Handle (stdout, opts) form where opts is not a stream
-      if (stderr && typeof stderr === 'object' && typeof stderr.write !== 'function') {
-        opts = stderr;
-        stderr = undefined;
-      }
       // Handle 3-arg form: Console(stdout, stderr, ignoreErrors)
       if (typeof opts === 'boolean') {
         ignoreErrors = opts;
+      } else if (typeof stderr === 'boolean') {
+        // Console(stdout, ignoreErrors) form
+        ignoreErrors = stderr;
+        stderr = undefined;
       }
     }
 
     if (!stdout || typeof stdout.write !== 'function') {
-      var errMsg = new TypeError('The "stdout" argument must be an instance of a writable stream. Received ' + (stdout === undefined ? 'undefined' : typeof stdout));
+      var errMsg = new TypeError('The "stdout" argument must be an instance of WritableStream.');
       errMsg.code = 'ERR_CONSOLE_WRITABLE_STREAM';
-      errMsg.message = 'The "stdout" argument must be an instance of WritableStream.';
       throw errMsg;
     }
     if (stderr !== undefined && stderr !== null && typeof stderr.write !== 'function') {
-      var errMsg2 = new TypeError('The "stderr" argument must be an instance of a writable stream.');
+      var errMsg2 = new TypeError('The "stderr" argument must be an instance of WritableStream.');
       errMsg2.code = 'ERR_CONSOLE_WRITABLE_STREAM';
-      errMsg2.message = 'The "stderr" argument must be an instance of WritableStream.';
       throw errMsg2;
     }
-    if (inspectOptions !== undefined && (typeof inspectOptions !== 'object' || inspectOptions === null)) {
+
+    // Validate colorMode
+    if (colorMode !== 'auto' && colorMode !== true && colorMode !== false) {
+      var util = globalThis.require ? globalThis.require('util') : null;
+      var received = util && util.inspect ? util.inspect(colorMode) : String(colorMode);
+      var cmErr = new TypeError("The argument 'colorMode' must be one of: 'auto', true, false. Received " + received);
+      cmErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw cmErr;
+    }
+
+    // Validate inspectOptions
+    if (inspectOptions !== undefined && !(inspectOptions instanceof Map) && (typeof inspectOptions !== 'object' || inspectOptions === null)) {
       var invalidMsg = 'The "options.inspectOptions" property must be of type object.';
       if (inspectOptions == null) invalidMsg += ' Received ' + inspectOptions;
       else if (typeof inspectOptions === 'function') invalidMsg += ' Received function ' + (inspectOptions.name || '');
@@ -131,6 +165,16 @@
       throw errInspect;
     }
 
+    // Check colorMode + inspectOptions.colors incompatibility
+    // Only throw if colorMode was explicitly passed in options (not the default)
+    if (options && typeof options === 'object' && options.stdout && options.colorMode !== undefined &&
+        inspectOptions && typeof inspectOptions === 'object' && !(inspectOptions instanceof Map) &&
+        inspectOptions.colors !== undefined) {
+      var incompatErr = new TypeError('Option "options.inspectOptions.color" cannot be used in combination with option "colorMode"');
+      incompatErr.code = 'ERR_INCOMPATIBLE_OPTION_PAIR';
+      throw incompatErr;
+    }
+
     this._stdout = stdout;
     this._stderr = stderr || stdout;
     this._times = {};
@@ -139,6 +183,7 @@
     this._groupIndentation = groupIndentation;
     this._ignoreErrors = ignoreErrors;
     this._inspectOptions = inspectOptions;
+    this._colorMode = colorMode;
 
     // When ignoreErrors is true, suppress 'error' events on streams
     if (ignoreErrors) {
@@ -151,90 +196,174 @@
       }
     }
 
-    var self = this;
-
-    function getGroupIndent() {
-      if (self._groupDepth <= 0) return '';
-      var indent = '';
-      for (var i = 0; i < self._groupDepth * self._groupIndentation; i++) indent += ' ';
-      return indent;
-    }
-
-    function writeToStream(stream, args) {
-      var msg = _formatArgs(args) + '\n';
-      var indent = getGroupIndent();
-      if (self._ignoreErrors) {
-        try { _streamWrite(stream, msg, indent); } catch(e) {}
-      } else {
-        _streamWrite(stream, msg, indent);
+    // Bind prototype methods to this instance, but only if not overridden by subclass
+    // Use non-constructible wrappers so new c.log() throws TypeError
+    var methodNames = ['log', 'debug', 'info', 'dirxml', 'warn', 'error', 'dir',
+                       'time', 'timeEnd', 'timeLog', 'trace', 'assert', 'clear',
+                       'count', 'countReset', 'group', 'groupCollapsed', 'groupEnd', 'table'];
+    for (var mi = 0; mi < methodNames.length; mi++) {
+      var mName = methodNames[mi];
+      if (this[mName] === Console.prototype[mName]) {
+        var bound = this[mName].bind(this);
+        Object.defineProperty(bound, 'name', { value: this[mName].name, configurable: true });
+        this[mName] = _makeNonConstructible(bound);
       }
     }
-
-    this.log = function() { writeToStream(self._stdout, arguments); };
-    this.debug = this.log;
-    this.info = this.log;
-    this.dirxml = this.log;
-    this.warn = function() { writeToStream(self._stderr, arguments); };
-    this.error = this.warn;
-    this.dir = function(obj) {
-      try {
-        var util = globalThis.require ? globalThis.require('util') : null;
-        var s = util && util.inspect ? util.inspect(obj) : String(obj);
-        writeToStream(self._stdout, [s]);
-      } catch(e) {
-        writeToStream(self._stdout, [String(obj)]);
-      }
-    };
-    this.time = function(label) { self._times[label || 'default'] = Date.now(); };
-    this.timeEnd = function(label) {
-      label = label || 'default';
-      var start = self._times[label];
-      if (start !== undefined) {
-        writeToStream(self._stdout, [label + ': ' + (Date.now() - start) + 'ms']);
-        delete self._times[label];
-      }
-    };
-    this.timeLog = function(label) {
-      label = label || 'default';
-      var start = self._times[label];
-      if (start !== undefined) {
-        var extraArgs = [label + ': ' + (Date.now() - start) + 'ms'];
-        for (var i = 1; i < arguments.length; i++) extraArgs.push(arguments[i]);
-        writeToStream(self._stdout, extraArgs);
-      }
-    };
-    this.trace = function() {
-      var err = new Error();
-      var args = Array.prototype.slice.call(arguments);
-      args.push('\n' + (err.stack || ''));
-      writeToStream(self._stderr, args);
-    };
-    this.assert = function(condition) {
-      if (!condition) {
-        var args = Array.prototype.slice.call(arguments, 1);
-        if (args.length === 0) args = ['Assertion failed'];
-        else args[0] = 'Assertion failed: ' + args[0];
-        writeToStream(self._stderr, args);
-      }
-    };
-    this.clear = function() { clearTTY(self._stdout); };
-    this.count = function(label) {
-      label = arguments.length === 0 || label === undefined ? 'default' : '' + label;
-      self._counts[label] = (self._counts[label] || 0) + 1;
-      writeToStream(self._stdout, [label + ': ' + self._counts[label]]);
-    };
-    this.countReset = function(label) {
-      label = arguments.length === 0 || label === undefined ? 'default' : '' + label;
-      self._counts[label] = 0;
-    };
-    this.group = function() {
-      if (arguments.length > 0) writeToStream(self._stdout, arguments);
-      self._groupDepth++;
-    };
-    this.groupCollapsed = this.group;
-    this.groupEnd = function() { if (self._groupDepth > 0) self._groupDepth--; };
-    this.table = function(data) { writeToStream(self._stdout, [data]); };
   }
+
+  // Helper to get the group indent string
+  function _getGroupIndent(self) {
+    if (self._groupDepth <= 0) return '';
+    var indent = '';
+    for (var i = 0; i < self._groupDepth * self._groupIndentation; i++) indent += ' ';
+    return indent;
+  }
+
+  // Helper to get inspect options for a given stream
+  function _getInspectOpts(self, stream) {
+    var opts = {};
+    if (self._inspectOptions) {
+      if (self._inspectOptions instanceof Map) {
+        var streamOpts = self._inspectOptions.get(stream);
+        if (streamOpts) {
+          var sKeys = Object.keys(streamOpts);
+          for (var si = 0; si < sKeys.length; si++) opts[sKeys[si]] = streamOpts[sKeys[si]];
+        }
+      } else {
+        var keys = Object.keys(self._inspectOptions);
+        for (var ki = 0; ki < keys.length; ki++) opts[keys[ki]] = self._inspectOptions[keys[ki]];
+      }
+    }
+    // Apply colorMode
+    if (opts.colors === undefined) {
+      if (self._colorMode === true) opts.colors = true;
+      else if (self._colorMode === false) opts.colors = false;
+      else if (self._colorMode === 'auto') opts.colors = !!(stream && stream.isTTY);
+    }
+    return opts;
+  }
+
+  // Write to a Console's stream with proper indentation and error handling
+  function _consoleWrite(self, stream, args) {
+    var inspectOpts = _getInspectOpts(self, stream);
+    var hasOpts = false;
+    var optKeys = Object.keys(inspectOpts);
+    for (var oi = 0; oi < optKeys.length; oi++) {
+      if (inspectOpts[optKeys[oi]] !== undefined) { hasOpts = true; break; }
+    }
+    var msg = _formatArgs(args, hasOpts ? inspectOpts : undefined) + '\n';
+    var indent = _getGroupIndent(self);
+    if (self._ignoreErrors) {
+      try { _streamWrite(stream, msg, indent); } catch(e) {
+        // Re-throw stack overflow (RangeError) even with ignoreErrors
+        if (e instanceof RangeError) throw e;
+      }
+    } else {
+      _streamWrite(stream, msg, indent);
+    }
+  }
+
+  // Define methods on Console.prototype
+  Console.prototype.log = function log() { _consoleWrite(this, this._stdout, arguments); };
+  Console.prototype.debug = function debug() { _consoleWrite(this, this._stdout, arguments); };
+  Console.prototype.info = function info() { _consoleWrite(this, this._stdout, arguments); };
+  Console.prototype.dirxml = function dirxml() { _consoleWrite(this, this._stdout, arguments); };
+  Console.prototype.warn = function warn() { _consoleWrite(this, this._stderr, arguments); };
+  Console.prototype.error = function error() { _consoleWrite(this, this._stderr, arguments); };
+  Console.prototype.dir = function dir(obj, options) {
+    try {
+      var util = globalThis.require ? globalThis.require('util') : null;
+      var inspectOpts = _getInspectOpts(this, this._stdout);
+      if (options) {
+        var oKeys = Object.keys(options);
+        for (var oi = 0; oi < oKeys.length; oi++) inspectOpts[oKeys[oi]] = options[oKeys[oi]];
+      }
+      var s = util && util.inspect ? util.inspect(obj, inspectOpts) : String(obj);
+      var msg = s + '\n';
+      var indent = _getGroupIndent(this);
+      if (this._ignoreErrors) {
+        try { _streamWrite(this._stdout, msg, indent); } catch(e) {
+          if (e instanceof RangeError) throw e;
+        }
+      } else {
+        _streamWrite(this._stdout, msg, indent);
+      }
+    } catch(e) {
+      if (e instanceof RangeError) throw e;
+      if (this._ignoreErrors) return;
+      throw e;
+    }
+  };
+  Console.prototype.time = function time(label) {
+    this._times[label !== undefined ? '' + label : 'default'] = Date.now();
+  };
+  Console.prototype.timeEnd = function timeEnd(label) {
+    label = label !== undefined ? '' + label : 'default';
+    var start = this._times[label];
+    if (start !== undefined) {
+      var msg = label + ': ' + (Date.now() - start) + 'ms\n';
+      var indent = _getGroupIndent(this);
+      if (this._ignoreErrors) {
+        try { _streamWrite(this._stdout, msg, indent); } catch(e) {
+          if (e instanceof RangeError) throw e;
+        }
+      } else {
+        _streamWrite(this._stdout, msg, indent);
+      }
+      delete this._times[label];
+    }
+  };
+  Console.prototype.timeLog = function timeLog(label) {
+    label = label !== undefined ? '' + label : 'default';
+    var start = this._times[label];
+    if (start !== undefined) {
+      var extraArgs = [label + ': ' + (Date.now() - start) + 'ms'];
+      for (var i = 1; i < arguments.length; i++) extraArgs.push(arguments[i]);
+      _consoleWrite(this, this._stdout, extraArgs);
+    }
+  };
+  Console.prototype.trace = function trace() {
+    var err = new Error();
+    var args = Array.prototype.slice.call(arguments);
+    args.push('\n' + (err.stack || ''));
+    _consoleWrite(this, this._stderr, args);
+  };
+  Console.prototype.assert = function assert(condition) {
+    if (!condition) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      if (args.length === 0) args = ['Assertion failed'];
+      else args[0] = 'Assertion failed: ' + args[0];
+      _consoleWrite(this, this._stderr, args);
+    }
+  };
+  Console.prototype.clear = function clear() { clearTTY(this._stdout); };
+  Console.prototype.count = function count(label) {
+    label = arguments.length === 0 || label === undefined ? 'default' : '' + label;
+    this._counts[label] = (this._counts[label] || 0) + 1;
+    var msg = label + ': ' + this._counts[label] + '\n';
+    var indent = _getGroupIndent(this);
+    if (this._ignoreErrors) {
+      try { _streamWrite(this._stdout, msg, indent); } catch(e) {
+        if (e instanceof RangeError) throw e;
+      }
+    } else {
+      _streamWrite(this._stdout, msg, indent);
+    }
+  };
+  Console.prototype.countReset = function countReset(label) {
+    label = arguments.length === 0 || label === undefined ? 'default' : '' + label;
+    this._counts[label] = 0;
+  };
+  Console.prototype.group = function group() {
+    if (arguments.length > 0) _consoleWrite(this, this._stdout, arguments);
+    this._groupDepth++;
+  };
+  Console.prototype.groupCollapsed = function groupCollapsed() {
+    if (arguments.length > 0) _consoleWrite(this, this._stdout, arguments);
+    this._groupDepth++;
+  };
+  Console.prototype.groupEnd = function groupEnd() { if (this._groupDepth > 0) this._groupDepth--; };
+  Console.prototype.table = function table(data) { _consoleWrite(this, this._stdout, [data]); };
 
   // Make globalThis.console instanceof Console return true
   if (typeof Symbol !== 'undefined' && Symbol.hasInstance) {
@@ -318,34 +447,35 @@
     return;
   }
 
-  console.log = function() {
+  console.log = function log() {
     _writeStdout(_formatArgs(arguments) + '\n');
   };
   console.info = console.log;
   console.debug = console.log;
-  console.warn = function() {
+  console.warn = function warn() {
     _writeStderr(_formatArgs(arguments) + '\n');
   };
   console.error = console.warn;
-  console.dir = function(obj) {
+  console.dir = function dir(obj) {
     try {
       var util = globalThis.require ? globalThis.require('util') : null;
       var s = util && util.inspect ? util.inspect(obj) : String(obj);
       _writeStdout(s + '\n');
     } catch(e) {
-      _writeStdout(String(obj) + '\n');
+      _writeStdout('[object]\n');
     }
   };
-  console.trace = function() {
+  console.dirxml = console.log;
+  console.trace = function trace() {
     var err = new Error();
     var args = Array.prototype.slice.call(arguments);
     args.push('\n' + (err.stack || ''));
     _writeStderr(_formatArgs(args) + '\n');
   };
-  console.time = function(label) {
+  console.time = function time(label) {
     _times[label || 'default'] = Date.now();
   };
-  console.timeEnd = function(label) {
+  console.timeEnd = function timeEnd(label) {
     label = label || 'default';
     var start = _times[label];
     if (start !== undefined) {
@@ -353,7 +483,7 @@
       delete _times[label];
     }
   };
-  console.timeLog = function(label) {
+  console.timeLog = function timeLog(label) {
     label = label || 'default';
     var start = _times[label];
     if (start !== undefined) {
@@ -362,28 +492,28 @@
       _writeStdout(_formatArgs(args) + '\n');
     }
   };
-  console.count = function(label) {
+  console.count = function count(label) {
     label = arguments.length === 0 || label === undefined ? 'default' : '' + label;
     _counts[label] = (_counts[label] || 0) + 1;
     _writeStdout(label + ': ' + _counts[label] + '\n');
   };
-  console.countReset = function(label) {
+  console.countReset = function countReset(label) {
     label = arguments.length === 0 || label === undefined ? 'default' : '' + label;
     _counts[label] = 0;
   };
-  console.group = function() {
+  console.group = function group() {
     if (arguments.length > 0) _writeStdout(_formatArgs(arguments) + '\n');
     _groupDepth++;
     _groupIndent = '';
     for (var i = 0; i < _groupDepth * 2; i++) _groupIndent += ' ';
   };
   console.groupCollapsed = console.group;
-  console.groupEnd = function() {
+  console.groupEnd = function groupEnd() {
     if (_groupDepth > 0) _groupDepth--;
     _groupIndent = '';
     for (var i = 0; i < _groupDepth * 2; i++) _groupIndent += ' ';
   };
-  console.table = function(data) {
+  console.table = function table(data) {
     if (Array.isArray(data)) {
       _writeStdout('(index) | Value\n');
       for (var i = 0; i < data.length; i++) {
@@ -405,7 +535,7 @@
       _writeStdout(String(data) + '\n');
     }
   };
-  console.assert = function(condition) {
+  console.assert = function assert(condition) {
     if (!condition) {
       var args = Array.prototype.slice.call(arguments, 1);
       if (args.length === 0) args = ['Assertion failed'];
@@ -413,10 +543,21 @@
       _writeStderr(_formatArgs(args) + '\n');
     }
   };
-  console.clear = function() {
+  console.clear = function clear() {
     var stream = (typeof process === 'object' ? process.stdout : undefined);
     clearTTY(stream);
   };
+
+  // Make all global console methods non-constructible
+  var _globalMethodNames = ['log', 'info', 'debug', 'warn', 'error', 'dir', 'dirxml',
+                            'trace', 'time', 'timeEnd', 'timeLog', 'count', 'countReset',
+                            'group', 'groupCollapsed', 'groupEnd', 'table', 'assert', 'clear'];
+  for (var gmi = 0; gmi < _globalMethodNames.length; gmi++) {
+    var gName = _globalMethodNames[gmi];
+    if (typeof console[gName] === 'function') {
+      console[gName] = _makeNonConstructible(console[gName]);
+    }
+  }
 
   console.Console = Console;
 })();

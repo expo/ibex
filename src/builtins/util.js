@@ -101,6 +101,37 @@ function format(value) {
   return result;
 }
 
+function formatWithOptions(inspectOptions) {
+  if (arguments.length <= 1) return "";
+  var value = arguments[1];
+  if (typeof value !== "string") {
+    var parts = [];
+    for (var i = 1; i < arguments.length; i++) {
+      parts.push(inspect(arguments[i], inspectOptions));
+    }
+    return parts.join(' ');
+  }
+  var i = 2;
+  var args = arguments;
+  var opts = inspectOptions;
+  var result = value.replace(/%[sdjoO%]/g, function(match) {
+    if (match === "%%") return "%";
+    if (i >= args.length) return match;
+    var arg = args[i];
+    i += 1;
+    if (match === "%s") return String(arg);
+    if (match === "%d") return String(Number(arg));
+    if (match === "%j") return JSON.stringify(arg);
+    if (match === "%o" || match === "%O") return inspect(arg, opts);
+    return match;
+  });
+  while (i < args.length) {
+    result += ' ' + inspect(args[i], opts);
+    i++;
+  }
+  return result;
+}
+
 function log() {
   var now = new Date();
   var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -134,27 +165,51 @@ function inspect(value, options) {
     if (n < 100) _indentCache[n] = s;
     return s;
   }
+  function _colorize(str, styleType) {
+    if (!colors) return str;
+    var codes;
+    switch (styleType) {
+      case 'number': codes = ['\x1b[33m', '\x1b[39m']; break; // yellow
+      case 'boolean': codes = ['\x1b[33m', '\x1b[39m']; break; // yellow
+      case 'string': codes = ['\x1b[32m', '\x1b[39m']; break; // green
+      case 'null': codes = ['\x1b[1m', '\x1b[22m']; break; // bold
+      case 'undefined': codes = ['\x1b[90m', '\x1b[39m']; break; // grey
+      case 'special': codes = ['\x1b[36m', '\x1b[39m']; break; // cyan
+      case 'regexp': codes = ['\x1b[31m', '\x1b[39m']; break; // red
+      case 'date': codes = ['\x1b[35m', '\x1b[39m']; break; // magenta
+      case 'symbol': codes = ['\x1b[32m', '\x1b[39m']; break; // green
+      case 'bigint': codes = ['\x1b[33m', '\x1b[39m']; break; // yellow
+      default: return str;
+    }
+    return codes[0] + str + codes[1];
+  }
   function _inspect(val, currentDepth) {
-    if (val === null) return 'null';
-    if (val === undefined) return 'undefined';
+    if (val === null) return _colorize('null', 'null');
+    if (val === undefined) return _colorize('undefined', 'undefined');
     var t = typeof val;
-    if (t === 'string') return "'" + val.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
-    if (t === 'number' || t === 'boolean') return String(val);
-    if (t === 'symbol') return val.toString();
+    if (t === 'string') return _colorize("'" + val.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'", 'string');
+    if (t === 'number') return _colorize(String(val), 'number');
+    if (t === 'boolean') return _colorize(String(val), 'boolean');
+    if (t === 'symbol') return _colorize(val.toString(), 'symbol');
     if (t === 'function') {
       var name = val.name || 'anonymous';
-      return '[Function: ' + name + ']';
+      return _colorize('[Function: ' + name + ']', 'special');
     }
-    if (t === 'bigint') return val.toString() + 'n';
+    if (t === 'bigint') return _colorize(val.toString() + 'n', 'bigint');
     // Object types
     if (seen.indexOf(val) !== -1) return '[Circular]';
     if (cache.has(val)) return cache.get(val);
 
     // Support util.inspect.custom symbol
-    var customInspect = inspect.custom && val[inspect.custom];
-    if (typeof customInspect === 'function') {
-      var customResult = customInspect.call(val, currentDepth, opts);
-      return typeof customResult === 'string' ? customResult : _inspect(customResult, currentDepth);
+    try {
+      var customInspect = inspect.custom && val[inspect.custom];
+      if (typeof customInspect === 'function') {
+        var customResult = customInspect.call(val, currentDepth, opts);
+        return typeof customResult === 'string' ? customResult : _inspect(customResult, currentDepth);
+      }
+    } catch(proxyErr) {
+      // Revoked proxy - property access throws
+      return 'Object [revoked Proxy] {}';
     }
 
     seen.push(val);
@@ -192,9 +247,9 @@ function inspect(value, options) {
           }
         }
       } else if (val instanceof Date) {
-        result = val.toISOString();
+        result = _colorize(val.toISOString(), 'date');
       } else if (val instanceof RegExp) {
-        result = String(val);
+        result = _colorize(String(val), 'regexp');
       } else if (val instanceof Error) {
         result = '[' + (val.constructor.name || 'Error') + ': ' + val.message + ']';
       } else if (typeof val.constructor === 'function' && val.constructor.name === 'Buffer') {
@@ -232,6 +287,9 @@ function inspect(value, options) {
           }
         }
       }
+    } catch(inspectErr) {
+      // Handle revoked proxies and other errors during inspection
+      result = 'Object [revoked Proxy] {}';
     } finally {
       seen.pop();
       if (result !== undefined) {
@@ -264,9 +322,24 @@ var util = {
   inherits: inherits,
   promisify: promisify,
   format: format,
+  formatWithOptions: formatWithOptions,
   log: log,
   inspect: inspect,
-  deprecate: function(fn, message) {
+  deprecate: function(fn, message, code) {
+    if (code !== undefined && typeof code !== 'string') {
+      var codeDetail;
+      if (code === null) codeDetail = ' Received null';
+      else if (typeof code === 'object') {
+        if (code.constructor && code.constructor.name) codeDetail = ' Received an instance of ' + code.constructor.name;
+        else codeDetail = ' Received ' + String(code);
+      }
+      else if (typeof code === 'boolean') codeDetail = ' Received type boolean (' + code + ')';
+      else if (typeof code === 'number') codeDetail = ' Received type number (' + code + ')';
+      else codeDetail = ' Received type ' + typeof code + ' (' + String(code) + ')';
+      var codeErr = new TypeError('The "code" argument must be of type string.' + codeDetail);
+      codeErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw codeErr;
+    }
     if (typeof fn !== "function") return undefined;
     var wrapped = function() {
       if (wrapped._warned !== true && typeof console !== "undefined" && console.warn) {

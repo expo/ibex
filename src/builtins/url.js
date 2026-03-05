@@ -1891,8 +1891,16 @@ function fileURLToPath(path) {
   // Reject encoded slashes (%2F, %2f)
   if (value.match(/%2[fF]/)) {
     var pathErr = new TypeError('File URL path must not include encoded / characters');
-    pathErr.code = 'ERR_INVALID_FILE_URL_PATH';
+    Object.defineProperty(pathErr, 'code', { value: 'ERR_INVALID_FILE_URL_PATH', writable: true, enumerable: true, configurable: true });
+    Object.defineProperty(pathErr, 'input', { value: urlObj, writable: true, enumerable: true, configurable: true });
     throw pathErr;
+  }
+  // Reject encoded backslashes (%5C, %5c) on Windows
+  if (value.match(/%5[cC]/)) {
+    var bsErr = new TypeError('File URL path must not include encoded \\ characters');
+    Object.defineProperty(bsErr, 'code', { value: 'ERR_INVALID_FILE_URL_PATH', writable: true, enumerable: true, configurable: true });
+    Object.defineProperty(bsErr, 'input', { value: urlObj, writable: true, enumerable: true, configurable: true });
+    throw bsErr;
   }
   // Note: on POSIX, %5C (backslash) is a valid filename char, decode it
   // Only on Windows would we reject encoded backslashes
@@ -1907,8 +1915,19 @@ function _encodeFileURLPathChar(ch) {
   if (cp === 0x25) return '%25'; // %
   if (cp === 0x3F) return '%3F'; // ?
   if (cp === 0x23) return '%23'; // #
-  if (cp === 0x5C) return '%5C'; // \  (POSIX: backslash is literal filename char)
+  if (cp === 0x5C) return '%5C'; // backslash
   if (cp === 0x20) return '%20'; // space
+  if (cp === 0x22) return '%22'; // "
+  if (cp === 0x3C) return '%3C'; // <
+  if (cp === 0x3E) return '%3E'; // >
+  if (cp === 0x7B) return '%7B'; // {
+  if (cp === 0x7D) return '%7D'; // }
+  if (cp === 0x7C) return '%7C'; // |
+  if (cp === 0x5E) return '%5E'; // ^
+  if (cp === 0x7E) return '%7E'; // ~
+  if (cp === 0x5B) return '%5B'; // [
+  if (cp === 0x5D) return '%5D'; // ]
+  if (cp === 0x60) return '%60'; // `
   if (cp < 0x20 || cp === 0x7F) {
     var hex = cp.toString(16).toUpperCase();
     return '%' + (hex.length < 2 ? '0' + hex : hex);
@@ -1956,26 +1975,6 @@ function _encodeFileURLPath(p) {
     result += _encodeFileURLPathChar(p.charAt(i));
   }
   return result;
-}
-
-function pathToFileURL(path) {
-  if (typeof path !== 'string') {
-    var typeMsg;
-    if (path === null) typeMsg = 'null';
-    else if (path === undefined) typeMsg = 'undefined';
-    else if (typeof path === 'object') typeMsg = 'an instance of ' + (path && path.constructor ? path.constructor.name : 'Object');
-    else typeMsg = 'type ' + typeof path + ' (' + String(path) + ')';
-    var typeErr = new TypeError('The "path" argument must be of type string. Received ' + typeMsg);
-    typeErr.code = 'ERR_INVALID_ARG_TYPE';
-    throw typeErr;
-  }
-  var encoded = _encodeFileURLPath(path);
-  if (path.charAt(0) === '/') {
-    // Absolute POSIX path
-    return new URLExport('file://' + encoded);
-  }
-  // Relative path - make it absolute relative to cwd
-  return new URLExport('file:///' + encoded);
 }
 
 function _legacyFormat(urlObj) {
@@ -2530,7 +2529,53 @@ module.exports = {
   resolve: resolve,
   resolveObject: resolveObject,
   fileURLToPath: fileURLToPath,
-  pathToFileURL: pathToFileURL,
+  pathToFileURL: function pathToFileURL(path, options) {
+    if (typeof path !== 'string') {
+      var typeMsg;
+      if (path === null) typeMsg = 'null';
+      else if (path === undefined) typeMsg = 'undefined';
+      else if (typeof path === 'object') typeMsg = 'an instance of ' + (path && path.constructor ? path.constructor.name : 'Object');
+      else typeMsg = 'type ' + typeof path + ' (' + String(path) + ')';
+      var typeErr = new TypeError('The "path" argument must be of type string. Received ' + typeMsg);
+      typeErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw typeErr;
+    }
+    var isWin = false;
+    if (options && typeof options === 'object' && options.windows !== undefined) {
+      isWin = !!options.windows;
+    } else {
+      isWin = (typeof process !== 'undefined' && process.platform === 'win32');
+    }
+    if (isWin) {
+      if (path.indexOf('\\\\?\\') === 0) {
+        var rest = path.slice(4);
+        if (rest.indexOf('UNC\\') === 0) {
+          return new URLExport('file://' + _encodeFileURLPath(rest.slice(4).replace(/\\/g, '/')));
+        }
+        return new URLExport('file:///' + _encodeFileURLPath(rest.replace(/\\/g, '/')));
+      }
+      if (path.indexOf('\\\\') === 0) {
+        var uncPath = path.slice(2).replace(/\\/g, '/');
+        if (uncPath.indexOf('/') <= 0) {
+          var uncErr = new TypeError('File URL path must provide a hostname');
+          uncErr.code = 'ERR_INVALID_ARG_VALUE';
+          throw uncErr;
+        }
+        return new URLExport('file://' + _encodeFileURLPath(uncPath));
+      }
+      return new URLExport('file:///' + _encodeFileURLPath(path.replace(/\\/g, '/')));
+    }
+    var encoded = _encodeFileURLPath(path);
+    if (path.charAt(0) === '/') {
+      return new URLExport('file://' + encoded);
+    }
+    var cwd = '/';
+    if (typeof process !== 'undefined' && typeof process.cwd === 'function') {
+      cwd = process.cwd();
+    }
+    if (cwd.charAt(cwd.length - 1) !== '/') cwd += '/';
+    return new URLExport('file://' + _encodeFileURLPath(cwd) + encoded);
+  },
   canParse: URL.canParse,
   urlToHttpOptions: urlToHttpOptions,
   domainToASCII: function domainToASCII(domain) {

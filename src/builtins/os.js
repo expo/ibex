@@ -37,8 +37,8 @@ function type() {
   return "Unknown";
 }
 function release() {
-  if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.version) {
-    return globalThis.process.version;
+  if (typeof globalThis !== "undefined" && globalThis.process) {
+    if (globalThis.process.__exactOSRelease) return globalThis.process.__exactOSRelease;
   }
   return "0.0.0";
 }
@@ -73,6 +73,9 @@ function version() {
   if (typeof __exactGetOsVersion === 'function') {
     return __exactGetOsVersion();
   }
+  if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.__exactOSVersion) {
+    return globalThis.process.__exactOSVersion;
+  }
   return release();
 }
 function machine() { return _arch; }
@@ -80,21 +83,52 @@ function availableParallelism() {
   return cpus().length > 0 ? cpus().length : 1;
 }
 
-function getPriority() {
+function _validatePid(pid) {
+  if (pid !== undefined && typeof pid !== 'number') {
+    var err = new TypeError('The "pid" argument must be of type number. Received type ' + typeof pid);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (pid !== undefined && typeof pid === 'number') {
+    if (!Number.isFinite(pid) || pid !== Math.trunc(pid) || pid > 2147483647 || pid < -2147483648) {
+      var err2 = new RangeError('The value of "pid" is out of range. It must be an integer. Received ' + pid);
+      err2.code = 'ERR_OUT_OF_RANGE';
+      throw err2;
+    }
+  }
+}
+function _validatePriority(priority) {
+  if (typeof priority !== 'number') {
+    var err = new TypeError('The "priority" argument must be of type number. Received type ' + typeof priority);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (!Number.isFinite(priority) || priority !== Math.trunc(priority) || priority < -20 || priority > 19) {
+    var err2 = new RangeError('The value of "priority" is out of range. It must be >= ' + (-20) + ' && <= 19. Received ' + priority);
+    err2.code = 'ERR_OUT_OF_RANGE';
+    throw err2;
+  }
+}
+function getPriority(pid) {
+  if (pid !== undefined) _validatePid(pid);
+  if (typeof pid === 'number' && pid < 0) {
+    var sysErr = new Error('A system error occurred: uv_os_getpriority returned ESRCH (no such process)');
+    sysErr.code = 'ERR_SYSTEM_ERROR';
+    sysErr.name = 'SystemError';
+    sysErr.info = { code: 'ESRCH', message: 'no such process', syscall: 'uv_os_getpriority' };
+    throw sysErr;
+  }
   return _processPriority;
 }
 
-function setPriority() {
-  var value = null;
-  if (arguments.length === 1 && typeof arguments[0] === 'number') {
-    value = arguments[0];
-  } else if (arguments.length > 1 && typeof arguments[1] === 'number') {
-    value = arguments[1];
+function setPriority(pid, priority) {
+  if (priority === undefined) {
+    priority = pid;
+    pid = 0;
   }
-  if (value === null || isNaN(value)) {
-    return 0;
-  }
-  _processPriority = value;
+  _validatePid(pid);
+  _validatePriority(priority);
+  _processPriority = priority;
   return 0;
 }
 function cpus() {
@@ -186,13 +220,18 @@ var constants = {
   },
   errno: {},
   priority: {
-    PRIORITY_LOW: 10,
-    PRIORITY_BELOW_NORMAL: 5,
+    PRIORITY_LOW: 19,
+    PRIORITY_BELOW_NORMAL: 10,
     PRIORITY_NORMAL: 0,
-    PRIORITY_ABOVE_NORMAL: -2,
-    PRIORITY_HIGH: -5
+    PRIORITY_ABOVE_NORMAL: -7,
+    PRIORITY_HIGH: -14,
+    PRIORITY_HIGHEST: -20
   }
 };
+Object.freeze(constants.signals);
+Object.freeze(constants.errno);
+Object.freeze(constants.priority);
+Object.freeze(constants);
 
 module.exports = {
   platform: legacyStringValue(platform),
@@ -215,7 +254,12 @@ module.exports = {
   getPriority: getPriority,
   setPriority: setPriority,
   userInfo: userInfoCompat,
-  EOL: EOL,
   devNull: devNull,
   constants: constants
 };
+Object.defineProperty(module.exports, 'EOL', {
+  value: EOL,
+  writable: false,
+  enumerable: true,
+  configurable: true
+});
