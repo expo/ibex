@@ -876,6 +876,405 @@ class AssertionError extends Error {
   }
 }
 
+function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
+  // Identical values
+  if (Object.is(actual, expected)) return true;
+
+  // Handle NaN
+  if (typeof actual === 'number' && typeof expected === 'number' && isNaN(actual) && isNaN(expected)) return true;
+
+  // Both must be non-null objects (unless both are the same primitive, handled above)
+  if (actual === null || expected === null) return false;
+  if (actual === undefined || expected === undefined) return false;
+
+  if (typeof actual !== 'object' && typeof expected !== 'object') {
+    // Both primitives but not Object.is equal
+    return false;
+  }
+  if (typeof actual !== 'object' || typeof expected !== 'object') {
+    return false;
+  }
+
+  if (aSeen === undefined) aSeen = [];
+  if (bSeen === undefined) bSeen = [];
+  if (_hasSeenPair(aSeen, bSeen, actual, expected)) return true;
+  aSeen.push(actual);
+  bSeen.push(expected);
+
+  var aTag = Object.prototype.toString.call(actual);
+  var bTag = Object.prototype.toString.call(expected);
+
+  // WeakSet and WeakMap cannot be compared
+  if (aTag === '[object WeakSet]' || bTag === '[object WeakSet]' ||
+      aTag === '[object WeakMap]' || bTag === '[object WeakMap]') {
+    aSeen.pop();
+    bSeen.pop();
+    return false;
+  }
+
+  // Tags must match (with some flexibility)
+  if (aTag !== bTag) {
+    aSeen.pop();
+    bSeen.pop();
+    return false;
+  }
+
+  // Date comparison
+  if (aTag === '[object Date]') {
+    var aTime, bTime;
+    try { aTime = Date.prototype.valueOf.call(actual); } catch (e) { aSeen.pop(); bSeen.pop(); return false; }
+    try { bTime = Date.prototype.valueOf.call(expected); } catch (e) { aSeen.pop(); bSeen.pop(); return false; }
+    if (aTime !== bTime) { aSeen.pop(); bSeen.pop(); return false; }
+    // Fall through to property check
+  }
+
+  // RegExp comparison
+  if (aTag === '[object RegExp]') {
+    if (actual.source !== expected.source || actual.flags !== expected.flags) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    // Fall through to property check
+  }
+
+  // ArrayBuffer and SharedArrayBuffer
+  if (aTag === '[object ArrayBuffer]' || aTag === '[object SharedArrayBuffer]') {
+    // For partial: expected's byteLength must be <= actual's byteLength
+    if (expected.byteLength > actual.byteLength) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    // Compare the first expected.byteLength bytes
+    var aBytes = _toByteArray(actual);
+    var bBytes = _toByteArray(expected);
+    if (aBytes === null || bBytes === null) {
+      // If we can't get bytes, compare by identity
+      aSeen.pop();
+      bSeen.pop();
+      return actual === expected;
+    }
+    for (var i = 0; i < bBytes.length; i++) {
+      if (aBytes[i] !== bBytes[i]) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    aSeen.pop();
+    bSeen.pop();
+    return true;
+  }
+
+  // TypedArray comparison (partial: subsequence matching)
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(actual) && ArrayBuffer.isView(expected)) {
+    // Must be same typed array type
+    if (aTag !== bTag) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    // expected length must be <= actual length
+    if (expected.length > actual.length) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    // Check if expected is a subsequence of actual (byte-level for strict)
+    // For typed arrays in partial mode, expected elements must be found in actual in order
+    var ai = 0;
+    for (var ei = 0; ei < expected.length; ei++) {
+      var found = false;
+      while (ai < actual.length) {
+        // Use byte-level comparison for strict (catches +0/-0 difference)
+        if (Object.is(actual[ai], expected[ei])) {
+          found = true;
+          ai++;
+          break;
+        }
+        ai++;
+      }
+      if (!found) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    // Also check non-indexed properties
+    var expectedSymbols = Object.getOwnPropertySymbols(expected).filter(function(s) {
+      return Object.prototype.propertyIsEnumerable.call(expected, s);
+    });
+    for (var si = 0; si < expectedSymbols.length; si++) {
+      var sym = expectedSymbols[si];
+      if (!Object.prototype.propertyIsEnumerable.call(actual, sym)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!_partialDeepStrictEqual(actual[sym], expected[sym], aSeen, bSeen)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    var expectedExtraKeys = Object.keys(expected).filter(function(k) { return isNaN(Number(k)) || Number(k) >= expected.length; });
+    var actualExtraKeys = Object.keys(actual).filter(function(k) { return isNaN(Number(k)) || Number(k) >= actual.length; });
+    for (var ki = 0; ki < expectedExtraKeys.length; ki++) {
+      var key = expectedExtraKeys[ki];
+      if (actualExtraKeys.indexOf(key) === -1) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!_partialDeepStrictEqual(actual[key], expected[key], aSeen, bSeen)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    aSeen.pop();
+    bSeen.pop();
+    return true;
+  }
+
+  // Error comparison (partial)
+  if (actual instanceof Error && expected instanceof Error) {
+    // Check expected's enumerable own properties
+    var expectedKeys = Object.keys(expected);
+    for (var i = 0; i < expectedKeys.length; i++) {
+      var key = expectedKeys[i];
+      if (!Object.prototype.hasOwnProperty.call(actual, key)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!_partialDeepStrictEqual(actual[key], expected[key], aSeen, bSeen)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    // Check message and name
+    if (expected.message !== '' && actual.message !== expected.message) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    // Check cause if present on expected
+    if (Object.prototype.hasOwnProperty.call(expected, 'cause')) {
+      if (!Object.prototype.hasOwnProperty.call(actual, 'cause')) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!_partialDeepStrictEqual(actual.cause, expected.cause, aSeen, bSeen)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    // Check errors property for AggregateError
+    if (Object.prototype.hasOwnProperty.call(expected, 'errors') && Array.isArray(expected.errors)) {
+      if (!Object.prototype.hasOwnProperty.call(actual, 'errors') || !Array.isArray(actual.errors)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!_partialDeepStrictEqual(actual.errors, expected.errors, aSeen, bSeen)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    aSeen.pop();
+    bSeen.pop();
+    return true;
+  }
+
+  // Map comparison (partial: every entry in expected must be findable in actual)
+  if (typeof Map !== 'undefined' && actual instanceof Map && expected instanceof Map) {
+    if (expected.size > actual.size) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    var expectedEntries = Array.from(expected.entries());
+    var actualEntries = Array.from(actual.entries());
+    var matched = new Array(actualEntries.length);
+    for (var i = 0; i < expectedEntries.length; i++) {
+      var foundEntry = false;
+      for (var j = 0; j < actualEntries.length; j++) {
+        if (!matched[j] &&
+            _deepEqual(expectedEntries[i][0], actualEntries[j][0], [], [], true) &&
+            _partialDeepStrictEqual(actualEntries[j][1], expectedEntries[i][1], aSeen, bSeen)) {
+          matched[j] = true;
+          foundEntry = true;
+          break;
+        }
+      }
+      if (!foundEntry) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    aSeen.pop();
+    bSeen.pop();
+    return true;
+  }
+
+  // Set comparison (partial: every element in expected must be findable in actual)
+  if (typeof Set !== 'undefined' && actual instanceof Set && expected instanceof Set) {
+    if (expected.size > actual.size) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    var expectedArr = Array.from(expected);
+    var actualArr = Array.from(actual);
+    var matchedSet = new Array(actualArr.length);
+    for (var i = 0; i < expectedArr.length; i++) {
+      var foundElem = false;
+      for (var j = 0; j < actualArr.length; j++) {
+        if (!matchedSet[j] && _partialDeepStrictEqual(actualArr[j], expectedArr[i], aSeen, bSeen)) {
+          matchedSet[j] = true;
+          foundElem = true;
+          break;
+        }
+      }
+      if (!foundElem) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    aSeen.pop();
+    bSeen.pop();
+    return true;
+  }
+
+  // Array comparison (partial: subsequence matching)
+  if (Array.isArray(actual) && Array.isArray(expected)) {
+    // Check that expected's indexed elements can be found as subsequence of actual
+    var ai = 0;
+    for (var ei = 0; ei < expected.length; ei++) {
+      // Only compare defined indices
+      if (!(ei in expected)) {
+        // expected has a hole - actual must also have a hole at corresponding position
+        // For sparse arrays, check that actual has the same holes
+        if (ei >= actual.length) {
+          aSeen.pop();
+          bSeen.pop();
+          return false;
+        }
+        continue;
+      }
+      var foundEl = false;
+      while (ai < actual.length) {
+        if ((ai in actual) && _partialDeepStrictEqual(actual[ai], expected[ei], aSeen, bSeen)) {
+          foundEl = true;
+          ai++;
+          break;
+        }
+        ai++;
+      }
+      if (!foundEl) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    // Check non-indexed own properties (including symbols)
+    var expectedExtraKeys = Object.keys(expected).filter(function(k) {
+      var n = Number(k);
+      return isNaN(n) || n >= expected.length || n < 0 || k !== String(Math.floor(n));
+    });
+    for (var ki = 0; ki < expectedExtraKeys.length; ki++) {
+      var key = expectedExtraKeys[ki];
+      if (!Object.prototype.hasOwnProperty.call(actual, key)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!_partialDeepStrictEqual(actual[key], expected[key], aSeen, bSeen)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    // Check symbol properties
+    var expectedSymbols = Object.getOwnPropertySymbols(expected).filter(function(s) {
+      return Object.prototype.propertyIsEnumerable.call(expected, s);
+    });
+    for (var si = 0; si < expectedSymbols.length; si++) {
+      var sym = expectedSymbols[si];
+      if (!Object.prototype.propertyIsEnumerable.call(actual, sym)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!_partialDeepStrictEqual(actual[sym], expected[sym], aSeen, bSeen)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    aSeen.pop();
+    bSeen.pop();
+    return true;
+  }
+
+  // Plain object comparison (partial: every key in expected must be in actual)
+  // Check own string keys
+  var expectedKeys = Object.keys(expected);
+  for (var i = 0; i < expectedKeys.length; i++) {
+    var key = expectedKeys[i];
+    if (!Object.prototype.hasOwnProperty.call(actual, key)) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    if (!_partialDeepStrictEqual(actual[key], expected[key], aSeen, bSeen)) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+  }
+  // Check own symbol keys
+  var expectedSymbols = Object.getOwnPropertySymbols(expected).filter(function(s) {
+    return Object.prototype.propertyIsEnumerable.call(expected, s);
+  });
+  for (var si = 0; si < expectedSymbols.length; si++) {
+    var sym = expectedSymbols[si];
+    if (!Object.prototype.propertyIsEnumerable.call(actual, sym)) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    if (!_partialDeepStrictEqual(actual[sym], expected[sym], aSeen, bSeen)) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+  }
+  aSeen.pop();
+  bSeen.pop();
+  return true;
+}
+
+function partialDeepStrictEqual(actual, expected, message) {
+  if (!_partialDeepStrictEqual(actual, expected)) {
+    throw new AssertionError({
+      message: message || _buildDeepEqualMessage(actual, expected, true),
+      actual: actual,
+      expected: expected,
+      operator: 'partialDeepStrictEqual',
+      stackStartFn: partialDeepStrictEqual
+    });
+  }
+}
+
 function _isErrorConstructor(expected) {
   return (
     typeof expected === 'function' &&
@@ -1967,6 +2366,7 @@ assert.ifError = ifError;
 assert.fail = fail;
 assert.match = match;
 assert.doesNotMatch = doesNotMatch;
+assert.partialDeepStrictEqual = partialDeepStrictEqual;
 assert.AssertionError = AssertionError;
 assert.CallTracker = CallTracker;
 
@@ -2004,6 +2404,7 @@ strict.ifError = ifError;
 strict.fail = fail;
 strict.match = match;
 strict.doesNotMatch = doesNotMatch;
+strict.partialDeepStrictEqual = partialDeepStrictEqual;
 strict.AssertionError = AssertionError;
 strict.CallTracker = CallTracker;
 strict.strict = strict;
@@ -2031,6 +2432,7 @@ module.exports.ifError = ifError;
 module.exports.fail = fail;
 module.exports.match = match;
 module.exports.doesNotMatch = doesNotMatch;
+module.exports.partialDeepStrictEqual = partialDeepStrictEqual;
 module.exports.AssertionError = AssertionError;
 module.exports.CallTracker = CallTracker;
 module.exports.strict = strict;
