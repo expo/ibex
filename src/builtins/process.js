@@ -184,40 +184,280 @@ function execve(execPath, args, envObj) {
 if (typeof globalThis !== 'undefined' && globalThis.process) {
   var proc = globalThis.process;
   {
-    var _nativeUmask = typeof proc.umask === 'function' ? proc.umask : null;
-    proc.umask = function(mask) {
+    // Replace umask with a closure-based implementation that doesn't rely on `this`.
+    // The runtime.js Process class method uses `this._umask` which breaks when called
+    // detached (var fn = process.umask; fn()). We use process._umask directly.
+    if (typeof proc._umask === 'undefined') {
+      proc._umask = _umask;
+    }
+    proc.umask = function umask(mask) {
       if (arguments.length === 0) {
-        if (_nativeUmask) return _nativeUmask();
-        return _umask;
+        return proc._umask;
       }
       if (typeof mask === 'string') {
         if (!/^[0-7]+$/.test(mask)) {
-          var ve = new TypeError("The argument 'mask' is invalid. Received '" + mask + "'");
+          var ve = new TypeError("[ERR_INVALID_ARG_VALUE]: The argument 'mask' is invalid. Received '" + mask + "'");
           ve.code = 'ERR_INVALID_ARG_VALUE';
           throw ve;
         }
         mask = parseInt(mask, 8);
       } else if (typeof mask !== 'number' || (mask !== (mask | 0))) {
-        var te = new TypeError('The "mask" argument must be of type number. Received type ' + typeof mask);
+        var te = new TypeError('[ERR_INVALID_ARG_TYPE]: The "mask" argument must be of type number. Received type ' + typeof mask);
         te.code = 'ERR_INVALID_ARG_TYPE';
         throw te;
       }
       mask = mask & 0o7777;
-      if (_nativeUmask) {
-        return _nativeUmask(mask);
-      }
-      var old = _umask;
-      _umask = mask & 0o7777;
+      var old = proc._umask;
+      proc._umask = mask;
       return old;
     };
   }
   // Ensure our module-level cwd/env/argv are present
   proc.chdir = chdir;
   if (!proc.cwd) proc.cwd = cwd;
-  if (!proc.env || (typeof proc.env === 'object' && Object.keys(proc.env).length === 0)) proc.env = env;
   if (!proc.argv || proc.argv.length === 0) proc.argv = argv;
   if (!Array.isArray(proc.execArgv)) proc.execArgv = [];
   if (!proc.execve) proc.execve = execve;
+
+  // Wrap process.env in a Proxy that converts values to strings (Node.js behavior)
+  // and supports delete
+  if (typeof Proxy === 'function') {
+    var _rawEnv = proc.env;
+    if (!_rawEnv || (typeof _rawEnv === 'object' && Object.keys(_rawEnv).length === 0)) {
+      _rawEnv = env;
+    }
+    if (!_rawEnv.__exactEnvProxy) {
+      var _envProxy = new Proxy(_rawEnv, {
+        get: function(target, key) {
+          if (key === '__exactEnvProxy') return true;
+          return target[key];
+        },
+        set: function(target, key, value) {
+          // Node.js converts all values to strings
+          target[key] = String(value);
+          return true;
+        },
+        deleteProperty: function(target, key) {
+          delete target[key];
+          return true;
+        }
+      });
+      try {
+        Object.defineProperty(proc, 'env', {
+          value: _envProxy,
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+      } catch (_) {
+        proc.env = _envProxy;
+      }
+    }
+  } else {
+    if (!proc.env || (typeof proc.env === 'object' && Object.keys(proc.env).length === 0)) proc.env = env;
+  }
+
+  // Fix process.version to match Node.js version
+  try {
+    var _versions = proc.versions;
+    if (_versions && _versions.node) {
+      Object.defineProperty(proc, 'version', {
+        value: 'v' + String(_versions.node).replace(/^v/, ''),
+        writable: true, configurable: true, enumerable: true
+      });
+    }
+  } catch (_) {}
+
+  // Fix process.release.name = 'node' with LTS codename
+  try {
+    var _existingRelease = {};
+    try { _existingRelease = proc.release || {}; } catch(_) {}
+    var _releaseObj = { name: 'node' };
+    if (_existingRelease && typeof _existingRelease === 'object') {
+      var _rKeys = Object.keys(_existingRelease);
+      for (var _ri = 0; _ri < _rKeys.length; _ri++) {
+        if (_rKeys[_ri] !== 'name') _releaseObj[_rKeys[_ri]] = _existingRelease[_rKeys[_ri]];
+      }
+    }
+    var _nodeVer = String((_versions && _versions.node) || '').split('.');
+    var _major = parseInt(_nodeVer[0], 10);
+    var _minor = parseInt(_nodeVer[1], 10);
+    var _ltsMap = [[4,2,'Argon'],[6,9,'Boron'],[8,9,'Carbon'],[10,13,'Dubnium'],[12,13,'Erbium'],[14,15,'Fermium'],[16,13,'Gallium'],[18,12,'Hydrogen'],[20,9,'Iron'],[22,11,'Jod'],[24,11,'Krypton']];
+    for (var _li = 0; _li < _ltsMap.length; _li++) {
+      if (_major === _ltsMap[_li][0] && _minor >= _ltsMap[_li][1]) {
+        _releaseObj.lts = _ltsMap[_li][2];
+        break;
+      }
+    }
+    Object.defineProperty(proc, 'release', {
+      value: _releaseObj, writable: true, configurable: true, enumerable: true
+    });
+  } catch (_) {}
+
+  // Wrap process.hrtime with argument validation
+  try {
+    var _nativeHrtime = proc.hrtime;
+    if (typeof _nativeHrtime === 'function' && !_nativeHrtime.__exactWrapped) {
+      var _wrappedHrtime = function hrtime(time) {
+        if (time !== undefined) {
+          if (!Array.isArray(time)) {
+            var te2 = new TypeError('The "time" argument must be an instance of Array. Received type ' + typeof time + ' (' + String(time) + ')');
+            te2.code = 'ERR_INVALID_ARG_TYPE';
+            throw te2;
+          }
+          if (time.length !== 2) {
+            var re2 = new RangeError('The value of "time" is out of range. It must be 2. Received ' + time.length);
+            re2.code = 'ERR_OUT_OF_RANGE';
+            throw re2;
+          }
+        }
+        return _nativeHrtime.call(proc, time);
+      };
+      _wrappedHrtime.__exactWrapped = true;
+      if (_nativeHrtime.bigint) {
+        _wrappedHrtime.bigint = _nativeHrtime.bigint;
+      }
+      try {
+        Object.defineProperty(proc, 'hrtime', {
+          value: _wrappedHrtime, writable: true, configurable: true, enumerable: true
+        });
+      } catch (_) {
+        proc.hrtime = _wrappedHrtime;
+      }
+    }
+  } catch (_) {}
+
+  // process.setSourceMapsEnabled stub
+  if (typeof proc.setSourceMapsEnabled !== 'function') {
+    proc.setSourceMapsEnabled = function setSourceMapsEnabled(val) {
+      if (typeof val !== 'boolean') {
+        var te3 = new TypeError('[ERR_INVALID_ARG_TYPE]: The "val" argument must be of type boolean. Received type ' + typeof val);
+        te3.code = 'ERR_INVALID_ARG_TYPE';
+        throw te3;
+      }
+    };
+  }
+
+  // process.hasUncaughtExceptionCaptureCallback / setUncaughtExceptionCaptureCallback
+  if (typeof proc.hasUncaughtExceptionCaptureCallback !== 'function') {
+    proc.hasUncaughtExceptionCaptureCallback = function() {
+      return !!(proc._uncaughtCaptureCb);
+    };
+  }
+  if (typeof proc.setUncaughtExceptionCaptureCallback !== 'function') {
+    proc.setUncaughtExceptionCaptureCallback = function(fn) {
+      if (fn !== null && typeof fn !== 'function') {
+        var te4 = new TypeError('The "fn" argument must be one of type function or null. Received type ' + typeof fn);
+        te4.code = 'ERR_INVALID_ARG_TYPE';
+        throw te4;
+      }
+      if (fn !== null && proc._uncaughtCaptureCb) {
+        var e7 = new Error('`process.setUncaughtExceptionCaptureCallback()` was called while a capture callback was already active');
+        e7.code = 'ERR_UNCAUGHT_EXCEPTION_CAPTURE_ALREADY_SET';
+        throw e7;
+      }
+      proc._uncaughtCaptureCb = fn;
+    };
+  }
+
+  // Fix process.emitWarning to support noDeprecation, validation, and async emission
+  try {
+    proc.emitWarning = function emitWarning(warning, typeOrOptions, code, ctor) {
+      // Validate warning argument
+      if (typeof warning !== 'string' && !(warning instanceof Error)) {
+        var te5 = new TypeError('[ERR_INVALID_ARG_TYPE]: The "warning" argument must be of type string or an instance of Error. Received type ' + typeof warning);
+        te5.code = 'ERR_INVALID_ARG_TYPE';
+        throw te5;
+      }
+      var type, detail;
+      if (typeOrOptions && typeof typeOrOptions === 'object' && !Array.isArray(typeOrOptions) && !(typeOrOptions instanceof Error) && typeof typeOrOptions !== 'function') {
+        // Options object form: emitWarning(warning, options)
+        type = typeOrOptions.type;
+        code = typeOrOptions.code;
+        detail = typeOrOptions.detail;
+        ctor = typeOrOptions.ctor || ctor;
+      } else if (typeof typeOrOptions === 'function') {
+        // emitWarning(warning, ctor)
+        ctor = typeOrOptions;
+        type = undefined;
+      } else {
+        type = typeOrOptions;
+      }
+      // If code is a function, it's actually ctor
+      if (typeof code === 'function') {
+        ctor = code;
+        code = undefined;
+      }
+      // If ctor (4th arg) passed and code is still function, shift
+      if (arguments.length >= 4 && typeof arguments[3] === 'function') {
+        ctor = arguments[3];
+      }
+      // Validate type
+      if (type !== undefined && typeof type !== 'string') {
+        var te6 = new TypeError('[ERR_INVALID_ARG_TYPE]: The "type" argument must be of type string. Received type ' + typeof type);
+        te6.code = 'ERR_INVALID_ARG_TYPE';
+        throw te6;
+      }
+      // Validate code
+      if (code !== undefined && typeof code !== 'string') {
+        var te7 = new TypeError('[ERR_INVALID_ARG_TYPE]: The "code" argument must be of type string. Received type ' + typeof code);
+        te7.code = 'ERR_INVALID_ARG_TYPE';
+        throw te7;
+      }
+      if (type === 'DeprecationWarning' && proc.noDeprecation) {
+        return;
+      }
+      var warningObj;
+      if (warning instanceof Error) {
+        warningObj = warning;
+      } else {
+        warningObj = new Error(warning);
+        warningObj.name = type || 'Warning';
+      }
+      if (code) warningObj.code = code;
+      if (type && warningObj.name !== type) warningObj.name = type;
+      if (detail !== undefined) warningObj.detail = detail;
+      // Emit asynchronously like Node.js
+      if (typeof proc.nextTick === 'function') {
+        proc.nextTick(function() {
+          if (typeof proc.emit === 'function') {
+            proc.emit('warning', warningObj);
+          }
+        });
+      } else {
+        try {
+          if (typeof proc.emit === 'function') {
+            proc.emit('warning', warningObj);
+          }
+        } catch(_) {}
+      }
+    };
+  } catch (_) {}
+
+  // process.binding('util') support
+  try {
+    var _origBinding = proc.binding;
+    if (typeof _origBinding === 'function' && !_origBinding.__exactPatched) {
+      proc.binding = function binding(name) {
+        if (name === 'util') {
+          var types = {};
+          try { types = require('util').types || {}; } catch(_) {}
+          return types;
+        }
+        return _origBinding.call(proc, name);
+      };
+      proc.binding.__exactPatched = true;
+    }
+  } catch (_) {}
+
+  // Ensure addListener/removeListener aliases exist (EventEmitter compatibility)
+  if (typeof proc.on === 'function' && typeof proc.addListener !== 'function') {
+    proc.addListener = proc.on;
+  }
+  if (typeof proc.removeListener === 'function' && typeof proc.off !== 'function') {
+    proc.off = proc.removeListener;
+  }
+
   module.exports = proc;
 } else {
   module.exports = { cwd: cwd, env: env, argv: argv };

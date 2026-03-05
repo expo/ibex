@@ -15,6 +15,124 @@ function _validateTimerCallback(callback, name) {
   }
 }
 
+// Timer wrapper class for ref/unref/refresh/hasRef/Symbol.toPrimitive
+var _nextTimerId = 1;
+
+function Timeout(callback, delay, args, isRepeat) {
+  this._callback = callback;
+  this._delay = delay || 0;
+  this._args = args;
+  this._isRepeat = isRepeat || false;
+  this._refed = true;
+  this._destroyed = false;
+  this._idleTimeout = this._delay;
+  this._id = _nextTimerId++;
+
+  var self = this;
+  if (isRepeat) {
+    this._nativeHandle = _setInterval(function() {
+      _FuncCall.call(_FuncApply, self._callback, null, self._args);
+    }, this._delay);
+  } else {
+    this._nativeHandle = _setTimeout(function() {
+      self._destroyed = true;
+      _FuncCall.call(_FuncApply, self._callback, null, self._args);
+    }, this._delay);
+  }
+}
+
+Timeout.prototype.ref = function() {
+  this._refed = true;
+  return this;
+};
+
+Timeout.prototype.unref = function() {
+  this._refed = false;
+  return this;
+};
+
+Timeout.prototype.hasRef = function() {
+  return this._refed;
+};
+
+Timeout.prototype.refresh = function() {
+  if (this._destroyed) return this;
+  // Clear old timer and create new one
+  if (this._isRepeat) {
+    _clearInterval(this._nativeHandle);
+    var self = this;
+    this._nativeHandle = _setInterval(function() {
+      _FuncCall.call(_FuncApply, self._callback, null, self._args);
+    }, this._delay);
+  } else {
+    _clearTimeout(this._nativeHandle);
+    var self2 = this;
+    this._nativeHandle = _setTimeout(function() {
+      self2._destroyed = true;
+      _FuncCall.call(_FuncApply, self2._callback, null, self2._args);
+    }, this._delay);
+  }
+  return this;
+};
+
+Timeout.prototype.close = function() {
+  if (this._isRepeat) {
+    _clearInterval(this._nativeHandle);
+  } else {
+    _clearTimeout(this._nativeHandle);
+  }
+  this._destroyed = true;
+  return this;
+};
+
+Timeout.prototype[Symbol.toPrimitive] = function() {
+  return this._id;
+};
+
+Timeout.prototype[Symbol.dispose] = function() {
+  if (!this._destroyed) {
+    this.close();
+  }
+};
+
+// Immediate wrapper
+function Immediate(callback, args) {
+  this._callback = callback;
+  this._args = args;
+  this._destroyed = false;
+  this._id = _nextTimerId++;
+  this._refed = true;
+
+  var self = this;
+  this._nativeHandle = _setTimeout(function() {
+    self._destroyed = true;
+    _FuncCall.call(_FuncApply, self._callback, null, self._args);
+  }, 0);
+}
+
+Immediate.prototype.ref = function() {
+  this._refed = true;
+  return this;
+};
+
+Immediate.prototype.unref = function() {
+  this._refed = false;
+  return this;
+};
+
+Immediate.prototype.hasRef = function() {
+  return this._refed;
+};
+
+Immediate.prototype[Symbol.dispose] = function() {
+  if (!this._destroyed) {
+    _clearTimeout(this._nativeHandle);
+    this._destroyed = true;
+  }
+};
+
+Immediate.prototype._onImmediate = undefined;
+
 function setTimeout$1(callback, delay) {
   _validateTimerCallback(callback, 'callback');
   var args = [];
@@ -22,12 +140,24 @@ function setTimeout$1(callback, delay) {
   if (typeof _setTimeout !== "function") {
     throw new Error("setTimeout is not available");
   }
-  return _setTimeout(function() {
-    _FuncCall.call(_FuncApply, callback, null, args);
-  }, delay || 0);
+  return new Timeout(callback, delay, args, false);
 }
 
 function clearTimeout$1(handle) {
+  if (handle === undefined || handle === null) return;
+  if (typeof handle === 'object' && handle !== null) {
+    if (typeof handle.close === 'function') {
+      handle.close();
+      return;
+    }
+    if (handle._nativeHandle !== undefined) {
+      if (typeof _clearTimeout === "function") {
+        _clearTimeout(handle._nativeHandle);
+      }
+      handle._destroyed = true;
+      return;
+    }
+  }
   if (typeof _clearTimeout === "function") {
     _clearTimeout(handle);
   }
@@ -40,12 +170,24 @@ function setInterval$1(callback, delay) {
   if (typeof _setInterval !== "function") {
     throw new Error("setInterval is not available");
   }
-  return _setInterval(function() {
-    _FuncCall.call(_FuncApply, callback, null, args);
-  }, delay || 0);
+  return new Timeout(callback, delay, args, true);
 }
 
 function clearInterval$1(handle) {
+  if (handle === undefined || handle === null) return;
+  if (typeof handle === 'object' && handle !== null) {
+    if (typeof handle.close === 'function') {
+      handle.close();
+      return;
+    }
+    if (handle._nativeHandle !== undefined) {
+      if (typeof _clearInterval === "function") {
+        _clearInterval(handle._nativeHandle);
+      }
+      handle._destroyed = true;
+      return;
+    }
+  }
   if (typeof _clearInterval === "function") {
     _clearInterval(handle);
   }
@@ -55,13 +197,19 @@ function setImmediate$1(callback) {
   _validateTimerCallback(callback, 'callback');
   var args = [];
   for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
-  return setTimeout$1(function() {
-    _FuncCall.call(_FuncApply, callback, null, args);
-  }, 0);
+  return new Immediate(callback, args);
 }
 
 function clearImmediate$1(handle) {
-  clearTimeout$1(handle);
+  if (handle === undefined || handle === null) return;
+  if (typeof handle === 'object' && handle !== null) {
+    if (handle._nativeHandle !== undefined) {
+      _clearTimeout(handle._nativeHandle);
+      handle._destroyed = true;
+      return;
+    }
+  }
+  _clearTimeout(handle);
 }
 
 module.exports = {
@@ -71,7 +219,7 @@ module.exports = {
   clearInterval: clearInterval$1,
   setImmediate: setImmediate$1,
   clearImmediate: clearImmediate$1,
-  // Deprecated Node.js APIs — stubs for compat
+  // Deprecated Node.js APIs -- stubs for compat
   active: function active(item) {
     // In Node.js, timers.active() resets the timer.
     // Stub: no-op for compatibility.

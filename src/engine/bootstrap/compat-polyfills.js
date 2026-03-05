@@ -80,6 +80,32 @@
     };
   }
 
+  // Copy process.env to a plain JS object for proper read/write support.
+  // The native JSI HostObject silently ignores property overwrites for
+  // existing properties. We can't replace process.env or globalThis.process
+  // from JS. Instead, store a mutable copy as process.__exactPlainEnv
+  // and have builtin modules use it when available.
+  if (typeof globalThis.process === 'object' && globalThis.process !== null && globalThis.process.env) {
+    (function() {
+      var _nativeEnv = globalThis.process.env;
+      var _plainEnv = {};
+      var keys = Object.keys(_nativeEnv);
+      for (var i = 0; i < keys.length; i++) {
+        _plainEnv[keys[i]] = '' + _nativeEnv[keys[i]];
+      }
+      if (typeof globalThis.__exactGetAllEnv === 'function') {
+        var all = globalThis.__exactGetAllEnv();
+        var allKeys = Object.keys(all);
+        for (var j = 0; j < allKeys.length; j++) {
+          if (!Object.prototype.hasOwnProperty.call(_plainEnv, allKeys[j])) {
+            _plainEnv[allKeys[j]] = '' + all[allKeys[j]];
+          }
+        }
+      }
+      globalThis.process.__exactPlainEnv = _plainEnv;
+    })();
+  }
+
   // Ensure process has EventEmitter-style helpers in Node-compat suites.
   // Node fixtures expect `process.on`, `emit`, etc. before any stream API
   // is imported, but stream enhancements are loaded lazily. Eagerly trigger
@@ -281,7 +307,7 @@
 
     proc.umask = function(mask) {
       if (arguments.length === 0) {
-        if (_nativeUmask) return _nativeUmask();
+        if (_nativeUmask) return _nativeUmask.call(proc);
         return _fallbackUmask;
       }
       if (typeof mask === 'string') {
@@ -298,7 +324,7 @@
       }
       mask = mask & 0o7777;
       if (_nativeUmask) {
-        return _nativeUmask(mask);
+        return _nativeUmask.call(proc, mask);
       }
       var old = _fallbackUmask;
       _fallbackUmask = mask;
