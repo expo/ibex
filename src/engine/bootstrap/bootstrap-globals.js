@@ -826,8 +826,9 @@
           throw new TypeError("Cannot convert a Symbol value to a string");
         }
         if (options !== undefined && options !== null && typeof options !== 'object') {
+          var _val = typeof options === 'string' ? "'" + options + "'" : String(options);
           var err = new TypeError('The "options" argument must be of type object.' +
-            ' Received type ' + typeof options + ' (' + options + ')');
+            ' Received type ' + typeof options + ' (' + _val + ')');
           err.code = 'ERR_INVALID_ARG_TYPE';
           throw err;
         }
