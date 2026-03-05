@@ -175,7 +175,12 @@ impl ModuleLoader {
         builtins.insert("node:http".to_string(), http_module.clone());
         builtins.insert("http".to_string(), http_module.clone());
         builtins.insert("node:https".to_string(), http_module.clone());
-        builtins.insert("https".to_string(), http_module);
+        builtins.insert("https".to_string(), http_module.clone());
+        builtins.insert("_http_agent".to_string(), http_module.clone());
+        builtins.insert("_http_common".to_string(), http_module.clone());
+        builtins.insert("_http_server".to_string(), http_module.clone());
+        builtins.insert("_http_outgoing".to_string(), http_module.clone());
+        builtins.insert("_http_incoming".to_string(), http_module);
 
         let stream_web_module = node_stream_web_module();
         builtins.insert("node:stream/web".to_string(), stream_web_module.clone());
