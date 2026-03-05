@@ -169,7 +169,11 @@ function eventLoopUtilization(start, end) {
   return current;
 }
 
+var _allowPerformanceEntryConstruction = false;
 function PerformanceEntry(name, entryType, startTime, duration) {
+  if (!_allowPerformanceEntryConstruction && arguments.length === 0) {
+    throw _illegalConstructor();
+  }
   this.name = name;
   this.entryType = entryType;
   this.startTime = startTime;
@@ -183,6 +187,55 @@ PerformanceEntry.prototype.toJSON = function() {
     duration: this.duration
   };
 };
+Object.defineProperty(PerformanceEntry.prototype, Symbol.toStringTag, {
+  configurable: true,
+  enumerable: false,
+  writable: false,
+  value: 'PerformanceEntry'
+});
+
+function PerformanceMark(name, options) {
+  options = options || {};
+  var startTime = (options.startTime !== undefined) ? options.startTime : _perfNow();
+  if (typeof startTime !== 'number') {
+    throw _invalidArgType('The "startTime" argument must be of type number. Received type ' + typeof startTime);
+  }
+  _allowPerformanceEntryConstruction = true;
+  PerformanceEntry.call(this, String(name), 'mark', startTime, 0);
+  _allowPerformanceEntryConstruction = false;
+  if (options.detail !== undefined && options.detail !== null) {
+    try { this.detail = typeof structuredClone === 'function' ? structuredClone(options.detail) : JSON.parse(JSON.stringify(options.detail)); } catch(e) { this.detail = options.detail; }
+  } else {
+    this.detail = null;
+  }
+}
+PerformanceMark.prototype = Object.create(PerformanceEntry.prototype);
+PerformanceMark.prototype.constructor = PerformanceMark;
+Object.defineProperty(PerformanceMark.prototype, Symbol.toStringTag, {
+  configurable: true,
+  enumerable: false,
+  writable: false,
+  value: 'PerformanceMark'
+});
+
+function PerformanceMeasure(name, startTime, duration, detail) {
+  _allowPerformanceEntryConstruction = true;
+  PerformanceEntry.call(this, name, 'measure', startTime, duration);
+  _allowPerformanceEntryConstruction = false;
+  if (detail !== undefined && detail !== null) {
+    try { this.detail = typeof structuredClone === 'function' ? structuredClone(detail) : JSON.parse(JSON.stringify(detail)); } catch(e) { this.detail = detail; }
+  } else {
+    this.detail = null;
+  }
+}
+PerformanceMeasure.prototype = Object.create(PerformanceEntry.prototype);
+PerformanceMeasure.prototype.constructor = PerformanceMeasure;
+Object.defineProperty(PerformanceMeasure.prototype, Symbol.toStringTag, {
+  configurable: true,
+  enumerable: false,
+  writable: false,
+  value: 'PerformanceMeasure'
+});
 
 function Performance() {}
 Performance.prototype.now = function() {
@@ -193,10 +246,8 @@ Performance.prototype.now = function() {
 Performance.prototype.timeOrigin = _perfStart;
 Performance.prototype.mark = function(name, options) {
   _updateNodeTiming();
-  options = options || {};
-  var startTime = (options.startTime !== undefined) ? options.startTime : _perfNow();
-  var entry = new PerformanceEntry(name, 'mark', startTime, 0);
-  if (options.detail !== undefined) entry.detail = options.detail;
+  if (typeof name === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string');
+  var entry = new PerformanceMark(name, options);
   _marks.push(entry);
   _notifyObservers(entry);
   return entry;
@@ -208,18 +259,23 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
   var duration;
   var detail;
 
+  function _resolveMarkName(markName) {
+    // Check nodeTiming properties first
+    if (_nodeTiming[markName] !== undefined) return _nodeTiming[markName];
+    // Then user marks
+    for (var i = _marks.length - 1; i >= 0; i--) {
+      if (_marks[i].name === markName) return _marks[i].startTime;
+    }
+    throw new Error("Failed to execute 'measure': The mark '" + markName + "' does not exist.");
+  }
+
   if (startMarkOrOptions && typeof startMarkOrOptions === 'object' && !Array.isArray(startMarkOrOptions)) {
     var opts = startMarkOrOptions;
     if (opts.detail !== undefined) detail = opts.detail;
 
     if (opts.start !== undefined) {
       if (typeof opts.start === 'string') {
-        var sm = null;
-        for (var i = _marks.length - 1; i >= 0; i--) {
-          if (_marks[i].name === opts.start) { sm = _marks[i]; break; }
-        }
-        if (sm) startTime = sm.startTime;
-        else throw new Error("Failed to execute 'measure': The mark '" + opts.start + "' does not exist.");
+        startTime = _resolveMarkName(opts.start);
       } else {
         startTime = opts.start;
       }
@@ -227,12 +283,7 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
 
     if (opts.end !== undefined) {
       if (typeof opts.end === 'string') {
-        var em = null;
-        for (var j = _marks.length - 1; j >= 0; j--) {
-          if (_marks[j].name === opts.end) { em = _marks[j]; break; }
-        }
-        if (em) endTime = em.startTime;
-        else throw new Error("Failed to execute 'measure': The mark '" + opts.end + "' does not exist.");
+        endTime = _resolveMarkName(opts.end);
       } else {
         endTime = opts.end;
       }
@@ -247,20 +298,10 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
       }
     }
   } else if (typeof startMarkOrOptions === 'string') {
-    var foundStart = null;
-    for (var k = _marks.length - 1; k >= 0; k--) {
-      if (_marks[k].name === startMarkOrOptions) { foundStart = _marks[k]; break; }
-    }
-    if (foundStart) startTime = foundStart.startTime;
-    else throw new Error("Failed to execute 'measure': The mark '" + startMarkOrOptions + "' does not exist.");
+    startTime = _resolveMarkName(startMarkOrOptions);
 
     if (typeof endMark === 'string') {
-      var foundEnd = null;
-      for (var l = _marks.length - 1; l >= 0; l--) {
-        if (_marks[l].name === endMark) { foundEnd = _marks[l]; break; }
-      }
-      if (foundEnd) endTime = foundEnd.startTime;
-      else throw new Error("Failed to execute 'measure': The mark '" + endMark + "' does not exist.");
+      endTime = _resolveMarkName(endMark);
     }
   }
 
@@ -268,8 +309,7 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
     duration = endTime - startTime;
   }
 
-  var entry = new PerformanceEntry(name, 'measure', startTime, duration);
-  if (detail !== undefined) entry.detail = detail;
+  var entry = new PerformanceMeasure(name, startTime, duration, detail);
   _measures.push(entry);
   _notifyObservers(entry);
   return entry;
@@ -298,10 +338,12 @@ Performance.prototype.getEntriesByType = function(type) {
   return result.sort(function(a, b) { return a.startTime - b.startTime; });
 };
 Performance.prototype.clearMarks = function(name) {
+  if (typeof name === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string');
   if (name === undefined) {
     _marks = [];
   } else {
-    _marks = _marks.filter(function(m) { return m.name !== name; });
+    var nameStr = String(name);
+    _marks = _marks.filter(function(m) { return m.name !== nameStr; });
   }
 };
 Performance.prototype.clearMeasures = function(name) {
@@ -343,7 +385,9 @@ if (typeof process !== 'undefined' && process && typeof process.on === 'function
 }
 
 function _observeTimerEntry(entryType, name, startTime, endTime) {
+  _allowPerformanceEntryConstruction = true;
   var entry = new PerformanceEntry(name, entryType, startTime, endTime - startTime);
+  _allowPerformanceEntryConstruction = false;
   _notifyObservers(entry);
 }
 
@@ -477,14 +521,14 @@ function _validateRecordValue(value) {
     if (!isFinite(value) || value < 0) {
       throw _invalidArgType('The "value" argument must be a safe number');
     }
-    if (value > Number.MAX_SAFE_INTEGER) {
+    if (value <= 0 || value > Number.MAX_SAFE_INTEGER) {
       throw _outOfRange('The "value" argument must be in safe range.');
     }
     return { value: value, valueBig: BigInt(Math.floor(value)) };
   }
   if (typeof value === 'bigint') {
-    if (value < 0) {
-      throw _invalidArgType('The "value" argument must be a bigint >= 0.');
+    if (value <= 0n) {
+      throw _outOfRange('The "value" argument must be a bigint > 0.');
     }
     return { value: Number(value), valueBig: value };
   }
@@ -696,6 +740,8 @@ module.exports = {
   performance: performance,
   Performance: Performance,
   PerformanceEntry: PerformanceEntry,
+  PerformanceMark: PerformanceMark,
+  PerformanceMeasure: PerformanceMeasure,
   PerformanceObserver: PerformanceObserver,
   timerify: timerify,
   eventLoopUtilization: eventLoopUtilization,

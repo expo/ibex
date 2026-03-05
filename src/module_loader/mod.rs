@@ -175,7 +175,12 @@ impl ModuleLoader {
         builtins.insert("node:http".to_string(), http_module.clone());
         builtins.insert("http".to_string(), http_module.clone());
         builtins.insert("node:https".to_string(), http_module.clone());
-        builtins.insert("https".to_string(), http_module);
+        builtins.insert("https".to_string(), http_module.clone());
+        builtins.insert("_http_agent".to_string(), http_module.clone());
+        builtins.insert("_http_common".to_string(), http_module.clone());
+        builtins.insert("_http_server".to_string(), http_module.clone());
+        builtins.insert("_http_outgoing".to_string(), http_module.clone());
+        builtins.insert("_http_incoming".to_string(), http_module);
 
         let stream_web_module = node_stream_web_module();
         builtins.insert("node:stream/web".to_string(), stream_web_module.clone());
@@ -244,9 +249,10 @@ impl ModuleLoader {
 
         let dns_module = node_dns_module();
         builtins.insert("node:dns".to_string(), dns_module.clone());
-        builtins.insert("dns".to_string(), dns_module.clone());
-        builtins.insert("node:dns/promises".to_string(), dns_module.clone());
-        builtins.insert("dns/promises".to_string(), dns_module);
+        builtins.insert("dns".to_string(), dns_module);
+        let dns_promises_module = node_dns_promises_module();
+        builtins.insert("node:dns/promises".to_string(), dns_promises_module.clone());
+        builtins.insert("dns/promises".to_string(), dns_promises_module);
 
         let internal_fs_utils_module = internal_fs_utils_module();
         builtins.insert("internal/fs/utils".to_string(), internal_fs_utils_module);
@@ -1094,6 +1100,10 @@ fn node_tls_module() -> String {
 
 fn node_dns_module() -> String {
     include_str!(concat!(env!("OUT_DIR"), "/builtins/dns.js")).to_string()
+}
+
+fn node_dns_promises_module() -> String {
+    include_str!(concat!(env!("OUT_DIR"), "/builtins/dns-promises.js")).to_string()
 }
 
 fn node_net_module() -> String {
