@@ -207,8 +207,162 @@ var promises = {
   resolvePtr: _promisify1(resolvePtr),
   resolveCaa: _promisify1(resolveCaa),
   resolveNaptr: _promisify1(resolveNaptr),
-  reverse: _promisify1(reverse)
+  resolveAny: _promisify1(resolveAny),
+  reverse: _promisify1(reverse),
+  lookupService: function(address, port) {
+    return new Promise(function(res, reject) {
+      lookupService(address, port, function(err, hostname, service) {
+        if (err) reject(err);
+        else res({ hostname: hostname, service: service });
+      });
+    });
+  },
+  setDefaultResultOrder: setDefaultResultOrder,
+  getDefaultResultOrder: getDefaultResultOrder,
+  setServers: setServers,
+  getServers: getServers,
+  Resolver: Resolver
 };
+
+// Default result order
+var _defaultResultOrder = 'verbatim';
+
+function setDefaultResultOrder(order) {
+  if (order !== 'ipv4first' && order !== 'ipv6first' && order !== 'verbatim') {
+    var err = new TypeError('The argument \'order\' must be one of: \'ipv4first\', \'ipv6first\', \'verbatim\'. Received \'' + order + '\'');
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+  _defaultResultOrder = order;
+}
+
+function getDefaultResultOrder() {
+  return _defaultResultOrder;
+}
+
+// Server management (stub)
+var _servers = ['127.0.0.1'];
+
+function getServers() {
+  return _servers.slice();
+}
+
+function setServers(servers) {
+  if (!Array.isArray(servers)) {
+    var received = servers === null ? 'null' : servers === undefined ? 'undefined' : 'an instance of ' + (servers && servers.constructor ? servers.constructor.name : typeof servers);
+    var err = new TypeError('The "servers" argument must be an instance of Array. Received ' + received);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  // Validate server addresses
+  for (var i = 0; i < servers.length; i++) {
+    if (typeof servers[i] !== 'string') {
+      var err = new TypeError('The "servers[' + i + ']" argument must be of type string. Received type ' + typeof servers[i]);
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+  }
+  _servers = servers.slice();
+}
+
+// lookupService stub
+function lookupService(address, port, callback) {
+  if (typeof address !== 'string') {
+    var err = new TypeError('The "address" argument must be of type string. Received type ' + typeof address);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (typeof port !== 'number') {
+    var err = new TypeError('The "port" argument must be of type number. Received type ' + typeof port);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (port < 0 || port > 65535 || port % 1 !== 0) {
+    var err = new RangeError('The value of "port" is out of range. It must be >= 0 && <= 65535. Received ' + port);
+    err.code = 'ERR_SOCKET_BAD_PORT';
+    throw err;
+  }
+  // Basic stub - returns generic names
+  if (callback) {
+    setTimeout(function() {
+      callback(null, address, String(port));
+    }, 0);
+  }
+}
+
+// resolveAny stub
+function resolveAny(hostname, callback) {
+  _resolveViaQuery(hostname, 'ANY', callback);
+}
+
+// Resolver class
+function Resolver(options) {
+  if (!(this instanceof Resolver)) return new Resolver(options);
+  this._servers = _servers.slice();
+  if (options && options.timeout !== undefined) {
+    if (typeof options.timeout !== 'number') {
+      var err = new TypeError('The "options.timeout" property must be of type number. Received type ' + typeof options.timeout);
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+    if (options.timeout < -1 || options.timeout > 2147483647) {
+      var err = new RangeError('The value of "options.timeout" is out of range. It must be >= -1 && <= 2147483647. Received ' + options.timeout);
+      err.code = 'ERR_OUT_OF_RANGE';
+      throw err;
+    }
+    this._timeout = options.timeout;
+  }
+  if (options && options.tries !== undefined) {
+    if (typeof options.tries !== 'number') {
+      var err = new TypeError('The "options.tries" property must be of type number. Received type ' + typeof options.tries);
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+    this._tries = options.tries;
+  }
+}
+
+Resolver.prototype.getServers = function() {
+  return this._servers.slice();
+};
+
+Resolver.prototype.setServers = function(servers) {
+  if (!Array.isArray(servers)) {
+    var err = new TypeError('The "servers" argument must be an instance of Array. Received type ' + typeof servers);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  for (var i = 0; i < servers.length; i++) {
+    if (typeof servers[i] !== 'string') {
+      var err = new TypeError('The "servers[' + i + ']" argument must be of type string. Received type ' + typeof servers[i]);
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+  }
+  this._servers = servers.slice();
+};
+
+Resolver.prototype.setLocalAddress = function(ipv4, ipv6) {
+  // Stub
+};
+
+Resolver.prototype.resolve = function(hostname, rrtype, callback) {
+  resolve(hostname, rrtype, callback);
+};
+Resolver.prototype.resolve4 = function(hostname, options, callback) { resolve4(hostname, options, callback); };
+Resolver.prototype.resolve6 = function(hostname, options, callback) { resolve6(hostname, options, callback); };
+Resolver.prototype.resolveMx = function(hostname, callback) { resolveMx(hostname, callback); };
+Resolver.prototype.resolveTxt = function(hostname, callback) { resolveTxt(hostname, callback); };
+Resolver.prototype.resolveSrv = function(hostname, callback) { resolveSrv(hostname, callback); };
+Resolver.prototype.resolveNs = function(hostname, callback) { resolveNs(hostname, callback); };
+Resolver.prototype.resolveCname = function(hostname, callback) { resolveCname(hostname, callback); };
+Resolver.prototype.resolveSoa = function(hostname, callback) { resolveSoa(hostname, callback); };
+Resolver.prototype.resolvePtr = function(hostname, callback) { resolvePtr(hostname, callback); };
+Resolver.prototype.resolveCaa = function(hostname, callback) { resolveCaa(hostname, callback); };
+Resolver.prototype.resolveNaptr = function(hostname, callback) { resolveNaptr(hostname, callback); };
+Resolver.prototype.resolveAny = function(hostname, callback) { resolveAny(hostname, callback); };
+Resolver.prototype.reverse = function(ip, callback) { reverse(ip, callback); };
+Resolver.prototype.cancel = function() { /* no-op stub */ };
 
 // Error codes
 var NODATA = 'ENODATA';
@@ -238,6 +392,7 @@ var CANCELLED = 'ECANCELLED';
 
 module.exports = {
   lookup: lookup,
+  lookupService: lookupService,
   resolve: resolve,
   resolve4: resolve4,
   resolve6: resolve6,
@@ -250,7 +405,13 @@ module.exports = {
   resolvePtr: resolvePtr,
   resolveCaa: resolveCaa,
   resolveNaptr: resolveNaptr,
+  resolveAny: resolveAny,
   reverse: reverse,
+  Resolver: Resolver,
+  setDefaultResultOrder: setDefaultResultOrder,
+  getDefaultResultOrder: getDefaultResultOrder,
+  setServers: setServers,
+  getServers: getServers,
   promises: promises,
   NODATA: NODATA, FORMERR: FORMERR, SERVFAIL: SERVFAIL, NOTFOUND: NOTFOUND,
   NOTIMP: NOTIMP, REFUSED: REFUSED, BADQUERY: BADQUERY, BADNAME: BADNAME,
@@ -258,6 +419,7 @@ module.exports = {
   TIMEOUT: TIMEOUT, EOF: EOF, FILE: FILE, NOMEM: NOMEM,
   DESTRUCTION: DESTRUCTION, BADSTR: BADSTR, BADFLAGS: BADFLAGS,
   NONAME: NONAME, BADHINTS: BADHINTS, NOTINITIALIZED: NOTINITIALIZED,
+  LOADIPHLPAPI: LOADIPHLPAPI, ADDRGETNETWORKPARAMS: ADDRGETNETWORKPARAMS,
   CANCELLED: CANCELLED
 };
 module.exports.default = module.exports;

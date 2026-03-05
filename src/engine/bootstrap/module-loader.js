@@ -1079,6 +1079,38 @@
   }
   function loadInternal(specifier) {
     var normalized = normalizeSpecifier(specifier);
+    if (normalized === 'dns/promises') {
+      if (!cache[normalized]) {
+        var dnsModule = load('dns', '');
+        cache[normalized] = {
+          exports: dnsModule && dnsModule.promises ? dnsModule.promises : {},
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
+    }
+    if (normalized === 'readline/promises') {
+      if (!cache[normalized]) {
+        var readlineModule = load('readline', '');
+        cache[normalized] = {
+          exports: readlineModule && readlineModule.promises ? readlineModule.promises : {},
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
+    }
     if (normalized === 'assert/strict') {
       var assertModule = load('assert', '');
       if (!cache[normalized]) {

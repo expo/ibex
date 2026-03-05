@@ -19,6 +19,62 @@ function utf8ByteLength(leadByte) {
   return 1;
 }
 
+// UTF-8 decoder following WHATWG "maximal subpart" replacement rule.
+// Must produce identical output to the _decodeUtf8 in buffer.js.
+function _decodeUtf8Complete(bytes) {
+  var result = '';
+  var i = 0;
+  var len = bytes.length;
+  while (i < len) {
+    var b = bytes[i];
+    if (b < 0x80) {
+      result += String.fromCharCode(b);
+      i++;
+      continue;
+    }
+    var seqLen, minCp;
+    if ((b & 0xE0) === 0xC0)      { seqLen = 2; minCp = 0x80; }
+    else if ((b & 0xF0) === 0xE0)  { seqLen = 3; minCp = 0x800; }
+    else if ((b & 0xF8) === 0xF0)  { seqLen = 4; minCp = 0x10000; }
+    else {
+      result += '\uFFFD';
+      i++;
+      continue;
+    }
+    var got = 1;
+    for (var j = 1; j < seqLen && i + j < len; j++) {
+      if ((bytes[i + j] & 0xC0) !== 0x80) break;
+      got++;
+    }
+    if (got < seqLen) {
+      result += '\uFFFD';
+      i += got;
+      continue;
+    }
+    var cp;
+    if (seqLen === 2) {
+      cp = ((b & 0x1F) << 6) | (bytes[i + 1] & 0x3F);
+    } else if (seqLen === 3) {
+      cp = ((b & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F);
+    } else {
+      cp = ((b & 0x07) << 18) | ((bytes[i + 1] & 0x3F) << 12) | ((bytes[i + 2] & 0x3F) << 6) | (bytes[i + 3] & 0x3F);
+    }
+    if (cp < minCp || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF) {
+      result += '\uFFFD';
+      i++;
+      continue;
+    }
+    if (cp > 0xFFFF) {
+      cp -= 0x10000;
+      result += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
+    } else {
+      result += String.fromCharCode(cp);
+    }
+    i += seqLen;
+  }
+  return result;
+}
+
 function decodeUtf8Char(bytes, len) {
   var cp;
   if (len === 2) {
@@ -37,16 +93,9 @@ function decodeUtf8Char(bytes, len) {
   return String.fromCharCode(cp);
 }
 
+// Disable TextDecoder streaming mode; we use non-streaming TextDecoder for each
+// complete chunk to match Buffer.toString('utf8') replacement behavior exactly.
 var utf8DecoderSupportsStream = false;
-if (typeof TextDecoder === 'function') {
-  try {
-    var _probeUtf8Decoder = new TextDecoder('utf-8');
-    _probeUtf8Decoder.decode(new Uint8Array(), { stream: true });
-    utf8DecoderSupportsStream = true;
-  } catch (err) {
-    utf8DecoderSupportsStream = false;
-  }
-}
 
 function StringDecoder(encoding) {
   this.encoding = normalizeEncoding(encoding);
@@ -153,77 +202,61 @@ StringDecoder.prototype._writeUtf8 = function _writeUtf8(bytes) {
     return this._utf8Decoder.decode(bytes, { stream: true });
   }
 
-  var result = '';
-  var i = 0;
+  // Strategy: combine any buffered bytes with new bytes, find where to split
+  // off incomplete trailing multi-byte sequences, then decode the complete
+  // portion with TextDecoder (non-streaming) to match Buffer.toString('utf8').
+  var input;
   if (this._bufLen > 0) {
-    var need = this._needBytes - this._bufLen;
-    if (bytes.length < need) {
-      var newBuf = new Uint8Array(this._bufLen + bytes.length);
-      for (var j = 0; j < this._bufLen; j++) newBuf[j] = this._buf[j];
-      for (var j = 0; j < bytes.length; j++) newBuf[this._bufLen + j] = bytes[j];
-      this._buf = newBuf;
-      this._bufLen = newBuf.length;
-      return '';
-    }
-    var charBytes = new Uint8Array(this._needBytes);
-    for (var j = 0; j < this._bufLen; j++) charBytes[j] = this._buf[j];
-    for (var j = 0; j < need; j++) charBytes[this._bufLen + j] = bytes[j];
-    var valid = true;
-    for (var j = 1; j < this._needBytes; j++) {
-      if ((charBytes[j] & 0xC0) !== 0x80) { valid = false; break; }
-    }
-    if (valid) {
-      if (typeof TextDecoder !== 'undefined') {
-        result += new TextDecoder('utf-8').decode(charBytes);
-      } else {
-        result += decodeUtf8Char(charBytes, this._needBytes);
-      }
-    } else {
-      result += '\uFFFD';
-    }
-    i = need;
+    input = new Uint8Array(this._bufLen + bytes.length);
+    for (var j = 0; j < this._bufLen; j++) input[j] = this._buf[j];
+    for (var j = 0; j < bytes.length; j++) input[this._bufLen + j] = bytes[j];
     this._buf = null;
     this._bufLen = 0;
     this._needBytes = 0;
+  } else {
+    input = bytes;
   }
-  while (i < bytes.length) {
-    var b = bytes[i];
-    var seqLen = utf8ByteLength(b);
-    if (i + seqLen <= bytes.length) {
-      if (seqLen === 1) {
-        if (b >= 0x80) {
-          result += '\uFFFD';
-        } else {
-          result += String.fromCharCode(b);
-        }
-        i += 1;
-      } else {
-        var valid = true;
-        for (var j = 1; j < seqLen; j++) {
-          if ((bytes[i + j] & 0xC0) !== 0x80) { valid = false; break; }
-        }
-        if (valid) {
-          if (typeof TextDecoder !== 'undefined') {
-            result += new TextDecoder('utf-8').decode(bytes.slice(i, i + seqLen));
-          } else {
-            result += decodeUtf8Char(bytes.slice(i, i + seqLen), seqLen);
-          }
-          i += seqLen;
-        } else {
-          result += '\uFFFD';
-          i += 1;
-        }
-      }
-    } else {
-      var remaining = bytes.length - i;
-      this._buf = new Uint8Array(remaining);
-      for (var j = 0; j < remaining; j++) this._buf[j] = bytes[i + j];
-      this._bufLen = remaining;
-      this._needBytes = seqLen;
+
+  if (input.length === 0) return '';
+
+  // Scan backwards from end to find any incomplete multi-byte sequence
+  var trailStart = input.length;
+  // Check if the last few bytes form an incomplete UTF-8 sequence
+  // We need to look back at most 3 bytes (max incomplete = 3 bytes of a 4-byte seq)
+  for (var back = 1; back <= 3 && back <= input.length; back++) {
+    var idx = input.length - back;
+    var b = input[idx];
+    if (b < 0x80) {
+      // ASCII - no incomplete sequence
       break;
     }
+    if ((b & 0xC0) === 0x80) {
+      // Continuation byte - keep scanning back
+      continue;
+    }
+    // Lead byte found
+    var seqLen = utf8ByteLength(b);
+    if (idx + seqLen > input.length) {
+      // Incomplete sequence
+      trailStart = idx;
+    }
+    break;
   }
-  return result;
+
+  // Buffer any trailing incomplete bytes
+  if (trailStart < input.length) {
+    var remaining = input.length - trailStart;
+    this._buf = new Uint8Array(remaining);
+    for (var j = 0; j < remaining; j++) this._buf[j] = input[trailStart + j];
+    this._bufLen = remaining;
+    this._needBytes = utf8ByteLength(input[trailStart]);
+  }
+
+  // Decode the complete portion using maximal-subpart replacement algorithm
+  // (same as Buffer.toString('utf8') uses).
+  if (trailStart === 0) return '';
+  var toDecode = (trailStart === input.length) ? input : input.slice(0, trailStart);
+  return _decodeUtf8Complete(toDecode);
 };
 
 StringDecoder.prototype.end = function end(buf) {
@@ -233,7 +266,13 @@ StringDecoder.prototype.end = function end(buf) {
   }
   var enc = this.encoding;
   if (enc === 'utf8' && this._utf8Decoder) {
-    result += this._utf8Decoder.decode(new Uint8Array(), { stream: false });
+    // Check if the streaming decoder has buffered incomplete bytes by attempting
+    // a non-streaming flush. If it produces anything (replacement chars), emit
+    // a single U+FFFD instead, matching Node.js "maximal subpart" behavior.
+    var flushed = this._utf8Decoder.decode(new Uint8Array(), { stream: false });
+    if (flushed.length > 0) {
+      result += '\uFFFD';
+    }
     this._utf8Decoder = null;
   } else if (this._bufLen > 0) {
     if (enc === 'utf8') {
