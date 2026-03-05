@@ -167,6 +167,8 @@ function IncomingMessage(response) {
     this.rawHeaders.push(key, this.headers[key]);
   }
   this.httpVersion = "1.1";
+  this.aborted = false;
+  this.complete = false;
   this._response = response;
   this._consumed = false;
 }
@@ -279,7 +281,7 @@ ClientRequest.prototype.write = function(chunk) {
 };
 
 ClientRequest.prototype.end = function(chunk) {
-  if (this._ended) return;
+  if (this._ended || this._aborted) return;
   if (chunk !== undefined && chunk !== null) {
     this._bodyParts.push(String(chunk));
   }
@@ -287,16 +289,36 @@ ClientRequest.prototype.end = function(chunk) {
   this._send();
 };
 
-ClientRequest.prototype.destroy = function() {
+ClientRequest.prototype.destroy = function(err) {
+  if (this._closed) return this;
   this._aborted = true;
   this._closed = true;
   if (this._abortController) {
     try { this._abortController.abort(); } catch(e) {}
   }
+  // Destroy the underlying TCP socket if present
+  if (this.socket && !this.socket.destroyed) {
+    try { this.socket.destroy(); } catch(e) {}
+  }
+  if (err) this.emit("error", err);
   this.emit("close");
   return this;
 };
-ClientRequest.prototype.abort = ClientRequest.prototype.destroy;
+
+ClientRequest.prototype.abort = function() {
+  if (this._aborted) return;
+  this._aborted = true;
+  this._closed = true;
+  if (this._abortController) {
+    try { this._abortController.abort(); } catch(e) {}
+  }
+  // Destroy the underlying TCP socket if present
+  if (this.socket && !this.socket.destroyed) {
+    try { this.socket.destroy(); } catch(e) {}
+  }
+  this.emit("abort");
+  this.emit("close");
+};
 
 ClientRequest.prototype.setTimeout = function(timeout, callback) {
   if (typeof timeout === 'number' && timeout > 0) {
@@ -312,7 +334,7 @@ ClientRequest.prototype.setTimeout = function(timeout, callback) {
 };
 
 ClientRequest.prototype._send = function() {
-  if (this._sent) return;
+  if (this._sent || this._aborted) return;
   this._sent = true;
   var body = this._bodyParts.join("");
 
@@ -445,6 +467,7 @@ ClientRequest.prototype._sendViaTcp = function(body) {
     if (responseEnded) return;
     responseEnded = true;
     if (tcpIncoming) {
+      tcpIncoming.complete = true;
       tcpIncoming.emit('end');
       tcpIncoming.emit('close');
     }
@@ -484,18 +507,24 @@ ClientRequest.prototype._sendViaTcp = function(body) {
       if (cl !== undefined) contentLength = parseInt(cl, 10) || 0;
 
       tcpIncoming = new TcpIncomingMessage(statusCode, statusMessage, responseHeaders, rawResponseHeaders);
+      tcpIncoming.socket = socket;
+      tcpIncoming.connection = socket;
       self.emit('response', tcpIncoming);
       responseEmitted = true;
 
       if (bodyStart.length > 0) {
-        bodyBytesReceived += bodyStart.length;
+        var bodyStartBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+          ? Buffer.byteLength(bodyStart, 'utf8') : bodyStart.length;
+        bodyBytesReceived += bodyStartBytes;
         tcpIncoming.emit('data', bodyStart);
       }
       if (contentLength >= 0 && bodyBytesReceived >= contentLength) {
         finishResponse();
       }
     } else if (tcpIncoming) {
-      bodyBytesReceived += str.length;
+      var strBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+        ? Buffer.byteLength(str, 'utf8') : str.length;
+      bodyBytesReceived += strBytes;
       tcpIncoming.emit('data', str);
       if (contentLength >= 0 && bodyBytesReceived >= contentLength) {
         finishResponse();
@@ -530,6 +559,8 @@ function TcpIncomingMessage(statusCode, statusMessage, headers, rawHeaders) {
   this.headers = headers;
   this.rawHeaders = rawHeaders || [];
   this.httpVersion = '1.1';
+  this.aborted = false;
+  this.complete = false;
   this._consumed = false;
 }
 TcpIncomingMessage.prototype = Object.create(EventEmitter.prototype);
@@ -713,9 +744,27 @@ HttpRequestParser.prototype._parse = function() {
         }
       }
     } else if (this._state === 2) {
-      if (this._buffer.length >= this._contentLength) {
-        this._bodyData = this._buffer.substring(0, this._contentLength);
-        this._buffer = this._buffer.substring(this._contentLength);
+      // Compare using byte length since Content-Length is in bytes but
+      // _buffer is a string (multi-byte UTF-8 chars have fewer chars than bytes)
+      var bufByteLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+        ? Buffer.byteLength(this._buffer, 'utf8') : this._buffer.length;
+      if (bufByteLen >= this._contentLength) {
+        // Find the substring whose byte length matches _contentLength
+        var bodyEnd = this._buffer.length;
+        if (bufByteLen > this._contentLength) {
+          // Need to find exact character position for _contentLength bytes
+          var byteCount = 0;
+          for (var ci = 0; ci < this._buffer.length; ci++) {
+            var code = this._buffer.charCodeAt(ci);
+            if (code <= 0x7F) byteCount += 1;
+            else if (code <= 0x7FF) byteCount += 2;
+            else if (code >= 0xD800 && code <= 0xDBFF) { byteCount += 4; ci++; }
+            else byteCount += 3;
+            if (byteCount >= this._contentLength) { bodyEnd = ci + 1; break; }
+          }
+        }
+        this._bodyData = this._buffer.substring(0, bodyEnd);
+        this._buffer = this._buffer.substring(bodyEnd);
         this._emitRequest();
       } else {
         return;
@@ -1099,6 +1148,19 @@ ServerResponse.prototype._sendSocketResponse = function() {
 
 ServerResponse.prototype.setTimeout = function() { return this; };
 ServerResponse.prototype.flushHeaders = function() {};
+ServerResponse.prototype.destroy = function(err) {
+  if (this._finished) return this;
+  this._finished = true;
+  this.writableEnded = true;
+  this.writableFinished = true;
+  // Destroy the underlying socket to force-close the connection
+  if (this.socket && !this.socket.destroyed) {
+    try { this.socket.destroy(err); } catch(e) {}
+  }
+  if (err) this.emit('error', err);
+  this.emit('close');
+  return this;
+};
 
 // ---------------------------------------------------------------------------
 // ServerIncomingMessage for server-side requests
@@ -1164,6 +1226,7 @@ function ServerIncomingMessage(requestData, serverId) {
     }
   }
   this.complete = false;
+  this.aborted = false;
 }
 ServerIncomingMessage.prototype = Object.create(EventEmitter.prototype);
 ServerIncomingMessage.prototype.constructor = ServerIncomingMessage;
@@ -1272,7 +1335,22 @@ Server.prototype._onConnection = function(socket) {
     if (socket.parser) parser.execute(chunk);
   });
 
+  // Track current active request/response for abort signaling
+  var _activeReq = null;
+  var _activeRes = null;
+
   socket.on('close', function() {
+    // If there's an active request that hasn't completed AND the response
+    // hasn't been finished (meaning the client disconnected prematurely),
+    // emit 'aborted' on the request.
+    if (_activeReq && !_activeReq.complete && _activeRes && !_activeRes._finished) {
+      _activeReq.aborted = true;
+      _activeReq.emit('aborted');
+      var abortErr = new Error('aborted');
+      abortErr.code = 'ECONNRESET';
+      _activeReq.emit('error', abortErr);
+      _activeReq = null;
+    }
     socket.parser = null;
     socket[kTimeout] = null;
     if (socket._httpMessage) socket._httpMessage = null;
@@ -1286,19 +1364,33 @@ Server.prototype._onConnection = function(socket) {
     var req = new ServerIncomingMessage(reqData);
     req.socket = socket;
     req.connection = socket;
+    _activeReq = req;
+
+    // Mark request complete when it finishes
+    req.once('end', function() { req.complete = true; if (_activeReq === req) _activeReq = null; });
+    // For requests with no body (e.g. GET), mark complete immediately
+    if (!reqData.body || reqData.body.length === 0) {
+      req.complete = true;
+    }
 
     var res = new ServerResponse(req);
     res.req = req;
     res.assignSocket(socket);
+    _activeRes = res;
     socket._isIdle = false;
 
     // When the response closes, mark socket as idle and close if server is closing
     res.once('close', function() {
       socket._isIdle = true;
       if (self._closing && !socket.destroyed) {
-        try { socket.end(); } catch(e) {
-          try { socket.destroy(); } catch(e2) {}
+        // Only destroy immediately if the socket has no pending writes.
+        // Otherwise, let the write callback handle cleanup (it calls socket.end()
+        // which will eventually destroy the socket after flushing).
+        if (!socket._writeQueue || socket._writeQueue.length === 0) {
+          try { socket.destroy(); } catch(e) {}
         }
+        // If there are pending writes, the socket.write callback from
+        // _sendSocketResponse will call socket.end() -> destroy after flush.
       }
     });
 
@@ -1430,6 +1522,15 @@ Server.prototype.close = function(callback) {
   var self = this;
   if (this._netServer) {
     this._netServer.close(function() {
+      // After the TCP server handle is closed, destroy any remaining sockets
+      // so the event loop can exit. Keep-alive sockets may still be alive.
+      if (self._sockets && self._sockets.size > 0) {
+        var remaining = [];
+        self._sockets.forEach(function(s) { remaining.push(s); });
+        for (var i = 0; i < remaining.length; i++) {
+          try { remaining[i].destroy(); } catch(e) {}
+        }
+      }
       self.emit('close');
     });
   } else if (this._useNative) {
@@ -1458,7 +1559,7 @@ Server.prototype.closeIdleConnections = function() {
   this._sockets.forEach(function(s) { sockets.push(s); });
   for (var i = 0; i < sockets.length; i++) {
     var sock = sockets[i];
-    if (sock._isIdle) {
+    if (sock._isIdle && (!sock._writeQueue || sock._writeQueue.length === 0)) {
       try { sock.destroy(); } catch(e) {}
     }
   }

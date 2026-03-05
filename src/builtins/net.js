@@ -433,6 +433,10 @@ Socket.prototype._drainWriteQueue = function() {
     if (this._closeAfterEnd) {
       this._closeAfterEnd = false;
       _shutdownSocketWrite(this);
+      // After sending FIN, the socket should wait for the peer to close
+      // (EOF on the read side). The poll loop will detect EOF and destroy
+      // the socket. Mark writable=false so we don't write more.
+      this.writable = false;
       return;
     }
     var self = this;
@@ -1020,6 +1024,10 @@ Socket.prototype.destroy = function(err) {
   if (this._pollTimer != null) {
     clearTimeout(this._pollTimer);
     this._pollTimer = null;
+  }
+  if (this._drainTimer != null) {
+    clearTimeout(this._drainTimer);
+    this._drainTimer = null;
   }
   if (this._timeoutTimer != null) {
     clearTimeout(this._timeoutTimer);
