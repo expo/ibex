@@ -331,8 +331,32 @@ function _validateSpawnSyncOptions(options) {
     _validateOptionsNullBytes(options);
     command = _fallbackSpawnCommand(command);
     var opts = normalizeExecOptions(options);
+  // If env is specified, prepend env var exports to the command since native popen
+  // doesn't support setting env directly. Only add vars that differ from current env.
+  // We use "export VAR=val; export VAR2=val2; command" so that variable expansions
+  // in the command can reference the exported vars.
+  var actualCommand = command;
+  if (options && options.env) {
+    var envExports = '';
+    var currentEnv = typeof process !== 'undefined' ? process.env : {};
+    // Use for-in to include prototype properties (Node.js behavior)
+    for (var _ek in options.env) {
+      var _ev = options.env[_ek];
+      if (_ev === undefined) continue; // Skip undefined values
+      _ev = String(_ev);
+      // Only export vars that are new or different from current environment
+      if (currentEnv[_ek] !== _ev) {
+        // Shell-escape the value by replacing single quotes
+        var _escaped = _ev.replace(/'/g, "'\\''");
+        envExports += 'export ' + _ek + "='" + _escaped + "'; ";
+      }
+    }
+    if (envExports) {
+      actualCommand = envExports + command;
+    }
+  }
   var optsJson = JSON.stringify(opts);
-  var resultJson = globalThis.__exactExecSync(command, optsJson);
+  var resultJson = globalThis.__exactExecSync(actualCommand, optsJson);
   var result = JSON.parse(resultJson);
 
   var _Buffer = require('buffer').Buffer;
@@ -397,7 +421,7 @@ function _validateSpawnSyncOptions(options) {
       }
       nativeOpts.env = envObj;
     } else if (opts.env) {
-      nativeOpts.env = opts.env;
+      nativeOpts.env = _flattenEnv(opts.env);
     }
     if (opts.input !== undefined) nativeOpts.input = opts.input;
     if (opts.argv0 && typeof opts.argv0 === 'string') nativeOpts.argv0 = opts.argv0;
@@ -505,11 +529,13 @@ function _validateSpawnSyncOptions(options) {
   }
 
   // Build internal opts object
+  // Default env to process.env if not specified (Node.js behavior - JS-set env vars must propagate)
+  var resolvedEnv = options.env !== undefined ? options.env : (typeof process !== 'undefined' ? process.env : undefined);
   var internalOpts = {
     file: file,
     args: spawnArgs,
     cwd: options.cwd ? String(options.cwd) : undefined,
-    env: options.env,
+    env: resolvedEnv ? _flattenEnv(resolvedEnv) : undefined,
     timeout: options.timeout ? Number(options.timeout) : undefined,
     encoding: options.encoding,
     maxBuffer: options.maxBuffer,
@@ -1093,10 +1119,27 @@ function _normalizeSpawnMode(mode, fallbackMode) {
   return 'pipe';
 }
 
+// Flatten env object to include inherited (prototype) properties and filter undefined values.
+// Node.js includes prototype properties in env and strips undefined values.
+function _flattenEnv(env) {
+  if (!env || typeof env !== 'object') return env;
+  var flat = {};
+  for (var key in env) {
+    var val = env[key];
+    if (val !== undefined) {
+      flat[key] = String(val);
+    }
+  }
+  return flat;
+}
+
 function _normalizeSpawnOptions(options) {
+  // When no env is specified, use process.env (which may have JS-set values
+  // not yet reflected in OS environment). This matches Node.js behavior.
+  var envSource = options.env !== undefined ? options.env : (typeof process !== 'undefined' ? process.env : undefined);
   var normalized = {
     cwd: options.cwd,
-    env: options.env,
+    env: envSource ? _flattenEnv(envSource) : undefined,
     shell: options.shell,
     detached: options.detached
   };
