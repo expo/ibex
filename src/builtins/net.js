@@ -56,11 +56,108 @@ if (!_assertListenerArgument) {
   };
 }
 
+// --- Validation helpers ---
+function _validatePort(port, name) {
+  if (typeof port === 'boolean' || typeof port === 'object' || port === null || port === true || port === false) {
+    var err = new TypeError('The "' + (name || 'port') + '" argument must be of type number or string. Received type ' + typeof port);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  var p;
+  if (typeof port === 'string') {
+    p = port.trim().length === 0 ? NaN : Number(port);
+  } else {
+    p = port;
+  }
+  if (port !== undefined && port !== null && typeof port !== 'number' && typeof port !== 'string') {
+    if (Array.isArray(port)) {
+      var err2 = new TypeError('The "' + (name || 'port') + '" option must be of type number or string. Received an instance of Array');
+      err2.code = 'ERR_INVALID_ARG_TYPE';
+      throw err2;
+    }
+    var err3 = new TypeError('The "' + (name || 'port') + '" argument must be of type number or string. Received type ' + typeof port);
+    err3.code = 'ERR_INVALID_ARG_TYPE';
+    throw err3;
+  }
+  if (typeof port === 'number' || typeof port === 'string') {
+    if ((typeof port === 'string' && port.trim().length === 0) || +port !== (+port >>> 0)) {
+      if (typeof port === 'number' && isNaN(port)) return 0; // NaN -> 0 for some cases
+      if (port === undefined || port === null) return 0;
+      var numPort = +port;
+      if (numPort < 0 || numPort > 65535 || (typeof port === 'string' && port.trim().length === 0) || numPort !== (numPort | 0) && isFinite(numPort)) {
+        var err4 = new RangeError('The "' + (name || 'port') + '" option should be >= 0 and < 65536. Received ' + port);
+        err4.code = 'ERR_SOCKET_BAD_PORT';
+        throw err4;
+      }
+    }
+  }
+  return (p === undefined || p === null || isNaN(p)) ? 0 : (p >>> 0);
+}
+
+function _normalizePort(port) {
+  // Normalize port for listen: undefined/null => 0, string => number
+  if (port === undefined || port === null) return 0;
+  if (typeof port === 'string') {
+    var trimmed = port.trim();
+    if (trimmed.length === 0) return 0; // '' => random port
+    var n = Number(trimmed);
+    if (isNaN(n) || n < 0 || n > 65535 || n !== (n >>> 0)) {
+      var err = new RangeError('The "port" option should be >= 0 and < 65536. Received ' + JSON.stringify(port));
+      err.code = 'ERR_SOCKET_BAD_PORT';
+      throw err;
+    }
+    return n >>> 0;
+  }
+  if (typeof port !== 'number') return 0;
+  if (port < 0 || port > 65535 || port !== (port >>> 0)) {
+    var err2 = new RangeError('The "port" option should be >= 0 and < 65536. Received ' + port);
+    err2.code = 'ERR_SOCKET_BAD_PORT';
+    throw err2;
+  }
+  return port >>> 0;
+}
+
+function _validateConnectPort(port) {
+  // For connect(), port validation is stricter
+  if (port === undefined || port === null) {
+    var err = new TypeError('The "port" option must be of type number or string. Received ' + (port === null ? 'null' : 'undefined'));
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (typeof port === 'boolean') {
+    var err2 = new TypeError('The "port" option must be of type number or string. Received type boolean');
+    err2.code = 'ERR_INVALID_ARG_TYPE';
+    throw err2;
+  }
+  if (Array.isArray(port)) {
+    var err3 = new TypeError('The "port" option must be of type number or string. Received an instance of Array');
+    err3.code = 'ERR_INVALID_ARG_TYPE';
+    throw err3;
+  }
+  if (typeof port === 'object') {
+    var err4 = new TypeError('The "port" option must be of type number or string. Received an instance of Object');
+    err4.code = 'ERR_INVALID_ARG_TYPE';
+    throw err4;
+  }
+  var p = typeof port === 'string' ? Number(port) : port;
+  if (typeof port === 'string' && port.trim().length === 0) {
+    var err5 = new RangeError('The "port" option should be >= 0 and < 65536. Received ' + JSON.stringify(port));
+    err5.code = 'ERR_SOCKET_BAD_PORT';
+    throw err5;
+  }
+  if (isNaN(p) || p < 0 || p > 65535 || p !== (p >>> 0)) {
+    var err6 = new RangeError('The "port" option should be >= 0 and < 65536. Received ' + port);
+    err6.code = 'ERR_SOCKET_BAD_PORT';
+    throw err6;
+  }
+  return p >>> 0;
+}
+
 // Check for native TCP support
 var _hasTcp = typeof __exactTcpConnect === 'function';
 // Check for native Unix socket support
 var _hasUnix = typeof __exactUnixConnect === 'function';
-var _defaultAutoSelectFamilyAttemptTimeout = 0;
+var _defaultAutoSelectFamilyAttemptTimeout = 250;
 var _defaultAutoSelectFamily = false;
 var _boundTcpServers = [];
 
@@ -100,7 +197,8 @@ function _makeSocketHandle(handle) {
       if (socketHandle._exactHandle == null) return;
       try { __exactTcpClose(socketHandle._exactHandle); } catch(e) {}
       socketHandle._exactHandle = null;
-    }
+    },
+    onconnection: null
   };
   return socketHandle;
 }
@@ -114,7 +212,8 @@ function _makeServerHandle(nativeHandle) {
         try { __exactTcpClose(serverHandle._exactHandle); } catch(e) {}
       }
       serverHandle._exactHandle = null;
-    }
+    },
+    onconnection: null
   };
   return serverHandle;
 }
@@ -160,6 +259,10 @@ function _normalizeLookupResult(lookupResult) {
 
 function setDefaultAutoSelectFamily(enabled) {
   _defaultAutoSelectFamily = enabled === true;
+  return _defaultAutoSelectFamily;
+}
+
+function getDefaultAutoSelectFamily() {
   return _defaultAutoSelectFamily;
 }
 
@@ -248,6 +351,30 @@ function _createGetAddrInfoError(host) {
 function Socket(options) {
   if (!(this instanceof Socket)) return new Socket(options);
   options = options || {};
+
+  // Validate options
+  if (typeof options !== 'object' || Array.isArray(options)) {
+    // Allow no-arg construction
+    if (typeof options === 'number' || typeof options === 'string') {
+      // Treat as fd or pass-through
+    }
+    options = {};
+  }
+
+  // Validate fd option
+  if (options.fd !== undefined && options.fd !== null) {
+    if (typeof options.fd !== 'number') {
+      var fdErr = new TypeError('The "options.fd" property must be of type number. Received type ' + typeof options.fd);
+      fdErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw fdErr;
+    }
+    if (options.fd < 0) {
+      var fdRangeErr = new RangeError('The value of "options.fd" is out of range. It must be >= 0. Received ' + options.fd);
+      fdRangeErr.code = 'ERR_OUT_OF_RANGE';
+      throw fdRangeErr;
+    }
+  }
+
   this.readable = true;
   this.writable = true;
   this.destroyed = false;
@@ -260,7 +387,7 @@ function Socket(options) {
   this.localPort = null;
   this.localFamily = null;
   this.bytesRead = 0;
-  this.bytesWritten = 0;
+  this._bytesWritten = 0;
   this.timeout = 0;
   this._timeoutMs = 0;
   this._timeoutTimer = null;
@@ -281,15 +408,37 @@ function Socket(options) {
   this._onreadEOF = false;
   this._isUnix = false;
   this._socketPath = null;
-  this.allowHalfOpen = options.allowHalfOpen || false;
+  this._corked = false;
+  this._server = null;
+  this.server = null;
+  this.allowHalfOpen = options.allowHalfOpen === true;
   this.pending = true;
   this.readyState = 'closed';
+
   // Mixin EventEmitter
   if (typeof EventEmitter === 'function' && EventEmitter.prototype) {
     for (var k in EventEmitter.prototype) {
       if (!this[k]) this[k] = EventEmitter.prototype[k];
     }
   }
+
+  // Add 'end' listener for half-open support (Node.js compat)
+  if (!this.allowHalfOpen) {
+    var self = this;
+    this.on('end', function _onSocketEnd() {
+      if (!self.allowHalfOpen) {
+        self.write = _writeAfterFIN;
+        if (self.writable) {
+          self.end();
+        }
+        // Don't destroy immediately - let finish event fire first
+        if (!self.destroyed && !self.writable) {
+          // Wait for the finish event to fire before destroying
+        }
+      }
+    });
+  }
+
   // Track if this is a Unix socket (set by accepted connections or connect({path}))
   if (options._isUnix) {
     this._isUnix = true;
@@ -321,6 +470,53 @@ function Socket(options) {
     if (options.writable !== false) this.writable = true;
     this._startPolling();
   }
+}
+
+// bytesWritten getter - returns undefined on prototype (when _bytesWritten not set)
+Socket.prototype.__defineGetter__('bytesWritten', function() {
+  if (!this.hasOwnProperty('_bytesWritten')) return undefined;
+  return this._bytesWritten;
+});
+Socket.prototype.__defineSetter__('bytesWritten', function(v) {
+  this._bytesWritten = v;
+});
+
+// _connecting getter for legacy compat
+Socket.prototype.__defineGetter__('_connecting', function() {
+  return this.connecting;
+});
+Socket.prototype.__defineSetter__('_connecting', function(v) {
+  this.connecting = v;
+});
+
+// bufferSize property
+Socket.prototype.__defineGetter__('bufferSize', function() {
+  if (this.destroyed) return undefined;
+  var total = 0;
+  if (!this._writeQueue) return 0;
+  for (var i = 0; i < this._writeQueue.length; i++) {
+    var item = this._writeQueue[i];
+    if (item && item.data) {
+      total += item.data.length - (item.offset || 0);
+    }
+  }
+  return total;
+});
+
+// writableLength property (alias for bufferSize)
+Socket.prototype.__defineGetter__('writableLength', function() {
+  return this.bufferSize || 0;
+});
+
+function _writeAfterFIN(chunk, encoding, cb) {
+  if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+  var err = new Error('This socket has been ended by the other party');
+  err.code = 'EPIPE';
+  if (typeof cb === 'function') {
+    setTimeout(function() { cb(err); }, 0);
+  }
+  this.emit('error', err);
+  return false;
 }
 
 function toBufferData(data, encoding) {
@@ -385,6 +581,9 @@ Socket.prototype._drainWriteQueue = function() {
     return;
   }
 
+  // If corked, don't drain yet
+  if (this._corked) return;
+
   this._isWriting = true;
   while (this._writeQueue.length > 0 && !this.destroyed && nativeHandle != null) {
     var item = this._writeQueue[0];
@@ -417,7 +616,7 @@ Socket.prototype._drainWriteQueue = function() {
     }
 
     item.offset += written;
-    this.bytesWritten += written;
+    this._bytesWritten += written;
     this._lastActivity = Date.now();
 
     if (item.offset >= item.data.length) {
@@ -433,9 +632,6 @@ Socket.prototype._drainWriteQueue = function() {
     if (this._closeAfterEnd) {
       this._closeAfterEnd = false;
       _shutdownSocketWrite(this);
-      // After sending FIN, the socket should wait for the peer to close
-      // (EOF on the read side). The poll loop will detect EOF and destroy
-      // the socket. Mark writable=false so we don't write more.
       this.writable = false;
       return;
     }
@@ -672,10 +868,71 @@ Socket.prototype.connect = function(options, connectListener) {
     // Unix socket path
     options = { path: options };
   } else if (Array.isArray(options)) {
-    // IPC connection array form - not supported
-    options = {};
+    // Regular arrays throw ERR_INVALID_ARG_TYPE (normalized arrays are handled internally)
+    var arrTypeErr = new TypeError('The "options" or "port" or "path" argument must be of type object. Received an instance of Array');
+    arrTypeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw arrTypeErr;
+  } else if (typeof options === 'boolean' || options === null) {
+    var boolTypeErr = new TypeError('The "options" or "port" or "path" argument must be of type string or number or object. Received type ' + (options === null ? 'null' : typeof options));
+    boolTypeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw boolTypeErr;
   }
   options = options || {};
+
+  // Validate: must have port or path
+  if (!options.path && options.port === undefined && options.port !== 0) {
+    // Check for completely empty options (no port, no path)
+    if (typeof options.port === 'undefined') {
+      var missingErr = new TypeError('The "options" or "port" or "path" argument must be specified');
+      missingErr.code = 'ERR_MISSING_ARGS';
+      throw missingErr;
+    }
+  }
+
+  // Validate autoSelectFamily type
+  if (options.autoSelectFamily !== undefined && typeof options.autoSelectFamily !== 'boolean') {
+    var asfErr = new TypeError('The "options.autoSelectFamily" property must be of type boolean. Received type ' + typeof options.autoSelectFamily);
+    asfErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw asfErr;
+  }
+
+  // Validate autoSelectFamilyAttemptTimeout range
+  if (options.autoSelectFamilyAttemptTimeout !== undefined) {
+    var asft = options.autoSelectFamilyAttemptTimeout;
+    if (typeof asft !== 'number') {
+      var asftTypeErr = new TypeError('The "options.autoSelectFamilyAttemptTimeout" property must be of type number');
+      asftTypeErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw asftTypeErr;
+    }
+    if (asft <= 0 || !isFinite(asft)) {
+      var asftRangeErr = new RangeError('The value of "options.autoSelectFamilyAttemptTimeout" is out of range. It must be > 0. Received ' + asft);
+      asftRangeErr.code = 'ERR_OUT_OF_RANGE';
+      throw asftRangeErr;
+    }
+  }
+
+  // Validate host type
+  if (options.host !== undefined && typeof options.host !== 'string') {
+    var hostErr = new TypeError('The "options.host" property must be of type string. Received type ' + typeof options.host);
+    hostErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw hostErr;
+  }
+
+  // Validate objectMode-like invalid options
+  var invalidOpts = ['objectMode', 'readableObjectMode', 'writableObjectMode'];
+  for (var oi = 0; oi < invalidOpts.length; oi++) {
+    if (options[invalidOpts[oi]]) {
+      var optErr = new TypeError("The property 'options." + invalidOpts[oi] + "' is not supported. Received " + options[invalidOpts[oi]]);
+      optErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw optErr;
+    }
+  }
+
+  // Validate port for TCP connections
+  if (!options.path && options.port !== undefined) {
+    _validateConnectPort(options.port);
+  }
+
   this.connecting = true;
   this.pending = true;
   this.readyState = 'opening';
@@ -814,6 +1071,7 @@ Socket.prototype.connect = function(options, connectListener) {
           finalErr.errors = attemptErrors;
         }
         selfRef.emit('error', finalErr);
+        selfRef.emit('close', true);
         return;
       }
 
@@ -828,6 +1086,20 @@ Socket.prototype.connect = function(options, connectListener) {
       var family = target.family;
       if (selfRef.autoSelectFamilyAttemptedAddresses) {
         selfRef.autoSelectFamilyAttemptedAddresses.push(address + ':' + selfRef.remotePort);
+      }
+
+      // Check blockList
+      if (options.blockList && typeof options.blockList.check === 'function') {
+        var ipType = isIPv6(address) ? 'ipv6' : 'ipv4';
+        if (options.blockList.check(address, ipType)) {
+          var blockErr = new Error('IP blocked: ' + address);
+          blockErr.code = 'ERR_IP_BLOCKED';
+          selfRef.connecting = false;
+          selfRef.pending = false;
+          selfRef.readyState = 'closed';
+          selfRef.emit('error', blockErr);
+          return;
+        }
       }
 
       if (isIP(address) === 4 && _hasMatchingIPv6OnlyServer(address, selfRef.remotePort)) {
@@ -870,6 +1142,8 @@ Socket.prototype.connect = function(options, connectListener) {
   }
 
   setTimeout(function() {
+    if (self.destroyed) return;
+
     if (typeof lookup === 'function') {
       var lookupOptions = { family: lookupFamily };
       if (options.hints !== undefined) lookupOptions.hints = options.hints;
@@ -910,6 +1184,23 @@ Socket.prototype.connect = function(options, connectListener) {
             self.emit('lookup', null, first.address, _addressFamilyToName(first.family || lookupFamily), self.remoteAddress);
           }
 
+          // Check blockList on resolved addresses
+          if (options.blockList && typeof options.blockList.check === 'function') {
+            for (var bi = 0; bi < normalized.length; bi++) {
+              var addr = normalized[bi].address;
+              var blType = isIPv6(addr) ? 'ipv6' : 'ipv4';
+              if (options.blockList.check(addr, blType)) {
+                var blockErr = new Error('IP blocked: ' + addr);
+                blockErr.code = 'ERR_IP_BLOCKED';
+                self.connecting = false;
+                self.pending = false;
+                self.readyState = 'closed';
+                self.emit('error', blockErr);
+                return;
+              }
+            }
+          }
+
           if (autoSelectFamily) {
             self.autoSelectFamilyAttemptedAddresses = _getAutoSelectFamilyAttemptedAddresses(normalized, self.remotePort);
           }
@@ -933,6 +1224,19 @@ Socket.prototype.connect = function(options, connectListener) {
 
 Socket.prototype.write = function(data, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+
+  // Validate write arguments
+  if (data === null) {
+    var nullErr = new TypeError('May not write null values to stream');
+    nullErr.code = 'ERR_STREAM_NULL_VALUES';
+    throw nullErr;
+  }
+  if (typeof data !== 'string' && !Buffer.isBuffer(data) && !(typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data))) {
+    var typeErr = new TypeError('The "chunk" argument must be of type string or an instance of Buffer, TypedArray, or DataView.' + _invalidArgTypeHelper(data));
+    typeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw typeErr;
+  }
+
   if (!this.writable || this.destroyed) {
     var err = new Error('This socket has been ended by the other party');
     err.code = 'EPIPE';
@@ -944,23 +1248,18 @@ Socket.prototype.write = function(data, encoding, callback) {
       var queuedData = null;
       if (typeof data === 'string') {
         var enc = encoding || 'utf8';
-        var cacheKey = enc + ':' + data;
-        var cached = this._writeBufferCache[cacheKey];
-        if (cached == null) {
-          cached = Buffer.from(data, enc);
-          this._writeBufferCache[cacheKey] = cached;
-        }
-        queuedData = cached;
+        queuedData = Buffer.from(data, enc);
       } else {
         queuedData = toBufferData(data, encoding);
       }
-      if (queuedData == null) queuedData = '';
+      if (queuedData == null) queuedData = Buffer.alloc(0);
 
       this._writeQueue.push({
         data: queuedData,
         offset: 0,
         callback: callback,
       });
+      this._bytesWritten += queuedData.length;
 
       return false;
     }
@@ -973,17 +1272,11 @@ Socket.prototype.write = function(data, encoding, callback) {
   var dataToWrite = null;
   if (typeof data === 'string') {
     var enc = encoding || 'utf8';
-    var cacheKey = enc + ':' + data;
-    var cached = this._writeBufferCache[cacheKey];
-    if (cached == null) {
-      cached = Buffer.from(data, enc);
-      this._writeBufferCache[cacheKey] = cached;
-    }
-    dataToWrite = cached;
+    dataToWrite = Buffer.from(data, enc);
   } else {
     dataToWrite = toBufferData(data, encoding);
   }
-  if (dataToWrite == null) dataToWrite = '';
+  if (dataToWrite == null) dataToWrite = Buffer.alloc(0);
 
   this._writeQueue.push({
     data: dataToWrite,
@@ -991,12 +1284,22 @@ Socket.prototype.write = function(data, encoding, callback) {
     callback: callback,
   });
 
-  if (!this._isWriting) {
+  if (!this._isWriting && !this._corked) {
     this._drainWriteQueue();
   }
 
   return this._writeQueue.length === 0;
 };
+
+function _invalidArgTypeHelper(input) {
+  if (input == null) return ' Received ' + input;
+  if (typeof input === 'function') return ' Received function ' + (input.name || 'anonymous');
+  if (typeof input === 'object') {
+    if (input.constructor && input.constructor.name) return ' Received an instance of ' + input.constructor.name;
+    return ' Received ' + String(input);
+  }
+  return ' Received type ' + typeof input + ' (' + String(input) + ')';
+}
 
 Socket.prototype.end = function(data, encoding, callback) {
   if (typeof data === 'function') { callback = data; data = undefined; }
@@ -1005,7 +1308,10 @@ Socket.prototype.end = function(data, encoding, callback) {
   this.writable = false;
   this.readyState = this.readable ? 'readOnly' : 'closed';
   if (callback) this.once('finish', callback);
-  this.emit('finish');
+  var self = this;
+  setTimeout(function() {
+    self.emit('finish');
+  }, 0);
   if (_unwrapHandle(this._handle) != null) {
     this._closeAfterEnd = true;
     this._drainWriteQueue();
@@ -1049,8 +1355,9 @@ Socket.prototype.destroy = function(err) {
   var nativeHandle = _unwrapHandle(this._handle);
   if (nativeHandle != null && _hasTcp) {
     try { __exactTcpClose(nativeHandle); } catch(e) {}
-    this._handle = null;
   }
+  // Set _handle to null after destroy (Node.js compat: test-net-after-close checks c._handle === null)
+  this._handle = null;
   if (err) this.emit('error', err);
   this.emit('close', !!err);
   return this;
@@ -1059,9 +1366,36 @@ Socket.prototype.destroy = function(err) {
 // Alias close to destroy for Node.js compatibility (e.g., handle.close())
 Socket.prototype.close = Socket.prototype.destroy;
 
+Socket.prototype.resetAndDestroy = function() {
+  // Send RST instead of FIN
+  if (this._handle != null && _hasTcp) {
+    var nativeHandle = _unwrapHandle(this._handle);
+    if (nativeHandle != null && typeof __exactTcpReset === 'function') {
+      try { __exactTcpReset(nativeHandle); } catch(e) {}
+    }
+  }
+  return this.destroy();
+};
+
 Socket.prototype.setTimeout = function(timeout, callback) {
+  // Validate timeout argument
+  if (typeof timeout !== 'number') {
+    var typeErr = new TypeError('The "msecs" argument must be of type number. Received type ' + typeof timeout);
+    typeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw typeErr;
+  }
+  if (timeout < 0 || !isFinite(timeout)) {
+    var rangeErr = new RangeError('The value of "msecs" is out of range. It must be a non-negative finite number. Received ' + timeout);
+    rangeErr.code = 'ERR_OUT_OF_RANGE';
+    throw rangeErr;
+  }
   this._timeoutMs = timeout || 0;
-  if (callback) {
+  if (callback !== undefined) {
+    if (typeof callback !== 'function') {
+      var cbErr = new TypeError('The "callback" argument must be of type function. Received type ' + typeof callback);
+      cbErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw cbErr;
+    }
     if (timeout > 0) {
       this.once('timeout', callback);
     } else {
@@ -1158,12 +1492,29 @@ Socket.prototype.setEncoding = function(enc) {
   return this;
 };
 
+Socket.prototype.cork = function() {
+  this._corked = true;
+};
+
+Socket.prototype.uncork = function() {
+  this._corked = false;
+  if (this._writeQueue.length > 0 && !this._isWriting) {
+    this._drainWriteQueue();
+  }
+};
+
 // --- Server class ---
 function Server(options, connectionListener) {
   if (!(this instanceof Server)) return new Server(options, connectionListener);
   if (typeof options === 'function') {
     connectionListener = options;
     options = {};
+  }
+  // Validate options argument
+  if (options !== undefined && options !== null && typeof options !== 'object') {
+    var typeErr = new TypeError('The "options" argument must be of type object. Received type ' + typeof options);
+    typeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw typeErr;
   }
   options = options || {};
   this._events = {};
@@ -1178,6 +1529,12 @@ function Server(options, connectionListener) {
   this._socketPath = null;
   this._listenToken = 0;
   this.ipv6Only = false;
+  this.allowHalfOpen = options.allowHalfOpen || false;
+  this.pauseOnConnect = options.pauseOnConnect || false;
+  this.noDelay = options.noDelay;
+  this.keepAlive = options.keepAlive;
+  this.keepAliveInitialDelay = options.keepAliveInitialDelay || 0;
+  this._connectionKey = null;
   // Mixin EventEmitter
   if (typeof EventEmitter === 'function' && EventEmitter.prototype) {
     for (var k in EventEmitter.prototype) {
@@ -1188,20 +1545,86 @@ function Server(options, connectionListener) {
 }
 
 Server.prototype.listen = function(port, host, backlog, callback) {
+  if (typeof port === 'function') {
+    // listen(callback)
+    callback = port;
+    port = 0;
+    host = undefined;
+    backlog = undefined;
+  } else if (port === undefined) {
+    // listen() with no args -> random port
+    port = 0;
+  }
   if (typeof host === 'function') { callback = host; host = undefined; backlog = undefined; }
   if (typeof backlog === 'function') { callback = backlog; backlog = undefined; }
   var unixPath = null;
   var self = this;
   var listenToken = ++this._listenToken;
-  if (typeof port === 'string') {
-    // server.listen('/tmp/my.sock') - Unix socket path
+  if (typeof port === 'string' && !isFinite(Number(port))) {
+    // server.listen('/tmp/my.sock') - Unix socket path (only if not parseable as a number)
     unixPath = port;
     port = undefined;
+  } else if (typeof port === 'boolean') {
+    // boolean is not a valid argument
+    var invalidErr = new TypeError("The argument 'options' is invalid. Received " + port);
+    invalidErr.code = 'ERR_INVALID_ARG_VALUE';
+    throw invalidErr;
   } else if (typeof port === 'object' && port !== null) {
     // options object
     var opts = port;
+    // Validate port and path types
+    if (opts.port !== undefined && typeof opts.port === 'boolean') {
+      var invalidPortErr = new TypeError("The argument 'options' is invalid. Received " + JSON.stringify(opts));
+      invalidPortErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw invalidPortErr;
+    }
+    if (opts.path !== undefined && typeof opts.path !== 'string') {
+      var invalidPathErr = new TypeError("The argument 'options' is invalid. Received " + JSON.stringify(opts));
+      invalidPathErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw invalidPathErr;
+    }
+    if (opts.fd !== undefined && (typeof opts.fd !== 'number' || opts.fd < 0)) {
+      var invalidFdErr = new TypeError("The argument 'options' is invalid. Received " + JSON.stringify(opts));
+      invalidFdErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw invalidFdErr;
+    }
+    // Must have port or path
+    if (!('port' in opts) && !('path' in opts) && !('fd' in opts) && !('handle' in opts)) {
+      var missingPropErr = new TypeError('The argument \'options\' must have the property "port" or "path". Received ' + JSON.stringify(opts));
+      missingPropErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw missingPropErr;
+    }
+    if (typeof host === 'function') { callback = host; host = undefined; }
     if (opts.path) {
       unixPath = opts.path;
+    }
+    if (opts.signal !== undefined) {
+      // Validate signal is an AbortSignal
+      if (!(opts.signal instanceof AbortSignal)) {
+        var sigErr = new TypeError('The "options.signal" property must be an instance of AbortSignal. Received ' + (typeof opts.signal === 'string' ? "'" + opts.signal + "'" : typeof opts.signal));
+        sigErr.code = 'ERR_INVALID_ARG_TYPE';
+        throw sigErr;
+      }
+      // AbortSignal support
+      if (opts.signal.aborted) {
+        var abortErr = new Error('The operation was aborted');
+        abortErr.code = 'ABORT_ERR';
+        // Don't throw immediately for pre-aborted - close the server async
+        var selfRef = this;
+        selfRef.on('listening', function() { selfRef.close(); });
+        // Also handle case where listen hasn't completed
+        setTimeout(function() {
+          if (!selfRef.listening) {
+            selfRef.emit('close');
+          }
+        }, 0);
+        return this;
+      }
+      // Listen for future abort
+      var selfForAbort = this;
+      opts.signal.addEventListener('abort', function() {
+        selfForAbort.close();
+      }, { once: true });
     }
     if (opts.ipv6Only !== undefined) {
       this.ipv6Only = opts.ipv6Only === true;
@@ -1212,6 +1635,11 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     port = opts.port;
     host = opts.host || host;
     backlog = opts.backlog || backlog;
+  }
+
+  // Validate port
+  if (!unixPath) {
+    port = _normalizePort(port);
   }
 
   if (callback) this.once('listening', callback);
@@ -1245,6 +1673,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
 
   // TCP server
   this._port = port || 0;
+  this._requestedPort = this._port; // Save original requested port for _connectionKey
   this._host = host || '0.0.0.0';
   this.host = this._host;
 
@@ -1266,6 +1695,9 @@ Server.prototype.listen = function(port, host, backlog, callback) {
           var addr = JSON.parse(info);
           self._port = addr.port;
           self._host = addr.address;
+          // Set _connectionKey for compat - use original requested port, not assigned port
+          var familySuffix = (addr.family || 'IPv4').slice(-1);
+          self._connectionKey = familySuffix + ':' + addr.address + ':' + self._requestedPort;
         }
       } catch(e) {}
       self.listening = true;
@@ -1292,7 +1724,10 @@ Server.prototype._startAccepting = function() {
       var clientHandle = acceptFn(nativeH);
       if (clientHandle !== -1) {
         self._connections++;
-        var socketOpts = { _handle: clientHandle, allowHalfOpen: false };
+        var socketOpts = {
+          _handle: clientHandle,
+          allowHalfOpen: self.allowHalfOpen || false
+        };
         if (self._isUnix) {
           socketOpts._isUnix = true;
           socketOpts._socketPath = self._socketPath;
@@ -1300,6 +1735,16 @@ Server.prototype._startAccepting = function() {
         var socket = new Socket(socketOpts);
         socket.server = self;
         socket._server = self;
+        // Apply server-level socket options
+        if (self.noDelay !== undefined) {
+          socket.setNoDelay(self.noDelay);
+        }
+        if (self.keepAlive !== undefined) {
+          socket.setKeepAlive(self.keepAlive, self.keepAliveInitialDelay);
+        }
+        if (self.pauseOnConnect) {
+          socket.pause();
+        }
         socket.once('close', function() {
           // If socket was sent to a child via IPC, _server is cleared.
           // In that case, the SocketList protocol handles _connections decrement.
@@ -1327,7 +1772,16 @@ Server.prototype._startAccepting = function() {
 
 Server.prototype.close = function(callback) {
   if (typeof callback === 'function') {
-    _assertListenerArgument(callback, 'callback');
+    if (!this.listening) {
+      // If not listening, emit error on next tick
+      var self = this;
+      setTimeout(function() {
+        var err = new Error('Server is not running.');
+        err.code = 'ERR_SERVER_NOT_RUNNING';
+        callback(err);
+      }, 0);
+      return this;
+    }
     this.once('close', callback);
   }
   this._listenToken++;
@@ -1408,6 +1862,14 @@ function createConnection(options, connectListener) {
       connectListener = arguments[2];
     }
     options = { port: port, host: host };
+  } else if (typeof options === 'string') {
+    options = { path: options };
+  }
+  // Must have options with port or path
+  if (!options || (typeof options === 'object' && !options.path && options.port === undefined)) {
+    var missingErr = new TypeError('The "options" or "port" or "path" argument must be specified');
+    missingErr.code = 'ERR_MISSING_ARGS';
+    throw missingErr;
   }
   var socket = new Socket(options);
   return socket.connect(options, connectListener);
@@ -1489,7 +1951,7 @@ function isIPv6(input) {
     if (!/^[0-9a-fA-F]{1,4}$/.test(parts[j])) return false;
   }
   if (hasDoubleColon) {
-    // Count non-empty groups; :: must represent at least 1 group, so non-empty ≤ 7
+    // Count non-empty groups; :: must represent at least 1 group, so non-empty <= 7
     var nonEmpty = 0;
     for (var k = 0; k < parts.length; k++) {
       if (parts[k] !== '') nonEmpty++;
@@ -1516,9 +1978,15 @@ function getDefaultAutoSelectFamilyAttemptTimeout() {
 
 function setDefaultAutoSelectFamilyAttemptTimeout(milliseconds) {
   if (typeof milliseconds === 'number' && isFinite(milliseconds)) {
-    _defaultAutoSelectFamilyAttemptTimeout = milliseconds;
+    if (milliseconds <= 0) {
+      var rangeErr = new RangeError('The value of "autoSelectFamilyAttemptTimeout" is out of range. It must be > 0. Received ' + milliseconds);
+      rangeErr.code = 'ERR_OUT_OF_RANGE';
+      throw rangeErr;
+    }
+    // Minimum timeout is 10ms
+    _defaultAutoSelectFamilyAttemptTimeout = milliseconds < 10 ? 10 : milliseconds;
   } else if (arguments.length === 0) {
-    _defaultAutoSelectFamilyAttemptTimeout = 0;
+    _defaultAutoSelectFamilyAttemptTimeout = 250;
   }
   return _defaultAutoSelectFamilyAttemptTimeout;
 }
@@ -1527,6 +1995,7 @@ function setDefaultAutoSelectFamilyAttemptTimeout(milliseconds) {
 function BlockList() {
   if (!(this instanceof BlockList)) return new BlockList();
   this._rules = [];
+  this.rules = [];
 }
 
 BlockList.prototype.addAddress = function(address, type) {
@@ -1557,8 +2026,6 @@ BlockList.prototype.check = function(address, type) {
   return false;
 };
 
-  BlockList.prototype.rules = [];
-
 module.exports = {
   Socket: Socket,
   Stream: Socket,
@@ -1572,6 +2039,7 @@ module.exports = {
   BlockList: BlockList,
   SocketAddress: SocketAddress,
   setDefaultAutoSelectFamily: setDefaultAutoSelectFamily,
+  getDefaultAutoSelectFamily: getDefaultAutoSelectFamily,
   getDefaultAutoSelectFamilyAttemptTimeout: getDefaultAutoSelectFamilyAttemptTimeout,
   setDefaultAutoSelectFamilyAttemptTimeout: setDefaultAutoSelectFamilyAttemptTimeout
 };
