@@ -3,6 +3,25 @@ var EventEmitter = require('node:events').EventEmitter;
 // Shared symbol for timeout tracking (matches internal/timers)
 var kTimeout = Symbol.for('kTimeout');
 
+// Header name validation regex
+var HEADER_NAME_RE = /^[\^_`a-zA-Z\-0-9\!#$%&'*+.|~]+$/;
+
+function validateHeaderName(name) {
+  if (typeof name !== 'string' || !HEADER_NAME_RE.test(name)) {
+    var err = new TypeError('Invalid HTTP header name: "' + name + '"');
+    err.code = 'ERR_INVALID_HTTP_TOKEN';
+    throw err;
+  }
+}
+
+function validateHeaderValue(name, value) {
+  if (value === undefined) {
+    var err = new TypeError('Invalid value "undefined" for header "' + name + '"');
+    err.code = 'ERR_HTTP_INVALID_HEADER_VALUE';
+    throw err;
+  }
+}
+
 function resolveHeaderName(value) {
   if (typeof value !== 'string') {
     return String(value || '');
@@ -15,6 +34,26 @@ function toHeaderCase(name) {
   return name.replace(/(?:^|-)([a-z])/g, function(match, letter, offset) {
     return offset === 0 ? letter.toUpperCase() : '-' + letter.toUpperCase();
   });
+}
+
+// Headers that should NOT be comma-joined (single value only)
+var _singleValueHeaders = {
+  'age': true, 'authorization': true, 'content-length': true,
+  'content-type': true, 'etag': true, 'expires': true, 'from': true,
+  'host': true, 'if-modified-since': true, 'if-unmodified-since': true,
+  'last-modified': true, 'location': true, 'max-forwards': true,
+  'proxy-authorization': true, 'referer': true, 'retry-after': true,
+  'server': true, 'user-agent': true
+};
+
+function _invalidArgTypeHelper(input) {
+  if (input == null) return ' Received ' + input;
+  if (typeof input === 'function') return ' Received function ' + input.name;
+  if (typeof input === 'object') {
+    if (input.constructor && input.constructor.name) return ' Received an instance of ' + input.constructor.name;
+    return ' Received ' + String(input);
+  }
+  return ' Received type ' + typeof input + ' (' + String(input) + ')';
 }
 
 function toHttpUrl(options) {
@@ -32,6 +71,14 @@ function toHttpUrl(options) {
     if (typeof options.url === "string") return options.url;
     var protocol = options.protocol || "http:";
     var hostname = options.hostname || options.host || "localhost";
+    // Strip port from host if combined
+    if (hostname.indexOf(':') !== -1 && hostname.charAt(0) !== '[') {
+      var hostParts = hostname.split(':');
+      hostname = hostParts[0];
+      if (!options.port && hostParts[1]) {
+        options.port = hostParts[1];
+      }
+    }
     var port = options.port ? ":" + options.port : "";
     var path = options.path;
     if (path === undefined) {
@@ -66,7 +113,12 @@ function toHeaders(source) {
   var out = {};
   for (var key in source) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
-      out[resolveHeaderName(key)] = String(source[key]);
+      var val = source[key];
+      if (Array.isArray(val)) {
+        out[resolveHeaderName(key)] = val.map(String).join(', ');
+      } else {
+        out[resolveHeaderName(key)] = String(val);
+      }
     }
   }
   return out;
@@ -74,9 +126,11 @@ function toHeaders(source) {
 
 function parseHeaders(response) {
   var result = {};
-  response.headers.forEach(function(value, key) {
-    result[key] = value;
-  });
+  if (response && response.headers && typeof response.headers.forEach === 'function') {
+    response.headers.forEach(function(value, key) {
+      result[key] = value;
+    });
+  }
   return result;
 }
 
@@ -157,35 +211,130 @@ function setupHttpClientErrorParsing(server, socket) {
   }
 }
 
-function IncomingMessage(response) {
+// ---------------------------------------------------------------------------
+// IncomingMessage - supports both client responses AND server-side construction
+// Node.js: new http.IncomingMessage(socket) — socket is optional
+// ---------------------------------------------------------------------------
+function IncomingMessage(socketOrResponse) {
   EventEmitter.call(this);
-  this.statusCode = response.status;
-  this.statusMessage = response.statusText;
-  this.headers = parseHeaders(response);
-  this.rawHeaders = [];
-  for (var key in this.headers) {
-    this.rawHeaders.push(key, this.headers[key]);
+
+  // If called with a fetch Response object (internal path)
+  if (socketOrResponse && typeof socketOrResponse === 'object'
+      && typeof socketOrResponse.status === 'number'
+      && socketOrResponse.headers && typeof socketOrResponse.headers.forEach === 'function') {
+    this.statusCode = socketOrResponse.status;
+    this.statusMessage = socketOrResponse.statusText;
+    this.headers = parseHeaders(socketOrResponse);
+    this.rawHeaders = [];
+    for (var key in this.headers) {
+      this.rawHeaders.push(key, this.headers[key]);
+    }
+    this.httpVersion = "1.1";
+    this.httpVersionMajor = 1;
+    this.httpVersionMinor = 1;
+    this.aborted = false;
+    this.complete = false;
+    this.readable = true;
+    this.socket = null;
+    this.trailers = {};
+    this.rawTrailers = [];
+    this.method = null;
+    this.url = '';
+    this._response = socketOrResponse;
+    this._consumed = false;
+    return;
   }
-  this.httpVersion = "1.1";
-  this.aborted = false;
+
+  // Standard Node.js IncomingMessage constructor: new IncomingMessage(socket)
+  this.socket = socketOrResponse !== undefined ? socketOrResponse : undefined;
+  this.httpVersion = '1.1';
+  this.httpVersionMajor = 1;
+  this.httpVersionMinor = 1;
   this.complete = false;
-  this._response = response;
+  this.headers = {};
+  this.rawHeaders = [];
+  this.trailers = {};
+  this.rawTrailers = [];
+  this.readable = true;
+  this.aborted = false;
+  this.statusCode = null;
+  this.statusMessage = null;
+  this.method = null;
+  this.url = '';
   this._consumed = false;
+  this._response = null;
+  this._body = '';
 }
 IncomingMessage.prototype = Object.create(EventEmitter.prototype);
 IncomingMessage.prototype.constructor = IncomingMessage;
+
+// connection getter/setter mirrors socket
+Object.defineProperty(IncomingMessage.prototype, 'connection', {
+  get: function() { return this.socket; },
+  set: function(val) { this.socket = val; },
+  enumerable: true,
+  configurable: true
+});
+
+// _addHeaderLine: used by the parser to add a header to the message
+IncomingMessage.prototype._addHeaderLine = function(field, value, dest) {
+  var key = field.toLowerCase();
+  if (dest === undefined) dest = this.headers;
+  if (key === 'set-cookie') {
+    // set-cookie is always an array
+    if (dest[key] !== undefined) {
+      if (Array.isArray(dest[key])) {
+        dest[key].push(value);
+      } else {
+        dest[key] = [dest[key], value];
+      }
+    } else {
+      dest[key] = [value];
+    }
+  } else if (dest[key] !== undefined) {
+    if (_singleValueHeaders[key]) {
+      return; // single-value: first wins
+    }
+    if (key === 'cookie') {
+      dest[key] = dest[key] + '; ' + value;
+    } else {
+      dest[key] = dest[key] + ', ' + value;
+    }
+  } else {
+    dest[key] = value;
+  }
+};
 
 IncomingMessage.prototype._consumeBody = function() {
   if (this._consumed) return;
   this._consumed = true;
   var self = this;
   var response = this._response;
+  if (!response) {
+    if (self._body) {
+      var body = self._body;
+      setTimeout(function() {
+        self.emit('data', body);
+        self.complete = true;
+        self.emit('end');
+        self.emit('close');
+      }, 0);
+    } else {
+      setTimeout(function() {
+        self.complete = true;
+        self.emit('end');
+        self.emit('close');
+      }, 0);
+    }
+    return;
+  }
   if (response.body && typeof response.body.getReader === 'function') {
     var reader = response.body.getReader();
     var decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
     function pump() {
       reader.read().then(function(result) {
         if (result.done) {
+          self.complete = true;
           self.emit("end");
           self.emit("close");
           return;
@@ -207,6 +356,7 @@ IncomingMessage.prototype._consumeBody = function() {
       .text()
       .then(function(text) {
         if (text) self.emit("data", text);
+        self.complete = true;
         self.emit("end");
         self.emit("close");
       })
@@ -218,29 +368,88 @@ IncomingMessage.prototype._consumeBody = function() {
 IncomingMessage.prototype.setEncoding = function() { return this; };
 IncomingMessage.prototype.pause = function() { return this; };
 IncomingMessage.prototype.resume = function() {
-  this._consumeBody();
+  if (this._response) this._consumeBody();
   return this;
 };
-IncomingMessage.prototype.read = function() {
-  return null;
-};
-IncomingMessage.prototype.destroy = function() {
+IncomingMessage.prototype.read = function() { return null; };
+IncomingMessage.prototype.destroy = function(err) {
+  if (err) this.emit('error', err);
   this.emit("close");
   return this;
 };
+IncomingMessage.prototype.setTimeout = function(msecs, callback) {
+  if (typeof callback === 'function') this.once('timeout', callback);
+  return this;
+};
 
+// ---------------------------------------------------------------------------
+// ClientRequest
+// ---------------------------------------------------------------------------
 function ClientRequest(options, callback) {
   EventEmitter.call(this);
   this.options = options || {};
+
+  // Validate hostname/host type
+  if (this.options.hostname !== undefined && this.options.hostname !== null && typeof this.options.hostname !== 'string') {
+    var err = new TypeError('The "options.hostname" property must be of type string or one of undefined or null.' +
+      _invalidArgTypeHelper(this.options.hostname));
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (this.options.host !== undefined && this.options.host !== null && typeof this.options.host !== 'string') {
+    var err = new TypeError('The "options.host" property must be of type string or one of undefined or null.' +
+      _invalidArgTypeHelper(this.options.host));
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+
+  // Validate method type
+  if (this.options.method !== undefined && this.options.method !== null && typeof this.options.method !== 'string') {
+    var err = new TypeError('The "options.method" property must be of type string.' +
+      _invalidArgTypeHelper(this.options.method));
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+
+  // Validate method is a valid HTTP token
+  if (this.options.method !== undefined && this.options.method !== null) {
+    var methodStr = String(this.options.method);
+    if (!HEADER_NAME_RE.test(methodStr)) {
+      var mErr = new TypeError('Method must be a valid HTTP token ["' + methodStr + '"]');
+      mErr.code = 'ERR_INVALID_HTTP_TOKEN';
+      throw mErr;
+    }
+  }
+
   this._url = toHttpUrl(this.options);
   this.method = toMethod(this.options);
   this.path = toHttpPath(this.options);
   this.headers = toHeaders(this.options.headers);
+  this._headerNames = {};
+  if (this.options.headers) {
+    for (var hk in this.options.headers) {
+      if (Object.prototype.hasOwnProperty.call(this.options.headers, hk)) {
+        this._headerNames[hk.toLowerCase()] = hk;
+      }
+    }
+  }
   this._bodyParts = [];
   this._ended = false;
   this._sent = false;
   this._closed = false;
   this._aborted = false;
+  this.aborted = false;
+  this.headersSent = false;
+  this.finished = false;
+  this.writableEnded = false;
+  this.writableFinished = false;
+  this.maxHeadersCount = 2000;
+  this.reusedSocket = false;
+  this.socket = null;
+  this.agent = this.options.agent !== undefined ? this.options.agent : null;
+  this.host = this.options.hostname || this.options.host || 'localhost';
+  this.protocol = this.options.protocol || 'http:';
+
   if (typeof callback === "function") {
     this.once("response", callback);
   }
@@ -249,7 +458,9 @@ ClientRequest.prototype = Object.create(EventEmitter.prototype);
 ClientRequest.prototype.constructor = ClientRequest;
 
 ClientRequest.prototype.setHeader = function(name, value) {
-  this.headers[resolveHeaderName(name)] = String(value);
+  var lc = resolveHeaderName(name);
+  this.headers[lc] = Array.isArray(value) ? value.map(String).join(', ') : String(value);
+  this._headerNames[lc] = name;
 };
 
 ClientRequest.prototype.getHeader = function(name) {
@@ -260,6 +471,7 @@ ClientRequest.prototype.removeHeader = function(name) {
   var key = resolveHeaderName(name);
   var value = this.headers[key];
   delete this.headers[key];
+  delete this._headerNames[key];
   return value;
 };
 
@@ -273,30 +485,74 @@ ClientRequest.prototype.getHeaders = function() {
   return clone;
 };
 
-ClientRequest.prototype.write = function(chunk) {
-  if (chunk !== undefined && chunk !== null) {
-    this._bodyParts.push(String(chunk));
+ClientRequest.prototype.getHeaderNames = function() {
+  return Object.keys(this.headers);
+};
+
+ClientRequest.prototype.getRawHeaderNames = function() {
+  var result = [];
+  for (var key in this._headerNames) {
+    if (Object.prototype.hasOwnProperty.call(this._headerNames, key)) {
+      result.push(this._headerNames[key]);
+    }
   }
+  return result;
+};
+
+ClientRequest.prototype.hasHeader = function(name) {
+  return resolveHeaderName(name) in this.headers;
+};
+
+ClientRequest.prototype.flushHeaders = function() {
+  if (!this._ended) {
+    this._ended = true;
+    this._send();
+  }
+};
+
+ClientRequest.prototype.setNoDelay = function() {};
+ClientRequest.prototype.setSocketKeepAlive = function() {};
+
+ClientRequest.prototype.write = function(chunk, encoding, callback) {
+  if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+  if (chunk !== undefined && chunk !== null) {
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
+      this._bodyParts.push(chunk.toString(encoding || 'utf8'));
+    } else {
+      this._bodyParts.push(String(chunk));
+    }
+  }
+  if (callback) setTimeout(callback, 0);
   return true;
 };
 
-ClientRequest.prototype.end = function(chunk) {
-  if (this._ended || this._aborted) return;
+ClientRequest.prototype.end = function(chunk, encoding, callback) {
+  if (typeof chunk === 'function') { callback = chunk; chunk = undefined; encoding = undefined; }
+  if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+  if (this._ended || this._aborted) {
+    if (callback) setTimeout(callback, 0);
+    return this;
+  }
   if (chunk !== undefined && chunk !== null) {
-    this._bodyParts.push(String(chunk));
+    this.write(chunk, encoding);
   }
   this._ended = true;
+  this.writableEnded = true;
+  this.finished = true;
+  if (callback) this.once('finish', callback);
   this._send();
+  return this;
 };
 
 ClientRequest.prototype.destroy = function(err) {
   if (this._closed) return this;
   this._aborted = true;
+  this.aborted = true;
   this._closed = true;
+  this.destroyed = true;
   if (this._abortController) {
     try { this._abortController.abort(); } catch(e) {}
   }
-  // Destroy the underlying TCP socket if present
   if (this.socket && !this.socket.destroyed) {
     try { this.socket.destroy(); } catch(e) {}
   }
@@ -308,11 +564,11 @@ ClientRequest.prototype.destroy = function(err) {
 ClientRequest.prototype.abort = function() {
   if (this._aborted) return;
   this._aborted = true;
+  this.aborted = true;
   this._closed = true;
   if (this._abortController) {
     try { this._abortController.abort(); } catch(e) {}
   }
-  // Destroy the underlying TCP socket if present
   if (this.socket && !this.socket.destroyed) {
     try { this.socket.destroy(); } catch(e) {}
   }
@@ -329,6 +585,9 @@ ClientRequest.prototype.setTimeout = function(timeout, callback) {
     if (typeof callback === 'function') {
       this.once('timeout', callback);
     }
+  } else if (timeout === 0 && this._timeoutId) {
+    clearTimeout(this._timeoutId);
+    this._timeoutId = null;
   }
   return this;
 };
@@ -336,10 +595,9 @@ ClientRequest.prototype.setTimeout = function(timeout, callback) {
 ClientRequest.prototype._send = function() {
   if (this._sent || this._aborted) return;
   this._sent = true;
+  this.headersSent = true;
   var body = this._bodyParts.join("");
 
-  // Prefer the raw TCP path for plain HTTP to preserve Node-like behavior for
-  // local servers (fetch can block loopback requests in this runtime).
   var useFetch = typeof fetch === "function";
   if (useFetch) {
     try {
@@ -415,8 +673,16 @@ ClientRequest.prototype._sendViaTcp = function(body) {
       }
     } catch (_err) {}
   }
+  // Strip port from host if combined
+  if (host && host.indexOf(':') !== -1 && host.charAt(0) !== '[') {
+    var parts = host.split(':');
+    host = parts[0];
+    if (!port && parts[1]) port = Number(parts[1]);
+  }
   if (!host) host = 'localhost';
   if (!port) port = 80;
+
+  var createConnection = options.createConnection || null;
 
   // Build raw HTTP request
   var reqLine = this.method + ' ' + this.path + ' HTTP/1.1\r\n';
@@ -426,13 +692,16 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   }
   for (var k in this.headers) {
     if (Object.prototype.hasOwnProperty.call(this.headers, k)) {
-      headerStr += k + ': ' + this.headers[k] + '\r\n';
+      var casedName = this._headerNames[k] || toHeaderCase(k);
+      headerStr += casedName + ': ' + this.headers[k] + '\r\n';
     }
   }
   if (body && this.method !== 'GET' && this.method !== 'HEAD') {
-    var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-      ? Buffer.byteLength(body) : body.length;
-    headerStr += 'content-length: ' + bodyLen + '\r\n';
+    if (!this.headers['content-length'] && !this.headers['transfer-encoding']) {
+      var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+        ? Buffer.byteLength(body) : body.length;
+      headerStr += 'Content-Length: ' + bodyLen + '\r\n';
+    }
   }
   if (!this.headers['connection']) {
     headerStr += 'Connection: close\r\n';
@@ -444,11 +713,20 @@ ClientRequest.prototype._sendViaTcp = function(body) {
     rawRequest += body;
   }
 
-  var socket = net.createConnection({ host: host, port: port }, function() {
-    socket.write(rawRequest);
-  });
+  var socket;
+  if (createConnection) {
+    socket = createConnection({ host: host, port: port });
+    socket.once('connect', function() {
+      socket.write(rawRequest);
+    });
+  } else {
+    socket = net.createConnection({ host: host, port: port }, function() {
+      socket.write(rawRequest);
+    });
+  }
 
   self.socket = socket;
+  self.emit('socket', socket);
 
   // Parse HTTP response
   var responseBuffer = '';
@@ -458,10 +736,14 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   var responseHeaders = {};
   var rawResponseHeaders = [];
   var contentLength = -1;
+  var isChunked = false;
   var bodyBytesReceived = 0;
   var responseEmitted = false;
   var responseEnded = false;
   var tcpIncoming = null;
+  var chunkParserState = 'size';
+  var chunkRemaining = 0;
+  var chunkBuffer = '';
 
   function finishResponse() {
     if (responseEnded) return;
@@ -471,14 +753,56 @@ ClientRequest.prototype._sendViaTcp = function(body) {
       tcpIncoming.emit('end');
       tcpIncoming.emit('close');
     }
+    self.writableFinished = true;
+    self.emit('finish');
     try { socket.destroy(); } catch(e) {}
+  }
+
+  function processChunkedData(data) {
+    chunkBuffer += data;
+    while (chunkBuffer.length > 0) {
+      if (chunkParserState === 'size') {
+        var nlIdx = chunkBuffer.indexOf('\r\n');
+        if (nlIdx === -1) return;
+        var sizeStr = chunkBuffer.substring(0, nlIdx).split(';')[0].trim();
+        chunkRemaining = parseInt(sizeStr, 16);
+        chunkBuffer = chunkBuffer.substring(nlIdx + 2);
+        if (isNaN(chunkRemaining) || chunkRemaining === 0) {
+          finishResponse();
+          return;
+        }
+        chunkParserState = 'data';
+      } else if (chunkParserState === 'data') {
+        if (chunkBuffer.length < chunkRemaining) {
+          if (chunkBuffer.length > 0 && tcpIncoming) {
+            var partBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkBuffer, 'utf8') : chunkBuffer;
+            tcpIncoming.emit('data', partBuf);
+            chunkRemaining -= chunkBuffer.length;
+            chunkBuffer = '';
+          }
+          return;
+        }
+        var chunkData = chunkBuffer.substring(0, chunkRemaining);
+        chunkBuffer = chunkBuffer.substring(chunkRemaining);
+        chunkRemaining = 0;
+        if (tcpIncoming && chunkData) {
+          var chunkDataBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkData, 'utf8') : chunkData;
+          tcpIncoming.emit('data', chunkDataBuf);
+        }
+        chunkParserState = 'trailer';
+      } else if (chunkParserState === 'trailer') {
+        if (chunkBuffer.length < 2) return;
+        chunkBuffer = chunkBuffer.substring(2);
+        chunkParserState = 'size';
+      }
+    }
   }
 
   socket.on('data', function(chunk) {
     var str = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    responseBuffer += str;
 
     if (!headersParsed) {
+      responseBuffer += str;
       var headerEnd = responseBuffer.indexOf('\r\n\r\n');
       if (headerEnd === -1) return;
       var headerSection = responseBuffer.substring(0, headerEnd);
@@ -486,12 +810,15 @@ ClientRequest.prototype._sendViaTcp = function(body) {
       headersParsed = true;
 
       var lines = headerSection.split('\r\n');
+      var httpVerMajor = 1, httpVerMinor = 1;
       if (lines.length > 0) {
         var statusLine = lines[0];
-        var statusParts = statusLine.match(/^HTTP\/\d\.\d\s+(\d+)\s*(.*)/);
+        var statusParts = statusLine.match(/^HTTP\/(\d)\.(\d)\s+(\d+)\s*(.*)/);
         if (statusParts) {
-          statusCode = parseInt(statusParts[1], 10);
-          statusMessage = statusParts[2] || '';
+          httpVerMajor = parseInt(statusParts[1], 10) || 1;
+          httpVerMinor = parseInt(statusParts[2], 10) || 1;
+          statusCode = parseInt(statusParts[3], 10);
+          statusMessage = statusParts[4] || '';
         }
       }
       for (var i = 1; i < lines.length; i++) {
@@ -499,35 +826,66 @@ ClientRequest.prototype._sendViaTcp = function(body) {
         if (colonIdx > 0) {
           var hKey = lines[i].substring(0, colonIdx).trim();
           var hVal = lines[i].substring(colonIdx + 1).trim();
-          responseHeaders[hKey.toLowerCase()] = hVal;
+          var hKeyLower = hKey.toLowerCase();
+          if (responseHeaders[hKeyLower] !== undefined && !_singleValueHeaders[hKeyLower]) {
+            responseHeaders[hKeyLower] += ', ' + hVal;
+          } else {
+            responseHeaders[hKeyLower] = hVal;
+          }
           rawResponseHeaders.push(hKey, hVal);
         }
       }
       var cl = responseHeaders['content-length'];
       if (cl !== undefined) contentLength = parseInt(cl, 10) || 0;
+      var te = responseHeaders['transfer-encoding'];
+      if (te && te.toLowerCase().indexOf('chunked') !== -1) {
+        isChunked = true;
+      }
 
       tcpIncoming = new TcpIncomingMessage(statusCode, statusMessage, responseHeaders, rawResponseHeaders);
       tcpIncoming.socket = socket;
-      tcpIncoming.connection = socket;
+      tcpIncoming.httpVersionMajor = httpVerMajor;
+      tcpIncoming.httpVersionMinor = httpVerMinor;
+      tcpIncoming.httpVersion = httpVerMajor + '.' + httpVerMinor;
+      // Recompute shouldKeepAlive with actual version
+      var connHdr = (responseHeaders['connection'] || '').toLowerCase();
+      if (httpVerMajor === 1 && httpVerMinor === 0) {
+        tcpIncoming.shouldKeepAlive = connHdr.indexOf('keep-alive') !== -1;
+      } else {
+        tcpIncoming.shouldKeepAlive = connHdr.indexOf('close') === -1;
+      }
       self.emit('response', tcpIncoming);
       responseEmitted = true;
 
       if (bodyStart.length > 0) {
-        var bodyStartBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-          ? Buffer.byteLength(bodyStart, 'utf8') : bodyStart.length;
-        bodyBytesReceived += bodyStartBytes;
-        tcpIncoming.emit('data', bodyStart);
+        if (isChunked) {
+          processChunkedData(bodyStart);
+        } else {
+          var bodyStartBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+            ? Buffer.byteLength(bodyStart, 'utf8') : bodyStart.length;
+          bodyBytesReceived += bodyStartBytes;
+          var bodyStartBuf = (typeof Buffer !== 'undefined') ? Buffer.from(bodyStart, 'utf8') : bodyStart;
+          tcpIncoming.emit('data', bodyStartBuf);
+        }
       }
-      if (contentLength >= 0 && bodyBytesReceived >= contentLength) {
+      if (!isChunked && contentLength >= 0 && bodyBytesReceived >= contentLength) {
+        finishResponse();
+      }
+      if (statusCode === 204 || statusCode === 304) {
         finishResponse();
       }
     } else if (tcpIncoming) {
-      var strBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-        ? Buffer.byteLength(str, 'utf8') : str.length;
-      bodyBytesReceived += strBytes;
-      tcpIncoming.emit('data', str);
-      if (contentLength >= 0 && bodyBytesReceived >= contentLength) {
-        finishResponse();
+      if (isChunked) {
+        processChunkedData(str);
+      } else {
+        var strBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+          ? Buffer.byteLength(str, 'utf8') : str.length;
+        bodyBytesReceived += strBytes;
+        var strBuf = (typeof Buffer !== 'undefined') ? Buffer.from(str, 'utf8') : str;
+        tcpIncoming.emit('data', strBuf);
+        if (contentLength >= 0 && bodyBytesReceived >= contentLength) {
+          finishResponse();
+        }
       }
     }
   });
@@ -551,33 +909,116 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   });
 };
 
-// TCP-based IncomingMessage for client responses (when fetch not available)
+// TCP-based IncomingMessage for client responses
 function TcpIncomingMessage(statusCode, statusMessage, headers, rawHeaders) {
   EventEmitter.call(this);
   this.statusCode = statusCode;
   this.statusMessage = statusMessage;
   this.headers = headers;
   this.rawHeaders = rawHeaders || [];
+  this.trailers = {};
+  this.rawTrailers = [];
   this.httpVersion = '1.1';
+  this.httpVersionMajor = 1;
+  this.httpVersionMinor = 1;
   this.aborted = false;
   this.complete = false;
   this._consumed = false;
+  this.readable = true;
+  this.socket = null;
+  this.method = null;
+  this.url = null;
+  // Determine shouldKeepAlive based on HTTP version and Connection header
+  var connHeader = (headers && headers['connection']) ? headers['connection'].toLowerCase() : '';
+  if (this.httpVersionMajor === 1 && this.httpVersionMinor === 0) {
+    this.shouldKeepAlive = connHeader.indexOf('keep-alive') !== -1;
+  } else {
+    this.shouldKeepAlive = connHeader.indexOf('close') === -1;
+  }
 }
 TcpIncomingMessage.prototype = Object.create(EventEmitter.prototype);
 TcpIncomingMessage.prototype.constructor = TcpIncomingMessage;
-TcpIncomingMessage.prototype.setEncoding = function() { return this; };
-TcpIncomingMessage.prototype.pause = function() { return this; };
-TcpIncomingMessage.prototype.resume = function() { return this; };
+
+Object.defineProperty(TcpIncomingMessage.prototype, 'connection', {
+  get: function() { return this.socket; },
+  set: function(val) { this.socket = val; },
+  enumerable: true,
+  configurable: true
+});
+
+TcpIncomingMessage.prototype.setEncoding = function(enc) {
+  this._encoding = enc;
+  return this;
+};
+TcpIncomingMessage.prototype.pause = function() { this._paused = true; return this; };
+TcpIncomingMessage.prototype.resume = function() { this._paused = false; return this; };
 TcpIncomingMessage.prototype.read = function() { return null; };
-TcpIncomingMessage.prototype.destroy = function() { this.emit('close'); return this; };
+TcpIncomingMessage.prototype.pipe = function(dest, options) {
+  var self = this;
+  self.on('data', function(chunk) {
+    var canWrite = dest.write(chunk);
+    if (!canWrite && self.pause) self.pause();
+  });
+  dest.on('drain', function() { if (self.resume) self.resume(); });
+  self.on('end', function() {
+    if (!options || options.end !== false) {
+      dest.end();
+    }
+  });
+  return dest;
+};
+TcpIncomingMessage.prototype.destroy = function(err) {
+  if (this.destroyed) return this;
+  this.destroyed = true;
+  if (this.socket && !this.socket.destroyed) {
+    try { this.socket.destroy(); } catch(e) {}
+  }
+  if (err) this.emit('error', err);
+  this.emit('close');
+  return this;
+};
+TcpIncomingMessage.prototype.setTimeout = function(msecs, callback) {
+  if (this.socket && typeof this.socket.setTimeout === 'function') {
+    this.socket.setTimeout(msecs, callback);
+  }
+  return this;
+};
 
 function request(options, callback) {
   var requestOptions = options;
   if (typeof options === "string") {
+    try {
+      var parsed = new URL(options);
+      requestOptions = {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : undefined,
+        path: parsed.pathname + (parsed.search || ''),
+        method: "GET"
+      };
+    } catch(e) {
+      requestOptions = { href: options, method: "GET" };
+    }
+  } else if (options instanceof URL) {
     requestOptions = {
-      href: options,
+      protocol: options.protocol,
+      hostname: options.hostname,
+      port: options.port ? Number(options.port) : undefined,
+      path: options.pathname + (options.search || ''),
       method: "GET"
     };
+  }
+  // Support request(url, options, callback) signature
+  if (typeof callback === 'object' && callback !== null) {
+    var extraOptions = callback;
+    callback = arguments[2];
+    if (typeof requestOptions === 'object') {
+      for (var k in extraOptions) {
+        if (Object.prototype.hasOwnProperty.call(extraOptions, k)) {
+          requestOptions[k] = extraOptions[k];
+        }
+      }
+    }
   }
   return new ClientRequest(requestOptions, callback);
 }
@@ -588,21 +1029,91 @@ function get(options, callback) {
   return req;
 }
 
+// ---------------------------------------------------------------------------
+// Agent
+// ---------------------------------------------------------------------------
 function Agent(options) {
+  EventEmitter.call(this);
   this.options = options || {};
-  this.maxSockets = this.options.maxSockets || Infinity;
+  this.keepAlive = this.options.keepAlive || false;
+  this.keepAliveMsecs = this.options.keepAliveMsecs || 1000;
+  this.maxSockets = this.options.maxSockets || Agent.defaultMaxSockets;
   this.maxFreeSockets = this.options.maxFreeSockets || 256;
+  this.maxTotalSockets = this.options.maxTotalSockets || Infinity;
+  this.scheduling = this.options.scheduling || 'lifo';
+  this.totalSocketCount = 0;
   this.sockets = {};
   this.freeSockets = {};
   this.requests = {};
 }
-Agent.prototype.destroy = function() {};
-Agent.prototype.getName = function(options) {
-  return (options.host || 'localhost') + ':' + (options.port || 80);
+Agent.prototype = Object.create(EventEmitter.prototype);
+Agent.prototype.constructor = Agent;
+Agent.defaultMaxSockets = Infinity;
+
+Agent.prototype.destroy = function() {
+  var key;
+  for (key in this.sockets) {
+    var socks = this.sockets[key];
+    if (Array.isArray(socks)) {
+      for (var i = 0; i < socks.length; i++) {
+        try { socks[i].destroy(); } catch(e) {}
+      }
+    }
+  }
+  for (key in this.freeSockets) {
+    var socks2 = this.freeSockets[key];
+    if (Array.isArray(socks2)) {
+      for (var j = 0; j < socks2.length; j++) {
+        try { socks2[j].destroy(); } catch(e) {}
+      }
+    }
+  }
+  this.sockets = {};
+  this.freeSockets = {};
+  this.requests = {};
 };
+
+Agent.prototype.getName = function(options) {
+  if (!options) options = {};
+  var name = (options.host || 'localhost') + ':' +
+    (options.port || '') + ':' +
+    (options.localAddress || '');
+  if (options.socketPath) name += ':' + options.socketPath;
+  if (options.family === 4 || options.family === 6) {
+    if (!options.socketPath) name += ':';
+    name += options.family;
+  }
+  return name;
+};
+
+Agent.prototype.addRequest = function(req, options, port, localAddress) {
+  if (typeof options === 'string') {
+    options = { host: options, port: port, localAddress: localAddress };
+  }
+  var name = this.getName(options);
+  if (!this.requests[name]) {
+    this.requests[name] = [];
+  }
+  this.requests[name].push(req);
+};
+
+Agent.prototype.createConnection = function(options, callback) {
+  var net;
+  try { net = require('net'); } catch(e) { return null; }
+  return net.createConnection(options, callback);
+};
+
 var globalAgent = new Agent();
 
-var METHODS = ["GET", "POST", "PUT", "PATCH", "HEAD", "DELETE", "OPTIONS", "CONNECT", "TRACE"];
+var METHODS = [
+  "ACL", "BIND", "CHECKOUT", "CONNECT", "COPY", "DELETE", "GET", "HEAD",
+  "LINK", "LOCK", "M-SEARCH", "MERGE", "MKACTIVITY", "MKCALENDAR",
+  "MKCOL", "MOVE", "NOTIFY", "OPTIONS", "PATCH", "POST", "PRI",
+  "PROPFIND", "PROPPATCH", "PURGE", "PUT", "REBIND", "REPORT", "SEARCH",
+  "SOURCE", "SUBSCRIBE", "TRACE", "UNBIND", "UNLINK", "UNLOCK",
+  "UNSUBSCRIBE"
+];
+
 var STATUS_CODES = {
   100: "Continue",
   101: "Switching Protocols",
@@ -673,7 +1184,7 @@ var STATUS_CODES = {
 // ---------------------------------------------------------------------------
 function HttpRequestParser() {
   this._buffer = '';
-  this._state = 0; // 0=REQUEST_LINE, 1=HEADERS, 2=BODY
+  this._state = 0; // 0=REQUEST_LINE, 1=HEADERS, 2=BODY, 3=CHUNKED_SIZE, 4=CHUNKED_DATA, 5=CHUNKED_TRAILER
   this._method = '';
   this._url = '';
   this._httpVersion = '1.1';
@@ -681,6 +1192,8 @@ function HttpRequestParser() {
   this._rawHeaders = [];
   this._contentLength = 0;
   this._bodyData = '';
+  this._isChunked = false;
+  this._chunkRemaining = 0;
   this.onRequest = null;
 }
 
@@ -717,10 +1230,17 @@ HttpRequestParser.prototype._parse = function() {
       }
       this._state = 1;
     } else if (this._state === 1) {
-      var idx = this._buffer.indexOf('\r\n');
-      if (idx === -1) return;
-      if (idx === 0) {
+      var idx2 = this._buffer.indexOf('\r\n');
+      if (idx2 === -1) return;
+      if (idx2 === 0) {
         this._buffer = this._buffer.substring(2);
+        // Check for chunked transfer encoding
+        var te = this._headers['transfer-encoding'];
+        if (te && te.toLowerCase().indexOf('chunked') !== -1) {
+          this._isChunked = true;
+          this._state = 3;
+          continue;
+        }
         var cl = this._headers['content-length'];
         if (cl !== undefined) {
           this._contentLength = parseInt(cl, 10) || 0;
@@ -733,26 +1253,27 @@ HttpRequestParser.prototype._parse = function() {
           this._emitRequest();
         }
       } else {
-        var headerLine = this._buffer.substring(0, idx);
-        this._buffer = this._buffer.substring(idx + 2);
+        var headerLine = this._buffer.substring(0, idx2);
+        this._buffer = this._buffer.substring(idx2 + 2);
         var colonIdx = headerLine.indexOf(':');
         if (colonIdx > 0) {
           var key = headerLine.substring(0, colonIdx);
           var value = headerLine.substring(colonIdx + 1).trim();
-          this._headers[key.toLowerCase()] = value;
+          var keyLower = key.toLowerCase();
+          if (this._headers[keyLower] !== undefined && !_singleValueHeaders[keyLower]) {
+            this._headers[keyLower] += ', ' + value;
+          } else {
+            this._headers[keyLower] = value;
+          }
           this._rawHeaders.push(key, value);
         }
       }
     } else if (this._state === 2) {
-      // Compare using byte length since Content-Length is in bytes but
-      // _buffer is a string (multi-byte UTF-8 chars have fewer chars than bytes)
       var bufByteLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
         ? Buffer.byteLength(this._buffer, 'utf8') : this._buffer.length;
       if (bufByteLen >= this._contentLength) {
-        // Find the substring whose byte length matches _contentLength
         var bodyEnd = this._buffer.length;
         if (bufByteLen > this._contentLength) {
-          // Need to find exact character position for _contentLength bytes
           var byteCount = 0;
           for (var ci = 0; ci < this._buffer.length; ci++) {
             var code = this._buffer.charCodeAt(ci);
@@ -768,6 +1289,46 @@ HttpRequestParser.prototype._parse = function() {
         this._emitRequest();
       } else {
         return;
+      }
+    } else if (this._state === 3) {
+      // CHUNKED_SIZE
+      var nlIdx = this._buffer.indexOf('\r\n');
+      if (nlIdx === -1) return;
+      var sizeStr = this._buffer.substring(0, nlIdx).split(';')[0].trim();
+      this._chunkRemaining = parseInt(sizeStr, 16);
+      this._buffer = this._buffer.substring(nlIdx + 2);
+      if (isNaN(this._chunkRemaining) || this._chunkRemaining === 0) {
+        this._state = 5;
+      } else {
+        this._state = 4;
+      }
+    } else if (this._state === 4) {
+      // CHUNKED_DATA
+      if (this._buffer.length < this._chunkRemaining) {
+        this._bodyData += this._buffer;
+        this._chunkRemaining -= this._buffer.length;
+        this._buffer = '';
+        return;
+      }
+      this._bodyData += this._buffer.substring(0, this._chunkRemaining);
+      this._buffer = this._buffer.substring(this._chunkRemaining);
+      this._chunkRemaining = 0;
+      if (this._buffer.length >= 2) {
+        this._buffer = this._buffer.substring(2);
+        this._state = 3;
+      } else {
+        this._state = 3;
+        return;
+      }
+    } else if (this._state === 5) {
+      // CHUNKED_TRAILER
+      var nlIdx2 = this._buffer.indexOf('\r\n');
+      if (nlIdx2 === -1) return;
+      if (nlIdx2 === 0) {
+        this._buffer = this._buffer.substring(2);
+        this._emitRequest();
+      } else {
+        this._buffer = this._buffer.substring(nlIdx2 + 2);
       }
     }
   }
@@ -785,7 +1346,6 @@ HttpRequestParser.prototype._emitRequest = function() {
     rawHeaders: this._rawHeaders,
     body: this._bodyData
   };
-  // Reset for next request on same connection
   this._state = 0;
   this._method = '';
   this._url = '';
@@ -794,6 +1354,8 @@ HttpRequestParser.prototype._emitRequest = function() {
   this._rawHeaders = [];
   this._contentLength = 0;
   this._bodyData = '';
+  this._isChunked = false;
+  this._chunkRemaining = 0;
 
   if (typeof this.onRequest === 'function') {
     this.onRequest(reqData);
@@ -805,29 +1367,29 @@ HttpRequestParser.prototype.close = function() {
 };
 
 // ---------------------------------------------------------------------------
-// ServerResponse - supports both socket mode and native bridge mode
+// ServerResponse
 // ---------------------------------------------------------------------------
 function ServerResponse(reqOrServerId, requestId) {
   EventEmitter.call(this);
   this.statusCode = 200;
-  this.statusMessage = 'OK';
+  this.statusMessage = undefined;
   this._headers = {};
+  this._headerNames = {};
   this._headersSent = false;
   this._finished = false;
   this._streaming = false;
   this._bodyParts = [];
   this.socket = null;
-  this.connection = null;
   this.writableEnded = false;
   this.writableFinished = false;
+  this.sendDate = true;
 
   if (typeof reqOrServerId === 'number') {
-    // Native bridge mode (exact:http)
     this._serverId = reqOrServerId;
     this._requestId = requestId || 0;
     this._nativeMode = true;
+    this._req = null;
   } else {
-    // Socket mode (Node.js compat)
     this._serverId = 0;
     this._requestId = 0;
     this._nativeMode = false;
@@ -837,27 +1399,48 @@ function ServerResponse(reqOrServerId, requestId) {
 ServerResponse.prototype = Object.create(EventEmitter.prototype);
 ServerResponse.prototype.constructor = ServerResponse;
 
+// headersSent as getter
+Object.defineProperty(ServerResponse.prototype, 'headersSent', {
+  get: function() { return this._headersSent; },
+  set: function(v) { this._headersSent = v; },
+  enumerable: true,
+  configurable: true
+});
+
+// connection getter/setter
+Object.defineProperty(ServerResponse.prototype, 'connection', {
+  get: function() { return this.socket; },
+  set: function(val) { this.socket = val; },
+  enumerable: true,
+  configurable: true
+});
+
 ServerResponse.prototype.assignSocket = function(socket) {
   this.socket = socket;
-  this.connection = socket;
   if (socket) socket._httpMessage = this;
 };
 
 ServerResponse.prototype.detachSocket = function(socket) {
   if (socket) socket._httpMessage = null;
   this.socket = null;
-  this.connection = null;
 };
 
 ServerResponse.prototype.setHeader = function(name, value) {
-  this._headers[resolveHeaderName(name)] = String(value);
+  if (typeof name !== 'string') {
+    throw new TypeError('Header name must be a valid HTTP token ["' + name + '"]');
+  }
+  var lc = name.toLowerCase();
+  this._headers[lc] = value;
+  this._headerNames[lc] = name;
   return this;
 };
 ServerResponse.prototype.getHeader = function(name) {
   return this._headers[resolveHeaderName(name)];
 };
 ServerResponse.prototype.removeHeader = function(name) {
-  delete this._headers[resolveHeaderName(name)];
+  var lc = resolveHeaderName(name);
+  delete this._headers[lc];
+  delete this._headerNames[lc];
   return this;
 };
 ServerResponse.prototype.getHeaders = function() {
@@ -867,24 +1450,89 @@ ServerResponse.prototype.getHeaders = function() {
   }
   return clone;
 };
+ServerResponse.prototype.getHeaderNames = function() {
+  return Object.keys(this._headers);
+};
+ServerResponse.prototype.getRawHeaderNames = function() {
+  var result = [];
+  for (var k in this._headerNames) {
+    if (Object.prototype.hasOwnProperty.call(this._headerNames, k)) {
+      result.push(this._headerNames[k]);
+    }
+  }
+  return result;
+};
 ServerResponse.prototype.hasHeader = function(name) {
   return resolveHeaderName(name) in this._headers;
 };
+
 ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers) {
-  this.statusCode = statusCode;
+  if (this._headersSent) return this;
+  // Validate status code
+  var sc = statusCode;
+  if (typeof sc === 'string') sc = Number(sc);
+  if (typeof sc !== 'number' || sc !== sc || sc < 100 || sc > 999 || Math.floor(sc) !== sc) {
+    var scErr = new RangeError('Invalid status code: ' + String(statusCode === undefined ? 'undefined' : statusCode));
+    scErr.code = 'ERR_HTTP_INVALID_STATUS_CODE';
+    throw scErr;
+  }
+  this.statusCode = sc;
   if (typeof statusMessage === 'string') {
     this.statusMessage = statusMessage;
   } else if (typeof statusMessage === 'object' && statusMessage !== null) {
     headers = statusMessage;
   }
   if (headers) {
-    for (var k in headers) {
-      if (Object.prototype.hasOwnProperty.call(headers, k)) {
-        this._headers[resolveHeaderName(k)] = String(headers[k]);
+    if (Array.isArray(headers)) {
+      for (var i = 0; i + 1 < headers.length; i += 2) {
+        var hName = headers[i];
+        var hVal = headers[i + 1];
+        var lc = resolveHeaderName(hName);
+        this._headers[lc] = hVal;
+        this._headerNames[lc] = hName;
+      }
+    } else {
+      for (var k in headers) {
+        if (Object.prototype.hasOwnProperty.call(headers, k)) {
+          var lc2 = resolveHeaderName(k);
+          this._headers[lc2] = headers[k];
+          this._headerNames[lc2] = k;
+        }
       }
     }
   }
   return this;
+};
+
+ServerResponse.prototype.writeContinue = function() {
+  if (!this.socket) return;
+  try { this.socket.write('HTTP/1.1 100 Continue\r\n\r\n'); } catch(e) {}
+};
+
+ServerResponse.prototype.writeProcessing = function() {
+  if (!this.socket) return;
+  try { this.socket.write('HTTP/1.1 102 Processing\r\n\r\n'); } catch(e) {}
+};
+
+ServerResponse.prototype.writeEarlyHints = function(hints, callback) {
+  if (!this.socket) { if (callback) callback(); return; }
+  var head = 'HTTP/1.1 103 Early Hints\r\n';
+  if (hints) {
+    for (var k in hints) {
+      if (Object.prototype.hasOwnProperty.call(hints, k)) {
+        var vals = Array.isArray(hints[k]) ? hints[k] : [hints[k]];
+        for (var i = 0; i < vals.length; i++) {
+          head += k + ': ' + vals[i] + '\r\n';
+        }
+      }
+    }
+  }
+  head += '\r\n';
+  try { this.socket.write(head, callback); } catch(e) { if (callback) callback(e); }
+};
+
+ServerResponse.prototype.addTrailers = function(headers) {
+  this._trailers = headers || {};
 };
 
 // Native bridge streaming helpers
@@ -912,24 +1560,32 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   if (this._finished) { if (callback) callback(new Error('write after end')); return false; }
   if (chunk !== undefined && chunk !== null) {
-    var data = typeof chunk === 'string' ? chunk : String(chunk);
+    var data;
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
+      data = chunk.toString(encoding || 'utf8');
+    } else {
+      data = typeof chunk === 'string' ? chunk : String(chunk);
+    }
     if (this._nativeMode && this._ensureStreaming()) {
       this._sendChunk(data);
+    } else if (this._streaming && this.socket && !this._nativeMode) {
+      // Already streaming: use chunked encoding to send data
+      if (this._useChunkedEncoding) {
+        var chunkLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+          ? Buffer.byteLength(data) : data.length;
+        try { this.socket.write(chunkLen.toString(16) + '\r\n' + data + '\r\n'); } catch(e) {}
+      } else {
+        try { this.socket.write(data); } catch(e) {}
+      }
     } else {
       this._bodyParts.push(data);
     }
   }
   if (callback) setTimeout(callback, 0);
-  // Signal backpressure if the underlying socket's write queue is backed up.
-  // When backpressure is detected, also pause the socket so it stops reading new
-  // requests. This prevents an unbounded flood of pipelined requests from building
-  // up in memory. The socket will be resumed when it drains.
   if (this.socket && this.socket._writeQueue && this.socket._writeQueue.length > 0) {
-    var self = this;
     var sock = this.socket;
     if (sock._paused !== true) {
       sock._paused = true;
-      // Resume reading when the socket drains
       sock.once('drain', function() {
         if (sock._paused) {
           sock._paused = false;
@@ -942,21 +1598,19 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
   return true;
 };
 
-// Stream a chunk directly to the socket (enables incremental response delivery)
 ServerResponse.prototype._streamChunk = function(data, callback) {
   if (!this._headersSent) {
-    // Send headers without content-length (streaming mode)
-    var statusMsg = this.statusMessage || STATUS_CODES[this.statusCode] || 'Unknown';
+    var statusMsg = this.statusMessage !== undefined ? this.statusMessage : (STATUS_CODES[this.statusCode] || 'Unknown');
     var head = 'HTTP/1.1 ' + this.statusCode + ' ' + statusMsg + '\r\n';
     for (var k in this._headers) {
       if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
-        head += toHeaderCase(k) + ': ' + this._headers[k] + '\r\n';
+        var casedName = this._headerNames[k] || toHeaderCase(k);
+        head += casedName + ': ' + this._headers[k] + '\r\n';
       }
     }
     head += '\r\n';
     this._headersSent = true;
     this._streaming = true;
-    // Write headers + first chunk together
     this.socket.write(head + data, callback ? function() { setTimeout(callback, 0); } : undefined);
   } else {
     this.socket.write(data, callback ? function() { setTimeout(callback, 0); } : undefined);
@@ -967,7 +1621,7 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
   if (typeof chunk === 'function') { callback = chunk; chunk = undefined; encoding = undefined; }
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   if (this._finished) { if (callback) setTimeout(callback, 0); return this; }
-  if (chunk !== undefined && chunk !== null) this.write(chunk);
+  if (chunk !== undefined && chunk !== null) this.write(chunk, encoding);
   this._finished = true;
   this.writableEnded = true;
 
@@ -989,7 +1643,6 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
   return this;
 };
 
-// Native bridge response
 ServerResponse.prototype._sendNativeResponse = function() {
   var headersJson = JSON.stringify(this._headers);
   var body = this._bodyParts.join('');
@@ -1006,97 +1659,87 @@ ServerResponse.prototype._sendNativeResponse = function() {
   this.emit('close');
 };
 
-// Socket-based response (Node.js compat)
 ServerResponse.prototype._sendSocketResponse = function() {
   var socket = this.socket;
   if (socket) {
-    // Determine connection behavior from request/response headers
     var req = this._req;
     var reqConnection = (req && req.headers && req.headers['connection']) || '';
     var reqTE = (req && req.headers && req.headers['te']) || '';
-    // Use != null to properly handle httpVersionMinor === 0 (HTTP/1.0) without falsy coercion
     var httpVersionMajor = (req && req.httpVersionMajor != null) ? req.httpVersionMajor : 1;
     var httpVersionMinor = (req && req.httpVersionMinor != null) ? req.httpVersionMinor : 1;
     var respConnection = this._headers['connection'] || '';
     var reqConnectionLower = reqConnection.toLowerCase();
-    var respConnectionLower = respConnection.toLowerCase();
+    var respConnectionLower = (typeof respConnection === 'string') ? respConnection.toLowerCase() : '';
 
-    // For HTTP/1.0, keep-alive is only possible if:
-    // 1. Client explicitly sends Connection: keep-alive
-    // 2. AND the response body length is known (either via Content-Length or Transfer-Encoding: chunked)
-    //    so the client can determine where the response ends without closing the connection.
-    // Without framing, HTTP/1.0 clients rely on connection close to detect response end.
     var clientSupportsKeepAlive;
     if (httpVersionMajor === 1 && httpVersionMinor === 0) {
-      // HTTP/1.0: only keep-alive if client explicitly requests it
       clientSupportsKeepAlive = reqConnectionLower.indexOf('keep-alive') !== -1;
-      // But we also need body-length framing (checked below when we know the response headers)
     } else {
-      // HTTP/1.1+: keep-alive unless client says close
       clientSupportsKeepAlive = reqConnectionLower.indexOf('close') === -1;
     }
 
-    // Server can override by setting Connection: close
     var keepAlive = clientSupportsKeepAlive
       && respConnectionLower.indexOf('close') === -1;
 
     if (!this._headersSent) {
       var body = this._bodyParts.join('');
-      var statusMsg = this.statusMessage || STATUS_CODES[this.statusCode] || 'Unknown';
+      var statusMsg = this.statusMessage !== undefined ? this.statusMessage : (STATUS_CODES[this.statusCode] || 'Unknown');
       var head = 'HTTP/1.1 ' + this.statusCode + ' ' + statusMsg + '\r\n';
-      // For HTTP/1.0 keep-alive: check framing BEFORE auto-adding Content-Length.
-      // Keep-alive is only allowed if:
-      //   1. The server EXPLICITLY set Content-Length or Transfer-Encoding: chunked in
-      //      the response headers (set via writeHead/setHeader before end()), OR
-      //   2. The client sent TE: chunked in the request.
-      // Auto-computed Content-Length (added below) does NOT count because the node.js
-      // reference implementation only honors keep-alive if the server explicitly signals
-      // that the client can determine the message boundary without closing the connection.
+
       if (httpVersionMajor === 1 && httpVersionMinor === 0) {
-        // Check framing before auto-add (while _headers reflect only explicitly-set headers)
         var hasExplicitFraming = this._headers['content-length'] != null
-          || (this._headers['transfer-encoding'] || '').toLowerCase().indexOf('chunked') !== -1;
+          || (this._headers['transfer-encoding'] || '').toString().toLowerCase().indexOf('chunked') !== -1;
         var clientSendsTE = reqTE.toLowerCase().indexOf('chunked') !== -1;
         if (!hasExplicitFraming && !clientSendsTE) {
-          // No framing: force close regardless of client/server connection preference
           keepAlive = false;
-          // Also override any server-set connection header
           if (this._headers['connection']) {
             this._headers['connection'] = 'close';
           }
         }
       }
-      if (!this._headers['content-length']) {
-        var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-          ? Buffer.byteLength(body) : body.length;
-        this._headers['content-length'] = String(bodyLen);
+      if (this._headers['content-length'] == null &&
+          !(this._headers['transfer-encoding'] && this._headers['transfer-encoding'].toString().toLowerCase().indexOf('chunked') !== -1)) {
+        if (this.statusCode !== 204 && this.statusCode !== 304) {
+          var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+            ? Buffer.byteLength(body) : body.length;
+          this._headers['content-length'] = String(bodyLen);
+          this._headerNames['content-length'] = 'Content-Length';
+        }
       }
-      // Add connection header if not already set
       if (!this._headers['connection']) {
         this._headers['connection'] = keepAlive ? 'keep-alive' : 'close';
+        this._headerNames['connection'] = 'Connection';
       } else {
-        // Server pre-set the connection header; use it (framing check above already enforced)
-        keepAlive = this._headers['connection'].toLowerCase().indexOf('keep-alive') !== -1;
+        keepAlive = (typeof this._headers['connection'] === 'string')
+          ? this._headers['connection'].toLowerCase().indexOf('keep-alive') !== -1
+          : false;
+      }
+      if (this.sendDate && !this._headers['date']) {
+        this._headers['date'] = new Date().toUTCString();
+        this._headerNames['date'] = 'Date';
       }
       for (var k in this._headers) {
         if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
-          head += toHeaderCase(k) + ': ' + this._headers[k] + '\r\n';
+          var casedName = this._headerNames[k] || toHeaderCase(k);
+          var hVal = this._headers[k];
+          if (Array.isArray(hVal)) {
+            for (var hi = 0; hi < hVal.length; hi++) {
+              head += casedName + ': ' + hVal[hi] + '\r\n';
+            }
+          } else {
+            head += casedName + ': ' + hVal + '\r\n';
+          }
         }
       }
       head += '\r\n';
       this._headersSent = true;
 
       if (keepAlive) {
-        // Keep-alive: write response and keep socket open for next request.
-        // Socket is re-used; mark as idle so server.close() can clean it up.
         try { socket.write(head + body); } catch(e) {}
         this.detachSocket(socket);
         socket._httpMessage = null;
         socket._isIdle = true;
       } else {
-        // Close connection: write response then gracefully half-close (FIN).
-        // Using socket.end() instead of socket.destroy() avoids RST when
-        // there is unread data in the receive buffer.
         this.detachSocket(socket);
         socket.parser = null;
         socket[kTimeout] = null;
@@ -1111,16 +1754,28 @@ ServerResponse.prototype._sendSocketResponse = function() {
         }
       }
     } else {
-      // Headers already sent (streaming mode): send remaining buffered body
+      // Headers already sent (streaming mode)
       var remainingBody = this._bodyParts.join('');
-      // Re-check keep-alive using the connection header already sent in headers
-      var streamKeepAlive = (this._headers['connection'] || '').toLowerCase().indexOf('keep-alive') !== -1;
+      this._bodyParts = [];
+      var streamKeepAlive = (this._headers['connection'] || '').toString().toLowerCase().indexOf('keep-alive') !== -1;
       if (!streamKeepAlive) {
         streamKeepAlive = keepAlive;
       }
+      // Send any remaining body and the chunked terminator
+      var endData = '';
+      if (this._useChunkedEncoding) {
+        if (remainingBody) {
+          var remLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+            ? Buffer.byteLength(remainingBody) : remainingBody.length;
+          endData = remLen.toString(16) + '\r\n' + remainingBody + '\r\n0\r\n\r\n';
+        } else {
+          endData = '0\r\n\r\n';
+        }
+      } else {
+        endData = remainingBody || '';
+      }
       if (streamKeepAlive) {
-        // Keep-alive streaming: write remaining body, keep socket open
-        try { socket.write(remainingBody || ''); } catch(e) {}
+        try { socket.write(endData); } catch(e) {}
         this.detachSocket(socket);
         socket._httpMessage = null;
         socket._isIdle = true;
@@ -1129,7 +1784,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         socket.parser = null;
         socket[kTimeout] = null;
         try {
-          socket.write(remainingBody || '', function() {
+          socket.write(endData, function() {
             try { socket.end(); } catch(e) {
               try { socket.destroy(); } catch(e2) {}
             }
@@ -1146,14 +1801,116 @@ ServerResponse.prototype._sendSocketResponse = function() {
   this.emit('close');
 };
 
-ServerResponse.prototype.setTimeout = function() { return this; };
-ServerResponse.prototype.flushHeaders = function() {};
+ServerResponse.prototype.setTimeout = function(msecs, callback) {
+  if (typeof callback === 'function') this.once('timeout', callback);
+  if (this.socket && typeof this.socket.setTimeout === 'function') {
+    this.socket.setTimeout(msecs);
+  }
+  return this;
+};
+
+// _send is an internal method that flushes buffered writes to the socket
+ServerResponse.prototype._send = function(data) {
+  if (data && data.length > 0) {
+    this._bodyParts.push(data);
+  }
+  // In socket mode, flush any pending body parts
+  if (this.socket && !this._nativeMode && this._bodyParts.length > 0) {
+    var flushed = this._bodyParts.join('');
+    this._bodyParts = [];
+
+    // Determine if chunked encoding should be used (HTTP/1.1 only)
+    var req = this._req;
+    var isHttp10 = req && req.httpVersionMajor === 1 && req.httpVersionMinor === 0;
+
+    if (!this._headersSent) {
+      // Start streaming - set connection before transfer-encoding for proper header ordering
+      if (!this._headers['connection']) {
+        this._headers['connection'] = 'close';
+        this._headerNames['connection'] = 'Connection';
+      }
+      if (!isHttp10 && !this._headers['content-length'] && !this._headers['transfer-encoding']) {
+        this._headers['transfer-encoding'] = 'chunked';
+        this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
+        this._useChunkedEncoding = true;
+      }
+      var statusMsg = this.statusMessage !== undefined ? this.statusMessage : (STATUS_CODES[this.statusCode] || 'Unknown');
+      var head = 'HTTP/1.1 ' + this.statusCode + ' ' + statusMsg + '\r\n';
+      if (this.sendDate && !this._headers['date']) {
+        this._headers['date'] = new Date().toUTCString();
+        this._headerNames['date'] = 'Date';
+      }
+      for (var k in this._headers) {
+        if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
+          var casedName = this._headerNames[k] || toHeaderCase(k);
+          var hVal = this._headers[k];
+          if (Array.isArray(hVal)) {
+            for (var hi = 0; hi < hVal.length; hi++) {
+              head += casedName + ': ' + hVal[hi] + '\r\n';
+            }
+          } else {
+            head += casedName + ': ' + hVal + '\r\n';
+          }
+        }
+      }
+      head += '\r\n';
+      this._headersSent = true;
+      this._streaming = true;
+      if (this._useChunkedEncoding) {
+        var chunkLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+          ? Buffer.byteLength(flushed) : flushed.length;
+        try { this.socket.write(head + chunkLen.toString(16) + '\r\n' + flushed + '\r\n'); } catch(e) {}
+      } else {
+        try { this.socket.write(head + flushed); } catch(e) {}
+      }
+    } else {
+      // Already streaming
+      if (this._useChunkedEncoding) {
+        var chunkLen2 = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+          ? Buffer.byteLength(flushed) : flushed.length;
+        try { this.socket.write(chunkLen2.toString(16) + '\r\n' + flushed + '\r\n'); } catch(e) {}
+      } else {
+        try { this.socket.write(flushed); } catch(e) {}
+      }
+    }
+  }
+};
+
+ServerResponse.prototype.flushHeaders = function() {
+  if (this._headersSent) return;
+  if (this.socket && !this._nativeMode) {
+    var statusMsg = this.statusMessage !== undefined ? this.statusMessage : (STATUS_CODES[this.statusCode] || 'Unknown');
+    var head = 'HTTP/1.1 ' + this.statusCode + ' ' + statusMsg + '\r\n';
+    if (this.sendDate && !this._headers['date']) {
+      this._headers['date'] = new Date().toUTCString();
+      this._headerNames['date'] = 'Date';
+    }
+    for (var k in this._headers) {
+      if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
+        var casedName = this._headerNames[k] || toHeaderCase(k);
+        var hVal = this._headers[k];
+        if (Array.isArray(hVal)) {
+          for (var hi = 0; hi < hVal.length; hi++) {
+            head += casedName + ': ' + hVal[hi] + '\r\n';
+          }
+        } else {
+          head += casedName + ': ' + hVal + '\r\n';
+        }
+      }
+    }
+    head += '\r\n';
+    this._headersSent = true;
+    this._streaming = true;
+    try { this.socket.write(head); } catch(e) {}
+  }
+};
+
 ServerResponse.prototype.destroy = function(err) {
   if (this._finished) return this;
   this._finished = true;
+  this.destroyed = true;
   this.writableEnded = true;
   this.writableFinished = true;
-  // Destroy the underlying socket to force-close the connection
   if (this.socket && !this.socket.destroyed) {
     try { this.socket.destroy(err); } catch(e) {}
   }
@@ -1161,6 +1918,9 @@ ServerResponse.prototype.destroy = function(err) {
   this.emit('close');
   return this;
 };
+
+ServerResponse.prototype.cork = function() {};
+ServerResponse.prototype.uncork = function() {};
 
 // ---------------------------------------------------------------------------
 // ServerIncomingMessage for server-side requests
@@ -1174,15 +1934,15 @@ function ServerIncomingMessage(requestData, serverId) {
   this.httpVersionMinor = requestData.httpVersionMinor != null ? requestData.httpVersionMinor : 1;
   this.headers = {};
   this.rawHeaders = [];
+  this.trailers = {};
+  this.rawTrailers = [];
   this.path = requestData.path || requestData.url || '/';
   this.query = requestData.query || '';
   this.socket = null;
-  this.connection = null;
+  this.readable = true;
 
-  // Parse body - native bridge sends base64, socket mode sends raw
   var rawBody = requestData.body || '';
   if (serverId && rawBody) {
-    // Native bridge mode - body is base64 encoded
     if (typeof atob === 'function') {
       try { rawBody = atob(rawBody); } catch(e) {}
     } else {
@@ -1208,19 +1968,19 @@ function ServerIncomingMessage(requestData, serverId) {
 
   if (requestData.headers) {
     if (Array.isArray(requestData.headers)) {
-      for (var k = 0; k < requestData.headers.length; k++) {
-        var pair = requestData.headers[k];
+      for (var ki = 0; ki < requestData.headers.length; ki++) {
+        var pair = requestData.headers[ki];
         if (!pair || pair.length < 2) continue;
         var lkPair = resolveHeaderName(pair[0]);
         this.headers[lkPair] = pair[1];
         this.rawHeaders.push(pair[0], pair[1]);
       }
     } else if (typeof requestData.headers === 'object') {
-      for (var k in requestData.headers) {
-        if (Object.prototype.hasOwnProperty.call(requestData.headers, k)) {
-          var lk = resolveHeaderName(k);
-          this.headers[lk] = requestData.headers[k];
-          this.rawHeaders.push(k, requestData.headers[k]);
+      for (var kh in requestData.headers) {
+        if (Object.prototype.hasOwnProperty.call(requestData.headers, kh)) {
+          var lk = resolveHeaderName(kh);
+          this.headers[lk] = requestData.headers[kh];
+          this.rawHeaders.push(kh, requestData.headers[kh]);
         }
       }
     }
@@ -1230,6 +1990,14 @@ function ServerIncomingMessage(requestData, serverId) {
 }
 ServerIncomingMessage.prototype = Object.create(EventEmitter.prototype);
 ServerIncomingMessage.prototype.constructor = ServerIncomingMessage;
+
+Object.defineProperty(ServerIncomingMessage.prototype, 'connection', {
+  get: function() { return this.socket; },
+  set: function(val) { this.socket = val; },
+  enumerable: true,
+  configurable: true
+});
+
 ServerIncomingMessage.prototype.setEncoding = function(enc) {
   this._encoding = enc;
   return this;
@@ -1249,15 +2017,23 @@ ServerIncomingMessage.prototype.resume = function() {
 };
 ServerIncomingMessage.prototype.read = function() {
   if (this._consumed) return null;
-  var body = this._body || null;
-  if (body) this._body = '';
-  return body;
+  var readBody = this._body || null;
+  if (readBody) this._body = '';
+  return readBody;
 };
-ServerIncomingMessage.prototype.destroy = function() {
+ServerIncomingMessage.prototype.destroy = function(err) {
+  if (err) this.emit('error', err);
   this.emit('close');
   return this;
 };
-// Auto-resume when 'data' listener is attached
+ServerIncomingMessage.prototype.setTimeout = function(msecs, callback) {
+  if (typeof callback === 'function') this.once('timeout', callback);
+  if (this.socket && typeof this.socket.setTimeout === 'function') {
+    this.socket.setTimeout(msecs);
+  }
+  return this;
+};
+
 ServerIncomingMessage.prototype.on = function(event, listener) {
   EventEmitter.prototype.on.call(this, event, listener);
   if (event === 'data' && !this._consumed) {
@@ -1268,8 +2044,7 @@ ServerIncomingMessage.prototype.on = function(event, listener) {
 ServerIncomingMessage.prototype.addListener = ServerIncomingMessage.prototype.on;
 
 // ---------------------------------------------------------------------------
-// Server - built on net.js for real socket access (Node.js compat)
-// Falls back to native bridge if net module is not available
+// Server
 // ---------------------------------------------------------------------------
 function Server(requestListener) {
   if (!(this instanceof Server)) {
@@ -1281,20 +2056,22 @@ function Server(requestListener) {
   this._port = 0;
   this._hostname = '0.0.0.0';
   this._netServer = null;
-  // Native bridge fallback
   this._serverId = 0;
   this._useNative = false;
-  // Track all active connections for closeAllConnections / closeIdleConnections
   this._sockets = typeof Set === 'function' ? new Set() : null;
-  // Server-level timeout state
   this._socketTimeout = 0;
   this._serverTimeoutId = null;
+  this.timeout = 0;
+  this.keepAliveTimeout = 5000;
+  this.maxHeadersCount = 2000;
+  this.headersTimeout = 60000;
+  this.requestTimeout = 300000;
+  this.maxRequestsPerSocket = 0;
 
   if (typeof requestListener === 'function') {
     this.on('request', requestListener);
   }
 
-  // Try to create net.js-based server
   var net;
   try { net = require('net'); } catch(e) {}
   if (net && typeof net.createServer === 'function') {
@@ -1307,8 +2084,13 @@ function Server(requestListener) {
 Server.prototype = Object.create(EventEmitter.prototype);
 Server.prototype.constructor = Server;
 
+Object.defineProperty(Server.prototype, 'listening', {
+  get: function() { return this._listening; },
+  enumerable: true,
+  configurable: true
+});
+
 Server.prototype._onConnection = function(socket) {
-  // Initialize HTTP state on socket
   socket[kTimeout] = null;
   socket.parser = null;
   socket._httpMessage = null;
@@ -1316,10 +2098,8 @@ Server.prototype._onConnection = function(socket) {
   socket._httpServer = this;
 
   var self = this;
-  // Track socket so we can close it when server closes
   if (self._sockets) self._sockets.add(socket);
 
-  // Apply server socket timeout if set
   if (self._socketTimeout && typeof socket.setTimeout === 'function') {
     socket.setTimeout(self._socketTimeout, function() {
       self.emit('timeout', socket);
@@ -1335,14 +2115,10 @@ Server.prototype._onConnection = function(socket) {
     if (socket.parser) parser.execute(chunk);
   });
 
-  // Track current active request/response for abort signaling
   var _activeReq = null;
   var _activeRes = null;
 
   socket.on('close', function() {
-    // If there's an active request that hasn't completed AND the response
-    // hasn't been finished (meaning the client disconnected prematurely),
-    // emit 'aborted' on the request.
     if (_activeReq && !_activeReq.complete && _activeRes && !_activeRes._finished) {
       _activeReq.aborted = true;
       _activeReq.emit('aborted');
@@ -1363,12 +2139,9 @@ Server.prototype._onConnection = function(socket) {
   parser.onRequest = function(reqData) {
     var req = new ServerIncomingMessage(reqData);
     req.socket = socket;
-    req.connection = socket;
     _activeReq = req;
 
-    // Mark request complete when it finishes
     req.once('end', function() { req.complete = true; if (_activeReq === req) _activeReq = null; });
-    // For requests with no body (e.g. GET), mark complete immediately
     if (!reqData.body || reqData.body.length === 0) {
       req.complete = true;
     }
@@ -1379,18 +2152,12 @@ Server.prototype._onConnection = function(socket) {
     _activeRes = res;
     socket._isIdle = false;
 
-    // When the response closes, mark socket as idle and close if server is closing
     res.once('close', function() {
       socket._isIdle = true;
       if (self._closing && !socket.destroyed) {
-        // Only destroy immediately if the socket has no pending writes.
-        // Otherwise, let the write callback handle cleanup (it calls socket.end()
-        // which will eventually destroy the socket after flushing).
         if (!socket._writeQueue || socket._writeQueue.length === 0) {
           try { socket.destroy(); } catch(e) {}
         }
-        // If there are pending writes, the socket.write callback from
-        // _sendSocketResponse will call socket.end() -> destroy after flush.
       }
     });
 
@@ -1424,7 +2191,6 @@ Server.prototype.listen = function(port, hostname, callback) {
   this._hostname = hostname;
 
   if (this._netServer) {
-    // Use net.js-based server
     var self = this;
     this._netServer.on('error', function(err) {
       self.emit('error', err);
@@ -1434,20 +2200,19 @@ Server.prototype.listen = function(port, hostname, callback) {
       self.emit('listening');
     });
   } else if (typeof __exactHttpServe === 'function') {
-    // Fallback to native bridge
     this._useNative = true;
     var resultJson = __exactHttpServe(port, hostname);
     var result;
     try { result = JSON.parse(resultJson); } catch(e) {
-      var self = this;
-      setTimeout(function() { self.emit('error', new Error('Server start failed')); }, 0);
+      var self2 = this;
+      setTimeout(function() { self2.emit('error', new Error('Server start failed')); }, 0);
       return this;
     }
 
     if (result.error) {
-      var self = this;
+      var self3 = this;
       var errMsg = result.error;
-      setTimeout(function() { self.emit('error', new Error(errMsg)); }, 0);
+      setTimeout(function() { self3.emit('error', new Error(errMsg)); }, 0);
       return this;
     }
 
@@ -1455,18 +2220,17 @@ Server.prototype.listen = function(port, hostname, callback) {
     this._port = result.port || port;
     this._listening = true;
 
-    var self = this;
-    setTimeout(function() { self.emit('listening'); }, 0);
+    var self4 = this;
+    setTimeout(function() { self4.emit('listening'); }, 0);
     this._pollLoop();
   } else {
-    var self = this;
-    setTimeout(function() { self.emit('error', new Error('HTTP server not available')); }, 0);
+    var self5 = this;
+    setTimeout(function() { self5.emit('error', new Error('HTTP server not available')); }, 0);
   }
 
   return this;
 };
 
-// Native bridge polling (fallback)
 Server.prototype._pollLoop = function() {
   if (this._closing || !this._listening || !this._useNative) return;
   var self = this;
@@ -1511,19 +2275,15 @@ Server.prototype.close = function(callback) {
   if (typeof callback === 'function') this.once('close', callback);
   this._closing = true;
   this._listening = false;
-  // Cancel any pending wall-clock server timeout
   if (this._serverTimeoutId) {
     clearTimeout(this._serverTimeoutId);
     this._serverTimeoutId = null;
   }
-  // Close idle keep-alive connections so the event loop can drain
   this.closeIdleConnections();
 
   var self = this;
   if (this._netServer) {
     this._netServer.close(function() {
-      // After the TCP server handle is closed, destroy any remaining sockets
-      // so the event loop can exit. Keep-alive sockets may still be alive.
       if (self._sockets && self._sockets.size > 0) {
         var remaining = [];
         self._sockets.forEach(function(s) { remaining.push(s); });
@@ -1586,21 +2346,23 @@ Server.prototype.setTimeout = function(msecs, callback) {
     callback = msecs;
     msecs = undefined;
   }
-  if (msecs == null || msecs <= 0) return this;
+  if (msecs === undefined) msecs = 0;
+  this.timeout = msecs;
+  if (msecs == null || msecs <= 0) {
+    if (this._serverTimeoutId) {
+      clearTimeout(this._serverTimeoutId);
+      this._serverTimeoutId = null;
+    }
+    return this;
+  }
   var self = this;
   this._socketTimeout = msecs;
   if (typeof callback === 'function') {
     this.on('timeout', callback);
   }
-  // Use a wall-clock timer to fire the server timeout after msecs milliseconds.
-  // This matches Node.js behavior where server.setTimeout sets a deadline that
-  // applies globally. For more granular socket-level idle timeouts, the socket
-  // timeout is also applied when connections are created.
-  var self = this;
   if (this._serverTimeoutId) clearTimeout(this._serverTimeoutId);
   this._serverTimeoutId = setTimeout(function() {
     self._serverTimeoutId = null;
-    // Emit timeout for each connected socket
     if (self._sockets && self._sockets.size > 0) {
       var sockets = [];
       self._sockets.forEach(function(s) { sockets.push(s); });
@@ -1611,7 +2373,6 @@ Server.prototype.setTimeout = function(msecs, callback) {
       self.emit('timeout');
     }
   }, msecs);
-  // Also apply socket-level idle timeout for more precise per-socket tracking
   function applyTimeout(socket) {
     if (socket && typeof socket.setTimeout === 'function') {
       socket.setTimeout(msecs, function() {
@@ -1625,6 +2386,7 @@ Server.prototype.setTimeout = function(msecs, callback) {
   this._socketTimeoutApplier = applyTimeout;
   return this;
 };
+
 Server.prototype.ref = function() {
   if (this._netServer && typeof this._netServer.ref === 'function') {
     this._netServer.ref();
@@ -1650,6 +2412,44 @@ function createServer(options, requestListener) {
   return new Server(requestListener);
 }
 
+var maxHeaderSize = 16384;
+
+// Module exports - avoid getter syntax for Hermes compatibility
+var _wsGlobal = typeof WebSocket !== 'undefined' ? WebSocket : undefined;
+var _ceGlobal = typeof CloseEvent !== 'undefined' ? CloseEvent : undefined;
+var _meGlobal = typeof MessageEvent !== 'undefined' ? MessageEvent : undefined;
+
+// _checkIsHttpToken / _checkInvalidHeaderChar helpers for _http_common
+function _checkIsHttpToken(val) {
+  return typeof val === 'string' && HEADER_NAME_RE.test(val);
+}
+function _checkInvalidHeaderChar(val) {
+  if (typeof val !== 'string') return false;
+  for (var i = 0; i < val.length; i++) {
+    var ch = val.charCodeAt(i);
+    if (ch === 9) continue; // TAB
+    if (ch < 32 || ch === 127) return true;
+  }
+  return false;
+}
+
+// Fake HTTPParser for _http_common compatibility
+function HTTPParser() {}
+HTTPParser.REQUEST = 'REQUEST';
+HTTPParser.RESPONSE = 'RESPONSE';
+HTTPParser.kOnHeaders = 0;
+HTTPParser.kOnHeadersComplete = 1;
+HTTPParser.kOnBody = 2;
+HTTPParser.kOnMessageComplete = 3;
+HTTPParser.kOnExecute = 4;
+
+// parsers free list (stub)
+var parsers = { max: 1000, alloc: function() { return new HTTPParser(); }, free: function() {} };
+
+// Internal module symbol exports
+var kConnectionsCheckingInterval = Symbol('kConnectionsCheckingInterval');
+var kHighWaterMark = Symbol('kHighWaterMark');
+
 module.exports = {
   request: request,
   get: get,
@@ -1657,11 +2457,26 @@ module.exports = {
   createServer: createServer,
   Server: Server,
   ServerResponse: ServerResponse,
+  OutgoingMessage: ServerResponse,
   IncomingMessage: IncomingMessage,
   ServerIncomingMessage: ServerIncomingMessage,
   ClientRequest: ClientRequest,
   METHODS: METHODS,
   STATUS_CODES: STATUS_CODES,
   globalAgent: globalAgent,
-  kTimeout: kTimeout
+  kTimeout: kTimeout,
+  maxHeaderSize: maxHeaderSize,
+  validateHeaderName: validateHeaderName,
+  validateHeaderValue: validateHeaderValue,
+  WebSocket: _wsGlobal,
+  CloseEvent: _ceGlobal,
+  MessageEvent: _meGlobal,
+  // Internal exports for _http_common, _http_agent, etc.
+  _checkIsHttpToken: _checkIsHttpToken,
+  _checkInvalidHeaderChar: _checkInvalidHeaderChar,
+  HTTPParser: HTTPParser,
+  parsers: parsers,
+  methods: METHODS,
+  kConnectionsCheckingInterval: kConnectionsCheckingInterval,
+  kHighWaterMark: kHighWaterMark
 };
