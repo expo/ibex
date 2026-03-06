@@ -20,7 +20,7 @@ function utf8ByteLength(leadByte) {
 }
 
 // UTF-8 decoder following WHATWG "maximal subpart" replacement rule.
-// Must produce identical output to the _decodeUtf8 in buffer.js.
+// Must produce identical output to the UTF-8 branch in buffer.js.
 function _decodeUtf8Complete(bytes) {
   var result = '';
   var i = 0;
@@ -73,24 +73,6 @@ function _decodeUtf8Complete(bytes) {
     i += seqLen;
   }
   return result;
-}
-
-function decodeUtf8Char(bytes, len) {
-  var cp;
-  if (len === 2) {
-    cp = ((bytes[0] & 0x1F) << 6) | (bytes[1] & 0x3F);
-  } else if (len === 3) {
-    cp = ((bytes[0] & 0x0F) << 12) | ((bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F);
-  } else if (len === 4) {
-    cp = ((bytes[0] & 0x07) << 18) | ((bytes[1] & 0x3F) << 12) | ((bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F);
-  } else {
-    return String.fromCharCode(bytes[0]);
-  }
-  if (cp > 0xFFFF) {
-    cp -= 0x10000;
-    return String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
-  }
-  return String.fromCharCode(cp);
 }
 
 // Disable TextDecoder streaming mode; we use non-streaming TextDecoder for each
@@ -252,8 +234,8 @@ StringDecoder.prototype._writeUtf8 = function _writeUtf8(bytes) {
     this._needBytes = utf8ByteLength(input[trailStart]);
   }
 
-  // Decode the complete portion using maximal-subpart replacement algorithm
-  // (same as Buffer.toString('utf8') uses).
+  // Decode the complete portion with the same UTF-8 replacement behavior
+  // Buffer.toString('utf8') uses in this runtime.
   if (trailStart === 0) return '';
   var toDecode = (trailStart === input.length) ? input : input.slice(0, trailStart);
   return _decodeUtf8Complete(toDecode);

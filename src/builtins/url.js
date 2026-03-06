@@ -7,6 +7,47 @@ var URLSearchParamsExport =
     ? globalThis.URLSearchParams
     : null;
 
+function _canUseHostUrlConstructors(URLCtor, URLSearchParamsCtor) {
+  if (typeof URLCtor !== "function" || typeof URLSearchParamsCtor !== "function") {
+    return false;
+  }
+  try {
+    if (new URLSearchParamsCtor([["a", "b"]]).toString() !== "a=b") {
+      return false;
+    }
+    if (new URLSearchParamsCtor([["b", "%2sf*"]]).toString() !== "b=%252sf*") {
+      return false;
+    }
+    if (typeof DOMException === "function") {
+      var domExceptionParams = new URLSearchParamsCtor(DOMException);
+      if (domExceptionParams.get("TIMEOUT_ERR") !== "23") {
+        return false;
+      }
+    }
+    var originProbe = new URLCtor("http://ExAmPlE.CoM");
+    if (originProbe.origin !== "http://example.com") {
+      return false;
+    }
+    var fileHostProbe = new URLCtor("file://y/");
+    fileHostProbe.host = "loc%41lhost";
+    if (fileHostProbe.href !== "file:///") {
+      return false;
+    }
+    var filePortRejected = false;
+    try {
+      new URLCtor("file://example:1/");
+    } catch (_filePortErr) {
+      filePortRejected = true;
+    }
+    if (!filePortRejected) {
+      return false;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function _coerceUrl(value) {
   if (value == null) {
     throw new TypeError("Expected URL or string");
@@ -119,7 +160,11 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
   Object.getOwnPropertyDescriptor(URLCtor.prototype, propertyName).set.__exactPatched = true;
 }
 
-  if (URLExport && URLSearchParamsExport) {
+  if (
+    URLExport &&
+    URLSearchParamsExport &&
+    _canUseHostUrlConstructors(URLExport, URLSearchParamsExport)
+  ) {
     _patchUrlStatics(URLExport);
     _patchProtocol(URLExport);
     _patchUrlComponentSetter(URLExport, "username");
@@ -388,8 +433,11 @@ function _decodePercentBytes(bytes) {
   }
 }
 
-function _decode(value) {
-  var input = String(value).replace(/\+/g, " ");
+function _decode(value, plusAsSpace) {
+  var input = String(value);
+  if (plusAsSpace !== false) {
+    input = input.replace(/\+/g, " ");
+  }
   var bytes = [];
   var out = "";
   for (var i = 0; i < input.length; i++) {
@@ -433,6 +481,7 @@ function _parseIPv4Segment(value) {
       var part = value.slice(start, i);
       start = i + 1;
       if (part.length > 3 || part.length === 0) return null;
+      if (!/^[0-9]+$/.test(part)) return null;
       var code = Number.parseInt(part, 10);
       if (isNaN(code) || code < 0 || code > 255) return null;
       octets.push(code);
@@ -585,20 +634,41 @@ function _isHexChar(value) {
 }
 
 function _canonicalizeHost(value, protocol) {
+  value = String(value);
+  if (typeof value.normalize === "function") {
+    try {
+      value = value.normalize("NFKC");
+    } catch (_normalizeErr) {}
+  }
+  value = value.replace(/[\u3002\uFF0E\uFF61]/g, ".");
   var isSpecial = protocol && URL._isSpecialProtocol(protocol.slice(0, -1));
   var isNonSpecial = protocol && !isSpecial;
+  if (isSpecial && value.indexOf("%") !== -1) {
+    try {
+      value = decodeURIComponent(value);
+    } catch (_decodeHostErr) {}
+  }
+  if (isSpecial) {
+    value = value.replace(/\u00AD/g, '');
+    if (/[^.]\.$/.test(value)) {
+      value = value.slice(0, -1);
+    }
+  }
   var ipv6 = _normalizeIPv6Host(value);
   if (ipv6 !== null) {
     return ipv6;
   }
 
   if (isSpecial) {
-    var numericIPv4 = _normalizeNumericIPv4Host(value);
-    if (numericIPv4 !== null) {
-      return numericIPv4;
+    var ipv4Special = _normalizeIPv4Host(value);
+    if (ipv4Special !== null) {
+      return ipv4Special;
+    }
+    if (_endsInNumber(value)) {
+      return "";
     }
     try {
-      return require("punycode").toASCII(value);
+      return require("punycode").toASCII(value).toLowerCase();
     } catch (e) {
       return value.toLowerCase();
     }
@@ -622,11 +692,11 @@ function _canonicalizeHost(value, protocol) {
       _isHexChar(value.charAt(i + 1)) &&
       _isHexChar(value.charAt(i + 2))
     ) {
-      out += "%" + value.charAt(i + 1).toUpperCase() + value.charAt(i + 2).toUpperCase();
+      out += "%" + value.charAt(i + 1) + value.charAt(i + 2);
       i += 2;
       continue;
     }
-    out += char.toLowerCase();
+    out += isNonSpecial ? char : char.toLowerCase();
   }
   return out;
 }
@@ -658,10 +728,21 @@ function _normalizeIPv4Host(value) {
 
     var num = null;
     if (part.slice(0, 2).toLowerCase() === "0x" && part.length > 2) {
+      if (!/^[0-9A-Fa-f]+$/.test(part.slice(2))) {
+        return null;
+      }
       num = parseInt(part.slice(2), 16);
+    } else if (part.slice(0, 2).toLowerCase() === "0x") {
+      num = 0;
     } else if (part.length > 1 && part.charAt(0) === "0") {
+      if (!/^[0-7]+$/.test(part)) {
+        return null;
+      }
       num = parseInt(part, 8);
     } else {
+      if (!/^[0-9]+$/.test(part)) {
+        return null;
+      }
       num = parseInt(part, 10);
     }
 
@@ -710,7 +791,7 @@ function _normalizeNumericIPv4Host(value) {
   var host = String(value);
   var base = 10;
   if (host.slice(0, 2).toLowerCase() === "0x") {
-    if (!/^[0-9A-Fa-f]+$/.test(host.slice(2))) {
+    if (host.length > 2 && !/^[0-9A-Fa-f]+$/.test(host.slice(2))) {
       return null;
     }
     base = 16;
@@ -725,7 +806,7 @@ function _normalizeNumericIPv4Host(value) {
     }
   }
 
-  var number = parseInt(host, base);
+  var number = (base === 16 && host.length === 2) ? 0 : parseInt(host, base);
   if (isNaN(number) || number < 0 || number > 4294967295) {
     return null;
   }
@@ -736,6 +817,195 @@ function _normalizeNumericIPv4Host(value) {
     ((number >>> 8) & 255) + "." +
     (number & 255)
   );
+}
+
+function _endsInNumber(host) {
+  var value = String(host);
+  if (value.charAt(value.length - 1) === ".") {
+    value = value.slice(0, -1);
+  }
+  var parts = value.split(".");
+  var last = parts[parts.length - 1];
+  if (!last) {
+    return false;
+  }
+  return /^0[xX][0-9A-Fa-f]*$/.test(last) || /^[0-9]+$/.test(last);
+}
+
+var _INVALID_IDNA_CHARS = ' #%/:?@[\\]^|<>';
+
+function _stringFromCodePointSafe(codePoint) {
+  if (typeof String.fromCodePoint === 'function') {
+    return String.fromCodePoint(codePoint);
+  }
+  if (codePoint <= 0xFFFF) {
+    return String.fromCharCode(codePoint);
+  }
+  codePoint -= 0x10000;
+  return String.fromCharCode(
+    ((codePoint >> 10) & 0x3FF) + 0xD800,
+    (codePoint & 0x3FF) + 0xDC00
+  );
+}
+
+function _invalidUrlParseError(input) {
+  var err = new TypeError('Invalid URL');
+  err.code = 'ERR_INVALID_URL';
+  err.input = input;
+  err.__exactInvalidUrl = true;
+  return err;
+}
+
+function _containsForbiddenIdnaCodePoint(host) {
+  if (!host) return false;
+  if (host.indexOf('\u0000') !== -1) {
+    return true;
+  }
+  if (typeof ''.normalize !== 'function') {
+    return false;
+  }
+  for (var i = 0; i < host.length; ) {
+    var codePoint = typeof host.codePointAt === 'function' ? host.codePointAt(i) : host.charCodeAt(i);
+    if (
+      codePoint <= 0x1F ||
+      codePoint === 0x7F ||
+      codePoint === 0xFFFD ||
+      (codePoint >= 0xFDD0 && codePoint <= 0xFDEF) ||
+      (codePoint >= 0xFFFE && (codePoint & 0xFFFE) === 0xFFFE)
+    ) {
+      return true;
+    }
+    var char = _stringFromCodePointSafe(codePoint);
+    var normalized;
+    try {
+      normalized = char.normalize('NFKD');
+    } catch (e) {
+      normalized = char;
+    }
+    for (var j = 0; j < _INVALID_IDNA_CHARS.length; j++) {
+      if (normalized.indexOf(_INVALID_IDNA_CHARS.charAt(j)) !== -1) {
+        return true;
+      }
+    }
+    i += codePoint > 0xFFFF ? 2 : 1;
+  }
+  return false;
+}
+
+function _hasDisallowedPunycodeLabel(host) {
+  if (!host || host.toLowerCase().indexOf('xn--') === -1) {
+    return false;
+  }
+  var punycode;
+  try {
+    punycode = require('punycode');
+  } catch (_punycodeLoadErr) {
+    return false;
+  }
+  if (!punycode || typeof punycode.toUnicode !== 'function') {
+    return false;
+  }
+  var labels = String(host).split('.');
+  for (var i = 0; i < labels.length; i++) {
+    var label = labels[i];
+    if (!/^xn--/i.test(label)) {
+      continue;
+    }
+    var decodedLabel = punycode.toUnicode(label);
+    if (!decodedLabel || decodedLabel.toLowerCase() === label.toLowerCase()) {
+      return true;
+    }
+    if (_containsForbiddenIdnaCodePoint(decodedLabel)) {
+      return true;
+    }
+    if (typeof ''.normalize === 'function') {
+      try {
+        if (decodedLabel.normalize('NFKC') !== decodedLabel) {
+          return true;
+        }
+      } catch (_punycodeNormalizeErr) {}
+    }
+  }
+  return false;
+}
+
+function _validateLegacyParseAuthEncoding(input) {
+  var value = String(input);
+  var protoMatch = /^([a-zA-Z][a-zA-Z0-9+\-.]*):\/\//.exec(value);
+  if (!protoMatch) {
+    return;
+  }
+  var authority = value.slice(protoMatch[0].length);
+  var terminator = authority.search(/[\/?#]/);
+  if (terminator !== -1) {
+    authority = authority.slice(0, terminator);
+  }
+  var atIndex = authority.lastIndexOf('@');
+  if (atIndex === -1) {
+    return;
+  }
+  decodeURIComponent(authority.slice(0, atIndex));
+}
+
+function _extractSpecialHostForValidation(input, protocol) {
+  if (!protocol || !URL._isSpecialProtocol(protocol)) {
+    return null;
+  }
+  var protoLength = protocol.length + 1;
+  if (input.slice(protoLength, protoLength + 2) !== '//') {
+    return null;
+  }
+  var authority = input.slice(protoLength + 2);
+  var terminator = authority.search(/[\/?#]/);
+  if (terminator !== -1) {
+    authority = authority.slice(0, terminator);
+  }
+  var atIndex = authority.lastIndexOf('@');
+  if (atIndex !== -1) {
+    authority = authority.slice(atIndex + 1);
+  }
+  if (!authority) {
+    return '';
+  }
+  if (authority.charAt(0) === '[') {
+    var closingBracket = authority.indexOf(']');
+    if (closingBracket === -1) {
+      return authority;
+    }
+    return authority.slice(0, closingBracket + 1);
+  }
+  var colonIndex = authority.lastIndexOf(':');
+  if (colonIndex !== -1) {
+    return authority.slice(0, colonIndex);
+  }
+  return authority;
+}
+
+function _validateSpecialHostForParse(input, protocol) {
+  var host = _extractSpecialHostForValidation(input, protocol);
+  if (host === null) {
+    return;
+  }
+  if (host === '') {
+    return;
+  }
+  if (host.charAt(0) === '[') {
+    if (_normalizeIPv6Host(host) === null || host.indexOf('\u0000') !== -1) {
+      throw _invalidUrlParseError(input);
+    }
+    return;
+  }
+  var decodedHost = host;
+  try {
+    decodedHost = _decode(host, false);
+  } catch (_hostDecodeErr) {}
+  if (_containsForbiddenIdnaCodePoint(decodedHost)) {
+    throw _invalidUrlParseError(input);
+  }
+  var canonicalHost = _canonicalizeHost(host, protocol + ':');
+  if (!canonicalHost || canonicalHost === 'xn--' || _hasDisallowedPunycodeLabel(canonicalHost)) {
+    throw _invalidUrlParseError(input);
+  }
 }
 
 function _normalizePort(value) {
@@ -750,6 +1020,10 @@ function _normalizePort(value) {
     value = match[0];
   }
   return value.replace(/^0+(?=\d)/, "");
+}
+
+function _stripAsciiTabAndNewline(value) {
+  return String(value).replace(/[\t\n\r]/g, "");
 }
 
 function _sanitizeControlComponent(value) {
@@ -774,55 +1048,160 @@ function _sanitizeControlComponent(value) {
   return out;
 }
 
-function _sanitizePathComponent(value) {
-  value = String(value);
+function _isC0ControlOrNonAscii(codePoint) {
+  return codePoint <= 0x1F || codePoint > 0x7E;
+}
+
+function _percentEncodeUrlComponent(value, shouldEncode, preservePercentTriples) {
+  value = _toUSVString(value);
   var out = "";
-  for (var i = 0; i < value.length; i++) {
-    var code = value.charCodeAt(i);
-    if (code >= 0 && code <= 0x20) {
-      out += "%" + _toHex(code);
+  for (var i = 0; i < value.length; ) {
+    var char = value.charAt(i);
+    var codePoint = value.charCodeAt(i);
+    var nextIndex = i + 1;
+    if (
+      preservePercentTriples &&
+      char === "%" &&
+      nextIndex + 1 < value.length &&
+      _isHexChar(value.charAt(nextIndex)) &&
+      _isHexChar(value.charAt(nextIndex + 1))
+    ) {
+      out += "%" + value.charAt(nextIndex) + value.charAt(nextIndex + 1);
+      i += 3;
       continue;
     }
-    out += value.charAt(i);
+    if (codePoint >= 0xD800 && codePoint <= 0xDBFF && nextIndex < value.length) {
+      var low = value.charCodeAt(nextIndex);
+      if (low >= 0xDC00 && low <= 0xDFFF) {
+        char += value.charAt(nextIndex);
+        codePoint =
+          ((codePoint - 0xD800) << 10) +
+          (low - 0xDC00) +
+          0x10000;
+        nextIndex += 1;
+      }
+    }
+    if (codePoint === 0x09 || codePoint === 0x0A || codePoint === 0x0D) {
+      i = nextIndex;
+      continue;
+    }
+    if (shouldEncode(codePoint, char)) {
+      try {
+        var encodedChar = encodeURIComponent(char);
+        if (encodedChar === char && codePoint <= 0x7F) {
+          encodedChar = "%" + _toHex(codePoint);
+        }
+        out += encodedChar;
+      } catch (_encodeComponentErr) {
+        out += encodeURIComponent(_toUSVString(char));
+      }
+    } else {
+      out += char;
+    }
+    i = nextIndex;
   }
   return out;
 }
 
-function _sanitizeUserinfoComponent(value) {
+function _shouldEncodePathCodePoint(codePoint, char) {
+  return (
+    _isC0ControlOrNonAscii(codePoint) ||
+    char === " " ||
+    char === "\"" ||
+    char === "#" ||
+    char === "?" ||
+    char === "<" ||
+    char === ">" ||
+    char === "^" ||
+    char === "`" ||
+    char === "{" ||
+    char === "}"
+  );
+}
+
+function _shouldEncodeQueryCodePoint(codePoint, char) {
+  return (
+    _isC0ControlOrNonAscii(codePoint) ||
+    char === " " ||
+    char === "\"" ||
+    char === "#" ||
+    char === "<" ||
+    char === ">"
+  );
+}
+
+function _shouldEncodeFragmentCodePoint(codePoint, char) {
+  return (
+    _isC0ControlOrNonAscii(codePoint) ||
+    char === " " ||
+    char === "\"" ||
+    char === "<" ||
+    char === ">" ||
+    char === "`"
+  );
+}
+
+function _shouldEncodeUserinfoCodePoint(codePoint, char) {
+  return (
+    _shouldEncodePathCodePoint(codePoint, char) ||
+    char === "/" ||
+    char === ":" ||
+    char === ";" ||
+    char === "=" ||
+    char === "@" ||
+    char === "[" ||
+    char === "\\" ||
+    char === "]" ||
+    char === "^" ||
+    char === "|"
+  );
+}
+
+function _sanitizePathComponent(value) {
+  return _percentEncodeUrlComponent(value, _shouldEncodePathCodePoint, true);
+}
+
+function _sanitizeQueryComponent(value, isSpecial) {
+  return _percentEncodeUrlComponent(value, function(codePoint, char) {
+    return _shouldEncodeQueryCodePoint(codePoint, char) || (isSpecial && char === "'");
+  }, true);
+}
+
+function _sanitizeFragmentComponent(value) {
+  return _percentEncodeUrlComponent(value, _shouldEncodeFragmentCodePoint, true);
+}
+
+function _sanitizeOpaquePathComponent(value) {
+  return _percentEncodeUrlComponent(value, function(codePoint) {
+    return _isC0ControlOrNonAscii(codePoint);
+  }, true);
+}
+
+function _trimUrlInput(value) {
   value = String(value);
-  var out = "";
-  for (var i = 0; i < value.length; i++) {
-    var char = value.charAt(i);
-    var code = value.charCodeAt(i);
-    if (
-      char === "%" &&
-      i + 2 < value.length &&
-      _isHexChar(value.charAt(i + 1)) &&
-      _isHexChar(value.charAt(i + 2))
-    ) {
-      out += char + value.charAt(i + 1) + value.charAt(i + 2);
-      i += 2;
-      continue;
-    }
-    if (
-      (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A) ||
-      (code >= 0x61 && code <= 0x7A) ||
-      code === 0x21 || code === 0x24 || code === 0x25 || code === 0x26 || code === 0x27 ||
-      code === 0x28 || code === 0x29 || code === 0x2A || code === 0x2B ||
-      code === 0x2C || code === 0x2D || code === 0x2E || code === 0x5F ||
-      code === 0x7E
-    ) {
-      out += char;
-    } else {
-      out += encodeURIComponent(char);
-    }
+  var start = 0;
+  var end = value.length;
+  while (start < end && value.charCodeAt(start) <= 0x20) {
+    start += 1;
   }
-  return out;
+  while (end > start && value.charCodeAt(end - 1) <= 0x20) {
+    end -= 1;
+  }
+  return value.slice(start, end);
+}
+
+function _sanitizeUserinfoComponent(value) {
+  return _percentEncodeUrlComponent(value, _shouldEncodeUserinfoCodePoint, true);
 }
 
 function _sanitizeHostComponent(value, protocol) {
   value = String(value);
   var out = "";
+  var isSpecialProtocol = !!(
+    protocol &&
+    protocol.slice &&
+    URL._isSpecialProtocol(protocol.slice(0, -1))
+  );
   for (var i = 0; i < value.length; i++) {
     var code = value.charCodeAt(i);
     if (code === 0 || (protocol === "https:" && code === 0x1F)) {
@@ -832,7 +1211,17 @@ function _sanitizeHostComponent(value, protocol) {
       if (code === 9 || code === 10 || code === 13) {
         continue;
       }
+      if (isSpecialProtocol) {
+        return null;
+      }
       out += "%" + _toHex(code);
+      continue;
+    }
+    if (code === 0x7F) {
+      if (isSpecialProtocol) {
+        return null;
+      }
+      out += "%7F";
       continue;
     }
     if (code === 0x00A0 || code === 0x3000) {
@@ -845,6 +1234,21 @@ function _sanitizeHostComponent(value, protocol) {
     out += value.charAt(i);
   }
   return out;
+}
+
+function _hasForbiddenNonSpecialHostCodePoint(value) {
+  var host = String(value);
+  if (!host) {
+    return false;
+  }
+  if (host.charAt(0) === "[") {
+    return false;
+  }
+  var colonIndex = host.lastIndexOf(":");
+  if (colonIndex !== -1 && /^[0-9]*$/.test(host.slice(colonIndex + 1))) {
+    host = host.slice(0, colonIndex);
+  }
+  return /[ #/:<>?@[\\\]^|]/.test(host);
 }
 
 function _parseHostInput(value, isSpecial) {
@@ -868,6 +1272,23 @@ function _stripProtocolControlChars(value) {
     out += value.charAt(i);
   }
   return out;
+}
+
+function _hasInvalidPercentEscape(value) {
+  for (var i = 0; i < value.length; i++) {
+    if (value.charAt(i) !== '%') {
+      continue;
+    }
+    if (
+      i + 2 >= value.length ||
+      !_isHexChar(value.charAt(i + 1)) ||
+      !_isHexChar(value.charAt(i + 2))
+    ) {
+      return true;
+    }
+    i += 2;
+  }
+  return false;
 }
 
 function _makeIterator(params, mapFn) {
@@ -907,6 +1328,16 @@ function _makeURLError(input, baseStr) {
   err.code = "ERR_INVALID_URL";
   err.input = String(input);
   return err;
+}
+
+function _isSingleDotPathSegment(segment) {
+  var lower = String(segment || "").toLowerCase();
+  return lower === "." || lower === "%2e";
+}
+
+function _isDoubleDotPathSegment(segment) {
+  var lower = String(segment || "").toLowerCase();
+  return lower === ".." || lower === ".%2e" || lower === "%2e." || lower === "%2e%2e";
 }
 
 function URL(input, base) {
@@ -976,30 +1407,120 @@ URL._isSpecialProtocol = function(protocol) {
     if (atIndex !== -1) {
       var userinfo = authority.slice(0, atIndex);
       hostPart = authority.slice(atIndex + 1);
+      if (hostPart === "") {
+        throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+      }
       var colonIndex = userinfo.indexOf(":");
       if (colonIndex !== -1) {
-        urlObj._username = _sanitizeUserinfoComponent(_decode(userinfo.slice(0, colonIndex)));
-        urlObj._password = _sanitizeUserinfoComponent(_decode(userinfo.slice(colonIndex + 1)));
+        urlObj._username = _sanitizeUserinfoComponent(userinfo.slice(0, colonIndex));
+        urlObj._password = _sanitizeUserinfoComponent(userinfo.slice(colonIndex + 1));
       } else {
-        urlObj._username = _sanitizeUserinfoComponent(_decode(userinfo));
+        urlObj._username = _sanitizeUserinfoComponent(userinfo);
       }
     }
 
     var sanitizedHost = _sanitizeHostComponent(hostPart, urlObj._protocol);
     if (sanitizedHost === null) {
+      if (authority !== "") {
+        throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+      }
       urlObj._hostname = "";
       urlObj._port = "";
       return;
     }
     hostPart = sanitizedHost;
+    if (authority !== "" && hostPart === "") {
+      throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+    }
+    if (
+      URL._isSpecialProtocol(urlObj._protocol.slice(0, -1)) &&
+      authority !== "" &&
+      hostPart === ""
+    ) {
+      throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+    }
+    if (
+      !URL._isSpecialProtocol(urlObj._protocol.slice(0, -1)) &&
+      hostPart !== ""
+    ) {
+      var nonSpecialValidationHost = hostPart;
+      if (nonSpecialValidationHost.charAt(0) === "[") {
+        if (nonSpecialValidationHost.indexOf("]") === -1) {
+          throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+        }
+      } else {
+        var nonSpecialColonIndex = nonSpecialValidationHost.lastIndexOf(":");
+        if (nonSpecialColonIndex !== -1) {
+          var nonSpecialPort = nonSpecialValidationHost.slice(nonSpecialColonIndex + 1);
+          if (/^[0-9]*$/.test(nonSpecialPort)) {
+            nonSpecialValidationHost = nonSpecialValidationHost.slice(0, nonSpecialColonIndex);
+          }
+        }
+        if (_hasForbiddenNonSpecialHostCodePoint(nonSpecialValidationHost)) {
+          throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+        }
+      }
+    }
+    if (
+      URL._isSpecialProtocol(urlObj._protocol.slice(0, -1)) &&
+      _hasInvalidPercentEscape(hostPart)
+    ) {
+      throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+    }
+    if (
+      URL._isSpecialProtocol(urlObj._protocol.slice(0, -1)) &&
+      hostPart
+    ) {
+      var validationHost = hostPart;
+      if (validationHost.charAt(0) === "[") {
+        var validationBracketEnd = validationHost.indexOf("]");
+        if (validationBracketEnd === -1) {
+          throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+        }
+        validationHost = validationHost.slice(0, validationBracketEnd + 1);
+      } else {
+        var validationColonIndex = validationHost.lastIndexOf(":");
+        if (validationColonIndex !== -1) {
+          var validationPort = validationHost.slice(validationColonIndex + 1);
+          if (/^[0-9]*$/.test(validationPort)) {
+            validationHost = validationHost.slice(0, validationColonIndex);
+          }
+        }
+      }
+      if (validationHost.charAt(0) === "[") {
+        if (_normalizeIPv6Host(validationHost) === null || validationHost.indexOf('\u0000') !== -1) {
+          throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+        }
+      } else {
+        try {
+          validationHost = _decode(validationHost, false);
+        } catch (_validationHostDecodeErr) {}
+        if (_containsForbiddenIdnaCodePoint(validationHost)) {
+          throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+        }
+      }
+    }
 
       if (hostPart.charAt(0) === "[") {
         var bracketEnd = hostPart.indexOf("]");
         if (bracketEnd !== -1) {
-        urlObj._hostname = _canonicalizeHost(hostPart.slice(0, bracketEnd + 1), urlObj._protocol);
+        var normalizedIpv6 = _normalizeIPv6Host(hostPart.slice(0, bracketEnd + 1));
+        if (normalizedIpv6 === null) {
+          throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+        }
+        urlObj._hostname = normalizedIpv6;
       var afterBracket = hostPart.slice(bracketEnd + 1);
       if (afterBracket.charAt(0) === ":") {
-        urlObj._port = _normalizePort(afterBracket.slice(1));
+        if (urlObj._protocol === "file:") {
+          throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+        }
+        var bracketPort = afterBracket.slice(1);
+        if (bracketPort && !/^[0-9]*$/.test(bracketPort)) {
+          throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+        }
+        urlObj._port = _normalizePort(bracketPort);
+      } else if (afterBracket !== "") {
+        throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
       }
     } else {
       throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
@@ -1008,9 +1529,13 @@ URL._isSpecialProtocol = function(protocol) {
     var colonIndex = hostPart.lastIndexOf(":");
     if (colonIndex !== -1) {
       var portStr = hostPart.slice(colonIndex + 1);
-      // For special schemes, non-numeric port values are parse errors
-      var isSpecialScheme = URL._isSpecialProtocol(urlObj._protocol.slice(0, -1));
-      if (portStr && isSpecialScheme && !/^[0-9]*$/.test(portStr)) {
+      if (urlObj._protocol === "file:") {
+        throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+      }
+      if (hostPart.slice(0, colonIndex) === "") {
+        throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+      }
+      if (portStr && !/^[0-9]*$/.test(portStr)) {
         throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
       }
       urlObj._hostname = _canonicalizeHost(hostPart.slice(0, colonIndex), urlObj._protocol);
@@ -1028,6 +1553,13 @@ URL._isSpecialProtocol = function(protocol) {
     throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
   }
   if (
+    URL._isSpecialProtocol(urlObj._protocol.slice(0, -1)) &&
+    hostPart !== "" &&
+    (!urlObj._hostname || urlObj._hostname === "xn--" || _hasDisallowedPunycodeLabel(urlObj._hostname))
+  ) {
+    throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+  }
+  if (
     URL._SPECIAL_PROTOCOLS[urlObj._protocol.slice(0, -1)] &&
     urlObj._port === URL._SPECIAL_PROTOCOLS[urlObj._protocol.slice(0, -1)]
   ) {
@@ -1037,6 +1569,9 @@ URL._isSpecialProtocol = function(protocol) {
     urlObj._port &&
     (Number(urlObj._port) > 0xFFFF || String(Number(urlObj._port)) !== urlObj._port)
   ) {
+    throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
+  }
+  if (urlObj._protocol === "file:" && urlObj._port) {
     throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
   }
   if (urlObj._protocol === "file:" && urlObj._hostname === "localhost") {
@@ -1049,24 +1584,51 @@ URL._isSpecialProtocol = function(protocol) {
 URL._normalizePath = function(path) {
   if (!path) return "/";
   var segments = path.split("/");
+  var onlySlashAndDotPath = /^(\/{2,})(?:(?:\.{1,2})\/?)*$/.exec(path);
+  var preserveTrailingSlash =
+    path.charAt(path.length - 1) === "/" ||
+    _isSingleDotPathSegment(segments[segments.length - 1]) ||
+    _isDoubleDotPathSegment(segments[segments.length - 1]);
   var normalized = [];
   for (var i = 0; i < segments.length; i++) {
     var segment = segments[i];
-    if (segment === ".") continue;
-    if (segment === "..") {
-      normalized.pop();
+    if (_isSingleDotPathSegment(segment)) continue;
+    if (_isDoubleDotPathSegment(segment)) {
+      if (
+        normalized.length === 2 &&
+        normalized[0] === "" &&
+        /^[A-Za-z]:$/.test(normalized[1])
+      ) {
+        continue;
+      }
+      if (normalized.length > 1 || (normalized.length === 1 && normalized[0] !== "")) {
+        normalized.pop();
+      }
     } else {
       normalized.push(segment);
     }
   }
   var result = normalized.join("/");
   if (result.charAt(0) !== "/") result = "/" + result;
+  if (result === "") result = "/";
+  if (onlySlashAndDotPath) {
+    var parentSegmentMatches = path.match(/\.\.(?=\/|$)/g);
+    var preservedSlashCount = onlySlashAndDotPath[1].length - (parentSegmentMatches ? parentSegmentMatches.length : 0);
+    if (preservedSlashCount < 1) {
+      preservedSlashCount = 1;
+    }
+    result = new Array(preservedSlashCount + 1).join("/");
+  }
+  if (preserveTrailingSlash && result.charAt(result.length - 1) !== "/") {
+    result += "/";
+  }
   return result;
 };
 
 URL.prototype._parse = function(input, base, baseStr) {
   var isUndefined = typeof input === "undefined";
   var url;
+  this._hasEmptyAuthority = false;
   if (isUndefined) {
     if (!base) {
       throw _makeURLError(input, baseStr);
@@ -1085,17 +1647,9 @@ URL.prototype._parse = function(input, base, baseStr) {
       url = "undefined";
     }
   } else {
-    url = String(input).trim();
+    url = _trimUrlInput(input);
   }
-
-  // Only replace backslashes with slashes in the non-fragment part.
-  // Backslashes in the hash/fragment should be encoded as %5C, not replaced.
-  var _hashPos = url.indexOf('#');
-  if (_hashPos !== -1) {
-    url = url.slice(0, _hashPos).replace(/\\/g, '/') + url.slice(_hashPos);
-  } else {
-    url = url.replace(/\\/g, '/');
-  }
+  url = _stripAsciiTabAndNewline(url);
 
   var protocolMatch = URL._PROTO_RE.exec(url);
   var hasScheme = false;
@@ -1111,17 +1665,64 @@ URL.prototype._parse = function(input, base, baseStr) {
   }
 
   var isSpecial = URL._isSpecialProtocol(this._protocol.slice(0, -1));
+  if (
+    hasScheme &&
+    isSpecial &&
+    base &&
+    base.protocol !== this._protocol &&
+    url.slice(0, 2) !== "//" &&
+    (url === "" || url.charAt(0) === "?" || url.charAt(0) === "#")
+  ) {
+    throw _makeURLError(input, baseStr);
+  }
+  if (!hasScheme && base && base._isOpaque) {
+    var opaqueHashIndex = url.indexOf("#");
+    if (url === "") {
+      this._isOpaque = true;
+      this._pathname = base.pathname || "";
+      this._search = base.search || "";
+      this._hash = "";
+      return;
+    }
+    if (url.charAt(0) === "#") {
+      this._isOpaque = true;
+      this._pathname = base.pathname || "";
+      this._search = base.search || "";
+      this._hash = url === "#" ? "#" : (url.slice(1) ? "#" + _sanitizeFragmentComponent(url.slice(1)) : "");
+      return;
+    }
+    throw _makeURLError(input, baseStr);
+  }
   if (!isSpecial) {
     while (url.charCodeAt(0) > 0 && url.charCodeAt(0) <= 0x20 && url.charCodeAt(0) !== 0x20) {
       url = url.slice(1);
     }
   }
 
+  if (isSpecial) {
+    var _queryPos = url.indexOf("?");
+    var _hashPos = url.indexOf("#");
+    var _replaceEnd = url.length;
+    if (_queryPos !== -1 && _queryPos < _replaceEnd) {
+      _replaceEnd = _queryPos;
+    }
+    if (_hashPos !== -1 && _hashPos < _replaceEnd) {
+      _replaceEnd = _hashPos;
+    }
+    url = url.slice(0, _replaceEnd).replace(/\\/g, "/") + url.slice(_replaceEnd);
+  }
+
   var isSpecialNoFile = isSpecial && this._protocol !== "file:";
   var startsWithSpecialAuthority = url.slice(0, 2) === "//" && (isSpecial || url.charAt(2) !== "/");
+  var startsWithEmptyNonSpecialAuthority =
+    !isSpecial &&
+    url.slice(0, 3) === "///" &&
+    (hasScheme || !!base);
   var hasAuthority =
     (startsWithSpecialAuthority) ||
+    (startsWithEmptyNonSpecialAuthority) ||
     (isSpecialNoFile &&
+      hasScheme &&
       (!base || this._protocol !== "http:") &&
       url.slice(0, 2) !== "//");
   if (hasAuthority) {
@@ -1129,6 +1730,11 @@ URL.prototype._parse = function(input, base, baseStr) {
       url = url.slice(2);
     } else if (url.charAt(0) === "/") {
       url = url.slice(1);
+    }
+    if (isSpecial && this._protocol !== "file:") {
+      while (url.charAt(0) === "/") {
+        url = url.slice(1);
+      }
     }
     var pathStart = url.indexOf("/");
     var queryStart = url.indexOf("?");
@@ -1141,15 +1747,53 @@ URL.prototype._parse = function(input, base, baseStr) {
 
     var authority = url.slice(0, authorityEnd);
     url = url.slice(authorityEnd);
-    URL._parseAuthority(this, authority);
+    if (!isSpecial && authority === "") {
+      this._hasEmptyAuthority = true;
+    } else if (isSpecial && this._protocol !== "file:" && authority === "") {
+      throw _makeURLError(input, baseStr);
+    }
+    if (this._protocol === "file:") {
+      var decodedAuthority = authority;
+      try {
+        decodedAuthority = _decode(authority, false);
+      } catch (_fileAuthorityDecodeErr) {}
+      if (authority !== decodedAuthority && /^[A-Za-z](?:\:|\|)$/.test(decodedAuthority)) {
+        throw _makeURLError(input, baseStr);
+      }
+    }
+    if (this._protocol === "file:" && /^[A-Za-z](?:\:|\|)$/.test(authority)) {
+      this._hostname = "";
+      this._port = "";
+      url = "/" + authority.replace("|", ":") + url;
+    } else {
+      URL._parseAuthority(this, authority);
+    }
   } else if (base && isSpecial) {
+    if (
+      this._protocol === "file:" &&
+      (
+        !hasScheme ||
+        /^\/?[A-Za-z](?:\:|\|)(?:\/|$)/.test(url)
+      )
+    ) {
+      this._hostname = base.hostname || "";
+      this._port = "";
+    } else if (this._protocol !== "file:") {
+      this._hostname = base.hostname;
+      this._port = base.port;
+      this._username = base.username;
+      this._password = base.password;
+    }
+  } else if (base && !isSpecial && base._hostname && !hasAuthority && !hasScheme) {
     this._hostname = base.hostname;
     this._port = base.port;
     this._username = base.username;
     this._password = base.password;
+  } else if (base && base._hasEmptyAuthority && this._protocol === base.protocol) {
+    this._hasEmptyAuthority = true;
   }
   if (hasScheme) {
-    this._isOpaque = !isSpecial && !hasAuthority;
+    this._isOpaque = !isSpecial && !hasAuthority && url.charAt(0) !== "/";
   }
 
   var queryIndex = url.indexOf("?");
@@ -1159,41 +1803,94 @@ URL.prototype._parse = function(input, base, baseStr) {
   if (hashIndex !== -1 && hashIndex < pathEnd) pathEnd = hashIndex;
 
   var path = url.slice(0, pathEnd);
-  if (base && !this._isOpaque && path && path.charAt(0) !== "/") {
+  var inheritedPathFromBase = false;
+  var isFileWindowsDrivePath =
+    this._protocol === "file:" &&
+    path &&
+    /^\/?[A-Za-z](?:\:|\|)(?:\/|$)/.test(path);
+  if (
+    this._protocol === "file:" &&
+    base &&
+    typeof base.pathname === "string" &&
+    /^\/[A-Za-z]:(?:\/|$)/.test(base.pathname) &&
+    path &&
+    path.charAt(0) === "/" &&
+    !isFileWindowsDrivePath
+  ) {
+    path = base.pathname.slice(0, 3) + path;
+    isFileWindowsDrivePath = true;
+  }
+  if (isFileWindowsDrivePath) {
+    if (path.charAt(0) !== "/") {
+      path = "/" + path;
+    }
+    path = path.replace(/^\/([A-Za-z])\|/, "/$1:");
+  }
+  if (base && !this._isOpaque && path && path.charAt(0) !== "/" && !isFileWindowsDrivePath) {
     var basePath = base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1);
     path = basePath + path;
   } else if (!this._isOpaque && !path && base && !hasAuthority) {
     path = base.pathname;
+    inheritedPathFromBase = true;
   }
   if (this._isOpaque) {
-    this._pathname = path || "";
+    this._pathname = _sanitizeOpaquePathComponent(path || "");
     if (this._pathname.slice(-1) === " ") {
       this._pathname = this._pathname.slice(0, -1) + "%20";
     }
   } else {
-    if (path === "" && !isSpecial && hasAuthority) {
+    if (
+      path === "" &&
+      !isSpecial &&
+      (
+        hasAuthority ||
+        (
+          inheritedPathFromBase &&
+          !!this._hostname &&
+          base &&
+          base.pathname === ""
+        )
+      )
+    ) {
       this._pathname = "";
     } else {
-      this._pathname = URL._normalizePath(_sanitizePathComponent(path || "/"));
+      var normalizedPath = URL._normalizePath(_sanitizePathComponent(path || "/"));
+      if (
+        this._protocol === "file:" &&
+        !hasAuthority &&
+        !base &&
+        (path.slice(0, 2) === "//" || path.slice(0, 3) === ".//") &&
+        normalizedPath.slice(0, 2) !== "//"
+      ) {
+        normalizedPath = "/" + normalizedPath;
+      }
+      this._pathname = normalizedPath;
     }
   }
 
   if (queryIndex !== -1 && (hashIndex === -1 || queryIndex < hashIndex)) {
     var queryEnd = hashIndex !== -1 ? hashIndex : url.length;
-    this._search = "?" + _sanitizePathComponent(url.slice(queryIndex + 1, queryEnd));
+    var queryValue = url.slice(queryIndex + 1, queryEnd);
+    if (queryValue) {
+      this._search = "?" + _sanitizeQueryComponent(queryValue, isSpecial);
+    } else {
+      this._search = "?";
+    }
+  } else if (inheritedPathFromBase && base && !hasAuthority) {
+    this._search = base.search || "";
   } else {
     this._search = "";
   }
   if (hashIndex !== -1) {
-    // In fragments, backslashes should be encoded as %5C (not converted to /)
-    this._hash = "#" + _sanitizePathComponent(url.slice(hashIndex + 1)).replace(/\\/g, '%5C');
+    var fragmentValue = url.slice(hashIndex + 1);
+    this._hash = "#" + (fragmentValue ? _sanitizeFragmentComponent(fragmentValue) : "");
   } else {
     this._hash = "";
   }
 };
 
 URL.prototype._setPathFromString = function(pathname) {
-  this._pathname = URL._normalizePath(_sanitizeControlComponent(String(pathname)));
+  this._pathname = URL._normalizePath(_sanitizePathComponent(String(pathname)));
   if (this._searchParams) {
     var replacement = new URLSearchParams(this._search);
     this._searchParams._params = replacement._params;
@@ -1253,11 +1950,10 @@ Object.defineProperty(URL.prototype, "searchParams", {
           var blobPath = this.href.slice(5); // skip "blob:"
           var innerURL = new URL(blobPath);
           var innerScheme = innerURL.protocol.slice(0, -1);
-          // For file: URLs, return protocol + "//" + host (Bun compat)
-          if (innerScheme === "file") {
-            return innerURL.protocol + "//" + innerURL.host;
+          if (innerScheme === "http" || innerScheme === "https") {
+            return innerURL.origin;
           }
-          return innerURL.origin;
+          return "null";
         } catch(e) {
           return "null";
         }
@@ -1269,7 +1965,7 @@ Object.defineProperty(URL.prototype, "searchParams", {
       // Only http, https, ftp, ws, wss have a meaningful origin
       if (scheme === "http" || scheme === "https" || scheme === "ftp" ||
           scheme === "ws" || scheme === "wss") {
-        return this._protocol + "//" + this.host;
+        return this._protocol + "//" + String(this.host).toLowerCase();
       }
       return "null";
     },
@@ -1346,6 +2042,33 @@ Object.defineProperty(URL.prototype, "password", {
       return this._hostname;
   },
     set: function(value) {
+    if (this._protocol === "file:") {
+      var fileHostInput = _sanitizeHostComponent(value, this._protocol);
+      if (fileHostInput === null) {
+        return;
+      }
+      fileHostInput = _parseHostInput(fileHostInput, true);
+      if (fileHostInput === "") {
+        this._hostname = "";
+        this._port = "";
+        return;
+      }
+      var fileColonIndex = fileHostInput.lastIndexOf(":");
+      if (fileColonIndex !== -1 && fileHostInput.charAt(0) !== "[") {
+        if (fileHostInput.slice(fileColonIndex + 1) !== "") {
+          return;
+        }
+        fileHostInput = fileHostInput.slice(0, fileColonIndex);
+      }
+      try {
+        fileHostInput = _decode(fileHostInput, false);
+      } catch (_fileHostDecodeErr) {}
+      if (_canonicalizeHost(fileHostInput, this._protocol) === "localhost") {
+        this._hostname = "";
+        this._port = "";
+      }
+      return;
+    }
     var input = _sanitizeHostComponent(value, this._protocol);
     if (input === null) {
       return;
@@ -1353,13 +2076,29 @@ Object.defineProperty(URL.prototype, "password", {
     if (this._isOpaque && this._pathname.charAt(0) !== "/") {
       return;
     }
+    var rawInput = String(value);
     var isSpecial = !!URL._SPECIAL_PROTOCOLS[this._protocol.slice(0, -1)];
     var hostInput = _parseHostInput(input, isSpecial);
     if (hostInput === "") {
-      if (!URL._SPECIAL_PROTOCOLS[this._protocol.slice(0, -1)] && this._hostname) {
+      if (
+        !isSpecial &&
+        (
+          (rawInput !== "" && _stripAsciiTabAndNewline(rawInput) === "") ||
+          (
+            (this._hostname || (this._pathname && this._pathname.slice(0, 2) === "//")) &&
+            !this._username &&
+            !this._password &&
+            !this._port
+          )
+        )
+      ) {
         this._hostname = "";
         this._port = "";
+        this._hasEmptyAuthority = true;
       }
+      return;
+    }
+    if (!isSpecial && hostInput.charAt(0) === ":") {
       return;
     }
     if (hostInput.indexOf(" ") !== -1) {
@@ -1374,7 +2113,12 @@ Object.defineProperty(URL.prototype, "password", {
     if (hostInput.charAt(0) === "[" && hostInput.indexOf("]") !== -1) {
       var closingBracket = hostInput.indexOf("]");
       var hasPort = hostInput.charAt(closingBracket + 1) === ":";
-      this._hostname = _canonicalizeHost(hostInput.slice(0, closingBracket + 1), this._protocol);
+      var normalizedHost = _normalizeIPv6Host(hostInput.slice(0, closingBracket + 1));
+      if (normalizedHost === null) {
+        return;
+      }
+      this._hostname = normalizedHost;
+      this._hasEmptyAuthority = false;
       if (hasPort) {
         var port = hostInput.slice(closingBracket + 2);
         var parsedPort = _normalizePort(port);
@@ -1395,7 +2139,15 @@ Object.defineProperty(URL.prototype, "password", {
     } else {
       var colonIndex = hostInput.lastIndexOf(":");
       if (colonIndex !== -1) {
-        this._hostname = _canonicalizeHost(hostInput.slice(0, colonIndex), this._protocol);
+        if (isSpecial && (hostInput.indexOf("<") !== -1 || hostInput.indexOf(">") !== -1)) {
+          return;
+        }
+        var hostNameValue = _canonicalizeHost(hostInput.slice(0, colonIndex), this._protocol);
+        if (isSpecial && (!hostNameValue || hostNameValue === "xn--" || _hasDisallowedPunycodeLabel(hostNameValue))) {
+          return;
+        }
+        this._hostname = hostNameValue;
+        this._hasEmptyAuthority = false;
         if (colonIndex < hostInput.length - 1) {
           var portInput = hostInput.slice(colonIndex + 1);
           var parsedPort = _normalizePort(portInput);
@@ -1412,10 +2164,19 @@ Object.defineProperty(URL.prototype, "password", {
           }
         }
       } else if (hostInput !== "") {
-        this._hostname = _canonicalizeHost(hostInput, this._protocol);
+        if (isSpecial && (hostInput.indexOf("<") !== -1 || hostInput.indexOf(">") !== -1)) {
+          return;
+        }
+        var normalizedNamedHost = _canonicalizeHost(hostInput, this._protocol);
+        if (isSpecial && (!normalizedNamedHost || normalizedNamedHost === "xn--" || _hasDisallowedPunycodeLabel(normalizedNamedHost))) {
+          return;
+        }
+        this._hostname = normalizedNamedHost;
+        this._hasEmptyAuthority = false;
       } else {
         this._hostname = "";
         this._port = "";
+        this._hasEmptyAuthority = true;
       }
     }
     }
@@ -1425,6 +2186,26 @@ Object.defineProperty(URL.prototype, "hostname", {
   configurable: true,
   get: function() { return this._hostname; },
   set: function(value) {
+    if (this._protocol === "file:") {
+      var fileHostname = _sanitizeHostComponent(value, this._protocol);
+      if (fileHostname === null) {
+        return;
+      }
+      fileHostname = _parseHostInput(fileHostname, true);
+      if (fileHostname === "") {
+        this._hostname = "";
+        this._port = "";
+        return;
+      }
+      try {
+        fileHostname = _decode(fileHostname, false);
+      } catch (_fileHostnameDecodeErr) {}
+      if (_canonicalizeHost(fileHostname, this._protocol) === "localhost") {
+        this._hostname = "";
+        this._port = "";
+      }
+      return;
+    }
     var input = _sanitizeHostComponent(value, this._protocol);
     if (input === null) {
       return;
@@ -1432,18 +2213,66 @@ Object.defineProperty(URL.prototype, "hostname", {
     if (this._isOpaque && this._pathname.charAt(0) !== "/") {
       return;
     }
+    var rawInput = String(value);
     var isSpecial = !!URL._SPECIAL_PROTOCOLS[this._protocol.slice(0, -1)];
     var hostInput = _parseHostInput(input, isSpecial);
+    if (!isSpecial && hostInput === "") {
+      if (
+        (rawInput !== "" && _stripAsciiTabAndNewline(rawInput) === "") ||
+        ((rawInput === "" || /[\/?#]/.test(rawInput)) &&
+          (this._hostname || (this._pathname && this._pathname.slice(0, 2) === "//")) &&
+          !this._username &&
+          !this._password &&
+          !this._port)
+      ) {
+        this._hostname = "";
+        this._port = "";
+        this._hasEmptyAuthority = true;
+      }
+      return;
+    }
     if (hostInput === "" || hostInput.indexOf(" ") !== -1) {
       return;
     }
     if (hostInput.indexOf("@") !== -1) {
       return;
     }
+    if (
+      !isSpecial &&
+      (hostInput.indexOf("#") !== -1 || hostInput.indexOf("/") !== -1 || hostInput.indexOf("?") !== -1)
+    ) {
+      this._hostname = "";
+      this._port = "";
+      return;
+    }
+    if (
+      isSpecial &&
+      (
+        (hostInput.indexOf(":") !== -1 && hostInput.charAt(0) !== "[") ||
+        hostInput.indexOf("<") !== -1 ||
+        hostInput.indexOf(">") !== -1
+      )
+    ) {
+      return;
+    }
     if (hostInput.indexOf("\\") !== -1 && !isSpecial) {
       return;
     }
-    this._hostname = _canonicalizeHost(hostInput, this._protocol);
+    if (hostInput.charAt(0) === "[") {
+      var normalizedHost = _normalizeIPv6Host(hostInput);
+      if (normalizedHost === null) {
+        return;
+      }
+      this._hostname = normalizedHost;
+      this._hasEmptyAuthority = false;
+      return;
+    }
+    var normalizedHostname = _canonicalizeHost(hostInput, this._protocol);
+    if (isSpecial && (!normalizedHostname || normalizedHostname === "xn--" || _hasDisallowedPunycodeLabel(normalizedHostname))) {
+      return;
+    }
+    this._hostname = normalizedHostname;
+    this._hasEmptyAuthority = false;
   }
 });
 
@@ -1451,7 +2280,15 @@ Object.defineProperty(URL.prototype, "port", {
   configurable: true,
   get: function() { return this._port; },
   set: function(value) {
+    if (this._protocol === "file:" || !this._hostname || (this._isOpaque && this._pathname.charAt(0) !== "/")) {
+      return;
+    }
     var port = String(value);
+    if (port === "") {
+      this._port = "";
+      return;
+    }
+    var strippedPort = _stripAsciiTabAndNewline(port);
     var parsedPort = "";
     var hadNonDigits = false;
     for (var i = 0; i < port.length; i++) {
@@ -1466,11 +2303,17 @@ Object.defineProperty(URL.prototype, "port", {
       }
     }
     if (parsedPort === "") {
+      if (strippedPort === "") {
+        return;
+      }
       if (hadNonDigits) return;
       this._port = "";
       return;
     }
     port = parsedPort;
+    if (Number(port) > 0xFFFF) {
+      return;
+    }
 
     var defaultPort = URL._SPECIAL_PROTOCOLS[this._protocol.slice(0, -1)];
     if (!port || port === defaultPort) {
@@ -1485,7 +2328,28 @@ Object.defineProperty(URL.prototype, "pathname", {
   configurable: true,
   get: function() { return this._pathname; },
   set: function(value) {
-    this._pathname = URL._normalizePath(_sanitizeControlComponent(String(value)));
+    if (this._isOpaque && this._pathname.charAt(0) !== "/") {
+      return;
+    }
+    var pathname = _stripAsciiTabAndNewline(String(value));
+    var isSpecial = URL._isSpecialProtocol(this._protocol.slice(0, -1));
+    if (isSpecial) {
+      if (pathname === "") {
+        pathname = "/";
+      }
+      pathname = pathname.replace(/\\/g, '/');
+      this._pathname = URL._normalizePath(_sanitizePathComponent(pathname));
+    } else {
+      if (pathname === "") {
+        this._pathname = (!this._hostname && !this._hasEmptyAuthority) ? "/" : "";
+      } else {
+        if (!this._isOpaque && pathname.charAt(0) !== "/") {
+          pathname = "/" + pathname;
+        }
+        pathname = _sanitizePathComponent(pathname);
+        this._pathname = URL._normalizePath(pathname);
+      }
+    }
     if (this._searchParams) {
       var parsedSearch = new URLSearchParams(this._search);
       this._searchParams._params = parsedSearch._params;
@@ -1495,11 +2359,20 @@ Object.defineProperty(URL.prototype, "pathname", {
 
 Object.defineProperty(URL.prototype, "search", {
   configurable: true,
-  get: function() { return this._search; },
+  get: function() {
+    var search = this._search || "";
+    return search === "?" ? "" : search;
+  },
   set: function(value) {
-    var search = _sanitizeControlComponent(String(value));
-    if (search && search.charAt(0) !== "?") search = "?" + search;
-    this._search = search;
+    var search = _stripAsciiTabAndNewline(String(value));
+    if (!search) {
+      this._search = "";
+    } else if (search === "?") {
+      this._search = "?";
+    } else {
+      if (search.charAt(0) === "?") search = search.slice(1);
+      this._search = search ? "?" + _sanitizeQueryComponent(search, URL._isSpecialProtocol(this._protocol.slice(0, -1))) : "";
+    }
     if (this._searchParams) {
       var parsedSearch = new URLSearchParams(this._search);
       this._searchParams._params = parsedSearch._params;
@@ -1509,11 +2382,22 @@ Object.defineProperty(URL.prototype, "search", {
 
 Object.defineProperty(URL.prototype, "hash", {
   configurable: true,
-  get: function() { return this._hash; },
+  get: function() {
+    var hash = this._hash || "";
+    return hash === "#" ? "" : hash;
+  },
   set: function(value) {
-    var hash = _sanitizeControlComponent(String(value));
-    if (hash && hash.charAt(0) !== "#") hash = "#" + hash;
-    this._hash = hash;
+    var hash = _stripAsciiTabAndNewline(String(value));
+    if (!hash) {
+      this._hash = "";
+      return;
+    }
+    if (hash === "#") {
+      this._hash = "#";
+      return;
+    }
+    if (hash.charAt(0) === "#") hash = hash.slice(1);
+    this._hash = "#" + (hash ? _sanitizeFragmentComponent(hash) : "");
   }
 });
 
@@ -1522,7 +2406,16 @@ URL.prototype.toString = function() {
   if (this._protocol === "file:" && !this._hostname) {
     href += "//";
   }
-  if (!this._hostname && !this._isOpaque && !URL._isSpecialProtocol(this._protocol.slice(0, -1))) {
+  if (this._hasEmptyAuthority && !this._hostname) {
+    href += "//";
+  }
+  if (
+    !this._hasEmptyAuthority &&
+    !this._hostname &&
+    !this._isOpaque &&
+    !URL._isSpecialProtocol(this._protocol.slice(0, -1)) &&
+    (this._pathname === "" || this._pathname === null)
+  ) {
     href += "//";
   }
   if (this._hostname) {
@@ -1538,6 +2431,14 @@ URL.prototype.toString = function() {
     }
     href += this._hostname;
     if (this._port) href += ":" + this._port;
+  } else if (
+    !this._hasEmptyAuthority &&
+    !this._isOpaque &&
+    !URL._isSpecialProtocol(this._protocol.slice(0, -1)) &&
+    typeof this._pathname === "string" &&
+    this._pathname.slice(0, 2) === "//"
+  ) {
+    href += "/.";
   }
   href += this._pathname;
   href += this._search;
@@ -1608,7 +2509,13 @@ function URLSearchParams(init) {
     if (typeof DOMException !== "undefined" && init === DOMException.prototype) {
       throw new TypeError("Invalid URLSearchParams initializer");
     }
-    if (typeof DOMException !== "undefined" && init === DOMException) {
+    if (
+      typeof init === "function" &&
+      (
+        (typeof DOMException !== "undefined" && init === DOMException) ||
+        init.name === "DOMException"
+      )
+    ) {
       var constants = [
         "INDEX_SIZE_ERR",
         "DOMSTRING_SIZE_ERR",
@@ -1836,6 +2743,26 @@ var URLSearchParamsExport = URLSearchParams;
 if (typeof globalThis !== "undefined") {
   globalThis.__exactUrlCtor = URLExport;
   globalThis.__exactUrlSearchParamsCtor = URLSearchParamsExport;
+  try {
+    Object.defineProperty(globalThis, "URL", {
+      configurable: true,
+      writable: true,
+      enumerable: true,
+      value: URLExport
+    });
+  } catch (_setUrlGlobalErr) {
+    globalThis.URL = URLExport;
+  }
+  try {
+    Object.defineProperty(globalThis, "URLSearchParams", {
+      configurable: true,
+      writable: true,
+      enumerable: true,
+      value: URLSearchParamsExport
+    });
+  } catch (_setUrlSearchParamsGlobalErr) {
+    globalThis.URLSearchParams = URLSearchParamsExport;
+  }
 }
 
 
@@ -1992,7 +2919,17 @@ function _legacyFormat(urlObj) {
   var result = protocol;
   var isSpecialProto = /^(https?|ftp|gopher|file):$/i.test(protocol);
   var hasHost = !!(host || hostname);
-  if (slashes !== false && (slashes === true || (isSpecialProto && hasHost))) {
+  var useAuthoritySlashes =
+    slashes === true ||
+    (
+      slashes !== false &&
+      isSpecialProto &&
+      (
+        hasHost ||
+        pathname.charAt(0) === '/'
+      )
+    );
+  if (useAuthoritySlashes) {
     result += '//';
   }
   if (auth) {
@@ -2013,6 +2950,61 @@ function _legacyFormat(urlObj) {
   if (hash && hash.charAt(0) !== '#') result += '#' + hash;
   else result += hash;
   return result;
+}
+
+function _legacyResolveHref(urlObj) {
+  if (
+    !urlObj.slashes &&
+    !urlObj.auth &&
+    !urlObj.host &&
+    !urlObj.hostname &&
+    urlObj.pathname &&
+    urlObj.pathname.charAt(0) !== '/'
+  ) {
+    var schemePathHref = urlObj.protocol || '';
+    schemePathHref += urlObj.pathname;
+    if (urlObj.search) {
+      schemePathHref += urlObj.search;
+    }
+    if (urlObj.hash) {
+      schemePathHref += urlObj.hash;
+    }
+    return schemePathHref;
+  }
+  if (
+    urlObj.protocol === 'file:' &&
+    !urlObj.slashes &&
+    !urlObj.auth &&
+    !urlObj.host &&
+    !urlObj.hostname
+  ) {
+    var fileHref = 'file:';
+    if (urlObj.pathname) {
+      fileHref += urlObj.pathname;
+    }
+    if (urlObj.search) {
+      fileHref += urlObj.search;
+    }
+    if (urlObj.hash) {
+      fileHref += urlObj.hash;
+    }
+    return fileHref;
+  }
+  var formatted = _legacyFormat(urlObj);
+  if (
+    urlObj.protocol &&
+    /^(https?|ftp|gopher|file|ws|wss):$/i.test(urlObj.protocol) &&
+    urlObj.slashes &&
+    !urlObj.auth &&
+    !urlObj.host &&
+    !urlObj.hostname &&
+    (!urlObj.pathname || urlObj.pathname === '/')
+  ) {
+    try {
+      return new URLExport(formatted).href;
+    } catch (_legacyResolveHrefErr) {}
+  }
+  return formatted;
 }
 
 function encodeAuth(str) {
@@ -2219,34 +3211,47 @@ function parse(value, parseQueryString, slashesDenoteHost) {
   // Try WHATWG URL parser for absolute URLs
   var hasProtocol = /^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(value);
   if (hasProtocol) {
-    try {
-      var u = new URL(value);
-      result.protocol = u.protocol || null;
-      result.slashes = u.protocol ? true : null;
-      result.host = u.host || null;
-      result.port = u.port || null;
-      result.hostname = u.hostname || null;
-      result.hash = u.hash || null;
-      result.search = u.search || null;
-      result.pathname = u.pathname || null;
-      result.path = (u.pathname || '') + (u.search || '') || null;
-      result.href = u.href;
-      if (u.username || u.password) {
-        result.auth = (u.username || '') + (u.password ? ':' + u.password : '');
+    var whatwgProtocolMatch = /^([a-zA-Z][a-zA-Z0-9+\-.]*):/.exec(value);
+    var whatwgProtocol = whatwgProtocolMatch ? whatwgProtocolMatch[1].toLowerCase() : '';
+    var whatwgRest = whatwgProtocolMatch ? value.slice(whatwgProtocolMatch[0].length) : '';
+    var isLegacyTripleSlashSpecial =
+      /^(https?|ftp|gopher|ws|wss)$/.test(whatwgProtocol) &&
+      whatwgRest.slice(0, 3) === '///';
+    var shouldUseWhatwgAbsolute = whatwgRest.slice(0, 2) === '//' && !isLegacyTripleSlashSpecial;
+    if (shouldUseWhatwgAbsolute) {
+      try {
+        var protocolMatch = /^([a-zA-Z][a-zA-Z0-9+\-.]*):/.exec(value);
+        if (protocolMatch) {
+          _validateSpecialHostForParse(value, protocolMatch[1].toLowerCase());
+        }
+        _validateLegacyParseAuthEncoding(value);
+        var u = new URL(value);
+        result.protocol = u.protocol || null;
+        result.slashes = u.protocol ? true : null;
+        result.host = u.host || null;
+        result.port = u.port || null;
+        result.hostname = u.hostname || null;
+        result.hash = u.hash || null;
+        result.search = u.search || null;
+        result.pathname = u.pathname || null;
+        result.path = (u.pathname || '') + (u.search || '') || null;
+        result.href = u.href;
+        if (u.username || u.password) {
+          result.auth = (u.username || '') + (u.password ? ':' + u.password : '');
+        }
+        if (parseQueryString) {
+          var qs = require('querystring');
+          result.query = qs.parse(u.search ? u.search.slice(1) : '');
+        } else {
+          result.query = u.search ? u.search.slice(1) : null;
+        }
+        return result;
+      } catch (e) {
+        // Propagate URIError (bad percent encoding like %E0%A4%A)
+        if (e instanceof URIError) throw e;
+        if (e && e.__exactInvalidUrl) throw e;
+        // Other parse errors: fall through to legacy parsing
       }
-      if (parseQueryString) {
-        var qs = require('querystring');
-        result.query = qs.parse(u.search ? u.search.slice(1) : '');
-      } else {
-        result.query = u.search ? u.search.slice(1) : null;
-      }
-      return result;
-    } catch (e) {
-      // Propagate URIError (bad percent encoding like %E0%A4%A)
-      if (e instanceof URIError) throw e;
-      // Propagate ERR_INVALID_URL for null chars in hostname etc.
-      if (e && e.code === 'ERR_INVALID_URL' && e.input !== undefined) throw e;
-      // Other parse errors: fall through to legacy parsing
     }
   }
 
@@ -2294,7 +3299,28 @@ function parse(value, parseQueryString, slashesDenoteHost) {
     rest = rest.slice(0, qIdx);
   }
 
-  if (result.slashes) {
+  if (!result.slashes && proto && !isSpecial) {
+    if (!rest) {
+      result.pathname = null;
+    } else if (rest.charAt(0) === '/') {
+      result.host = '';
+      result.hostname = '';
+      result.pathname = rest;
+    } else {
+      var opaqueSlashIdx = rest.indexOf('/');
+      if (opaqueSlashIdx === -1) {
+        result.host = rest;
+        result.hostname = rest;
+        result.pathname = null;
+      } else {
+        result.host = rest.slice(0, opaqueSlashIdx);
+        result.hostname = result.host;
+        result.pathname = rest.slice(opaqueSlashIdx);
+      }
+      result.port = null;
+      result.auth = null;
+    }
+  } else if (result.slashes) {
     // Parse authority
     var pathIdx = rest.indexOf('/');
     var authorityStr, pathStr;
@@ -2313,8 +3339,13 @@ function parse(value, parseQueryString, slashesDenoteHost) {
       }
     }
     result.auth = hostInfo.auth || null;
-    result.host = hostInfo.host || null;
-    result.hostname = hostInfo.hostname || null;
+    if (authorityStr === '' && isSpecial && proto !== 'file:') {
+      result.host = '';
+      result.hostname = '';
+    } else {
+      result.host = hostInfo.host != null ? hostInfo.host : null;
+      result.hostname = hostInfo.hostname != null ? hostInfo.hostname : null;
+    }
     result.port = hostInfo.port || null;
     // Invalid chars from hostname end become path prefix
     var pathFull = _legacyEncodePath(hostInfo.pathPrefix) + pathStr;
@@ -2346,23 +3377,22 @@ function parse(value, parseQueryString, slashesDenoteHost) {
 
 function resolve(from, to) {
   if (!from) return to;
-  try {
-    var fromParsed = parse(from);
-    var base = fromParsed.href || from;
-    return new URL(to, base).href;
-  } catch(e) {
-    return format(resolveObject(parse(from), to));
-  }
+  return format(resolveObject(parse(from), to));
 }
 
 function resolveObject(source, relative) {
+  if (source === '') {
+    return relative;
+  }
   if (typeof source === 'string') {
     source = parse(source);
   }
   if (!source || typeof source !== 'object') {
     return parse(relative);
   }
+  var relativeSource = null;
   if (typeof relative === 'string') {
+    relativeSource = relative;
     if (!relative) {
       // Empty string: return source without hash
       var noHash = Object.create(Url.prototype);
@@ -2371,7 +3401,7 @@ function resolveObject(source, relative) {
       noHash.search = source.search || null;
       noHash.query = source.query || null;
       noHash.path = (source.pathname || '') + (source.search || '') || null;
-      noHash.href = _legacyFormat(noHash);
+      noHash.href = _legacyResolveHref(noHash);
       return noHash;
     }
     relative = parse(relative);
@@ -2380,11 +3410,285 @@ function resolveObject(source, relative) {
 
   // If the relative URL has a protocol that differs, just return it
   if (relative.protocol && relative.protocol !== source.protocol) {
-    relative.href = _legacyFormat(relative);
+    if (
+      /^(https?|ftp|gopher|file|ws|wss):$/i.test(relative.protocol) &&
+      !relative.auth &&
+      !relative.host &&
+      !relative.hostname
+    ) {
+      relative.slashes = true;
+      if (/^file:$/i.test(relative.protocol)) {
+        if (!relative.pathname || relative.pathname.charAt(0) !== '/') {
+          relative.pathname = '/';
+        }
+      } else {
+        relative.host = '';
+        relative.hostname = '';
+      }
+      if (/^file:$/i.test(relative.protocol)) {
+        relative.host = null;
+        relative.hostname = null;
+      } else if (relative.pathname && relative.pathname.charAt(0) === '/' && relative.pathname.length > 1) {
+        var authoritySegments = relative.pathname.slice(1).split('/');
+        var impliedHost = authoritySegments.shift();
+        if (impliedHost) {
+          relative.host = impliedHost;
+          relative.hostname = impliedHost;
+          relative.pathname = '/' + authoritySegments.join('/');
+          if (relative.pathname === '') {
+            relative.pathname = '/';
+          }
+        } else {
+          relative.host = '';
+          relative.hostname = '';
+          relative.pathname = '/';
+        }
+      } else {
+        relative.host = '';
+        relative.hostname = '';
+        relative.pathname = '/';
+      }
+      relative.path = (relative.pathname || '/') + (relative.search || '');
+    }
+    relative.href = _legacyResolveHref(relative);
     return relative;
   }
 
+  if (
+    relativeSource &&
+    relative.protocol &&
+    relative.protocol === source.protocol &&
+    relativeSource.indexOf(source.protocol) === 0
+  ) {
+    var relativeRemainder = relativeSource.slice(source.protocol.length);
+    if (
+      relativeSource.indexOf(source.protocol + '//') !== 0 &&
+      (
+        relativeRemainder === '' ||
+        relativeRemainder.charAt(0) === '/' ||
+        relativeRemainder.charAt(0) === '?' ||
+        relativeRemainder.charAt(0) === '#'
+      )
+    ) {
+      var inheritedRelative = new Url();
+      inheritedRelative.protocol = source.protocol;
+      inheritedRelative.slashes = source.slashes;
+      inheritedRelative.auth = source.auth;
+      inheritedRelative.host = source.host;
+      inheritedRelative.hostname = source.hostname;
+      inheritedRelative.port = source.port;
+
+      var remainderHashIndex = relativeRemainder.indexOf('#');
+      var remainderQueryIndex = relativeRemainder.indexOf('?');
+      var remainderPathEnd = relativeRemainder.length;
+      if (remainderQueryIndex !== -1 && remainderQueryIndex < remainderPathEnd) {
+        remainderPathEnd = remainderQueryIndex;
+      }
+      if (remainderHashIndex !== -1 && remainderHashIndex < remainderPathEnd) {
+        remainderPathEnd = remainderHashIndex;
+      }
+      var rawPathname = relativeRemainder.slice(0, remainderPathEnd);
+
+      var hasExplicitPathname = rawPathname && rawPathname.charAt(0) === '/';
+      if (hasExplicitPathname) {
+        inheritedRelative.pathname = _normalizeLegacyPath(
+          rawPathname,
+          /(?:\/|^)(?:\.{1,2})\/?$/.test(rawPathname) || rawPathname.slice(-1) === '/'
+        );
+      } else {
+        inheritedRelative.pathname = source.pathname;
+      }
+
+      inheritedRelative.search = relative.search != null ? relative.search : (hasExplicitPathname ? null : source.search);
+      inheritedRelative.query = relative.query != null ? relative.query : (hasExplicitPathname ? null : source.query);
+      inheritedRelative.hash = relative.hash != null ? relative.hash : (hasExplicitPathname ? null : source.hash);
+      inheritedRelative.path = (inheritedRelative.pathname || '') + (inheritedRelative.search || '') || null;
+      inheritedRelative.href = _legacyResolveHref(inheritedRelative);
+      return inheritedRelative;
+    }
+  }
+
+  if (
+    relative.protocol &&
+    relative.protocol === source.protocol &&
+    !relative.auth &&
+    !relative.host &&
+    !relative.hostname &&
+    relative.slashes &&
+    (relative.pathname === '/' || relative.pathname === '' || relative.pathname === null)
+  ) {
+    var inherited = new Url();
+    inherited.protocol = source.protocol;
+    inherited.slashes = source.slashes;
+    inherited.auth = source.auth;
+    inherited.host = source.host;
+    inherited.hostname = source.hostname;
+    inherited.port = source.port;
+    inherited.pathname = source.pathname;
+    inherited.search = relative.search != null ? relative.search : source.search;
+    inherited.query = relative.query != null ? relative.query : source.query;
+    inherited.hash = relative.hash != null ? relative.hash : source.hash;
+    inherited.path = (inherited.pathname || '') + (inherited.search || '') || null;
+    inherited.href = _legacyResolveHref(inherited);
+    return inherited;
+  }
+
+  if (
+    !relative.protocol &&
+    !relative.host &&
+    !relative.hostname &&
+    typeof relative.pathname === 'string' &&
+    relative.pathname.slice(0, 2) === '//' &&
+    source.slashes
+  ) {
+    var netLoc = relative.pathname.slice(2);
+    var firstSlash = netLoc.indexOf('/');
+    var protocolRelativeHost = firstSlash === -1 ? netLoc : netLoc.slice(0, firstSlash);
+    var preserveEmptyProtocolRelativeHost =
+      protocolRelativeHost === '' &&
+      source.protocol &&
+      URL._isSpecialProtocol(source.protocol.slice(0, -1)) &&
+      source.protocol !== 'file:';
+    var protocolRelative = new Url();
+    protocolRelative.protocol = source.protocol;
+    protocolRelative.slashes = true;
+    protocolRelative.auth = relative.auth || null;
+    protocolRelative.host = preserveEmptyProtocolRelativeHost
+      ? ''
+      : (protocolRelativeHost || null);
+    protocolRelative.hostname = preserveEmptyProtocolRelativeHost
+      ? ''
+      : (protocolRelativeHost || null);
+    protocolRelative.port = null;
+    protocolRelative.pathname = firstSlash === -1
+      ? (/^(https?|ftp|gopher|file|ws|wss):$/i.test(source.protocol || '') ? '/' : null)
+      : netLoc.slice(firstSlash);
+    protocolRelative.search = relative.search || null;
+    protocolRelative.query = relative.query || null;
+    protocolRelative.hash = relative.hash || null;
+    protocolRelative.path = (protocolRelative.pathname || '') + (protocolRelative.search || '') || null;
+    protocolRelative.href = _legacyResolveHref(protocolRelative);
+    return protocolRelative;
+  }
+
   var result = new Url();
+  if (
+    !relative.protocol &&
+    !relative.slashes &&
+    typeof relative.pathname === 'string' &&
+    relative.pathname.slice(0, 2) === '//' &&
+    source.protocol
+  ) {
+    var networkPath = relative.pathname.slice(2);
+    var networkPathIdx = networkPath.indexOf('/');
+    var networkAuthority = networkPathIdx === -1 ? networkPath : networkPath.slice(0, networkPathIdx);
+    var networkPathname = networkPathIdx === -1 ? '/' : networkPath.slice(networkPathIdx);
+    var networkHostInfo = _legacyParseHost(networkAuthority);
+
+    result.protocol = source.protocol;
+    result.slashes = true;
+    result.auth = networkHostInfo.auth || null;
+    result.host = networkHostInfo.host != null ? networkHostInfo.host : null;
+    result.hostname = networkHostInfo.hostname != null ? networkHostInfo.hostname : null;
+    if (
+      networkAuthority === '' &&
+      !URL._isSpecialProtocol(source.protocol.slice(0, -1))
+    ) {
+      result.host = null;
+      result.hostname = null;
+    }
+    result.port = networkHostInfo.port || null;
+    result.pathname = networkPathname || '/';
+    result.search = relative.search || null;
+    result.query = relative.query !== undefined ? relative.query : null;
+    result.hash = relative.hash !== undefined ? (relative.hash || null) : null;
+    result.path = (result.pathname || '') + (result.search || '') || null;
+    result.href = _legacyResolveHref(result);
+    return result;
+  }
+  var sourceUsesOpaquePath =
+    source.protocol &&
+    !source.slashes &&
+    !URL._isSpecialProtocol(source.protocol.slice(0, -1));
+  var canResolveOpaquePath =
+    sourceUsesOpaquePath &&
+    !relative.slashes &&
+    (!relative.protocol || relative.protocol === source.protocol);
+
+  if (canResolveOpaquePath) {
+    var sourceOpaque = (source.host || '') + (source.pathname || '');
+    var relativeOpaque = (relative.host || '') + (relative.pathname || '');
+    var resolvedOpaque = relativeOpaque
+      ? _resolveOpaquePath(sourceOpaque, relativeOpaque)
+      : sourceOpaque;
+
+    result.protocol = relative.protocol || source.protocol;
+    result.slashes = null;
+    result.auth = null;
+    result.port = null;
+    if (!resolvedOpaque) {
+      result.host = null;
+      result.hostname = null;
+      result.pathname = null;
+    } else if (resolvedOpaque.charAt(0) === '/') {
+      result.host = '';
+      result.hostname = '';
+      result.pathname = resolvedOpaque;
+    } else {
+      var opaqueSlashIdx = resolvedOpaque.indexOf('/');
+      if (opaqueSlashIdx === -1) {
+        result.host = resolvedOpaque;
+        result.hostname = resolvedOpaque;
+        result.pathname = null;
+      } else {
+        result.host = resolvedOpaque.slice(0, opaqueSlashIdx);
+        result.hostname = result.host;
+        result.pathname = resolvedOpaque.slice(opaqueSlashIdx);
+      }
+    }
+    result.search = relative.search !== undefined ? (relative.search || null) : (source.search || null);
+    result.query = relative.query !== undefined ? (relative.query !== undefined ? relative.query : null) : (source.query || null);
+    result.hash = relative.hash !== undefined ? (relative.hash || null) : null;
+    result.path = (result.pathname || '') + (result.search || '') || null;
+    result.href = _legacyResolveHref(result);
+    return result;
+  }
+
+  if (
+    relativeSource &&
+    relativeSource.slice(0, 2) === '//' &&
+    !relative.protocol
+  ) {
+    result.protocol = source.protocol;
+    result.slashes = true;
+    result.auth = null;
+    var authorityPath = relative.pathname || '';
+    if (authorityPath.slice(0, 2) === '//') {
+      authorityPath = authorityPath.slice(2);
+    }
+    var authorityPathSlashIdx = authorityPath.indexOf('/');
+    var authority = authorityPathSlashIdx === -1 ? authorityPath : authorityPath.slice(0, authorityPathSlashIdx);
+    var relativeHostInfo = _legacyParseHost(authority);
+    result.host = relativeHostInfo.host != null ? relativeHostInfo.host : null;
+    result.hostname = relativeHostInfo.hostname != null ? relativeHostInfo.hostname : null;
+    if (
+      authority === '' &&
+      !URL._isSpecialProtocol(source.protocol.slice(0, -1))
+    ) {
+      result.host = null;
+      result.hostname = null;
+    }
+    result.port = relativeHostInfo.port || null;
+    result.pathname = authorityPathSlashIdx === -1
+      ? (URL._isSpecialProtocol(source.protocol.slice(0, -1)) ? '/' : null)
+      : (authorityPath.slice(authorityPathSlashIdx) || '/');
+    result.search = relative.search !== undefined ? (relative.search || null) : null;
+    result.query = relative.query !== undefined ? (relative.query !== undefined ? relative.query : null) : null;
+    result.hash = relative.hash !== undefined ? (relative.hash || null) : null;
+    result.path = (result.pathname || '') + (result.search || '') || null;
+    result.href = _legacyResolveHref(result);
+    return result;
+  }
 
   if (relative.protocol) {
     result.protocol = relative.protocol;
@@ -2396,6 +3700,14 @@ function resolveObject(source, relative) {
       result.hostname = relative.hostname;
       result.port = relative.port;
       result.pathname = relative.pathname;
+      if (
+        relative.protocol === source.protocol &&
+        !relative.auth &&
+        relative.host &&
+        relative.host === source.host
+      ) {
+        result.auth = source.auth;
+      }
     } else {
       result.slashes = source.slashes;
       result.auth = source.auth;
@@ -2420,21 +3732,59 @@ function resolveObject(source, relative) {
     result.hostname = source.hostname;
     result.port = source.port;
     if (relative.pathname) {
-      if (relative.pathname.charAt(0) === '/') {
-        result.pathname = relative.pathname;
+      if (sourceUsesOpaquePath) {
+        var resolvedRelativeOpaque = _resolveOpaquePath(
+          (source.host || '') + (source.pathname || ''),
+          relative.pathname
+        );
+        result.auth = null;
+        result.port = null;
+        if (!resolvedRelativeOpaque) {
+          result.host = null;
+          result.hostname = null;
+          result.pathname = null;
+        } else if (resolvedRelativeOpaque.charAt(0) === '/') {
+          result.host = '';
+          result.hostname = '';
+          result.pathname = resolvedRelativeOpaque;
+        } else {
+          var relativeOpaqueSlashIdx = resolvedRelativeOpaque.indexOf('/');
+          if (relativeOpaqueSlashIdx === -1) {
+            result.host = resolvedRelativeOpaque;
+            result.hostname = resolvedRelativeOpaque;
+            result.pathname = null;
+          } else {
+            result.host = resolvedRelativeOpaque.slice(0, relativeOpaqueSlashIdx);
+            result.hostname = result.host;
+            result.pathname = resolvedRelativeOpaque.slice(relativeOpaqueSlashIdx);
+          }
+        }
+      } else if (relative.pathname.charAt(0) === '/') {
+        result.pathname = _normalizeLegacyPath(
+          relative.pathname,
+          /(?:\/|^)(?:\.{1,2})\/?$/.test(relative.pathname) || relative.pathname.slice(-1) === '/'
+        );
       } else {
         result.pathname = _resolvePathname(source.pathname || '/', relative.pathname);
+        if (source.host && result.pathname.slice(0, 2) === '//') {
+          result.pathname = result.pathname.slice(1);
+        }
       }
     } else {
       result.pathname = source.pathname;
     }
   }
 
-  result.search = (relative.pathname !== undefined || relative.search !== undefined) ? (relative.search || null) : (source.search || null);
-  result.query = (relative.pathname !== undefined || relative.query !== undefined) ? (relative.query !== undefined ? relative.query : null) : (source.query || null);
+  var relativePathProvided =
+    typeof relative.pathname === 'string' &&
+    relative.pathname !== '';
+  var relativeHasSearch = relative.search !== undefined && relative.search !== null;
+  var relativeHasQuery = relative.query !== undefined && relative.query !== null;
+  result.search = (relativePathProvided || relativeHasSearch) ? (relative.search || null) : (source.search || null);
+  result.query = (relativePathProvided || relativeHasQuery) ? relative.query : (source.query || null);
   result.hash = relative.hash !== undefined ? (relative.hash || null) : null;
   result.path = (result.pathname || '') + (result.search || '') || null;
-  result.href = _legacyFormat(result);
+  result.href = _legacyResolveHref(result);
   return result;
 }
 
@@ -2442,15 +3792,33 @@ function _resolvePathname(base, relative) {
   if (!relative) return base;
   if (relative.charAt(0) === '/') {
     // Absolute path - normalize
-    return _normalizeLegacyPath(relative);
+    return _normalizeLegacyPath(relative, /(?:\/|^)(?:\.{1,2})\/?$/.test(relative) || relative.slice(-1) === '/');
+  }
+  if (base.indexOf('/') === -1 && (relative === '.' || relative === './')) {
+    return '';
+  }
+  if (base.indexOf('/') === -1) {
+    return _normalizeLegacyPath(
+      '/' + relative,
+      relative === '.' ||
+        relative === '..' ||
+        relative.slice(-1) === '/' ||
+        /(?:\/|^)(?:\.{1,2})\/?$/.test(relative)
+    ).replace(/^\//, '');
   }
   // Relative path - combine with base directory
   var baseDir = base.slice(0, base.lastIndexOf('/') + 1);
-  return _normalizeLegacyPath(baseDir + relative);
+  var preserveTrailingSlash =
+    relative === '.' ||
+    relative === '..' ||
+    relative.slice(-1) === '/' ||
+    /(?:\/|^)(?:\.{1,2})\/?$/.test(relative);
+  return _normalizeLegacyPath(baseDir + relative, preserveTrailingSlash);
 }
 
-function _normalizeLegacyPath(path) {
+function _normalizeLegacyPath(path, preserveTrailingSlash) {
   if (!path) return '/';
+  var isAbsolutePath = path.charAt(0) === '/';
   var segments = path.split('/');
   var normalized = [];
   for (var i = 0; i < segments.length; i++) {
@@ -2458,10 +3826,24 @@ function _normalizeLegacyPath(path) {
     if (seg === '.') {
       // skip
     } else if (seg === '..') {
-      if (normalized.length > 1) {
+      var consumedEmptyParent = false;
+      while (
+        normalized.length > 1 &&
+        normalized[normalized.length - 1] === '' &&
+        normalized[normalized.length - 2] !== ''
+      ) {
         normalized.pop();
-      } else if (normalized.length === 0) {
-        // at root, can't go higher
+        consumedEmptyParent = true;
+      }
+      if (
+        !consumedEmptyParent &&
+        normalized.length > 0 &&
+        normalized[normalized.length - 1] !== '' &&
+        normalized[normalized.length - 1] !== '..'
+      ) {
+        normalized.pop();
+      } else if (!isAbsolutePath) {
+        normalized.push('..');
       }
     } else {
       normalized.push(seg);
@@ -2472,11 +3854,94 @@ function _normalizeLegacyPath(path) {
   if (path.charAt(0) === '/' && result.charAt(0) !== '/') {
     result = '/' + result;
   }
-  return result || '/';
+  result = result || '/';
+  if (preserveTrailingSlash && result.charAt(result.length - 1) !== '/') {
+    result += '/';
+  }
+  return result;
+}
+
+function _normalizeOpaqueLegacyPath(path, preserveTrailingSlash) {
+  if (!path) return '';
+  var isAbsolutePath = path.charAt(0) === '/';
+  var segments = path.split('/');
+  var normalized = [];
+  for (var i = 0; i < segments.length; i++) {
+    var seg = segments[i];
+    if (seg === '.') {
+      continue;
+    }
+    if (seg === '..') {
+      if (
+        normalized.length > 0 &&
+        normalized[normalized.length - 1] !== '' &&
+        normalized[normalized.length - 1] !== '..'
+      ) {
+        normalized.pop();
+      } else if (!isAbsolutePath) {
+        normalized.push('..');
+      }
+      continue;
+    }
+    normalized.push(seg);
+  }
+  var result = normalized.join('/');
+  if (isAbsolutePath && result.charAt(0) !== '/') {
+    result = '/' + result;
+  }
+  if (result === '') {
+    return isAbsolutePath ? '/' : '';
+  }
+  if (preserveTrailingSlash && result !== '/' && result.charAt(result.length - 1) !== '/') {
+    result += '/';
+  }
+  return result;
+}
+
+function _resolveOpaquePath(base, relative) {
+  if (!relative) return base;
+  var preserveTrailingSlash =
+    relative === '.' ||
+    relative === '..' ||
+    relative.slice(-1) === '/' ||
+    /(?:\/|^)(?:\.{1,2})\/?$/.test(relative);
+  if (relative.charAt(0) === '/') {
+    return _normalizeOpaqueLegacyPath(relative, preserveTrailingSlash);
+  }
+  var baseDir = base.slice(0, base.lastIndexOf('/') + 1);
+  if (baseDir === '') {
+    if (relative === '.' || relative === '..') {
+      return '';
+    }
+    relative = relative.replace(/^(?:\.\.\/)+/, '');
+  }
+  var resolved = _normalizeOpaqueLegacyPath(baseDir + relative, preserveTrailingSlash);
+  if (baseDir === '' && base !== '' && resolved.charAt(0) !== '/') {
+    if (resolved === '..' || resolved === '../') {
+      return '';
+    }
+    resolved = resolved.replace(/^(?:\.\.\/)+/, '');
+  }
+  return resolved;
+}
+
+function _normalizeLegacyResolveObjectResult(result) {
+  if (
+    result &&
+    result.protocol &&
+    result.slashes === true &&
+    result.host === '' &&
+    result.hostname === '' &&
+    !URL._isSpecialProtocol(result.protocol.slice(0, -1))
+  ) {
+    result.host = null;
+    result.hostname = null;
+  }
+  return result;
 }
 
 Url.prototype.resolveObject = function(relative) {
-  return resolveObject(this, relative);
+  return _normalizeLegacyResolveObjectResult(resolveObject(this, relative));
 };
 
 URL.createObjectURL = _createObjectURL;
@@ -2527,7 +3992,9 @@ module.exports = {
   format: format,
   parse: parse,
   resolve: resolve,
-  resolveObject: resolveObject,
+  resolveObject: function(source, relative) {
+    return _normalizeLegacyResolveObjectResult(resolveObject(source, relative));
+  },
   fileURLToPath: fileURLToPath,
   pathToFileURL: function pathToFileURL(path, options) {
     if (typeof path !== 'string') {

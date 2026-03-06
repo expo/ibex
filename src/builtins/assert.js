@@ -443,6 +443,16 @@ function _toByteArray(value, seen) {
   seen.push(value);
 
   var byteLength = value.byteLength;
+  var backing = value;
+  if (value.buffer !== undefined) {
+    backing = value.buffer;
+  }
+  if (backing && backing._buffer !== undefined && backing._buffer !== backing) {
+    backing = backing._buffer;
+  } else if (value._buffer !== undefined && value._buffer !== value) {
+    backing = value._buffer;
+  }
+
   if (byteLength === 0) {
     if (Object.prototype.toString.call(value) === '[object SharedArrayBuffer]' &&
         _isSharedArrayBufferByteLengthBug()
@@ -473,7 +483,61 @@ function _toByteArray(value, seen) {
       seen.pop();
       return null;
     }
+    if (backing && backing !== value && backing.byteLength > 0) {
+      var backingBytes = _toByteArray(backing, seen);
+      if (backingBytes !== null) {
+        seen.pop();
+        return backingBytes;
+      }
+    }
+    seen.pop();
     return [];
+  }
+
+  try {
+    if (typeof value.length === 'number' && value.BYTES_PER_ELEMENT === 1) {
+      var directBytes = new Array(byteLength);
+      for (var j = 0; j < value.length; j++) {
+        var byteValue = value[j];
+        if (typeof byteValue !== 'number') {
+          break;
+        }
+        directBytes[j] = byteValue & 0xff;
+      }
+      if (j === value.length) {
+        seen.pop();
+        return directBytes;
+      }
+    }
+  } catch (e) {}
+
+  try {
+    var source = backing || value;
+    var typedArray = value.buffer !== undefined || source !== value ?
+      new Uint8Array(source, value.byteOffset || 0, byteLength) :
+      new Uint8Array(source);
+    var typedLength = typedArray.length;
+    if (typedLength === byteLength) {
+      var typedBytes = new Array(typedLength);
+      for (var i = 0; i < typedLength; i++) typedBytes[i] = typedArray[i];
+      seen.pop();
+      return typedBytes;
+    }
+  } catch (e) {}
+
+  if (typeof DataView !== 'undefined') {
+    try {
+      var dataViewSource = backing || value;
+      var dataView = value.buffer !== undefined || dataViewSource !== value ?
+        new DataView(dataViewSource, value.byteOffset || 0, byteLength) :
+        new DataView(dataViewSource, 0, byteLength);
+      var dataBytes = new Array(byteLength);
+      for (var k = 0; k < byteLength; k++) {
+        dataBytes[k] = dataView.getUint8(k);
+      }
+      seen.pop();
+      return dataBytes;
+    } catch (e) {}
   }
 
   if (value._buffer !== undefined && value._buffer !== value) {
@@ -483,45 +547,6 @@ function _toByteArray(value, seen) {
       return nestedBytes;
     }
   }
-
-  if (typeof DataView !== 'undefined') {
-    try {
-      if (typeof value.length === 'number' && value.BYTES_PER_ELEMENT === 1) {
-        var directBytes = new Array(byteLength);
-        for (var j = 0; j < value.length; j++) {
-          var byteValue = value[j];
-          if (typeof byteValue !== 'number') {
-            break;
-          }
-          directBytes[j] = byteValue & 0xff;
-        }
-        if (j === value.length) {
-          seen.pop();
-          return directBytes;
-        }
-      }
-      var dataView = value.buffer !== undefined ? new DataView(value.buffer, value.byteOffset || 0, byteLength) : new DataView(value, 0, byteLength);
-      var dataBytes = new Array(byteLength);
-      for (var i = 0; i < byteLength; i++) {
-        dataBytes[i] = dataView.getUint8(i);
-      }
-      seen.pop();
-      return dataBytes;
-    } catch (e) {}
-  }
-
-  try {
-    var typedArray = value.buffer !== undefined ?
-      new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength) :
-      new Uint8Array(value);
-    var typedLength = typedArray.length;
-    if (typedLength === byteLength) {
-      var typedBytes = new Array(typedLength);
-      for (var i = 0; i < typedLength; i++) typedBytes[i] = typedArray[i];
-      seen.pop();
-      return typedBytes;
-    }
-  } catch (e) {}
   seen.pop();
   return null;
 }
@@ -940,8 +965,23 @@ function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
 
   // ArrayBuffer and SharedArrayBuffer
   if (aTag === '[object ArrayBuffer]' || aTag === '[object SharedArrayBuffer]') {
+    if (aTag !== bTag) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
     // For partial: expected's byteLength must be <= actual's byteLength
     if (expected.byteLength > actual.byteLength) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    if (
+      _isSharedArrayBufferByteLengthBug() &&
+      actual.byteLength === 0 &&
+      expected.byteLength === 0 &&
+      actual !== expected
+    ) {
       aSeen.pop();
       bSeen.pop();
       return false;
@@ -957,6 +997,32 @@ function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
     }
     for (var i = 0; i < bBytes.length; i++) {
       if (aBytes[i] !== bBytes[i]) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+    }
+    aSeen.pop();
+    bSeen.pop();
+    return true;
+  }
+
+  // DataView comparison (partial byte-prefix matching)
+  if (aTag === '[object DataView]' && bTag === '[object DataView]') {
+    if (expected.byteLength > actual.byteLength) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    var actualViewBytes = _toByteArray(actual);
+    var expectedViewBytes = _toByteArray(expected);
+    if (actualViewBytes === null || expectedViewBytes === null) {
+      aSeen.pop();
+      bSeen.pop();
+      return actual === expected;
+    }
+    for (var dvi = 0; dvi < expectedViewBytes.length; dvi++) {
+      if (actualViewBytes[dvi] !== expectedViewBytes[dvi]) {
         aSeen.pop();
         bSeen.pop();
         return false;
@@ -1023,6 +1089,11 @@ function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
     for (var ki = 0; ki < expectedExtraKeys.length; ki++) {
       var key = expectedExtraKeys[ki];
       if (actualExtraKeys.indexOf(key) === -1) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!Object.prototype.propertyIsEnumerable.call(actual, key)) {
         aSeen.pop();
         bSeen.pop();
         return false;
@@ -1156,28 +1227,38 @@ function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
 
   // Array comparison (partial: subsequence matching)
   if (Array.isArray(actual) && Array.isArray(expected)) {
-    // Check that expected's indexed elements can be found as subsequence of actual
-    var ai = 0;
-    for (var ei = 0; ei < expected.length; ei++) {
-      // Only compare defined indices
-      if (!(ei in expected)) {
-        // expected has a hole - actual must also have a hole at corresponding position
-        // For sparse arrays, check that actual has the same holes
-        if (ei >= actual.length) {
-          aSeen.pop();
-          bSeen.pop();
-          return false;
-        }
-        continue;
-      }
+    if (expected.length > actual.length) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+
+    // Compare only defined numeric indices so sparse arrays scale with populated entries.
+    var expectedIndexKeys = Object.keys(expected).filter(function(k) {
+      var n = Number(k);
+      return !isNaN(n) && n >= 0 && n < expected.length && k === String(Math.floor(n));
+    }).sort(function(a, b) {
+      return Number(a) - Number(b);
+    });
+    var actualIndexKeys = Object.keys(actual).filter(function(k) {
+      var n = Number(k);
+      return !isNaN(n) && n >= 0 && n < actual.length && k === String(Math.floor(n));
+    }).sort(function(a, b) {
+      return Number(a) - Number(b);
+    });
+
+    var actualKeyIndex = 0;
+    for (var eki = 0; eki < expectedIndexKeys.length; eki++) {
+      var expectedKey = expectedIndexKeys[eki];
       var foundEl = false;
-      while (ai < actual.length) {
-        if ((ai in actual) && _partialDeepStrictEqual(actual[ai], expected[ei], aSeen, bSeen)) {
+      while (actualKeyIndex < actualIndexKeys.length) {
+        var actualKey = actualIndexKeys[actualKeyIndex];
+        if (_partialDeepStrictEqual(actual[actualKey], expected[expectedKey], aSeen, bSeen)) {
           foundEl = true;
-          ai++;
+          actualKeyIndex++;
           break;
         }
-        ai++;
+        actualKeyIndex++;
       }
       if (!foundEl) {
         aSeen.pop();
@@ -1185,6 +1266,7 @@ function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
         return false;
       }
     }
+
     // Check non-indexed own properties (including symbols)
     var expectedExtraKeys = Object.keys(expected).filter(function(k) {
       var n = Number(k);
@@ -1193,6 +1275,11 @@ function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
     for (var ki = 0; ki < expectedExtraKeys.length; ki++) {
       var key = expectedExtraKeys[ki];
       if (!Object.prototype.hasOwnProperty.call(actual, key)) {
+        aSeen.pop();
+        bSeen.pop();
+        return false;
+      }
+      if (!Object.prototype.propertyIsEnumerable.call(actual, key)) {
         aSeen.pop();
         bSeen.pop();
         return false;
@@ -1231,6 +1318,11 @@ function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
   for (var i = 0; i < expectedKeys.length; i++) {
     var key = expectedKeys[i];
     if (!Object.prototype.hasOwnProperty.call(actual, key)) {
+      aSeen.pop();
+      bSeen.pop();
+      return false;
+    }
+    if (!Object.prototype.propertyIsEnumerable.call(actual, key)) {
       aSeen.pop();
       bSeen.pop();
       return false;
@@ -1279,7 +1371,11 @@ function _isErrorConstructor(expected) {
   return (
     typeof expected === 'function' &&
     expected.prototype &&
-    expected.prototype instanceof Error
+    (
+      expected === Error ||
+      expected.prototype === Error.prototype ||
+      expected.prototype instanceof Error
+    )
   );
 }
 

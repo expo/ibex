@@ -41,6 +41,133 @@
     }
     return minutes + ':' + secondPart + ' (m:ss.mmm)';
   }
+  function _patchBrokenSharedArrayBufferViews() {
+    if (typeof SharedArrayBuffer !== 'function' || typeof Uint8Array !== 'function') {
+      return;
+    }
+    var probeView;
+    try {
+      probeView = new Uint8Array(new SharedArrayBuffer(1));
+      if (
+        probeView.length !== 0 &&
+        probeView.byteLength !== 0 &&
+        Object.prototype.toString.call(probeView.buffer) === '[object SharedArrayBuffer]'
+      ) {
+        return;
+      }
+    } catch (_probeErr) {}
+
+    function getSharedArrayBufferBacking(buffer) {
+      if (!buffer || typeof buffer !== 'object') return null;
+      if (Object.prototype.toString.call(buffer) !== '[object SharedArrayBuffer]') return null;
+      if (!buffer._buffer || Object.prototype.toString.call(buffer._buffer) !== '[object ArrayBuffer]') {
+        return null;
+      }
+      return buffer._buffer;
+    }
+
+    function exposeSharedArrayBufferView(view, originalBuffer) {
+      if (!view || !originalBuffer) return view;
+      try {
+        Object.defineProperty(view, 'buffer', {
+          configurable: true,
+          enumerable: false,
+          get: function() {
+            return originalBuffer;
+          }
+        });
+      } catch (_bufferErr) {}
+      try {
+        Object.defineProperty(view, '__exactSharedArrayBuffer', {
+          value: originalBuffer,
+          writable: false,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (_markerErr) {}
+      return view;
+    }
+
+    function wrapCtor(name) {
+      var NativeCtor = globalThis[name];
+      if (typeof NativeCtor !== 'function' || NativeCtor.__exactSharedArrayBufferWrapped) {
+        return;
+      }
+
+      function WrappedCtor(buffer, byteOffset, length) {
+        if (!(this instanceof WrappedCtor)) {
+          throw new TypeError('Constructor ' + name + ' requires "new"');
+        }
+
+        var backing = getSharedArrayBufferBacking(buffer);
+        if (backing) {
+          var view;
+          if (arguments.length <= 1) {
+            view = new NativeCtor(backing);
+          } else if (arguments.length === 2) {
+            view = new NativeCtor(backing, byteOffset);
+          } else {
+            view = new NativeCtor(backing, byteOffset, length);
+          }
+          return exposeSharedArrayBufferView(view, buffer);
+        }
+
+        if (arguments.length === 0) return new NativeCtor();
+        if (arguments.length === 1) return new NativeCtor(buffer);
+        if (arguments.length === 2) return new NativeCtor(buffer, byteOffset);
+        return new NativeCtor(buffer, byteOffset, length);
+      }
+
+      var propNames = Object.getOwnPropertyNames(NativeCtor);
+      for (var i = 0; i < propNames.length; i++) {
+        var propName = propNames[i];
+        if (propName === 'prototype' || propName === 'length' || propName === 'name') {
+          continue;
+        }
+        try {
+          Object.defineProperty(WrappedCtor, propName, Object.getOwnPropertyDescriptor(NativeCtor, propName));
+        } catch (_copyErr) {}
+      }
+      WrappedCtor.prototype = NativeCtor.prototype;
+      try {
+        Object.defineProperty(WrappedCtor.prototype, 'constructor', {
+          value: WrappedCtor,
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (_ctorErr) {}
+      try {
+        Object.defineProperty(WrappedCtor, '__exactSharedArrayBufferWrapped', {
+          value: true,
+          writable: false,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (_wrappedErr) {}
+      globalThis[name] = WrappedCtor;
+    }
+
+    var ctorNames = [
+      'Int8Array',
+      'Uint8Array',
+      'Uint8ClampedArray',
+      'Int16Array',
+      'Uint16Array',
+      'Int32Array',
+      'Uint32Array',
+      'Float32Array',
+      'Float64Array'
+    ];
+    if (typeof globalThis.Float16Array === 'function') ctorNames.push('Float16Array');
+    if (typeof globalThis.BigInt64Array === 'function') ctorNames.push('BigInt64Array');
+    if (typeof globalThis.BigUint64Array === 'function') ctorNames.push('BigUint64Array');
+    for (var i = 0; i < ctorNames.length; i++) {
+      wrapCtor(ctorNames[i]);
+    }
+    wrapCtor('DataView');
+  }
+  _patchBrokenSharedArrayBufferViews();
   function _createNodeTestModule() {
     var context = {
       tests: [],
@@ -345,12 +472,29 @@
         return [];
       }
     },
+    'internal/url': {
+      isURL: function(value) {
+        return typeof globalThis.URL === 'function' && value instanceof globalThis.URL;
+      }
+    },
     'internal/crypto/util': {
       getOpenSSLSecLevel: function() { return 0; }
     },
     'internal/crypto/x509': {
       isX509Certificate: function(value) {
         return !!(value && value.constructor && value.constructor.name === 'X509Certificate');
+      }
+    },
+    'internal/url': {
+      isURL: function(value) {
+        if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+          return false;
+        }
+        return !!(
+          value.constructor &&
+          value.constructor.name === 'URL' &&
+          typeof value.href === 'string'
+        );
       }
     },
     'internal/fs/utils': {

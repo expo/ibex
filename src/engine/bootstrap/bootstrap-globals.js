@@ -29,8 +29,10 @@
       try {
         var urlMod = globalThis.require('url');
         if (urlMod) {
-          // Also install URLSearchParams eagerly while we have the module
-          if (urlMod.URLSearchParams && typeof globalThis.URLSearchParams === 'undefined') {
+          // Install both constructors from the same module instance without
+          // touching sibling lazy getters, which would recurse back through
+          // require('url') before the module finishes initializing.
+          if (urlMod.URLSearchParams) {
             globalThis.URLSearchParams = urlMod.URLSearchParams;
           }
           if (urlMod.URL) { return urlMod.URL; }
@@ -46,8 +48,7 @@
       try {
         var urlMod = globalThis.require('url');
         if (urlMod) {
-          // Also install URL eagerly while we have the module
-          if (urlMod.URL && typeof globalThis.URL === 'undefined') {
+          if (urlMod.URL) {
             globalThis.URL = urlMod.URL;
           }
           if (urlMod.URLSearchParams) { return urlMod.URLSearchParams; }
@@ -56,6 +57,165 @@
       return undefined;
     });
   }
+
+  try {
+    if (typeof globalThis.require === 'function') {
+      var __exactUrlGlobals = globalThis.require('url');
+      if (__exactUrlGlobals) {
+        if (typeof __exactUrlGlobals.URL === 'function') {
+          Object.defineProperty(globalThis, 'URL', {
+            configurable: true,
+            writable: true,
+            enumerable: true,
+            value: __exactUrlGlobals.URL
+          });
+        }
+        if (typeof __exactUrlGlobals.URLSearchParams === 'function') {
+          Object.defineProperty(globalThis, 'URLSearchParams', {
+            configurable: true,
+            writable: true,
+            enumerable: true,
+            value: __exactUrlGlobals.URLSearchParams
+          });
+        }
+      }
+    }
+  } catch (_exactUrlGlobalsErr) {}
+
+  function __exactGetSharedArrayBufferBacking(buffer) {
+    if (typeof SharedArrayBuffer !== 'function') return null;
+    if (!buffer || typeof buffer !== 'object') return null;
+    if (Object.prototype.toString.call(buffer) !== '[object SharedArrayBuffer]') return null;
+    if (!buffer._buffer || Object.prototype.toString.call(buffer._buffer) !== '[object ArrayBuffer]') {
+      return null;
+    }
+    return buffer._buffer;
+  }
+
+  function __exactNeedsSharedArrayBufferViewPatch() {
+    if (typeof SharedArrayBuffer !== 'function' || typeof Uint8Array !== 'function') {
+      return false;
+    }
+    try {
+      var probeBuffer = new SharedArrayBuffer(1);
+      var probeView = new Uint8Array(probeBuffer);
+      return (
+        probeView.length === 0 ||
+        probeView.byteLength === 0 ||
+        Object.prototype.toString.call(probeView.buffer) !== '[object SharedArrayBuffer]'
+      );
+    } catch (_sharedArrayBufferProbeErr) {
+      return false;
+    }
+  }
+
+  function __exactExposeSharedArrayBufferView(view, originalBuffer) {
+    if (!view || !originalBuffer) return view;
+    try {
+      Object.defineProperty(view, 'buffer', {
+        configurable: true,
+        enumerable: false,
+        get: function() {
+          return originalBuffer;
+        }
+      });
+    } catch (_sharedArrayBufferBufferErr) {}
+    try {
+      Object.defineProperty(view, '__exactSharedArrayBuffer', {
+        value: originalBuffer,
+        writable: false,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_sharedArrayBufferMarkerErr) {}
+    return view;
+  }
+
+  function __exactWrapSharedArrayBufferViewCtor(name) {
+    var NativeCtor = globalThis[name];
+    if (typeof NativeCtor !== 'function' || NativeCtor.__exactSharedArrayBufferWrapped) {
+      return;
+    }
+
+    function WrappedCtor(buffer, byteOffset, length) {
+      if (!(this instanceof WrappedCtor)) {
+        throw new TypeError('Constructor ' + name + ' requires "new"');
+      }
+
+      var backing = __exactGetSharedArrayBufferBacking(buffer);
+      if (backing) {
+        var view;
+        if (arguments.length <= 1) {
+          view = new NativeCtor(backing);
+        } else if (arguments.length === 2) {
+          view = new NativeCtor(backing, byteOffset);
+        } else {
+          view = new NativeCtor(backing, byteOffset, length);
+        }
+        return __exactExposeSharedArrayBufferView(view, buffer);
+      }
+
+      if (arguments.length === 0) return new NativeCtor();
+      if (arguments.length === 1) return new NativeCtor(buffer);
+      if (arguments.length === 2) return new NativeCtor(buffer, byteOffset);
+      return new NativeCtor(buffer, byteOffset, length);
+    }
+
+    var propNames = Object.getOwnPropertyNames(NativeCtor);
+    for (var i = 0; i < propNames.length; i++) {
+      var propName = propNames[i];
+      if (propName === 'prototype' || propName === 'length' || propName === 'name') {
+        continue;
+      }
+      try {
+        Object.defineProperty(WrappedCtor, propName, Object.getOwnPropertyDescriptor(NativeCtor, propName));
+      } catch (_sharedArrayBufferCtorPropErr) {}
+    }
+    WrappedCtor.prototype = NativeCtor.prototype;
+    try {
+      Object.defineProperty(WrappedCtor.prototype, 'constructor', {
+        value: WrappedCtor,
+        writable: true,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_sharedArrayBufferCtorErr) {}
+    try {
+      Object.defineProperty(WrappedCtor, '__exactSharedArrayBufferWrapped', {
+        value: true,
+        writable: false,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (_sharedArrayBufferWrappedErr) {}
+    globalThis[name] = WrappedCtor;
+  }
+
+  function __exactPatchSharedArrayBufferViews() {
+    if (!__exactNeedsSharedArrayBufferViewPatch()) {
+      return;
+    }
+    var ctorNames = [
+      'Int8Array',
+      'Uint8Array',
+      'Uint8ClampedArray',
+      'Int16Array',
+      'Uint16Array',
+      'Int32Array',
+      'Uint32Array',
+      'Float32Array',
+      'Float64Array'
+    ];
+    if (typeof globalThis.Float16Array === 'function') ctorNames.push('Float16Array');
+    if (typeof globalThis.BigInt64Array === 'function') ctorNames.push('BigInt64Array');
+    if (typeof globalThis.BigUint64Array === 'function') ctorNames.push('BigUint64Array');
+    for (var i = 0; i < ctorNames.length; i++) {
+      __exactWrapSharedArrayBufferViewCtor(ctorNames[i]);
+    }
+    __exactWrapSharedArrayBufferViewCtor('DataView');
+  }
+
+  __exactPatchSharedArrayBufferViews();
 
   // DOMException polyfill — lazy (needed by AbortController, so define first)
   if (typeof globalThis.DOMException === 'undefined') {
@@ -287,26 +447,52 @@
         this.reason = undefined;
         this.onabort = null;
         this._listeners = [];
+        this._dependentSignals = [];
+        this._sourceSignals = [this];
+        this._isComposite = false;
         this[__exactEventTargetKEvents] = new Map();
+      }
+      function _createAbortEvent(signal) {
+        return {
+          type: 'abort',
+          target: signal,
+          currentTarget: signal,
+          bubbles: false,
+          cancelable: false,
+          isTrusted: true,
+          timeStamp: Date.now(),
+          preventDefault: function() {},
+          stopPropagation: function() {},
+          stopImmediatePropagation: function() {}
+        };
+      }
+      function _dispatchAbortEvent(signal) {
+        var event = _createAbortEvent(signal);
+        if (typeof signal.onabort === 'function') {
+          try { signal.onabort.call(signal, event); } catch(e) {}
+        }
+        var listeners = signal._listeners.slice();
+        for (var i = 0; i < listeners.length; i++) {
+          try { listeners[i](event); } catch(e) {}
+        }
+      }
+      function _queueAbort(signal, reason, queue) {
+        if (signal.aborted) return;
+        signal.aborted = true;
+        signal.reason = reason;
+        queue.push(signal);
+        var dependents = signal._dependentSignals.slice();
+        for (var i = 0; i < dependents.length; i++) {
+          _queueAbort(dependents[i], reason, queue);
+        }
       }
       // Internal abort helper — shared by AbortController, timeout(), and any()
       AbortSignal.prototype._abort = function(reason) {
         if (this.aborted) return;
-        this.aborted = true;
-        this.reason = reason;
-        var event = { type: 'abort', target: this, currentTarget: this,
-                      bubbles: false, cancelable: false, isTrusted: true,
-                      timeStamp: Date.now(), preventDefault: function() {},
-                      stopPropagation: function() {},
-                      stopImmediatePropagation: function() {} };
-        // Call onabort handler property first
-        if (typeof this.onabort === 'function') {
-          try { this.onabort.call(this, event); } catch(e) {}
-        }
-        // Then fire addEventListener listeners
-        var listeners = this._listeners.slice();
-        for (var i = 0; i < listeners.length; i++) {
-          try { listeners[i](event); } catch(e) {}
+        var queue = [];
+        _queueAbort(this, reason, queue);
+        for (var i = 0; i < queue.length; i++) {
+          _dispatchAbortEvent(queue[i]);
         }
       };
       AbortSignal.prototype.addEventListener = function(type, listener, options) {
@@ -349,13 +535,7 @@
         if (!event || event.type !== 'abort') return true;
         event.target = this;
         event.currentTarget = this;
-        if (typeof this.onabort === 'function') {
-          try { this.onabort.call(this, event); } catch(e) {}
-        }
-        var listeners = this._listeners.slice();
-        for (var i = 0; i < listeners.length; i++) {
-          try { listeners[i](event); } catch(e) {}
-        }
+        _dispatchAbortEvent(this);
         return true;
       };
       AbortSignal.prototype.throwIfAborted = function() {
@@ -369,34 +549,49 @@
       };
       AbortSignal.timeout = function(ms) {
         var s = new AbortSignal();
-        globalThis.setTimeout(function() {
+        var handle = globalThis.setTimeout(function() {
           s._abort(new (globalThis.DOMException || Error)('The operation was aborted due to timeout.', 'TimeoutError'));
         }, ms);
+        if (handle && typeof handle.unref === 'function') {
+          try { handle.unref(); } catch (_err) {}
+        }
         return s;
       };
       AbortSignal.any = function(signals) {
         var s = new AbortSignal();
+        s._isComposite = true;
         if (!signals || signals.length === 0) return s;
-        // If any signal is already aborted, return an immediately aborted signal
+        var sourceSignals = [];
+        function addSourceSignal(signal) {
+          if (!signal || typeof signal !== 'object') {
+            return;
+          }
+          if (sourceSignals.indexOf(signal) === -1) {
+            sourceSignals.push(signal);
+          }
+        }
         for (var i = 0; i < signals.length; i++) {
-          if (signals[i].aborted) {
+          var signal = signals[i];
+          if (signal && signal._isComposite && Array.isArray(signal._sourceSignals)) {
+            for (var j = 0; j < signal._sourceSignals.length; j++) {
+              addSourceSignal(signal._sourceSignals[j]);
+            }
+          } else {
+            addSourceSignal(signal);
+          }
+        }
+        s._sourceSignals = sourceSignals.slice();
+        for (var i = 0; i < sourceSignals.length; i++) {
+          if (sourceSignals[i].aborted) {
             s.aborted = true;
-            s.reason = signals[i].reason;
+            s.reason = sourceSignals[i].reason;
             return s;
           }
         }
-        // Listen for abort on all source signals
-        var onAbort = function() {
-          if (s.aborted) return;
-          for (var i = 0; i < signals.length; i++) {
-            if (signals[i].aborted) {
-              s._abort(signals[i].reason);
-              break;
-            }
+        for (var i = 0; i < sourceSignals.length; i++) {
+          if (sourceSignals[i]._dependentSignals.indexOf(s) === -1) {
+            sourceSignals[i]._dependentSignals.push(s);
           }
-        };
-        for (var i = 0; i < signals.length; i++) {
-          signals[i].addEventListener('abort', onAbort, { once: true });
         }
         return s;
       };
@@ -826,9 +1021,8 @@
           throw new TypeError("Cannot convert a Symbol value to a string");
         }
         if (options !== undefined && options !== null && typeof options !== 'object') {
-          var _val = typeof options === 'string' ? "'" + options + "'" : String(options);
           var err = new TypeError('The "options" argument must be of type object.' +
-            ' Received type ' + typeof options + ' (' + _val + ')');
+            ' Received type ' + typeof options + ' (' + String(options) + ')');
           err.code = 'ERR_INVALID_ARG_TYPE';
           throw err;
         }

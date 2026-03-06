@@ -5,11 +5,26 @@
 //   - Once-wrapped listeners have .listener property
 
 var errorMonitorSymbol = Symbol('events.errorMonitor');
+var objectToString = Object.prototype.toString;
 var __AsyncResource;
 try {
   __AsyncResource = require('async_hooks').AsyncResource;
 } catch (e) {
   __AsyncResource = null;
+}
+
+function _safeInspectUnhandledError(value) {
+  try {
+    var inspected = require('util').inspect(value);
+    if (typeof inspected === 'string' &&
+        inspected.indexOf('revoked Proxy') !== -1 &&
+        objectToString.call(value) === '[object Object]') {
+      return '[object Object]';
+    }
+    return inspected;
+  } catch (e) {
+    return objectToString.call(value);
+  }
 }
 
 function _invalidArgType(name, value) {
@@ -391,11 +406,7 @@ EventEmitter.prototype.emit = function emit(eventName) {
         unhandledErr = new Error('Unhandled error.');
       } else {
         var unhandledErrStringified;
-        try {
-          unhandledErrStringified = require('util').inspect(unhandledErr);
-        } catch (e) {
-          unhandledErrStringified = '[object Object]';
-        }
+        unhandledErrStringified = _safeInspectUnhandledError(unhandledErr);
         unhandledErr = new Error('Unhandled error.' + (unhandledErr !== undefined ? ' (' + unhandledErrStringified + ')' : ''));
         unhandledErr.code = 'ERR_UNHANDLED_ERROR';
         unhandledErr.context = er;
