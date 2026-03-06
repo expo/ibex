@@ -329,77 +329,46 @@ function _validateSpawnSyncOptions(options) {
     }
     _validateNullBytes(command, 'command');
     _validateOptionsNullBytes(options);
-    command = _fallbackSpawnCommand(command);
     var opts = normalizeExecOptions(options);
-  // If env is specified, prepend env var exports to the command since native popen
-  // doesn't support setting env directly. Only add vars that differ from current env.
-  // We use "export VAR=val; export VAR2=val2; command" so that variable expansions
-  // in the command can reference the exported vars.
-  var actualCommand = command;
-  if (options && options.env) {
-    var envExports = '';
-    var currentEnv = typeof process !== 'undefined' ? process.env : {};
-    // Use for-in to include prototype properties (Node.js behavior)
-    for (var _ek in options.env) {
-      var _ev = options.env[_ek];
-      if (_ev === undefined) continue; // Skip undefined values
-      _ev = String(_ev);
-      // Only export vars that are new or different from current environment
-      if (currentEnv[_ek] !== _ev) {
-        // Shell-escape the value by replacing single quotes
-        var _escaped = _ev.replace(/'/g, "'\\''");
-        envExports += 'export ' + _ek + "='" + _escaped + "'; ";
-      }
+    var spawnOptions = {
+      cwd: opts.cwd,
+      env: opts.env,
+      timeout: opts.timeout,
+      maxBuffer: options && options.maxBuffer !== undefined ? options.maxBuffer : undefined,
+      encoding: opts.encoding,
+      input: opts.input,
+      shell: opts.shell !== undefined ? opts.shell : true,
+    };
+    var result = cp.spawnSync(command, [], spawnOptions);
+
+    if (result.error) {
+      if (result.error.stdout === undefined) result.error.stdout = result.stdout;
+      if (result.error.stderr === undefined) result.error.stderr = result.stderr;
+      if (result.error.status === undefined) result.error.status = result.status;
+      if (result.error.pid === undefined) result.error.pid = result.pid;
+      if (result.error.cmd === undefined) result.error.cmd = command;
+      throw result.error;
     }
-    if (envExports) {
-      actualCommand = envExports + command;
+
+    if (result.status !== 0) {
+      throw makeExecError(
+        'Command failed: ' + command + (result.stderr ? '\n' + result.stderr : ''),
+        {
+          status: result.status,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          pid: result.pid,
+          cmd: command,
+        }
+      );
     }
-  }
-  var optsJson = JSON.stringify(opts);
-  var resultJson = globalThis.__exactExecSync(actualCommand, optsJson);
-  var result = JSON.parse(resultJson);
 
-  var _Buffer = require('buffer').Buffer;
-  var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'buffer';
-
-  // Convert stdout/stderr to proper types
-  var stdoutBuf = _Buffer.from(result.stdout || '', 'utf8');
-  var stderrBuf = _Buffer.from(result.stderr || '', 'utf8');
-
-  // Check maxBuffer enforcement (read from original options, not normalized opts)
-  var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
-  if (maxBuffer !== Infinity) {
-    if (stdoutBuf.length > maxBuffer || stderrBuf.length > maxBuffer) {
-      var maxBufErr = new Error('Command failed: ' + command + '\nENOBUFS');
-      maxBufErr.code = 'ENOBUFS';
-      maxBufErr.errno = -55;
-      maxBufErr.status = result.status;
-      maxBufErr.stdout = stdoutBuf;
-      maxBufErr.stderr = stderrBuf;
-      maxBufErr.pid = result.pid || 0;
-      maxBufErr.cmd = command;
-      throw maxBufErr;
+    var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'buffer';
+    if (encoding === 'buffer' || encoding === null) {
+      return result.stdout;
     }
-  }
-
-  if (result.error) {
-    throw makeExecError(result.error, result);
-  }
-
-  if (result.status !== 0) {
-    var err = makeExecError(
-      'Command failed: ' + command + '\n' + result.stderr,
-      result
-    );
-    throw err;
-  }
-
-  if (encoding === 'buffer' || encoding === null) {
-    return stdoutBuf;
-  }
-
-  return result.stdout;
-};
+    return typeof result.stdout === 'string' ? result.stdout : '';
+  };
 
   // Internal spawnSync that takes a single normalized opts object.
   // This is the function exposed as internal/child_process.spawnSync.
@@ -723,6 +692,14 @@ cp.exec = function exec(command, options, callback) {
     cwd: opts.cwd,
     env: opts.env
   });
+  if (!useBuffer) {
+    if (child.stdout && typeof child.stdout.setEncoding === 'function') {
+      child.stdout.setEncoding(encoding);
+    }
+    if (child.stderr && typeof child.stderr.setEncoding === 'function') {
+      child.stderr.setEncoding(encoding);
+    }
+  }
   child._cmd = command;
   var stdoutChunks = [];
   var stderrChunks = [];
@@ -939,6 +916,14 @@ cp.execFile = function execFile(file, args, options, callback) {
     cwd: opts.cwd,
     env: opts.env
   });
+  if (!useBuffer) {
+    if (child.stdout && typeof child.stdout.setEncoding === 'function') {
+      child.stdout.setEncoding(encoding);
+    }
+    if (child.stderr && typeof child.stderr.setEncoding === 'function') {
+      child.stderr.setEncoding(encoding);
+    }
+  }
   child._cmd = file + ' ' + args.join(' ');
   var stdoutChunks = [];
   var stderrChunks = [];

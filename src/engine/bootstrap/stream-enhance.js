@@ -128,6 +128,64 @@
     var _streamFsWriteReady = false;
     addEventEmitter(stream);
 
+    function ensureFsReady() {
+      if (_streamFsWriteReady) return;
+      if (typeof globalThis === 'object' &&
+          globalThis !== null &&
+          typeof globalThis.__exactEnsureFs === 'function') {
+        try {
+          globalThis.__exactEnsureFs();
+        } catch (_) {}
+      }
+      _streamFsWriteReady = true;
+    }
+
+    function normalizeWritableChunk(chunk) {
+      if (typeof chunk === 'string' || chunk == null) {
+        return chunk;
+      }
+      if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+        return chunk;
+      }
+      if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
+        return chunk;
+      }
+      if (typeof ArrayBuffer === 'function' && chunk instanceof ArrayBuffer) {
+        return new Uint8Array(chunk);
+      }
+      if (typeof chunk !== 'object') {
+        return String(chunk);
+      }
+      return chunk;
+    }
+
+    function writeViaFs(chunk) {
+      if (typeof stream.fd !== 'number') {
+        return false;
+      }
+
+      ensureFsReady();
+
+      var fsMod = _getStreamFsModule();
+      if (fsMod && typeof fsMod.writeSync === 'function') {
+        fsMod.writeSync(stream.fd, chunk);
+        return true;
+      }
+
+      var fsHostWrite =
+        (typeof globalThis === 'object' &&
+        globalThis !== null &&
+        typeof globalThis.__exactFsWrite === 'function')
+        ? globalThis.__exactFsWrite
+        : null;
+      if (fsHostWrite) {
+        fsHostWrite(stream.fd, chunk, -1);
+        return true;
+      }
+
+      return false;
+    }
+
     stream.writable = true;
     stream.writableEnded = false;
     stream.writableFinished = false;
@@ -139,50 +197,21 @@
         callback = encoding;
         encoding = undefined;
       }
-      if (typeof chunk !== 'string' && chunk != null && typeof chunk !== 'object') {
-        chunk = String(chunk);
-      }
-      if (!_streamFsWriteReady) {
-        if (typeof globalThis === 'object' &&
-            globalThis !== null &&
-            typeof globalThis.__exactEnsureFs === 'function') {
-          try {
-            globalThis.__exactEnsureFs();
-          } catch (_) {}
-        }
-        _streamFsWriteReady = true;
-      }
-      var fsHostWrite =
-        (typeof globalThis === 'object' &&
-        globalThis !== null &&
-        typeof globalThis.__exactFsWrite === 'function')
-        ? globalThis.__exactFsWrite
-        : null;
-      var fsMod = _getStreamFsModule();
-      var result;
-      if (
-        fsHostWrite &&
-        typeof stream.fd === 'number'
-      ) {
-        try {
-          fsHostWrite(stream.fd, chunk, -1);
+      chunk = normalizeWritableChunk(chunk);
+      try {
+        if (writeViaFs(chunk)) {
           if (typeof callback === 'function') callback();
-          result = true;
-        } catch (_) {
-          result = origWrite.call(stream, chunk, encoding, callback);
+          return true;
         }
-      } else if (fsMod && typeof fsMod.writeSync === 'function' && typeof stream.fd === 'number') {
+      } catch (_) {
         try {
-          fsMod.writeSync(stream.fd, chunk);
-          if (typeof callback === 'function') callback();
-          result = true;
+          return origWrite.call(stream, chunk, encoding, callback);
         } catch (_) {
-          result = origWrite.call(stream, chunk, encoding, callback);
+          if (typeof callback === 'function') callback();
+          return false;
         }
-      } else {
-        result = origWrite.call(stream, chunk, encoding, callback);
       }
-      return result;
+      return origWrite.call(stream, chunk, encoding, callback);
     };
 
     stream.end = function(chunk, encoding, callback) {
