@@ -1789,12 +1789,13 @@
         return cache[normalized].exports;
       }
       var fsModule = cache.fs || cache['node:fs'] || cache['fs/promises'] || cache['node:fs/promises'];
-      if (!fsModule || !fsModule.exports || !fsModule.exports.promises) {
-        fsModule = load('fs', referrer, parent);
+      var fsExports = fsModule && fsModule.exports ? fsModule.exports : fsModule;
+      if (!fsExports || !fsExports.promises) {
+        fsExports = load('fs', referrer, parent);
       }
-      if (fsModule && fsModule.exports && fsModule.exports.promises) {
+      if (fsExports && fsExports.promises) {
         var cachedFsPromises = {
-          exports: fsModule.exports.promises,
+          exports: fsExports.promises,
           loaded: true,
           id: normalized,
           filename: normalized,
