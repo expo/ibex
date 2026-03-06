@@ -111,7 +111,7 @@
       llhttp: process.versions && process.versions.llhttp ? process.versions.llhttp : '0.0.0',
       uvwasi: process.versions && process.versions.uvwasi ? process.versions.uvwasi : '0.0.0',
       unicode: process.versions && process.versions.unicode ? process.versions.unicode : '15.1',
-      openssl: process.versions && process.versions.openssl ? process.versions.openssl : '0.0.0',
+      openssl: process.versions && process.versions.openssl ? process.versions.openssl : '3.0.0',
       hermes: process.versions && process.versions.hermes ? process.versions.hermes : '0.12.0',
       exact: process.versions && process.versions.exact ? process.versions.exact : '0.1.0'
     };
@@ -430,6 +430,84 @@
       };
     } catch (e) {}
   }
+
+  // Final fallback: ensure process.versions has openssl and other required fields.
+  // This runs at the very end of process-compat-fix, after all other patching attempts.
+  (function __exactFinalVersionsFix() {
+    globalThis.__exactFinalVersionsFixRan = 1;
+    try {
+      // Get the current versions value, wherever it lives (own or prototype getter)
+      var curVersions = process.versions;
+      if (!curVersions || typeof curVersions !== 'object') curVersions = {};
+      // Build a plain new object with all current values plus our required defaults
+      var finalVersions = {};
+      var keys = Object.keys(curVersions);
+      for (var i = 0; i < keys.length; i++) {
+        try { finalVersions[keys[i]] = curVersions[keys[i]]; } catch(e) {}
+      }
+      if (!finalVersions.node) finalVersions.node = '24.13.1';
+      if (!finalVersions.openssl) finalVersions.openssl = '3.0.0';
+      if (!finalVersions.v8) finalVersions.v8 = '0.0.0';
+      if (!finalVersions.uv) finalVersions.uv = '0.0.0';
+      if (!finalVersions.zlib) finalVersions.zlib = '1.3.1';
+      if (!finalVersions.modules) finalVersions.modules = '127';
+      if (!finalVersions.napi) finalVersions.napi = '9';
+      if (!finalVersions.hermes) finalVersions.hermes = '0.12.0';
+      if (!finalVersions.exact) finalVersions.exact = '0.1.0';
+      globalThis.__exactFinalVersionsObj = finalVersions;
+      globalThis.__exactFinalVersionsOpenssl = finalVersions.openssl;
+
+      // Try defining directly on process as own property
+      try {
+        Object.defineProperty(process, 'versions', {
+          value: finalVersions,
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+        globalThis.__exactFinalVersionsDefineOK = 1;
+      } catch(e) {
+        globalThis.__exactFinalVersionsDefineOK = 'FAIL:' + e.message;
+      }
+      globalThis.__exactFinalVersionsSame = (process.versions === finalVersions) ? 1 : 0;
+      globalThis.__exactFinalVersionsOpensslAfter = process.versions ? process.versions.openssl : 'NO_VERSIONS';
+      if (process.versions === finalVersions) return;
+
+      // Try on the prototype
+      var p = Object.getPrototypeOf(process);
+      if (p && p !== Object.prototype) {
+        try {
+          Object.defineProperty(p, 'versions', {
+            value: finalVersions,
+            writable: true,
+            configurable: true,
+            enumerable: false
+          });
+          globalThis.__exactFinalVersionsProtoOK = 1;
+        } catch(e) {
+          globalThis.__exactFinalVersionsProtoOK = 'FAIL:' + e.message;
+        }
+        if (process.versions === finalVersions) return;
+
+        // Insert a new prototype
+        try {
+          var newProto = Object.create(p);
+          Object.defineProperty(newProto, 'versions', {
+            value: finalVersions,
+            writable: true,
+            configurable: true,
+            enumerable: false
+          });
+          Object.setPrototypeOf(process, newProto);
+          globalThis.__exactFinalVersionsNewProtoOK = 1;
+        } catch(e) {
+          globalThis.__exactFinalVersionsNewProtoOK = 'FAIL:' + e.message;
+        }
+      }
+    } catch(e) {
+      globalThis.__exactFinalVersionsError = e.message;
+    }
+  })();
 
   // Preserve process prototype behavior while ensuring enumerable accessor-only
   // keys can be copied onto process-like objects in user tests.

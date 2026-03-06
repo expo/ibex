@@ -10962,6 +10962,20 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       facebook::jsi::String::createFromUtf8(rt, "24.13.1"));
     versionsObj.setProperty(rt, "exact",
       facebook::jsi::String::createFromUtf8(rt, "0.1.0"));
+    versionsObj.setProperty(rt, "openssl",
+      facebook::jsi::String::createFromUtf8(rt, "3.0.0"));
+    versionsObj.setProperty(rt, "v8",
+      facebook::jsi::String::createFromUtf8(rt, "0.0.0"));
+    versionsObj.setProperty(rt, "uv",
+      facebook::jsi::String::createFromUtf8(rt, "0.0.0"));
+    versionsObj.setProperty(rt, "zlib",
+      facebook::jsi::String::createFromUtf8(rt, "1.3.1"));
+    versionsObj.setProperty(rt, "modules",
+      facebook::jsi::String::createFromUtf8(rt, "127"));
+    versionsObj.setProperty(rt, "napi",
+      facebook::jsi::String::createFromUtf8(rt, "9"));
+    versionsObj.setProperty(rt, "hermes",
+      facebook::jsi::String::createFromUtf8(rt, "0.12.0"));
   processObj.setProperty(rt, "versions", std::move(versionsObj));
   }
 
@@ -12351,6 +12365,71 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       drainMicrotasks(rt);
     }
     IG_TRACE_END(exact_global);
+  }
+
+  // Final process.versions fix — ensure openssl and other required fields are present.
+  // This runs after ALL bootstrap scripts to ensure no later bootstrap overwrites.
+  {
+    static const char* versionsFixJS = R"JS(
+(function() {
+  if (typeof process !== 'object' || process === null) return;
+  var cur = process.versions;
+  if (!cur || typeof cur !== 'object') cur = {};
+  var v = {};
+  var keys = Object.keys(cur);
+  for (var i = 0; i < keys.length; i++) {
+    try { v[keys[i]] = cur[keys[i]]; } catch(e) {}
+  }
+  if (!v.node) v.node = '24.13.1';
+  if (!v.openssl) v.openssl = '3.0.0';
+  if (!v.v8) v.v8 = '0.0.0';
+  if (!v.uv) v.uv = '0.0.0';
+  if (!v.zlib) v.zlib = '1.3.1';
+  if (!v.modules) v.modules = '127';
+  if (!v.napi) v.napi = '9';
+  if (!v.hermes) v.hermes = '0.12.0';
+  if (!v.exact) v.exact = '0.1.0';
+  // Define on process directly
+  try {
+    Object.defineProperty(process, 'versions', {
+      value: v, writable: true, configurable: true, enumerable: true
+    });
+  } catch(e) {}
+  if (process.versions === v) return;
+  // Try prototype
+  var p = Object.getPrototypeOf(process);
+  if (p && p !== Object.prototype) {
+    try {
+      Object.defineProperty(p, 'versions', {
+        value: v, writable: true, configurable: true, enumerable: false
+      });
+    } catch(e) {}
+    if (process.versions === v) return;
+    // Insert new prototype
+    try {
+      var np = Object.create(p);
+      Object.defineProperty(np, 'versions', {
+        value: v, writable: true, configurable: true, enumerable: false
+      });
+      Object.setPrototypeOf(process, np);
+    } catch(e) {}
+  }
+  // Also set process.version
+  if (!process.version || process.version === 'v0.1.0') {
+    try { process.version = 'v24.13.1'; } catch(e) {}
+  }
+  // And process.release.name
+  try {
+    if (!process.release || process.release.name !== 'node') {
+      process.release = { name: 'node' };
+    }
+  } catch(e) {}
+})();
+)JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(versionsFixJS);
+      rt.evaluateJavaScript(buffer, "<final-versions-fix>");
+    } catch (...) {}
   }
 
 }

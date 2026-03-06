@@ -823,7 +823,7 @@
       llhttp: '0.0.0',
       uvwasi: '0.0.0',
       unicode: '15.1',
-      openssl: '0.0.0',
+      openssl: '3.0.0',
       hermes: '0.12.0',
       exact: '0.1.0'
     };

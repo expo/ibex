@@ -165,14 +165,6 @@ function Stream() {
   if (!this._events || typeof this._events !== 'object') {
     this._events = {};
   }
-  if (this._events.close === undefined) this._events.close = undefined;
-  if (this._events.error === undefined) this._events.error = undefined;
-  if (this._events.prefinish === undefined) this._events.prefinish = undefined;
-  if (this._events.finish === undefined) this._events.finish = undefined;
-  if (this._events.drain === undefined) this._events.drain = undefined;
-  if (this._events.data === undefined) this._events.data = undefined;
-  if (this._events.end === undefined) this._events.end = undefined;
-  if (this._events.readable === undefined) this._events.readable = undefined;
   this._closed = false;
   _defineStateAlias(this, 'closed', '_closed');
   this._destroyed = false;
@@ -274,7 +266,10 @@ function _nextTick(fn) {
 }
 
 function _setReadableEncoding(state, enc) {
-  if (!enc) {
+  if (enc === null || enc === undefined) {
+    enc = 'utf8';
+  }
+  if (enc === false || enc === '') {
     state.encoding = null;
     state.decoder = null;
     return;
@@ -309,6 +304,30 @@ function _setReadableEncoding(state, enc) {
 Stream.prototype = Object.create(EventEmitter.prototype);
 Stream.prototype.constructor = Stream;
 
+// Set destroyed on Stream.prototype so that subclasses can check it before calling super constructor
+Stream.prototype.destroyed = false;
+
+// Symbol.asyncDispose support - destroys stream and returns promise that resolves on close
+var _asyncDisposeSymbol = (typeof Symbol !== 'undefined') ? (Symbol.asyncDispose || Symbol.for('nodejs.asyncDispose')) : null;
+if (_asyncDisposeSymbol) {
+  Stream.prototype[_asyncDisposeSymbol] = function() {
+    var self = this;
+    return new Promise(function(resolve) {
+      if (self.destroyed) {
+        resolve();
+        return;
+      }
+      self.once('close', function() {
+        resolve();
+      });
+      var abortErr = new Error('The operation was aborted');
+      abortErr.code = 'ABORT_ERR';
+      abortErr.name = 'AbortError';
+      self.destroy(abortErr);
+    });
+  };
+}
+
 Stream.prototype._emitClose = function() {
   this._close(true);
 };
@@ -326,8 +345,11 @@ Stream.prototype._close = function(force) {
     this._needsClose = true;
     return;
   }
-  // Respect emitClose: false on writable streams
+  // Respect emitClose: false on writable or readable streams
   if (this._writableState && this._writableState.emitClose === false) {
+    return;
+  }
+  if (this._readableState && this._readableState.emitClose === false) {
     return;
   }
   this._needsClose = false;
@@ -429,7 +451,7 @@ Stream.prototype.destroy = function(error, callback) {
   }
   var self = this;
   function emitErrorAndClose(err) {
-  if (err) {
+    if (err) {
       self.errored = err;
       if (self._readableState) self._readableState.errored = err;
       if (self._writableState) self._writableState.errored = err;
@@ -475,7 +497,13 @@ Stream.prototype.destroy = function(error, callback) {
   }
   if (typeof this._destroy === 'function') {
     this._destroy(error || null, function(err) {
-      // Defer error/close when using custom _destroy
+      // Set errored state synchronously so tests can check it
+      if (err) {
+        self.errored = err;
+        if (self._readableState) self._readableState.errored = err;
+        if (self._writableState) self._writableState.errored = err;
+      }
+      // Defer error emit/close
       setTimeout(function() { emitErrorAndClose(err); }, 0);
     });
   } else {
@@ -488,6 +516,12 @@ Stream.prototype.destroy = function(error, callback) {
 function Readable(options) {
   if (!(this instanceof Readable)) return new Readable(options);
   Stream.call(this);
+  // Pre-initialize event slots to match Node.js key ordering
+  this._events.close = undefined;
+  this._events.error = undefined;
+  this._events.data = undefined;
+  this._events.end = undefined;
+  this._events.readable = undefined;
   this._data = [];
   this._ended = false;
   // Determine objectMode: readableObjectMode overrides objectMode if present
@@ -582,7 +616,9 @@ function Readable(options) {
     this._readableState.defaultEncoding = options.defaultEncoding;
   }
   if (options && typeof options.read === 'function') this._read = options.read;
+  if (options && typeof options._read === 'function') this._read = options._read;
   if (options && typeof options.destroy === 'function') this._destroy = options.destroy;
+  if (options && typeof options._destroy === 'function') this._destroy = options._destroy;
   // construct callback support
   if (options && typeof options.construct === 'function') {
     this._readableState.constructed = false;
@@ -609,6 +645,91 @@ function Readable(options) {
 }
 Readable.prototype = Object.create(Stream.prototype);
 Readable.prototype.constructor = Readable;
+
+// Define readable state getters on prototype so Object.hasOwn(Readable.prototype, ...) works
+Object.defineProperties(Readable.prototype, {
+  readableEnded: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._readableState ? !!this._readableState.ended : false;
+    },
+    set: function(val) {
+      if (this._readableState) this._readableState.ended = !!val;
+    }
+  },
+  readableFlowing: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._readableState ? this._readableState.flowing : null;
+    },
+    set: function(val) {
+      if (this._readableState) this._readableState.flowing = val;
+    }
+  },
+  readableHighWaterMark: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._readableState ? this._readableState.highWaterMark : 16384;
+    },
+    set: function(val) {
+      if (this._readableState) this._readableState.highWaterMark = val;
+    }
+  },
+  readableLength: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._readableState ? this._readableState.length : 0;
+    },
+    set: function(val) {
+      if (this._readableState) this._readableState.length = val;
+    }
+  },
+  readableObjectMode: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._readableState ? !!this._readableState.objectMode : false;
+    },
+    set: function(val) {
+      if (this._readableState) this._readableState.objectMode = !!val;
+    }
+  },
+  readableEncoding: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._readableState ? (this._readableState.encoding || null) : null;
+    },
+    set: function(val) {
+      if (this._readableState) this._readableState.encoding = val;
+    }
+  },
+  readableDidRead: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._readableState ? !!this._readableState.readableDidRead : false;
+    },
+    set: function(val) {
+      if (this._readableState) this._readableState.readableDidRead = !!val;
+    }
+  },
+  readableAborted: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return !!(this._readableState && this._readableState.destroyed &&
+                !this._readableState.endEmitted);
+    },
+    set: function(val) {
+      // computed, no-op
+    }
+  }
+});
 
 // Override emit to track when 'end' event is consumed by a listener
 Readable.prototype.emit = function(event) {
@@ -860,7 +981,7 @@ Readable.prototype._readFromSource = function(size) {
   }
 };
 
-Readable.prototype.push = function(chunk) {
+Readable.prototype.push = function(chunk, encoding) {
   if (this._destroyed) return false;
   var state = this._readableState;
   var self = this;
@@ -876,7 +997,7 @@ Readable.prototype.push = function(chunk) {
     }
     return false;
   }
-  if (chunk === null || chunk === undefined) {
+  if (chunk === null) {
     if (state.ended || state.endEmitted) return false;
     var endedChunk = '';
     if (state.encoding && state.decoder && !state.objectMode) {
@@ -968,7 +1089,12 @@ Readable.prototype.push = function(chunk) {
     _maybeReadMore(this, state);
     return false;
   }
-  if (state.encoding && state.decoder && !state.objectMode) {
+  // Convert strings to Buffers in non-objectMode (Node.js behavior)
+  if (!state.objectMode && typeof chunk === 'string' && typeof Buffer !== 'undefined' && Buffer.from) {
+    chunk = Buffer.from(chunk, encoding || state.defaultEncoding || 'utf8');
+    encoding = '';
+  }
+  if (state.encoding && state.decoder && (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk))) {
     chunk = _decodeChunk(state, chunk);
   }
   var chunkLength = readableStateChunkLength(chunk, state.objectMode);
@@ -1211,7 +1337,7 @@ Readable.prototype.resume = function() {
   if (this.readableFlowing !== true) {
     this.readableFlowing = true;
     this._readableState.reading = false;
-    this._readableState.resumeScheduled = false;
+    this._readableState.resumeScheduled = true;
     // Flush buffered data asynchronously
     var self = this;
     var schedule = typeof process === 'object' &&
@@ -1220,7 +1346,13 @@ Readable.prototype.resume = function() {
       ? process.nextTick
       : function(fn) { setTimeout(fn, 0); };
 
+    var resumeEmitted = false;
     function flowReadable() {
+      if (!resumeEmitted) {
+        resumeEmitted = true;
+        self._readableState.resumeScheduled = false;
+        self.emit('resume');
+      }
       if (self._destroyed || self.readableFlowing !== true) return;
       self.read(0);
       var readsThisTick = 0;
@@ -1307,6 +1439,14 @@ Readable.prototype.isPaused = function() {
 };
 
 Readable.prototype._read = function(size) {};
+
+// iterator() method (Node.js API)
+Readable.prototype.iterator = function(options) {
+  if (options !== undefined && options !== null && typeof options !== 'object') {
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options + ' (' + options + ')');
+  }
+  return this[Symbol.asyncIterator](options);
+};
 
 // Symbol.asyncIterator support for Readable streams
 Readable.prototype[Symbol.asyncIterator] = function() {
@@ -2599,6 +2739,12 @@ Readable.fromWeb = function(webStream, options) {
 function Writable(options) {
   if (!(this instanceof Writable) && !(this instanceof Duplex)) return new Writable(options);
   Stream.call(this);
+  // Pre-initialize event slots to match Node.js key ordering
+  this._events.close = undefined;
+  this._events.error = undefined;
+  this._events.prefinish = undefined;
+  this._events.finish = undefined;
+  this._events.drain = undefined;
   var self = this;
   // Determine objectMode: writableObjectMode overrides objectMode if present
   var objMode = (options && options.writableObjectMode != null) ? !!options.writableObjectMode :
@@ -2613,14 +2759,6 @@ function Writable(options) {
   } else {
     hwm = objMode ? defaultHighWaterMarkObjectMode : defaultHighWaterMark;
   }
-  this.writableEnded = false;
-  this.writableFinished = false;
-  this.writableHighWaterMark = hwm;
-  this.writableObjectMode = objMode;
-  this.writableLength = 0;
-  this.writableAborted = false;
-  this.writableCorked = 0;
-  this.writableNeedDrain = false;
   this.writable = true;
   this.errored = null;
   this._written = [];
@@ -2667,17 +2805,8 @@ function Writable(options) {
     }
     return stateBuffer;
   };
-  Object.defineProperty(this._writableState, "corked", {
-    configurable: true,
-    enumerable: true,
-    get: function() {
-      return self.writableCorked;
-    },
-    set: function(value) {
-      self.writableCorked = value;
-    }
-  });
-  if (options && options.defaultEncoding !== undefined) {
+  // corked is stored directly in _writableState and accessed via prototype getter
+  if (options && options.defaultEncoding !== undefined && options.defaultEncoding !== null) {
     var _validEncs = { 'utf8': 1, 'utf-8': 1, 'ascii': 1, 'latin1': 1, 'binary': 1, 'hex': 1, 'base64': 1, 'base64url': 1, 'ucs2': 1, 'ucs-2': 1, 'utf16le': 1, 'utf-16le': 1 };
     if (!_validEncs[String(options.defaultEncoding).toLowerCase()]) {
       var encErr = new TypeError('Unknown encoding: ' + options.defaultEncoding);
@@ -2687,9 +2816,13 @@ function Writable(options) {
     this._writableState.defaultEncoding = options.defaultEncoding;
   }
   if (options && typeof options.write === 'function') this._write = options.write;
+  if (options && typeof options._write === 'function') this._write = options._write;
   if (options && typeof options.writev === 'function') this._writev = options.writev;
+  if (options && typeof options._writev === 'function') this._writev = options._writev;
   if (options && typeof options.destroy === 'function') this._destroy = options.destroy;
+  if (options && typeof options._destroy === 'function') this._destroy = options._destroy;
   if (options && typeof options.final === 'function') this._final = options.final;
+  if (options && typeof options._final === 'function') this._final = options._final;
   // construct callback support
   if (options && typeof options.construct === 'function') {
     this._writableState.constructed = false;
@@ -2715,16 +2848,179 @@ Writable.prototype = Object.create(Stream.prototype);
 Writable.prototype.constructor = Writable;
 Writable.prototype._undestroy = Stream.prototype._undestroy;
 
+// Define writableFinished, writableEnded, writableAborted, writableLength,
+// writableHighWaterMark, writableCorked, writableNeedDrain, writableObjectMode
+// as prototype getters/setters so Object.hasOwn(Writable.prototype, ...) works
+Object.defineProperties(Writable.prototype, {
+  writableFinished: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._writableState ? !!this._writableState.finished : false;
+    },
+    set: function(val) {
+      if (this._writableState) this._writableState.finished = !!val;
+    }
+  },
+  writableEnded: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._writableState ? !!this._writableState.ended : false;
+    },
+    set: function(val) {
+      if (this._writableState) this._writableState.ended = !!val;
+    }
+  },
+  writableAborted: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return !!(this._writableState && this._writableState.destroyed &&
+                !this._writableState.finished);
+    },
+    set: function(val) {
+      // no-op, computed
+    }
+  },
+  writableLength: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._writableState ? this._writableState.length : 0;
+    },
+    set: function(val) {
+      if (this._writableState) this._writableState.length = val;
+    }
+  },
+  writableHighWaterMark: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._writableState ? this._writableState.highWaterMark : 0;
+    },
+    set: function(val) {
+      if (this._writableState) this._writableState.highWaterMark = val;
+    }
+  },
+  writableCorked: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._writableState ? this._writableState.corked : 0;
+    },
+    set: function(val) {
+      if (this._writableState) this._writableState.corked = val;
+    }
+  },
+  writableNeedDrain: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._writableState ? !!this._writableState.needDrain : false;
+    },
+    set: function(val) {
+      if (this._writableState) this._writableState.needDrain = !!val;
+    }
+  },
+  writableObjectMode: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      return this._writableState ? !!this._writableState.objectMode : false;
+    },
+    set: function(val) {
+      if (this._writableState) this._writableState.objectMode = !!val;
+    }
+  },
+});
+
+// Verify defineProperties applied (catch silent errors)
+if (!Object.hasOwn(Writable.prototype, 'writableFinished')) {
+  // Fallback: try individual defineProperty calls
+  try {
+    Object.defineProperty(Writable.prototype, 'writableFinished', {
+      configurable: true, enumerable: true,
+      get: function() { return this._writableState ? !!this._writableState.finished : false; },
+      set: function(val) { if (this._writableState) this._writableState.finished = !!val; }
+    });
+    Object.defineProperty(Writable.prototype, 'writableEnded', {
+      configurable: true, enumerable: true,
+      get: function() { return this._writableState ? !!this._writableState.ended : false; },
+      set: function(val) { if (this._writableState) this._writableState.ended = !!val; }
+    });
+    Object.defineProperty(Writable.prototype, 'writableAborted', {
+      configurable: true, enumerable: true,
+      get: function() { return !!(this._writableState && this._writableState.destroyed && !this._writableState.finished); },
+      set: function() {}
+    });
+    Object.defineProperty(Writable.prototype, 'writableLength', {
+      configurable: true, enumerable: true,
+      get: function() { return this._writableState ? this._writableState.length : 0; },
+      set: function(val) { if (this._writableState) this._writableState.length = val; }
+    });
+    Object.defineProperty(Writable.prototype, 'writableHighWaterMark', {
+      configurable: true, enumerable: true,
+      get: function() { return this._writableState ? this._writableState.highWaterMark : 0; },
+      set: function(val) { if (this._writableState) this._writableState.highWaterMark = val; }
+    });
+    Object.defineProperty(Writable.prototype, 'writableCorked', {
+      configurable: true, enumerable: true,
+      get: function() { return this._writableState ? this._writableState.corked : 0; },
+      set: function(val) { if (this._writableState) this._writableState.corked = val; }
+    });
+    Object.defineProperty(Writable.prototype, 'writableNeedDrain', {
+      configurable: true, enumerable: true,
+      get: function() { return this._writableState ? !!this._writableState.needDrain : false; },
+      set: function(val) { if (this._writableState) this._writableState.needDrain = !!val; }
+    });
+    Object.defineProperty(Writable.prototype, 'writableObjectMode', {
+      configurable: true, enumerable: true,
+      get: function() { return this._writableState ? !!this._writableState.objectMode : false; },
+      set: function(val) { if (this._writableState) this._writableState.objectMode = !!val; }
+    });
+  } catch (_defErr) {
+    // Silently fail if defineProperty doesn't work
+  }
+}
+
+Writable.prototype.__exactWritableProtoPatched = true;
+
+// Custom Symbol.hasInstance so Duplex instances pass `instanceof Writable`
+Object.defineProperty(Writable, Symbol.hasInstance, {
+  value: function(object) {
+    // First check the normal prototype chain
+    if (Function.prototype[Symbol.hasInstance].call(this, object)) return true;
+    if (this !== Writable) return false;
+    // For Writable specifically, also check if object has _writableState
+    // This allows Duplex (which inherits from Readable, not Writable) to pass
+    return object != null && typeof object === 'object' && object._writableState != null;
+  }
+});
+
 Writable.prototype._write = function(chunk, encoding, callback) {
+  if (typeof this._writev === 'function') {
+    // If _writev is implemented but _write is not, delegate single writes through _writev
+    this._writev([{ chunk: chunk, encoding: encoding }], callback);
+    return;
+  }
   var err = new Error('The _write() method is not implemented');
   err.code = 'ERR_METHOD_NOT_IMPLEMENTED';
-  if (typeof callback === 'function') callback(err);
-  else throw err;
+  throw err;
 };
 
 Writable.prototype.write = function(chunk, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = 'utf8'; }
   var state = this._writableState;
+
+  // If the stream is errored, return false immediately
+  if (state && state.errored) {
+    if (typeof callback === 'function') {
+      process.nextTick(function() { callback(state.errored); });
+    }
+    return false;
+  }
+
   var hasErrorListener = false;
   if (state) {
     if (typeof this.listenerCount === 'function') {
@@ -2763,33 +3059,31 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   if (this.writableEnded || (state && state.ending)) {
     var endErr = new Error('write after end');
     endErr.code = 'ERR_STREAM_WRITE_AFTER_END';
-    if (typeof callback === 'function') {
-      setTimeout(function() { callback(endErr); }, 0);
-    }
     if (state) state.errored = endErr;
     this.errored = endErr;
-    if (state && state.errorEmitted) {
-      return false;
-    }
-    if (state && state.autoDestroy === false) {
-      if (!state.errorEmitted) {
-        state.errorEmitted = true;
-        this.emit('error', endErr);
+    var _endSelf = this;
+    process.nextTick(function() {
+      if (typeof callback === 'function') {
+        callback(endErr);
       }
-      return false;
-    }
-    if (!hasErrorListener) {
-      throw endErr;
-    }
-    if (state && !state.errorEmitted) {
-      state.errorEmitted = true;
-    }
-    this.destroy(endErr);
+      if (state && !state.errorEmitted) {
+        state.errorEmitted = true;
+        _endSelf.emit('error', endErr);
+      }
+    });
     return false;
   }
 
   if (chunk === null) {
     throw makeError(TypeError, 'ERR_STREAM_NULL_VALUES', 'May not write null values to stream');
+  }
+
+  // Validate encoding when decodeStrings is false and chunk is a string
+  if (!this.writableObjectMode && typeof chunk === 'string' && encoding) {
+    var _validWriteEncs = { 'utf8': 1, 'utf-8': 1, 'ascii': 1, 'latin1': 1, 'binary': 1, 'hex': 1, 'base64': 1, 'base64url': 1, 'ucs2': 1, 'ucs-2': 1, 'utf16le': 1, 'utf-16le': 1, 'buffer': 1 };
+    if (!_validWriteEncs[String(encoding).toLowerCase()]) {
+      throw makeError(TypeError, 'ERR_UNKNOWN_ENCODING', 'Unknown encoding: ' + encoding);
+    }
   }
 
   if (!this.writableObjectMode && this._writableState.decodeStrings !== false && typeof chunk === 'string') {
@@ -2807,6 +3101,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
         chunk = textBytes;
       }
     }
+    encoding = 'buffer';
   }
 
   if (!this.writableObjectMode && typeof chunk !== 'string' &&
@@ -2838,6 +3133,11 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   }
 
   state.writing = true;
+  if (shouldNeedDrain) {
+    this._needDrain = true;
+    this.writableNeedDrain = true;
+    state.needDrain = true;
+  }
   var hadNeedDrain = this._needDrain || this.writableNeedDrain;
   var callbackCalled = false;
   var self = this;
@@ -2850,17 +3150,20 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     _syncWritableBufferState(self);
 
     if (err) {
+      self.errored = err;
+      if (state) state.errored = err;
+      // Call the write callback first, then emit error (Node.js guarantees callback before error event)
       if (typeof queued.callback === 'function') {
         queued.callback(err);
       }
-      if (state.autoDestroy && !self._destroyed) {
-        self.destroy(err);
-      } else {
-        if (typeof state && !state.errorEmitted) {
+      process.nextTick(function() {
+        if (state.autoDestroy && !self._destroyed) {
+          self.destroy(err);
+        } else if (!state.errorEmitted) {
           state.errorEmitted = true;
+          self.emit('error', err);
         }
-        if (typeof queued.callback === 'function') queued.callback(err);
-      }
+      });
       return;
     }
 
@@ -2894,6 +3197,9 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   try {
     self._write(chunk, encoding || 'utf8', onWriteComplete);
   } catch (err) {
+    if (err && err.code === 'ERR_METHOD_NOT_IMPLEMENTED') {
+      throw err;
+    }
     onWriteComplete(err);
     return false;
   }
@@ -3077,6 +3383,7 @@ Writable.prototype.end = function(chunk, encoding, callback) {
       return;
     }
     state.prefinished = true;
+    // prefinish fires synchronously
     self.emit('prefinish');
     if (
       self._destroyed ||
@@ -3095,35 +3402,36 @@ Writable.prototype.end = function(chunk, encoding, callback) {
       }
       return;
     }
-    self.writableFinished = true;
-    state.finished = true;
-    self.emit('finish');
-    state.errorEmitted = false;
-    var shouldDestroy = self._writableState.autoDestroy && !self._destroyed;
-    if (self._readableState && self.readable !== false && self._readableState.readable !== false) {
-      shouldDestroy = false;
-    }
-    if (shouldDestroy) {
-      self.destroy();
-    } else {
-      self._close();
-    }
-    var callbacks = self._endCallbacks;
-    self._endCallbacks = [];
-    for (var j = 0; j < callbacks.length; j++) {
-      callbacks[j](null);
-    }
+    // finish fires asynchronously
+    _nextTick(function() {
+      if (self._destroyed || state.finished) return;
+      self.writableFinished = true;
+      state.finished = true;
+      self.emit('finish');
+      state.errorEmitted = false;
+      var shouldDestroy = self._writableState.autoDestroy && !self._destroyed;
+      if (self._readableState && self.readable !== false && self._readableState.readable !== false) {
+        shouldDestroy = false;
+      }
+      if (shouldDestroy) {
+        self.destroy();
+      } else {
+        self._close();
+      }
+      var callbacks = self._endCallbacks;
+      self._endCallbacks = [];
+      for (var j = 0; j < callbacks.length; j++) {
+        callbacks[j](null);
+      }
+    });
   };
 
   var finish = function(err) {
-    if (!state._pendingEndScheduled) {
-      state._pendingEndScheduled = true;
-      state._pendingEnd = null;
-      scheduleDone(function() {
-        state._pendingEndScheduled = false;
-        done(err);
-      });
-    }
+    if (state._pendingEndScheduled) return;
+    state._pendingEndScheduled = true;
+    state._pendingEnd = null;
+    // Call done synchronously - prefinish fires sync, finish fires async
+    done(err);
   };
 
   var attemptFinal = function(err) {
@@ -3143,13 +3451,13 @@ Writable.prototype.end = function(chunk, encoding, callback) {
     if (typeof self._final === 'function') {
       state._pendingEndScheduled = true;
       try {
-        self._final(function(err) {
+        self._final(function(finalErr) {
           state._pendingEndScheduled = false;
-          finish(err);
+          finish(finalErr);
         });
-      } catch (err) {
+      } catch (finalCatchErr) {
         state._pendingEndScheduled = false;
-        finish(err);
+        finish(finalCatchErr);
       }
       return;
     }
@@ -3197,9 +3505,26 @@ Writable.prototype.uncork = function() {
 };
 Writable.prototype.setDefaultEncoding = function(enc) {
   if (!this._writableState) return this;
-  if (typeof enc === 'string') {
-    this._writableState.defaultEncoding = enc;
+  if (typeof enc !== 'string') {
+    var encStr;
+    if (enc === null) encStr = 'null';
+    else if (enc === undefined) encStr = 'undefined';
+    else if (typeof enc === 'object') {
+      try { encStr = JSON.stringify(enc); } catch(e) { encStr = String(enc); }
+      if (encStr === undefined) encStr = String(enc);
+    } else encStr = String(enc);
+    var typeErr = new TypeError('Unknown encoding: ' + encStr);
+    typeErr.code = 'ERR_UNKNOWN_ENCODING';
+    throw typeErr;
   }
+  var normalized = enc.toLowerCase();
+  var _validEncs2 = { 'utf8': 1, 'utf-8': 1, 'ascii': 1, 'latin1': 1, 'binary': 1, 'hex': 1, 'base64': 1, 'base64url': 1, 'ucs2': 1, 'ucs-2': 1, 'utf16le': 1, 'utf-16le': 1 };
+  if (!_validEncs2[normalized]) {
+    var encErr2 = new TypeError('Unknown encoding: ' + enc);
+    encErr2.code = 'ERR_UNKNOWN_ENCODING';
+    throw encErr2;
+  }
+  this._writableState.defaultEncoding = normalized;
   return this;
 };
 
@@ -3249,16 +3574,35 @@ function Duplex(options) {
     Readable.call(this, options);
     Writable.call(this, options);
   }
-  this.writableEnded = false;
-  this.writableFinished = false;
-  this.writableAborted = false;
+  // Re-order event slots: Duplex should have close, error, prefinish, finish, drain, data, end, readable
+  // Readable added data/end/readable before Writable added prefinish/finish/drain, so fix the order
+  if (this._events) {
+    delete this._events.data;
+    delete this._events.end;
+    delete this._events.readable;
+    this._events.data = undefined;
+    this._events.end = undefined;
+    this._events.readable = undefined;
+  }
   this.allowHalfOpen = !(options && options.allowHalfOpen === false);
   // Handle readable option - when readable is false, the stream is not a readable stream
   // so readableAborted should never be set to true
   if (options && options.readable === false) {
+    this.readable = false;
     this.readableAborted = false;
+    this._readableState.ended = true;
     this._readableState.endEmitted = true;
     this._readableState.endConsumed = true; // Prevent destroy from setting readableAborted
+  }
+  if (options && options.writable === false) {
+    this.writable = false;
+    this.writableEnded = true;
+    this.writableFinished = true;
+    if (this._writableState) {
+      this._writableState.ended = true;
+      this._writableState.ending = true;
+      this._writableState.finished = true;
+    }
   }
   // construct callback for Duplex (only once)
   if (typeof construct === 'function') {
@@ -3285,10 +3629,42 @@ function Duplex(options) {
   }
 }
 Duplex.prototype = Object.create(Readable.prototype);
-Object.keys(Writable.prototype).forEach(function(k) {
-  if (!Duplex.prototype[k]) Duplex.prototype[k] = Writable.prototype[k];
+// Copy Writable prototype methods and accessors to Duplex prototype
+// Use getOwnPropertyDescriptor to preserve getters/setters
+Object.getOwnPropertyNames(Writable.prototype).forEach(function(k) {
+  if (k === 'constructor') return;
+  if (Duplex.prototype.hasOwnProperty(k)) return;
+  var desc = Object.getOwnPropertyDescriptor(Writable.prototype, k);
+  if (desc) {
+    Object.defineProperty(Duplex.prototype, k, desc);
+  }
 });
 Duplex.prototype.constructor = Duplex;
+
+function _transformDefaultFinal(callback) {
+  var self = this;
+  if (typeof self._flush === 'function' && !self.destroyed) {
+    self._flush(function(err, data) {
+      if (err) {
+        if (typeof callback === 'function') callback(err);
+        else self.destroy(err);
+        return;
+      }
+      if (data !== undefined && data !== null) {
+        self.push(data);
+      }
+      if (!self._readableState || !self._readableState.ended) {
+        self.push(null);
+      }
+      if (typeof callback === 'function') callback();
+    });
+  } else {
+    if (!self._readableState || !self._readableState.ended) {
+      self.push(null);
+    }
+    if (typeof callback === 'function') callback();
+  }
+}
 
 function Transform(options) {
   if (!(this instanceof Transform)) return new Transform(options);
@@ -3301,21 +3677,23 @@ function Transform(options) {
     finalCallback: null,
     finalizing: false
   };
-  if (!options || typeof options.final !== 'function') {
-    this._final = function(callback) {
-      var state = this._transformState || {};
-      if (state.finalizing) return;
-      state.finalizing = true;
-      if (state.pendingWrites > 0) {
-        state.finalCallback = callback;
-        return;
-      }
-      this.push(null);
-      if (typeof callback === 'function') callback();
-    };
-  }
+  // Default _final calls _flush and push(null)
   if (options && typeof options.transform === 'function') this._transform = options.transform;
   if (options && typeof options.flush === 'function') this._flush = options.flush;
+  // If user provided final via options, Writable constructor already set this._final = options.final.
+  // Use prefinish to call _flush and push(null) if user has their own _final.
+  // If no user final, set the default _final which calls _flush.
+  var _self = this;
+  var _userSetFinal = (options && typeof options.final === 'function') ||
+                      (options && typeof options._final === 'function');
+  if (!_userSetFinal) {
+    this._final = _transformDefaultFinal;
+  }
+  this.on('prefinish', function() {
+    if (_self._final !== _transformDefaultFinal) {
+      _transformDefaultFinal.call(_self);
+    }
+  });
 }
 Transform.prototype = Object.create(Duplex.prototype);
 Transform.prototype.constructor = Transform;
@@ -3323,8 +3701,7 @@ Transform.prototype.constructor = Transform;
 Transform.prototype._transform = function(chunk, encoding, callback) {
   var err = new Error('The _transform() method is not implemented');
   err.code = 'ERR_METHOD_NOT_IMPLEMENTED';
-  if (typeof callback === 'function') callback(err);
-  else throw err;
+  throw err;
 };
 
 Transform.prototype._write = function(chunk, encoding, callback) {
@@ -3363,6 +3740,9 @@ Transform.prototype._write = function(chunk, encoding, callback) {
     this._transform(chunk, encoding || 'utf8', done);
   } catch (err) {
     state.pendingWrites = Math.max(0, state.pendingWrites - 1);
+    if (err && err.code === 'ERR_METHOD_NOT_IMPLEMENTED') {
+      throw err;
+    }
     done(err);
   }
 };
@@ -4636,7 +5016,9 @@ function finished(stream, options, callback) {
     var readableDone = isReadableDone();
     var writableDone = isWritableDone();
     if (!readableDone || !writableDone) {
-      done(new Error('premature close'));
+      var prematureErr = new Error('premature close');
+      prematureErr.code = 'ERR_STREAM_PREMATURE_CLOSE';
+      done(prematureErr);
     } else {
       done(null);
     }
@@ -5277,7 +5659,14 @@ Stream.setDefaultHighWaterMark = Readable.setDefaultHighWaterMark;
 
 // destroy() — standalone function to destroy a stream
 Stream.destroy = function destroy(stream, err) {
-  if (stream && typeof stream.destroy === 'function') {
+  if (!stream || typeof stream.destroy !== 'function') return stream;
+  // When called without an error, the standalone destroy() emits AbortError
+  if (err === undefined) {
+    var abortErr = new Error('The operation was aborted');
+    abortErr.code = 'ABORT_ERR';
+    abortErr.name = 'AbortError';
+    stream.destroy(abortErr);
+  } else {
     stream.destroy(err);
   }
   return stream;
@@ -5609,5 +5998,47 @@ Stream.consumers = {
   arrayBuffer: function(stream, options) { return _arrayBufferStreamConsumer(stream, options); },
   blob: function(stream, options) { return _blobStreamConsumer(stream, options); }
 };
+
+// duplexPair - creates a pair of connected Duplex streams
+function duplexPair(options) {
+  var d1 = new Duplex(Object.assign({ objectMode: true }, options));
+  var d2 = new Duplex(Object.assign({ objectMode: true }, options));
+  d1._write = function(chunk, enc, cb) {
+    if (!d2.push(chunk)) {
+      d1._readableState.awaitDrainWriters = d2;
+    }
+    cb();
+  };
+  d2._write = function(chunk, enc, cb) {
+    if (!d1.push(chunk)) {
+      d2._readableState.awaitDrainWriters = d1;
+    }
+    cb();
+  };
+  d1._read = function() {
+    if (d2._readableState && d2._readableState.awaitDrainWriters === d1) {
+      d2._readableState.awaitDrainWriters = null;
+    }
+  };
+  d2._read = function() {
+    if (d1._readableState && d1._readableState.awaitDrainWriters === d2) {
+      d1._readableState.awaitDrainWriters = null;
+    }
+  };
+  d1.on('end', function() { d2.push(null); });
+  d2.on('end', function() { d1.push(null); });
+  d1._final = function(cb) {
+    d2.push(null);
+    cb();
+  };
+  d2._final = function(cb) {
+    d1.push(null);
+    cb();
+  };
+  return [d1, d2];
+}
+
+Stream.duplexPair = duplexPair;
+Duplex.duplexPair = duplexPair;
 
 module.exports = Stream;

@@ -499,7 +499,14 @@ EventEmitter.prototype.listenerCount = function listenerCount(eventName, listene
 
 EventEmitter.prototype.eventNames = function eventNames() {
   if (this._events === undefined) return [];
-  return Reflect.ownKeys(this._events);
+  var keys = Reflect.ownKeys(this._events);
+  var result = [];
+  for (var i = 0; i < keys.length; i++) {
+    if (this._events[keys[i]] !== undefined) {
+      result.push(keys[i]);
+    }
+  }
+  return result;
 };
 
 // Static once

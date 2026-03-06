@@ -490,7 +490,7 @@
         llhttp: processVersions.llhttp || '0.0.0',
         uvwasi: processVersions.uvwasi || '0.0.0',
         unicode: processVersions.unicode || '15.1',
-        openssl: processVersions.openssl || '0.0.0',
+        openssl: processVersions.openssl || '3.0.0',
         hermes: processVersions.hermes || '0.12.0',
         exact: processVersions.exact || '0.1.0'
       };
