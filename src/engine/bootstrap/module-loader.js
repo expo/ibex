@@ -1550,19 +1550,50 @@
       var bodyLines = [];
       var j = i + 1;
       var hasBreakContinue = false;
+      var inStr = false;
+      var strCh = 0;
+      var inBlockComment = false;
       while (j < lines.length && depth > 0) {
         var bl = lines[j];
-        var inStr = false;
-        var strCh = 0;
+        var inLineComment = false;
         for (var k = 0; k < bl.length; k++) {
           var ch = bl.charCodeAt(k);
-          if (inStr) {
-            if (ch === strCh && (k === 0 || bl.charCodeAt(k - 1) !== 92)) inStr = false;
-          } else {
-            if (ch === 34 || ch === 39 || ch === 96) { inStr = true; strCh = ch; }
-            else if (ch === 123) depth++;
-            else if (ch === 125) depth--;
+          var next = k + 1 < bl.length ? bl.charCodeAt(k + 1) : 0;
+          if (inLineComment) break;
+          if (inBlockComment) {
+            if (ch === 42 && next === 47) {
+              inBlockComment = false;
+              k++;
+            }
+            continue;
           }
+          if (inStr) {
+            if (ch === 92) {
+              k++;
+              continue;
+            }
+            if (ch === strCh) {
+              inStr = false;
+              strCh = 0;
+            }
+            continue;
+          }
+          if (ch === 47 && next === 47) {
+            inLineComment = true;
+            break;
+          }
+          if (ch === 47 && next === 42) {
+            inBlockComment = true;
+            k++;
+            continue;
+          }
+          if (ch === 34 || ch === 39 || ch === 96) {
+            inStr = true;
+            strCh = ch;
+            continue;
+          }
+          if (ch === 123) depth++;
+          else if (ch === 125) depth--;
           if (depth <= 0) break;
         }
         if (depth > 0) {

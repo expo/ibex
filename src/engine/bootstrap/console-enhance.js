@@ -82,6 +82,20 @@
     }
   }
 
+  function _publishConsoleChannel(methodName, args) {
+    if (!methodName || !globalThis.require) return;
+    try {
+      var diagnostics = globalThis.require('diagnostics_channel');
+      if (!diagnostics || typeof diagnostics.channel !== 'function') return;
+      var channelName = 'console.' + methodName;
+      if (typeof diagnostics.hasSubscribers === 'function' &&
+          !diagnostics.hasSubscribers(channelName)) {
+        return;
+      }
+      diagnostics.channel(channelName).publish(Array.prototype.slice.call(args));
+    } catch (_) {}
+  }
+
   // --- Console constructor ---
   function Console(options, stderr, opts) {
     if (!(this instanceof Console)) {
@@ -244,7 +258,8 @@
   }
 
   // Write to a Console's stream with proper indentation and error handling
-  function _consoleWrite(self, stream, args) {
+  function _consoleWrite(self, stream, args, methodName) {
+    _publishConsoleChannel(methodName, args);
     var inspectOpts = _getInspectOpts(self, stream);
     var hasOpts = false;
     var optKeys = Object.keys(inspectOpts);
@@ -264,12 +279,12 @@
   }
 
   // Define methods on Console.prototype
-  Console.prototype.log = function log() { _consoleWrite(this, this._stdout, arguments); };
-  Console.prototype.debug = function debug() { _consoleWrite(this, this._stdout, arguments); };
-  Console.prototype.info = function info() { _consoleWrite(this, this._stdout, arguments); };
+  Console.prototype.log = function log() { _consoleWrite(this, this._stdout, arguments, 'log'); };
+  Console.prototype.debug = function debug() { _consoleWrite(this, this._stdout, arguments, 'debug'); };
+  Console.prototype.info = function info() { _consoleWrite(this, this._stdout, arguments, 'info'); };
   Console.prototype.dirxml = function dirxml() { _consoleWrite(this, this._stdout, arguments); };
-  Console.prototype.warn = function warn() { _consoleWrite(this, this._stderr, arguments); };
-  Console.prototype.error = function error() { _consoleWrite(this, this._stderr, arguments); };
+  Console.prototype.warn = function warn() { _consoleWrite(this, this._stderr, arguments, 'warn'); };
+  Console.prototype.error = function error() { _consoleWrite(this, this._stderr, arguments, 'error'); };
   Console.prototype.dir = function dir(obj, options) {
     try {
       var util = globalThis.require ? globalThis.require('util') : null;
@@ -448,14 +463,25 @@
   }
 
   console.log = function log() {
+    _publishConsoleChannel('log', arguments);
     _writeStdout(_formatArgs(arguments) + '\n');
   };
-  console.info = console.log;
-  console.debug = console.log;
+  console.info = function info() {
+    _publishConsoleChannel('info', arguments);
+    _writeStdout(_formatArgs(arguments) + '\n');
+  };
+  console.debug = function debug() {
+    _publishConsoleChannel('debug', arguments);
+    _writeStdout(_formatArgs(arguments) + '\n');
+  };
   console.warn = function warn() {
+    _publishConsoleChannel('warn', arguments);
     _writeStderr(_formatArgs(arguments) + '\n');
   };
-  console.error = console.warn;
+  console.error = function error() {
+    _publishConsoleChannel('error', arguments);
+    _writeStderr(_formatArgs(arguments) + '\n');
+  };
   console.dir = function dir(obj) {
     try {
       var util = globalThis.require ? globalThis.require('util') : null;

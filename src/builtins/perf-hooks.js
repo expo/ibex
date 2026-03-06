@@ -1,6 +1,7 @@
 var _perfStart = Date.now();
 var _marks = [];
 var _measures = [];
+var _resources = [];
 var _observers = [];
 
 var _isMainThread = true;
@@ -237,6 +238,77 @@ Object.defineProperty(PerformanceMeasure.prototype, Symbol.toStringTag, {
   value: 'PerformanceMeasure'
 });
 
+var _allowPerformanceResourceTimingConstruction = false;
+function PerformanceResourceTiming(config, secret) {
+  if (!_allowPerformanceResourceTimingConstruction && secret !== _histogramSecret) {
+    throw _illegalConstructor();
+  }
+  config = config || {};
+  _allowPerformanceEntryConstruction = true;
+  PerformanceEntry.call(
+    this,
+    config.name || '',
+    'resource',
+    config.startTime || 0,
+    config.duration || 0
+  );
+  _allowPerformanceEntryConstruction = false;
+  this.initiatorType = config.initiatorType || '';
+  this.nextHopProtocol = config.nextHopProtocol || [];
+  this.workerStart = config.workerStart || 0;
+  this.redirectStart = config.redirectStart || 0;
+  this.redirectEnd = config.redirectEnd || 0;
+  this.fetchStart = config.fetchStart || 0;
+  this.domainLookupStart = config.domainLookupStart || 0;
+  this.domainLookupEnd = config.domainLookupEnd || 0;
+  this.connectStart = config.connectStart || 0;
+  this.connectEnd = config.connectEnd || 0;
+  this.secureConnectionStart = config.secureConnectionStart || 0;
+  this.requestStart = config.requestStart || 0;
+  this.responseStart = config.responseStart || 0;
+  this.responseEnd = config.responseEnd || 0;
+  this.transferSize = config.transferSize || 0;
+  this.encodedBodySize = config.encodedBodySize || 0;
+  this.decodedBodySize = config.decodedBodySize || 0;
+  this.deliveryType = config.deliveryType || '';
+  this.responseStatus = config.responseStatus || 0;
+}
+PerformanceResourceTiming.prototype = Object.create(PerformanceEntry.prototype);
+PerformanceResourceTiming.prototype.constructor = PerformanceResourceTiming;
+PerformanceResourceTiming.prototype.toJSON = function() {
+  return {
+    name: this.name,
+    entryType: this.entryType,
+    startTime: this.startTime,
+    duration: this.duration,
+    initiatorType: this.initiatorType,
+    nextHopProtocol: this.nextHopProtocol,
+    workerStart: this.workerStart,
+    redirectStart: this.redirectStart,
+    redirectEnd: this.redirectEnd,
+    fetchStart: this.fetchStart,
+    domainLookupStart: this.domainLookupStart,
+    domainLookupEnd: this.domainLookupEnd,
+    connectStart: this.connectStart,
+    connectEnd: this.connectEnd,
+    secureConnectionStart: this.secureConnectionStart,
+    requestStart: this.requestStart,
+    responseStart: this.responseStart,
+    responseEnd: this.responseEnd,
+    transferSize: this.transferSize,
+    encodedBodySize: this.encodedBodySize,
+    decodedBodySize: this.decodedBodySize,
+    responseStatus: this.responseStatus,
+    deliveryType: this.deliveryType
+  };
+};
+Object.defineProperty(PerformanceResourceTiming.prototype, Symbol.toStringTag, {
+  configurable: true,
+  enumerable: false,
+  writable: false,
+  value: 'PerformanceResourceTiming'
+});
+
 function Performance() {}
 Performance.prototype.now = function() {
   var t = _perfNow();
@@ -315,10 +387,10 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
   return entry;
 };
 Performance.prototype.getEntries = function() {
-  return _marks.concat(_measures).sort(function(a, b) { return a.startTime - b.startTime; });
+  return _marks.concat(_measures, _resources).sort(function(a, b) { return a.startTime - b.startTime; });
 };
 Performance.prototype.getEntriesByName = function(name, type) {
-  var all = _marks.concat(_measures);
+  var all = _marks.concat(_measures, _resources);
   var result = [];
   for (var i = 0; i < all.length; i++) {
     if (all[i].name === name && (!type || all[i].entryType === type)) {
@@ -328,7 +400,7 @@ Performance.prototype.getEntriesByName = function(name, type) {
   return result.sort(function(a, b) { return a.startTime - b.startTime; });
 };
 Performance.prototype.getEntriesByType = function(type) {
-  var all = _marks.concat(_measures);
+  var all = _marks.concat(_measures, _resources);
   var result = [];
   for (var i = 0; i < all.length; i++) {
     if (all[i].entryType === type) {
@@ -352,6 +424,57 @@ Performance.prototype.clearMeasures = function(name) {
   } else {
     _measures = _measures.filter(function(m) { return m.name !== name; });
   }
+};
+Performance.prototype.clearResourceTimings = function() {
+  _resources = [];
+};
+Performance.prototype.markResourceTiming = function(
+  timingInfo,
+  requestedUrl,
+  initiatorType,
+  customGlobal,
+  cacheMode,
+  bodyInfo,
+  responseStatus,
+  deliveryType
+) {
+  var connectionInfo = timingInfo && timingInfo.finalConnectionTimingInfo || {};
+  var encodedBodySize = timingInfo && timingInfo.encodedBodySize || 0;
+  var duration = 0;
+  if (timingInfo && typeof timingInfo.endTime === 'number' && typeof timingInfo.startTime === 'number') {
+    duration = timingInfo.endTime - timingInfo.startTime;
+    if (duration < 0) duration = 0;
+  }
+  var transferSize = cacheMode === 'local' ? 0 : encodedBodySize + (encodedBodySize > 0 ? 300 : 0);
+  _allowPerformanceResourceTimingConstruction = true;
+  var entry = new PerformanceResourceTiming({
+    name: requestedUrl,
+    startTime: timingInfo && timingInfo.startTime || 0,
+    duration: duration,
+    initiatorType: initiatorType || '',
+    nextHopProtocol: connectionInfo.ALPNNegotiatedProtocol || [],
+    workerStart: timingInfo && timingInfo.finalServiceWorkerStartTime || 0,
+    redirectStart: timingInfo && timingInfo.redirectStartTime || 0,
+    redirectEnd: timingInfo && timingInfo.redirectEndTime || 0,
+    fetchStart: timingInfo && timingInfo.postRedirectStartTime || 0,
+    domainLookupStart: connectionInfo.domainLookupStartTime || 0,
+    domainLookupEnd: connectionInfo.domainLookupEndTime || 0,
+    connectStart: connectionInfo.connectionStartTime || 0,
+    connectEnd: connectionInfo.connectionEndTime || 0,
+    secureConnectionStart: connectionInfo.secureConnectionStartTime || 0,
+    requestStart: timingInfo && timingInfo.finalNetworkRequestStartTime || 0,
+    responseStart: timingInfo && timingInfo.finalNetworkResponseStartTime || 0,
+    responseEnd: timingInfo && timingInfo.endTime || 0,
+    transferSize: transferSize,
+    encodedBodySize: encodedBodySize,
+    decodedBodySize: timingInfo && timingInfo.decodedBodySize || 0,
+    responseStatus: responseStatus || 0,
+    deliveryType: deliveryType || ''
+  }, _histogramSecret);
+  _allowPerformanceResourceTimingConstruction = false;
+  _resources.push(entry);
+  _notifyObservers(entry);
+  return entry;
 };
 Performance.prototype.toJSON = function() {
   _updateNodeTiming();
@@ -726,7 +849,7 @@ PerformanceObserver.prototype.disconnect = function() {
 PerformanceObserver.prototype.takeRecords = function() {
   return [];
 };
-PerformanceObserver.supportedEntryTypes = ['mark', 'measure', 'function'];
+PerformanceObserver.supportedEntryTypes = ['mark', 'measure', 'function', 'resource'];
 
 var performance = new Performance();
 performance.nodeTiming = _nodeTiming;
@@ -743,6 +866,7 @@ module.exports = {
   PerformanceMark: PerformanceMark,
   PerformanceMeasure: PerformanceMeasure,
   PerformanceObserver: PerformanceObserver,
+  PerformanceResourceTiming: PerformanceResourceTiming,
   timerify: timerify,
   eventLoopUtilization: eventLoopUtilization,
   createHistogram: createHistogram,
