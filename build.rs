@@ -38,7 +38,9 @@ fn main() {
             }
         });
     let hermes_framework_dir = if target_os == "macos" {
-        let xcframework_macos = hermes_lib_dir.join("hermes.xcframework").join("macos-arm64_x86_64");
+        let xcframework_macos = hermes_lib_dir
+            .join("hermes.xcframework")
+            .join("macos-arm64_x86_64");
         if xcframework_macos.exists() {
             xcframework_macos
         } else {
@@ -75,6 +77,16 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
+    let hermes_macos_binary = if target_os == "macos" {
+        let binary = find_macos_hermes_binary(&hermes_framework_dir)
+            .or_else(|| find_macos_hermes_binary(&hermes_lib_dir));
+        if let Some(path) = binary.as_ref() {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+        binary
+    } else {
+        None
+    };
     let allow_fallback = matches!(
         std::env::var("EXACT_ALLOW_FALLBACK")
             .ok()
@@ -251,7 +263,10 @@ fn main() {
                         js_path.display()
                     );
                 }
-                eprintln!("cargo:warning=Bootstrap JS file not found: {}", js_path.display());
+                eprintln!(
+                    "cargo:warning=Bootstrap JS file not found: {}",
+                    js_path.display()
+                );
                 all_ok = false;
                 break;
             }
@@ -316,7 +331,10 @@ fn main() {
                 }
                 _ => {
                     if !allow_fallback {
-                        panic!("hermesc failed for {} and EXACT_ALLOW_FALLBACK is not set", js_file);
+                        panic!(
+                            "hermesc failed for {} and EXACT_ALLOW_FALLBACK is not set",
+                            js_file
+                        );
                     }
                     eprintln!("cargo:warning=hermesc failed for {}", js_file);
                     all_ok = false;
@@ -372,14 +390,11 @@ fn main() {
             std::fs::write(&bootstrap_source_header, &src_header).unwrap();
             eprintln!("cargo:warning=Generated bootstrap_source.h with JS source literals");
         } else if !allow_fallback {
-            panic!(
-                "bootstrap_source.h generation failed because EXACT_ALLOW_FALLBACK is not set"
-            );
+            panic!("bootstrap_source.h generation failed because EXACT_ALLOW_FALLBACK is not set");
         } else {
             eprintln!("cargo:warning=bootstrap_source.h generation failed — missing JS files");
         }
     }
-
 
     // Compile hermes_runtime.cc
     let mut build = cc::Build::new();
@@ -435,17 +450,9 @@ fn main() {
         _ => {}
     }
 
-    // Debugger support (disabled on iOS by default — Hermes xcframework needs matching debugger build)
-    // Set HERMES_ENABLE_DEBUGGER=1 to enable for CDP DevTools support
-    let enable_debugger = if target_os == "ios" {
-        std::env::var("HERMES_ENABLE_DEBUGGER")
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false)
-    } else {
-        std::env::var("HERMES_ENABLE_DEBUGGER")
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(true)
-    };
+    // Debugger support is auto-detected on macOS so we do not compile against
+    // debugger APIs that are missing from the checked-in Hermes framework.
+    let enable_debugger = should_enable_hermes_debugger(&target_os, hermes_macos_binary.as_deref());
 
     if enable_debugger {
         build.define("HERMES_ENABLE_DEBUGGER", None);
@@ -674,11 +681,7 @@ fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
 fn safe_remove_file(path: &Path) {
     if let Err(err) = std::fs::remove_file(path) {
         if err.kind() != ErrorKind::NotFound {
-            eprintln!(
-                "cargo:warning=Failed to remove {}: {}",
-                path.display(),
-                err
-            );
+            eprintln!("cargo:warning=Failed to remove {}: {}", path.display(), err);
         }
     }
 }
@@ -740,4 +743,97 @@ fn bytecode_file_version(hermesc: &Path, hbc_path: &Path) -> Option<u32> {
 
     let _ = child.wait();
     None
+}
+
+fn parse_env_flag(name: &str) -> Option<bool> {
+    std::env::var(name).ok().map(|value| {
+        matches!(
+            value.as_str(),
+            "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+        )
+    })
+}
+
+fn find_macos_hermes_binary(search_root: &Path) -> Option<PathBuf> {
+    let candidates = [
+        search_root
+            .join("hermesvm.framework")
+            .join("Versions")
+            .join("Current")
+            .join("hermesvm"),
+        search_root
+            .join("hermesvm.framework")
+            .join("Versions")
+            .join("1")
+            .join("hermesvm"),
+        search_root.join("hermesvm.framework").join("hermesvm"),
+        search_root.join("hermesvm"),
+    ];
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
+    let output = std::process::Command::new("nm")
+        .args(["-gU", binary_path.to_string_lossy().as_ref()])
+        .output()
+        .or_else(|_| {
+            std::process::Command::new("xcrun")
+                .arg("nm")
+                .arg("-gU")
+                .arg(binary_path)
+                .output()
+        });
+
+    let Ok(output) = output else {
+        return false;
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    String::from_utf8_lossy(&output.stdout).contains("AsyncDebuggerAPI")
+}
+
+fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&Path>) -> bool {
+    match parse_env_flag("HERMES_ENABLE_DEBUGGER") {
+        Some(false) => false,
+        Some(true) => {
+            if target_os == "macos" {
+                let Some(binary_path) = hermes_macos_binary else {
+                    panic!(
+                        "HERMES_ENABLE_DEBUGGER=1 was requested, but no macOS Hermes framework binary was found."
+                    );
+                };
+                if !macos_hermes_has_debugger_symbols(binary_path) {
+                    panic!(
+                        "HERMES_ENABLE_DEBUGGER=1 was requested, but {} does not export Hermes debugger symbols. Rebuild Hermes with debugger support or unset HERMES_ENABLE_DEBUGGER.",
+                        binary_path.display()
+                    );
+                }
+            }
+            true
+        }
+        None => match target_os {
+            "ios" => false,
+            "macos" => match hermes_macos_binary {
+                Some(binary_path) if macos_hermes_has_debugger_symbols(binary_path) => true,
+                Some(binary_path) => {
+                    println!(
+                        "cargo:warning=Hermes debugger disabled: {} does not export debugger symbols.",
+                        binary_path.display()
+                    );
+                    false
+                }
+                None => {
+                    println!(
+                        "cargo:warning=Hermes debugger disabled: could not locate a macOS Hermes framework binary."
+                    );
+                    false
+                }
+            },
+            _ => true,
+        },
+    }
 }
