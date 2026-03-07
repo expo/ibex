@@ -134,6 +134,148 @@ function fillRange(target, value, start, end, encoding) {
   return target;
 }
 
+function toEncodingCheckBytes(value) {
+  if (isUint8Array(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength);
+  }
+  if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength);
+  }
+  if (isArrayBufferLike(value)) {
+    return new Uint8Array(getArrayBufferBacking(value));
+  }
+  throw makeInvalidArgTypeError(
+    "input",
+    "an instance of ArrayBuffer, Buffer, TypedArray, or DataView",
+    value
+  );
+}
+
+function isAsciiBytes(value) {
+  var constructorTarget = this instanceof isAsciiBytes ? this : null;
+  var bytes = toEncodingCheckBytes(value);
+  for (var i = 0; i < bytes.length; i++) {
+    if ((bytes[i] & 0x80) !== 0) {
+      return returnBooleanLike(constructorTarget, false);
+    }
+  }
+  return returnBooleanLike(constructorTarget, true);
+}
+
+function isUtf8Bytes(value) {
+  var constructorTarget = this instanceof isUtf8Bytes ? this : null;
+  var bytes = toEncodingCheckBytes(value);
+  if (bytes.length === 0) {
+    return returnBooleanLike(constructorTarget, true);
+  }
+  if (typeof TextDecoder === "function") {
+    try {
+      var decoder = new TextDecoder("utf-8", { fatal: true });
+      decoder.decode(bytes);
+      return returnBooleanLike(constructorTarget, true);
+    } catch (err) {
+      return returnBooleanLike(constructorTarget, false);
+    }
+  }
+  var i = 0;
+  while (i < bytes.length) {
+    var byte1 = bytes[i++];
+    if ((byte1 & 0x80) === 0) {
+      continue;
+    }
+    if ((byte1 & 0xe0) === 0xc0) {
+      if (i >= bytes.length) return returnBooleanLike(constructorTarget, false);
+      var byte2 = bytes[i++];
+      if ((byte2 & 0xc0) !== 0x80 || (byte1 & 0xfe) === 0xc0) {
+        return returnBooleanLike(constructorTarget, false);
+      }
+      continue;
+    }
+    if ((byte1 & 0xf0) === 0xe0) {
+      if (i + 1 >= bytes.length) return returnBooleanLike(constructorTarget, false);
+      var byte3a = bytes[i++];
+      var byte3b = bytes[i++];
+      if ((byte3a & 0xc0) !== 0x80 || (byte3b & 0xc0) !== 0x80) {
+        return returnBooleanLike(constructorTarget, false);
+      }
+      var codePoint3 =
+        ((byte1 & 0x0f) << 12) | ((byte3a & 0x3f) << 6) | (byte3b & 0x3f);
+      if (codePoint3 < 0x800 || (codePoint3 >= 0xd800 && codePoint3 <= 0xdfff)) {
+        return returnBooleanLike(constructorTarget, false);
+      }
+      continue;
+    }
+    if ((byte1 & 0xf8) === 0xf0) {
+      if (i + 2 >= bytes.length) return returnBooleanLike(constructorTarget, false);
+      var byte4a = bytes[i++];
+      var byte4b = bytes[i++];
+      var byte4c = bytes[i++];
+      if (
+        (byte4a & 0xc0) !== 0x80 ||
+        (byte4b & 0xc0) !== 0x80 ||
+        (byte4c & 0xc0) !== 0x80
+      ) {
+        return returnBooleanLike(constructorTarget, false);
+      }
+      var codePoint4 =
+        ((byte1 & 0x07) << 18) |
+        ((byte4a & 0x3f) << 12) |
+        ((byte4b & 0x3f) << 6) |
+        (byte4c & 0x3f);
+      if (codePoint4 < 0x10000 || codePoint4 > 0x10ffff) {
+        return returnBooleanLike(constructorTarget, false);
+      }
+      continue;
+    }
+    return returnBooleanLike(constructorTarget, false);
+  }
+  return returnBooleanLike(constructorTarget, true);
+}
+
+function wrapBooleanLike(target, value) {
+  var result = value === true;
+  try {
+    Object.defineProperty(target, "__exactBooleanValue", {
+      value: result,
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+    Object.defineProperty(target, "valueOf", {
+      value: function() {
+        return result;
+      },
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+    Object.defineProperty(target, "toString", {
+      value: function() {
+        return result ? "true" : "false";
+      },
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+  } catch (err) {
+    target.__exactBooleanValue = result;
+    target.valueOf = function() {
+      return result;
+    };
+    target.toString = function() {
+      return result ? "true" : "false";
+    };
+  }
+  return target;
+}
+
+function returnBooleanLike(target, value) {
+  if (!target || typeof target !== "object") {
+    return value;
+  }
+  return wrapBooleanLike(target, value);
+}
+
 function createOutOfRangeError(name, expectation, received) {
   var err = new RangeError('The value of "' + name + '" is out of range. It must be ' + expectation + '. Received ' + received);
   err.code = "ERR_OUT_OF_RANGE";
@@ -221,9 +363,71 @@ function formatBigIntWithSeparators(value) {
 }
 
 function base64ByteLength(value) {
-  var input = String(value).replace(/[\t\n\f\r ]+/g, "");
-  var stripped = input.replace(/=+$/g, "");
-  return Math.floor(stripped.length * 3 / 4);
+  return decodeBase64Bytes(value).length;
+}
+
+function decodeBase64Char(code) {
+  if (code >= 0x41 && code <= 0x5a) return code - 0x41;
+  if (code >= 0x61 && code <= 0x7a) return code - 0x47;
+  if (code >= 0x30 && code <= 0x39) return code + 0x04;
+  if (code === 0x2b || code === 0x2d) return 62;
+  if (code === 0x2f || code === 0x5f) return 63;
+  return -1;
+}
+
+function decodeBase64Bytes(value) {
+  var input = String(value);
+  var sextets = [];
+  for (var i = 0; i < input.length; i++) {
+    var code = input.charCodeAt(i);
+    if (code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d || code === 0x20) {
+      continue;
+    }
+    if (code === 0x3d) {
+      break;
+    }
+    var sextet = decodeBase64Char(code);
+    if (sextet >= 0) {
+      sextets.push(sextet);
+    }
+  }
+
+  var fullGroups = Math.floor(sextets.length / 4);
+  var remainder = sextets.length % 4;
+  var byteLength = fullGroups * 3;
+  if (remainder === 2) {
+    byteLength += 1;
+  } else if (remainder === 3) {
+    byteLength += 2;
+  }
+
+  var bytes = new Uint8Array(byteLength);
+  var outIndex = 0;
+  var sextetIndex = 0;
+
+  for (var group = 0; group < fullGroups; group++) {
+    var a = sextets[sextetIndex++];
+    var b = sextets[sextetIndex++];
+    var c = sextets[sextetIndex++];
+    var d = sextets[sextetIndex++];
+    bytes[outIndex++] = (a << 2) | (b >> 4);
+    bytes[outIndex++] = ((b & 0x0f) << 4) | (c >> 2);
+    bytes[outIndex++] = ((c & 0x03) << 6) | d;
+  }
+
+  if (remainder === 2) {
+    var tailA = sextets[sextetIndex++];
+    var tailB = sextets[sextetIndex++];
+    bytes[outIndex++] = (tailA << 2) | (tailB >> 4);
+  } else if (remainder === 3) {
+    var tailC = sextets[sextetIndex++];
+    var tailD = sextets[sextetIndex++];
+    var tailE = sextets[sextetIndex++];
+    bytes[outIndex++] = (tailC << 2) | (tailD >> 4);
+    bytes[outIndex++] = ((tailD & 0x0f) << 4) | (tailE >> 2);
+  }
+
+  return bytes;
 }
 
 function validateBigIntWrite(value, signed) {
@@ -496,19 +700,7 @@ function encodeString(value, encoding) {
     return bytes;
   }
   if (enc === "base64" || enc === "base64url") {
-    var b64str = str;
-    if (enc === "base64url") {
-      b64str = b64str.replace(/-/g, "+").replace(/_/g, "/");
-      var pad = b64str.length % 4;
-      if (pad === 2) b64str += "==";
-      else if (pad === 3) b64str += "=";
-    }
-    if (typeof atob === "function") {
-      var raw = atob(b64str);
-      var b = new Uint8Array(raw.length);
-      for (var j = 0; j < raw.length; j++) b[j] = raw.charCodeAt(j);
-      return b;
-    }
+    return decodeBase64Bytes(str);
   }
   if (enc === "latin1" || enc === "binary") {
     var lat = new Uint8Array(str.length);
@@ -517,7 +709,7 @@ function encodeString(value, encoding) {
   }
   if (enc === "ascii") {
     var asc = new Uint8Array(str.length);
-    for (var m = 0; m < str.length; m++) asc[m] = str.charCodeAt(m) & 0x7f;
+    for (var m = 0; m < str.length; m++) asc[m] = str.charCodeAt(m) & 0xff;
     return asc;
   }
   if (enc === "utf16le" || enc === "ucs2" || enc === "ucs-2" || enc === "utf-16le") {
@@ -548,12 +740,18 @@ function toByteArray(value, encoding) {
     return new Uint8Array(value);
   }
   if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength);
+    return fromArrayLike(value);
   }
   if (isArrayBufferLike(value)) {
     return new Uint8Array(value);
   }
   if (typeof value === "string") {
+    if (encoding !== undefined && encoding !== null) {
+      var encodingName = String(encoding);
+      if (typeof Buffer === "function" && Buffer.isEncoding && !Buffer.isEncoding(encodingName)) {
+        throw makeUnknownEncodingError(encoding);
+      }
+    }
     return encodeString(value, encoding);
   }
   if (Array.isArray(value)) {
@@ -875,6 +1073,39 @@ function encodeUtf16beString(value) {
   return bytes;
 }
 
+function clampEncodedWriteLength(bytes, limit, encoding) {
+  var safeLimit = Math.min(bytes.length, limit);
+  if (safeLimit <= 0) {
+    return 0;
+  }
+  var enc = coerceEncoding(encoding || "utf8");
+  if (enc === "utf16le" || enc === "ucs2" || enc === "ucs-2" || enc === "utf-16le" || enc === "utf16be") {
+    return safeLimit - (safeLimit % 2);
+  }
+  if (enc !== "utf8") {
+    return safeLimit;
+  }
+  var completeLength = 0;
+  while (completeLength < safeLimit) {
+    var byte = bytes[completeLength];
+    var sequenceLength = 1;
+    if ((byte & 0x80) === 0) {
+      sequenceLength = 1;
+    } else if ((byte & 0xe0) === 0xc0) {
+      sequenceLength = 2;
+    } else if ((byte & 0xf0) === 0xe0) {
+      sequenceLength = 3;
+    } else if ((byte & 0xf8) === 0xf0) {
+      sequenceLength = 4;
+    }
+    if (completeLength + sequenceLength > safeLimit) {
+      break;
+    }
+    completeLength += sequenceLength;
+  }
+  return completeLength;
+}
+
 function writeEncodedValue(targetValue, value, offset, length, encoding) {
   var target = getWritableByteView(targetValue);
   if (!target) {
@@ -923,7 +1154,7 @@ function writeEncodedValue(targetValue, value, offset, length, encoding) {
   var bytes = encoding === "utf16be"
     ? encodeUtf16beString(value)
     : encodeString(value, encoding);
-  var bytesToWrite = Math.min(bytes.length, lengthNumber);
+  var bytesToWrite = clampEncodedWriteLength(bytes, lengthNumber, encoding);
   for (var i = 0; i < bytesToWrite; i++) {
     target[offsetNumber + i] = bytes[i];
   }
@@ -997,6 +1228,8 @@ BufferProto.write = function(value, offset, length, encoding) {
 
   var bytes = encodeString(String(value), _enc);
   if (length == null || length > bytes.length) length = bytes.length;
+  if (length > this.length - offset) length = this.length - offset;
+  length = clampEncodedWriteLength(bytes, length, _enc);
   for (var i = 0; i < length && (offset + i) < this.length; i++) {
     this[offset + i] = bytes[i];
   }
@@ -1382,6 +1615,8 @@ var exported = {
   btoa: typeof btoa === "function" ? btoa : undefined,
   SlowBuffer: Buffer,
   Blob: typeof Blob === "undefined" ? undefined : Blob,
+  isAscii: isAsciiBytes,
+  isUtf8: isUtf8Bytes,
   kMaxLength: kMaxLength,
   INSPECT_MAX_BYTES: INSPECT_MAX_BYTES,
   constants: constants,
