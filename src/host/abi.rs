@@ -1348,6 +1348,7 @@ pub extern "C" fn ex_host_sqlite_values(
             Some(statement) => statement,
             None => return ptr::null_mut(),
         };
+        let read_only = statement.read_only;
         let connection = match state.dbs.get_mut(&statement.db_id) {
             Some(connection) => connection,
             None => return ptr::null_mut(),

@@ -41,6 +41,19 @@ function _wrapCallback(fn) {
   };
 }
 
+function _wrapPromiseCallback(fn) {
+  if (typeof fn !== 'function') return fn;
+  var captured = _captureContext();
+  return function() {
+    var prev = _restoreContext(captured);
+    try {
+      return _fnApply.call(fn, undefined, arguments);
+    } finally {
+      _restoreContext(prev);
+    }
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Patch Promise.prototype.then / catch / finally                     */
 /* ------------------------------------------------------------------ */
@@ -51,8 +64,8 @@ function _wrapCallback(fn) {
   Promise.prototype.then = function(onFulfilled, onRejected) {
     return origThen.call(
       this,
-      typeof onFulfilled === 'function' ? _wrapCallback(onFulfilled) : onFulfilled,
-      typeof onRejected  === 'function' ? _wrapCallback(onRejected)  : onRejected
+      typeof onFulfilled === 'function' ? _wrapPromiseCallback(onFulfilled) : onFulfilled,
+      typeof onRejected  === 'function' ? _wrapPromiseCallback(onRejected)  : onRejected
     );
   };
 
@@ -61,7 +74,7 @@ function _wrapCallback(fn) {
     Promise.prototype['catch'] = function(onRejected) {
       return origCatch.call(
         this,
-        typeof onRejected === 'function' ? _wrapCallback(onRejected) : onRejected
+        typeof onRejected === 'function' ? _wrapPromiseCallback(onRejected) : onRejected
       );
     };
   }
@@ -71,7 +84,7 @@ function _wrapCallback(fn) {
     Promise.prototype['finally'] = function(onFinally) {
       return origFinally.call(
         this,
-        typeof onFinally === 'function' ? _wrapCallback(onFinally) : onFinally
+        typeof onFinally === 'function' ? _wrapPromiseCallback(onFinally) : onFinally
       );
     };
   }

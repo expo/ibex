@@ -5572,8 +5572,8 @@ function addAbortSignal(signal, stream) {
     (typeof stream.destroy !== 'function' &&
       typeof stream.on !== 'function' &&
       typeof stream.read !== 'function' &&
-      !isReadable(stream) &&
-      !isWritable(stream))
+      !Stream.isReadable(stream) &&
+      !Stream.isWritable(stream))
   ) {
     throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "stream" argument must be an instance of Stream. Received ' + (stream === null ? 'null' : typeof stream));
   }

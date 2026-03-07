@@ -1132,11 +1132,11 @@
 
     if (name === 'internal/streams/add-abort-signal') {
       var streamAddAbortSignal = stream.addAbortSignal || _addAbortSignalCompat;
+      var streamAddAbortSignalNoValidate =
+        stream.addAbortSignalNoValidate || _addAbortSignalCompat;
       result = {
         addAbortSignal: streamAddAbortSignal,
-        addAbortSignalNoValidate: function(_signal, streamInstance) {
-          return _addAbortSignalCompat(_signal, streamInstance);
-        }
+        addAbortSignalNoValidate: streamAddAbortSignalNoValidate
       };
     } else if (name === 'internal/streams/compose') {
       result = stream.compose || function() {
