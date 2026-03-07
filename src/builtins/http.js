@@ -2,6 +2,7 @@ var EventEmitter = require('node:events').EventEmitter;
 
 // Shared symbol for timeout tracking (matches internal/timers)
 var kTimeout = Symbol.for('kTimeout');
+var kOutHeaders = Symbol.for('nodejs.http.outHeadersKey');
 
 // Header name validation regex
 var HEADER_NAME_RE = /^[\^_`a-zA-Z\-0-9\!#$%&'*+.|~]+$/;
@@ -1108,8 +1109,8 @@ var globalAgent = new Agent();
 var METHODS = [
   "ACL", "BIND", "CHECKOUT", "CONNECT", "COPY", "DELETE", "GET", "HEAD",
   "LINK", "LOCK", "M-SEARCH", "MERGE", "MKACTIVITY", "MKCALENDAR",
-  "MKCOL", "MOVE", "NOTIFY", "OPTIONS", "PATCH", "POST", "PRI",
-  "PROPFIND", "PROPPATCH", "PURGE", "PUT", "REBIND", "REPORT", "SEARCH",
+  "MKCOL", "MOVE", "NOTIFY", "OPTIONS", "PATCH", "POST", "PROPFIND",
+  "PROPPATCH", "PURGE", "PUT", "QUERY", "REBIND", "REPORT", "SEARCH",
   "SOURCE", "SUBSCRIBE", "TRACE", "UNBIND", "UNLINK", "UNLOCK",
   "UNSUBSCRIBE"
 ];
@@ -1375,6 +1376,7 @@ function ServerResponse(reqOrServerId, requestId) {
   this.statusMessage = undefined;
   this._headers = {};
   this._headerNames = {};
+  this[kOutHeaders] = null;
   this._headersSent = false;
   this._finished = false;
   this._streaming = false;
@@ -1432,6 +1434,10 @@ ServerResponse.prototype.setHeader = function(name, value) {
   var lc = name.toLowerCase();
   this._headers[lc] = value;
   this._headerNames[lc] = name;
+  if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
+    this[kOutHeaders] = {};
+  }
+  this[kOutHeaders][lc] = [name, value];
   return this;
 };
 ServerResponse.prototype.getHeader = function(name) {
@@ -1441,6 +1447,9 @@ ServerResponse.prototype.removeHeader = function(name) {
   var lc = resolveHeaderName(name);
   delete this._headers[lc];
   delete this._headerNames[lc];
+  if (this[kOutHeaders] && typeof this[kOutHeaders] === 'object') {
+    delete this[kOutHeaders][lc];
+  }
   return this;
 };
 ServerResponse.prototype.getHeaders = function() {
@@ -1490,6 +1499,10 @@ ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers
         var lc = resolveHeaderName(hName);
         this._headers[lc] = hVal;
         this._headerNames[lc] = hName;
+        if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
+          this[kOutHeaders] = {};
+        }
+        this[kOutHeaders][lc] = [hName, hVal];
       }
     } else {
       for (var k in headers) {
@@ -1497,11 +1510,34 @@ ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers
           var lc2 = resolveHeaderName(k);
           this._headers[lc2] = headers[k];
           this._headerNames[lc2] = k;
+          if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
+            this[kOutHeaders] = {};
+          }
+          this[kOutHeaders][lc2] = [k, headers[k]];
         }
       }
     }
   }
   return this;
+};
+
+ServerResponse.prototype._renderHeaders = function() {
+  if (this._header) {
+    var sentErr = new Error('Cannot render headers after they are sent to the client');
+    sentErr.code = 'ERR_HTTP_HEADERS_SENT';
+    throw sentErr;
+  }
+  var source = this[kOutHeaders];
+  if (!source || typeof source !== 'object') return {};
+  var rendered = {};
+  for (var key in source) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    var entry = source[key];
+    if (Array.isArray(entry) && entry.length >= 2) {
+      rendered[entry[0]] = entry[1];
+    }
+  }
+  return rendered;
 };
 
 ServerResponse.prototype.writeContinue = function() {

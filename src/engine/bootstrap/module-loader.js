@@ -41,6 +41,56 @@
     }
     return minutes + ':' + secondPart + ' (m:ss.mmm)';
   }
+  var _internalAsyncIdCounter = 0;
+  var _internalAsyncHooksSymbols = {
+    async_id_symbol: Symbol.for('nodejs.async_id_symbol')
+  };
+  function _internalOptionNames(flag) {
+    var names = [flag];
+    if (typeof flag === 'string') {
+      if (flag.indexOf('_') !== -1) {
+        names.push(flag.replace(/_/g, '-'));
+      } else {
+        names.push(flag.replace(/-/g, '_'));
+      }
+    }
+    return names;
+  }
+  function _internalFindExecArgvOption(flag) {
+    var execArgv = (typeof process === 'object' && process !== null && Array.isArray(process.execArgv))
+      ? process.execArgv
+      : (Array.isArray(globalThis.__exactExecArgv) ? globalThis.__exactExecArgv : []);
+    var names = _internalOptionNames(flag);
+    for (var i = 0; i < execArgv.length; i++) {
+      var arg = String(execArgv[i]);
+      for (var j = 0; j < names.length; j++) {
+        var name = names[j];
+        if (arg === name) return true;
+        if (arg.indexOf(name + '=') === 0) return arg.slice(name.length + 1);
+      }
+    }
+    return undefined;
+  }
+  function _internalGetOptionValue(flag) {
+    var found = _internalFindExecArgvOption(flag);
+    if (found !== undefined) {
+      if (flag === '--max-http-header-size' || flag === '--test-concurrency') {
+        var numeric = Number(found);
+        return isFinite(numeric) ? numeric : undefined;
+      }
+      if (flag === '--inspect-port') {
+        var inspectPort = found === true ? 9229 : Number(found);
+        return { port: isFinite(inspectPort) ? inspectPort : 9229 };
+      }
+      return found;
+    }
+    if (flag === '--pending-deprecation') {
+      var env = (typeof process === 'object' && process !== null && process.env) ? process.env : {};
+      return !!(env && env.NODE_PENDING_DEPRECATION && String(env.NODE_PENDING_DEPRECATION).charAt(0) === '1');
+    }
+    if (flag === '--max-http-header-size') return 16384;
+    return undefined;
+  }
   function _patchBrokenSharedArrayBufferViews() {
     if (typeof SharedArrayBuffer !== 'function' || typeof Uint8Array !== 'function') {
       return;
@@ -442,6 +492,20 @@
         var end = Date.now() + ms;
         while (Date.now() < end) { /* busy-wait */ }
       }
+    },
+    'internal/options': {
+      getOptionValue: _internalGetOptionValue,
+      generateConfigJsonSchema: function() { return {}; }
+    },
+    'internal/http': {
+      kOutHeaders: Symbol.for('nodejs.http.outHeadersKey')
+    },
+    'internal/async_hooks': {
+      newAsyncId: function() {
+        _internalAsyncIdCounter += 1;
+        return _internalAsyncIdCounter;
+      },
+      symbols: _internalAsyncHooksSymbols
     },
     'internal/timers': {
       kTimeout: Symbol.for('kTimeout'),

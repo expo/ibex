@@ -500,6 +500,7 @@ function _validateSpawnSyncOptions(options) {
   // Build internal opts object
   // Default env to process.env if not specified (Node.js behavior - JS-set env vars must propagate)
   var resolvedEnv = options.env !== undefined ? options.env : (typeof process !== 'undefined' ? process.env : undefined);
+  resolvedEnv = _prepareExactChildEnv(command, resolvedEnv, options.argv0);
   var internalOpts = {
     file: file,
     args: spawnArgs,
@@ -1118,13 +1119,54 @@ function _flattenEnv(env) {
   return flat;
 }
 
-function _normalizeSpawnOptions(options) {
+function _copyEnvObject(envSource) {
+  var env = {};
+  if (!envSource || typeof envSource !== 'object') return env;
+  for (var key in envSource) {
+    var value = envSource[key];
+    if (value !== undefined && value !== null) {
+      env[key] = String(value);
+    }
+  }
+  return env;
+}
+
+function _shouldPropagateExactExecutable(command) {
+  if (typeof command !== 'string' || command.length === 0) return false;
+  if (typeof process !== 'object' || process === null) return false;
+  if (typeof process.execPath === 'string' && process.execPath && command === process.execPath) {
+    return true;
+  }
+  if (process.env && typeof process.env.EXACT_EXECUTABLE === 'string' &&
+      process.env.EXACT_EXECUTABLE && command === process.env.EXACT_EXECUTABLE) {
+    return true;
+  }
+  return false;
+}
+
+function _prepareExactChildEnv(command, envSource, argv0, forcedExecPath) {
+  var env = _copyEnvObject(envSource);
+  if (typeof argv0 === 'string') {
+    env.EXACT_RAW_ARGV0 = argv0;
+  } else {
+    delete env.EXACT_RAW_ARGV0;
+  }
+  if (typeof forcedExecPath === 'string' && forcedExecPath.length > 0) {
+    env.EXACT_EXECUTABLE = forcedExecPath;
+  } else if (_shouldPropagateExactExecutable(command)) {
+    env.EXACT_EXECUTABLE = command;
+  }
+  return env;
+}
+
+function _normalizeSpawnOptions(options, command) {
   // When no env is specified, use process.env (which may have JS-set values
   // not yet reflected in OS environment). This matches Node.js behavior.
   var envSource = options.env !== undefined ? options.env : (typeof process !== 'undefined' ? process.env : undefined);
+  var env = _prepareExactChildEnv(command, envSource, options.argv0);
   var normalized = {
     cwd: options.cwd,
-    env: envSource ? _flattenEnv(envSource) : undefined,
+    env: _flattenEnv(env),
     shell: options.shell,
     detached: options.detached
   };
@@ -1735,7 +1777,7 @@ ChildProcess.prototype.spawn = function(options) {
   // Actually spawn the process
   var command = options.file;
   var args = (options.args || []).map(function(a) { return String(a); });
-  var normalizedOptions = _normalizeSpawnOptions(options);
+  var normalizedOptions = _normalizeSpawnOptions(options, command);
   var opts = {};
   if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
@@ -2317,7 +2359,7 @@ cp.spawn = function spawn(command, args, options) {
     }
     options = Object.assign({}, options, { cwd: options.cwd.pathname });
   }
-  var normalizedOptions = _normalizeSpawnOptions(options);
+  var normalizedOptions = _normalizeSpawnOptions(options, command);
   // Validate only one IPC pipe
   if (normalizedOptions.stdio) {
     var ipcCount = 0;
@@ -2522,6 +2564,7 @@ cp.fork = function fork(modulePath, args, options) {
   }
 
   var env = _normalizeForkEnv(options.env);
+  env = _prepareExactChildEnv(execPath, env, options.argv0, execPath);
   env.EXACT_IPC_FD = '3';
 
   var spawnOptions = {

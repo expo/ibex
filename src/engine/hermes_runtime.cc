@@ -4727,9 +4727,19 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "Failed to create stdin pipe");
           }
         }
+        int execErrPipe[2] = {-1, -1};
+        if (pipe(execErrPipe) != 0) {
+          if (stdoutPipe[0] >= 0) { close(stdoutPipe[0]); close(stdoutPipe[1]); }
+          if (stderrPipe[0] >= 0) { close(stderrPipe[0]); close(stderrPipe[1]); }
+          if (hasStdinInput) { close(stdinPipe[0]); close(stdinPipe[1]); }
+          throw facebook::jsi::JSError(runtime, "Failed to create exec error pipe");
+        }
+        fcntl(execErrPipe[1], F_SETFD, FD_CLOEXEC);
 
         pid_t pid = fork();
         if (pid < 0) {
+          close(execErrPipe[0]);
+          close(execErrPipe[1]);
           if (stdoutPipe[0] >= 0) { close(stdoutPipe[0]); close(stdoutPipe[1]); }
           if (stderrPipe[0] >= 0) { close(stderrPipe[0]); close(stderrPipe[1]); }
           if (hasStdinInput) { close(stdinPipe[0]); close(stdinPipe[1]); }
@@ -4738,6 +4748,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         if (pid == 0) {
           // Child process
+          close(execErrPipe[0]);
           if (syncStdoutPipe) {
             close(stdoutPipe[0]);
             dup2(stdoutPipe[1], STDOUT_FILENO);
@@ -4789,6 +4800,9 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
           if (!cwd.empty()) {
             if (chdir(cwd.c_str()) != 0) {
+              int chdirErrno = errno;
+              ssize_t nw = write(execErrPipe[1], &chdirErrno, sizeof(chdirErrno));
+              (void)nw;
               _exit(127);
             }
           }
@@ -4810,10 +4824,42 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             argv.push_back(nullptr);
             execvp(file.c_str(), argv.data());
           }
+          {
+            int execErrno = errno;
+            ssize_t nw = write(execErrPipe[1], &execErrno, sizeof(execErrno));
+            (void)nw;
+          }
           _exit(127);
         }
 
         // Parent process
+        close(execErrPipe[1]);
+        {
+          int childErrno = 0;
+          ssize_t n = read(execErrPipe[0], &childErrno, sizeof(childErrno));
+          close(execErrPipe[0]);
+          if (n > 0) {
+            if (syncStdoutPipe) close(stdoutPipe[0]);
+            if (syncStderrPipe) close(stderrPipe[0]);
+            if (hasStdinInput) {
+              close(stdinPipe[0]);
+              close(stdinPipe[1]);
+            }
+            int status = 0;
+            waitpid(pid, &status, 0);
+            std::string errorStr = "Command not found: " + file;
+            if (childErrno == EACCES || childErrno == EPERM) {
+              errorStr = "Permission denied: " + file;
+            } else if (childErrno != ENOENT) {
+              errorStr = std::string("exec failed: ") + std::strerror(childErrno);
+            }
+            std::string resultJson = "{\"stdout\":\"\",\"stderr\":\"\",\"status\":127,\"pid\":"
+                + std::to_string(static_cast<int>(pid))
+                + ",\"error\":\"" + jsonEscape(errorStr) + "\"}";
+            return facebook::jsi::Value(
+                facebook::jsi::String::createFromUtf8(runtime, resultJson));
+          }
+        }
         if (syncStdoutPipe) close(stdoutPipe[1]);
         if (syncStderrPipe) close(stderrPipe[1]);
         if (hasStdinInput) {
@@ -4833,13 +4879,13 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         std::string stdoutStr, stderrStr;
         char buf[4096];
         std::atomic<bool> timedOut{false};
+        std::atomic<bool> childExited{false};
 
         if (timeout_ms > 0) {
-          std::thread([timeout_ms, &timedOut, pid]() {
+          std::thread([timeout_ms, &timedOut, &childExited, pid]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
-            if (!timedOut.load()) {
+            if (!childExited.load() && kill(pid, SIGKILL) == 0) {
               timedOut.store(true);
-              kill(pid, SIGKILL);
             }
           }).detach();
         }
@@ -4871,6 +4917,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Wait for child
         int status = 0;
         waitpid(pid, &status, 0);
+        childExited.store(true);
         int exitStatus = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         if (WIFSIGNALED(status)) {
           exitStatus = -WTERMSIG(status);
