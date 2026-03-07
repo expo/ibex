@@ -2448,7 +2448,18 @@ function createServer(options, requestListener) {
   return new Server(requestListener);
 }
 
-var maxHeaderSize = 16384;
+var internalOptions;
+try {
+  internalOptions = require('internal/options');
+} catch (_err) {
+  internalOptions = null;
+}
+var configuredMaxHeaderSize = internalOptions && typeof internalOptions.getOptionValue === 'function'
+  ? internalOptions.getOptionValue('--max-http-header-size')
+  : undefined;
+var maxHeaderSize = typeof configuredMaxHeaderSize === 'number' && isFinite(configuredMaxHeaderSize) && configuredMaxHeaderSize > 0
+  ? configuredMaxHeaderSize
+  : 16384;
 
 // Module exports - avoid getter syntax for Hermes compatibility
 var _wsGlobal = typeof WebSocket !== 'undefined' ? WebSocket : undefined;
