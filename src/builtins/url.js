@@ -1344,8 +1344,10 @@ function URL(input, base) {
   if (!(this instanceof URL)) {
     return new URL(input, base);
   }
-  if (typeof input === "undefined" && typeof base === "undefined") {
-    throw _makeURLError("undefined");
+  if (arguments.length === 0) {
+    var missingArgsErr = new TypeError('The "url" argument must be specified');
+    missingArgsErr.code = "ERR_MISSING_ARGS";
+    throw missingArgsErr;
   }
 
   this._protocol = "";
@@ -3155,12 +3157,13 @@ function _legacyParseHost(hostStr) {
   if (hostPart.charAt(0) === '[') {
     var closeBracket = hostPart.indexOf(']');
     if (closeBracket !== -1) {
-      out.hostname = hostPart.slice(0, closeBracket + 1).toLowerCase();
+      out.hostname = hostPart.slice(1, closeBracket).toLowerCase();
       var afterBracket = hostPart.slice(closeBracket + 1);
       if (afterBracket.charAt(0) === ':') {
         var portStr = afterBracket.slice(1);
         if (portStr) out.port = portStr;
       }
+      out.host = hostPart.slice(0, closeBracket + 1).toLowerCase() + (out.port ? ':' + out.port : '');
     }
   } else {
     var colonIdx = hostPart.lastIndexOf(':');
@@ -3177,7 +3180,9 @@ function _legacyParseHost(hostStr) {
     }
   }
 
-  out.host = (out.hostname || '') + (out.port ? ':' + out.port : '');
+  if (out.host == null) {
+    out.host = (out.hostname || '') + (out.port ? ':' + out.port : '');
+  }
   if (!out.host) out.host = null;
   if (!out.hostname) out.hostname = null;
   return out;
@@ -3249,6 +3254,13 @@ function parse(value, parseQueryString, slashesDenoteHost) {
         result.host = u.host || null;
         result.port = u.port || null;
         result.hostname = u.hostname || null;
+        if (
+          typeof result.hostname === 'string' &&
+          result.hostname.charAt(0) === '[' &&
+          result.hostname.charAt(result.hostname.length - 1) === ']'
+        ) {
+          result.hostname = result.hostname.slice(1, -1);
+        }
         result.hash = u.hash || null;
         result.search = u.search || null;
         result.pathname = u.pathname || null;
