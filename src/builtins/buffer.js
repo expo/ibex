@@ -494,6 +494,12 @@ function makeInvalidArgTypeError(name, expected, value) {
   return err;
 }
 
+function makeInvalidArgValueError(name, value) {
+  var err = new TypeError("The argument '" + name + "' is invalid. Received " + String(value));
+  err.code = "ERR_INVALID_ARG_VALUE";
+  return err;
+}
+
 function makeUnknownEncodingError(encoding) {
   var err = new TypeError("Unknown encoding: " + encoding);
   err.code = "ERR_UNKNOWN_ENCODING";
@@ -865,13 +871,54 @@ function normalizeBufferSize(size) {
   return normalizeInteger(size, 0);
 }
 
+function getAllocFillBytes(value, encoding) {
+  if (encoding !== undefined && encoding !== null && typeof encoding !== "string") {
+    throw makeInvalidArgTypeError("encoding", "of type string", encoding);
+  }
+  if (typeof value === "string") {
+    var enc = encoding == null ? "utf8" : encoding;
+    if (typeof Buffer === "function" && Buffer.isEncoding && !Buffer.isEncoding(enc)) {
+      throw makeUnknownEncodingError(enc);
+    }
+    var stringBytes = encodeString(value, enc);
+    if (coerceEncoding(enc) === "hex" && value.length > 0 && (value.length % 2 !== 0 || stringBytes.length * 2 !== value.length)) {
+      throw makeInvalidArgValueError("value", value);
+    }
+    if (value.length > 0 && stringBytes.length === 0) {
+      throw makeInvalidArgValueError("value", value);
+    }
+    return stringBytes;
+  }
+  if (value && value.__isExactBuffer) {
+    if (value.length === 0) {
+      throw makeInvalidArgValueError("value", value);
+    }
+    return value;
+  }
+  if (ArrayBuffer.isView(value)) {
+    if (value.byteLength === 0) {
+      throw makeInvalidArgValueError("value", value);
+    }
+    return new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength);
+  }
+  if (isArrayBufferLike(value)) {
+    var bytes = new Uint8Array(value);
+    if (bytes.length === 0) {
+      throw makeInvalidArgValueError("value", value);
+    }
+    return bytes;
+  }
+  return getFillBytes(value, encoding);
+}
+
 Buffer.alloc = function(size, fill, encoding) {
   size = normalizeBufferSize(size);
   var bytes = new Uint8Array(size || 0);
   if (fill === undefined || fill === null) {
     return makeBuffer(bytes);
   }
-  fillRange(bytes, fill, 0, bytes.length, encoding);
+  var fillBytes = getAllocFillBytes(fill, encoding);
+  fillRange(bytes, fillBytes, 0, bytes.length);
   return makeBuffer(bytes);
 };
 
@@ -944,7 +991,10 @@ Buffer.concat = function(list, totalLength) {
       total += list[i].length;
     }
   } else {
-    if (typeof total !== "number" || total !== Math.floor(total)) {
+    if (typeof total !== "number") {
+      throw makeInvalidArgTypeError("length", "of type number", total);
+    }
+    if (total !== Math.floor(total)) {
       throw createOutOfRangeError("length", "an integer", total);
     }
     if (total < 0 || total > Number.MAX_SAFE_INTEGER) {
