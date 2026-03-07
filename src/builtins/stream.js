@@ -1266,7 +1266,7 @@ Readable.prototype.read = function(size) {
   var chunk;
   var readAmount = isNaN(nOrig) ? (state.objectMode ? 1 : (shouldReadAll ? Number.MAX_SAFE_INTEGER : state.length)) : n;
   while (true) {
-    chunk = _consumeReadableChunk(this, shouldReadAll ? readAmount : (isNaN(nOrig) ? null : readAmount));
+    chunk = _consumeReadableChunk(this, readAmount);
     if (chunk === undefined || chunk === null) {
       chunk = null;
       break;
@@ -1456,7 +1456,7 @@ Readable.prototype[Symbol.asyncIterator] = function() {
   var pendingResolvers = [];
   var buffer = [];
 
-  stream.on('data', function(chunk) {
+  function resolveNextChunk(chunk) {
     if (pendingResolvers.length > 0) {
       var nextResolve = pendingResolvers.shift();
       if (nextResolve && typeof nextResolve.resolve === 'function') {
@@ -1467,6 +1467,44 @@ Readable.prototype[Symbol.asyncIterator] = function() {
     } else {
       buffer.push(chunk);
     }
+  }
+
+  function rejectPending(err) {
+    while (pendingResolvers.length > 0) {
+      var pending = pendingResolvers.shift();
+      if (pending && typeof pending.reject === 'function') {
+        pending.reject(err);
+      }
+    }
+  }
+
+  function drainBufferedData() {
+    if (!stream || typeof stream.read !== 'function' || error) return;
+    while (true) {
+      var chunk;
+      try {
+        chunk = stream.read();
+      } catch (err) {
+        error = err;
+        ended = true;
+        rejectPending(err);
+        return;
+      }
+      if (chunk === null || chunk === undefined) break;
+      resolveNextChunk(chunk);
+    }
+    var state = stream._readableState;
+    if (stream.readableEnded || (state && (state.ended || state.endEmitted))) {
+      ended = true;
+    }
+  }
+
+  stream.on('data', function(chunk) {
+    resolveNextChunk(chunk);
+  });
+
+  stream.on('readable', function() {
+    drainBufferedData();
   });
 
   stream.on('end', function() {
@@ -1484,19 +1522,17 @@ Readable.prototype[Symbol.asyncIterator] = function() {
   stream.on('error', function(err) {
     error = err;
     ended = true;
-    while (pendingResolvers.length > 0) {
-      var pending = pendingResolvers.shift();
-      if (pending && typeof pending.reject === 'function') {
-        pending.reject(err);
-      }
-    }
+    rejectPending(err);
   });
+
+  drainBufferedData();
   if (typeof stream.resume === 'function') {
     stream.resume();
   }
 
   return {
     next: function() {
+      drainBufferedData();
       if (error) {
         return Promise.reject(error);
       }
@@ -2104,6 +2140,53 @@ function _isStreamLike(value) {
   return _isReadableLike(value) || _isWritableLike(value);
 }
 
+function _readableObjectModeOf(value) {
+  if (!value) return undefined;
+  if (typeof value.readableObjectMode === 'boolean') return value.readableObjectMode;
+  if (value._readableState && typeof value._readableState.objectMode === 'boolean') {
+    return value._readableState.objectMode;
+  }
+  return undefined;
+}
+
+function _writableObjectModeOf(value) {
+  if (!value) return undefined;
+  if (typeof value.writableObjectMode === 'boolean') return value.writableObjectMode;
+  if (value._writableState && typeof value._writableState.objectMode === 'boolean') {
+    return value._writableState.objectMode;
+  }
+  return undefined;
+}
+
+function _stageCanRead(value) {
+  return !!(value && value._readableState && value.readable !== false);
+}
+
+function _stageCanWrite(value) {
+  return !!(value && value._writableState && value.writable !== false);
+}
+
+function _inferComposeFunctionOptions(stages, index) {
+  var prev = stages[index - 1];
+  var next = stages[index + 1];
+  var writableObjectMode = _readableObjectModeOf(prev);
+  var readableObjectMode = _writableObjectModeOf(next);
+  if (writableObjectMode === undefined && readableObjectMode === undefined) {
+    return undefined;
+  }
+  var inferred = {};
+  if (writableObjectMode !== undefined) {
+    inferred.writableObjectMode = writableObjectMode;
+  }
+  if (readableObjectMode !== undefined) {
+    inferred.readableObjectMode = readableObjectMode;
+  }
+  if (writableObjectMode !== undefined && readableObjectMode !== undefined && writableObjectMode === readableObjectMode) {
+    inferred.objectMode = writableObjectMode;
+  }
+  return inferred;
+}
+
 function _normalizePrematureCloseError(err) {
   if (!err) return null;
   if (err.code) return err;
@@ -2190,6 +2273,8 @@ function _duplexFromReadableWritable(readable, writable, options) {
   var writableObjectMode = options && options.writableObjectMode != null ? !!options.writableObjectMode :
     (options && options.objectMode != null ? !!options.objectMode : (writable && writable._writableState && writable._writableState.objectMode));
   var duplex = new Duplex({
+    readable: options && options.readable,
+    writable: options && options.writable,
     readableObjectMode: readableObjectMode,
     writableObjectMode: writableObjectMode,
     write: function(chunk, encoding, callback) {
@@ -2226,16 +2311,22 @@ function _duplexFromReadableWritable(readable, writable, options) {
 }
 
 function _duplexFromFunction(value, options) {
-  var src = new PassThrough({
-    readableObjectMode: options && options.objectMode ? options.objectMode : (options && options.writableObjectMode),
-    writableObjectMode: options && options.objectMode ? options.objectMode : (options && options.readableObjectMode)
-  });
+  var inputObjectMode = options && options.objectMode != null ? !!options.objectMode :
+    (options && options.writableObjectMode != null ? !!options.writableObjectMode : false);
+  var outputObjectMode = options && options.objectMode != null ? !!options.objectMode :
+    (options && options.readableObjectMode != null ? !!options.readableObjectMode : false);
+  var srcOptions = options ? Object.assign({}, options) : {};
+  srcOptions.readableObjectMode = inputObjectMode;
+  srcOptions.writableObjectMode = inputObjectMode;
+  var src = new PassThrough(srcOptions);
   var output = value(src);
   if (output === undefined) {
     throw makeError(TypeError, 'ERR_INVALID_RETURN_VALUE', 'The \"source\" argument must return a value');
   }
   if (output && typeof output.then === 'function') {
-    var sink = _duplexFromReadableWritable(null, src, options);
+    var sinkOptions = options ? Object.assign({}, options) : {};
+    sinkOptions.readable = false;
+    var sink = _duplexFromReadableWritable(null, src, sinkOptions);
     sink._pipelineResult = Promise.resolve(output);
     sink._pipelineResult.catch(function(err) {
       if (!sink._destroyed) {
@@ -2245,7 +2336,11 @@ function _duplexFromFunction(value, options) {
     sink._isPipelineFunction = true;
     return sink;
   }
-  var readable = _toReadable(output, options);
+  var readableOptions = options ? Object.assign({}, options) : {};
+  if (options == null || options.objectMode == null) {
+    readableOptions.readableObjectMode = outputObjectMode;
+  }
+  var readable = _toReadable(output, readableOptions);
   if (
     value && typeof value.length === 'number' && value.length > 0 &&
     output && typeof output[Symbol.iterator] === 'function' &&
@@ -2253,7 +2348,11 @@ function _duplexFromFunction(value, options) {
   ) {
     throw makeError(TypeError, 'ERR_INVALID_RETURN_VALUE', 'The "source" argument must return a value');
   }
-  var duplex = _duplexFromReadableWritable(readable, src, options);
+  var duplexOptions = options ? Object.assign({}, options) : {};
+  if (value && typeof value.length === 'number' && value.length === 0) {
+    duplexOptions.writable = false;
+  }
+  var duplex = _duplexFromReadableWritable(readable, src, duplexOptions);
   duplex._isPipelineFunction = true;
   return duplex;
 }
@@ -5064,7 +5163,7 @@ function finished(stream, options, callback) {
   }
 
   var immediateError = getCurrentError();
-  if (immediateError || (isReadableDone() && isWritableDone())) {
+  if (immediateError || ((isReadableDone() && isWritableDone()) && !stream._composePending)) {
     done(immediateError);
   }
 
@@ -5089,7 +5188,9 @@ function finished(stream, options, callback) {
 function compose() {
   var args = [];
   for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
-  if (args.length === 0) throw new Error('compose requires at least one stream');
+  if (args.length === 0) {
+    throw makeError(TypeError, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified');
+  }
   if (args.length === 1) {
     if (typeof args[0] === 'function') {
       return Duplex.from(args[0]);
@@ -5102,7 +5203,13 @@ function compose() {
   for (var ni = 0; ni < args.length; ni++) {
     var stage = args[ni];
     if (typeof stage === 'function') {
-      stage = Duplex.from(stage);
+      stage = Duplex.from(stage, _inferComposeFunctionOptions(args, ni));
+    } else if (stage && typeof stage.pipe !== 'function') {
+      try {
+        stage = Duplex.from(stage);
+      } catch (_err) {
+        // Fall through to the standardized type error below.
+      }
     }
     typeHints.push(typeof args[ni] === 'function');
     if (!stage || typeof stage.pipe !== 'function') {
@@ -5112,33 +5219,17 @@ function compose() {
     normalized.push(stage);
   }
 
-  // Historically in this runtime, function stages that are placed between
-  // stream stages are expected to execute after the preceding stream stage.
-  // Bubble function stages to the right when they are followed directly by
-  // non-function stages (except when they are the first argument).
-  var didSwap = true;
-  while (didSwap) {
-    didSwap = false;
-    for (var oi = 0; oi < normalized.length - 1; oi++) {
-      if (
-        oi > 0 &&
-        typeHints[oi] === true &&
-        typeHints[oi + 1] === false
-      ) {
-        var tmpStage = normalized[oi];
-        normalized[oi] = normalized[oi + 1];
-        normalized[oi + 1] = tmpStage;
-
-        var tmpHint = typeHints[oi];
-        typeHints[oi] = typeHints[oi + 1];
-        typeHints[oi + 1] = tmpHint;
-        didSwap = true;
-      }
-    }
-  }
-
   var first = normalized[0];
   var last = normalized[normalized.length - 1];
+
+  for (var vi = 0; vi < normalized.length; vi++) {
+    if (vi < normalized.length - 1 && !_stageCanRead(normalized[vi])) {
+      throw makeError(TypeError, 'ERR_INVALID_ARG_VALUE', 'The "streams" argument must contain readable streams before the last stage.');
+    }
+    if (vi > 0 && !_stageCanWrite(normalized[vi])) {
+      throw makeError(TypeError, 'ERR_INVALID_ARG_VALUE', 'The "streams" argument must contain writable streams after the first stage.');
+    }
+  }
 
   // Pipe all streams together
   for (var j = 0; j + 1 < normalized.length; j++) {
@@ -5150,7 +5241,24 @@ function compose() {
   }
 
   // Create a Duplex that writes to first and reads from last
+  var composedReadableObjectMode = _readableObjectModeOf(last);
+  var composedWritableObjectMode = _writableObjectModeOf(first);
+  var composedReadable = !!(last && last._readableState && last.readable !== false);
+  var composedWritable = !!(first && first._writableState && first.writable !== false);
   var composed = new Duplex({
+    readableObjectMode: composedReadableObjectMode,
+    writableObjectMode: composedWritableObjectMode,
+    destroy: function(err, callback) {
+      for (var di = 0; di < normalized.length; di++) {
+        var inner = normalized[di];
+        if (!inner || inner === this || typeof inner.destroy !== 'function') continue;
+        if (inner._destroyed || inner.destroyed) continue;
+        try {
+          inner.destroy(err);
+        } catch (_destroyErr) {}
+      }
+      if (typeof callback === 'function') callback(err);
+    },
     write: function(chunk, encoding, callback) {
       var self = this;
       if (typeof first.write === 'function') {
@@ -5237,13 +5345,58 @@ function compose() {
     read: function() {}
   });
 
+  composed.readable = composedReadable;
+  composed.writable = composedWritable;
+  composed._composePending = !composedReadable && !composedWritable;
+
   // Forward data from last stream to composed
-  last.on('data', function(chunk) {
-    composed.push(chunk);
-  });
-  last.on('end', function() {
-    composed.push(null);
-  });
+  if (composedReadable && last && typeof last.on === 'function') {
+    var scheduleEnd = typeof process === 'object' && process && typeof process.nextTick === 'function'
+      ? process.nextTick
+      : function(fn) { setTimeout(fn, 0); };
+    function finalizeComposedReadableEnd() {
+      var composedError = composed.errored ||
+        (composed._readableState && composed._readableState.errored) ||
+        (composed._writableState && composed._writableState.errored);
+      if (composedError || composed._destroyed || composed.destroyed) return;
+      for (var ui = 0; ui < normalized.length - 1; ui++) {
+        var upstream = normalized[ui];
+        if (!upstream || upstream.readable === false || !upstream._readableState) continue;
+        if (upstream._readableState.errored) return;
+        if (!upstream._readableState.ended && !upstream._readableState.endEmitted) {
+          scheduleEnd(finalizeComposedReadableEnd);
+          return;
+        }
+      }
+      composed.push(null);
+    }
+    last.on('data', function(chunk) {
+      composed.push(chunk);
+    });
+    last.on('end', function() {
+      scheduleEnd(finalizeComposedReadableEnd);
+    });
+  }
+
+  if (composed._composePending && last && typeof last.on === 'function') {
+    var finalizeComposed = function() {
+      if (!composed._composePending || composed._destroyed || composed.destroyed) return;
+      composed._composePending = false;
+      if (typeof composed._close === 'function') {
+        composed._close(true);
+      } else {
+        composed.emit('close');
+      }
+    };
+    if (last._pipelineResult && typeof last._pipelineResult.then === 'function') {
+      last._pipelineResult.then(finalizeComposed, function(err) {
+        safeDestroyComposed(err);
+      });
+    } else {
+      last.on('finish', finalizeComposed);
+      last.on('close', finalizeComposed);
+    }
+  }
 
   // Forward errors from all streams
   function safeDestroyComposed(err) {

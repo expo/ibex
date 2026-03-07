@@ -677,7 +677,7 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
 
 fn module_cache_key(path: &Path) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v2-js-downlevel".hash(&mut hasher);
+    "loader-transpile-v3-js-downlevel-es2015".hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
     if let Ok(meta) = std::fs::metadata(path) {
