@@ -2647,7 +2647,7 @@ static void installFsHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactFdPollHup"),
       1,
-      [](facebook::jsi::Runtime& runtime,
+      [](facebook::jsi::Runtime&,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -5554,7 +5554,7 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnGetFd"),
       2,
-      [](facebook::jsi::Runtime& runtime,
+      [](facebook::jsi::Runtime&,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -6174,7 +6174,7 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
     // Used for SCM_RIGHTS: need the raw fd to send via sendmsg.
     auto tcpGetFdFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpGetFd"), 1,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+        [](facebook::jsi::Runtime&, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) {
             return facebook::jsi::Value(-1);
@@ -6857,7 +6857,7 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
     // __exactUdpGetFd(handle) -> fd
     auto udpGetFdFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpGetFd"), 1,
-        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+        [](facebook::jsi::Runtime&, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value(-1);
           int handle = static_cast<int>(args[0].asNumber());
@@ -6878,7 +6878,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto _t_console_enhance = _t_now;
   auto _t_host_functions = _t_now;
   auto _t_compat_polyfills = _t_now;
-  auto _t_web_streams_polyfill = _t_now;
   auto _t_exact_global = _t_now;
   #define IG_TRACE_START(n) _t_##n = std::chrono::steady_clock::now()
   #define IG_TRACE_END(n) if (_tracing) { \
