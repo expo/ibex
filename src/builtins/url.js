@@ -1950,7 +1950,16 @@ Object.defineProperty(URL.prototype, "searchParams", {
           var blobPath = this.href.slice(5); // skip "blob:"
           var innerURL = new URL(blobPath);
           var innerScheme = innerURL.protocol.slice(0, -1);
-          if (innerScheme === "http" || innerScheme === "https") {
+          if (innerScheme === "file") {
+            return innerURL.host ? "file://" + innerURL.host : "file://";
+          }
+          if (
+            innerScheme === "http" ||
+            innerScheme === "https" ||
+            innerScheme === "ftp" ||
+            innerScheme === "ws" ||
+            innerScheme === "wss"
+          ) {
             return innerURL.origin;
           }
           return "null";
@@ -2733,6 +2742,15 @@ if (typeof Symbol !== "undefined" && Symbol.iterator) {
 
 Object.defineProperty(URLSearchParams.prototype, "size", {
   configurable: true,
+  enumerable: true,
+  get: function() {
+    return this._params.length;
+  }
+});
+
+Object.defineProperty(URLSearchParams.prototype, "length", {
+  configurable: true,
+  enumerable: true,
   get: function() {
     return this._params.length;
   }
