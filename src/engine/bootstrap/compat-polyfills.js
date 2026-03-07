@@ -1336,13 +1336,18 @@
         var contentType = this.headers && typeof this.headers.get === 'function'
           ? this.headers.get('content-type')
           : '';
-        if (typeof contentType === 'string' && contentType.toLowerCase().indexOf('multipart/form-data') === 0) {
+        var ct = typeof contentType === 'string' ? contentType.toLowerCase() : '';
+        // Only intercept for urlencoded content — delegate everything else
+        // (multipart, invalid, missing) to the native formData() so that stream
+        // errors, content-type validation, and bodyUsed semantics stay correct.
+        if (ct.indexOf('application/x-www-form-urlencoded') !== 0) {
           var originalRequestFormData = typeof requestFormData === 'function'
             ? requestFormData
             : __exactFindOriginalFormData(Object.getPrototypeOf(requestProto), requestProto.formData);
           if (typeof originalRequestFormData === 'function') {
-            return originalRequestFormData.call(this);
+            return await originalRequestFormData.call(this);
           }
+          throw new TypeError("Failed to execute 'formData': Content-Type is not 'multipart/form-data' or 'application/x-www-form-urlencoded'");
         }
         var bodyBuffer = await this.arrayBuffer();
         var bodyText = __exactDecodeUrlEncodedFormBody(new Uint8Array(bodyBuffer));
@@ -1365,13 +1370,18 @@
         var contentType = this.headers && typeof this.headers.get === 'function'
           ? this.headers.get('content-type')
           : '';
-        if (typeof contentType === 'string' && contentType.toLowerCase().indexOf('multipart/form-data') === 0) {
+        var ct = typeof contentType === 'string' ? contentType.toLowerCase() : '';
+        // Only intercept for urlencoded content — delegate everything else
+        // (multipart, invalid, missing) to the native formData() so that stream
+        // errors, content-type validation, and bodyUsed semantics stay correct.
+        if (ct.indexOf('application/x-www-form-urlencoded') !== 0) {
           var originalResponseFormData = typeof responseFormData === 'function'
             ? responseFormData
             : __exactFindOriginalFormData(Object.getPrototypeOf(responseProto), responseProto.formData);
           if (typeof originalResponseFormData === 'function') {
-            return originalResponseFormData.call(this);
+            return await originalResponseFormData.call(this);
           }
+          throw new TypeError("Failed to execute 'formData': Content-Type is not 'multipart/form-data' or 'application/x-www-form-urlencoded'");
         }
         var bodyBuffer = await this.arrayBuffer();
         var bodyText = __exactDecodeUrlEncodedFormBody(new Uint8Array(bodyBuffer));
