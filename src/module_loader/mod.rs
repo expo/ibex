@@ -436,11 +436,12 @@ impl ModuleLoader {
     }
 
     fn load_module_source(&self, path: &Path) -> Result<String> {
-        if Self::needs_transpile(path) {
+        let source = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read module {}", path.display()))?;
+        if Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source) {
             return self.transpile_module(path);
         }
-        std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read module {}", path.display()))
+        Ok(source)
     }
 
     fn needs_transpile(path: &Path) -> bool {
@@ -448,6 +449,32 @@ impl ModuleLoader {
             .and_then(OsStr::to_str)
             .map(|ext| matches!(ext, "ts" | "tsx" | "jsx" | "mts" | "cts"))
             .unwrap_or(false)
+    }
+
+    fn needs_js_downlevel(path: &Path, source: &str) -> bool {
+        path.extension()
+            .and_then(OsStr::to_str)
+            .map(|ext| matches!(ext, "js" | "mjs" | "cjs"))
+            .unwrap_or(false)
+            && Self::source_needs_downlevel(source)
+    }
+
+    fn js_file_needs_downlevel(path: &Path) -> bool {
+        let source = match std::fs::read_to_string(path) {
+            Ok(source) => source,
+            Err(_) => return false,
+        };
+        Self::needs_js_downlevel(path, &source)
+    }
+
+    fn source_needs_downlevel(source: &str) -> bool {
+        source.contains("async function*")
+            || source.contains("for await")
+            || source.contains("await using")
+            || source.starts_with("using ")
+            || source.contains("\nusing ")
+            || source.contains("\n  using ")
+            || source.contains("\n    using ")
     }
 
     fn transpile_module(&self, path: &Path) -> Result<String> {
@@ -522,7 +549,10 @@ impl ModuleLoader {
         if resolution.full_path().extension().and_then(|e| e.to_str()) == Some("json") {
             kind = ModuleKind::Json;
         }
-        if Self::needs_transpile(&resolution.full_path()) && kind == ModuleKind::Esm {
+        if kind == ModuleKind::Esm
+            && (Self::needs_transpile(&resolution.full_path())
+                || Self::js_file_needs_downlevel(&resolution.full_path()))
+        {
             kind = ModuleKind::CommonJs;
         }
 
@@ -647,6 +677,7 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
 
 fn module_cache_key(path: &Path) -> Result<String> {
     let mut hasher = DefaultHasher::new();
+    "loader-transpile-v2-js-downlevel".hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
     if let Ok(meta) = std::fs::metadata(path) {
