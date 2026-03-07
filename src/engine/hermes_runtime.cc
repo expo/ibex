@@ -1036,6 +1036,143 @@ facebook::jsi::Value makeUint8Array(facebook::jsi::Runtime& rt, std::vector<uint
   return facebook::jsi::Value(std::move(typed));
 }
 
+static bool sqliteColumnTypeIsBlob(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Array& columnTypes,
+    size_t index) {
+  auto type = columnTypes.getValueAtIndex(runtime, index);
+  return type.isString() && type.asString(runtime).utf8(runtime) == "BLOB";
+}
+
+static facebook::jsi::Value convertSqliteBlobValue(
+    facebook::jsi::Runtime& runtime,
+    facebook::jsi::Value value) {
+  if (!value.isObject()) {
+    return value;
+  }
+
+  auto object = value.asObject(runtime);
+  if (!object.isArray(runtime)) {
+    return value;
+  }
+
+  auto array = object.asArray(runtime);
+  auto length = array.size(runtime);
+  std::vector<uint8_t> bytes;
+  bytes.reserve(length);
+  for (size_t i = 0; i < length; ++i) {
+    auto entry = array.getValueAtIndex(runtime, i);
+    if (!entry.isNumber()) {
+      return value;
+    }
+    auto number = entry.asNumber();
+    if (number < 0 || number > 255) {
+      return value;
+    }
+    bytes.push_back(static_cast<uint8_t>(number));
+  }
+
+  return makeUint8Array(runtime, std::move(bytes));
+}
+
+static void convertSqliteBlobColumnsInRowObject(
+    facebook::jsi::Runtime& runtime,
+    facebook::jsi::Object& row,
+    const facebook::jsi::Array& columnTypes) {
+  auto keys = row.getPropertyNames(runtime);
+  auto limit = std::min(keys.size(runtime), columnTypes.size(runtime));
+  for (size_t i = 0; i < limit; ++i) {
+    if (!sqliteColumnTypeIsBlob(runtime, columnTypes, i)) {
+      continue;
+    }
+    auto key = keys.getValueAtIndex(runtime, i);
+    if (!key.isString()) {
+      continue;
+    }
+    auto property = key.asString(runtime).utf8(runtime);
+    row.setProperty(
+        runtime,
+        property.c_str(),
+        convertSqliteBlobValue(runtime, row.getProperty(runtime, property.c_str())));
+  }
+}
+
+static void convertSqliteBlobColumnsInRowArray(
+    facebook::jsi::Runtime& runtime,
+    facebook::jsi::Array& row,
+    const facebook::jsi::Array& columnTypes) {
+  auto limit = std::min(row.size(runtime), columnTypes.size(runtime));
+  for (size_t i = 0; i < limit; ++i) {
+    if (!sqliteColumnTypeIsBlob(runtime, columnTypes, i)) {
+      continue;
+    }
+    row.setValueAtIndex(
+        runtime,
+        i,
+        convertSqliteBlobValue(runtime, row.getValueAtIndex(runtime, i)));
+  }
+}
+
+static void convertSqliteBlobColumns(
+    facebook::jsi::Runtime& runtime,
+    facebook::jsi::Object& result) {
+  auto columnTypesValue = result.getProperty(runtime, "columnTypes");
+  if (!columnTypesValue.isObject()) {
+    return;
+  }
+
+  auto columnTypesObject = columnTypesValue.asObject(runtime);
+  if (!columnTypesObject.isArray(runtime)) {
+    return;
+  }
+
+  auto columnTypes = columnTypesObject.asArray(runtime);
+
+  auto rowValue = result.getProperty(runtime, "row");
+  if (rowValue.isObject()) {
+    auto rowObject = rowValue.asObject(runtime);
+    if (rowObject.isArray(runtime)) {
+      auto rowArray = rowObject.asArray(runtime);
+      convertSqliteBlobColumnsInRowArray(runtime, rowArray, columnTypes);
+      result.setProperty(runtime, "row", rowArray);
+    } else {
+      convertSqliteBlobColumnsInRowObject(runtime, rowObject, columnTypes);
+      result.setProperty(runtime, "row", rowObject);
+    }
+  }
+
+  auto rowsValue = result.getProperty(runtime, "rows");
+  if (!rowsValue.isObject()) {
+    return;
+  }
+
+  auto rowsObject = rowsValue.asObject(runtime);
+  if (!rowsObject.isArray(runtime)) {
+    return;
+  }
+
+  auto rows = rowsObject.asArray(runtime);
+  auto rowCount = rows.size(runtime);
+  for (size_t i = 0; i < rowCount; ++i) {
+    auto rowValue = rows.getValueAtIndex(runtime, i);
+    if (!rowValue.isObject()) {
+      continue;
+    }
+
+    auto rowObject = rowValue.asObject(runtime);
+    if (rowObject.isArray(runtime)) {
+      auto rowArray = rowObject.asArray(runtime);
+      convertSqliteBlobColumnsInRowArray(runtime, rowArray, columnTypes);
+      rows.setValueAtIndex(runtime, i, rowArray);
+    } else {
+      convertSqliteBlobColumnsInRowObject(runtime, rowObject, columnTypes);
+      rows.setValueAtIndex(runtime, i, rowObject);
+    }
+  }
+
+  result.setProperty(runtime, "rows", rows);
+}
+
 // Extract bytes from a JSI value (string, ArrayBuffer, or TypedArray like Uint8Array)
 std::vector<uint8_t> extractBytes(facebook::jsi::Runtime& rt, const facebook::jsi::Value& val) {
   if (val.isString()) {
@@ -4254,6 +4391,11 @@ static void installSqliteHostFunctions(ExactHermesRuntime* handle) {
     }
     auto value = parseJsonValue(runtime, json);
     ex_host_free_string(json);
+    if (value.isObject()) {
+      auto object = value.asObject(runtime);
+      convertSqliteBlobColumns(runtime, object);
+      return object;
+    }
     return value;
   };
 

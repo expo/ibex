@@ -55,6 +55,7 @@ struct SqliteConnectionRecord {
 struct SqliteStatementRecord {
     db_id: u64,
     sql: String,
+    read_only: bool,
 }
 
 struct SqliteState {
@@ -258,6 +259,16 @@ fn sqlite_value_to_json(value: ValueRef<'_>) -> serde_json::Value {
         ValueRef::Blob(value) => {
             serde_json::Value::Array(value.iter().copied().map(serde_json::Value::from).collect())
         }
+    }
+}
+
+fn sqlite_value_type_name(value: &ValueRef<'_>) -> &'static str {
+    match value {
+        ValueRef::Null => "NULL",
+        ValueRef::Integer(_) => "INTEGER",
+        ValueRef::Real(_) => "FLOAT",
+        ValueRef::Text(_) => "TEXT",
+        ValueRef::Blob(_) => "BLOB",
     }
 }
 
@@ -1100,11 +1111,12 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
             })
             .collect();
 
-        let declared_types: Vec<String> = statement
+        let declared_types: Vec<Option<String>> = statement
             .columns()
             .into_iter()
-            .map(|column| column.decl_type().unwrap_or("").to_string())
+            .map(|column| column.decl_type().map(std::string::ToString::to_string))
             .collect();
+        let read_only = statement.readonly();
 
         let params_count = statement.parameter_count() as usize;
         let statement_handle = state.next_statement_handle;
@@ -1114,6 +1126,7 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
             SqliteStatementRecord {
                 db_id: db_handle,
                 sql,
+                read_only,
             },
         );
 
@@ -1122,6 +1135,7 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
             "columnNames": column_names,
             "declaredTypes": declared_types,
             "paramsCount": params_count,
+            "readOnly": read_only,
         }))
     })
 }
@@ -1186,6 +1200,7 @@ pub extern "C" fn ex_host_sqlite_all(
             Some(statement) => statement,
             None => return ptr::null_mut(),
         };
+        let read_only = statement.read_only;
         let connection = match state.dbs.get_mut(&statement.db_id) {
             Some(connection) => connection,
             None => return ptr::null_mut(),
@@ -1202,12 +1217,6 @@ pub extern "C" fn ex_host_sqlite_all(
         let column_names: Vec<String> = (0..column_count)
             .filter_map(|index| stmt.column_name(index).ok().map(|name| name.to_string()))
             .collect();
-        let column_types: Vec<String> = stmt
-            .columns()
-            .into_iter()
-            .map(|column| column.decl_type().unwrap_or("").to_string())
-            .collect();
-
         let mut rows = match stmt.query(params_from_iter(bindings.iter())) {
             Ok(result) => result,
             Err(err) => {
@@ -1216,8 +1225,14 @@ pub extern "C" fn ex_host_sqlite_all(
         };
 
         let mut payload_rows = Vec::new();
+        let mut column_types: Option<Vec<String>> = None;
         while let Ok(Some(row)) = rows.next() {
             let mut object = serde_json::Map::new();
+            let mut row_column_types = if read_only {
+                Some(Vec::with_capacity(column_count))
+            } else {
+                None
+            };
             for index in 0..column_count {
                 let name = match column_names.get(index) {
                     Some(name) => name.clone(),
@@ -1225,15 +1240,23 @@ pub extern "C" fn ex_host_sqlite_all(
                 };
 
                 if let Ok(value) = row.get_ref(index) {
+                    if let Some(ref mut types) = row_column_types {
+                        types.push(sqlite_value_type_name(&value).to_string());
+                    }
                     object.insert(name, sqlite_value_to_json(value));
+                } else if let Some(ref mut types) = row_column_types {
+                    types.push(String::new());
                 }
+            }
+            if column_types.is_none() {
+                column_types = row_column_types;
             }
             payload_rows.push(serde_json::Value::Object(object));
         }
 
         as_json_cstring(&json!({
             "rows": payload_rows,
-            "columnTypes": column_types,
+            "columnTypes": column_types.unwrap_or_default(),
         }))
     })
 }
@@ -1254,6 +1277,7 @@ pub extern "C" fn ex_host_sqlite_get(
             Some(statement) => statement,
             None => return ptr::null_mut(),
         };
+        let read_only = statement.read_only;
         let connection = match state.dbs.get_mut(&statement.db_id) {
             Some(connection) => connection,
             None => return ptr::null_mut(),
@@ -1270,12 +1294,6 @@ pub extern "C" fn ex_host_sqlite_get(
         let column_names: Vec<String> = (0..column_count)
             .filter_map(|index| stmt.column_name(index).ok().map(|name| name.to_string()))
             .collect();
-        let column_types: Vec<String> = stmt
-            .columns()
-            .into_iter()
-            .map(|column| column.decl_type().unwrap_or("").to_string())
-            .collect();
-
         let mut rows = match stmt.query(params_from_iter(bindings.iter())) {
             Ok(result) => result,
             Err(err) => {
@@ -1283,6 +1301,7 @@ pub extern "C" fn ex_host_sqlite_get(
             }
         };
 
+        let mut column_types = Vec::new();
         let row = match rows.next() {
             Ok(Some(row)) => {
                 let mut object = serde_json::Map::new();
@@ -1292,7 +1311,12 @@ pub extern "C" fn ex_host_sqlite_get(
                         None => continue,
                     };
                     if let Ok(value) = row.get_ref(index) {
+                        if read_only {
+                            column_types.push(sqlite_value_type_name(&value).to_string());
+                        }
                         object.insert(name, sqlite_value_to_json(value));
+                    } else if read_only {
+                        column_types.push(String::new());
                     }
                 }
                 serde_json::Value::Object(object)
@@ -1337,12 +1361,6 @@ pub extern "C" fn ex_host_sqlite_values(
         };
 
         let column_count = stmt.column_count();
-        let column_types: Vec<String> = stmt
-            .columns()
-            .into_iter()
-            .map(|column| column.decl_type().unwrap_or("").to_string())
-            .collect();
-
         let mut rows = match stmt.query(params_from_iter(bindings.iter())) {
             Ok(result) => result,
             Err(err) => {
@@ -1351,19 +1369,33 @@ pub extern "C" fn ex_host_sqlite_values(
         };
 
         let mut payload_rows = Vec::new();
+        let mut column_types: Option<Vec<String>> = None;
         while let Ok(Some(row)) = rows.next() {
             let mut values = Vec::new();
+            let mut row_column_types = if read_only {
+                Some(Vec::with_capacity(column_count))
+            } else {
+                None
+            };
             for index in 0..column_count {
                 if let Ok(value) = row.get_ref(index) {
+                    if let Some(ref mut types) = row_column_types {
+                        types.push(sqlite_value_type_name(&value).to_string());
+                    }
                     values.push(sqlite_value_to_json(value));
+                } else if let Some(ref mut types) = row_column_types {
+                    types.push(String::new());
                 }
+            }
+            if column_types.is_none() {
+                column_types = row_column_types;
             }
             payload_rows.push(serde_json::Value::Array(values));
         }
 
         as_json_cstring(&json!({
             "rows": payload_rows,
-            "columnTypes": column_types,
+            "columnTypes": column_types.unwrap_or_default(),
         }))
     })
 }
