@@ -2388,8 +2388,8 @@
           // Wrap the reader's read() to return proper-prototype objects
           if (reader && typeof reader.read === 'function' && !reader.__exactReadWrapped) {
             var origRead = reader.read.bind(reader);
-            reader.read = function() {
-              return origRead().then(_wrapIterResult);
+            reader.read = function(view, options) {
+              return origRead(view, options).then(_wrapIterResult);
             };
             reader.__exactReadWrapped = true;
           }
