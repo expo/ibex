@@ -85,6 +85,55 @@ function compareBytes(a, b, aStart, aEnd, bStart, bEnd) {
   return aLength < bLength ? -1 : 1;
 }
 
+function getFillBytes(value, encoding) {
+  if (typeof value === "string") {
+    var stringBytes = encodeString(value, encoding || "utf8");
+    return stringBytes.length > 0 ? stringBytes : null;
+  }
+  if (typeof value === "number") {
+    return [value & 0xff];
+  }
+  if (value === true) {
+    return [1];
+  }
+  if (value === false || value === 0 || value == null) {
+    return [0];
+  }
+  if (value && value.__isExactBuffer) {
+    return value.length > 0 ? value : null;
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.byteLength > 0
+      ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+      : null;
+  }
+  if (isArrayBufferLike(value)) {
+    var arrayBufferBytes = new Uint8Array(value);
+    return arrayBufferBytes.length > 0 ? arrayBufferBytes : null;
+  }
+  return [0];
+}
+
+function fillRange(target, value, start, end, encoding) {
+  var from = start == null ? 0 : start;
+  var to = end == null ? target.length : end;
+  if (from < 0) from = 0;
+  if (to < from) to = from;
+  if (to > target.length) to = target.length;
+  var fillBytes = getFillBytes(value, encoding);
+  var i;
+  if (!fillBytes) {
+    for (i = from; i < to; i++) {
+      target[i] = 0;
+    }
+    return target;
+  }
+  for (i = from; i < to; i++) {
+    target[i] = fillBytes[(i - from) % fillBytes.length];
+  }
+  return target;
+}
+
 function createOutOfRangeError(name, expectation, received) {
   var err = new RangeError('The value of "' + name + '" is out of range. It must be ' + expectation + '. Received ' + received);
   err.code = "ERR_OUT_OF_RANGE";
@@ -583,24 +632,7 @@ Buffer.alloc = function(size, fill, encoding) {
   if (fill === undefined || fill === null) {
     return makeBuffer(bytes);
   }
-  var fillValue;
-  if (typeof fill === "string") {
-    fillValue = encodeString(fill, encoding || "utf8")[0];
-  } else if (typeof fill === "number") {
-    fillValue = fill & 0xff;
-  } else if (fill === true) {
-    fillValue = 1;
-  } else if (fill === false || fill === 0) {
-    fillValue = 0;
-  } else if (fill.__isExactBuffer) {
-    fill = fill[0] || 0;
-    fillValue = fill;
-  } else {
-    fillValue = 0;
-  }
-  for (var i = 0; i < bytes.length; i++) {
-    bytes[i] = fillValue;
-  }
+  fillRange(bytes, fill, 0, bytes.length, encoding);
   return makeBuffer(bytes);
 };
 
@@ -1294,13 +1326,16 @@ BufferProto.writeUintBE = BufferProto.writeUIntBE;
 BufferProto.writeBigUint64LE = BufferProto.writeBigUInt64LE;
 BufferProto.writeBigUint64BE = BufferProto.writeBigUInt64BE;
 
-BufferProto.fill = function(value, start, end) {
-  start = start == null ? 0 : start;
-  end = end == null ? this.length : end;
-  var fill = typeof value === "string" ? encodeString(value, "utf8")[0] : value;
-  for (var i = start; i < end && i < this.length; i++) {
-    this[i] = fill & 0xff;
+BufferProto.fill = function(value, start, end, encoding) {
+  if (typeof start === "string") {
+    encoding = start;
+    start = 0;
+    end = this.length;
+  } else if (typeof end === "string") {
+    encoding = end;
+    end = this.length;
   }
+  fillRange(this, value, start, end, encoding);
   return this;
 };
 

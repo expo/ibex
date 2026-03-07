@@ -2273,6 +2273,8 @@
     globalThis.process !== null &&
     globalThis.process.env &&
     globalThis.process.env.EXACT_COMPAT_TEST === '1' &&
+    Array.isArray(globalThis.process.argv) &&
+    globalThis.process.argv.length > 1 &&
     typeof globalThis.__exactRequire === 'function' &&
     typeof globalThis.test !== 'function'
   ) {

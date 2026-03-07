@@ -935,6 +935,51 @@
     try { if (typeof stream.destroy === 'function') stream.destroy(); } catch (err) {}
   }
 
+  function __exactWrapSubprocessReadable(stream) {
+    if (!stream || typeof stream !== 'object') {
+      return stream || null;
+    }
+    var wrapped = stream;
+    try {
+      var streamModule = require('node:stream');
+      if (streamModule && streamModule.Readable &&
+          typeof streamModule.Readable.toWeb === 'function') {
+        wrapped = streamModule.Readable.toWeb(stream);
+      }
+    } catch (err) {}
+    if (!wrapped || typeof wrapped !== 'object') {
+      return wrapped;
+    }
+    if (typeof wrapped.text !== 'function') {
+      wrapped.text = function() {
+        return E.readableStreamToText(wrapped);
+      };
+    }
+    if (typeof wrapped.arrayBuffer !== 'function') {
+      wrapped.arrayBuffer = function() {
+        return E.readableStreamToArrayBuffer(wrapped);
+      };
+    }
+    if (typeof wrapped.json !== 'function') {
+      wrapped.json = function() {
+        return E.readableStreamToJSON(wrapped);
+      };
+    }
+    if (typeof wrapped.blob !== 'function') {
+      wrapped.blob = function() {
+        return E.readableStreamToBlob(wrapped);
+      };
+    }
+    if (typeof wrapped.bytes !== 'function') {
+      wrapped.bytes = function() {
+        return E.readableStreamToArrayBuffer(wrapped).then(function(buffer) {
+          return new Uint8Array(buffer);
+        });
+      };
+    }
+    return wrapped;
+  }
+
 
   // --- Bun.spawn() and Bun.spawnSync() ---
   E.spawn = function(cmd, opts) {
@@ -965,8 +1010,8 @@
     var result = {
       pid: proc.pid,
       stdin: proc.stdin || null,
-      stdout: proc.stdout || null,
-      stderr: proc.stderr || null,
+      stdout: __exactWrapSubprocessReadable(proc.stdout),
+      stderr: __exactWrapSubprocessReadable(proc.stderr),
       killed: false,
       exitCode: null,
       signalCode: null,
@@ -1522,6 +1567,21 @@
         return String(data).length;
       }
 
+      function sliceWriteData(data, maxBytes) {
+        if (typeof data === 'string') {
+          return data.slice(0, maxBytes);
+        }
+        if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) {
+          return data.slice(0, maxBytes);
+        }
+        if (data && typeof data === 'object' && typeof data.slice === 'function') {
+          try {
+            return data.slice(0, maxBytes);
+          } catch (_err) {}
+        }
+        return data;
+      }
+
       if (options.path || options.unix) {
         connectOptions = { path: options.path || options.unix };
       } else {
@@ -1533,9 +1593,24 @@
 
       var resolved = false;
       var socket = net.connect(connectOptions);
+      var pendingDrain = false;
       var bunSocket = {
         write: function(data) {
-          return socket.write(data) ? byteLengthOf(data) : 0;
+          var maxBytes = typeof bunSocket.__exactSendBufferSize === 'number' &&
+            bunSocket.__exactSendBufferSize > 0
+            ? bunSocket.__exactSendBufferSize
+            : null;
+          var requestedBytes = byteLengthOf(data);
+          var payload = maxBytes != null ? sliceWriteData(data, maxBytes) : data;
+          var bytes = byteLengthOf(payload);
+          if (bytes <= 0) {
+            return 0;
+          }
+          var wrote = socket.write(payload);
+          if (!wrote || requestedBytes > bytes) {
+            pendingDrain = true;
+          }
+          return bytes;
         },
         flush: function() {
           return bunSocket;
@@ -1561,6 +1636,10 @@
         }
       });
       socket.on('drain', function() {
+        if (!pendingDrain) {
+          return;
+        }
+        pendingDrain = false;
         if (typeof socketHandlers.drain === 'function') {
           try { socketHandlers.drain(bunSocket); } catch (err) {}
         }
