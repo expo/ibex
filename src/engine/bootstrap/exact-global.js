@@ -970,6 +970,11 @@
         return E.readableStreamToBlob(wrapped);
       };
     }
+    if (typeof wrapped.formData !== 'function') {
+      wrapped.formData = function() {
+        return E.readableStreamToFormData(wrapped);
+      };
+    }
     if (typeof wrapped.bytes !== 'function') {
       wrapped.bytes = function() {
         return E.readableStreamToArrayBuffer(wrapped).then(function(buffer) {
@@ -1222,6 +1227,23 @@
     }
     return E.readableStreamToArrayBuffer(stream).then(function(buf) {
       return new Blob([buf]);
+    });
+  };
+  E.readableStreamToFormData = function(stream) {
+    if (typeof Response !== 'undefined') {
+      return new Response(stream, {
+        headers: { 'content-type': 'application/x-www-form-urlencoded' }
+      }).formData();
+    }
+    return E.readableStreamToText(stream).then(function(text) {
+      var params = new URLSearchParams(text);
+      var form = new FormData();
+      if (typeof params.forEach === 'function') {
+        params.forEach(function(value, key) {
+          form.append(key, value);
+        });
+      }
+      return form;
     });
   };
   E.readableStreamToJSON = function(stream) {

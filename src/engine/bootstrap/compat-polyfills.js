@@ -271,10 +271,7 @@
   }
 
   function __exactNormalizeFetchInit(init) {
-    if (!init || typeof init !== 'object' || !init.headers || typeof globalThis.Headers !== 'function') {
-      return init;
-    }
-    if (init.headers instanceof globalThis.Headers) {
+    if (!init || typeof init !== 'object') {
       return init;
     }
     var normalized = {};
@@ -283,12 +280,22 @@
         normalized[key] = init[key];
       }
     }
-    try {
-      normalized.headers = new globalThis.Headers(init.headers);
-      return normalized;
-    } catch (err) {
-      return init;
+    if (
+      normalized.body !== undefined &&
+      normalized.body !== null &&
+      (normalized.method === undefined || normalized.method === null || normalized.method === '')
+    ) {
+      normalized.method = 'POST';
     }
+    if (normalized.headers && typeof globalThis.Headers === 'function' &&
+        !(normalized.headers instanceof globalThis.Headers)) {
+      try {
+        normalized.headers = new globalThis.Headers(normalized.headers);
+      } catch (err) {
+        normalized.headers = init.headers;
+      }
+    }
+    return normalized;
   }
 
   function __exactWrapFetchConstructor(name) {
@@ -1292,7 +1299,7 @@
       return String(bodyText);
     }
     try {
-      decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+      decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: false });
     } catch (err) {
       decoder = new TextDecoder('utf-8');
     }
@@ -1310,39 +1317,32 @@
       return;
     }
 
-    var requestFormData = globalThis.Request && globalThis.Request.prototype &&
-      globalThis.Request.prototype.formData;
-    if (typeof requestFormData === 'function' && !requestFormData.__exactCompatPatched) {
-      globalThis.Request.prototype.formData = async function() {
-        var contentType = this.headers && typeof this.headers.get === 'function'
-          ? this.headers.get('content-type')
-          : '';
-        if (typeof contentType === 'string' && contentType.toLowerCase().indexOf('multipart/form-data') === 0) {
-          return requestFormData.call(this);
+    function __exactFindOriginalFormData(proto, current) {
+      var cursor = proto;
+      while (cursor) {
+        var candidate = cursor.formData;
+        if (typeof candidate === 'function' && candidate !== current) {
+          return candidate;
         }
-        var bodyBuffer = await this.arrayBuffer();
-        var bodyText = __exactDecodeUrlEncodedFormBody(new Uint8Array(bodyBuffer));
-        var parsed = new URLSearchParams(bodyText);
-        var formData = new FormData();
-        if (typeof parsed.forEach === 'function') {
-          parsed.forEach(function(value, key) {
-            formData.append(key, value);
-          });
-        }
-        return formData;
-      };
-      globalThis.Request.prototype.formData.__exactCompatPatched = true;
+        cursor = Object.getPrototypeOf(cursor);
+      }
+      return null;
     }
 
-    var responseFormData = globalThis.Response && globalThis.Response.prototype &&
-      globalThis.Response.prototype.formData;
-    if (typeof responseFormData === 'function' && !responseFormData.__exactCompatPatched) {
-      globalThis.Response.prototype.formData = async function() {
+    var requestProto = globalThis.Request && globalThis.Request.prototype;
+    if (requestProto && !(requestProto.formData && requestProto.formData.__exactCompatPatched)) {
+      var requestFormData = requestProto.formData;
+      requestProto.formData = async function() {
         var contentType = this.headers && typeof this.headers.get === 'function'
           ? this.headers.get('content-type')
           : '';
         if (typeof contentType === 'string' && contentType.toLowerCase().indexOf('multipart/form-data') === 0) {
-          return responseFormData.call(this);
+          var originalRequestFormData = typeof requestFormData === 'function'
+            ? requestFormData
+            : __exactFindOriginalFormData(Object.getPrototypeOf(requestProto), requestProto.formData);
+          if (typeof originalRequestFormData === 'function') {
+            return originalRequestFormData.call(this);
+          }
         }
         var bodyBuffer = await this.arrayBuffer();
         var bodyText = __exactDecodeUrlEncodedFormBody(new Uint8Array(bodyBuffer));
@@ -1355,7 +1355,36 @@
         }
         return formData;
       };
-      globalThis.Response.prototype.formData.__exactCompatPatched = true;
+      requestProto.formData.__exactCompatPatched = true;
+    }
+
+    var responseProto = globalThis.Response && globalThis.Response.prototype;
+    if (responseProto && !(responseProto.formData && responseProto.formData.__exactCompatPatched)) {
+      var responseFormData = responseProto.formData;
+      responseProto.formData = async function() {
+        var contentType = this.headers && typeof this.headers.get === 'function'
+          ? this.headers.get('content-type')
+          : '';
+        if (typeof contentType === 'string' && contentType.toLowerCase().indexOf('multipart/form-data') === 0) {
+          var originalResponseFormData = typeof responseFormData === 'function'
+            ? responseFormData
+            : __exactFindOriginalFormData(Object.getPrototypeOf(responseProto), responseProto.formData);
+          if (typeof originalResponseFormData === 'function') {
+            return originalResponseFormData.call(this);
+          }
+        }
+        var bodyBuffer = await this.arrayBuffer();
+        var bodyText = __exactDecodeUrlEncodedFormBody(new Uint8Array(bodyBuffer));
+        var parsed = new URLSearchParams(bodyText);
+        var formData = new FormData();
+        if (typeof parsed.forEach === 'function') {
+          parsed.forEach(function(value, key) {
+            formData.append(key, value);
+          });
+        }
+        return formData;
+      };
+      responseProto.formData.__exactCompatPatched = true;
     }
   }
 

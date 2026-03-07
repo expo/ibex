@@ -1064,6 +1064,46 @@
   // Blob / File — lazy (Web API)
   if (typeof globalThis.Blob === 'undefined') {
     function _initBlob() {
+      function __blobEncodeString(text) {
+        if (typeof TextEncoder === 'function') {
+          return new TextEncoder().encode(text);
+        }
+        var encoded = encodeURIComponent(String(text));
+        var bytes = [];
+        for (var i = 0; i < encoded.length; i++) {
+          var ch = encoded.charAt(i);
+          if (ch === '%' && i + 2 < encoded.length) {
+            bytes.push(parseInt(encoded.slice(i + 1, i + 3), 16));
+            i += 2;
+          } else {
+            bytes.push(ch.charCodeAt(0) & 0xff);
+          }
+        }
+        return new Uint8Array(bytes);
+      }
+
+      function __blobDecodeBytes(bytes) {
+        if (typeof TextDecoder === 'function') {
+          return new TextDecoder('utf-8').decode(bytes);
+        }
+        var out = '';
+        for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+        return out;
+      }
+
+      function __blobPartToBytes(part) {
+        if (typeof part === 'string') return __blobEncodeString(part);
+        if (part instanceof Uint8Array) return part;
+        if (part instanceof ArrayBuffer) return new Uint8Array(part);
+        if (ArrayBuffer.isView(part)) {
+          return new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
+        }
+        if (part && typeof part._getBytes === 'function') {
+          return part._getBytes();
+        }
+        return __blobEncodeString(String(part));
+      }
+
       function Blob(parts, options) {
         this._parts = parts || [];
         var rawType = (options && options.type) || '';
@@ -1071,71 +1111,33 @@
         this.type = rawType.toLowerCase();
         var totalSize = 0;
         for (var i = 0; i < this._parts.length; i++) {
-          var part = this._parts[i];
-          if (typeof part === 'string') totalSize += part.length;
-          else if (part instanceof Uint8Array) totalSize += part.length;
-          else if (part instanceof ArrayBuffer) totalSize += part.byteLength;
-          else if (part && part._parts) totalSize += part.size;
-          else totalSize += String(part).length;
+          totalSize += __blobPartToBytes(this._parts[i]).length;
         }
         this.size = totalSize;
       }
       Blob.prototype.text = function() {
-        var result = '';
-        for (var i = 0; i < this._parts.length; i++) {
-          var part = this._parts[i];
-          if (typeof part === 'string') result += part;
-          else if (part instanceof Uint8Array) {
-            for (var j = 0; j < part.length; j++) result += String.fromCharCode(part[j]);
-          } else if (part instanceof ArrayBuffer) {
-            var view = new Uint8Array(part);
-            for (var j = 0; j < view.length; j++) result += String.fromCharCode(view[j]);
-          } else if (ArrayBuffer.isView(part)) {
-            var bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
-            for (var j = 0; j < bytes.length; j++) result += String.fromCharCode(bytes[j]);
-          } else if (part && part._parts) {
-            // Blob-like object: recursively get text
-            var subParts = part._parts;
-            for (var k = 0; k < subParts.length; k++) {
-              var sub = subParts[k];
-              if (typeof sub === 'string') result += sub;
-              else if (sub instanceof Uint8Array) {
-                for (var j = 0; j < sub.length; j++) result += String.fromCharCode(sub[j]);
-              } else if (sub instanceof ArrayBuffer) {
-                var sv = new Uint8Array(sub);
-                for (var j = 0; j < sv.length; j++) result += String.fromCharCode(sv[j]);
-              }
-            }
-          } else result += String(part);
-        }
-        return Promise.resolve(result);
+        return Promise.resolve(__blobDecodeBytes(this._getBytes()));
       };
       Blob.prototype.arrayBuffer = function() {
-        var parts = this._parts;
-        var totalSize = this.size;
-        var result = new Uint8Array(totalSize);
-        var offset = 0;
-        for (var i = 0; i < parts.length; i++) {
-          var part = parts[i];
-          if (typeof part === 'string') {
-            for (var j = 0; j < part.length; j++) result[offset++] = part.charCodeAt(j) & 0xff;
-          } else if (part instanceof Uint8Array) {
-            result.set(part, offset);
-            offset += part.length;
-          } else if (part instanceof ArrayBuffer) {
-            result.set(new Uint8Array(part), offset);
-            offset += part.byteLength;
-          } else if (ArrayBuffer.isView(part)) {
-            var bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
-            result.set(bytes, offset);
-            offset += bytes.length;
-          } else if (part && part._parts) {
-            var subBytes = part._getBytes ? part._getBytes() : new Uint8Array(0);
-            result.set(subBytes, offset);
-            offset += subBytes.length;
+        var bytes = this._getBytes();
+        return Promise.resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+      };
+      Blob.prototype.json = function() {
+        return this.text().then(function(text) {
+          return JSON.parse(text);
+        });
+      };
+      Blob.prototype.formData = function() {
+        return this.text().then(function(text) {
+          var params = new URLSearchParams(text);
+          var form = new FormData();
+          if (typeof params.forEach === 'function') {
+            params.forEach(function(value, key) {
+              form.append(key, value);
+            });
           }
-        }
-        return Promise.resolve(result.buffer);
+          return form;
+        });
       };
       Blob.prototype.slice = function(start, end, contentType) {
         var bytes = this._getBytes ? this._getBytes() : new Uint8Array(0);
@@ -1153,24 +1155,9 @@
         var result = new Uint8Array(totalSize);
         var offset = 0;
         for (var i = 0; i < this._parts.length; i++) {
-          var part = this._parts[i];
-          if (typeof part === 'string') {
-            for (var j = 0; j < part.length; j++) result[offset++] = part.charCodeAt(j) & 0xff;
-          } else if (part instanceof Uint8Array) {
-            result.set(part, offset);
-            offset += part.length;
-          } else if (part instanceof ArrayBuffer) {
-            result.set(new Uint8Array(part), offset);
-            offset += part.byteLength;
-          } else if (ArrayBuffer.isView(part)) {
-            var bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
-            result.set(bytes, offset);
-            offset += bytes.length;
-          } else if (part && part._getBytes) {
-            var subBytes = part._getBytes();
-            result.set(subBytes, offset);
-            offset += subBytes.length;
-          }
+          var partBytes = __blobPartToBytes(this._parts[i]);
+          result.set(partBytes, offset);
+          offset += partBytes.length;
         }
         return result;
       };
