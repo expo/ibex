@@ -957,6 +957,9 @@
     if (!args || !args.length) {
       throw new TypeError('Bun.spawn: command array must not be empty');
     }
+    if (typeof options.env === 'function') {
+      options.env = options.env();
+    }
     var cp = require('child_process');
     var proc = cp.spawn(args[0], args.slice(1), options);
     var result = {
@@ -1020,6 +1023,9 @@
     }
     if (!args || !args.length) {
       throw new TypeError('Bun.spawnSync: command array must not be empty');
+    }
+    if (typeof options.env === 'function') {
+      options.env = options.env();
     }
     var cp = require('child_process');
     var r = cp.spawnSync(args[0], args.slice(1), options);
@@ -1300,23 +1306,28 @@
         var h = hostname === '0.0.0.0' ? 'localhost' : hostname;
         fullUrl = scheme + '://' + formatUrlHost(h) + ':' + actualPort + url;
       }
-      var headers = new Headers();
+      var headers = null;
       if (data.headers) {
         if (Array.isArray(data.headers)) {
+          headers = [];
           for (var i = 0; i < data.headers.length; i++) {
             var pair = data.headers[i];
             if (!pair || pair.length < 2) {
               continue;
             }
-            headers.set(pair[0], pair[1]);
+            headers.push([pair[0], pair[1]]);
           }
         } else if (typeof data.headers === 'object') {
+          headers = {};
           for (var k in data.headers) {
-            if (Object.prototype.hasOwnProperty.call(data.headers, k)) headers.set(k, data.headers[k]);
+            if (Object.prototype.hasOwnProperty.call(data.headers, k)) headers[k] = data.headers[k];
           }
         }
       }
-      var init = { method: method, headers: headers };
+      var init = { method: method };
+      if (headers) {
+        init.headers = headers;
+      }
       if (method !== 'GET' && method !== 'HEAD' && data.body) {
         try { init.body = atob(data.body); } catch(e) { init.body = data.body; }
       }
@@ -1435,6 +1446,26 @@
       var socketHandlers = options.socket || {};
       var net = require('node:net');
       var connectOptions;
+      function byteLengthOf(data) {
+        if (typeof data === 'string') {
+          if (typeof Buffer !== 'undefined' && Buffer.byteLength) {
+            return Buffer.byteLength(data);
+          }
+          return data.length;
+        }
+        if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) {
+          return data.length;
+        }
+        if (data && typeof data === 'object') {
+          if (typeof data.byteLength === 'number') {
+            return data.byteLength;
+          }
+          if (typeof data.length === 'number') {
+            return data.length;
+          }
+        }
+        return String(data).length;
+      }
 
       if (options.path || options.unix) {
         connectOptions = { path: options.path || options.unix };
@@ -1449,7 +1480,7 @@
       var socket = net.connect(connectOptions);
       var bunSocket = {
         write: function(data) {
-          return socket.write(data);
+          return socket.write(data) ? byteLengthOf(data) : 0;
         },
         flush: function() {
           return bunSocket;
@@ -1472,6 +1503,11 @@
       socket.on('data', function(chunk) {
         if (typeof socketHandlers.data === 'function') {
           try { socketHandlers.data(bunSocket, chunk); } catch (err) {}
+        }
+      });
+      socket.on('drain', function() {
+        if (typeof socketHandlers.drain === 'function') {
+          try { socketHandlers.drain(bunSocket); } catch (err) {}
         }
       });
       socket.on('error', function(err) {
