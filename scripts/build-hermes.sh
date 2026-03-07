@@ -4,8 +4,10 @@
 # Builds Hermes from source for iOS using their native build scripts
 #
 # Usage:
-#   ./scripts/build-hermes.sh                      # Build latest static_h (default branch)
+#   ./scripts/build-hermes.sh                      # Build pinned latest tested static_h commit
+#   ./scripts/build-hermes.sh --latest             # Build latest static_h head
 #   ./scripts/build-hermes.sh v0.13.0              # Build specific tag
+#   ./scripts/build-hermes.sh <commit>             # Build specific commit
 #   ./scripts/build-hermes.sh --release            # Build without debugger
 #   ./scripts/build-hermes.sh --debug              # Force debugger on
 #   ./scripts/build-hermes.sh --clean              # Clean cache and rebuild
@@ -20,8 +22,11 @@
 set -e
 
 # Configuration
-# Note: Hermes uses "static_h" as their default branch, not "main"
-HERMES_VERSION="static_h"
+# Hermes uses "static_h" as its primary development branch. Default to the
+# latest tested commit so builds remain reproducible; use --latest to follow
+# the moving branch head.
+DEFAULT_HERMES_REF="62422870a5ed864f6daeafe3428f327bc9eb10f3"
+HERMES_VERSION="$DEFAULT_HERMES_REF"
 CACHE_DIR="$HOME/.cache/exact/hermes"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -35,9 +40,14 @@ case "$HOST_ARCH_RAW" in
     *) HOST_ARCH="$HOST_ARCH_RAW" ;;
 esac
 HERMESC_DEST="$PROJECT_ROOT/tools/hermes/hermesc-macos-$HOST_ARCH"
+MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/hermesvm.framework"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --latest)
+            HERMES_VERSION="static_h"
+            shift
+            ;;
         --clean)
             CLEAN_CACHE=true
             shift
@@ -60,6 +70,31 @@ DEBUG_SUFFIX=""
 if [[ "$HERMES_DEBUGGER" == "1" || "$HERMES_DEBUGGER" == "true" || "$HERMES_DEBUGGER" == "TRUE" || "$HERMES_DEBUGGER" == "yes" || "$HERMES_DEBUGGER" == "YES" ]]; then
     DEBUG_SUFFIX="-debug"
 fi
+
+is_truthy() {
+    case "$1" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+verify_debugger_symbols() {
+    local framework_dir="$1"
+    local binary="$framework_dir/Versions/1/hermesvm"
+    if ! is_truthy "$HERMES_DEBUGGER"; then
+        return
+    fi
+    if [ ! -f "$binary" ]; then
+        echo "[✗] Expected Hermes macOS binary at $binary"
+        exit 1
+    fi
+    if ! nm -gU "$binary" 2>/dev/null | grep -q "AsyncDebuggerAPI"; then
+        echo "[✗] Hermes macOS framework was built without debugger symbols"
+        echo "    Missing AsyncDebuggerAPI in $binary"
+        exit 1
+    fi
+    echo "[✓] Verified Hermes debugger symbols in $(basename "$framework_dir")"
+}
 
 # iOS deployment target (minimum iOS version)
 export IOS_DEPLOYMENT_TARGET="15.0"
@@ -108,6 +143,11 @@ if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
     mkdir -p "$FRAMEWORKS_DIR"
     rm -rf "$FRAMEWORKS_DIR/hermes.xcframework"
     cp -R "$VERSION_CACHE/hermesvm.xcframework" "$FRAMEWORKS_DIR/hermes.xcframework"
+    if [ -d "$VERSION_CACHE/hermesvm.framework" ]; then
+        rm -rf "$MACOS_FRAMEWORK_DEST"
+        cp -R "$VERSION_CACHE/hermesvm.framework" "$MACOS_FRAMEWORK_DEST"
+        verify_debugger_symbols "$MACOS_FRAMEWORK_DEST"
+    fi
 
     # Copy headers
     if [ -d "$VERSION_CACHE/include" ]; then
@@ -282,6 +322,8 @@ mkdir -p destroot/include/hermes/Public
 cp public/hermes/Public/*.h destroot/include/hermes/Public/
 mkdir -p destroot/include/hermes
 cp API/hermes/*.h destroot/include/hermes/
+mkdir -p destroot/include/hermes/cdp
+cp API/hermes/cdp/*.h destroot/include/hermes/cdp/
 mkdir -p destroot/include/jsi
 cp API/jsi/jsi/*.h destroot/include/jsi/
 
@@ -299,6 +341,7 @@ xcodebuild -create-xcframework \
 echo ""
 echo "Caching build results..."
 cp -R "$HERMES_SRC/destroot/Library/Frameworks/universal/hermesvm.xcframework" "$VERSION_CACHE/"
+cp -R "$HERMES_SRC/build_macosx/lib/hermesvm.framework" "$VERSION_CACHE/"
 cp -R "$HERMES_SRC/destroot/include" "$VERSION_CACHE/"
 mkdir -p "$VERSION_CACHE/bin"
 cp "$HERMES_SRC/destroot/bin/hermesc" "$VERSION_CACHE/bin/" 2>/dev/null || true
@@ -311,6 +354,9 @@ echo "=== Installing to project ==="
 mkdir -p "$FRAMEWORKS_DIR"
 rm -rf "$FRAMEWORKS_DIR/hermes.xcframework"
 cp -R "$VERSION_CACHE/hermesvm.xcframework" "$FRAMEWORKS_DIR/hermes.xcframework"
+rm -rf "$MACOS_FRAMEWORK_DEST"
+cp -R "$VERSION_CACHE/hermesvm.framework" "$MACOS_FRAMEWORK_DEST"
+verify_debugger_symbols "$MACOS_FRAMEWORK_DEST"
 
 rm -rf "$FRAMEWORKS_DIR/hermes-headers"
 mkdir -p "$FRAMEWORKS_DIR/hermes-headers"
@@ -325,6 +371,7 @@ echo "=== Build Complete ==="
 echo ""
 echo "Installed:"
 echo "  Framework: $FRAMEWORKS_DIR/hermes.xcframework"
+echo "  macOS FW:  $MACOS_FRAMEWORK_DEST"
 echo "  Headers:   $FRAMEWORKS_DIR/hermes-headers/"
 echo "  CLI:       $HERMESC_DEST"
 echo ""
