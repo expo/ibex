@@ -103,6 +103,11 @@ function getWritableByteView(value) {
   return null;
 }
 
+function getViewLength(value) {
+  var view = getWritableByteView(value);
+  return view ? view.byteLength : null;
+}
+
 function compareBytes(a, b, aStart, aEnd, bStart, bEnd) {
   var aLength = aEnd - aStart;
   var bLength = bEnd - bStart;
@@ -148,21 +153,25 @@ function getFillBytes(value, encoding) {
 }
 
 function fillRange(target, value, start, end, encoding) {
+  var fillBytes = getFillBytes(value, encoding);
+  return fillRangeWithBytes(target, fillBytes, start, end);
+}
+
+function fillRangeWithBytes(target, fillBytes, start, end) {
   var from = start == null ? 0 : start;
   var to = end == null ? target.length : end;
   if (from < 0) from = 0;
   if (to < from) to = from;
   if (to > target.length) to = target.length;
-  var fillBytes = getFillBytes(value, encoding);
   var i;
-  if (!fillBytes) {
+  if (!fillBytes || fillBytes.length === 0) {
     for (i = from; i < to; i++) {
       target[i] = 0;
     }
     return target;
   }
   for (i = from; i < to; i++) {
-    target[i] = fillBytes[(i - from) % fillBytes.length];
+    target[i] = fillBytes[(i - from) % fillBytes.length] & 0xff;
   }
   return target;
 }
@@ -592,6 +601,20 @@ function normalizeCompareIndex(value, name, fallback) {
   return normalizeToInteger(value);
 }
 
+function normalizeFillIndex(value, name, fallback, bufferLength) {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number") {
+    throw makeInvalidArgTypeError(name, "of type number", value);
+  }
+  if (value !== value) {
+    throw createOutOfRangeError(name, "an integer", value);
+  }
+  if (!isFiniteNumber(value) || value < 0 || value > bufferLength) {
+    throw createOutOfRangeError(name, ">= 0 && <= " + bufferLength, value);
+  }
+  return normalizeToInteger(value);
+}
+
 function coerceEncoding(encoding) {
   if (!encoding) return "utf8";
   var normalized = String(encoding).toLowerCase().replace("-", "");
@@ -793,6 +816,24 @@ function toByteArray(value, encoding) {
     }
     return encodeString(value, encoding);
   }
+  if (
+    value &&
+    typeof value === "object" &&
+    typeof Symbol === "function" &&
+    Symbol.toPrimitive &&
+    typeof value[Symbol.toPrimitive] === "function"
+  ) {
+    var primitive = value[Symbol.toPrimitive]("string");
+    if (primitive !== value && (typeof primitive !== "object" || primitive === null)) {
+      return toByteArray(primitive, encoding);
+    }
+  }
+  if (typeof value === "object" && value !== null && typeof value.valueOf === "function") {
+    var unboxed = value.valueOf();
+    if (unboxed !== value) {
+      return toByteArray(unboxed, encoding);
+    }
+  }
   if (Array.isArray(value)) {
     return new Uint8Array(value);
   }
@@ -801,12 +842,6 @@ function toByteArray(value, encoding) {
   }
   if (value && typeof value === "object" && value.type === "Buffer" && Array.isArray(value.data)) {
     return new Uint8Array(value.data);
-  }
-  if (typeof value === "object" && value !== null && typeof value.valueOf === "function") {
-    var unboxed = value.valueOf();
-    if (unboxed !== value) {
-      return toByteArray(unboxed, encoding);
-    }
   }
   throw makeFirstArgumentError(value);
 }
@@ -918,7 +953,7 @@ Buffer.alloc = function(size, fill, encoding) {
     return makeBuffer(bytes);
   }
   var fillBytes = getAllocFillBytes(fill, encoding);
-  fillRange(bytes, fillBytes, 0, bytes.length);
+  fillRangeWithBytes(bytes, fillBytes, 0, bytes.length);
   return makeBuffer(bytes);
 };
 
@@ -940,7 +975,23 @@ Buffer.byteLength = function(string, encoding) {
     throw err;
   }
   if (typeof string !== 'string') {
-    return string.byteLength !== undefined ? string.byteLength : string.length;
+    if (ArrayBuffer.isView(string) &&
+        typeof string.length === "number") {
+      var bytesPerElement = string && string.constructor && string.constructor.BYTES_PER_ELEMENT;
+      if (typeof bytesPerElement !== "number") {
+        bytesPerElement = string.BYTES_PER_ELEMENT;
+      }
+      if (typeof bytesPerElement === "number") {
+        return string.length * bytesPerElement;
+      }
+    }
+    if (ArrayBuffer.isView(string) && typeof string.byteLength === "number") {
+      return string.byteLength;
+    }
+    if (typeof string.byteLength !== "undefined") {
+      return string.byteLength;
+    }
+    return string.length;
   }
   var normalizedEncoding = coerceEncoding(encoding || "utf8");
   if (normalizedEncoding === "base64" || normalizedEncoding === "base64url") {
@@ -1034,6 +1085,148 @@ Buffer.isEncoding = function(encoding) {
     .indexOf(encoding.toLowerCase()) !== -1;
 };
 
+function toSearchBytes(value, encoding) {
+  if (typeof value === "string") {
+    return encodeString(value, encoding || "utf8");
+  }
+  if (typeof value === "number") {
+    var number = Number(value);
+    if (number !== number) {
+      number = 0;
+    }
+    return new Uint8Array([number & 0xff]);
+  }
+  if (isUint8Array(value)) {
+    return value;
+  }
+  if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength);
+  }
+  if (isArrayBufferLike(value)) {
+    return new Uint8Array(getArrayBufferBacking(value));
+  }
+  throw makeInvalidArgTypeError(
+    "value",
+    "of type string, number, Buffer, Uint8Array, or ArrayBuffer",
+    value
+  );
+}
+
+function normalizeIndexOfOffset(bufferLength, byteOffset) {
+  if (byteOffset === undefined) return 0;
+  var offset = Number(byteOffset);
+  if (offset !== offset) return 0;
+  if (!isFiniteNumber(offset)) {
+    return offset < 0 ? 0 : bufferLength;
+  }
+  offset = normalizeToInteger(offset);
+  if (offset < 0) {
+    offset += bufferLength;
+  }
+  if (offset < 0) return 0;
+  if (offset > bufferLength) return bufferLength;
+  return offset;
+}
+
+function normalizeLastIndexOfOffset(bufferLength, byteOffset) {
+  if (bufferLength === 0) return -1;
+  if (byteOffset === undefined) return bufferLength - 1;
+  var offset = Number(byteOffset);
+  if (offset !== offset) return bufferLength - 1;
+  if (!isFiniteNumber(offset)) {
+    return offset < 0 ? -1 : bufferLength - 1;
+  }
+  offset = normalizeToInteger(offset);
+  if (offset < 0) {
+    offset += bufferLength;
+  }
+  if (offset < 0) return -1;
+  if (offset >= bufferLength) return bufferLength - 1;
+  return offset;
+}
+
+function findBufferSequence(buffer, value, byteOffset, encoding, backwards) {
+  if (typeof byteOffset === "string") {
+    encoding = byteOffset;
+    byteOffset = backwards ? undefined : 0;
+  }
+
+  var needle = toSearchBytes(value, encoding);
+  var offset = backwards
+    ? normalizeLastIndexOfOffset(buffer.length, byteOffset)
+    : normalizeIndexOfOffset(buffer.length, byteOffset);
+
+  if (needle.length === 0) {
+    if (backwards) {
+      if (offset < 0) return -1;
+      return offset > buffer.length ? buffer.length : offset;
+    }
+    return offset > buffer.length ? buffer.length : offset;
+  }
+
+  if (needle.length > buffer.length) {
+    return -1;
+  }
+
+  if (backwards) {
+    var start = offset;
+    var maxStart = buffer.length - needle.length;
+    if (start > maxStart) {
+      start = maxStart;
+    }
+    for (var i = start; i >= 0; i--) {
+      if (compareBytes(buffer, needle, i, i + needle.length, 0, needle.length) === 0) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  var end = buffer.length - needle.length;
+  for (var j = offset; j <= end; j++) {
+    if (compareBytes(buffer, needle, j, j + needle.length, 0, needle.length) === 0) {
+      return j;
+    }
+  }
+  return -1;
+}
+
+function getSliceView(target) {
+  var view = getWritableByteView(target);
+  if (!view) {
+    throw makeInvalidArgTypeError("this", "an instance of Buffer or Uint8Array", target);
+  }
+  return view;
+}
+
+function normalizeSliceBound(value, name, fallback, length) {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number") {
+    throw makeInvalidArgTypeError(name, "of type number", value);
+  }
+  if (value !== value) {
+    throw createOutOfRangeError(name, "an integer", value);
+  }
+  if (!isFiniteNumber(value) || value < 0 || value > length) {
+    throw createOutOfRangeError(name, ">= 0 && <= " + length, value);
+  }
+  return normalizeToInteger(value);
+}
+
+function sliceWithEncoding(target, encoding, start, end) {
+  var view = getSliceView(target);
+  var length = view.byteLength;
+  var actualStart = normalizeSliceBound(start, "start", 0, length);
+  var actualEnd = normalizeSliceBound(end, "end", length, length);
+  if (actualEnd <= actualStart) {
+    return "";
+  }
+  if (encoding === "hex" && (actualEnd - actualStart) * 2 > kStringMaxLength) {
+    throw new Error("Cannot create a string longer than " + kStringMaxLength + " characters");
+  }
+  return decodeBytes(view, encoding, actualStart, actualEnd);
+}
+
 BufferProto.toString = function(encoding, start, end) {
   var enc;
   if (encoding === undefined) {
@@ -1096,10 +1289,76 @@ BufferProto.equals = function(other) {
 };
 
 BufferProto.toJSON = function() {
-  return { type: "Buffer", data: Array.prototype.slice.call(this) };
+  var view = getWritableByteView(this);
+  if (!view) {
+    return { type: "Buffer", data: [] };
+  }
+  return {
+    type: "Buffer",
+    data: Array.prototype.slice.call(
+      new Uint8Array(view.buffer, view.byteOffset || 0, view.byteLength)
+    ),
+  };
 };
 
 BufferProto.toLocaleString = BufferProto.toString;
+BufferProto.inspect = function() {
+  if (typeof Bun !== "undefined" && Bun && typeof Bun.inspect === "function") {
+    return Bun.inspect(this);
+  }
+  if (typeof require === "function") {
+    try {
+      var bunMod = require("bun");
+      if (bunMod && typeof bunMod.inspect === "function") {
+        return bunMod.inspect(this);
+      }
+    } catch (_bunInspectErr) {}
+    try {
+      return require("node:util").inspect(this).replace(/'/g, '"');
+    } catch (_utilInspectErr) {}
+  }
+  return "<Buffer " + decodeBytes(this, "hex") + ">";
+};
+
+BufferProto.asciiSlice = function(start, end) {
+  return sliceWithEncoding(this, "ascii", start, end);
+};
+
+BufferProto.latin1Slice = function(start, end) {
+  return sliceWithEncoding(this, "latin1", start, end);
+};
+
+BufferProto.utf8Slice = function(start, end) {
+  return sliceWithEncoding(this, "utf8", start, end);
+};
+
+BufferProto.hexSlice = function(start, end) {
+  return sliceWithEncoding(this, "hex", start, end);
+};
+
+BufferProto.ucs2Slice = function(start, end) {
+  return sliceWithEncoding(this, "ucs2", start, end);
+};
+
+BufferProto.base64Slice = function(start, end) {
+  return sliceWithEncoding(this, "base64", start, end);
+};
+
+BufferProto.base64urlSlice = function(start, end) {
+  return sliceWithEncoding(this, "base64url", start, end);
+};
+
+BufferProto.indexOf = function(value, byteOffset, encoding) {
+  return findBufferSequence(this, value, byteOffset, encoding, false);
+};
+
+BufferProto.includes = function(value, byteOffset, encoding) {
+  return this.indexOf(value, byteOffset, encoding) !== -1;
+};
+
+BufferProto.lastIndexOf = function(value, byteOffset, encoding) {
+  return findBufferSequence(this, value, byteOffset, encoding, true);
+};
 
 BufferProto.slice = function(start, end) {
   throwIfDetachedBufferView(this);
@@ -1445,12 +1704,14 @@ BufferProto.readDoubleBE = function(offset) {
 };
 BufferProto.readBigUInt64LE = function(offset) {
   offset = offset || 0;
+  validateOffset(offset, 8, this.length);
   var lo = BigInt(this.readUInt32LE(offset));
   var hi = BigInt(this.readUInt32LE(offset + 4));
   return (hi << 32n) | lo;
 };
 BufferProto.readBigUInt64BE = function(offset) {
   offset = offset || 0;
+  validateOffset(offset, 8, this.length);
   var hi = BigInt(this.readUInt32BE(offset));
   var lo = BigInt(this.readUInt32BE(offset + 4));
   return (hi << 32n) | lo;
@@ -1575,6 +1836,7 @@ BufferProto.writeDoubleLE = function(value, offset) { offset = offset || 0; new 
 BufferProto.writeDoubleBE = function(value, offset) { offset = offset || 0; new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat64(offset, value, false); return offset + 8; };
 BufferProto.writeBigInt64LE = function(value, offset) {
   offset = offset || 0;
+  validateOffset(offset, 8, this.length);
   validateBigIntWrite(value, true);
   var unsignedValue = value < 0n ? value + (1n << 64n) : value;
   this.writeUInt32LE(Number(unsignedValue & 0xffffffffn), offset);
@@ -1583,6 +1845,7 @@ BufferProto.writeBigInt64LE = function(value, offset) {
 };
 BufferProto.writeBigInt64BE = function(value, offset) {
   offset = offset || 0;
+  validateOffset(offset, 8, this.length);
   validateBigIntWrite(value, true);
   var unsignedValue = value < 0n ? value + (1n << 64n) : value;
   this.writeUInt32BE(Number((unsignedValue >> 32n) & 0xffffffffn), offset);
@@ -1591,6 +1854,7 @@ BufferProto.writeBigInt64BE = function(value, offset) {
 };
 BufferProto.writeBigUInt64LE = function(value, offset) {
   offset = offset || 0;
+  validateOffset(offset, 8, this.length);
   validateBigIntWrite(value, false);
   this.writeUInt32LE(Number(value & 0xffffffffn), offset);
   this.writeUInt32LE(Number((value >> 32n) & 0xffffffffn), offset + 4);
@@ -1598,6 +1862,7 @@ BufferProto.writeBigUInt64LE = function(value, offset) {
 };
 BufferProto.writeBigUInt64BE = function(value, offset) {
   offset = offset || 0;
+  validateOffset(offset, 8, this.length);
   validateBigIntWrite(value, false);
   this.writeUInt32BE(Number((value >> 32n) & 0xffffffffn), offset);
   this.writeUInt32BE(Number(value & 0xffffffffn), offset + 4);
@@ -1646,15 +1911,30 @@ BufferProto.writeBigUint64LE = BufferProto.writeBigUInt64LE;
 BufferProto.writeBigUint64BE = BufferProto.writeBigUInt64BE;
 
 BufferProto.fill = function(value, start, end, encoding) {
+  var bufferLength = getViewLength(this);
+  if (bufferLength === null) {
+    throw makeInvalidArgTypeError("this", "an instance of Buffer or Uint8Array", this);
+  }
   if (typeof start === "string") {
     encoding = start;
     start = 0;
-    end = this.length;
+    end = bufferLength;
   } else if (typeof end === "string") {
     encoding = end;
-    end = this.length;
+    end = bufferLength;
+  } else if (end === undefined) {
+    end = bufferLength;
   }
-  fillRange(this, value, start, end, encoding);
+  if (encoding !== undefined && encoding !== null && typeof encoding !== "string") {
+    throw makeInvalidArgTypeError("encoding", "of type string", encoding);
+  }
+  start = normalizeFillIndex(start, "start", 0, bufferLength);
+  end = normalizeFillIndex(end, "end", bufferLength, bufferLength);
+  var fillBytes = getAllocFillBytes(value, encoding);
+  if (end <= start) {
+    return this;
+  }
+  fillRangeWithBytes(this, fillBytes, start, end);
   return this;
 };
 
@@ -1687,12 +1967,13 @@ Object.defineProperty(Buffer.prototype, "offset", {
 Buffer.prototype.__isExactBuffer = true;
 Buffer._protoReady = true;
 
-var kMaxLength = 2147483647; // 2^31 - 1
+var kMaxLength = 4294967296; // 2^32
+var kStringMaxLength = 2147483647; // 2^31 - 1
 var INSPECT_MAX_BYTES = 50;
 
 var constants = {
   MAX_LENGTH: kMaxLength,
-  MAX_STRING_LENGTH: kMaxLength,
+  MAX_STRING_LENGTH: kStringMaxLength,
 };
 
 var exported = {
@@ -1701,12 +1982,14 @@ var exported = {
   btoa: typeof btoa === "function" ? btoa : undefined,
   SlowBuffer: Buffer,
   Blob: typeof Blob === "undefined" ? undefined : Blob,
+  File: typeof File === "undefined" ? undefined : File,
   isAscii: isAsciiBytes,
   isUtf8: isUtf8Bytes,
   kMaxLength: kMaxLength,
   INSPECT_MAX_BYTES: INSPECT_MAX_BYTES,
   constants: constants,
 };
+exported.default = exported;
 Object.defineProperty(exported, "INSPECT_MAX_BYTES", {
   get: function() {
     return INSPECT_MAX_BYTES;
