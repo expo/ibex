@@ -1334,6 +1334,57 @@
       return new Request(fullUrl, init);
     }
 
+    function currentMaxHeaderSize() {
+      try {
+        var http = require('node:http');
+        var configured = http && http.maxHeaderSize;
+        if (typeof configured === 'number' && isFinite(configured) && configured > 0) {
+          return configured;
+        }
+      } catch (_err) {}
+      return 16 * 1024;
+    }
+
+    function requestHeadersTooLarge(data) {
+      var headers = data && data.headers;
+      if (!headers) {
+        return false;
+      }
+      var totalBytes = 0;
+      var limit = currentMaxHeaderSize();
+
+      function addHeader(name, value) {
+        totalBytes += String(name).length + String(value).length;
+        return totalBytes > limit;
+      }
+
+      if (Array.isArray(headers)) {
+        for (var i = 0; i < headers.length; i++) {
+          var pair = headers[i];
+          if (!pair || pair.length < 2) {
+            continue;
+          }
+          if (addHeader(pair[0], pair[1])) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      if (typeof headers === 'object') {
+        for (var key in headers) {
+          if (!Object.prototype.hasOwnProperty.call(headers, key)) {
+            continue;
+          }
+          if (addHeader(key, headers[key])) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
     function sendResponse(requestId, response) {
       var status = response.status || 200;
       var hdrs = [];
@@ -1354,6 +1405,10 @@
       var data;
       try { data = JSON.parse(json); } catch(e) { return; }
       var requestId = data.id || 0;
+      if (requestHeadersTooLarge(data)) {
+        sendResponse(requestId, new Response('Request Header Fields Too Large', { status: 431 }));
+        return;
+      }
       var request;
       try { request = buildRequest(data); } catch(e) {
         sendResponse(requestId, new Response('Bad Request', { status: 400 }));

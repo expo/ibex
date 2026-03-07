@@ -12013,7 +12013,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                        const char* resp_headers, const uint8_t* resp_body,
                        size_t resp_body_length, void* ctx) {
                       auto* wrapper = static_cast<ExactHermesRuntime*>(ctx);
-                      if (!wrapper) return;
+                      if (!wrapper || !runtimeIsAlive(wrapper)) return;
 
                       std::vector<uint8_t> bodyCopy;
                       if (resp_body && resp_body_length > 0) {

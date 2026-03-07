@@ -14,6 +14,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 #include <unistd.h>
 
@@ -32,18 +33,17 @@ typedef void (*NativeFetchResponseCallback)(
     void* context
 );
 
-extern "C" void native_fetch_perform(
+static void native_fetch_perform_async(
     uint32_t request_id,
-    const char* method,
-    const char* url,
-    const char* headers,
-    const uint8_t* body,
-    size_t body_length,
+    std::string method,
+    std::string url,
+    std::string headers,
+    std::vector<uint8_t> body,
     NativeFetchResponseCallback response_callback,
     void* context
 ) {
 #ifdef EXACT_HAS_CURL
-    if (!method || !url || !response_callback) {
+    if (method.empty() || url.empty() || !response_callback) {
         return;
     }
 
@@ -74,8 +74,8 @@ extern "C" void native_fetch_perform(
         return;
     }
 
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
     // Don't auto-follow redirects — let JS handle redirect logic
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
@@ -86,18 +86,18 @@ extern "C" void native_fetch_perform(
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);
 
-    if (body && body_length > 0) {
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body_length));
+    if (!body.empty()) {
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
     } else {
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, nullptr);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L);
     }
 
     curl_slist* curl_headers = nullptr;
-    if (headers && *headers) {
-        const char* line_start = headers;
-        const char* p = headers;
+    if (!headers.empty()) {
+        const char* line_start = headers.c_str();
+        const char* p = headers.c_str();
         while (*p) {
             if (*p == '\r' && *(p + 1) == '\n') {
                 if (p > line_start) {
@@ -158,7 +158,7 @@ extern "C" void native_fetch_perform(
     if (!response_callback) {
         return;
     }
-    if (!method || !url) {
+    if (method.empty() || url.empty()) {
         response_callback(request_id, 0, "Invalid request", nullptr, nullptr, 0, context);
         return;
     }
@@ -191,10 +191,13 @@ extern "C" void native_fetch_perform(
     const std::string code_path = make_temp_path("exact_fetch_code_XXXXXX");
     std::string req_body_path;
 
-    if (body && body_length > 0) {
+    if (!body.empty()) {
         req_body_path = make_temp_path("exact_fetch_req_XXXXXX");
         std::ofstream req_out(req_body_path, std::ios::binary);
-        req_out.write(reinterpret_cast<const char*>(body), static_cast<std::streamsize>(body_length));
+        req_out.write(
+            reinterpret_cast<const char*>(body.data()),
+            static_cast<std::streamsize>(body.size())
+        );
         req_out.close();
     }
 
@@ -206,9 +209,9 @@ extern "C" void native_fetch_perform(
         << " -o " << shell_quote(body_path)
         << " -w '%{http_code}' ";
 
-    if (headers && *headers) {
-        const char* line_start = headers;
-        const char* p = headers;
+    if (!headers.empty()) {
+        const char* line_start = headers.c_str();
+        const char* p = headers.c_str();
         while (*p) {
             if (*p == '\r' && *(p + 1) == '\n') {
                 if (p > line_start) {
@@ -281,4 +284,51 @@ extern "C" void native_fetch_perform(
         context
     );
 #endif
+}
+
+extern "C" void native_fetch_perform(
+    uint32_t request_id,
+    const char* method,
+    const char* url,
+    const char* headers,
+    const uint8_t* body,
+    size_t body_length,
+    NativeFetchResponseCallback response_callback,
+    void* context
+) {
+    if (!response_callback) {
+        return;
+    }
+    if (!method || !url) {
+        response_callback(request_id, 0, "Invalid request", nullptr, nullptr, 0, context);
+        return;
+    }
+
+    std::string method_copy(method);
+    std::string url_copy(url);
+    std::string headers_copy = headers ? headers : "";
+    std::vector<uint8_t> body_copy;
+    if (body && body_length > 0) {
+        body_copy.assign(body, body + body_length);
+    }
+
+    std::thread(
+        [request_id,
+         method_copy = std::move(method_copy),
+         url_copy = std::move(url_copy),
+         headers_copy = std::move(headers_copy),
+         body_copy = std::move(body_copy),
+         response_callback,
+         context]() mutable {
+            native_fetch_perform_async(
+                request_id,
+                std::move(method_copy),
+                std::move(url_copy),
+                std::move(headers_copy),
+                std::move(body_copy),
+                response_callback,
+                context
+            );
+        }
+    ).detach();
 }
