@@ -24,6 +24,11 @@
     return fn;
   }
 
+  // Returns true if stream.write is our own stream-enhance write (not hijacked by a test)
+  function _isExactNativeWrite(stream) {
+    return stream && typeof stream.write === 'function' && stream.write.__exactNativeWrite === true;
+  }
+
   function clearTTY(stream) {
     if (!stream || !stream.isTTY || typeof stream.write !== 'function') {
       return;
@@ -422,7 +427,7 @@
       return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
     }).join('\n') : msg;
 
-    if (!_isValidStreamWrite(stdout, _writeStdout) && stdout && typeof stdout.write === 'function') {
+    if (!_isValidStreamWrite(stdout, _writeStdout) && _isExactNativeWrite(stdout)) {
       _stdoutWriteInProgress = true;
       try {
         stdout.write(encoded);
@@ -448,7 +453,7 @@
       return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
     }).join('\n') : msg;
 
-    if (!_isValidStreamWrite(stderr, _writeStderr) && stderr && typeof stderr.write === 'function') {
+    if (!_isValidStreamWrite(stderr, _writeStderr) && _isExactNativeWrite(stderr)) {
       _stderrWriteInProgress = true;
       try {
         stderr.write(encoded);

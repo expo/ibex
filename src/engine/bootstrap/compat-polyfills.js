@@ -2440,10 +2440,10 @@
     !globalThis.__exactReadableStreamCompatIteratorPatchScheduled
   ) {
     globalThis.__exactReadableStreamCompatIteratorPatchScheduled = true;
-    if (typeof setTimeout === 'function') {
-      setTimeout(installReadableStreamIteratorCompat, 0);
-    } else if (typeof queueMicrotask === 'function') {
+    if (typeof queueMicrotask === 'function') {
       queueMicrotask(installReadableStreamIteratorCompat);
+    } else if (typeof setTimeout === 'function') {
+      setTimeout(installReadableStreamIteratorCompat, 0);
     }
   }
 

@@ -192,7 +192,8 @@
     stream.destroyed = false;
 
     // Wrap native write to ensure callback support and coerce non-strings
-    stream.write = function(chunk, encoding, callback) {
+    // Mark with __exactNativeWrite so console-enhance can detect if write was replaced (hijacked)
+    var _exactWriteImpl = function(chunk, encoding, callback) {
       if (typeof encoding === 'function') {
         callback = encoding;
         encoding = undefined;
@@ -213,6 +214,8 @@
       }
       return origWrite.call(stream, chunk, encoding, callback);
     };
+    _exactWriteImpl.__exactNativeWrite = true;
+    stream.write = _exactWriteImpl;
 
     stream.end = function(chunk, encoding, callback) {
       if (typeof chunk === 'function') {
@@ -533,12 +536,12 @@
   var _uncaughtCaptureCb = null;
   p.setUncaughtExceptionCaptureCallback = function(fn) {
     if (fn !== null && typeof fn !== 'function') {
-      var err = new TypeError('The "fn" argument must be one of type function or null. Received type ' + typeof fn);
+      var err = new TypeError('The "fn" argument must be of type function or null. Received type ' + typeof fn + ' (' + String(fn) + ')');
       err.code = 'ERR_INVALID_ARG_TYPE';
       throw err;
     }
     if (fn !== null && _uncaughtCaptureCb !== null) {
-      var err2 = new Error('`process.setUncaughtExceptionCaptureCallback()` was called while a capture callback was already active');
+      var err2 = new Error('process.setupUncaughtExceptionCapture() was called while a capture callback was already active');
       err2.code = 'ERR_UNCAUGHT_EXCEPTION_CAPTURE_ALREADY_SET';
       throw err2;
     }

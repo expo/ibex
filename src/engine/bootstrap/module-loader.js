@@ -990,7 +990,7 @@
         }
         if (name === 'timers') {
           return {
-            getLibuvNow: function() { return Date.now(); },
+            getLibuvNow: function() { return typeof performance !== 'undefined' && typeof performance.now === 'function' ? (Math.floor(performance.now()) | 0) : 0; },
             scheduleTimer: function() {},
             toggleTimerRef: function() {},
             toggleImmediateRef: function() {}
