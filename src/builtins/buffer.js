@@ -1,5 +1,25 @@
 var BufferProto = {};
 var objectToString = Object.prototype.toString;
+var detachedArrayBuffersSymbol =
+  typeof Symbol === "function" && typeof Symbol.for === "function"
+    ? Symbol.for("exact.detachedArrayBuffers")
+    : "__exactDetachedArrayBuffers";
+
+function getDetachedArrayBuffers() {
+  if (typeof globalThis === "undefined" || typeof WeakSet !== "function") {
+    return null;
+  }
+  var detached = globalThis[detachedArrayBuffersSymbol];
+  if (!detached || typeof detached.has !== "function") {
+    try {
+      detached = new WeakSet();
+      globalThis[detachedArrayBuffersSymbol] = detached;
+    } catch (err) {
+      return null;
+    }
+  }
+  return detached;
+}
 
 function isFiniteNumber(value) {
   return typeof value === "number" && value === value && value !== Infinity && value !== -Infinity;
@@ -32,6 +52,19 @@ function getArrayBufferByteLength(value) {
     return typeof byteLength === "number" ? byteLength : null;
   } catch (err) {
     return null;
+  }
+}
+
+function isDetachedArrayBuffer(value) {
+  var backing = getArrayBufferBacking(value);
+  if (!backing) return false;
+  var detached = getDetachedArrayBuffers();
+  return !!(detached && detached.has(backing));
+}
+
+function throwIfDetachedBufferView(value) {
+  if (value && typeof value === "object" && isDetachedArrayBuffer(value.buffer)) {
+    throw new TypeError("Cannot operate on a detached ArrayBuffer");
   }
 }
 
@@ -815,17 +848,25 @@ Buffer.from = function(value, encoding, length) {
   return makeBuffer(toByteArray(value, encoding));
 };
 
-Buffer.alloc = function(size, fill, encoding) {
-  if (typeof size !== 'number' || size !== size) {
-    var sizeErr = new RangeError('The value of "size" is out of range. It must be a non-negative integer. Received ' + (size !== size ? 'NaN' : size));
-    sizeErr.code = 'ERR_OUT_OF_RANGE';
+function normalizeBufferSize(size) {
+  if (typeof size !== "number") {
+    throw makeInvalidArgTypeError("size", "of type number", size);
+  }
+  if (size !== size) {
+    var sizeErr = new RangeError('The value of "size" is out of range. It must be a non-negative integer. Received ' + (size !== size ? "NaN" : size));
+    sizeErr.code = "ERR_OUT_OF_RANGE";
     throw sizeErr;
   }
-  if (size < 0 || size > 0x7fffffff || size !== Math.floor(size)) {
-    var negErr = new RangeError('The value of "size" is out of range. It must be >= 0 && <= 2147483647. Received ' + size);
-    negErr.code = 'ERR_OUT_OF_RANGE';
-    throw negErr;
+  if (!isFiniteNumber(size) || size < 0 || size > 0x7fffffff) {
+    var rangeErr = new RangeError('The value of "size" is out of range. It must be >= 0 && <= 2147483647. Received ' + size);
+    rangeErr.code = "ERR_OUT_OF_RANGE";
+    throw rangeErr;
   }
+  return normalizeInteger(size, 0);
+}
+
+Buffer.alloc = function(size, fill, encoding) {
+  size = normalizeBufferSize(size);
   var bytes = new Uint8Array(size || 0);
   if (fill === undefined || fill === null) {
     return makeBuffer(bytes);
@@ -835,16 +876,7 @@ Buffer.alloc = function(size, fill, encoding) {
 };
 
 Buffer.allocUnsafe = function(size) {
-  if (typeof size !== 'number' || size !== size) {
-    var sizeErr = new RangeError('The value of "size" is out of range. It must be a non-negative integer. Received ' + (size !== size ? 'NaN' : size));
-    sizeErr.code = 'ERR_OUT_OF_RANGE';
-    throw sizeErr;
-  }
-  if (size < 0 || size > 0x7fffffff || size !== Math.floor(size)) {
-    var negErr = new RangeError('The value of "size" is out of range. It must be >= 0 && <= 2147483647. Received ' + size);
-    negErr.code = 'ERR_OUT_OF_RANGE';
-    throw negErr;
-  }
+  size = normalizeBufferSize(size);
   return makeBuffer(new Uint8Array(size || 0));
 };
 Buffer.allocUnsafeSlow = Buffer.allocUnsafe;
@@ -1017,11 +1049,15 @@ BufferProto.toJSON = function() {
   return { type: "Buffer", data: Array.prototype.slice.call(this) };
 };
 
+BufferProto.toLocaleString = BufferProto.toString;
+
 BufferProto.slice = function(start, end) {
+  throwIfDetachedBufferView(this);
   return makeBuffer(Uint8Array.prototype.subarray.call(this, start, end));
 };
 
 BufferProto.subarray = function(start, end) {
+  throwIfDetachedBufferView(this);
   return makeBuffer(Uint8Array.prototype.subarray.call(this, start, end));
 };
 
