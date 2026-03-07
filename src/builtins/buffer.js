@@ -833,6 +833,107 @@ BufferProto.copy = function(target, targetStart, sourceStart, sourceEnd) {
   return length;
 };
 
+function encodeUtf16beString(value) {
+  var bytes = encodeString(value, "utf16le");
+  for (var i = 0; i + 1 < bytes.length; i += 2) {
+    var lo = bytes[i];
+    bytes[i] = bytes[i + 1];
+    bytes[i + 1] = lo;
+  }
+  return bytes;
+}
+
+function writeEncodedValue(targetValue, value, offset, length, encoding) {
+  var target = getWritableByteView(targetValue);
+  if (!target) {
+    var thisErr = new TypeError(
+      'The "this" argument must be an instance of Buffer or Uint8Array. Received ' + formatReceivedValue(targetValue)
+    );
+    thisErr.code = "ERR_INVALID_ARG_TYPE";
+    throw thisErr;
+  }
+
+  var offsetNumber = offset === undefined ? 0 : Number(offset);
+  var offsetWasNaN = offset !== undefined && offsetNumber !== offsetNumber;
+  if (offsetWasNaN) offsetNumber = 0;
+  if (!isFiniteNumber(offsetNumber)) {
+    offsetNumber = offsetNumber < 0 ? 0 : target.length;
+  } else {
+    offsetNumber = normalizeInteger(offsetNumber);
+  }
+  if (offsetNumber < 0 || offsetNumber > target.length) {
+    throw makeBufferBoundsError("offset");
+  }
+
+  var remaining = target.length - offsetNumber;
+  var lengthNumber;
+  if (length === undefined) {
+    lengthNumber = remaining;
+  } else {
+    lengthNumber = Number(length);
+    if (lengthNumber !== lengthNumber) {
+      lengthNumber = remaining;
+    } else if (!isFiniteNumber(lengthNumber)) {
+      lengthNumber = lengthNumber < 0 ? 0 : remaining;
+    } else {
+      lengthNumber = normalizeInteger(lengthNumber);
+      if (lengthNumber < 0) lengthNumber = 0;
+    }
+    if (lengthNumber > remaining) {
+      if (offsetWasNaN) {
+        lengthNumber = remaining;
+      } else {
+        throw makeBufferBoundsError("length");
+      }
+    }
+  }
+
+  var bytes = encoding === "utf16be"
+    ? encodeUtf16beString(value)
+    : encodeString(value, encoding);
+  var bytesToWrite = Math.min(bytes.length, lengthNumber);
+  for (var i = 0; i < bytesToWrite; i++) {
+    target[offsetNumber + i] = bytes[i];
+  }
+  return bytesToWrite;
+}
+
+BufferProto.utf8Write = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "utf8");
+};
+
+BufferProto.utf16leWrite = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "utf16le");
+};
+
+BufferProto.ucs2Write = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "ucs2");
+};
+
+BufferProto.utf16beWrite = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "utf16be");
+};
+
+BufferProto.latin1Write = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "latin1");
+};
+
+BufferProto.asciiWrite = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "ascii");
+};
+
+BufferProto.base64Write = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "base64");
+};
+
+BufferProto.base64urlWrite = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "base64url");
+};
+
+BufferProto.hexWrite = function(value, offset, length) {
+  return writeEncodedValue(this, value, offset, length, "hex");
+};
+
 BufferProto.write = function(value, offset, length, encoding) {
   if (typeof length === "string") {
     encoding = length;
