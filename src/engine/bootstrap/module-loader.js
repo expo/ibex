@@ -1071,6 +1071,7 @@
       fsStreamInternals: {},
       memfd_create: function() { return -1; },
       setSyntheticAllocationLimitForTesting: function() {},
+      setSocketOptions: function() {},
       canonicalizeIP: function(ip) { return ip; },
       nativeFrameForTesting: function() {},
       getEventLoopStats: function() {

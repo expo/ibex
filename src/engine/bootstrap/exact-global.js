@@ -554,6 +554,18 @@
   ExactFile.prototype.toString = function() { return 'ExactFile("' + this.name + '")'; };
 
   var E = g.Exact || {};
+  function defineExactValue(name, value) {
+    try {
+      Object.defineProperty(E, name, {
+        value: value,
+        configurable: true,
+        enumerable: true,
+        writable: true
+      });
+    } catch (err) {
+      E[name] = value;
+    }
+  }
   function toModuleId(value) {
     if (typeof value === 'number' && isFinite(value) && value >= 0) {
       return value;
@@ -566,13 +578,13 @@
   }
   E.version = '0.1.0';
   E.platform = 'cli';
-  E.file = function(path, opts) { return new ExactFile(path, opts); };
-  E.write = function(dest, data) {
+  defineExactValue('file', function(path, opts) { return new ExactFile(path, opts); });
+  defineExactValue('write', function(dest, data) {
     var path = typeof dest === 'string' ? dest : dest.name;
     ensureExactFs();
     var b = toBytes(data);
     return Promise.resolve().then(function() { g.__exactWriteFile(path, b); return b.length; });
-  };
+  });
   E.gc = function() {};
   E.env = (function() {
     var _store = {};
@@ -678,7 +690,7 @@
     }
     return true;
   };
-  E.inspect = function(obj, opts) {
+  defineExactValue('inspect', function(obj, opts) {
     var seen = new WeakSet(), depth = (opts && opts.depth) || 4;
     function iv(v, d) {
       if (d > depth) return '[...]';
@@ -697,7 +709,7 @@
       return k.length ? '{ ' + k.map(function(x){return x+': '+iv(v[x],d+1)}).join(', ') + ' }' : '{}';
     }
     return iv(obj, 0);
-  };
+  });
   E.peek = function(p) {
     if (!(p instanceof Promise)) return { status: 'fulfilled', value: p };
     var s = 'pending', r;
@@ -884,6 +896,45 @@
   E.enableANSIColors = true;
   E.Transpiler = function() { throw new Error('Bun.Transpiler is not available in Exact CLI mode'); };
 
+  function __exactDefineDisposable(target, syncDispose, asyncDispose) {
+    if (!target || typeof target !== 'object' || typeof Symbol !== 'function') {
+      return target;
+    }
+    try {
+      if (Symbol.dispose && typeof target[Symbol.dispose] !== 'function') {
+        Object.defineProperty(target, Symbol.dispose, {
+          value: function() { return syncDispose(); },
+          configurable: true,
+          enumerable: false,
+          writable: true
+        });
+      }
+      if (Symbol.asyncDispose && typeof target[Symbol.asyncDispose] !== 'function') {
+        Object.defineProperty(target, Symbol.asyncDispose, {
+          value: function() {
+            if (typeof asyncDispose === 'function') {
+              return asyncDispose();
+            }
+            syncDispose();
+            return Promise.resolve();
+          },
+          configurable: true,
+          enumerable: false,
+          writable: true
+        });
+      }
+    } catch (err) {}
+    return target;
+  }
+
+  function __exactDestroyStream(stream) {
+    if (!stream || typeof stream !== 'object') {
+      return;
+    }
+    try { if (typeof stream.end === 'function') stream.end(); } catch (err) {}
+    try { if (typeof stream.destroy === 'function') stream.destroy(); } catch (err) {}
+  }
+
 
   // --- Bun.spawn() and Bun.spawnSync() ---
   E.spawn = function(cmd, opts) {
@@ -932,7 +983,22 @@
         resolve(-1);
       });
     });
-    return result;
+    return __exactDefineDisposable(result, function() {
+      __exactDestroyStream(result.stdin);
+      __exactDestroyStream(result.stdout);
+      __exactDestroyStream(result.stderr);
+      if (result.exitCode == null && result.signalCode == null && !result.killed) {
+        try { result.kill(); } catch (err) {}
+      }
+    }, function() {
+      __exactDestroyStream(result.stdin);
+      __exactDestroyStream(result.stdout);
+      __exactDestroyStream(result.stderr);
+      if (result.exitCode == null && result.signalCode == null && !result.killed) {
+        try { result.kill(); } catch (err) {}
+      }
+      return result.exited.then(function() {}, function() {});
+    });
   };
 
   E.spawnSync = function(cmd, opts) {
@@ -957,12 +1023,12 @@
     }
     var cp = require('child_process');
     var r = cp.spawnSync(args[0], args.slice(1), options);
-    return {
+    return __exactDefineDisposable({
       stdout: r.stdout || '',
       stderr: r.stderr || '',
       exitCode: r.status != null ? r.status : -1,
       success: r.status === 0
-    };
+    }, function() {});
   };
 
   // --- Bun.which() ---
@@ -1149,9 +1215,66 @@
         status: 500, headers: { 'Content-Type': 'text/plain' }
       });
     };
-    var port = options.port || 3000;
-    var hostname = options.hostname || '0.0.0.0';
+    function formatUrlHost(host) {
+      host = String(host);
+      if (host.indexOf(':') !== -1 && host.charAt(0) !== '[') {
+        return '[' + host + ']';
+      }
+      return host;
+    }
+    var scheme = options.tls ? 'https' : 'http';
+    var unixPath = options.unix != null ? String(options.unix) : '';
 
+    if (unixPath) {
+      var unixUrl = new URL('unix://' + (unixPath.charAt(0) === '/' ? '' : '/') + unixPath);
+      var unixServer = {
+        port: undefined,
+        hostname: undefined,
+        url: unixUrl,
+        development: options.development !== undefined ? !!options.development : false,
+        id: '',
+        pendingRequests: 0,
+        stop: function() {},
+        reload: function(o) {
+          if (o && typeof o.fetch === 'function') fetchHandler = o.fetch;
+          if (o && typeof o.error === 'function') errorHandler = o.error;
+        },
+        ref: function() {},
+        unref: function() {},
+        requestIP: function() { return null; },
+        upgrade: function() { return false; },
+        publish: function() {},
+        fetch: fetchHandler
+      };
+      if (typeof Symbol === 'function') {
+        try {
+          if (Symbol.dispose && typeof unixServer[Symbol.dispose] !== 'function') {
+            Object.defineProperty(unixServer, Symbol.dispose, {
+              value: function() {},
+              configurable: true,
+              enumerable: false,
+              writable: true
+            });
+          }
+          if (Symbol.asyncDispose && typeof unixServer[Symbol.asyncDispose] !== 'function') {
+            Object.defineProperty(unixServer, Symbol.asyncDispose, {
+              value: function() { return Promise.resolve(); },
+              configurable: true,
+              enumerable: false,
+              writable: true
+            });
+          }
+        } catch (err) {}
+      }
+      return unixServer;
+    }
+
+    var port = options.port !== undefined ? options.port : 3000;
+    var hostname = options.hostname !== undefined ? options.hostname : '0.0.0.0';
+
+    if (typeof __exactHttpServe !== 'function' && typeof __exactEnsureHttp === 'function') {
+      try { __exactEnsureHttp(); } catch (err) {}
+    }
     if (typeof __exactHttpServe !== 'function') {
       throw new Error('HTTP server not available in this environment');
     }
@@ -1175,7 +1298,7 @@
         fullUrl = url;
       } else {
         var h = hostname === '0.0.0.0' ? 'localhost' : hostname;
-        fullUrl = 'http://' + h + ':' + actualPort + url;
+        fullUrl = scheme + '://' + formatUrlHost(h) + ':' + actualPort + url;
       }
       var headers = new Headers();
       if (data.headers) {
@@ -1270,9 +1393,10 @@
     pollLoop();
 
     var h = hostname === '0.0.0.0' ? 'localhost' : hostname;
-    return {
+    var urlObject = new URL(scheme + '://' + formatUrlHost(h) + ':' + actualPort + '/');
+    var server = {
       port: actualPort, hostname: h,
-      url: 'http://' + h + ':' + actualPort + '/',
+      url: urlObject,
       development: options.development !== undefined ? !!options.development : false,
       id: '', pendingRequests: 0,
       stop: function(force) { closing = true; if (typeof __exactHttpClose === 'function') __exactHttpClose(serverId, force ? 1 : 0); },
@@ -1282,6 +1406,88 @@
       requestIP: function() { return null; }, upgrade: function() { return false; }, publish: function() {},
       fetch: fetchHandler
     };
+    if (typeof Symbol === 'function') {
+      try {
+        if (Symbol.dispose && typeof server[Symbol.dispose] !== 'function') {
+          Object.defineProperty(server, Symbol.dispose, {
+            value: function() { server.stop(true); },
+            configurable: true,
+            enumerable: false,
+            writable: true
+          });
+        }
+        if (Symbol.asyncDispose && typeof server[Symbol.asyncDispose] !== 'function') {
+          Object.defineProperty(server, Symbol.asyncDispose, {
+            value: function() { server.stop(true); return Promise.resolve(); },
+            configurable: true,
+            enumerable: false,
+            writable: true
+          });
+        }
+      } catch (err) {}
+    }
+    return server;
+  };
+
+  E.connect = function(options) {
+    return new Promise(function(resolve, reject) {
+      options = options || {};
+      var socketHandlers = options.socket || {};
+      var net = require('node:net');
+      var connectOptions;
+
+      if (options.path || options.unix) {
+        connectOptions = { path: options.path || options.unix };
+      } else {
+        connectOptions = {
+          host: options.hostname || options.host || '127.0.0.1',
+          port: options.port
+        };
+      }
+
+      var resolved = false;
+      var socket = net.connect(connectOptions);
+      var bunSocket = {
+        write: function(data) {
+          return socket.write(data);
+        },
+        flush: function() {
+          return bunSocket;
+        },
+        end: function(data) {
+          return data !== undefined ? socket.end(data) : socket.end();
+        },
+        terminate: function() {
+          socket.destroy();
+        }
+      };
+
+      socket.on('connect', function() {
+        resolved = true;
+        if (typeof socketHandlers.open === 'function') {
+          try { socketHandlers.open(bunSocket); } catch (err) {}
+        }
+        resolve(bunSocket);
+      });
+      socket.on('data', function(chunk) {
+        if (typeof socketHandlers.data === 'function') {
+          try { socketHandlers.data(bunSocket, chunk); } catch (err) {}
+        }
+      });
+      socket.on('error', function(err) {
+        if (typeof socketHandlers.error === 'function') {
+          try { socketHandlers.error(bunSocket, err); } catch (handlerErr) {}
+        }
+        if (!resolved) {
+          reject(err);
+        }
+      });
+      socket.on('close', function() {
+        if (typeof socketHandlers.close === 'function') {
+          try { socketHandlers.close(bunSocket); } catch (err) {}
+        }
+      });
+    });
   };
 
   // Bun.listen() - TCP server (Bun-compatible API)
@@ -1483,12 +1689,28 @@
   g.Exact = E;
   g.Bun = E;
 
+  if (typeof g.__exactRequire === "function") {
+    try {
+      var exactRequireCache = g.__exactRequire.cache;
+      if (exactRequireCache && exactRequireCache.bun) {
+        delete exactRequireCache.bun;
+      }
+      g.__exactRequire('bun');
+    } catch (err) {}
+  }
+
   if (typeof g.__exactInstallReadableStreamIteratorCompat === "function") {
     try {
       g.__exactInstallReadableStreamIteratorCompat();
       if (typeof g.__exactReadableStreamCompatIteratorPatchScheduled !== "undefined") {
         g.__exactReadableStreamCompatIteratorPatchScheduled = false;
       }
+    } catch (err) {}
+  }
+
+  if (typeof g.__exactReapplyCompatPolyfills === "function") {
+    try {
+      g.__exactReapplyCompatPolyfills();
     } catch (err) {}
   }
 

@@ -1479,6 +1479,227 @@
     }
     __exactPatchUrlEncodedFormData();
     __exactPatchFetchHeaderInit();
+    if (
+      typeof globalThis.__exactRequire === 'function' &&
+      globalThis.Bun &&
+      typeof globalThis.Bun === 'object' &&
+      typeof globalThis.Bun.serve === 'function'
+    ) {
+      try {
+        var exactRequireCache = globalThis.__exactRequire.cache;
+        if (exactRequireCache && exactRequireCache.bun) {
+          delete exactRequireCache.bun;
+        }
+        globalThis.__exactRequire('bun');
+      } catch (err) {}
+    }
+    __exactInstallBunCompatValues();
+  }
+
+  function __exactInstallBunCompatValues() {
+    function defineCompatValue(target, name, value) {
+      if (!target || typeof target !== 'object') return;
+      try {
+        Object.defineProperty(target, name, {
+          value: value,
+          configurable: true,
+          enumerable: true,
+          writable: true,
+        });
+      } catch (err) {}
+    }
+
+    function ensureCompatFs() {
+      if (typeof globalThis.__exactEnsureFs === 'function') {
+        try { globalThis.__exactEnsureFs(); } catch (err) {}
+      }
+    }
+
+    function decodeCompatBytes(bytes) {
+      if (typeof TextDecoder === 'function') {
+        return new TextDecoder('utf-8').decode(bytes);
+      }
+      var out = '';
+      for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+      return out;
+    }
+
+    function toCompatBytes(data) {
+      if (data instanceof Uint8Array) return data;
+      if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) {
+        return new Uint8Array(data);
+      }
+      if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
+        return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength || data.length);
+      }
+      if (typeof TextEncoder === 'function') {
+        return new TextEncoder().encode(String(data));
+      }
+      var text = String(data);
+      var bytes = new Uint8Array(text.length);
+      for (var i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff;
+      return bytes;
+    }
+
+    function normalizeCompatFilePath(path) {
+      if (path && typeof path === 'object') {
+        if (typeof path.protocol === 'string' && path.protocol === 'file:' && typeof path.pathname === 'string') {
+          return decodeURIComponent(path.pathname);
+        }
+        if (typeof path.href === 'string' && path.href.indexOf('file:') === 0) {
+          if (typeof path.pathname === 'string') {
+            return decodeURIComponent(path.pathname);
+          }
+          return decodeURIComponent(path.href.replace(/^file:\/\//, ''));
+        }
+      }
+      return String(path);
+    }
+
+    function compatMimeType(path) {
+      var lower = String(path).toLowerCase();
+      if (/\.html?$/.test(lower)) return 'text/html;charset=utf-8';
+      if (/\.css$/.test(lower)) return 'text/css;charset=utf-8';
+      if (/\.m?js$/.test(lower)) return 'text/javascript;charset=utf-8';
+      if (/\.json$/.test(lower)) return 'application/json;charset=utf-8';
+      if (/\.svg$/.test(lower)) return 'image/svg+xml;charset=utf-8';
+      if (/\.txt$/.test(lower)) return 'text/plain;charset=utf-8';
+      return 'application/octet-stream';
+    }
+
+    function createCompatFile(path, opts) {
+      var name = normalizeCompatFilePath(path);
+      var file = {
+        name: name,
+        type: (opts && opts.type) || compatMimeType(name),
+        text: function() {
+          ensureCompatFs();
+          return Promise.resolve().then(function() {
+            return decodeCompatBytes(globalThis.__exactReadFile(name));
+          });
+        },
+        json: function() {
+          return this.text().then(function(text) { return JSON.parse(text); });
+        },
+        arrayBuffer: function() {
+          ensureCompatFs();
+          return Promise.resolve().then(function() {
+            var bytes = globalThis.__exactReadFile(name);
+            return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+          });
+        },
+        bytes: function() {
+          ensureCompatFs();
+          return Promise.resolve().then(function() {
+            return globalThis.__exactReadFile(name);
+          });
+        },
+        exists: function() {
+          ensureCompatFs();
+          return Promise.resolve().then(function() {
+            try {
+              globalThis.__exactAccess(name, 0);
+              return true;
+            } catch (err) {
+              return false;
+            }
+          });
+        },
+        stat: function() {
+          ensureCompatFs();
+          return Promise.resolve().then(function() {
+            try {
+              return JSON.parse(globalThis.__exactStat(name));
+            } catch (err) {
+              return null;
+            }
+          });
+        },
+        writer: function() {
+          var started = false;
+          return {
+            write: function(data) {
+              ensureCompatFs();
+              var bytes = toCompatBytes(data);
+              if (!started) {
+                globalThis.__exactWriteFile(name, bytes);
+                started = true;
+              } else if (typeof globalThis.__exactAppendFile === 'function') {
+                globalThis.__exactAppendFile(name, bytes);
+              }
+              return bytes.length;
+            },
+            end: function() {},
+            flush: function() {},
+          };
+        },
+        toString: function() {
+          return 'ExactFile("' + name + '")';
+        },
+      };
+
+      try {
+        Object.defineProperty(file, 'size', {
+          get: function() {
+            ensureCompatFs();
+            try { return JSON.parse(globalThis.__exactStat(name)).size; } catch (err) { return 0; }
+          },
+          configurable: true,
+          enumerable: true,
+        });
+        Object.defineProperty(file, 'lastModified', {
+          get: function() {
+            ensureCompatFs();
+            try { return JSON.parse(globalThis.__exactStat(name)).mtime_ms; } catch (err) { return 0; }
+          },
+          configurable: true,
+          enumerable: true,
+        });
+      } catch (err) {}
+
+      return file;
+    }
+
+    function compatWrite(dest, data) {
+      var path = typeof dest === 'string' ? dest : dest && dest.name;
+      ensureCompatFs();
+      var bytes = toCompatBytes(data);
+      return Promise.resolve().then(function() {
+        globalThis.__exactWriteFile(path, bytes);
+        return bytes.length;
+      });
+    }
+
+    function compatInspect(obj, opts) {
+      var seen = new WeakSet();
+      var depth = (opts && opts.depth) || 4;
+      function inspectValue(value, level) {
+        if (level > depth) return '[...]';
+        if (value === null) return 'null';
+        if (value === undefined) return 'undefined';
+        var type = typeof value;
+        if (type === 'string') return JSON.stringify(value);
+        if (type === 'number' || type === 'boolean') return String(value);
+        if (type === 'function') return '[Function: ' + (value.name || 'anonymous') + ']';
+        if (type === 'symbol') return value.toString();
+        if (type !== 'object') return String(value);
+        if (seen.has(value)) return '[Circular]';
+        seen.add(value);
+        if (Array.isArray(value)) {
+          return value.length ? '[ ' + value.map(function(item) { return inspectValue(item, level + 1); }).join(', ') + ' ]' : '[]';
+        }
+        var keys = Object.keys(value);
+        return keys.length ? '{ ' + keys.map(function(key) { return key + ': ' + inspectValue(value[key], level + 1); }).join(', ') + ' }' : '{}';
+      }
+      return inspectValue(obj, 0);
+    }
+
+    defineCompatValue(globalThis.Exact, 'file', createCompatFile);
+    defineCompatValue(globalThis.Exact, 'write', compatWrite);
+    defineCompatValue(globalThis.Exact, 'inspect', compatInspect);
+    defineCompatValue(globalThis.Bun, 'file', createCompatFile);
+    defineCompatValue(globalThis.Bun, 'write', compatWrite);
+    defineCompatValue(globalThis.Bun, 'inspect', compatInspect);
   }
 
   globalThis.__exactReapplyCompatPolyfills = __exactReapplyCompatPolyfills;
@@ -2062,11 +2283,8 @@
         globalThis.global = globalThis;
       }
       globalThis.__exactRequire('bun:test');
-      // Also load the 'bun' module to merge shim properties (unsafe, Glob, etc.)
-      // onto the runtime-provided globalThis.Bun object.
-      globalThis.__exactRequire('bun');
     } catch (err) {
-      // Keep bootstrap resilient if bun:test/bun cannot be loaded.
+      // Keep bootstrap resilient if bun:test cannot be loaded.
     }
   }
 
