@@ -1138,10 +1138,7 @@ Socket.prototype.__defineGetter__('bufferSize', function() {
   var total = 0;
   if (!this._writeQueue) return 0;
   for (var i = 0; i < this._writeQueue.length; i++) {
-    var item = this._writeQueue[i];
-    if (item && item.data) {
-      total += item.data.length - (item.offset || 0);
-    }
+    total += _queuedWriteItemLength(this._writeQueue[i]);
   }
   return total;
 });
@@ -1170,6 +1167,119 @@ function toBufferData(data, encoding) {
     return data;
   }
   return typeof Buffer !== 'undefined' ? Buffer.from(String(data), 'utf8') : String(data);
+}
+
+var _LARGE_STRING_WRITE_CHUNK_CHARS = 4 * 1024 * 1024;
+var _DEFERRED_STRING_WRITE_THRESHOLD = 256 * 1024;
+var _MAX_WRITE_PASS_BYTES = 1024 * 1024;
+var _deferredUtf8TextEncoder = null;
+
+function _normalizeWriteEncoding(encoding) {
+  if (!encoding) return 'utf8';
+  var normalized = String(encoding).toLowerCase();
+  if (normalized === 'utf-8') return 'utf8';
+  if (normalized === 'binary') return 'latin1';
+  return normalized;
+}
+
+function _canQueueDeferredString(data, encoding) {
+  if (typeof data !== 'string') return false;
+  if (data.length < _DEFERRED_STRING_WRITE_THRESHOLD) return false;
+  var normalized = _normalizeWriteEncoding(encoding);
+  return normalized === 'utf8' || normalized === 'ascii' || normalized === 'latin1';
+}
+
+function _nextDeferredStringChunkEnd(str, start, encoding) {
+  var end = start + _LARGE_STRING_WRITE_CHUNK_CHARS;
+  if (end >= str.length) return str.length;
+  if (_normalizeWriteEncoding(encoding) === 'utf8') {
+    var prev = str.charCodeAt(end - 1);
+    if (prev >= 0xD800 && prev <= 0xDBFF) {
+      var next = str.charCodeAt(end);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        end -= 1;
+      }
+    }
+  }
+  return end > start ? end : start + 1;
+}
+
+function _createWriteQueueItem(data, encoding, callback) {
+  if (_canQueueDeferredString(data, encoding)) {
+    return {
+      callback: callback,
+      deferredString: data,
+      deferredEncoding: _normalizeWriteEncoding(encoding),
+      deferredIndex: 0,
+      deferredChunk: null,
+      deferredOffset: 0,
+      deferredQueuedLength: data.length,
+    };
+  }
+
+  var queuedData = null;
+  if (typeof data === 'string') {
+    queuedData = Buffer.from(data, encoding || 'utf8');
+  } else {
+    queuedData = toBufferData(data, encoding);
+  }
+  if (queuedData == null) queuedData = Buffer.alloc(0);
+  return {
+    data: queuedData,
+    offset: 0,
+    callback: callback,
+  };
+}
+
+function _queuedWriteItemLength(item) {
+  if (!item) return 0;
+  if (item.data) {
+    return item.data.length - (item.offset || 0);
+  }
+  if (!item.deferredString) {
+    return 0;
+  }
+  var total = item.deferredQueuedLength || 0;
+  if (item.deferredChunk) {
+    total += item.deferredChunk.length - (item.deferredOffset || 0);
+  }
+  return total;
+}
+
+function _advanceDeferredWriteChunk(item) {
+  if (!item || !item.deferredString) return false;
+  if (item.deferredChunk && item.deferredOffset < item.deferredChunk.length) return true;
+  if (item.deferredIndex >= item.deferredString.length) {
+    item.deferredChunk = null;
+    item.deferredOffset = 0;
+    return false;
+  }
+  var end = _nextDeferredStringChunkEnd(item.deferredString, item.deferredIndex, item.deferredEncoding);
+  var slice = item.deferredString.slice(item.deferredIndex, end);
+  item.deferredIndex = end;
+  item.deferredQueuedLength = item.deferredString.length - item.deferredIndex;
+  if (item.deferredEncoding === 'utf8' && typeof __exactStringToUtf8Bytes === 'function') {
+    item.deferredChunk = __exactStringToUtf8Bytes(slice);
+  } else if (item.deferredEncoding === 'utf8' && typeof TextEncoder === 'function') {
+    if (_deferredUtf8TextEncoder == null) {
+      _deferredUtf8TextEncoder = new TextEncoder();
+    }
+    item.deferredChunk = _deferredUtf8TextEncoder.encode(slice);
+  } else {
+    item.deferredChunk = Buffer.from(slice, item.deferredEncoding || 'utf8');
+  }
+  item.deferredOffset = 0;
+  return item.deferredChunk.length > 0 || item.deferredIndex < item.deferredString.length;
+}
+
+function _isQueuedWriteItemComplete(item) {
+  if (!item) return true;
+  if (item.data) {
+    return (item.offset || 0) >= item.data.length;
+  }
+  return !item.deferredString ||
+    (item.deferredIndex >= item.deferredString.length &&
+      (!item.deferredChunk || item.deferredOffset >= item.deferredChunk.length));
 }
 
 Socket.prototype._appendToReadBuffer = function(data) {
@@ -1225,9 +1335,11 @@ Socket.prototype._drainWriteQueue = function() {
   if (this._corked) return;
 
   this._isWriting = true;
+  var wroteBudget = 0;
+  var shouldYieldSoon = false;
   while (this._writeQueue.length > 0 && !this.destroyed && nativeHandle != null) {
     var item = this._writeQueue[0];
-    if (item.offset >= item.data.length) {
+    if (_isQueuedWriteItemComplete(item)) {
       this._writeQueue.shift();
       if (item.callback) {
         _scheduleCallback(item.callback);
@@ -1235,7 +1347,19 @@ Socket.prototype._drainWriteQueue = function() {
       continue;
     }
 
-    var remaining = item.data.slice(item.offset);
+    var remaining = null;
+    if (item.data) {
+      remaining = item.data.slice(item.offset);
+    } else {
+      if (!_advanceDeferredWriteChunk(item)) {
+        this._writeQueue.shift();
+        if (item.callback) {
+          _scheduleCallback(item.callback);
+        }
+        continue;
+      }
+      remaining = item.deferredChunk.slice(item.deferredOffset);
+    }
     var written = 0;
     try {
       written = __exactTcpWrite(nativeHandle, remaining);
@@ -1255,14 +1379,24 @@ Socket.prototype._drainWriteQueue = function() {
       break;
     }
 
-    item.offset += written;
+    wroteBudget += written;
+    if (item.data) {
+      item.offset += written;
+    } else {
+      item.deferredOffset += written;
+    }
     this._lastActivity = Date.now();
 
-    if (item.offset >= item.data.length) {
+    if (_isQueuedWriteItemComplete(item)) {
       this._writeQueue.shift();
       if (item.callback) {
         _scheduleCallback(item.callback);
       }
+    }
+
+    if (wroteBudget >= _MAX_WRITE_PASS_BYTES) {
+      shouldYieldSoon = true;
+      break;
     }
   }
 
@@ -1307,7 +1441,7 @@ Socket.prototype._drainWriteQueue = function() {
   self._drainTimer = _scheduleTimer(function() {
     self._drainTimer = null;
     self._drainWriteQueue();
-  }, 1, self);
+  }, shouldYieldSoon ? 0 : 1, self);
 };
 
 function _scheduleWriteQueueDrain(socket, delay) {
@@ -2034,21 +2168,9 @@ Socket.prototype.write = function(data, encoding, callback) {
   }
   if (_unwrapHandle(this._handle) == null) {
     if (this.connecting) {
-      var queuedData = null;
-      if (typeof data === 'string') {
-        var enc = encoding || 'utf8';
-        queuedData = Buffer.from(data, enc);
-      } else {
-        queuedData = toBufferData(data, encoding);
-      }
-      if (queuedData == null) queuedData = Buffer.alloc(0);
-
-      this._writeQueue.push({
-        data: queuedData,
-        offset: 0,
-        callback: callback,
-      });
-      this._bytesWritten += queuedData.length;
+      var queuedItem = _createWriteQueueItem(data, encoding, callback);
+      this._writeQueue.push(queuedItem);
+      this._bytesWritten += _queuedWriteItemLength(queuedItem);
       var pendingBufferedLength = this.bufferSize;
       if (pendingBufferedLength >= this._writableHighWaterMark) {
         this._needDrain = true;
@@ -2067,21 +2189,9 @@ Socket.prototype.write = function(data, encoding, callback) {
     return false;
   }
 
-  var dataToWrite = null;
-  if (typeof data === 'string') {
-    var enc = encoding || 'utf8';
-    dataToWrite = Buffer.from(data, enc);
-  } else {
-    dataToWrite = toBufferData(data, encoding);
-  }
-  if (dataToWrite == null) dataToWrite = Buffer.alloc(0);
-
-  this._writeQueue.push({
-    data: dataToWrite,
-    offset: 0,
-    callback: callback,
-  });
-  this._bytesWritten += dataToWrite.length;
+  var writeItem = _createWriteQueueItem(data, encoding, callback);
+  this._writeQueue.push(writeItem);
+  this._bytesWritten += _queuedWriteItemLength(writeItem);
   var bufferedLength = this.bufferSize;
   var shouldReturnFalse = bufferedLength >= this._writableHighWaterMark;
   if (shouldReturnFalse) {

@@ -6248,6 +6248,19 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpRead", std::move(tcpReadFn));
 
+    auto stringToUtf8BytesFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactStringToUtf8Bytes"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1) {
+            throw facebook::jsi::JSError(runtime, "__exactStringToUtf8Bytes: string required");
+          }
+          std::string data = args[0].toString(runtime).utf8(runtime);
+          std::vector<uint8_t> bytes(data.begin(), data.end());
+          return makeUint8Array(runtime, std::move(bytes));
+        });
+    rt.global().setProperty(rt, "__exactStringToUtf8Bytes", std::move(stringToUtf8BytesFn));
+
     // __exactTcpWrite(handle, data) -> bytes written
     auto tcpWriteFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpWrite"), 2,
