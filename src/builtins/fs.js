@@ -916,6 +916,9 @@ function decodeBytes(bytes, encoding) {
   var enc = encoding.toLowerCase().replace('-', '');
   if (enc === 'utf8' || enc === 'utf-8') enc = 'utf8';
   if (enc === 'utf8') {
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+      return Buffer.from(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength).toString('utf8');
+    }
     if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(bytes);
     var result = '';
     for (var i = 0; i < bytes.length; i++) result += String.fromCharCode(bytes[i]);
