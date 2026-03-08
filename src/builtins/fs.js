@@ -220,6 +220,12 @@ function _coercePathFromURL(path, propName) {
     schemeErr.code = 'ERR_INVALID_URL_SCHEME';
     throw schemeErr;
   }
+  var isWindows = typeof process === 'object' && process !== null && process.platform === 'win32';
+  if (!isWindows && path.hostname && path.hostname !== 'localhost') {
+    var hostErr = new TypeError('File URL host must be "localhost" or empty on non-Windows platforms');
+    hostErr.code = 'ERR_INVALID_FILE_URL_HOST';
+    throw hostErr;
+  }
   var pathname = path.pathname;
   if (!pathname) {
     var err = new TypeError('The URL must have a pathname');
@@ -227,6 +233,11 @@ function _coercePathFromURL(path, propName) {
       err.name = 'TypeError';
     }
     throw err;
+  }
+  if (/%2f/i.test(pathname) || (isWindows && /%5c/i.test(pathname))) {
+    var pathErr = new TypeError('File URL path must not include encoded path separators');
+    pathErr.code = 'ERR_INVALID_FILE_URL_PATH';
+    throw pathErr;
   }
   var decoded = decodeURIComponent(pathname);
   if (decoded.indexOf('\u0000') !== -1) {
@@ -269,11 +280,18 @@ function _isBufferLike(value) {
   return false;
 }
 
+function _bufferLikeLength(value) {
+  if (!value) return 0;
+  if (typeof value.length === 'number') return value.length;
+  if (typeof value.byteLength === 'number') return value.byteLength;
+  return 0;
+}
+
 function _describeBufferLike(value) {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   var name = value.constructor && value.constructor.name ? value.constructor.name : 'Object';
-  var length = typeof value.length === 'number' ? value.length : 0;
+  var length = _bufferLikeLength(value);
   return name + '(' + length + ') []';
 }
 
@@ -314,6 +332,19 @@ function _validateReadSyncLength(length, bufferLength) {
     throw _fsOutOfRange('length', length, 0, bufferLength);
   }
   return length;
+}
+
+function _normalizeTruncateLen(len) {
+  if (len === undefined) {
+    return 0;
+  }
+  if (typeof len !== 'number') {
+    throw _fsInvalidArgType('len', 'number', len);
+  }
+  if (!Number.isFinite(len) || len % 1 !== 0) {
+    throw _fsOutOfRange('len', len, null, null);
+  }
+  return len < 0 ? 0 : len;
 }
 
 function _validateReadWritePosition(name, position) {
@@ -419,6 +450,12 @@ function _dirnamePath(value) {
 function _fsInvalidArgTypeProperty(propName, expected, actual) {
   var err = _fsInvalidArgType(propName, expected, actual);
   err.message = err.message.replace(' argument', ' property');
+  if (typeof actual === 'string') {
+    err.message = err.message.replace(
+      'type string (' + actual + ')',
+      "type string ('" + actual.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "')"
+    );
+  }
   return err;
 }
 
@@ -863,6 +900,14 @@ function toUint8Array(data, encoding) {
     return buf.slice(0, offset);
   }
   if (data instanceof Uint8Array) return data;
+  if (typeof ArrayBuffer !== 'undefined') {
+    if (data instanceof ArrayBuffer) {
+      return new Uint8Array(data);
+    }
+    if (typeof ArrayBuffer.isView === 'function' && ArrayBuffer.isView(data)) {
+      return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength);
+    }
+  }
   return new Uint8Array(data);
 }
 
@@ -2221,17 +2266,19 @@ function readSync(fd, buffer, offset, length, position) {
   if (!_isBufferLike(buffer)) {
     throw _fsInvalidArgType('buffer', 'Buffer, TypedArray, or DataView', buffer);
   }
-  if (buffer.length === 0) {
+  var targetBuffer = toUint8Array(buffer);
+  var bufferLen = targetBuffer.length;
+  if (bufferLen === 0) {
     throw _throwEmptyBufferError('buffer', buffer);
   }
-  var off = _validateOffset('offset', offset === undefined || offset === null ? 0 : offset, buffer.length);
-  var len = _validateReadSyncLength(length, buffer.length - off);
+  var off = _validateOffset('offset', offset === undefined || offset === null ? 0 : offset, bufferLen);
+  var len = _validateReadSyncLength(length, bufferLen - off);
   var pos = _validateReadWritePosition('position', position);
   try {
     var data = g.__exactFsRead(fd, len, pos);
     if (buffer && data.length > 0) {
       for (var i = 0; i < data.length; i++) {
-        buffer[off + i] = data[i];
+        targetBuffer[off + i] = data[i];
       }
     }
     return data.length;
@@ -2266,19 +2313,21 @@ function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, posit
   if (!_isBufferLike(bufferOrString)) {
     throw _fsInvalidArgType('buffer', 'Buffer, TypedArray, or DataView', bufferOrString);
   }
-  var off = _validateOffset('offset', offsetOrPosition === undefined || offsetOrPosition === null ? 0 : offsetOrPosition, bufferOrString.length);
-  var len = (typeof lengthOrEncoding === 'number') ? lengthOrEncoding : (bufferOrString ? bufferOrString.length - off : 0);
+  var bytesBuffer = toUint8Array(bufferOrString);
+  var bufferLen = bytesBuffer.length;
+  var off = _validateOffset('offset', offsetOrPosition === undefined || offsetOrPosition === null ? 0 : offsetOrPosition, bufferLen);
+  var len = (typeof lengthOrEncoding === 'number') ? lengthOrEncoding : (bufferLen - off);
   if (typeof len === 'number') {
-    if (!Number.isFinite(len) || len % 1 !== 0 || off + len > bufferOrString.length || len < 0) {
-      throw _fsOutOfRange('length', len, 0, bufferOrString.length - off);
+    if (!Number.isFinite(len) || len % 1 !== 0 || off + len > bufferLen || len < 0) {
+      throw _fsOutOfRange('length', len, 0, bufferLen - off);
     }
   } else {
-    len = bufferOrString ? bufferOrString.length - off : 0;
+    len = bufferLen - off;
   }
   var pos = _validateReadWritePosition('position', position);
-  var slice = bufferOrString;
-  if (off !== 0 || len !== bufferOrString.length) {
-    slice = bufferOrString.slice(off, off + len);
+  var slice = bytesBuffer;
+  if (off !== 0 || len !== bufferLen) {
+    slice = bytesBuffer.subarray(off, off + len);
   }
   try {
     return g.__exactFsWrite(fd, slice, pos);
@@ -2636,7 +2685,7 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
 
   // For buffer writes, validate offset/length/position
   if (typeof bufferOrString !== 'string') {
-    var bufLen = bufferOrString.length;
+    var bufLen = _bufferLikeLength(bufferOrString);
     var off = offsetOrPosition !== undefined && offsetOrPosition !== null ? offsetOrPosition : 0;
     var len = lengthOrEncoding !== undefined && lengthOrEncoding !== null ? lengthOrEncoding : (bufLen - off);
 
@@ -2660,6 +2709,9 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
     var written = writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position);
     _deferFsCallback(function() { cb(null, written, bufferOrString); });
   } catch(err) {
+    if (err && typeof err.code === 'string' && err.code.indexOf('ERR_') === 0) {
+      throw err;
+    }
     var error = _makeFsError(err, 'write');
     _deferFsCallback(function() { cb(error); });
   }
@@ -4052,21 +4104,23 @@ function truncateSync(path, len) {
     return ftruncateSync(path, len);
   }
   _validatePath(path);
+  len = _normalizeTruncateLen(len);
   ensureExactFs();
   var p = _pathToString(path);
   try {
-    if (typeof g.__exactTruncate === 'function') return g.__exactTruncate(p, len || 0);
+    if (typeof g.__exactTruncate === 'function') return g.__exactTruncate(p, len);
     throw new Error('ENOSYS: truncate not available');
   } catch(e) { throw _makeFsError(e, 'truncate', p); }
 }
 function truncate(path, len, cb) {
-  if (typeof len === 'function') { cb = len; len = 0; }
+  if (typeof len === 'function') { cb = len; len = undefined; }
   // Support fd as first arg
   if (typeof path === 'number') {
     return ftruncate(path, len, cb);
   }
-  _validateCallback(cb);
   _validatePath(path);
+  len = _normalizeTruncateLen(len);
+  _validateCallback(cb);
   wrapCallback(function() { truncateSync(path, len); }, cb, 'truncate', _pathToString(path));
 }
 function chownSync(path, uid, gid) {
@@ -4607,8 +4661,9 @@ function fchownSync(fd, uid, gid) {
 
 // ftruncate/ftruncateSync — file descriptor-based truncate
 function ftruncate(fd, len, callback) {
-  if (typeof len === 'function') { callback = len; len = 0; }
+  if (typeof len === 'function') { callback = len; len = undefined; }
   _validateFd(fd);
+  len = _normalizeTruncateLen(len);
   _validateCallback(callback);
   ensureExactFs();
   try {
@@ -4621,10 +4676,11 @@ function ftruncate(fd, len, callback) {
 }
 function ftruncateSync(fd, len) {
   _validateFd(fd);
+  len = _normalizeTruncateLen(len);
   ensureExactFs();
   try {
     if (typeof g.__exactFsFtruncateSync === 'function') {
-      return g.__exactFsFtruncateSync(fd, len || 0);
+      return g.__exactFsFtruncateSync(fd, len);
     }
   } catch(e) { throw _makeFsError(e, 'ftruncate'); }
 }
