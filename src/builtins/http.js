@@ -1411,7 +1411,17 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
           var hKey = lines[i].substring(0, colonIdx).trim();
           var hVal = lines[i].substring(colonIdx + 1).trim();
           var hKeyLower = hKey.toLowerCase();
-          if (responseHeaders[hKeyLower] !== undefined && !_singleValueHeaders[hKeyLower]) {
+          if (hKeyLower === 'set-cookie') {
+            if (responseHeaders[hKeyLower] !== undefined) {
+              if (Array.isArray(responseHeaders[hKeyLower])) {
+                responseHeaders[hKeyLower].push(hVal);
+              } else {
+                responseHeaders[hKeyLower] = [responseHeaders[hKeyLower], hVal];
+              }
+            } else {
+              responseHeaders[hKeyLower] = [hVal];
+            }
+          } else if (responseHeaders[hKeyLower] !== undefined && !_singleValueHeaders[hKeyLower]) {
             responseHeaders[hKeyLower] += ', ' + hVal;
           } else {
             responseHeaders[hKeyLower] = hVal;
@@ -3607,6 +3617,14 @@ function Server(options, requestListener) {
     });
   }
 }
+
+function normalizeListenCallbackHost(hostname) {
+  if (!hostname || hostname === '0.0.0.0' || hostname === '::') {
+    return 'localhost';
+  }
+  return hostname;
+}
+
 Server.prototype = Object.create(EventEmitter.prototype);
 Server.prototype.constructor = Server;
 
@@ -3895,12 +3913,11 @@ Server.prototype.listen = function(port, hostname, callback) {
   if (typeof port === 'object' && port !== null) {
     var opts = port;
     port = opts.port || 0;
-    hostname = opts.host || opts.hostname || '0.0.0.0';
-    callback = hostname;
     if (typeof hostname === 'function') {
       callback = hostname;
-      hostname = '0.0.0.0';
+      hostname = undefined;
     }
+    hostname = opts.host || opts.hostname || hostname || '0.0.0.0';
   }
   if (typeof hostname === 'function') {
     callback = hostname;
@@ -3922,8 +3939,10 @@ Server.prototype.listen = function(port, hostname, callback) {
       self.emit('error', err);
     });
     this._netServer.listen(port, hostname, function() {
+      self._port = self._netServer && self._netServer._port ? self._netServer._port : self._port;
+      self._hostname = self._netServer && self._netServer._host ? self._netServer._host : self._hostname;
       self._listening = true;
-      self.emit('listening');
+      self.emit('listening', null, normalizeListenCallbackHost(self._hostname), self._port);
     });
   } else if (typeof __exactHttpServe === 'function') {
     this._useNative = true;
@@ -3947,7 +3966,7 @@ Server.prototype.listen = function(port, hostname, callback) {
     this._listening = true;
 
     var self4 = this;
-    setTimeout(function() { self4.emit('listening'); }, 0);
+    setTimeout(function() { self4.emit('listening', null, normalizeListenCallbackHost(self4._hostname), self4._port); }, 0);
     this._pollLoop();
   } else {
     var self5 = this;
