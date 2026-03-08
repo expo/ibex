@@ -113,20 +113,16 @@ cluster.fork = function(env) {
     workerEnv = {};
   }
   var entry = (typeof process !== 'undefined' && process.argv && process.argv[1]) ? process.argv[1] : '';
+  var exec = cluster.settings.exec || entry;
   var args = cluster.settings.args ? cluster.settings.args.slice() : [];
-  if (args.length === 0 && entry) {
-    args = [entry];
-  } else if (entry) {
-    args = [entry].concat(args);
-  }
-  var execPath = cluster.settings.exec || (typeof process !== 'undefined' ? process.execPath : null);
   var workerId = cluster._nextWorkerId++;
   var clusterEnv = _mergeEnvForCluster(workerEnv);
   clusterEnv.EXACT_CLUSTER_WORKER = '1';
   clusterEnv.EXACT_CLUSTER_ID = String(workerId);
 
-  var child = cp.fork(execPath, args, {
+  var child = cp.fork(exec, args, {
     cwd: cluster.settings.cwd,
+    execPath: cluster.settings.execPath || (typeof process !== 'undefined' ? process.execPath : undefined),
     execArgv: cluster.settings.execArgv || (typeof process !== 'undefined' ? process.execArgv : []),
     env: clusterEnv,
     silent: true,

@@ -436,6 +436,129 @@ function _createGetAddrInfoError(host) {
   return err;
 }
 
+function _createInvalidIPAddressError(address) {
+  var err = new TypeError('Invalid IP address: ' + address);
+  err.code = 'ERR_INVALID_IP_ADDRESS';
+  return err;
+}
+
+function _createInvalidAddressFamilyError(family, host, port) {
+  var err = new Error('Invalid address family: ' + family + ' ' + host + ':' + port);
+  err.code = 'ERR_INVALID_ADDRESS_FAMILY';
+  err.host = host;
+  err.port = port;
+  return err;
+}
+
+function _validateLookupOption(lookup) {
+  if (lookup === undefined) return;
+  if (typeof lookup === 'function') return;
+  var err = new TypeError('The "options.lookup" property must be of type function. Received ' + typeof lookup);
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  throw err;
+}
+
+function _validateConnectPath(path) {
+  if (path === undefined) return;
+  if (typeof path === 'string') return;
+  var err = new TypeError('The "options.path" property must be of type string. Received type ' + typeof path);
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  throw err;
+}
+
+function _validateHintsOption(hints) {
+  if (hints === undefined) return;
+  var dns;
+  try { dns = require('dns'); } catch (e) {}
+  var validMask = 1024 | 2048 | 256;
+  if (dns) {
+    var dnsMask = 0;
+    if (typeof dns.ADDRCONFIG === 'number') dnsMask |= dns.ADDRCONFIG;
+    if (typeof dns.V4MAPPED === 'number') dnsMask |= dns.V4MAPPED;
+    if (typeof dns.ALL === 'number') dnsMask |= dns.ALL;
+    if (dnsMask !== 0) validMask = dnsMask;
+  }
+  if (typeof hints !== 'number' || hints < 0 || (validMask && (hints & ~validMask) !== 0)) {
+    var err = new TypeError("The argument 'hints' is invalid. Received " + hints);
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+}
+
+function _validateLocalAddressOption(localAddress) {
+  if (localAddress === undefined) return;
+  if (typeof localAddress !== 'string' || isIP(localAddress) === 0) {
+    throw _createInvalidIPAddressError(localAddress);
+  }
+}
+
+function _validateLocalPortOption(localPort) {
+  if (localPort === undefined) return;
+  if (typeof localPort !== 'number') {
+    var err = new TypeError('The "options.localPort" property must be of type number. Received type ' + typeof localPort);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  _validateConnectPort(localPort);
+}
+
+function _hasConflictingLocalBind(localAddress, localPort) {
+  if (!localPort) return false;
+  for (var i = 0; i < _boundTcpServers.length; i++) {
+    var server = _boundTcpServers[i];
+    if (!server || Number(server._port) !== Number(localPort)) continue;
+    var serverHost = server._host || server.host;
+    if (!serverHost && typeof server.address === 'function') {
+      var address = server.address();
+      if (address && typeof address === 'object') {
+        serverHost = address.address;
+      }
+    }
+    if (!localAddress) return true;
+    if (!serverHost || serverHost === localAddress || serverHost === '0.0.0.0' || serverHost === '::' || serverHost === '::0') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function _createUnixConnectError(rawError, path) {
+  var message = rawError && rawError.message ? String(rawError.message) : String(rawError);
+  var code = message.indexOf('ENOENT') !== -1 || message.toLowerCase().indexOf('no such file') !== -1
+    ? 'ENOENT'
+    : 'ECONNREFUSED';
+  var err = new Error('connect ' + code + ' ' + path);
+  err.code = code;
+  err.errno = code;
+  err.syscall = 'connect';
+  err.address = path;
+  err.path = path;
+  return err;
+}
+
+function _createListenError(rawError, address, port, path) {
+  var message = rawError && rawError.message ? String(rawError.message) : String(rawError);
+  var lower = message.toLowerCase();
+  var code = 'EADDRINUSE';
+  if (lower.indexOf('no such file') !== -1 || message.indexOf('ENOENT') !== -1) {
+    code = 'ENOENT';
+  } else if (lower.indexOf('cannot assign requested address') !== -1 || message.indexOf('EADDRNOTAVAIL') !== -1) {
+    code = 'EADDRNOTAVAIL';
+  } else if (lower.indexOf('permission denied') !== -1 || message.indexOf('EACCES') !== -1) {
+    code = 'EACCES';
+  } else if (lower.indexOf('address already in use') !== -1 || message.indexOf('EADDRINUSE') !== -1) {
+    code = 'EADDRINUSE';
+  }
+  var suffix = path || ((address || '0.0.0.0') + ':' + (port || 0));
+  var err = new Error('listen ' + code + ' ' + suffix);
+  err.code = code;
+  err.errno = code;
+  err.syscall = 'listen';
+  err.address = path || address;
+  if (!path) err.port = port;
+  return err;
+}
+
 function _setTimerRefState(timer, refed) {
   if (!timer || typeof timer !== 'object') return;
   try {
@@ -1335,8 +1458,13 @@ Socket.prototype.connect = function(options, connectListener) {
 
   // Validate port for TCP connections
   if (!options.path && options.port !== undefined) {
-    _validateConnectPort(options.port);
+    options.port = _validateConnectPort(options.port);
   }
+  _validateConnectPath(options.path);
+  _validateLookupOption(options.lookup);
+  _validateHintsOption(options.hints);
+  _validateLocalAddressOption(options.localAddress);
+  _validateLocalPortOption(options.localPort);
 
   this.connecting = true;
   this.pending = true;
@@ -1395,8 +1523,7 @@ Socket.prototype.connect = function(options, connectListener) {
         self.readyState = 'closed';
         _detachSocketAbortListener(self);
         self._abortPending = false;
-        var err = new Error(e.message || String(e));
-        err.code = 'ECONNREFUSED';
+        var err = _createUnixConnectError(e, self._socketPath);
         self.emit('error', err);
       }
     }, 0);
@@ -1432,6 +1559,26 @@ Socket.prototype.connect = function(options, connectListener) {
 
   var self = this;
   var lookup = options.lookup;
+  var customLookup = typeof lookup === 'function';
+  var resolver = lookup;
+  if (!customLookup && isIP(self.remoteAddress) === 0) {
+    try {
+      var dns = require('dns');
+      if (dns && typeof dns.lookup === 'function') {
+        resolver = dns.lookup;
+      }
+    } catch (e) {}
+  }
+  if (_hasConflictingLocalBind(options.localAddress, options.localPort)) {
+    _scheduleTimer(function() {
+      var bindErr = _createConnectError('EADDRINUSE', self.remoteAddress, self.remotePort, 'connect');
+      self.connecting = false;
+      self.pending = false;
+      self.readyState = 'closed';
+      self.emit('error', bindErr);
+    }, 0, self);
+    return this;
+  }
   var autoSelectFamily = options.autoSelectFamily;
   if (autoSelectFamily === undefined) {
     autoSelectFamily = _defaultAutoSelectFamily;
@@ -1502,7 +1649,7 @@ Socket.prototype.connect = function(options, connectListener) {
       // Compat: mocked autoSelectFamily lookups often include unroutable public
       // addresses purely to exercise family ordering. Exact's synchronous
       // connect path can block on those, so fast-fail them and continue.
-      if (shouldAutoSelect && typeof lookup === 'function' && !_isLocalTestAddress(address)) {
+      if (shouldAutoSelect && customLookup && !_isLocalTestAddress(address)) {
         attemptErrors.push(_createConnectError('ECONNREFUSED', address, selfRef.remotePort, 'connect'));
         nextAttempt();
         return;
@@ -1570,7 +1717,7 @@ Socket.prototype.connect = function(options, connectListener) {
   setTimeout(function() {
     if (self.destroyed) return;
 
-    if (typeof lookup === 'function') {
+    if (typeof resolver === 'function') {
       var lookupOptions = { family: lookupFamily };
       if (options.hints !== undefined) lookupOptions.hints = options.hints;
       if (options.verbatim !== undefined) lookupOptions.verbatim = options.verbatim;
@@ -1578,7 +1725,7 @@ Socket.prototype.connect = function(options, connectListener) {
       if (options.all !== undefined) lookupOptions.all = options.all;
 
       try {
-        lookup(self.remoteAddress, lookupOptions, function(err, lookupResult, candidateFamily) {
+        resolver(self.remoteAddress, lookupOptions, function(err, lookupResult, candidateFamily) {
           if (err) {
             self.connecting = false;
             self.pending = false;
@@ -1599,6 +1746,18 @@ Socket.prototype.connect = function(options, connectListener) {
               return _normalizeCandidate(entry, lookupFamily);
             })
             .filter(Boolean);
+          for (var ni = 0; ni < normalized.length; ni++) {
+            var normalizedFamily = normalized[ni].family;
+            if (normalizedFamily != null && normalizedFamily !== 0 && normalizedFamily !== 4 && normalizedFamily !== 6) {
+              self.connecting = false;
+              self.pending = false;
+              self.readyState = 'closed';
+              _detachSocketAbortListener(self);
+              self._abortPending = false;
+              self.emit('error', _createInvalidAddressFamilyError(normalizedFamily, self.remoteAddress, self.remotePort));
+              return;
+            }
+          }
           if (autoSelectFamily && normalized.length > 1) {
             var ipv6Candidates = [];
             var ipv4Candidates = [];
@@ -2065,6 +2224,7 @@ function Server(options, connectionListener) {
   this._isUnix = false;
   this._socketPath = null;
   this._listenToken = 0;
+  this._listeningPending = false;
   this.ipv6Only = false;
   this.allowHalfOpen = options.allowHalfOpen || false;
   this.pauseOnConnect = options.pauseOnConnect || false;
@@ -2084,6 +2244,11 @@ function Server(options, connectionListener) {
 }
 
 Server.prototype.listen = function(port, host, backlog, callback) {
+  if ((this.listening || this._listeningPending) && !this._closing) {
+    var alreadyListeningErr = new Error('Listen method has been called more than once without closing.');
+    alreadyListeningErr.code = 'ERR_SERVER_ALREADY_LISTEN';
+    throw alreadyListeningErr;
+  }
   if (typeof port === 'function') {
     // listen(callback)
     callback = port;
@@ -2100,7 +2265,6 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   var directHandle = null;
   var invalidListenFd = null;
   var self = this;
-  var listenToken = ++this._listenToken;
   if (typeof port === 'string' && !isFinite(Number(port))) {
     // server.listen('/tmp/my.sock') - Unix socket path (only if not parseable as a number)
     unixPath = port;
@@ -2128,16 +2292,28 @@ Server.prototype.listen = function(port, host, backlog, callback) {
       invalidPathErr.code = 'ERR_INVALID_ARG_VALUE';
       throw invalidPathErr;
     }
-    if (opts.fd !== undefined && (typeof opts.fd !== 'number' || opts.fd < 0)) {
+    if (opts.fd !== undefined && typeof opts.fd !== 'number') {
       var invalidFdErr = new TypeError("The argument 'options' is invalid. Received " + JSON.stringify(opts));
       invalidFdErr.code = 'ERR_INVALID_ARG_VALUE';
       throw invalidFdErr;
     }
     // Must have port or path
-    if (!directHandle && !('port' in opts) && !('path' in opts) && !('fd' in opts) && !('handle' in opts) && !('_handle' in opts)) {
+    var hasPort = Object.prototype.hasOwnProperty.call(opts, 'port');
+    var hasPath = Object.prototype.hasOwnProperty.call(opts, 'path');
+    var hasExactHandle = !!(
+      (opts.handle && opts.handle._exactHandle !== undefined) ||
+      (opts._handle && opts._handle._exactHandle !== undefined)
+    );
+    var hasValidFd = typeof opts.fd === 'number' && opts.fd >= 0;
+    if (!directHandle && !hasPort && !hasPath && !hasValidFd && !hasExactHandle) {
       var missingPropErr = new TypeError('The argument \'options\' must have the property "port" or "path". Received ' + JSON.stringify(opts));
       missingPropErr.code = 'ERR_INVALID_ARG_VALUE';
       throw missingPropErr;
+    }
+    if (typeof opts.fd === 'number' && opts.fd < 0 && (hasPort || hasPath)) {
+      var invalidFdRangeErr = new TypeError("The argument 'options' is invalid. Received " + JSON.stringify(opts));
+      invalidFdRangeErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw invalidFdRangeErr;
     }
     if (typeof host === 'function') { callback = host; host = undefined; }
     if (opts.path) {
@@ -2202,17 +2378,25 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     unixPath = directHandle._exactPath || null;
   }
 
+  this._listeningPending = true;
+  var listenToken = ++this._listenToken;
+
   if (invalidListenFd !== null) {
     _scheduleTimer(function() {
       if (listenToken !== self._listenToken) return;
+      self._listeningPending = false;
       var fdErr = new Error('listen EINVAL: invalid argument');
       fdErr.code = 'EINVAL';
+      fdErr.syscall = 'listen';
       self.emit('error', fdErr);
     }, 0, self);
     return this;
   }
 
   // Validate port
+  if (port !== undefined) {
+    _normalizePort(port);
+  }
   if (!unixPath && !directHandle) {
     port = _normalizePort(port);
   }
@@ -2241,6 +2425,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     }
     _scheduleTimer(function() {
       if (listenToken !== self._listenToken) return;
+      self._listeningPending = false;
       self.listening = true;
       self.emit('listening');
       self._startAccepting();
@@ -2260,18 +2445,19 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     }
 
     try {
-      self._handle = _makeServerHandle(__exactUnixListen(self._socketPath, backlog || 128));
+      self._handle = _makeServerHandle(__exactUnixListen(self._socketPath, backlog || 128), 'pipe', self._socketPath);
     } catch(e) {
       _scheduleTimer(function() {
         if (listenToken !== self._listenToken) return;
-        var err = new Error(e.message || String(e));
-        err.code = 'EADDRINUSE';
+        self._listeningPending = false;
+        var err = _createListenError(e, null, null, self._socketPath);
         self.emit('error', err);
       }, 0, self);
       return this;
     }
     _scheduleTimer(function() {
       if (listenToken !== self._listenToken) return;
+      self._listeningPending = false;
       self.listening = true;
       self.emit('listening');
       self._startAccepting();
@@ -2332,8 +2518,8 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   } catch(e) {
     _scheduleTimer(function() {
       if (listenToken !== self._listenToken) return;
-      var err = new Error(e.message || String(e));
-      err.code = 'EADDRINUSE';
+      self._listeningPending = false;
+      var err = _createListenError(e, self._host, self._port, null);
       self.emit('error', err);
     }, 0, self);
     return this;
@@ -2341,6 +2527,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
 
   _scheduleTimer(function() {
     if (listenToken !== self._listenToken) return;
+    self._listeningPending = false;
     self.listening = true;
     self.emit('listening');
     self._startAccepting();
@@ -2433,6 +2620,7 @@ Server.prototype.close = function(callback) {
   }
   this._listenToken++;
   this.listening = false;
+  this._listeningPending = false;
   if (this._acceptTimer != null) {
     clearTimeout(this._acceptTimer);
     this._acceptTimer = null;
