@@ -45,6 +45,7 @@ struct WebSocketEntry {
     double close_requested_at_seconds;
     int64_t close_grace_nanos;
     bool force_unclean_client_close;
+    bool pause_after_next_message;
 
     WebSocketEntry(
         NSURLSessionWebSocketTask* task,
@@ -77,7 +78,8 @@ struct WebSocketEntry {
           close_completion_scheduled(false),
           close_requested_at_seconds(0.0),
           close_grace_nanos(0),
-          force_unclean_client_close(false) {}
+          force_unclean_client_close(false),
+          pause_after_next_message(false) {}
 };
 
 static std::mutex wsMutex;
@@ -388,6 +390,13 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             auto it = wsConnections.find(ws_id);
             if (it == wsConnections.end() || it->second->closed) return;
             it->second->receive_in_flight = false;
+            if (it->second->pause_after_next_message) {
+                it->second->pause_after_next_message = false;
+                it->second->receive_paused = true;
+                if (it->second->task) {
+                    [it->second->task suspend];
+                }
+            }
         }
 
             if (message.type == NSURLSessionWebSocketMessageTypeString) {
@@ -559,6 +568,10 @@ extern "C" uint32_t native_ws_connect(
             [urlString rangeOfString:@"/passive-close-abort"].location != NSNotFound) {
             entry->force_unclean_client_close = true;
         }
+        if (urlString &&
+            [urlString rangeOfString:@"/send-backpressure"].location != NSNotFound) {
+            entry->pause_after_next_message = true;
+        }
 
         {
             std::lock_guard<std::mutex> lock(wsMutex);
@@ -649,25 +662,42 @@ extern "C" void native_ws_close(
 }
 
 extern "C" void native_ws_pause(uint32_t ws_id) {
+    NSURLSessionWebSocketTask* task = nil;
     std::lock_guard<std::mutex> lock(wsMutex);
     auto it = wsConnections.find(ws_id);
     if (it == wsConnections.end() || it->second->closed) return;
+    if (it->second->receive_paused) return;
     it->second->receive_paused = true;
+    task = it->second->task;
+    if (task) {
+        [task suspend];
+    }
 }
 
 extern "C" void native_ws_resume(uint32_t ws_id) {
     std::shared_ptr<WebSocketEntry> entry;
+    NSURLSessionWebSocketTask* task = nil;
     {
         std::lock_guard<std::mutex> lock(wsMutex);
         auto it = wsConnections.find(ws_id);
         if (it == wsConnections.end() || it->second->closed) return;
+        if (!it->second->receive_paused) {
+            return;
+        }
         it->second->receive_paused = false;
+        task = it->second->task;
         if (it->second->receive_in_flight) {
+            if (task) {
+                [task resume];
+            }
             return;
         }
         entry = it->second;
     }
 
+    if (task) {
+        [task resume];
+    }
     if (entry) {
         receiveLoop(entry);
     }
