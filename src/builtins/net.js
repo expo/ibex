@@ -1,4 +1,5 @@
 var EventEmitter;
+var StringDecoder = null;
 var _assertListenerArgument = null;
 try { EventEmitter = require('events'); } catch(e) {
   EventEmitter = function() { this._events = {}; };
@@ -54,6 +55,14 @@ if (!_assertListenerArgument) {
       );
     }
   };
+}
+
+try {
+  StringDecoder = require('node:string_decoder').StringDecoder;
+} catch (_stringDecoderErr) {
+  try {
+    StringDecoder = require('string_decoder').StringDecoder;
+  } catch (_stringDecoderErr2) {}
 }
 
 // --- Validation helpers ---
@@ -594,6 +603,20 @@ function _scheduleTimer(callback, delay, owner) {
   return timer;
 }
 
+function _scheduleCallback(callback) {
+  if (typeof callback !== 'function') return;
+  var args = Array.prototype.slice.call(arguments, 1);
+  if (typeof process !== 'undefined' && typeof process.nextTick === 'function') {
+    process.nextTick(function() {
+      callback.apply(null, args);
+    });
+    return;
+  }
+  setTimeout(function() {
+    callback.apply(null, args);
+  }, 0);
+}
+
 function _emitAsyncSocketError(socket, err, callback) {
   _scheduleTimer(function() {
     if (typeof callback === 'function') {
@@ -759,11 +782,22 @@ function _scheduleSocketAutoEnd(socket) {
 
 function _handleSocketEOF(socket) {
   if (!socket || socket.destroyed) return;
+  if (socket._decoder && typeof socket._decoder.end === 'function') {
+    var trailing = socket._decoder.end();
+    if (trailing) {
+      socket._appendToReadBuffer(trailing);
+      socket.emit('readable');
+      socket.emit('data', trailing);
+    }
+  }
   socket._readEnded = true;
   socket.readable = false;
   socket.readyState = socket.writable ? 'writeOnly' : 'closed';
   socket.emit('end');
   if (!socket.allowHalfOpen) {
+    if (socket._closeAfterEnd || socket._isWriting || (socket._writeQueue && socket._writeQueue.length > 0)) {
+      return;
+    }
     if (!socket.destroyed && socket.writable) {
       _scheduleSocketAutoEnd(socket);
       return;
@@ -771,7 +805,6 @@ function _handleSocketEOF(socket) {
     if (!socket.destroyed) socket.destroy();
     return;
   }
-  socket.emit('close', false);
 }
 
 function _resetSocketForConnect(socket) {
@@ -784,6 +817,7 @@ function _resetSocketForConnect(socket) {
     clearTimeout(socket._drainTimer);
     socket._drainTimer = null;
   }
+  socket._drainImmediateQueued = false;
   if (socket._drainEventTimer != null) {
     clearTimeout(socket._drainEventTimer);
     socket._drainEventTimer = null;
@@ -796,6 +830,8 @@ function _resetSocketForConnect(socket) {
   socket.remoteAddress = null;
   socket.remotePort = null;
   socket.remoteFamily = null;
+  socket._requestedAddress = null;
+  socket._requestedPort = null;
   socket.localAddress = null;
   socket.localPort = null;
   socket.localFamily = null;
@@ -808,6 +844,8 @@ function _resetSocketForConnect(socket) {
   socket._ended = false;
   socket._readEnded = false;
   socket._needDrain = false;
+  socket._drainImmediateQueued = false;
+  socket._finishEmitted = false;
   socket._readBuffer = [];
   socket._readBufferLength = 0;
   socket._onreadEOF = false;
@@ -815,6 +853,7 @@ function _resetSocketForConnect(socket) {
   socket._socketPath = null;
   socket._customHandle = false;
   socket._customReadStarted = false;
+  socket._decoder = socket._encoding && StringDecoder ? new StringDecoder(socket._encoding) : null;
   socket.pending = true;
   socket.readyState = 'closed';
 }
@@ -859,6 +898,8 @@ function Socket(options) {
   this.remoteAddress = null;
   this.remotePort = null;
   this.remoteFamily = null;
+  this._requestedAddress = null;
+  this._requestedPort = null;
   this.localAddress = null;
   this.localPort = null;
   this.localFamily = null;
@@ -872,6 +913,7 @@ function Socket(options) {
   this._pollTimer = null;
   this._drainTimer = null;
   this._drainEventTimer = null;
+  this._drainImmediateQueued = false;
   this._writeQueue = [];
   this._writeBufferCache = Object.create(null);
   this._isWriting = false;
@@ -879,9 +921,11 @@ function Socket(options) {
   this._ended = false;
   this._readEnded = false;
   this._needDrain = false;
+  this._finishEmitted = false;
   this._writableHighWaterMark = _normalizeWritableHighWaterMark(options);
   this._paused = false;
   this._encoding = null;
+  this._decoder = null;
   this._events = {};
   this._readBuffer = [];
   this._readBufferLength = 0;
@@ -1101,7 +1145,7 @@ Socket.prototype._drainWriteQueue = function() {
     if (item.offset >= item.data.length) {
       this._writeQueue.shift();
       if (item.callback) {
-        setTimeout(item.callback, 0);
+        _scheduleCallback(item.callback);
       }
       continue;
     }
@@ -1116,7 +1160,7 @@ Socket.prototype._drainWriteQueue = function() {
       this._isWriting = false;
       this._writeQueue = [];
       if (item.callback) {
-        setTimeout(function() { item.callback(writeErr); }, 0);
+        _scheduleCallback(item.callback, writeErr);
       }
       this.destroy(writeErr);
       return;
@@ -1132,7 +1176,7 @@ Socket.prototype._drainWriteQueue = function() {
     if (item.offset >= item.data.length) {
       this._writeQueue.shift();
       if (item.callback) {
-        setTimeout(item.callback, 0);
+        _scheduleCallback(item.callback);
       }
     }
   }
@@ -1141,6 +1185,10 @@ Socket.prototype._drainWriteQueue = function() {
   if (this._writeQueue.length === 0) {
     if (this._closeAfterEnd) {
       this._closeAfterEnd = false;
+      if (!this._finishEmitted) {
+        this._finishEmitted = true;
+        this.emit('finish');
+      }
       _shutdownSocketWrite(this);
       this.writable = false;
       this._needDrain = false;
@@ -1176,6 +1224,25 @@ Socket.prototype._drainWriteQueue = function() {
     self._drainWriteQueue();
   }, 1, self);
 };
+
+function _scheduleWriteQueueDrain(socket, delay) {
+  if (!socket || socket.destroyed || socket._isWriting || socket._corked) return;
+  if ((delay == null || delay <= 0) && typeof process !== 'undefined' && typeof process.nextTick === 'function') {
+    if (socket._drainImmediateQueued) return;
+    socket._drainImmediateQueued = true;
+    process.nextTick(function() {
+      socket._drainImmediateQueued = false;
+      if (socket.destroyed || socket._isWriting || socket._corked) return;
+      socket._drainWriteQueue();
+    });
+    return;
+  }
+  if (socket._drainTimer != null) return;
+  socket._drainTimer = _scheduleTimer(function() {
+    socket._drainTimer = null;
+    socket._drainWriteQueue();
+  }, delay == null ? 0 : delay, socket);
+}
 
 Socket.prototype._resolveOnreadBuffer = function() {
   if (!this._onread || !this._onread.buffer) return null;
@@ -1274,6 +1341,7 @@ Socket.prototype._startPolling = function() {
     var nativeHandle = _unwrapHandle(self._handle);
     if (nativeHandle == null) return;
     if (self._onread) {
+      var readOnreadData = false;
       if (self._paused) {
         self._pollTimer = _scheduleTimer(poll, 10, self);
         return;
@@ -1299,6 +1367,7 @@ Socket.prototype._startPolling = function() {
           if (!onreadData.length) {
             break;
           }
+          readOnreadData = true;
           self._lastActivity = Date.now();
           self.bytesRead += onreadData.length;
           self._appendToReadBuffer(onreadData);
@@ -1318,7 +1387,7 @@ Socket.prototype._startPolling = function() {
       if (self._timeoutMs > 0 && (Date.now() - self._lastActivity) >= self._timeoutMs) {
         self.emit('timeout');
       }
-      self._pollTimer = _scheduleTimer(poll, 5, self);
+      self._pollTimer = _scheduleTimer(poll, readOnreadData ? 0 : 1, self);
       return;
     }
     if (self._paused) {
@@ -1326,6 +1395,7 @@ Socket.prototype._startPolling = function() {
       return;
     }
     try {
+      var readData = false;
       while (true) {
         var data = __exactTcpRead(nativeHandle, 65536);
         if (data === null) {
@@ -1337,12 +1407,18 @@ Socket.prototype._startPolling = function() {
         if (!data.length) {
           break;
         }
+        readData = true;
         self._lastActivity = Date.now();
         self.bytesRead += data.length;
         self._appendToReadBuffer(data);
         self.emit('readable');
         if (self._encoding) {
-          self.emit('data', toBufferData(data).toString(self._encoding));
+          var encodedChunk = self._decoder && typeof self._decoder.write === 'function'
+            ? self._decoder.write(toBufferData(data))
+            : toBufferData(data).toString(self._encoding);
+          if (encodedChunk && encodedChunk.length) {
+            self.emit('data', encodedChunk);
+          }
         } else {
           // Emit as Buffer if available, otherwise string
           if (typeof Buffer !== 'undefined') {
@@ -1350,6 +1426,9 @@ Socket.prototype._startPolling = function() {
           } else {
             self.emit('data', data);
           }
+        }
+        if (self._paused) {
+          break;
         }
       }
     } catch(e) {
@@ -1363,7 +1442,7 @@ Socket.prototype._startPolling = function() {
     if (self._timeoutMs > 0 && (Date.now() - self._lastActivity) >= self._timeoutMs) {
       self.emit('timeout');
     }
-    self._pollTimer = _scheduleTimer(poll, 5, self);
+    self._pollTimer = _scheduleTimer(poll, readData ? 0 : 1, self);
   }
   self._pollTimer = _scheduleTimer(poll, 0, self);
 };
@@ -1532,16 +1611,15 @@ Socket.prototype.connect = function(options, connectListener) {
   }
 
   // TCP connection
-  this.remotePort = options.port;
-  this.remoteAddress = options.host || options.hostname || 'localhost';
+  this._requestedPort = options.port;
+  this._requestedAddress = options.host || options.hostname || 'localhost';
+  this.remotePort = undefined;
+  this.remoteAddress = undefined;
   // Store optional connection params
   if (options.localAddress) this.localAddress = options.localAddress;
   if (options.localPort) this.localPort = options.localPort;
   if (options.family) this._family = options.family;
-  this.remoteFamily = null;
-  if (options.family) {
-    this.remoteFamily = _addressFamilyToName(options.family);
-  }
+  this.remoteFamily = undefined;
 
   if (!_hasTcp) {
     // Fallback: no native TCP support
@@ -1561,7 +1639,7 @@ Socket.prototype.connect = function(options, connectListener) {
   var lookup = options.lookup;
   var customLookup = typeof lookup === 'function';
   var resolver = lookup;
-  if (!customLookup && isIP(self.remoteAddress) === 0) {
+  if (!customLookup && isIP(self._requestedAddress) === 0) {
     try {
       var dns = require('dns');
       if (dns && typeof dns.lookup === 'function') {
@@ -1571,7 +1649,7 @@ Socket.prototype.connect = function(options, connectListener) {
   }
   if (_hasConflictingLocalBind(options.localAddress, options.localPort)) {
     _scheduleTimer(function() {
-      var bindErr = _createConnectError('EADDRINUSE', self.remoteAddress, self.remotePort, 'connect');
+      var bindErr = _createConnectError('EADDRINUSE', self._requestedAddress, self._requestedPort, 'connect');
       self.connecting = false;
       self.pending = false;
       self.readyState = 'closed';
@@ -1587,7 +1665,7 @@ Socket.prototype.connect = function(options, connectListener) {
   if (autoSelectFamily) self.autoSelectFamilyAttemptedAddresses = [];
 
   var lookupFamily = _parseLookupFamily(options.family);
-  var attempts = [{ address: self.remoteAddress, family: lookupFamily }];
+  var attempts = [{ address: self._requestedAddress, family: lookupFamily }];
 
   function _normalizeCandidate(raw, fallbackFamily) {
     if (!raw) return null;
@@ -1643,14 +1721,14 @@ Socket.prototype.connect = function(options, connectListener) {
       var address = target.address;
       var family = target.family;
       if (selfRef.autoSelectFamilyAttemptedAddresses) {
-        selfRef.autoSelectFamilyAttemptedAddresses.push(address + ':' + selfRef.remotePort);
+        selfRef.autoSelectFamilyAttemptedAddresses.push(address + ':' + selfRef._requestedPort);
       }
 
       // Compat: mocked autoSelectFamily lookups often include unroutable public
       // addresses purely to exercise family ordering. Exact's synchronous
       // connect path can block on those, so fast-fail them and continue.
       if (shouldAutoSelect && customLookup && !_isLocalTestAddress(address)) {
-        attemptErrors.push(_createConnectError('ECONNREFUSED', address, selfRef.remotePort, 'connect'));
+        attemptErrors.push(_createConnectError('ECONNREFUSED', address, selfRef._requestedPort, 'connect'));
         nextAttempt();
         return;
       }
@@ -1671,14 +1749,14 @@ Socket.prototype.connect = function(options, connectListener) {
         }
       }
 
-      if (isIP(address) === 4 && _hasMatchingIPv6OnlyServer(address, selfRef.remotePort)) {
-        attemptErrors.push(_createConnectError('ECONNREFUSED', address, selfRef.remotePort, 'connect'));
+      if (isIP(address) === 4 && _hasMatchingIPv6OnlyServer(address, selfRef._requestedPort)) {
+        attemptErrors.push(_createConnectError('ECONNREFUSED', address, selfRef._requestedPort, 'connect'));
         nextAttempt();
         return;
       }
 
       try {
-        var nativeHandle = __exactTcpConnect(address, selfRef.remotePort);
+        var nativeHandle = __exactTcpConnect(address, selfRef._requestedPort);
         if (selfRef.destroyed) {
           try { __exactTcpClose(nativeHandle); } catch(e) {}
           return;
@@ -1705,7 +1783,7 @@ Socket.prototype.connect = function(options, connectListener) {
       } catch (err) {
         var connErr = _isGetAddrInfoError(err)
           ? _createGetAddrInfoError(address)
-          : _createConnectError('ECONNREFUSED', address, selfRef.remotePort, 'connect');
+          : _createConnectError('ECONNREFUSED', address, selfRef._requestedPort, 'connect');
         attemptErrors.push(connErr);
         nextAttempt();
         return;
@@ -1725,14 +1803,14 @@ Socket.prototype.connect = function(options, connectListener) {
       if (options.all !== undefined) lookupOptions.all = options.all;
 
       try {
-        resolver(self.remoteAddress, lookupOptions, function(err, lookupResult, candidateFamily) {
+        resolver(self._requestedAddress, lookupOptions, function(err, lookupResult, candidateFamily) {
           if (err) {
             self.connecting = false;
             self.pending = false;
             self.readyState = 'closed';
             _detachSocketAbortListener(self);
             self._abortPending = false;
-            self.emit('lookup', err, undefined, undefined, self.remoteAddress);
+            self.emit('lookup', err, undefined, undefined, self._requestedAddress);
             self.emit('error', err);
             return;
           }
@@ -1754,7 +1832,7 @@ Socket.prototype.connect = function(options, connectListener) {
               self.readyState = 'closed';
               _detachSocketAbortListener(self);
               self._abortPending = false;
-              self.emit('error', _createInvalidAddressFamilyError(normalizedFamily, self.remoteAddress, self.remotePort));
+              self.emit('error', _createInvalidAddressFamilyError(normalizedFamily, self._requestedAddress, self._requestedPort));
               return;
             }
           }
@@ -1788,12 +1866,18 @@ Socket.prototype.connect = function(options, connectListener) {
           }
 
           if (normalized.length === 0) {
-            normalized = [ { address: self.remoteAddress, family: lookupFamily } ];
+            self.connecting = false;
+            self.pending = false;
+            self.readyState = 'closed';
+            _detachSocketAbortListener(self);
+            self._abortPending = false;
+            self.emit('error', _createInvalidIPAddressError(self._requestedAddress));
+            return;
           }
 
           var first = normalized[0];
           if (first) {
-            self.emit('lookup', null, first.address, _addressFamilyToName(first.family || lookupFamily), self.remoteAddress);
+            self.emit('lookup', null, first.address, first.family || lookupFamily || isIP(first.address), self._requestedAddress);
           }
 
           // Check blockList on resolved addresses
@@ -1876,12 +1960,21 @@ Socket.prototype.write = function(data, encoding, callback) {
         callback: callback,
       });
       this._bytesWritten += queuedData.length;
-
-      return false;
+      var pendingBufferedLength = this.bufferSize;
+      if (pendingBufferedLength >= this._writableHighWaterMark) {
+        this._needDrain = true;
+      }
+      return pendingBufferedLength < this._writableHighWaterMark;
     }
-    var err2 = new Error('Socket is not connected');
-    err2.code = 'ERR_SOCKET_CLOSED';
-    if (callback) callback(err2);
+    var err2;
+    if (this._handle != null) {
+      err2 = new Error('write EBADF');
+      err2.code = 'EBADF';
+    } else {
+      err2 = new Error('Socket is closed');
+      err2.code = 'ERR_SOCKET_CLOSED';
+    }
+    _emitAsyncSocketError(this, err2, callback);
     return false;
   }
 
@@ -1901,23 +1994,13 @@ Socket.prototype.write = function(data, encoding, callback) {
   });
   this._bytesWritten += dataToWrite.length;
   var bufferedLength = this.bufferSize;
-  var shouldApplyBackpressure =
-    this._writeQueue.length > 1 ||
-    this._isWriting ||
-    bufferedLength >= this._writableHighWaterMark;
-  var shouldReturnFalse = shouldApplyBackpressure;
-
-  if (shouldApplyBackpressure) {
+  var shouldReturnFalse = bufferedLength >= this._writableHighWaterMark;
+  if (shouldReturnFalse) {
     this._needDrain = true;
   }
 
   if (!this._isWriting && !this._corked) {
-    this._drainWriteQueue();
-  }
-
-  if (this._writeQueue.length > 0) {
-    this._needDrain = true;
-    shouldReturnFalse = true;
+    _scheduleWriteQueueDrain(this, 0);
   }
   return !shouldReturnFalse;
 };
@@ -1949,13 +2032,17 @@ Socket.prototype.end = function(data, encoding, callback) {
     this.readyState = this.readable ? 'readOnly' : 'closed';
   }
   if (callback) this.once('finish', callback);
-  var self = this;
-  setTimeout(function() {
-    self.emit('finish');
-  }, 0);
-  if (this.connecting || _unwrapHandle(this._handle) != null) {
+  if (this.connecting || _unwrapHandle(this._handle) != null || this._writeQueue.length > 0) {
     this._closeAfterEnd = true;
-    this._drainWriteQueue();
+    _scheduleWriteQueueDrain(this, 0);
+  } else if (!this._finishEmitted) {
+    var self = this;
+    _scheduleTimer(function() {
+      if (!self._finishEmitted) {
+        self._finishEmitted = true;
+        self.emit('finish');
+      }
+    }, 0, this);
   }
   return this;
 };
@@ -2185,6 +2272,7 @@ Socket.prototype.pipe = function(dest, options) {
 
 Socket.prototype.setEncoding = function(enc) {
   this._encoding = enc;
+  this._decoder = enc && StringDecoder ? new StringDecoder(enc) : null;
   return this;
 };
 
@@ -2195,7 +2283,7 @@ Socket.prototype.cork = function() {
 Socket.prototype.uncork = function() {
   this._corked = false;
   if (this._writeQueue.length > 0 && !this._isWriting) {
-    this._drainWriteQueue();
+    _scheduleWriteQueueDrain(this, 0);
   }
 };
 
@@ -2711,6 +2799,7 @@ Server.prototype.unref = function() {
 Server.prototype.getConnections = function(cb) {
   var count = this._connections || 0;
   if (cb) setTimeout(function() { cb(null, count); }, 0);
+  return this;
 };
 
 // --- Helper functions ---
