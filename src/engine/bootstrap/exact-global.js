@@ -1018,6 +1018,35 @@
 
 
   // --- Bun.spawn() and Bun.spawnSync() ---
+  function __exactNormalizeBunSpawnOptions(options) {
+    var normalized = {};
+    if (!options || typeof options !== 'object') {
+      return normalized;
+    }
+
+    for (var key in options) {
+      normalized[key] = options[key];
+    }
+
+    if (typeof normalized.env === 'function') {
+      normalized.env = normalized.env();
+    }
+
+    if (!normalized.stdio &&
+        (normalized.stdin !== undefined || normalized.stdout !== undefined || normalized.stderr !== undefined)) {
+      normalized.stdio = [
+        normalized.stdin === undefined ? 'pipe' : normalized.stdin,
+        normalized.stdout === undefined ? 'pipe' : normalized.stdout,
+        normalized.stderr === undefined ? 'pipe' : normalized.stderr
+      ];
+    }
+
+    delete normalized.stdin;
+    delete normalized.stdout;
+    delete normalized.stderr;
+    return normalized;
+  }
+
   E.spawn = function(cmd, opts) {
     var args, options;
     if (Array.isArray(cmd)) {
@@ -1038,9 +1067,7 @@
     if (!args || !args.length) {
       throw new TypeError('Bun.spawn: command array must not be empty');
     }
-    if (typeof options.env === 'function') {
-      options.env = options.env();
-    }
+    options = __exactNormalizeBunSpawnOptions(options);
     var cp = require('child_process');
     var proc = cp.spawn(args[0], args.slice(1), options);
     var result = {
@@ -1105,9 +1132,7 @@
     if (!args || !args.length) {
       throw new TypeError('Bun.spawnSync: command array must not be empty');
     }
-    if (typeof options.env === 'function') {
-      options.env = options.env();
-    }
+    options = __exactNormalizeBunSpawnOptions(options);
     var cp = require('child_process');
     var r = cp.spawnSync(args[0], args.slice(1), options);
     return __exactDefineDisposable({
