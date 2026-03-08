@@ -12700,6 +12700,402 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     } catch (...) {}
   }
 
+  // Final child-process IPC listener fix. This runs after all other process
+  // bootstrap shaping so the wrapper lands on the same process.on surface that
+  // user code observes in forked children.
+  {
+    static const char* finalIpcListenerFixJS = R"JS(
+(function() {
+  if (typeof process !== 'object' || process === null) return;
+  if (!process.channel || typeof process.channel.ref !== 'function') return;
+  if (process.__exactLateIpcListenerPatch) return;
+
+  function syncIpcRef() {
+    if (typeof process.listenerCount !== 'function') return;
+    try {
+      var activeListeners =
+        process.listenerCount('message') +
+        process.listenerCount('disconnect');
+      if (activeListeners > 0) {
+        process.channel.ref();
+      } else if (typeof process.channel.unref === 'function') {
+        process.channel.unref();
+      }
+    } catch (_) {}
+  }
+
+  var trackedMessageListeners = 0;
+  var trackedDisconnectListeners = 0;
+  var originalTrackedListenerCount = null;
+  function getTrackedIpcListeners(event) {
+    if (event === 'message') return trackedMessageListeners;
+    if (event === 'disconnect') return trackedDisconnectListeners;
+    return trackedMessageListeners + trackedDisconnectListeners;
+  }
+  function seedTrackedIpcListeners(originalListenerCount) {
+    if (typeof originalListenerCount !== 'function') {
+      trackedMessageListeners = 0;
+      trackedDisconnectListeners = 0;
+      return;
+    }
+    try {
+      trackedMessageListeners = originalListenerCount.call(process, 'message');
+      trackedDisconnectListeners = originalListenerCount.call(process, 'disconnect');
+      if (trackedMessageListeners < 0) trackedMessageListeners = 0;
+      if (trackedDisconnectListeners < 0) trackedDisconnectListeners = 0;
+    } catch (_) {
+      trackedMessageListeners = 0;
+      trackedDisconnectListeners = 0;
+    }
+  }
+  function adjustTrackedIpcListeners(event, delta) {
+    if (event === 'message') {
+      trackedMessageListeners += delta;
+      if (trackedMessageListeners < 0) trackedMessageListeners = 0;
+    } else if (event === 'disconnect') {
+      trackedDisconnectListeners += delta;
+      if (trackedDisconnectListeners < 0) trackedDisconnectListeners = 0;
+    }
+  }
+  function syncTrackedIpcRef() {
+    if (getTrackedIpcListeners() > 0) {
+      process.channel.ref();
+    } else if (typeof process.channel.unref === 'function') {
+      process.channel.unref();
+    }
+  }
+  function syncTrackedIpcListenersAfterDispatch() {
+    if (typeof originalTrackedListenerCount !== 'function') {
+      return;
+    }
+    try {
+      var actualMessageListeners =
+        originalTrackedListenerCount.call(process, 'message');
+      var actualDisconnectListeners =
+        originalTrackedListenerCount.call(process, 'disconnect');
+      if (actualMessageListeners < trackedMessageListeners) {
+        trackedMessageListeners = actualMessageListeners < 0 ? 0 : actualMessageListeners;
+      }
+      if (actualDisconnectListeners < trackedDisconnectListeners) {
+        trackedDisconnectListeners = actualDisconnectListeners < 0 ? 0 : actualDisconnectListeners;
+      }
+      syncTrackedIpcRef();
+    } catch (_) {}
+  }
+
+  function wrapTarget(target, markerName) {
+    if (!target || target[markerName]) return;
+
+    function defineMethod(name, fn) {
+      try {
+        Object.defineProperty(target, name, {
+          value: fn,
+          writable: true,
+          configurable: true,
+          enumerable: false,
+        });
+      } catch (_) {
+        try {
+          target[name] = fn;
+        } catch (_) {}
+      }
+    }
+
+    function shouldTrack(self, event) {
+      return self === process &&
+        (event === 'message' || event === 'disconnect');
+    }
+
+    if (typeof target.on === 'function') {
+      var originalOn = target.on;
+      defineMethod('on', function(event, listener) {
+        var result = originalOn.apply(this, arguments);
+        if (shouldTrack(this, event)) {
+          process.channel.ref();
+        }
+        return result;
+      });
+    }
+
+    if (typeof target.addListener === 'function') {
+      var originalAddListener = target.addListener;
+      defineMethod('addListener', function(event, listener) {
+        var result = originalAddListener.apply(this, arguments);
+        if (shouldTrack(this, event)) {
+          process.channel.ref();
+        }
+        return result;
+      });
+    }
+
+    if (typeof target.prependListener === 'function') {
+      var originalPrependListener = target.prependListener;
+      defineMethod('prependListener', function(event, listener) {
+        var result = originalPrependListener.apply(this, arguments);
+        if (shouldTrack(this, event)) {
+          process.channel.ref();
+        }
+        return result;
+      });
+    }
+
+    function wrapSingleUseListener(originalRegistrar) {
+      return function(event, listener) {
+        if (shouldTrack(this, event) && typeof listener === 'function') {
+          process.channel.ref();
+          var wrappedListener = function() {
+            try {
+              return listener.apply(this, arguments);
+            } finally {
+              syncIpcRef();
+            }
+          };
+          try {
+            wrappedListener.listener = listener;
+          } catch (_) {}
+          return originalRegistrar.call(this, event, wrappedListener);
+        }
+        var result = originalRegistrar.apply(this, arguments);
+        if (shouldTrack(this, event)) {
+          process.channel.ref();
+        }
+        return result;
+      };
+    }
+
+    if (typeof target.once === 'function') {
+      defineMethod('once', wrapSingleUseListener(target.once));
+    }
+
+    if (typeof target.prependOnceListener === 'function') {
+      defineMethod('prependOnceListener',
+        wrapSingleUseListener(target.prependOnceListener));
+    }
+
+    if (typeof target.removeListener === 'function') {
+      var originalRemoveListener = target.removeListener;
+      defineMethod('removeListener', function(event, listener) {
+        var result = originalRemoveListener.apply(this, arguments);
+        if (shouldTrack(this, event)) {
+          syncIpcRef();
+        }
+        return result;
+      });
+    }
+
+    if (typeof target.off === 'function') {
+      var originalOff = target.off;
+      defineMethod('off', function(event, listener) {
+        var result = originalOff.apply(this, arguments);
+        if (shouldTrack(this, event)) {
+          syncIpcRef();
+        }
+        return result;
+      });
+    }
+
+    if (typeof target.removeAllListeners === 'function') {
+      var originalRemoveAllListeners = target.removeAllListeners;
+      defineMethod('removeAllListeners', function(event) {
+        var result = originalRemoveAllListeners.apply(this, arguments);
+        if (this === process &&
+            (event === undefined ||
+             event === 'message' ||
+             event === 'disconnect')) {
+          syncIpcRef();
+        }
+        return result;
+      });
+    }
+
+    try {
+      Object.defineProperty(target, markerName, {
+        value: true,
+        writable: false,
+        configurable: true,
+        enumerable: false,
+      });
+    } catch (_) {
+      try {
+        target[markerName] = true;
+      } catch (_) {}
+    }
+  }
+
+  wrapTarget(Object.getPrototypeOf(process), '__exactLateIpcProcessProtoWrapped');
+  wrapTarget(process, '__exactLateIpcProcessWrapped');
+  syncIpcRef();
+  try {
+    process.channel.ref();
+    var startupHold = setTimeout(function() {
+      syncIpcRef();
+    }, 1000);
+    if (startupHold && typeof startupHold.ref === 'function') {
+      startupHold.ref();
+    }
+  } catch (_) {}
+
+  function installAsyncIpcListenerPatch() {
+      if (process.__exactAsyncIpcListenerPatch) return;
+
+      function trackEvent(event) {
+        return event === 'message' || event === 'disconnect';
+      }
+
+      var originalListenerCount = typeof process.listenerCount === 'function' ?
+        process.listenerCount :
+        null;
+      if (originalTrackedListenerCount === null) {
+        originalTrackedListenerCount = originalListenerCount;
+      }
+      seedTrackedIpcListeners(originalListenerCount);
+
+      if (typeof process.on === 'function') {
+        var asyncOriginalOn = process.on;
+        process.on = function(event, listener) {
+          var result = asyncOriginalOn.apply(this, arguments);
+          if (trackEvent(event)) {
+            adjustTrackedIpcListeners(event, 1);
+            syncTrackedIpcRef();
+          }
+          return result;
+        };
+        process.addListener = process.on;
+      }
+
+      if (typeof process.prependListener === 'function') {
+        var asyncOriginalPrependListener = process.prependListener;
+        process.prependListener = function(event, listener) {
+          var result = asyncOriginalPrependListener.apply(this, arguments);
+          if (trackEvent(event)) {
+            adjustTrackedIpcListeners(event, 1);
+            syncTrackedIpcRef();
+          }
+          return result;
+        };
+      }
+
+      function wrapSingleUseListener(originalRegistrar) {
+        return function(event, listener) {
+          if (trackEvent(event) && typeof listener === 'function') {
+            adjustTrackedIpcListeners(event, 1);
+            syncTrackedIpcRef();
+            var wrappedListener = function() {
+              try {
+                return listener.apply(this, arguments);
+              } finally {
+                adjustTrackedIpcListeners(event, -1);
+                syncTrackedIpcRef();
+              }
+            };
+            try {
+              wrappedListener.listener = listener;
+            } catch (_) {}
+            return originalRegistrar.call(this, event, wrappedListener);
+          }
+          return originalRegistrar.apply(this, arguments);
+        };
+      }
+
+      if (typeof process.once === 'function') {
+        process.once = wrapSingleUseListener(process.once);
+      }
+      if (typeof process.prependOnceListener === 'function') {
+        process.prependOnceListener =
+          wrapSingleUseListener(process.prependOnceListener);
+      }
+
+      if (typeof process.removeListener === 'function') {
+        var asyncOriginalRemoveListener = process.removeListener;
+        process.removeListener = function(event, listener) {
+          var result = asyncOriginalRemoveListener.apply(this, arguments);
+          if (trackEvent(event)) {
+            adjustTrackedIpcListeners(event, -1);
+            syncTrackedIpcRef();
+          }
+          return result;
+        };
+        process.off = process.removeListener;
+      }
+
+      if (typeof process.removeAllListeners === 'function') {
+        var asyncOriginalRemoveAllListeners = process.removeAllListeners;
+        process.removeAllListeners = function(event) {
+          var result = asyncOriginalRemoveAllListeners.apply(this, arguments);
+          if (event === undefined) {
+            trackedMessageListeners = 0;
+            trackedDisconnectListeners = 0;
+            syncTrackedIpcRef();
+          } else if (trackEvent(event)) {
+            if (event === 'message') {
+              trackedMessageListeners = 0;
+            } else if (event === 'disconnect') {
+              trackedDisconnectListeners = 0;
+            }
+            syncTrackedIpcRef();
+          }
+          return result;
+        };
+      }
+
+      if (originalListenerCount) {
+        process.listenerCount = function(event) {
+          if (trackEvent(event)) {
+            return getTrackedIpcListeners(event);
+          }
+          return originalListenerCount.apply(this, arguments);
+        };
+      }
+
+      if (Object.prototype.hasOwnProperty.call(process, 'on') &&
+          Object.prototype.hasOwnProperty.call(process, 'removeListener')) {
+        try {
+          Object.defineProperty(process, '__exactAsyncIpcListenerPatch', {
+            value: true,
+            writable: false,
+            configurable: true,
+            enumerable: false,
+          });
+        } catch (_) {
+          process.__exactAsyncIpcListenerPatch = true;
+        }
+      }
+      syncTrackedIpcRef();
+  }
+  try {
+    globalThis.__exactInstallAsyncIpcListenerPatch = installAsyncIpcListenerPatch;
+    globalThis.__exactSyncTrackedIpcListenersAfterDispatch =
+      syncTrackedIpcListenersAfterDispatch;
+  } catch (_) {}
+
+  if (typeof process.send === 'function') {
+    var originalProcessSend = process.send;
+    process.send = function() {
+      installAsyncIpcListenerPatch();
+      return originalProcessSend.apply(this, arguments);
+    };
+  }
+
+  try {
+    Object.defineProperty(process, '__exactLateIpcListenerPatch', {
+      value: true,
+      writable: false,
+      configurable: true,
+      enumerable: false,
+    });
+  } catch (_) {
+    try {
+      process.__exactLateIpcListenerPatch = true;
+    } catch (_) {}
+  }
+})();
+)JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(finalIpcListenerFixJS);
+      rt.evaluateJavaScript(buffer, "<final-ipc-listener-fix>");
+    } catch (...) {}
+  }
+
 }
 
 void runNextTickQueue(ExactHermesRuntime* runtime) {

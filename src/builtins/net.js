@@ -2930,8 +2930,12 @@ Server.prototype.unref = function() {
   return this;
 };
 Server.prototype.getConnections = function(cb) {
-  var count = this._connections || 0;
-  if (cb) setTimeout(function() { cb(null, count); }, 0);
+  var self = this;
+  if (cb) {
+    setTimeout(function() {
+      cb(null, self._connections || 0);
+    }, 0);
+  }
   return this;
 };
 

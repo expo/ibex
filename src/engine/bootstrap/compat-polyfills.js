@@ -2022,6 +2022,7 @@
       var exactIpcConnected = true;
       var exactIpcPollTimer = null;
       var exactIpcKeepAliveTimer = null;
+      var exactIpcStartupHoldTimer = null;
       var exactIpcPollActive = true;
       var exactIpcReadPaused = false;
       var exactIpcPollInterval = 10;
@@ -2200,6 +2201,10 @@
           try { clearInterval(exactIpcKeepAliveTimer); } catch (_) {}
           exactIpcKeepAliveTimer = null;
         }
+        if (exactIpcStartupHoldTimer) {
+          try { clearTimeout(exactIpcStartupHoldTimer); } catch (_) {}
+          exactIpcStartupHoldTimer = null;
+        }
         globalThis.process.connected = false;
         globalThis.process.channel = null;
         var exactChannelHandleKey = globalThis.__exactKChannelHandleKey;
@@ -2256,10 +2261,20 @@
               handle = exactReconstructHandle(packet.handleType, _exactPendingRecvFd);
               _exactPendingRecvFd = -1;
             }
+            if (typeof globalThis.__exactInstallAsyncIpcListenerPatch === 'function') {
+              try {
+                globalThis.__exactInstallAsyncIpcListenerPatch();
+              } catch (_) {}
+            }
             if (handle) {
               globalThis.process.emit('message', packet.data, handle);
             } else {
               globalThis.process.emit('message', packet.data);
+            }
+            if (typeof globalThis.__exactSyncTrackedIpcListenersAfterDispatch === 'function') {
+              try {
+                globalThis.__exactSyncTrackedIpcListenersAfterDispatch();
+              } catch (_) {}
             }
           } else if (packet.type === 'disconnect') {
             exactCloseIpc();
@@ -2408,14 +2423,7 @@
           } catch (e) {}
         }
         if (exactIpcPollActive) {
-          if (typeof globalThis.process.listenerCount === 'function') {
-            try {
-              var activeIpcListeners =
-                globalThis.process.listenerCount('message') +
-                globalThis.process.listenerCount('disconnect');
-              exactIpcChannelRefed = activeIpcListeners > 0;
-            } catch (_) {}
-          }
+          exactSyncIpcListenerRef();
           exactIpcPollTimer = setTimeout(exactPollIpc, exactIpcPollInterval);
           // Ref/unref based on current channel ref state
           if (exactIpcPollTimer) {
@@ -2473,6 +2481,24 @@
           exactIpcPollTimer.unref();
         }
       }
+      function exactHoldIpcStartupWindow() {
+        exactRefIpcTimer();
+        if (exactIpcStartupHoldTimer) {
+          clearTimeout(exactIpcStartupHoldTimer);
+          exactIpcStartupHoldTimer = null;
+        }
+        if (typeof setTimeout !== 'function') {
+          return;
+        }
+        exactIpcStartupHoldTimer = setTimeout(function() {
+          exactIpcStartupHoldTimer = null;
+          exactSyncIpcListenerRef();
+        }, 500);
+        if (exactIpcStartupHoldTimer &&
+            typeof exactIpcStartupHoldTimer.ref === 'function') {
+          exactIpcStartupHoldTimer.ref();
+        }
+      }
       globalThis.process.channel = {
         fd: exactIpcFd,
         ref: function() { exactRefIpcTimer(); },
@@ -2503,65 +2529,155 @@
             exactIpcPollActive = true;
             exactPollIpc();
           }
-          if (typeof globalThis.process.listenerCount === 'function') {
-            try {
-              if (globalThis.process.listenerCount('message') +
-                  globalThis.process.listenerCount('disconnect') <= 0) {
-                exactUnrefIpcTimer();
-              }
-            } catch (_) {}
-          }
+          exactSyncIpcListenerRef();
         }
       };
-      // Auto-ref IPC timer when process gets message/disconnect listeners,
-      // and auto-unref when all such listeners are removed.
-      var exactIpcListenerCount = 0;
-      var _origProcessOn = globalThis.process.on;
-      var _origProcessOnce = globalThis.process.once;
-      var _origProcessRemoveListener = globalThis.process.removeListener;
-      if (typeof _origProcessOn === 'function') {
-        globalThis.process.on = function(event, listener) {
-          var result = _origProcessOn.apply(this, arguments);
-          if (event === 'message' || event === 'disconnect') {
-            exactIpcListenerCount++;
+      function exactSyncIpcListenerRef() {
+        if (typeof globalThis.process.listenerCount !== 'function') {
+          return;
+        }
+        try {
+          var activeIpcListeners =
+            globalThis.process.listenerCount('message') +
+            globalThis.process.listenerCount('disconnect');
+          if (activeIpcListeners > 0) {
             exactRefIpcTimer();
+          } else {
+            exactUnrefIpcTimer();
           }
-          return result;
-        };
-        globalThis.process.addListener = globalThis.process.on;
+        } catch (_) {}
       }
-      if (typeof _origProcessOnce === 'function') {
-        globalThis.process.once = function(event, listener) {
-          if (event === 'message' || event === 'disconnect') {
-            exactIpcListenerCount++;
-            exactRefIpcTimer();
-            var wrappedListener = function() {
-              exactIpcListenerCount--;
-              if (exactIpcListenerCount <= 0) {
-                exactIpcListenerCount = 0;
-                exactUnrefIpcTimer();
-              }
-              return listener.apply(this, arguments);
-            };
-            return _origProcessOnce.call(this, event, wrappedListener);
+      function exactInstallProcessIpcListenerWrappers(target, markerName) {
+        if (!target || target[markerName]) {
+          return;
+        }
+        function exactDefineMethod(name, fn) {
+          try {
+            Object.defineProperty(target, name, {
+              value: fn,
+              writable: true,
+              configurable: true,
+              enumerable: false
+            });
+          } catch (_) {
+            target[name] = fn;
           }
-          return _origProcessOnce.apply(this, arguments);
-        };
-      }
-      if (typeof _origProcessRemoveListener === 'function') {
-        globalThis.process.removeListener = function(event, listener) {
-          var result = _origProcessRemoveListener.apply(this, arguments);
-          if (event === 'message' || event === 'disconnect') {
-            exactIpcListenerCount--;
-            if (exactIpcListenerCount <= 0) {
-              exactIpcListenerCount = 0;
-              exactUnrefIpcTimer();
+        }
+        function exactShouldTrackIpcListener(self, event) {
+          return self === globalThis.process &&
+            (event === 'message' || event === 'disconnect');
+        }
+        if (typeof target.on === 'function') {
+          var origOn = target.on;
+          exactDefineMethod('on', function(event, listener) {
+            var result = origOn.apply(this, arguments);
+            if (exactShouldTrackIpcListener(this, event)) {
+              exactRefIpcTimer();
             }
-          }
-          return result;
-        };
-        globalThis.process.off = globalThis.process.removeListener;
+            return result;
+          });
+        }
+        if (typeof target.addListener === 'function') {
+          var origAddListener = target.addListener;
+          exactDefineMethod('addListener', function(event, listener) {
+            var result = origAddListener.apply(this, arguments);
+            if (exactShouldTrackIpcListener(this, event)) {
+              exactRefIpcTimer();
+            }
+            return result;
+          });
+        }
+        if (typeof target.prependListener === 'function') {
+          var origPrependListener = target.prependListener;
+          exactDefineMethod('prependListener', function(event, listener) {
+            var result = origPrependListener.apply(this, arguments);
+            if (exactShouldTrackIpcListener(this, event)) {
+              exactRefIpcTimer();
+            }
+            return result;
+          });
+        }
+        function exactWrapSingleUseListener(originalRegistrar) {
+          return function(event, listener) {
+            if (exactShouldTrackIpcListener(this, event) &&
+                typeof listener === 'function') {
+              exactRefIpcTimer();
+              var wrappedListener = function() {
+                try {
+                  return listener.apply(this, arguments);
+                } finally {
+                  exactSyncIpcListenerRef();
+                }
+              };
+              try {
+                wrappedListener.listener = listener;
+              } catch (_) {}
+              return originalRegistrar.call(this, event, wrappedListener);
+            }
+            var result = originalRegistrar.apply(this, arguments);
+            if (exactShouldTrackIpcListener(this, event)) {
+              exactRefIpcTimer();
+            }
+            return result;
+          };
+        }
+        if (typeof target.once === 'function') {
+          exactDefineMethod('once', exactWrapSingleUseListener(target.once));
+        }
+        if (typeof target.prependOnceListener === 'function') {
+          exactDefineMethod('prependOnceListener',
+            exactWrapSingleUseListener(target.prependOnceListener));
+        }
+        if (typeof target.removeListener === 'function') {
+          var origRemoveListener = target.removeListener;
+          exactDefineMethod('removeListener', function(event, listener) {
+            var result = origRemoveListener.apply(this, arguments);
+            if (exactShouldTrackIpcListener(this, event)) {
+              exactSyncIpcListenerRef();
+            }
+            return result;
+          });
+        }
+        if (typeof target.off === 'function') {
+          var origOff = target.off;
+          exactDefineMethod('off', function(event, listener) {
+            var result = origOff.apply(this, arguments);
+            if (exactShouldTrackIpcListener(this, event)) {
+              exactSyncIpcListenerRef();
+            }
+            return result;
+          });
+        }
+        if (typeof target.removeAllListeners === 'function') {
+          var origRemoveAllListeners = target.removeAllListeners;
+          exactDefineMethod('removeAllListeners', function(event) {
+            var result = origRemoveAllListeners.apply(this, arguments);
+            if (this === globalThis.process &&
+                (event === undefined ||
+                 event === 'message' ||
+                 event === 'disconnect')) {
+              exactSyncIpcListenerRef();
+            }
+            return result;
+          });
+        }
+        try {
+          Object.defineProperty(target, markerName, {
+            value: true,
+            writable: false,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (_) {
+          target[markerName] = true;
+        }
       }
+      exactInstallProcessIpcListenerWrappers(Object.getPrototypeOf(globalThis.process),
+        '__exactIpcProcessProtoWrapped');
+      exactInstallProcessIpcListenerWrappers(globalThis.process,
+        '__exactIpcProcessWrapped');
+      exactSyncIpcListenerRef();
+      exactHoldIpcStartupWindow();
       globalThis.process.send = function(message, sendHandle, opts, callback) {
         // Validate message argument
         if (message === undefined) {
