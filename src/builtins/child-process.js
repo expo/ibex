@@ -1124,7 +1124,7 @@ function _copyEnvObject(envSource) {
   if (!envSource || typeof envSource !== 'object') return env;
   for (var key in envSource) {
     var value = envSource[key];
-    if (value !== undefined && value !== null) {
+    if (value !== undefined) {
       env[key] = String(value);
     }
   }
@@ -1203,7 +1203,7 @@ function _normalizeForkEnv(optionsEnv) {
     for (var key in processEnv) {
       if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
         var value = processEnv[key];
-        if (value !== undefined && value !== null) env[key] = String(value);
+        if (value !== undefined) env[key] = String(value);
       }
     }
   }
@@ -1211,7 +1211,7 @@ function _normalizeForkEnv(optionsEnv) {
     for (var key in optionsEnv) {
       if (Object.prototype.hasOwnProperty.call(optionsEnv, key)) {
         var v = optionsEnv[key];
-        if (v === undefined || v === null) {
+        if (v === undefined) {
           delete env[key];
         } else {
           env[key] = String(v);
