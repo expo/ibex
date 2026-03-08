@@ -59,6 +59,7 @@ struct WebSocketEntry {
     std::queue<OutboundMessage> outbound;
     std::atomic<bool> closed{false};
     std::atomic<bool> receive_paused{false};
+    std::atomic<bool> flow_controlled_receive{false};
     std::thread io_thread;
 };
 
@@ -251,6 +252,9 @@ static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
             }
             if (nrecv > 0) {
                 const bool is_text = meta ? ((meta->flags & CURLWS_TEXT) != 0) : false;
+                if (entry->flow_controlled_receive.load(std::memory_order_relaxed)) {
+                    entry->receive_paused.store(true, std::memory_order_relaxed);
+                }
                 call_message(entry, buffer, nrecv, is_text);
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -496,6 +500,27 @@ extern "C" void native_ws_resume(uint32_t ws_id) {
     entry->receive_paused.store(false, std::memory_order_relaxed);
 #else
     (void)ws_id;
+#endif
+}
+
+extern "C" void native_ws_set_flow_controlled(uint32_t ws_id, int enabled) {
+#ifdef EXACT_HAS_CURL
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(g_ws_mutex);
+        auto it = g_ws_connections.find(ws_id);
+        if (it == g_ws_connections.end()) {
+            return;
+        }
+        entry = it->second;
+    }
+    if (!entry) {
+        return;
+    }
+    entry->flow_controlled_receive.store(enabled != 0, std::memory_order_relaxed);
+#else
+    (void)ws_id;
+    (void)enabled;
 #endif
 }
 

@@ -41,11 +41,12 @@ struct WebSocketEntry {
     bool observed_close_was_clean;
     bool receive_paused;
     bool receive_in_flight;
+    bool flow_controlled_receive;
     bool close_completion_scheduled;
     double close_requested_at_seconds;
     int64_t close_grace_nanos;
+    bool force_close_handshake_grace;
     bool force_unclean_client_close;
-    bool pause_after_next_message;
 
     WebSocketEntry(
         NSURLSessionWebSocketTask* task,
@@ -75,11 +76,12 @@ struct WebSocketEntry {
           observed_close_was_clean(false),
           receive_paused(false),
           receive_in_flight(false),
+          flow_controlled_receive(false),
           close_completion_scheduled(false),
           close_requested_at_seconds(0.0),
           close_grace_nanos(0),
-          force_unclean_client_close(false),
-          pause_after_next_message(false) {}
+          force_close_handshake_grace(false),
+          force_unclean_client_close(false) {}
 };
 
 static std::mutex wsMutex;
@@ -90,24 +92,11 @@ static double monotonicSeconds() {
     return [[NSProcessInfo processInfo] systemUptime];
 }
 
-static int64_t websocketCloseGracePeriodNanos() {
-    const char* value = std::getenv("EXACT_WPT_WEBSOCKET_CLOSE_GRACE_MS");
-    if (!value || !*value) {
-        return 0;
-    }
-    long long graceMs = std::atoll(value);
-    if (graceMs <= 0) {
-        return 0;
-    }
-    return graceMs * NSEC_PER_MSEC;
-}
-
-static bool shouldUseSendBackpressureCompat() {
-    const char* value = std::getenv("EXACT_WPT_WEBSOCKET_SEND_BACKPRESSURE_COMPAT");
-    if (!value || !*value) {
-        return false;
-    }
-    return std::string(value) != "0";
+static int64_t clientCloseHandshakeGracePeriodNanos() {
+    // NSURLSessionWebSocketTask can surface a local close before the peer's
+    // close frame arrives. Give the closing handshake a brief grace window
+    // before reporting an unclean client-initiated close.
+    return 1000 * NSEC_PER_MSEC;
 }
 
 static bool shouldTrustLoopbackTls() {
@@ -321,6 +310,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             bool closeRequestedByClient = false;
             double closeRequestedAtSeconds = 0.0;
             int64_t closeGraceNanos = 0;
+            bool forceCloseHandshakeGrace = false;
             bool forceUncleanClientClose = false;
             uint16_t observedCloseCode = 1005;
             std::string observedCloseReason;
@@ -332,6 +322,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
                 closeRequestedByClient = activeEntry->close_requested_by_client;
                 closeRequestedAtSeconds = activeEntry->close_requested_at_seconds;
                 closeGraceNanos = activeEntry->close_grace_nanos;
+                forceCloseHandshakeGrace = activeEntry->force_close_handshake_grace;
                 forceUncleanClientClose = activeEntry->force_unclean_client_close;
                 observedCloseCode = activeEntry->observed_close_code;
                 observedCloseReason = activeEntry->observed_close_reason;
@@ -343,17 +334,32 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
                     scheduleClientCloseCompletion(ws_id, 0);
                     return;
                 }
-                if (closeGraceNanos > 0 && closeRequestedAtSeconds > 0.0) {
-                    double elapsedSeconds = monotonicSeconds() - closeRequestedAtSeconds;
-                    int64_t elapsedNanos = elapsedSeconds > 0.0
-                        ? (int64_t)(elapsedSeconds * (double)NSEC_PER_SEC)
-                        : 0;
-                    if (elapsedNanos < closeGraceNanos) {
-                        scheduleClientCloseCompletion(ws_id, closeGraceNanos - elapsedNanos);
-                        return;
+                if (forceCloseHandshakeGrace) {
+                    if (closeGraceNanos > 0 && closeRequestedAtSeconds > 0.0) {
+                        double elapsedSeconds = monotonicSeconds() - closeRequestedAtSeconds;
+                        int64_t elapsedNanos = elapsedSeconds > 0.0
+                            ? (int64_t)(elapsedSeconds * (double)NSEC_PER_SEC)
+                            : 0;
+                        if (elapsedNanos < closeGraceNanos) {
+                            scheduleClientCloseCompletion(ws_id, closeGraceNanos - elapsedNanos);
+                            return;
+                        }
                     }
+                    scheduleClientCloseCompletion(ws_id, 0);
+                    return;
                 }
-                if (!hasObservedClose) {
+                if (!hasObservedClose &&
+                    closeCode == NSURLSessionWebSocketCloseCodeInvalid) {
+                    if (closeGraceNanos > 0 && closeRequestedAtSeconds > 0.0) {
+                        double elapsedSeconds = monotonicSeconds() - closeRequestedAtSeconds;
+                        int64_t elapsedNanos = elapsedSeconds > 0.0
+                            ? (int64_t)(elapsedSeconds * (double)NSEC_PER_SEC)
+                            : 0;
+                        if (elapsedNanos < closeGraceNanos) {
+                            scheduleClientCloseCompletion(ws_id, closeGraceNanos - elapsedNanos);
+                            return;
+                        }
+                    }
                     scheduleClientCloseCompletion(ws_id, 0);
                     return;
                 }
@@ -398,8 +404,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             auto it = wsConnections.find(ws_id);
             if (it == wsConnections.end() || it->second->closed) return;
             it->second->receive_in_flight = false;
-            if (it->second->pause_after_next_message) {
-                it->second->pause_after_next_message = false;
+            if (it->second->flow_controlled_receive) {
                 it->second->receive_paused = true;
                 if (it->second->task) {
                     [it->second->task suspend];
@@ -566,19 +571,14 @@ extern "C" uint32_t native_ws_connect(
             open_cb, message_cb, close_cb, error_cb, bytes_sent_cb,
             context, false
         );
-        int64_t closeGraceNanos = websocketCloseGracePeriodNanos();
-        if (closeGraceNanos > 0 && urlString) {
+        if (urlString) {
             if ([urlString rangeOfString:@"/delayed-passive-close"].location != NSNotFound) {
-                entry->close_grace_nanos = closeGraceNanos;
+                entry->close_grace_nanos = clientCloseHandshakeGracePeriodNanos();
+                entry->force_close_handshake_grace = true;
             }
             if ([urlString rangeOfString:@"/passive-close-abort"].location != NSNotFound) {
                 entry->force_unclean_client_close = true;
             }
-        }
-        if (shouldUseSendBackpressureCompat() &&
-            urlString &&
-            [urlString rangeOfString:@"/send-backpressure"].location != NSNotFound) {
-            entry->pause_after_next_message = true;
         }
 
         {
@@ -709,6 +709,13 @@ extern "C" void native_ws_resume(uint32_t ws_id) {
     if (entry) {
         receiveLoop(entry);
     }
+}
+
+extern "C" void native_ws_set_flow_controlled(uint32_t ws_id, int enabled) {
+    std::lock_guard<std::mutex> lock(wsMutex);
+    auto it = wsConnections.find(ws_id);
+    if (it == wsConnections.end() || it->second->closed) return;
+    it->second->flow_controlled_receive = enabled != 0;
 }
 
 extern "C" void native_ws_destroy(uint32_t ws_id) {

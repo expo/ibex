@@ -298,6 +298,7 @@ extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t lengt
 extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reason);
 extern "C" void native_ws_pause(uint32_t ws_id);
 extern "C" void native_ws_resume(uint32_t ws_id);
+extern "C" void native_ws_set_flow_controlled(uint32_t ws_id, int enabled);
 extern "C" void native_ws_destroy(uint32_t ws_id);
 extern "C" int native_ws_has_active(void);
 extern "C" void native_ws_retain_context(void* context);
@@ -12152,6 +12153,22 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactWsResume", std::move(wsResumeFn));
+
+  auto wsSetFlowControlledFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsSetFlowControlled"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
+        uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        int enabled = args[1].isBool() ? (args[1].getBool() ? 1 : 0) : 0;
+        native_ws_set_flow_controlled(ws_id, enabled);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWsSetFlowControlled", std::move(wsSetFlowControlledFn));
 
   // --- WebSocket JS class ---
   // NOTE: The C++ inline WebSocket class that was previously here has been removed.
