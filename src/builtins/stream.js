@@ -6020,6 +6020,11 @@ function finished(stream, options, callback) {
     stream.readableAborted === true ||
     stream.writableAborted === true
   );
+  var shouldWaitOutgoingClose = !!(
+    stream &&
+    stream._isOutgoingMessage &&
+    !(stream._closed || stream.closed)
+  );
 
   function isReadableDone() {
     return !shouldWaitReadable ||
@@ -6089,6 +6094,9 @@ function finished(stream, options, callback) {
     var readableDone = isReadableDone();
     var writableDone = isWritableDone();
     if (aborted && !(stream._closed || stream.closed)) {
+      return;
+    }
+    if (shouldWaitOutgoingClose && !(stream._closed || stream.closed)) {
       return;
     }
     if (readableDone && writableDone) {
@@ -6199,14 +6207,20 @@ function finished(stream, options, callback) {
     !stream._composePending &&
     (suppressClose || Stream.isReadable(stream)) &&
     (isWritableDone() || Stream.isWritable(stream) === false) &&
-    hasNoPendingCallbacks(stream._writableState)
+    hasNoPendingCallbacks(stream._writableState) &&
+    (!shouldWaitOutgoingClose || alreadyClosed)
   ) {
     _nextTick(function() {
       if (!called) done(null);
     });
   } else if (!isLegacyStream && alreadyClosed && !stream._composePending) {
     done(isReadableClosedCleanly() && isWritableClosedCleanly() ? null : makePrematureCloseError());
-  } else if (!isLegacyStream && (isReadableDone() && isWritableDone()) && !stream._composePending) {
+  } else if (
+    !isLegacyStream &&
+    (isReadableDone() && isWritableDone()) &&
+    !stream._composePending &&
+    (!shouldWaitOutgoingClose || alreadyClosed)
+  ) {
     done(null);
   }
 
