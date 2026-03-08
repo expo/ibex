@@ -127,6 +127,53 @@ function _resumeWritableAfterConstruct(stream) {
   _drainPendingEnd(stream);
 }
 
+function _resumeReadableAfterConstruct(stream) {
+  if (!stream || !stream._readableState || stream._destroyed) return;
+  var state = stream._readableState;
+  if (state.constructed === false) return;
+  if (
+    stream.readableFlowing !== true &&
+    !state.needReadable &&
+    !state.readableListening
+  ) {
+    return;
+  }
+  _nextTick(function() {
+    if (
+      !stream ||
+      stream._destroyed ||
+      !stream._readableState ||
+      stream._readableState.constructed === false
+    ) {
+      return;
+    }
+    if (
+      stream.readableFlowing === true ||
+      stream._readableState.needReadable ||
+      stream._readableState.readableListening
+    ) {
+      stream.read(0);
+    }
+  });
+}
+
+function _drainPendingDestroyAfterConstruct(stream) {
+  if (!stream || typeof stream._pendingDestroyAfterConstruct !== 'function') return false;
+  if (stream._readableState && stream._readableState.constructed === false) return false;
+  if (stream._writableState && stream._writableState.constructed === false) return false;
+  var pending = stream._pendingDestroyAfterConstruct;
+  stream._pendingDestroyAfterConstruct = null;
+  pending();
+  return true;
+}
+
+function _resumeAfterConstruct(stream) {
+  if (!stream) return;
+  if (_drainPendingDestroyAfterConstruct(stream)) return;
+  _resumeReadableAfterConstruct(stream);
+  _resumeWritableAfterConstruct(stream);
+}
+
 function _shouldAutoDestroyOnReadableEnd(stream, readableState) {
   if (!stream || !readableState) return false;
   if (!readableState.autoDestroy || stream._destroyed || stream._closed) return false;
@@ -595,20 +642,32 @@ Stream.prototype.destroy = function(error, callback) {
     self._close(true);
     if (typeof callback === 'function') callback(err);
   }
-  if (typeof this._destroy === 'function') {
-    this._destroy(error || null, function(err) {
-      // Set errored state synchronously so tests can check it
-      if (err) {
-        self.errored = err;
-        if (self._readableState) self._readableState.errored = err;
-        if (self._writableState) self._writableState.errored = err;
-      }
-      // Defer error emit/close without slipping behind user nextTick observers.
-      _nextTick(function() { emitErrorAndClose(err); });
-    });
-  } else {
+
+  function runDestroy() {
+    if (typeof self._destroy === 'function') {
+      self._destroy(error || null, function(err) {
+        // Set errored state synchronously so tests can check it
+        if (err) {
+          self.errored = err;
+          if (self._readableState) self._readableState.errored = err;
+          if (self._writableState) self._writableState.errored = err;
+        }
+        // Defer error emit/close without slipping behind user nextTick observers.
+        _nextTick(function() { emitErrorAndClose(err); });
+      });
+      return;
+    }
     // Defer error/close when using default destroy path
     _nextTick(function() { emitErrorAndClose(error || null); });
+  }
+
+  if (
+    (this._readableState && this._readableState.constructed === false) ||
+    (this._writableState && this._writableState.constructed === false)
+  ) {
+    this._pendingDestroyAfterConstruct = runDestroy;
+  } else {
+    runDestroy();
   }
   return this;
 };
@@ -740,7 +799,9 @@ function Readable(options) {
         self._readableState.constructed = true;
         if (err) {
           self.destroy(err);
+          return;
         }
+        _resumeAfterConstruct(self);
       });
     }, 0);
   } else {
@@ -3759,7 +3820,7 @@ function Writable(options) {
           self.destroy(err);
           return;
         }
-        _resumeWritableAfterConstruct(self);
+        _resumeAfterConstruct(self);
       });
     }, 0);
   }
@@ -4553,7 +4614,7 @@ function Duplex(options) {
           self.destroy(err);
           return;
         }
-        _resumeWritableAfterConstruct(self);
+        _resumeAfterConstruct(self);
       });
     }, 0);
   }
