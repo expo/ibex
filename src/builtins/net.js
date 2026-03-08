@@ -2270,6 +2270,31 @@ Server.prototype.close = function(callback) {
   return this;
 };
 
+if (typeof Symbol === 'function' && Symbol.dispose) {
+  Server.prototype[Symbol.dispose] = function() {
+    this.close();
+  };
+}
+
+if (typeof Symbol === 'function' && Symbol.asyncDispose) {
+  Server.prototype[Symbol.asyncDispose] = function() {
+    var self = this;
+    return new Promise(function(resolve, reject) {
+      try {
+        self.close(function(err) {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+}
+
 Server.prototype.address = function() {
   // Unix socket servers return the path as the address (Node.js convention)
   if (this._isUnix) {
