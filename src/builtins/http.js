@@ -1304,6 +1304,31 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     }
   }
 
+  function finishUpgrade(upgradeHead) {
+    if (responseEnded) return;
+    responseEmitted = true;
+    responseEnded = true;
+    socket._httpMessage = null;
+    socket.parser = null;
+    clearSocketTimeoutListener(self, socket);
+    if (typeof socket.setTimeout === 'function') {
+      socket.setTimeout(0);
+    }
+    cleanupRequestListeners();
+    if (self.agent && typeof socket.emit === 'function') {
+      socket.emit('agentRemove');
+    }
+    self.writableFinished = true;
+    self.emit('finish');
+    self.emit('upgrade', tcpIncoming, socket, upgradeHead);
+    if (!self._closed) {
+      self._closed = true;
+      scheduleNextTick(function() {
+        self.emit('close');
+      });
+    }
+  }
+
   function processChunkedData(data) {
     chunkBuffer += data;
     while (chunkBuffer.length > 0) {
@@ -1408,6 +1433,18 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       }
       if (self.shouldKeepAlive && !tcpIncoming.shouldKeepAlive) {
         self.shouldKeepAlive = false;
+      }
+      var isUpgradeResponse = statusCode === 101 &&
+        connHdr.indexOf('upgrade') !== -1 &&
+        typeof responseHeaders['upgrade'] === 'string' &&
+        responseHeaders['upgrade'].length > 0;
+
+      if (isUpgradeResponse) {
+        var upgradeHead = (typeof Buffer !== 'undefined')
+          ? Buffer.from(bodyStart, 'utf8')
+          : bodyStart;
+        finishUpgrade(upgradeHead);
+        return;
       }
 
       tcpIncoming.on('end', function() {
@@ -3499,6 +3536,45 @@ Server.prototype._onConnection = function(socket) {
     return /^\d+$/.test(target.substring(colonIdx + 1));
   }
 
+  function headerValueContainsToken(value, token) {
+    if (typeof value !== 'string' || typeof token !== 'string' || !token) {
+      return false;
+    }
+    var targetToken = token.toLowerCase();
+    var parts = value.split(',');
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].trim().toLowerCase() === targetToken) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isUpgradeRequest(reqData) {
+    if (!reqData || reqData.method === 'CONNECT' || !reqData.headers) {
+      return false;
+    }
+    return headerValueContainsToken(reqData.headers['connection'], 'upgrade') &&
+      typeof reqData.headers['upgrade'] === 'string' &&
+      reqData.headers['upgrade'].length > 0;
+  }
+
+  function hasPendingHttpRequestData() {
+    if (!socket.parser || !parser) return false;
+    return parser._state !== 0 ||
+      (typeof parser._buffer === 'string' && parser._buffer.length > 0);
+  }
+
+  function armPendingRequestTimeouts() {
+    if (socket.destroyed || socket._requestTimeoutArmed || !hasPendingHttpRequestData()) {
+      return;
+    }
+    clearHeadersTimeout();
+    clearRequestTimeout();
+    socket._headersComplete = false;
+    armRequestParsingTimeouts();
+  }
+
   function clearHeadersTimeout() {
     if (socket._headersTimeoutId) {
       _destroyHttpTimer(socket._headersTimeoutId);
@@ -3561,7 +3637,12 @@ Server.prototype._onConnection = function(socket) {
       socket._headersComplete = false;
       armRequestParsingTimeouts();
     }
-    if (socket.parser) parser.execute(chunk);
+    if (socket.parser) {
+      parser.execute(chunk);
+      if (socket._isIdle) {
+        armPendingRequestTimeouts();
+      }
+    }
   });
 
   var _activeReq = null;
@@ -3591,6 +3672,7 @@ Server.prototype._onConnection = function(socket) {
     clearHeadersTimeout();
     clearRequestTimeout();
     var req = _createServerIncomingMessage(self, reqData, 0, socket);
+    req.complete = reqData.bodyComplete !== false;
 
     if (req.method === 'CONNECT') {
       if (!isValidConnectTarget(req.url)) {
@@ -3616,12 +3698,23 @@ Server.prototype._onConnection = function(socket) {
       return;
     }
 
+    if (isUpgradeRequest(reqData) && self.listenerCount('upgrade') > 0) {
+      socket._isIdle = false;
+      socket.parser = null;
+      var upgradeHead = (typeof Buffer !== 'undefined')
+        ? Buffer.from(parser && parser._buffer ? parser._buffer : '', 'latin1')
+        : (parser && parser._buffer ? parser._buffer : '');
+      if (parser) {
+        parser._buffer = '';
+        parser.close();
+      }
+      self.emit('upgrade', req, socket, upgradeHead);
+      return;
+    }
+
     _activeReq = req;
 
     req.once('end', function() { req.complete = true; if (_activeReq === req) _activeReq = null; });
-    if (reqData.bodyComplete !== false) {
-      req.complete = true;
-    }
 
     var res = _createServerResponse(self, req);
     res.req = req;
@@ -3641,9 +3734,9 @@ Server.prototype._onConnection = function(socket) {
         }
       }
       if (!socket.destroyed) {
-        socket._headersComplete = false;
         clearHeadersTimeout();
         clearRequestTimeout();
+        armPendingRequestTimeouts();
       }
     });
 
