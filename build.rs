@@ -72,8 +72,22 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/native_websocket_linux.cc");
     println!("cargo:rerun-if-changed=src/engine/bootstrap");
     println!("cargo:rerun-if-changed=src/builtins");
-    println!("cargo:rerun-if-changed={}", repo_root.join("js").join("scripts").join("build-builtins.mjs").display());
-    println!("cargo:rerun-if-changed={}", repo_root.join("js").join("scripts").join("transforms.mjs").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        repo_root
+            .join("js")
+            .join("scripts")
+            .join("build-builtins.mjs")
+            .display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        repo_root
+            .join("js")
+            .join("scripts")
+            .join("transforms.mjs")
+            .display()
+    );
     println!("cargo:rerun-if-env-changed=HERMES_ENABLE_DEBUGGER");
     println!("cargo:rerun-if-env-changed=HERMES_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
@@ -131,22 +145,44 @@ fn main() {
                         );
                     }
                     Ok(s) => {
-                        if !allow_fallback {
-                            panic!(
-                                "build-builtins.mjs failed with status {s} using {runner_name} and EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
+                        if try_build_builtins_via_primary_checkout(
+                            &repo_root,
+                            &builtins_src,
+                            &builtins_out,
+                        ) {
+                            eprintln!(
+                                "cargo:warning=Built builtin modules via primary checkout toolchain → {}",
+                                builtins_out.display()
                             );
+                        } else {
+                            if !allow_fallback {
+                                panic!(
+                                    "build-builtins.mjs failed with status {s} using {runner_name} and EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
+                                );
+                            }
+                            eprintln!("cargo:warning=build-builtins.mjs exited with status {}, copying source files as fallback", s);
+                            copy_builtins_fallback(&builtins_src, &builtins_out);
                         }
-                        eprintln!("cargo:warning=build-builtins.mjs exited with status {}, copying source files as fallback", s);
-                        copy_builtins_fallback(&builtins_src, &builtins_out);
                     }
                     Err(e) => {
-                        if !allow_fallback {
-                            panic!(
-                                "Failed to run build-builtins.mjs with {runner_name} ({e}); build aborted because EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
+                        if try_build_builtins_via_primary_checkout(
+                            &repo_root,
+                            &builtins_src,
+                            &builtins_out,
+                        ) {
+                            eprintln!(
+                                "cargo:warning=Built builtin modules via primary checkout toolchain → {}",
+                                builtins_out.display()
                             );
+                        } else {
+                            if !allow_fallback {
+                                panic!(
+                                    "Failed to run build-builtins.mjs with {runner_name} ({e}); build aborted because EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
+                                );
+                            }
+                            eprintln!("cargo:warning=Failed to run build-builtins.mjs: {}, copying source files as fallback", e);
+                            copy_builtins_fallback(&builtins_src, &builtins_out);
                         }
-                        eprintln!("cargo:warning=Failed to run build-builtins.mjs: {}, copying source files as fallback", e);
-                        copy_builtins_fallback(&builtins_src, &builtins_out);
                     }
                 }
             } else {
@@ -670,6 +706,64 @@ fn which_js_runner() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn try_build_builtins_via_primary_checkout(
+    repo_root: &Path,
+    builtins_src: &Path,
+    builtins_out: &Path,
+) -> bool {
+    let Some(primary_root) = resolve_primary_worktree_root(repo_root) else {
+        return false;
+    };
+    if primary_root == repo_root {
+        return false;
+    }
+
+    let primary_js_dir = primary_root.join("js");
+    let primary_script = primary_js_dir.join("scripts").join("build-builtins.mjs");
+    let primary_node_modules = primary_js_dir.join("node_modules");
+
+    if !primary_script.exists() || !primary_node_modules.exists() || !builtins_src.exists() {
+        return false;
+    }
+
+    let _ = std::fs::create_dir_all(builtins_out);
+    let status = std::process::Command::new("node")
+        .arg(primary_script)
+        .arg("--src-dir")
+        .arg(builtins_src)
+        .arg("--out-dir")
+        .arg(builtins_out)
+        .current_dir(&primary_js_dir)
+        .status();
+
+    matches!(status, Ok(result) if result.success())
+}
+
+fn resolve_primary_worktree_root(repo_root: &Path) -> Option<PathBuf> {
+    let dot_git_path = repo_root.join(".git");
+    let dot_git_contents = std::fs::read_to_string(&dot_git_path).ok()?;
+    let gitdir = dot_git_contents
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("gitdir:"))
+        .map(str::trim)?;
+    let gitdir_path = resolve_git_path(repo_root, Path::new(gitdir));
+    let commondir_contents = std::fs::read_to_string(gitdir_path.join("commondir")).ok()?;
+    let commondir = commondir_contents.lines().next()?.trim();
+    let common_git_dir = resolve_git_path(&gitdir_path, Path::new(commondir));
+    common_git_dir.parent().map(|path| path.to_path_buf())
+}
+
+fn resolve_git_path(base: &Path, candidate: &Path) -> PathBuf {
+    if candidate.is_absolute() {
+        return candidate.to_path_buf();
+    }
+
+    match std::fs::canonicalize(base.join(candidate)) {
+        Ok(path) => path,
+        Err(_) => base.join(candidate),
+    }
 }
 
 fn missing_js_build_deps_hint(repo_root: &Path) -> String {
