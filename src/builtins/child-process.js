@@ -1178,6 +1178,53 @@ function _prepareExactChildEnv(command, envSource, argv0, forcedExecPath) {
   return env;
 }
 
+function _isExactCliBooleanExecArg(arg) {
+  return arg === '--expose-internals' ||
+    arg === '--inspect' ||
+    arg === '--inspect-wait' ||
+    arg === '--inspect-open' ||
+    arg === '--inspect-pause' ||
+    arg === '--keep-alive';
+}
+
+function _isExactCliValueExecArg(arg) {
+  return arg === '--stack-size' ||
+    arg === '--max-http-header-size' ||
+    arg === '--inspect-port' ||
+    arg === '--inspect-host';
+}
+
+function _isExactCliAssignmentExecArg(arg) {
+  return typeof arg === 'string' && (
+    arg.indexOf('--stack-size=') === 0 ||
+    arg.indexOf('--max-http-header-size=') === 0 ||
+    arg.indexOf('--inspect-port=') === 0 ||
+    arg.indexOf('--inspect-host=') === 0
+  );
+}
+
+function _splitExactExecArgv(execArgv) {
+  var cliArgs = [];
+  var compatArgs = [];
+  for (var i = 0; i < execArgv.length; i++) {
+    var arg = String(execArgv[i]);
+    if (_isExactCliBooleanExecArg(arg) || _isExactCliAssignmentExecArg(arg)) {
+      cliArgs.push(arg);
+      continue;
+    }
+    if (_isExactCliValueExecArg(arg)) {
+      cliArgs.push(arg);
+      if (i + 1 < execArgv.length) {
+        cliArgs.push(String(execArgv[i + 1]));
+        i++;
+      }
+      continue;
+    }
+    compatArgs.push(arg);
+  }
+  return { cliArgs: cliArgs, compatArgs: compatArgs };
+}
+
 function _normalizeSpawnOptions(options, command) {
   // When no env is specified, use process.env (which may have JS-set values
   // not yet reflected in OS environment). This matches Node.js behavior.
@@ -2559,7 +2606,10 @@ cp.fork = function fork(modulePath, args, options) {
 
   var execPath = _fallbackSpawnCommand(options.execPath || (typeof process !== 'undefined' && process.execPath) || 'node');
   var execArgv = options.execArgv || (typeof process !== 'undefined' && process.execArgv) || [];
-  var spawnArgs = execArgv.concat([_resolvedModule]).concat(args);
+  var exactExecArgv = _shouldPropagateExactExecutable(execPath)
+    ? _splitExactExecArgv(execArgv)
+    : { cliArgs: execArgv, compatArgs: [] };
+  var spawnArgs = exactExecArgv.cliArgs.concat([_resolvedModule]).concat(args);
   var silent = options.silent === true;
   var stdio = options.stdio;
   if (!stdio) {
@@ -2607,6 +2657,11 @@ cp.fork = function fork(modulePath, args, options) {
 
   var env = _normalizeForkEnv(options.env);
   env = _prepareExactChildEnv(execPath, env, options.argv0, execPath);
+  if (exactExecArgv.compatArgs.length > 0) {
+    env.EXACT_COMPAT_EXEC_ARGV = JSON.stringify(exactExecArgv.compatArgs);
+  } else {
+    delete env.EXACT_COMPAT_EXEC_ARGV;
+  }
   env.EXACT_IPC_FD = '3';
 
   var spawnOptions = {

@@ -190,6 +190,12 @@
     stream.writableEnded = false;
     stream.writableFinished = false;
     stream.destroyed = false;
+    if (typeof stream.ref !== 'function') {
+      stream.ref = function() { return stream; };
+    }
+    if (typeof stream.unref !== 'function') {
+      stream.unref = function() { return stream; };
+    }
 
     // Wrap native write to ensure callback support and coerce non-strings
     // Mark with __exactNativeWrite so console-enhance can detect if write was replaced (hijacked)
@@ -393,6 +399,12 @@
       return stream;
     };
     stream.destroyed = false;
+    if (typeof stream.ref !== 'function') {
+      stream.ref = function() { return stream; };
+    }
+    if (typeof stream.unref !== 'function') {
+      stream.unref = function() { return stream; };
+    }
     stream.readableEncoding = null;
     stream.readableEnded = false;
     stream.readableFlowing = null;
@@ -825,6 +837,10 @@
   var _origOn = p.on;
   p.on = function(event, fn) {
     _origOn.call(p, event, fn);
+    if ((event === 'message' || event === 'disconnect') &&
+        p.channel && typeof p.channel.ref === 'function') {
+      p.channel.ref();
+    }
     // Auto-trap OS signal when first listener is added
     if (_signals[event] && !_trappedSignals[event]) {
       _trappedSignals[event] = true;
@@ -838,6 +854,16 @@
     return p;
   };
   p.addListener = p.on;
+  if (typeof p.once === 'function') {
+    var _origOnce = p.once;
+    p.once = function(event, fn) {
+      if ((event === 'message' || event === 'disconnect') &&
+          p.channel && typeof p.channel.ref === 'function') {
+        p.channel.ref();
+      }
+      return _origOnce.call(p, event, fn);
+    };
+  }
 
   // process.channel — not applicable (no IPC), but stub for compatibility
   p.channel = undefined;

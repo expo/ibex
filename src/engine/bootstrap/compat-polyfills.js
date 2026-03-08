@@ -1993,6 +1993,34 @@
         return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
       }
 
+      function exactEnsureStdioRefUnref() {
+        function exactInstallNoopRef(stream, name) {
+          if (typeof stream[name] === 'function') return;
+          try {
+            Object.defineProperty(stream, name, {
+              value: function() { return this; },
+              writable: true,
+              configurable: true,
+              enumerable: false
+            });
+            if (typeof stream[name] === 'function') return;
+          } catch (_) {}
+          stream[name] = function() { return this; };
+        }
+        var stdioNames = ['stdout', 'stderr', 'stdin'];
+        for (var stdioIndex = 0; stdioIndex < stdioNames.length; stdioIndex++) {
+          var stdioStream = globalThis.process[stdioNames[stdioIndex]];
+          if (!stdioStream || typeof stdioStream !== 'object') continue;
+          var stdioProto = Object.getPrototypeOf(stdioStream);
+          if (stdioProto && typeof stdioProto === 'object') {
+            exactInstallNoopRef(stdioProto, 'ref');
+            exactInstallNoopRef(stdioProto, 'unref');
+          }
+          exactInstallNoopRef(stdioStream, 'ref');
+          exactInstallNoopRef(stdioStream, 'unref');
+        }
+      }
+
       function exactCreateIpcError(code, message) {
         var err = new Error(message);
         err.code = code;
@@ -2009,7 +2037,12 @@
         }
         globalThis.process.connected = false;
         globalThis.process.channel = null;
-        globalThis.process[Symbol.for('kChannelHandle')] = null;
+        var exactChannelHandleKey = globalThis.__exactKChannelHandleKey;
+        if (exactChannelHandleKey === undefined) {
+          exactChannelHandleKey = '__exactKChannelHandle';
+          globalThis.__exactKChannelHandleKey = exactChannelHandleKey;
+        }
+        globalThis.process[exactChannelHandleKey] = null;
         if (typeof globalThis.__exactFsClose === 'function') {
           try {
             globalThis.__exactFsClose(exactIpcFd);
@@ -2018,7 +2051,12 @@
         var emitDisconnect = function() {
           globalThis.process.emit('disconnect');
         };
-        if (typeof globalThis.process.nextTick === 'function') {
+        if (typeof globalThis.setTimeout === 'function') {
+          var disconnectTimer = globalThis.setTimeout(emitDisconnect, 0);
+          if (disconnectTimer && typeof disconnectTimer.ref === 'function') {
+            disconnectTimer.ref();
+          }
+        } else if (typeof globalThis.process.nextTick === 'function') {
           globalThis.process.nextTick(emitDisconnect);
         } else {
           emitDisconnect();
@@ -2179,6 +2217,14 @@
           } catch (e) {}
         }
         if (exactIpcPollActive) {
+          if (typeof globalThis.process.listenerCount === 'function') {
+            try {
+              var activeIpcListeners =
+                globalThis.process.listenerCount('message') +
+                globalThis.process.listenerCount('disconnect');
+              exactIpcChannelRefed = activeIpcListeners > 0;
+            } catch (_) {}
+          }
           exactIpcPollTimer = setTimeout(exactPollIpc, exactIpcPollInterval);
           // Ref/unref based on current channel ref state
           if (exactIpcPollTimer) {
@@ -2199,6 +2245,9 @@
       function exactRefIpcTimer() {
         if (exactIpcChannelRefed) return;
         exactIpcChannelRefed = true;
+        if (!exactIpcPollTimer && exactIpcPollActive && typeof setTimeout === 'function') {
+          exactIpcPollTimer = setTimeout(exactPollIpc, 0);
+        }
         if (exactIpcPollTimer && typeof exactIpcPollTimer.ref === 'function') {
           exactIpcPollTimer.ref();
         } else if (exactIpcPollTimer) {
@@ -2224,8 +2273,13 @@
         ref: function() { exactRefIpcTimer(); },
         unref: function() { exactUnrefIpcTimer(); }
       };
+      exactEnsureStdioRefUnref();
       // Expose kChannelHandle for internal/child_process compatibility
-      var kChannelHandle = Symbol.for('kChannelHandle');
+      var kChannelHandle = globalThis.__exactKChannelHandleKey;
+      if (kChannelHandle === undefined) {
+        kChannelHandle = '__exactKChannelHandle';
+        globalThis.__exactKChannelHandleKey = kChannelHandle;
+      }
       globalThis.process[kChannelHandle] = {
         readStop: function() {
           exactIpcPollActive = false;

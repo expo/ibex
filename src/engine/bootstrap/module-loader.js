@@ -1356,7 +1356,11 @@
       }
     },
     'internal/child_process': (function() {
-      var kChannelHandle = Symbol.for('kChannelHandle');
+      var kChannelHandle = globalThis.__exactKChannelHandleKey;
+      if (kChannelHandle === undefined) {
+        kChannelHandle = '__exactKChannelHandle';
+        globalThis.__exactKChannelHandleKey = kChannelHandle;
+      }
       function getValidStdio(stdio, sync) {
         if (typeof stdio === 'string') {
           if (stdio !== 'ignore' && stdio !== 'pipe' && stdio !== 'inherit' && stdio !== 'overlapped') {
@@ -1885,6 +1889,12 @@
           stdout.writable = true;
         }
       }
+      if (stdout && typeof stdout.ref !== 'function') {
+        stdout.ref = function() { return stdout; };
+      }
+      if (stdout && typeof stdout.unref !== 'function') {
+        stdout.unref = function() { return stdout; };
+      }
       Object.defineProperty(process, 'stdout', {
         value: stdout,
         writable: true,
@@ -1898,6 +1908,12 @@
             stderr.writable = true;
           }
         }
+        if (typeof stderr.ref !== 'function') {
+          stderr.ref = function() { return stderr; };
+        }
+        if (typeof stderr.unref !== 'function') {
+          stderr.unref = function() { return stderr; };
+        }
         Object.defineProperty(process, 'stderr', {
           value: stderr,
           writable: true,
@@ -1906,6 +1922,12 @@
         });
       }
       if (process.stdin) {
+        if (typeof process.stdin.ref !== 'function') {
+          process.stdin.ref = function() { return process.stdin; };
+        }
+        if (typeof process.stdin.unref !== 'function') {
+          process.stdin.unref = function() { return process.stdin; };
+        }
         Object.defineProperty(process, 'stdin', {
           value: process.stdin,
           writable: true,
