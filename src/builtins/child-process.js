@@ -371,6 +371,36 @@ function _execStringEncoding(encoding, validEncodings) {
   return 'utf8';
 }
 
+function _validateCredentialOption(name, value) {
+  if (value == null) return;
+  if (typeof value !== 'number') {
+    _throwInvalidArgType(name, 'of type number', value);
+  }
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 2147483647) {
+    _throwOutOfRange(name, '>= 0 && <= 2147483647', value);
+  }
+}
+
+function _validateNonNegativeIntegerOption(name, value) {
+  if (value == null) return;
+  if (typeof value !== 'number') {
+    _throwInvalidArgType(name, 'of type number', value);
+  }
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    _throwOutOfRange(name, 'a non-negative integer', value);
+  }
+}
+
+function _validateNonNegativeNumberOption(name, value) {
+  if (value == null) return;
+  if (typeof value !== 'number') {
+    _throwInvalidArgType(name, 'of type number', value);
+  }
+  if (value !== value || value < 0) {
+    _throwOutOfRange(name, 'a non-negative number', value);
+  }
+}
+
 function _validateSignalOption(signal) {
   if (signal != null) {
     // Duck-type check: AbortSignal has 'aborted' property and 'addEventListener' method
@@ -423,16 +453,8 @@ function _validateSpawnSyncOptions(options) {
   if (options.detached != null && typeof options.detached !== 'boolean') {
     _throwInvalidArgType('options.detached', 'of type boolean or undefined', options.detached);
   }
-  if (options.uid != null) {
-    if (typeof options.uid !== 'number' || !Number.isInteger(options.uid) || options.uid < 0) {
-      _throwInvalidArgType('options.uid', 'an int32', options.uid);
-    }
-  }
-  if (options.gid != null) {
-    if (typeof options.gid !== 'number' || !Number.isInteger(options.gid) || options.gid < 0) {
-      _throwInvalidArgType('options.gid', 'an int32', options.gid);
-    }
-  }
+  _validateCredentialOption('options.uid', options.uid);
+  _validateCredentialOption('options.gid', options.gid);
   if (options.shell != null && typeof options.shell !== 'boolean' && typeof options.shell !== 'string') {
     _throwInvalidArgType('options.shell', 'of type boolean or of type string or undefined', options.shell);
   }
@@ -446,14 +468,10 @@ function _validateSpawnSyncOptions(options) {
     _throwInvalidArgType('options.windowsVerbatimArguments', 'of type boolean or undefined', options.windowsVerbatimArguments);
   }
   if (options.timeout != null) {
-    if (typeof options.timeout !== 'number' || !Number.isFinite(options.timeout) || !Number.isInteger(options.timeout) || options.timeout < 0) {
-      _throwOutOfRange('options.timeout', 'a non-negative integer', options.timeout);
-    }
+    _validateNonNegativeIntegerOption('options.timeout', options.timeout);
   }
   if (options.maxBuffer != null) {
-    if (typeof options.maxBuffer !== 'number' || options.maxBuffer !== options.maxBuffer || options.maxBuffer < 0) {
-      _throwOutOfRange('options.maxBuffer', 'a non-negative number', options.maxBuffer);
-    }
+    _validateNonNegativeNumberOption('options.maxBuffer', options.maxBuffer);
   }
   if (options.killSignal != null) {
     if (typeof options.killSignal !== 'string' && typeof options.killSignal !== 'number') {
@@ -2688,12 +2706,7 @@ cp.spawn = function spawn(command, args, options) {
   _validateOptionsNullBytes(options);
   // Validate timeout option
   if (options.timeout !== undefined && options.timeout !== null) {
-    if (typeof options.timeout !== 'number' || !(options.timeout >= 0) || options.timeout !== (options.timeout | 0) && options.timeout !== Infinity) {
-      var toErr = new RangeError('The value of "options.timeout" is out of range. It must be an unsigned integer. Received ' + require('util').inspect(options.timeout));
-      toErr.code = 'ERR_OUT_OF_RANGE';
-      _addCodeToString(toErr);
-      throw toErr;
-    }
+    _validateNonNegativeIntegerOption('options.timeout', options.timeout);
   }
   // Validate killSignal option
   if (options.killSignal !== undefined && options.killSignal !== null) {
@@ -2718,12 +2731,8 @@ cp.spawn = function spawn(command, args, options) {
     throw serErr;
   }
   // Validate uid/gid
-  if (options.uid != null && (typeof options.uid !== 'number' || !Number.isInteger(options.uid) || options.uid < 0 || options.uid > 2147483647)) {
-    _throwInvalidArgType('options.uid', 'an int32', options.uid);
-  }
-  if (options.gid != null && (typeof options.gid !== 'number' || !Number.isInteger(options.gid) || options.gid < 0 || options.gid > 2147483647)) {
-    _throwInvalidArgType('options.gid', 'an int32', options.gid);
-  }
+  _validateCredentialOption('options.uid', options.uid);
+  _validateCredentialOption('options.gid', options.gid);
   // Check uid/gid permissions - throw EPERM if not root
   if (options.uid != null && typeof process !== 'undefined' && typeof process.getuid === 'function') {
     var currentUid = process.getuid();
