@@ -1663,10 +1663,14 @@
       if (options.path || options.unix) {
         connectOptions = { path: options.path || options.unix };
       } else {
+        var requestedHost = options.hostname || options.host || '127.0.0.1';
         connectOptions = {
-          host: options.hostname || options.host || '127.0.0.1',
+          host: requestedHost,
           port: options.port
         };
+        if (!options.family && requestedHost === 'localhost') {
+          connectOptions.autoSelectFamily = true;
+        }
       }
 
       var resolved = false;
