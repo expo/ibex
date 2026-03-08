@@ -2194,7 +2194,10 @@ Socket.prototype.destroy = function(err) {
   // Set _handle to null after destroy (Node.js compat: test-net-after-close checks c._handle === null)
   this._handle = null;
   if (err) this.emit('error', err);
-  this.emit('close', !!err);
+  var self = this;
+  _scheduleCallback(function(hadErr) {
+    self.emit('close', hadErr);
+  }, !!err);
   return this;
 };
 
@@ -2224,6 +2227,7 @@ Socket.prototype.setTimeout = function(timeout, callback) {
     rangeErr.code = 'ERR_OUT_OF_RANGE';
     throw rangeErr;
   }
+  this.timeout = timeout || 0;
   this._timeoutMs = timeout || 0;
   if (callback !== undefined) {
     if (typeof callback !== 'function') {

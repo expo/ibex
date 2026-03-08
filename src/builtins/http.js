@@ -288,10 +288,21 @@ function toHeaders(source) {
   for (var key in source) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
       var val = source[key];
+      var headerName = resolveHeaderName(key);
+      validateHeaderName(String(key));
       if (Array.isArray(val)) {
-        out[resolveHeaderName(key)] = val.map(String).join(', ');
+        if (headerName === 'host') {
+          var hostErr = new TypeError('The "options.headers.host" property must be of type string.');
+          hostErr.code = 'ERR_INVALID_ARG_TYPE';
+          throw hostErr;
+        }
+        out[headerName] = val.map(function(item) {
+          validateHeaderValue(String(key), item);
+          return String(item);
+        }).join(', ');
       } else {
-        out[resolveHeaderName(key)] = String(val);
+        validateHeaderValue(String(key), val);
+        out[headerName] = String(val);
       }
     }
   }
@@ -563,6 +574,7 @@ _attachHttpAsyncIterator(IncomingMessage.prototype);
 function ClientRequest(options, callback) {
   EventEmitter.call(this);
   this.options = options || {};
+  this._defaultAgent = globalAgent;
 
   // Validate hostname/host type
   if (this.options.hostname !== undefined && this.options.hostname !== null && typeof this.options.hostname !== 'string') {
@@ -589,11 +601,27 @@ function ClientRequest(options, callback) {
   // Validate method is a valid HTTP token
   if (this.options.method !== undefined && this.options.method !== null) {
     var methodStr = String(this.options.method);
-    if (!HEADER_NAME_RE.test(methodStr)) {
+    if (methodStr && !HEADER_NAME_RE.test(methodStr)) {
       var mErr = new TypeError('Method must be a valid HTTP token ["' + methodStr + '"]');
       mErr.code = 'ERR_INVALID_HTTP_TOKEN';
       throw mErr;
     }
+  }
+
+  var resolvedAgent = this.options.agent;
+  if (resolvedAgent === false) {
+    resolvedAgent = new Agent();
+  } else if (resolvedAgent === null || resolvedAgent === undefined) {
+    if (typeof this.options.createConnection !== 'function') {
+      resolvedAgent = this._defaultAgent;
+    } else {
+      resolvedAgent = null;
+    }
+  } else if (typeof resolvedAgent.addRequest !== 'function') {
+    var agentErr = new TypeError('The "options.agent" property must be one of Agent-like Object, undefined, or false.' +
+      _invalidArgTypeHelper(resolvedAgent));
+    agentErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw agentErr;
   }
 
   this._url = typeof this.options.__exactOriginalUrl === "string"
@@ -620,15 +648,40 @@ function ClientRequest(options, callback) {
   this.finished = false;
   this.writableEnded = false;
   this.writableFinished = false;
+  this.destroyed = false;
   this.maxHeadersCount = 2000;
   this.reusedSocket = false;
   this.socket = null;
-  this.agent = this.options.agent !== undefined ? this.options.agent : null;
+  this.agent = resolvedAgent;
   this.host = this.options.hostname || this.options.host || 'localhost';
-  this.protocol = this.options.protocol || 'http:';
+  this.protocol = this.options.protocol || (this.agent && this.agent.protocol) || 'http:';
+  this.timeout = this.options.timeout;
+  this.timeoutCb = null;
+  this.res = null;
+  this._pendingRawRequest = null;
+  this._agentDispatched = false;
+  this._pendingSocketDrain = false;
+  this._socketDrainListenerAttached = false;
+  this._responseEndedBeforeRequestEnd = false;
+  this._last = true;
+  this.shouldKeepAlive = false;
+
+  if (this.agent) {
+    if (!this.agent.keepAlive && !isFinite(this.agent.maxSockets)) {
+      this._last = true;
+      this.shouldKeepAlive = false;
+    } else {
+      this._last = false;
+      this.shouldKeepAlive = true;
+    }
+  }
 
   if (typeof callback === "function") {
     this.once("response", callback);
+  }
+
+  if (this.protocol === 'http:' || this.options.socketPath || typeof this.options.createConnection === 'function') {
+    this._ensureSocketAssigned();
   }
 }
 ClientRequest.prototype = Object.create(EventEmitter.prototype);
@@ -636,6 +689,13 @@ ClientRequest.prototype.constructor = ClientRequest;
 
 ClientRequest.prototype.setHeader = function(name, value) {
   var lc = resolveHeaderName(name);
+  validateHeaderName(String(name));
+  if (Array.isArray(value) && lc === 'host') {
+    var hostErr = new TypeError('The "options.headers.host" property must be of type string.');
+    hostErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw hostErr;
+  }
+  validateHeaderValue(String(name), value);
   this.headers[lc] = Array.isArray(value) ? value.map(String).join(', ') : String(value);
   this._headerNames[lc] = name;
 };
@@ -687,8 +747,172 @@ ClientRequest.prototype.flushHeaders = function() {
   }
 };
 
-ClientRequest.prototype.setNoDelay = function() {};
-ClientRequest.prototype.setSocketKeepAlive = function() {};
+function emitRequestTimeout() {
+  var req = this && this._httpMessage;
+  if (req) {
+    req.emit('timeout');
+  }
+}
+
+function listenSocketTimeout(req) {
+  if (req.timeoutCb) return;
+  req.timeoutCb = emitRequestTimeout;
+  if (req.socket) {
+    req.socket.on('timeout', req.timeoutCb);
+  } else {
+    req.once('socket', function(socket) {
+      socket.on('timeout', req.timeoutCb);
+    });
+  }
+}
+
+function setSocketTimeout(socket, timeout) {
+  if (!socket || typeof socket.setTimeout !== 'function') return;
+  socket.setTimeout(timeout);
+}
+
+function clearSocketTimeoutListener(req, socket) {
+  if (!req || !socket || !req.timeoutCb) return;
+  socket.removeListener('timeout', req.timeoutCb);
+  req.timeoutCb = null;
+}
+
+function ReusedHandle(type, handle) {
+  this.type = type || 'Socket';
+  this.handle = handle;
+}
+
+function freeSocketErrorListener() {
+  if (typeof this.destroy === 'function') {
+    this.destroy();
+  }
+  if (typeof this.emit === 'function') {
+    this.emit('agentRemove');
+  }
+}
+
+function asyncResetHandle(socket) {
+  var handle = socket && socket._handle;
+  if (handle && typeof handle.asyncReset === 'function') {
+    try {
+      handle.asyncReset(new ReusedHandle(
+        typeof handle.getProviderType === 'function' ? handle.getProviderType() : 'Socket',
+        handle
+      ));
+    } catch (_asyncResetErr) {}
+  }
+}
+
+function setRequestSocket(agent, req, socket, options) {
+  req.onSocket(socket, options);
+  var agentTimeout = agent && agent.options ? agent.options.timeout : undefined;
+  if (req.timeout === undefined || req.timeout === null) {
+    if (agentTimeout !== undefined) {
+      listenSocketTimeout(req);
+      setSocketTimeout(socket, agentTimeout);
+    }
+    return;
+  }
+  listenSocketTimeout(req);
+  setSocketTimeout(socket, req.timeout);
+}
+
+function scheduleNextTick(fn) {
+  if (typeof process !== 'undefined' && process && typeof process.nextTick === 'function') {
+    process.nextTick(fn);
+    return;
+  }
+  setTimeout(fn, 0);
+}
+
+ClientRequest.prototype._deferToConnect = function(method, args) {
+  var self = this;
+  function invoke() {
+    if (!self.socket || typeof self.socket[method] !== 'function') return;
+    if (self.socket.writable !== false) {
+      self.socket[method].apply(self.socket, args);
+    }
+  }
+  function onSocket() {
+    if (!self.socket) return;
+    if (self.socket.connecting) {
+      self.socket.once('connect', invoke);
+    } else {
+      invoke();
+    }
+  }
+  if (!this.socket) {
+    this.once('socket', onSocket);
+  } else {
+    onSocket();
+  }
+};
+
+ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
+  var self = this;
+  scheduleNextTick(function() {
+    if (err) {
+      self.destroyed = true;
+      if (socket && typeof socket.destroy === 'function') {
+        try { socket.destroy(err); } catch (_destroyErr) {}
+      }
+      self.emit('error', err);
+      if (!self._closed) {
+        self._closed = true;
+        self.emit('close');
+      }
+      return;
+    }
+    if (!socket) {
+      return;
+    }
+    self.socket = socket;
+    if (self.timeout !== undefined && self.timeout !== null) {
+      listenSocketTimeout(self);
+      setSocketTimeout(socket, self.timeout);
+    } else if (self.agent && self.agent.options && self.agent.options.timeout !== undefined) {
+      listenSocketTimeout(self);
+      setSocketTimeout(socket, self.agent.options.timeout);
+    }
+    self._attachToSocket(socket, requestOptions || self.options);
+    self.emit('socket', socket);
+  });
+};
+
+ClientRequest.prototype.setTimeout = function(timeout, callback) {
+  if (typeof timeout === 'number' && timeout >= 0) {
+    this.timeout = timeout;
+    if (callback) {
+      this.once('timeout', callback);
+    }
+    if (timeout === 0) {
+      if (this.socket && typeof this.socket.setTimeout === 'function') {
+        this.socket.setTimeout(0);
+      }
+      if (this.socket) {
+        clearSocketTimeoutListener(this, this.socket);
+      }
+      return this;
+    }
+    listenSocketTimeout(this);
+    if (this.socket) {
+      setSocketTimeout(this.socket, timeout);
+    }
+  }
+  return this;
+};
+
+ClientRequest.prototype.clearTimeout = function(callback) {
+  return this.setTimeout(0, callback);
+};
+
+ClientRequest.prototype.setNoDelay = function(noDelay) {
+  this._deferToConnect('setNoDelay', [noDelay]);
+};
+
+ClientRequest.prototype.setSocketKeepAlive = function(enable, initialDelay) {
+  this._deferToConnect('setKeepAlive', [enable, initialDelay]);
+};
 
 ClientRequest.prototype.write = function(chunk, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
@@ -722,19 +946,20 @@ ClientRequest.prototype.end = function(chunk, encoding, callback) {
 };
 
 ClientRequest.prototype.destroy = function(err) {
-  if (this._closed) return this;
+  if (this.destroyed) return this;
   this._aborted = true;
   this.aborted = true;
-  this._closed = true;
   this.destroyed = true;
   if (this._abortController) {
     try { this._abortController.abort(); } catch(e) {}
   }
   if (this.socket && !this.socket.destroyed) {
     try { this.socket.destroy(); } catch(e) {}
+  } else if (!this._closed) {
+    this._closed = true;
+    if (err) this.emit("error", err);
+    this.emit("close");
   }
-  if (err) this.emit("error", err);
-  this.emit("close");
   return this;
 };
 
@@ -742,31 +967,11 @@ ClientRequest.prototype.abort = function() {
   if (this._aborted) return;
   this._aborted = true;
   this.aborted = true;
-  this._closed = true;
-  if (this._abortController) {
-    try { this._abortController.abort(); } catch(e) {}
-  }
-  if (this.socket && !this.socket.destroyed) {
-    try { this.socket.destroy(); } catch(e) {}
-  }
-  this.emit("abort");
-  this.emit("close");
-};
-
-ClientRequest.prototype.setTimeout = function(timeout, callback) {
-  if (typeof timeout === 'number' && timeout > 0) {
-    var self = this;
-    this._timeoutId = setTimeout(function() {
-      self.emit('timeout');
-    }, timeout);
-    if (typeof callback === 'function') {
-      this.once('timeout', callback);
-    }
-  } else if (timeout === 0 && this._timeoutId) {
-    clearTimeout(this._timeoutId);
-    this._timeoutId = null;
-  }
-  return this;
+  var self = this;
+  setTimeout(function() {
+    self.emit("abort");
+  }, 0);
+  this.destroy();
 };
 
 ClientRequest.prototype._send = function() {
@@ -824,13 +1029,51 @@ ClientRequest.prototype._sendViaFetch = function(body) {
 };
 
 ClientRequest.prototype._sendViaTcp = function(body) {
-  var net;
-  try { net = require('net'); } catch(e) {
-    this.emit("error", new Error("Neither fetch nor net module available"));
-    this.emit("close");
+  var self = this;
+  var resolved = this._resolveConnectionOptions();
+  var options = resolved.options;
+  var host = resolved.host;
+  var port = resolved.port;
+
+  // Build raw HTTP request
+  var reqLine = this.method + ' ' + this.path + ' HTTP/1.1\r\n';
+  var headerStr = '';
+  if (!this.headers['host']) {
+    headerStr += 'Host: ' + host + (port !== 80 ? ':' + port : '') + '\r\n';
+  }
+  for (var k in this.headers) {
+    if (Object.prototype.hasOwnProperty.call(this.headers, k)) {
+      var casedName = this._headerNames[k] || toHeaderCase(k);
+      headerStr += casedName + ': ' + this.headers[k] + '\r\n';
+    }
+  }
+  if (body) {
+    if (!this.headers['content-length'] && !this.headers['transfer-encoding']) {
+      var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+        ? Buffer.byteLength(body) : body.length;
+      headerStr += 'Content-Length: ' + bodyLen + '\r\n';
+    }
+  }
+  if (!this.headers['connection']) {
+    headerStr += 'Connection: ' + (this.shouldKeepAlive ? 'keep-alive' : 'close') + '\r\n';
+  }
+  headerStr += '\r\n';
+
+  var rawRequest = reqLine + headerStr;
+  if (body) {
+    rawRequest += body;
+  }
+  this._pendingRawRequest = rawRequest;
+
+  if (this._writePendingRequest) {
+    this._writePendingRequest();
     return;
   }
-  var self = this;
+
+  this._ensureSocketAssigned();
+};
+
+ClientRequest.prototype._resolveConnectionOptions = function() {
   var options = (this.options && typeof this.options === 'object') ? this.options : {};
   var host = options.hostname || options.host;
   var port = options.port;
@@ -850,7 +1093,6 @@ ClientRequest.prototype._sendViaTcp = function(body) {
       }
     } catch (_err) {}
   }
-  // Strip port from host if combined
   if (host && host.indexOf(':') !== -1 && host.charAt(0) !== '[') {
     var parts = host.split(':');
     host = parts[0];
@@ -859,53 +1101,81 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   if (!host) host = 'localhost';
   if (!port) port = 80;
 
-  var createConnection = options.createConnection || null;
-
-  // Build raw HTTP request
-  var reqLine = this.method + ' ' + this.path + ' HTTP/1.1\r\n';
-  var headerStr = '';
-  if (!this.headers['host']) {
-    headerStr += 'Host: ' + host + (port !== 80 ? ':' + port : '') + '\r\n';
-  }
-  for (var k in this.headers) {
-    if (Object.prototype.hasOwnProperty.call(this.headers, k)) {
-      var casedName = this._headerNames[k] || toHeaderCase(k);
-      headerStr += casedName + ': ' + this.headers[k] + '\r\n';
+  var connectionOptions = {};
+  for (var optKey in options) {
+    if (Object.prototype.hasOwnProperty.call(options, optKey)) {
+      connectionOptions[optKey] = options[optKey];
     }
   }
-  if (body && this.method !== 'GET' && this.method !== 'HEAD') {
-    if (!this.headers['content-length'] && !this.headers['transfer-encoding']) {
-      var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-        ? Buffer.byteLength(body) : body.length;
-      headerStr += 'Content-Length: ' + bodyLen + '\r\n';
-    }
-  }
-  if (!this.headers['connection']) {
-    headerStr += 'Connection: close\r\n';
-  }
-  headerStr += '\r\n';
-
-  var rawRequest = reqLine + headerStr;
-  if (body && this.method !== 'GET' && this.method !== 'HEAD') {
-    rawRequest += body;
-  }
-
-  var socket;
-  if (createConnection) {
-    socket = createConnection({ host: host, port: port });
-    socket.once('connect', function() {
-      socket.write(rawRequest);
-    });
+  if (options.socketPath) {
+    connectionOptions.path = options.socketPath;
   } else {
-    socket = net.createConnection({ host: host, port: port }, function() {
-      socket.write(rawRequest);
-    });
+    delete connectionOptions.path;
+    connectionOptions.host = host;
+    if (options.hostname) {
+      connectionOptions.hostname = options.hostname;
+    }
+    connectionOptions.port = port;
   }
 
-  self.socket = socket;
-  self.emit('socket', socket);
+  return {
+    host: host,
+    port: port,
+    options: connectionOptions
+  };
+};
 
-  // Parse HTTP response
+ClientRequest.prototype._ensureSocketAssigned = function() {
+  if (this.socket || this._agentDispatched || this.protocol !== 'http:') return;
+
+  var net;
+  try { net = require('net'); } catch (e) {
+    this.emit("error", new Error("Neither fetch nor net module available"));
+    if (!this._closed) {
+      this._closed = true;
+      this.emit("close");
+    }
+    return;
+  }
+
+  var resolved = this._resolveConnectionOptions();
+  var connectionOptions = resolved.options;
+  var self = this;
+
+  if (this.agent && typeof this.agent.addRequest === 'function') {
+    if (!this._agentDispatched) {
+      this._agentDispatched = true;
+      this.agent.addRequest(this, connectionOptions);
+    }
+    return;
+  }
+
+  var createConnection = connectionOptions.createConnection || this.options.createConnection || null;
+  if (createConnection) {
+    var created = false;
+    function oncreate(err, socket) {
+      if (created) return;
+      created = true;
+      self.onSocket(socket, connectionOptions, err);
+    }
+    try {
+      var maybeSocket = createConnection(connectionOptions, oncreate);
+      if (maybeSocket) {
+        oncreate(null, maybeSocket);
+      }
+    } catch (createErr) {
+      oncreate(createErr);
+    }
+    return;
+  }
+
+  self.onSocket(net.createConnection(connectionOptions), connectionOptions);
+};
+
+ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
+  var self = this;
+  if (!socket) return;
+
   var responseBuffer = '';
   var headersParsed = false;
   var statusCode = 200;
@@ -921,6 +1191,83 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   var chunkParserState = 'size';
   var chunkRemaining = 0;
   var chunkBuffer = '';
+  var rawRequestWritten = false;
+  var socketRetired = false;
+
+  function maybeReleaseSocketAfterFlush() {
+    if (self._responseEndedBeforeRequestEnd) {
+      retireSocketFromAgent();
+      return;
+    }
+    if (!self._waitingForSocketDrain || !responseEnded) return;
+    self._waitingForSocketDrain = false;
+    if (self.shouldKeepAlive && tcpIncoming && !tcpIncoming.aborted) {
+      releaseSocket();
+    }
+  }
+
+  function retireSocketFromAgent() {
+    if (socketRetired) return;
+    socketRetired = true;
+    clearSocketTimeoutListener(self, socket);
+    cleanupRequestListeners();
+    self.destroyed = true;
+    if (self.res) {
+      self.res.socket = null;
+    }
+    socket._httpMessage = null;
+    if (typeof socket.unref === 'function') {
+      socket.unref();
+    }
+    scheduleNextTick(function() {
+      if (typeof socket.emit === 'function') {
+        socket.emit('agentRemove');
+      }
+      if (!self._closed) {
+        self._closed = true;
+        self.emit('close');
+      }
+    });
+  }
+
+  function cleanupRequestListeners() {
+    socket.removeListener('data', onData);
+    socket.removeListener('end', onEnd);
+    socket.removeListener('close', onClose);
+    socket.removeListener('error', onError);
+  }
+
+  function releaseSocket() {
+    if (!self.agent || !self.shouldKeepAlive || !tcpIncoming || tcpIncoming.aborted ||
+        !tcpIncoming.shouldKeepAlive || socket.destroyed || socket.writable === false) {
+      if (!socket.destroyed) {
+        try {
+          if (typeof socket.end === 'function') socket.end();
+          else socket.destroy();
+        } catch (_endErr) {
+          try { socket.destroy(); } catch (_destroyErr) {}
+        }
+      }
+      return;
+    }
+
+    if (typeof socket.setTimeout === 'function') {
+      socket.setTimeout(self.agent.options && self.agent.options.timeout ? self.agent.options.timeout : 0);
+    }
+    clearSocketTimeoutListener(self, socket);
+    cleanupRequestListeners();
+    self.destroyed = true;
+    if (self.res) {
+      self.res.socket = null;
+    }
+    if (!self._closed) {
+      self._closed = true;
+      scheduleNextTick(function() {
+        self.emit('close');
+        socket.emit('free');
+      });
+    }
+  }
 
   function finishResponse() {
     if (responseEnded) return;
@@ -930,7 +1277,6 @@ ClientRequest.prototype._sendViaTcp = function(body) {
     }
     self.writableFinished = true;
     self.emit('finish');
-    try { socket.destroy(); } catch(e) {}
   }
 
   function abortResponse() {
@@ -946,6 +1292,15 @@ ClientRequest.prototype._sendViaTcp = function(body) {
         tcpIncoming.emit('error', abortErr);
         tcpIncoming.emit('close');
       }
+    } else if (!self._aborted && !socket._hadError) {
+      socket._hadError = true;
+      var hangupErr = new Error('socket hang up');
+      hangupErr.code = 'ECONNRESET';
+      self.emit('error', hangupErr);
+    }
+    if (!self._closed) {
+      self._closed = true;
+      self.emit('close');
     }
   }
 
@@ -993,7 +1348,7 @@ ClientRequest.prototype._sendViaTcp = function(body) {
     }
   }
 
-  socket.on('data', function(chunk) {
+  function onData(chunk) {
     var str = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
 
     if (!headersParsed) {
@@ -1005,7 +1360,8 @@ ClientRequest.prototype._sendViaTcp = function(body) {
       headersParsed = true;
 
       var lines = headerSection.split('\r\n');
-      var httpVerMajor = 1, httpVerMinor = 1;
+      var httpVerMajor = 1;
+      var httpVerMinor = 1;
       if (lines.length > 0) {
         var statusLine = lines[0];
         var statusParts = statusLine.match(/^HTTP\/(\d)\.(\d)\s+(\d+)\s*(.*)/);
@@ -1039,18 +1395,48 @@ ClientRequest.prototype._sendViaTcp = function(body) {
 
       tcpIncoming = new TcpIncomingMessage(statusCode, statusMessage, responseHeaders, rawResponseHeaders);
       tcpIncoming.socket = socket;
+      tcpIncoming.req = self;
       tcpIncoming.httpVersionMajor = httpVerMajor;
       tcpIncoming.httpVersionMinor = httpVerMinor;
       tcpIncoming.httpVersion = httpVerMajor + '.' + httpVerMinor;
-      // Recompute shouldKeepAlive with actual version
+      self.res = tcpIncoming;
       var connHdr = (responseHeaders['connection'] || '').toLowerCase();
       if (httpVerMajor === 1 && httpVerMinor === 0) {
         tcpIncoming.shouldKeepAlive = connHdr.indexOf('keep-alive') !== -1;
       } else {
         tcpIncoming.shouldKeepAlive = connHdr.indexOf('close') === -1;
       }
-      self.emit('response', tcpIncoming);
+      if (self.shouldKeepAlive && !tcpIncoming.shouldKeepAlive) {
+        self.shouldKeepAlive = false;
+      }
+
+      tcpIncoming.on('end', function() {
+        clearSocketTimeoutListener(self, socket);
+        if (self.shouldKeepAlive && !tcpIncoming.aborted) {
+          if (!self._ended || !self.writableEnded || !self.finished) {
+            self._responseEndedBeforeRequestEnd = true;
+            return;
+          }
+          if (self._pendingSocketDrain) {
+            self._waitingForSocketDrain = true;
+            return;
+          }
+          releaseSocket();
+        } else if (!socket.destroyed) {
+          try {
+            if (typeof socket.end === 'function') socket.end();
+            else socket.destroy();
+          } catch (_closeErr) {
+            try { socket.destroy(); } catch (_destroyErr) {}
+          }
+        }
+      });
+      tcpIncoming.on('timeout', function() {
+        self.emit('timeout');
+      });
+
       responseEmitted = true;
+      self.emit('response', tcpIncoming);
 
       if (bodyStart.length > 0) {
         if (isChunked) {
@@ -1068,7 +1454,7 @@ ClientRequest.prototype._sendViaTcp = function(body) {
       if (!isChunked && contentLength >= 0 && bodyBytesReceived >= contentLength) {
         finishResponse();
       }
-      if (statusCode === 204 || statusCode === 304) {
+      if (statusCode === 204 || statusCode === 304 || self.method === 'HEAD') {
         finishResponse();
       }
     } else if (tcpIncoming) {
@@ -1087,28 +1473,79 @@ ClientRequest.prototype._sendViaTcp = function(body) {
         }
       }
     }
-  });
+  }
 
-  socket.on('end', function() {
-    finishResponse();
-  });
-
-  socket.on('close', function() {
+  function onEnd() {
     if (!responseEmitted) {
-      self.emit('close');
-    } else if (self._aborted) {
+      abortResponse();
+      return;
+    }
+    if (responseEnded) return;
+    if (contentLength >= 0 || isChunked || (tcpIncoming && tcpIncoming.shouldKeepAlive)) {
       abortResponse();
       return;
     }
     finishResponse();
-  });
+  }
 
-  socket.on('error', function(err) {
-    if (self._timeoutId) clearTimeout(self._timeoutId);
+  function onClose() {
+    if (!responseEmitted || !responseEnded) {
+      abortResponse();
+      return;
+    }
+    if (!self._closed) {
+      self._closed = true;
+      self.emit('close');
+    }
+  }
+
+  function onError(err) {
+    socket._hadError = true;
     if (self._aborted) return;
     self.emit('error', err);
-    self.emit('close');
-  });
+  }
+
+  socket._httpMessage = self;
+  socket.on('data', onData);
+  socket.on('end', onEnd);
+  socket.on('close', onClose);
+  socket.on('error', onError);
+
+  if (self.timeout !== undefined && self.timeout !== null) {
+    listenSocketTimeout(self);
+    setSocketTimeout(socket, self.timeout);
+  } else if (self.agent && self.agent.options && self.agent.options.timeout !== undefined) {
+    listenSocketTimeout(self);
+    setSocketTimeout(socket, self.agent.options.timeout);
+  }
+
+  function writeRawRequest() {
+    var rawRequest = self._pendingRawRequest || '';
+    if (rawRequestWritten || self.destroyed || self._aborted || !rawRequest) return;
+    rawRequestWritten = true;
+    self._pendingSocketDrain = true;
+    try {
+      socket.write(rawRequest, function(writeErr) {
+        if (writeErr) {
+          socket._hadError = true;
+          self.emit('error', writeErr);
+          return;
+        }
+        self._pendingSocketDrain = false;
+        maybeReleaseSocketAfterFlush();
+      });
+    } catch (writeErr) {
+      socket._hadError = true;
+      self.emit('error', writeErr);
+    }
+  }
+  self._writePendingRequest = writeRawRequest;
+
+  if (socket.connecting) {
+    socket.once('connect', writeRawRequest);
+  } else {
+    writeRawRequest();
+  }
 };
 
 // TCP-based IncomingMessage for client responses
@@ -1411,18 +1848,97 @@ function get(options, callback) {
 // Agent
 // ---------------------------------------------------------------------------
 function Agent(options) {
+  if (!(this instanceof Agent)) {
+    return new Agent(options);
+  }
   EventEmitter.call(this);
   this.options = options || {};
+  this.defaultPort = this.options.defaultPort || 80;
+  this.protocol = this.options.protocol || 'http:';
+  if (this.options.noDelay === undefined) {
+    this.options.noDelay = true;
+  }
   this.keepAlive = this.options.keepAlive || false;
   this.keepAliveMsecs = this.options.keepAliveMsecs || 1000;
   this.maxSockets = this.options.maxSockets || Agent.defaultMaxSockets;
   this.maxFreeSockets = this.options.maxFreeSockets || 256;
-  this.maxTotalSockets = this.options.maxTotalSockets || Infinity;
+  this.maxTotalSockets = this.options.maxTotalSockets;
   this.scheduling = this.options.scheduling || 'lifo';
   this.totalSocketCount = 0;
   this.sockets = {};
   this.freeSockets = {};
   this.requests = {};
+  this.agentKeepAliveTimeoutBuffer =
+    typeof this.options.agentKeepAliveTimeoutBuffer === 'number' &&
+    this.options.agentKeepAliveTimeoutBuffer >= 0 &&
+    isFinite(this.options.agentKeepAliveTimeoutBuffer)
+      ? this.options.agentKeepAliveTimeoutBuffer
+      : 1000;
+
+  if (this.maxTotalSockets !== undefined) {
+    if (typeof this.maxTotalSockets !== 'number') {
+      var receivedValue = typeof this.maxTotalSockets === 'string'
+        ? "'" + this.maxTotalSockets + "'"
+        : String(this.maxTotalSockets);
+      var maxTotalTypeErr = new TypeError('The "maxTotalSockets" argument must be of type number. Received type ' +
+        typeof this.maxTotalSockets + ' (' + receivedValue + ')');
+      maxTotalTypeErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw maxTotalTypeErr;
+    }
+    if (this.maxTotalSockets <= 0 || !isFinite(this.maxTotalSockets)) {
+      if (this.maxTotalSockets !== Infinity) {
+        var maxTotalRangeErr = new RangeError('The value of "maxTotalSockets" is out of range. It must be > 0. Received ' + this.maxTotalSockets);
+        maxTotalRangeErr.code = 'ERR_OUT_OF_RANGE';
+        throw maxTotalRangeErr;
+      }
+    }
+  } else {
+    this.maxTotalSockets = Infinity;
+  }
+
+  var self = this;
+  this.on('free', function(socket, requestOptions) {
+    var name = self.getName(requestOptions);
+    if (!socket || socket.writable === false || socket.destroyed) {
+      if (socket && typeof socket.destroy === 'function') {
+        socket.destroy();
+      }
+      return;
+    }
+
+    var requests = self.requests[name];
+    if (requests && requests.length > 0) {
+      var nextReq = requests.shift();
+      setRequestSocket(self, nextReq, socket, requestOptions);
+      if (requests.length === 0) {
+        delete self.requests[name];
+      }
+      return;
+    }
+
+    var req = socket._httpMessage;
+    if (!req || !req.shouldKeepAlive || !self.keepAlive) {
+      socket.destroy();
+      return;
+    }
+
+    var freeSockets = self.freeSockets[name] || [];
+    var freeLen = freeSockets.length;
+    var activeLen = self.sockets[name] ? self.sockets[name].length : 0;
+    if (self.totalSocketCount > self.maxTotalSockets ||
+        activeLen + freeLen > self.maxSockets ||
+        freeLen >= self.maxFreeSockets ||
+        !self.keepSocketAlive(socket)) {
+      socket.destroy();
+      return;
+    }
+
+    self.freeSockets[name] = freeSockets;
+    socket._httpMessage = null;
+    self.removeSocket(socket, requestOptions);
+    socket.once('error', freeSocketErrorListener);
+    freeSockets.push(socket);
+  });
 }
 Agent.prototype = Object.create(EventEmitter.prototype);
 Agent.prototype.constructor = Agent;
@@ -1468,10 +1984,54 @@ Agent.prototype.addRequest = function(req, options, port, localAddress) {
   if (typeof options === 'string') {
     options = { host: options, port: port, localAddress: localAddress };
   }
+  options = Object.assign({}, options || {}, this.options);
+  if (options.socketPath) {
+    options.path = options.socketPath;
+  } else {
+    delete options.path;
+  }
   var name = this.getName(options);
+  this.sockets[name] = this.sockets[name] || [];
+
+  var freeSockets = this.freeSockets[name];
+  var socket = null;
+  if (freeSockets) {
+    while (freeSockets.length > 0 && freeSockets[0].destroyed) {
+      freeSockets.shift();
+    }
+    socket = this.scheduling === 'fifo' ? freeSockets.shift() : freeSockets.pop();
+    if (freeSockets.length === 0) {
+      delete this.freeSockets[name];
+    }
+  }
+
+  var freeLen = freeSockets ? freeSockets.length : 0;
+  var socketLen = freeLen + this.sockets[name].length;
+
+  if (socket) {
+    asyncResetHandle(socket);
+    this.reuseSocket(socket, req);
+    this.sockets[name].push(socket);
+    setRequestSocket(this, req, socket, options);
+    return;
+  }
+
+  if (socketLen < this.maxSockets && this.totalSocketCount < this.maxTotalSockets) {
+    var self = this;
+    this.createSocket(req, options, function(err, createdSocket) {
+      if (err) {
+        req.onSocket(createdSocket, options, err);
+        return;
+      }
+      setRequestSocket(self, req, createdSocket, options);
+    });
+    return;
+  }
+
   if (!this.requests[name]) {
     this.requests[name] = [];
   }
+  req._queuedAgentOptions = options;
   this.requests[name].push(req);
 };
 
@@ -1479,6 +2039,190 @@ Agent.prototype.createConnection = function(options, callback) {
   var net;
   try { net = require('net'); } catch(e) { return null; }
   return net.createConnection(options, callback);
+};
+
+function installAgentListeners(agent, socket, options) {
+  function onFree() {
+    agent.emit('free', socket, options);
+  }
+  function onClose() {
+    agent.totalSocketCount--;
+    agent.removeSocket(socket, options);
+  }
+  function onTimeout() {
+    var pools = agent.freeSockets;
+    for (var name in pools) {
+      if (Object.prototype.hasOwnProperty.call(pools, name) && pools[name].indexOf(socket) !== -1) {
+        socket.destroy();
+        return;
+      }
+    }
+  }
+  function onRemove() {
+    agent.totalSocketCount--;
+    agent.removeSocket(socket, options);
+    socket.removeListener('close', onClose);
+    socket.removeListener('free', onFree);
+    socket.removeListener('timeout', onTimeout);
+    socket.removeListener('agentRemove', onRemove);
+  }
+
+  socket.on('free', onFree);
+  socket.on('close', onClose);
+  socket.on('timeout', onTimeout);
+  socket.on('agentRemove', onRemove);
+}
+
+Agent.prototype.createSocket = function(req, options, callback) {
+  options = Object.assign({}, options || {}, this.options);
+  if (options.socketPath) {
+    options.path = options.socketPath;
+  } else {
+    delete options.path;
+  }
+
+  var timeout = req.timeout;
+  if (timeout === undefined || timeout === null) {
+    timeout = this.options.timeout;
+  }
+  if (timeout !== undefined) {
+    options.timeout = timeout;
+  }
+
+  var name = this.getName(options);
+  var self = this;
+  var finished = false;
+
+  function oncreate(err, socket) {
+    if (finished) return;
+    finished = true;
+    if (err) {
+      callback(err, socket || null);
+      return;
+    }
+    self.sockets[name] = self.sockets[name] || [];
+    self.sockets[name].push(socket);
+    self.totalSocketCount++;
+    installAgentListeners(self, socket, options);
+    callback(null, socket);
+  }
+
+  if (this.keepAlive) {
+    options.keepAlive = true;
+    options.keepAliveInitialDelay = this.keepAliveMsecs;
+  }
+
+  var createConnection = options.createConnection;
+  if (typeof createConnection === 'function') {
+    try {
+      var maybeSocket = createConnection(options, oncreate);
+      if (maybeSocket) {
+        oncreate(null, maybeSocket);
+      }
+    } catch (err) {
+      oncreate(err, null);
+    }
+    return;
+  }
+
+  var newSocket = this.createConnection(options, oncreate);
+  if (newSocket) {
+    oncreate(null, newSocket);
+  }
+};
+
+Agent.prototype.removeSocket = function(socket, options) {
+  var name = this.getName(options || {});
+  var sets = [this.sockets];
+  if (!socket.writable) {
+    sets.push(this.freeSockets);
+  }
+
+  for (var i = 0; i < sets.length; i++) {
+    var pool = sets[i];
+    if (pool[name]) {
+      var index = pool[name].indexOf(socket);
+      if (index !== -1) {
+        pool[name].splice(index, 1);
+        if (pool[name].length === 0) {
+          delete pool[name];
+        }
+      }
+    }
+  }
+
+  var req = null;
+  var reqOptions = null;
+  if (this.requests[name] && this.requests[name].length > 0) {
+    req = this.requests[name].shift();
+    if (this.requests[name].length === 0) {
+      delete this.requests[name];
+    }
+    reqOptions = req._queuedAgentOptions || options;
+  } else {
+    for (var key in this.requests) {
+      if (!Object.prototype.hasOwnProperty.call(this.requests, key) || !this.requests[key] || this.requests[key].length === 0) continue;
+      if (this.sockets[key] && this.sockets[key].length > 0) continue;
+      req = this.requests[key].shift();
+      if (this.requests[key].length === 0) {
+        delete this.requests[key];
+      }
+      reqOptions = req && req._queuedAgentOptions;
+      break;
+    }
+  }
+
+  if (req && reqOptions) {
+    var self = this;
+    req._queuedAgentOptions = undefined;
+    this.createSocket(req, reqOptions, function(err, newSocket) {
+      if (err) {
+        req.onSocket(newSocket, reqOptions, err);
+        return;
+      }
+      setRequestSocket(self, req, newSocket, reqOptions);
+    });
+  }
+};
+
+Agent.prototype.keepSocketAlive = function(socket) {
+  if (typeof socket.setKeepAlive === 'function') {
+    socket.setKeepAlive(true, this.keepAliveMsecs);
+  }
+  if (typeof socket.unref === 'function') {
+    socket.unref();
+  }
+
+  var agentTimeout = this.options.timeout || 0;
+  var canKeepSocketAlive = true;
+  if (socket._httpMessage && socket._httpMessage.res && socket._httpMessage.res.headers) {
+    var keepAliveHint = socket._httpMessage.res.headers['keep-alive'];
+    if (keepAliveHint) {
+      var hintMatch = /^timeout=(\d+)/.exec(keepAliveHint);
+      if (hintMatch) {
+        var hintedTimeout = (parseInt(hintMatch[1], 10) * 1000) - this.agentKeepAliveTimeoutBuffer;
+        hintedTimeout = hintedTimeout > 0 ? hintedTimeout : 0;
+        if (hintedTimeout === 0) {
+          canKeepSocketAlive = false;
+        } else if (agentTimeout === 0 || hintedTimeout < agentTimeout) {
+          agentTimeout = hintedTimeout;
+        }
+      }
+    }
+  }
+
+  if (typeof socket.setTimeout === 'function') {
+    socket.setTimeout(agentTimeout);
+  }
+  return canKeepSocketAlive;
+};
+
+Agent.prototype.reuseSocket = function(socket, req) {
+  socket.removeListener('error', freeSocketErrorListener);
+  req.reusedSocket = true;
+  if (typeof socket.ref === 'function') {
+    socket.ref();
+  }
 };
 
 var globalAgent = new Agent();
@@ -2101,11 +2845,13 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
   if (this._finished) { if (callback) setTimeout(callback, 0); return this; }
   if (chunk !== undefined && chunk !== null) {
     if (!this._nativeMode && !this._headersSent && !this._streaming) {
+      var data;
       if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
-        this._bodyParts.push(chunk.toString(encoding || 'utf8'));
+        data = chunk.toString(encoding || 'utf8');
       } else {
-        this._bodyParts.push(typeof chunk === 'string' ? chunk : String(chunk));
+        data = typeof chunk === 'string' ? chunk : String(chunk);
       }
+      this._bodyParts.push(data);
     } else {
       this.write(chunk, encoding);
     }
