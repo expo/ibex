@@ -2718,6 +2718,27 @@ Server.prototype.close = function(callback) {
   return this;
 };
 
+if (typeof Symbol === 'function' && Symbol.dispose) {
+  Server.prototype[Symbol.dispose] = function() {
+    this.close();
+  };
+}
+
+if (typeof Symbol === 'function' && Symbol.asyncDispose) {
+  Server.prototype[Symbol.asyncDispose] = function() {
+    var self = this;
+    return new Promise(function(resolve, reject) {
+      try {
+        self.close(function() {
+          resolve();
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+}
+
 Server.prototype.closeAllConnections = function() {
   if (!this._sockets) return;
   var sockets = [];
