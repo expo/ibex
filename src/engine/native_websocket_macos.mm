@@ -34,6 +34,11 @@ struct WebSocketEntry {
     NativeWsBytesSentCallback bytes_sent_cb;
     void* context;
     bool closed;
+    bool close_requested_by_client;
+    bool has_observed_close;
+    uint16_t observed_close_code;
+    std::string observed_close_reason;
+    bool observed_close_was_clean;
 
     WebSocketEntry(
         NSURLSessionWebSocketTask* task,
@@ -55,7 +60,12 @@ struct WebSocketEntry {
           error_cb(error_cb),
           bytes_sent_cb(bytes_sent_cb),
           context(context),
-          closed(closed) {}
+          closed(closed),
+          close_requested_by_client(false),
+          has_observed_close(false),
+          observed_close_code(1005),
+          observed_close_reason(""),
+          observed_close_was_clean(false) {}
 };
 
 static std::mutex wsMutex;
@@ -170,23 +180,18 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry);
 - (void)URLSession:(NSURLSession *)session webSocketTask:(NSURLSessionWebSocketTask *)webSocketTask
     didCloseWithCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(NSData *)reason {
     std::shared_ptr<WebSocketEntry> entry;
+    NSString* reasonStr = reason ? [[NSString alloc] initWithData:reason encoding:NSUTF8StringEncoding] : @"";
+    std::string observedReason = reasonStr ? std::string([reasonStr UTF8String]) : std::string();
     {
         std::lock_guard<std::mutex> lock(wsMutex);
         auto it = wsConnections.find(self.wsId);
         if (it == wsConnections.end() || it->second->closed) return;
         entry = it->second;
-        entry->closed = true;
+        entry->has_observed_close = true;
+        entry->observed_close_code = (uint16_t)closeCode;
+        entry->observed_close_reason = observedReason;
+        entry->observed_close_was_clean = true;
     }
-
-    NSString* reasonStr = reason ? [[NSString alloc] initWithData:reason encoding:NSUTF8StringEncoding] : @"";
-    auto context = entry ? entry->context : nullptr;
-    if (entry && entry->close_cb && context) {
-        native_ws_retain_context(context);
-        auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
-        entry->close_cb(entry->ws_id, (uint16_t)closeCode, [reasonStr UTF8String], 1, context);
-    }
-
-    destroy_entry(entry->ws_id);
 }
 
 // Handle connection failures (DNS errors, TLS errors, connection refused, etc.)
@@ -271,17 +276,36 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
 
             NSURLSessionWebSocketCloseCode closeCode = NSURLSessionWebSocketCloseCodeInvalid;
             NSData* closeReasonData = nil;
+            bool hasObservedClose = false;
+            uint16_t observedCloseCode = 1005;
+            std::string observedCloseReason;
+            bool observedCloseWasClean = false;
             if (activeEntry && activeEntry->task) {
                 closeCode = activeEntry->task.closeCode;
                 closeReasonData = activeEntry->task.closeReason;
+                hasObservedClose = activeEntry->has_observed_close;
+                observedCloseCode = activeEntry->observed_close_code;
+                observedCloseReason = activeEntry->observed_close_reason;
+                observedCloseWasClean = activeEntry->observed_close_was_clean;
             }
 
-            if (closeCode != NSURLSessionWebSocketCloseCodeInvalid) {
-                NSString* closeReason =
-                    closeReasonData ? [[NSString alloc] initWithData:closeReasonData encoding:NSUTF8StringEncoding] : @"";
+            if (closeCode != NSURLSessionWebSocketCloseCodeInvalid || hasObservedClose) {
+                NSString* closeReason = @"";
+                uint16_t reportedCloseCode = 1005;
+                bool reportedWasClean = false;
+                if (closeCode != NSURLSessionWebSocketCloseCodeInvalid) {
+                    closeReason =
+                        closeReasonData ? [[NSString alloc] initWithData:closeReasonData encoding:NSUTF8StringEncoding] : @"";
+                    reportedCloseCode = (uint16_t)closeCode;
+                    reportedWasClean = true;
+                } else {
+                    closeReason = [NSString stringWithUTF8String:observedCloseReason.c_str()] ?: @"";
+                    reportedCloseCode = observedCloseCode;
+                    reportedWasClean = observedCloseWasClean;
+                }
                 if (activeEntry && close_cb && context && !activeEntry->closed) {
                     activeEntry->closed = true;
-                    close_cb(ws_id, (uint16_t)closeCode, [closeReason UTF8String], 1, context);
+                    close_cb(ws_id, reportedCloseCode, [closeReason UTF8String], reportedWasClean ? 1 : 0, context);
                 }
                 destroy_entry(ws_id);
                 return;
@@ -469,6 +493,7 @@ extern "C" void native_ws_close(
     if (it == wsConnections.end() || it->second->closed) return;
 
     auto entry = it->second;
+    entry->close_requested_by_client = true;
 
     NSData* reasonData = nil;
     if (reason && strlen(reason) > 0) {
