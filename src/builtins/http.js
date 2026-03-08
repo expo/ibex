@@ -923,6 +923,14 @@ ClientRequest.prototype.write = function(chunk, encoding, callback) {
       this._bodyParts.push(String(chunk));
     }
   }
+  if (!this._sent &&
+      !this._ended &&
+      this.protocol === 'http:' &&
+      typeof this.headers['upgrade'] === 'string' &&
+      typeof this.headers['connection'] === 'string' &&
+      this.headers['connection'].toLowerCase().indexOf('upgrade') !== -1) {
+    this._send();
+  }
   if (callback) setTimeout(callback, 0);
   return true;
 };
