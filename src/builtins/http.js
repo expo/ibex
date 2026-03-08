@@ -2021,6 +2021,23 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var chunkBuffer = '';
   var socketRetired = false;
 
+  function pushIncomingResponseChunk(chunk) {
+    if (!tcpIncoming) return true;
+    try {
+      if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(chunk);
+      else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(chunk);
+      else tcpIncoming.emit('data', chunk);
+      return true;
+    } catch (err) {
+      responseEnded = true;
+      tcpIncoming.complete = true;
+      scheduleNextTick(function() {
+        throw err;
+      });
+      return false;
+    }
+  }
+
   function finishRequestWrite() {
     if (self.writableFinished) return;
     _resetOutgoingBufferState(self);
@@ -2204,9 +2221,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         if (chunkBuffer.length < chunkRemaining) {
           if (chunkBuffer.length > 0 && tcpIncoming) {
             var partBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkBuffer, 'latin1') : chunkBuffer;
-            if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(partBuf);
-            else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(partBuf);
-            else tcpIncoming.emit('data', partBuf);
+            if (!pushIncomingResponseChunk(partBuf)) return;
             chunkRemaining -= chunkBuffer.length;
             chunkBuffer = '';
           }
@@ -2217,9 +2232,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         chunkRemaining = 0;
         if (tcpIncoming && chunkData) {
           var chunkDataBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkData, 'latin1') : chunkData;
-          if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(chunkDataBuf);
-          else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(chunkDataBuf);
-          else tcpIncoming.emit('data', chunkDataBuf);
+          if (!pushIncomingResponseChunk(chunkDataBuf)) return;
         }
         chunkParserState = 'trailer';
       } else if (chunkParserState === 'trailer') {
@@ -2357,9 +2370,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
             ? Buffer.byteLength(bodyStart, 'latin1') : bodyStart.length;
           bodyBytesReceived += bodyStartBytes;
           var bodyStartBuf = (typeof Buffer !== 'undefined') ? Buffer.from(bodyStart, 'latin1') : bodyStart;
-          if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(bodyStartBuf);
-          else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(bodyStartBuf);
-          else tcpIncoming.emit('data', bodyStartBuf);
+          if (!pushIncomingResponseChunk(bodyStartBuf)) return;
         }
       }
       if (!isChunked && contentLength >= 0 && bodyBytesReceived >= contentLength) {
@@ -2376,9 +2387,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
           ? Buffer.byteLength(str, 'latin1') : str.length;
         bodyBytesReceived += strBytes;
         var strBuf = (typeof Buffer !== 'undefined') ? Buffer.from(str, 'latin1') : str;
-        if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(strBuf);
-        else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(strBuf);
-        else tcpIncoming.emit('data', strBuf);
+        if (!pushIncomingResponseChunk(strBuf)) return;
         if (contentLength >= 0 && bodyBytesReceived >= contentLength) {
           finishResponse();
         }
