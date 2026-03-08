@@ -114,12 +114,19 @@ function _extractHandleFd(handle) {
   return -1;
 }
 
+function _isServerHandleLike(handle) {
+  if (!handle || (typeof handle !== 'object' && typeof handle !== 'function')) return false;
+  if (handle._exactServerHandle === true) return true;
+  return typeof handle.close === 'function' && typeof handle.onconnection === 'function';
+}
+
 // Determine the handle type for IPC serialization
 function _getHandleType(handle) {
   if (!handle) return null;
   // Check dgram.Socket first (has _getFd method and type like 'udp4')
   if (handle.type === 'udp4' || handle.type === 'udp6') return 'dgram.Socket';
   if (typeof handle._getFd === 'function' && (handle.type === 'udp4' || handle.type === 'udp6')) return 'dgram.Socket';
+  if (_isServerHandleLike(handle)) return 'net.ServerHandle';
   var dgram;
   try { dgram = require('dgram'); } catch (e) {}
   if (dgram && dgram.Socket && handle instanceof dgram.Socket) return 'dgram.Socket';
@@ -151,6 +158,31 @@ function _reconstructHandle(handleType, fd) {
     var sock = dgram.createSocket('udp4');
     sock._fromFd(fd);
     return sock;
+  } else if (handleType === 'net.ServerHandle') {
+    if (typeof globalThis.__exactTcpFromFd === 'function') {
+      var nativeServerHandle = globalThis.__exactTcpFromFd(fd);
+      return {
+        _exactServerHandle: true,
+        _exactHandle: nativeServerHandle,
+        fd: fd,
+        onconnection: function() {},
+        close: function() {
+          try { globalThis.__exactTcpClose(nativeServerHandle); } catch (e) {}
+        }
+      };
+    }
+    return {
+      _exactServerHandle: true,
+      fd: fd,
+      onconnection: function() {},
+      close: function() {
+        try {
+          if (typeof globalThis.__exactFsClose === 'function') {
+            globalThis.__exactFsClose(fd);
+          }
+        } catch (_) {}
+      }
+    };
   } else if (handleType === 'net.Server') {
     // Register the raw fd as a native TCP handle for the server
     if (typeof globalThis.__exactTcpFromFd === 'function') {
@@ -159,6 +191,7 @@ function _reconstructHandle(handleType, fd) {
       server._handle = { _exactHandle: nativeHandle, close: function() {
         try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
       }};
+      server._handle._exactServerHandle = true;
       server.listening = true;
       server._closing = false;
       try {
@@ -180,7 +213,7 @@ function _reconstructHandle(handleType, fd) {
       return server;
     }
     var server = net.createServer();
-    server._handle = { fd: fd };
+    server._handle = { fd: fd, _exactServerHandle: true };
     server.listening = true;
     return server;
   }
@@ -2205,7 +2238,7 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
     // Don't destroy dgram sockets or servers after sending - they're shared.
     // Also skip detachment for raw native handles (not proper socket instances).
     var isDgram = handleType === 'dgram.Socket';
-    var isServer = handleType === 'net.Server';
+    var isServer = handleType === 'net.Server' || handleType === 'net.ServerHandle';
     var net2;
     try { net2 = require('net'); } catch(e) {}
     var isRawHandle = !isDgram && !isServer && !(net2 && net2.Socket && sendHandle instanceof net2.Socket);

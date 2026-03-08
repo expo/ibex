@@ -1973,7 +1973,9 @@
       var exactIpcBuffer = '';
       var exactIpcConnected = true;
       var exactIpcPollTimer = null;
+      var exactIpcKeepAliveTimer = null;
       var exactIpcPollActive = true;
+      var exactIpcReadPaused = false;
       var exactIpcPollInterval = 10;
 
       function exactToString(bytes) {
@@ -2007,6 +2009,102 @@
           } catch (_) {}
           stream[name] = function() { return this; };
         }
+        function exactInstallReadableStdin(stream) {
+          if (!stream ||
+              typeof stream !== 'object' ||
+              typeof stream.resume === 'function' ||
+              typeof globalThis.__exactStdinRead !== 'function') {
+            return;
+          }
+          stream._encoding = null;
+          stream._paused = true;
+          stream._ended = false;
+          stream._pollTimer = 0;
+          stream.readable = true;
+          stream.readableEnded = false;
+          stream.readableFlowing = null;
+          stream.readableLength = 0;
+          stream.setEncoding = function(enc) {
+            stream._encoding = enc;
+            return stream;
+          };
+          stream.resume = function() {
+            stream.readable = true;
+            stream._paused = false;
+            stream.readableFlowing = true;
+            if (!stream._ended && !stream._pollTimer) {
+              (function exactPollStdin() {
+                if (stream._paused || stream._ended || stream.destroyed) return;
+                var data = globalThis.__exactStdinRead(4096);
+                if (data === null) {
+                  stream._pollTimer = setTimeout(exactPollStdin, 25);
+                  return;
+                }
+                if (data === '') {
+                  stream._ended = true;
+                  stream._pollTimer = 0;
+                  stream.readableEnded = true;
+                  if (typeof stream.emit === 'function') {
+                    stream.emit('end');
+                    stream.emit('close');
+                  }
+                  return;
+                }
+                stream._pollTimer = 0;
+                if (stream._encoding && typeof Buffer !== 'undefined' && Buffer.from) {
+                  data = Buffer.from(data, 'binary').toString(stream._encoding);
+                }
+                stream.readableLength += data.length || 0;
+                if (typeof stream.emit === 'function') {
+                  stream.emit('data', data);
+                }
+                stream.readableLength = 0;
+                if (!stream._paused && !stream._ended) {
+                  stream._pollTimer = setTimeout(exactPollStdin, 10);
+                }
+              })();
+            }
+            return stream;
+          };
+          stream.pause = function() {
+            stream._paused = true;
+            stream.readableFlowing = false;
+            if (stream._pollTimer) {
+              clearTimeout(stream._pollTimer);
+              stream._pollTimer = 0;
+            }
+            return stream;
+          };
+          stream.read = function(size) {
+            var data = globalThis.__exactStdinRead(size || 4096);
+            if (data === '') return null;
+            if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
+              return Buffer.from(data, 'binary').toString(stream._encoding);
+            }
+            return data;
+          };
+          if (typeof stream.on === 'function') {
+            var exactStdinOn = stream.on;
+            stream.on = function(event, listener) {
+              var result = exactStdinOn.apply(this, arguments);
+              if (event === 'data' && !stream._ended && stream._paused) {
+                stream.resume();
+              }
+              return result;
+            };
+            stream.addListener = stream.on;
+          }
+          if (typeof stream.once === 'function') {
+            var exactStdinOnce = stream.once;
+            stream.once = function(event, listener) {
+              var result = exactStdinOnce.apply(this, arguments);
+              if (event === 'data' && !stream._ended && stream._paused) {
+                stream.resume();
+              }
+              return result;
+            };
+          }
+        }
         var stdioNames = ['stdout', 'stderr', 'stdin'];
         for (var stdioIndex = 0; stdioIndex < stdioNames.length; stdioIndex++) {
           var stdioStream = globalThis.process[stdioNames[stdioIndex]];
@@ -2018,6 +2116,21 @@
           }
           exactInstallNoopRef(stdioStream, 'ref');
           exactInstallNoopRef(stdioStream, 'unref');
+          if (stdioNames[stdioIndex] === 'stdin') {
+            exactInstallReadableStdin(stdioStream);
+          }
+          try {
+            Object.defineProperty(globalThis.process, stdioNames[stdioIndex], {
+              value: stdioStream,
+              writable: true,
+              configurable: true,
+              enumerable: true
+            });
+          } catch (_) {
+            try {
+              globalThis.process[stdioNames[stdioIndex]] = stdioStream;
+            } catch (_) {}
+          }
         }
       }
 
@@ -2034,6 +2147,10 @@
         if (exactIpcPollTimer) {
           clearTimeout(exactIpcPollTimer);
           exactIpcPollTimer = null;
+        }
+        if (exactIpcKeepAliveTimer) {
+          try { clearInterval(exactIpcKeepAliveTimer); } catch (_) {}
+          exactIpcKeepAliveTimer = null;
         }
         globalThis.process.connected = false;
         globalThis.process.channel = null;
@@ -2130,6 +2247,31 @@
               }
             });
             return recvSocket;
+          } else if (handleType === 'net.ServerHandle') {
+            if (typeof globalThis.__exactTcpFromFd === 'function') {
+              var nativeServerHandle = globalThis.__exactTcpFromFd(fd);
+              return {
+                _exactServerHandle: true,
+                _exactHandle: nativeServerHandle,
+                fd: fd,
+                onconnection: function() {},
+                close: function() {
+                  try { globalThis.__exactTcpClose(nativeServerHandle); } catch (e) {}
+                }
+              };
+            }
+            return {
+              _exactServerHandle: true,
+              fd: fd,
+              onconnection: function() {},
+              close: function() {
+                try {
+                  if (typeof globalThis.__exactFsClose === 'function') {
+                    globalThis.__exactFsClose(fd);
+                  }
+                } catch (_) {}
+              }
+            };
           } else if (handleType === 'net.Server') {
             if (typeof globalThis.__exactTcpFromFd === 'function') {
               var nativeHandle = globalThis.__exactTcpFromFd(fd);
@@ -2137,6 +2279,7 @@
               server._handle = { _exactHandle: nativeHandle, close: function() {
                 try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
               }};
+              server._handle._exactServerHandle = true;
               server.listening = true;
               server._closing = false;
               try {
@@ -2158,7 +2301,7 @@
               return server;
             }
             var server = net.createServer();
-            server._handle = { fd: fd };
+            server._handle = { fd: fd, _exactServerHandle: true };
             server.listening = true;
             return server;
           }
@@ -2245,6 +2388,12 @@
       function exactRefIpcTimer() {
         if (exactIpcChannelRefed) return;
         exactIpcChannelRefed = true;
+        if (!exactIpcKeepAliveTimer && typeof setInterval === 'function') {
+          exactIpcKeepAliveTimer = setInterval(function() {}, 1000);
+        }
+        if (exactIpcKeepAliveTimer && typeof exactIpcKeepAliveTimer.ref === 'function') {
+          exactIpcKeepAliveTimer.ref();
+        }
         if (!exactIpcPollTimer && exactIpcPollActive && typeof setTimeout === 'function') {
           exactIpcPollTimer = setTimeout(exactPollIpc, 0);
         }
@@ -2264,6 +2413,14 @@
       function exactUnrefIpcTimer() {
         if (!exactIpcChannelRefed) return;
         exactIpcChannelRefed = false;
+        if (exactIpcKeepAliveTimer) {
+          if (typeof exactIpcKeepAliveTimer.unref === 'function') {
+            exactIpcKeepAliveTimer.unref();
+          } else {
+            try { clearInterval(exactIpcKeepAliveTimer); } catch (_) {}
+            exactIpcKeepAliveTimer = null;
+          }
+        }
         if (exactIpcPollTimer && typeof exactIpcPollTimer.unref === 'function') {
           exactIpcPollTimer.unref();
         }
@@ -2282,16 +2439,29 @@
       }
       globalThis.process[kChannelHandle] = {
         readStop: function() {
+          exactEnsureStdioRefUnref();
+          exactIpcReadPaused = true;
           exactIpcPollActive = false;
           if (exactIpcPollTimer) {
             clearTimeout(exactIpcPollTimer);
             exactIpcPollTimer = null;
           }
+          exactRefIpcTimer();
         },
         readStart: function() {
+          exactEnsureStdioRefUnref();
+          exactIpcReadPaused = false;
           if (!exactIpcPollActive) {
             exactIpcPollActive = true;
             exactPollIpc();
+          }
+          if (typeof globalThis.process.listenerCount === 'function') {
+            try {
+              if (globalThis.process.listenerCount('message') +
+                  globalThis.process.listenerCount('disconnect') <= 0) {
+                exactUnrefIpcTimer();
+              }
+            } catch (_) {}
           }
         }
       };
@@ -2312,8 +2482,6 @@
         };
         globalThis.process.addListener = globalThis.process.on;
       }
-      // Hook process.once because EventEmitter.once may not call through
-      // process.on (it may call the prototype method directly).
       if (typeof _origProcessOnce === 'function') {
         globalThis.process.once = function(event, listener) {
           if (event === 'message' || event === 'disconnect') {
@@ -2362,6 +2530,18 @@
           }
           return false;
         }
+        try {
+          if (globalThis.process.channel &&
+              typeof globalThis.process.channel.ref === 'function' &&
+              typeof globalThis.process.listenerCount === 'function') {
+            var sendListenerCount =
+              globalThis.process.listenerCount('message') +
+              globalThis.process.listenerCount('disconnect');
+            if (sendListenerCount > 0) {
+              globalThis.process.channel.ref();
+            }
+          }
+        } catch (_) {}
         if (typeof sendHandle === 'function') {
           callback = sendHandle;
           sendHandle = undefined;
@@ -2403,6 +2583,9 @@
           // Determine type
           if (sendHandle.type === 'udp4' || sendHandle.type === 'udp6') {
             handleType = 'dgram.Socket';
+          } else if (sendHandle._exactServerHandle === true ||
+                     (typeof sendHandle.close === 'function' && typeof sendHandle.onconnection === 'function')) {
+            handleType = 'net.ServerHandle';
           } else {
             var hn = sendHandle.constructor && sendHandle.constructor.name;
             if (hn === 'Server') handleType = 'net.Server';
@@ -2423,7 +2606,7 @@
           // Don't destroy dgram sockets or servers - they're shared.
           var keepOpen = opts && opts.keepOpen;
           var isDgramHandle = sendHandle && (sendHandle.type === 'udp4' || sendHandle.type === 'udp6');
-          var isServerHandle = handleType === 'net.Server';
+          var isServerHandle = handleType === 'net.Server' || handleType === 'net.ServerHandle';
           if (written && sendHandle && !keepOpen && !isDgramHandle && !isServerHandle) {
             // Clear server reference but don't decrement _connections
             // (SocketList protocol handles this via NODE_SOCKET_CLOSED)

@@ -291,7 +291,11 @@ function _makeSocketHandle(handle, kind, fd, path) {
 }
 
 function _makeServerHandle(nativeHandle, kind, path) {
-  return _makeSocketHandle(nativeHandle, kind, undefined, path || null);
+  var handle = _makeSocketHandle(nativeHandle, kind, undefined, path || null);
+  if (handle && typeof handle === 'object') {
+    handle._exactServerHandle = true;
+  }
+  return handle;
 }
 
 function _setHandleExactValue(handle, nativeHandle, fd, kind, path) {
