@@ -20,27 +20,42 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "tvos"), not(target_os = "watchos")))]
+#[cfg(all(
+    unix,
+    not(target_os = "macos"),
+    not(target_os = "ios"),
+    not(target_os = "tvos"),
+    not(target_os = "watchos")
+))]
 #[inline]
 fn set_errno_from_io_error(err: &std::io::Error) {
     let code = err.raw_os_error().unwrap_or(libc::EIO);
-    unsafe { *libc::__errno_location() = code; }
+    unsafe {
+        *libc::__errno_location() = code;
+    }
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos"
+))]
 #[inline]
 fn set_errno_from_io_error(err: &std::io::Error) {
     let code = err.raw_os_error().unwrap_or(libc::EIO);
-    unsafe { *libc::__error() = code; }
+    unsafe {
+        *libc::__error() = code;
+    }
 }
 
 #[cfg(not(unix))]
 #[inline]
 fn set_errno_from_io_error(_err: &std::io::Error) {}
 #[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
-#[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 
 pub const EXACT_HOST_ABI_VERSION: u32 = 1;
 
@@ -289,7 +304,9 @@ fn unix_time_millis(time: SystemTime) -> u64 {
 }
 
 fn unix_time_nanos(time: SystemTime) -> u64 {
-    time.duration_since(UNIX_EPOCH).map(|value| value.as_nanos()).unwrap_or(0) as u64
+    time.duration_since(UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or(0) as u64
 }
 
 fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value> {
@@ -427,7 +444,9 @@ pub extern "C" fn ex_host_fs_read_file(
     if path.is_null() || out_len.is_null() {
         return ptr::null_mut();
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .to_string();
     let mut file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(err) => {
@@ -693,18 +712,19 @@ pub extern "C" fn ex_host_fs_stat(path: *const c_char) -> *mut c_char {
         .to_string();
     match make_stat_payload(&path, true) {
         Some(payload) => as_json_cstring(&payload),
-        None => {
-            match std::fs::metadata(&path) {
-                Ok(_) => {
-                    set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "stat payload failed"));
-                    ptr::null_mut()
-                }
-                Err(err) => {
-                    set_errno_from_io_error(&err);
-                    ptr::null_mut()
-                }
+        None => match std::fs::metadata(&path) {
+            Ok(_) => {
+                set_errno_from_io_error(&std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "stat payload failed",
+                ));
+                ptr::null_mut()
             }
-        }
+            Err(err) => {
+                set_errno_from_io_error(&err);
+                ptr::null_mut()
+            }
+        },
     }
 }
 
@@ -719,18 +739,19 @@ pub extern "C" fn ex_host_fs_lstat(path: *const c_char) -> *mut c_char {
         .to_string();
     match make_stat_payload(&path, false) {
         Some(payload) => as_json_cstring(&payload),
-        None => {
-            match std::fs::symlink_metadata(&path) {
-                Ok(_) => {
-                    set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "lstat payload failed"));
-                    ptr::null_mut()
-                }
-                Err(err) => {
-                    set_errno_from_io_error(&err);
-                    ptr::null_mut()
-                }
+        None => match std::fs::symlink_metadata(&path) {
+            Ok(_) => {
+                set_errno_from_io_error(&std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "lstat payload failed",
+                ));
+                ptr::null_mut()
             }
-        }
+            Err(err) => {
+                set_errno_from_io_error(&err);
+                ptr::null_mut()
+            }
+        },
     }
 }
 
@@ -754,7 +775,10 @@ pub extern "C" fn ex_host_fs_readdir(path: *const c_char) -> *mut c_char {
             match CString::new(payload) {
                 Ok(cstr) => cstr.into_raw(),
                 Err(_) => {
-                    set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "invalid JSON payload"));
+                    set_errno_from_io_error(&std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "invalid JSON payload",
+                    ));
                     ptr::null_mut()
                 }
             }
@@ -877,7 +901,10 @@ pub extern "C" fn ex_host_fs_realpath(path: *const c_char) -> *mut c_char {
         Ok(canonical) => match CString::new(canonical.to_string_lossy().to_string()) {
             Ok(cstr) => cstr.into_raw(),
             Err(_) => {
-                set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "invalid canonical path"));
+                set_errno_from_io_error(&std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "invalid canonical path",
+                ));
                 ptr::null_mut()
             }
         },
@@ -1001,7 +1028,10 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
         Ok(_) => match CString::new(dir_path.to_string_lossy().to_string()) {
             Ok(cstr) => cstr.into_raw(),
             Err(_) => {
-                set_errno_from_io_error(&std::io::Error::new(std::io::ErrorKind::Other, "invalid temp path"));
+                set_errno_from_io_error(&std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "invalid temp path",
+                ));
                 ptr::null_mut()
             }
         },

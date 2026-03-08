@@ -955,6 +955,7 @@
             UV_ENAMETOOLONG: -63,
             UV_ENOENT: -2,
             UV_ENOMEM: -12,
+            UV_ENETUNREACH: -101,
             UV_ENOSPC: -28,
             UV_ENOSYS: -78,
             UV_ENOTDIR: -20,
