@@ -106,9 +106,14 @@ fn main() {
             .join("scripts")
             .join("build-builtins.mjs");
         if build_script.exists() {
-            // Try bun first, fall back to node
+            // Prefer bun when available, otherwise use node.
             let runner = which_js_runner();
             if let Some(runner_path) = runner {
+                let runner_name = runner_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("js runner");
+                let missing_js_deps_hint = missing_js_build_deps_hint(&repo_root);
                 let status = std::process::Command::new(&runner_path)
                     .arg(&build_script)
                     .arg("--src-dir")
@@ -126,7 +131,7 @@ fn main() {
                     Ok(s) => {
                         if !allow_fallback {
                             panic!(
-                                "build-builtins.mjs failed with status {s} and EXACT_ALLOW_FALLBACK is not set"
+                                "build-builtins.mjs failed with status {s} using {runner_name} and EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
                             );
                         }
                         eprintln!("cargo:warning=build-builtins.mjs exited with status {}, copying source files as fallback", s);
@@ -135,7 +140,7 @@ fn main() {
                     Err(e) => {
                         if !allow_fallback {
                             panic!(
-                                "Failed to run build-builtins.mjs ({e}); build aborted because EXACT_ALLOW_FALLBACK is not set"
+                                "Failed to run build-builtins.mjs with {runner_name} ({e}); build aborted because EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
                             );
                         }
                         eprintln!("cargo:warning=Failed to run build-builtins.mjs: {}, copying source files as fallback", e);
@@ -663,6 +668,23 @@ fn which_js_runner() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn missing_js_build_deps_hint(repo_root: &Path) -> String {
+    let js_dir = repo_root.join("js");
+    let node_modules_dir = js_dir.join("node_modules");
+    let rolldown_dir = node_modules_dir.join("rolldown");
+    let acorn_dir = node_modules_dir.join("acorn");
+
+    if node_modules_dir.exists() && rolldown_dir.exists() && acorn_dir.exists() {
+        String::new()
+    } else {
+        format!(
+            "\nJS build dependencies look missing under {}.\nRun `cd {} && bun install` and retry.",
+            node_modules_dir.display(),
+            js_dir.display()
+        )
+    }
 }
 
 fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
