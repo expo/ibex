@@ -1622,16 +1622,16 @@ Cipher.prototype.update = function(data, inputEncoding, outputEncoding) {
   this._chunks.push(_parseInputData(data, inputEncoding));
   if (_isWrapAlgorithm(this._algo)) {
     if (this._inlineFinalized && this._finalized) {
-      if (outputEncoding) return '';
+      if (outputEncoding && outputEncoding !== 'buffer') return '';
       return typeof Buffer !== 'undefined' && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
     }
     var wrapResult = this.final();
     this._inlineFinalized = true;
     this._inlineFinalResult = wrapResult;
-    if (outputEncoding) return wrapResult.toString(outputEncoding);
+    if (outputEncoding && outputEncoding !== 'buffer') return wrapResult.toString(outputEncoding);
     return wrapResult;
   }
-  if (outputEncoding) return '';
+  if (outputEncoding && outputEncoding !== 'buffer') return '';
   return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
 };
 
@@ -1648,7 +1648,7 @@ Cipher.prototype.final = function(outputEncoding) {
     }
   }
   if (this._inlineFinalized && this._finalized) {
-    if (outputEncoding) return '';
+    if (outputEncoding && outputEncoding !== 'buffer') return '';
     return typeof Buffer !== 'undefined' && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
   }
   this._finalized = true;
@@ -1791,22 +1791,22 @@ Decipher.prototype.update = function(data, inputEncoding, outputEncoding) {
   this._chunks.push(_parseInputData(data, inputEncoding));
   if (_isWrapAlgorithm(this._algo)) {
     if (this._inlineFinalized && this._finalized) {
-      if (outputEncoding) return '';
+      if (outputEncoding && outputEncoding !== 'buffer') return '';
       return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
     }
     var decodeResult = this.final();
     this._inlineFinalized = true;
     this._inlineFinalResult = decodeResult;
-    if (outputEncoding) return decodeResult.toString(outputEncoding);
+    if (outputEncoding && outputEncoding !== 'buffer') return decodeResult.toString(outputEncoding);
     return decodeResult;
   }
-  if (outputEncoding) return '';
+  if (outputEncoding && outputEncoding !== 'buffer') return '';
   return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
 };
 
 Decipher.prototype.final = function(outputEncoding) {
   if (this._inlineFinalized && this._finalized) {
-    if (outputEncoding) return '';
+    if (outputEncoding && outputEncoding !== 'buffer') return '';
     return typeof Buffer !== 'undefined' && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
   }
   this._finalized = true;
