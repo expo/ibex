@@ -303,6 +303,74 @@ function _makeAbortError(reason) {
   return err;
 }
 
+function _execChunkByteLength(chunk, BufferCtor) {
+  if (chunk == null) return 0;
+  if (typeof chunk === 'string') {
+    return BufferCtor ? BufferCtor.byteLength(chunk, 'utf8') : chunk.length;
+  }
+  if (BufferCtor && typeof BufferCtor.isBuffer === 'function' && BufferCtor.isBuffer(chunk)) {
+    return chunk.length;
+  }
+  if (typeof chunk.byteLength === 'number') {
+    return chunk.byteLength;
+  }
+  var stringChunk = String(chunk);
+  return BufferCtor ? BufferCtor.byteLength(stringChunk, 'utf8') : stringChunk.length;
+}
+
+function _execChunkToBuffer(chunk, BufferCtor) {
+  if (!BufferCtor) return chunk;
+  if (typeof BufferCtor.isBuffer === 'function' && BufferCtor.isBuffer(chunk)) {
+    return chunk;
+  }
+  if (typeof chunk === 'string') {
+    return BufferCtor.from(chunk, 'utf8');
+  }
+  if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
+    return BufferCtor.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  if (chunk instanceof ArrayBuffer) {
+    return BufferCtor.from(new Uint8Array(chunk));
+  }
+  return BufferCtor.from(String(chunk), 'utf8');
+}
+
+function _execCollectStringOutput(chunks, encoding, BufferCtor) {
+  var result = '';
+  for (var i = 0; i < chunks.length; i++) {
+    var chunk = chunks[i];
+    if (typeof chunk === 'string') {
+      result += chunk;
+    } else if (BufferCtor) {
+      result += _execChunkToBuffer(chunk, BufferCtor).toString(encoding);
+    } else {
+      result += String(chunk);
+    }
+  }
+  return result;
+}
+
+function _execCollectBufferOutput(chunks, BufferCtor) {
+  if (!BufferCtor) {
+    return _execCollectStringOutput(chunks, 'utf8', BufferCtor);
+  }
+  var buffers = new Array(chunks.length);
+  for (var i = 0; i < chunks.length; i++) {
+    buffers[i] = _execChunkToBuffer(chunks[i], BufferCtor);
+  }
+  return BufferCtor.concat(buffers);
+}
+
+function _execStringEncoding(encoding, validEncodings) {
+  if (encoding === null || encoding === undefined || encoding === 'buffer') {
+    return 'utf8';
+  }
+  if (typeof encoding === 'string' && validEncodings && validEncodings[encoding]) {
+    return encoding;
+  }
+  return 'utf8';
+}
+
 function _validateSignalOption(signal) {
   if (signal != null) {
     // Duck-type check: AbortSignal has 'aborted' property and 'addEventListener' method
@@ -757,6 +825,7 @@ cp.exec = function exec(command, options, callback) {
   var encoding = (options && 'encoding' in options) ? options.encoding : 'utf8';
   var _validEncodings = { utf8: 1, utf16le: 1, latin1: 1, ascii: 1, base64: 1, hex: 1, ucs2: 1, binary: 1, 'utf-8': 1 };
   var useBuffer = !encoding || encoding === 'buffer' || !_validEncodings[encoding];
+  var stringEncoding = _execStringEncoding(encoding, _validEncodings);
   var killSignal = options.killSignal || 'SIGTERM';
   // Validate signal option early (before spawn) so sync throw propagates
   if (options.signal != null) {
@@ -767,14 +836,6 @@ cp.exec = function exec(command, options, callback) {
     cwd: opts.cwd,
     env: opts.env
   });
-  if (!useBuffer) {
-    if (child.stdout && typeof child.stdout.setEncoding === 'function') {
-      child.stdout.setEncoding(encoding);
-    }
-    if (child.stderr && typeof child.stderr.setEncoding === 'function') {
-      child.stderr.setEncoding(encoding);
-    }
-  }
   child._cmd = command;
   var stdoutChunks = [];
   var stderrChunks = [];
@@ -789,8 +850,8 @@ cp.exec = function exec(command, options, callback) {
     if (exited) return;
     exited = true;
     if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-    var stdoutStr = stdoutChunks.join('');
-    var stderrStr = stderrChunks.join('');
+    var stdoutStr = _execCollectStringOutput(stdoutChunks, stringEncoding, _BufferRef);
+    var stderrStr = _execCollectStringOutput(stderrChunks, stringEncoding, _BufferRef);
     // Compute output with proper truncation
     var stdout, stderr;
     if (useBuffer && _BufferRef) {
@@ -802,13 +863,13 @@ cp.exec = function exec(command, options, callback) {
         stdout = (maxBufferExceeded === 'stdout') ? stdoutStr.slice(0, maxBuffer) : stdoutStr;
       } else {
         // No setEncoding - return Buffer, truncate by bytes
-        var stdoutBuf = _BufferRef.from(stdoutStr, 'utf8');
+        var stdoutBuf = _execCollectBufferOutput(stdoutChunks, _BufferRef);
         stdout = (maxBufferExceeded === 'stdout' && stdoutBuf.length > maxBuffer) ? stdoutBuf.slice(0, maxBuffer) : stdoutBuf;
       }
       if (stderrHasEnc) {
         stderr = (maxBufferExceeded === 'stderr') ? stderrStr.slice(0, maxBuffer) : stderrStr;
       } else {
-        var stderrBuf = _BufferRef.from(stderrStr, 'utf8');
+        var stderrBuf = _execCollectBufferOutput(stderrChunks, _BufferRef);
         stderr = (maxBufferExceeded === 'stderr' && stderrBuf.length > maxBuffer) ? stderrBuf.slice(0, maxBuffer) : stderrBuf;
       }
     } else {
@@ -850,10 +911,9 @@ cp.exec = function exec(command, options, callback) {
   var _killError = null;
   if (child.stdout) {
     child.stdout.on('data', function(chunk) {
-      var str = typeof chunk === 'string' ? chunk : String(chunk);
-      stdoutChunks.push(str);
+      stdoutChunks.push(chunk);
       // Always count bytes for maxBuffer (Node.js behavior)
-      stdoutLen += _BufferRef ? _BufferRef.byteLength(str, 'utf8') : str.length;
+      stdoutLen += _execChunkByteLength(chunk, _BufferRef);
       if (stdoutLen > maxBuffer) {
         if (!maxBufferExceeded) maxBufferExceeded = 'stdout';
         killed = true;
@@ -863,9 +923,8 @@ cp.exec = function exec(command, options, callback) {
   }
   if (child.stderr) {
     child.stderr.on('data', function(chunk) {
-      var str = typeof chunk === 'string' ? chunk : String(chunk);
-      stderrChunks.push(str);
-      stderrLen += _BufferRef ? _BufferRef.byteLength(str, 'utf8') : str.length;
+      stderrChunks.push(chunk);
+      stderrLen += _execChunkByteLength(chunk, _BufferRef);
       if (stderrLen > maxBuffer) {
         if (!maxBufferExceeded) maxBufferExceeded = 'stderr';
         killed = true;
@@ -981,6 +1040,7 @@ cp.execFile = function execFile(file, args, options, callback) {
   var encoding = (options && 'encoding' in options) ? options.encoding : 'utf8';
   var _validEncodings2 = { utf8: 1, utf16le: 1, latin1: 1, ascii: 1, base64: 1, hex: 1, ucs2: 1, binary: 1, 'utf-8': 1 };
   var useBuffer = !encoding || encoding === 'buffer' || !_validEncodings2[encoding];
+  var stringEncoding = _execStringEncoding(encoding, _validEncodings2);
   var killSignal = options.killSignal || 'SIGTERM';
   // Validate signal option early (before spawn) so sync throw propagates
   if (options.signal != null) {
@@ -992,14 +1052,6 @@ cp.execFile = function execFile(file, args, options, callback) {
     env: opts.env,
     windowsHide: options.windowsHide === true
   });
-  if (!useBuffer) {
-    if (child.stdout && typeof child.stdout.setEncoding === 'function') {
-      child.stdout.setEncoding(encoding);
-    }
-    if (child.stderr && typeof child.stderr.setEncoding === 'function') {
-      child.stderr.setEncoding(encoding);
-    }
-  }
   child._cmd = file + ' ' + args.join(' ');
   var stdoutChunks = [];
   var stderrChunks = [];
@@ -1014,8 +1066,8 @@ cp.execFile = function execFile(file, args, options, callback) {
     if (exited) return;
     exited = true;
     if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
-    var stdoutStr = stdoutChunks.join('');
-    var stderrStr = stderrChunks.join('');
+    var stdoutStr = _execCollectStringOutput(stdoutChunks, stringEncoding, _BufferRefEF);
+    var stderrStr = _execCollectStringOutput(stderrChunks, stringEncoding, _BufferRefEF);
     // Compute output with proper truncation
     var stdout, stderr;
     if (useBuffer && _BufferRefEF) {
@@ -1024,13 +1076,13 @@ cp.execFile = function execFile(file, args, options, callback) {
       if (stdoutHasEnc) {
         stdout = (maxBufferExceeded === 'stdout') ? stdoutStr.slice(0, maxBuffer) : stdoutStr;
       } else {
-        var stdoutBuf = _BufferRefEF.from(stdoutStr, 'utf8');
+        var stdoutBuf = _execCollectBufferOutput(stdoutChunks, _BufferRefEF);
         stdout = (maxBufferExceeded === 'stdout' && stdoutBuf.length > maxBuffer) ? stdoutBuf.slice(0, maxBuffer) : stdoutBuf;
       }
       if (stderrHasEnc) {
         stderr = (maxBufferExceeded === 'stderr') ? stderrStr.slice(0, maxBuffer) : stderrStr;
       } else {
-        var stderrBuf = _BufferRefEF.from(stderrStr, 'utf8');
+        var stderrBuf = _execCollectBufferOutput(stderrChunks, _BufferRefEF);
         stderr = (maxBufferExceeded === 'stderr' && stderrBuf.length > maxBuffer) ? stderrBuf.slice(0, maxBuffer) : stderrBuf;
       }
     } else {
@@ -1067,10 +1119,9 @@ cp.execFile = function execFile(file, args, options, callback) {
   var _BufferRefEF = typeof Buffer !== 'undefined' ? Buffer : null;
   if (child.stdout) {
     child.stdout.on('data', function(chunk) {
-      var str = typeof chunk === 'string' ? chunk : String(chunk);
-      stdoutChunks.push(str);
+      stdoutChunks.push(chunk);
       // Always count bytes for maxBuffer (Node.js behavior)
-      stdoutLen += _BufferRefEF ? _BufferRefEF.byteLength(str, 'utf8') : str.length;
+      stdoutLen += _execChunkByteLength(chunk, _BufferRefEF);
       if (stdoutLen > maxBuffer) {
         if (!maxBufferExceeded) maxBufferExceeded = 'stdout';
         killed = true;
@@ -1080,9 +1131,8 @@ cp.execFile = function execFile(file, args, options, callback) {
   }
   if (child.stderr) {
     child.stderr.on('data', function(chunk) {
-      var str = typeof chunk === 'string' ? chunk : String(chunk);
-      stderrChunks.push(str);
-      stderrLen += _BufferRefEF ? _BufferRefEF.byteLength(str, 'utf8') : str.length;
+      stderrChunks.push(chunk);
+      stderrLen += _execChunkByteLength(chunk, _BufferRefEF);
       if (stderrLen > maxBuffer) {
         if (!maxBufferExceeded) maxBufferExceeded = 'stderr';
         killed = true;
