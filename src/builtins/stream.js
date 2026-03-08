@@ -424,10 +424,6 @@ function _markPromiseHandled(promise) {
 }
 
 function _nextTick(fn) {
-  if (typeof queueMicrotask === 'function') {
-    queueMicrotask(fn);
-    return;
-  }
   if (
     typeof globalThis === 'object' &&
     globalThis &&
@@ -439,6 +435,10 @@ function _nextTick(fn) {
   }
   if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
     return process.nextTick(fn);
+  }
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(fn);
+    return;
   }
   return setTimeout(fn, 0);
 }
@@ -1394,14 +1394,9 @@ Readable.prototype.push = function(chunk, encoding) {
     // If flowing mode and buffer is empty, directly schedule 'end' event
     var isFlowing = state.readableFlowing || this.readableFlowing === true;
     if (isFlowing && this._data.length === 0 && !state.endEmitted) {
-      var self = this;
       _nextTick(function() {
         if (!state.endEmitted && !state.destroyed && !state.errored) {
-          state.endEmitted = true;
-          self.readable = false;
-          self.readableEnded = true;
-          self.emit('end');
-          _finalizeReadableEnd(self, state);
+          _scheduleReadableEnd(self, state);
         }
       });
     } else if (!hadReadableEventPending && state.sync) {
