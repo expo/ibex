@@ -668,7 +668,8 @@ function Readable(options) {
     errorEmitted: false,
     errored: null,
     endedFlowing: false,
-    emittedClose: true,
+    emitClose: (options && options.emitClose !== undefined) ? options.emitClose !== false : true,
+    emittedClose: false,
     autoDestroy: (options && options.autoDestroy !== undefined) ? options.autoDestroy !== false : true,
     defaultEncoding: 'utf8',
     encoding: (options && options.encoding) || null,
@@ -4051,6 +4052,9 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     return !shouldNeedDrain;
   }
 
+  if (typeof state.pendingcb === 'number') {
+    state.pendingcb++;
+  }
   state.writing = true;
   if (shouldNeedDrain) {
     this._needDrain = true;
@@ -4064,6 +4068,9 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     if (callbackCalled) return;
     callbackCalled = true;
     state.writing = false;
+    if (typeof state.pendingcb === 'number' && state.pendingcb > 0) {
+      state.pendingcb--;
+    }
     self.writableLength -= chunkLen;
     if (self.writableLength < 0) self.writableLength = 0;
     _syncWritableBufferState(self);
@@ -4098,9 +4105,6 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     }
 
     if (typeof queued.callback === 'function') queued.callback();
-    if (state.autoDestroy === false && state.pendingcb < 2) {
-      state.pendingcb++;
-    }
     if (self._writeQueue && self._writeQueue.length) {
       self._flushWriteQueue();
     }
@@ -4400,9 +4404,9 @@ Writable.prototype.end = function(chunk, encoding, callback) {
 
   if (chunk !== undefined && chunk !== null) {
     this.write(chunk, encoding, function(writeErr) {
-      markEnded();
       attemptFinal(writeErr);
     });
+    markEnded();
   } else {
     markEnded();
     attemptFinal();
@@ -4867,6 +4871,15 @@ Stream.prototype.pipe = function(dest, options) {
   }
 
   function onsourceclosecleanup() {
+    if (state) {
+      // Some sources (notably fs.ReadStream with autoClose) can emit `close`
+      // after queueing EOF but before buffered data/backpressure has fully
+      // drained through the pipe. In that case we must keep the pipe listeners
+      // alive so `ondrain`/`end` can still drive the destination to `end()`.
+      if (state.ended && (!state.endEmitted || state.length > 0 || _hasAwaitDrainWriters(state))) {
+        return;
+      }
+    }
     cleanupQuietly();
   }
 
@@ -5835,6 +5848,16 @@ function isStreamDone(stream) {
 }
 
 function finished(stream, options, callback) {
+  if (
+    arguments.length < 3 &&
+    callback === undefined &&
+    options !== undefined &&
+    options !== null &&
+    typeof options !== 'function' &&
+    typeof options !== 'object'
+  ) {
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "callback" argument must be of type function. Received ' + typeof options);
+  }
   if (typeof options === 'function') {
     callback = options;
     options = {};
@@ -5871,16 +5894,24 @@ function finished(stream, options, callback) {
   var hasReadableCapability = !!(
     stream &&
     (stream._readableState ||
-     (typeof stream.read === 'function' && stream.readable !== false))
+     typeof stream.read === 'function' ||
+     stream.complete === true)
   );
   var hasWritableCapability = !!(
     stream &&
     (stream._writableState ||
-     (typeof stream.write === 'function' && stream.writable !== false))
+     typeof stream.write === 'function' ||
+     typeof stream.end === 'function')
+  );
+  var isLegacyStream = !!(
+    stream &&
+    stream instanceof Stream &&
+    !hasReadableCapability &&
+    !hasWritableCapability
   );
 
   // Validate that the first argument is a stream
-  if (!stream || (!hasReadableCapability && !hasWritableCapability)) {
+  if (!stream || (!hasReadableCapability && !hasWritableCapability && !isLegacyStream)) {
     throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "stream" argument must be an instance of Stream. Received ' + (stream === null ? 'null' : typeof stream));
   }
 
@@ -5896,65 +5927,121 @@ function finished(stream, options, callback) {
   var shouldEmitError = options.error !== false;
   var shouldCleanup = options.cleanup !== false;
   var error = null;
+  var aborted = !!(
+    stream.aborted === true ||
+    stream.readableAborted === true ||
+    stream.writableAborted === true
+  );
 
   function isReadableDone() {
     return !shouldWaitReadable ||
       stream.readableEnded ||
-      stream.readable === false ||
-      (stream._readableState && (stream._readableState.ended || stream._readableState.endEmitted));
+      stream.complete === true ||
+      (stream._readableState && stream._readableState.endEmitted);
   }
 
   function isWritableDone() {
     return !shouldWaitWritable ||
+      stream.writableFinished;
+  }
+
+  function isReadableClosedCleanly() {
+    var state = stream._readableState;
+    return !shouldWaitReadable ||
+      stream.readableEnded ||
+      stream.complete === true ||
+      (state &&
+        (state.endEmitted ||
+         (state.ended &&
+          state.length === 0 &&
+          !state.errored &&
+          !stream.errored &&
+          !stream.destroyed)));
+  }
+
+  function isWritableClosedCleanly() {
+    var state = stream._writableState;
+    return !shouldWaitWritable ||
       stream.writableFinished ||
-      stream.writable === false ||
-      (stream._writableState && stream._writableState.finished);
+      (state &&
+        state.finished &&
+        !state.errored &&
+        !stream.errored);
   }
 
   function getCurrentError() {
     if (!shouldEmitError) return null;
-    if (stream._readableState && stream._readableState.errored) return stream._readableState.errored;
-    if (stream._writableState && stream._writableState.errored) return stream._writableState.errored;
-    if (stream.errored) return stream.errored;
+    if (error) return error;
+    if (stream._readableState && stream._readableState.errored && stream._readableState.errored !== true) {
+      return stream._readableState.errored;
+    }
+    if (stream._writableState && stream._writableState.errored && stream._writableState.errored !== true) {
+      return stream._writableState.errored;
+    }
+    if (stream.errored && stream.errored !== true) return stream.errored;
     return null;
   }
 
   var cleanup = function() {};
   function done(err) {
     if (called) return;
-    if (err) {
+    if (err == null) {
+      err = undefined;
+    } else {
       error = err;
     }
     called = true;
     if (shouldCleanup) {
       cleanup();
     }
-    if (typeof callback === 'function') callback(err || null);
+    if (typeof callback === 'function') callback(err);
   }
 
   var onFinish = function() {
     var readableDone = isReadableDone();
     var writableDone = isWritableDone();
+    if (aborted && !(stream._closed || stream.closed)) {
+      return;
+    }
     if (readableDone && writableDone) {
       done(null);
     }
   };
   var onEnd = function() { onFinish(); };
+  var onAborted = function() {
+    aborted = true;
+  };
   var onError = function(err) {
     if (shouldEmitError) {
+      if (!suppressClose && !(stream._closed || stream.closed)) {
+        error = err || error;
+        return;
+      }
       done(err);
     }
   };
+  var closeQueued = false;
   var onClose = function() {
-    var readableDone = isReadableDone();
-    var writableDone = isWritableDone();
-    if (!readableDone || !writableDone) {
-      var prematureErr = new Error('premature close');
-      prematureErr.code = 'ERR_STREAM_PREMATURE_CLOSE';
-      done(prematureErr);
-    } else {
-      done(null);
-    }
+    if (closeQueued) return;
+    closeQueued = true;
+    var readableDone = isReadableClosedCleanly();
+    var writableDone = isWritableClosedCleanly();
+    _nextTick(function() {
+      closeQueued = false;
+      if (called) return;
+      var currentError = getCurrentError();
+      if (currentError) {
+        done(currentError);
+        return;
+      }
+      if (!readableDone || !writableDone) {
+        var prematureErr = new Error('premature close');
+        prematureErr.code = 'ERR_STREAM_PREMATURE_CLOSE';
+        done(prematureErr);
+      } else {
+        done(null);
+      }
+    });
   };
 
   function onSignalAbort() {
@@ -5973,6 +6060,7 @@ function finished(stream, options, callback) {
   if (stream.on) {
     stream.on('error', onError);
     stream.on('close', onClose);
+    stream.on('aborted', onAborted);
   }
 
   // Return cleanup function
@@ -5982,6 +6070,7 @@ function finished(stream, options, callback) {
       stream.removeListener('finish', onFinish);
       stream.removeListener('error', onError);
       stream.removeListener('close', onClose);
+      stream.removeListener('aborted', onAborted);
     }
     if (options && options.signal && typeof options.signal.removeEventListener === 'function') {
       options.signal.removeEventListener('abort', onSignalAbort);
@@ -5996,9 +6085,41 @@ function finished(stream, options, callback) {
     }
   }
 
+  function makePrematureCloseError() {
+    var prematureErr = new Error('premature close');
+    prematureErr.code = 'ERR_STREAM_PREMATURE_CLOSE';
+    return prematureErr;
+  }
+
+  function hasNoPendingCallbacks(state) {
+    return !state || state.pendingcb === undefined || state.pendingcb === 0;
+  }
+
   var immediateError = getCurrentError();
-  if (immediateError || ((isReadableDone() && isWritableDone()) && !stream._composePending)) {
-    done(immediateError);
+  var suppressClose = !!(
+    (stream._readableState && stream._readableState.emitClose === false) ||
+    (stream._writableState && stream._writableState.emitClose === false)
+  );
+  var alreadyClosed = !!(stream._closed || stream.closed || (stream._destroyed && suppressClose));
+  if (immediateError) {
+    if (alreadyClosed || suppressClose) {
+      done(immediateError);
+    }
+  } else if (
+    !isLegacyStream &&
+    !shouldWaitReadable &&
+    !stream._composePending &&
+    (suppressClose || Stream.isReadable(stream)) &&
+    (isWritableDone() || Stream.isWritable(stream) === false) &&
+    hasNoPendingCallbacks(stream._writableState)
+  ) {
+    _nextTick(function() {
+      if (!called) done(null);
+    });
+  } else if (!isLegacyStream && alreadyClosed && !stream._composePending) {
+    done(isReadableClosedCleanly() && isWritableClosedCleanly() ? null : makePrematureCloseError());
+  } else if (!isLegacyStream && (isReadableDone() && isWritableDone()) && !stream._composePending) {
+    done(null);
   }
 
   // If no callback, return a promise

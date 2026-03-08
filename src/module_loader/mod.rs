@@ -696,7 +696,7 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
 
 fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v5-selective-es5-loop-scope".hash(&mut hasher);
+    "loader-transpile-v6-refresh-for-await-cache".hash(&mut hasher);
     target.hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);

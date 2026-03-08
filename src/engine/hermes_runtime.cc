@@ -11062,6 +11062,66 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactStdinRead", std::move(stdinReadFn));
 
+  auto bytesToUtf8StringFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactBytesToUtf8String"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1) {
+          throw facebook::jsi::JSError(runtime, "__exactBytesToUtf8String: bytes required");
+        }
+
+        const uint8_t* ptr = nullptr;
+        size_t length = 0;
+
+        if (args[0].isString()) {
+          return facebook::jsi::Value(args[0].getString(runtime));
+        }
+
+        if (!args[0].isObject()) {
+          throw facebook::jsi::JSError(runtime, "__exactBytesToUtf8String: expected ArrayBuffer or TypedArray");
+        }
+
+        auto obj = args[0].asObject(runtime);
+        if (obj.isArrayBuffer(runtime)) {
+          auto ab = obj.getArrayBuffer(runtime);
+          ptr = ab.data(runtime);
+          length = ab.size(runtime);
+        } else {
+          auto bufferValue = obj.getProperty(runtime, "buffer");
+          if (!bufferValue.isObject() || !bufferValue.asObject(runtime).isArrayBuffer(runtime)) {
+            throw facebook::jsi::JSError(runtime, "__exactBytesToUtf8String: expected ArrayBuffer-backed view");
+          }
+          auto ab = bufferValue.asObject(runtime).getArrayBuffer(runtime);
+          size_t offset = 0;
+          size_t byteLength = ab.size(runtime);
+          auto offsetValue = obj.getProperty(runtime, "byteOffset");
+          if (offsetValue.isNumber()) {
+            offset = static_cast<size_t>(offsetValue.asNumber());
+          }
+          auto lengthValue = obj.getProperty(runtime, "byteLength");
+          if (lengthValue.isNumber()) {
+            byteLength = static_cast<size_t>(lengthValue.asNumber());
+          } else if (offset <= ab.size(runtime)) {
+            byteLength = ab.size(runtime) - offset;
+          }
+          if (offset > ab.size(runtime)) {
+            offset = ab.size(runtime);
+          }
+          if (offset + byteLength > ab.size(runtime)) {
+            byteLength = ab.size(runtime) - offset;
+          }
+          ptr = ab.data(runtime) + offset;
+          length = byteLength;
+        }
+
+        return facebook::jsi::String::createFromUtf8(runtime, ptr, length);
+      });
+  rt.global().setProperty(rt, "__exactBytesToUtf8String", std::move(bytesToUtf8StringFn));
+
   // Deferred: Dns host functions (registered lazily on first use)
   auto ensureDnsFn = facebook::jsi::Function::createFromHostFunction(
       rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureDns"), 0,

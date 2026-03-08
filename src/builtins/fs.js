@@ -2791,7 +2791,11 @@ function _initReadStream(rs, path, options) {
   }
 
   if (!rs._exactReadStreamInitialized) {
-    Stream.Readable.call(rs, { highWaterMark: highWaterMark });
+    Stream.Readable.call(rs, {
+      highWaterMark: highWaterMark,
+      autoDestroy: autoClose,
+      emitClose: autoClose
+    });
     rs._exactReadStreamInitialized = true;
   }
   rs.path = ((fdOption === undefined || fdOption === null) || path !== null && path !== undefined) ? path : undefined;
