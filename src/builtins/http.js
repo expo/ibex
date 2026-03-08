@@ -779,6 +779,35 @@ var _singleValueHeaders = {
   'server': true, 'user-agent': true
 };
 
+function _appendIncomingHeaderValue(dest, key, value) {
+  if (key === 'set-cookie') {
+    if (dest[key] !== undefined) {
+      if (Array.isArray(dest[key])) {
+        dest[key].push(value);
+      } else {
+        dest[key] = [dest[key], value];
+      }
+    } else {
+      dest[key] = [value];
+    }
+    return;
+  }
+
+  if (dest[key] !== undefined) {
+    if (_singleValueHeaders[key]) {
+      return;
+    }
+    if (key === 'cookie') {
+      dest[key] = dest[key] + '; ' + value;
+    } else {
+      dest[key] = dest[key] + ', ' + value;
+    }
+    return;
+  }
+
+  dest[key] = value;
+}
+
 function _invalidArgTypeHelper(input) {
   if (input == null) return ' Received ' + input;
   if (typeof input === 'function') return ' Received function ' + input.name;
@@ -1122,29 +1151,7 @@ Object.defineProperty(IncomingMessage.prototype, 'connection', {
 IncomingMessage.prototype._addHeaderLine = function(field, value, dest) {
   var key = field.toLowerCase();
   if (dest === undefined) dest = this.headers;
-  if (key === 'set-cookie') {
-    // set-cookie is always an array
-    if (dest[key] !== undefined) {
-      if (Array.isArray(dest[key])) {
-        dest[key].push(value);
-      } else {
-        dest[key] = [dest[key], value];
-      }
-    } else {
-      dest[key] = [value];
-    }
-  } else if (dest[key] !== undefined) {
-    if (_singleValueHeaders[key]) {
-      return; // single-value: first wins
-    }
-    if (key === 'cookie') {
-      dest[key] = dest[key] + '; ' + value;
-    } else {
-      dest[key] = dest[key] + ', ' + value;
-    }
-  } else {
-    dest[key] = value;
-  }
+  _appendIncomingHeaderValue(dest, key, value);
 };
 
 IncomingMessage.prototype._consumeBody = function() {
@@ -2662,19 +2669,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
           var hKey = lines[i].substring(0, colonIdx).trim();
           var hVal = lines[i].substring(colonIdx + 1).trim();
           var hKeyLower = hKey.toLowerCase();
-          if (hKeyLower === 'set-cookie') {
-            if (responseHeaders[hKeyLower] === undefined) {
-              responseHeaders[hKeyLower] = [hVal];
-            } else if (Array.isArray(responseHeaders[hKeyLower])) {
-              responseHeaders[hKeyLower].push(hVal);
-            } else {
-              responseHeaders[hKeyLower] = [responseHeaders[hKeyLower], hVal];
-            }
-          } else if (responseHeaders[hKeyLower] !== undefined && !_singleValueHeaders[hKeyLower]) {
-            responseHeaders[hKeyLower] += ', ' + hVal;
-          } else {
-            responseHeaders[hKeyLower] = hVal;
-          }
+          _appendIncomingHeaderValue(responseHeaders, hKeyLower, hVal);
           rawResponseHeaders.push(hKey, hVal);
         }
       }
@@ -3980,11 +3975,7 @@ HttpRequestParser.prototype._parse = function() {
           var key = headerLine.substring(0, colonIdx);
           var value = headerLine.substring(colonIdx + 1).trim();
           var keyLower = key.toLowerCase();
-          if (this._headers[keyLower] !== undefined && !_singleValueHeaders[keyLower]) {
-            this._headers[keyLower] += ', ' + value;
-          } else {
-            this._headers[keyLower] = value;
-          }
+          _appendIncomingHeaderValue(this._headers, keyLower, value);
           this._rawHeaders.push(key, value);
         }
       }
