@@ -1,3 +1,14 @@
+var g = globalThis;
+var _exactNetInitialized = false;
+function ensureExactNet() {
+  if (_exactNetInitialized) return;
+  if (typeof g.__exactEnsureNet === 'function') {
+    try { g.__exactEnsureNet(); } catch (e) {}
+  }
+  _exactNetInitialized = true;
+}
+ensureExactNet();
+
 var EventEmitter;
 try { EventEmitter = require('events'); } catch(e) {
   EventEmitter = function() { this._events = {}; };
@@ -12,7 +23,100 @@ try { EventEmitter = require('events'); } catch(e) {
   EventEmitter.prototype.listenerCount = function(e) { if (!this._events) this._events = {}; return (this._events[e] || []).length; };
 }
 
-var _hasTcp = typeof __exactTcpListen === 'function';
+function _hasTcpSupport() {
+  return typeof __exactTcpListen === 'function' &&
+         typeof __exactTcpAccept === 'function' &&
+         typeof __exactTcpRead === 'function' &&
+         typeof __exactTcpWrite === 'function' &&
+         typeof __exactTcpClose === 'function';
+}
+
+function _unwrapTcpHandle(handle) {
+  if (typeof handle === 'number') return handle;
+  if (handle && typeof handle._exactHandle === 'number') return handle._exactHandle;
+  return null;
+}
+
+function _releaseServerSocket(socket) {
+  if (!socket || typeof socket !== 'object') return;
+
+  if (socket._headersTimeoutId != null) {
+    clearTimeout(socket._headersTimeoutId);
+    socket._headersTimeoutId = null;
+  }
+  if (socket._requestTimeoutId != null) {
+    clearTimeout(socket._requestTimeoutId);
+    socket._requestTimeoutId = null;
+  }
+  socket._headersTimeoutAt = null;
+  socket._requestTimeoutAt = null;
+  socket._requestTimeoutArmed = false;
+  socket.parser = null;
+  socket._httpMessage = null;
+
+  var netServer = socket._server;
+  if (netServer && typeof netServer._connections === 'number') {
+    netServer._connections--;
+    if (netServer._connections < 0) netServer._connections = 0;
+    if (netServer._closing && netServer._connections === 0) {
+      setTimeout(function() { netServer.emit('close'); }, 0);
+    }
+  }
+
+  var httpServer = socket._httpServer;
+  if (httpServer && httpServer._sockets && typeof httpServer._sockets.delete === 'function') {
+    httpServer._sockets.delete(socket);
+  }
+
+  socket.server = null;
+  socket._server = null;
+  socket._httpServer = null;
+}
+
+function _detachSocketTcpHandle(socket) {
+  if (typeof socket === 'number') {
+    return socket;
+  }
+  if (!socket) {
+    return null;
+  }
+
+  var tcpHandle = _unwrapTcpHandle(socket._handle);
+  if (tcpHandle == null) {
+    return null;
+  }
+
+  if (socket._pollTimer != null) {
+    clearTimeout(socket._pollTimer);
+    socket._pollTimer = null;
+  }
+  _releaseServerSocket(socket);
+
+  if (socket._handle && typeof socket._handle === 'object' && socket._handle._exactHandle !== undefined) {
+    socket._handle._exactHandle = null;
+  } else {
+    socket._handle = null;
+  }
+  socket.destroyed = true;
+  return tcpHandle;
+}
+
+function _requestMatchesServerPath(server, req) {
+  if (!server || !server._path) return true;
+  if (!req || typeof req.url !== 'string') return false;
+
+  var requestPath = req.url.split('?')[0];
+  var expectedPath = String(server._path).split('?')[0];
+  return requestPath === expectedPath;
+}
+
+function _rejectUpgrade(tcpHandle) {
+  if (tcpHandle == null) return;
+  try {
+    __exactTcpWrite(tcpHandle, 'HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+  } catch (_writeRejectErr) {}
+  try { __exactTcpClose(tcpHandle); } catch (_closeRejectErr) {}
+}
 
 // ========================================================
 // WebSocket frame constants
@@ -124,9 +228,9 @@ function encodeFrame(opcode, payload, fin) {
     header.push(len & 0xFF);
   }
 
-  var frame = '';
-  for (var i = 0; i < header.length; i++) frame += String.fromCharCode(header[i]);
-  for (var i = 0; i < payloadBytes.length; i++) frame += String.fromCharCode(payloadBytes[i]);
+  var frame = new Uint8Array(header.length + payloadBytes.length);
+  for (var i = 0; i < header.length; i++) frame[i] = header[i];
+  for (var j = 0; j < payloadBytes.length; j++) frame[header.length + j] = payloadBytes[j];
   return frame;
 }
 
@@ -526,7 +630,7 @@ function WebSocketServer(options, callback) {
     var self = this;
     this._server.on('upgrade', function(req, socket, head) {
       self.handleUpgrade(req, socket, head, function(ws) {
-        self.emit('connection', ws, req);
+        if (ws) self.emit('connection', ws, req);
       });
     });
     this._listening = true;
@@ -535,7 +639,7 @@ function WebSocketServer(options, callback) {
     return;
   }
 
-  if (!_hasTcp) {
+  if (!_hasTcpSupport()) {
     var self = this;
     setTimeout(function() { self.emit('error', new Error('TCP not available')); }, 0);
     return;
@@ -627,6 +731,11 @@ WebSocketServer.prototype._handleRawConnection = function(tcpHandle) {
 };
 
 WebSocketServer.prototype._completeUpgrade = function(tcpHandle, req, remainingData) {
+  if (!_requestMatchesServerPath(this, req)) {
+    _rejectUpgrade(tcpHandle);
+    return;
+  }
+
   var key = req.headers['sec-websocket-key'];
   if (!key) {
     var response = 'HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n';
@@ -665,24 +774,7 @@ WebSocketServer.prototype._completeUpgrade = function(tcpHandle, req, remainingD
 WebSocketServer.prototype.handleUpgrade = function(req, socket, head, callback) {
   var tcpHandle = null;
 
-  if (socket && typeof socket._handle === 'number') {
-    tcpHandle = socket._handle;
-    if (socket._pollTimer != null) {
-      clearTimeout(socket._pollTimer);
-      socket._pollTimer = null;
-    }
-    socket._handle = null;
-    socket.destroyed = true;
-  } else if (typeof socket === 'number') {
-    tcpHandle = socket;
-  } else if (socket && socket._handle != null) {
-    tcpHandle = socket._handle;
-    if (socket._pollTimer != null) {
-      clearTimeout(socket._pollTimer);
-      socket._pollTimer = null;
-    }
-    socket._handle = null;
-  }
+  tcpHandle = _detachSocketTcpHandle(socket);
 
   if (tcpHandle == null) {
     if (typeof callback === 'function') callback(null);
@@ -692,6 +784,12 @@ WebSocketServer.prototype.handleUpgrade = function(req, socket, head, callback) 
   var headers = {};
   if (req && req.headers) {
     headers = req.headers;
+  }
+
+  if (!_requestMatchesServerPath(this, req)) {
+    _rejectUpgrade(tcpHandle);
+    if (typeof callback === 'function') callback(null);
+    return;
   }
 
   var key = headers['sec-websocket-key'];
@@ -745,7 +843,7 @@ WebSocketServer.prototype.close = function(callback) {
     clearTimeout(this._acceptTimer);
     this._acceptTimer = null;
   }
-  if (this._handle != null && _hasTcp) {
+  if (this._handle != null && _hasTcpSupport()) {
     try { __exactTcpClose(this._handle); } catch(e) {}
     this._handle = null;
   }
@@ -759,7 +857,7 @@ WebSocketServer.prototype.close = function(callback) {
 };
 
 WebSocketServer.prototype.address = function() {
-  if (this._handle != null && _hasTcp) {
+  if (this._handle != null && _hasTcpSupport()) {
     try {
       var info = __exactTcpLocalAddr(this._handle);
       if (info) return JSON.parse(info);
