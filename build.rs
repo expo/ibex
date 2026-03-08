@@ -72,6 +72,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/native_websocket_linux.cc");
     println!("cargo:rerun-if-changed=src/engine/bootstrap");
     println!("cargo:rerun-if-changed=src/builtins");
+    println!("cargo:rerun-if-changed={}", repo_root.join("js").join("scripts").join("build-builtins.mjs").display());
+    println!("cargo:rerun-if-changed={}", repo_root.join("js").join("scripts").join("transforms.mjs").display());
     println!("cargo:rerun-if-env-changed=HERMES_ENABLE_DEBUGGER");
     println!("cargo:rerun-if-env-changed=HERMES_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");

@@ -2316,8 +2316,12 @@ Socket.prototype.destroy = function(err) {
     if (err instanceof Error) {
       endErr = err;
     } else if (!err && wasConnecting) {
-      endErr = new Error('Socket closed before the connection was established');
-      endErr.code = 'ERR_SOCKET_CLOSED_BEFORE_CONNECTION';
+      if (this._suppressCloseBeforeConnectError) {
+        endErr = null;
+      } else {
+        endErr = new Error('Socket closed before the connection was established');
+        endErr.code = 'ERR_SOCKET_CLOSED_BEFORE_CONNECTION';
+      }
     } else {
       endErr = new Error(err ? String(err) : 'Socket destroyed');
     }
@@ -2333,6 +2337,7 @@ Socket.prototype.destroy = function(err) {
     this._bufferedBytes = 0;
     this._isWriting = false;
   }
+  this._suppressCloseBeforeConnectError = false;
   var nativeHandle = _unwrapHandle(this._handle);
   if (nativeHandle != null && _hasTcp) {
     try { __exactTcpClose(nativeHandle); } catch(e) {}

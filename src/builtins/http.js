@@ -5015,6 +5015,17 @@ Server.prototype._onConnection = function(socket) {
     socket._isIdle = false;
 
     res.once('close', function() {
+      if (req.complete && _activeReq === req) {
+        _activeReq = null;
+      }
+      if (req.complete && !req._closeEmitted && !req._closeScheduled) {
+        req.readable = false;
+        if (req._readableState) {
+          req._readableState.ended = true;
+        }
+        req._closeEmitted = true;
+        req.emit('close');
+      }
       socket._isIdle = true;
       if (reqData.oversizedBody && !socket.destroyed) {
         try { socket.destroy(); } catch(e) {}

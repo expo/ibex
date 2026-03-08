@@ -177,10 +177,31 @@ function _resumeAfterConstruct(stream) {
 function _shouldAutoDestroyOnReadableEnd(stream, readableState) {
   if (!stream || !readableState) return false;
   if (!readableState.autoDestroy || stream._destroyed || stream._closed) return false;
+  if (stream._writableState && _hasPendingWritableSide(stream)) {
+    return false;
+  }
   if (stream._writableState && stream.writable !== false) {
     return false;
   }
   return true;
+}
+
+function _hasPendingWritableSide(stream) {
+  if (!stream || !stream._writableState) return false;
+  var writableState = stream._writableState;
+  if (writableState.destroyed || writableState.finished) return false;
+  if (writableState.ending || writableState.ended) return true;
+  if (stream.writable === false) return false;
+  return true;
+}
+
+function _finalizeReadableEnd(stream, readableState) {
+  _scheduleHalfOpenWritableEnd(stream);
+  if (_shouldAutoDestroyOnReadableEnd(stream, readableState)) {
+    stream.destroy();
+  } else if (!_hasPendingWritableSide(stream)) {
+    stream._close();
+  }
 }
 
 function _scheduleHalfOpenWritableEnd(stream) {
@@ -225,15 +246,20 @@ function _finishIfError(stream, err) {
 }
 
 function _createAbortError(err) {
-  if (err) {
-    if (typeof err === 'object' && err && err.name && err.code) {
-      return err;
-    }
-    if (err instanceof Error) return err;
+  if (
+    err &&
+    typeof err === 'object' &&
+    err.name === 'AbortError' &&
+    (err.code === 'ABORT_ERR' || err.code === 'ERR_ABORTED' || err.code === undefined)
+  ) {
+    return err;
   }
   var abortErr = new Error('The operation was aborted');
   abortErr.code = 'ABORT_ERR';
   abortErr.name = 'AbortError';
+  if (arguments.length > 0) {
+    abortErr.cause = err;
+  }
   return abortErr;
 }
 
@@ -1122,12 +1148,7 @@ function _scheduleReadableEnd(stream, state) {
     stream.readableEnded = true;
     stream._syncReadableState();
     stream.emit('end');
-    _scheduleHalfOpenWritableEnd(stream);
-    if (_shouldAutoDestroyOnReadableEnd(stream, readableState)) {
-      stream.destroy();
-    } else {
-      stream._close();
-    }
+    _finalizeReadableEnd(stream, readableState);
   });
 }
 
@@ -1187,6 +1208,38 @@ function _emitReadableNow(stream, state, force) {
       state.length <= state.highWaterMark) {
     state.needReadable = true;
   }
+}
+
+function _readableFlowStep(stream, size) {
+  var state = stream && stream._readableState;
+  if (!state || typeof stream.read !== 'function') {
+    return {
+      chunk: stream.read(size),
+      progressed: false
+    };
+  }
+
+  var hadDidRead = stream.readableDidRead === true || state.readableDidRead === true;
+  var beforeLength = state.length;
+  var beforeEnded = state.ended;
+
+  stream.readableDidRead = false;
+  state.readableDidRead = false;
+
+  var chunk = stream.read(size);
+  var didRead = stream.readableDidRead === true || state.readableDidRead === true;
+  var progressed = chunk !== null && chunk !== undefined ||
+    didRead ||
+    state.length !== beforeLength ||
+    state.ended !== beforeEnded;
+
+  stream.readableDidRead = hadDidRead || didRead;
+  state.readableDidRead = hadDidRead || didRead;
+
+  return {
+    chunk: chunk,
+    progressed: progressed
+  };
 }
 
 Readable.prototype._updateReadableLength = function(delta) {
@@ -1348,12 +1401,7 @@ Readable.prototype.push = function(chunk, encoding) {
           self.readable = false;
           self.readableEnded = true;
           self.emit('end');
-          _scheduleHalfOpenWritableEnd(self);
-          if (_shouldAutoDestroyOnReadableEnd(self, state)) {
-            self.destroy();
-          } else {
-            self._close();
-          }
+          _finalizeReadableEnd(self, state);
         }
       });
     } else if (!hadReadableEventPending && state.sync) {
@@ -1685,16 +1733,16 @@ Readable.prototype.resume = function() {
         }
       }
       if (self._destroyed || self.readableFlowing !== true) return;
-      self.read(0);
+      var initialRead = _readableFlowStep(self, 0);
       var readsThisTick = 0;
       while (self.readableFlowing === true && readsThisTick < 64) {
-        var chunk = self.read();
-        if (chunk === null || chunk === undefined) {
+        var step = _readableFlowStep(self);
+        if ((step.chunk === null || step.chunk === undefined) && !step.progressed) {
           return;
         }
         readsThisTick += 1;
       }
-      if (self.readableFlowing === true) {
+      if (self.readableFlowing === true && (initialRead.progressed || readsThisTick > 0)) {
         schedule(flowReadable);
       }
     }
@@ -1792,6 +1840,9 @@ Readable.prototype[Symbol.asyncIterator] = function(options) {
     finalized = true;
     if (typeof stream.destroy === 'function' && !stream._destroyed) {
       stream.destroy(err);
+      if (legacyMode && typeof stream.close === 'function' && !stream._closed) {
+        stream.close();
+      }
       return;
     }
     if (!err && typeof stream.close === 'function' && !stream._closed) {
@@ -3278,7 +3329,8 @@ function _duplexFromFunction(value, options) {
   srcOptions.readableObjectMode = inputObjectMode;
   srcOptions.writableObjectMode = inputObjectMode;
   var src = new PassThrough(srcOptions);
-  var output = value(src);
+  var pipelineSignal = options && options.__pipelineSignal;
+  var output = pipelineSignal ? value(src, { signal: pipelineSignal }) : value(src);
   if (output === undefined) {
     throw makeError(TypeError, 'ERR_INVALID_RETURN_VALUE', 'The \"source\" argument must return a value');
   }
@@ -3316,6 +3368,144 @@ function _duplexFromFunction(value, options) {
   duplex._isPipelineFunction = true;
   duplex._pipelineReadableResult = true;
   return duplex;
+}
+
+function _createPipelineSourceReadable(value, signal, options) {
+  var readableOptions = options ? Object.assign({}, options) : {};
+  delete readableOptions.__pipelineSignal;
+  delete readableOptions.signal;
+  if (readableOptions.objectMode == null) {
+    readableOptions.objectMode = true;
+  }
+  if (readableOptions.readableObjectMode == null) {
+    readableOptions.readableObjectMode = readableOptions.objectMode;
+  }
+  var sourceReadable = null;
+  var started = false;
+  var sourceListenersAttached = false;
+
+  var wrapper = new Readable(readableOptions);
+
+  function detachSourceListeners() {
+    if (!sourceReadable || !sourceListenersAttached || typeof sourceReadable.removeListener !== 'function') {
+      return;
+    }
+    sourceReadable.removeListener('data', onData);
+    sourceReadable.removeListener('end', onEnd);
+    sourceReadable.removeListener('close', onClose);
+    sourceReadable.removeListener('error', onError);
+    sourceListenersAttached = false;
+  }
+
+  function onData(chunk) {
+    if (!wrapper.push(chunk) && sourceReadable && typeof sourceReadable.pause === 'function') {
+      sourceReadable.pause();
+    }
+  }
+
+  function onEnd() {
+    detachSourceListeners();
+    if (!wrapper._destroyed) {
+      wrapper.push(null);
+    }
+  }
+
+  function onClose() {
+    if (!sourceReadable) return;
+    var readableState = sourceReadable._readableState;
+    if (readableState && readableState.errored) return;
+    onEnd();
+  }
+
+  function onError(err) {
+    detachSourceListeners();
+    if (!wrapper._destroyed) {
+      wrapper.destroy(err);
+    }
+  }
+
+  function attachSource(output) {
+    if (wrapper._destroyed) return;
+    if (signal && signal.aborted) {
+      wrapper.destroy(_createAbortError(signal.reason));
+      return;
+    }
+    sourceReadable = _toReadable(output, readableOptions);
+    if (!sourceReadable || typeof sourceReadable.on !== 'function') {
+      wrapper.destroy(makeError(TypeError, 'ERR_INVALID_RETURN_VALUE', 'The "source" argument must return a readable value'));
+      return;
+    }
+    sourceReadable.on('data', onData);
+    sourceReadable.on('end', onEnd);
+    sourceReadable.on('close', onClose);
+    sourceReadable.on('error', onError);
+    sourceListenersAttached = true;
+    if (typeof sourceReadable.resume === 'function') {
+      sourceReadable.resume();
+    }
+  }
+
+  function startSource() {
+    if (started || wrapper._destroyed) return;
+    started = true;
+    _nextTick(function() {
+      if (wrapper._destroyed) return;
+      if (signal && signal.aborted) {
+        wrapper.destroy(_createAbortError(signal.reason));
+        return;
+      }
+      var output;
+      try {
+        output = value({ signal: signal });
+      } catch (err) {
+        wrapper.destroy(err);
+        return;
+      }
+      if (output === undefined) {
+        wrapper.destroy(makeError(TypeError, 'ERR_INVALID_RETURN_VALUE', 'The "source" argument must return a value'));
+        return;
+      }
+      if (
+        output &&
+        typeof output.then === 'function' &&
+        typeof output[Symbol.asyncIterator] !== 'function' &&
+        typeof output[Symbol.iterator] !== 'function' &&
+        !_isReadableLike(output)
+      ) {
+        Promise.resolve(output).then(attachSource, function(err) {
+          if (!wrapper._destroyed) {
+            wrapper.destroy(err);
+          }
+        });
+        return;
+      }
+      attachSource(output);
+    });
+  }
+
+  wrapper._read = function() {
+    startSource();
+    if (sourceReadable && typeof sourceReadable.resume === 'function') {
+      sourceReadable.resume();
+    }
+  };
+
+  wrapper._destroy = function(err, cb) {
+    detachSourceListeners();
+    var readable = sourceReadable;
+    sourceReadable = null;
+    if (readable && typeof readable.destroy === 'function' && !readable._destroyed) {
+      try {
+        readable.destroy(err);
+      } catch (destroyErr) {
+        cb(destroyErr);
+        return;
+      }
+    }
+    cb(err || null);
+  };
+
+  return wrapper;
 }
 
 Duplex.from = function(value, options) {
@@ -3514,76 +3704,119 @@ Readable.from = function(iterable, options) {
   // Async iterable (including async generators)
   if (typeof iterable[Symbol.asyncIterator] === 'function') {
     var asyncIter = iterable[Symbol.asyncIterator]();
-    var reading = false;
+    var pumpStarted = false;
+    var resumePump = null;
     var destroyCallback = _nextTick;
-
-    readable._read = function() {
-      if (!reading) {
-        reading = true;
-        nextAsync();
+    var wrappedAsyncIter = {
+      next: function() {
+        _suppressHermesAsyncIteratorUnhandledRejections();
+        return asyncIter.next();
+      },
+      return: function(value) {
+        if (typeof asyncIter.return === 'function') {
+          _suppressHermesAsyncIteratorUnhandledRejections();
+          return asyncIter.return(value);
+        }
+        return Promise.resolve({ value: value, done: true });
+      },
+      throw: function(err) {
+        if (typeof asyncIter.throw === 'function') {
+          _suppressHermesAsyncIteratorUnhandledRejections();
+          return asyncIter.throw(err);
+        }
+        return Promise.reject(err);
+      }
+    };
+    var wrappedAsyncSource = {
+      [Symbol.asyncIterator]: function() {
+        return wrappedAsyncIter;
       }
     };
 
+    readable._read = function() {
+      if (resumePump) {
+        var resume = resumePump;
+        resumePump = null;
+        resume();
+        return;
+      }
+      if (pumpStarted) return;
+      pumpStarted = true;
+      pumpAsyncIterable();
+    };
+
     readable._destroy = function(error, cb) {
-      async function closeAsyncIterator() {
+      if (resumePump) {
+        var resume = resumePump;
+        resumePump = null;
+        resume();
+      }
+      var closePromise;
+      try {
         var hasError = error !== undefined && error !== null;
         if (hasError && typeof asyncIter.throw === 'function') {
-          var thrown = await asyncIter.throw(error);
-          if (thrown && thrown.value !== undefined) {
-            await thrown.value;
-          }
-          if (thrown && thrown.done) {
-            return;
-          }
+          closePromise = Promise.resolve(asyncIter.throw(error)).then(function(thrown) {
+            if (thrown && thrown.done) {
+              return;
+            }
+            if (typeof asyncIter.return === 'function') {
+              return asyncIter.return();
+            }
+          });
+        } else if (typeof asyncIter.return === 'function') {
+          closePromise = Promise.resolve(asyncIter.return());
+        } else {
+          closePromise = Promise.resolve();
         }
-        if (typeof asyncIter.return === 'function') {
-          var returned = await asyncIter.return();
-          if (returned && returned.value !== undefined) {
-            await returned.value;
-          }
-        }
+      } catch (err) {
+        closePromise = Promise.reject(err);
       }
 
-      Promise.resolve().then(closeAsyncIterator).then(function() {
+      _markPromiseHandled(closePromise).then(function() {
         destroyCallback(function() { cb(error || null); });
       }, function(err) {
         destroyCallback(function() { cb(err || error || null); });
       });
     };
 
-    async function nextAsync() {
-      while (true) {
+    function waitForPumpResume() {
+      return new Promise(function(resolve) {
+        resumePump = resolve;
+      });
+    }
+
+    function pumpAsyncIterable() {
+      var pumpPromise = (async function() {
         try {
-          _suppressHermesAsyncIteratorUnhandledRejections();
-          var result = await asyncIter.next();
+          for await (var value of wrappedAsyncSource) {
+            if (!readableStream || readableStream._destroyed) {
+              return;
+            }
+            if (value === null) {
+              var nullErr = new TypeError('May not write null values to stream');
+              nullErr.code = 'ERR_STREAM_NULL_VALUES';
+              readableStream.destroy(nullErr);
+              return;
+            }
+            if (!readableStream.push(value)) {
+              await waitForPumpResume();
+              if (!readableStream || readableStream._destroyed) {
+                return;
+              }
+            }
+          }
           if (!readableStream || readableStream._destroyed) {
-            _safelyReturnAsyncIterator(asyncIter);
             return;
           }
-          if (!result || result.done) {
-            readableStream.push(null);
-            return;
-          }
-          if (result.value === null) {
-            reading = false;
-            var nullErr = new TypeError('May not write null values to stream');
-            nullErr.code = 'ERR_STREAM_NULL_VALUES';
-            throw nullErr;
-          }
-          if (readableStream.push(result.value)) {
-            continue;
-          }
-          reading = false;
-          return;
+          readableStream.push(null);
         } catch (err) {
-          reading = false;
           if (!readableStream || readableStream._destroyed) {
             return;
           }
           readableStream.destroy(err);
-          return;
         }
-      }
+      })();
+      _markPromiseHandled(pumpPromise);
     }
 
     return readable;
@@ -4928,8 +5161,10 @@ Stream.prototype.pipe = function(dest, options) {
     if (!dest) return false;
     if (dest.writable === false) return false;
     if (dest._destroyed) return false;
+    if (dest._closed || dest.closed === true) return false;
     if (dest._writableState) {
       if (
+        dest._writableState.closed ||
         dest._writableState.destroyed ||
         dest._writableState.ended ||
         dest._writableState.ending ||
@@ -5040,6 +5275,9 @@ Stream.prototype.pipe = function(dest, options) {
   function onendcleanup() {
     if (!state || (state.length === 0 && !_hasAwaitDrainWriters(state))) {
       cleanupQuietly();
+      if (!state && typeof source.close === 'function' && !source._closed) {
+        source.close();
+      }
     }
   }
 
@@ -5456,7 +5694,12 @@ function pipeline() {
   }
   for (var transform = 0; transform < streams.length; transform++) {
     if (typeof streams[transform] === 'function') {
-      streams[transform] = Duplex.from(streams[transform]);
+      var pipelineStageOptions = options ? Object.assign({}, options) : {};
+      streams[transform] = {
+        __exactPipelineFunction: streams[transform],
+        __exactPipelineStageOptions: pipelineStageOptions,
+        __exactPipelineStageIndex: transform
+      };
     } else if (
       streams[transform] &&
       !_isReadableLike(streams[transform]) &&
@@ -5489,15 +5732,38 @@ function pipeline() {
   }
 
   var signal = options && options.signal;
-  var last = streams[streams.length - 1];
-  var lastAppearsEarlier = false;
-  for (var la = 0; la < streams.length - 1; la++) {
-    if (streams[la] === last) {
-      lastAppearsEarlier = true;
-      break;
+  var pipelineController = typeof AbortController === 'function' ? new AbortController() : null;
+  var pipelineFunctionSignal = _combineAbortSignals(signal, pipelineController && pipelineController.signal);
+  if (!pipelineFunctionSignal && pipelineController) {
+    pipelineFunctionSignal = pipelineController.signal;
+  }
+  for (var stageIndex = 0; stageIndex < streams.length; stageIndex++) {
+    var stageEntry = streams[stageIndex];
+    if (!stageEntry || !stageEntry.__exactPipelineFunction) continue;
+    var stageOptions = stageEntry.__exactPipelineStageOptions || {};
+    stageOptions.__pipelineSignal = pipelineFunctionSignal;
+    if (stageEntry.__exactPipelineStageIndex === 0) {
+      var sourceReadableOptions = Object.assign({}, stageOptions);
+      delete sourceReadableOptions.__pipelineSignal;
+      delete sourceReadableOptions.signal;
+      if (signal) {
+        streams[stageIndex] = _createPipelineSourceReadable(
+          stageEntry.__exactPipelineFunction,
+          pipelineFunctionSignal,
+          sourceReadableOptions
+        );
+      } else {
+        var stageOutput = stageEntry.__exactPipelineFunction({ signal: pipelineFunctionSignal });
+        if (stageOutput === undefined) {
+          throw makeError(TypeError, 'ERR_INVALID_RETURN_VALUE', 'The "source" argument must return a value');
+        }
+        streams[stageIndex] = _toReadable(stageOutput, sourceReadableOptions);
+      }
+    } else {
+      streams[stageIndex] = Duplex.from(stageEntry.__exactPipelineFunction, stageOptions);
     }
   }
-
+  var last = streams[streams.length - 1];
   function normalizePipelineError(err) {
     if (!err) return err;
     if (err.code) return err;
@@ -5568,22 +5834,23 @@ function pipeline() {
   return state;
 }
 
-  function isReadableDone(stream) {
-    if (!stream) return true;
-    if (stream._readableState) {
-      if (
-        stream.closed !== true &&
-        stream._readableState.emitClose !== false &&
-        stream._readableState.autoDestroy &&
-        (stream._readableState.endEmitted || stream._readableState.ended)
-      ) {
-        return false;
-      }
-      if (stream._readableState.endEmitted || stream._readableState.ended) return true;
-      if (stream.readable === false && !stream._writableState) return false;
-      if (stream.readable === false && stream._writableState) {
-        if (stream.writableEnded || stream._writableState.finished || stream._writableState.ended) {
-          return true;
+function isReadableDone(stream) {
+  if (!stream) return true;
+  if (stream.__exactPipelineReadableDone === true) return true;
+  if (stream._readableState) {
+    if (
+      stream.closed !== true &&
+      stream._readableState.emitClose !== false &&
+      stream._readableState.autoDestroy &&
+      (stream._readableState.endEmitted || stream._readableState.ended)
+    ) {
+      return false;
+    }
+    if (stream._readableState.endEmitted || stream._readableState.ended) return true;
+    if (stream.readable === false && !stream._writableState) return false;
+    if (stream.readable === false && stream._writableState) {
+      if (stream.writableEnded || stream._writableState.finished || stream._writableState.ended) {
+        return true;
       }
       return false;
     }
@@ -5595,6 +5862,7 @@ function pipeline() {
 
 function isWritableDone(stream) {
   if (!stream) return true;
+  if (stream.__exactPipelineWritableDone === true) return true;
   if (stream._writableState) {
     var writableState = stream._writableState;
     var done = writableState.finished || (
@@ -5606,6 +5874,27 @@ function isWritableDone(stream) {
   if (stream.writable === false) return true;
   if (stream.writableEnded || stream.writableFinished) return true;
   return !_isWritableLike(stream);
+}
+
+function canPipeToDestination(stream) {
+  if (!stream) return false;
+  if (stream._destroyed || stream.destroyed) return false;
+  if (stream._closed || stream.closed === true) return false;
+  if (stream.writable === false) return false;
+  if (stream._writableState) {
+    var writableState = stream._writableState;
+    if (
+      writableState.closed ||
+      writableState.destroyed ||
+      writableState.ending ||
+      writableState.ended ||
+      writableState.finished ||
+      writableState.writable === false
+    ) {
+      return false;
+    }
+  }
+  return typeof stream.write === 'function';
 }
 
 function isStreamDone(stream) {
@@ -5770,6 +6059,55 @@ function isStreamDone(stream) {
     return true;
   }
 
+  function shouldWaitForStreamClose(stream) {
+    if (!stream || stream._closed || stream.closed === true) {
+      return false;
+    }
+
+    var readableState = stream._readableState;
+    var writableState = stream._writableState;
+    var readableDone = !_isReadableLike(stream) || isReadableDone(stream);
+    var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
+
+    if (stream === last && !shouldWaitForLastReadable(stream)) {
+      readableDone = false;
+    }
+    if (stream === last && !shouldPipeEnd) {
+      writableDone = false;
+    }
+    if (stream === streams[0] && stream._isPipelineFunction) {
+      writableDone = false;
+    }
+    if (stream === streams[0] && readableState && writableState) {
+      writableDone = false;
+    }
+
+    var readableNeedsClose = !!(
+      readableState &&
+      readableState.emitClose !== false &&
+      readableState.autoDestroy !== false &&
+      readableDone
+    );
+    var writableNeedsClose = !!(
+      writableState &&
+      writableState.emitClose !== false &&
+      writableState.autoDestroy !== false &&
+      writableDone
+    );
+
+    return readableNeedsClose || writableNeedsClose;
+  }
+
+  function allExpectedStreamClosesObserved() {
+    for (var i = 0; i < streamErrors.length; i++) {
+      var stream = streamErrors[i];
+      if (shouldWaitForStreamClose(stream)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   function scheduleLine318Probe() {
     if (!__pipelineLine318Probe || settled || __pipelineLine318ProbeCount > 20) return;
     logLine318States('probe-' + __pipelineLine318ProbeCount);
@@ -5780,6 +6118,7 @@ function isStreamDone(stream) {
   }
 
   var errorSettleAttempts = 0;
+  var successSettleAttempts = 0;
   function settleAfterError() {
     if (settled || awaitingResult) return;
     var allDone = allStreamsDone();
@@ -5802,6 +6141,31 @@ function isStreamDone(stream) {
     errorSettleAttempts += 1;
     var scheduler = typeof setTimeout === 'function' ? function(fn) { setTimeout(fn, 1); } : function(fn) { setTimeout(fn, 0); };
     scheduler(settleAfterError);
+  }
+
+  function settleAfterFinish() {
+    if (settled || error) return;
+    if (!allStreamsDone()) return;
+
+    var finalError = getAnyStreamError();
+    if (finalError) {
+      settle(finalError);
+      return;
+    }
+
+    if (allExpectedStreamClosesObserved()) {
+      settle(null);
+      return;
+    }
+
+    if (successSettleAttempts > 500) {
+      settle(null);
+      return;
+    }
+
+    successSettleAttempts += 1;
+    var scheduler = typeof setTimeout === 'function' ? function(fn) { setTimeout(fn, 1); } : function(fn) { setTimeout(fn, 0); };
+    scheduler(settleAfterFinish);
   }
 
   function connectWithoutPipe(src, dst, shouldPipeEnd) {
@@ -5911,7 +6275,7 @@ function isStreamDone(stream) {
       error = getAnyStreamError();
     }
     var lastResult = last && last._pipelineResult;
-    if (lastResult && typeof lastResult.then === 'function') {
+    if (!error && lastResult && typeof lastResult.then === 'function') {
       awaitingResult = true;
     var scheduleSettle = _nextTick;
       if (__pipelineDebug) {
@@ -5960,6 +6324,7 @@ function isStreamDone(stream) {
     }
     if (error) return;
     error = normalizePipelineError(err);
+    _abortControllerWithReason(pipelineController, error);
     destroyAll(error);
     settleAfterError();
   }
@@ -5969,13 +6334,7 @@ function isStreamDone(stream) {
       console.log('pipeline', __pipelineDebugId, 'onFinish start', settled ? 'settled' : 'open', error ? 'error' : 'ok');
     }
     if (settled || error) return;
-    if (lastAppearsEarlier) return;
     if (!allStreamsDone()) return;
-    var finalError = getAnyStreamError();
-    if (finalError) {
-      settle(finalError);
-      return;
-    }
     var scheduler = _nextTick;
     if (__pipelineDebug) {
       console.log('pipeline', __pipelineDebugId, 'onFinish scheduling settle');
@@ -5985,7 +6344,7 @@ function isStreamDone(stream) {
       if (__pipelineDebug) {
         console.log('pipeline', __pipelineDebugId, 'onFinish delayed settle');
       }
-      settle(getAnyStreamError());
+      settleAfterFinish();
     });
   }
 
@@ -6038,7 +6397,7 @@ function isStreamDone(stream) {
       if (!isStreamDone(stream)) {
         onError(makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close'));
       } else if ((stream === last || allStreamsDone()) && !settled && !error) {
-        settle(null);
+        settleAfterFinish();
       }
     });
   }
@@ -6048,6 +6407,7 @@ function isStreamDone(stream) {
     abortErr.code = 'ABORT_ERR';
     abortErr.name = 'AbortError';
     error = error || abortErr;
+    _abortControllerWithReason(pipelineController, abortErr);
     destroyAll(abortErr);
     settle(abortErr);
   }
@@ -6068,10 +6428,65 @@ function isStreamDone(stream) {
   if (__pipelineLine318Probe) {
     scheduleLine318Probe();
   }
+  var seen = [];
+  for (var se = 0; se < streamErrors.length; se++) {
+    if (seen.indexOf(streamErrors[se]) === -1) {
+      if (!streamErrors[se]._readableState) {
+        addListener(streamErrors[se], 'end', function markLegacyReadableDone(stream) {
+          return function() {
+            stream.__exactPipelineReadableDone = true;
+            if (!stream._writableState && typeof stream.write === 'function') {
+              stream.__exactPipelineWritableDone = true;
+            }
+          };
+        }(streamErrors[se]));
+      }
+      if (!streamErrors[se]._writableState) {
+        addListener(streamErrors[se], 'finish', function markLegacyWritableDone(stream) {
+          return function() {
+            stream.__exactPipelineWritableDone = true;
+          };
+        }(streamErrors[se]));
+      }
+      addListener(streamErrors[se], 'close', function markLegacyCloseDone(stream) {
+        return function() {
+          if (!stream._readableState) {
+            stream.__exactPipelineReadableDone = true;
+          }
+          if (!stream._writableState) {
+            stream.__exactPipelineWritableDone = true;
+          }
+        };
+      }(streamErrors[se]));
+      addListener(streamErrors[se], 'error', function markLegacyErrorDone(stream) {
+        return function() {
+          if (!stream._readableState) {
+            stream.__exactPipelineReadableDone = true;
+          }
+          if (!stream._writableState) {
+            stream.__exactPipelineWritableDone = true;
+          }
+        };
+      }(streamErrors[se]));
+      addListener(streamErrors[se], 'error', onError);
+      addListener(streamErrors[se], 'close', function closeHandlerForStream(stream) {
+        return function() {
+          onClose(stream);
+        };
+      }(streamErrors[se]));
+      addListener(streamErrors[se], 'end', onFinish);
+      addListener(streamErrors[se], 'finish', onFinish);
+      seen.push(streamErrors[se]);
+    }
+  }
   for (var i = 0; i + 1 < streams.length; i++) {
     var src = streams[i];
     var dst = streams[i + 1];
     var shouldPipeEndForThisPair = i + 1 === streams.length - 1 ? shouldPipeEnd : true;
+    if (!canPipeToDestination(dst)) {
+      onError(makeError(Error, 'ERR_STREAM_UNABLE_TO_PIPE', 'Cannot pipe to a closed or ended stream'));
+      break;
+    }
     addPairCloseGuard(src, dst);
     if (typeof src.pipe === 'function') {
       try {
@@ -6083,20 +6498,6 @@ function isStreamDone(stream) {
     } else if (!connectWithoutPipe(src, dst, shouldPipeEndForThisPair)) {
       onError(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams[' + (i + 1) + ']" argument must be of type Stream. Received ' + typeof dst));
       break;
-    }
-  }
-  var seen = [];
-  for (var se = 0; se < streamErrors.length; se++) {
-    if (seen.indexOf(streamErrors[se]) === -1) {
-      addListener(streamErrors[se], 'error', onError);
-      addListener(streamErrors[se], 'close', function closeHandlerForStream(stream) {
-        return function() {
-          onClose(stream);
-        };
-      }(streamErrors[se]));
-      addListener(streamErrors[se], 'end', onFinish);
-      addListener(streamErrors[se], 'finish', onFinish);
-      seen.push(streamErrors[se]);
     }
   }
 
