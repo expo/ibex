@@ -2648,7 +2648,9 @@ TcpIncomingMessage.prototype._flushManualData = function() {
     self.emit('data', self._manualChunks.shift());
   }
   if (self._manualEnded && self._manualChunks.length === 0) {
-    self._emitManualEnd();
+    setTimeout(function() {
+      self._emitManualEnd();
+    }, 0);
   }
 };
 TcpIncomingMessage.prototype._pushBodyChunk = function(chunk) {
@@ -4625,6 +4627,7 @@ ServerIncomingMessage.prototype._emitManualEnd = function() {
   this._emitHttpClose();
 };
 ServerIncomingMessage.prototype._flushManualData = function() {
+  var self = this;
   if (!this._manualFlowing && (!this.listenerCount || this.listenerCount('data') === 0)) {
     return;
   }
@@ -4633,7 +4636,9 @@ ServerIncomingMessage.prototype._flushManualData = function() {
     this.emit('data', this._manualChunks.shift());
   }
   if (this._manualEnded && this._manualChunks.length === 0) {
-    this._emitManualEnd();
+    setTimeout(function() {
+      self._emitManualEnd();
+    }, 0);
   }
 };
 ServerIncomingMessage.prototype._pushBodyChunk = function(chunk) {
