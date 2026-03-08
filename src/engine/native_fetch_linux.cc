@@ -38,6 +38,7 @@ static void native_fetch_perform_async(
     std::string method,
     std::string url,
     std::string headers,
+    int decompress,
     std::vector<uint8_t> body,
     NativeFetchResponseCallback response_callback,
     void* context
@@ -78,7 +79,12 @@ static void native_fetch_perform_async(
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
     // Don't auto-follow redirects — let JS handle redirect logic
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
+    if (decompress) {
+        curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
+    } else {
+        curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "identity");
+        curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, 0L);
+    }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result.response_body);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, write_headers);
@@ -291,6 +297,7 @@ extern "C" void native_fetch_perform(
     const char* method,
     const char* url,
     const char* headers,
+    int decompress,
     const uint8_t* body,
     size_t body_length,
     NativeFetchResponseCallback response_callback,
@@ -317,6 +324,7 @@ extern "C" void native_fetch_perform(
          method_copy = std::move(method_copy),
          url_copy = std::move(url_copy),
          headers_copy = std::move(headers_copy),
+         decompress,
          body_copy = std::move(body_copy),
          response_callback,
          context]() mutable {
@@ -325,6 +333,7 @@ extern "C" void native_fetch_perform(
                 std::move(method_copy),
                 std::move(url_copy),
                 std::move(headers_copy),
+                decompress,
                 std::move(body_copy),
                 response_callback,
                 context

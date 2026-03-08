@@ -318,6 +318,7 @@ extern "C" void native_fetch_perform(
     const char* method,
     const char* url,
     const char* headers,
+    int decompress,
     const uint8_t* body,
     size_t body_length,
     NativeFetchResponseCallback response_callback,
@@ -12241,6 +12242,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
         // Parse headers from [[name, value], ...] format to "Key: Value\r\n" string
         std::string headers;
+        bool decompress = true;
         if (init.hasProperty(runtime, "headers")) {
           auto headersVal = init.getProperty(runtime, "headers");
           if (headersVal.isObject()) {
@@ -12259,6 +12261,12 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                 }
               }
             }
+          }
+        }
+        if (init.hasProperty(runtime, "decompress")) {
+          auto decompressVal = init.getProperty(runtime, "decompress");
+          if (decompressVal.isBool()) {
+            decompress = decompressVal.getBool();
           }
         }
 
@@ -12314,7 +12322,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             runtime,
             facebook::jsi::PropNameID::forAscii(runtime, "executor"),
             2,
-            [handle, requestId, methodCopy, urlCopy, headersCopy, bodyCopy, timeoutCopy](
+            [handle, requestId, methodCopy, urlCopy, headersCopy, bodyCopy, timeoutCopy, decompress](
                 facebook::jsi::Runtime& rt,
                 const facebook::jsi::Value&,
                 const facebook::jsi::Value* args,
@@ -12343,6 +12351,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                     methodCopy->c_str(),
                     urlCopy->c_str(),
                     headersCopy->empty() ? nullptr : headersCopy->c_str(),
+                    decompress ? 1 : 0,
                     bodyCopy->empty() ? nullptr : bodyCopy->data(),
                     bodyCopy->size(),
                     // Response callback - called when NSURLSession completes

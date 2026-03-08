@@ -204,6 +204,7 @@ extern "C" void native_fetch_perform(
     const char* method,
     const char* url,
     const char* headers,
+    int decompress,
     const uint8_t* body,
     size_t body_length,
     NativeFetchResponseCallback response_callback,
@@ -221,6 +222,7 @@ extern "C" void native_fetch_perform(
 
         NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:nsUrl];
         request.HTTPMethod = [NSString stringWithUTF8String:method];
+        bool hasAcceptEncodingHeader = false;
 
         // Parse headers from "Key: Value\r\n" format
         if (headers) {
@@ -233,9 +235,15 @@ extern "C" void native_fetch_perform(
                         stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
                     NSString* value = [[line substringFromIndex:colonRange.location + 1]
                         stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    if ([[key lowercaseString] isEqualToString:@"accept-encoding"]) {
+                        hasAcceptEncodingHeader = true;
+                    }
                     [request setValue:value forHTTPHeaderField:key];
                 }
             }
+        }
+        if (!decompress && !hasAcceptEncodingHeader) {
+            [request setValue:@"identity" forHTTPHeaderField:@"Accept-Encoding"];
         }
 
         // Set body
