@@ -4107,7 +4107,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   }
 
   if (!this.writableObjectMode && this._writableState.decodeStrings !== false && typeof chunk === 'string') {
-    var enc = state && state.defaultEncoding ? state.defaultEncoding : (encoding || 'utf8');
+    var enc = encoding || (state && state.defaultEncoding) || 'utf8';
     if (typeof Buffer !== 'undefined' && Buffer.from) {
       chunk = Buffer.from(chunk, enc);
     } else {
