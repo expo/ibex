@@ -1598,6 +1598,11 @@ Socket.prototype.write = function(data, encoding, callback) {
     nullErr.code = 'ERR_STREAM_NULL_VALUES';
     throw nullErr;
   }
+  if (typeof data === 'string' && encoding === 'buffer') {
+    var bufferArgErr = new TypeError('Second argument must be a buffer');
+    bufferArgErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw bufferArgErr;
+  }
   if (typeof data !== 'string' && !Buffer.isBuffer(data) && !(typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data))) {
     var typeErr = new TypeError('The "chunk" argument must be of type string or an instance of Buffer, TypedArray, or DataView.' + _invalidArgTypeHelper(data));
     typeErr.code = 'ERR_INVALID_ARG_TYPE';
@@ -2113,7 +2118,15 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   // TCP server
   this._port = port || 0;
   this._requestedPort = this._port; // Save original requested port for _connectionKey
-  this._host = host || '0.0.0.0';
+  var listenHosts;
+  if (host === undefined || host === null || host === '') {
+    // Match Node's default dual-stack preference: bind IPv6-any first, then
+    // fall back to IPv4-any on platforms that do not support it.
+    listenHosts = ['::', '0.0.0.0'];
+  } else {
+    listenHosts = [host];
+  }
+  this._host = listenHosts[0];
   this.host = this._host;
 
   if (!_hasTcp) {
@@ -2123,18 +2136,35 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   }
 
   try {
-    self._handle = _makeServerHandle(__exactTcpListen(self._host, self._port, backlog || 128, self.ipv6Only ? 1 : 0, self._reusePort ? 1 : 0));
-    _registerTcpServer(self);
-    try {
-      var info = __exactTcpLocalAddr(_unwrapHandle(self._handle));
-      if (info) {
-        var addr = JSON.parse(info);
-        self._port = addr.port;
-        self._host = addr.address;
-        var familySuffix = (addr.family || 'IPv4').slice(-1);
-        self._connectionKey = familySuffix + ':' + addr.address + ':' + self._requestedPort;
+    var listenError = null;
+    for (var hostIndex = 0; hostIndex < listenHosts.length; hostIndex++) {
+      var candidateHost = listenHosts[hostIndex];
+      try {
+        self._handle = _makeServerHandle(__exactTcpListen(candidateHost, self._port, backlog || 128, self.ipv6Only ? 1 : 0, self._reusePort ? 1 : 0));
+        self._host = candidateHost;
+        self.host = candidateHost;
+        _registerTcpServer(self);
+        try {
+          var info = __exactTcpLocalAddr(_unwrapHandle(self._handle));
+          if (info) {
+            var addr = JSON.parse(info);
+            self._port = addr.port;
+            self._host = addr.address;
+            self.host = addr.address;
+            var familySuffix = (addr.family || 'IPv4').slice(-1);
+            self._connectionKey = familySuffix + ':' + addr.address + ':' + self._requestedPort;
+          }
+        } catch(e) {}
+        listenError = null;
+        break;
+      } catch (candidateError) {
+        listenError = candidateError;
+        self._handle = null;
       }
-    } catch(e) {}
+    }
+    if (listenError) {
+      throw listenError;
+    }
   } catch(e) {
     _scheduleTimer(function() {
       if (listenToken !== self._listenToken) return;

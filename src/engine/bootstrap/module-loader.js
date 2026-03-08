@@ -907,6 +907,51 @@
     },
     'internal/test/binding': {
       internalBinding: function(name) {
+      if (name === 'tty_wrap') {
+        var streamBasePrototype = {};
+        var defineStreamBaseAccessor = function(propertyName, slotName) {
+          Object.defineProperty(streamBasePrototype, propertyName, {
+            configurable: true,
+            enumerable: false,
+            get: function() {
+              if (!this || !Object.prototype.hasOwnProperty.call(this, slotName)) {
+                throw new TypeError('Cannot read ' + propertyName + ' on incompatible receiver');
+              }
+              return this[slotName];
+            },
+            set: function(value) {
+              if (!this || !Object.prototype.hasOwnProperty.call(this, slotName)) {
+                throw new TypeError('Cannot set ' + propertyName + ' on incompatible receiver');
+              }
+              this[slotName] = value;
+            }
+          });
+        };
+        defineStreamBaseAccessor('bytesRead', '__exactTtyBytesRead');
+        defineStreamBaseAccessor('fd', '__exactTtyFd');
+        defineStreamBaseAccessor('_externalStream', '__exactTtyExternalStream');
+        function TTY(fd) {
+          if (!(this instanceof TTY)) return new TTY(fd);
+          Object.defineProperty(this, '__exactTtyBytesRead', {
+            value: 0,
+            writable: true,
+            configurable: true
+          });
+          Object.defineProperty(this, '__exactTtyFd', {
+            value: typeof fd === 'number' ? fd : -1,
+            writable: true,
+            configurable: true
+          });
+          Object.defineProperty(this, '__exactTtyExternalStream', {
+            value: null,
+            writable: true,
+            configurable: true
+          });
+        }
+        TTY.prototype = Object.create(streamBasePrototype);
+        TTY.prototype.constructor = TTY;
+        return { TTY: TTY };
+      }
       if (name === 'crypto') {
         return {
           testFipsCrypto: function() {
