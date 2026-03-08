@@ -3177,13 +3177,57 @@ function _duplexFromReadableWritable(readable, writable, options) {
     },
     final: function(callback) {
       if (writable && typeof writable.end === 'function') {
-        if (typeof callback === 'function') {
-          writable.end(function(err) {
-            callback(err);
-          });
+        if (
+          writable._destroyed ||
+          writable.destroyed ||
+          (writable._writableState && (
+            writable._writableState.destroyed ||
+            writable._writableState.finished ||
+            writable._writableState.ended ||
+            writable._writableState.ending
+          )) ||
+          (writable._readableState && writable._readableState.destroyed)
+        ) {
+          if (typeof callback === 'function') {
+            callback();
+          }
           return;
         }
-        writable.end();
+        if (typeof callback === 'function') {
+          try {
+            writable.end(function(err) {
+              if (
+                err &&
+                err.code === 'ERR_STREAM_DESTROYED' &&
+                (writable._destroyed || writable.destroyed ||
+                  (writable._writableState && writable._writableState.destroyed))
+              ) {
+                callback();
+                return;
+              }
+              callback(err);
+            });
+          } catch (err) {
+            if (
+              err &&
+              err.code === 'ERR_STREAM_DESTROYED' &&
+              (writable._destroyed || writable.destroyed ||
+                (writable._writableState && writable._writableState.destroyed))
+            ) {
+              callback();
+              return;
+            }
+            callback(err);
+          }
+          return;
+        }
+        if (
+          !writable._destroyed &&
+          !writable.destroyed &&
+          !(writable._writableState && writable._writableState.destroyed)
+        ) {
+          writable.end();
+        }
       }
       if (typeof callback === 'function') {
         callback();
@@ -3270,6 +3314,7 @@ function _duplexFromFunction(value, options) {
   }
   var duplex = _duplexFromReadableWritable(readable, src, duplexOptions);
   duplex._isPipelineFunction = true;
+  duplex._pipelineReadableResult = true;
   return duplex;
 }
 
@@ -5470,6 +5515,15 @@ function pipeline() {
     );
   }
 
+  function hasReadableBackedLastStage(stream) {
+    return !!(
+      stream === last &&
+      stream &&
+      stream._isPipelineFunction &&
+      (stream._pipelineReadableResult || shouldWaitForLastReadable(stream))
+    );
+  }
+
   function destroyAll(err) {
     for (var i = 0; i < streams.length; i++) {
       if (streams[i] && typeof streams[i].destroy === 'function' && !streams[i]._destroyed) {
@@ -5504,6 +5558,7 @@ function pipeline() {
   });
   addListener(dst, 'close', function() {
     if (state.ended) return;
+    if (dst === last && dst && dst._isPipelineFunction && (dst._pipelineResult || dst._pipelineReadableResult)) return;
     _nextTick(function() {
       if (!state.ended) {
         onError(makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close'));
@@ -5513,14 +5568,22 @@ function pipeline() {
   return state;
 }
 
-function isReadableDone(stream) {
-  if (!stream) return true;
-  if (stream._readableState) {
-    if (stream._readableState.endEmitted || stream._readableState.ended) return true;
-    if (stream.readable === false && !stream._writableState) return false;
-    if (stream.readable === false && stream._writableState) {
-      if (stream.writableEnded || stream._writableState.finished || stream._writableState.ended) {
-        return true;
+  function isReadableDone(stream) {
+    if (!stream) return true;
+    if (stream._readableState) {
+      if (
+        stream.closed !== true &&
+        stream._readableState.emitClose !== false &&
+        stream._readableState.autoDestroy &&
+        (stream._readableState.endEmitted || stream._readableState.ended)
+      ) {
+        return false;
+      }
+      if (stream._readableState.endEmitted || stream._readableState.ended) return true;
+      if (stream.readable === false && !stream._writableState) return false;
+      if (stream.readable === false && stream._writableState) {
+        if (stream.writableEnded || stream._writableState.finished || stream._writableState.ended) {
+          return true;
       }
       return false;
     }
@@ -5550,6 +5613,9 @@ function isStreamDone(stream) {
   var readableDone = !_isReadableLike(stream) || isReadableDone(stream);
   var writableDone = !_isWritableLike(stream) || isWritableDone(stream);
   if (!shouldPipeEnd && stream === last) {
+    writableDone = true;
+  }
+  if (hasReadableBackedLastStage(stream)) {
     writableDone = true;
   }
   if (stream === streams[0] && stream._isPipelineFunction) {
@@ -5600,6 +5666,9 @@ function isStreamDone(stream) {
     }
     if (stream === last && !shouldWaitForLastReadable(stream)) {
       readableDone = true;
+    }
+    if (hasReadableBackedLastStage(stream)) {
+      writableDone = true;
     }
     if (streamIsFirst && stream && stream._isPipelineFunction) {
       writableDone = true;
@@ -5936,9 +6005,34 @@ function isStreamDone(stream) {
       if (__pipelineDebug) {
         console.log('pipeline', __pipelineDebugId, 'onClose delayed');
       }
+      var hasFunctionBackedLastStage = !!(
+        last &&
+        last._isPipelineFunction &&
+        (
+          (last._pipelineResult && typeof last._pipelineResult.then === 'function') ||
+          hasReadableBackedLastStage(last)
+        )
+      );
       var delayedStreamError = getAnyStreamError() || getStreamError(stream);
+      if (
+        delayedStreamError &&
+        delayedStreamError.code === 'ERR_STREAM_PREMATURE_CLOSE' &&
+        hasFunctionBackedLastStage
+      ) {
+        delayedStreamError = null;
+      }
       if (delayedStreamError) {
         onError(delayedStreamError);
+        return;
+      }
+      if (hasFunctionBackedLastStage && stream !== last) {
+        return;
+      }
+      if (
+        stream === last &&
+        hasFunctionBackedLastStage
+      ) {
+        settle(null);
         return;
       }
       if (!isStreamDone(stream)) {
