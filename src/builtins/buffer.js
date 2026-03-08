@@ -931,8 +931,8 @@ function normalizeBufferSize(size) {
     sizeErr.code = "ERR_OUT_OF_RANGE";
     throw sizeErr;
   }
-  if (!isFiniteNumber(size) || size < 0 || size > 0x7fffffff) {
-    var rangeErr = new RangeError('The value of "size" is out of range. It must be >= 0 && <= 2147483647. Received ' + size);
+  if (!isFiniteNumber(size) || size < 0 || size > kMaxLength) {
+    var rangeErr = new RangeError('The value of "size" is out of range. It must be >= 0 && <= ' + kMaxLength + '. Received ' + size);
     rangeErr.code = "ERR_OUT_OF_RANGE";
     throw rangeErr;
   }
