@@ -1732,6 +1732,9 @@ ClientRequest.prototype.destroy = function(err) {
     try { this._abortController.abort(); } catch(e) {}
   }
   if (this.socket && !this.socket.destroyed) {
+    if (!err && !this.res && this.socket.connecting) {
+      this.socket._suppressCloseBeforeConnectError = true;
+    }
     try { this.socket.destroy(err); } catch(e) {}
   } else if (!this._closed) {
     this._closed = true;
@@ -4514,7 +4517,14 @@ ServerIncomingMessage.prototype._emitManualEnd = function() {
   if (this._manualEndEmitted) return;
   this._manualEndEmitted = true;
   this.complete = true;
+  this.readable = false;
+  if (this._readableState) {
+    this._readableState.ended = true;
+  }
   this.emit('end');
+  if (this._readableState) {
+    this._readableState.endEmitted = true;
+  }
   this._emitHttpClose();
 };
 ServerIncomingMessage.prototype._flushManualData = function() {
@@ -4627,7 +4637,7 @@ ServerIncomingMessage.prototype.on = function(event, listener) {
   } else if (event === 'readable' && this._manualChunks.length > 0) {
     this._scheduleManualReadable();
   } else if (event === 'end' && this._manualEnded && this._manualChunks.length === 0) {
-    this._emitManualEnd();
+    this._scheduleManualReadable();
   }
   return this;
 };
