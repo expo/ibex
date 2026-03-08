@@ -3267,7 +3267,8 @@
     var origReturn = typeof origIter['return'] === 'function' ? origIter['return'].bind(origIter) : null;
     var origThrow = typeof origIter['throw'] === 'function' ? origIter['throw'].bind(origIter) : null;
     // Build a plain object wrapper with correct .name properties
-    var wrapper = Object.create(null);
+    var originalPrototype = Object.getPrototypeOf(origIter);
+    var wrapper = Object.create(originalPrototype || Object.prototype);
     if (origNext) {
       wrapper.next = function next() {
         return origNext().then(_wrapIterResult);
@@ -3311,7 +3312,8 @@
           } else {
             reader = originalGetReader.call(this, options);
           }
-          // Wrap the reader's read() to return proper-prototype objects
+          // Wrap the reader's read() to return proper-prototype objects without
+          // becoming thenable via Object.prototype.then interception.
           if (reader && typeof reader.read === 'function' && !reader.__exactReadWrapped) {
             var origRead = reader.read.bind(reader);
             reader.read = function(view, options) {
@@ -3322,34 +3324,6 @@
           return reader;
         };
         readableStreamPrototype.getReader.__exactReadableStreamCompatGetReaderPatched = true;
-      }
-
-      // Wrap Symbol.asyncIterator and values() to return iterator wrappers
-      // so that next()/return()/throw() results have Object.prototype.
-      var asyncIterKey = typeof Symbol !== 'undefined' && Symbol.asyncIterator ? Symbol.asyncIterator : null;
-      var originalValues = readableStreamPrototype.values;
-      if (typeof originalValues === 'function') {
-        readableStreamPrototype.values = function patchedValues(options) {
-          var iter;
-          if (arguments.length === 0) {
-            iter = originalValues.call(this);
-          } else {
-            iter = originalValues.call(this, options);
-          }
-          return _makeAsyncIterWrapper(iter);
-        };
-      }
-      if (asyncIterKey && typeof readableStreamPrototype[asyncIterKey] === 'function') {
-        var origAsyncIter = readableStreamPrototype[asyncIterKey];
-        readableStreamPrototype[asyncIterKey] = function patchedAsyncIterator(options) {
-          var iter;
-          if (arguments.length === 0) {
-            iter = origAsyncIter.call(this);
-          } else {
-            iter = origAsyncIter.call(this, options);
-          }
-          return _makeAsyncIterWrapper(iter);
-        };
       }
 
       ReadableStream.prototype.__exactReadableStreamCompatIteratorPatched = true;
