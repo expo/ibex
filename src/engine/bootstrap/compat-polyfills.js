@@ -365,7 +365,103 @@
     __exactWrapFetchConstructor('Response');
   }
 
+  function __exactNormalizeTypedArrayIndex(index, length) {
+    if (index === undefined) {
+      return 0;
+    }
+    var value = Number(index);
+    if (!isFinite(value) || value === 0) {
+      return 0;
+    }
+    value = value < 0 ? Math.ceil(value) : Math.floor(value);
+    if (value < 0) {
+      return Math.max(length + value, 0);
+    }
+    return Math.min(value, length);
+  }
+
+  function __exactPatchZeroLengthTypedArraySubarray() {
+    var typedArrayNames = [
+      'Int8Array',
+      'Uint8Array',
+      'Uint8ClampedArray',
+      'Int16Array',
+      'Uint16Array',
+      'Int32Array',
+      'Uint32Array',
+      'Float32Array',
+      'Float64Array'
+    ];
+    if (typeof globalThis.BigInt64Array === 'function') typedArrayNames.push('BigInt64Array');
+    if (typeof globalThis.BigUint64Array === 'function') typedArrayNames.push('BigUint64Array');
+
+    for (var i = 0; i < typedArrayNames.length; i++) {
+      var ctorName = typedArrayNames[i];
+      var TypedArrayCtor = globalThis[ctorName];
+      if (typeof TypedArrayCtor !== 'function') {
+        continue;
+      }
+
+      var originalSubarray = TypedArrayCtor.prototype && TypedArrayCtor.prototype.subarray;
+      if (typeof originalSubarray !== 'function' || originalSubarray.__exactZeroLengthWrapped) {
+        continue;
+      }
+
+      (function(Ctor, subarray) {
+        var bytesPerElement = Ctor.BYTES_PER_ELEMENT || Ctor.prototype.BYTES_PER_ELEMENT || 1;
+        function patchedSubarray(begin, end) {
+          var result = subarray.call(this, begin, end);
+          if (!result || result.byteLength !== 0 || result.buffer !== this.buffer) {
+            return result;
+          }
+
+          var length = typeof this.length === 'number'
+            ? this.length
+            : Math.floor(this.byteLength / bytesPerElement);
+          var start = __exactNormalizeTypedArrayIndex(begin, length);
+          var finish = end === undefined ? length : __exactNormalizeTypedArrayIndex(end, length);
+          if (finish < start) {
+            finish = start;
+          }
+          if (finish !== start) {
+            return result;
+          }
+
+          var correctedByteOffset = this.byteOffset + start * bytesPerElement;
+          try {
+            Object.defineProperty(result, 'byteOffset', {
+              value: correctedByteOffset,
+              configurable: true
+            });
+            return result;
+          } catch (err) {
+            return new Ctor(this.buffer, correctedByteOffset, 0);
+          }
+        }
+
+        try {
+          Object.defineProperty(patchedSubarray, '__exactZeroLengthWrapped', {
+            value: true,
+            configurable: true
+          });
+        } catch (err) {}
+
+        try {
+          Object.defineProperty(Ctor.prototype, 'subarray', {
+            value: patchedSubarray,
+            writable: true,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (err) {
+          Ctor.prototype.subarray = patchedSubarray;
+        }
+      })(TypedArrayCtor, originalSubarray);
+    }
+  }
+
   __exactPatchBrokenSharedArrayBuffer();
+  __exactPatchZeroLengthTypedArraySubarray();
   __exactPatchTextDecoder();
   __exactPatchFetchConstructors();
 
