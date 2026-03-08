@@ -1976,11 +1976,28 @@ ChildProcess.prototype.spawn = function(options) {
     this.stderr._handle = { readStart: function() {}, readStop: function() {} };
   }
   if (stdioCfg.stdin === 'pipe') {
+    var stdinClosed = false;
+    function closeSpawnStdin() {
+      if (stdinClosed) return;
+      stdinClosed = true;
+      if (typeof globalThis.__exactSpawnCloseStdin === 'function' &&
+          self2._handle !== null && self2._handle !== undefined && self2._handle >= 0) {
+        try { globalThis.__exactSpawnCloseStdin(self2._handle, 'stdin'); } catch (e) {}
+      }
+    }
     this.stdin = new Stream.Writable({
       write: function(chunk, encoding, callback) {
         var data = _toUint8String(chunk);
         var ok = globalThis.__exactSpawnWrite(self2._handle, data);
         if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+      },
+      final: function(callback) {
+        closeSpawnStdin();
+        if (typeof callback === 'function') callback(null);
+      },
+      destroy: function(err, callback) {
+        closeSpawnStdin();
+        if (typeof callback === 'function') callback(err || null);
       }
     });
     this.stdin.readable = false;
