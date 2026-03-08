@@ -1,4 +1,4 @@
-var EventEmitter = require('node:events').EventEmitter;
+var EventEmitter = require('events').EventEmitter;
 var StringDecoder;
 var util = require('node:util');
 var kPromisifyCustom = util.promisify && util.promisify.custom ? util.promisify.custom : undefined;

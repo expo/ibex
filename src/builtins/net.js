@@ -922,6 +922,7 @@ function _resetSocketForConnect(socket) {
   socket._bytesWritten = 0;
   socket._handle = _makeSocketHandle(null);
   socket._writeQueue = [];
+  socket._bufferedBytes = 0;
   socket._isWriting = false;
   socket._closeAfterEnd = false;
   socket._ended = false;
@@ -999,6 +1000,7 @@ function Socket(options) {
   this._drainEventTimer = null;
   this._drainImmediateQueued = false;
   this._writeQueue = [];
+  this._bufferedBytes = 0;
   this._writeBufferCache = Object.create(null);
   this._isWriting = false;
   this._closeAfterEnd = false;
@@ -1138,12 +1140,7 @@ Socket.prototype.__defineSetter__('_connecting', function(v) {
 // bufferSize property
 Socket.prototype.__defineGetter__('bufferSize', function() {
   if (this.destroyed) return undefined;
-  var total = 0;
-  if (!this._writeQueue) return 0;
-  for (var i = 0; i < this._writeQueue.length; i++) {
-    total += _queuedWriteItemLength(this._writeQueue[i]);
-  }
-  return total;
+  return this._bufferedBytes || 0;
 });
 
 // writableLength property (alias for bufferSize)
@@ -1348,6 +1345,11 @@ Socket.prototype._drainWriteQueue = function() {
   while (this._writeQueue.length > 0 && !this.destroyed && nativeHandle != null) {
     var item = this._writeQueue[0];
     if (_isQueuedWriteItemComplete(item)) {
+      var completeLength = _queuedWriteItemLength(item);
+      if (completeLength > 0) {
+        this._bufferedBytes -= completeLength;
+        if (this._bufferedBytes < 0) this._bufferedBytes = 0;
+      }
       this._writeQueue.shift();
       if (item.callback) {
         _scheduleCallback(item.callback);
@@ -1359,12 +1361,23 @@ Socket.prototype._drainWriteQueue = function() {
     if (item.data) {
       remaining = item.data.slice(item.offset);
     } else {
+      var pendingLengthBeforeAdvance = _queuedWriteItemLength(item);
       if (!_advanceDeferredWriteChunk(item)) {
+        var pendingLength = _queuedWriteItemLength(item);
+        if (pendingLength > 0) {
+          this._bufferedBytes -= pendingLength;
+          if (this._bufferedBytes < 0) this._bufferedBytes = 0;
+        }
         this._writeQueue.shift();
         if (item.callback) {
           _scheduleCallback(item.callback);
         }
         continue;
+      }
+      var pendingLengthAfterAdvance = _queuedWriteItemLength(item);
+      if (pendingLengthAfterAdvance !== pendingLengthBeforeAdvance) {
+        this._bufferedBytes += pendingLengthAfterAdvance - pendingLengthBeforeAdvance;
+        if (this._bufferedBytes < 0) this._bufferedBytes = 0;
       }
       remaining = typeof item.deferredChunk.subarray === 'function'
         ? item.deferredChunk.subarray(item.deferredOffset)
@@ -1378,6 +1391,7 @@ Socket.prototype._drainWriteQueue = function() {
       writeErr.code = 'EPIPE';
       this._isWriting = false;
       this._writeQueue = [];
+      this._bufferedBytes = 0;
       if (item.callback) {
         _scheduleCallback(item.callback, writeErr);
       }
@@ -1390,6 +1404,8 @@ Socket.prototype._drainWriteQueue = function() {
     }
 
     wroteBudget += written;
+    this._bufferedBytes -= written;
+    if (this._bufferedBytes < 0) this._bufferedBytes = 0;
     if (item.data) {
       item.offset += written;
     } else {
@@ -2187,6 +2203,7 @@ Socket.prototype.write = function(data, encoding, callback) {
     if (this.connecting) {
       var queuedItem = _createWriteQueueItem(data, encoding, callback);
       this._writeQueue.push(queuedItem);
+      this._bufferedBytes += _queuedWriteItemLength(queuedItem);
       this._bytesWritten += _queuedWriteItemLength(queuedItem);
       var pendingBufferedLength = this.bufferSize;
       if (pendingBufferedLength >= this._writableHighWaterMark) {
@@ -2208,6 +2225,7 @@ Socket.prototype.write = function(data, encoding, callback) {
 
   var writeItem = _createWriteQueueItem(data, encoding, callback);
   this._writeQueue.push(writeItem);
+  this._bufferedBytes += _queuedWriteItemLength(writeItem);
   this._bytesWritten += _queuedWriteItemLength(writeItem);
   var bufferedLength = this.bufferSize;
   var shouldReturnFalse = bufferedLength >= this._writableHighWaterMark;
@@ -2312,6 +2330,7 @@ Socket.prototype.destroy = function(err) {
       }
     }
     this._writeQueue = [];
+    this._bufferedBytes = 0;
     this._isWriting = false;
   }
   var nativeHandle = _unwrapHandle(this._handle);
