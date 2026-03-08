@@ -193,9 +193,43 @@ function _ensureAwaitDrainWriters(readableState) {
   return readableState.awaitDrainWriters || null;
 }
 
+function _normalizeAwaitDrainWriters(readableState) {
+  if (!readableState) return null;
+  var current = readableState.awaitDrainWriters;
+  var pipeCount = readableState.pipesCount || 0;
+
+  if (pipeCount > 1) {
+    if (!current) {
+      current = new Set();
+      readableState.awaitDrainWriters = current;
+      return current;
+    }
+    if (!(current instanceof Set)) {
+      current = new Set([current]);
+      readableState.awaitDrainWriters = current;
+    }
+    return current;
+  }
+
+  if (current instanceof Set) {
+    if (current.size === 0) {
+      readableState.awaitDrainWriters = null;
+      return null;
+    }
+    if (current.size === 1) {
+      var only = current.values().next().value;
+      readableState.awaitDrainWriters = only;
+      _attachAwaitDrainSizeAccessor(only, readableState);
+      return only;
+    }
+  }
+
+  return current || null;
+}
+
 function _addAwaitDrainWriter(readableState, writer) {
   if (!readableState) return;
-  var current = readableState.awaitDrainWriters;
+  var current = _normalizeAwaitDrainWriters(readableState);
   if (!current) {
     readableState.awaitDrainWriters = writer;
     _attachAwaitDrainSizeAccessor(writer, readableState);
@@ -213,16 +247,15 @@ function _addAwaitDrainWriter(readableState, writer) {
 
 function _removeAwaitDrainWriter(readableState, writer) {
   if (!readableState) return;
-  var current = readableState.awaitDrainWriters;
+  var current = _normalizeAwaitDrainWriters(readableState);
   if (!current) return;
   if (current instanceof Set) {
     current.delete(writer);
     _clearAwaitDrainSizeAccessor(writer, readableState);
     if (current.size === 0) {
-      current.forEach(function(entry) {
-        _clearAwaitDrainSizeAccessor(entry, readableState);
-      });
-      readableState.awaitDrainWriters = null;
+      if ((readableState.pipesCount || 0) <= 1) {
+        readableState.awaitDrainWriters = null;
+      }
     }
     return;
   }
@@ -4241,6 +4274,7 @@ Stream.prototype.pipe = function(dest, options) {
   if (state) {
     state.pipes.push(dest);
     state.pipesCount = state.pipes.length;
+    _normalizeAwaitDrainWriters(state);
   }
 
   function isWritableTarget() {
@@ -4471,6 +4505,7 @@ Stream.prototype.pipe = function(dest, options) {
       var idx = state.pipes.indexOf(dest);
       if (idx !== -1) state.pipes.splice(idx, 1);
       state.pipesCount = state.pipes.length;
+      _normalizeAwaitDrainWriters(state);
       if (state.pipes.length === 0 && typeof source.pause === 'function') {
         source.pause();
       }
@@ -4578,12 +4613,13 @@ Stream.prototype.unpipe = function(dest) {
     if (idx !== -1) {
       state.pipes.splice(idx, 1);
       state.pipesCount = state.pipes.length;
-    if (state.pipes.length === 0) {
-      state.awaitDrainWriters = null;
-      if (typeof this.pause === 'function') {
-        this.pause();
+      _normalizeAwaitDrainWriters(state);
+      if (state.pipes.length === 0) {
+        state.awaitDrainWriters = null;
+        if (typeof this.pause === 'function') {
+          this.pause();
+        }
       }
-    }
     }
     if (dest && typeof dest.emit === 'function') {
       dest.emit('unpipe', this);
