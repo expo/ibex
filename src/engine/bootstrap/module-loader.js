@@ -505,6 +505,243 @@
       throw lenErr;
     }
   }
+  function _getExactNativeWrapState() {
+    var root = typeof globalThis === 'object' ? globalThis : {};
+    if (root.__exactNativeWrapState) {
+      return root.__exactNativeWrapState;
+    }
+
+    var UV_EINVAL = -22;
+
+    function unregisterFd(fd) {
+      if (typeof fd !== 'number' || fd < 0) return;
+      delete state.byFd[fd];
+    }
+
+    function registerHandle(handle) {
+      if (!handle || typeof handle.fd !== 'number' || handle.fd < 0) return;
+      state.byFd[handle.fd] = handle;
+    }
+
+    function BaseWrap(type, kind) {
+      this._handleType = type;
+      this._exactHandle = null;
+      this._exactKind = kind || 'tcp';
+      this._exactPath = null;
+      this._refed = true;
+      this.fd = -1;
+      this.onread = null;
+    }
+
+    BaseWrap.prototype._setExactHandle = function(exactHandle, fd, kind, path) {
+      unregisterFd(this.fd);
+      this._exactHandle = exactHandle == null ? null : exactHandle;
+      this._exactKind = kind || this._exactKind || 'tcp';
+      this._exactPath = path || null;
+      if (typeof fd === 'number' && fd >= 0) {
+        this.fd = fd;
+      } else if (typeof exactHandle === 'number' && exactHandle >= 0) {
+        this.fd = exactHandle;
+      } else if (this.fd == null) {
+        this.fd = -1;
+      }
+      registerHandle(this);
+      return this;
+    };
+
+    BaseWrap.prototype.close = function(callback) {
+      unregisterFd(this.fd);
+      if (this._exactHandle != null && typeof __exactTcpClose === 'function') {
+        try { __exactTcpClose(this._exactHandle); } catch (_closeErr) {}
+      }
+      if (this._exactKind === 'pipe' && this._exactPath) {
+        try { require('fs').unlinkSync(this._exactPath); } catch (_unlinkErr) {}
+      }
+      this._exactHandle = null;
+      this._refed = false;
+      this.fd = -1;
+      if (typeof callback === 'function') {
+        setTimeout(callback, 0);
+      }
+      return 0;
+    };
+
+    BaseWrap.prototype.ref = function() {
+      this._refed = true;
+      return this;
+    };
+
+    BaseWrap.prototype.unref = function() {
+      this._refed = false;
+      return this;
+    };
+
+    BaseWrap.prototype.hasRef = function() {
+      return this._refed !== false;
+    };
+
+    BaseWrap.prototype.readStart = function() {
+      return 0;
+    };
+
+    BaseWrap.prototype.readStop = function() {
+      return 0;
+    };
+
+    function applyLocalName(target, info) {
+      if (!target || !info) return;
+      try {
+        var parsed = JSON.parse(info);
+        target.address = parsed.address;
+        target.port = parsed.port;
+        target.family = parsed.family;
+      } catch (_parseErr) {}
+    }
+
+    function openRegisteredHandle(instance, fd, kind) {
+      var existing = state.byFd[fd];
+      if (existing && existing._exactHandle != null) {
+        instance._setExactHandle(existing._exactHandle, fd, existing._exactKind || kind, existing._exactPath || null);
+        return 0;
+      }
+      if (typeof __exactTcpFromFd !== 'function') {
+        return UV_EINVAL;
+      }
+      try {
+        var exactHandle = __exactTcpFromFd(fd);
+        instance._setExactHandle(exactHandle, fd, kind, null);
+        return 0;
+      } catch (_openErr) {
+        return UV_EINVAL;
+      }
+    }
+
+    function TCP(type) {
+      BaseWrap.call(this, type, 'tcp');
+    }
+    TCP.prototype = Object.create(BaseWrap.prototype);
+    TCP.prototype.constructor = TCP;
+    TCP.prototype.bind = function(address, port) {
+      if (this._exactHandle != null) return UV_EINVAL;
+      try {
+        var exactHandle = __exactTcpListen(address, port, 128, 0, 0);
+        this._setExactHandle(exactHandle, exactHandle, 'tcp', null);
+        return 0;
+      } catch (_bindErr) {
+        return UV_EINVAL;
+      }
+    };
+    TCP.prototype.bind6 = function(address, port) {
+      if (this._exactHandle != null) return UV_EINVAL;
+      try {
+        var exactHandle = __exactTcpListen(address, port, 128, 1, 0);
+        this._setExactHandle(exactHandle, exactHandle, 'tcp', null);
+        return 0;
+      } catch (_bindErr6) {
+        return UV_EINVAL;
+      }
+    };
+    TCP.prototype.open = function(fd) {
+      return openRegisteredHandle(this, fd, 'tcp');
+    };
+    TCP.prototype.getsockname = function(out) {
+      if (!out || this._exactHandle == null || typeof __exactTcpLocalAddr !== 'function') {
+        return UV_EINVAL;
+      }
+      try {
+        applyLocalName(out, __exactTcpLocalAddr(this._exactHandle));
+        return 0;
+      } catch (_socknameErr) {
+        return UV_EINVAL;
+      }
+    };
+    TCP.prototype.connect = function(req, address, port) {
+      var self = this;
+      try {
+        var exactHandle = __exactTcpConnect(address, port);
+        this._setExactHandle(exactHandle, exactHandle, 'tcp', null);
+        setTimeout(function() {
+          if (req && typeof req.oncomplete === 'function') {
+            req.oncomplete(0, self, req, true, true);
+          }
+        }, 0);
+        return 0;
+      } catch (_connectErr) {
+        return UV_EINVAL;
+      }
+    };
+    TCP.prototype.shutdown = function(req) {
+      var self = this;
+      if (this._exactHandle == null || typeof __exactTcpShutdown !== 'function') {
+        return UV_EINVAL;
+      }
+      try {
+        __exactTcpShutdown(this._exactHandle, 1);
+        setTimeout(function() {
+          if (req && typeof req.oncomplete === 'function') {
+            req.oncomplete(0, self, undefined);
+          }
+        }, 0);
+        return 0;
+      } catch (_shutdownErr) {
+        return UV_EINVAL;
+      }
+    };
+    TCP.prototype.setNoDelay = function(enable) {
+      if (this._exactHandle == null || typeof __exactTcpSetNoDelay !== 'function') return 0;
+      try { __exactTcpSetNoDelay(this._exactHandle, enable === false ? 0 : 1); } catch (_nodelayErr) {}
+      return 0;
+    };
+    TCP.prototype.setKeepAlive = function(enable, delay) {
+      if (this._exactHandle == null || typeof __exactTcpSetKeepAlive !== 'function') return 0;
+      try {
+        if (__exactTcpSetKeepAlive.length >= 3) {
+          __exactTcpSetKeepAlive(this._exactHandle, enable === false ? 0 : 1, delay || 0);
+        } else {
+          __exactTcpSetKeepAlive(this._exactHandle, enable === false ? 0 : 1);
+        }
+      } catch (_keepAliveErr) {}
+      return 0;
+    };
+
+    function Pipe(type) {
+      BaseWrap.call(this, type, 'pipe');
+    }
+    Pipe.prototype = Object.create(BaseWrap.prototype);
+    Pipe.prototype.constructor = Pipe;
+    Pipe.prototype.bind = function(path) {
+      if (this._exactHandle != null) return UV_EINVAL;
+      try {
+        var exactHandle = __exactUnixListen(path, 128);
+        this._setExactHandle(exactHandle, exactHandle, 'pipe', path);
+        return 0;
+      } catch (_pipeBindErr) {
+        return UV_EINVAL;
+      }
+    };
+    Pipe.prototype.open = function(fd) {
+      return openRegisteredHandle(this, fd, 'pipe');
+    };
+
+    function TCPConnectWrap() {}
+
+    var state = {
+      UV_EINVAL: UV_EINVAL,
+      byFd: Object.create(null),
+      TCP: TCP,
+      Pipe: Pipe,
+      TCPConnectWrap: TCPConnectWrap,
+      tcpConstants: {
+        SOCKET: 0
+      },
+      pipeConstants: {
+        SOCKET: 0
+      }
+    };
+
+    root.__exactNativeWrapState = state;
+    return state;
+  }
   var internalModules = {
     'internal/util/debuglog': {
       formatTime: formatTime,
@@ -523,6 +760,17 @@
     },
     'internal/http': {
       kOutHeaders: Symbol.for('nodejs.http.outHeadersKey')
+    },
+    'internal/net': {
+      isLoopback: function(address) {
+        if (typeof address !== 'string') return false;
+        if (address === 'localhost') return true;
+        if (address === '127.0.0.1' || address === '127.0.0.255') return true;
+        if (address.indexOf('127.') === 0) return true;
+        return address === '[::1]' || address === '[0:0:0:0:0:0:0:1]';
+      },
+      kReinitializeHandle: Symbol.for('nodejs.net.kReinitializeHandle'),
+      normalizedArgsSymbol: Symbol.for('nodejs.net.normalizedArgs')
     },
     'internal/async_hooks': {
       newAsyncId: function() {
@@ -1019,6 +1267,7 @@
           UV_EACCES: -13,
             UV_EBADF: -9,
             UV_EBUSY: -16,
+            UV_EINVAL: _getExactNativeWrapState().UV_EINVAL,
             UV_EEXIST: -17,
             UV_EOF: -4095,
             UV_EIO: -5,
@@ -1083,6 +1332,21 @@
             streamBaseState: typeof globalThis === 'object' ? globalThis.__exactStreamWrapState : [],
             kReadBytesOrError: typeof globalThis === 'object' ? globalThis.__exactStreamWrapReadBytesOrErrorIndex : 0,
             ShutdownWrap: function() {}
+          };
+        }
+        if (name === 'tcp_wrap') {
+          var tcpWrapState = _getExactNativeWrapState();
+          return {
+            TCP: tcpWrapState.TCP,
+            TCPConnectWrap: tcpWrapState.TCPConnectWrap,
+            constants: tcpWrapState.tcpConstants
+          };
+        }
+        if (name === 'pipe_wrap') {
+          var pipeWrapState = _getExactNativeWrapState();
+          return {
+            Pipe: pipeWrapState.Pipe,
+            constants: pipeWrapState.pipeConstants
           };
         }
         if (name === 'test' && this && this.test) {

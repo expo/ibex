@@ -157,6 +157,15 @@ function _validateConnectPort(port) {
 var _hasTcp = typeof __exactTcpConnect === 'function';
 // Check for native Unix socket support
 var _hasUnix = typeof __exactUnixConnect === 'function';
+var _internalBinding = null;
+try {
+  var _internalTestBinding = require('internal/test/binding');
+  if (_internalTestBinding && typeof _internalTestBinding.internalBinding === 'function') {
+    _internalBinding = _internalTestBinding.internalBinding;
+  }
+} catch (e) {}
+var _normalizedArgsSymbol = Symbol.for('nodejs.net.normalizedArgs');
+var _kReinitializeHandle = Symbol.for('nodejs.net.kReinitializeHandle');
 function _readExecArgvNumericFlag(flag) {
   var execArgv = (typeof process !== 'undefined' && Array.isArray(process.execArgv))
     ? process.execArgv
@@ -183,6 +192,16 @@ var _defaultAutoSelectFamilyAttemptTimeout = _resolveDefaultAutoSelectFamilyAtte
 var _defaultAutoSelectFamily = false;
 var _boundTcpServers = [];
 
+function _getExactNativeWrapState() {
+  return (typeof globalThis === 'object' && globalThis.__exactNativeWrapState) || null;
+}
+
+function _getRegisteredFdHandle(fd) {
+  var state = _getExactNativeWrapState();
+  if (!state || !state.byFd || typeof fd !== 'number') return null;
+  return state.byFd[fd] || null;
+}
+
 function _unwrapHandle(handle) {
   if (handle && handle._exactHandle !== undefined) {
     return handle._exactHandle;
@@ -190,9 +209,34 @@ function _unwrapHandle(handle) {
   return handle;
 }
 
-function _makeSocketHandle(handle) {
+function _makeSocketHandle(handle, kind, fd, path) {
+  var binding = null;
+  var Wrap = null;
+  var handleType = 0;
+  var wrapKind = kind === 'pipe' ? 'pipe' : 'tcp';
+  if (typeof _internalBinding === 'function') {
+    try {
+      binding = _internalBinding(wrapKind === 'pipe' ? 'pipe_wrap' : 'tcp_wrap');
+    } catch (_bindingErr) {}
+  }
+  if (binding) {
+    Wrap = wrapKind === 'pipe' ? binding.Pipe : binding.TCP;
+    if (binding.constants && typeof binding.constants.SOCKET === 'number') {
+      handleType = binding.constants.SOCKET;
+    }
+  }
+  if (typeof Wrap === 'function') {
+    var wrap = new Wrap(handleType);
+    if (typeof wrap._setExactHandle === 'function') {
+      wrap._setExactHandle(handle == null ? null : handle, fd, wrapKind, path || null);
+      return wrap;
+    }
+  }
   var socketHandle = {
     _exactHandle: handle == null ? null : handle,
+    _exactKind: wrapKind,
+    _refed: true,
+    fd: typeof fd === 'number' ? fd : (typeof handle === 'number' ? handle : -1),
     setNoDelay: function(noDelay) {
       if (!_hasTcp) return;
       if (socketHandle._exactHandle == null) return;
@@ -219,35 +263,58 @@ function _makeSocketHandle(handle) {
       if (socketHandle._exactHandle == null) return;
       try { __exactTcpClose(socketHandle._exactHandle); } catch(e) {}
       socketHandle._exactHandle = null;
+      socketHandle._refed = false;
+    },
+    ref: function() {
+      socketHandle._refed = true;
+      return socketHandle;
+    },
+    unref: function() {
+      socketHandle._refed = false;
+      return socketHandle;
+    },
+    hasRef: function() {
+      return socketHandle._refed !== false;
     },
     onconnection: null
   };
   return socketHandle;
 }
 
-function _makeServerHandle(nativeHandle) {
-  var serverHandle = {
-    _exactHandle: nativeHandle == null ? null : nativeHandle,
-    close: function() {
-      if (serverHandle._exactHandle == null) return;
-      if (_hasTcp) {
-        try { __exactTcpClose(serverHandle._exactHandle); } catch(e) {}
-      }
-      serverHandle._exactHandle = null;
-    },
-    onconnection: null
-  };
-  return serverHandle;
+function _makeServerHandle(nativeHandle, kind, path) {
+  return _makeSocketHandle(nativeHandle, kind, undefined, path || null);
 }
 
-function _setSocketHandle(socket, nativeHandle) {
-  if (!socket) return;
-  if (socket._exactHandle !== undefined) {
-    socket._exactHandle = nativeHandle;
-  } else {
-    socket._exactHandle = null;
-    socket._exactHandle = nativeHandle;
+function _setHandleExactValue(handle, nativeHandle, fd, kind, path) {
+  if (!handle) return;
+  if (typeof handle._setExactHandle === 'function') {
+    handle._setExactHandle(nativeHandle, fd, kind, path || null);
+    return;
   }
+  handle._exactHandle = nativeHandle;
+  if (kind) handle._exactKind = kind;
+  if (typeof fd === 'number') handle.fd = fd;
+}
+
+function _setSocketHandle(target, nativeHandle) {
+  if (!target) return;
+  var handle = target && target._handle ? target._handle : target;
+  var wrapKind = target && target._isUnix ? 'pipe' : ((handle && handle._exactKind) || 'tcp');
+  var fd = handle && typeof handle.fd === 'number' && handle.fd >= 0
+    ? handle.fd
+    : undefined;
+  if (handle && (handle._exactHandle !== undefined || typeof handle._setExactHandle === 'function')) {
+    _setHandleExactValue(handle, nativeHandle, fd, wrapKind, target._socketPath || null);
+    return handle;
+  }
+  var newHandle = {
+    _exactHandle: null
+  };
+  _setHandleExactValue(newHandle, nativeHandle, fd, wrapKind, target._socketPath || null);
+  if (target && target._handle !== undefined) {
+    target._handle = newHandle;
+  }
+  return newHandle;
 }
 
 function _shutdownSocketWrite(socket) {
@@ -383,6 +450,11 @@ function _setTimerRefState(timer, refed) {
 function _setHandleRefState(handle, refed) {
   if (!handle) return;
   try {
+    if (typeof handle.hasRef === 'function') {
+      var alreadyRefed = handle.hasRef();
+      if (refed === false && alreadyRefed === false) return;
+      if (refed !== false && alreadyRefed === true) return;
+    }
     if (refed === false) {
       if (typeof handle.unref === 'function') handle.unref();
     } else if (typeof handle.ref === 'function') {
@@ -401,7 +473,12 @@ function _scheduleTimer(callback, delay, owner) {
 
 function _emitAsyncSocketError(socket, err, callback) {
   _scheduleTimer(function() {
-    if (typeof callback === 'function') callback(err);
+    if (typeof callback === 'function') {
+      callback(err);
+      if (err && err.code === 'ERR_STREAM_DESTROYED') {
+        return;
+      }
+    }
     socket.emit('error', err);
   }, 0, socket);
 }
@@ -508,6 +585,11 @@ function _normalizeWritableHighWaterMark(options) {
 
 function _createSocketWriteError(socket) {
   var err;
+  if (socket && socket.destroyed) {
+    err = new Error('Cannot call write after a stream was destroyed');
+    err.code = 'ERR_STREAM_DESTROYED';
+    return err;
+  }
   if (socket && socket._readEnded) {
     err = new Error('This socket has been ended by the other party');
     err.code = 'EPIPE';
@@ -746,7 +828,15 @@ function Socket(options) {
   } else if (typeof options.fd === 'number' && options.fd >= 0) {
     // Create socket from raw file descriptor (e.g., extra stdio pipe fd)
     var fdHandle;
-    if (typeof __exactTcpFromFd === 'function') {
+    var registeredFdHandle = _getRegisteredFdHandle(options.fd);
+    if (registeredFdHandle && registeredFdHandle._exactHandle != null) {
+      fdHandle = _makeSocketHandle(
+        registeredFdHandle._exactHandle,
+        registeredFdHandle._exactKind || 'tcp',
+        options.fd,
+        registeredFdHandle._exactPath || null
+      );
+    } else if (typeof __exactTcpFromFd === 'function') {
       try {
         fdHandle = __exactTcpFromFd(options.fd);
       } catch (_fdErr) {
@@ -755,13 +845,11 @@ function Socket(options) {
           close: function() {}
         };
       }
+      fdHandle = _makeSocketHandle(fdHandle, 'tcp', options.fd, null);
     } else {
-      fdHandle = {
-        fd: options.fd,
-        close: function() {}
-      };
+      fdHandle = _makeSocketHandle(null, 'tcp', options.fd, null);
     }
-    this._handle = _makeSocketHandle(fdHandle);
+    this._handle = fdHandle;
     this._connected = true;
     this.connecting = false;
     this.pending = false;
@@ -1172,10 +1260,14 @@ Socket.prototype.connect = function(options, connectListener) {
     // Unix socket path
     options = { path: options };
   } else if (Array.isArray(options)) {
-    // Regular arrays throw ERR_INVALID_ARG_TYPE (normalized arrays are handled internally)
-    var arrTypeErr = new TypeError('The "options" or "port" or "path" argument must be of type object. Received an instance of Array');
-    arrTypeErr.code = 'ERR_INVALID_ARG_TYPE';
-    throw arrTypeErr;
+    if (options[_normalizedArgsSymbol] === true) {
+      connectListener = connectListener || options[1];
+      options = options[0] || {};
+    } else {
+      var arrErr = new TypeError('The "options" or "port" or "path" argument must be specified');
+      arrErr.code = 'ERR_MISSING_ARGS';
+      throw arrErr;
+    }
   } else if (typeof options === 'boolean' || options === null) {
     var boolTypeErr = new TypeError('The "options" or "port" or "path" argument must be of type string or number or object. Received type ' + (options === null ? 'null' : typeof options));
     boolTypeErr.code = 'ERR_INVALID_ARG_TYPE';
@@ -1255,18 +1347,12 @@ Socket.prototype.connect = function(options, connectListener) {
   // Track whether the constructor provided explicit noDelay/keepAlive options.
   if (Object.prototype.hasOwnProperty.call(options, 'noDelay')) {
     this._noDelay = options.noDelay;
-  } else {
-    this._noDelay = undefined;
   }
   if (Object.prototype.hasOwnProperty.call(options, 'keepAlive')) {
     this._keepAlive = options.keepAlive;
-  } else {
-    this._keepAlive = undefined;
   }
   if (Object.prototype.hasOwnProperty.call(options, 'keepAliveInitialDelay')) {
     this._keepAliveInitialDelay = options.keepAliveInitialDelay;
-  } else {
-    this._keepAliveInitialDelay = 0;
   }
 
   // Unix domain socket connection
@@ -1460,7 +1546,7 @@ Socket.prototype.connect = function(options, connectListener) {
         selfRef.pending = false;
         selfRef.readyState = 'open';
         selfRef._updateAddressInfo();
-        if (selfRef._noDelay) selfRef.setNoDelay(selfRef._noDelay);
+        if (selfRef._noDelay !== undefined) selfRef.setNoDelay(selfRef._noDelay);
         if (selfRef._keepAlive !== undefined && selfRef._keepAlive) {
           selfRef.setKeepAlive(true, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
         }
@@ -1717,6 +1803,7 @@ Socket.prototype.end = function(data, encoding, callback) {
 
 Socket.prototype.destroy = function(err) {
   if (this.destroyed) return this;
+  var wasConnecting = this.connecting;
   _detachSocketAbortListener(this);
   this._abortPending = false;
   this.destroyed = true;
@@ -1742,7 +1829,15 @@ Socket.prototype.destroy = function(err) {
     this._timeoutTimer = null;
   }
   if (this._writeQueue.length) {
-    var endErr = err instanceof Error ? err : new Error(err ? String(err) : 'Socket destroyed');
+    var endErr;
+    if (err instanceof Error) {
+      endErr = err;
+    } else if (!err && wasConnecting) {
+      endErr = new Error('Socket closed before the connection was established');
+      endErr.code = 'ERR_SOCKET_CLOSED_BEFORE_CONNECTION';
+    } else {
+      endErr = new Error(err ? String(err) : 'Socket destroyed');
+    }
     for (var i = 0; i < this._writeQueue.length; i++) {
       var queued = this._writeQueue[i];
       if (queued.callback) {
@@ -1820,6 +1915,7 @@ Socket.prototype.unshift = function(chunk) {
 };
 
 Socket.prototype.setNoDelay = function(noDelay) {
+  this._noDelay = noDelay !== false;
   if (_unwrapHandle(this._handle) != null && _hasTcp) {
     try { this._handle.setNoDelay(noDelay !== false); } catch(e) {}
   }
@@ -1827,6 +1923,8 @@ Socket.prototype.setNoDelay = function(noDelay) {
 };
 
 Socket.prototype.setKeepAlive = function(enable, delay) {
+  this._keepAlive = enable !== false;
+  this._keepAliveInitialDelay = delay || 0;
   if (_unwrapHandle(this._handle) != null && _hasTcp) {
     try { this._handle.setKeepAlive(enable, delay); } catch(e) {}
   }
@@ -1975,6 +2073,7 @@ function Server(options, connectionListener) {
   this.keepAliveInitialDelay = options.keepAliveInitialDelay || 0;
   this._connectionKey = null;
   this._unrefed = false;
+  this._unref = false;
   // Mixin EventEmitter
   if (typeof EventEmitter === 'function' && EventEmitter.prototype) {
     for (var k in EventEmitter.prototype) {
@@ -1998,6 +2097,8 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   if (typeof host === 'function') { callback = host; host = undefined; backlog = undefined; }
   if (typeof backlog === 'function') { callback = backlog; backlog = undefined; }
   var unixPath = null;
+  var directHandle = null;
+  var invalidListenFd = null;
   var self = this;
   var listenToken = ++this._listenToken;
   if (typeof port === 'string' && !isFinite(Number(port))) {
@@ -2012,6 +2113,10 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   } else if (typeof port === 'object' && port !== null) {
     // options object
     var opts = port;
+    if (opts._exactHandle !== undefined) {
+      directHandle = opts;
+      opts = {};
+    }
     // Validate port and path types
     if (opts.port !== undefined && typeof opts.port === 'boolean') {
       var invalidPortErr = new TypeError("The argument 'options' is invalid. Received " + JSON.stringify(opts));
@@ -2029,7 +2134,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
       throw invalidFdErr;
     }
     // Must have port or path
-    if (!('port' in opts) && !('path' in opts) && !('fd' in opts) && !('handle' in opts)) {
+    if (!directHandle && !('port' in opts) && !('path' in opts) && !('fd' in opts) && !('handle' in opts) && !('_handle' in opts)) {
       var missingPropErr = new TypeError('The argument \'options\' must have the property "port" or "path". Received ' + JSON.stringify(opts));
       missingPropErr.code = 'ERR_INVALID_ARG_VALUE';
       throw missingPropErr;
@@ -2072,17 +2177,76 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     if (opts.reusePort !== undefined) {
       this._reusePort = opts.reusePort === true;
     }
+    if (opts.handle && opts.handle._exactHandle !== undefined) {
+      directHandle = opts.handle;
+    } else if (opts._handle && opts._handle._exactHandle !== undefined) {
+      directHandle = opts._handle;
+    } else if (opts.fd !== undefined) {
+      var registeredListenHandle = _getRegisteredFdHandle(opts.fd);
+      if (registeredListenHandle && registeredListenHandle._exactHandle != null) {
+        directHandle = _makeServerHandle(
+          registeredListenHandle._exactHandle,
+          registeredListenHandle._exactKind || (opts.path ? 'pipe' : 'tcp'),
+          registeredListenHandle._exactPath || opts.path || null
+        );
+      } else {
+        invalidListenFd = opts.fd;
+      }
+    }
     port = opts.port;
     host = opts.host || host;
     backlog = opts.backlog || backlog;
   }
 
+  if (directHandle && directHandle._exactKind === 'pipe' && !unixPath) {
+    unixPath = directHandle._exactPath || null;
+  }
+
+  if (invalidListenFd !== null) {
+    _scheduleTimer(function() {
+      if (listenToken !== self._listenToken) return;
+      var fdErr = new Error('listen EINVAL: invalid argument');
+      fdErr.code = 'EINVAL';
+      self.emit('error', fdErr);
+    }, 0, self);
+    return this;
+  }
+
   // Validate port
-  if (!unixPath) {
+  if (!unixPath && !directHandle) {
     port = _normalizePort(port);
   }
 
   if (callback) this.once('listening', callback);
+
+  if (directHandle && directHandle._exactHandle != null) {
+    this._handle = directHandle;
+    this._isUnix = directHandle._exactKind === 'pipe';
+    this._socketPath = this._isUnix ? (directHandle._exactPath || unixPath || null) : null;
+    this._host = host || '0.0.0.0';
+    this.host = this._host;
+    if (!this._isUnix) {
+      _registerTcpServer(self);
+      try {
+        var directInfo = __exactTcpLocalAddr(_unwrapHandle(this._handle));
+        if (directInfo) {
+          var directAddr = JSON.parse(directInfo);
+          self._port = directAddr.port;
+          self._host = directAddr.address;
+          self.host = directAddr.address;
+          self._requestedPort = directAddr.port;
+          self._connectionKey = (directAddr.family || 'IPv4').slice(-1) + ':' + directAddr.address + ':' + directAddr.port;
+        }
+      } catch (_directInfoErr) {}
+    }
+    _scheduleTimer(function() {
+      if (listenToken !== self._listenToken) return;
+      self.listening = true;
+      self.emit('listening');
+      self._startAccepting();
+    }, 0, self);
+    return this;
+  }
 
   // Unix domain socket server
   if (unixPath) {
@@ -2341,6 +2505,8 @@ Server.prototype.address = function() {
 
 Server.prototype.ref = function() {
   this._unrefed = false;
+  this._unref = false;
+  _setHandleRefState(this._handle, true);
   _setTimerRefState(this._acceptTimer, true);
   if (this.listening && this._handle != null && this._acceptTimer == null) {
     this._startAccepting();
@@ -2349,6 +2515,8 @@ Server.prototype.ref = function() {
 };
 Server.prototype.unref = function() {
   this._unrefed = true;
+  this._unref = true;
+  _setHandleRefState(this._handle, false);
   _setTimerRefState(this._acceptTimer, false);
   return this;
 };
@@ -2358,6 +2526,41 @@ Server.prototype.getConnections = function(cb) {
 };
 
 // --- Helper functions ---
+function _normalizeArgs(args) {
+  if (Array.isArray(args) && args[_normalizedArgsSymbol] === true) {
+    return args;
+  }
+
+  var options = {};
+  var callback = null;
+  var list = Array.isArray(args) ? args.slice() : Array.prototype.slice.call(arguments);
+
+  if (list.length === 1 && typeof list[0] === 'function') {
+    callback = list[0];
+  } else if (list.length > 0) {
+    var first = list[0];
+    if (typeof first === 'object' && first !== null && !Array.isArray(first)) {
+      options = first;
+      if (typeof list[1] === 'function') callback = list[1];
+    } else if (typeof first === 'string' && !isFinite(Number(first))) {
+      options.path = first;
+      if (typeof list[1] === 'function') callback = list[1];
+    } else if (typeof first !== 'undefined') {
+      options.port = first;
+      if (typeof list[1] === 'string') {
+        options.host = list[1];
+        if (typeof list[2] === 'function') callback = list[2];
+      } else if (typeof list[1] === 'function') {
+        callback = list[1];
+      }
+    }
+  }
+
+  var normalized = [options, callback];
+  normalized[_normalizedArgsSymbol] = true;
+  return normalized;
+}
+
 function createConnection(options, connectListener) {
   if (typeof options === 'number') {
     var port = options;
@@ -2387,6 +2590,10 @@ function createServer(options, connectionListener) {
 function connect() {
   return createConnection.apply(null, arguments);
 }
+
+Socket.prototype[_kReinitializeHandle] = function() {
+  return this;
+};
 
 function isIP(input) {
   if (typeof input !== 'string') {
@@ -2538,6 +2745,7 @@ module.exports = {
   createConnection: createConnection,
   createServer: createServer,
   connect: connect,
+  _normalizeArgs: _normalizeArgs,
   isIP: isIP,
   isIPv4: isIPv4,
   isIPv6: isIPv6,

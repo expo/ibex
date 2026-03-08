@@ -1,5 +1,6 @@
 var net;
 try { net = require('net'); } catch(e) {}
+var _kReinitializeHandle = Symbol.for('nodejs.net.kReinitializeHandle');
 
 var eventsModule;
 try { eventsModule = require('events'); } catch(e) {}
@@ -496,6 +497,10 @@ TLSSocket.prototype.constructor = TLSSocket;
 
 TLSSocket.prototype._setSocket = function(socket) {
   _bindSocket(this, socket);
+  return this;
+};
+
+TLSSocket.prototype[_kReinitializeHandle] = function() {
   return this;
 };
 
