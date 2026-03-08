@@ -438,6 +438,12 @@ function _createConnectError(code, address, port, syscall) {
   return err;
 }
 
+function _uvConnectCodeToErrno(code) {
+  if (code === -101) return 'ENETUNREACH';
+  if (code === -111) return 'ECONNREFUSED';
+  return 'ECONNREFUSED';
+}
+
 function _isGetAddrInfoError(err) {
   if (!err || !err.message) return false;
   return String(err.message).indexOf('getaddrinfo') === 0 || String(err.message).indexOf('getaddrinfo failed') !== -1;
@@ -1725,7 +1731,10 @@ Socket.prototype.connect = function(options, connectListener) {
     throw boolTypeErr;
   }
   options = options || {};
-  if (this.destroyed || (this._handle == null && !this.connecting) || (this.readyState === 'closed' && !this.connecting && !this._connected)) {
+  var hasCustomConnectHandle = this._handle &&
+    this._handle._exactHandle === undefined &&
+    typeof this._handle.connect === 'function';
+  if (this.destroyed || (this._handle == null && !this.connecting) || (!hasCustomConnectHandle && this.readyState === 'closed' && !this.connecting && !this._connected)) {
     _resetSocketForConnect(this);
   }
   if (!_attachSocketAbortSignal(this, options.signal)) {
@@ -1869,6 +1878,48 @@ Socket.prototype.connect = function(options, connectListener) {
   if (options.localPort) this.localPort = options.localPort;
   if (options.family) this._family = options.family;
   this.remoteFamily = undefined;
+
+  if (hasCustomConnectHandle) {
+    var self = this;
+    setTimeout(function() {
+      if (self.destroyed) return;
+      var connectResult;
+      try {
+        connectResult = self._handle.connect({}, self._requestedAddress, self._requestedPort);
+      } catch (err) {
+        self.connecting = false;
+        self.pending = false;
+        self.readyState = 'closed';
+        _detachSocketAbortListener(self);
+        self._abortPending = false;
+        self.emit('error', err);
+        return;
+      }
+
+      if (typeof connectResult === 'number' && connectResult !== 0) {
+        var errno = _uvConnectCodeToErrno(connectResult);
+        var connectErr = _createConnectError(errno, self._requestedAddress, self._requestedPort, 'connect');
+        self.connecting = false;
+        self.pending = false;
+        self.readyState = 'closed';
+        _detachSocketAbortListener(self);
+        self._abortPending = false;
+        self.emit('error', connectErr);
+        return;
+      }
+
+      self.connecting = false;
+      self._connected = true;
+      self.pending = false;
+      self.readyState = 'open';
+      if (typeof self._handle.readStart === 'function') {
+        try { self._handle.readStart(); } catch (_customReadStartErr) {}
+      }
+      self.emit('connect');
+      self.emit('ready');
+    }, 0);
+    return this;
+  }
 
   if (!_hasTcp) {
     // Fallback: no native TCP support

@@ -845,6 +845,50 @@ function toHttpPath(options) {
   return options.path || options.pathname || "/";
 }
 
+function normalizeClientRequestOptions(options) {
+  if (typeof options === 'string') {
+    try {
+      var parsedUrl = new URL(options);
+      return {
+        __exactOriginalUrl: options,
+        protocol: parsedUrl.protocol,
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port ? Number(parsedUrl.port) : undefined,
+        path: parsedUrl.pathname + (parsedUrl.search || ''),
+        method: 'GET'
+      };
+    } catch (_parseClientRequestUrlErr) {
+      return { href: options, method: 'GET' };
+    }
+  }
+  if (options instanceof URL) {
+    var normalizedUrlOptions = {
+      protocol: options.protocol,
+      hostname: options.hostname,
+      port: options.port ? Number(options.port) : undefined,
+      path: options.pathname + (options.search || ''),
+      method: 'GET'
+    };
+    for (var optionKey in options) {
+      if (Object.prototype.hasOwnProperty.call(options, optionKey)) {
+        normalizedUrlOptions[optionKey] = options[optionKey];
+      }
+    }
+    return normalizedUrlOptions;
+  }
+  return options;
+}
+
+function validateClientRequestPath(path) {
+  if (path == null) return;
+  var pathString = String(path);
+  if (/[^\u0021-\u00ff]/.test(pathString)) {
+    var err = new TypeError('Request path contains unescaped characters');
+    err.code = 'ERR_UNESCAPED_CHARACTERS';
+    throw err;
+  }
+}
+
 function hasUrlOptionOverrides(options) {
   if (!options || typeof options !== "object") return false;
   return (
@@ -868,6 +912,36 @@ function toMethod(options) {
 function toHeaders(source) {
   if (!source || typeof source !== "object") return {};
   var out = {};
+  if (Array.isArray(source)) {
+    for (var i = 0; i < source.length; i++) {
+      var entry = source[i];
+      if (!Array.isArray(entry) || entry.length < 2) continue;
+      var entryKey = String(entry[0]);
+      var entryValue = entry[1];
+      var entryHeaderName = resolveHeaderName(entryKey);
+      validateHeaderName(entryKey);
+      if (Array.isArray(entryValue)) {
+        if (entryHeaderName === 'host') {
+          var hostArrayErr = new TypeError('The "options.headers.host" property must be of type string.');
+          hostArrayErr.code = 'ERR_INVALID_ARG_TYPE';
+          throw hostArrayErr;
+        }
+        entryValue = entryValue.map(function(item) {
+          validateHeaderValue(entryKey, item);
+          return String(item);
+        }).join(entryHeaderName === 'cookie' ? '; ' : ', ');
+      } else {
+        validateHeaderValue(entryKey, entryValue);
+        entryValue = String(entryValue);
+      }
+      if (out[entryHeaderName] !== undefined && !_singleValueHeaders[entryHeaderName]) {
+        out[entryHeaderName] += (entryHeaderName === 'cookie' ? '; ' : ', ') + entryValue;
+      } else {
+        out[entryHeaderName] = entryValue;
+      }
+    }
+    return out;
+  }
   for (var key in source) {
     if (Object.prototype.hasOwnProperty.call(source, key)) {
       var val = source[key];
@@ -882,7 +956,7 @@ function toHeaders(source) {
         out[headerName] = val.map(function(item) {
           validateHeaderValue(String(key), item);
           return String(item);
-        }).join(', ');
+        }).join(headerName === 'cookie' ? '; ' : ', ');
       } else {
         validateHeaderValue(String(key), val);
         out[headerName] = String(val);
@@ -1157,29 +1231,7 @@ _attachHttpAsyncIterator(IncomingMessage.prototype);
 function ClientRequest(options, callback) {
   EventEmitter.call(this);
   initOutgoingMessage(this);
-  if (typeof options === 'string') {
-    try {
-      var parsedRequestUrl = new URL(options);
-      options = {
-        __exactOriginalUrl: options,
-        protocol: parsedRequestUrl.protocol,
-        hostname: parsedRequestUrl.hostname,
-        port: parsedRequestUrl.port ? Number(parsedRequestUrl.port) : undefined,
-        path: parsedRequestUrl.pathname + (parsedRequestUrl.search || ''),
-        method: 'GET'
-      };
-    } catch (_parseRequestUrlErr) {
-      options = { href: options, method: 'GET' };
-    }
-  } else if (options instanceof URL) {
-    options = {
-      protocol: options.protocol,
-      hostname: options.hostname,
-      port: options.port ? Number(options.port) : undefined,
-      path: options.pathname + (options.search || ''),
-      method: 'GET'
-    };
-  }
+  options = normalizeClientRequestOptions(options);
   this.options = options || {};
   this._defaultAgent = globalAgent;
 
@@ -1214,6 +1266,12 @@ function ClientRequest(options, callback) {
       throw mErr;
     }
   }
+  if (this.options.insecureHTTPParser !== undefined && typeof this.options.insecureHTTPParser !== 'boolean') {
+    var insecureParserErr = new TypeError('The "options.insecureHTTPParser" property must be of type boolean.' +
+      _invalidArgTypeHelper(this.options.insecureHTTPParser));
+    insecureParserErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw insecureParserErr;
+  }
 
   var resolvedAgent = this.options.agent;
   if (resolvedAgent === false) {
@@ -1236,7 +1294,9 @@ function ClientRequest(options, callback) {
     : toHttpUrl(this.options);
   this.method = toMethod(this.options);
   this.path = toHttpPath(this.options);
+  validateClientRequestPath(this.path);
   this.headers = toHeaders(this.options.headers);
+  this._headersIsArray = Array.isArray(this.options.headers);
   this._headerNames = {};
   if (this.options.headers) {
     for (var hk in this.options.headers) {
@@ -1284,7 +1344,7 @@ function ClientRequest(options, callback) {
   this._last = true;
   this.shouldKeepAlive = false;
 
-  if (!Object.prototype.hasOwnProperty.call(this.headers, 'host')) {
+  if (!this._headersIsArray && !Object.prototype.hasOwnProperty.call(this.headers, 'host')) {
     var defaultPort = this.protocol === 'https:' ? 443 : 80;
     var headerHost = this.host;
     var configuredPort = this.options && this.options.port != null ? Number(this.options.port) : null;
@@ -1294,9 +1354,16 @@ function ClientRequest(options, callback) {
     this.headers.host = headerHost;
     this._headerNames.host = 'Host';
   }
+  if (!this._headersIsArray &&
+      this.options &&
+      this.options.auth &&
+      !Object.prototype.hasOwnProperty.call(this.headers, 'authorization')) {
+    this.headers.authorization = 'Basic ' + Buffer.from(String(this.options.auth)).toString('base64');
+    this._headerNames.authorization = 'Authorization';
+  }
 
   if (this.agent) {
-    if (!this.agent.keepAlive && !isFinite(this.agent.maxSockets)) {
+    if (this.options && this.options.agent === false) {
       this._last = true;
       this.shouldKeepAlive = false;
     } else {
@@ -2099,7 +2166,7 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   // Build raw HTTP request
   var reqLine = this.method + ' ' + this.path + ' HTTP/1.1\r\n';
   var headerStr = '';
-  if (!this.headers['host']) {
+  if (!this.headers['host'] && !this._headersIsArray) {
     headerStr += 'Host: ' + host + (port !== 80 ? ':' + port : '') + '\r\n';
   }
   for (var k in this.headers) {
@@ -2261,6 +2328,28 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var chunkRemaining = 0;
   var chunkBuffer = '';
   var socketRetired = false;
+  var parseErrored = false;
+
+  function createResponseParseError(rawPacket, bytesParsed) {
+    var raw = toBuffer(rawPacket);
+    var err = new Error('Parse Error: Expected HTTP/, RTSP/ or ICE/');
+    err.code = 'HPE_INVALID_CONSTANT';
+    err.rawPacket = raw || toBuffer('');
+    err.bytesParsed = typeof bytesParsed === 'number' ? bytesParsed : 0;
+    return err;
+  }
+
+  function emitResponseParseError(rawPacket, bytesParsed, finishParsedResponse) {
+    if (parseErrored || self._aborted) return;
+    parseErrored = true;
+    socket._hadError = true;
+    socket.removeListener('data', onData);
+    socket.removeListener('end', onEnd);
+    self.emit('error', createResponseParseError(rawPacket, bytesParsed));
+    if (finishParsedResponse && responseEmitted && !responseEnded) {
+      finishResponse();
+    }
+  }
 
   function pushIncomingResponseChunk(chunk) {
     if (!tcpIncoming) return true;
@@ -2495,6 +2584,49 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     }
   }
 
+  function pushIdentityResponseData(data) {
+    if (!data || skipResponseBody) {
+      return true;
+    }
+    var dataBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+      ? Buffer.byteLength(data, 'latin1') : data.length;
+    if (contentLength >= 0) {
+      var remainingBytes = contentLength - bodyBytesReceived;
+      if (remainingBytes <= 0) {
+        emitResponseParseError(data, 0, true);
+        return false;
+      }
+
+      var dataToPush = data;
+      var extraData = '';
+      if (dataBytes > remainingBytes) {
+        dataToPush = data.substring(0, remainingBytes);
+        extraData = data.substring(remainingBytes);
+        dataBytes = remainingBytes;
+      }
+
+      if (dataToPush.length > 0) {
+        bodyBytesReceived += dataBytes;
+        var dataToPushBuf = (typeof Buffer !== 'undefined') ? Buffer.from(dataToPush, 'latin1') : dataToPush;
+        if (!pushIncomingResponseChunk(dataToPushBuf)) return false;
+      }
+
+      if (extraData.length > 0) {
+        emitResponseParseError(extraData, 0, true);
+        return false;
+      }
+
+      if (bodyBytesReceived >= contentLength) {
+        finishResponse();
+      }
+      return true;
+    }
+
+    bodyBytesReceived += dataBytes;
+    var dataBuf = (typeof Buffer !== 'undefined') ? Buffer.from(data, 'latin1') : data;
+    return pushIncomingResponseChunk(dataBuf);
+  }
+
   function onData(chunk) {
     if (responseEnded || self._aborted || (tcpIncoming && tcpIncoming.aborted)) {
       return;
@@ -2515,12 +2647,14 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       if (lines.length > 0) {
         var statusLine = lines[0];
         var statusParts = statusLine.match(/^HTTP\/(\d)\.(\d)\s+(\d+)\s*(.*)/);
-        if (statusParts) {
-          httpVerMajor = parseInt(statusParts[1], 10) || 1;
-          httpVerMinor = parseInt(statusParts[2], 10) || 1;
-          statusCode = parseInt(statusParts[3], 10);
-          statusMessage = statusParts[4] || '';
+        if (!statusParts) {
+          emitResponseParseError(headerSection, 0, false);
+          return;
         }
+        httpVerMajor = parseInt(statusParts[1], 10) || 1;
+        httpVerMinor = parseInt(statusParts[2], 10) || 1;
+        statusCode = parseInt(statusParts[3], 10);
+        statusMessage = statusParts[4] || '';
       }
       for (var i = 1; i < lines.length; i++) {
         var colonIdx = lines[i].indexOf(':');
@@ -2616,20 +2750,17 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
 
       responseEmitted = true;
       self.emit('response', tcpIncoming);
+      if (!self.listenerCount || self.listenerCount('response') === 0) {
+        if (typeof tcpIncoming._dump === 'function') tcpIncoming._dump();
+        else if (typeof tcpIncoming.resume === 'function') tcpIncoming.resume();
+      }
 
       if (bodyStart.length > 0 && !skipResponseBody) {
         if (isChunked) {
           processChunkedData(bodyStart);
         } else {
-          var bodyStartBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-            ? Buffer.byteLength(bodyStart, 'latin1') : bodyStart.length;
-          bodyBytesReceived += bodyStartBytes;
-          var bodyStartBuf = (typeof Buffer !== 'undefined') ? Buffer.from(bodyStart, 'latin1') : bodyStart;
-          if (!pushIncomingResponseChunk(bodyStartBuf)) return;
+          if (!pushIdentityResponseData(bodyStart)) return;
         }
-      }
-      if (!isChunked && contentLength >= 0 && bodyBytesReceived >= contentLength) {
-        finishResponse();
       }
       if (skipResponseBody) {
         finishResponse();
@@ -2638,14 +2769,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       if (isChunked) {
         processChunkedData(str);
       } else {
-        var strBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-          ? Buffer.byteLength(str, 'latin1') : str.length;
-        bodyBytesReceived += strBytes;
-        var strBuf = (typeof Buffer !== 'undefined') ? Buffer.from(str, 'latin1') : str;
-        if (!pushIncomingResponseChunk(strBuf)) return;
-        if (contentLength >= 0 && bodyBytesReceived >= contentLength) {
-          finishResponse();
-        }
+        pushIdentityResponseData(str);
       }
     }
   }
@@ -2658,6 +2782,13 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       }
     }
     if (!responseEmitted && responseBuffer.length > 0) {
+      if (responseBuffer.indexOf('HTTP/') !== 0 &&
+          responseBuffer.indexOf('RTSP/') !== 0 &&
+          responseBuffer.indexOf('ICE/') !== 0) {
+        emitResponseParseError(responseBuffer, 0, false);
+        responseEnded = true;
+        return;
+      }
       onData('');
     }
     if (!responseEmitted) {
@@ -3103,6 +3234,10 @@ TcpIncomingMessage.prototype.resume = function() {
   this._flushManualData();
   return this;
 };
+TcpIncomingMessage.prototype._dump = function() {
+  this._dumped = true;
+  return this.resume();
+};
 TcpIncomingMessage.prototype.read = function(size) {
   var ReadableCtor = getReadableCtor();
   if (ReadableCtor && this._readableState && ReadableCtor.prototype.read) {
@@ -3185,30 +3320,7 @@ TcpIncomingMessage.prototype.setTimeout = function(msecs, callback) {
 _attachHttpAsyncIterator(TcpIncomingMessage.prototype);
 
 function request(options, callback) {
-  var requestOptions = options;
-  if (typeof options === "string") {
-    try {
-      var parsed = new URL(options);
-      requestOptions = {
-        __exactOriginalUrl: options,
-        protocol: parsed.protocol,
-        hostname: parsed.hostname,
-        port: parsed.port ? Number(parsed.port) : undefined,
-        path: parsed.pathname + (parsed.search || ''),
-        method: "GET"
-      };
-    } catch(e) {
-      requestOptions = { href: options, method: "GET" };
-    }
-  } else if (options instanceof URL) {
-    requestOptions = {
-      protocol: options.protocol,
-      hostname: options.hostname,
-      port: options.port ? Number(options.port) : undefined,
-      path: options.pathname + (options.search || ''),
-      method: "GET"
-    };
-  }
+  var requestOptions = normalizeClientRequestOptions(options);
   // Support request(url, options, callback) signature
   if (typeof callback === 'object' && callback !== null) {
     var extraOptions = callback;
