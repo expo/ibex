@@ -47,7 +47,7 @@ var HEADER_NAME_RE = /^[\^_`a-zA-Z\-0-9\!#$%&'*+.|~]+$/;
 
 function validateHeaderName(name) {
   if (typeof name !== 'string' || !HEADER_NAME_RE.test(name)) {
-    var err = new TypeError('Invalid HTTP header name: "' + name + '"');
+    var err = new TypeError('Header name must be a valid HTTP token ["' + String(name) + '"]');
     err.code = 'ERR_INVALID_HTTP_TOKEN';
     throw err;
   }
@@ -1434,10 +1434,18 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       tcpIncoming.httpVersion = httpVerMajor + '.' + httpVerMinor;
       self.res = tcpIncoming;
       var connHdr = (responseHeaders['connection'] || '').toLowerCase();
+      var responseEndsAtEof = !isChunked &&
+        contentLength < 0 &&
+        statusCode !== 204 &&
+        statusCode !== 304 &&
+        (statusCode < 100 || statusCode >= 200);
       if (httpVerMajor === 1 && httpVerMinor === 0) {
         tcpIncoming.shouldKeepAlive = connHdr.indexOf('keep-alive') !== -1;
       } else {
         tcpIncoming.shouldKeepAlive = connHdr.indexOf('close') === -1;
+      }
+      if (responseEndsAtEof && self.method !== 'HEAD') {
+        tcpIncoming.shouldKeepAlive = false;
       }
       if (self.shouldKeepAlive && !tcpIncoming.shouldKeepAlive) {
         self.shouldKeepAlive = false;
@@ -2631,7 +2639,9 @@ function ServerResponse(reqOrServerId, requestId) {
   this.statusMessage = undefined;
   this._headers = {};
   this._headerNames = {};
+  this._removedHeaderNames = {};
   this[kOutHeaders] = null;
+  this._header = null;
   this._headersSent = false;
   this._finished = false;
   this._streaming = false;
@@ -2719,12 +2729,16 @@ ServerResponse.prototype.detachSocket = function(socket) {
 };
 
 ServerResponse.prototype.setHeader = function(name, value) {
-  if (typeof name !== 'string') {
-    throw new TypeError('Header name must be a valid HTTP token ["' + name + '"]');
+  if (this._header !== null || this._headersSent) {
+    throw _createHeadersSentError('set');
   }
+  validateHeaderName(name);
+  name = String(name);
+  validateHeaderValue(name, value);
   var lc = name.toLowerCase();
   this._headers[lc] = value;
   this._headerNames[lc] = name;
+  delete this._removedHeaderNames[lc];
   if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
     this[kOutHeaders] = {};
   }
@@ -2735,9 +2749,15 @@ ServerResponse.prototype.getHeader = function(name) {
   return this._headers[resolveHeaderName(name)];
 };
 ServerResponse.prototype.removeHeader = function(name) {
+  if (this._header !== null || this._headersSent) {
+    throw _createHeadersSentError('remove');
+  }
+  validateHeaderName(name);
+  name = String(name);
   var lc = resolveHeaderName(name);
   delete this._headers[lc];
   delete this._headerNames[lc];
+  this._removedHeaderNames[lc] = true;
   if (this[kOutHeaders] && typeof this[kOutHeaders] === 'object') {
     delete this[kOutHeaders][lc];
   }
@@ -2767,7 +2787,9 @@ ServerResponse.prototype.hasHeader = function(name) {
 };
 
 ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers) {
-  if (this._headersSent) return this;
+  if (this._header !== null || this._headersSent) {
+    throw _createHeadersSentError('write');
+  }
   // Validate status code
   var sc = statusCode;
   if (typeof sc === 'string') sc = Number(sc);
@@ -2777,19 +2799,34 @@ ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers
     throw scErr;
   }
   this.statusCode = sc;
-  if (typeof statusMessage === 'string') {
+  if (Array.isArray(statusMessage)) {
+    headers = statusMessage;
+    statusMessage = undefined;
+  } else if (typeof statusMessage === 'string') {
     this.statusMessage = statusMessage;
   } else if (typeof statusMessage === 'object' && statusMessage !== null) {
     headers = statusMessage;
+    statusMessage = undefined;
+  }
+  if (statusMessage === undefined) {
+    this.statusMessage = STATUS_CODES[sc] || 'unknown';
   }
   if (headers) {
     if (Array.isArray(headers)) {
+      if (headers.length % 2 !== 0) {
+        var headersErr = new TypeError('The argument \'headers\' is invalid. Received ' + JSON.stringify(headers));
+        headersErr.code = 'ERR_INVALID_ARG_VALUE';
+        throw headersErr;
+      }
       for (var i = 0; i + 1 < headers.length; i += 2) {
-        var hName = headers[i];
+        var hName = String(headers[i]);
         var hVal = headers[i + 1];
+        validateHeaderName(hName);
+        validateHeaderValue(hName, hVal);
         var lc = resolveHeaderName(hName);
         this._headers[lc] = hVal;
         this._headerNames[lc] = hName;
+        delete this._removedHeaderNames[lc];
         if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
           this[kOutHeaders] = {};
         }
@@ -2798,9 +2835,12 @@ ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers
     } else {
       for (var k in headers) {
         if (Object.prototype.hasOwnProperty.call(headers, k)) {
+          validateHeaderName(k);
+          validateHeaderValue(k, headers[k]);
           var lc2 = resolveHeaderName(k);
           this._headers[lc2] = headers[k];
           this._headerNames[lc2] = k;
+          delete this._removedHeaderNames[lc2];
           if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
             this[kOutHeaders] = {};
           }
@@ -2809,11 +2849,12 @@ ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers
       }
     }
   }
+  this._header = '';
   return this;
 };
 
 ServerResponse.prototype._renderHeaders = function() {
-  if (this._header) {
+  if (this._header !== null) {
     var sentErr = new Error('Cannot render headers after they are sent to the client');
     sentErr.code = 'ERR_HTTP_HEADERS_SENT';
     throw sentErr;
@@ -3036,7 +3077,8 @@ ServerResponse.prototype._sendSocketResponse = function() {
       }
       if (this._headers['content-length'] == null &&
           !(this._headers['transfer-encoding'] && this._headers['transfer-encoding'].toString().toLowerCase().indexOf('chunked') !== -1)) {
-        if (this.statusCode !== 204 && this.statusCode !== 304) {
+        if (!this._removedHeaderNames['content-length'] &&
+            this.statusCode !== 204 && this.statusCode !== 304) {
           var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
             ? Buffer.byteLength(body) : body.length;
           this._headers['content-length'] = String(bodyLen);
@@ -3044,14 +3086,18 @@ ServerResponse.prototype._sendSocketResponse = function() {
         }
       }
       if (!this._headers['connection']) {
-        this._headers['connection'] = keepAlive ? 'keep-alive' : 'close';
-        this._headerNames['connection'] = 'Connection';
+        if (this._removedHeaderNames['connection']) {
+          keepAlive = false;
+        } else {
+          this._headers['connection'] = keepAlive ? 'keep-alive' : 'close';
+          this._headerNames['connection'] = 'Connection';
+        }
       } else {
         keepAlive = (typeof this._headers['connection'] === 'string')
           ? this._headers['connection'].toLowerCase().indexOf('keep-alive') !== -1
           : false;
       }
-      if (this.sendDate && !this._headers['date']) {
+      if (this.sendDate && !this._headers['date'] && !this._removedHeaderNames['date']) {
         this._headers['date'] = new Date().toUTCString();
         this._headerNames['date'] = 'Date';
       }
@@ -3081,11 +3127,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         socket.parser = null;
         socket[kTimeout] = null;
         try {
-          socket.write(head + body, function() {
-            try { socket.end(); } catch(e) {
-              try { socket.destroy(); } catch(e2) {}
-            }
-          });
+          socket.end(head + body);
         } catch(e) {
           try { socket.destroy(); } catch(e2) {}
         }
@@ -3121,11 +3163,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         socket.parser = null;
         socket[kTimeout] = null;
         try {
-          socket.write(endData, function() {
-            try { socket.end(); } catch(e) {
-              try { socket.destroy(); } catch(e2) {}
-            }
-          });
+          socket.end(endData);
         } catch(e) {
           try { socket.destroy(); } catch(e2) {}
         }
@@ -3493,6 +3531,12 @@ function _destroyHttpTimer(timer) {
   if (typeof timer.destroy === 'function') {
     try { timer.destroy(); } catch (_destroyTimerErr) {}
   }
+}
+
+function _createHeadersSentError(action) {
+  var err = new Error('Cannot ' + action + ' headers after they are sent to the client');
+  err.code = 'ERR_HTTP_HEADERS_SENT';
+  return err;
 }
 
 // ---------------------------------------------------------------------------

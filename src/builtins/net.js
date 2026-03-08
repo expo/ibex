@@ -1159,6 +1159,10 @@ Socket.prototype.__defineGetter__('writableNeedDrain', function() {
   return !!this._needDrain;
 });
 
+Socket.prototype.__defineGetter__('writableEnded', function() {
+  return this._ended === true;
+});
+
 function toBufferData(data, encoding) {
   if (data == null) return null;
   if (typeof Buffer !== 'undefined' && Buffer.isBuffer(data)) return data;
