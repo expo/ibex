@@ -4390,6 +4390,12 @@ Stream.prototype.pipe = function(dest, options) {
     maybeEndDestination();
   }
 
+  function onendcleanup() {
+    if (!state || (state.length === 0 && !_hasAwaitDrainWriters(state))) {
+      cleanupQuietly();
+    }
+  }
+
   function canFinishDestination() {
     if (!dest || dest._destroyed) return false;
     if (dest._writableState && dest._writableState.errored) return false;
@@ -4428,7 +4434,10 @@ Stream.prototype.pipe = function(dest, options) {
       sourceEnded = true;
       maybeEndDestination();
     }
-    cleanup();
+  }
+
+  function onsourceclosecleanup() {
+    cleanupQuietly();
   }
 
   function onerror(err) {
@@ -4492,7 +4501,9 @@ Stream.prototype.pipe = function(dest, options) {
   function unpipe(emitUnpipe) {
     source.removeListener('data', ondata);
     source.removeListener('end', onend);
+    source.removeListener('end', onendcleanup);
     source.removeListener('close', onsourceclose);
+    source.removeListener('close', onsourceclosecleanup);
     if (hasDrainListener) {
       dest.removeListener('drain', ondrain);
       hasDrainListener = false;
@@ -4535,7 +4546,9 @@ Stream.prototype.pipe = function(dest, options) {
     _nextTick(onend);
   } else {
     source.on('end', onend);
+    source.on('end', onendcleanup);
     source.on('close', onsourceclose);
+    source.on('close', onsourceclosecleanup);
   }
 
   // Store unpipe function for later
