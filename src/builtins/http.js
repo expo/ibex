@@ -1254,6 +1254,10 @@ function ClientRequest(options, callback) {
   this._requestFinalQueued = false;
   this._requestFinalSent = false;
   this._pendingRequestWrites = [];
+  this._destroyRequested = false;
+  this._abortResponse = null;
+  this._abortSignal = null;
+  this._abortSignalListener = null;
   this._last = true;
   this.shouldKeepAlive = false;
 
@@ -1276,6 +1280,10 @@ function ClientRequest(options, callback) {
       this._last = false;
       this.shouldKeepAlive = true;
     }
+  }
+
+  if (this.options && Object.prototype.hasOwnProperty.call(this.options, 'signal')) {
+    attachRequestAbortSignal(this, this.options.signal);
   }
 
   if (typeof callback === "function") {
@@ -1438,7 +1446,7 @@ function _buildChunkedRequestFrame(bodyPart) {
 }
 
 ClientRequest.prototype._startStreamingRequest = function() {
-  if (this._sent || this._aborted) return;
+  if (this._sent || this._aborted || this.destroyed || this._destroyRequested) return;
   this._sent = true;
   this.headersSent = true;
   this._streamingRequest = true;
@@ -1555,6 +1563,85 @@ function scheduleNextTick(fn) {
   setTimeout(fn, 0);
 }
 
+function isUsableQueuedAgentRequest(req) {
+  return !!req &&
+    !req.destroyed &&
+    !req._closed &&
+    !req._aborted &&
+    !req.aborted;
+}
+
+function shiftUsableQueuedAgentRequest(queue) {
+  if (!queue || queue.length === 0) return null;
+  while (queue.length > 0) {
+    var nextReq = queue.shift();
+    if (!isUsableQueuedAgentRequest(nextReq)) {
+      if (nextReq) {
+        nextReq._queuedAgentOptions = undefined;
+      }
+      continue;
+    }
+    return nextReq;
+  }
+  return null;
+}
+
+function createRequestAbortError() {
+  var err = new Error('The operation was aborted');
+  err.code = 'ABORT_ERR';
+  err.name = 'AbortError';
+  return err;
+}
+
+function isAbortSignal(value) {
+  return !!value &&
+    typeof value === 'object' &&
+    typeof value.aborted === 'boolean' &&
+    typeof value.addEventListener === 'function' &&
+    typeof value.removeEventListener === 'function';
+}
+
+function validateRequestAbortSignal(signal) {
+  if (signal === undefined) return;
+  if (isAbortSignal(signal)) return;
+  var signalValue = typeof signal === 'string' ? "'" + signal + "'" : typeof signal;
+  var err = new TypeError('The "options.signal" property must be an instance of AbortSignal. Received ' + signalValue);
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  throw err;
+}
+
+function detachRequestAbortSignal(req) {
+  if (!req || !req._abortSignal || !req._abortSignalListener) return;
+  try {
+    req._abortSignal.removeEventListener('abort', req._abortSignalListener);
+  } catch (_detachAbortSignalErr) {}
+  req._abortSignal = null;
+  req._abortSignalListener = null;
+}
+
+function attachRequestAbortSignal(req, signal) {
+  if (signal === undefined) return true;
+  validateRequestAbortSignal(signal);
+  detachRequestAbortSignal(req);
+  if (signal.aborted) {
+    req.destroy(createRequestAbortError());
+    return false;
+  }
+  req._abortSignal = signal;
+  req._abortSignalListener = function() {
+    detachRequestAbortSignal(req);
+    req.destroy(createRequestAbortError());
+  };
+  signal.addEventListener('abort', req._abortSignalListener, { once: true });
+  return true;
+}
+
+function isAbortLikeRequestError(err) {
+  if (!err) return false;
+  return err.code === 'ABORT_ERR' ||
+    (err.code === 'ECONNRESET' && (err.message === 'aborted' || err.message === 'socket hang up'));
+}
+
 ClientRequest.prototype._deferToConnect = function(method, args) {
   var self = this;
   function invoke() {
@@ -1580,8 +1667,37 @@ ClientRequest.prototype._deferToConnect = function(method, args) {
 
 ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
   var self = this;
+  var earlySocketError = null;
+  function captureEarlySocketError(socketErr) {
+    if (!earlySocketError) {
+      earlySocketError = socketErr;
+    }
+  }
+  if (socket && typeof socket.once === 'function') {
+    socket.once('error', captureEarlySocketError);
+  }
   scheduleNextTick(function() {
+    if (socket && typeof socket.removeListener === 'function') {
+      socket.removeListener('error', captureEarlySocketError);
+    }
+    if (!err && earlySocketError) {
+      err = earlySocketError;
+    }
     if (err) {
+      if (self.destroyed || self._destroyRequested || self._closed) {
+        if (!isAbortLikeRequestError(err)) {
+          self.errored = err;
+          self.emit('error', err);
+        }
+        if (!self._closed) {
+          self._closed = true;
+          self.emit('close');
+        }
+        if (socket && typeof socket.destroy === 'function') {
+          try { socket.destroy(); } catch (_lateSocketDestroyErr) {}
+        }
+        return;
+      }
       self.destroyed = true;
       if (socket && typeof socket.destroy === 'function') {
         try { socket.destroy(err); } catch (_destroyErr) {}
@@ -1594,6 +1710,15 @@ ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
       return;
     }
     if (!socket) {
+      return;
+    }
+    if (self.destroyed || self._destroyRequested || self._closed) {
+      if (socket._httpMessage === self) {
+        socket._httpMessage = null;
+      }
+      if (!socket.destroyed && typeof socket.destroy === 'function') {
+        try { socket.destroy(); } catch (_deadSocketDestroyErr) {}
+      }
       return;
     }
     self.socket = socket;
@@ -1720,7 +1845,7 @@ ClientRequest.prototype.write = function(chunk, encoding, callback) {
 ClientRequest.prototype.end = function(chunk, encoding, callback) {
   if (typeof chunk === 'function') { callback = chunk; chunk = undefined; encoding = undefined; }
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
-  if (this._ended || this._aborted) {
+  if (this._ended || this._aborted || this.destroyed || this._destroyRequested) {
     if (callback) setTimeout(callback, 0);
     return this;
   }
@@ -1746,12 +1871,19 @@ ClientRequest.prototype.end = function(chunk, encoding, callback) {
 
 ClientRequest.prototype.destroy = function(err) {
   if (this.destroyed) return this;
-  this._aborted = true;
-  this.aborted = true;
+  if (!err && !this._aborted && !this.res) {
+    err = new Error('socket hang up');
+    err.code = 'ECONNRESET';
+  }
+  this._destroyRequested = true;
   this.destroyed = true;
   this.closed = true;
+  detachRequestAbortSignal(this);
   if (err) {
     this.errored = err;
+  }
+  if (typeof this._abortResponse === 'function') {
+    try { this._abortResponse(err); } catch (_abortResponseErr) {}
   }
   if (this._abortController) {
     try { this._abortController.abort(); } catch(e) {}
@@ -1777,14 +1909,14 @@ ClientRequest.prototype.abort = function() {
   this._aborted = true;
   this.aborted = true;
   var self = this;
-  setTimeout(function() {
+  scheduleNextTick(function() {
     self.emit("abort");
-  }, 0);
+  });
   this.destroy();
 };
 
 ClientRequest.prototype._send = function() {
-  if (this._sent || this._aborted) return;
+  if (this._sent || this._aborted || this.destroyed || this._destroyRequested) return;
   this._sent = true;
   this.headersSent = true;
   var body = null;
@@ -1838,13 +1970,14 @@ ClientRequest.prototype._sendViaFetch = function(body) {
   fetch(this._url, init)
     .then(function(response) {
       if (self._timeoutId) clearTimeout(self._timeoutId);
+      if (self._aborted || self.destroyed || self._destroyRequested) return;
       var responseMessage = new IncomingMessage(response);
       self.emit("response", responseMessage);
       responseMessage._consumeBody();
     })
     .catch(function(err) {
       if (self._timeoutId) clearTimeout(self._timeoutId);
-      if (self._aborted) return;
+      if (self._aborted || self.destroyed || self._destroyRequested) return;
       self.emit("error", err);
       self.emit("close");
     });
@@ -1931,6 +2064,7 @@ ClientRequest.prototype._resolveConnectionOptions = function() {
   var connectionOptions = {};
   for (var optKey in options) {
     if (Object.prototype.hasOwnProperty.call(options, optKey)) {
+      if (optKey === 'signal') continue;
       connectionOptions[optKey] = options[optKey];
     }
   }
@@ -1953,7 +2087,8 @@ ClientRequest.prototype._resolveConnectionOptions = function() {
 };
 
 ClientRequest.prototype._ensureSocketAssigned = function() {
-  if (this.socket || this._agentDispatched || !_requestUsesSocketTransport(this)) return;
+  if (this.socket || this._agentDispatched || !_requestUsesSocketTransport(this) ||
+      this.destroyed || this._destroyRequested) return;
 
   var net;
   try { net = require('net'); } catch (e) {
@@ -2038,6 +2173,12 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     }
   }
 
+  function clearAbortResponseHook() {
+    if (self._abortResponse === abortAttachedResponse) {
+      self._abortResponse = null;
+    }
+  }
+
   function finishRequestWrite() {
     if (self.writableFinished) return;
     _resetOutgoingBufferState(self);
@@ -2084,6 +2225,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   function retireSocketFromAgent() {
     if (socketRetired) return;
     socketRetired = true;
+    clearAbortResponseHook();
     clearSocketTimeoutListener(self, socket);
     cleanupRequestListeners();
     self.destroyed = true;
@@ -2114,6 +2256,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   }
 
   function releaseSocket() {
+    clearAbortResponseHook();
     if (!self.agent || !self.shouldKeepAlive || !tcpIncoming || tcpIncoming.aborted ||
         !tcpIncoming.shouldKeepAlive || socket.destroyed || socket.writable === false) {
       if (!socket.destroyed) {
@@ -2148,41 +2291,44 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   function finishResponse() {
     if (responseEnded) return;
     responseEnded = true;
+    clearAbortResponseHook();
     if (tcpIncoming) {
       tcpIncoming._finishResponse();
     }
     finishRequestWrite();
   }
 
-  function abortResponse() {
+  function abortResponse(err) {
     if (responseEnded) return;
     responseEnded = true;
+    clearAbortResponseHook();
     if (tcpIncoming) {
-      var abortErr = new Error('aborted');
-      abortErr.code = 'ECONNRESET';
-      tcpIncoming.aborted = true;
-      if (typeof tcpIncoming.destroy === 'function') {
-        tcpIncoming.destroy(abortErr);
-      } else {
-        tcpIncoming.emit('error', abortErr);
-        tcpIncoming.emit('close');
+      var abortErr = err || new Error('aborted');
+      if (!abortErr.code) {
+        abortErr.code = 'ECONNRESET';
       }
+      _abortIncomingMessageStream(tcpIncoming, abortErr);
     } else if (!self._aborted && !socket._hadError) {
       socket._hadError = true;
       var hangupErr = new Error('socket hang up');
       hangupErr.code = 'ECONNRESET';
       self.emit('error', hangupErr);
     }
-    if (!self._closed) {
-      self._closed = true;
-      self.emit('close');
+  }
+
+  function abortAttachedResponse(err) {
+    if (!responseEmitted && !headersParsed) {
+      return false;
     }
+    abortResponse(err);
+    return true;
   }
 
   function finishUpgrade(upgradeHead) {
     if (responseEnded) return;
     responseEmitted = true;
     responseEnded = true;
+    clearAbortResponseHook();
     socket._httpMessage = null;
     socket.parser = null;
     clearSocketTimeoutListener(self, socket);
@@ -2244,6 +2390,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   }
 
   function onData(chunk) {
+    if (responseEnded || self._aborted || (tcpIncoming && tcpIncoming.aborted)) {
+      return;
+    }
     var str = typeof chunk === 'string' ? chunk : chunk.toString('latin1');
 
     if (!headersParsed) {
@@ -2448,7 +2597,11 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
 
   function onError(err) {
     socket._hadError = true;
-    if (self._aborted && self.errored !== err) return;
+    if ((self._aborted || self._destroyRequested) &&
+        self.errored !== err &&
+        isAbortLikeRequestError(err)) {
+      return;
+    }
     self.emit('error', err);
   }
 
@@ -2520,6 +2673,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   }
 
   socket._httpMessage = self;
+  self._abortResponse = abortAttachedResponse;
   socket.on('data', onData);
   socket.on('end', onEnd);
   socket.on('close', onClose);
@@ -2610,6 +2764,51 @@ function TcpIncomingMessage(statusCode, statusMessage, headers, rawHeaders) {
   this._manualEnded = false;
   this._manualEndEmitted = false;
 }
+
+function _abortIncomingMessageStream(message, err) {
+  if (!message) return;
+  if (!message.aborted) {
+    message.aborted = true;
+    if (typeof message.emit === 'function') {
+      message.emit('aborted');
+    }
+  }
+  if (message._manualChunks && typeof message._manualChunks.length === 'number') {
+    message._manualChunks.length = 0;
+  }
+  message._manualFlowing = false;
+  if (message._readableState) {
+    message._readableState.flowing = false;
+    message._readableState.reading = false;
+    message._readableState.length = 0;
+    if (message._readableState.buffer) {
+      if (typeof message._readableState.buffer.clear === 'function') {
+        message._readableState.buffer.clear();
+      } else if (Array.isArray(message._readableState.buffer)) {
+        message._readableState.buffer.length = 0;
+      }
+    }
+  }
+  if (typeof message.destroy === 'function') {
+    if (message.listenerCount && message.listenerCount('error') > 0) {
+      message.destroy(err);
+    } else {
+      message.destroy();
+    }
+    return;
+  }
+  message.destroyed = true;
+  message.readable = false;
+  if (message.listenerCount && message.listenerCount('error') > 0) {
+    message.emit('error', err);
+  }
+  if (typeof message._emitHttpClose === 'function') {
+    message._emitHttpClose();
+  } else if (typeof message.emit === 'function') {
+    message.emit('close');
+  }
+}
+
 TcpIncomingMessage.prototype = Object.create((Readable || EventEmitter).prototype);
 TcpIncomingMessage.prototype.constructor = TcpIncomingMessage;
 
@@ -2632,6 +2831,7 @@ TcpIncomingMessage.prototype._scheduleManualReadable = function() {
   self._manualReadableScheduled = true;
   setTimeout(function() {
     self._manualReadableScheduled = false;
+    if (self.destroyed || self.aborted) return;
     if (self._manualChunks.length > 0 && self.listenerCount && self.listenerCount('readable') > 0) {
       self.emit('readable');
     }
@@ -2641,6 +2841,7 @@ TcpIncomingMessage.prototype._scheduleManualReadable = function() {
   }, 0);
 };
 TcpIncomingMessage.prototype._emitManualEnd = function() {
+  if (this.destroyed || this.aborted) return;
   if (this._manualEndEmitted) return;
   this._manualEndEmitted = true;
   this.complete = true;
@@ -2649,12 +2850,24 @@ TcpIncomingMessage.prototype._emitManualEnd = function() {
 };
 TcpIncomingMessage.prototype._flushManualData = function() {
   var self = this;
+  if (self.destroyed || self.aborted) {
+    self._manualChunks.length = 0;
+    return;
+  }
   if (!self._manualFlowing && (!self.listenerCount || self.listenerCount('data') === 0)) {
     return;
   }
   self._manualFlowing = true;
   while (self._manualChunks.length > 0) {
+    if (self.destroyed || self.aborted) {
+      self._manualChunks.length = 0;
+      return;
+    }
     self.emit('data', self._manualChunks.shift());
+  }
+  if (self.destroyed || self.aborted) {
+    self._manualChunks.length = 0;
+    return;
   }
   if (self._manualEnded && self._manualChunks.length === 0) {
     setTimeout(function() {
@@ -2663,6 +2876,7 @@ TcpIncomingMessage.prototype._flushManualData = function() {
   }
 };
 TcpIncomingMessage.prototype._pushBodyChunk = function(chunk) {
+  if (this.destroyed || this.aborted) return;
   var ReadableCtor = getReadableCtor();
   if (ReadableCtor && this._readableState && typeof this.push === 'function') {
     this.push(chunk);
@@ -2934,12 +3148,15 @@ function Agent(options) {
 
     var requests = self.requests[name];
     if (requests && requests.length > 0) {
-      var nextReq = requests.shift();
-      setRequestSocket(self, nextReq, socket, requestOptions);
+      var nextReq = shiftUsableQueuedAgentRequest(requests);
       if (requests.length === 0) {
         delete self.requests[name];
       }
-      return;
+      if (nextReq) {
+        nextReq._queuedAgentOptions = undefined;
+        setRequestSocket(self, nextReq, socket, requestOptions);
+        return;
+      }
     }
 
     var req = socket._httpMessage;
@@ -3180,21 +3397,23 @@ Agent.prototype.removeSocket = function(socket, options) {
   var req = null;
   var reqOptions = null;
   if (this.requests[name] && this.requests[name].length > 0) {
-    req = this.requests[name].shift();
+    req = shiftUsableQueuedAgentRequest(this.requests[name]);
     if (this.requests[name].length === 0) {
       delete this.requests[name];
     }
-    reqOptions = req._queuedAgentOptions || options;
+    reqOptions = req ? (req._queuedAgentOptions || options) : null;
   } else {
     for (var key in this.requests) {
       if (!Object.prototype.hasOwnProperty.call(this.requests, key) || !this.requests[key] || this.requests[key].length === 0) continue;
       if (this.sockets[key] && this.sockets[key].length > 0) continue;
-      req = this.requests[key].shift();
+      req = shiftUsableQueuedAgentRequest(this.requests[key]);
       if (this.requests[key].length === 0) {
         delete this.requests[key];
       }
-      reqOptions = req && req._queuedAgentOptions;
-      break;
+      if (req) {
+        reqOptions = req._queuedAgentOptions;
+        break;
+      }
     }
   }
 
@@ -5227,16 +5446,17 @@ Server.prototype._onConnection = function(socket) {
   socket.on('close', function() {
     clearHeadersTimeout();
     clearRequestTimeout();
-    if (_activeReq && !_activeReq.complete && _activeRes && !_activeRes._finished) {
-      _activeReq.aborted = true;
-      _activeReq.emit('aborted');
+    var abortedReq = _activeReq || (_activeRes && _activeRes._req);
+    if (abortedReq && _activeRes && !_activeRes._finished) {
+      abortedReq.aborted = true;
+      abortedReq.emit('aborted');
       var abortErr = new Error('aborted');
       abortErr.code = 'ECONNRESET';
-      if (!_activeReq.listenerCount || _activeReq.listenerCount('error') > 0) {
-        _activeReq.emit('error', abortErr);
+      if (!abortedReq.listenerCount || abortedReq.listenerCount('error') > 0) {
+        abortedReq.emit('error', abortErr);
       }
-      _activeReq = null;
     }
+    _activeReq = null;
     if (_activeRes && !_activeRes._closed) {
       _activeRes.destroyed = true;
       _activeRes._closed = true;
