@@ -2049,16 +2049,6 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
   }
   if (callback) setTimeout(callback, 0);
   if (this.socket && this.socket._writeQueue && this.socket._writeQueue.length > 0) {
-    var sock = this.socket;
-    if (sock._paused !== true) {
-      sock._paused = true;
-      sock.once('drain', function() {
-        if (sock._paused) {
-          sock._paused = false;
-          sock._lastActivity = Date.now();
-        }
-      });
-    }
     return false;
   }
   return true;
