@@ -433,6 +433,7 @@ Stream.prototype._undestroy = function() {
     this._readableState.readableDidRead = false;
     this._readableState.dataEmitted = false;
     this._readableState.endEmitted = false;
+    this._readableState.endScheduled = false;
     this._readableState.endConsumed = false;
     this._readableState.readable = true;
     this._readableState.destroyed = false;
@@ -443,6 +444,7 @@ Stream.prototype._undestroy = function() {
     this._readableState.reading = false;
     this._readableState.readingMore = false;
     this._readableState.resumeScheduled = false;
+    this._readableState.emittingData = false;
   }
   if (this._writableState) {
     this._writableState.highWaterMark = this.writableHighWaterMark || this._writableState.highWaterMark;
@@ -504,6 +506,8 @@ Stream.prototype.destroy = function(error, callback) {
       self.errored = err;
       if (self._readableState) self._readableState.errored = err;
       if (self._writableState) self._writableState.errored = err;
+      if (self._readableState) self._readableState.errorEmitted = true;
+      if (self._writableState) self._writableState.errorEmitted = true;
       var hasErrorListener = false;
       if (typeof self.listenerCount === 'function') {
         hasErrorListener = self.listenerCount('error') > 0;
@@ -538,8 +542,6 @@ Stream.prototype.destroy = function(error, callback) {
           }
         }
       }
-      if (self._readableState) self._readableState.errorEmitted = true;
-      if (self._writableState) self._writableState.errorEmitted = true;
     }
     self._close(true);
     if (typeof callback === 'function') callback(err);
@@ -625,11 +627,13 @@ function Readable(options) {
     readableDidRead: false,
     dataEmitted: false,
     endEmitted: false,
+    endScheduled: false,
     endConsumed: false,
     buffer: this._data,
     needDrain: false,
     pendingcb: 0,
     awaitDrainWriters: null,
+    emittingData: false,
   };
   _defineStateAlias(this, 'readableState', '_readableState');
   if (options && options.encoding != null) {
@@ -691,6 +695,9 @@ function Readable(options) {
   } else {
     this._readableState.constructed = true;
   }
+  if (options && options.signal != null) {
+    addAbortSignal(options.signal, this);
+  }
 }
 Readable.prototype = Object.create(Stream.prototype);
 Readable.prototype.constructor = Readable;
@@ -701,10 +708,10 @@ Object.defineProperties(Readable.prototype, {
     configurable: true,
     enumerable: true,
     get: function() {
-      return this._readableState ? !!this._readableState.ended : false;
+      return this._readableState ? !!this._readableState.endEmitted : false;
     },
     set: function(val) {
-      if (this._readableState) this._readableState.ended = !!val;
+      if (this._readableState) this._readableState.endEmitted = !!val;
     }
   },
   readableFlowing: {
@@ -826,6 +833,9 @@ function _howMuchToRead(n, state) {
   if (n <= 0 || (state.length === 0 && state.ended)) return 0;
   if (state.objectMode) return 1;
   if (isNaN(n)) {
+    if (state.flowing === true && state.length > 0) {
+      return readableStateChunkLength(state.buffer[0], false);
+    }
     return state.length;
   }
   if (n <= state.length) return n;
@@ -966,6 +976,97 @@ function _consumeReadableChunk(stream, needed) {
   return out[0];
 }
 
+function _scheduleReadableEnd(stream, state) {
+  if (!state || state.endEmitted || state.endScheduled) {
+    return;
+  }
+  state.endScheduled = true;
+  _nextTick(function() {
+    var readableState = stream && stream._readableState;
+    if (!readableState) {
+      return;
+    }
+    if (readableState.endEmitted ||
+        !readableState.ended ||
+        readableState.length !== 0 ||
+        readableState.destroyed ||
+        readableState.errored) {
+      readableState.endScheduled = false;
+      return;
+    }
+    readableState.endScheduled = false;
+    readableState.endEmitted = true;
+    stream.readable = false;
+    stream.readableEnded = true;
+    stream._syncReadableState();
+    stream.emit('end');
+    _scheduleHalfOpenWritableEnd(stream);
+    if (_shouldAutoDestroyOnReadableEnd(stream, readableState)) {
+      stream.destroy();
+    } else {
+      stream._close();
+    }
+  });
+}
+
+function _markReadableDidRead(stream, state) {
+  stream.readableDidRead = true;
+  if (state) {
+    state.readableDidRead = true;
+  }
+}
+
+function _emitReadableData(stream, state, chunk) {
+  _markReadableDidRead(stream, state);
+  if (state) {
+    state.dataEmitted = true;
+    state.emittingData = true;
+  }
+  try {
+    stream.emit('data', chunk);
+  } finally {
+    if (state) {
+      state.emittingData = false;
+    }
+  }
+}
+
+function _releaseTransformBackpressure(stream, state) {
+  var transformState = stream && stream._transformState;
+  var readableState = state || (stream && stream._readableState);
+  if (!transformState ||
+      typeof transformState.backpressureCallback !== 'function' ||
+      !readableState) {
+    return;
+  }
+  if (readableState.length >= readableState.highWaterMark &&
+      readableState.length !== 0) {
+    return;
+  }
+  var callback = transformState.backpressureCallback;
+  transformState.backpressureCallback = null;
+  _nextTick(callback);
+}
+
+function _emitReadableNow(stream, state, force) {
+  if (!state || (state.emittedReadable && !force)) {
+    return;
+  }
+  state.emittedReadable = true;
+  state.needReadable = false;
+  if (!state.destroyed &&
+      !state.errored &&
+      (state.length > 0 || state.ended)) {
+    stream.emit('readable');
+  }
+  state.emittedReadable = false;
+  if (stream.readableFlowing !== true &&
+      !state.ended &&
+      state.length <= state.highWaterMark) {
+    state.needReadable = true;
+  }
+}
+
 Readable.prototype._updateReadableLength = function(delta) {
   var state = this._readableState;
   if (typeof delta === 'number' && isFinite(delta)) {
@@ -983,24 +1084,36 @@ Readable.prototype._updateReadableLength = function(delta) {
 Readable.prototype._syncReadableState = function() {
   var state = this._readableState;
   state.ended = this._ended;
-  if (!state.ended) {
-    state.needReadable = state.length > 0;
-  }
 };
 
 Readable.prototype._emitReadableIfNeeded = function() {
   var state = this._readableState;
-  if (!state.needReadable || state.emittedReadable || state.readableFlowing || this.readableFlowing === true) {
+  if (!state.needReadable ||
+      state.emittedReadable ||
+      state.readableFlowing ||
+      this.readableFlowing === true ||
+      (state.length === 0 && !state.ended)) {
     return;
   }
   state.emittedReadable = true;
   state.needReadable = false;
   var self = this;
   _nextTick(function() {
-    if (self._destroyed || self._closed) {
+    var readableState = self && self._readableState;
+    if (self._destroyed || self._closed || !readableState) {
       return;
     }
-    self.emit('readable');
+    if (!readableState.destroyed &&
+        !readableState.errored &&
+        (readableState.length > 0 || readableState.ended)) {
+      self.emit('readable');
+    }
+    readableState.emittedReadable = false;
+    if (self.readableFlowing !== true &&
+        !readableState.ended &&
+        readableState.length <= readableState.highWaterMark) {
+      readableState.needReadable = true;
+    }
   });
 };
 
@@ -1025,7 +1138,6 @@ Readable.prototype._readFromSource = function(size) {
       _destroyStreamWithError(this, err);
     }
   } finally {
-    state.reading = false;
     state.sync = false;
   }
 };
@@ -1034,6 +1146,9 @@ Readable.prototype.push = function(chunk, encoding) {
   if (this._destroyed) return false;
   var state = this._readableState;
   var self = this;
+  if (chunk === null && (state.ended || state.endEmitted || state.endScheduled)) {
+    return false;
+  }
   if (state.ended || state.endEmitted || (state.errored || state.destroyed)) {
     if (!state.errorEmitted && !state.errored) {
       var pushErr = makeError(Error, 'ERR_STREAM_PUSH_AFTER_EOF', 'stream.push() after EOF');
@@ -1048,6 +1163,9 @@ Readable.prototype.push = function(chunk, encoding) {
   }
   if (chunk === null) {
     if (state.ended || state.endEmitted) return false;
+    var hadReadableEventPending = state.emittedReadable;
+    var wasReading = state.reading;
+    state.reading = false;
     var endedChunk = '';
     if (state.encoding && state.decoder && !state.objectMode) {
       try {
@@ -1068,7 +1186,7 @@ Readable.prototype.push = function(chunk, encoding) {
         while (this._data.length > 0 && this.readableFlowing === true) {
           var endingFlowChunk = this._data.shift();
           this._updateReadableLength(-readableStateChunkLength(endingFlowChunk, this._readableState.objectMode));
-          this.emit('data', endingFlowChunk);
+          _emitReadableData(this, this._readableState, endingFlowChunk);
           this._syncReadableState();
         }
         if (wasFlowingOnEnd && !state.endEmitted && state.length === 0) {
@@ -1080,10 +1198,17 @@ Readable.prototype.push = function(chunk, encoding) {
       }
     }
     this._ended = true;
-    this.readableEnded = true;
     state.ended = true;
-    state.needReadable = true;
-    state.emittedReadable = false;
+    if (!hadReadableEventPending) {
+      state.needReadable = true;
+      state.emittedReadable = false;
+    }
+    if (wasReading &&
+        state.readingMore &&
+        state.readableListening &&
+        this.readableFlowing !== true) {
+      _emitReadableNow(this, state, true);
+    }
     if (this.readableFlowing === true && state.length === 0 && !state.endEmitted) {
       _nextTick(function() {
         if (self._destroyed || self._closed || state.endEmitted) return;
@@ -1099,9 +1224,10 @@ Readable.prototype.push = function(chunk, encoding) {
         ? process.nextTick
         : function(fn) { setTimeout(fn, 0); };
       _schedEnd(function() {
-        if (!state.endEmitted) {
+        if (!state.endEmitted && !state.destroyed && !state.errored) {
           state.endEmitted = true;
           self.readable = false;
+          self.readableEnded = true;
           self.emit('end');
           _scheduleHalfOpenWritableEnd(self);
           if (_shouldAutoDestroyOnReadableEnd(self, state)) {
@@ -1111,7 +1237,7 @@ Readable.prototype.push = function(chunk, encoding) {
           }
         }
       });
-    } else if (state.sync) {
+    } else if (!hadReadableEventPending && state.sync) {
       var emitReadable = typeof process === 'object' &&
         process &&
         typeof process.nextTick === 'function'
@@ -1120,8 +1246,12 @@ Readable.prototype.push = function(chunk, encoding) {
       emitReadable(function() {
         self._emitReadableIfNeeded();
       });
-    } else {
-      this._emitReadableIfNeeded();
+    } else if (!hadReadableEventPending) {
+      if (state.readableListening && this.readableFlowing !== true) {
+        _emitReadableNow(this, state);
+      } else {
+        this._emitReadableIfNeeded();
+      }
     }
     _maybeReadMore(this, state);
     return false;
@@ -1136,9 +1266,12 @@ Readable.prototype.push = function(chunk, encoding) {
   }
   var chunkLength = readableStateChunkLength(chunk, state.objectMode);
   if (_isZeroLengthChunk(chunk, this._readableState.objectMode)) {
+    state.reading = false;
+    _maybeReadMore(this, state);
     return this._readableState.length < this._readableState.highWaterMark ||
       this._readableState.length === 0;
   }
+  state.reading = false;
 
   if (this.readableFlowing === true) {
     this._data.push(chunk);
@@ -1147,6 +1280,14 @@ Readable.prototype.push = function(chunk, encoding) {
     this._readableState.needReadable = false;
     this._readableState.emittedReadable = false;
     if (this._readableState.reading) {
+      return state.length < state.highWaterMark || state.length === 0;
+    }
+    if (this._readableState.resumeScheduled) {
+      _maybeReadMore(this, state);
+      return state.length < state.highWaterMark || state.length === 0;
+    }
+    if (this._readableState.emittingData) {
+      _maybeReadMore(this, state);
       return state.length < state.highWaterMark || state.length === 0;
     }
     if (this.readableFlowing !== true) {
@@ -1161,30 +1302,34 @@ Readable.prototype.push = function(chunk, encoding) {
       this._syncReadableState();
       return state.length < state.highWaterMark || state.length === 0;
     }
-    if (this._readableState) {
-      this._readableState.dataEmitted = true;
-    }
     _maybeReadMore(this, state);
-    this.emit('data', flowingChunk);
+    _emitReadableData(this, this._readableState, flowingChunk);
+    while (this.readableFlowing === true && this._readableState && this._readableState.length > 0) {
+      var reentrantChunk = this.read();
+      if (reentrantChunk === null || reentrantChunk === undefined) {
+        break;
+      }
+    }
     return state.length < state.highWaterMark || state.length === 0;
   }
 
   this._data.push(chunk);
   this._updateReadableLength(chunkLength);
+  var hadReadableEventPending = this._readableState.emittedReadable;
   this._syncReadableState();
-  this._readableState.needReadable = true;
-  this._readableState.emittedReadable = false;
+  if (!hadReadableEventPending) {
+    this._readableState.needReadable = true;
+    this._readableState.emittedReadable = false;
+  }
+  if (!hadReadableEventPending) {
+    this._emitReadableIfNeeded();
+  }
   _maybeReadMore(this, state);
-  this._emitReadableIfNeeded();
   return state.length < state.highWaterMark || state.length === 0;
 };
 
 Readable.prototype.read = function(size) {
   if (this._destroyed) return null;
-  this.readableDidRead = true;
-  if (this._readableState) {
-    this._readableState.readableDidRead = true;
-  }
   var state = this._readableState;
   var n = _coerceReadSize(size);
   var nOrig = n;
@@ -1205,17 +1350,7 @@ Readable.prototype.read = function(size) {
       if (this.readableFlowing === true) {
         this.pause();
       }
-      state.endEmitted = true;
-      this.readable = false;
-      this.readableEnded = true;
-      this._syncReadableState();
-      this.emit('end');
-      _scheduleHalfOpenWritableEnd(this);
-      if (_shouldAutoDestroyOnReadableEnd(this, state)) {
-        this.destroy();
-      } else {
-        this._close();
-      }
+      _scheduleReadableEnd(this, state);
     } else if (state.length > 0 && !this._ended) {
       state.needReadable = true;
       state.emittedReadable = false;
@@ -1231,22 +1366,14 @@ Readable.prototype.read = function(size) {
       if (this.readableFlowing === true) {
         this.pause();
       }
-      state.endEmitted = true;
-      this.readable = false;
-      this.readableEnded = true;
-      this._syncReadableState();
-      this.emit('end');
-      _scheduleHalfOpenWritableEnd(this);
-      if (_shouldAutoDestroyOnReadableEnd(this, state)) {
-        this.destroy();
-      } else {
-        this._close();
-      }
+      _scheduleReadableEnd(this, state);
     }
     return null;
   }
 
-  var shouldRead = state.needReadable || state.length === 0 || state.length - n < state.highWaterMark;
+  var shouldRead = state.needReadable ||
+    state.length === 0 ||
+    state.length - n < state.highWaterMark;
     if (shouldRead &&
         !state.reading &&
         !state.ended &&
@@ -1266,7 +1393,6 @@ Readable.prototype.read = function(size) {
           _destroyStreamWithError(this, err);
         }
       } finally {
-        state.reading = false;
         state.sync = false;
       }
     if (!state.reading) {
@@ -1278,17 +1404,7 @@ Readable.prototype.read = function(size) {
     if (this.readableFlowing === true) {
       this.pause();
     }
-    state.endEmitted = true;
-    this.readable = false;
-    this.readableEnded = true;
-    this._syncReadableState();
-    this.emit('end');
-    _scheduleHalfOpenWritableEnd(this);
-    if (_shouldAutoDestroyOnReadableEnd(this, state)) {
-      this.destroy();
-    } else {
-      this._close();
-    }
+    _scheduleReadableEnd(this, state);
     return null;
   }
 
@@ -1302,14 +1418,19 @@ Readable.prototype.read = function(size) {
     return null;
   }
 
+  if (n === 0 && nOrig !== 0) {
+    state.needReadable = !state.ended;
+    state.emittedReadable = false;
+    return null;
+  }
+
   // read(0) should trigger a pull/readable check without consuming a chunk.
   if (nOrig === 0) {
     return null;
   }
 
-  var shouldReadAll = isNaN(nOrig) && state.encoding && state.decoder && !state.objectMode;
   var chunk;
-  var readAmount = isNaN(nOrig) ? (state.objectMode ? 1 : (shouldReadAll ? Number.MAX_SAFE_INTEGER : state.length)) : n;
+  var readAmount = n;
   while (true) {
     chunk = _consumeReadableChunk(this, readAmount);
     if (chunk === undefined || chunk === null) {
@@ -1330,32 +1451,41 @@ Readable.prototype.read = function(size) {
       if (this.readableFlowing === true) {
         this.pause();
       }
-      state.endEmitted = true;
-      this.readable = false;
-      this.readableEnded = true;
-      this.emit('end');
-      _scheduleHalfOpenWritableEnd(this);
-      if (_shouldAutoDestroyOnReadableEnd(this, state)) {
-        this.destroy();
-      } else {
-        this._close();
-      }
+      _scheduleReadableEnd(this, state);
     }
     return null;
   }
 
   this._syncReadableState();
-  this._readableState.needReadable = (!state.ended && state.length <= state.highWaterMark);
-  this._readableState.emittedReadable = false;
-  this._readableState.dataEmitted = true;
-  if (this.readableFlowing === true) {
-    this.emit('data', chunk);
+  this._readableState.needReadable = (!state.ended && state.length === 0);
+  _markReadableDidRead(this, state);
+  _releaseTransformBackpressure(this, state);
+  var hasDataListener = typeof this.listenerCount === 'function'
+    ? this.listenerCount('data') > 0
+    : !!(this._events && this._events.data !== undefined);
+  if (this.readableFlowing === true || hasDataListener) {
+    _emitReadableData(this, state, chunk);
   }
   if (state.ended && state.length === 0 && !state.endEmitted) {
     var self = this;
+    var hasReadableListener = state.readableListening ||
+      !!(this._events && this._events.readable !== undefined);
     _nextTick(function() {
       if (self._destroyed || self.destroyed || self._closed || !self._readableState || self._readableState.endEmitted) return;
       if (!self._readableState.ended || self._readableState.length !== 0) return;
+      if (hasReadableListener &&
+          self.readableFlowing !== true &&
+          self._readableState.readingMore) {
+        self._readableState.needReadable = true;
+        self._readableState.emittedReadable = false;
+        if (self._readableState.readingMore) {
+          _emitReadableNow(self, self._readableState);
+          self._readableState.needReadable = true;
+          self._readableState.emittedReadable = false;
+        }
+        self._emitReadableIfNeeded();
+        return;
+      }
       self.read(0);
     });
   }
@@ -1374,11 +1504,16 @@ Readable.prototype.unshift = function(chunk) {
   }
   this._data.unshift(chunk);
   this._updateReadableLength(readableStateChunkLength(chunk, this._readableState.objectMode));
+  var hadReadableEventPending = this._readableState.emittedReadable;
   this._syncReadableState();
-  this._readableState.needReadable = true;
-  this._readableState.emittedReadable = false;
+  if (!hadReadableEventPending) {
+    this._readableState.needReadable = true;
+    this._readableState.emittedReadable = false;
+  }
+  if (!hadReadableEventPending) {
+    this._emitReadableIfNeeded();
+  }
   _maybeReadMore(this, this._readableState);
-  this._emitReadableIfNeeded();
 };
 
 Readable.prototype.setEncoding = function(enc) {
@@ -3075,7 +3210,6 @@ Readable.from = function(iterable, options) {
     readableStream._syncIterableHasData = hasSyncIterableData;
     readableStream._syncReadableState();
     readableStream._ended = true;
-    readableStream.readableEnded = true;
     readableStream._readableState.ended = true;
     readableStream._readableState.needReadable = true;
     // Mark as needing replay when consumers attach
@@ -4181,7 +4315,8 @@ function Transform(options) {
   this._transformState = {
     pendingWrites: 0,
     finalCallback: null,
-    finalizing: false
+    finalizing: false,
+    backpressureCallback: null
   };
   // Default _final calls _flush and push(null)
   if (options && typeof options.transform === 'function') this._transform = options.transform;
@@ -4234,8 +4369,18 @@ Transform.prototype._write = function(chunk, encoding, callback) {
       if (typeof callback === 'function') callback(err);
       return;
     }
+    var canPushMore = true;
     if (transformedChunk !== undefined) {
-      self.push(transformedChunk);
+      canPushMore = self.push(transformedChunk);
+    }
+    if (canPushMore === false) {
+      state.backpressureCallback = function() {
+        finalizeIfNeeded();
+        if (typeof callback === 'function') {
+          callback();
+        }
+      };
+      return;
     }
     finalizeIfNeeded();
     if (typeof callback === 'function') {
@@ -4260,8 +4405,7 @@ function PassThrough(options) {
 PassThrough.prototype = Object.create(Transform.prototype);
 PassThrough.prototype.constructor = PassThrough;
 PassThrough.prototype._transform = function(chunk, encoding, callback) {
-  this.push(chunk);
-  if (typeof callback === 'function') callback();
+  if (typeof callback === 'function') callback(null, chunk);
 };
 
 Stream.prototype.pipe = function(dest, options) {
