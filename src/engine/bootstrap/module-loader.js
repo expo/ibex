@@ -943,11 +943,15 @@
         };
       }
       if (name === 'uv') {
+        if (typeof globalThis === 'object' && globalThis.__exactUvEOFValue === undefined) {
+          globalThis.__exactUvEOFValue = -4095;
+        }
         return {
           UV_EACCES: -13,
             UV_EBADF: -9,
             UV_EBUSY: -16,
             UV_EEXIST: -17,
+            UV_EOF: -4095,
             UV_EIO: -5,
             UV_EISDIR: -21,
             UV_ELOOP: -40,
@@ -995,6 +999,21 @@
             scheduleTimer: function() {},
             toggleTimerRef: function() {},
             toggleImmediateRef: function() {}
+          };
+        }
+        if (name === 'stream_wrap') {
+          if (typeof globalThis === 'object') {
+            if (!globalThis.__exactStreamWrapState) {
+              globalThis.__exactStreamWrapState = [];
+            }
+            if (globalThis.__exactStreamWrapReadBytesOrErrorIndex === undefined) {
+              globalThis.__exactStreamWrapReadBytesOrErrorIndex = 0;
+            }
+          }
+          return {
+            streamBaseState: typeof globalThis === 'object' ? globalThis.__exactStreamWrapState : [],
+            kReadBytesOrError: typeof globalThis === 'object' ? globalThis.__exactStreamWrapReadBytesOrErrorIndex : 0,
+            ShutdownWrap: function() {}
           };
         }
         if (name === 'test' && this && this.test) {
