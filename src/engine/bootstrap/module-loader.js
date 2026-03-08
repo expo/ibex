@@ -219,11 +219,10 @@
   }
   _patchBrokenSharedArrayBufferViews();
   function _createNodeTestModule() {
-    var context = {
-      tests: [],
-      afters: []
-    };
-    function _createMock() {
+    var context = null;
+    var topLevelQueue = Promise.resolve();
+    function _createMock(restoreList) {
+      var restores = restoreList || [];
       return {
         method: function(target, propertyName) {
           if (typeof propertyName !== 'string') {
@@ -265,13 +264,25 @@
           };
 
           target[propertyName] = mocked;
+          restores.push(function() {
+            mocked.restore();
+          });
           return mocked;
         }
       };
     }
     function _createTestContext() {
+      var restoreList = [];
       return {
-        mock: _createMock()
+        mock: _createMock(restoreList),
+        __restoreMocks: function() {
+          for (var i = 0; i < restoreList.length; i++) {
+            try {
+              restoreList[i]();
+            } catch (_) {}
+          }
+          restoreList.length = 0;
+        }
       };
     }
     function _runAfterQueue(afters) {
@@ -290,7 +301,7 @@
       if (typeof fn !== 'function') {
         return Promise.resolve();
       }
-      var localContext = { tests: [], afters: [] };
+      var localContext = { tests: [], afters: [], queue: Promise.resolve() };
       var previousContext = context;
       context = localContext;
       var result;
@@ -303,7 +314,7 @@
       context = previousContext;
       var done = Promise.resolve(result)
         .then(function() {
-          return Promise.all(localContext.tests);
+          return localContext.queue;
         })
         .then(function() {
           return _runAfterQueue(localContext.afters);
@@ -316,37 +327,50 @@
       if (typeof fn !== 'function') {
         return Promise.resolve();
       }
-      var promise;
-      var testContext = _createTestContext();
-      if (fn.length >= 2) {
-        promise = new Promise(function(resolve, reject) {
-          var doneCalled = false;
-          var done = function(error) {
-            if (doneCalled) return;
-            doneCalled = true;
-            if (error) {
-              reject(error);
-            } else {
-              resolve();
+      var runTest = function() {
+        var promise;
+        var testContext = _createTestContext();
+        if (fn.length >= 2) {
+          promise = new Promise(function(resolve, reject) {
+            var doneCalled = false;
+            var done = function(error) {
+              if (doneCalled) return;
+              doneCalled = true;
+              if (error) {
+                reject(error);
+              } else {
+                resolve();
+              }
+            };
+            try {
+              fn(testContext, done);
+            } catch (err) {
+              if (!doneCalled) {
+                reject(err);
+              }
             }
-          };
+          });
+        } else {
           try {
-            fn(testContext, done);
+            promise = Promise.resolve(fn(testContext));
           } catch (err) {
-            if (!doneCalled) {
-              reject(err);
-            }
+            promise = Promise.reject(err);
+          }
+        }
+        return promise.finally(function() {
+          if (typeof testContext.__restoreMocks === 'function') {
+            testContext.__restoreMocks();
           }
         });
-      } else {
-        try {
-          promise = Promise.resolve(fn(testContext));
-        } catch (err) {
-          promise = Promise.reject(err);
-        }
-      }
+      };
+      var promise;
       if (context) {
+        promise = context.queue.then(runTest, runTest);
+        context.queue = promise.catch(function() {});
         context.tests.push(promise);
+      } else {
+        promise = topLevelQueue.then(runTest, runTest);
+        topLevelQueue = promise.catch(function() {});
       }
       return promise;
     }
@@ -2229,9 +2253,10 @@
           "exports",
           "__filename",
           "__dirname",
+          "process",
           directSource
         );
-        directFn(localRequire, module, module.exports, filename, dir);
+        directFn(localRequire, module, module.exports, filename, dir, g.process);
       } catch (err) {
         const shouldFallback = (kind === "esm" || looksLikeModuleSyntax(directSource));
         const canFallback = shouldFallback &&
@@ -2254,11 +2279,12 @@
           "exports",
           "__filename",
           "__dirname",
+          "process",
           runtimeSource
         );
         g.__filename = filename;
         g.__dirname = dir;
-        fallbackFn(localRequire, module, module.exports, filename, dir);
+        fallbackFn(localRequire, module, module.exports, filename, dir, g.process);
         if (module.exports && typeof module.exports === "object") {
           module.exports.__esModule = true;
           Object.defineProperty(module.exports, '__esmShimmed', { value: true });

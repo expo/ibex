@@ -435,6 +435,11 @@
     Object.defineProperty(p, 'stderr', { value: _stderr, writable: true, configurable: true, enumerable: true });
     Object.defineProperty(p, 'stdin', { value: _stdin, writable: true, configurable: true, enumerable: true });
   } catch(e) {}
+  try {
+    p.stdout = _stdout;
+    p.stderr = _stderr;
+    p.stdin = _stdin;
+  } catch(e) {}
 
   // --- Make process itself an EventEmitter ---
   addEventEmitter(p);

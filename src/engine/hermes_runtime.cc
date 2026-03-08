@@ -5649,11 +5649,32 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+        if (count < 2 || !args[0].isNumber()) {
           return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
         }
         int handle = static_cast<int>(args[0].asNumber());
-        auto streamName = args[1].toString(runtime).utf8(runtime);
+        std::string streamName;
+        if (args[1].isString()) {
+          streamName = args[1].toString(runtime).utf8(runtime);
+        } else if (args[1].isNumber()) {
+          switch (static_cast<int>(args[1].asNumber())) {
+            case 1:
+              streamName = "stdout";
+              break;
+            case 2:
+              streamName = "stderr";
+              break;
+            case 3:
+              streamName = "ipc";
+              break;
+            default:
+              return facebook::jsi::Value(
+                  facebook::jsi::String::createFromUtf8(runtime, ""));
+          }
+        } else {
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, ""));
+        }
 
         int fd = -1;
         {

@@ -580,7 +580,9 @@
     globalThis.process !== null &&
     typeof globalThis.__exactEnsureStreamEnhance === 'function' &&
     (typeof globalThis.process.on !== 'function' ||
-      !globalThis.process.config)
+      !globalThis.process.config ||
+      !globalThis.process.stdin ||
+      typeof globalThis.process.stdin.resume !== 'function')
   ) {
     try {
       globalThis.__exactEnsureStreamEnhance();
@@ -683,6 +685,114 @@
       });
     }
 
+    function __exactInstallReadableStdinFallback() {
+      var stream = globalThis.process.stdin;
+      if (!stream || typeof stream !== 'object') return;
+      if (typeof stream.resume === 'function') return;
+      if (typeof globalThis.__exactStdinRead !== 'function') return;
+
+      stream._encoding = null;
+      stream._paused = true;
+      stream._ended = false;
+      stream._pollTimer = 0;
+      stream.readable = true;
+      stream.readableEnded = false;
+      stream.readableFlowing = null;
+      stream.readableLength = 0;
+      stream.readableObjectMode = false;
+
+      stream.setEncoding = function(enc) {
+        stream._encoding = enc;
+        return stream;
+      };
+
+      stream.resume = function() {
+        stream.readable = true;
+        stream._paused = false;
+        stream.readableFlowing = true;
+        if (!stream._ended && !stream._pollTimer) {
+          (function pollStdin() {
+            if (stream._paused || stream._ended || stream.destroyed) return;
+            var data = globalThis.__exactStdinRead(4096);
+            if (data === null) {
+              stream._pollTimer = setTimeout(pollStdin, 25);
+              return;
+            }
+            if (data === '') {
+              stream._ended = true;
+              stream._pollTimer = 0;
+              stream.readableEnded = true;
+              stream.emit('end');
+              stream.emit('close');
+              return;
+            }
+            stream._pollTimer = 0;
+            if (stream._encoding && typeof Buffer !== 'undefined' && Buffer.from) {
+              data = Buffer.from(data, 'binary').toString(stream._encoding);
+            }
+            stream.readableLength += data.length || 0;
+            stream.emit('data', data);
+            stream.readableLength = 0;
+            if (!stream._paused && !stream._ended) {
+              stream._pollTimer = setTimeout(pollStdin, 10);
+            }
+          })();
+        }
+        return stream;
+      };
+
+      stream.pause = function() {
+        stream._paused = true;
+        stream.readableFlowing = false;
+        if (stream._pollTimer) {
+          clearTimeout(stream._pollTimer);
+          stream._pollTimer = 0;
+        }
+        return stream;
+      };
+
+      stream.read = function(size) {
+        var data = globalThis.__exactStdinRead(size || 4096);
+        if (data === '') return null;
+        if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
+          return Buffer.from(data, 'binary').toString(stream._encoding);
+        }
+        return data;
+      };
+
+      var originalOn = typeof stream.on === 'function' ? stream.on : null;
+      var originalOnce = typeof stream.once === 'function' ? stream.once : null;
+      if (originalOn) {
+        stream.on = function(event, listener) {
+          var result = originalOn.apply(this, arguments);
+          if (event === 'data' && !stream._ended && stream._paused) {
+            stream.resume();
+          }
+          return result;
+        };
+        stream.addListener = stream.on;
+      }
+      if (originalOnce) {
+        stream.once = function(event, listener) {
+          var result = originalOnce.apply(this, arguments);
+          if (event === 'data' && !stream._ended && stream._paused) {
+            stream.resume();
+          }
+          return result;
+        };
+      }
+      try {
+        Object.defineProperty(globalThis.process, 'stdin', {
+          value: stream,
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+      } catch (_) {
+        globalThis.process.stdin = stream;
+      }
+    }
+
     try {
       __exactPatchProcessStreamPrototype();
       if (!globalThis.process.__exactStreamStabilityPatched) {
@@ -691,6 +801,7 @@
         __exactPinStream('stdin');
         globalThis.process.__exactStreamStabilityPatched = true;
       }
+      __exactInstallReadableStdinFallback();
       // Add ref/unref stubs to stdout/stderr/stdin for Node.js compatibility
       var _stdioNames = ['stdout', 'stderr', 'stdin'];
       for (var si = 0; si < _stdioNames.length; si++) {
@@ -1904,9 +2015,14 @@
             globalThis.__exactFsClose(exactIpcFd);
           } catch (err) {}
         }
-        setTimeout(function() {
+        var emitDisconnect = function() {
           globalThis.process.emit('disconnect');
-        }, 0);
+        };
+        if (typeof globalThis.process.nextTick === 'function') {
+          globalThis.process.nextTick(emitDisconnect);
+        } else {
+          emitDisconnect();
+        }
       }
 
       var _exactPendingRecvFd = -1;
@@ -1983,11 +2099,29 @@
               server._handle = { _exactHandle: nativeHandle, close: function() {
                 try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
               }};
+              server.listening = true;
+              server._closing = false;
+              try {
+                if (typeof globalThis.__exactTcpLocalAddr === 'function') {
+                  var info = globalThis.__exactTcpLocalAddr(nativeHandle);
+                  if (info) {
+                    var addr = JSON.parse(info);
+                    server._port = addr.port;
+                    server._host = addr.address;
+                    server.host = addr.address;
+                    var familySuffix = (addr.family || 'IPv4').slice(-1);
+                    server._connectionKey = familySuffix + ':' + addr.address + ':' + addr.port;
+                  }
+                }
+              } catch (e) {}
+              if (typeof server._startAccepting === 'function') {
+                server._startAccepting();
+              }
               return server;
             }
             var server = net.createServer();
             server._handle = { fd: fd };
-            try { server.listen({ fd: fd }); } catch (e) {}
+            server.listening = true;
             return server;
           }
         } catch (e) {}

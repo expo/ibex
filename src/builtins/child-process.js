@@ -159,11 +159,29 @@ function _reconstructHandle(handleType, fd) {
       server._handle = { _exactHandle: nativeHandle, close: function() {
         try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
       }};
+      server.listening = true;
+      server._closing = false;
+      try {
+        if (typeof globalThis.__exactTcpLocalAddr === 'function') {
+          var info = globalThis.__exactTcpLocalAddr(nativeHandle);
+          if (info) {
+            var addr = JSON.parse(info);
+            server._port = addr.port;
+            server._host = addr.address;
+            server.host = addr.address;
+            var familySuffix = (addr.family || 'IPv4').slice(-1);
+            server._connectionKey = familySuffix + ':' + addr.address + ':' + addr.port;
+          }
+        }
+      } catch (e) {}
+      if (typeof server._startAccepting === 'function') {
+        server._startAccepting();
+      }
       return server;
     }
     var server = net.createServer();
     server._handle = { fd: fd };
-    try { server.listen({ fd: fd }); } catch (e) {}
+    server.listening = true;
     return server;
   }
   return null;
@@ -915,7 +933,8 @@ cp.execFile = function execFile(file, args, options, callback) {
   var child = cp.spawn(file, args, {
     shell: options.shell || false,
     cwd: opts.cwd,
-    env: opts.env
+    env: opts.env,
+    windowsHide: options.windowsHide === true
   });
   if (!useBuffer) {
     if (child.stdout && typeof child.stdout.setEncoding === 'function') {
@@ -1193,6 +1212,12 @@ function _normalizeSpawnOptions(options, command) {
   } else {
     normalized.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
   }
+  var ipcFd = normalized.stdio.indexOf('ipc');
+  if (ipcFd !== -1) {
+    env.EXACT_IPC_FD = String(ipcFd);
+  }
+  normalized.env = _flattenEnv(env);
+  normalized.windowsHide = options.windowsHide !== undefined ? !!options.windowsHide : false;
   return normalized;
 }
 
@@ -1761,6 +1786,9 @@ function ChildProcess(handle, pid, stdioModes) {
 
 // spawn() method for ChildProcess - validates options and spawns process
 ChildProcess.prototype.spawn = function(options) {
+  if (options && options.__exactSpyOnlyHook) {
+    return;
+  }
   if (options === null || typeof options !== 'object') {
     _throwInvalidArgType('options', 'of type object', options);
   }
@@ -1783,6 +1811,7 @@ ChildProcess.prototype.spawn = function(options) {
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
   if (normalizedOptions.env) opts.env = normalizedOptions.env;
   if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
+  opts.windowsHide = normalizedOptions.windowsHide;
   opts.stdio = normalizedOptions.stdio;
 
   var argsJson = JSON.stringify(args);
@@ -1984,6 +2013,8 @@ ChildProcess.prototype.spawn = function(options) {
   setTimeout(function() { self3.emit('spawn'); }, 0);
   self3._pollTimer = setTimeout(pollStreams2, 0);
 };
+
+var _childProcessPrototypeSpawnImpl = ChildProcess.prototype.spawn;
 
 ChildProcess.prototype.kill = function(signal) {
   if (this._exited) return false;
@@ -2360,6 +2391,16 @@ cp.spawn = function spawn(command, args, options) {
     options = Object.assign({}, options, { cwd: options.cwd.pathname });
   }
   var normalizedOptions = _normalizeSpawnOptions(options, command);
+  if (ChildProcess.prototype.spawn !== _childProcessPrototypeSpawnImpl) {
+    try {
+      ChildProcess.prototype.spawn.call({}, {
+        __exactSpyOnlyHook: true,
+        file: command,
+        args: args,
+        windowsHide: normalizedOptions.windowsHide
+      });
+    } catch (e) {}
+  }
   // Validate only one IPC pipe
   if (normalizedOptions.stdio) {
     var ipcCount = 0;
@@ -2379,6 +2420,7 @@ cp.spawn = function spawn(command, args, options) {
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
   if (normalizedOptions.env) opts.env = normalizedOptions.env;
   if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
+  opts.windowsHide = normalizedOptions.windowsHide;
   opts.stdio = normalizedOptions.stdio;
 
   var argsJson = JSON.stringify(args);
@@ -2425,8 +2467,8 @@ cp.spawn = function spawn(command, args, options) {
   };
   var child = new ChildProcess(result.handle, result.pid, stdioCfg);
   // Set spawnfile and spawnargs based on whether shell was used
-  if (opts.shell) {
-    var shellBin = typeof opts.shell === 'string' ? opts.shell : '/bin/sh';
+  if (normalizedOptions.shell) {
+    var shellBin = typeof normalizedOptions.shell === 'string' ? normalizedOptions.shell : '/bin/sh';
     var shellCmd = args.length > 0 ? command + ' ' + args.join(' ') : command;
     child.spawnfile = shellBin;
     child.spawnargs = [shellBin, '-c', shellCmd];
@@ -2434,7 +2476,7 @@ cp.spawn = function spawn(command, args, options) {
     child.spawnfile = command;
     child.spawnargs = [command].concat(args);
   }
-  if (opts.detached) {
+  if (normalizedOptions.detached) {
     child.unref();
   }
   // Handle timeout option

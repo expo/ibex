@@ -134,6 +134,121 @@ function _inspectValue(v) {
   return String(v);
 }
 
+function _installReadableStdinFallback(proc) {
+  if (!proc || typeof proc !== 'object' || !proc.stdin || typeof proc.stdin !== 'object') {
+    return;
+  }
+  var stream = proc.stdin;
+  if (typeof stream.resume === 'function' || typeof __exactStdinRead !== 'function') {
+    return;
+  }
+
+  stream._encoding = null;
+  stream._paused = true;
+  stream._ended = false;
+  stream._pollTimer = 0;
+  stream.readable = true;
+  stream.readableEnded = false;
+  stream.readableFlowing = null;
+  stream.readableLength = 0;
+
+  stream.setEncoding = function(enc) {
+    stream._encoding = enc;
+    return stream;
+  };
+
+  stream.resume = function() {
+    stream.readable = true;
+    stream._paused = false;
+    stream.readableFlowing = true;
+    if (!stream._ended && !stream._pollTimer) {
+      (function pollStdin() {
+        if (stream._paused || stream._ended || stream.destroyed) return;
+        var data = __exactStdinRead(4096);
+        if (data === null) {
+          stream._pollTimer = setTimeout(pollStdin, 25);
+          return;
+        }
+        if (data === '') {
+          stream._ended = true;
+          stream._pollTimer = 0;
+          stream.readableEnded = true;
+          if (typeof stream.emit === 'function') {
+            stream.emit('end');
+            stream.emit('close');
+          }
+          return;
+        }
+        stream._pollTimer = 0;
+        if (stream._encoding && typeof Buffer !== 'undefined' && Buffer.from) {
+          data = Buffer.from(data, 'binary').toString(stream._encoding);
+        }
+        stream.readableLength += data.length || 0;
+        if (typeof stream.emit === 'function') {
+          stream.emit('data', data);
+        }
+        stream.readableLength = 0;
+        if (!stream._paused && !stream._ended) {
+          stream._pollTimer = setTimeout(pollStdin, 10);
+        }
+      })();
+    }
+    return stream;
+  };
+
+  stream.pause = function() {
+    stream._paused = true;
+    stream.readableFlowing = false;
+    if (stream._pollTimer) {
+      clearTimeout(stream._pollTimer);
+      stream._pollTimer = 0;
+    }
+    return stream;
+  };
+
+  stream.read = function(size) {
+    var data = __exactStdinRead(size || 4096);
+    if (data === '') return null;
+    if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
+      return Buffer.from(data, 'binary').toString(stream._encoding);
+    }
+    return data;
+  };
+
+  var originalOn = typeof stream.on === 'function' ? stream.on : null;
+  var originalOnce = typeof stream.once === 'function' ? stream.once : null;
+  if (originalOn) {
+    stream.on = function(event, listener) {
+      var result = originalOn.apply(this, arguments);
+      if (event === 'data' && !stream._ended && stream._paused) {
+        stream.resume();
+      }
+      return result;
+    };
+    stream.addListener = stream.on;
+  }
+  if (originalOnce) {
+    stream.once = function(event, listener) {
+      var result = originalOnce.apply(this, arguments);
+      if (event === 'data' && !stream._ended && stream._paused) {
+        stream.resume();
+      }
+      return result;
+    };
+  }
+
+  try {
+    Object.defineProperty(proc, 'stdin', {
+      value: stream,
+      writable: true,
+      configurable: true,
+      enumerable: true
+    });
+  } catch (_) {
+    proc.stdin = stream;
+  }
+}
+
 function execve(execPath, args, envObj) {
   if (typeof execPath !== 'string') {
     var e = new TypeError('The "execPath" argument must be of type string. Received type ' + typeof execPath + ' (' + String(execPath) + ')');
@@ -218,6 +333,7 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
   if (!proc.argv || proc.argv.length === 0) proc.argv = argv;
   if (!Array.isArray(proc.execArgv)) proc.execArgv = [];
   if (!proc.execve) proc.execve = execve;
+  _installReadableStdinFallback(proc);
 
   // Wrap process.env in a Proxy that converts values to strings (Node.js behavior)
   // and supports delete
