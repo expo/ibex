@@ -1924,6 +1924,20 @@
         continue;
       }
 
+      m = trimmed.match(
+        /^\s*(const|let|var)\s+([\s\S]+?)\s*=\s*await\s+globalThis\["import"\]\(([\s\S]+)\)\s*;?\s*$/
+      );
+      if (m) {
+        out.push(m[1] + " " + m[2] + " = require(" + m[3] + ");");
+        continue;
+      }
+
+      m = trimmed.match(/^\s*await\s+globalThis\["import"\]\(([\s\S]+)\)\s*;?\s*$/);
+      if (m) {
+        out.push("require(" + m[1] + ");");
+        continue;
+      }
+
       m = trimmed.match(/^\s*import\s+(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         out.push("require(" + quote(m[2]) + ");");
@@ -2303,7 +2317,11 @@
         );
         directFn(localRequire, module, module.exports, filename, dir, g.process);
       } catch (err) {
-        const shouldFallback = (kind === "esm" || looksLikeModuleSyntax(directSource));
+        const shouldFallback = (
+          kind === "esm" ||
+          looksLikeModuleSyntax(directSource) ||
+          directSource.indexOf('await globalThis["import"](') !== -1
+        );
         const canFallback = shouldFallback &&
           err &&
           err.name === "SyntaxError" &&
