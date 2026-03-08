@@ -2277,8 +2277,12 @@ function readSync(fd, buffer, offset, length, position) {
   try {
     var data = g.__exactFsRead(fd, len, pos);
     if (buffer && data.length > 0) {
-      for (var i = 0; i < data.length; i++) {
-        targetBuffer[off + i] = data[i];
+      if (typeof targetBuffer.set === 'function') {
+        targetBuffer.set(data, off);
+      } else {
+        for (var i = 0; i < data.length; i++) {
+          targetBuffer[off + i] = data[i];
+        }
       }
     }
     return data.length;

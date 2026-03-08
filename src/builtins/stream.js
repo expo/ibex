@@ -4914,6 +4914,10 @@ Stream.prototype.pipe = function(dest, options) {
     cleanupQuietly();
   }
 
+  function ondestend() {
+    cleanupQuietly();
+  }
+
   function ondestroy() {
     cleanupQuietly();
   }
@@ -4927,6 +4931,7 @@ Stream.prototype.pipe = function(dest, options) {
       dest.on('error', onerror);
     }
     dest.on('close', onclose);
+    dest.on('end', ondestend);
     dest.on('finish', onfinish);
     dest.on('destroy', ondestroy);
   }
@@ -4942,6 +4947,7 @@ Stream.prototype.pipe = function(dest, options) {
       hasDrainListener = false;
     }
     dest.removeListener('close', onclose);
+    dest.removeListener('end', ondestend);
     dest.removeListener('finish', onfinish);
     dest.removeListener('error', onerror);
     dest.removeListener('destroy', ondestroy);
@@ -5066,9 +5072,9 @@ Stream.prototype.unpipe = function(dest) {
           this.pause();
         }
       }
-    }
-    if (dest && typeof dest.emit === 'function') {
-      dest.emit('unpipe', this);
+      if (dest && typeof dest.emit === 'function') {
+        dest.emit('unpipe', this);
+      }
     }
   }
   return this;
