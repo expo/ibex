@@ -10,6 +10,19 @@ try {
 
 var defaultHighWaterMark = 65536;
 var defaultHighWaterMarkObjectMode = 16;
+
+function _validateHighWaterMarkOption(propertyName, value) {
+  if (value === undefined || value === null) return null;
+  var numeric = Number(value);
+  if (!isFinite(numeric) || isNaN(numeric) || numeric < 0) {
+    throw makeError(
+      TypeError,
+      'ERR_INVALID_ARG_VALUE',
+      "The property 'options." + propertyName + "' is invalid. Received " + String(value)
+    );
+  }
+  return Math.floor(numeric);
+}
 var awaitDrainWriterStateSymbol = typeof Symbol === 'function' ? Symbol('exact-await-drain-writer-state') : '__exactAwaitDrainWriterState';
 
 function _awaitDrainSizeGetter() {
@@ -586,15 +599,16 @@ function Readable(options) {
   this._events.readable = undefined;
   this._data = [];
   this._ended = false;
-  // Determine objectMode: readableObjectMode overrides objectMode if present
-  var objMode = (options && options.readableObjectMode != null) ? !!options.readableObjectMode :
+  var supportsSplitOptions = this instanceof Duplex;
+  // Determine objectMode: readableObjectMode overrides objectMode if present on Duplex/Transform
+  var objMode = (supportsSplitOptions && options && options.readableObjectMode != null) ? !!options.readableObjectMode :
                 !!(options && options.objectMode);
   // Determine highWaterMark: explicit highWaterMark wins, then readableHighWaterMark, then default
   var hwm;
   if (options && options.highWaterMark != null) {
-    hwm = options.highWaterMark;
-  } else if (options && options.readableHighWaterMark != null) {
-    hwm = options.readableHighWaterMark;
+    hwm = _validateHighWaterMarkOption('highWaterMark', options.highWaterMark);
+  } else if (supportsSplitOptions && options && options.readableHighWaterMark != null) {
+    hwm = _validateHighWaterMarkOption('readableHighWaterMark', options.readableHighWaterMark);
   } else {
     hwm = objMode ? defaultHighWaterMarkObjectMode : defaultHighWaterMark;
   }
@@ -3397,16 +3411,17 @@ function Writable(options) {
   this._events.finish = undefined;
   this._events.drain = undefined;
   var self = this;
-  // Determine objectMode: writableObjectMode overrides objectMode if present
-  var objMode = (options && options.writableObjectMode != null) ? !!options.writableObjectMode :
+  var supportsSplitOptions = this instanceof Duplex;
+  // Determine objectMode: writableObjectMode overrides objectMode if present on Duplex/Transform
+  var objMode = (supportsSplitOptions && options && options.writableObjectMode != null) ? !!options.writableObjectMode :
                 !!(options && options.objectMode);
   var decodeStrings = options && options.decodeStrings != null ? !!options.decodeStrings : true;
   // Determine highWaterMark: explicit highWaterMark wins, then writableHighWaterMark, then default
   var hwm;
   if (options && options.highWaterMark != null) {
-    hwm = options.highWaterMark;
-  } else if (options && options.writableHighWaterMark != null) {
-    hwm = options.writableHighWaterMark;
+    hwm = _validateHighWaterMarkOption('highWaterMark', options.highWaterMark);
+  } else if (supportsSplitOptions && options && options.writableHighWaterMark != null) {
+    hwm = _validateHighWaterMarkOption('writableHighWaterMark', options.writableHighWaterMark);
   } else {
     hwm = objMode ? defaultHighWaterMarkObjectMode : defaultHighWaterMark;
   }
