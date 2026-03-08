@@ -157,6 +157,35 @@ function _getFdOrPath(path, propName) {
   return { fd: null, path: _pathToString(path) };
 }
 
+function _isPathBufferView(path) {
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(path)) return true;
+  if (typeof ArrayBuffer !== 'undefined' && typeof ArrayBuffer.isView === 'function') {
+    return ArrayBuffer.isView(path);
+  }
+  return false;
+}
+
+function _pathBufferViewToUint8Array(path) {
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(path)) return path;
+  if (_isPathBufferView(path)) {
+    return new Uint8Array(path.buffer, path.byteOffset || 0, path.byteLength);
+  }
+  return null;
+}
+
+function _pathBufferViewToString(path) {
+  var bytes = _pathBufferViewToUint8Array(path);
+  if (!bytes) return String(path);
+  if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+    return Buffer.from(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength).toString();
+  }
+  var out = '';
+  for (var i = 0; i < bytes.length; i++) {
+    out += String.fromCharCode(bytes[i]);
+  }
+  return out;
+}
+
 function _validatePath(path, propName) {
   path = _coercePathFromURL(path, propName);
   // Support URL objects with file: protocol
@@ -164,7 +193,7 @@ function _validatePath(path, propName) {
     // _coercePathFromURL already validated and returned a URL string.
     return;
   }
-  if (typeof path !== 'string' && !Buffer.isBuffer(path)) {
+  if (typeof path !== 'string' && !_isPathBufferView(path)) {
     throw _fsInvalidArgType(propName || 'path', 'string or an instance of Buffer or URL', path);
   }
   if (typeof path === 'string' && path.indexOf('\u0000') !== -1) {
@@ -172,10 +201,14 @@ function _validatePath(path, propName) {
     err.code = 'ERR_INVALID_ARG_VALUE';
     throw err;
   }
-  if (Buffer.isBuffer(path) && path.indexOf(0) !== -1) {
-    var err = new TypeError('The argument "' + (propName || 'path') + '" must be a string, Uint8Array, or URL without null bytes. Received ' + JSON.stringify(path.toString()));
-    err.code = 'ERR_INVALID_ARG_VALUE';
-    throw err;
+  var pathBytes = _pathBufferViewToUint8Array(path);
+  if (pathBytes) {
+    for (var i = 0; i < pathBytes.length; i++) {
+      if (pathBytes[i] !== 0) continue;
+      var err = new TypeError('The argument "' + (propName || 'path') + '" must be a string, Uint8Array, or URL without null bytes. Received ' + JSON.stringify(_pathBufferViewToString(path)));
+      err.code = 'ERR_INVALID_ARG_VALUE';
+      throw err;
+    }
   }
 }
 
@@ -215,7 +248,7 @@ function _emitFsDeprecation(code, message) {
 function _isBufferLike(value) {
   if (!value) return false;
   if (Buffer.isBuffer(value)) return true;
-  if (typeof ArrayBuffer === 'object' && typeof ArrayBuffer.isView === 'function') {
+  if (typeof ArrayBuffer !== 'undefined' && typeof ArrayBuffer.isView === 'function') {
     if (ArrayBuffer.isView(value)) return true;
   }
   if (typeof value === 'object' && value !== null) {
@@ -328,7 +361,7 @@ function _deferFsCallback(callback) {
 
 function _pathToString(path) {
   if (typeof path === 'string') return _resolvePathFromCwd(path);
-  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(path)) return path.toString();
+  if (_isPathBufferView(path)) return _pathBufferViewToString(path);
   if (path && typeof path === 'object' && typeof path.href === 'string' && path.protocol === 'file:') {
     return _coercePathFromURL(path);
   }
@@ -703,7 +736,7 @@ function _isSyncIterable(value) {
 }
 
 function _coerceWriteFileChunk(value, encoding) {
-  if (typeof value === 'string' || _isBufferLike(value) || (typeof ArrayBuffer === 'object' && value instanceof ArrayBuffer)) {
+  if (typeof value === 'string' || _isBufferLike(value) || (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer)) {
     return toUint8Array(value, encoding);
   }
   throw _fsInvalidArgType('data', 'string or an instance of Buffer, TypedArray, or DataView', value);
@@ -1871,28 +1904,39 @@ function realpathSyncNative(path) {
 }
 realpathSync.native = realpathSyncNative;
 
-function _mkdtempDisposableFromPath(pathValue, returnPromise) {
+function _mkdtempDisposableFromPath(pathValue, removePath, returnPromise) {
+  var disposalPath = removePath || pathValue;
   var removed = false;
+  function removeDisposablePath() {
+    try {
+      rmSync(disposalPath, { recursive: true, force: false });
+      removed = true;
+      return;
+    } catch(err) {
+      if (err && err.code === 'ENOENT') {
+        removed = true;
+        return;
+      }
+      removed = false;
+      throw err;
+    }
+  }
   var result = {
     path: pathValue,
     remove: function() {
       if (removed) return returnPromise ? Promise.resolve() : undefined;
       if (returnPromise) {
         try {
-          rmSync(pathValue, { recursive: true, force: true });
-          removed = true;
+          removeDisposablePath();
           return Promise.resolve();
         } catch(err) {
-          removed = false;
-          return Promise.reject(_makeFsError(err, 'rm', pathValue));
+          return Promise.reject(_makeFsError(err, 'rm', disposalPath));
         }
       }
       try {
-        rmSync(pathValue, { recursive: true, force: true });
-        removed = true;
+        removeDisposablePath();
       } catch(err) {
-        removed = false;
-        throw _makeFsError(err, 'rm', pathValue);
+        throw _makeFsError(err, 'rm', disposalPath);
       }
       return;
     }
@@ -1905,12 +1949,10 @@ function _mkdtempDisposableFromPath(pathValue, returnPromise) {
       if (removed) return Promise.resolve();
       return new Promise(function(resolve, reject) {
         try {
-          rmSync(pathValue, { recursive: true, force: true });
-          removed = true;
+          removeDisposablePath();
           resolve();
         } catch(err) {
-          removed = false;
-          reject(_makeFsError(err, 'rm', pathValue));
+          reject(_makeFsError(err, 'rm', disposalPath));
         }
       });
     };
@@ -1918,19 +1960,32 @@ function _mkdtempDisposableFromPath(pathValue, returnPromise) {
   return result;
 }
 
-function mkdtempSync(prefix, options) {
+function _mkdtempResult(prefix, options) {
   _validatePath(prefix, 'prefix'); _validateEncodingOption(options); ensureExactFs();
-  var parent = _dirnamePath(_pathToString(prefix));
+  var prefixPath = _pathToString(prefix);
+  var parent = _dirnamePath(prefixPath);
+  var rawPrefix = typeof prefix === 'string' ? prefix :
+    (typeof Buffer !== 'undefined' && Buffer.isBuffer(prefix) ? prefix.toString() : null);
   if (!existsSync(parent)) {
     var err = new Error("ENOENT: no such file or directory, mkdtemp '" + prefix + "'");
     throw _makeFsError(err, 'mkdtemp', prefix);
   }
-  try { return g.__exactMkdtemp(prefix); } catch(e) { throw _makeFsError(e, 'mkdtemp', prefix); }
+  try {
+    var createdPath = g.__exactMkdtemp(prefixPath);
+    return {
+      actualPath: createdPath,
+      publicPath: rawPrefix !== null && !_isAbsolutePath(rawPrefix) ? relativePathFromCwd(createdPath) : createdPath
+    };
+  } catch(e) {
+    throw _makeFsError(e, 'mkdtemp', prefix);
+  }
+}
+function mkdtempSync(prefix, options) {
+  return _mkdtempResult(prefix, options).publicPath;
 }
 function mkdtempDisposableSync(prefix, options) {
-  _validatePath(prefix, 'prefix'); _validateEncodingOption(options); ensureExactFs();
-  var tempPath = mkdtempSync(prefix, options);
-  return _mkdtempDisposableFromPath(tempPath, false);
+  var tempResult = _mkdtempResult(prefix, options);
+  return _mkdtempDisposableFromPath(tempResult.publicPath, tempResult.actualPath, false);
 }
 
 function existsSync(path) {
@@ -2093,7 +2148,7 @@ function mkdtemp(prefix, optOrCb, cb) {
   _validateCallback(callback);
   _validatePath(prefix, 'prefix');
   _validateEncodingOption(opts);
-  wrapCallback(function() { return mkdtempSync(prefix, opts); }, callback, 'mkdtemp', prefix);
+  wrapCallback(function() { return _mkdtempResult(prefix, opts).publicPath; }, callback, 'mkdtemp', prefix);
 }
 function mkdtempDisposable(prefix, optOrCb, cb) {
   var opts, callback;
@@ -2102,7 +2157,8 @@ function mkdtempDisposable(prefix, optOrCb, cb) {
   _validatePath(prefix, 'prefix');
   _validateEncodingOption(opts);
   wrapCallback(function() {
-    return _mkdtempDisposableFromPath(mkdtempSync(prefix, opts), true);
+    var tempResult = _mkdtempResult(prefix, opts);
+    return _mkdtempDisposableFromPath(tempResult.publicPath, tempResult.actualPath, true);
   }, callback, 'mkdtemp', prefix);
 }
 function exists(path, cb) {
@@ -2504,6 +2560,14 @@ function fsRead(fd, buffer, offset, length, position, cb) {
     length = opts.length !== undefined ? opts.length : (buffer.length - offset);
     position = opts.position !== undefined ? opts.position : -1;
   }
+  // Support fs.read(fd, buffer, options, callback)
+  else if (typeof offset === 'object' && offset !== null) {
+    var readOpts = offset;
+    cb = typeof length === 'function' ? length : position;
+    offset = readOpts.offset || 0;
+    length = readOpts.length !== undefined ? readOpts.length : (buffer ? buffer.length - offset : 0);
+    position = readOpts.position !== undefined ? readOpts.position : -1;
+  }
   // Handle various callback positions
   if (typeof offset === 'function') {
     cb = offset;
@@ -2512,14 +2576,6 @@ function fsRead(fd, buffer, offset, length, position, cb) {
   }
   else if (typeof length === 'function') { cb = length; length = buffer ? buffer.length - (offset || 0) : 0; position = -1; }
   else if (typeof position === 'function') { cb = position; position = -1; }
-  // Handle offset as options object: fs.read(fd, buffer, { offset, length, position }, cb)
-  if (cb === undefined && typeof offset === 'object' && offset !== null) {
-    var readOpts = offset;
-    cb = length; // the arg after options
-    offset = readOpts.offset || 0;
-    length = readOpts.length !== undefined ? readOpts.length : (buffer ? buffer.length - offset : 0);
-    position = readOpts.position !== undefined ? readOpts.position : -1;
-  }
   _validateCallback(cb);
   try {
     var bytesRead = readSync(fd, buffer, offset, length, position);
@@ -2961,7 +3017,7 @@ function _initWriteStream(ws, path, options) {
   var mode = opts.mode || 438;
   var encoding = opts.encoding || 'utf8';
   var autoClose = opts.autoClose !== false;
-  var start = typeof opts.start === 'number' ? opts.start : null;
+  var start = null;
   var openError = null;
   var fdOption = opts.fd;
   var fd = null;
@@ -2971,6 +3027,12 @@ function _initWriteStream(ws, path, options) {
   var usingHandle = false;
   var pendingWrites = [];
   var processingWrite = false;
+
+  if (opts.start !== undefined) {
+    if (typeof opts.start !== 'number') throw _fsInvalidArgType('start', 'number', opts.start);
+    _validateInt('start', opts.start, 0, Number.MAX_SAFE_INTEGER);
+    start = opts.start;
+  }
 
   if (fdOption !== undefined && fdOption !== null) {
     if (typeof fdOption === 'number') {
@@ -3510,6 +3572,14 @@ function pathJoin(base, child) {
   var last = base.charAt(base.length - 1);
   if (last === '/' || last === '\\') return base + child;
   return base + '/' + child;
+}
+function relativePathFromCwd(path) {
+  if (!_isAbsolutePath(path)) return path;
+  var cwd = _resolvePathFromCwd('.');
+  if (path === cwd) return '.';
+  if (cwd === '/') return path.slice(1);
+  if (path.indexOf(cwd + '/') === 0) return path.slice(cwd.length + 1);
+  return path;
 }
 function _watchEventPath(filename, encoding, recursive) {
   if (filename === null || filename === undefined) return watchFilename(filename, encoding);
@@ -4052,24 +4122,56 @@ function rmSync(path, options) {
   }
   var recursive = !!(options && options.recursive);
   var force = !!(options && options.force);
+  function removeEntry(targetPath, isDirectory) {
+    try {
+      if (isDirectory) {
+        rmdirSync(targetPath);
+      } else {
+        unlinkSync(targetPath);
+      }
+      return;
+    } catch(err) {
+      if (!force || !err || (err.code !== 'EACCES' && err.code !== 'EPERM')) {
+        throw err;
+      }
+      chmodSync(targetPath, isDirectory ? 0o777 : 0o666);
+      if (isDirectory) {
+        rmdirSync(targetPath);
+      } else {
+        unlinkSync(targetPath);
+      }
+    }
+  }
   try {
     // Use lstatSync to not follow symlinks - symlinks should be unlinked, not traversed
     var info = lstatSync(path);
     if (typeof info.isDirectory === 'function' ? info.isDirectory() : info.is_dir) {
       if (recursive) {
         var entries;
-        try { entries = readdirSync(path); } catch(e2) { entries = []; }
+        if (force) {
+          try { chmodSync(path, 0o777); } catch(_ignore) {}
+        }
+        try {
+          entries = readdirSync(path);
+        } catch(e2) {
+          if (force && e2 && (e2.code === 'EACCES' || e2.code === 'EPERM')) {
+            chmodSync(path, 0o777);
+            entries = readdirSync(path);
+          } else {
+            throw e2;
+          }
+        }
         for (var i = 0; i < entries.length; i++) {
-          rmSync(path + '/' + entries[i], options);
+          rmSync(pathJoin(path, entries[i]), options);
         }
       }
-      rmdirSync(path);
+      removeEntry(path, true);
     } else {
-      unlinkSync(path);
+      removeEntry(path, false);
     }
   } catch(e) {
     if (force && e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return;
-    if (!force) throw e;
+    throw e;
   }
 }
 function rm(path, options, cb) {
