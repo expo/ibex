@@ -1241,6 +1241,7 @@ function ClientRequest(options, callback) {
   options = normalizeClientRequestOptions(options);
   this.options = options || {};
   this._defaultAgent = globalAgent;
+  var skipDefaultAgent = this.options.__exactSkipDefaultAgent === true;
 
   // Validate hostname/host type
   if (this.options.hostname !== undefined && this.options.hostname !== null && typeof this.options.hostname !== 'string') {
@@ -1284,7 +1285,9 @@ function ClientRequest(options, callback) {
   if (resolvedAgent === false) {
     resolvedAgent = new Agent();
   } else if (resolvedAgent === null || resolvedAgent === undefined) {
-    if (typeof this.options.createConnection !== 'function') {
+    if (skipDefaultAgent) {
+      resolvedAgent = null;
+    } else if (typeof this.options.createConnection !== 'function') {
       resolvedAgent = this._defaultAgent;
     } else {
       resolvedAgent = null;

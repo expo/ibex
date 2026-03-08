@@ -26,6 +26,50 @@ function _copyExportDescriptors(target, source) {
   }
 }
 
+var _httpsSocketTransportOptionNames = {
+  ALPNProtocols: true,
+  ca: true,
+  cert: true,
+  checkServerIdentity: true,
+  ciphers: true,
+  clientCertEngine: true,
+  crl: true,
+  dhparam: true,
+  ecdhCurve: true,
+  family: true,
+  hints: true,
+  honorCipherOrder: true,
+  key: true,
+  localAddress: true,
+  lookup: true,
+  maxVersion: true,
+  minVersion: true,
+  passphrase: true,
+  pfx: true,
+  privateKeyEngine: true,
+  privateKeyIdentifier: true,
+  rejectUnauthorized: true,
+  requestOCSP: true,
+  secureOptions: true,
+  secureProtocol: true,
+  servername: true,
+  session: true,
+  sessionIdContext: true,
+  socket: true
+};
+
+function _requiresSocketTransport(options) {
+  if (!options || typeof options !== 'object') return false;
+  if (typeof options.createConnection === 'function') return true;
+  if (options.socketPath || options.path && options.protocol === 'unix:') return true;
+  for (var key in _httpsSocketTransportOptionNames) {
+    if (!Object.prototype.hasOwnProperty.call(_httpsSocketTransportOptionNames, key)) continue;
+    if (!Object.prototype.hasOwnProperty.call(options, key)) continue;
+    if (options[key] !== undefined && options[key] !== null) return true;
+  }
+  return false;
+}
+
 function Agent(options) {
   if (!(this instanceof Agent)) {
     return new Agent(options);
@@ -80,10 +124,11 @@ function _prepareRequestOptions(options) {
   if (!normalized.protocol) {
     normalized.protocol = 'https:';
   }
+  var needsSocketTransport = _requiresSocketTransport(normalized);
 
   if (normalized.agent === false) {
     delete normalized.agent;
-    if (typeof normalized.createConnection !== 'function') {
+    if (needsSocketTransport && typeof normalized.createConnection !== 'function') {
       normalized.createConnection = function(connectOptions, connectCallback) {
         var tlsOptions = _copyOwnProperties(connectOptions);
         if (!tlsOptions.servername) {
@@ -91,12 +136,18 @@ function _prepareRequestOptions(options) {
         }
         return tls.connect(tlsOptions, connectCallback);
       };
+    } else {
+      normalized.__exactSkipDefaultAgent = true;
     }
     return normalized;
   }
 
   if (normalized.agent === undefined || normalized.agent === null) {
-    normalized.agent = globalAgent;
+    if (needsSocketTransport) {
+      normalized.agent = globalAgent;
+    } else {
+      normalized.__exactSkipDefaultAgent = true;
+    }
   }
   return normalized;
 }
