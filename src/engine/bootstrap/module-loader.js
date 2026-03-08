@@ -2526,6 +2526,12 @@
     const looksLikeModuleSyntax = function(text) {
       return /\n?\s*(?:import|export)\b/m.test(text || "");
     };
+    const looksLikeTopLevelAwait = function(text) {
+      return /(^|[^\w$])await(?:\s|\()/.test(text || "");
+    };
+    const wrapAsyncModule = function(text) {
+      return "(async function() {\n" + String(text || "") + "\n})();";
+    };
     var localRequire = function(next) {
       var internal = loadInternal(next);
       if (internal) return internal;
@@ -2603,21 +2609,30 @@
         );
         directFn(localRequire, module, module.exports, filename, dir, g.process);
       } catch (err) {
+        const needsAsyncFallback = looksLikeTopLevelAwait(directSource);
+        const isAwaitReferenceError = needsAsyncFallback &&
+          err &&
+          err.name === "ReferenceError" &&
+          String(err.message || "").indexOf("Property 'await'") !== -1;
         const shouldFallback = (
           kind === "esm" ||
           looksLikeModuleSyntax(directSource) ||
-          directSource.indexOf('await globalThis["import"](') !== -1
+          directSource.indexOf('await globalThis["import"](') !== -1 ||
+          needsAsyncFallback
         );
         const canFallback = shouldFallback &&
           err &&
-          err.name === "SyntaxError" &&
+          (err.name === "SyntaxError" || isAwaitReferenceError) &&
           directSource.length > 0;
         if (!canFallback) {
           throw err;
         }
-        const runtimeSource =
+        let runtimeSource =
           transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(transformEsmToCjs(directSource)), filename))) +
             "\n//# sourceURL=" + filename;
+        if (needsAsyncFallback) {
+          runtimeSource = wrapAsyncModule(runtimeSource);
+        }
         if (Array.isArray(g.__exactDebugModuleSources)) {
           g.__exactDebugModuleSources.push({ id: id, filename: filename, source: runtimeSource.slice(0, 2000), fallback: true });
         }
