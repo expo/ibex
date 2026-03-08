@@ -163,10 +163,33 @@ function fillRangeWithBytes(target, fillBytes, start, end) {
   if (from < 0) from = 0;
   if (to < from) to = from;
   if (to > target.length) to = target.length;
+  var length = to - from;
+  if (length <= 0) {
+    return target;
+  }
   var i;
   if (!fillBytes || fillBytes.length === 0) {
+    if (typeof target.fill === "function") {
+      target.fill(0, from, to);
+      return target;
+    }
     for (i = from; i < to; i++) {
       target[i] = 0;
+    }
+    return target;
+  }
+  if (typeof target.fill === "function" && fillBytes.length === 1) {
+    target.fill(fillBytes[0] & 0xff, from, to);
+    return target;
+  }
+  if (typeof target.set === "function" && typeof target.subarray === "function") {
+    var firstCopy = fillBytes.length < length ? fillBytes.length : length;
+    target.set(firstCopy === fillBytes.length ? fillBytes : fillBytes.subarray(0, firstCopy), from);
+    var copied = firstCopy;
+    while (copied < length) {
+      var copyLength = copied < (length - copied) ? copied : (length - copied);
+      target.set(target.subarray(from, from + copyLength), from + copied);
+      copied += copyLength;
     }
     return target;
   }
@@ -693,7 +716,20 @@ function decodeUtf8Bytes(bytes) {
 
 function decodeBytes(bytes, encoding, start, end) {
   var enc = coerceEncoding(encoding || "utf8");
-  var slice = (start !== undefined || end !== undefined) ? Uint8Array.prototype.slice.call(bytes, start || 0, end) : bytes;
+  var sliceStart = start || 0;
+  var slice = (start !== undefined || end !== undefined)
+    ? (typeof bytes.subarray === "function" ? bytes.subarray(sliceStart, end) : Uint8Array.prototype.slice.call(bytes, sliceStart, end))
+    : bytes;
+  if (enc === "utf8") {
+    if (typeof __exactBytesToUtf8String === "function") {
+      return __exactBytesToUtf8String(slice);
+    }
+    if (typeof TextDecoder !== "undefined") {
+      var utf8View = (slice.__isExactBuffer) ? new Uint8Array(slice) : slice;
+      return new TextDecoder("utf-8").decode(utf8View);
+    }
+    return decodeUtf8Bytes(slice);
+  }
   if (enc === "hex") {
     var out = "";
     for (var i = 0; i < slice.length; i++) {
@@ -728,9 +764,6 @@ function decodeBytes(bytes, encoding, start, end) {
       result += String.fromCharCode(slice[i] | (slice[i + 1] << 8));
     }
     return result;
-  }
-  if (enc === "utf8") {
-    return decodeUtf8Bytes(slice);
   }
   if (typeof TextDecoder !== "undefined") {
     var view = (slice.__isExactBuffer) ? new Uint8Array(slice) : slice;
