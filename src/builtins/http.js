@@ -1201,7 +1201,7 @@ TcpIncomingMessage.prototype._flushManualData = function() {
 };
 TcpIncomingMessage.prototype._pushBodyChunk = function(chunk) {
   var ReadableCtor = getReadableCtor();
-  if (ReadableCtor && typeof this.push === 'function') {
+  if (ReadableCtor && this._readableState && typeof this.push === 'function') {
     this.push(chunk);
     return;
   }
@@ -1296,16 +1296,18 @@ TcpIncomingMessage.prototype.read = function(size) {
   return chunk;
 };
 TcpIncomingMessage.prototype.on = function(event, listener) {
+  var ReadableCtor = getReadableCtor();
+  if (ReadableCtor && this._readableState && typeof this.push === 'function' && typeof ReadableCtor.prototype.on === 'function') {
+    return ReadableCtor.prototype.on.call(this, event, listener);
+  }
   EventEmitter.prototype.on.call(this, event, listener);
-  if (!(this._readableState && typeof this.push === 'function')) {
-    if (event === 'data') {
-      this._manualFlowing = true;
-      this._flushManualData();
-    } else if (event === 'readable' && this._manualChunks.length > 0) {
-      this._scheduleManualReadable();
-    } else if (event === 'end' && this._manualEnded && this._manualChunks.length === 0) {
-      this._emitManualEnd();
-    }
+  if (event === 'data') {
+    this._manualFlowing = true;
+    this._flushManualData();
+  } else if (event === 'readable' && this._manualChunks.length > 0) {
+    this._scheduleManualReadable();
+  } else if (event === 'end' && this._manualEnded && this._manualChunks.length === 0) {
+    this._emitManualEnd();
   }
   return this;
 };
@@ -2400,6 +2402,9 @@ function ServerIncomingMessage(requestData, serverId) {
   }
   this.complete = false;
   this.aborted = false;
+  this.destroyed = false;
+  this._closeEmitted = false;
+  this._closeScheduled = false;
 }
 ServerIncomingMessage.prototype = Object.create(EventEmitter.prototype);
 ServerIncomingMessage.prototype.constructor = ServerIncomingMessage;
@@ -2422,9 +2427,13 @@ ServerIncomingMessage.prototype.resume = function() {
   var self = this;
   self.complete = true;
   setTimeout(function() {
+    if (self.destroyed) return;
     if (self._body) self.emit('data', self._body);
     self.emit('end');
-    self.emit('close');
+    if (!self._closeEmitted && !self._closeScheduled) {
+      self._closeEmitted = true;
+      self.emit('close');
+    }
   }, 0);
   return this;
 };
@@ -2435,8 +2444,27 @@ ServerIncomingMessage.prototype.read = function() {
   return readBody;
 };
 ServerIncomingMessage.prototype.destroy = function(err) {
-  if (err) this.emit('error', err);
-  this.emit('close');
+  if (this.destroyed) return this;
+  this.destroyed = true;
+  this.readable = false;
+  this._closeScheduled = true;
+  if (this.complete && err && (err.code === 'ABORT_ERR' || err.name === 'AbortError')) {
+    err = null;
+  }
+  if (!err && !this.complete) {
+    err = new Error('The operation was aborted');
+    err.code = 'ABORT_ERR';
+    err.name = 'AbortError';
+    this.aborted = true;
+  }
+  var self = this;
+  setTimeout(function() {
+    if (err) self.emit('error', err);
+    if (!self._closeEmitted) {
+      self._closeEmitted = true;
+      self.emit('close');
+    }
+  }, 0);
   return this;
 };
 ServerIncomingMessage.prototype.setTimeout = function(msecs, callback) {
