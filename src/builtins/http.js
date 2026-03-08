@@ -3488,6 +3488,8 @@ Server.prototype._onConnection = function(socket) {
   socket._httpServer = this;
   socket._headersTimeoutId = null;
   socket._requestTimeoutId = null;
+  socket._headersTimeoutAt = null;
+  socket._requestTimeoutAt = null;
   socket._headersComplete = false;
   socket._requestTimeoutArmed = false;
 
@@ -3580,6 +3582,7 @@ Server.prototype._onConnection = function(socket) {
       _destroyHttpTimer(socket._headersTimeoutId);
       socket._headersTimeoutId = null;
     }
+    socket._headersTimeoutAt = null;
     socket._headersComplete = true;
   }
 
@@ -3588,6 +3591,7 @@ Server.prototype._onConnection = function(socket) {
       _destroyHttpTimer(socket._requestTimeoutId);
       socket._requestTimeoutId = null;
     }
+    socket._requestTimeoutAt = null;
     socket._requestTimeoutArmed = false;
   }
 
@@ -3606,12 +3610,14 @@ Server.prototype._onConnection = function(socket) {
     if (socket.destroyed) return;
     if (!socket._requestTimeoutArmed && self.requestTimeout > 0) {
       socket._requestTimeoutArmed = true;
+      socket._requestTimeoutAt = Date.now() + self.requestTimeout;
       socket._requestTimeoutId = setTimeout(sendRequestTimeout, self.requestTimeout);
       if (socket._requestTimeoutId && typeof socket._requestTimeoutId.unref === 'function') {
         socket._requestTimeoutId.unref();
       }
     }
     if (!socket._headersComplete && !socket._headersTimeoutId && self.headersTimeout > 0) {
+      socket._headersTimeoutAt = Date.now() + self.headersTimeout;
       socket._headersTimeoutId = setTimeout(sendRequestTimeout, self.headersTimeout);
       if (socket._headersTimeoutId && typeof socket._headersTimeoutId.unref === 'function') {
         socket._headersTimeoutId.unref();
@@ -3633,6 +3639,11 @@ Server.prototype._onConnection = function(socket) {
   armRequestParsingTimeouts();
 
   socket.on('data', function(chunk) {
+    if ((socket._headersTimeoutAt && Date.now() >= socket._headersTimeoutAt) ||
+        (socket._requestTimeoutAt && Date.now() >= socket._requestTimeoutAt)) {
+      sendRequestTimeout();
+      return;
+    }
     if (socket._isIdle && !socket._requestTimeoutArmed && !socket.destroyed) {
       socket._headersComplete = false;
       armRequestParsingTimeouts();
