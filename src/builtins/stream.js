@@ -331,6 +331,20 @@ function _decodeChunk(state, chunk) {
   return state.decoder.write(asBuffer);
 }
 
+function _isBinaryReadableChunk(chunk) {
+  if (chunk == null) return false;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) return true;
+  if (typeof ArrayBuffer !== 'undefined' && chunk instanceof ArrayBuffer) return true;
+  return !!(typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(chunk));
+}
+
+function _markPromiseHandled(promise) {
+  if (promise && typeof promise.catch === 'function') {
+    promise.catch(function() {});
+  }
+  return promise;
+}
+
 function _nextTick(fn) {
   if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
     return process.nextTick(fn);
@@ -369,7 +383,10 @@ function _setReadableEncoding(state, enc) {
     for (var i = 0; i < state.buffer.length; i++) {
       content += state.decoder.write(_bufferFromChunk(state.buffer[i]));
     }
-    state.buffer = content === '' ? [] : [content];
+    state.buffer.length = 0;
+    if (content !== '') {
+      state.buffer.push(content);
+    }
     state.length = state.objectMode ? state.buffer.length : content.length;
     if (state.length === 0) state.ended = state.ended;
   }
@@ -1286,7 +1303,7 @@ Readable.prototype.push = function(chunk, encoding) {
     chunk = Buffer.from(chunk, encoding || state.defaultEncoding || 'utf8');
     encoding = '';
   }
-  if (state.encoding && state.decoder && (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk))) {
+  if (state.encoding && state.decoder && _isBinaryReadableChunk(chunk)) {
     chunk = _decodeChunk(state, chunk);
   }
   var chunkLength = readableStateChunkLength(chunk, state.objectMode);
@@ -1549,6 +1566,7 @@ Readable.prototype.setEncoding = function(enc) {
 
 Readable.prototype.resume = function() {
   if (this.readableFlowing !== true) {
+    var shouldEmitResume = this.readableFlowing === false;
     this.readableFlowing = true;
     this._readableState.reading = false;
     this._readableState.resumeScheduled = true;
@@ -1565,7 +1583,9 @@ Readable.prototype.resume = function() {
       if (!resumeEmitted) {
         resumeEmitted = true;
         self._readableState.resumeScheduled = false;
-        self.emit('resume');
+        if (shouldEmitResume) {
+          self.emit('resume');
+        }
       }
       if (self._destroyed || self.readableFlowing !== true) return;
       self.read(0);
@@ -2772,6 +2792,14 @@ function _toReadable(value, options) {
   return Readable.from(value, options);
 }
 
+function _normalizeReadableFromOptions(options) {
+  var normalized = options ? Object.assign({}, options) : {};
+  if (normalized.objectMode === undefined) {
+    normalized.objectMode = true;
+  }
+  return normalized;
+}
+
 function _toWritable(value, options) {
   if (!value) return null;
   if (_isWritableLike(value)) {
@@ -2871,12 +2899,35 @@ function _duplexFromReadableWritable(readable, writable, options) {
   return duplex;
 }
 
+function _ensureComposeStageReadableEnd(stage) {
+  if (!stage || typeof stage.on !== 'function' || typeof stage.push !== 'function') return;
+  if (stage._isPipelineFunction || stage._transformState) return;
+  stage.on('finish', function() {
+    function maybeCloseReadable() {
+      var readableState = stage._readableState;
+      if (!readableState || stage._destroyed || stage.destroyed) return;
+      if (readableState.ended || readableState.endEmitted) return;
+      if (readableState.length > 0) {
+        _nextTick(maybeCloseReadable);
+        return;
+      }
+      try {
+        stage.push(null);
+      } catch (_err) {}
+    }
+    _nextTick(maybeCloseReadable);
+  });
+}
+
 function _duplexFromFunction(value, options) {
   var inputObjectMode = options && options.objectMode != null ? !!options.objectMode :
-    (options && options.writableObjectMode != null ? !!options.writableObjectMode : false);
+    (options && options.writableObjectMode != null ? !!options.writableObjectMode : true);
   var outputObjectMode = options && options.objectMode != null ? !!options.objectMode :
-    (options && options.readableObjectMode != null ? !!options.readableObjectMode : false);
+    (options && options.readableObjectMode != null ? !!options.readableObjectMode : true);
   var srcOptions = options ? Object.assign({}, options) : {};
+  if (srcOptions.objectMode == null) {
+    srcOptions.objectMode = inputObjectMode;
+  }
   srcOptions.readableObjectMode = inputObjectMode;
   srcOptions.writableObjectMode = inputObjectMode;
   var src = new PassThrough(srcOptions);
@@ -2899,6 +2950,7 @@ function _duplexFromFunction(value, options) {
   }
   var readableOptions = options ? Object.assign({}, options) : {};
   if (options == null || options.objectMode == null) {
+    readableOptions.objectMode = outputObjectMode;
     readableOptions.readableObjectMode = outputObjectMode;
   }
   var readable = _toReadable(output, readableOptions);
@@ -3080,7 +3132,8 @@ Readable.from = function(iterable, options) {
     }
   }
 
-  var readable = new Readable(options);
+  var readableOptions = _normalizeReadableFromOptions(options);
+  var readable = new Readable(readableOptions);
   var readableStream = readable;
   // Handle signal option
   if (options && options.signal) {
@@ -5796,6 +5849,9 @@ function compose() {
     var stage = args[ni];
     if (typeof stage === 'function') {
       stage = Duplex.from(stage, _inferComposeFunctionOptions(args, ni));
+    } else if (!stage || (typeof stage !== 'object' && typeof stage !== 'function')) {
+      var invalidStageErr = makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams" argument must be a stream.');
+      throw invalidStageErr;
     } else if (stage && typeof stage.pipe !== 'function') {
       try {
         stage = Duplex.from(stage);
@@ -5821,6 +5877,10 @@ function compose() {
     if (vi > 0 && !_stageCanWrite(normalized[vi])) {
       throw makeError(TypeError, 'ERR_INVALID_ARG_VALUE', 'The "streams" argument must contain writable streams after the first stage.');
     }
+  }
+
+  for (var ci = 0; ci + 1 < normalized.length; ci++) {
+    _ensureComposeStageReadableEnd(normalized[ci]);
   }
 
   // Pipe all streams together
@@ -6495,6 +6555,10 @@ function _wrapWebStreamWriterState(writer, state) {
     };
     writer.__exactWebStreamWriterReleaseWrapped = true;
   }
+  if (writer && writer.closed && typeof writer.closed.catch === 'function' && !writer.__exactWebStreamWriterClosedHandled) {
+    _markPromiseHandled(writer.closed);
+    writer.__exactWebStreamWriterClosedHandled = true;
+  }
 }
 
 function _patchWebStreamPrototypeInterop() {
@@ -6702,9 +6766,9 @@ Stream.promises = {
   pipeline: function() {
     var args = Array.prototype.slice.call(arguments);
     if (args.length > 0 && typeof args[args.length - 1] === 'function') {
-      return Promise.reject(new TypeError('The callback argument is not supported'));
+      return _markPromiseHandled(Promise.reject(new TypeError('The callback argument is not supported')));
     }
-    return new Promise(function(resolve, reject) {
+    return _markPromiseHandled(new Promise(function(resolve, reject) {
       args.push(function(err) {
         if (err) reject(err);
         else resolve();
@@ -6714,11 +6778,11 @@ Stream.promises = {
       } catch (err) {
         reject(err);
       }
-    });
+    }));
   },
   finished: function(stream, opts) {
     if (typeof opts === 'function') {
-      return Promise.reject(new TypeError('The callback argument is not supported'));
+      return _markPromiseHandled(Promise.reject(new TypeError('The callback argument is not supported')));
     }
     if (opts !== undefined && opts !== null && typeof opts !== 'object') {
       throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received ' + (typeof opts));
@@ -6726,7 +6790,7 @@ Stream.promises = {
     if (opts && typeof opts.cleanup !== 'undefined' && typeof opts.cleanup !== 'boolean') {
       throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "cleanup" argument must be of type boolean. Received ' + typeof opts.cleanup);
     }
-    return new Promise(function(resolve, reject) {
+    return _markPromiseHandled(new Promise(function(resolve, reject) {
       try {
         finished(stream, opts || {}, function(err) {
           if (err) reject(err);
@@ -6735,7 +6799,7 @@ Stream.promises = {
       } catch (err) {
         reject(err);
       }
-    });
+    }));
   }
 };
 
