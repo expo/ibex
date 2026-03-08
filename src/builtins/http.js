@@ -1,4 +1,42 @@
 var EventEmitter = require('node:events').EventEmitter;
+var Readable = null;
+function getReadableCtor() {
+  if (Readable) return Readable;
+  try {
+    var streamModule = require('node:stream');
+    if (streamModule && typeof streamModule.Readable === 'function') {
+      Readable = streamModule.Readable;
+    }
+  } catch (_streamErr) {}
+  return Readable;
+}
+
+function upgradeTcpIncomingMessagePrototype() {
+  var ReadableCtor = getReadableCtor();
+  if (!ReadableCtor) return null;
+  if (TcpIncomingMessage.prototype && TcpIncomingMessage.prototype._usesReadablePrototype) {
+    return ReadableCtor;
+  }
+
+  var currentProto = TcpIncomingMessage.prototype;
+  var nextProto = Object.create(ReadableCtor.prototype);
+  if (currentProto) {
+    var names = Object.getOwnPropertyNames(currentProto);
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      if (name === 'constructor') continue;
+      Object.defineProperty(nextProto, name, Object.getOwnPropertyDescriptor(currentProto, name));
+    }
+  }
+  Object.defineProperty(nextProto, '_usesReadablePrototype', {
+    value: true,
+    writable: true,
+    configurable: true
+  });
+  nextProto.constructor = TcpIncomingMessage;
+  TcpIncomingMessage.prototype = nextProto;
+  return ReadableCtor;
+}
 
 // Shared symbol for timeout tracking (matches internal/timers)
 var kTimeout = Symbol.for('kTimeout');
@@ -870,9 +908,7 @@ ClientRequest.prototype._sendViaTcp = function(body) {
     if (responseEnded) return;
     responseEnded = true;
     if (tcpIncoming) {
-      tcpIncoming.complete = true;
-      tcpIncoming.emit('end');
-      tcpIncoming.emit('close');
+      tcpIncoming._finishResponse();
     }
     self.writableFinished = true;
     self.emit('finish');
@@ -886,8 +922,12 @@ ClientRequest.prototype._sendViaTcp = function(body) {
       var abortErr = new Error('aborted');
       abortErr.code = 'ECONNRESET';
       tcpIncoming.aborted = true;
-      tcpIncoming.emit('error', abortErr);
-      tcpIncoming.emit('close');
+      if (typeof tcpIncoming.destroy === 'function') {
+        tcpIncoming.destroy(abortErr);
+      } else {
+        tcpIncoming.emit('error', abortErr);
+        tcpIncoming.emit('close');
+      }
     }
   }
 
@@ -909,7 +949,9 @@ ClientRequest.prototype._sendViaTcp = function(body) {
         if (chunkBuffer.length < chunkRemaining) {
           if (chunkBuffer.length > 0 && tcpIncoming) {
             var partBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkBuffer, 'utf8') : chunkBuffer;
-            tcpIncoming.emit('data', partBuf);
+            if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(partBuf);
+            else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(partBuf);
+            else tcpIncoming.emit('data', partBuf);
             chunkRemaining -= chunkBuffer.length;
             chunkBuffer = '';
           }
@@ -920,7 +962,9 @@ ClientRequest.prototype._sendViaTcp = function(body) {
         chunkRemaining = 0;
         if (tcpIncoming && chunkData) {
           var chunkDataBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkData, 'utf8') : chunkData;
-          tcpIncoming.emit('data', chunkDataBuf);
+          if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(chunkDataBuf);
+          else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(chunkDataBuf);
+          else tcpIncoming.emit('data', chunkDataBuf);
         }
         chunkParserState = 'trailer';
       } else if (chunkParserState === 'trailer') {
@@ -998,7 +1042,9 @@ ClientRequest.prototype._sendViaTcp = function(body) {
             ? Buffer.byteLength(bodyStart, 'utf8') : bodyStart.length;
           bodyBytesReceived += bodyStartBytes;
           var bodyStartBuf = (typeof Buffer !== 'undefined') ? Buffer.from(bodyStart, 'utf8') : bodyStart;
-          tcpIncoming.emit('data', bodyStartBuf);
+          if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(bodyStartBuf);
+          else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(bodyStartBuf);
+          else tcpIncoming.emit('data', bodyStartBuf);
         }
       }
       if (!isChunked && contentLength >= 0 && bodyBytesReceived >= contentLength) {
@@ -1015,7 +1061,9 @@ ClientRequest.prototype._sendViaTcp = function(body) {
           ? Buffer.byteLength(str, 'utf8') : str.length;
         bodyBytesReceived += strBytes;
         var strBuf = (typeof Buffer !== 'undefined') ? Buffer.from(str, 'utf8') : str;
-        tcpIncoming.emit('data', strBuf);
+        if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(strBuf);
+        else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(strBuf);
+        else tcpIncoming.emit('data', strBuf);
         if (contentLength >= 0 && bodyBytesReceived >= contentLength) {
           finishResponse();
         }
@@ -1047,7 +1095,12 @@ ClientRequest.prototype._sendViaTcp = function(body) {
 
 // TCP-based IncomingMessage for client responses
 function TcpIncomingMessage(statusCode, statusMessage, headers, rawHeaders) {
-  EventEmitter.call(this);
+  var ReadableCtor = upgradeTcpIncomingMessagePrototype();
+  if (ReadableCtor) {
+    ReadableCtor.call(this);
+  } else {
+    EventEmitter.call(this);
+  }
   this.statusCode = statusCode;
   this.statusMessage = statusMessage;
   this.headers = headers;
@@ -1071,8 +1124,14 @@ function TcpIncomingMessage(statusCode, statusMessage, headers, rawHeaders) {
   } else {
     this.shouldKeepAlive = connHeader.indexOf('close') === -1;
   }
+  this._httpCloseEmitted = false;
+  this._manualChunks = [];
+  this._manualReadableScheduled = false;
+  this._manualFlowing = false;
+  this._manualEnded = false;
+  this._manualEndEmitted = false;
 }
-TcpIncomingMessage.prototype = Object.create(EventEmitter.prototype);
+TcpIncomingMessage.prototype = Object.create((Readable || EventEmitter).prototype);
 TcpIncomingMessage.prototype.constructor = TcpIncomingMessage;
 
 Object.defineProperty(TcpIncomingMessage.prototype, 'connection', {
@@ -1082,14 +1141,162 @@ Object.defineProperty(TcpIncomingMessage.prototype, 'connection', {
   configurable: true
 });
 
+TcpIncomingMessage.prototype._read = function() {};
+TcpIncomingMessage.prototype._emitHttpClose = function() {
+  if (this._httpCloseEmitted) return;
+  this._httpCloseEmitted = true;
+  this.emit('close');
+};
+TcpIncomingMessage.prototype._scheduleManualReadable = function() {
+  var self = this;
+  if (self._manualReadableScheduled) return;
+  self._manualReadableScheduled = true;
+  setTimeout(function() {
+    self._manualReadableScheduled = false;
+    if (self._manualChunks.length > 0 && self.listenerCount && self.listenerCount('readable') > 0) {
+      self.emit('readable');
+    }
+    if (self._manualEnded && self._manualChunks.length === 0) {
+      self._emitManualEnd();
+    }
+  }, 0);
+};
+TcpIncomingMessage.prototype._emitManualEnd = function() {
+  if (this._manualEndEmitted) return;
+  this._manualEndEmitted = true;
+  this.complete = true;
+  this.emit('end');
+  this._emitHttpClose();
+};
+TcpIncomingMessage.prototype._flushManualData = function() {
+  var self = this;
+  if (!self._manualFlowing && (!self.listenerCount || self.listenerCount('data') === 0)) {
+    return;
+  }
+  self._manualFlowing = true;
+  while (self._manualChunks.length > 0) {
+    self.emit('data', self._manualChunks.shift());
+  }
+  if (self._manualEnded && self._manualChunks.length === 0) {
+    self._emitManualEnd();
+  }
+};
+TcpIncomingMessage.prototype._pushBodyChunk = function(chunk) {
+  var ReadableCtor = getReadableCtor();
+  if (ReadableCtor && typeof this.push === 'function') {
+    this.push(chunk);
+    return;
+  }
+  if (this._encoding && typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
+    chunk = chunk.toString(this._encoding);
+  }
+  this._manualChunks.push(chunk);
+  if (this._manualFlowing || (this.listenerCount && this.listenerCount('data') > 0)) {
+    this._flushManualData();
+  } else {
+    this._scheduleManualReadable();
+  }
+};
+TcpIncomingMessage.prototype._finishResponse = function() {
+  var ReadableCtor = getReadableCtor();
+  this.complete = true;
+  if (ReadableCtor && this._readableState && typeof this.push === 'function') {
+    if (this._readableState && this._readableState.endEmitted) {
+      this._emitHttpClose();
+      return;
+    }
+    this.push(null);
+    if (this._readableState && this._readableState.endEmitted) {
+      this._emitHttpClose();
+    } else {
+      var self = this;
+      this.once('end', function() {
+        self._emitHttpClose();
+      });
+    }
+    return;
+  }
+  this._manualEnded = true;
+  if (this._manualFlowing || (this.listenerCount && this.listenerCount('data') > 0)) {
+    this._flushManualData();
+  } else if (this._manualChunks.length === 0) {
+    this._emitManualEnd();
+  } else {
+    this._scheduleManualReadable();
+  }
+};
 TcpIncomingMessage.prototype.setEncoding = function(enc) {
+  var ReadableCtor = getReadableCtor();
+  if (ReadableCtor && this._readableState && ReadableCtor.prototype.setEncoding) {
+    ReadableCtor.prototype.setEncoding.call(this, enc);
+    return this;
+  }
   this._encoding = enc;
+  for (var i = 0; i < this._manualChunks.length; i++) {
+    var chunk = this._manualChunks[i];
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
+      this._manualChunks[i] = chunk.toString(enc);
+    }
+  }
   return this;
 };
-TcpIncomingMessage.prototype.pause = function() { this._paused = true; return this; };
-TcpIncomingMessage.prototype.resume = function() { this._paused = false; return this; };
-TcpIncomingMessage.prototype.read = function() { return null; };
+TcpIncomingMessage.prototype.pause = function() {
+  var ReadableCtor = getReadableCtor();
+  this._paused = true;
+  this._manualFlowing = false;
+  if (ReadableCtor && this._readableState && ReadableCtor.prototype.pause) {
+    return ReadableCtor.prototype.pause.call(this);
+  }
+  return this;
+};
+TcpIncomingMessage.prototype.resume = function() {
+  var ReadableCtor = getReadableCtor();
+  this._paused = false;
+  this._manualFlowing = true;
+  if (ReadableCtor && this._readableState && ReadableCtor.prototype.resume) {
+    return ReadableCtor.prototype.resume.call(this);
+  }
+  this._flushManualData();
+  return this;
+};
+TcpIncomingMessage.prototype.read = function(size) {
+  var ReadableCtor = getReadableCtor();
+  if (ReadableCtor && this._readableState && ReadableCtor.prototype.read) {
+    return ReadableCtor.prototype.read.call(this, size);
+  }
+  if (this._manualChunks.length === 0) {
+    if (this._manualEnded) this._emitManualEnd();
+    return null;
+  }
+  var chunk = this._manualChunks.shift();
+  if (this._manualChunks.length === 0 && this._manualEnded) {
+    var self = this;
+    setTimeout(function() {
+      self._emitManualEnd();
+    }, 0);
+  }
+  return chunk;
+};
+TcpIncomingMessage.prototype.on = function(event, listener) {
+  EventEmitter.prototype.on.call(this, event, listener);
+  if (!(this._readableState && typeof this.push === 'function')) {
+    if (event === 'data') {
+      this._manualFlowing = true;
+      this._flushManualData();
+    } else if (event === 'readable' && this._manualChunks.length > 0) {
+      this._scheduleManualReadable();
+    } else if (event === 'end' && this._manualEnded && this._manualChunks.length === 0) {
+      this._emitManualEnd();
+    }
+  }
+  return this;
+};
+TcpIncomingMessage.prototype.addListener = TcpIncomingMessage.prototype.on;
 TcpIncomingMessage.prototype.pipe = function(dest, options) {
+  var ReadableCtor = getReadableCtor();
+  if (ReadableCtor && this._readableState && ReadableCtor.prototype.pipe) {
+    return ReadableCtor.prototype.pipe.call(this, dest, options);
+  }
   var self = this;
   self.on('data', function(chunk) {
     var canWrite = dest.write(chunk);
@@ -1103,14 +1310,24 @@ TcpIncomingMessage.prototype.pipe = function(dest, options) {
   });
   return dest;
 };
+TcpIncomingMessage.prototype._destroy = function(err, callback) {
+  if (this.socket && !this.socket.destroyed) {
+    try { this.socket.destroy(); } catch(e) {}
+  }
+  if (typeof callback === 'function') callback(err || null);
+};
 TcpIncomingMessage.prototype.destroy = function(err) {
+  var ReadableCtor = getReadableCtor();
+  if (ReadableCtor && this._readableState && ReadableCtor.prototype.destroy) {
+    return ReadableCtor.prototype.destroy.call(this, err);
+  }
   if (this.destroyed) return this;
   this.destroyed = true;
   if (this.socket && !this.socket.destroyed) {
     try { this.socket.destroy(); } catch(e) {}
   }
   if (err) this.emit('error', err);
-  this.emit('close');
+  this._emitHttpClose();
   return this;
 };
 TcpIncomingMessage.prototype.setTimeout = function(msecs, callback) {
