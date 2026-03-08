@@ -1175,6 +1175,7 @@ function toBufferData(data, encoding) {
 var _LARGE_STRING_WRITE_CHUNK_CHARS = 4 * 1024 * 1024;
 var _DEFERRED_STRING_WRITE_THRESHOLD = 256 * 1024;
 var _MAX_WRITE_PASS_BYTES = 1024 * 1024;
+var _SOCKET_READ_CHUNK_BYTES = 256 * 1024;
 var _deferredUtf8TextEncoder = null;
 
 function _normalizeWriteEncoding(encoding) {
@@ -1361,7 +1362,9 @@ Socket.prototype._drainWriteQueue = function() {
         }
         continue;
       }
-      remaining = item.deferredChunk.slice(item.deferredOffset);
+      remaining = typeof item.deferredChunk.subarray === 'function'
+        ? item.deferredChunk.subarray(item.deferredOffset)
+        : item.deferredChunk.slice(item.deferredOffset);
     }
     var written = 0;
     try {
@@ -1577,7 +1580,7 @@ Socket.prototype._startPolling = function() {
       }
       try {
           while (true) {
-            var onreadData = __exactTcpRead(nativeHandle, 65536);
+            var onreadData = __exactTcpRead(nativeHandle, _SOCKET_READ_CHUNK_BYTES);
             if (onreadData === null) {
             // EOF
             self._pollTimer = null;
@@ -1622,7 +1625,7 @@ Socket.prototype._startPolling = function() {
     try {
       var readData = false;
       while (true) {
-        var data = __exactTcpRead(nativeHandle, 65536);
+        var data = __exactTcpRead(nativeHandle, _SOCKET_READ_CHUNK_BYTES);
         if (data === null) {
           // EOF
           self._pollTimer = null;
