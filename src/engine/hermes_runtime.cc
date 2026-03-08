@@ -456,6 +456,9 @@ void drainMicrotasks(facebook::jsi::Runtime& rt) {
 }
 
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
+extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
+extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
+extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
 
 std::mutex g_runtimeRegistryMutex;
 std::unordered_set<ExactHermesRuntime*> g_activeRuntimes;
@@ -553,6 +556,15 @@ struct ExactHermesRuntime {
   // or NULL on error (error message in out_error).
   char* (*host_call_fn)(const char* op, const char* args_json) = nullptr;
 };
+
+bool hasPendingFetchCallbacks(ExactHermesRuntime* runtime) {
+  if (!runtime) {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(runtime->fetchMutex);
+  return !runtime->fetchCallbacks.empty();
+}
 
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime) {
@@ -12788,6 +12800,21 @@ extern "C" int ex_hermes_eval(
   }
 
   try {
+    auto writeOutString = [&](const std::string& text) -> bool {
+      if (!out_value) {
+        return true;
+      }
+
+      char* heap = static_cast<char*>(malloc(text.size() + 1));
+      if (!heap) {
+        return false;
+      }
+      memcpy(heap, text.data(), text.size());
+      heap[text.size()] = '\0';
+      *out_value = heap;
+      return true;
+    };
+
     facebook::jsi::Value result;
     std::shared_ptr<facebook::jsi::Buffer> source_buffer;
     if (is_bytecode) {
@@ -12847,34 +12874,72 @@ extern "C" int ex_hermes_eval(
       drainMicrotasks(rt);
 
       if (!check.isNull() && check.isObject()) {
-        auto rObj = check.getObject(rt);
-        bool done = false;
-        auto doneProp = rObj.getProperty(rt, "done");
-        if (doneProp.isBool()) done = doneProp.getBool();
+        auto promiseState = check.getObject(rt);
+        auto resolvePromiseResult = [&]() -> std::optional<bool> {
+          auto doneProp = promiseState.getProperty(rt, "done");
+          if (!doneProp.isBool() || !doneProp.getBool()) {
+            return std::nullopt;
+          }
 
-        if (done) {
-          auto ok = rObj.getProperty(rt, "ok");
+          auto ok = promiseState.getProperty(rt, "ok");
           if (ok.isBool() && ok.getBool()) {
-            result = rObj.getProperty(rt, "v");
-          } else {
-            // Promise rejected — report as error
-            auto errVal = rObj.getProperty(rt, "v");
-            if (out_value) {
-              auto msg = valueToString(rt, errVal);
-              auto sz = msg.size();
-              char* heap = static_cast<char*>(malloc(sz + 1));
-              if (heap) {
-                memcpy(heap, msg.data(), sz);
-                heap[sz] = '\0';
-                *out_value = heap;
-              }
+            result = promiseState.getProperty(rt, "v");
+            return true;
+          }
+
+          auto errVal = promiseState.getProperty(rt, "v");
+          if (!writeOutString(valueToString(rt, errVal))) {
+            return false;
+          }
+          return false;
+        };
+
+        while (true) {
+          auto settled = resolvePromiseResult();
+          if (settled.has_value()) {
+            if (!settled.value()) {
+              return 1;
+            }
+            break;
+          }
+
+          int executed = ex_hermes_poll(runtime, nowMs());
+          if (executed < 0) {
+            if (!writeOutString("Hermes task execution failed while awaiting Promise result")) {
+              return 1;
             }
             return 1;
           }
+
+          settled = resolvePromiseResult();
+          if (settled.has_value()) {
+            if (!settled.value()) {
+              return 1;
+            }
+            break;
+          }
+
+          auto nextTimer = ex_hermes_next_timer(runtime);
+          auto hasPendingWork = ex_hermes_has_pending_tasks(runtime) != 0;
+          if (!hasPendingWork && nextTimer < 0) {
+            // No timers or host work can advance the Promise any further.
+            // Fall back to returning the raw Promise value rather than spin.
+            break;
+          }
+
+          if (nextTimer >= 0) {
+            auto now = nowMs();
+            auto delay = nextTimer > static_cast<int64_t>(now)
+                ? static_cast<uint64_t>(nextTimer) - now
+                : 0;
+            if (delay > 0) {
+              std::this_thread::sleep_for(
+                  std::chrono::milliseconds(std::min<uint64_t>(delay, 5)));
+            }
+          } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          }
         }
-        // If !done, the promise hasn't settled yet (truly async).
-        // Fall through and return whatever we have — the event loop
-        // will drive it later.
       }
     }
 
@@ -13054,7 +13119,8 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   // Check if there are any referenced tasks keeping the loop alive
   // (excluding unref'd timers). If not, skip unref'd due timers.
   bool has_referenced_work = false;
-  if (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()) {
+  if (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()
+      || native_ws_has_active() || hasPendingFetchCallbacks(runtime)) {
     has_referenced_work = true;
   } else if (!runtime->next_tick.empty()) {
     has_referenced_work = true;
@@ -13155,7 +13221,8 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
   if (!runtime) {
     return 0;
   }
-  if (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()) {
+  if (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()
+      || native_ws_has_active() || hasPendingFetchCallbacks(runtime)) {
     return 1;
   }
   if (!runtime->next_tick.empty()) {
