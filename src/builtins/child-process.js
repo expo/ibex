@@ -2516,6 +2516,19 @@ cp.spawn = function spawn(command, args, options) {
     }
     options = Object.assign({}, options, { cwd: options.cwd.pathname });
   }
+  if (Array.isArray(options.stdio)) {
+    var rawIpcCount = 0;
+    for (var rawStdioIndex = 0; rawStdioIndex < options.stdio.length; rawStdioIndex++) {
+      if (options.stdio[rawStdioIndex] === 'ipc') rawIpcCount++;
+    }
+    if (rawIpcCount > 1) {
+      var rawIpcErr = new Error('Child process can have only one IPC pipe');
+      rawIpcErr.code = 'ERR_IPC_ONE_PIPE';
+      rawIpcErr.name = 'Error';
+      _addCodeToString(rawIpcErr);
+      throw rawIpcErr;
+    }
+  }
   var normalizedOptions = _normalizeSpawnOptions(options, command);
   if (ChildProcess.prototype.spawn !== _childProcessPrototypeSpawnImpl) {
     try {
