@@ -2,6 +2,11 @@ var _hooksEnabled = false;
 var _noop = function() {};
 var _idCounter = 1;
 var _activeHooks = [];
+var _resourceFinalizer = typeof FinalizationRegistry === 'function'
+  ? new FinalizationRegistry(function(asyncId) {
+      __emitDestroy(asyncId);
+    })
+  : null;
 
 /* ------------------------------------------------------------------ */
 /*  Global async context tracking                                      */
@@ -183,6 +188,19 @@ function __emitInit(asyncId, type, triggerAsyncId, resource) {
   }
 }
 
+function __emitDestroy(asyncId) {
+  if (!_hooksEnabled) return;
+  var i;
+  for (i = 0; i < _activeHooks.length; i++) {
+    var callbacks = _activeHooks[i];
+    if (callbacks && typeof callbacks.destroy === 'function') {
+      try {
+        callbacks.destroy(asyncId);
+      } catch (e) {}
+    }
+  }
+}
+
 function __getHooksEnabled() {
   return _hooksEnabled;
 }
@@ -205,6 +223,11 @@ function AsyncResource(type, options) {
     ? options.triggerAsyncId
     : executionAsyncId();
   this._context = _captureContext();
+  this._destroyed = false;
+  __emitInit(this._asyncId, this.type, this._triggerAsyncId);
+  if (_resourceFinalizer) {
+    _resourceFinalizer.register(this, this._asyncId);
+  }
 }
 
 AsyncResource.prototype.runInAsyncScope = function(fn, thisArg) {
@@ -217,7 +240,11 @@ AsyncResource.prototype.runInAsyncScope = function(fn, thisArg) {
     _restoreContext(prev);
   }
 };
-AsyncResource.prototype.emitDestroy = _noop;
+AsyncResource.prototype.emitDestroy = function() {
+  if (this._destroyed) return;
+  this._destroyed = true;
+  __emitDestroy(this._asyncId);
+};
 AsyncResource.prototype.emitBefore = _noop;
 AsyncResource.prototype.emitAfter = _noop;
 AsyncResource.prototype.asyncId = function() {

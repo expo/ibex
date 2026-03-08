@@ -1285,9 +1285,30 @@ function _normalizeSpawnOptions(options, command) {
       _normalizeSpawnMode(stdio, 'pipe')
     ];
   } else if (Array.isArray(stdio)) {
-    normalized.stdio = [];
-    for (var si = 0; si < Math.max(stdio.length, 3); si++) {
-      normalized.stdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+    var rawStdio = [];
+    for (var si = 0; si < stdio.length; si++) {
+      rawStdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+    }
+    var ipcIndex = rawStdio.indexOf('ipc');
+    if (ipcIndex !== -1) {
+      normalized.stdio = ['pipe', 'pipe', 'pipe', 'ipc'];
+      var compacted = [];
+      for (var ri = 0; ri < rawStdio.length; ri++) {
+        if (rawStdio[ri] === 'ipc') continue;
+        compacted.push(rawStdio[ri]);
+      }
+      for (var ci = 0; ci < compacted.length; ci++) {
+        if (ci < 3) {
+          normalized.stdio[ci] = compacted[ci];
+        } else {
+          normalized.stdio[ci + 1] = compacted[ci];
+        }
+      }
+    } else {
+      normalized.stdio = [];
+      for (var si2 = 0; si2 < Math.max(stdio.length, 3); si2++) {
+        normalized.stdio[si2] = _normalizeSpawnMode(stdio[si2], 'pipe');
+      }
     }
   } else {
     normalized.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];

@@ -139,6 +139,24 @@ function _installReadableStdinFallback(proc) {
     return;
   }
   var stream = proc.stdin;
+  if (typeof stream.destroy !== 'function') {
+    stream.destroy = function(err) {
+      stream.destroyed = true;
+      stream._ended = true;
+      stream.readable = false;
+      stream.readableEnded = true;
+      stream.readableFlowing = false;
+      if (stream._pollTimer) {
+        clearTimeout(stream._pollTimer);
+        stream._pollTimer = 0;
+      }
+      if (typeof stream.emit === 'function') {
+        if (err) stream.emit('error', err);
+        stream.emit('close');
+      }
+      return stream;
+    };
+  }
   if (typeof stream.resume === 'function' || typeof __exactStdinRead !== 'function') {
     return;
   }

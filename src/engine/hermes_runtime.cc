@@ -6388,6 +6388,31 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpShutdown", std::move(tcpShutdownFn));
 
+    // __exactTcpReset(handle) -> 0
+    auto tcpResetFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpReset"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpReset: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+          }
+          struct linger lingerOpt;
+          lingerOpt.l_onoff = 1;
+          lingerOpt.l_linger = 0;
+          setsockopt(fd, SOL_SOCKET, SO_LINGER, &lingerOpt, sizeof(lingerOpt));
+          ::shutdown(fd, SHUT_RDWR);
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpReset", std::move(tcpResetFn));
+
     // __exactTcpSetNoDelay(handle, enable) -> 0
     auto tcpSetNoDelayFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetNoDelay"), 2,
@@ -6656,8 +6681,6 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int backlog = 128;
           if (count > 1 && args[1].isNumber()) backlog = static_cast<int>(args[1].asNumber());
-          // Unlink existing socket file (common pattern for Unix sockets)
-          ::unlink(path.c_str());
           int fd = socket(AF_UNIX, SOCK_STREAM, 0);
           if (fd == -1) {
             throw facebook::jsi::JSError(runtime,
@@ -11388,6 +11411,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     stdinObj.setProperty(rt, "readable", facebook::jsi::Value(true));
     stdinObj.setProperty(rt, "isTTY", facebook::jsi::Value(::isatty(0) != 0));
     stdinObj.setProperty(rt, "fd", facebook::jsi::Value(0));
+    auto stdinDestroyFn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "destroy"),
+        1,
+        [](facebook::jsi::Runtime&,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value*,
+           size_t) -> facebook::jsi::Value {
+          return facebook::jsi::Value::undefined();
+        });
+    stdinObj.setProperty(rt, "destroy", std::move(stdinDestroyFn));
     processObj.setProperty(rt, "stdin", std::move(stdinObj));
   }
 
@@ -11748,6 +11782,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   pinStream('stdout', p.stdout, createWritableProxy);
   pinStream('stderr', p.stderr, createWritableProxy);
   pinStream('stdin', p.stdin);
+  if (p.stdin && typeof p.stdin.destroy !== 'function') {
+    p.stdin.destroy = function(err) {
+      this.destroyed = true;
+      this.readable = false;
+      if (typeof this.emit === 'function') {
+        if (err) this.emit('error', err);
+        this.emit('close');
+      }
+      return this;
+    };
+  }
   p.__exactStreamStabilityPatched = true;
 })();
 )JS";

@@ -21,6 +21,36 @@
     };
   }
 
+  if (typeof globalThis.gc === 'function' && globalThis.gc.__exactWrapped !== true) {
+    var __exactNativeGc = globalThis.gc;
+    var __exactWrappedGc = function() {
+      var args = arguments;
+      __exactNativeGc.apply(globalThis, args);
+      var scheduleExtraGc = null;
+      if (typeof globalThis.setImmediate === 'function') {
+        scheduleExtraGc = globalThis.setImmediate;
+      } else if (typeof process !== 'undefined' && process && typeof process.nextTick === 'function') {
+        scheduleExtraGc = process.nextTick;
+      }
+      if (scheduleExtraGc) {
+        scheduleExtraGc(function() {
+          try {
+            __exactNativeGc.apply(globalThis, args);
+          } catch (err) {}
+        });
+      }
+    };
+    try {
+      Object.defineProperty(__exactWrappedGc, '__exactWrapped', {
+        value: true,
+        configurable: true,
+        enumerable: false,
+        writable: false
+      });
+    } catch (err) {}
+    globalThis.gc = __exactWrappedGc;
+  }
+
   function __exactPatchBrokenSharedArrayBuffer() {
     if (typeof globalThis.ArrayBuffer !== 'function' || typeof globalThis.SharedArrayBuffer !== 'function') {
       return;
@@ -688,6 +718,24 @@
     function __exactInstallReadableStdinFallback() {
       var stream = globalThis.process.stdin;
       if (!stream || typeof stream !== 'object') return;
+      if (typeof stream.destroy !== 'function') {
+        stream.destroy = function(err) {
+          stream.destroyed = true;
+          stream._ended = true;
+          stream.readable = false;
+          stream.readableEnded = true;
+          stream.readableFlowing = false;
+          if (stream._pollTimer) {
+            clearTimeout(stream._pollTimer);
+            stream._pollTimer = 0;
+          }
+          if (typeof stream.emit === 'function') {
+            if (err) stream.emit('error', err);
+            stream.emit('close');
+          }
+          return stream;
+        };
+      }
       if (typeof stream.resume === 'function') return;
       if (typeof globalThis.__exactStdinRead !== 'function') return;
 

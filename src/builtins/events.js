@@ -5,8 +5,12 @@
 //   - Once-wrapped listeners have .listener property
 
 var errorMonitorSymbol = Symbol('events.errorMonitor');
+var captureRejectionSymbol = typeof Symbol === 'function' && typeof Symbol.for === 'function'
+  ? Symbol.for('nodejs.rejection')
+  : '__nodejsRejection';
 var objectToString = Object.prototype.toString;
 var __AsyncResource;
+var _captureRejections = false;
 try {
   __AsyncResource = require('async_hooks').AsyncResource;
 } catch (e) {
@@ -102,6 +106,35 @@ function _invokeListener(listener, thisArg, args) {
   return listener.apply(thisArg, args);
 }
 
+function _scheduleRejection(handler) {
+  if (typeof process !== 'undefined' && process && typeof process.nextTick === 'function') {
+    process.nextTick(handler);
+    return;
+  }
+  setTimeout(handler, 0);
+}
+
+function _emitPromiseRejection(emitter, err, eventName, args) {
+  _scheduleRejection(function() {
+    if (emitter && captureRejectionSymbol &&
+        typeof emitter[captureRejectionSymbol] === 'function') {
+      emitter[captureRejectionSymbol].apply(emitter, [err, eventName].concat(args));
+      return;
+    }
+    emitter.emit('error', err);
+  });
+}
+
+function _maybeCaptureRejection(emitter, result, eventName, args) {
+  if (!result || typeof result.then !== 'function') return;
+  var shouldCapture = emitter &&
+    (emitter.captureRejections === true || EventEmitter.captureRejections === true);
+  if (!shouldCapture) return;
+  result.then(undefined, function(err) {
+    _emitPromiseRejection(emitter, err, eventName, args);
+  });
+}
+
 Object.defineProperty(EventEmitter, 'defaultMaxListeners', {
   enumerable: true,
   get: function() {
@@ -125,6 +158,16 @@ Object.defineProperty(EventEmitter, 'defaultMaxListeners', {
       throw err;
     }
     _defaultMaxListeners = val;
+  }
+});
+
+Object.defineProperty(EventEmitter, 'captureRejections', {
+  enumerable: true,
+  get: function() {
+    return _captureRejections;
+  },
+  set: function(val) {
+    _captureRejections = val === true;
   }
 });
 
@@ -438,7 +481,7 @@ EventEmitter.prototype.emit = function emit(eventName) {
       console.error('[stream-debug] emit non-function handler', eventName, typeof handler, handler);
       console.error(new Error().stack);
     }
-    _invokeListener(handler, this, args);
+    _maybeCaptureRejection(this, _invokeListener(handler, this, args), eventName, args);
   } else {
     var current = handler.slice();
     if (process && process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === '1') {
@@ -450,7 +493,7 @@ EventEmitter.prototype.emit = function emit(eventName) {
       }
     }
     for (var i = 0; i < current.length; i++) {
-      _invokeListener(current[i], this, args);
+      _maybeCaptureRejection(this, _invokeListener(current[i], this, args), eventName, args);
     }
   }
 
@@ -799,6 +842,7 @@ EventEmitter.listenerCount = _listenerCount;
 EventEmitter.getMaxListeners = getMaxListeners;
 EventEmitter.setMaxListeners = setMaxListeners;
 EventEmitter.errorMonitor = errorMonitorSymbol;
+EventEmitter.captureRejectionSymbol = captureRejectionSymbol;
 EventEmitter.init = EventEmitter.init;
 
 module.exports = EventEmitter;
@@ -814,3 +858,5 @@ module.exports.getMaxListeners = getMaxListeners;
 module.exports.setMaxListeners = setMaxListeners;
 module.exports.errorMonitor = errorMonitorSymbol;
 module.exports.defaultMaxListeners = EventEmitter.defaultMaxListeners;
+module.exports.captureRejections = EventEmitter.captureRejections;
+module.exports.captureRejectionSymbol = captureRejectionSymbol;
