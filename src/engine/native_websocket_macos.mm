@@ -7,6 +7,7 @@
 
 #import <Foundation/Foundation.h>
 #include <cstring>
+#include <cstdlib>
 #include <string>
 #include <mutex>
 #include <unordered_map>
@@ -60,6 +61,45 @@ struct WebSocketEntry {
 static std::mutex wsMutex;
 static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> wsConnections;
 static uint32_t nextWsId = 1;
+
+static bool shouldTrustLoopbackTls() {
+    const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
+    if (!value || !*value) {
+        return false;
+    }
+    return std::string(value) != "0";
+}
+
+static bool isLoopbackHost(NSString* host) {
+    if (!host) {
+        return false;
+    }
+    return [host isEqualToString:@"localhost"] ||
+           [host isEqualToString:@"127.0.0.1"] ||
+           [host isEqualToString:@"::1"];
+}
+
+static bool handleLoopbackTlsChallenge(
+    NSURLAuthenticationChallenge* challenge,
+    void (^completionHandler)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential * _Nullable credential)
+) {
+    if (!challenge || !completionHandler) {
+        return false;
+    }
+
+    if (shouldTrustLoopbackTls() &&
+        [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] &&
+        isLoopbackHost(challenge.protectionSpace.host)) {
+        SecTrustRef trust = challenge.protectionSpace.serverTrust;
+        if (trust) {
+            completionHandler(NSURLSessionAuthChallengeUseCredential,
+                              [NSURLCredential credentialForTrust:trust]);
+            return true;
+        }
+    }
+
+    return false;
+}
 
 static void destroy_entry(uint32_t ws_id) {
     std::shared_ptr<WebSocketEntry> entry;
@@ -152,7 +192,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry);
 // Handle connection failures (DNS errors, TLS errors, connection refused, etc.)
 // Without this, failed connections silently disappear with no callback.
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
-    didCompleteWithError:(NSError *)error {
+didCompleteWithError:(NSError *)error {
     if (!error) return; // Normal completion, not an error
     std::shared_ptr<WebSocketEntry> entry;
     {
@@ -179,6 +219,25 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry);
     }
 
     destroy_entry(self.wsId);
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential * _Nullable credential))completionHandler {
+    if (handleLoopbackTlsChallenge(challenge, completionHandler)) {
+        return;
+    }
+    completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+}
+
+- (void)URLSession:(NSURLSession *)session
+didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential * _Nullable credential))completionHandler {
+    if (handleLoopbackTlsChallenge(challenge, completionHandler)) {
+        return;
+    }
+    completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
 }
 
 @end
@@ -208,6 +267,24 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
                 auto it = wsConnections.find(ws_id);
                 if (it == wsConnections.end() || it->second->closed) return;
                 activeEntry = it->second;
+            }
+
+            NSURLSessionWebSocketCloseCode closeCode = NSURLSessionWebSocketCloseCodeInvalid;
+            NSData* closeReasonData = nil;
+            if (activeEntry && activeEntry->task) {
+                closeCode = activeEntry->task.closeCode;
+                closeReasonData = activeEntry->task.closeReason;
+            }
+
+            if (closeCode != NSURLSessionWebSocketCloseCodeInvalid) {
+                NSString* closeReason =
+                    closeReasonData ? [[NSString alloc] initWithData:closeReasonData encoding:NSUTF8StringEncoding] : @"";
+                if (activeEntry && close_cb && context && !activeEntry->closed) {
+                    activeEntry->closed = true;
+                    close_cb(ws_id, (uint16_t)closeCode, [closeReason UTF8String], 1, context);
+                }
+                destroy_entry(ws_id);
+                return;
             }
 
             if (context && error_cb) {

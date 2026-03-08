@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 
 #ifdef EXACT_HAS_CURL
 #include <curl/curl.h>
@@ -63,6 +64,64 @@ struct WebSocketEntry {
 static std::mutex g_ws_mutex;
 static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> g_ws_connections;
 static std::atomic<uint32_t> g_next_ws_id{1};
+
+static bool should_trust_loopback_tls() {
+    const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
+    if (!value || !*value) {
+        return false;
+    }
+    return std::string(value) != "0";
+}
+
+static std::string extract_url_host(const char* url) {
+    if (!url || !*url) {
+        return "";
+    }
+
+    std::string value(url);
+    const auto scheme_sep = value.find("://");
+    if (scheme_sep == std::string::npos) {
+        return "";
+    }
+
+    auto authority_start = scheme_sep + 3;
+    auto authority_end = value.find_first_of("/?#", authority_start);
+    std::string authority = value.substr(authority_start, authority_end - authority_start);
+    if (authority.empty()) {
+        return "";
+    }
+
+    const auto userinfo_sep = authority.rfind('@');
+    if (userinfo_sep != std::string::npos) {
+        authority.erase(0, userinfo_sep + 1);
+    }
+
+    if (!authority.empty() && authority.front() == '[') {
+        const auto closing = authority.find(']');
+        if (closing == std::string::npos) {
+            return "";
+        }
+        return authority.substr(1, closing - 1);
+    }
+
+    const auto port_sep = authority.rfind(':');
+    if (port_sep != std::string::npos) {
+        authority.resize(port_sep);
+    }
+
+    return authority;
+}
+
+static bool is_loopback_host(const std::string& host) {
+    return host == "localhost" || host == "127.0.0.1" || host == "::1";
+}
+
+static bool should_disable_tls_verification_for_url(const char* url) {
+    if (!should_trust_loopback_tls()) {
+        return false;
+    }
+    return is_loopback_host(extract_url_host(url));
+}
 
 static void call_error(const std::shared_ptr<WebSocketEntry>& entry, const char* message) {
     if (!entry || !entry->error_cb || !entry->context) {
@@ -247,6 +306,10 @@ extern "C" uint32_t native_ws_connect(
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L); // websocket mode
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    if (should_disable_tls_verification_for_url(url)) {
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
 
     curl_slist* headers = nullptr;
     if (protocols && *protocols) {
@@ -360,18 +423,29 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
     (void)reason;
 
     size_t sent = 0;
-    const uint8_t close_payload[2] = {
-        static_cast<uint8_t>((code >> 8) & 0xFF),
-        static_cast<uint8_t>(code & 0xFF)
-    };
-    curl_ws_send(
-        entry->curl,
-        close_payload,
-        sizeof(close_payload),
-        &sent,
-        0,
-        CURLWS_CLOSE
-    );
+    if (code == 1005) {
+        curl_ws_send(
+            entry->curl,
+            nullptr,
+            0,
+            &sent,
+            0,
+            CURLWS_CLOSE
+        );
+    } else {
+        const uint8_t close_payload[2] = {
+            static_cast<uint8_t>((code >> 8) & 0xFF),
+            static_cast<uint8_t>(code & 0xFF)
+        };
+        curl_ws_send(
+            entry->curl,
+            close_payload,
+            sizeof(close_payload),
+            &sent,
+            0,
+            CURLWS_CLOSE
+        );
+    }
 #else
     (void)ws_id;
     (void)code;

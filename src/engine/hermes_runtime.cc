@@ -12027,7 +12027,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
-        uint16_t code = count > 1 && args[1].isNumber() ? static_cast<uint16_t>(args[1].asNumber()) : 1000;
+        uint16_t code = count > 1 && args[1].isNumber() ? static_cast<uint16_t>(args[1].asNumber()) : 1005;
         std::string reason = count > 2 && args[2].isString() ? args[2].toString(runtime).utf8(runtime) : "";
         native_ws_close(ws_id, code, reason.c_str());
         return facebook::jsi::Value::undefined();
