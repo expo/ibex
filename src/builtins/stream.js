@@ -1365,6 +1365,12 @@ Readable.prototype.push = function(chunk, encoding) {
     chunk = Buffer.from(chunk, encoding || state.defaultEncoding || 'utf8');
     encoding = '';
   }
+  if (!state.objectMode &&
+      !state.encoding &&
+      _isBinaryReadableChunk(chunk) &&
+      !(typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk))) {
+    chunk = _bufferFromChunk(chunk);
+  }
   if (state.encoding && state.decoder && _isBinaryReadableChunk(chunk)) {
     chunk = _decodeChunk(state, chunk);
   }
@@ -1602,6 +1608,11 @@ Readable.prototype.read = function(size) {
 Readable.prototype.unshift = function(chunk) {
   if (this._readableState && this._readableState.encoding && this._readableState.decoder && !this._readableState.objectMode) {
     chunk = _decodeChunk(this._readableState, chunk);
+  } else if (this._readableState &&
+             !this._readableState.objectMode &&
+             _isBinaryReadableChunk(chunk) &&
+             !(typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk))) {
+    chunk = _bufferFromChunk(chunk);
   }
   if (_isZeroLengthChunk(chunk, this._readableState.objectMode)) {
     return false;
@@ -3422,7 +3433,7 @@ Readable.from = function(iterable, options) {
     }
     return readable;
   }
-  if (typeof iterable === 'string' || iterable instanceof Uint8Array) {
+  if (typeof iterable === 'string') {
     readableStream.push(iterable);
     readableStream.push(null);
     return readable;
@@ -3610,7 +3621,7 @@ Readable.from = function(iterable, options) {
     return;
   }
 
-      if (typeof value === 'string' || value instanceof Uint8Array) {
+      if (typeof value === 'string') {
         readableStream.push(value);
         readableStream.push(null);
         return;
@@ -4084,6 +4095,14 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     }
     encoding = 'buffer';
   }
+  if (!this.writableObjectMode &&
+      typeof chunk !== 'string' &&
+      _isBinaryReadableChunk(chunk)) {
+    if (!(typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk))) {
+      chunk = _bufferFromChunk(chunk);
+    }
+    encoding = 'buffer';
+  }
 
   if (!this.writableObjectMode && typeof chunk !== 'string' &&
       !(typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) &&
@@ -4185,6 +4204,9 @@ Writable.prototype.write = function(chunk, encoding, callback) {
       throw err;
     }
     onWriteComplete(err);
+    return false;
+  }
+  if (callbackCalled && state.errored) {
     return false;
   }
   return !shouldNeedDrain;
@@ -5352,6 +5374,17 @@ function pipeline() {
     return _normalizePrematureCloseError(err);
   }
 
+  function shouldWaitForLastReadable(stream) {
+    return !!(
+      stream === last &&
+      stream &&
+      stream._isPipelineFunction &&
+      !stream._pipelineResult &&
+      stream._readableState &&
+      stream.readable !== false
+    );
+  }
+
   function destroyAll(err) {
     for (var i = 0; i < streams.length; i++) {
       if (streams[i] && typeof streams[i].destroy === 'function' && !streams[i]._destroyed) {
@@ -5397,17 +5430,9 @@ function pipeline() {
 
 function isReadableDone(stream) {
   if (!stream) return true;
-  if (stream.closed === true) return true;
-  if (stream._readableState && stream._readableState.destroyed) {
-    if (!stream.closed) return false;
-    return true;
-  }
-  if (stream._destroyed || stream.destroyed || (stream._writableState && stream._writableState.destroyed)) {
-    return false;
-  }
   if (stream._readableState) {
-    if (stream.readable === false && !stream._writableState) return false;
     if (stream._readableState.endEmitted || stream._readableState.ended) return true;
+    if (stream.readable === false && !stream._writableState) return false;
     if (stream.readable === false && stream._writableState) {
       if (stream.writableEnded || stream._writableState.finished || stream._writableState.ended) {
         return true;
@@ -5421,13 +5446,6 @@ function isReadableDone(stream) {
 }
 
 function isWritableDone(stream) {
-  if (stream && stream.closed === true) return true;
-  if (
-    stream._destroyed ||
-    stream.destroyed ||
-    (stream._readableState && stream._readableState.destroyed) ||
-    (stream._writableState && stream._writableState.destroyed)
-  ) return true;
   if (!stream) return true;
   if (stream._writableState) {
     var writableState = stream._writableState;
@@ -5455,7 +5473,7 @@ function isStreamDone(stream) {
   if (stream === streams[0] && stream._readableState && stream._writableState) {
     writableDone = true;
   }
-  if (stream === last) {
+  if (stream === last && !shouldWaitForLastReadable(stream)) {
     readableDone = true;
   }
   return readableDone && writableDone;
@@ -5495,7 +5513,7 @@ function isStreamDone(stream) {
     if (stream === last && !shouldPipeEnd) {
       writableDone = true;
     }
-    if (stream === last) {
+    if (stream === last && !shouldWaitForLastReadable(stream)) {
       readableDone = true;
     }
     if (streamIsFirst && stream && stream._isPipelineFunction) {
@@ -5908,6 +5926,9 @@ function isStreamDone(stream) {
   addListener(last, 'close', function() {
     onClose(last);
   });
+  if (shouldWaitForLastReadable(last) && typeof last.resume === 'function') {
+    last.resume();
+  }
   return last;
   } catch (err) {
     throw err;
