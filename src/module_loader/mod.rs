@@ -186,9 +186,8 @@ impl ModuleLoader {
         builtins.insert("node:stream/web".to_string(), stream_web_module.clone());
         builtins.insert("stream/web".to_string(), stream_web_module);
 
-        let url_module = node_url_module();
-        builtins.insert("node:url".to_string(), url_module.clone());
-        builtins.insert("url".to_string(), url_module);
+        builtins.insert("node:url".to_string(), node_url_module());
+        builtins.insert("url".to_string(), url_alias_module());
 
         let os_module = node_os_module();
         builtins.insert("node:os".to_string(), os_module.clone());
@@ -1116,6 +1115,17 @@ fn node_url_module() -> String {
     include_str!(concat!(env!("OUT_DIR"), "/builtins/url.js")).to_string()
 }
 
+fn url_alias_module() -> String {
+    r#"
+const nodeUrl = require('node:url');
+const exported = {};
+Object.defineProperties(exported, Object.getOwnPropertyDescriptors(nodeUrl));
+module.exports = exported;
+"#
+    .trim()
+    .to_string()
+}
+
 fn node_assert_module() -> String {
     include_str!(concat!(env!("OUT_DIR"), "/builtins/assert.js")).to_string()
 }
@@ -1982,7 +1992,20 @@ mod tests {
         let loader = ModuleLoader::new();
         let resolved = loader.resolve("url", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
-        assert!(resolved.source.unwrap().contains("parse"));
+        let source = resolved.source.unwrap();
+        assert!(source.contains("require('node:url')"));
+        assert!(source.contains("Object.getOwnPropertyDescriptors"));
+    }
+
+    #[test]
+    fn url_aliases_use_distinct_sources() {
+        let loader = ModuleLoader::new();
+        let node_url = loader.resolve("node:url", None).unwrap();
+        let url = loader.resolve("url", None).unwrap();
+        assert_eq!(node_url.id, "node:url");
+        assert_eq!(url.id, "url");
+        assert_ne!(node_url.id, url.id);
+        assert_ne!(node_url.source, url.source);
     }
 
     #[test]
