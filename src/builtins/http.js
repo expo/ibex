@@ -1157,6 +1157,29 @@ _attachHttpAsyncIterator(IncomingMessage.prototype);
 function ClientRequest(options, callback) {
   EventEmitter.call(this);
   initOutgoingMessage(this);
+  if (typeof options === 'string') {
+    try {
+      var parsedRequestUrl = new URL(options);
+      options = {
+        __exactOriginalUrl: options,
+        protocol: parsedRequestUrl.protocol,
+        hostname: parsedRequestUrl.hostname,
+        port: parsedRequestUrl.port ? Number(parsedRequestUrl.port) : undefined,
+        path: parsedRequestUrl.pathname + (parsedRequestUrl.search || ''),
+        method: 'GET'
+      };
+    } catch (_parseRequestUrlErr) {
+      options = { href: options, method: 'GET' };
+    }
+  } else if (options instanceof URL) {
+    options = {
+      protocol: options.protocol,
+      hostname: options.hostname,
+      port: options.port ? Number(options.port) : undefined,
+      path: options.pathname + (options.search || ''),
+      method: 'GET'
+    };
+  }
   this.options = options || {};
   this._defaultAgent = globalAgent;
 
@@ -1541,6 +1564,80 @@ function asyncResetHandle(socket) {
   }
 }
 
+function createInvalidAgentSchedulingError(value) {
+  var err = new TypeError("The argument 'scheduling' must be one of: 'fifo', 'lifo'. Received '" + value + "'");
+  err.code = 'ERR_INVALID_ARG_VALUE';
+  return err;
+}
+
+function isReusableAgentSocket(socket) {
+  return !!socket &&
+    !socket.destroyed &&
+    socket.writable !== false &&
+    socket.connecting !== true &&
+    socket._connected === true &&
+    socket.readyState !== 'closed';
+}
+
+function takeFreeAgentSocket(freeSockets, scheduling) {
+  if (!freeSockets || freeSockets.length === 0) return null;
+  while (freeSockets.length > 0) {
+    var index = scheduling === 'fifo' ? 0 : (freeSockets.length - 1);
+    var socket = freeSockets[index];
+    if (!isReusableAgentSocket(socket)) {
+      freeSockets.splice(index, 1);
+      if (socket && typeof socket.destroy === 'function') {
+        try { socket.destroy(); } catch (_destroyFreeAgentSocketErr) {}
+      }
+      continue;
+    }
+    freeSockets.splice(index, 1);
+    return socket;
+  }
+  return null;
+}
+
+function mergeAgentRequestOptions(agent, req, options, port, localAddress) {
+  var normalizedOptions;
+  if (typeof options === 'string') {
+    normalizedOptions = { host: options, port: port, localAddress: localAddress };
+  } else {
+    normalizedOptions = Object.assign({}, options || {});
+  }
+
+  normalizedOptions = Object.assign(normalizedOptions, agent.options);
+
+  var requestOptions = req && req.options && typeof req.options === 'object' ? req.options : null;
+  if (!normalizedOptions.socketPath && requestOptions && requestOptions.socketPath) {
+    normalizedOptions.socketPath = requestOptions.socketPath;
+  }
+  if (normalizedOptions.host === undefined && requestOptions && requestOptions.host !== undefined) {
+    normalizedOptions.host = requestOptions.host;
+  }
+  if (normalizedOptions.hostname === undefined && requestOptions && requestOptions.hostname !== undefined) {
+    normalizedOptions.hostname = requestOptions.hostname;
+  }
+  if (normalizedOptions.port === undefined && requestOptions && requestOptions.port !== undefined) {
+    normalizedOptions.port = requestOptions.port;
+  }
+  if (normalizedOptions.localAddress === undefined && requestOptions && requestOptions.localAddress !== undefined) {
+    normalizedOptions.localAddress = requestOptions.localAddress;
+  }
+  if (normalizedOptions.family === undefined && requestOptions && requestOptions.family !== undefined) {
+    normalizedOptions.family = requestOptions.family;
+  }
+  if (normalizedOptions.host === undefined && req && req.host !== undefined) {
+    normalizedOptions.host = req.host;
+  }
+
+  if (normalizedOptions.socketPath) {
+    normalizedOptions.path = normalizedOptions.socketPath;
+  } else {
+    delete normalizedOptions.path;
+  }
+  return normalizedOptions;
+}
+
 function setRequestSocket(agent, req, socket, options) {
   req.onSocket(socket, options);
   var agentTimeout = agent && agent.options ? agent.options.timeout : undefined;
@@ -1710,6 +1807,15 @@ ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
       return;
     }
     if (!socket) {
+      return;
+    }
+    if (self.socket && self.socket !== socket && !self.socket.destroyed) {
+      if (socket._httpMessage === self) {
+        socket._httpMessage = null;
+      }
+      if (!socket.destroyed && typeof socket.destroy === 'function') {
+        try { socket.destroy(); } catch (_extraSocketDestroyErr) {}
+      }
       return;
     }
     if (self.destroyed || self._destroyRequested || self._closed) {
@@ -2688,6 +2794,39 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     setSocketTimeout(socket, self.agent.options.timeout);
   }
 
+  function getSocketConnectOptions() {
+    var connectOptions = {};
+    var sourceOptions = requestOptions;
+    if (!sourceOptions || typeof sourceOptions !== 'object') {
+      sourceOptions = null;
+    }
+    if (sourceOptions) {
+      for (var sourceKey in sourceOptions) {
+        if (Object.prototype.hasOwnProperty.call(sourceOptions, sourceKey)) {
+          connectOptions[sourceKey] = sourceOptions[sourceKey];
+        }
+      }
+    }
+    if (connectOptions.socketPath) {
+      connectOptions.path = connectOptions.socketPath;
+    }
+    if (!connectOptions.path && connectOptions.port === undefined) {
+      var resolvedConnect = self._resolveConnectionOptions();
+      var fallbackOptions = resolvedConnect && resolvedConnect.options;
+      if (fallbackOptions && typeof fallbackOptions === 'object') {
+        for (var fallbackKey in fallbackOptions) {
+          if (!Object.prototype.hasOwnProperty.call(fallbackOptions, fallbackKey)) continue;
+          if (connectOptions[fallbackKey] !== undefined) continue;
+          connectOptions[fallbackKey] = fallbackOptions[fallbackKey];
+        }
+      }
+      if (connectOptions.socketPath && !connectOptions.path) {
+        connectOptions.path = connectOptions.socketPath;
+      }
+    }
+    return connectOptions;
+  }
+
   function writeRawRequest() {
     var rawRequest = self._pendingRawRequest || '';
     if (self._requestHeadWritten || self.destroyed || self._aborted || !rawRequest) {
@@ -2719,7 +2858,17 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   }
   self._writePendingRequest = writeRawRequest;
 
-  if (socket.connecting) {
+  if (!socket.connecting && socket._connected !== true && typeof socket.connect === 'function') {
+    try {
+      socket.connect(getSocketConnectOptions());
+    } catch (connectErr) {
+      socket._hadError = true;
+      self.emit('error', connectErr);
+      return;
+    }
+  }
+
+  if (socket.connecting || socket._connected !== true) {
     socket.once('connect', writeRawRequest);
   } else {
     writeRawRequest();
@@ -3136,10 +3285,14 @@ function Agent(options) {
     this.maxTotalSockets = Infinity;
   }
 
+  if (this.scheduling !== 'fifo' && this.scheduling !== 'lifo') {
+    throw createInvalidAgentSchedulingError(this.scheduling);
+  }
+
   var self = this;
   this.on('free', function(socket, requestOptions) {
     var name = self.getName(requestOptions);
-    if (!socket || socket.writable === false || socket.destroyed) {
+    if (!isReusableAgentSocket(socket)) {
       if (socket && typeof socket.destroy === 'function') {
         socket.destroy();
       }
@@ -3224,30 +3377,18 @@ Agent.prototype.getName = function(options) {
 };
 
 Agent.prototype.addRequest = function(req, options, port, localAddress) {
-  if (typeof options === 'string') {
-    options = { host: options, port: port, localAddress: localAddress };
-  }
-  options = Object.assign({}, options || {}, this.options);
-  if (options.socketPath) {
-    options.path = options.socketPath;
-  } else {
-    delete options.path;
-  }
+  options = mergeAgentRequestOptions(this, req, options, port, localAddress);
   var name = this.getName(options);
   this.sockets[name] = this.sockets[name] || [];
 
   var freeSockets = this.freeSockets[name];
   var socket = null;
   if (freeSockets) {
-    while (freeSockets.length > 0 && freeSockets[0].destroyed) {
-      freeSockets.shift();
-    }
-    socket = this.scheduling === 'fifo' ? freeSockets.shift() : freeSockets.pop();
+    socket = takeFreeAgentSocket(freeSockets, this.scheduling);
     if (freeSockets.length === 0) {
       delete this.freeSockets[name];
     }
   }
-
   var freeLen = freeSockets ? freeSockets.length : 0;
   var socketLen = freeLen + this.sockets[name].length;
 
@@ -3405,7 +3546,7 @@ Agent.prototype.removeSocket = function(socket, options) {
   } else {
     for (var key in this.requests) {
       if (!Object.prototype.hasOwnProperty.call(this.requests, key) || !this.requests[key] || this.requests[key].length === 0) continue;
-      if (this.sockets[key] && this.sockets[key].length > 0) continue;
+      if (this.sockets[key] && this.sockets[key].length > 0) break;
       req = shiftUsableQueuedAgentRequest(this.requests[key]);
       if (this.requests[key].length === 0) {
         delete this.requests[key];
