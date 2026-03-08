@@ -4441,34 +4441,24 @@ Stream.prototype.pipe = function(dest, options) {
   }
 
   function onerror(err) {
-    unpipe(true);
     if (dest && typeof dest.removeListener === 'function') {
       dest.removeListener('error', onerror);
     }
-    var shouldForwardToDestination = false;
+    if (source && typeof source.unpipe === 'function') {
+      source.unpipe(dest);
+    } else {
+      unpipe(true);
+    }
+
+    var hasOtherErrorListeners = false;
     if (dest && typeof dest.listenerCount === 'function') {
-      shouldForwardToDestination = dest.listenerCount('error') > 0;
+      hasOtherErrorListeners = dest.listenerCount('error') > 0;
     } else if (dest && dest._events && dest._events.error) {
-      shouldForwardToDestination = true;
+      hasOtherErrorListeners = true;
     }
 
-    if (shouldForwardToDestination) {
-      if (dest && typeof dest.emit === 'function') {
-        try {
-          dest.emit('error', err);
-        } catch (destEmitErr) {
-          handlePipeError(destEmitErr);
-        }
-      }
-      return;
-    }
-
-    if (dest && typeof dest.destroy === 'function') {
-      try {
-        dest.destroy(err);
-      } catch (destroyErr) {
-        handlePipeError(destroyErr);
-      }
+    if (!hasOtherErrorListeners) {
+      handlePipeError(err);
     }
   }
 
