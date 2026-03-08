@@ -879,6 +879,18 @@ ClientRequest.prototype._sendViaTcp = function(body) {
     try { socket.destroy(); } catch(e) {}
   }
 
+  function abortResponse() {
+    if (responseEnded) return;
+    responseEnded = true;
+    if (tcpIncoming) {
+      var abortErr = new Error('aborted');
+      abortErr.code = 'ECONNRESET';
+      tcpIncoming.aborted = true;
+      tcpIncoming.emit('error', abortErr);
+      tcpIncoming.emit('close');
+    }
+  }
+
   function processChunkedData(data) {
     chunkBuffer += data;
     while (chunkBuffer.length > 0) {
@@ -1018,6 +1030,9 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   socket.on('close', function() {
     if (!responseEmitted) {
       self.emit('close');
+    } else if (self._aborted) {
+      abortResponse();
+      return;
     }
     finishResponse();
   });
@@ -1734,6 +1749,8 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
       } else {
         try { this.socket.write(data); } catch(e) {}
       }
+    } else if (this.socket && !this._nativeMode) {
+      this._send(data);
     } else {
       this._bodyParts.push(data);
     }
