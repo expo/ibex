@@ -1514,11 +1514,16 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
 
   function onEnd() {
     if (!responseEmitted) {
-      abortResponse();
+      if (!self._aborted) {
+        var closeErr = new Error('socket hang up');
+        closeErr.code = 'ECONNRESET';
+        self.emit('error', closeErr);
+      }
+      responseEnded = true;
       return;
     }
     if (responseEnded) return;
-    if (contentLength >= 0 || isChunked || (tcpIncoming && tcpIncoming.shouldKeepAlive)) {
+    if (contentLength >= 0 || isChunked || (tcpIncoming && tcpIncoming.shouldKeepAlive) || self._aborted) {
       abortResponse();
       return;
     }
@@ -1526,7 +1531,14 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   }
 
   function onClose() {
-    if (!responseEmitted || !responseEnded) {
+    if (!responseEmitted) {
+      if (!self._closed) {
+        self._closed = true;
+        self.emit('close');
+      }
+      return;
+    }
+    if (!responseEnded) {
       abortResponse();
       return;
     }
@@ -2617,6 +2629,7 @@ function ServerResponse(reqOrServerId, requestId) {
   this._streaming = false;
   this._bodyParts = [];
   this.socket = null;
+  this._socketDrainListener = null;
   this.writableEnded = false;
   this.writableFinished = false;
   this.sendDate = true;
@@ -2652,12 +2665,47 @@ Object.defineProperty(ServerResponse.prototype, 'connection', {
   configurable: true
 });
 
+Object.defineProperty(ServerResponse.prototype, 'writableNeedDrain', {
+  get: function() {
+    return !!(this.socket && this.socket.writableNeedDrain);
+  },
+  enumerable: true,
+  configurable: true
+});
+
+Object.defineProperty(ServerResponse.prototype, 'writableHighWaterMark', {
+  get: function() {
+    if (this.socket && typeof this.socket.writableHighWaterMark === 'number') {
+      return this.socket.writableHighWaterMark;
+    }
+    return 16384;
+  },
+  enumerable: true,
+  configurable: true
+});
+
 ServerResponse.prototype.assignSocket = function(socket) {
+  if (this.socket && this._socketDrainListener && typeof this.socket.removeListener === 'function') {
+    this.socket.removeListener('drain', this._socketDrainListener);
+  }
   this.socket = socket;
-  if (socket) socket._httpMessage = this;
+  if (!socket) return;
+  socket._httpMessage = this;
+  var self = this;
+  this._socketDrainListener = function() {
+    if (!self._finished && !self.destroyed) {
+      self.emit('drain');
+    }
+  };
+  if (typeof socket.on === 'function') {
+    socket.on('drain', this._socketDrainListener);
+  }
 };
 
 ServerResponse.prototype.detachSocket = function(socket) {
+  if (socket && this._socketDrainListener && typeof socket.removeListener === 'function') {
+    socket.removeListener('drain', this._socketDrainListener);
+  }
   if (socket) socket._httpMessage = null;
   this.socket = null;
 };
@@ -2830,6 +2878,7 @@ ServerResponse.prototype._sendChunk = function(chunk) {
 ServerResponse.prototype.write = function(chunk, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   if (this._finished) { if (callback) callback(new Error('write after end')); return false; }
+  var writeOk = true;
   if (chunk !== undefined && chunk !== null) {
     var data;
     if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
@@ -2844,21 +2893,26 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
       if (this._useChunkedEncoding) {
         var chunkLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
           ? Buffer.byteLength(data) : data.length;
-        try { this.socket.write(chunkLen.toString(16) + '\r\n' + data + '\r\n'); } catch(e) {}
+        try {
+          writeOk = this.socket.write(chunkLen.toString(16) + '\r\n' + data + '\r\n');
+        } catch(e) {
+          writeOk = false;
+        }
       } else {
-        try { this.socket.write(data); } catch(e) {}
+        try {
+          writeOk = this.socket.write(data);
+        } catch(e) {
+          writeOk = false;
+        }
       }
     } else if (this.socket && !this._nativeMode) {
-      this._send(data);
+      writeOk = this._send(data);
     } else {
       this._bodyParts.push(data);
     }
   }
   if (callback) setTimeout(callback, 0);
-  if (this.socket && this.socket._writeQueue && this.socket._writeQueue.length > 0) {
-    return false;
-  }
-  return true;
+  return writeOk;
 };
 
 ServerResponse.prototype._streamChunk = function(data, callback) {
@@ -2874,9 +2928,9 @@ ServerResponse.prototype._streamChunk = function(data, callback) {
     head += '\r\n';
     this._headersSent = true;
     this._streaming = true;
-    this.socket.write(head + data, callback ? function() { setTimeout(callback, 0); } : undefined);
+    return this.socket.write(head + data, callback ? function() { setTimeout(callback, 0); } : undefined);
   } else {
-    this.socket.write(data, callback ? function() { setTimeout(callback, 0); } : undefined);
+    return this.socket.write(data, callback ? function() { setTimeout(callback, 0); } : undefined);
   }
 };
 
@@ -3089,6 +3143,7 @@ ServerResponse.prototype._send = function(data) {
   if (data && data.length > 0) {
     this._bodyParts.push(data);
   }
+  var writeOk = true;
   // In socket mode, flush any pending body parts
   if (this.socket && !this._nativeMode && this._bodyParts.length > 0) {
     var flushed = this._bodyParts.join('');
@@ -3134,21 +3189,38 @@ ServerResponse.prototype._send = function(data) {
       if (this._useChunkedEncoding) {
         var chunkLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
           ? Buffer.byteLength(flushed) : flushed.length;
-        try { this.socket.write(head + chunkLen.toString(16) + '\r\n' + flushed + '\r\n'); } catch(e) {}
+        try {
+          writeOk = this.socket.write(head + chunkLen.toString(16) + '\r\n' + flushed + '\r\n');
+        } catch(e) {
+          writeOk = false;
+        }
       } else {
-        try { this.socket.write(head + flushed); } catch(e) {}
+        try {
+          writeOk = this.socket.write(head + flushed);
+        } catch(e) {
+          writeOk = false;
+        }
       }
     } else {
       // Already streaming
       if (this._useChunkedEncoding) {
         var chunkLen2 = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
           ? Buffer.byteLength(flushed) : flushed.length;
-        try { this.socket.write(chunkLen2.toString(16) + '\r\n' + flushed + '\r\n'); } catch(e) {}
+        try {
+          writeOk = this.socket.write(chunkLen2.toString(16) + '\r\n' + flushed + '\r\n');
+        } catch(e) {
+          writeOk = false;
+        }
       } else {
-        try { this.socket.write(flushed); } catch(e) {}
+        try {
+          writeOk = this.socket.write(flushed);
+        } catch(e) {
+          writeOk = false;
+        }
       }
     }
   }
+  return writeOk;
 };
 
 ServerResponse.prototype.flushHeaders = function() {
@@ -3305,10 +3377,12 @@ ServerIncomingMessage.prototype.read = function() {
 };
 ServerIncomingMessage.prototype.destroy = function(err) {
   if (this.destroyed) return this;
+  var wasComplete = this.complete;
   this.destroyed = true;
   this.readable = false;
+  this.complete = true;
   this._closeScheduled = true;
-  if (this.complete && err && (err.code === 'ABORT_ERR' || err.name === 'AbortError')) {
+  if (wasComplete && err && (err.code === 'ABORT_ERR' || err.name === 'AbortError')) {
     err = null;
   }
   if (!err && !this.complete) {
@@ -3323,6 +3397,16 @@ ServerIncomingMessage.prototype.destroy = function(err) {
     if (!self._closeEmitted) {
       self._closeEmitted = true;
       self.emit('close');
+    }
+    var socket = self.socket;
+    var activeResponse = socket && socket._httpMessage;
+    if (
+      socket &&
+      !socket.destroyed &&
+      activeResponse &&
+      activeResponse._finished !== true
+    ) {
+      try { self.socket.destroy(); } catch(e) {}
     }
   }, 0);
   return this;
