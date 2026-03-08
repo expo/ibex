@@ -1282,6 +1282,26 @@ function ClientRequest(options, callback) {
     this.once("response", callback);
   }
 
+  var requestSignal = this.options && this.options.signal;
+  if (requestSignal && typeof requestSignal.addEventListener === 'function') {
+    var self = this;
+    this._requestSignal = requestSignal;
+    this._onRequestSignalAbort = function() {
+      if (self._aborted) return;
+      self.abort();
+    };
+    if (requestSignal.aborted) {
+      setTimeout(this._onRequestSignalAbort, 0);
+    } else {
+      requestSignal.addEventListener('abort', this._onRequestSignalAbort, { once: true });
+    }
+    this.once('close', function() {
+      if (self._requestSignal && self._onRequestSignalAbort && typeof self._requestSignal.removeEventListener === 'function') {
+        try { self._requestSignal.removeEventListener('abort', self._onRequestSignalAbort); } catch (_removeAbortListenerErr) {}
+      }
+    });
+  }
+
   if (_requestUsesSocketTransport(this)) {
     this._ensureSocketAssigned();
   }
@@ -1624,6 +1644,26 @@ ClientRequest.prototype.setSocketKeepAlive = function(enable, initialDelay) {
   this._deferToConnect('setKeepAlive', [enable, initialDelay]);
 };
 
+function _coerceClientRequestBodyChunk(chunk, encoding) {
+  if (chunk == null) return null;
+  if (typeof Buffer !== 'undefined') {
+    if (Buffer.isBuffer(chunk)) {
+      return Buffer.from(chunk);
+    }
+    if (typeof ArrayBuffer !== 'undefined') {
+      if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
+        return Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
+      }
+      if (chunk instanceof ArrayBuffer) {
+        return Buffer.from(chunk);
+      }
+    }
+    return Buffer.from(String(chunk), encoding || 'utf8');
+  }
+  if (typeof chunk === 'string') return chunk;
+  return String(chunk);
+}
+
 ClientRequest.prototype.write = function(chunk, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   if (this.destroyed) {
@@ -1662,23 +1702,8 @@ ClientRequest.prototype.write = function(chunk, encoding, callback) {
   }
 
   if (chunk !== undefined && chunk !== null) {
-    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
-      this._bodyParts.push(chunk.toString(encoding || 'utf8'));
-      _recordOutgoingBytes(this, chunk.length);
-    } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
-      if (typeof Buffer !== 'undefined') {
-        this._bodyParts.push(
-          Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0)
-            .toString(encoding || 'utf8')
-        );
-      } else {
-        this._bodyParts.push(String(chunk));
-      }
-      _recordOutgoingBytes(this, chunk.byteLength || chunk.length || 0);
-    } else {
-      this._bodyParts.push(String(chunk));
-      _recordOutgoingBytes(this, _getOutgoingChunkLength(chunk, encoding));
-    }
+    this._bodyParts.push(_coerceClientRequestBodyChunk(chunk, encoding));
+    _recordOutgoingBytes(this, _getOutgoingChunkLength(chunk, encoding));
   }
   if (isUpgradeRequest) {
     this._send();
@@ -1762,7 +1787,17 @@ ClientRequest.prototype._send = function() {
   if (this._sent || this._aborted) return;
   this._sent = true;
   this.headersSent = true;
-  var body = this._bodyParts.join("");
+  var body = null;
+  if (this._bodyParts.length > 0) {
+    if (typeof Buffer !== 'undefined' && Buffer.concat) {
+      body = Buffer.concat(this._bodyParts.map(function(part) {
+        return _coerceClientRequestBodyChunk(part);
+      }));
+      if (body.length === 0) body = null;
+    } else {
+      body = this._bodyParts.join("");
+    }
+  }
 
   var useFetch = typeof fetch === "function";
   if (_requestUsesSocketTransport(this)) {
@@ -1836,8 +1871,11 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   }
   if (body) {
     if (!this.headers['content-length'] && !this.headers['transfer-encoding']) {
-      var bodyLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-        ? Buffer.byteLength(body) : body.length;
+      var bodyLen = (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(body))
+        ? body.length
+        : ((typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
+          ? Buffer.byteLength(body)
+          : body.length);
       headerStr += 'Content-Length: ' + bodyLen + '\r\n';
     }
   }
@@ -1847,7 +1885,9 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   headerStr += '\r\n';
 
   var rawRequest = reqLine + headerStr;
-  if (body) {
+  if (body && typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(body)) {
+    rawRequest = Buffer.concat([Buffer.from(rawRequest, 'latin1'), body]);
+  } else if (body) {
     rawRequest += body;
   }
   this._pendingRawRequest = rawRequest;
@@ -1974,6 +2014,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var bodyBytesReceived = 0;
   var responseEmitted = false;
   var responseEnded = false;
+  var skipResponseBody = false;
   var tcpIncoming = null;
   var chunkParserState = 'size';
   var chunkRemaining = 0;
@@ -2162,7 +2203,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       } else if (chunkParserState === 'data') {
         if (chunkBuffer.length < chunkRemaining) {
           if (chunkBuffer.length > 0 && tcpIncoming) {
-            var partBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkBuffer, 'utf8') : chunkBuffer;
+            var partBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkBuffer, 'latin1') : chunkBuffer;
             if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(partBuf);
             else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(partBuf);
             else tcpIncoming.emit('data', partBuf);
@@ -2175,7 +2216,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         chunkBuffer = chunkBuffer.substring(chunkRemaining);
         chunkRemaining = 0;
         if (tcpIncoming && chunkData) {
-          var chunkDataBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkData, 'utf8') : chunkData;
+          var chunkDataBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkData, 'latin1') : chunkData;
           if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(chunkDataBuf);
           else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(chunkDataBuf);
           else tcpIncoming.emit('data', chunkDataBuf);
@@ -2190,7 +2231,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   }
 
   function onData(chunk) {
-    var str = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    var str = typeof chunk === 'string' ? chunk : chunk.toString('latin1');
 
     if (!headersParsed) {
       responseBuffer += str;
@@ -2241,6 +2282,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       if (te && te.toLowerCase().indexOf('chunked') !== -1) {
         isChunked = true;
       }
+      skipResponseBody = statusCode === 204 || statusCode === 304 || self.method === 'HEAD';
 
       tcpIncoming = new TcpIncomingMessage(statusCode, statusMessage, responseHeaders, rawResponseHeaders);
       tcpIncoming.socket = socket;
@@ -2273,7 +2315,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
 
       if (isUpgradeResponse) {
         var upgradeHead = (typeof Buffer !== 'undefined')
-          ? Buffer.from(bodyStart, 'utf8')
+          ? Buffer.from(bodyStart, 'latin1')
           : bodyStart;
         finishUpgrade(upgradeHead);
         return;
@@ -2307,14 +2349,14 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       responseEmitted = true;
       self.emit('response', tcpIncoming);
 
-      if (bodyStart.length > 0) {
+      if (bodyStart.length > 0 && !skipResponseBody) {
         if (isChunked) {
           processChunkedData(bodyStart);
         } else {
           var bodyStartBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-            ? Buffer.byteLength(bodyStart, 'utf8') : bodyStart.length;
+            ? Buffer.byteLength(bodyStart, 'latin1') : bodyStart.length;
           bodyBytesReceived += bodyStartBytes;
-          var bodyStartBuf = (typeof Buffer !== 'undefined') ? Buffer.from(bodyStart, 'utf8') : bodyStart;
+          var bodyStartBuf = (typeof Buffer !== 'undefined') ? Buffer.from(bodyStart, 'latin1') : bodyStart;
           if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(bodyStartBuf);
           else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(bodyStartBuf);
           else tcpIncoming.emit('data', bodyStartBuf);
@@ -2323,17 +2365,17 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       if (!isChunked && contentLength >= 0 && bodyBytesReceived >= contentLength) {
         finishResponse();
       }
-      if (statusCode === 204 || statusCode === 304 || self.method === 'HEAD') {
+      if (skipResponseBody) {
         finishResponse();
       }
-    } else if (tcpIncoming) {
+    } else if (tcpIncoming && !skipResponseBody) {
       if (isChunked) {
         processChunkedData(str);
       } else {
         var strBytes = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-          ? Buffer.byteLength(str, 'utf8') : str.length;
+          ? Buffer.byteLength(str, 'latin1') : str.length;
         bodyBytesReceived += strBytes;
-        var strBuf = (typeof Buffer !== 'undefined') ? Buffer.from(str, 'utf8') : str;
+        var strBuf = (typeof Buffer !== 'undefined') ? Buffer.from(str, 'latin1') : str;
         if (typeof tcpIncoming._pushBodyChunk === 'function') tcpIncoming._pushBodyChunk(strBuf);
         else if (typeof tcpIncoming.push === 'function') tcpIncoming.push(strBuf);
         else tcpIncoming.emit('data', strBuf);
@@ -3877,11 +3919,52 @@ ServerResponse.prototype.addTrailers = function(headers) {
   this._trailers = headers || {};
 };
 
+ServerResponse.prototype._ensureImplicitHeaders = function() {
+  if (this._headersSent || this._header !== null) return;
+  if (this.statusMessage !== undefined) {
+    this.writeHead(this.statusCode, this.statusMessage);
+  } else {
+    this.writeHead(this.statusCode);
+  }
+};
+
+function _coerceServerResponseSocketChunk(chunk, encoding) {
+  if (chunk == null) return null;
+  if (typeof Buffer !== 'undefined') {
+    if (Buffer.isBuffer(chunk)) {
+      return Buffer.from(chunk);
+    }
+    if (typeof ArrayBuffer !== 'undefined') {
+      if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
+        return Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
+      }
+      if (chunk instanceof ArrayBuffer) {
+        return Buffer.from(chunk);
+      }
+    }
+    return Buffer.from(String(chunk), encoding || 'utf8');
+  }
+  return typeof chunk === 'string' ? chunk : String(chunk);
+}
+
+function _concatServerResponseSocketBody(parts) {
+  if (!parts || parts.length === 0) {
+    return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : '';
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.concat) {
+    return Buffer.concat(parts.map(function(part) {
+      return _coerceServerResponseSocketChunk(part);
+    }));
+  }
+  return parts.join('');
+}
+
 // Native bridge streaming helpers
 ServerResponse.prototype._ensureStreaming = function() {
   if (!this._nativeMode) return false;
   if (this._streaming) return true;
   if (typeof __exactHttpRespondStream !== 'function') return false;
+  this._ensureImplicitHeaders();
   var headersJson = JSON.stringify(this._headers);
   var result = __exactHttpRespondStream(
     this._serverId,
@@ -3914,7 +3997,9 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
     if (!_isOutgoingChunk(chunk)) {
       throw _createInvalidChunkTypeError(chunk);
     }
-    var data = _toOutgoingBodyPart(chunk, encoding);
+    var data = this._nativeMode
+      ? _toOutgoingBodyPart(chunk, encoding)
+      : _coerceServerResponseSocketChunk(chunk, encoding);
     if (this._nativeMode && this._ensureStreaming()) {
       this._sendChunk(data);
     } else if (this._streaming && this.socket && !this._nativeMode) {
@@ -3949,6 +4034,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
 
 ServerResponse.prototype._streamChunk = function(data, callback) {
   if (!this._headersSent) {
+    this._ensureImplicitHeaders();
     var statusCode = _getServerResponseStatusCode(this);
     var statusMsg = _getServerResponseStatusMessage(this);
     var head = 'HTTP/1.1 ' + statusCode + ' ' + statusMsg + '\r\n';
@@ -3961,6 +4047,12 @@ ServerResponse.prototype._streamChunk = function(data, callback) {
     head += '\r\n';
     this._headersSent = true;
     this._streaming = true;
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) {
+      return this.socket.write(
+        Buffer.concat([Buffer.from(head, 'latin1'), data]),
+        callback ? function() { setTimeout(callback, 0); } : undefined
+      );
+    }
     return this.socket.write(head + data, callback ? function() { setTimeout(callback, 0); } : undefined);
   } else {
     return this.socket.write(data, callback ? function() { setTimeout(callback, 0); } : undefined);
@@ -3997,7 +4089,7 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
       throw _createInvalidChunkTypeError(chunk);
     }
     if (!this._nativeMode && !this._headersSent && !this._streaming) {
-      var endData = _toOutgoingBodyPart(chunk, encoding);
+      var endData = _coerceServerResponseSocketChunk(chunk, encoding);
       this._bodyParts.push(endData);
       _recordOutgoingBytes(this, _getOutgoingBodyPartLength(endData));
     } else {
@@ -4032,6 +4124,7 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
 };
 
 ServerResponse.prototype._sendNativeResponse = function() {
+  this._ensureImplicitHeaders();
   var headersJson = JSON.stringify(this._headers);
   var body = _concatOutgoingBodyParts(this._bodyParts);
   var statusCode = _getServerResponseStatusCode(this);
@@ -4083,7 +4176,8 @@ ServerResponse.prototype._sendSocketResponse = function() {
       && respConnectionLower.indexOf('close') === -1;
 
     if (!this._headersSent) {
-      var body = _concatOutgoingBodyParts(this._bodyParts);
+      this._ensureImplicitHeaders();
+      var body = _concatServerResponseSocketBody(this._bodyParts);
       var bodyLength = _getOutgoingBodyPartLength(body);
       var statusCode = _getServerResponseStatusCode(this);
       var statusMsg = _getServerResponseStatusMessage(this);
@@ -4108,6 +4202,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
           this._headerNames['content-length'] = 'Content-Length';
         }
       }
+      this._useChunkedEncoding = _hasChunkedTransferEncoding(this._headers['transfer-encoding']);
       if (!this._headers['connection']) {
         if (this._removedHeaderNames['connection']) {
           keepAlive = false;
@@ -4139,7 +4234,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
       }
       head += '\r\n';
       this._headersSent = true;
-      var useChunkedBody = _hasChunkedTransferEncoding(this._headers['transfer-encoding']);
+      var useChunkedBody = this._useChunkedEncoding;
 
       if (keepAlive) {
         try {
@@ -4188,7 +4283,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
       }
     } else {
       // Headers already sent (streaming mode)
-      var remainingBody = _concatOutgoingBodyParts(this._bodyParts);
+      var remainingBody = _concatServerResponseSocketBody(this._bodyParts);
       var remainingBodyLength = _getOutgoingBodyPartLength(remainingBody);
       this._bodyParts = [];
       var streamKeepAlive = (this._headers['connection'] || '').toString().toLowerCase().indexOf('keep-alive') !== -1;
@@ -4258,7 +4353,7 @@ ServerResponse.prototype._send = function(data) {
   // In socket mode, flush any pending body parts
   if (this.socket && !this._nativeMode &&
       (this._bodyParts.length > 0 || (!this._headersSent && hasData))) {
-    var flushed = _concatOutgoingBodyParts(this._bodyParts);
+    var flushed = _concatServerResponseSocketBody(this._bodyParts);
     var flushedLength = _getOutgoingBodyPartLength(flushed);
     this._bodyParts = [];
 
@@ -4267,6 +4362,7 @@ ServerResponse.prototype._send = function(data) {
     var isHttp10 = req && req.httpVersionMajor === 1 && req.httpVersionMinor === 0;
 
     if (!this._headersSent) {
+      this._ensureImplicitHeaders();
       // Start streaming - set connection before transfer-encoding for proper header ordering
       if (!this._headers['connection']) {
         this._headers['connection'] = 'close';
@@ -4344,6 +4440,7 @@ ServerResponse.prototype._send = function(data) {
 ServerResponse.prototype.flushHeaders = function() {
   if (this._headersSent) return;
   if (this.socket && !this._nativeMode) {
+    this._ensureImplicitHeaders();
     var statusCode = _getServerResponseStatusCode(this);
     var statusMsg = _getServerResponseStatusMessage(this);
     var head = 'HTTP/1.1 ' + statusCode + ' ' + statusMsg + '\r\n';
@@ -4833,6 +4930,9 @@ Server.prototype._onConnection = function(socket) {
   socket._requestTimeoutAt = null;
   socket._headersComplete = false;
   socket._requestTimeoutArmed = false;
+  if (typeof socket.encrypted !== 'boolean') {
+    socket.encrypted = false;
+  }
 
   var self = this;
   if (self._sockets) self._sockets.add(socket);
