@@ -2259,49 +2259,158 @@ Readable.prototype.flatMap = function(fn, options) {
     highWaterMark: true
   });
   var values = _createReadableMapIterable(this, fn, normalized);
-  var flattened = (async function*() {
+  var flattened = (function() {
+    var queue = [];
+    var resolveNext = null;
+    var rejectYield = null;
+    var done = false;
+    var error = null;
+    var abortSentinel = {};
     var valuesIter = values && typeof values[Symbol.asyncIterator] === 'function'
       ? values[Symbol.asyncIterator]()
       : null;
-    var valuesDone = false;
-    try {
-      while (valuesIter) {
-        var nextMapped = await valuesIter.next();
-        if (!nextMapped || nextMapped.done) {
-          valuesDone = true;
-          return;
-        }
-        var mapped = nextMapped.value;
-        if (mapped && typeof mapped[Symbol.asyncIterator] === 'function') {
-          var mappedIter = mapped[Symbol.asyncIterator]();
-          var mappedDone = false;
-          try {
-            while (true) {
-              var nextItem = await mappedIter.next();
-              if (!nextItem || nextItem.done) {
-                mappedDone = true;
-                break;
-              }
-              yield nextItem.value;
-            }
-          } finally {
-            if (!mappedDone) {
-              _safelyReturnAsyncIterator(mappedIter);
-            }
-          }
-        } else if (mapped && typeof mapped[Symbol.iterator] === 'function' && typeof mapped !== 'string') {
-          for (var i = 0; i < mapped.length; i++) {
-            yield mapped[i];
-          }
-        } else {
-          yield mapped;
-        }
-      }
-    } finally {
+    var valuesDone = !valuesIter;
+
+    function settle(result) {
+      if (!resolveNext) return;
+      var resolve = resolveNext;
+      resolveNext = null;
+      resolve(result);
+    }
+
+    function finalize(err) {
+      if (done) return;
+      done = true;
+      error = err || null;
       if (valuesIter && !valuesDone) {
+        valuesDone = true;
         _safelyReturnAsyncIterator(valuesIter);
       }
+      if (err === abortSentinel) {
+        settle({ value: undefined, done: true });
+        return;
+      }
+      if (err) {
+        settle(Promise.reject(err));
+        return;
+      }
+      settle({ value: undefined, done: true });
     }
+
+    function enqueue(value) {
+      if (done) {
+        return Promise.reject(abortSentinel);
+      }
+      return new Promise(function(resolve, reject) {
+        var item = { value: value, done: false };
+        rejectYield = reject;
+        if (resolveNext) {
+          var flush = resolveNext;
+          resolveNext = null;
+          flush(item);
+          Promise.resolve().then(function() {
+            rejectYield = null;
+            resolve();
+          });
+          return;
+        }
+        queue.push(item);
+        rejectYield = null;
+        resolve();
+      });
+    }
+
+    (async function() {
+      try {
+        while (valuesIter) {
+          if (normalized.signal && normalized.signal.aborted) {
+            throw _createAbortError(normalized.signal.reason);
+          }
+          var nextMapped = await valuesIter.next();
+          if (!nextMapped || nextMapped.done) {
+            valuesDone = true;
+            finalize();
+            return;
+          }
+          var mapped = nextMapped.value;
+          if (mapped && typeof mapped[Symbol.asyncIterator] === 'function') {
+            var mappedIter = mapped[Symbol.asyncIterator]();
+            var mappedDone = false;
+            try {
+              while (true) {
+                var nextItem = await mappedIter.next();
+                if (!nextItem || nextItem.done) {
+                  mappedDone = true;
+                  break;
+                }
+                await enqueue(nextItem.value);
+              }
+            } finally {
+              if (!mappedDone) {
+                _safelyReturnAsyncIterator(mappedIter);
+              }
+            }
+          } else if (mapped && typeof mapped[Symbol.iterator] === 'function' && typeof mapped !== 'string') {
+            for (var i = 0; i < mapped.length; i++) {
+              await enqueue(mapped[i]);
+            }
+          } else {
+            await enqueue(mapped);
+          }
+        }
+        finalize();
+      } catch (err) {
+        finalize(err);
+      }
+    })();
+
+    return {
+      [Symbol.asyncIterator]: function() {
+        return this;
+      },
+      next: function() {
+        if (queue.length > 0) {
+          return Promise.resolve(queue.shift());
+        }
+        if (done) {
+          return error ? Promise.reject(error) : Promise.resolve({ value: undefined, done: true });
+        }
+        return new Promise(function(resolve) {
+          resolveNext = resolve;
+        });
+      },
+      return: function() {
+        done = true;
+        queue.length = 0;
+        if (rejectYield) {
+          var reject = rejectYield;
+          rejectYield = null;
+          reject(abortSentinel);
+        }
+        if (valuesIter && !valuesDone) {
+          valuesDone = true;
+          _safelyReturnAsyncIterator(valuesIter);
+        }
+        settle({ value: undefined, done: true });
+        return Promise.resolve({ value: undefined, done: true });
+      },
+      throw: function(err) {
+        done = true;
+        error = err;
+        queue.length = 0;
+        if (rejectYield) {
+          var reject = rejectYield;
+          rejectYield = null;
+          reject(err);
+        }
+        if (valuesIter && !valuesDone) {
+          valuesDone = true;
+          _safelyReturnAsyncIterator(valuesIter);
+        }
+        settle(Promise.reject(err));
+        return Promise.reject(err);
+      }
+    };
   })();
   var result = _createReadableOperatorStream(flattened, normalized);
   _attachReadableAbortSignal(result, normalized.signal);
