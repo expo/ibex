@@ -74,9 +74,382 @@ function _flushSentSocketEntries(queue) {
   }
 }
 
-function _createIpcPacket(type, data, handleType) {
-  var pkt = { __exactIpc: true, type: type, data: data };
+function _ipcGetBufferCtor() {
+  if (typeof Buffer !== 'undefined' && Buffer && typeof Buffer.from === 'function') {
+    return Buffer;
+  }
+  try {
+    return require('buffer').Buffer;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _ipcBytesToBase64(bytes) {
+  var BufferCtor = _ipcGetBufferCtor();
+  if (BufferCtor) {
+    if (typeof BufferCtor.isBuffer === 'function' && BufferCtor.isBuffer(bytes)) {
+      return bytes.toString('base64');
+    }
+    if (typeof ArrayBuffer !== 'undefined' && bytes instanceof ArrayBuffer) {
+      return BufferCtor.from(new Uint8Array(bytes)).toString('base64');
+    }
+    if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(bytes)) {
+      return BufferCtor.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+    }
+    return BufferCtor.from(String(bytes), 'utf8').toString('base64');
+  }
+  if (typeof btoa === 'function') {
+    var array;
+    if (typeof ArrayBuffer !== 'undefined' && bytes instanceof ArrayBuffer) {
+      array = new Uint8Array(bytes);
+    } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(bytes)) {
+      array = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    } else {
+      array = new Uint8Array(0);
+    }
+    var binary = '';
+    for (var i = 0; i < array.length; i++) binary += String.fromCharCode(array[i]);
+    return btoa(binary);
+  }
+  return '';
+}
+
+function _ipcBase64ToByteArray(base64) {
+  var BufferCtor = _ipcGetBufferCtor();
+  if (BufferCtor) {
+    var buf = BufferCtor.from(base64 || '', 'base64');
+    var out = new Uint8Array(buf.length);
+    out.set(buf);
+    return out;
+  }
+  if (typeof atob === 'function') {
+    var binary = atob(base64 || '');
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) & 0xff;
+    return bytes;
+  }
+  return new Uint8Array(0);
+}
+
+function _ipcAdvancedTag(type) {
+  return { __exactIpcSerialized: true, type: type };
+}
+
+function _ipcEncodeAdvancedValue(value, refs) {
+  if (value === undefined) return _ipcAdvancedTag('Undefined');
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
+  if (typeof value === 'number') {
+    if (value !== value) {
+      var nanTag = _ipcAdvancedTag('Number');
+      nanTag.value = 'NaN';
+      return nanTag;
+    }
+    if (value === Infinity) {
+      var infTag = _ipcAdvancedTag('Number');
+      infTag.value = 'Infinity';
+      return infTag;
+    }
+    if (value === -Infinity) {
+      var ninfTag = _ipcAdvancedTag('Number');
+      ninfTag.value = '-Infinity';
+      return ninfTag;
+    }
+    if (value === 0 && 1 / value === -Infinity) {
+      var negZeroTag = _ipcAdvancedTag('Number');
+      negZeroTag.value = '-0';
+      return negZeroTag;
+    }
+    return value;
+  }
+  if (typeof value === 'bigint') {
+    var bigIntTag = _ipcAdvancedTag('BigInt');
+    bigIntTag.value = String(value);
+    return bigIntTag;
+  }
+  if (typeof value === 'symbol' || typeof value === 'function') {
+    var cloneErr = new TypeError('The object could not be cloned.');
+    cloneErr.name = 'DataCloneError';
+    throw cloneErr;
+  }
+
+  for (var refIndex = 0; refIndex < refs.length; refIndex++) {
+    if (refs[refIndex] === value) {
+      var refTag = _ipcAdvancedTag('Ref');
+      refTag.id = refIndex;
+      return refTag;
+    }
+  }
+
+  var id = refs.length;
+  refs.push(value);
+  var BufferCtor = _ipcGetBufferCtor();
+
+  if (BufferCtor && typeof BufferCtor.isBuffer === 'function' && BufferCtor.isBuffer(value)) {
+    var bufferTag = _ipcAdvancedTag('Buffer');
+    bufferTag.id = id;
+    bufferTag.data = value.toString('base64');
+    return bufferTag;
+  }
+  if (typeof Date !== 'undefined' && value instanceof Date) {
+    var dateTag = _ipcAdvancedTag('Date');
+    dateTag.id = id;
+    dateTag.value = value.getTime();
+    return dateTag;
+  }
+  if (typeof RegExp !== 'undefined' && value instanceof RegExp) {
+    var regexpTag = _ipcAdvancedTag('RegExp');
+    regexpTag.id = id;
+    regexpTag.source = value.source;
+    regexpTag.flags = value.flags;
+    return regexpTag;
+  }
+  if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+    var arrayBufferTag = _ipcAdvancedTag('ArrayBuffer');
+    arrayBufferTag.id = id;
+    arrayBufferTag.data = _ipcBytesToBase64(value);
+    return arrayBufferTag;
+  }
+  if (typeof SharedArrayBuffer !== 'undefined' && value instanceof SharedArrayBuffer) {
+    var sharedArrayBufferTag = _ipcAdvancedTag('SharedArrayBuffer');
+    sharedArrayBufferTag.id = id;
+    sharedArrayBufferTag.data = _ipcBytesToBase64(new Uint8Array(value));
+    return sharedArrayBufferTag;
+  }
+  if (typeof DataView !== 'undefined' && value instanceof DataView) {
+    var dataViewTag = _ipcAdvancedTag('DataView');
+    dataViewTag.id = id;
+    dataViewTag.data = _ipcBytesToBase64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    return dataViewTag;
+  }
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
+    var typedArrayTag = _ipcAdvancedTag('TypedArray');
+    typedArrayTag.id = id;
+    typedArrayTag.ctor = value.constructor && value.constructor.name ? value.constructor.name : 'Uint8Array';
+    typedArrayTag.data = _ipcBytesToBase64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    return typedArrayTag;
+  }
+  if (typeof Map !== 'undefined' && value instanceof Map) {
+    var mapTag = _ipcAdvancedTag('Map');
+    mapTag.id = id;
+    mapTag.entries = [];
+    value.forEach(function(mapValue, mapKey) {
+      mapTag.entries.push([
+        _ipcEncodeAdvancedValue(mapKey, refs),
+        _ipcEncodeAdvancedValue(mapValue, refs)
+      ]);
+    });
+    return mapTag;
+  }
+  if (typeof Set !== 'undefined' && value instanceof Set) {
+    var setTag = _ipcAdvancedTag('Set');
+    setTag.id = id;
+    setTag.values = [];
+    value.forEach(function(setValue) {
+      setTag.values.push(_ipcEncodeAdvancedValue(setValue, refs));
+    });
+    return setTag;
+  }
+  if (value instanceof Error) {
+    var errorTag = _ipcAdvancedTag('Error');
+    errorTag.id = id;
+    errorTag.ctor = value.constructor && value.constructor.name ? value.constructor.name : 'Error';
+    errorTag.name = value.name;
+    errorTag.message = value.message;
+    if (value.stack !== undefined) errorTag.stack = value.stack;
+    if ('cause' in value) errorTag.cause = _ipcEncodeAdvancedValue(value.cause, refs);
+    var errorProps = Object.keys(value);
+    if (errorProps.length > 0) {
+      errorTag.props = {};
+      for (var ep = 0; ep < errorProps.length; ep++) {
+        var errorKey = errorProps[ep];
+        if (errorKey === 'message' || errorKey === 'stack' || errorKey === 'cause' || errorKey === 'name') continue;
+        errorTag.props[errorKey] = _ipcEncodeAdvancedValue(value[errorKey], refs);
+      }
+    }
+    return errorTag;
+  }
+  if (Array.isArray(value)) {
+    var arrayTag = _ipcAdvancedTag('Array');
+    arrayTag.id = id;
+    arrayTag.items = new Array(value.length);
+    for (var ai = 0; ai < value.length; ai++) {
+      if (Object.prototype.hasOwnProperty.call(value, ai)) {
+        arrayTag.items[ai] = _ipcEncodeAdvancedValue(value[ai], refs);
+      } else {
+        arrayTag.items[ai] = _ipcAdvancedTag('Hole');
+      }
+    }
+    return arrayTag;
+  }
+
+  var objectTag = _ipcAdvancedTag('Object');
+  objectTag.id = id;
+  objectTag.props = {};
+  var keys = Object.keys(value);
+  for (var ki = 0; ki < keys.length; ki++) {
+    var key = keys[ki];
+    objectTag.props[key] = _ipcEncodeAdvancedValue(value[key], refs);
+  }
+  return objectTag;
+}
+
+function _ipcDecodeAdvancedValue(value, refs) {
+  if (!value || typeof value !== 'object' || value.__exactIpcSerialized !== true) {
+    return value;
+  }
+  var type = value.type;
+  if (type === 'Undefined') return undefined;
+  if (type === 'Number') {
+    if (value.value === 'NaN') return NaN;
+    if (value.value === 'Infinity') return Infinity;
+    if (value.value === '-Infinity') return -Infinity;
+    if (value.value === '-0') return -0;
+    return Number(value.value);
+  }
+  if (type === 'BigInt') {
+    return typeof BigInt === 'function' ? BigInt(value.value) : value.value;
+  }
+  if (type === 'Hole') {
+    return value;
+  }
+  if (type === 'Ref') {
+    return refs[value.id];
+  }
+
+  var decoded;
+  if (type === 'Buffer') {
+    var bufferBytes = _ipcBase64ToByteArray(value.data);
+    var BufferCtor = _ipcGetBufferCtor();
+    decoded = BufferCtor ? BufferCtor.from(bufferBytes) : bufferBytes;
+    refs[value.id] = decoded;
+    return decoded;
+  }
+  if (type === 'Date') {
+    decoded = new Date(value.value);
+    refs[value.id] = decoded;
+    return decoded;
+  }
+  if (type === 'RegExp') {
+    decoded = new RegExp(value.source || '', value.flags || '');
+    refs[value.id] = decoded;
+    return decoded;
+  }
+  if (type === 'ArrayBuffer' || type === 'SharedArrayBuffer') {
+    var bufferData = _ipcBase64ToByteArray(value.data);
+    var bufferTarget;
+    if (type === 'SharedArrayBuffer' && typeof SharedArrayBuffer === 'function') {
+      bufferTarget = new SharedArrayBuffer(bufferData.byteLength);
+      new Uint8Array(bufferTarget).set(bufferData);
+    } else {
+      bufferTarget = new ArrayBuffer(bufferData.byteLength);
+      new Uint8Array(bufferTarget).set(bufferData);
+    }
+    refs[value.id] = bufferTarget;
+    return bufferTarget;
+  }
+  if (type === 'DataView') {
+    var dataViewBytes = _ipcBase64ToByteArray(value.data);
+    var dataViewBuffer = new ArrayBuffer(dataViewBytes.byteLength);
+    new Uint8Array(dataViewBuffer).set(dataViewBytes);
+    decoded = new DataView(dataViewBuffer);
+    refs[value.id] = decoded;
+    return decoded;
+  }
+  if (type === 'TypedArray') {
+    var typedArrayBytes = _ipcBase64ToByteArray(value.data);
+    var typedArrayBuffer = new ArrayBuffer(typedArrayBytes.byteLength);
+    new Uint8Array(typedArrayBuffer).set(typedArrayBytes);
+    var TypedArrayCtor = typeof globalThis !== 'undefined' ? globalThis[value.ctor] : null;
+    if (typeof TypedArrayCtor !== 'function') TypedArrayCtor = Uint8Array;
+    decoded = new TypedArrayCtor(typedArrayBuffer);
+    refs[value.id] = decoded;
+    return decoded;
+  }
+  if (type === 'Map') {
+    decoded = new Map();
+    refs[value.id] = decoded;
+    var mapEntries = value.entries || [];
+    for (var me = 0; me < mapEntries.length; me++) {
+      decoded.set(
+        _ipcDecodeAdvancedValue(mapEntries[me][0], refs),
+        _ipcDecodeAdvancedValue(mapEntries[me][1], refs)
+      );
+    }
+    return decoded;
+  }
+  if (type === 'Set') {
+    decoded = new Set();
+    refs[value.id] = decoded;
+    var setValues = value.values || [];
+    for (var sv = 0; sv < setValues.length; sv++) {
+      decoded.add(_ipcDecodeAdvancedValue(setValues[sv], refs));
+    }
+    return decoded;
+  }
+  if (type === 'Error') {
+    var ErrorCtor = typeof globalThis !== 'undefined' ? globalThis[value.ctor] : null;
+    if (typeof ErrorCtor !== 'function') ErrorCtor = Error;
+    try {
+      decoded = new ErrorCtor(value.message);
+    } catch (_) {
+      decoded = new Error(value.message);
+    }
+    refs[value.id] = decoded;
+    if (value.name) decoded.name = value.name;
+    if (value.stack !== undefined) decoded.stack = value.stack;
+    if (Object.prototype.hasOwnProperty.call(value, 'cause')) {
+      decoded.cause = _ipcDecodeAdvancedValue(value.cause, refs);
+    }
+    if (value.props) {
+      var errorPropKeys = Object.keys(value.props);
+      for (var ek = 0; ek < errorPropKeys.length; ek++) {
+        decoded[errorPropKeys[ek]] = _ipcDecodeAdvancedValue(value.props[errorPropKeys[ek]], refs);
+      }
+    }
+    return decoded;
+  }
+  if (type === 'Array') {
+    decoded = new Array(value.items ? value.items.length : 0);
+    refs[value.id] = decoded;
+    for (var ai2 = 0; value.items && ai2 < value.items.length; ai2++) {
+      if (value.items[ai2] && value.items[ai2].__exactIpcSerialized === true && value.items[ai2].type === 'Hole') {
+        continue;
+      }
+      decoded[ai2] = _ipcDecodeAdvancedValue(value.items[ai2], refs);
+    }
+    return decoded;
+  }
+  if (type === 'Object') {
+    decoded = {};
+    refs[value.id] = decoded;
+    var propKeys = value.props ? Object.keys(value.props) : [];
+    for (var pk = 0; pk < propKeys.length; pk++) {
+      decoded[propKeys[pk]] = _ipcDecodeAdvancedValue(value.props[propKeys[pk]], refs);
+    }
+    return decoded;
+  }
+  return value;
+}
+
+function _ipcSerializePacketData(data, serializationMode) {
+  if (serializationMode === 'advanced') {
+    return _ipcEncodeAdvancedValue(data, []);
+  }
+  return data;
+}
+
+function _ipcDeserializePacketData(data, serializationMode) {
+  if (serializationMode === 'advanced') {
+    return _ipcDecodeAdvancedValue(data, []);
+  }
+  return data;
+}
+
+function _createIpcPacket(type, data, handleType, serializationMode) {
+  var pkt = { __exactIpc: true, type: type, data: _ipcSerializePacketData(data, serializationMode) };
   if (handleType) pkt.handleType = handleType;
+  if (serializationMode === 'advanced') pkt.serialization = 'advanced';
   return JSON.stringify(pkt) + '\n';
 }
 
@@ -1529,7 +1902,8 @@ function _normalizeSpawnOptions(options, command) {
     cwd: options.cwd,
     env: _flattenEnv(env),
     shell: options.shell,
-    detached: options.detached
+    detached: options.detached,
+    serialization: options.serialization === 'advanced' ? 'advanced' : 'json'
   };
   var stdio = options.stdio;
   if (typeof stdio === 'string') {
@@ -1600,6 +1974,11 @@ function _normalizeSpawnOptions(options, command) {
   var ipcFd = normalized.stdio.indexOf('ipc');
   if (ipcFd !== -1) {
     env.EXACT_IPC_FD = String(ipcFd);
+    if (normalized.serialization === 'advanced') {
+      env.EXACT_IPC_SERIALIZATION = 'advanced';
+    } else {
+      delete env.EXACT_IPC_SERIALIZATION;
+    }
   }
   normalized.env = _flattenEnv(env);
   normalized.windowsHide = options.windowsHide !== undefined ? !!options.windowsHide : false;
@@ -1789,6 +2168,7 @@ function ChildProcess(handle, pid, stdioModes) {
   this._disconnectPending = false;
   this._disconnectEmitted = false;
   this._closeCallback = null;
+  this._serialization = 'json';
   this.connected = this._ipcMode;
   this.channel = this._ipcMode ? { fd: 3, connected: true } : null;
   this.stdin = null;
@@ -1979,10 +2359,11 @@ function ChildProcess(handle, pid, stdioModes) {
           handle = _reconstructHandle(packet.handleType, _pendingRecvFd);
           _pendingRecvFd = -1;
         }
+        var packetData = _ipcDeserializePacketData(packet.data, packet.serialization);
         if (handle) {
-          self.emit('message', packet.data, handle);
+          self.emit('message', packetData, handle);
         } else {
-          self.emit('message', packet.data);
+          self.emit('message', packetData);
         }
       } else if (packet.type === 'disconnect') {
         closeIpcChannel();
@@ -2538,7 +2919,7 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
     handleType = _getHandleType(sendHandle);
     handleFd = _extractHandleFd(sendHandle);
   }
-  var packet = _createIpcPacket('message', message, handleType);
+  var packet = _createIpcPacket('message', message, handleType, this._serialization);
   var writeSuccess = false;
   var writeError = null;
   if (handleFd >= 0 && typeof globalThis.__exactSpawnSendMsg === 'function') {
@@ -2835,6 +3216,7 @@ cp.spawn = function spawn(command, args, options) {
     errChild.pid = undefined;
     errChild._exited = true; // prevent poll loop from running
     errChild._spawnEmitted = true; // prevent spawn event
+    errChild._serialization = normalizedOptions.serialization || 'json';
     errChild.spawnfile = command;
     errChild.spawnargs = [command].concat(args);
     var errCode = result.error === 'EACCES' ? 'EACCES' : result.error === 'EPERM' ? 'EPERM' : 'ENOENT';
@@ -2858,6 +3240,7 @@ cp.spawn = function spawn(command, args, options) {
     relayReadablePipes: normalizedOptions.relayReadablePipes || null
   };
   var child = new ChildProcess(result.handle, result.pid, stdioCfg);
+  child._serialization = normalizedOptions.serialization || 'json';
   // Set spawnfile and spawnargs based on whether shell was used
   if (normalizedOptions.shell) {
     var shellBin = typeof normalizedOptions.shell === 'string' ? normalizedOptions.shell : '/bin/sh';
@@ -3017,6 +3400,7 @@ cp.fork = function fork(modulePath, args, options) {
     stdio: stdio,
     detached: options.detached,
     shell: false,
+    serialization: options.serialization,
     timeout: options.timeout,
     killSignal: options.killSignal,
     signal: options.signal

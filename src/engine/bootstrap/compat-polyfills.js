@@ -2026,6 +2026,8 @@
       var exactIpcPollActive = true;
       var exactIpcReadPaused = false;
       var exactIpcPollInterval = 10;
+      var exactIpcSerialization =
+        globalThis.process.env.EXACT_IPC_SERIALIZATION === 'advanced' ? 'advanced' : 'json';
 
       function exactToString(bytes) {
         if (typeof TextDecoder === 'function') {
@@ -2040,8 +2042,388 @@
         return out;
       }
 
-      function exactBuildIpcPacket(type, data) {
-        return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
+      function exactIpcGetBufferCtor() {
+        if (typeof globalThis.Buffer === 'function' && globalThis.Buffer && typeof globalThis.Buffer.from === 'function') {
+          return globalThis.Buffer;
+        }
+        try {
+          if (typeof globalThis.__exactRequire === 'function') {
+            return globalThis.__exactRequire('buffer').Buffer;
+          }
+        } catch (_) {}
+        return null;
+      }
+
+      function exactIpcBytesToBase64(bytes) {
+        var BufferCtor = exactIpcGetBufferCtor();
+        if (BufferCtor) {
+          if (typeof BufferCtor.isBuffer === 'function' && BufferCtor.isBuffer(bytes)) {
+            return bytes.toString('base64');
+          }
+          if (typeof ArrayBuffer !== 'undefined' && bytes instanceof ArrayBuffer) {
+            return BufferCtor.from(new Uint8Array(bytes)).toString('base64');
+          }
+          if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(bytes)) {
+            return BufferCtor.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+          }
+          return BufferCtor.from(String(bytes), 'utf8').toString('base64');
+        }
+        if (typeof btoa === 'function') {
+          var array;
+          if (typeof ArrayBuffer !== 'undefined' && bytes instanceof ArrayBuffer) {
+            array = new Uint8Array(bytes);
+          } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(bytes)) {
+            array = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+          } else {
+            array = new Uint8Array(0);
+          }
+          var binary = '';
+          for (var i = 0; i < array.length; i++) binary += String.fromCharCode(array[i]);
+          return btoa(binary);
+        }
+        return '';
+      }
+
+      function exactIpcBase64ToByteArray(base64) {
+        var BufferCtor = exactIpcGetBufferCtor();
+        if (BufferCtor) {
+          var buf = BufferCtor.from(base64 || '', 'base64');
+          var out = new Uint8Array(buf.length);
+          out.set(buf);
+          return out;
+        }
+        if (typeof atob === 'function') {
+          var binary = atob(base64 || '');
+          var bytes = new Uint8Array(binary.length);
+          for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) & 0xff;
+          return bytes;
+        }
+        return new Uint8Array(0);
+      }
+
+      function exactIpcAdvancedTag(type) {
+        return { __exactIpcSerialized: true, type: type };
+      }
+
+      function exactEncodeAdvancedIpcValue(value, refs) {
+        if (value === undefined) return exactIpcAdvancedTag('Undefined');
+        if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
+        if (typeof value === 'number') {
+          if (value !== value) {
+            var nanTag = exactIpcAdvancedTag('Number');
+            nanTag.value = 'NaN';
+            return nanTag;
+          }
+          if (value === Infinity) {
+            var infTag = exactIpcAdvancedTag('Number');
+            infTag.value = 'Infinity';
+            return infTag;
+          }
+          if (value === -Infinity) {
+            var ninfTag = exactIpcAdvancedTag('Number');
+            ninfTag.value = '-Infinity';
+            return ninfTag;
+          }
+          if (value === 0 && 1 / value === -Infinity) {
+            var negZeroTag = exactIpcAdvancedTag('Number');
+            negZeroTag.value = '-0';
+            return negZeroTag;
+          }
+          return value;
+        }
+        if (typeof value === 'bigint') {
+          var bigIntTag = exactIpcAdvancedTag('BigInt');
+          bigIntTag.value = String(value);
+          return bigIntTag;
+        }
+        if (typeof value === 'symbol' || typeof value === 'function') {
+          var cloneErr = new TypeError('The object could not be cloned.');
+          cloneErr.name = 'DataCloneError';
+          throw cloneErr;
+        }
+
+        for (var refIndex = 0; refIndex < refs.length; refIndex++) {
+          if (refs[refIndex] === value) {
+            var refTag = exactIpcAdvancedTag('Ref');
+            refTag.id = refIndex;
+            return refTag;
+          }
+        }
+
+        var id = refs.length;
+        refs.push(value);
+        var BufferCtor = exactIpcGetBufferCtor();
+
+        if (BufferCtor && typeof BufferCtor.isBuffer === 'function' && BufferCtor.isBuffer(value)) {
+          var bufferTag = exactIpcAdvancedTag('Buffer');
+          bufferTag.id = id;
+          bufferTag.data = value.toString('base64');
+          return bufferTag;
+        }
+        if (typeof Date !== 'undefined' && value instanceof Date) {
+          var dateTag = exactIpcAdvancedTag('Date');
+          dateTag.id = id;
+          dateTag.value = value.getTime();
+          return dateTag;
+        }
+        if (typeof RegExp !== 'undefined' && value instanceof RegExp) {
+          var regexpTag = exactIpcAdvancedTag('RegExp');
+          regexpTag.id = id;
+          regexpTag.source = value.source;
+          regexpTag.flags = value.flags;
+          return regexpTag;
+        }
+        if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+          var arrayBufferTag = exactIpcAdvancedTag('ArrayBuffer');
+          arrayBufferTag.id = id;
+          arrayBufferTag.data = exactIpcBytesToBase64(value);
+          return arrayBufferTag;
+        }
+        if (typeof SharedArrayBuffer !== 'undefined' && value instanceof SharedArrayBuffer) {
+          var sharedArrayBufferTag = exactIpcAdvancedTag('SharedArrayBuffer');
+          sharedArrayBufferTag.id = id;
+          sharedArrayBufferTag.data = exactIpcBytesToBase64(new Uint8Array(value));
+          return sharedArrayBufferTag;
+        }
+        if (typeof DataView !== 'undefined' && value instanceof DataView) {
+          var dataViewTag = exactIpcAdvancedTag('DataView');
+          dataViewTag.id = id;
+          dataViewTag.data = exactIpcBytesToBase64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+          return dataViewTag;
+        }
+        if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
+          var typedArrayTag = exactIpcAdvancedTag('TypedArray');
+          typedArrayTag.id = id;
+          typedArrayTag.ctor = value.constructor && value.constructor.name ? value.constructor.name : 'Uint8Array';
+          typedArrayTag.data = exactIpcBytesToBase64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+          return typedArrayTag;
+        }
+        if (typeof Map !== 'undefined' && value instanceof Map) {
+          var mapTag = exactIpcAdvancedTag('Map');
+          mapTag.id = id;
+          mapTag.entries = [];
+          value.forEach(function(mapValue, mapKey) {
+            mapTag.entries.push([
+              exactEncodeAdvancedIpcValue(mapKey, refs),
+              exactEncodeAdvancedIpcValue(mapValue, refs)
+            ]);
+          });
+          return mapTag;
+        }
+        if (typeof Set !== 'undefined' && value instanceof Set) {
+          var setTag = exactIpcAdvancedTag('Set');
+          setTag.id = id;
+          setTag.values = [];
+          value.forEach(function(setValue) {
+            setTag.values.push(exactEncodeAdvancedIpcValue(setValue, refs));
+          });
+          return setTag;
+        }
+        if (value instanceof Error) {
+          var errorTag = exactIpcAdvancedTag('Error');
+          errorTag.id = id;
+          errorTag.ctor = value.constructor && value.constructor.name ? value.constructor.name : 'Error';
+          errorTag.name = value.name;
+          errorTag.message = value.message;
+          if (value.stack !== undefined) errorTag.stack = value.stack;
+          if ('cause' in value) errorTag.cause = exactEncodeAdvancedIpcValue(value.cause, refs);
+          var errorProps = Object.keys(value);
+          if (errorProps.length > 0) {
+            errorTag.props = {};
+            for (var ep = 0; ep < errorProps.length; ep++) {
+              var errorKey = errorProps[ep];
+              if (errorKey === 'message' || errorKey === 'stack' || errorKey === 'cause' || errorKey === 'name') continue;
+              errorTag.props[errorKey] = exactEncodeAdvancedIpcValue(value[errorKey], refs);
+            }
+          }
+          return errorTag;
+        }
+        if (Array.isArray(value)) {
+          var arrayTag = exactIpcAdvancedTag('Array');
+          arrayTag.id = id;
+          arrayTag.items = new Array(value.length);
+          for (var ai = 0; ai < value.length; ai++) {
+            if (Object.prototype.hasOwnProperty.call(value, ai)) {
+              arrayTag.items[ai] = exactEncodeAdvancedIpcValue(value[ai], refs);
+            } else {
+              arrayTag.items[ai] = exactIpcAdvancedTag('Hole');
+            }
+          }
+          return arrayTag;
+        }
+
+        var objectTag = exactIpcAdvancedTag('Object');
+        objectTag.id = id;
+        objectTag.props = {};
+        var keys = Object.keys(value);
+        for (var ki = 0; ki < keys.length; ki++) {
+          var key = keys[ki];
+          objectTag.props[key] = exactEncodeAdvancedIpcValue(value[key], refs);
+        }
+        return objectTag;
+      }
+
+      function exactDecodeAdvancedIpcValue(value, refs) {
+        if (!value || typeof value !== 'object' || value.__exactIpcSerialized !== true) {
+          return value;
+        }
+        var type = value.type;
+        if (type === 'Undefined') return undefined;
+        if (type === 'Number') {
+          if (value.value === 'NaN') return NaN;
+          if (value.value === 'Infinity') return Infinity;
+          if (value.value === '-Infinity') return -Infinity;
+          if (value.value === '-0') return -0;
+          return Number(value.value);
+        }
+        if (type === 'BigInt') {
+          return typeof BigInt === 'function' ? BigInt(value.value) : value.value;
+        }
+        if (type === 'Hole') {
+          return value;
+        }
+        if (type === 'Ref') {
+          return refs[value.id];
+        }
+
+        var decoded;
+        if (type === 'Buffer') {
+          var bufferBytes = exactIpcBase64ToByteArray(value.data);
+          var BufferCtor = exactIpcGetBufferCtor();
+          decoded = BufferCtor ? BufferCtor.from(bufferBytes) : bufferBytes;
+          refs[value.id] = decoded;
+          return decoded;
+        }
+        if (type === 'Date') {
+          decoded = new Date(value.value);
+          refs[value.id] = decoded;
+          return decoded;
+        }
+        if (type === 'RegExp') {
+          decoded = new RegExp(value.source || '', value.flags || '');
+          refs[value.id] = decoded;
+          return decoded;
+        }
+        if (type === 'ArrayBuffer' || type === 'SharedArrayBuffer') {
+          var bufferData = exactIpcBase64ToByteArray(value.data);
+          var bufferTarget;
+          if (type === 'SharedArrayBuffer' && typeof SharedArrayBuffer === 'function') {
+            bufferTarget = new SharedArrayBuffer(bufferData.byteLength);
+            new Uint8Array(bufferTarget).set(bufferData);
+          } else {
+            bufferTarget = new ArrayBuffer(bufferData.byteLength);
+            new Uint8Array(bufferTarget).set(bufferData);
+          }
+          refs[value.id] = bufferTarget;
+          return bufferTarget;
+        }
+        if (type === 'DataView') {
+          var dataViewBytes = exactIpcBase64ToByteArray(value.data);
+          var dataViewBuffer = new ArrayBuffer(dataViewBytes.byteLength);
+          new Uint8Array(dataViewBuffer).set(dataViewBytes);
+          decoded = new DataView(dataViewBuffer);
+          refs[value.id] = decoded;
+          return decoded;
+        }
+        if (type === 'TypedArray') {
+          var typedArrayBytes = exactIpcBase64ToByteArray(value.data);
+          var typedArrayBuffer = new ArrayBuffer(typedArrayBytes.byteLength);
+          new Uint8Array(typedArrayBuffer).set(typedArrayBytes);
+          var TypedArrayCtor = globalThis[value.ctor];
+          if (typeof TypedArrayCtor !== 'function') TypedArrayCtor = Uint8Array;
+          decoded = new TypedArrayCtor(typedArrayBuffer);
+          refs[value.id] = decoded;
+          return decoded;
+        }
+        if (type === 'Map') {
+          decoded = new Map();
+          refs[value.id] = decoded;
+          var mapEntries = value.entries || [];
+          for (var me = 0; me < mapEntries.length; me++) {
+            decoded.set(
+              exactDecodeAdvancedIpcValue(mapEntries[me][0], refs),
+              exactDecodeAdvancedIpcValue(mapEntries[me][1], refs)
+            );
+          }
+          return decoded;
+        }
+        if (type === 'Set') {
+          decoded = new Set();
+          refs[value.id] = decoded;
+          var setValues = value.values || [];
+          for (var sv = 0; sv < setValues.length; sv++) {
+            decoded.add(exactDecodeAdvancedIpcValue(setValues[sv], refs));
+          }
+          return decoded;
+        }
+        if (type === 'Error') {
+          var ErrorCtor = globalThis[value.ctor];
+          if (typeof ErrorCtor !== 'function') ErrorCtor = Error;
+          try {
+            decoded = new ErrorCtor(value.message);
+          } catch (_) {
+            decoded = new Error(value.message);
+          }
+          refs[value.id] = decoded;
+          if (value.name) decoded.name = value.name;
+          if (value.stack !== undefined) decoded.stack = value.stack;
+          if (Object.prototype.hasOwnProperty.call(value, 'cause')) {
+            decoded.cause = exactDecodeAdvancedIpcValue(value.cause, refs);
+          }
+          if (value.props) {
+            var errorPropKeys = Object.keys(value.props);
+            for (var ek = 0; ek < errorPropKeys.length; ek++) {
+              decoded[errorPropKeys[ek]] = exactDecodeAdvancedIpcValue(value.props[errorPropKeys[ek]], refs);
+            }
+          }
+          return decoded;
+        }
+        if (type === 'Array') {
+          decoded = new Array(value.items ? value.items.length : 0);
+          refs[value.id] = decoded;
+          for (var ai2 = 0; value.items && ai2 < value.items.length; ai2++) {
+            if (value.items[ai2] && value.items[ai2].__exactIpcSerialized === true && value.items[ai2].type === 'Hole') {
+              continue;
+            }
+            decoded[ai2] = exactDecodeAdvancedIpcValue(value.items[ai2], refs);
+          }
+          return decoded;
+        }
+        if (type === 'Object') {
+          decoded = {};
+          refs[value.id] = decoded;
+          var propKeys = value.props ? Object.keys(value.props) : [];
+          for (var pk = 0; pk < propKeys.length; pk++) {
+            decoded[propKeys[pk]] = exactDecodeAdvancedIpcValue(value.props[propKeys[pk]], refs);
+          }
+          return decoded;
+        }
+        return value;
+      }
+
+      function exactSerializeIpcPacketData(data, serializationMode) {
+        if (serializationMode === 'advanced') {
+          return exactEncodeAdvancedIpcValue(data, []);
+        }
+        return data;
+      }
+
+      function exactDeserializeIpcPacketData(data, serializationMode) {
+        if (serializationMode === 'advanced') {
+          return exactDecodeAdvancedIpcValue(data, []);
+        }
+        return data;
+      }
+
+      function exactBuildIpcPacket(type, data, serializationMode, handleType) {
+        var packet = {
+          __exactIpc: true,
+          type: type,
+          data: exactSerializeIpcPacketData(data, serializationMode)
+        };
+        if (serializationMode === 'advanced') packet.serialization = 'advanced';
+        if (handleType) packet.handleType = handleType;
+        return JSON.stringify(packet) + '\n';
       }
 
       function exactEnsureStdioRefUnref() {
@@ -2261,15 +2643,16 @@
               handle = exactReconstructHandle(packet.handleType, _exactPendingRecvFd);
               _exactPendingRecvFd = -1;
             }
+            var packetData = exactDeserializeIpcPacketData(packet.data, packet.serialization);
             if (typeof globalThis.__exactInstallAsyncIpcListenerPatch === 'function') {
               try {
                 globalThis.__exactInstallAsyncIpcListenerPatch();
               } catch (_) {}
             }
             if (handle) {
-              globalThis.process.emit('message', packet.data, handle);
+              globalThis.process.emit('message', packetData, handle);
             } else {
-              globalThis.process.emit('message', packet.data);
+              globalThis.process.emit('message', packetData);
             }
             if (typeof globalThis.__exactSyncTrackedIpcListenersAfterDispatch === 'function') {
               try {
@@ -2756,9 +3139,7 @@
             else handleType = 'net.Socket';
           }
         }
-        var pktObj = { __exactIpc: true, type: 'message', data: message };
-        if (handleType) pktObj.handleType = handleType;
-        var packet = JSON.stringify(pktObj) + '\n';
+        var packet = exactBuildIpcPacket('message', message, exactIpcSerialization, handleType);
         var written = false;
         if (handleFd >= 0 && typeof globalThis.__exactIpcSendMsg === 'function') {
           try {
