@@ -51,6 +51,29 @@ function _makeIpcError(code, message) {
   return err;
 }
 
+function _finalizeSentSocketEntry(entry) {
+  if (!entry) return;
+  var server = entry.server || entry;
+  var nativeHandle = entry.nativeHandle;
+  if (nativeHandle != null && typeof globalThis.__exactTcpClose === 'function') {
+    try { globalThis.__exactTcpClose(nativeHandle); } catch (e) {}
+  }
+  if (server) {
+    server._connections--;
+    if (server._connections < 0) server._connections = 0;
+    if (server._closing && server._connections === 0) {
+      server.emit('close');
+    }
+  }
+}
+
+function _flushSentSocketEntries(queue) {
+  if (!queue || queue.length === 0) return;
+  while (queue.length > 0) {
+    _finalizeSentSocketEntry(queue.shift());
+  }
+}
+
 function _createIpcPacket(type, data, handleType) {
   var pkt = { __exactIpc: true, type: type, data: data };
   if (handleType) pkt.handleType = handleType;
@@ -1616,21 +1639,9 @@ function ChildProcess(handle, pid, stdioModes) {
     self.connected = false;
     self._ipcMode = false;
     self.channel = null;
-    // Flush remaining _sentSocketServers: decrement _connections for any
-    // sockets that were sent to this child but whose NODE_SOCKET_CLOSED
-    // notification will never arrive (child disconnected/exited).
-    if (self._sentSocketServers && self._sentSocketServers.length > 0) {
-      while (self._sentSocketServers.length > 0) {
-        var srv = self._sentSocketServers.shift();
-        if (srv) {
-          srv._connections--;
-          if (srv._connections < 0) srv._connections = 0;
-          if (srv._closing && srv._connections === 0) {
-            srv.emit('close');
-          }
-        }
-      }
-    }
+    // Flush remaining transferred sockets whose close notification will
+    // never arrive after the child disconnects/exits.
+    _flushSentSocketEntries(self._sentSocketServers);
     if (typeof process !== 'undefined' && self._closeCallback) {
       try {
         self._closeCallback();
@@ -1688,14 +1699,7 @@ function ChildProcess(handle, pid, stdioModes) {
         // Handle internal NODE_SOCKET_CLOSED messages from SocketList protocol
         if (packet.data && packet.data.cmd === 'NODE_SOCKET_CLOSED') {
           if (self._sentSocketServers && self._sentSocketServers.length > 0) {
-            var closedSrv = self._sentSocketServers.shift();
-            if (closedSrv) {
-              closedSrv._connections--;
-              if (closedSrv._connections < 0) closedSrv._connections = 0;
-              if (closedSrv._closing && closedSrv._connections === 0) {
-                closedSrv.emit('close');
-              }
-            }
+            _finalizeSentSocketEntry(self._sentSocketServers.shift());
           }
           continue; // Don't emit as regular message
         }
@@ -2079,19 +2083,7 @@ ChildProcess.prototype.spawn = function(options) {
             self3.exitCode = status.exitCode;
             self3.signalCode = null;
           }
-          // Flush remaining _sentSocketServers on exit
-          if (self3._sentSocketServers && self3._sentSocketServers.length > 0) {
-            while (self3._sentSocketServers.length > 0) {
-              var exitSrv = self3._sentSocketServers.shift();
-              if (exitSrv) {
-                exitSrv._connections--;
-                if (exitSrv._connections < 0) exitSrv._connections = 0;
-                if (exitSrv._closing && exitSrv._connections === 0) {
-                  exitSrv.emit('close');
-                }
-              }
-            }
-          }
+          _flushSentSocketEntries(self3._sentSocketServers);
           self3.emit('exit', self3.exitCode, self3.signalCode);
           setTimeout(function() {
             self3.emit('close', self3.exitCode, self3.signalCode);
@@ -2264,11 +2256,16 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
     try { net2 = require('net'); } catch(e) {}
     var isRawHandle = !isDgram && !isServer && !(net2 && net2.Socket && sendHandle instanceof net2.Socket);
     if (writeSuccess && sendHandle && !keepOpen && !isDgram && !isServer && !isRawHandle) {
+      var sentSocketEntry = null;
       // Track the server for SocketList-like protocol: don't decrement
       // _connections now; instead wait for NODE_SOCKET_CLOSED from child.
+      if (!this._sentSocketServers) this._sentSocketServers = [];
+      sentSocketEntry = {
+        server: sendHandle._server || null,
+        nativeHandle: null
+      };
+      this._sentSocketServers.push(sentSocketEntry);
       if (sendHandle._server) {
-        if (!this._sentSocketServers) this._sentSocketServers = [];
-        this._sentSocketServers.push(sendHandle._server);
         sendHandle._server = null;
         sendHandle.server = null;
       }
@@ -2292,8 +2289,8 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
       if (nativeHandle && nativeHandle._exactHandle !== undefined) {
         nativeHandle = nativeHandle._exactHandle;
       }
-      if (nativeHandle != null && typeof globalThis.__exactTcpClose === 'function') {
-        try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
+      if (nativeHandle != null) {
+        sentSocketEntry.nativeHandle = nativeHandle;
       }
       sendHandle._handle = null;
       sendHandle.destroyed = true;
@@ -2372,19 +2369,7 @@ ChildProcess.prototype.disconnect = function() {
     if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
       globalThis.__exactSpawnCloseStdin(self._handle, 'ipc');
     }
-    // Flush remaining _sentSocketServers on disconnect
-    if (self._sentSocketServers && self._sentSocketServers.length > 0) {
-      while (self._sentSocketServers.length > 0) {
-        var srv = self._sentSocketServers.shift();
-        if (srv) {
-          srv._connections--;
-          if (srv._connections < 0) srv._connections = 0;
-          if (srv._closing && srv._connections === 0) {
-            srv.emit('close');
-          }
-        }
-      }
-    }
+    _flushSentSocketEntries(self._sentSocketServers);
     self.channel = null;
     self.emit('disconnect');
   }, 0);
