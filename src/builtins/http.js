@@ -1562,7 +1562,7 @@ var STATUS_CODES = {
 // ---------------------------------------------------------------------------
 function HttpRequestParser() {
   this._buffer = '';
-  this._state = 0; // 0=REQUEST_LINE, 1=HEADERS, 2=BODY, 3=CHUNKED_SIZE, 4=CHUNKED_DATA, 5=CHUNKED_TRAILER
+  this._state = 0; // 0=REQUEST_LINE, 1=HEADERS, 2=BODY, 3=CHUNKED_SIZE, 4=CHUNKED_DATA, 5=CHUNKED_TRAILER, 6=DISCARD_BODY
   this._method = '';
   this._url = '';
   this._httpVersion = '1.1';
@@ -1575,10 +1575,41 @@ function HttpRequestParser() {
   this.onRequest = null;
 }
 
-HttpRequestParser.prototype.execute = function(chunk) {
-  if (typeof chunk !== 'string') {
-    try { chunk = chunk.toString('utf8'); } catch(e) { chunk = String(chunk); }
+var MAX_PREBUFFERED_HTTP_REQUEST_BODY = 1024 * 1024;
+
+function _toHttpParserString(chunk) {
+  if (typeof chunk === 'string') {
+    return chunk;
   }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+    return chunk.toString('latin1');
+  }
+  if (chunk && typeof chunk === 'object' && typeof Buffer !== 'undefined') {
+    try {
+      if (ArrayBuffer.isView(chunk)) {
+        return Buffer
+          .from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0)
+          .toString('latin1');
+      }
+      if (chunk instanceof ArrayBuffer) {
+        return Buffer.from(chunk).toString('latin1');
+      }
+    } catch (_coerceErr) {}
+  }
+  try {
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(chunk).toString('latin1');
+    }
+  } catch (_bufferErr) {}
+  try {
+    return chunk.toString('latin1');
+  } catch (_stringErr) {
+    return String(chunk);
+  }
+}
+
+HttpRequestParser.prototype.execute = function(chunk) {
+  chunk = _toHttpParserString(chunk);
   this._buffer += chunk;
   this._parse();
 };
@@ -1625,6 +1656,16 @@ HttpRequestParser.prototype._parse = function() {
         } else {
           this._contentLength = 0;
         }
+        if (this._contentLength > MAX_PREBUFFERED_HTTP_REQUEST_BODY) {
+          this._emitRequest({
+            hasBody: true,
+            bodyComplete: false,
+            oversizedBody: true,
+            deferReset: true
+          });
+          this._state = 6;
+          continue;
+        }
         if (this._contentLength > 0) {
           this._state = 2;
         } else {
@@ -1647,23 +1688,9 @@ HttpRequestParser.prototype._parse = function() {
         }
       }
     } else if (this._state === 2) {
-      var bufByteLen = (typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
-        ? Buffer.byteLength(this._buffer, 'utf8') : this._buffer.length;
-      if (bufByteLen >= this._contentLength) {
-        var bodyEnd = this._buffer.length;
-        if (bufByteLen > this._contentLength) {
-          var byteCount = 0;
-          for (var ci = 0; ci < this._buffer.length; ci++) {
-            var code = this._buffer.charCodeAt(ci);
-            if (code <= 0x7F) byteCount += 1;
-            else if (code <= 0x7FF) byteCount += 2;
-            else if (code >= 0xD800 && code <= 0xDBFF) { byteCount += 4; ci++; }
-            else byteCount += 3;
-            if (byteCount >= this._contentLength) { bodyEnd = ci + 1; break; }
-          }
-        }
-        this._bodyData = this._buffer.substring(0, bodyEnd);
-        this._buffer = this._buffer.substring(bodyEnd);
+      if (this._buffer.length >= this._contentLength) {
+        this._bodyData = this._buffer.substring(0, this._contentLength);
+        this._buffer = this._buffer.substring(this._contentLength);
         this._emitRequest();
       } else {
         return;
@@ -1708,11 +1735,30 @@ HttpRequestParser.prototype._parse = function() {
       } else {
         this._buffer = this._buffer.substring(nlIdx2 + 2);
       }
+    } else if (this._state === 6) {
+      if (this._buffer.length >= this._contentLength) {
+        this._buffer = this._buffer.substring(this._contentLength);
+        this._state = 0;
+        this._method = '';
+        this._url = '';
+        this._httpVersion = '1.1';
+        this._headers = {};
+        this._rawHeaders = [];
+        this._contentLength = 0;
+        this._bodyData = '';
+        this._isChunked = false;
+        this._chunkRemaining = 0;
+      } else {
+        this._contentLength -= this._buffer.length;
+        this._buffer = '';
+        return;
+      }
     }
   }
 };
 
-HttpRequestParser.prototype._emitRequest = function() {
+HttpRequestParser.prototype._emitRequest = function(options) {
+  options = options || {};
   var verParts = this._httpVersion.split('.');
   var reqData = {
     method: this._method,
@@ -1722,18 +1768,23 @@ HttpRequestParser.prototype._emitRequest = function() {
     httpVersionMinor: verParts[1] !== undefined ? parseInt(verParts[1], 10) : 1,
     headers: this._headers,
     rawHeaders: this._rawHeaders,
-    body: this._bodyData
+    body: this._bodyData,
+    hasBody: options.hasBody === true || this._bodyData.length > 0,
+    bodyComplete: options.bodyComplete !== false,
+    oversizedBody: options.oversizedBody === true
   };
-  this._state = 0;
-  this._method = '';
-  this._url = '';
-  this._httpVersion = '1.1';
-  this._headers = {};
-  this._rawHeaders = [];
-  this._contentLength = 0;
-  this._bodyData = '';
-  this._isChunked = false;
-  this._chunkRemaining = 0;
+  if (options.deferReset !== true) {
+    this._state = 0;
+    this._method = '';
+    this._url = '';
+    this._httpVersion = '1.1';
+    this._headers = {};
+    this._rawHeaders = [];
+    this._contentLength = 0;
+    this._bodyData = '';
+    this._isChunked = false;
+    this._chunkRemaining = 0;
+  }
 
   if (typeof this.onRequest === 'function') {
     this.onRequest(reqData);
@@ -2584,7 +2635,7 @@ Server.prototype._onConnection = function(socket) {
     _activeReq = req;
 
     req.once('end', function() { req.complete = true; if (_activeReq === req) _activeReq = null; });
-    if (!reqData.body || reqData.body.length === 0) {
+    if (reqData.bodyComplete !== false) {
       req.complete = true;
     }
 
@@ -2596,6 +2647,10 @@ Server.prototype._onConnection = function(socket) {
 
     res.once('close', function() {
       socket._isIdle = true;
+      if (reqData.oversizedBody && !socket.destroyed) {
+        try { socket.destroy(); } catch(e) {}
+        return;
+      }
       if (self._closing && !socket.destroyed) {
         if (!socket._writeQueue || socket._writeQueue.length === 0) {
           try { socket.destroy(); } catch(e) {}
