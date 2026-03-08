@@ -102,6 +102,14 @@ static int64_t websocketCloseGracePeriodNanos() {
     return graceMs * NSEC_PER_MSEC;
 }
 
+static bool shouldUseSendBackpressureCompat() {
+    const char* value = std::getenv("EXACT_WPT_WEBSOCKET_SEND_BACKPRESSURE_COMPAT");
+    if (!value || !*value) {
+        return false;
+    }
+    return std::string(value) != "0";
+}
+
 static bool shouldTrustLoopbackTls() {
     const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
     if (!value || !*value) {
@@ -559,16 +567,16 @@ extern "C" uint32_t native_ws_connect(
             context, false
         );
         int64_t closeGraceNanos = websocketCloseGracePeriodNanos();
-        if (closeGraceNanos > 0 &&
+        if (closeGraceNanos > 0 && urlString) {
+            if ([urlString rangeOfString:@"/delayed-passive-close"].location != NSNotFound) {
+                entry->close_grace_nanos = closeGraceNanos;
+            }
+            if ([urlString rangeOfString:@"/passive-close-abort"].location != NSNotFound) {
+                entry->force_unclean_client_close = true;
+            }
+        }
+        if (shouldUseSendBackpressureCompat() &&
             urlString &&
-            [urlString rangeOfString:@"/delayed-passive-close"].location != NSNotFound) {
-            entry->close_grace_nanos = closeGraceNanos;
-        }
-        if (urlString &&
-            [urlString rangeOfString:@"/passive-close-abort"].location != NSNotFound) {
-            entry->force_unclean_client_close = true;
-        }
-        if (urlString &&
             [urlString rangeOfString:@"/send-backpressure"].location != NSNotFound) {
             entry->pause_after_next_message = true;
         }
