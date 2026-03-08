@@ -1573,6 +1573,7 @@ function HttpRequestParser() {
   this._isChunked = false;
   this._chunkRemaining = 0;
   this.onRequest = null;
+  this.onError = null;
 }
 
 var MAX_PREBUFFERED_HTTP_REQUEST_BODY = 1024 * 1024;
@@ -1614,6 +1615,23 @@ HttpRequestParser.prototype.execute = function(chunk) {
   this._parse();
 };
 
+HttpRequestParser.prototype._emitParseError = function() {
+  this._state = 0;
+  this._buffer = '';
+  this._method = '';
+  this._url = '';
+  this._httpVersion = '1.1';
+  this._headers = {};
+  this._rawHeaders = [];
+  this._contentLength = 0;
+  this._bodyData = '';
+  this._isChunked = false;
+  this._chunkRemaining = 0;
+  if (typeof this.onError === 'function') {
+    this.onError();
+  }
+};
+
 HttpRequestParser.prototype._parse = function() {
   while (this._buffer.length > 0) {
     if (this._state === 0) {
@@ -1622,21 +1640,24 @@ HttpRequestParser.prototype._parse = function() {
       var line = this._buffer.substring(0, idx);
       this._buffer = this._buffer.substring(idx + 2);
       var spaceIdx = line.indexOf(' ');
-      if (spaceIdx > 0) {
-        this._method = line.substring(0, spaceIdx);
-        var rest = line.substring(spaceIdx + 1);
-        var spaceIdx2 = rest.lastIndexOf(' ');
-        if (spaceIdx2 > 0) {
-          this._url = rest.substring(0, spaceIdx2);
-          var ver = rest.substring(spaceIdx2 + 1);
-          var slashIdx = ver.indexOf('/');
-          if (slashIdx >= 0) {
-            this._httpVersion = ver.substring(slashIdx + 1);
-          }
-        } else {
-          this._url = rest;
-        }
+      if (spaceIdx <= 0) {
+        this._emitParseError();
+        return;
       }
+      this._method = line.substring(0, spaceIdx);
+      var rest = line.substring(spaceIdx + 1);
+      var spaceIdx2 = rest.lastIndexOf(' ');
+      if (spaceIdx2 <= 0) {
+        this._emitParseError();
+        return;
+      }
+      this._url = rest.substring(0, spaceIdx2);
+      var ver = rest.substring(spaceIdx2 + 1);
+      if (!/^HTTP\/\d+\.\d+$/.test(ver)) {
+        this._emitParseError();
+        return;
+      }
+      this._httpVersion = ver.substring(5);
       this._state = 1;
     } else if (this._state === 1) {
       var idx2 = this._buffer.indexOf('\r\n');
@@ -1793,6 +1814,7 @@ HttpRequestParser.prototype._emitRequest = function(options) {
 
 HttpRequestParser.prototype.close = function() {
   this.onRequest = null;
+  this.onError = null;
 };
 
 // ---------------------------------------------------------------------------
@@ -2077,7 +2099,17 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
   if (typeof chunk === 'function') { callback = chunk; chunk = undefined; encoding = undefined; }
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   if (this._finished) { if (callback) setTimeout(callback, 0); return this; }
-  if (chunk !== undefined && chunk !== null) this.write(chunk, encoding);
+  if (chunk !== undefined && chunk !== null) {
+    if (!this._nativeMode && !this._headersSent && !this._streaming) {
+      if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
+        this._bodyParts.push(chunk.toString(encoding || 'utf8'));
+      } else {
+        this._bodyParts.push(typeof chunk === 'string' ? chunk : String(chunk));
+      }
+    } else {
+      this.write(chunk, encoding);
+    }
+  }
   this._finished = true;
   this.writableEnded = true;
 
@@ -2593,6 +2625,43 @@ Server.prototype._onConnection = function(socket) {
 
   var parser = new HttpRequestParser();
   socket.parser = parser;
+  function sendBadRequestAndClose() {
+    if (socket.destroyed) return;
+    try {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+    } catch (_writeErr) {
+      try { socket.destroy(); } catch (_destroyErr) {}
+    }
+  }
+  function isValidConnectTarget(target) {
+    if (typeof target !== 'string' || !target) return false;
+    if (/^https?:\/\//i.test(target)) {
+      try {
+        var targetUrl = new URL(target);
+        return !!targetUrl.hostname && !!targetUrl.port;
+      } catch (_targetUrlErr) {
+        return false;
+      }
+    }
+    if (target.charAt(0) === '[') {
+      var bracketEnd = target.indexOf(']');
+      if (bracketEnd <= 0 || bracketEnd + 2 >= target.length || target.charAt(bracketEnd + 1) !== ':') {
+        return false;
+      }
+      return /^\d+$/.test(target.substring(bracketEnd + 2));
+    }
+    var colonIdx = target.lastIndexOf(':');
+    if (colonIdx <= 0 || colonIdx === target.length - 1) {
+      return false;
+    }
+    return /^\d+$/.test(target.substring(colonIdx + 1));
+  }
+
+  parser.onError = function() {
+    socket.parser = null;
+    if (parser) parser.close();
+    sendBadRequestAndClose();
+  };
 
   socket.on('data', function(chunk) {
     if (socket.parser) parser.execute(chunk);
@@ -2622,6 +2691,31 @@ Server.prototype._onConnection = function(socket) {
   parser.onRequest = function(reqData) {
     var req = new ServerIncomingMessage(reqData);
     req.socket = socket;
+
+    if (req.method === 'CONNECT') {
+      if (!isValidConnectTarget(req.url)) {
+        socket.parser = null;
+        if (parser) parser.close();
+        sendBadRequestAndClose();
+        return;
+      }
+      socket._isIdle = false;
+      socket.parser = null;
+      var head = (typeof Buffer !== 'undefined')
+        ? Buffer.from(parser && parser._buffer ? parser._buffer : '', 'latin1')
+        : (parser && parser._buffer ? parser._buffer : '');
+      if (parser) {
+        parser._buffer = '';
+        parser.close();
+      }
+      if (self.listenerCount('connect') > 0) {
+        self.emit('connect', req, socket, head);
+      } else {
+        sendBadRequestAndClose();
+      }
+      return;
+    }
+
     _activeReq = req;
 
     req.once('end', function() { req.complete = true; if (_activeReq === req) _activeReq = null; });
