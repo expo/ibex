@@ -296,6 +296,8 @@ extern "C" uint32_t native_ws_connect(
 );
 extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t length, int is_text);
 extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reason);
+extern "C" void native_ws_pause(uint32_t ws_id);
+extern "C" void native_ws_resume(uint32_t ws_id);
 extern "C" void native_ws_destroy(uint32_t ws_id);
 extern "C" int native_ws_has_active(void);
 extern "C" void native_ws_retain_context(void* context);
@@ -12033,6 +12035,36 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactWsClose", std::move(wsCloseFn));
+
+  auto wsPauseFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsPause"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
+        uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        native_ws_pause(ws_id);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWsPause", std::move(wsPauseFn));
+
+  auto wsResumeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsResume"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
+        uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        native_ws_resume(ws_id);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWsResume", std::move(wsResumeFn));
 
   // --- WebSocket JS class ---
   // NOTE: The C++ inline WebSocket class that was previously here has been removed.

@@ -58,6 +58,7 @@ struct WebSocketEntry {
     std::mutex io_mutex;
     std::queue<OutboundMessage> outbound;
     std::atomic<bool> closed{false};
+    std::atomic<bool> receive_paused{false};
     std::thread io_thread;
 };
 
@@ -231,6 +232,11 @@ static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
 
         if (entry->closed.load(std::memory_order_relaxed)) {
             break;
+        }
+
+        if (entry->receive_paused.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
         }
 
         uint8_t buffer[64 * 1024];
@@ -450,6 +456,46 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
     (void)ws_id;
     (void)code;
     (void)reason;
+#endif
+}
+
+extern "C" void native_ws_pause(uint32_t ws_id) {
+#ifdef EXACT_HAS_CURL
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(g_ws_mutex);
+        auto it = g_ws_connections.find(ws_id);
+        if (it == g_ws_connections.end()) {
+            return;
+        }
+        entry = it->second;
+    }
+    if (!entry) {
+        return;
+    }
+    entry->receive_paused.store(true, std::memory_order_relaxed);
+#else
+    (void)ws_id;
+#endif
+}
+
+extern "C" void native_ws_resume(uint32_t ws_id) {
+#ifdef EXACT_HAS_CURL
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(g_ws_mutex);
+        auto it = g_ws_connections.find(ws_id);
+        if (it == g_ws_connections.end()) {
+            return;
+        }
+        entry = it->second;
+    }
+    if (!entry) {
+        return;
+    }
+    entry->receive_paused.store(false, std::memory_order_relaxed);
+#else
+    (void)ws_id;
 #endif
 }
 

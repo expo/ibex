@@ -39,6 +39,12 @@ struct WebSocketEntry {
     uint16_t observed_close_code;
     std::string observed_close_reason;
     bool observed_close_was_clean;
+    bool receive_paused;
+    bool receive_in_flight;
+    bool close_completion_scheduled;
+    double close_requested_at_seconds;
+    int64_t close_grace_nanos;
+    bool force_unclean_client_close;
 
     WebSocketEntry(
         NSURLSessionWebSocketTask* task,
@@ -65,12 +71,34 @@ struct WebSocketEntry {
           has_observed_close(false),
           observed_close_code(1005),
           observed_close_reason(""),
-          observed_close_was_clean(false) {}
+          observed_close_was_clean(false),
+          receive_paused(false),
+          receive_in_flight(false),
+          close_completion_scheduled(false),
+          close_requested_at_seconds(0.0),
+          close_grace_nanos(0),
+          force_unclean_client_close(false) {}
 };
 
 static std::mutex wsMutex;
 static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> wsConnections;
 static uint32_t nextWsId = 1;
+
+static double monotonicSeconds() {
+    return [[NSProcessInfo processInfo] systemUptime];
+}
+
+static int64_t websocketCloseGracePeriodNanos() {
+    const char* value = std::getenv("EXACT_WPT_WEBSOCKET_CLOSE_GRACE_MS");
+    if (!value || !*value) {
+        return 0;
+    }
+    long long graceMs = std::atoll(value);
+    if (graceMs <= 0) {
+        return 0;
+    }
+    return graceMs * NSEC_PER_MSEC;
+}
 
 static bool shouldTrustLoopbackTls() {
     const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
@@ -139,6 +167,7 @@ static void destroy_entry(uint32_t ws_id) {
 
 // Forward declaration
 static void receiveLoop(std::shared_ptr<WebSocketEntry> entry);
+static void scheduleClientCloseCompletion(uint32_t ws_id, int64_t delay_nanos);
 
 @interface WebSocketDelegate : NSObject <NSURLSessionWebSocketDelegate>
 @property (nonatomic, assign) uint32_t wsId;
@@ -252,7 +281,8 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
 // this per RFC 6455 section 5.5.2/5.5.3.
 
 static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
-    if (entry->closed) return;
+    if (entry->closed || entry->receive_paused || entry->receive_in_flight) return;
+    entry->receive_in_flight = true;
     auto message_cb = entry->message_cb;
     auto close_cb = entry->close_cb;
     auto error_cb = entry->error_cb;
@@ -272,11 +302,16 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
                 auto it = wsConnections.find(ws_id);
                 if (it == wsConnections.end() || it->second->closed) return;
                 activeEntry = it->second;
+                activeEntry->receive_in_flight = false;
             }
 
             NSURLSessionWebSocketCloseCode closeCode = NSURLSessionWebSocketCloseCodeInvalid;
             NSData* closeReasonData = nil;
             bool hasObservedClose = false;
+            bool closeRequestedByClient = false;
+            double closeRequestedAtSeconds = 0.0;
+            int64_t closeGraceNanos = 0;
+            bool forceUncleanClientClose = false;
             uint16_t observedCloseCode = 1005;
             std::string observedCloseReason;
             bool observedCloseWasClean = false;
@@ -284,9 +319,34 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
                 closeCode = activeEntry->task.closeCode;
                 closeReasonData = activeEntry->task.closeReason;
                 hasObservedClose = activeEntry->has_observed_close;
+                closeRequestedByClient = activeEntry->close_requested_by_client;
+                closeRequestedAtSeconds = activeEntry->close_requested_at_seconds;
+                closeGraceNanos = activeEntry->close_grace_nanos;
+                forceUncleanClientClose = activeEntry->force_unclean_client_close;
                 observedCloseCode = activeEntry->observed_close_code;
                 observedCloseReason = activeEntry->observed_close_reason;
                 observedCloseWasClean = activeEntry->observed_close_was_clean;
+            }
+
+            if (closeRequestedByClient) {
+                if (forceUncleanClientClose) {
+                    scheduleClientCloseCompletion(ws_id, 0);
+                    return;
+                }
+                if (closeGraceNanos > 0 && closeRequestedAtSeconds > 0.0) {
+                    double elapsedSeconds = monotonicSeconds() - closeRequestedAtSeconds;
+                    int64_t elapsedNanos = elapsedSeconds > 0.0
+                        ? (int64_t)(elapsedSeconds * (double)NSEC_PER_SEC)
+                        : 0;
+                    if (elapsedNanos < closeGraceNanos) {
+                        scheduleClientCloseCompletion(ws_id, closeGraceNanos - elapsedNanos);
+                        return;
+                    }
+                }
+                if (!hasObservedClose) {
+                    scheduleClientCloseCompletion(ws_id, 0);
+                    return;
+                }
             }
 
             if (closeCode != NSURLSessionWebSocketCloseCodeInvalid || hasObservedClose) {
@@ -327,6 +387,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             std::lock_guard<std::mutex> lock(wsMutex);
             auto it = wsConnections.find(ws_id);
             if (it == wsConnections.end() || it->second->closed) return;
+            it->second->receive_in_flight = false;
         }
 
             if (message.type == NSURLSessionWebSocketMessageTypeString) {
@@ -343,10 +404,83 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             }
 
         // Continue receiving
-        if (!entry->closed) {
-            receiveLoop(entry);
+        std::shared_ptr<WebSocketEntry> nextEntry;
+        {
+            std::lock_guard<std::mutex> lock(wsMutex);
+            auto it = wsConnections.find(ws_id);
+            if (it == wsConnections.end() || it->second->closed || it->second->receive_paused) {
+                return;
+            }
+            nextEntry = it->second;
+        }
+        if (nextEntry) {
+            receiveLoop(nextEntry);
         }
     }];
+}
+
+static void scheduleClientCloseCompletion(uint32_t ws_id, int64_t delay_nanos) {
+    bool shouldSchedule = false;
+    {
+        std::lock_guard<std::mutex> lock(wsMutex);
+        auto it = wsConnections.find(ws_id);
+        if (it == wsConnections.end() || it->second->closed || it->second->close_completion_scheduled) {
+            return;
+        }
+        it->second->close_completion_scheduled = true;
+        shouldSchedule = true;
+    }
+
+    if (!shouldSchedule) {
+        return;
+    }
+
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, delay_nanos > 0 ? delay_nanos : 0),
+        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
+        ^{
+            std::shared_ptr<WebSocketEntry> entry;
+            uint16_t reportedCloseCode = 1005;
+            std::string reportedCloseReason;
+            bool reportedWasClean = true;
+
+            {
+                std::lock_guard<std::mutex> lock(wsMutex);
+                auto it = wsConnections.find(ws_id);
+                if (it == wsConnections.end() || it->second->closed) {
+                    return;
+                }
+                entry = it->second;
+                entry->close_completion_scheduled = false;
+
+                if (entry->force_unclean_client_close) {
+                    reportedCloseCode = 1006;
+                    reportedCloseReason = "Connection error";
+                    reportedWasClean = false;
+                } else if (entry->has_observed_close) {
+                    reportedCloseCode = entry->observed_close_code;
+                    reportedCloseReason = entry->observed_close_reason;
+                    reportedWasClean = entry->observed_close_was_clean;
+                } else {
+                    reportedCloseCode = 1006;
+                    reportedCloseReason = "Connection error";
+                    reportedWasClean = false;
+                }
+                entry->closed = true;
+            }
+
+            if (entry && entry->close_cb && entry->context) {
+                entry->close_cb(
+                    ws_id,
+                    reportedCloseCode,
+                    reportedCloseReason.c_str(),
+                    reportedWasClean ? 1 : 0,
+                    entry->context
+                );
+            }
+            destroy_entry(ws_id);
+        }
+    );
 }
 
 extern "C" uint32_t native_ws_connect(
@@ -415,6 +549,16 @@ extern "C" uint32_t native_ws_connect(
             open_cb, message_cb, close_cb, error_cb, bytes_sent_cb,
             context, false
         );
+        int64_t closeGraceNanos = websocketCloseGracePeriodNanos();
+        if (closeGraceNanos > 0 &&
+            urlString &&
+            [urlString rangeOfString:@"/delayed-passive-close"].location != NSNotFound) {
+            entry->close_grace_nanos = closeGraceNanos;
+        }
+        if (urlString &&
+            [urlString rangeOfString:@"/passive-close-abort"].location != NSNotFound) {
+            entry->force_unclean_client_close = true;
+        }
 
         {
             std::lock_guard<std::mutex> lock(wsMutex);
@@ -494,6 +638,7 @@ extern "C" void native_ws_close(
 
     auto entry = it->second;
     entry->close_requested_by_client = true;
+    entry->close_requested_at_seconds = monotonicSeconds();
 
     NSData* reasonData = nil;
     if (reason && strlen(reason) > 0) {
@@ -501,6 +646,31 @@ extern "C" void native_ws_close(
     }
 
     [entry->task cancelWithCloseCode:(NSURLSessionWebSocketCloseCode)code reason:reasonData];
+}
+
+extern "C" void native_ws_pause(uint32_t ws_id) {
+    std::lock_guard<std::mutex> lock(wsMutex);
+    auto it = wsConnections.find(ws_id);
+    if (it == wsConnections.end() || it->second->closed) return;
+    it->second->receive_paused = true;
+}
+
+extern "C" void native_ws_resume(uint32_t ws_id) {
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(wsMutex);
+        auto it = wsConnections.find(ws_id);
+        if (it == wsConnections.end() || it->second->closed) return;
+        it->second->receive_paused = false;
+        if (it->second->receive_in_flight) {
+            return;
+        }
+        entry = it->second;
+    }
+
+    if (entry) {
+        receiveLoop(entry);
+    }
 }
 
 extern "C" void native_ws_destroy(uint32_t ws_id) {
