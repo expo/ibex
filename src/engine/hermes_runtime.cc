@@ -5418,6 +5418,10 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stdinPipeFd[0]);
           } else if (stdinFdRedirect >= 0) {
             dup2(stdinFdRedirect, STDIN_FILENO);
+            int stdinFlags = fcntl(STDIN_FILENO, F_GETFL, 0);
+            if (stdinFlags >= 0 && (stdinFlags & O_NONBLOCK)) {
+              fcntl(STDIN_FILENO, F_SETFL, stdinFlags & ~O_NONBLOCK);
+            }
           } else if (stdioModes[0] == "ignore") {
             int nullStdin = open("/dev/null", O_RDONLY);
             if (nullStdin >= 0) {
@@ -5432,6 +5436,10 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stdoutPipeFd[1]);
           } else if (stdoutFdRedirect >= 0) {
             dup2(stdoutFdRedirect, STDOUT_FILENO);
+            int stdoutFlags = fcntl(STDOUT_FILENO, F_GETFL, 0);
+            if (stdoutFlags >= 0 && (stdoutFlags & O_NONBLOCK)) {
+              fcntl(STDOUT_FILENO, F_SETFL, stdoutFlags & ~O_NONBLOCK);
+            }
           } else if (stdioModes[1] == "ignore") {
             int nullStdout = open("/dev/null", O_WRONLY);
             if (nullStdout >= 0) {
@@ -5446,6 +5454,10 @@ static void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stderrPipeFd[1]);
           } else if (stderrFdRedirect >= 0) {
             dup2(stderrFdRedirect, STDERR_FILENO);
+            int stderrFlags = fcntl(STDERR_FILENO, F_GETFL, 0);
+            if (stderrFlags >= 0 && (stderrFlags & O_NONBLOCK)) {
+              fcntl(STDERR_FILENO, F_SETFL, stderrFlags & ~O_NONBLOCK);
+            }
           } else if (stdioModes[2] == "ignore") {
             int nullStderr = open("/dev/null", O_WRONLY);
             if (nullStderr >= 0) {

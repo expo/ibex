@@ -1174,6 +1174,13 @@ function _normalizeSpawnMode(mode, fallbackMode) {
   }
   // Stream/Socket object - extract the raw fd
   if (normalized && typeof normalized === 'object') {
+    if (normalized._ownerChildProcess && normalized._exactSpawnStream) {
+      if (normalized._exactSpawnStream === 'stdout') {
+        normalized._ownerChildProcess._exactSuppressStdoutPump = true;
+      } else if (normalized._exactSpawnStream === 'stderr') {
+        normalized._ownerChildProcess._exactSuppressStderrPump = true;
+      }
+    }
     var fd = _extractHandleFd(normalized);
     if (fd >= 0) return 'fd:' + fd;
   }
@@ -1546,6 +1553,8 @@ function ChildProcess(handle, pid, stdioModes) {
     this.stdout = new Stream.Readable();
     this.stdout._read = function() {};
     this.stdout._handle = { readStart: function() {}, readStop: function() {} };
+    this.stdout._ownerChildProcess = this;
+    this.stdout._exactSpawnStream = 'stdout';
   } else {
     this.stdout = null;
   }
@@ -1554,6 +1563,8 @@ function ChildProcess(handle, pid, stdioModes) {
     this.stderr = new Stream.Readable();
     this.stderr._read = function() {};
     this.stderr._handle = { readStart: function() {}, readStop: function() {} };
+    this.stderr._ownerChildProcess = this;
+    this.stderr._exactSpawnStream = 'stderr';
   } else {
     this.stderr = null;
   }
@@ -1750,7 +1761,7 @@ function ChildProcess(handle, pid, stdioModes) {
     self._pumpInProgress = true;
 
     // Poll stdout
-    if (!stdoutEnded) {
+    if (!stdoutEnded && !self._exactSuppressStdoutPump) {
       var outData = globalThis.__exactSpawnRead(self._handle, 'stdout');
       pushStreamData('stdout', outData, modes.stdout);
       if (modes.stdout === 'pipe' && (!outData || !outData.length)) {
@@ -1759,7 +1770,7 @@ function ChildProcess(handle, pid, stdioModes) {
     }
 
     // Poll stderr
-    if (!stderrEnded) {
+    if (!stderrEnded && !self._exactSuppressStderrPump) {
       var errData = globalThis.__exactSpawnRead(self._handle, 'stderr');
       pushStreamData('stderr', errData, modes.stderr);
       if (modes.stderr === 'pipe' && (!errData || !errData.length)) {
@@ -1792,13 +1803,17 @@ function ChildProcess(handle, pid, stdioModes) {
         }
 
         // Do one final read to drain any remaining data
-        var finalOut = globalThis.__exactSpawnRead(self._handle, 'stdout');
-        if (finalOut && finalOut.length > 0) {
-          pushStreamData('stdout', finalOut, modes.stdout);
+        if (!self._exactSuppressStdoutPump) {
+          var finalOut = globalThis.__exactSpawnRead(self._handle, 'stdout');
+          if (finalOut && finalOut.length > 0) {
+            pushStreamData('stdout', finalOut, modes.stdout);
+          }
         }
-        var finalErr = globalThis.__exactSpawnRead(self._handle, 'stderr');
-        if (finalErr && finalErr.length > 0) {
-          pushStreamData('stderr', finalErr, modes.stderr);
+        if (!self._exactSuppressStderrPump) {
+          var finalErr = globalThis.__exactSpawnRead(self._handle, 'stderr');
+          if (finalErr && finalErr.length > 0) {
+            pushStreamData('stderr', finalErr, modes.stderr);
+          }
         }
         if (self._ipcMode) {
           if (typeof globalThis.__exactSpawnRecvMsg === 'function') {
@@ -1969,11 +1984,15 @@ ChildProcess.prototype.spawn = function(options) {
     this.stdout = new Stream.Readable();
     this.stdout._read = function() {};
     this.stdout._handle = { readStart: function() {}, readStop: function() {} };
+    this.stdout._ownerChildProcess = this;
+    this.stdout._exactSpawnStream = 'stdout';
   }
   if (stdioCfg.stderr === 'pipe') {
     this.stderr = new Stream.Readable();
     this.stderr._read = function() {};
     this.stderr._handle = { readStart: function() {}, readStop: function() {} };
+    this.stderr._ownerChildProcess = this;
+    this.stderr._exactSpawnStream = 'stderr';
   }
   if (stdioCfg.stdin === 'pipe') {
     var stdinClosed = false;
@@ -2061,14 +2080,14 @@ ChildProcess.prototype.spawn = function(options) {
   function pollStreams2() {
     if (self3._exited) return;
     // Read stdout
-    if (self3.stdout && self3._useNativePump) {
+    if (self3.stdout && self3._useNativePump && !self3._exactSuppressStdoutPump) {
       try {
         var out = globalThis.__exactSpawnRead(self3._handle, 1);
         if (out && out.length > 0) self3.stdout.push(out);
       } catch(e) {}
     }
     // Read stderr
-    if (self3.stderr && self3._useNativePump) {
+    if (self3.stderr && self3._useNativePump && !self3._exactSuppressStderrPump) {
       try {
         var errOut = globalThis.__exactSpawnRead(self3._handle, 2);
         if (errOut && errOut.length > 0) self3.stderr.push(errOut);
@@ -2083,14 +2102,18 @@ ChildProcess.prototype.spawn = function(options) {
           self3._exited = true;
           // Do one final read
           if (self3._useNativePump) {
-            try {
-              var finalOut = globalThis.__exactSpawnRead(self3._handle, 1);
-              if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(finalOut);
-            } catch(e) {}
-            try {
-              var finalErr = globalThis.__exactSpawnRead(self3._handle, 2);
-              if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(finalErr);
-            } catch(e) {}
+            if (!self3._exactSuppressStdoutPump) {
+              try {
+                var finalOut = globalThis.__exactSpawnRead(self3._handle, 1);
+                if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(finalOut);
+              } catch(e) {}
+            }
+            if (!self3._exactSuppressStderrPump) {
+              try {
+                var finalErr = globalThis.__exactSpawnRead(self3._handle, 2);
+                if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(finalErr);
+              } catch(e) {}
+            }
           }
           closeStreams2();
           if (status.signal > 0) {
