@@ -1893,6 +1893,13 @@ Socket.prototype.connect = function(options, connectListener) {
   var autoSelectFamily = options.autoSelectFamily;
   if (autoSelectFamily === undefined) {
     autoSelectFamily = _defaultAutoSelectFamily;
+    if (
+      autoSelectFamily === false &&
+      !options.family &&
+      self._requestedAddress === 'localhost'
+    ) {
+      autoSelectFamily = true;
+    }
   }
   if (autoSelectFamily === undefined) autoSelectFamily = false;
   if (autoSelectFamily) self.autoSelectFamilyAttemptedAddresses = [];

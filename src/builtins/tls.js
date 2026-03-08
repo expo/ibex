@@ -831,8 +831,30 @@ function connect() {
   socket.authorizationError = null;
 
   try {
+    var connectOptions = _cloneOwnProperties(options);
+    if (!options.socket) {
+      if (connectOptions.path) {
+        delete connectOptions.host;
+        delete connectOptions.hostname;
+        delete connectOptions.port;
+      } else {
+        connectOptions.port = port;
+        connectOptions.host = host;
+        if (!connectOptions.hostname && options.hostname) {
+          connectOptions.hostname = options.hostname;
+        }
+        if (
+          !connectOptions.family &&
+          connectOptions.autoSelectFamily === undefined &&
+          host === 'localhost'
+        ) {
+          connectOptions.autoSelectFamily = true;
+        }
+      }
+    }
+
     var netSocket = options.socket || (net && typeof net.connect === 'function'
-      ? net.connect({ port: port, host: host })
+      ? net.connect(connectOptions)
       : null);
 
     if (!netSocket) {

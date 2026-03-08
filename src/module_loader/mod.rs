@@ -174,13 +174,15 @@ impl ModuleLoader {
         let http_module = node_http_module();
         builtins.insert("node:http".to_string(), http_module.clone());
         builtins.insert("http".to_string(), http_module.clone());
-        builtins.insert("node:https".to_string(), http_module.clone());
-        builtins.insert("https".to_string(), http_module.clone());
         builtins.insert("_http_agent".to_string(), http_module.clone());
         builtins.insert("_http_common".to_string(), http_module.clone());
         builtins.insert("_http_server".to_string(), http_module.clone());
         builtins.insert("_http_outgoing".to_string(), http_module.clone());
         builtins.insert("_http_incoming".to_string(), http_module);
+
+        let https_module = node_https_module();
+        builtins.insert("node:https".to_string(), https_module.clone());
+        builtins.insert("https".to_string(), https_module);
 
         let stream_web_module = node_stream_web_module();
         builtins.insert("node:stream/web".to_string(), stream_web_module.clone());
@@ -1111,6 +1113,10 @@ fn node_http_module() -> String {
     include_str!(concat!(env!("OUT_DIR"), "/builtins/http.js")).to_string()
 }
 
+fn node_https_module() -> String {
+    include_str!(concat!(env!("OUT_DIR"), "/builtins/https.js")).to_string()
+}
+
 fn node_url_module() -> String {
     include_str!(concat!(env!("OUT_DIR"), "/builtins/url.js")).to_string()
 }
@@ -1973,8 +1979,11 @@ mod tests {
         let loader = ModuleLoader::new();
         let resolved = loader.resolve("node:https", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
+        let source = resolved.source.unwrap();
         let resolved_http = loader.resolve("http", None).unwrap();
-        assert_eq!(resolved.source.unwrap(), resolved_http.source.unwrap());
+        assert_ne!(source, resolved_http.source.unwrap());
+        assert!(source.contains("tls.connect"));
+        assert!(source.contains("createServer"));
     }
 
     #[test]

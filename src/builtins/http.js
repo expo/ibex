@@ -1185,12 +1185,25 @@ function ClientRequest(options, callback) {
     this.once("response", callback);
   }
 
-  if (this.protocol === 'http:' || this.options.socketPath || typeof this.options.createConnection === 'function') {
+  if (_requestUsesSocketTransport(this)) {
     this._ensureSocketAssigned();
   }
 }
 ClientRequest.prototype = Object.create(EventEmitter.prototype);
 ClientRequest.prototype.constructor = ClientRequest;
+
+function _requestUsesSocketTransport(request) {
+  if (!request) return false;
+  if (request.options && request.options.socketPath) return true;
+  if (request.options && typeof request.options.createConnection === 'function') return true;
+  if (request.protocol === 'http:') return true;
+  return !!(
+    request.protocol === 'https:' &&
+    request.agent &&
+    request.agent.protocol === 'https:' &&
+    typeof request.agent.addRequest === 'function'
+  );
+}
 
 ClientRequest.prototype._implicitHeader = function() {
   if (this._header !== null) return;
@@ -1532,6 +1545,9 @@ ClientRequest.prototype._send = function() {
   var body = this._bodyParts.join("");
 
   var useFetch = typeof fetch === "function";
+  if (_requestUsesSocketTransport(this)) {
+    useFetch = false;
+  }
   if (useFetch) {
     try {
       var parsedUrl = new URL(this._url);
@@ -1677,7 +1693,7 @@ ClientRequest.prototype._resolveConnectionOptions = function() {
 };
 
 ClientRequest.prototype._ensureSocketAssigned = function() {
-  if (this.socket || this._agentDispatched || this.protocol !== 'http:') return;
+  if (this.socket || this._agentDispatched || !_requestUsesSocketTransport(this)) return;
 
   var net;
   try { net = require('net'); } catch (e) {
