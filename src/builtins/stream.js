@@ -192,12 +192,7 @@ function _createAbortError(err) {
 
 function _scheduleDrain(stream) {
   if (!stream) return;
-  var emitDrain = typeof process === 'object' &&
-    process &&
-    typeof process.nextTick === 'function'
-    ? process.nextTick
-    : function(fn) { setTimeout(fn, 0); };
-  emitDrain(function() { stream.emit('drain'); });
+  _nextTick(function() { stream.emit('drain'); });
 }
 
 function Stream() {
@@ -346,6 +341,19 @@ function _markPromiseHandled(promise) {
 }
 
 function _nextTick(fn) {
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(fn);
+    return;
+  }
+  if (
+    typeof globalThis === 'object' &&
+    globalThis &&
+    typeof globalThis.process === 'object' &&
+    globalThis.process &&
+    typeof globalThis.process.nextTick === 'function'
+  ) {
+    return globalThis.process.nextTick(fn);
+  }
   if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
     return process.nextTick(fn);
   }
@@ -595,12 +603,12 @@ Stream.prototype.destroy = function(error, callback) {
         if (self._readableState) self._readableState.errored = err;
         if (self._writableState) self._writableState.errored = err;
       }
-      // Defer error emit/close
-      setTimeout(function() { emitErrorAndClose(err); }, 0);
+      // Defer error emit/close without slipping behind user nextTick observers.
+      _nextTick(function() { emitErrorAndClose(err); });
     });
   } else {
     // Defer error/close when using default destroy path
-    setTimeout(function() { emitErrorAndClose(error || null); }, 0);
+    _nextTick(function() { emitErrorAndClose(error || null); });
   }
   return this;
 };
@@ -1262,10 +1270,7 @@ Readable.prototype.push = function(chunk, encoding) {
     var isFlowing = state.readableFlowing || this.readableFlowing === true;
     if (isFlowing && this._data.length === 0 && !state.endEmitted) {
       var self = this;
-      var _schedEnd = typeof process === 'object' && process && typeof process.nextTick === 'function'
-        ? process.nextTick
-        : function(fn) { setTimeout(fn, 0); };
-      _schedEnd(function() {
+      _nextTick(function() {
         if (!state.endEmitted && !state.destroyed && !state.errored) {
           state.endEmitted = true;
           self.readable = false;
@@ -1280,12 +1285,7 @@ Readable.prototype.push = function(chunk, encoding) {
         }
       });
     } else if (!hadReadableEventPending && state.sync) {
-      var emitReadable = typeof process === 'object' &&
-        process &&
-        typeof process.nextTick === 'function'
-        ? process.nextTick
-        : function(fn) { setTimeout(fn, 0); };
-      emitReadable(function() {
+      _nextTick(function() {
         self._emitReadableIfNeeded();
       });
     } else if (!hadReadableEventPending) {
@@ -1572,11 +1572,7 @@ Readable.prototype.resume = function() {
     this._readableState.resumeScheduled = true;
     // Flush buffered data asynchronously
     var self = this;
-    var schedule = typeof process === 'object' &&
-      process &&
-      typeof process.nextTick === 'function'
-      ? process.nextTick
-      : function(fn) { setTimeout(fn, 0); };
+    var schedule = _nextTick;
 
     var resumeEmitted = false;
     function flowReadable() {
@@ -1628,12 +1624,7 @@ Readable.prototype.on = function(event, listener) {
         this._emitReadableIfNeeded();
       } else if (!state.reading) {
         var self = this;
-        var tick = typeof process === 'object' &&
-          process &&
-          typeof process.nextTick === 'function'
-          ? process.nextTick
-          : function(fn) { setTimeout(fn, 0); };
-        tick(function() { self.read(0); });
+        _nextTick(function() { self.read(0); });
       }
     }
     return this;
@@ -1649,12 +1640,7 @@ Readable.prototype.on = function(event, listener) {
       this._emitReadableIfNeeded();
     } else if (!state.reading) {
       var self = this;
-      var tick = typeof process === 'object' &&
-        process &&
-        typeof process.nextTick === 'function'
-        ? process.nextTick
-        : function(fn) { setTimeout(fn, 0); };
-      tick(function() { self.read(0); });
+      _nextTick(function() { self.read(0); });
     }
   }
   // Adding a 'data' listener starts flowing mode (unless explicitly paused)
@@ -1690,33 +1676,126 @@ Readable.prototype[Symbol.asyncIterator] = function(options) {
 
   var stream = this;
   var finishedState;
-  var pendingResolve = null;
   var cleanedUp = false;
+  var finalized = false;
+  var pending = [];
+  var buffered = [];
+  var flushScheduled = false;
+  var legacyMode = typeof stream.read !== 'function';
+  var useDataEvents =
+    legacyMode ||
+    (typeof stream.listenerCount === 'function' && stream.listenerCount('data') > 0);
 
-  function wake() {
-    if (!pendingResolve) return;
-    var resolve = pendingResolve;
-    pendingResolve = null;
-    resolve();
+  function finalize(err) {
+    if (finalized) return;
+    finalized = true;
+    if (typeof stream.destroy === 'function' && !stream._destroyed) {
+      stream.destroy(err);
+      return;
+    }
+    if (!err && typeof stream.close === 'function' && !stream._closed) {
+      stream.close();
+    }
+  }
+
+  function syncFinishedState() {
+    if (finishedState !== undefined) {
+      return;
+    }
+    var state = stream && stream._readableState;
+    if (state && state.errored) {
+      finishedState = state.errored;
+      return;
+    }
+    if (stream && stream.errored) {
+      finishedState = stream.errored;
+      return;
+    }
+    if (state && state.endEmitted) {
+      finishedState = null;
+      return;
+    }
+    if (stream && stream._closed) {
+      finishedState = makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close');
+    }
+  }
+
+  function resolveNext(chunk) {
+    if (pending.length === 0) {
+      buffered.push(chunk);
+      return;
+    }
+    pending.shift().resolve({ value: chunk, done: false });
+  }
+
+  function flushPending() {
+    flushScheduled = false;
+    syncFinishedState();
+    while (pending.length > 0) {
+      if (buffered.length > 0) {
+        pending.shift().resolve({ value: buffered.shift(), done: false });
+        continue;
+      }
+      if (!useDataEvents) {
+        var chunk = (stream._destroyed || stream.destroyed) ? null : stream.read();
+        if (chunk !== null && chunk !== undefined) {
+          pending.shift().resolve({ value: chunk, done: false });
+          continue;
+        }
+      }
+      if (finishedState !== undefined) {
+        cleanup();
+        if (finishedState) {
+          var err = finishedState;
+          finishedState = null;
+          finalize(err);
+          pending.shift().reject(err);
+          continue;
+        }
+        pending.shift().resolve({ value: undefined, done: true });
+        continue;
+      }
+      break;
+    }
+  }
+
+  function scheduleFlush() {
+    if (flushScheduled) return;
+    flushScheduled = true;
+    _nextTick(function() {
+      flushPending();
+    });
   }
 
   function onReadable() {
-    wake();
+    flushPending();
+  }
+
+  function onData(chunk) {
+    buffered.push(chunk);
+    if (legacyMode) {
+      scheduleFlush();
+      return;
+    }
+    flushPending();
   }
 
   function onEnd() {
     finishedState = null;
-    wake();
+    flushPending();
   }
 
   function onError(err) {
+    if (legacyMode) {
+      buffered.length = 0;
+    }
     finishedState = err || new Error('Stream error');
-    wake();
+    flushPending();
   }
 
   function onClose() {
     if (finishedState !== undefined) {
-      wake();
+      flushPending();
       return;
     }
     var state = stream && stream._readableState;
@@ -1725,18 +1804,29 @@ Readable.prototype[Symbol.asyncIterator] = function(options) {
     } else {
       finishedState = makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close');
     }
-    wake();
+    flushPending();
+  }
+
+  function ensureFlowing() {
+    if (legacyMode || !useDataEvents) {
+      return;
+    }
+    if (typeof stream.resume === 'function' && stream.readableFlowing !== true) {
+      stream.resume();
+    }
   }
 
   function cleanup() {
     if (cleanedUp) return;
     cleanedUp = true;
     if (typeof stream.off === 'function') {
+      stream.off('data', onData);
       stream.off('readable', onReadable);
       stream.off('end', onEnd);
       stream.off('error', onError);
       stream.off('close', onClose);
     } else if (typeof stream.removeListener === 'function') {
+      stream.removeListener('data', onData);
       stream.removeListener('readable', onReadable);
       stream.removeListener('end', onEnd);
       stream.removeListener('error', onError);
@@ -1744,7 +1834,12 @@ Readable.prototype[Symbol.asyncIterator] = function(options) {
     }
   }
 
-  stream.on('readable', onReadable);
+  if (useDataEvents) {
+    stream.on('data', onData);
+  }
+  if (!useDataEvents) {
+    stream.on('readable', onReadable);
+  }
   stream.on('end', onEnd);
   stream.on('error', onError);
   stream.on('close', onClose);
@@ -1758,41 +1853,39 @@ Readable.prototype[Symbol.asyncIterator] = function(options) {
   }
 
   return {
+    stream: stream,
     next: function() {
-      return (async function() {
-        while (true) {
-          var chunk = (stream._destroyed || stream.destroyed) ? null : stream.read();
-          if (chunk !== null && chunk !== undefined) {
-            return { value: chunk, done: false };
-          }
-          if (finishedState) {
-            cleanup();
-            throw finishedState;
-          }
-          if (finishedState === null) {
-            cleanup();
-            return { value: undefined, done: true };
-          }
-          await new Promise(function(resolve) {
-            pendingResolve = resolve;
-          });
-        }
-      })();
+      return new Promise(function(resolve, reject) {
+        ensureFlowing();
+        pending.push({ resolve: resolve, reject: reject });
+        flushPending();
+      });
     },
     return: function() {
+      var state = stream && stream._readableState;
+      var ended =
+        finishedState === null ||
+        !!(state && (state.endEmitted || state.ended)) ||
+        !!(stream && stream.readableEnded);
       cleanup();
       finishedState = null;
-      if ((!options || options.destroyOnReturn !== false) && typeof stream.destroy === 'function' && !stream._destroyed) {
-        stream.destroy();
+      while (pending.length > 0) {
+        pending.shift().resolve({ value: undefined, done: true });
+      }
+      if (!options || options.destroyOnReturn !== false) {
+        if (!ended && !(stream && stream._closed)) {
+          finalize(null);
+        }
       }
       return Promise.resolve({ value: undefined, done: true });
     },
     throw: function(err) {
       cleanup();
       finishedState = err || new Error('Stream iterator error');
-      if (typeof stream.destroy === 'function' && !stream._destroyed) {
-        stream.destroy(finishedState);
+      while (pending.length > 0) {
+        pending.shift().reject(finishedState);
       }
+      finalize(finishedState);
       return Promise.reject(finishedState);
     },
     [Symbol.asyncIterator]: function() { return this; }
@@ -3276,11 +3369,7 @@ Readable.from = function(iterable, options) {
   if (typeof iterable[Symbol.asyncIterator] === 'function') {
     var asyncIter = iterable[Symbol.asyncIterator]();
     var reading = false;
-    var destroyCallback = typeof process === 'object' &&
-      process &&
-      typeof process.nextTick === 'function'
-      ? process.nextTick
-      : function(fn) { setTimeout(fn, 0); };
+    var destroyCallback = _nextTick;
 
     readable._read = function() {
       if (!reading) {
@@ -3846,7 +3935,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   // If the stream is errored, return false immediately
   if (state && state.errored) {
     if (typeof callback === 'function') {
-      process.nextTick(function() { callback(state.errored); });
+      _nextTick(function() { callback(state.errored); });
     }
     return false;
   }
@@ -3892,7 +3981,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     if (state) state.errored = endErr;
     this.errored = endErr;
     var _endSelf = this;
-    process.nextTick(function() {
+    _nextTick(function() {
       if (typeof callback === 'function') {
         callback(endErr);
       }
@@ -3986,7 +4075,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
       if (typeof queued.callback === 'function') {
         queued.callback(err);
       }
-      process.nextTick(function() {
+      _nextTick(function() {
         if (state.autoDestroy && !self._destroyed) {
           self.destroy(err);
         } else if (!state.errorEmitted) {
@@ -5217,10 +5306,7 @@ function pipeline() {
   });
   addListener(dst, 'close', function() {
     if (state.ended) return;
-    var scheduler = typeof process === 'object' && process && typeof process.nextTick === 'function'
-      ? process.nextTick
-      : function(fn) { setTimeout(fn, 1); };
-    scheduler(function() {
+    _nextTick(function() {
       if (!state.ended) {
         onError(makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close'));
       }
@@ -5575,11 +5661,7 @@ function isStreamDone(stream) {
     var lastResult = last && last._pipelineResult;
     if (lastResult && typeof lastResult.then === 'function') {
       awaitingResult = true;
-    var scheduleSettle = typeof process === 'object' &&
-        process &&
-        typeof process.nextTick === 'function'
-        ? process.nextTick
-        : function(fn) { setTimeout(fn, 0); };
+    var scheduleSettle = _nextTick;
       if (__pipelineDebug) {
         console.log('pipeline', __pipelineDebugId, 'awaitingResult');
       }
@@ -5642,9 +5724,7 @@ function isStreamDone(stream) {
       settle(finalError);
       return;
     }
-    var scheduler = typeof process === 'object' && process && typeof process.nextTick === 'function'
-      ? process.nextTick
-      : function(fn) { setTimeout(fn, 0); };
+    var scheduler = _nextTick;
     if (__pipelineDebug) {
       console.log('pipeline', __pipelineDebugId, 'onFinish scheduling settle');
     }
@@ -6120,9 +6200,7 @@ function compose() {
 
   // Forward data from last stream to composed
   if (composedReadable && last && typeof last.on === 'function') {
-    var scheduleEnd = typeof process === 'object' && process && typeof process.nextTick === 'function'
-      ? process.nextTick
-      : function(fn) { setTimeout(fn, 0); };
+    var scheduleEnd = _nextTick;
     function finalizeComposedReadableEnd() {
       var composedError = composed.errored ||
         (composed._readableState && composed._readableState.errored) ||
