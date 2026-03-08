@@ -262,6 +262,22 @@ function toHttpPath(options) {
   return options.path || options.pathname || "/";
 }
 
+function hasUrlOptionOverrides(options) {
+  if (!options || typeof options !== "object") return false;
+  return (
+    Object.prototype.hasOwnProperty.call(options, "href") ||
+    Object.prototype.hasOwnProperty.call(options, "url") ||
+    Object.prototype.hasOwnProperty.call(options, "protocol") ||
+    Object.prototype.hasOwnProperty.call(options, "hostname") ||
+    Object.prototype.hasOwnProperty.call(options, "host") ||
+    Object.prototype.hasOwnProperty.call(options, "port") ||
+    Object.prototype.hasOwnProperty.call(options, "path") ||
+    Object.prototype.hasOwnProperty.call(options, "pathname") ||
+    Object.prototype.hasOwnProperty.call(options, "search") ||
+    Object.prototype.hasOwnProperty.call(options, "hash")
+  );
+}
+
 function toMethod(options) {
   return ((options && options.method) || "GET").toUpperCase();
 }
@@ -580,7 +596,9 @@ function ClientRequest(options, callback) {
     }
   }
 
-  this._url = toHttpUrl(this.options);
+  this._url = typeof this.options.__exactOriginalUrl === "string"
+    ? this.options.__exactOriginalUrl
+    : toHttpUrl(this.options);
   this.method = toMethod(this.options);
   this.path = toHttpPath(this.options);
   this.headers = toHeaders(this.options.headers);
@@ -1344,6 +1362,7 @@ function request(options, callback) {
     try {
       var parsed = new URL(options);
       requestOptions = {
+        __exactOriginalUrl: options,
         protocol: parsed.protocol,
         hostname: parsed.hostname,
         port: parsed.port ? Number(parsed.port) : undefined,
@@ -1371,6 +1390,9 @@ function request(options, callback) {
         if (Object.prototype.hasOwnProperty.call(extraOptions, k)) {
           requestOptions[k] = extraOptions[k];
         }
+      }
+      if (hasUrlOptionOverrides(extraOptions)) {
+        delete requestOptions.__exactOriginalUrl;
       }
     }
   }
