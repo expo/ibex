@@ -103,6 +103,17 @@ function _drainPendingEnd(stream) {
   pending();
 }
 
+function _resumeWritableAfterConstruct(stream) {
+  if (!stream || !stream._writableState || stream._destroyed) return;
+  var state = stream._writableState;
+  if (state.constructed === false) return;
+  if (stream._writeQueue && stream._writeQueue.length) {
+    stream._flushWriteQueue();
+    return;
+  }
+  _drainPendingEnd(stream);
+}
+
 function _shouldAutoDestroyOnReadableEnd(stream, readableState) {
   if (!stream || !readableState) return false;
   if (!readableState.autoDestroy || stream._destroyed || stream._closed) return false;
@@ -3479,7 +3490,9 @@ function Writable(options) {
         self._writableState.constructed = true;
         if (err) {
           self.destroy(err);
+          return;
         }
+        _resumeWritableAfterConstruct(self);
       });
     }, 0);
   }
@@ -3761,7 +3774,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   var shouldNeedDrain = this.writableLength > this.writableHighWaterMark;
   var queued = _createWriteQueueItem(chunk, encoding || 'utf8', callback, chunkLen);
 
-  if (this.writableCorked > 0 || state.writing || state.bufferProcessing) {
+  if (state.constructed === false || this.writableCorked > 0 || state.writing || state.bufferProcessing) {
     this._writeQueue.push(queued);
     _syncWritableBufferState(this);
     if (shouldNeedDrain) {
@@ -3850,7 +3863,7 @@ Writable.prototype._flushWriteQueue = function() {
   if (!this._writeQueue || this._writeQueue.length === 0) {
     return;
   }
-  if (!this._writableState || this._writableState.writing || this._writableState.bufferProcessing) {
+  if (!this._writableState || this._writableState.writing || this._writableState.bufferProcessing || this._writableState.constructed === false) {
     return;
   }
   var self = this;
@@ -4083,6 +4096,11 @@ Writable.prototype.end = function(chunk, encoding, callback) {
     if (state._pendingEndScheduled) {
       return;
     }
+    if (state.constructed === false) {
+      state._pendingEnd = attemptFinal;
+      state._pendingEndScheduled = true;
+      return;
+    }
     if (state.writing || state.bufferProcessing || (self._writeQueue && self._writeQueue.length)) {
       state._pendingEnd = attemptFinal;
       state._pendingEndScheduled = true;
@@ -4263,7 +4281,9 @@ function Duplex(options) {
         self._writableState.constructed = true;
         if (err) {
           self.destroy(err);
+          return;
         }
+        _resumeWritableAfterConstruct(self);
       });
     }, 0);
   }
