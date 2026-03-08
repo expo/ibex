@@ -1109,6 +1109,9 @@ function Socket(options) {
     if (options.readable !== false) this.readable = true;
     if (options.writable !== false) this.writable = true;
     _setHandleRefState(this._handle, !this._unrefed);
+    if (options.readable !== false) {
+      this._startPolling();
+    }
   }
   if (options.signal !== undefined) {
     _attachSocketAbortSignal(this, options.signal);

@@ -1187,6 +1187,170 @@ function _normalizeSpawnMode(mode, fallbackMode) {
   return 'pipe';
 }
 
+function _isSharedReadableSpawnPipe(stream) {
+  return !!(stream &&
+    typeof stream === 'object' &&
+    stream._ownerChildProcess &&
+    stream._exactSpawnStream);
+}
+
+function _retainSharedReadablePipe(stream) {
+  if (!stream || !stream._ownerChildProcess || !stream._exactSpawnStream) {
+    return false;
+  }
+  stream._exactPipeConsumerCount = (stream._exactPipeConsumerCount || 0) + 1;
+  if (stream._exactSpawnStream === 'stdout') {
+    stream._ownerChildProcess._exactSuppressStdoutPump = true;
+  } else if (stream._exactSpawnStream === 'stderr') {
+    stream._ownerChildProcess._exactSuppressStderrPump = true;
+  }
+  return true;
+}
+
+function _releaseSharedReadablePipe(stream) {
+  if (!stream || !stream._ownerChildProcess || !stream._exactSpawnStream) {
+    return;
+  }
+  if (stream._exactPipeConsumerCount > 0) {
+    stream._exactPipeConsumerCount--;
+  }
+  if (stream._exactPipeConsumerCount > 0) {
+    return;
+  }
+  if (stream._exactSpawnStream === 'stdout') {
+    stream._ownerChildProcess._exactSuppressStdoutPump = false;
+  } else if (stream._exactSpawnStream === 'stderr') {
+    stream._ownerChildProcess._exactSuppressStderrPump = false;
+  }
+}
+
+function _trackSharedReadablePipeConsumers(stdio, child) {
+  if (!Array.isArray(stdio) || !child || typeof child.on !== 'function') {
+    return;
+  }
+  var tracked = [];
+  for (var i = 0; i < stdio.length; i++) {
+    if (_retainSharedReadablePipe(stdio[i])) {
+      tracked.push(stdio[i]);
+    }
+  }
+  if (tracked.length === 0) {
+    return;
+  }
+  var released = false;
+  function releaseTracked() {
+    if (released) return;
+    released = true;
+    for (var ti = 0; ti < tracked.length; ti++) {
+      _releaseSharedReadablePipe(tracked[ti]);
+    }
+  }
+  child.on('error', releaseTracked);
+  child.on('close', releaseTracked);
+}
+
+function _setupSharedReadablePipeRelays(relayReadablePipes, child) {
+  if (!relayReadablePipes || !child || child._handle == null || child._handle < 0) {
+    return;
+  }
+  if (typeof globalThis.__exactSpawnRead !== 'function' ||
+      typeof globalThis.__exactSpawnWrite !== 'function') {
+    return;
+  }
+  var stops = [];
+  function stopAll() {
+    for (var i = 0; i < stops.length; i++) {
+      try {
+        stops[i](false);
+      } catch (_stopErr) {}
+    }
+    stops.length = 0;
+  }
+  child.on('error', stopAll);
+  child.on('close', stopAll);
+
+  var slots = Object.keys(relayReadablePipes);
+  for (var si = 0; si < slots.length; si++) {
+    var stdioIndex = Number(slots[si]);
+    var source = relayReadablePipes[slots[si]];
+    if (!_isSharedReadableSpawnPipe(source)) {
+      continue;
+    }
+    var targetStream = stdioIndex === 0 ? 'stdin' : (stdioIndex >= 4 ? 'extra:' + (stdioIndex - 4) : null);
+    if (!targetStream) {
+      continue;
+    }
+
+    (function(sourceStream, targetName) {
+      var owner = sourceStream._ownerChildProcess;
+      var ownerStream = sourceStream._exactSpawnStream;
+      var timer = null;
+      var stopped = false;
+
+      function stopRelay(closeTarget) {
+        if (stopped) return;
+        stopped = true;
+        if (timer != null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        if (closeTarget &&
+            targetName === 'stdin' &&
+            typeof globalThis.__exactSpawnCloseStdin === 'function') {
+          try {
+            globalThis.__exactSpawnCloseStdin(child._handle, 'stdin');
+          } catch (_closeErr) {}
+        }
+      }
+
+      function schedule(delay) {
+        if (stopped || child._exited) return;
+        timer = setTimeout(pumpRelay, delay);
+      }
+
+      function pumpRelay() {
+        timer = null;
+        if (stopped || child._exited) {
+          return;
+        }
+        var data = '';
+        try {
+          data = globalThis.__exactSpawnRead(owner._handle, ownerStream);
+        } catch (_relayReadErr) {
+          if (owner._exited) {
+            stopRelay(targetName === 'stdin');
+          } else {
+            schedule(10);
+          }
+          return;
+        }
+
+        if (data && data.length > 0) {
+          var wrote = false;
+          try {
+            wrote = globalThis.__exactSpawnWrite(child._handle, data, targetName);
+          } catch (_relayWriteErr) {}
+          if (!wrote) {
+            stopRelay(targetName === 'stdin');
+            return;
+          }
+          schedule(0);
+          return;
+        }
+
+        if (owner._exited) {
+          stopRelay(targetName === 'stdin');
+          return;
+        }
+        schedule(10);
+      }
+
+      stops.push(stopRelay);
+      schedule(0);
+    })(source, targetStream);
+  }
+}
+
 // Flatten env object to include inherited (prototype) properties and filter undefined values.
 // Node.js includes prototype properties in env and strips undefined values.
 function _flattenEnv(env) {
@@ -1316,28 +1480,50 @@ function _normalizeSpawnOptions(options, command) {
     ];
   } else if (Array.isArray(stdio)) {
     var rawStdio = [];
+    var relayReadablePipes = null;
     for (var si = 0; si < stdio.length; si++) {
-      rawStdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+      if (_isSharedReadableSpawnPipe(stdio[si])) {
+        rawStdio[si] = 'pipe';
+        if (!relayReadablePipes) relayReadablePipes = Object.create(null);
+        relayReadablePipes[si] = stdio[si];
+      } else {
+        rawStdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+      }
     }
     var ipcIndex = rawStdio.indexOf('ipc');
     if (ipcIndex !== -1) {
       normalized.stdio = ['pipe', 'pipe', 'pipe', 'ipc'];
       var compacted = [];
+      var compactedRelay = relayReadablePipes ? [] : null;
       for (var ri = 0; ri < rawStdio.length; ri++) {
         if (rawStdio[ri] === 'ipc') continue;
         compacted.push(rawStdio[ri]);
+        if (compactedRelay) {
+          compactedRelay.push(relayReadablePipes[ri] || null);
+        }
       }
       for (var ci = 0; ci < compacted.length; ci++) {
+        var targetIndex = ci < 3 ? ci : ci + 1;
         if (ci < 3) {
           normalized.stdio[ci] = compacted[ci];
         } else {
           normalized.stdio[ci + 1] = compacted[ci];
         }
+        if (compactedRelay && compactedRelay[ci]) {
+          if (!normalized.relayReadablePipes) normalized.relayReadablePipes = Object.create(null);
+          normalized.relayReadablePipes[targetIndex] = compactedRelay[ci];
+        }
       }
     } else {
       normalized.stdio = [];
       for (var si2 = 0; si2 < Math.max(stdio.length, 3); si2++) {
-        normalized.stdio[si2] = _normalizeSpawnMode(stdio[si2], 'pipe');
+        if (relayReadablePipes && relayReadablePipes[si2]) {
+          normalized.stdio[si2] = 'pipe';
+          if (!normalized.relayReadablePipes) normalized.relayReadablePipes = Object.create(null);
+          normalized.relayReadablePipes[si2] = relayReadablePipes[si2];
+        } else {
+          normalized.stdio[si2] = _normalizeSpawnMode(stdio[si2], 'pipe');
+        }
       }
     }
   } else {
@@ -1600,6 +1786,11 @@ function ChildProcess(handle, pid, stdioModes) {
     if (this.stdin) this.stdin._fd = globalThis.__exactSpawnGetFd(this._handle, 0);
     if (this.stdout) this.stdout._fd = globalThis.__exactSpawnGetFd(this._handle, 1);
     if (this.stderr) this.stderr._fd = globalThis.__exactSpawnGetFd(this._handle, 2);
+  }
+
+  if (modes.relayReadablePipes && modes.relayReadablePipes[0]) {
+    this.stdin = null;
+    this.stdio[0] = null;
   }
 
   function pushStreamData(kind, value, streamMode) {
@@ -2578,7 +2769,8 @@ cp.spawn = function spawn(command, args, options) {
       stdin: normalizedOptions.stdio[0],
       stdout: normalizedOptions.stdio[1],
       stderr: normalizedOptions.stdio[2],
-      ipc: normalizedOptions.stdio[3]
+      ipc: normalizedOptions.stdio[3],
+      relayReadablePipes: normalizedOptions.relayReadablePipes || null
     };
     var errChild = new ChildProcess(-1, undefined, errStdioCfg);
     errChild.pid = undefined;
@@ -2590,6 +2782,7 @@ cp.spawn = function spawn(command, args, options) {
     var errErrno = result.errno ? -result.errno : -2;
     var spawnErr2 = _makeSpawnError(command, errCode, errErrno, 'spawn ' + command);
     spawnErr2.spawnargs = args;
+    _trackSharedReadablePipeConsumers(options.stdio, errChild);
     setTimeout(function() {
       errChild.emit('error', spawnErr2);
       errChild.emit('close', null, null);
@@ -2602,7 +2795,8 @@ cp.spawn = function spawn(command, args, options) {
     stdout: normalizedOptions.stdio[1],
     stderr: normalizedOptions.stdio[2],
     ipc: normalizedOptions.stdio[3],
-    extra: normalizedOptions.stdio.slice(4)
+    extra: normalizedOptions.stdio.slice(4),
+    relayReadablePipes: normalizedOptions.relayReadablePipes || null
   };
   var child = new ChildProcess(result.handle, result.pid, stdioCfg);
   // Set spawnfile and spawnargs based on whether shell was used
@@ -2618,6 +2812,8 @@ cp.spawn = function spawn(command, args, options) {
   if (normalizedOptions.detached) {
     child.unref();
   }
+  _trackSharedReadablePipeConsumers(options.stdio, child);
+  _setupSharedReadablePipeRelays(normalizedOptions.relayReadablePipes, child);
   // Handle timeout option
   if (options.timeout && options.timeout > 0) {
     var killSig = options.killSignal || 'SIGTERM';
