@@ -3656,11 +3656,13 @@ function ServerResponse(reqOrServerId, requestId) {
     this._requestId = requestId || 0;
     this._nativeMode = true;
     this._req = null;
+    this.req = null;
   } else {
     this._serverId = 0;
     this._requestId = 0;
     this._nativeMode = false;
     this._req = reqOrServerId || null;
+    this.req = this._req;
   }
 }
 ServerResponse.prototype = Object.create(EventEmitter.prototype);
@@ -3709,8 +3711,8 @@ Object.defineProperty(ServerResponse.prototype, 'writableHighWaterMark', {
 });
 
 ServerResponse.prototype.assignSocket = function(socket) {
-  if (this.socket && this._socketDrainListener && typeof this.socket.removeListener === 'function') {
-    this.socket.removeListener('drain', this._socketDrainListener);
+  if (this.socket) {
+    throw new Error('Socket already assigned');
   }
   this.socket = socket;
   if (!socket) return;
@@ -3726,6 +3728,7 @@ ServerResponse.prototype.assignSocket = function(socket) {
   if (typeof socket.on === 'function') {
     socket.on('drain', this._socketDrainListener);
   }
+  this.emit('socket', socket);
 };
 
 ServerResponse.prototype.detachSocket = function(socket) {
@@ -5436,6 +5439,9 @@ Server.prototype.closeIdleConnections = function() {
 };
 
 Server.prototype.address = function() {
+  if (!this._listening) {
+    return null;
+  }
   if (this._netServer && typeof this._netServer.address === 'function') {
     return this._netServer.address();
   }
