@@ -167,6 +167,8 @@ willPerformHTTPRedirection:(NSHTTPURLResponse *)response
 // Shared URLSession instance — ephemeral config with cookies disabled
 static NSURLSession* sharedSession = nil;
 static FetchSessionDelegate* sharedDelegate = nil;
+static std::mutex fetchTasksMutex;
+static NSMutableDictionary<NSNumber*, NSURLSessionTask*>* fetchTasks = nil;
 
 static NSURLSession* getSession() {
     static dispatch_once_t onceToken;
@@ -187,6 +189,14 @@ static NSURLSession* getSession() {
                                                 delegateQueue:nil];
     });
     return sharedSession;
+}
+
+static NSMutableDictionary<NSNumber*, NSURLSessionTask*>* getFetchTasks() {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        fetchTasks = [NSMutableDictionary new];
+    });
+    return fetchTasks;
 }
 
 extern "C" void native_fetch_perform(
@@ -235,6 +245,11 @@ extern "C" void native_fetch_perform(
 
         NSURLSessionDataTask* task = [getSession() dataTaskWithRequest:request
             completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+                NSNumber* requestKey = [NSNumber numberWithUnsignedInt:request_id];
+                {
+                    std::lock_guard<std::mutex> lock(fetchTasksMutex);
+                    [getFetchTasks() removeObjectForKey:requestKey];
+                }
                 if (error) {
                     std::string message = error.localizedDescription
                         ? std::string(error.localizedDescription.UTF8String)
@@ -295,6 +310,26 @@ extern "C" void native_fetch_perform(
                     context
                 );
             }];
+        NSNumber* requestKey = [NSNumber numberWithUnsignedInt:request_id];
+        {
+            std::lock_guard<std::mutex> lock(fetchTasksMutex);
+            [getFetchTasks() setObject:task forKey:requestKey];
+        }
         [task resume];
+    }
+}
+
+extern "C" void native_fetch_cancel(uint32_t request_id) {
+    @autoreleasepool {
+        NSNumber* requestKey = [NSNumber numberWithUnsignedInt:request_id];
+        NSURLSessionTask* task = nil;
+        {
+            std::lock_guard<std::mutex> lock(fetchTasksMutex);
+            task = [getFetchTasks() objectForKey:requestKey];
+            [getFetchTasks() removeObjectForKey:requestKey];
+        }
+        if (task) {
+            [task cancel];
+        }
     }
 }

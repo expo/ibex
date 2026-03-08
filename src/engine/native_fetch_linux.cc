@@ -332,3 +332,7 @@ extern "C" void native_fetch_perform(
         }
     ).detach();
 }
+
+extern "C" void native_fetch_cancel(uint32_t request_id) {
+    (void)request_id;
+}

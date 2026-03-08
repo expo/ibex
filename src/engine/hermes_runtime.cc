@@ -320,6 +320,7 @@ extern "C" void native_fetch_perform(
     size_t body_length,
     NativeFetchResponseCallback response_callback,
     void* context);
+extern "C" void native_fetch_cancel(uint32_t request_id);
 
 constexpr uint32_t EXACT_FS_WRITE = 1u << 1;
 constexpr uint32_t EXACT_FS_CREATE = 1u << 2;
@@ -12365,7 +12366,27 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             }
         );
 
-        return promiseCtor.callAsConstructor(runtime, executor);
+        auto promise = promiseCtor.callAsConstructor(runtime, executor).getObject(runtime);
+        auto cancelFn = facebook::jsi::Function::createFromHostFunction(
+            runtime,
+            facebook::jsi::PropNameID::forAscii(runtime, "__exactCancel"),
+            0,
+            [handle, requestId](facebook::jsi::Runtime&,
+                                const facebook::jsi::Value&,
+                                const facebook::jsi::Value*,
+                                size_t) -> facebook::jsi::Value {
+              {
+                std::lock_guard<std::mutex> lock(handle->fetchMutex);
+                auto it = handle->fetchCallbacks.find(requestId);
+                if (it != handle->fetchCallbacks.end()) {
+                  handle->fetchCallbacks.erase(it);
+                }
+              }
+              native_fetch_cancel(requestId);
+              return facebook::jsi::Value::undefined();
+            });
+        promise.setProperty(runtime, "__exactCancel", std::move(cancelFn));
+        return promise;
       });
   rt.global().setProperty(rt, "__nativeFetch", std::move(nativeFetchFn));
 
