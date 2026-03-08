@@ -439,7 +439,8 @@ impl ModuleLoader {
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read module {}", path.display()))?;
         if Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source) {
-            return self.transpile_module(path);
+            let target = Self::transpile_target_for_source(&source);
+            return self.transpile_module(path, target);
         }
         Ok(source)
     }
@@ -468,6 +469,10 @@ impl ModuleLoader {
     }
 
     fn source_needs_downlevel(source: &str) -> bool {
+        Self::source_needs_async_downlevel(source) || Self::source_needs_loop_scope_downlevel(source)
+    }
+
+    fn source_needs_async_downlevel(source: &str) -> bool {
         source.contains("async function*")
             || source.contains("for await")
             || source.contains("await using")
@@ -477,8 +482,23 @@ impl ModuleLoader {
             || source.contains("\n    using ")
     }
 
-    fn transpile_module(&self, path: &Path) -> Result<String> {
-        let cache_key = module_cache_key(path)?;
+    fn source_needs_loop_scope_downlevel(source: &str) -> bool {
+        source.contains("for (let")
+            || source.contains("for(let")
+            || source.contains("for (const")
+            || source.contains("for(const")
+    }
+
+    fn transpile_target_for_source(source: &str) -> &'static str {
+        if Self::source_needs_loop_scope_downlevel(source) {
+            "es5"
+        } else {
+            "es2015"
+        }
+    }
+
+    fn transpile_module(&self, path: &Path, target: &str) -> Result<String> {
+        let cache_key = module_cache_key(path, target)?;
         let cache_dir = transpile_cache_dir()?;
         std::fs::create_dir_all(&cache_dir).with_context(|| {
             format!(
@@ -489,7 +509,7 @@ impl ModuleLoader {
 
         let output = cache_dir.join(format!("{cache_key}.js"));
         if should_rebuild_output(path, &output)? {
-            run_transpile_command(path, &output)?;
+            run_transpile_command(path, &output, target)?;
         }
 
         std::fs::read_to_string(&output)
@@ -675,9 +695,10 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
     }
 }
 
-fn module_cache_key(path: &Path) -> Result<String> {
+fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v3-js-downlevel-es2015".hash(&mut hasher);
+    "loader-transpile-v5-selective-es5-loop-scope".hash(&mut hasher);
+    target.hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
     if let Ok(meta) = std::fs::metadata(path) {
@@ -760,7 +781,7 @@ fn should_rebuild_output(path: &Path, output: &Path) -> Result<bool> {
     Ok(source_time > output_time)
 }
 
-fn run_transpile_command(entry: &Path, output: &Path) -> Result<()> {
+fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()> {
     let (runner, runner_name) = find_js_runner()?;
     let script = transpile_script_path()?;
 
@@ -770,6 +791,8 @@ fn run_transpile_command(entry: &Path, output: &Path) -> Result<()> {
         .arg(entry)
         .arg("--out")
         .arg(output)
+        .arg("--target")
+        .arg(target)
         .status()
         .with_context(|| format!("Failed to run {} for {}", runner_name, entry.display()))?;
 

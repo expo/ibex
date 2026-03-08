@@ -30,6 +30,125 @@ function resolveHeaderName(value) {
   return value.toLowerCase();
 }
 
+function _createHttpAsyncIterator(message, options) {
+  if (options !== undefined && options !== null && typeof options !== 'object') {
+    var optionsErr = new TypeError('The "options" argument must be of type object. Received type ' + typeof options + ' (' + options + ')');
+    optionsErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw optionsErr;
+  }
+
+  var queue = [];
+  var finishedState;
+  var pendingResolve = null;
+  var cleanedUp = false;
+
+  function wake() {
+    if (!pendingResolve) return;
+    var resolve = pendingResolve;
+    pendingResolve = null;
+    resolve();
+  }
+
+  function onData(chunk) {
+    queue.push(chunk);
+    wake();
+  }
+
+  function onEnd() {
+    finishedState = null;
+    wake();
+  }
+
+  function onError(err) {
+    finishedState = err || new Error('Stream error');
+    wake();
+  }
+
+  function onClose() {
+    if (finishedState === undefined) {
+      finishedState = null;
+    }
+    wake();
+  }
+
+  function cleanup() {
+    if (cleanedUp || !message) return;
+    cleanedUp = true;
+    if (typeof message.off === 'function') {
+      message.off('data', onData);
+      message.off('end', onEnd);
+      message.off('error', onError);
+      message.off('close', onClose);
+    } else if (typeof message.removeListener === 'function') {
+      message.removeListener('data', onData);
+      message.removeListener('end', onEnd);
+      message.removeListener('error', onError);
+      message.removeListener('close', onClose);
+    }
+  }
+
+  if (message && typeof message.on === 'function') {
+    message.on('data', onData);
+    message.on('end', onEnd);
+    message.on('error', onError);
+    message.on('close', onClose);
+  }
+
+  if (message && typeof message.resume === 'function') {
+    message.resume();
+  }
+
+  return {
+    next: function() {
+      return (async function() {
+        while (true) {
+          if (queue.length > 0) {
+            return { value: queue.shift(), done: false };
+          }
+          if (finishedState) {
+            cleanup();
+            throw finishedState;
+          }
+          if (finishedState === null) {
+            cleanup();
+            return { value: undefined, done: true };
+          }
+          await new Promise(function(resolve) {
+            pendingResolve = resolve;
+          });
+        }
+      })();
+    },
+    return: function() {
+      cleanup();
+      finishedState = null;
+      if ((!options || options.destroyOnReturn !== false) && message && typeof message.destroy === 'function' && !message.destroyed) {
+        message.destroy();
+      }
+      return Promise.resolve({ value: undefined, done: true });
+    },
+    throw: function(err) {
+      cleanup();
+      finishedState = err || new Error('Stream iterator error');
+      if (message && typeof message.destroy === 'function' && !message.destroyed) {
+        message.destroy(finishedState);
+      }
+      return Promise.reject(finishedState);
+    },
+    [Symbol.asyncIterator]: function() { return this; }
+  };
+}
+
+function _attachHttpAsyncIterator(proto) {
+  if (!proto) return;
+  proto.iterator = function(options) {
+    return _createHttpAsyncIterator(this, options);
+  };
+  proto[Symbol.asyncIterator] = function(options) {
+    return _createHttpAsyncIterator(this, options);
+  };
+}
+
 // Convert a lowercase header name to HTTP title case (e.g. content-length -> Content-Length)
 function toHeaderCase(name) {
   return name.replace(/(?:^|-)([a-z])/g, function(match, letter, offset) {
@@ -382,6 +501,7 @@ IncomingMessage.prototype.setTimeout = function(msecs, callback) {
   if (typeof callback === 'function') this.once('timeout', callback);
   return this;
 };
+_attachHttpAsyncIterator(IncomingMessage.prototype);
 
 // ---------------------------------------------------------------------------
 // ClientRequest
@@ -984,6 +1104,7 @@ TcpIncomingMessage.prototype.setTimeout = function(msecs, callback) {
   }
   return this;
 };
+_attachHttpAsyncIterator(TcpIncomingMessage.prototype);
 
 function request(options, callback) {
   var requestOptions = options;
@@ -2078,6 +2199,7 @@ ServerIncomingMessage.prototype.on = function(event, listener) {
   return this;
 };
 ServerIncomingMessage.prototype.addListener = ServerIncomingMessage.prototype.on;
+_attachHttpAsyncIterator(ServerIncomingMessage.prototype);
 
 // ---------------------------------------------------------------------------
 // Server

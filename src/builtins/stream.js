@@ -112,6 +112,22 @@ function _shouldAutoDestroyOnReadableEnd(stream, readableState) {
   return true;
 }
 
+function _scheduleHalfOpenWritableEnd(stream) {
+  if (!stream || stream.allowHalfOpen !== false || !stream._writableState) return;
+  var writableState = stream._writableState;
+  if (writableState.ending || writableState.ended || writableState.finished || stream._destroyed || stream._closed) {
+    return;
+  }
+  _nextTick(function() {
+    if (!stream || stream._destroyed || stream._closed || !stream._writableState) return;
+    var nextWritableState = stream._writableState;
+    if (nextWritableState.ending || nextWritableState.ended || nextWritableState.finished || stream._destroyed || stream._closed) {
+      return;
+    }
+    stream.end();
+  });
+}
+
 function _createWriteQueueItem(chunk, encoding, callback, chunkLen) {
   return {
     chunk: chunk,
@@ -1054,6 +1070,7 @@ Readable.prototype.push = function(chunk, encoding) {
           state.endEmitted = true;
           self.readable = false;
           self.emit('end');
+          _scheduleHalfOpenWritableEnd(self);
           if (_shouldAutoDestroyOnReadableEnd(self, state)) {
             self.destroy();
           } else {
@@ -1072,19 +1089,6 @@ Readable.prototype.push = function(chunk, encoding) {
       });
     } else {
       this._emitReadableIfNeeded();
-    }
-    if (this.allowHalfOpen === false && this._writableState) {
-      var writableState = this._writableState;
-      if (!writableState.ending && !writableState.ended && !writableState.finished && !this._destroyed && !this._closed) {
-        _nextTick(function() {
-          if (self._destroyed || self._closed) return;
-          var nextWritableState = self._writableState;
-          if (!nextWritableState || nextWritableState.ending || nextWritableState.ended || nextWritableState.finished || self._destroyed || self._closed) {
-            return;
-          }
-          self.end();
-        });
-      }
     }
     _maybeReadMore(this, state);
     return false;
@@ -1173,6 +1177,7 @@ Readable.prototype.read = function(size) {
       this.readableEnded = true;
       this._syncReadableState();
       this.emit('end');
+      _scheduleHalfOpenWritableEnd(this);
       if (_shouldAutoDestroyOnReadableEnd(this, state)) {
         this.destroy();
       } else {
@@ -1198,6 +1203,7 @@ Readable.prototype.read = function(size) {
       this.readableEnded = true;
       this._syncReadableState();
       this.emit('end');
+      _scheduleHalfOpenWritableEnd(this);
       if (_shouldAutoDestroyOnReadableEnd(this, state)) {
         this.destroy();
       } else {
@@ -1244,6 +1250,7 @@ Readable.prototype.read = function(size) {
     this.readableEnded = true;
     this._syncReadableState();
     this.emit('end');
+    _scheduleHalfOpenWritableEnd(this);
     if (_shouldAutoDestroyOnReadableEnd(this, state)) {
       this.destroy();
     } else {
@@ -1259,6 +1266,11 @@ Readable.prototype.read = function(size) {
         this._readFromSource(state.highWaterMark);
       }.bind(this));
     }
+    return null;
+  }
+
+  // read(0) should trigger a pull/readable check without consuming a chunk.
+  if (nOrig === 0) {
     return null;
   }
 
@@ -1289,6 +1301,7 @@ Readable.prototype.read = function(size) {
       this.readable = false;
       this.readableEnded = true;
       this.emit('end');
+      _scheduleHalfOpenWritableEnd(this);
       if (_shouldAutoDestroyOnReadableEnd(this, state)) {
         this.destroy();
       } else {
@@ -1304,6 +1317,14 @@ Readable.prototype.read = function(size) {
   this._readableState.dataEmitted = true;
   if (this.readableFlowing === true) {
     this.emit('data', chunk);
+  }
+  if (state.ended && state.length === 0 && !state.endEmitted) {
+    var self = this;
+    _nextTick(function() {
+      if (self._destroyed || self.destroyed || self._closed || !self._readableState || self._readableState.endEmitted) return;
+      if (!self._readableState.ended || self._readableState.length !== 0) return;
+      self.read(0);
+    });
   }
   if (state.length === 0) {
     _maybeReadMore(this, state);
@@ -1449,112 +1470,117 @@ Readable.prototype.iterator = function(options) {
 };
 
 // Symbol.asyncIterator support for Readable streams
-Readable.prototype[Symbol.asyncIterator] = function() {
+Readable.prototype[Symbol.asyncIterator] = function(options) {
+  if (options !== undefined && options !== null && typeof options !== 'object') {
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options + ' (' + options + ')');
+  }
+
   var stream = this;
-  var ended = false;
-  var error = null;
-  var pendingResolvers = [];
-  var buffer = [];
+  var finishedState;
+  var pendingResolve = null;
+  var cleanedUp = false;
 
-  function resolveNextChunk(chunk) {
-    if (pendingResolvers.length > 0) {
-      var nextResolve = pendingResolvers.shift();
-      if (nextResolve && typeof nextResolve.resolve === 'function') {
-        nextResolve.resolve({ value: chunk, done: false });
-      } else if (typeof nextResolve === 'function') {
-        nextResolve({ value: chunk, done: false });
-      }
+  function wake() {
+    if (!pendingResolve) return;
+    var resolve = pendingResolve;
+    pendingResolve = null;
+    resolve();
+  }
+
+  function onReadable() {
+    wake();
+  }
+
+  function onEnd() {
+    finishedState = null;
+    wake();
+  }
+
+  function onError(err) {
+    finishedState = err || new Error('Stream error');
+    wake();
+  }
+
+  function onClose() {
+    if (finishedState !== undefined) {
+      wake();
+      return;
+    }
+    var state = stream && stream._readableState;
+    if (state && state.endEmitted) {
+      finishedState = null;
     } else {
-      buffer.push(chunk);
+      finishedState = makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close');
+    }
+    wake();
+  }
+
+  function cleanup() {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (typeof stream.off === 'function') {
+      stream.off('readable', onReadable);
+      stream.off('end', onEnd);
+      stream.off('error', onError);
+      stream.off('close', onClose);
+    } else if (typeof stream.removeListener === 'function') {
+      stream.removeListener('readable', onReadable);
+      stream.removeListener('end', onEnd);
+      stream.removeListener('error', onError);
+      stream.removeListener('close', onClose);
     }
   }
 
-  function rejectPending(err) {
-    while (pendingResolvers.length > 0) {
-      var pending = pendingResolvers.shift();
-      if (pending && typeof pending.reject === 'function') {
-        pending.reject(err);
-      }
-    }
-  }
+  stream.on('readable', onReadable);
+  stream.on('end', onEnd);
+  stream.on('error', onError);
+  stream.on('close', onClose);
 
-  function drainBufferedData() {
-    if (!stream || typeof stream.read !== 'function' || error) return;
-    while (true) {
-      var chunk;
-      try {
-        chunk = stream.read();
-      } catch (err) {
-        error = err;
-        ended = true;
-        rejectPending(err);
-        return;
-      }
-      if (chunk === null || chunk === undefined) break;
-      resolveNextChunk(chunk);
-    }
-    var state = stream._readableState;
-    if (stream.readableEnded || (state && (state.ended || state.endEmitted))) {
-      ended = true;
-    }
-  }
-
-  stream.on('data', function(chunk) {
-    resolveNextChunk(chunk);
-  });
-
-  stream.on('readable', function() {
-    drainBufferedData();
-  });
-
-  stream.on('end', function() {
-    ended = true;
-    while (pendingResolvers.length > 0) {
-      var nextResolve = pendingResolvers.shift();
-      if (nextResolve && typeof nextResolve.resolve === 'function') {
-        nextResolve.resolve({ value: undefined, done: true });
-      } else if (typeof nextResolve === 'function') {
-        nextResolve({ value: undefined, done: true });
-      }
-    }
-  });
-
-  stream.on('error', function(err) {
-    error = err;
-    ended = true;
-    rejectPending(err);
-  });
-
-  drainBufferedData();
-  if (typeof stream.resume === 'function') {
-    stream.resume();
+  if (
+    typeof stream.pause === 'function' &&
+    typeof stream.listenerCount === 'function' &&
+    stream.listenerCount('data') === 0
+  ) {
+    stream.pause();
   }
 
   return {
     next: function() {
-      drainBufferedData();
-      if (error) {
-        return Promise.reject(error);
-      }
-      if (buffer.length > 0) {
-        return Promise.resolve({ value: buffer.shift(), done: false });
-      }
-      if (ended) {
-        return Promise.resolve({ value: undefined, done: true });
-      }
-      return new Promise(function(resolve, reject) {
-        pendingResolvers.push({ resolve: resolve, reject: reject });
-      });
+      return (async function() {
+        while (true) {
+          var chunk = (stream._destroyed || stream.destroyed) ? null : stream.read();
+          if (chunk !== null && chunk !== undefined) {
+            return { value: chunk, done: false };
+          }
+          if (finishedState) {
+            cleanup();
+            throw finishedState;
+          }
+          if (finishedState === null) {
+            cleanup();
+            return { value: undefined, done: true };
+          }
+          await new Promise(function(resolve) {
+            pendingResolve = resolve;
+          });
+        }
+      })();
     },
     return: function() {
-      ended = true;
-      if (typeof stream.destroy === 'function') stream.destroy();
+      cleanup();
+      finishedState = null;
+      if ((!options || options.destroyOnReturn !== false) && typeof stream.destroy === 'function' && !stream._destroyed) {
+        stream.destroy();
+      }
       return Promise.resolve({ value: undefined, done: true });
     },
     throw: function(err) {
-      ended = true;
-      if (typeof stream.destroy === 'function') stream.destroy(err);
-      return Promise.reject(err);
+      cleanup();
+      finishedState = err || new Error('Stream iterator error');
+      if (typeof stream.destroy === 'function' && !stream._destroyed) {
+        stream.destroy(finishedState);
+      }
+      return Promise.reject(finishedState);
     },
     [Symbol.asyncIterator]: function() { return this; }
   };
@@ -1562,9 +1588,356 @@ Readable.prototype[Symbol.asyncIterator] = function() {
 
 // Helper to create Node.js-style coded errors
 function makeError(Constructor, code, message) {
-  var err = new Constructor('[' + code + ']: ' + message);
+  var err = new Constructor(message);
   err.code = code;
+  err.toString = function() {
+    return this.name + ' [' + this.code + ']: ' + this.message;
+  };
   return err;
+}
+
+var _streamOperatorEmpty = {};
+var _streamOperatorEof = {};
+
+function _isAbortSignalLike(signal) {
+  return !!(signal &&
+    typeof signal === 'object' &&
+    typeof signal.addEventListener === 'function' &&
+    typeof signal.aborted === 'boolean');
+}
+
+function _normalizeReadableOperatorOptions(options, config) {
+  if (options !== undefined && options !== null && typeof options !== 'object') {
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options);
+  }
+
+  var normalized = {
+    signal: options && options.signal !== undefined ? options.signal : null
+  };
+
+  if (normalized.signal !== null && !_isAbortSignalLike(normalized.signal)) {
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options.signal" property must be an instance of AbortSignal. Received type ' + typeof normalized.signal);
+  }
+
+  if (config && config.concurrency) {
+    var concurrency = 1;
+    if (options && options.concurrency != null) {
+      concurrency = Math.floor(options.concurrency);
+    }
+    if (typeof concurrency !== 'number' || !isFinite(concurrency) || concurrency < 1) {
+      throw makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "options.concurrency" is out of range.');
+    }
+    normalized.concurrency = concurrency;
+  }
+
+  if (config && config.highWaterMark) {
+    var highWaterMark = normalized.concurrency ? normalized.concurrency - 1 : 0;
+    if (options && options.highWaterMark != null) {
+      highWaterMark = Math.floor(options.highWaterMark);
+    }
+    if (typeof highWaterMark !== 'number' || !isFinite(highWaterMark) || highWaterMark < 0) {
+      throw makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "options.highWaterMark" is out of range.');
+    }
+    normalized.highWaterMark = highWaterMark;
+    normalized.bufferHighWaterMark = highWaterMark + (normalized.concurrency || 0);
+  }
+
+  return normalized;
+}
+
+function _abortControllerWithReason(controller, reason) {
+  if (!controller || typeof controller.abort !== 'function') return;
+  try {
+    controller.abort(reason);
+  } catch (_err) {
+    controller.abort();
+  }
+}
+
+function _combineAbortSignals(primary, secondary) {
+  var signals = [];
+  if (_isAbortSignalLike(primary)) signals.push(primary);
+  if (_isAbortSignalLike(secondary)) signals.push(secondary);
+  if (signals.length === 0) return null;
+  if (signals.length === 1) return signals[0];
+  if (typeof AbortSignal !== 'undefined' && AbortSignal && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(signals);
+  }
+
+  var controller = new AbortController();
+  function forwardAbort(signal) {
+    if (signal.aborted) {
+      _abortControllerWithReason(controller, signal.reason);
+      return;
+    }
+    signal.addEventListener('abort', function() {
+      _abortControllerWithReason(controller, signal.reason);
+    }, { once: true });
+  }
+  for (var i = 0; i < signals.length; i++) {
+    forwardAbort(signals[i]);
+  }
+  return controller.signal;
+}
+
+function _toIntegerOrInfinity(number) {
+  number = Number(number);
+  if (isNaN(number)) return 0;
+  if (number < 0) {
+    throw makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "number" is out of range. It must be >= 0. Received ' + number);
+  }
+  if (!isFinite(number)) return number;
+  return Math.floor(number);
+}
+
+function _attachReadableAbortSignal(result, signal) {
+  if (!_isAbortSignalLike(signal)) return;
+  if (signal.aborted) {
+    var abortErr = _createAbortError(signal.reason);
+    setTimeout(function() {
+      if (!result._destroyed) {
+        result.destroy(abortErr);
+      }
+    }, 0);
+    return;
+  }
+  signal.addEventListener('abort', function() {
+    if (!result._destroyed) {
+      result.destroy(_createAbortError(signal.reason));
+    }
+  }, { once: true });
+}
+
+function _createReadableOperatorStream(iterable, options) {
+  var result = Readable.from(iterable, { objectMode: true });
+  result.readable = true;
+  return result;
+}
+
+async function _consumeAsyncIterable(iterable, onValue) {
+  if (!iterable || typeof iterable[Symbol.asyncIterator] !== 'function') {
+    return;
+  }
+  var iterator = iterable[Symbol.asyncIterator]();
+  var completed = false;
+  try {
+    while (true) {
+      var next = await iterator.next();
+      if (!next || next.done) {
+        completed = true;
+        return;
+      }
+      await onValue(next.value);
+    }
+  } finally {
+    if (!completed) {
+      _safelyReturnAsyncIterator(iterator);
+    }
+  }
+}
+
+function _createReadableMapIterable(source, fn, options) {
+  var controller = new AbortController();
+  var signal = _combineAbortSignals(options && options.signal, controller.signal);
+  var signalOpt = { signal: signal };
+  var queue = [];
+  var notifyConsumer = null;
+  var resumePump = null;
+  var done = false;
+  var completed = false;
+  var cleanedUp = false;
+  var terminalError = null;
+  var inFlight = 0;
+  var sourceCompleted = false;
+  var sourceIter = source && typeof source[Symbol.asyncIterator] === 'function'
+    ? source[Symbol.asyncIterator]()
+    : null;
+
+  function wakeConsumer() {
+    if (!notifyConsumer) return;
+    var resolve = notifyConsumer;
+    notifyConsumer = null;
+    resolve();
+  }
+
+  function cleanupSourceIterator() {
+    if (!sourceIter || sourceCompleted) return;
+    sourceCompleted = true;
+    _safelyReturnAsyncIterator(sourceIter);
+  }
+
+  function maybeResumePump() {
+    if (
+      resumePump &&
+      !done &&
+      inFlight < options.concurrency &&
+      queue.length < options.bufferHighWaterMark
+    ) {
+      var resolve = resumePump;
+      resumePump = null;
+      resolve();
+    }
+  }
+
+  function onMapperSettled() {
+    if (inFlight > 0) {
+      inFlight -= 1;
+    }
+    maybeResumePump();
+  }
+
+  function finalize() {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    done = true;
+    cleanupSourceIterator();
+    if (resumePump) {
+      var resume = resumePump;
+      resumePump = null;
+      resume();
+    }
+    _abortControllerWithReason(controller, signal && signal.reason);
+    if (!completed && source && typeof source.destroy === 'function' && !source._destroyed) {
+      if (terminalError) {
+        source.destroy(terminalError);
+      } else {
+        source.destroy();
+      }
+    }
+  }
+
+  (async function() {
+    try {
+      if (signal && signal.aborted) {
+        throw _createAbortError(signal.reason);
+      }
+
+      if (!sourceIter) {
+        queue.push(_streamOperatorEof);
+        wakeConsumer();
+        return;
+      }
+
+      while (!done) {
+        var next = await sourceIter.next();
+        if (!next || next.done) {
+          sourceCompleted = true;
+          queue.push(_streamOperatorEof);
+          wakeConsumer();
+          return;
+        }
+
+        if (done) {
+          return;
+        }
+
+        if (signal && signal.aborted) {
+          throw _createAbortError(signal.reason);
+        }
+
+        var mapped;
+        try {
+          mapped = fn(next.value, signalOpt);
+          if (mapped === _streamOperatorEmpty) {
+            continue;
+          }
+          mapped = Promise.resolve(mapped);
+        } catch (err) {
+          mapped = Promise.reject(err);
+        }
+
+        inFlight += 1;
+        mapped.then(onMapperSettled, function() {
+          done = true;
+          onMapperSettled();
+        });
+
+        queue.push(mapped);
+        wakeConsumer();
+
+        if (!done && (queue.length >= options.bufferHighWaterMark || inFlight >= options.concurrency)) {
+          await new Promise(function(resolve) {
+            resumePump = resolve;
+          });
+        }
+      }
+    } catch (err) {
+      var rejected = Promise.reject(err);
+      rejected.then(function() {}, function() {});
+      queue.push(rejected);
+      wakeConsumer();
+    } finally {
+      cleanupSourceIterator();
+      done = true;
+      wakeConsumer();
+    }
+  })();
+
+  return {
+    next: function() {
+      return (async function() {
+        while (true) {
+          while (queue.length > 0) {
+            var mappedValue;
+          try {
+            mappedValue = await queue[0];
+          } catch (err) {
+            terminalError = err;
+            finalize();
+            throw err;
+          }
+
+          queue.shift();
+          maybeResumePump();
+
+            if (mappedValue === _streamOperatorEof) {
+              completed = true;
+              finalize();
+              return { value: undefined, done: true };
+            }
+
+            if (signal && signal.aborted) {
+              terminalError = _createAbortError(signal.reason);
+              finalize();
+              throw terminalError;
+            }
+
+            if (mappedValue === _streamOperatorEmpty) {
+              continue;
+            }
+
+            return { value: mappedValue, done: false };
+          }
+
+          if (done) {
+            completed = true;
+            finalize();
+            if (terminalError) {
+              throw terminalError;
+            }
+            return { value: undefined, done: true };
+          }
+
+          await new Promise(function(resolve) {
+            notifyConsumer = resolve;
+          });
+        }
+      })();
+    },
+    return: function() {
+      completed = true;
+      finalize();
+      return Promise.resolve({ value: undefined, done: true });
+    },
+    throw: function(err) {
+      terminalError = err || new Error('Stream iterator error');
+      finalize();
+      return Promise.reject(terminalError);
+    },
+    [Symbol.asyncIterator]: function() {
+      return this;
+    }
+  };
 }
 
 // --- Stream Helper Methods (Node.js 17+) ---
@@ -1572,159 +1945,58 @@ function makeError(Constructor, code, message) {
 // toArray() - collect all chunks into an array, returns Promise
 Readable.prototype.toArray = function(options) {
   var stream = this;
-  var signal = options && options.signal;
-  return new Promise(function(resolve, reject) {
-    if (signal && signal.aborted) {
-      var abortErr = new Error('The operation was aborted');
-      abortErr.code = 'ABORT_ERR';
-      abortErr.name = 'AbortError';
-      reject(abortErr);
-      return;
-    }
-    var onAbort;
-    if (signal) {
-      onAbort = function() {
-        var abortErr = new Error('The operation was aborted');
-        abortErr.code = 'ABORT_ERR';
-        abortErr.name = 'AbortError';
-        reject(abortErr);
-        if (typeof stream.destroy === 'function') stream.destroy(abortErr);
-      };
-      signal.addEventListener('abort', onAbort);
-    }
+  var normalized;
+  try {
+    normalized = _normalizeReadableOperatorOptions(options, { signal: true });
+  } catch (err) {
+    return Promise.reject(err);
+  }
+  return (async function() {
     var result = [];
-    stream.on('data', function(chunk) { result.push(chunk); });
-    stream.on('end', function() {
-      if (signal && onAbort) signal.removeEventListener('abort', onAbort);
-      resolve(result);
+    if (normalized.signal && normalized.signal.aborted) {
+      var preAbortErr = _createAbortError(normalized.signal.reason);
+      if (!stream._destroyed && typeof stream.destroy === 'function') {
+        stream.destroy(preAbortErr);
+      }
+      throw preAbortErr;
+    }
+    await _consumeAsyncIterable(stream, async function(value) {
+      if (normalized.signal && normalized.signal.aborted) {
+        var abortErr = _createAbortError(normalized.signal.reason);
+        if (!stream._destroyed && typeof stream.destroy === 'function') {
+          stream.destroy(abortErr);
+        }
+        throw abortErr;
+      }
+      result.push(value);
     });
-    stream.on('error', function(err) {
-      if (signal && onAbort) signal.removeEventListener('abort', onAbort);
-      reject(err);
-    });
-  });
+    return result;
+  })();
 };
 
 // forEach() - call fn for each chunk, returns Promise
 Readable.prototype.forEach = function(fn, options) {
-  // Validation - throws async (returns rejected promise)
   if (typeof fn !== 'function') {
     return Promise.reject(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "fn" argument must be of type function. Received type ' + typeof fn));
   }
-  if (options !== undefined && options !== null) {
-    if (typeof options !== 'object') {
-      return Promise.reject(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options));
-    }
-    if (options.concurrency !== undefined) {
-      if (typeof options.concurrency !== 'number' || options.concurrency < 1) {
-        return Promise.reject(makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "options.concurrency" is out of range.'));
-      }
-    }
+  var normalized;
+  try {
+    normalized = _normalizeReadableOperatorOptions(options, {
+      signal: true,
+      concurrency: true,
+      highWaterMark: true
+    });
+  } catch (err) {
+    return Promise.reject(err);
   }
-  var stream = this;
-  var signal = options && options.signal;
-  var concurrency = (options && options.concurrency) || 1;
   return (async function() {
-    if (signal && signal.aborted) {
-      var abortErr = new Error('The operation was aborted');
-      abortErr.code = 'ABORT_ERR';
-      abortErr.name = 'AbortError';
-      throw abortErr;
+    async function forEachFn(value, callOptions) {
+      await fn(value, callOptions);
+      return _streamOperatorEmpty;
     }
-    var abortPromise;
-    var onAbort;
-    if (signal) {
-      abortPromise = new Promise(function(_, reject) {
-        onAbort = function() {
-          var err = new Error('The operation was aborted');
-          err.code = 'ABORT_ERR';
-          err.name = 'AbortError';
-          reject(err);
-        };
-        signal.addEventListener('abort', onAbort);
-      });
-    }
-    try {
-      if (concurrency === 1) {
-        for await (var chunk of stream) {
-          if (signal && signal.aborted) {
-            var abortErr2 = new Error('The operation was aborted');
-            abortErr2.code = 'ABORT_ERR';
-            abortErr2.name = 'AbortError';
-            throw abortErr2;
-          }
-          var callArg = signal ? { signal: signal } : {};
-          if (abortPromise) {
-            await Promise.race([fn(chunk, callArg), abortPromise]);
-          } else {
-            await fn(chunk, callArg);
-          }
-        }
-      } else {
-        // Concurrent forEach: pull items and run up to `concurrency` callbacks at once
-        var iter = stream[Symbol.asyncIterator]();
-        var sourceEnded = false;
-        var slots = new Array(concurrency);
-        var slotFree = new Array(concurrency);
-        for (var si = 0; si < concurrency; si++) {
-          slots[si] = null;
-          slotFree[si] = true;
-        }
-
-        function findFreeSlot() {
-          for (var i = 0; i < concurrency; i++) {
-            if (slotFree[i]) return i;
-          }
-          return -1;
-        }
-
-        while (!sourceEnded) {
-          var slotIdx = findFreeSlot();
-          if (slotIdx === -1) {
-            // All slots busy - wait for one to free up (or abort)
-            var waitPromises = [];
-            for (var wi = 0; wi < concurrency; wi++) {
-              if (!slotFree[wi] && slots[wi]) waitPromises.push(slots[wi]);
-            }
-            if (abortPromise) waitPromises.push(abortPromise);
-            await Promise.race(waitPromises);
-            slotIdx = findFreeSlot();
-            if (slotIdx === -1) continue; // abortPromise rejected, will be caught by try/finally
-          }
-          // Pull next item
-          var nr;
-          if (abortPromise) {
-            nr = await Promise.race([iter.next(), abortPromise]);
-          } else {
-            nr = await iter.next();
-          }
-          if (nr.done) { sourceEnded = true; break; }
-          var callArg3 = signal ? { signal: signal } : {};
-          slotFree[slotIdx] = false;
-          slots[slotIdx] = Promise.resolve(fn(nr.value, callArg3)).then(
-            (function(idx) { return function() { slotFree[idx] = true; }; })(slotIdx),
-            (function(idx) { return function(err) { slotFree[idx] = true; throw err; }; })(slotIdx)
-          );
-        }
-        // Wait for all active slots
-        var activeSlots = [];
-        for (var fi = 0; fi < concurrency; fi++) {
-          if (!slotFree[fi] && slots[fi]) activeSlots.push(slots[fi]);
-        }
-        if (activeSlots.length > 0) {
-          if (abortPromise) {
-            await Promise.race([Promise.all(activeSlots), abortPromise]);
-          } else {
-            await Promise.all(activeSlots);
-          }
-        }
-      }
-    } finally {
-      if (signal && onAbort) {
-        signal.removeEventListener('abort', onAbort);
-      }
-    }
-  })();
+    var iterable = _createReadableMapIterable(this, forEachFn, normalized);
+    await _consumeAsyncIterable(iterable, function() {});
+  }).call(this);
 };
 
 // filter() - returns a new Readable with chunks passing predicate
@@ -1732,80 +2004,19 @@ Readable.prototype.filter = function(fn, options) {
   if (typeof fn !== 'function') {
     throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "fn" argument must be of type function. Received type ' + typeof fn);
   }
-  if (options !== undefined && options !== null) {
-    if (typeof options !== 'object') {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options);
-    }
-    if (options.concurrency !== undefined) {
-      if (typeof options.concurrency !== 'number' || options.concurrency < 1) {
-        throw makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "options.concurrency" is out of range.');
-      }
-    }
-    if (options.signal !== undefined && (typeof options.signal !== 'object' || options.signal === null)) {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options.signal" property must be an instance of AbortSignal. Received type ' + typeof options.signal);
-    }
-  }
-  var source = this;
-  var signal = options && options.signal;
-  var concurrency = (options && options.concurrency) || 1;
-  var ac = new AbortController();
-  var childSignal = ac.signal;
-  var result;
-  if (concurrency === 1) {
-    result = Readable.from((async function*() {
-      for await (var chunk of source) {
-        if (await fn(chunk, { signal: childSignal })) {
-          yield chunk;
-        }
-      }
-    })(), { objectMode: true });
-  } else {
-    result = Readable.from((async function*() {
-      var queue = [];
-      var sourceEnded = false;
-      var sourceIter = source[Symbol.asyncIterator]();
-
-      function startOne() {
-        return sourceIter.next().then(function(r) {
-          if (r.done) { sourceEnded = true; return null; }
-          var chunk = r.value;
-          return fn(chunk, { signal: childSignal }).then(function(keep) {
-            return { chunk: chunk, keep: keep };
-          });
-        });
-      }
-
-      // Fill initial queue
-      for (var i = 0; i < concurrency && !sourceEnded; i++) {
-        queue.push(startOne());
-      }
-
-      while (queue.length > 0) {
-        var entry = await queue.shift();
-        if (entry === null) continue;
-        if (!sourceEnded) {
-          queue.push(startOne());
-        }
-        if (entry.keep) {
-          yield entry.chunk;
-        }
-      }
-    })(), { objectMode: true });
-  }
-  result.readable = true;
-  // When result is destroyed, also destroy the source to stop the pipeline
-  result.on('close', function() {
-    ac.abort();
-    if (!source._destroyed) source.destroy();
+  var normalized = _normalizeReadableOperatorOptions(options, {
+    signal: true,
+    concurrency: true,
+    highWaterMark: true
   });
-  if (signal) {
-    signal.addEventListener('abort', function() {
-      var abortErr = new Error('The operation was aborted');
-      abortErr.code = 'ABORT_ERR';
-      abortErr.name = 'AbortError';
-      result.destroy(abortErr);
-    });
-  }
+  var iterable = _createReadableMapIterable(this, async function(value, callOptions) {
+    if (await fn(value, callOptions)) {
+      return value;
+    }
+    return _streamOperatorEmpty;
+  }, normalized);
+  var result = _createReadableOperatorStream(iterable, normalized);
+  _attachReadableAbortSignal(result, normalized.signal);
   return result;
 };
 
@@ -1814,41 +2025,13 @@ Readable.prototype.map = function(fn, options) {
   if (typeof fn !== 'function') {
     throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "fn" argument must be of type function. Received type ' + typeof fn);
   }
-  if (options !== undefined && options !== null) {
-    if (typeof options !== 'object') {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options);
-    }
-    if (options.concurrency !== undefined) {
-      if (typeof options.concurrency !== 'number' || options.concurrency < 1) {
-        throw makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "options.concurrency" is out of range.');
-      }
-    }
-    if (options.signal !== undefined && (typeof options.signal !== 'object' || options.signal === null)) {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options.signal" property must be an instance of AbortSignal. Received type ' + typeof options.signal);
-    }
-  }
-  var source = this;
-  var signal = options && options.signal;
-  var ac = new AbortController();
-  var childSignal = ac.signal;
-  var result = Readable.from((async function*() {
-    for await (var chunk of source) {
-      yield await fn(chunk, { signal: childSignal });
-    }
-  })(), { objectMode: true });
-  result.readable = true;
-  result.on('close', function() {
-    ac.abort();
-    if (!source._destroyed) source.destroy();
+  var normalized = _normalizeReadableOperatorOptions(options, {
+    signal: true,
+    concurrency: true,
+    highWaterMark: true
   });
-  if (signal) {
-    signal.addEventListener('abort', function() {
-      var abortErr = new Error('The operation was aborted');
-      abortErr.code = 'ABORT_ERR';
-      abortErr.name = 'AbortError';
-      result.destroy(abortErr);
-    });
-  }
+  var result = _createReadableOperatorStream(_createReadableMapIterable(this, fn, normalized), normalized);
+  _attachReadableAbortSignal(result, normalized.signal);
   return result;
 };
 
@@ -1857,58 +2040,117 @@ Readable.prototype.flatMap = function(fn, options) {
   if (typeof fn !== 'function') {
     throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "fn" argument must be of type function. Received type ' + typeof fn);
   }
-  if (options !== undefined && options !== null) {
-    if (typeof options !== 'object') {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options);
-    }
-    if (options.concurrency !== undefined) {
-      if (typeof options.concurrency !== 'number' || options.concurrency < 1) {
-        throw makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "options.concurrency" is out of range.');
+  var normalized = _normalizeReadableOperatorOptions(options, {
+    signal: true,
+    concurrency: true,
+    highWaterMark: true
+  });
+  var values = _createReadableMapIterable(this, fn, normalized);
+  var flattened = (async function*() {
+    var valuesIter = values && typeof values[Symbol.asyncIterator] === 'function'
+      ? values[Symbol.asyncIterator]()
+      : null;
+    var valuesDone = false;
+    try {
+      while (valuesIter) {
+        var nextMapped = await valuesIter.next();
+        if (!nextMapped || nextMapped.done) {
+          valuesDone = true;
+          return;
+        }
+        var mapped = nextMapped.value;
+        if (mapped && typeof mapped[Symbol.asyncIterator] === 'function') {
+          var mappedIter = mapped[Symbol.asyncIterator]();
+          var mappedDone = false;
+          try {
+            while (true) {
+              var nextItem = await mappedIter.next();
+              if (!nextItem || nextItem.done) {
+                mappedDone = true;
+                break;
+              }
+              yield nextItem.value;
+            }
+          } finally {
+            if (!mappedDone) {
+              _safelyReturnAsyncIterator(mappedIter);
+            }
+          }
+        } else if (mapped && typeof mapped[Symbol.iterator] === 'function' && typeof mapped !== 'string') {
+          for (var i = 0; i < mapped.length; i++) {
+            yield mapped[i];
+          }
+        } else {
+          yield mapped;
+        }
+      }
+    } finally {
+      if (valuesIter && !valuesDone) {
+        _safelyReturnAsyncIterator(valuesIter);
       }
     }
-    if (options.signal !== undefined && (typeof options.signal !== 'object' || options.signal === null)) {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options.signal" property must be an instance of AbortSignal. Received type ' + typeof options.signal);
-    }
-  }
-  var source = this;
-  var result = Readable.from((async function*() {
-    for await (var chunk of source) {
-      var mapped = await fn(chunk);
-      if (mapped && typeof mapped[Symbol.asyncIterator] === 'function') {
-        for await (var item of mapped) yield item;
-      } else if (mapped && typeof mapped[Symbol.iterator] === 'function' && typeof mapped !== 'string') {
-        for (var i = 0; i < mapped.length; i++) yield mapped[i];
-      } else {
-        yield mapped;
-      }
-    }
-  })(), { objectMode: true });
-  result.readable = true;
-  result.on('close', function() { if (!source._destroyed) source.destroy(); });
+  })();
+  var result = _createReadableOperatorStream(flattened, normalized);
+  _attachReadableAbortSignal(result, normalized.signal);
   return result;
 };
+
+function _createReduceEmptyError() {
+  var err = new TypeError('Reduce of an empty stream requires an initial value');
+  err.code = 'ERR_MISSING_ARGS';
+  return err;
+}
 
 // reduce() - reduce stream to a single value, returns Promise
 Readable.prototype.reduce = function(fn, initial, options) {
   if (typeof fn !== 'function') {
-    throw new TypeError('The "fn" argument must be of type function');
+    return Promise.reject(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "reducer" argument must be of type function. Received type ' + typeof fn));
+  }
+  var normalized;
+  try {
+    normalized = _normalizeReadableOperatorOptions(options, { signal: true });
+  } catch (err) {
+    return Promise.reject(err);
   }
   var hasInitial = arguments.length >= 2;
   var stream = this;
   return (async function() {
-    var acc = initial;
-    var first = true;
-    for await (var chunk of stream) {
-      if (first && !hasInitial) {
-        acc = chunk;
-        first = false;
-      } else {
-        acc = await fn(acc, chunk);
-        first = false;
+    if (normalized.signal && normalized.signal.aborted) {
+      var preAbortErr = _createAbortError(normalized.signal.reason);
+      if (typeof stream.once === 'function') {
+        stream.once('error', function() {});
       }
+      if (!stream._destroyed && typeof stream.destroy === 'function') {
+        stream.destroy(preAbortErr);
+      }
+      throw preAbortErr;
     }
-    if (first && !hasInitial) {
-      throw new TypeError('Reduce of empty stream with no initial value');
+    var controller = new AbortController();
+    var reducerSignal = _combineAbortSignals(normalized.signal, controller.signal);
+    var acc = initial;
+    var receivedValue = false;
+    try {
+      await _consumeAsyncIterable(stream, async function(chunk) {
+        receivedValue = true;
+        if (normalized.signal && normalized.signal.aborted) {
+          var abortErr = _createAbortError(normalized.signal.reason);
+          if (!stream._destroyed && typeof stream.destroy === 'function') {
+            stream.destroy(abortErr);
+          }
+          throw abortErr;
+        }
+        if (!hasInitial) {
+          acc = chunk;
+          hasInitial = true;
+        } else {
+          acc = await fn(acc, chunk, { signal: reducerSignal });
+        }
+      });
+    } finally {
+      _abortControllerWithReason(controller, normalized.signal && normalized.signal.reason);
+    }
+    if (!receivedValue && !hasInitial) {
+      throw _createReduceEmptyError();
     }
     return acc;
   })();
@@ -1916,132 +2158,256 @@ Readable.prototype.reduce = function(fn, initial, options) {
 
 // take() - take first N chunks
 Readable.prototype.take = function(limit, options) {
-  limit = Number(limit);
-  if (isNaN(limit)) limit = 0;
-  if (limit < 0) {
-    throw makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "limit" is out of range. It must be >= 0. Received ' + limit);
-  }
-  if (options !== undefined && options !== null) {
-    if (typeof options !== 'object') {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options);
-    }
-    if (options.signal !== undefined && typeof options.signal !== 'object') {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options.signal" property must be an instance of AbortSignal. Received type ' + typeof options.signal);
-    }
-  }
+  limit = _toIntegerOrInfinity(limit);
+  var normalized = _normalizeReadableOperatorOptions(options, { signal: true });
+  var signal = normalized.signal;
   var source = this;
-  var signal = options && options.signal;
-  var result = Readable.from((async function*() {
-    var count = 0;
-    for await (var chunk of source) {
-      if (count >= limit) break;
-      yield chunk;
-      count++;
+  var ended = false;
+  var result = new Readable({
+    objectMode: true,
+    read: function() {
+      if (!ended && source && typeof source.resume === 'function') {
+        source.resume();
+      }
     }
-  })(), { objectMode: true });
-  result.on('close', function() { if (!source._destroyed) source.destroy(); });
-  if (signal) {
-    if (signal.aborted) {
-      var abortErr = new Error('The operation was aborted');
-      abortErr.code = 'ABORT_ERR';
-      abortErr.name = 'AbortError';
-      setTimeout(function() { result.destroy(abortErr); }, 0);
-    } else {
-      signal.addEventListener('abort', function() {
-        var abortErr = new Error('The operation was aborted');
-        abortErr.code = 'ABORT_ERR';
-        abortErr.name = 'AbortError';
-        result.destroy(abortErr);
-      });
+  });
+  result.readable = true;
+
+  function cleanup() {
+    if (!source || typeof source.removeListener !== 'function') return;
+    source.removeListener('data', onData);
+    source.removeListener('end', onEnd);
+    source.removeListener('error', onError);
+  }
+
+  function closeSource(err) {
+    if (!source || source._destroyed || typeof source.destroy !== 'function') return;
+    source.destroy(err);
+  }
+
+  function finish(err) {
+    if (ended) return;
+    ended = true;
+    cleanup();
+    if (err) {
+      if (!result._destroyed) {
+        result.destroy(err);
+      }
+      closeSource(err);
+      return;
+    }
+    result.push(null);
+    closeSource();
+  }
+
+  function onData(chunk) {
+    if (ended) return;
+    if (signal && signal.aborted) {
+      finish(_createAbortError(signal.reason));
+      return;
+    }
+    if (limit <= 0) {
+      finish();
+      return;
+    }
+    limit -= 1;
+    if (!result.push(chunk) && source && typeof source.pause === 'function') {
+      source.pause();
+    }
+    if (limit <= 0) {
+      finish();
     }
   }
+
+  function onEnd() {
+    finish();
+  }
+
+  function onError(err) {
+    finish(err);
+  }
+
+  result._destroy = function(error, cb) {
+    ended = true;
+    cleanup();
+    closeSource(error || null);
+    cb(error || null);
+  };
+
+  if (source && typeof source.pause === 'function') {
+    source.pause();
+  }
+  source.on('data', onData);
+  source.on('end', onEnd);
+  source.on('error', onError);
+  _attachReadableAbortSignal(result, signal);
   return result;
 };
 
 // drop() - skip first N chunks
 Readable.prototype.drop = function(count, options) {
-  if (typeof count !== 'number' || count < 0) {
-    throw makeError(RangeError, 'ERR_OUT_OF_RANGE', 'The value of "limit" is out of range. It must be >= 0. Received ' + count);
-  }
-  if (options !== undefined && options !== null) {
-    if (typeof options !== 'object') {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options" argument must be of type object. Received type ' + typeof options);
-    }
-    if (options.signal !== undefined && typeof options.signal !== 'object') {
-      throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "options.signal" property must be an instance of AbortSignal. Received type ' + typeof options.signal);
-    }
-  }
+  count = _toIntegerOrInfinity(count);
+  var normalized = _normalizeReadableOperatorOptions(options, { signal: true });
+  var signal = normalized.signal;
   var source = this;
-  var signal = options && options.signal;
-  var result = Readable.from((async function*() {
-    var skipped = 0;
-    for await (var chunk of source) {
-      if (skipped < count) {
-        skipped++;
-        continue;
+  var ended = false;
+  var result = new Readable({
+    objectMode: true,
+    read: function() {
+      if (!ended && source && typeof source.resume === 'function') {
+        source.resume();
       }
-      yield chunk;
     }
-  })(), { objectMode: true });
-  result.on('close', function() { if (!source._destroyed) source.destroy(); });
-  if (signal) {
-    if (signal.aborted) {
-      var abortErr = new Error('The operation was aborted');
-      abortErr.code = 'ABORT_ERR';
-      abortErr.name = 'AbortError';
-      setTimeout(function() { result.destroy(abortErr); }, 0);
-    } else {
-      signal.addEventListener('abort', function() {
-        var abortErr = new Error('The operation was aborted');
-        abortErr.code = 'ABORT_ERR';
-        abortErr.name = 'AbortError';
-        result.destroy(abortErr);
-      });
+  });
+  result.readable = true;
+
+  function cleanup() {
+    if (!source || typeof source.removeListener !== 'function') return;
+    source.removeListener('data', onData);
+    source.removeListener('end', onEnd);
+    source.removeListener('error', onError);
+  }
+
+  function closeSource(err) {
+    if (!source || source._destroyed || typeof source.destroy !== 'function') return;
+    source.destroy(err);
+  }
+
+  function finish(err) {
+    if (ended) return;
+    ended = true;
+    cleanup();
+    if (err) {
+      if (!result._destroyed) {
+        result.destroy(err);
+      }
+      closeSource(err);
+      return;
+    }
+    result.push(null);
+  }
+
+  function onData(chunk) {
+    if (ended) return;
+    if (signal && signal.aborted) {
+      finish(_createAbortError(signal.reason));
+      return;
+    }
+    if (count-- > 0) {
+      return;
+    }
+    if (!result.push(chunk) && source && typeof source.pause === 'function') {
+      source.pause();
     }
   }
+
+  function onEnd() {
+    finish();
+  }
+
+  function onError(err) {
+    finish(err);
+  }
+
+  result._destroy = function(error, cb) {
+    ended = true;
+    cleanup();
+    closeSource(error || null);
+    cb(error || null);
+  };
+
+  if (source && typeof source.pause === 'function') {
+    source.pause();
+  }
+  source.on('data', onData);
+  source.on('end', onEnd);
+  source.on('error', onError);
+  _attachReadableAbortSignal(result, signal);
   return result;
 };
 
 // some() - returns true if any chunk passes predicate
 Readable.prototype.some = function(fn, options) {
   if (typeof fn !== 'function') {
-    throw new TypeError('The "fn" argument must be of type function');
+    return Promise.reject(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "fn" argument must be of type function. Received type ' + typeof fn));
   }
-  var stream = this;
   return (async function() {
-    for await (var chunk of stream) {
-      if (await fn(chunk)) return true;
-    }
+    var normalized = _normalizeReadableOperatorOptions(options, {
+      signal: true,
+      concurrency: true,
+      highWaterMark: true
+    });
+    var iterable = _createReadableMapIterable(this, async function(value, callOptions) {
+      return (await fn(value, callOptions)) ? value : _streamOperatorEmpty;
+    }, normalized);
+    var found = false;
+    await _consumeAsyncIterable(iterable, function(chunk) {
+      if (chunk !== _streamOperatorEmpty) {
+        found = true;
+        throw _streamOperatorEof;
+      }
+    }).catch(function(err) {
+      if (err !== _streamOperatorEof) throw err;
+    });
+    if (found) return true;
     return false;
-  })();
+  }).call(this);
 };
 
 // every() - returns true if all chunks pass predicate
 Readable.prototype.every = function(fn, options) {
   if (typeof fn !== 'function') {
-    throw new TypeError('The "fn" argument must be of type function');
+    return Promise.reject(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "fn" argument must be of type function. Received type ' + typeof fn));
   }
-  var stream = this;
   return (async function() {
-    for await (var chunk of stream) {
-      if (!(await fn(chunk))) return false;
-    }
+    var normalized = _normalizeReadableOperatorOptions(options, {
+      signal: true,
+      concurrency: true,
+      highWaterMark: true
+    });
+    var iterable = _createReadableMapIterable(this, async function(value, callOptions) {
+      return (await fn(value, callOptions)) ? _streamOperatorEmpty : value;
+    }, normalized);
+    var failed = false;
+    await _consumeAsyncIterable(iterable, function(chunk) {
+      if (chunk !== _streamOperatorEmpty) {
+        failed = true;
+        throw _streamOperatorEof;
+      }
+    }).catch(function(err) {
+      if (err !== _streamOperatorEof) throw err;
+    });
+    if (failed) return false;
     return true;
-  })();
+  }).call(this);
 };
 
 // find() - returns first chunk passing predicate
 Readable.prototype.find = function(fn, options) {
   if (typeof fn !== 'function') {
-    throw new TypeError('The "fn" argument must be of type function');
+    return Promise.reject(makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "fn" argument must be of type function. Received type ' + typeof fn));
   }
-  var stream = this;
   return (async function() {
-    for await (var chunk of stream) {
-      if (await fn(chunk)) return chunk;
-    }
+    var normalized = _normalizeReadableOperatorOptions(options, {
+      signal: true,
+      concurrency: true,
+      highWaterMark: true
+    });
+    var iterable = _createReadableMapIterable(this, async function(value, callOptions) {
+      return (await fn(value, callOptions)) ? value : _streamOperatorEmpty;
+    }, normalized);
+    var foundChunk = undefined;
+    await _consumeAsyncIterable(iterable, function(chunk) {
+      if (chunk !== _streamOperatorEmpty) {
+        foundChunk = chunk;
+        throw _streamOperatorEof;
+      }
+    }).catch(function(err) {
+      if (err !== _streamOperatorEof) throw err;
+    });
+    if (foundChunk !== undefined) return foundChunk;
     return undefined;
-  })();
+  }).call(this);
 };
 
 // compose() on prototype - compose this readable with a transform function or Duplex/Transform stream
@@ -2272,9 +2638,11 @@ function _duplexFromReadableWritable(readable, writable, options) {
     (options && options.objectMode != null ? !!options.objectMode : (readable && readable._readableState && readable._readableState.objectMode));
   var writableObjectMode = options && options.writableObjectMode != null ? !!options.writableObjectMode :
     (options && options.objectMode != null ? !!options.objectMode : (writable && writable._writableState && writable._writableState.objectMode));
+  var duplexReadable = options && options.readable != null ? !!options.readable : !!readable;
+  var duplexWritable = options && options.writable != null ? !!options.writable : !!writable;
   var duplex = new Duplex({
-    readable: options && options.readable,
-    writable: options && options.writable,
+    readable: duplexReadable,
+    writable: duplexWritable,
     readableObjectMode: readableObjectMode,
     writableObjectMode: writableObjectMode,
     write: function(chunk, encoding, callback) {
@@ -2368,10 +2736,14 @@ Duplex.from = function(value, options) {
     return _duplexFromFunction(value, options);
   }
   if (_isReadableLike(value) && !value._writableState) {
-    return value;
+    var readableOnlyOptions = options ? Object.assign({}, options) : {};
+    readableOnlyOptions.writable = false;
+    return _duplexFromReadableWritable(value, null, readableOnlyOptions);
   }
   if (_isWritableLike(value) && !value._readableState) {
-    return value;
+    var writableOnlyOptions = options ? Object.assign({}, options) : {};
+    writableOnlyOptions.readable = false;
+    return _duplexFromReadableWritable(null, value, writableOnlyOptions);
   }
   if (value && (typeof value.readable !== 'undefined' || typeof value.writable !== 'undefined')) {
     var readableFromObject = _toReadable(value && value.readable, options);
@@ -2380,18 +2752,30 @@ Duplex.from = function(value, options) {
       return _duplexFromReadableWritable(readableFromObject, writableFromObject, options);
     }
     if (readableFromObject) {
-      return readableFromObject;
+      var readableOptions = options ? Object.assign({}, options) : {};
+      readableOptions.writable = false;
+      return _duplexFromReadableWritable(readableFromObject, null, readableOptions);
     }
     if (writableFromObject) {
-      return writableFromObject;
+      var writableOptions = options ? Object.assign({}, options) : {};
+      writableOptions.readable = false;
+      return _duplexFromReadableWritable(null, writableFromObject, writableOptions);
     }
   }
   if (_isReadableLike(value) && _isWritableLike(value)) {
     return value;
   }
+  var writable = _toWritable(value, options);
+  if (writable) {
+    var writableValueOptions = options ? Object.assign({}, options) : {};
+    writableValueOptions.readable = false;
+    return _duplexFromReadableWritable(null, writable, writableValueOptions);
+  }
   var readable = _toReadable(value, options);
   if (readable && !readable._writableState) {
-    return readable;
+    var readableValueOptions = options ? Object.assign({}, options) : {};
+    readableValueOptions.writable = false;
+    return _duplexFromReadableWritable(readable, null, readableValueOptions);
   }
   throw makeError(TypeError, 'ERR_INVALID_RETURN_VALUE', 'The first argument must be a valid stream argument.');
 };
@@ -2536,92 +2920,82 @@ Readable.from = function(iterable, options) {
   // Async iterable (including async generators)
   if (typeof iterable[Symbol.asyncIterator] === 'function') {
     var asyncIter = iterable[Symbol.asyncIterator]();
-    var asyncIterError = null;
-    var asyncIterErrorSeen = false;
-    var asyncIterNext = asyncIter.next;
-    function markAsyncIterError(err) {
-      if (asyncIterErrorSeen) return;
-      asyncIterErrorSeen = true;
-      asyncIterError = err;
-      if (!readableStream._destroyed) {
-        _destroyStreamWithError(readableStream, err);
-      }
-    }
-    if (typeof asyncIterNext === 'function') {
-      asyncIter.next = function() {
-        var nextResult;
-        try {
-          nextResult = asyncIterNext.apply(asyncIter, arguments);
-        } catch (err) {
-          markAsyncIterError(err);
-          throw err;
-        }
-        if (nextResult && typeof nextResult.then === 'function') {
-          nextResult.catch(function(err) {
-            markAsyncIterError(err);
-          });
-        }
-        return nextResult;
-      };
-    }
     var reading = false;
-    var scheduleRead = typeof process === 'object' &&
+    var destroyCallback = typeof process === 'object' &&
       process &&
       typeof process.nextTick === 'function'
       ? process.nextTick
       : function(fn) { setTimeout(fn, 0); };
-    function readNext() {
-      if (reading || !readableStream || readableStream._destroyed) return;
-      reading = true;
-      _suppressHermesAsyncIteratorUnhandledRejections();
-      var next;
-      try {
-        next = asyncIter.next();
-      } catch (err) {
-        reading = false;
-        if (!readableStream || readableStream._destroyed) {
-          return;
-        }
-        if (!readableStream._destroyed) {
-          _destroyStreamWithError(readableStream, err);
-        }
-        return;
+
+    readable._read = function() {
+      if (!reading) {
+        reading = true;
+        nextAsync();
       }
-      Promise.resolve(next).then(function(result) {
-        reading = false;
-        if (!readableStream || readableStream._destroyed) {
-          _safelyReturnAsyncIterator(asyncIter);
-          return;
-        }
-        if (result.done) {
-          if (asyncIterErrorSeen && asyncIterError) {
-            if (!readableStream._destroyed) {
-              _destroyStreamWithError(readableStream, asyncIterError);
-            }
-          } else {
-            readableStream.push(null);
+    };
+
+    readable._destroy = function(error, cb) {
+      async function closeAsyncIterator() {
+        var hasError = error !== undefined && error !== null;
+        if (hasError && typeof asyncIter.throw === 'function') {
+          var thrown = await asyncIter.throw(error);
+          if (thrown && thrown.value !== undefined) {
+            await thrown.value;
           }
-        } else if (result.value === null) {
-          var nullErr = new TypeError('May not write null values to stream');
-          nullErr.code = 'ERR_STREAM_NULL_VALUES';
-          if (!readableStream._destroyed) {
-            _destroyStreamWithError(readableStream, nullErr);
+          if (thrown && thrown.done) {
+            return;
           }
-        } else {
-          readableStream.push(result.value);
-          readNext();
         }
-      }).catch(function(err) {
-        reading = false;
-        if (!readableStream || readableStream._destroyed) {
-          return;
+        if (typeof asyncIter.return === 'function') {
+          var returned = await asyncIter.return();
+          if (returned && returned.value !== undefined) {
+            await returned.value;
+          }
         }
-        if (!readableStream._destroyed) {
-          _destroyStreamWithError(readableStream, err);
-        }
+      }
+
+      Promise.resolve().then(closeAsyncIterator).then(function() {
+        destroyCallback(function() { cb(error || null); });
+      }, function(err) {
+        destroyCallback(function() { cb(err || error || null); });
       });
+    };
+
+    async function nextAsync() {
+      while (true) {
+        try {
+          _suppressHermesAsyncIteratorUnhandledRejections();
+          var result = await asyncIter.next();
+          if (!readableStream || readableStream._destroyed) {
+            _safelyReturnAsyncIterator(asyncIter);
+            return;
+          }
+          if (!result || result.done) {
+            readableStream.push(null);
+            return;
+          }
+          if (result.value === null) {
+            reading = false;
+            var nullErr = new TypeError('May not write null values to stream');
+            nullErr.code = 'ERR_STREAM_NULL_VALUES';
+            throw nullErr;
+          }
+          if (readableStream.push(result.value)) {
+            continue;
+          }
+          reading = false;
+          return;
+        } catch (err) {
+          reading = false;
+          if (!readableStream || readableStream._destroyed) {
+            return;
+          }
+          readableStream.destroy(err);
+          return;
+        }
+      }
     }
-    scheduleRead(readNext);
+
     return readable;
   }
   // Sync iterable - store data in buffer without emitting events
@@ -5311,32 +5685,40 @@ function compose() {
     },
     final: function(callback) {
       var done = false;
+      var lastCleanup = null;
+      var waitingForLastFinish = false;
       var finish = function(err) {
         if (done) return;
         done = true;
+        if (typeof lastCleanup === 'function') {
+          lastCleanup();
+          lastCleanup = null;
+        }
         if (typeof callback === 'function') callback(err);
       };
-      var finishLast = function() {
-        if (typeof last.end === 'function') {
-          try {
-            last.end();
-          } catch (err) {
-            finish(err);
-          }
-        }
-      };
       try {
+        if (last && last !== first && typeof last.on === 'function' && _stageCanWrite(last)) {
+          waitingForLastFinish = true;
+          lastCleanup = finished(last, { readable: false }, function(err) {
+            waitingForLastFinish = false;
+            finish(err);
+          });
+        }
         if (typeof first.end === 'function') {
           first.end(function(err) {
             if (err) {
               if (typeof first.destroy === 'function') first.destroy(err);
+              finish(err);
+              return;
             }
-            finishLast();
-            finish(err);
+            if (!waitingForLastFinish) {
+              finish();
+            }
           });
         } else {
-          finishLast();
-          finish();
+          if (!waitingForLastFinish) {
+            finish();
+          }
         }
       } catch (err) {
         finish(err);
