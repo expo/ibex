@@ -487,6 +487,13 @@ function TLSSocket(socket, options) {
   }
 }
 
+if (net && net.Socket && typeof Object.setPrototypeOf === 'function') {
+  Object.setPrototypeOf(TLSSocket, net.Socket);
+} else if (!TLSSocket.prototype) {
+  TLSSocket.prototype = {};
+}
+TLSSocket.prototype.constructor = TLSSocket;
+
 TLSSocket.prototype._setSocket = function(socket) {
   _bindSocket(this, socket);
   return this;
@@ -679,6 +686,7 @@ if (typeof Object.defineProperty === 'function') {
     configurable: true,
     enumerable: true,
     get: function() {
+      if (this === TLSSocket.prototype) return undefined;
       if (this._socket && typeof this._socket.bytesRead === 'number') return this._socket.bytesRead;
       return 0;
     }
@@ -688,6 +696,7 @@ if (typeof Object.defineProperty === 'function') {
     configurable: true,
     enumerable: true,
     get: function() {
+      if (this === TLSSocket.prototype) return undefined;
       if (this._socket && typeof this._socket.bytesWritten === 'number') return this._socket.bytesWritten;
       return 0;
     }

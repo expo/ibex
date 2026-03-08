@@ -52,6 +52,9 @@ function ReadStream(fd, options) {
 // Set up prototype chain: ReadStream -> net.Socket -> EventEmitter
 if (net && net.Socket && net.Socket.prototype) {
   ReadStream.prototype = Object.create(net.Socket.prototype);
+  if (typeof Object.setPrototypeOf === 'function') {
+    Object.setPrototypeOf(ReadStream, net.Socket);
+  }
 } else if (EventEmitter && EventEmitter.prototype) {
   ReadStream.prototype = Object.create(EventEmitter.prototype);
 } else {
@@ -94,6 +97,9 @@ function WriteStream(fd, options) {
 // Set up prototype chain: WriteStream -> net.Socket -> EventEmitter
 if (net && net.Socket && net.Socket.prototype) {
   WriteStream.prototype = Object.create(net.Socket.prototype);
+  if (typeof Object.setPrototypeOf === 'function') {
+    Object.setPrototypeOf(WriteStream, net.Socket);
+  }
 } else if (EventEmitter && EventEmitter.prototype) {
   WriteStream.prototype = Object.create(EventEmitter.prototype);
 } else {
