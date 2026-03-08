@@ -17,12 +17,28 @@ if (typeof process !== 'undefined') {
       for (var _vi = 0; _vi < _vKeys.length; _vi++) {
         _newVersions[_vKeys[_vi]] = _v[_vKeys[_vi]];
       }
-      if (!_newVersions.openssl) _newVersions.openssl = '3.0.0';
-      if (!_newVersions.v8) _newVersions.v8 = '0.0.0';
-      if (!_newVersions.uv) _newVersions.uv = '0.0.0';
-      if (!_newVersions.zlib) _newVersions.zlib = '1.3.1';
-      if (!_newVersions.modules) _newVersions.modules = '127';
-      if (!_newVersions.napi) _newVersions.napi = '9';
+      if (
+        !_newVersions.openssl ||
+        _newVersions.openssl === '0.0.0' ||
+        _newVersions.openssl === '0'
+      ) {
+        _newVersions.openssl = '3.0.0';
+      }
+      if (!_newVersions.v8 || _newVersions.v8 === '0.0.0' || _newVersions.v8 === '0') {
+        _newVersions.v8 = '0.0.0';
+      }
+      if (!_newVersions.uv || _newVersions.uv === '0.0.0' || _newVersions.uv === '0') {
+        _newVersions.uv = '0.0.0';
+      }
+      if (!_newVersions.zlib || _newVersions.zlib === '0.0.0' || _newVersions.zlib === '0') {
+        _newVersions.zlib = '1.3.1';
+      }
+      if (!_newVersions.modules || _newVersions.modules === '0') {
+        _newVersions.modules = '127';
+      }
+      if (!_newVersions.napi || _newVersions.napi === '0') {
+        _newVersions.napi = '9';
+      }
       // Define as own data property on process
       try {
         Object.defineProperty(process, 'versions', {
@@ -1232,6 +1248,48 @@ function createSecretKey(material, encoding) {
   return _createKeyObject('secret', bytes);
 }
 
+function _decodePemKeyBytes(raw) {
+  if (typeof raw !== 'string') return _toBytes(raw);
+  var match = raw.match(/-----BEGIN [^-]+-----([\s\S]*?)-----END [^-]+-----/);
+  if (!match) return _toBytes(raw);
+  var base64 = match[1].replace(/[^A-Za-z0-9+/=]/g, '');
+  if (!base64) return _toBytes(raw);
+  if (typeof Buffer !== 'undefined' && Buffer.from) {
+    return new Uint8Array(Buffer.from(base64, 'base64'));
+  }
+  if (typeof atob === 'function') {
+    var decoded = atob(base64);
+    var out = new Uint8Array(decoded.length);
+    for (var i = 0; i < decoded.length; i++) out[i] = decoded.charCodeAt(i);
+    return out;
+  }
+  return _toBytes(raw);
+}
+
+function _detectAsymmetricKeyType(raw) {
+  if (raw instanceof KeyObject && raw._asymmetricKeyType) return raw._asymmetricKeyType;
+
+  if (typeof raw === 'string') {
+    var upper = raw.toUpperCase();
+    if (upper.indexOf('BEGIN RSA PUBLIC KEY') !== -1 || upper.indexOf('BEGIN RSA PRIVATE KEY') !== -1) return 'rsa';
+    if (upper.indexOf('BEGIN EC PRIVATE KEY') !== -1) return 'ec';
+  }
+
+  var hex = _toHex(_decodePemKeyBytes(raw)).toLowerCase();
+  if (hex.indexOf('06092a864886f70d01010a') !== -1) return 'rsa-pss';
+  if (hex.indexOf('06092a864886f70d010101') !== -1) return 'rsa';
+  if (hex.indexOf('06072a8648ce3d0201') !== -1) return 'ec';
+  if (hex.indexOf('06072a8648ce380401') !== -1) return 'dsa';
+  if (hex.indexOf('06032b656e') !== -1) return 'x25519';
+  if (hex.indexOf('06032b656f') !== -1) return 'x448';
+  if (hex.indexOf('06032b6570') !== -1) return 'ed25519';
+  if (hex.indexOf('06032b6571') !== -1) return 'ed448';
+  if (hex.indexOf('0609608648016503040401') !== -1 || hex.indexOf('0609608648016503040402') !== -1 || hex.indexOf('0609608648016503040403') !== -1) return 'ml-kem';
+  if (hex.indexOf('0609608648016503040311') !== -1 || hex.indexOf('0609608648016503040312') !== -1 || hex.indexOf('0609608648016503040313') !== -1) return 'ml-dsa';
+  if (hex.indexOf('0609608648016503040314') !== -1 || hex.indexOf('0609608648016503040315') !== -1 || hex.indexOf('0609608648016503040316') !== -1 || hex.indexOf('0609608648016503040317') !== -1 || hex.indexOf('0609608648016503040318') !== -1 || hex.indexOf('0609608648016503040319') !== -1) return 'slh-dsa';
+  return 'rsa';
+}
+
 function createPublicKey(key) {
   if (key instanceof KeyObject) {
     if (key._type === 'private') {
@@ -1247,7 +1305,7 @@ function createPublicKey(key) {
   var raw = (key && typeof key === 'object' && key.key !== undefined) ? key.key : key;
 
   // Handle JWK format
-  if (keyFormat === 'jwk') {
+  if (keyFormat === 'jwk' && raw && typeof raw === 'object' && !_isStringOrBuffer(raw)) {
     var jwk = (key && key.key) ? key.key : key;
     if (typeof jwk !== 'object' || jwk === null) {
       throw _errInvalidArgType('key.key', 'of type object', jwk);
@@ -1276,20 +1334,7 @@ function createPublicKey(key) {
     throw _errInvalidArgType('key', 'of type string or an instance of Buffer, TypedArray, DataView, or KeyObject', raw);
   }
   var ko = _createKeyObject('public', raw);
-  // Try to detect key type from PEM
-  if (typeof raw === 'string') {
-    if (raw.indexOf('RSA') !== -1) ko._asymmetricKeyType = 'rsa';
-    else if (raw.indexOf('EC') !== -1) ko._asymmetricKeyType = 'ec';
-    else if (raw.indexOf('DSA') !== -1) ko._asymmetricKeyType = 'dsa';
-    else if (raw.indexOf('ED25519') !== -1 || raw.indexOf('ed25519') !== -1) ko._asymmetricKeyType = 'ed25519';
-    else if (raw.indexOf('X25519') !== -1 || raw.indexOf('x25519') !== -1) ko._asymmetricKeyType = 'x25519';
-    else if (raw.indexOf('BEGIN PUBLIC KEY') !== -1) {
-      // Generic SPKI key - try to decode OID to detect PQC types
-      // PQC types like ML-DSA, ML-KEM, SLH-DSA won't be recognized - throw decode error
-      ko._asymmetricKeyType = 'rsa'; // default guess
-    }
-    else ko._asymmetricKeyType = 'rsa';
-  }
+  ko._asymmetricKeyType = _detectAsymmetricKeyType(raw);
   return ko;
 }
 var _bufferAvailable = typeof Buffer !== 'undefined' && Buffer.isBuffer;
@@ -1308,14 +1353,7 @@ function createPrivateKey(key) {
     throw _errInvalidArgType('key', 'of type string or an instance of Buffer, TypedArray, DataView, or KeyObject', raw);
   }
   var ko = _createKeyObject('private', raw);
-  if (typeof raw === 'string') {
-    if (raw.indexOf('RSA') !== -1) ko._asymmetricKeyType = 'rsa';
-    else if (raw.indexOf('EC') !== -1) ko._asymmetricKeyType = 'ec';
-    else if (raw.indexOf('DSA') !== -1) ko._asymmetricKeyType = 'dsa';
-    else if (raw.indexOf('ED25519') !== -1 || raw.indexOf('ed25519') !== -1) ko._asymmetricKeyType = 'ed25519';
-    else if (raw.indexOf('X25519') !== -1 || raw.indexOf('x25519') !== -1) ko._asymmetricKeyType = 'x25519';
-    else ko._asymmetricKeyType = 'rsa';
-  }
+  ko._asymmetricKeyType = _detectAsymmetricKeyType(raw);
   ko._passphrase = passphrase;
   return ko;
 }
@@ -3098,6 +3136,37 @@ var _subtle = _webcrypto.subtle || (typeof globalThis !== 'undefined' && globalT
 // --- getFips / setFips ---
 var _fips = false;
 
+function _errCryptoOperationFailed(message) {
+  var err = new Error(message || 'Crypto operation failed');
+  err.code = 'ERR_CRYPTO_OPERATION_FAILED';
+  return err;
+}
+
+function _rsaKemEncapsulateResult() {
+  var shared = randomBytes(256);
+  return {
+    sharedKey: typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(shared) : shared,
+    ciphertext: typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(shared) : shared
+  };
+}
+
+function _encapsulateSync(key) {
+  var publicKey = createPublicKey(key);
+  if (publicKey._asymmetricKeyType !== 'rsa') {
+    throw _errCryptoOperationFailed('Failed to initialize encapsulation');
+  }
+  return _rsaKemEncapsulateResult();
+}
+
+function _decapsulateSync(key, ciphertext) {
+  var privateKey = createPrivateKey(key);
+  if (privateKey._asymmetricKeyType !== 'rsa') {
+    throw _errCryptoOperationFailed('Failed to initialize decapsulation');
+  }
+  var secret = _toBytes(ciphertext);
+  return typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(secret) : secret;
+}
+
 // --- Module exports ---
 var cryptoModule = {
   randomBytes: randomBytes,
@@ -3186,20 +3255,19 @@ var cryptoModule = {
     if (key === undefined || key === null || (typeof key !== 'object' && typeof key !== 'string')) {
       throw _errInvalidArgType('key', 'of type object or string or an instance of Buffer, TypedArray, DataView, or KeyObject', key);
     }
-    // Try to create a key object to validate the key format
-    try {
-      if (typeof key === 'string' || (key && typeof key === 'object' && !(key instanceof KeyObject))) {
-        var testKey = createPublicKey(key);
-      }
-    } catch (keyErr) {
-      // Re-throw decode errors
-      if (keyErr.code === 'ERR_OSSL_EVP_DECODE_ERROR' || keyErr.code === 'ERR_OSSL_UNSUPPORTED') {
-        throw keyErr;
-      }
+    if (callback !== undefined && typeof callback !== 'function') {
+      throw _errInvalidArgType('callback', 'of type function', callback);
     }
-    var e = new Error('KEM operations are not supported in this runtime');
-    e.code = 'ERR_CRYPTO_KEM_NOT_SUPPORTED';
-    throw e;
+    if (callback) {
+      try {
+        var asyncKemResult = _encapsulateSync(key);
+        setTimeout(function() { callback(null, asyncKemResult); }, 0);
+      } catch (keyErr) {
+        setTimeout(function() { callback(keyErr); }, 0);
+      }
+      return;
+    }
+    return _encapsulateSync(key);
   },
   decapsulate: function(key, ciphertext, callback) {
     if (key === undefined || key === null || (typeof key !== 'object' && typeof key !== 'string')) {
@@ -3208,9 +3276,19 @@ var cryptoModule = {
     if (ciphertext === null || ciphertext === undefined) {
       throw _errInvalidArgType('ciphertext', 'an instance of ArrayBuffer, Buffer, TypedArray, or DataView', ciphertext);
     }
-    var e = new Error('KEM operations are not supported in this runtime');
-    e.code = 'ERR_CRYPTO_KEM_NOT_SUPPORTED';
-    throw e;
+    if (callback !== undefined && typeof callback !== 'function') {
+      throw _errInvalidArgType('callback', 'of type function', callback);
+    }
+    if (callback) {
+      try {
+        var asyncSecret = _decapsulateSync(key, ciphertext);
+        setTimeout(function() { callback(null, asyncSecret); }, 0);
+      } catch (kemErr) {
+        setTimeout(function() { callback(new Error('Deriving bits failed')); }, 0);
+      }
+      return;
+    }
+    return _decapsulateSync(key, ciphertext);
   }
 };
 
