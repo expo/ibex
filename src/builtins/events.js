@@ -125,11 +125,43 @@ function _emitPromiseRejection(emitter, err, eventName, args) {
   });
 }
 
+function _emitUnhandledPromiseRejection(err, promise) {
+  _scheduleRejection(function() {
+    var handled = false;
+    var g = typeof globalThis !== 'undefined' ? globalThis : undefined;
+    if (g && typeof g.dispatchEvent === 'function' &&
+        typeof g.PromiseRejectionEvent === 'function') {
+      try {
+        var event = new g.PromiseRejectionEvent('unhandledrejection', {
+          promise: promise,
+          reason: err,
+          cancelable: true,
+        });
+        handled = g.dispatchEvent(event) === false || event.defaultPrevented === true;
+      } catch (_dispatchErr) {}
+    }
+    if (!handled && g && typeof g.__exactUnhandledRejectionHandler === 'function') {
+      try {
+        handled = g.__exactUnhandledRejectionHandler(err, promise) === true;
+      } catch (_handlerErr) {}
+    }
+    if (!handled && typeof console !== 'undefined' && console &&
+        typeof console.error === 'function') {
+      console.error('Unhandled promise rejection:', err);
+    }
+  });
+}
+
 function _maybeCaptureRejection(emitter, result, eventName, args) {
   if (!result || typeof result.then !== 'function') return;
   var shouldCapture = emitter &&
     (emitter.captureRejections === true || EventEmitter.captureRejections === true);
-  if (!shouldCapture) return;
+  if (!shouldCapture) {
+    result.then(undefined, function(err) {
+      _emitUnhandledPromiseRejection(err, result);
+    });
+    return;
+  }
   result.then(undefined, function(err) {
     _emitPromiseRejection(emitter, err, eventName, args);
   });
