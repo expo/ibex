@@ -5156,6 +5156,9 @@ ServerIncomingMessage.prototype._finishBody = function() {
     this._scheduleManualReadable();
   }
 };
+ServerIncomingMessage.prototype.isPaused = function() {
+  return !this._manualFlowing;
+};
 ServerIncomingMessage.prototype.pause = function() {
   this._manualFlowing = false;
   return this;
