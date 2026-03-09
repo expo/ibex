@@ -28,6 +28,18 @@
     if (!typedArray || typeof typedArray.length !== 'number') {
       throw new TypeError('Expected a TypedArray');
     }
+    // Only integer-typed TypedArrays are allowed (not Float32Array/Float64Array)
+    if (!(typedArray instanceof Int8Array ||
+          typedArray instanceof Uint8Array ||
+          typedArray instanceof Uint8ClampedArray ||
+          typedArray instanceof Int16Array ||
+          typedArray instanceof Uint16Array ||
+          typedArray instanceof Int32Array ||
+          typedArray instanceof Uint32Array ||
+          typedArray instanceof BigInt64Array ||
+          typedArray instanceof BigUint64Array)) {
+      throw new TypeError('Argument must be an integer-typed TypedArray');
+    }
     if (typedArray.byteLength > 65536) {
       throw new DOMException('Quota exceeded', 'QuotaExceededError');
     }
