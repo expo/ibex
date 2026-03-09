@@ -778,6 +778,13 @@
 
   // unhandledRejection support via Promise rejection tracking
   p._unhandledRejectionHandler = function(reason, promise) {
+    if (typeof globalThis.__exactShouldSuppressUnhandledRejection === 'function') {
+      try {
+        if (globalThis.__exactShouldSuppressUnhandledRejection(reason, promise)) {
+          return true;
+        }
+      } catch (_suppressionErr) {}
+    }
     if (p.listenerCount('unhandledRejection') > 0) {
       try {
         p.emit('unhandledRejection', reason, promise);

@@ -3194,6 +3194,9 @@ function makeWriteError(err, operation) {
       return _makeFsError(new Error((operation || 'write') + ' failed'), operation || 'write', path);
     }
     if (typeof err.code === 'string') {
+      if (err.code === 'ABORT_ERR' || err.code.indexOf('ERR_STREAM_') === 0) {
+        return err;
+      }
       return _makeFsError(err, operation || 'write', path);
     }
     if (err instanceof Error) {
@@ -3421,8 +3424,36 @@ function emitWriteError(err, callback, operation) {
   }
 
   function enqueueWrite(type, payload, callback) {
-    if (ws.closed || ws.destroyed) {
-      emitWriteError(new Error('Write stream closed'), callback, 'write');
+    if (ws.closed || ws._closed) {
+      var closedErr = new Error('write after end');
+      closedErr.code = 'ERR_STREAM_WRITE_AFTER_END';
+      if (ws._writableState) {
+        ws._writableState.autoDestroy = false;
+        ws._writableState.errored = closedErr;
+        ws._writableState.errorEmitted = true;
+      }
+      ws.errored = closedErr;
+      if (typeof callback === 'function') {
+        _deferFsCallback(function() {
+          callback(closedErr);
+        });
+      }
+      return;
+    }
+    if (ws.destroyed) {
+      var destroyedErr = new Error('Cannot call write after a stream was destroyed');
+      destroyedErr.code = 'ERR_STREAM_DESTROYED';
+      if (ws._writableState) {
+        ws._writableState.autoDestroy = false;
+        ws._writableState.errored = destroyedErr;
+        ws._writableState.errorEmitted = true;
+      }
+      ws.errored = destroyedErr;
+      if (typeof callback === 'function') {
+        _deferFsCallback(function() {
+          callback(destroyedErr);
+        });
+      }
       return;
     }
     pendingWrites.push({

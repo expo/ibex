@@ -2857,7 +2857,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
             endSocketWrite();
             if (writeErr) {
               socket._hadError = true;
-              self.emit('error', writeErr);
+              if (!self._aborted) {
+                self.emit('error', writeErr);
+              }
               return;
             }
             if (item.callback) {
@@ -2872,7 +2874,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         } catch (writeErr) {
           endSocketWrite();
           socket._hadError = true;
-          self.emit('error', writeErr);
+          if (!self._aborted) {
+            self.emit('error', writeErr);
+          }
         }
       })(self._pendingRequestWrites.shift());
     }
@@ -2889,7 +2893,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
           endSocketWrite();
           if (writeErr) {
             socket._hadError = true;
-            self.emit('error', writeErr);
+            if (!self._aborted) {
+              self.emit('error', writeErr);
+            }
             return;
           }
           finishRequestWrite();
@@ -2898,7 +2904,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       } catch (writeErr) {
         endSocketWrite();
         socket._hadError = true;
-        self.emit('error', writeErr);
+        if (!self._aborted) {
+          self.emit('error', writeErr);
+        }
       }
       return;
     }
@@ -2969,7 +2977,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         endSocketWrite();
         if (writeErr) {
           socket._hadError = true;
-          self.emit('error', writeErr);
+          if (!self._aborted) {
+            self.emit('error', writeErr);
+          }
           return;
         }
         if (self._streamingRequest) {
@@ -2982,7 +2992,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     } catch (writeErr) {
       endSocketWrite();
       socket._hadError = true;
-      self.emit('error', writeErr);
+      if (!self._aborted) {
+        self.emit('error', writeErr);
+      }
     }
   }
   self._writePendingRequest = writeRawRequest;

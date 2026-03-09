@@ -3607,13 +3607,96 @@ Duplex.toWeb = function(duplex) {
 var _hermesUnhandledRejectionFilter = 0;
 var _hermesUnhandledRejectionEmitPatched = false;
 var _hermesUnhandledRejectionOriginalEmit = null;
+var _hermesUnhandledRejectionHandlerPatched = false;
+var _hermesUnhandledRejectionOriginalHandler = null;
+var _hermesUnhandledRejectionOriginalGlobalHandler = null;
+var _handledStreamErrors = [];
+
+function _getSharedHermesUnhandledRejectionFilter() {
+  if (typeof globalThis !== 'object' || !globalThis) return 0;
+  var value = globalThis.__exactHermesUnhandledRejectionFilter;
+  return typeof value === 'number' && value > 0 ? value : 0;
+}
+
+function _setSharedHermesUnhandledRejectionFilter(value) {
+  if (typeof globalThis !== 'object' || !globalThis) return;
+  if (typeof value !== 'number' || value <= 0) {
+    globalThis.__exactHermesUnhandledRejectionFilter = 0;
+    return;
+  }
+  globalThis.__exactHermesUnhandledRejectionFilter = value;
+}
+
+function _consumeHermesUnhandledRejectionFilter() {
+  if (_hermesUnhandledRejectionFilter > 0) {
+    _hermesUnhandledRejectionFilter--;
+  }
+  var shared = _getSharedHermesUnhandledRejectionFilter();
+  if (shared > 0) {
+    _setSharedHermesUnhandledRejectionFilter(shared - 1);
+  }
+}
+
+function _rememberHandledStreamError(reason) {
+  if (!reason || (typeof reason !== 'object' && typeof reason !== 'function')) return;
+  _handledStreamErrors.push(reason);
+  if (typeof setTimeout === 'function') {
+    var cleanupTimer = setTimeout(function() {
+      var idx = _handledStreamErrors.indexOf(reason);
+      if (idx !== -1) {
+        _handledStreamErrors.splice(idx, 1);
+      }
+    }, 10000);
+    if (cleanupTimer && typeof cleanupTimer.unref === 'function') {
+      cleanupTimer.unref();
+    }
+  }
+}
+
+function _shouldSuppressHandledStreamError(reason) {
+  return _handledStreamErrors.indexOf(reason) !== -1;
+}
+
+function _shouldSuppressHermesUnhandledRejection(reason) {
+  var suppressionBudget = Math.max(
+    _hermesUnhandledRejectionFilter,
+    _getSharedHermesUnhandledRejectionFilter()
+  );
+  return !!(
+    suppressionBudget > 0 &&
+    reason &&
+    (typeof reason === 'object' || typeof reason === 'function')
+  );
+}
+
+if (typeof globalThis === 'object' && globalThis) {
+  globalThis.__exactShouldSuppressUnhandledRejection = function(reason) {
+    if (_shouldSuppressHermesUnhandledRejection(reason)) {
+      _consumeHermesUnhandledRejectionFilter();
+      return true;
+    }
+    if (_shouldSuppressHandledStreamError(reason)) {
+      return true;
+    }
+    return false;
+  };
+}
 
 function _suppressHermesAsyncIteratorUnhandledRejections() {
   if (typeof process !== 'object' || process === null || typeof process.emit !== 'function') return;
-  _hermesUnhandledRejectionFilter += 2;
-  setTimeout(function() {
-    _hermesUnhandledRejectionFilter = Math.max(0, _hermesUnhandledRejectionFilter - 2);
-  }, 0);
+  _hermesUnhandledRejectionFilter = Math.max(_hermesUnhandledRejectionFilter, 1000);
+  _setSharedHermesUnhandledRejectionFilter(
+    Math.max(_getSharedHermesUnhandledRejectionFilter(), 1000)
+  );
+  var releaseTimer = setTimeout(function() {
+    _hermesUnhandledRejectionFilter = Math.max(0, _hermesUnhandledRejectionFilter - 1000);
+    _setSharedHermesUnhandledRejectionFilter(
+      Math.max(0, _getSharedHermesUnhandledRejectionFilter() - 1000)
+    );
+  }, 10000);
+  if (releaseTimer && typeof releaseTimer.unref === 'function') {
+    releaseTimer.unref();
+  }
 }
 
 function _safelyReturnAsyncIterator(asyncIter) {
@@ -3649,19 +3732,61 @@ Readable.from = function(iterable, options) {
     if (!_hermesUnhandledRejectionEmitPatched) {
       _hermesUnhandledRejectionOriginalEmit = process.emit;
       process.emit = function(name, reason, promise) {
-        if (
-          name === 'unhandledRejection' &&
-          _hermesUnhandledRejectionFilter > 0 &&
-          reason &&
-          typeof reason.stack === 'string' &&
-          reason.stack.indexOf('at next (native)') !== -1
-        ) {
-          _hermesUnhandledRejectionFilter--;
+        if (name === 'unhandledRejection' && _shouldSuppressHermesUnhandledRejection(reason)) {
+          _consumeHermesUnhandledRejectionFilter();
           return false;
         }
         return _hermesUnhandledRejectionOriginalEmit.call(this, name, reason, promise);
       };
       _hermesUnhandledRejectionEmitPatched = true;
+    }
+    if (
+      !_hermesUnhandledRejectionHandlerPatched &&
+      typeof process._unhandledRejectionHandler === 'function'
+    ) {
+      _hermesUnhandledRejectionOriginalHandler = process._unhandledRejectionHandler;
+      _hermesUnhandledRejectionOriginalGlobalHandler =
+        typeof globalThis === 'object' && globalThis
+          ? globalThis.__exactUnhandledRejectionHandler
+          : null;
+      var wrappedUnhandledRejectionHandler = function(reason, promise) {
+        if (_shouldSuppressHermesUnhandledRejection(reason)) {
+          _consumeHermesUnhandledRejectionFilter();
+          return true;
+        }
+        return _hermesUnhandledRejectionOriginalHandler.call(this, reason, promise);
+      };
+      try {
+        Object.defineProperty(process, '_unhandledRejectionHandler', {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: wrappedUnhandledRejectionHandler
+        });
+      } catch (_defineUnhandledErr) {
+        process._unhandledRejectionHandler = wrappedUnhandledRejectionHandler;
+      }
+      if (
+        typeof globalThis === 'object' &&
+        globalThis &&
+        globalThis.process &&
+        globalThis.process !== process
+      ) {
+        try {
+          Object.defineProperty(globalThis.process, '_unhandledRejectionHandler', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: wrappedUnhandledRejectionHandler
+          });
+        } catch (_defineGlobalUnhandledErr) {
+          globalThis.process._unhandledRejectionHandler = wrappedUnhandledRejectionHandler;
+        }
+      }
+      if (typeof globalThis === 'object' && globalThis) {
+        globalThis.__exactUnhandledRejectionHandler = wrappedUnhandledRejectionHandler;
+      }
+      _hermesUnhandledRejectionHandlerPatched = true;
     }
   }
 
@@ -3672,17 +3797,11 @@ Readable.from = function(iterable, options) {
   if (options && options.signal) {
     var sig = options.signal;
     if (sig.aborted) {
-      var abortErr = new Error('The operation was aborted');
-      abortErr.code = 'ABORT_ERR';
-      abortErr.name = 'AbortError';
-      readable.destroy(abortErr);
+      readable.destroy(_createAbortError(sig.reason));
       return readable;
     }
     sig.addEventListener('abort', function() {
-      var abortErr = new Error('The operation was aborted');
-      abortErr.code = 'ABORT_ERR';
-      abortErr.name = 'AbortError';
-      readable.destroy(abortErr);
+      readable.destroy(_createAbortError(sig.reason));
     });
   }
   if (!iterable) {
@@ -3699,119 +3818,128 @@ Readable.from = function(iterable, options) {
   // Async iterable (including async generators)
   if (typeof iterable[Symbol.asyncIterator] === 'function') {
     var asyncIter = iterable[Symbol.asyncIterator]();
-    var pumpStarted = false;
-    var resumePump = null;
     var destroyCallback = _nextTick;
-    var wrappedAsyncIter = {
-      next: function() {
-        _suppressHermesAsyncIteratorUnhandledRejections();
-        return asyncIter.next();
-      },
-      return: function(value) {
-        if (typeof asyncIter.return === 'function') {
-          _suppressHermesAsyncIteratorUnhandledRejections();
-          return asyncIter.return(value);
-        }
-        return Promise.resolve({ value: value, done: true });
-      },
-      throw: function(err) {
-        if (typeof asyncIter.throw === 'function') {
-          _suppressHermesAsyncIteratorUnhandledRejections();
-          return asyncIter.throw(err);
-        }
-        return Promise.reject(err);
-      }
-    };
-    var wrappedAsyncSource = {
-      [Symbol.asyncIterator]: function() {
-        return wrappedAsyncIter;
-      }
-    };
+    var pumpResume = null;
+
+    function wakeAsyncPump() {
+      if (typeof pumpResume !== 'function') return;
+      var resumePump = pumpResume;
+      pumpResume = null;
+      resumePump();
+    }
 
     readable._read = function() {
-      if (resumePump) {
-        var resume = resumePump;
-        resumePump = null;
-        resume();
-        return;
-      }
-      if (pumpStarted) return;
-      pumpStarted = true;
-      pumpAsyncIterable();
+      wakeAsyncPump();
     };
 
     readable._destroy = function(error, cb) {
-      if (resumePump) {
-        var resume = resumePump;
-        resumePump = null;
-        resume();
-      }
-      var closePromise;
-      try {
-        var hasError = error !== undefined && error !== null;
-        if (hasError && typeof asyncIter.throw === 'function') {
-          closePromise = Promise.resolve(asyncIter.throw(error)).then(function(thrown) {
-            if (thrown && thrown.done) {
-              return;
-            }
-            if (typeof asyncIter.return === 'function') {
-              return asyncIter.return();
-            }
-          });
-        } else if (typeof asyncIter.return === 'function') {
-          closePromise = Promise.resolve(asyncIter.return());
-        } else {
-          closePromise = Promise.resolve();
+      wakeAsyncPump();
+
+      function shouldPreserveAbortError(originalError, destroyError) {
+        if (
+          !originalError ||
+          originalError.name !== 'AbortError' ||
+          originalError.code !== 'ABORT_ERR'
+        ) {
+          return false;
         }
-      } catch (err) {
-        closePromise = Promise.reject(err);
+        if (!destroyError) return true;
+        if (destroyError === originalError) return true;
+        if (arguments.length > 1 && destroyError === originalError.cause) {
+          return true;
+        }
+        return false;
       }
 
-      _markPromiseHandled(closePromise).then(function() {
-        destroyCallback(function() { cb(error || null); });
+      async function closeAsyncIterator() {
+        var hasError = error !== undefined && error !== null;
+        if (hasError && typeof asyncIter.throw === 'function') {
+          var thrownResult = asyncIter.throw(error);
+          _markPromiseHandled(thrownResult);
+          var thrown = await thrownResult;
+          if (thrown && thrown.value !== undefined) {
+            await thrown.value;
+          }
+          if (thrown && thrown.done) {
+            return;
+          }
+        }
+        if (typeof asyncIter.return === 'function') {
+          var returnedResult = asyncIter.return();
+          _markPromiseHandled(returnedResult);
+          var returned = await returnedResult;
+          if (returned && returned.value !== undefined) {
+            await returned.value;
+          }
+        }
+      }
+
+      Promise.resolve().then(closeAsyncIterator).then(function() {
+        destroyCallback(function() {
+          if (shouldPreserveAbortError(error)) {
+            cb(error);
+            return;
+          }
+          cb(error || null);
+        });
       }, function(err) {
-        destroyCallback(function() { cb(err || error || null); });
+        destroyCallback(function() {
+          if (shouldPreserveAbortError(error, err)) {
+            cb(error);
+            return;
+          }
+          cb(err || error || null);
+        });
       });
     };
 
-    function waitForPumpResume() {
+    function waitForAsyncPumpResume() {
       return new Promise(function(resolve) {
-        resumePump = resolve;
+        pumpResume = resolve;
       });
     }
 
-    function pumpAsyncIterable() {
-      var pumpPromise = (async function() {
-        try {
-          for await (var value of wrappedAsyncSource) {
+    async function pumpAsyncIterable() {
+      var asyncSource = {};
+      asyncSource[Symbol.asyncIterator] = function() {
+        return asyncIter;
+      };
+
+      try {
+        for await (var value of asyncSource) {
+          if (!readableStream || readableStream._destroyed) {
+            return;
+          }
+          if (value === null) {
+            var nullErr = new TypeError('May not write null values to stream');
+            nullErr.code = 'ERR_STREAM_NULL_VALUES';
+            readableStream.destroy(nullErr);
+            return;
+          }
+          if (!readableStream.push(value)) {
+            await waitForAsyncPumpResume();
             if (!readableStream || readableStream._destroyed) {
               return;
             }
-            if (value === null) {
-              var nullErr = new TypeError('May not write null values to stream');
-              nullErr.code = 'ERR_STREAM_NULL_VALUES';
-              readableStream.destroy(nullErr);
-              return;
-            }
-            if (!readableStream.push(value)) {
-              await waitForPumpResume();
-              if (!readableStream || readableStream._destroyed) {
-                return;
-              }
-            }
           }
-          if (!readableStream || readableStream._destroyed) {
-            return;
-          }
-          readableStream.push(null);
-        } catch (err) {
-          if (!readableStream || readableStream._destroyed) {
-            return;
-          }
-          readableStream.destroy(err);
         }
-      })();
-      _markPromiseHandled(pumpPromise);
+        if (!readableStream || readableStream._destroyed) {
+          return;
+        }
+        readableStream.push(null);
+      } catch (err) {
+        if (!readableStream || readableStream._destroyed) {
+          return;
+        }
+        _rememberHandledStreamError(err);
+        readableStream.destroy(err);
+      }
+    }
+
+    _suppressHermesAsyncIteratorUnhandledRejections();
+    var asyncPumpTask = pumpAsyncIterable();
+    if (asyncPumpTask && typeof asyncPumpTask.catch === 'function') {
+      asyncPumpTask.catch(function() {});
     }
 
     return readable;
@@ -3890,6 +4018,7 @@ Readable.from = function(iterable, options) {
         var next;
           try {
             next = asyncIter.next();
+            _markPromiseHandled(next);
           } catch (err) {
             reading = false;
             if (!readableStream || readableStream._destroyed) return;
@@ -5689,6 +5818,7 @@ function pipeline() {
   }
   for (var transform = 0; transform < streams.length; transform++) {
     if (typeof streams[transform] === 'function') {
+      _suppressHermesAsyncIteratorUnhandledRejections();
       var pipelineStageOptions = options ? Object.assign({}, options) : {};
       streams[transform] = {
         __exactPipelineFunction: streams[transform],
@@ -5702,6 +5832,7 @@ function pipeline() {
       (typeof streams[transform][Symbol.asyncIterator] === 'function' ||
       typeof streams[transform][Symbol.iterator] === 'function')
     ) {
+      _suppressHermesAsyncIteratorUnhandledRejections();
       streams[transform] = Readable.from(streams[transform]);
     }
   }
@@ -6302,6 +6433,7 @@ function isStreamDone(stream) {
     cleanup();
     finalErr = normalizePipelineError(finalErr);
     if (finalErr) {
+      _rememberHandledStreamError(finalErr);
       if (typeof callback === 'function') {
         callback(finalErr);
       }
@@ -6319,6 +6451,7 @@ function isStreamDone(stream) {
     }
     if (error) return;
     error = normalizePipelineError(err);
+    _rememberHandledStreamError(error);
     _abortControllerWithReason(pipelineController, error);
     destroyAll(error);
     settleAfterError();
@@ -6398,9 +6531,7 @@ function isStreamDone(stream) {
   }
 
   function onAbort() {
-    var abortErr = new Error('The operation was aborted');
-    abortErr.code = 'ABORT_ERR';
-    abortErr.name = 'AbortError';
+    var abortErr = _createAbortError(signal && signal.reason);
     error = error || abortErr;
     _abortControllerWithReason(pipelineController, abortErr);
     destroyAll(abortErr);
@@ -6501,6 +6632,15 @@ function isStreamDone(stream) {
   addListener(last, 'close', function() {
     onClose(last);
   });
+  if (last && last._pipelineResult && typeof last._pipelineResult.then === 'function') {
+    last._pipelineResult.then(function() {
+      if (settled || error) return;
+      _nextTick(function() {
+        if (settled || error) return;
+        onFinish();
+      });
+    });
+  }
   if (shouldWaitForLastReadable(last) && typeof last.resume === 'function') {
     last.resume();
   }
@@ -7073,10 +7213,10 @@ function compose() {
 }
 
 function _abortErrorFromSignal() {
-  var err = new Error('The operation was aborted');
-  err.code = 'ABORT_ERR';
-  err.name = 'AbortError';
-  return err;
+  if (arguments.length > 0) {
+    return _createAbortError(arguments[0]);
+  }
+  return _createAbortError();
 }
 
 function _toConsumerBufferChunk(chunk) {
