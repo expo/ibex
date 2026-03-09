@@ -1002,16 +1002,29 @@ function _maybeReadMore(stream, state) {
   }
   state.readingMore = true;
   _nextTick(function() {
-    while (!state.reading &&
-           !state.ended &&
-           !state.errored &&
-           (state.length < state.highWaterMark ||
-            (stream.readableFlowing === true && state.length === 0))) {
-      var length = state.length;
-      stream.read(0);
-      if (state.length === length) {
-        break;
+    state.bulkReading = stream.readableFlowing !== true;
+    try {
+      while (!state.reading &&
+             !state.ended &&
+             !state.errored &&
+             (state.length < state.highWaterMark ||
+              (stream.readableFlowing === true && state.length === 0))) {
+        var length = state.length;
+        if (stream.readableFlowing === true) {
+          stream.read(0);
+        } else {
+          if (state.length === 0) {
+            state.needReadable = true;
+            state.emittedReadable = false;
+          }
+          stream._readFromSource(state.highWaterMark);
+        }
+        if (state.length === length) {
+          break;
+        }
       }
+    } finally {
+      state.bulkReading = false;
     }
     state.readingMore = false;
   });
@@ -1041,51 +1054,59 @@ function _consumeReadableChunk(stream, needed) {
   var out = [];
   var bytes = needed;
   var allString = true;
-  while (stream._data.length > 0 && bytes > 0) {
-    var current = stream._data[0];
+  var consumedItems = 0;
+  while (consumedItems < stream._data.length && bytes > 0) {
+    var current = stream._data[consumedItems];
     if (typeof current === 'string') {
       var currentLen = current.length;
       if (currentLen > bytes) {
         out.push(current.slice(0, bytes));
-        stream._data[0] = current.slice(bytes);
+        stream._data[consumedItems] = current.slice(bytes);
         consumed += bytes;
         bytes = 0;
         continue;
       }
       out.push(current);
-      stream._data.shift();
       consumed += currentLen;
       bytes -= currentLen;
+      consumedItems++;
     } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(current)) {
       if (current.length > bytes) {
         out.push(current.slice(0, bytes));
-        stream._data[0] = current.slice(bytes);
+        stream._data[consumedItems] = current.slice(bytes);
         consumed += bytes;
         bytes = 0;
         continue;
       }
       out.push(current);
-      stream._data.shift();
       consumed += current.length;
       bytes -= current.length;
+      consumedItems++;
     } else if (current && current.buffer instanceof ArrayBuffer && typeof current.byteLength === 'number') {
       if (current.byteLength > bytes) {
         out.push(current.slice(0, bytes));
-        stream._data[0] = current.slice(bytes);
+        stream._data[consumedItems] = current.slice(bytes);
         consumed += bytes;
         bytes = 0;
         continue;
       }
       out.push(current);
-      stream._data.shift();
       consumed += current.byteLength;
       bytes -= current.byteLength;
+      consumedItems++;
     } else {
       allString = false;
       out.push(current);
-      stream._data.shift();
       consumed += readableStateChunkLength(current, state.objectMode);
+      consumedItems++;
       break;
+    }
+  }
+  if (consumedItems > 0) {
+    if (consumedItems >= stream._data.length) {
+      stream._data.length = 0;
+    } else {
+      stream._data.splice(0, consumedItems);
     }
   }
   if (consumed > 0) {
@@ -1099,6 +1120,34 @@ function _consumeReadableChunk(stream, needed) {
     var total = 0;
     for (var i = 0; i < out.length; i++) {
       total += readableStateChunkLength(out[i], false);
+    }
+    if (typeof Buffer.concat === 'function') {
+      var normalized = new Array(out.length);
+      var canConcat = true;
+      for (var k = 0; k < out.length; k++) {
+        var normalizedItem = out[k];
+        if (typeof Buffer.isBuffer === 'function' && Buffer.isBuffer(normalizedItem)) {
+          normalized[k] = normalizedItem;
+          continue;
+        }
+        if (normalizedItem && normalizedItem.buffer instanceof ArrayBuffer) {
+          normalized[k] = Buffer.from(
+            normalizedItem.buffer,
+            normalizedItem.byteOffset || 0,
+            normalizedItem.byteLength || normalizedItem.length || 0
+          );
+          continue;
+        }
+        if (typeof ArrayBuffer === 'function' && normalizedItem instanceof ArrayBuffer) {
+          normalized[k] = Buffer.from(normalizedItem);
+          continue;
+        }
+        canConcat = false;
+        break;
+      }
+      if (canConcat) {
+        return Buffer.concat(normalized, total);
+      }
     }
     var outBuffer = Buffer ? Buffer.alloc(total) : new Uint8Array(total);
     var offset = 0;
@@ -1452,6 +1501,23 @@ Readable.prototype.push = function(chunk, encoding) {
       this._readableState.length === 0;
   }
   state.reading = false;
+
+  if (state.bulkReading === true &&
+      !state.objectMode &&
+      !state.encoding &&
+      this.readableFlowing !== true &&
+      typeof Buffer !== 'undefined' &&
+      typeof Buffer.isBuffer === 'function' &&
+      Buffer.isBuffer(chunk)) {
+    this._data.push(chunk);
+    state.length += chunk.length;
+    if (!state.emittedReadable) {
+      state.needReadable = true;
+      state.emittedReadable = false;
+      this._emitReadableIfNeeded();
+    }
+    return state.length < state.highWaterMark || state.length === 0;
+  }
 
   if (this.readableFlowing === true) {
     this._data.push(chunk);
