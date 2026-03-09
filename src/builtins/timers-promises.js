@@ -69,6 +69,16 @@ function createAbortError(signal) {
 
 // setTimeout(delay[, value[, options]]) → Promise<value>
 function setTimeoutPromise(delay, value, options) {
+  // Validate delay type (must be undefined/null or coercible to number)
+  if (delay !== undefined && delay !== null && typeof delay !== 'number') {
+    if (typeof delay === 'string' || typeof delay === 'boolean') {
+      var delayErr = new TypeError(
+        'The "delay" argument must be of type number. Received type ' + typeof delay
+      );
+      delayErr.code = 'ERR_INVALID_ARG_TYPE';
+      return Promise.reject(delayErr);
+    }
+  }
   var delayMs = delay == null ? 1 : Math.max(1, Number(delay) | 0);
 
   // Handle options that are not objects (not undefined/null/object)
@@ -393,10 +403,18 @@ function schedulerWait(delay, options) {
   return setTimeoutPromise(delay, undefined, options);
 }
 
-var scheduler = {};
-// Use string key to avoid potential reserved-word parsing issues with 'yield'
-scheduler['yield'] = schedulerYield;
-scheduler['wait'] = schedulerWait;
+// Create a Scheduler class with ERR_ILLEGAL_CONSTRUCTOR to match Node.js
+function Scheduler() {
+  var err = new TypeError('Illegal constructor');
+  err.code = 'ERR_ILLEGAL_CONSTRUCTOR';
+  throw err;
+}
+Scheduler.prototype['yield'] = schedulerYield;
+Scheduler.prototype['wait'] = schedulerWait;
+
+// Create the singleton scheduler instance via Object.create to bypass constructor check
+var scheduler = Object.create(Scheduler.prototype);
+scheduler.constructor = Scheduler;
 
 module.exports = {
   setTimeout: setTimeoutPromise,

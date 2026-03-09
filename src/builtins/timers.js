@@ -5,7 +5,7 @@ var _clearTimeout = globalThis.clearTimeout;
 var _setInterval = globalThis.setInterval;
 var _clearInterval = globalThis.clearInterval;
 var _FuncApply = Function.prototype.apply;
-var _FuncCall = Function.prototype.call;
+var _FuncBind = Function.prototype.bind;
 
 function _validateTimerCallback(callback, name) {
   if (typeof callback !== 'function') {
@@ -18,28 +18,44 @@ function _validateTimerCallback(callback, name) {
 // Timer wrapper class for ref/unref/refresh/hasRef/Symbol.toPrimitive
 var _nextTimerId = 1;
 
+// Map from numeric ID to Timeout/Immediate object for clearTimeout(numericId) support
+var _timerById = new Map();
+
 function Timeout(callback, delay, args, isRepeat) {
   this._callback = callback;
-  this._delay = delay || 0;
+  this._delay = delay == null ? 1 : (delay < 1 ? 1 : delay);
   this._args = args;
   this._isRepeat = isRepeat || false;
+  this._repeat = isRepeat ? this._delay : null;
   this._refed = true;
   this._destroyed = false;
   this._idleTimeout = this._delay;
+  this._idleStart = Date.now();
   this._id = _nextTimerId++;
+  this._onTimeout = callback;
 
+  // Register in the ID map for numeric-ID-based clearing
+  _timerById.set(this._id, this);
+
+  this._scheduleNative();
+}
+
+Timeout.prototype._scheduleNative = function() {
   var self = this;
-  if (isRepeat) {
+  if (this._isRepeat) {
     this._nativeHandle = _setInterval(function() {
-      _FuncCall.call(_FuncApply, self._callback, null, self._args);
+      // Bind this to the Timeout object; use _FuncApply to be resilient
+      // to user monkey-patching of fn.call/fn.apply
+      _FuncApply.call(self._callback, self, self._args);
     }, this._delay);
   } else {
     this._nativeHandle = _setTimeout(function() {
       self._destroyed = true;
-      _FuncCall.call(_FuncApply, self._callback, null, self._args);
+      _timerById.delete(self._id);
+      _FuncApply.call(self._callback, self, self._args);
     }, this._delay);
   }
-}
+};
 
 Timeout.prototype.ref = function() {
   this._refed = true;
@@ -60,18 +76,10 @@ Timeout.prototype.refresh = function() {
   // Clear old timer and create new one
   if (this._isRepeat) {
     _clearInterval(this._nativeHandle);
-    var self = this;
-    this._nativeHandle = _setInterval(function() {
-      _FuncCall.call(_FuncApply, self._callback, null, self._args);
-    }, this._delay);
   } else {
     _clearTimeout(this._nativeHandle);
-    var self2 = this;
-    this._nativeHandle = _setTimeout(function() {
-      self2._destroyed = true;
-      _FuncCall.call(_FuncApply, self2._callback, null, self2._args);
-    }, this._delay);
   }
+  this._scheduleNative();
   return this;
 };
 
@@ -82,6 +90,7 @@ Timeout.prototype.close = function() {
     _clearTimeout(this._nativeHandle);
   }
   this._destroyed = true;
+  _timerById.delete(this._id);
   return this;
 };
 
@@ -102,11 +111,16 @@ function Immediate(callback, args) {
   this._destroyed = false;
   this._id = _nextTimerId++;
   this._refed = true;
+  this._onImmediate = callback;
+
+  // Register in the ID map
+  _timerById.set(this._id, this);
 
   var self = this;
   this._nativeHandle = _setTimeout(function() {
     self._destroyed = true;
-    _FuncCall.call(_FuncApply, self._callback, null, self._args);
+    _timerById.delete(self._id);
+    _FuncApply.call(self._callback, self, self._args);
   }, 0);
 }
 
@@ -124,14 +138,22 @@ Immediate.prototype.hasRef = function() {
   return this._refed;
 };
 
-Immediate.prototype[Symbol.dispose] = function() {
-  if (!this._destroyed) {
-    _clearTimeout(this._nativeHandle);
-    this._destroyed = true;
-  }
+Immediate.prototype.close = function() {
+  _clearTimeout(this._nativeHandle);
+  this._destroyed = true;
+  _timerById.delete(this._id);
+  return this;
 };
 
-Immediate.prototype._onImmediate = undefined;
+Immediate.prototype[Symbol.toPrimitive] = function() {
+  return this._id;
+};
+
+Immediate.prototype[Symbol.dispose] = function() {
+  if (!this._destroyed) {
+    this.close();
+  }
+};
 
 function setTimeout$1(callback, delay) {
   _validateTimerCallback(callback, 'callback');
@@ -145,6 +167,7 @@ function setTimeout$1(callback, delay) {
 
 function clearTimeout$1(handle) {
   if (handle === undefined || handle === null) return;
+  // Handle Timeout objects
   if (typeof handle === 'object' && handle !== null) {
     if (typeof handle.close === 'function') {
       handle.close();
@@ -155,9 +178,20 @@ function clearTimeout$1(handle) {
         _clearTimeout(handle._nativeHandle);
       }
       handle._destroyed = true;
+      if (handle._id !== undefined) _timerById.delete(handle._id);
       return;
     }
   }
+  // Handle numeric ID (from Symbol.toPrimitive or string coercion)
+  if (typeof handle === 'number' || typeof handle === 'string') {
+    var numId = Number(handle);
+    var timerObj = _timerById.get(numId);
+    if (timerObj) {
+      timerObj.close();
+      return;
+    }
+  }
+  // Fall back to native clearTimeout for raw handles
   if (typeof _clearTimeout === "function") {
     _clearTimeout(handle);
   }
@@ -175,6 +209,7 @@ function setInterval$1(callback, delay) {
 
 function clearInterval$1(handle) {
   if (handle === undefined || handle === null) return;
+  // Handle Timeout objects
   if (typeof handle === 'object' && handle !== null) {
     if (typeof handle.close === 'function') {
       handle.close();
@@ -185,6 +220,16 @@ function clearInterval$1(handle) {
         _clearInterval(handle._nativeHandle);
       }
       handle._destroyed = true;
+      if (handle._id !== undefined) _timerById.delete(handle._id);
+      return;
+    }
+  }
+  // Handle numeric ID
+  if (typeof handle === 'number' || typeof handle === 'string') {
+    var numId = Number(handle);
+    var timerObj = _timerById.get(numId);
+    if (timerObj) {
+      timerObj.close();
       return;
     }
   }
@@ -203,9 +248,23 @@ function setImmediate$1(callback) {
 function clearImmediate$1(handle) {
   if (handle === undefined || handle === null) return;
   if (typeof handle === 'object' && handle !== null) {
+    if (typeof handle.close === 'function') {
+      handle.close();
+      return;
+    }
     if (handle._nativeHandle !== undefined) {
       _clearTimeout(handle._nativeHandle);
       handle._destroyed = true;
+      if (handle._id !== undefined) _timerById.delete(handle._id);
+      return;
+    }
+  }
+  // Handle numeric ID
+  if (typeof handle === 'number' || typeof handle === 'string') {
+    var numId = Number(handle);
+    var timerObj = _timerById.get(numId);
+    if (timerObj) {
+      timerObj.close();
       return;
     }
   }
@@ -239,6 +298,9 @@ if (_promisifyCustomSymbol) {
   });
 }
 
+// Cache the promises sub-module so that timers.promises === require('timers/promises')
+var _promisesModule = null;
+
 module.exports = {
   setTimeout: setTimeout$1,
   clearTimeout: clearTimeout$1,
@@ -246,15 +308,27 @@ module.exports = {
   clearInterval: clearInterval$1,
   setImmediate: setImmediate$1,
   clearImmediate: clearImmediate$1,
+  Timeout: Timeout,
+  Immediate: Immediate,
   // Deprecated Node.js APIs -- stubs for compat
   active: function active(item) {
-    // In Node.js, active() re-activates the timer and sets linked-list fields.
-    // Only process items with a valid (non-negative) _idleTimeout.
-    if (item && typeof item._idleTimeout === 'number' && item._idleTimeout >= 0) {
-      item._idleStart = Date.now();
-      item._idleNext = item._idleNext || item;
-      item._idlePrev = item._idlePrev || item;
+    // In Node.js, active() re-activates the timer — it schedules item._onTimeout()
+    // after item._idleTimeout ms. Only process items with a valid _idleTimeout.
+    if (!item || typeof item._idleTimeout !== 'number' || item._idleTimeout < 0) return;
+    item._idleStart = Date.now();
+    item._idleNext = item._idleNext || item;
+    item._idlePrev = item._idlePrev || item;
+    // Cancel any existing active handle
+    if (item._exactActiveHandle) {
+      _clearTimeout(item._exactActiveHandle);
     }
+    var delay = item._idleTimeout;
+    item._exactActiveHandle = _setTimeout(function() {
+      item._exactActiveHandle = null;
+      if (typeof item._onTimeout === 'function') {
+        item._onTimeout();
+      }
+    }, delay);
   },
   _unrefActive: function _unrefActive(item) {
     // Deprecated Node.js API: schedule item._onTimeout() after item._idleTimeout ms.
@@ -298,7 +372,17 @@ module.exports = {
       _clearTimeout(item._exactUnrefHandle);
       item._exactUnrefHandle = null;
     }
+    // Cancel any pending active timer handle
+    if (item._exactActiveHandle) {
+      _clearTimeout(item._exactActiveHandle);
+      item._exactActiveHandle = null;
+    }
   },
-  // promises sub-module
-  promises: (typeof require === 'function') ? require('timers/promises') : {}
+  // promises sub-module - use getter to ensure identity with require('timers/promises')
+  get promises() {
+    if (!_promisesModule) {
+      _promisesModule = require('timers/promises');
+    }
+    return _promisesModule;
+  }
 };
