@@ -265,7 +265,10 @@ function _createAbortError(err) {
 
 function _scheduleDrain(stream) {
   if (!stream) return;
-  _nextTick(function() { stream.emit('drain'); });
+  // Node.js emits drain synchronously inside afterWrite when the buffer drops
+  // below the high water mark.  Scheduling it on nextTick breaks tests that
+  // assert drain counts right after the write callback fires.
+  stream.emit('drain');
 }
 
 function Stream() {
@@ -4567,7 +4570,18 @@ Writable.prototype.write = function(chunk, encoding, callback) {
       this.errored = this.errored || destroyErr;
       return false;
     }
-    throw destroyErr;
+    // Node.js does not throw on write-after-destroy; it returns false and
+    // delivers the error via nextTick to avoid synchronous throws in user code.
+    if (state) {
+      state.errored = destroyErr;
+    }
+    this.errored = this.errored || destroyErr;
+    var _destroySelf = this;
+    _nextTick(function() {
+      if (!_destroySelf._destroyed) return;
+      try { _destroySelf.emit('error', destroyErr); } catch (_e) {}
+    });
+    return false;
   }
 
   if (this.writableEnded || (state && state.ending)) {
@@ -4640,7 +4654,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   }
   _syncWritableBufferState(this);
 
-  var shouldNeedDrain = this.writableLength > this.writableHighWaterMark;
+  var shouldNeedDrain = this.writableLength >= this.writableHighWaterMark;
   var queued = _createWriteQueueItem(chunk, encoding || 'utf8', callback, chunkLen);
 
   if (state.constructed === false || this.writableCorked > 0 || state.writing || state.bufferProcessing) {
@@ -4677,6 +4691,15 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     if (self.writableLength < 0) self.writableLength = 0;
     _syncWritableBufferState(self);
 
+    // Node.js: when the stream is destroyed AND ending AND no more writes
+    // are buffered, the just-completed write was the final end() write, so
+    // deliver ERR_STREAM_DESTROYED to its callback.
+    if (!err && (self._destroyed || self.destroyed) && state.ending &&
+        (!self._writeQueue || self._writeQueue.length === 0)) {
+      err = new Error('Cannot call write after a stream was destroyed');
+      err.code = 'ERR_STREAM_DESTROYED';
+    }
+
     if (err) {
       self.errored = err;
       if (state) state.errored = err;
@@ -4687,14 +4710,19 @@ Writable.prototype.write = function(chunk, encoding, callback) {
         queued.callback(err);
       }
       _drainPendingEnd(self, err);
-      _nextTick(function() {
-        if (state.autoDestroy && !self._destroyed) {
-          self.destroy(err);
-        } else if (!state.errorEmitted) {
-          state.errorEmitted = true;
-          self.emit('error', err);
-        }
-      });
+      // When the error is a synthetic ERR_STREAM_DESTROYED (produced because
+      // the stream was destroyed while ending), the callback already received
+      // it – do not re-emit as an 'error' event.
+      if (err.code !== 'ERR_STREAM_DESTROYED' || !(self._destroyed || self.destroyed)) {
+        _nextTick(function() {
+          if (state.autoDestroy && !self._destroyed) {
+            self.destroy(err);
+          } else if (!state.errorEmitted) {
+            state.errorEmitted = true;
+            self.emit('error', err);
+          }
+        });
+      }
       return;
     }
 
@@ -7079,7 +7107,14 @@ function compose() {
     if (typeof args[0] === 'function') {
       return Duplex.from(args[0]);
     }
-    return args[0];
+    if (args[0] && typeof args[0].pipe === 'function') {
+      return args[0];
+    }
+    // Try Duplex.from for readable/writable pair objects
+    if (args[0] && typeof args[0] === 'object' && (args[0].readable || args[0].writable)) {
+      try { return Duplex.from(args[0]); } catch (_e) {}
+    }
+    throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams" argument must be a stream.');
   }
 
   var normalized = [];
