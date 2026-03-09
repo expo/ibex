@@ -273,7 +273,7 @@
     }
     function _createTestContext() {
       var restoreList = [];
-      return {
+      var contextApi = {
         mock: _createMock(restoreList),
         __restoreMocks: function() {
           for (var i = 0; i < restoreList.length; i++) {
@@ -284,6 +284,49 @@
           restoreList.length = 0;
         }
       };
+      contextApi.test = function(name, fn) {
+        if (typeof name === 'function' && fn === undefined) {
+          fn = name;
+        }
+        if (typeof fn !== 'function') {
+          return Promise.resolve();
+        }
+        var subContext = _createTestContext();
+        var promise;
+        if (fn.length >= 2) {
+          promise = new Promise(function(resolve, reject) {
+            var doneCalled = false;
+            var done = function(error) {
+              if (doneCalled) return;
+              doneCalled = true;
+              if (error) {
+                reject(error);
+              } else {
+                resolve();
+              }
+            };
+            try {
+              fn(subContext, done);
+            } catch (err) {
+              if (!doneCalled) {
+                reject(err);
+              }
+            }
+          });
+        } else {
+          try {
+            promise = Promise.resolve(fn(subContext));
+          } catch (err) {
+            promise = Promise.reject(err);
+          }
+        }
+        return promise.finally(function() {
+          if (typeof subContext.__restoreMocks === 'function') {
+            subContext.__restoreMocks();
+          }
+        });
+      };
+      return contextApi;
     }
     function _runAfterQueue(afters) {
       var promise = Promise.resolve();
@@ -431,17 +474,19 @@
         _mockRestoreList = [];
       }
     };
-    return {
-      describe: describe,
-      it: it,
-      test: test,
-      suite: suite,
-      before: before,
-      beforeEach: beforeEach,
-      afterEach: afterEach,
-      after: after,
-      mock: mock
+    var exported = function() {
+      return test.apply(this, arguments);
     };
+    exported.describe = describe;
+    exported.it = it;
+    exported.test = test;
+    exported.suite = suite;
+    exported.before = before;
+    exported.beforeEach = beforeEach;
+    exported.afterEach = afterEach;
+    exported.after = after;
+    exported.mock = mock;
+    return exported;
   }
   // internal/linkedlist: circular doubly-linked list
   var _L = {

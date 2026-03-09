@@ -30,6 +30,7 @@ function _fsInvalidArgType(name, expected, actual) {
   } else if (typeof actual === 'string') received = 'type string (' + actual + ')';
   else if (typeof actual === 'number') received = 'type number (' + actual + ')';
   else if (typeof actual === 'boolean') received = 'type boolean (' + actual + ')';
+  else if (typeof actual === 'symbol') received = 'type symbol (' + String(actual) + ')';
   else received = 'type ' + typeof actual;
   var err = new TypeError('The "' + name + '" argument must be of type ' + expected + '. Received ' + received);
   err.code = 'ERR_INVALID_ARG_TYPE';
@@ -419,9 +420,37 @@ function _normalizePathSegments(parts) {
   return out;
 }
 
+function _currentProcessCwd() {
+  if (typeof globalThis === 'object' && globalThis && globalThis.process &&
+      typeof globalThis.process.cwd === 'function') {
+    var globalCwd = globalThis.process.cwd();
+    if (typeof globalCwd === 'string' && globalCwd.length > 0) {
+      return globalCwd;
+    }
+  }
+  try {
+    if (typeof require === 'function') {
+      var processModule = require('process');
+      if (processModule && typeof processModule.cwd === 'function') {
+        var moduleCwd = processModule.cwd();
+        if (typeof moduleCwd === 'string' && moduleCwd.length > 0) {
+          return moduleCwd;
+        }
+      }
+    }
+  } catch (_processModuleErr) {}
+  if (typeof process === 'object' && process && typeof process.cwd === 'function') {
+    var wrapperCwd = process.cwd();
+    if (typeof wrapperCwd === 'string' && wrapperCwd.length > 0) {
+      return wrapperCwd;
+    }
+  }
+  return "/";
+}
+
 function _resolvePathFromCwd(path) {
   if (!_isAbsolutePath(path)) {
-    var cwd = typeof process === 'object' && process && typeof process.cwd === 'function' ? process.cwd() : "/";
+    var cwd = _currentProcessCwd();
     if (!cwd) cwd = "/";
     var separator = '/';
     var cwdParts = cwd.replace(/\\\\/g, separator).split(separator);
@@ -436,6 +465,29 @@ function _resolvePathFromCwd(path) {
     return separator + combined.join(separator);
   }
   return path;
+}
+
+function _getFirstMissingPath(targetPath) {
+  var normalized = targetPath.replace(/\\\\/g, '/');
+  var parts = normalized.split('/');
+  var current = normalized.charAt(0) === '/' ? '/' : '';
+  for (var i = 0; i < parts.length; i++) {
+    var part = parts[i];
+    if (!part) continue;
+    current = current === '/' ? '/' + part : (current ? current + '/' + part : part);
+    try {
+      var stat = statSync(current);
+      if (!stat || typeof stat.isDirectory !== 'function' || !stat.isDirectory()) {
+        return current;
+      }
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        return current;
+      }
+      throw err;
+    }
+  }
+  return undefined;
 }
 
 function _dirnamePath(value) {
@@ -710,7 +762,7 @@ function _normalizeWatchOptions(options) {
   if (options.signal !== undefined && options.signal !== null && (typeof options.signal !== 'object' || typeof options.signal.addEventListener !== 'function')) {
     throw _fsInvalidArgType('options.signal', 'AbortSignal', options.signal);
   }
-  return options;
+  return _extend({}, options);
 }
 
 function _normalizeWatchFileOptions(path, options) {
@@ -752,12 +804,22 @@ function _normalizeWriteOptions(options) {
   _validateEncodingOption(options);
   _validateFlushOption(options.flush);
   _checkForAbortedSignal(options);
-  return options;
+  return _extend({}, options);
 }
 
 function _validateEncodingOption(options) {
   var encoding = typeof options === 'string' ? options : (options && options.encoding);
   if (encoding) _assertEncoding(encoding);
+}
+
+function _validateMkdirRecursiveOption(options) {
+  if (options && typeof options === 'object' &&
+      options.recursive !== undefined &&
+      typeof options.recursive !== 'boolean') {
+    var err = _fsInvalidArgType('options.recursive', 'boolean', options.recursive);
+    err.message = err.message.replace(' argument', ' property');
+    throw err;
+  }
 }
 
 function _isAsyncIterable(value) {
@@ -1075,25 +1137,13 @@ function appendFileSync(path, data, options) {
   ensureExactFs();
   var p = target.path;
   try {
-    if (writeOptions.flush === true) {
-      var appendData = toUint8Array(data, writeOptions.encoding);
-      var appendFd = openSync(p, writeOptions.flag || writeOptions.flags || 'a', writeOptions.mode);
-      try {
-        writeSync(appendFd, appendData, 0, appendData.length, -1);
-        _callFsyncSync(appendFd);
-      } finally {
-        closeSync(appendFd);
-      }
-      return;
-    }
-    if (typeof g.__exactAppendFile === 'function') {
-      g.__exactAppendFile(p, toUint8Array(data, writeOptions.encoding));
-      return;
-    }
-    var appendFallback = toUint8Array(data, writeOptions.encoding);
+    var appendData = toUint8Array(data, writeOptions.encoding);
     var appendFallbackFd = openSync(p, writeOptions.flag || writeOptions.flags || 'a', writeOptions.mode);
     try {
-      writeSync(appendFallbackFd, appendFallback, 0, appendFallback.length, -1);
+      writeSync(appendFallbackFd, appendData, 0, appendData.length, -1);
+      if (writeOptions.flush === true) {
+        _callFsyncSync(appendFallbackFd);
+      }
     } finally {
       closeSync(appendFallbackFd);
     }
@@ -1813,7 +1863,7 @@ function _collectAllEntries(root, prefix, includeFiles, includeDirs) {
 
 function globSync(pattern, options) {
   options = options || {};
-  var cwd = options.cwd || process.cwd();
+  var cwd = options.cwd || _currentProcessCwd();
   _validatePath(cwd, 'cwd');
   _validatePath(pattern, 'pattern');
   _validateEncodingOption(options);
@@ -1855,7 +1905,7 @@ function globSync(pattern, options) {
 function glob(pattern, options, callback) {
   if (typeof options === 'function') { callback = options; options = {}; }
   _validateCallback(callback);
-  var cwd = options && options.cwd ? options.cwd : process.cwd();
+  var cwd = options && options.cwd ? options.cwd : _currentProcessCwd();
   if (typeof options === 'string') {
     options = { pattern: options };
   }
@@ -1866,10 +1916,39 @@ function mkdirSync(path, options) {
   _validatePath(path);
   ensureExactFs();
   var p = _pathToString(path);
-  var recursive = typeof options === 'object' && options !== null ? !!options.recursive : false;
+  var recursive = false;
+  var mode;
+  var firstCreatedPath;
+  if (typeof options === 'object' && options !== null) {
+    _validateMkdirRecursiveOption(options);
+    recursive = options.recursive === true;
+    mode = options.mode;
+  } else if (typeof options === 'string' || typeof options === 'number') {
+    mode = options;
+  }
+  if (mode !== undefined) {
+    mode = _coerceMode(mode) & 0o777;
+  }
   try {
+    if (recursive) {
+      firstCreatedPath = _getFirstMissingPath(p);
+    }
+    if (typeof path === 'string' && path.charAt(0) !== '/') {
+      try {
+        statSync(_currentProcessCwd());
+      } catch (cwdErr) {
+        if (cwdErr && cwdErr.code === 'ENOENT') {
+          throw cwdErr;
+        }
+      }
+    }
     g.__exactMkdir(p, recursive);
-    if (recursive) return p;
+    if (mode !== undefined) {
+      try {
+        chmodSync(p, mode);
+      } catch (_chmodErr) {}
+    }
+    if (recursive) return firstCreatedPath;
   } catch(e) {
     throw _makeFsError(e, 'mkdir', p);
   }
@@ -2146,7 +2225,8 @@ function mkdir(path, optOrCb, cb) {
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
   _validatePath(path);
-  wrapCallback(function() { mkdirSync(path, opts); }, callback, 'mkdir', _pathToString(path));
+  _validateMkdirRecursiveOption(opts);
+  wrapCallback(function() { return mkdirSync(path, opts); }, callback, 'mkdir', _pathToString(path));
 }
 function rmdir(path, optOrCb, cb) {
   var opts, callback;
@@ -4218,6 +4298,9 @@ function rmSync(path, options) {
   }
   var recursive = !!(options && options.recursive);
   var force = !!(options && options.force);
+  var maxRetries = (options && typeof options.maxRetries === 'number' && options.maxRetries > 0)
+    ? Math.floor(options.maxRetries)
+    : 0;
   function removeEntry(targetPath, isDirectory) {
     try {
       if (isDirectory) {
@@ -4238,7 +4321,8 @@ function rmSync(path, options) {
       }
     }
   }
-  try {
+
+  function performRemove() {
     // Use lstatSync to not follow symlinks - symlinks should be unlinked, not traversed
     var info = lstatSync(path);
     if (typeof info.isDirectory === 'function' ? info.isDirectory() : info.is_dir) {
@@ -4265,9 +4349,30 @@ function rmSync(path, options) {
     } else {
       removeEntry(path, false);
     }
-  } catch(e) {
-    if (force && e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return;
-    throw e;
+  }
+
+  function shouldRetryRm(err) {
+    if (!err || typeof err.code !== 'string') {
+      return false;
+    }
+    return err.code === 'EBUSY' ||
+      err.code === 'EMFILE' ||
+      err.code === 'ENFILE' ||
+      err.code === 'ENOTEMPTY' ||
+      err.code === 'EPERM';
+  }
+
+  for (var attempt = 0;; attempt++) {
+    try {
+      performRemove();
+      return;
+    } catch(e) {
+      if (force && e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return;
+      if (attempt < maxRetries && shouldRetryRm(e)) {
+        continue;
+      }
+      throw e;
+    }
   }
 }
 function rm(path, options, cb) {
@@ -4488,8 +4593,7 @@ var promises = {
   readdir: function(p, o) { return _resolveAsync(function() { return readdirSync(p, o); })(); },
   mkdir: function(p, o) {
     return _resolveAsync(function() {
-      mkdirSync(p, o);
-      return o && o.recursive ? _pathToString(p) : undefined;
+      return mkdirSync(p, o);
     })();
   },
   rmdir: function(p, o) { return _resolveAsync(function() { rmdirSync(p, o); })(); },

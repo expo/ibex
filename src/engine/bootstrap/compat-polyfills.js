@@ -1060,29 +1060,81 @@
     try {
       var __nativeChdir = globalThis.process.chdir;
       var __nativeCwd = globalThis.process.cwd;
+      var __cachedCwd = null;
+      function __isUsableCwd(value) {
+        return typeof value === 'string' && value.length > 0;
+      }
+      function __readCurrentCwd() {
+        var nativeDir;
+        try {
+          if (typeof __nativeCwd === 'function') {
+            nativeDir = __nativeCwd.call(globalThis.process);
+          }
+        } catch (_) {}
+        if (__isUsableCwd(nativeDir) && !(nativeDir === '/' && __cachedCwd && __cachedCwd !== '/')) {
+          __cachedCwd = nativeDir;
+          return nativeDir;
+        }
+        try {
+          if (typeof __exactGetCwd === 'function') {
+            var bridgedDir = __exactGetCwd();
+            if (__isUsableCwd(bridgedDir)) {
+              __cachedCwd = bridgedDir;
+              return bridgedDir;
+            }
+          }
+        } catch (_) {}
+        if (__cachedCwd) {
+          return __cachedCwd;
+        }
+        return __isUsableCwd(nativeDir) ? nativeDir : '/';
+      }
+      function __resolveChdirTarget(directory) {
+        if (typeof directory !== 'string' || directory.length === 0) {
+          return __readCurrentCwd();
+        }
+        if (directory.charAt(0) === '/' || /^[A-Za-z]:[\\/]/.test(directory)) {
+          return directory;
+        }
+        var currentDir = __readCurrentCwd();
+        if (!currentDir || currentDir === '/') {
+          return '/' + directory;
+        }
+        if (currentDir.charAt(currentDir.length - 1) === '/') {
+          return currentDir + directory;
+        }
+        return currentDir + '/' + directory;
+      }
+      __cachedCwd = __readCurrentCwd();
+      globalThis.process.cwd = function cwd() {
+        return __readCurrentCwd();
+      };
       globalThis.process.chdir = function chdir(directory) {
         if (typeof directory !== 'string') {
           var te = new TypeError('The "directory" argument must be of type string. Received type ' + typeof directory);
           te.code = 'ERR_INVALID_ARG_TYPE';
           throw te;
         }
+        var resolvedDirectory = __resolveChdirTarget(directory);
         try {
           if (typeof __exactSetCwd === 'function') {
-            __exactSetCwd(directory);
+            __exactSetCwd(resolvedDirectory);
+            __cachedCwd = resolvedDirectory;
             return;
           }
           var currentChdir = globalThis.process && globalThis.process.chdir;
           if (typeof currentChdir === 'function' && currentChdir !== chdir && currentChdir !== __nativeChdir) {
-            currentChdir.call(globalThis.process, directory);
+            currentChdir.call(globalThis.process, resolvedDirectory);
+            __cachedCwd = resolvedDirectory;
             return;
           }
           if (typeof __nativeChdir === 'function') {
-            __nativeChdir.call(globalThis.process, directory);
+            __nativeChdir.call(globalThis.process, resolvedDirectory);
+            __cachedCwd = resolvedDirectory;
             return;
           }
         } catch (e) {
-          var currentDir = '/';
-          try { currentDir = typeof __nativeCwd === 'function' ? __nativeCwd.call(globalThis.process) : (typeof __exactGetCwd === 'function' ? __exactGetCwd() : '/'); } catch (_) {}
+          var currentDir = __readCurrentCwd();
           var syserr = new Error("ENOENT: no such file or directory, chdir '" + currentDir + "' -> '" + directory + "'");
           syserr.code = 'ENOENT';
           syserr.syscall = 'chdir';

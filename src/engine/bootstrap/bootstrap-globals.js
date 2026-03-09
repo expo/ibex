@@ -795,10 +795,9 @@
     });
   }
 
-  // performance (Web API) — EAGER: used immediately by almost everything
-  if (typeof globalThis.performance === 'undefined') {
+  function __exactCreatePerformanceFallback() {
     var _perfStart = Date.now();
-    globalThis.performance = {
+    return {
       now: function() {
         if (typeof __exactHrtime === 'function') {
           var parts = __exactHrtime();
@@ -818,6 +817,81 @@
       clearMarks: function() {},
       clearMeasures: function() {}
     };
+  }
+
+  function __exactLoadPerformanceGlobals() {
+    var perf = null;
+    try {
+      if (typeof globalThis.require === 'function') {
+        perf = globalThis.require('node:perf_hooks');
+      }
+    } catch (e) {}
+
+    if (!perf || typeof perf !== 'object') {
+      return null;
+    }
+
+    if (typeof perf.Performance === 'function') globalThis.Performance = perf.Performance;
+    if (typeof perf.PerformanceEntry === 'function') globalThis.PerformanceEntry = perf.PerformanceEntry;
+    if (typeof perf.PerformanceMark === 'function') globalThis.PerformanceMark = perf.PerformanceMark;
+    if (typeof perf.PerformanceMeasure === 'function') globalThis.PerformanceMeasure = perf.PerformanceMeasure;
+    if (typeof perf.PerformanceObserver === 'function') globalThis.PerformanceObserver = perf.PerformanceObserver;
+    if (typeof perf.PerformanceResourceTiming === 'function') {
+      globalThis.PerformanceResourceTiming = perf.PerformanceResourceTiming;
+    }
+    if (perf.performance) {
+      globalThis.performance = perf.performance;
+      return perf.performance;
+    }
+    return null;
+  }
+
+  if (typeof globalThis.performance === 'undefined') {
+    defineLazyGlobal('performance', function() {
+      return __exactLoadPerformanceGlobals() || __exactCreatePerformanceFallback();
+    });
+  }
+
+  if (typeof globalThis.Performance === 'undefined') {
+    defineLazyGlobal('Performance', function() {
+      __exactLoadPerformanceGlobals();
+      return globalThis.Performance;
+    });
+  }
+
+  if (typeof globalThis.PerformanceEntry === 'undefined') {
+    defineLazyGlobal('PerformanceEntry', function() {
+      __exactLoadPerformanceGlobals();
+      return globalThis.PerformanceEntry;
+    });
+  }
+
+  if (typeof globalThis.PerformanceMark === 'undefined') {
+    defineLazyGlobal('PerformanceMark', function() {
+      __exactLoadPerformanceGlobals();
+      return globalThis.PerformanceMark;
+    });
+  }
+
+  if (typeof globalThis.PerformanceMeasure === 'undefined') {
+    defineLazyGlobal('PerformanceMeasure', function() {
+      __exactLoadPerformanceGlobals();
+      return globalThis.PerformanceMeasure;
+    });
+  }
+
+  if (typeof globalThis.PerformanceObserver === 'undefined') {
+    defineLazyGlobal('PerformanceObserver', function() {
+      __exactLoadPerformanceGlobals();
+      return globalThis.PerformanceObserver;
+    });
+  }
+
+  if (typeof globalThis.PerformanceResourceTiming === 'undefined') {
+    defineLazyGlobal('PerformanceResourceTiming', function() {
+      __exactLoadPerformanceGlobals();
+      return globalThis.PerformanceResourceTiming;
+    });
   }
 
   // Event / EventTarget / CustomEvent — lazy (Web API)

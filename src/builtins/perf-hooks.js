@@ -50,6 +50,109 @@ function _illegalConstructor() {
   return err;
 }
 
+function _syntaxDomException(message) {
+  if (typeof DOMException === 'function') {
+    return new DOMException(message, 'SyntaxError');
+  }
+  var err = new Error(message);
+  err.name = 'SyntaxError';
+  return err;
+}
+
+function _dataCloneException(message) {
+  if (typeof DOMException === 'function') {
+    return new DOMException(message || 'The object could not be cloned.', 'DataCloneError');
+  }
+  var err = new Error(message || 'The object could not be cloned.');
+  err.name = 'DataCloneError';
+  return err;
+}
+
+function _cloneDetail(detail) {
+  if (detail === undefined || detail === null) {
+    return null;
+  }
+  if (typeof structuredClone === 'function') {
+    return structuredClone(detail);
+  }
+  try {
+    return JSON.parse(JSON.stringify(detail));
+  } catch (_cloneErr) {
+    throw _dataCloneException();
+  }
+}
+
+function _isObjectLike(value) {
+  return value !== null && (typeof value === 'object' || typeof value === 'function');
+}
+
+function _validateObjectOptions(kind, options) {
+  if (options === undefined || options === null) return {};
+  if (!_isObjectLike(options)) {
+    throw new TypeError("Failed to construct '" + kind + "': parameter 2 is not an object.");
+  }
+  return options;
+}
+
+function _validateTimestampValue(name, value) {
+  if (typeof value !== 'number' || !isFinite(value) || value < 0) {
+    throw new TypeError("Failed to execute '" + name + "': timestamp must be a finite, non-negative number.");
+  }
+  return value;
+}
+
+function _hasOwn(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function _hasMeasureOptionsKeys(value) {
+  return _hasOwn(value, 'start') || _hasOwn(value, 'end') || _hasOwn(value, 'duration') || _hasOwn(value, 'detail');
+}
+
+function _scheduleObserverFlush(observer) {
+  if (!observer || observer._flushScheduled || !observer._callback || observer._entryQueue.length === 0) {
+    return;
+  }
+  observer._flushScheduled = true;
+  queueMicrotask(function() {
+    observer._flushScheduled = false;
+    if (!observer._callback || observer._entryQueue.length === 0) return;
+    var entries = observer._entryQueue.slice();
+    observer._entryQueue.length = 0;
+    try {
+      var list = {
+        getEntries: function() { return entries.slice(); },
+        getEntriesByName: function(n, type) {
+          var result = [];
+          for (var j = 0; j < entries.length; j++) {
+            if (entries[j].name === n && (!type || entries[j].entryType === type)) result.push(entries[j]);
+          }
+          return result;
+        },
+        getEntriesByType: function(t) {
+          var result = [];
+          for (var j = 0; j < entries.length; j++) {
+            if (entries[j].entryType === t) result.push(entries[j]);
+          }
+          return result;
+        }
+      };
+      observer._callback(list, observer);
+    } catch (e) {}
+  });
+}
+
+function _freezePrototypeProperty(ctor) {
+  if (!ctor || (typeof ctor !== 'function' && typeof ctor !== 'object')) {
+    return;
+  }
+  try {
+    Object.defineProperty(ctor, 'prototype', {
+      writable: false
+    });
+  } catch (_err) {}
+}
+
 function _toArray(args) {
   var list = [];
   for (var i = 0; i < args.length; i++) {
@@ -71,35 +174,7 @@ function _notifyObservers(entry) {
     var obs = _observers[i];
     if (obs._entryTypes && obs._entryTypes.indexOf(entry.entryType) !== -1) {
       obs._entryQueue.push(entry);
-      if (typeof queueMicrotask === 'function' && !obs._flushScheduled) {
-        obs._flushScheduled = true;
-        queueMicrotask(function() {
-          obs._flushScheduled = false;
-          if (!obs._callback || obs._entryQueue.length === 0) return;
-          var entries = obs._entryQueue.slice();
-          obs._entryQueue.length = 0;
-          try {
-            var list = {
-              getEntries: function() { return entries.slice(); },
-              getEntriesByName: function(n, type) {
-                var result = [];
-                for (var j = 0; j < entries.length; j++) {
-                  if (entries[j].name === n && (!type || entries[j].entryType === type)) result.push(entries[j]);
-                }
-                return result;
-              },
-              getEntriesByType: function(t) {
-                var result = [];
-                for (var j = 0; j < entries.length; j++) {
-                  if (entries[j].entryType === t) result.push(entries[j]);
-                }
-                return result;
-              }
-            };
-            obs._callback(list, obs);
-          } catch (e) {}
-        });
-      }
+      _scheduleObserverFlush(obs);
     }
   }
 }
@@ -171,10 +246,14 @@ function eventLoopUtilization(start, end) {
 }
 
 var _allowPerformanceEntryConstruction = false;
-function PerformanceEntry(name, entryType, startTime, duration) {
-  if (!_allowPerformanceEntryConstruction && arguments.length === 0) {
+function PerformanceEntry() {
+  if (!_allowPerformanceEntryConstruction) {
     throw _illegalConstructor();
   }
+  var name = arguments[0];
+  var entryType = arguments[1];
+  var startTime = arguments[2];
+  var duration = arguments[3];
   this.name = name;
   this.entryType = entryType;
   this.startTime = startTime;
@@ -195,20 +274,21 @@ Object.defineProperty(PerformanceEntry.prototype, Symbol.toStringTag, {
   value: 'PerformanceEntry'
 });
 
-function PerformanceMark(name, options) {
-  options = options || {};
+function PerformanceMark(name) {
+  if (!(this instanceof PerformanceMark)) {
+    throw _illegalConstructor();
+  }
+  var options = arguments[1];
+  options = _validateObjectOptions('PerformanceMark', options);
   var startTime = (options.startTime !== undefined) ? options.startTime : _perfNow();
   if (typeof startTime !== 'number') {
     throw _invalidArgType('The "startTime" argument must be of type number. Received type ' + typeof startTime);
   }
+  _validateTimestampValue('mark', startTime);
   _allowPerformanceEntryConstruction = true;
   PerformanceEntry.call(this, String(name), 'mark', startTime, 0);
   _allowPerformanceEntryConstruction = false;
-  if (options.detail !== undefined && options.detail !== null) {
-    try { this.detail = typeof structuredClone === 'function' ? structuredClone(options.detail) : JSON.parse(JSON.stringify(options.detail)); } catch(e) { this.detail = options.detail; }
-  } else {
-    this.detail = null;
-  }
+  this.detail = _cloneDetail(options.detail);
 }
 PerformanceMark.prototype = Object.create(PerformanceEntry.prototype);
 PerformanceMark.prototype.constructor = PerformanceMark;
@@ -219,15 +299,20 @@ Object.defineProperty(PerformanceMark.prototype, Symbol.toStringTag, {
   value: 'PerformanceMark'
 });
 
-function PerformanceMeasure(name, startTime, duration, detail) {
+var _performanceMeasureSecret = {};
+function PerformanceMeasure() {
+  var name = arguments[0];
+  var startTime = arguments[1];
+  var duration = arguments[2];
+  var detail = arguments[3];
+  var secret = arguments[4];
+  if (secret !== _performanceMeasureSecret) {
+    throw _illegalConstructor();
+  }
   _allowPerformanceEntryConstruction = true;
   PerformanceEntry.call(this, name, 'measure', startTime, duration);
   _allowPerformanceEntryConstruction = false;
-  if (detail !== undefined && detail !== null) {
-    try { this.detail = typeof structuredClone === 'function' ? structuredClone(detail) : JSON.parse(JSON.stringify(detail)); } catch(e) { this.detail = detail; }
-  } else {
-    this.detail = null;
-  }
+  this.detail = _cloneDetail(detail);
 }
 PerformanceMeasure.prototype = Object.create(PerformanceEntry.prototype);
 PerformanceMeasure.prototype.constructor = PerformanceMeasure;
@@ -239,7 +324,9 @@ Object.defineProperty(PerformanceMeasure.prototype, Symbol.toStringTag, {
 });
 
 var _allowPerformanceResourceTimingConstruction = false;
-function PerformanceResourceTiming(config, secret) {
+function PerformanceResourceTiming() {
+  var config = arguments[0];
+  var secret = arguments[1];
   if (!_allowPerformanceResourceTimingConstruction && secret !== _histogramSecret) {
     throw _illegalConstructor();
   }
@@ -309,6 +396,18 @@ Object.defineProperty(PerformanceResourceTiming.prototype, Symbol.toStringTag, {
   value: 'PerformanceResourceTiming'
 });
 
+if (typeof Object.setPrototypeOf === 'function') {
+  Object.setPrototypeOf(PerformanceMark, PerformanceEntry);
+  Object.setPrototypeOf(PerformanceMeasure, PerformanceEntry);
+  Object.setPrototypeOf(PerformanceResourceTiming, PerformanceEntry);
+}
+
+_freezePrototypeProperty(PerformanceEntry);
+_freezePrototypeProperty(PerformanceMark);
+_freezePrototypeProperty(PerformanceMeasure);
+_freezePrototypeProperty(PerformanceObserver);
+_freezePrototypeProperty(PerformanceResourceTiming);
+
 function Performance() {}
 Performance.prototype.now = function() {
   var t = _perfNow();
@@ -330,6 +429,7 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
   var endTime = _perfNow();
   var duration;
   var detail;
+  var hasEndArgument = arguments.length > 2;
 
   function _resolveMarkName(markName) {
     // Check nodeTiming properties first
@@ -338,31 +438,35 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
     for (var i = _marks.length - 1; i >= 0; i--) {
       if (_marks[i].name === markName) return _marks[i].startTime;
     }
-    throw new Error("Failed to execute 'measure': The mark '" + markName + "' does not exist.");
+    throw _syntaxDomException("Failed to execute 'measure': The mark '" + markName + "' does not exist.");
   }
 
-  if (startMarkOrOptions && typeof startMarkOrOptions === 'object' && !Array.isArray(startMarkOrOptions)) {
+  if (startMarkOrOptions && typeof startMarkOrOptions === 'object' && !Array.isArray(startMarkOrOptions) &&
+      _hasMeasureOptionsKeys(startMarkOrOptions)) {
     var opts = startMarkOrOptions;
-    if (opts.detail !== undefined) detail = opts.detail;
+    if (hasEndArgument && endMark !== undefined) {
+      throw new TypeError("Failed to execute 'measure': end mark must be omitted when measure options are provided.");
+    }
+    if (_hasOwn(opts, 'detail')) detail = opts.detail;
 
-    if (opts.start !== undefined) {
+    if (_hasOwn(opts, 'start') && opts.start !== undefined) {
       if (typeof opts.start === 'string') {
         startTime = _resolveMarkName(opts.start);
       } else {
-        startTime = opts.start;
+        startTime = _validateTimestampValue('measure', opts.start);
       }
     }
 
-    if (opts.end !== undefined) {
+    if (_hasOwn(opts, 'end') && opts.end !== undefined) {
       if (typeof opts.end === 'string') {
         endTime = _resolveMarkName(opts.end);
       } else {
-        endTime = opts.end;
+        endTime = _validateTimestampValue('measure', opts.end);
       }
     }
 
-    if (opts.duration !== undefined) {
-      duration = opts.duration;
+    if (_hasOwn(opts, 'duration') && opts.duration !== undefined) {
+      duration = _validateTimestampValue('measure', opts.duration);
       if (opts.start !== undefined && opts.end === undefined) {
         endTime = startTime + duration;
       } else if (opts.end !== undefined && opts.start === undefined) {
@@ -375,13 +479,15 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
     if (typeof endMark === 'string') {
       endTime = _resolveMarkName(endMark);
     }
+  } else if (typeof endMark === 'string') {
+    endTime = _resolveMarkName(endMark);
   }
 
   if (duration === undefined) {
     duration = endTime - startTime;
   }
 
-  var entry = new PerformanceMeasure(name, startTime, duration, detail);
+  var entry = new PerformanceMeasure(name, startTime, duration, detail, _performanceMeasureSecret);
   _measures.push(entry);
   _notifyObservers(entry);
   return entry;
@@ -840,6 +946,23 @@ PerformanceObserver.prototype.observe = function(options) {
   if (_observers.indexOf(this) === -1) {
     _observers.push(this);
   }
+  if (options.buffered === true) {
+    var bufferedEntries = [];
+    for (var i = 0; i < this._entryTypes.length; i++) {
+      var entryType = this._entryTypes[i];
+      if (entryType === 'mark') {
+        bufferedEntries = bufferedEntries.concat(_marks);
+      } else if (entryType === 'measure') {
+        bufferedEntries = bufferedEntries.concat(_measures);
+      } else if (entryType === 'resource') {
+        bufferedEntries = bufferedEntries.concat(_resources);
+      }
+    }
+    if (bufferedEntries.length > 0) {
+      this._entryQueue = this._entryQueue.concat(bufferedEntries);
+      _scheduleObserverFlush(this);
+    }
+  }
 };
 PerformanceObserver.prototype.disconnect = function() {
   var idx = _observers.indexOf(this);
@@ -847,7 +970,9 @@ PerformanceObserver.prototype.disconnect = function() {
   this._entryTypes = [];
 };
 PerformanceObserver.prototype.takeRecords = function() {
-  return [];
+  var entries = this._entryQueue.slice();
+  this._entryQueue.length = 0;
+  return entries;
 };
 PerformanceObserver.supportedEntryTypes = ['mark', 'measure', 'function', 'resource'];
 
@@ -855,8 +980,14 @@ var performance = new Performance();
 performance.nodeTiming = _nodeTiming;
 performance.timerify = timerify;
 performance.eventLoopUtilization = eventLoopUtilization;
-if (typeof globalThis !== 'undefined' && globalThis.performance) {
+if (typeof globalThis !== 'undefined') {
   globalThis.performance = performance;
+  globalThis.Performance = Performance;
+  globalThis.PerformanceEntry = PerformanceEntry;
+  globalThis.PerformanceMark = PerformanceMark;
+  globalThis.PerformanceMeasure = PerformanceMeasure;
+  globalThis.PerformanceObserver = PerformanceObserver;
+  globalThis.PerformanceResourceTiming = PerformanceResourceTiming;
 }
 
 module.exports = {

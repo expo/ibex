@@ -31,12 +31,30 @@ function _resolveCwd(path) {
   return cwd + path;
 }
 
+function _readNativeCwd() {
+  if (typeof __exactGetCwd !== 'function') {
+    return null;
+  }
+  try {
+    var value = __exactGetCwd();
+    if (typeof value === 'string' && value.length > 0) {
+      return _normalizeCwdPath(value);
+    }
+  } catch (_) {}
+  return null;
+}
+
 function cwd() {
-  if (typeof __exactGetCwd === 'function' && typeof __exactSetCwd === 'function') {
-    return __exactGetCwd();
+  if (_processCwd && _processCwd !== "/") {
+    return _processCwd;
+  }
+  var nativeCwd = _readNativeCwd();
+  if (nativeCwd) {
+    _processCwd = nativeCwd;
+    return _processCwd;
   }
   if (!_processCwd || _processCwd === "/") {
-    _processCwd = _normalizeCwdPath(typeof __exactGetCwd === 'function' ? __exactGetCwd() : "/");
+    _processCwd = "/";
   }
   return _processCwd;
 }
@@ -347,7 +365,17 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
   }
   // Ensure our module-level cwd/env/argv are present
   proc.chdir = chdir;
-  if (!proc.cwd) proc.cwd = cwd;
+  proc.cwd = cwd;
+  if (typeof proc.geteuid !== 'function' && typeof proc.getuid === 'function') {
+    proc.geteuid = function geteuid() {
+      return proc.getuid();
+    };
+  }
+  if (typeof proc.getegid !== 'function' && typeof proc.getgid === 'function') {
+    proc.getegid = function getegid() {
+      return proc.getgid();
+    };
+  }
   if (!proc.argv || proc.argv.length === 0) proc.argv = argv;
   if (!Array.isArray(proc.execArgv)) proc.execArgv = [];
   if (!proc.execve) proc.execve = execve;

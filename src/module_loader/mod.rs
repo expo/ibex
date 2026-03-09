@@ -61,7 +61,7 @@ impl ModuleLoader {
             bun_internal_for_testing_module(),
         );
 
-        let node_test_src = "module.exports = require('bun:test');".to_string();
+        let node_test_src = "module.exports = require('test');".to_string();
         builtins.insert("node:test".to_string(), node_test_src);
 
         let node_fs_src = node_fs_module();
@@ -475,6 +475,9 @@ impl ModuleLoader {
 
     fn source_needs_async_downlevel(source: &str) -> bool {
         source.contains("async function*")
+            || source.contains("async function *")
+            || source.contains("async*")
+            || source.contains("async *")
             || source.contains("for await")
             || source.contains("await using")
             || source.starts_with("using ")
@@ -698,7 +701,7 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
 
 fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v6-refresh-for-await-cache".hash(&mut hasher);
+    "loader-transpile-v7-refresh-for-await-cache".hash(&mut hasher);
     target.hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
@@ -2064,6 +2067,23 @@ export const value = <span />;
         assert!(jsx_source.contains("exports.value"));
         assert!(jsx_source.contains("createElement"));
         assert!(!jsx_source.contains("<span"));
+    }
+
+    #[test]
+    fn detects_async_generator_method_js_for_downleveling() {
+        let source = r#"
+const asyncIterable = {
+    async* [Symbol.asyncIterator]() {
+        yield 'a';
+    }
+};
+"#;
+
+        assert!(ModuleLoader::source_needs_async_downlevel(source));
+        assert!(ModuleLoader::needs_js_downlevel(
+            std::path::Path::new("fixture.js"),
+            source
+        ));
     }
 
     #[test]
