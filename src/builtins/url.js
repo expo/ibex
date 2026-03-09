@@ -1362,19 +1362,20 @@ function URL(input, base) {
 
   var baseStr = (base !== undefined) ? String(base) : undefined;
   var baseUrl = null;
-  if (typeof base === "string" || (base && typeof base === "object" && base.href)) {
+  if (base instanceof URL) {
+    baseUrl = base;
+  } else if (typeof base === "string" || (base && typeof base === "object" && base.href)) {
     try {
-      baseUrl = new URL(base);
+      baseUrl = new URL(String(base));
     } catch(e) {
       throw _makeURLError(String(input), baseStr);
     }
-  } else if (base instanceof URL) {
-    baseUrl = base;
   }
 
-  this.__originalInput = String(input);
+  var inputStr = String(input);
+  this.__originalInput = inputStr;
   this.__baseStr = baseStr;
-  this._parse(input, baseUrl, baseStr);
+  this._parse(inputStr, baseUrl, baseStr);
   delete this.__originalInput;
   delete this.__baseStr;
   this._searchParams = new URLSearchParams(this._search);
