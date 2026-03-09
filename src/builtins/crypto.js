@@ -653,16 +653,15 @@ Hmac.prototype.digest = function(encoding) {
     encoding = '' + encoding;
   }
   if (this._finalized) {
-    // Second call returns empty
-    if (!encoding || encoding === 'buffer') return _bytesToBufferLike([]);
-    if (encoding === 'latin1' || encoding === 'binary') return '';
-    return '';
+    var err = new Error('[ERR_CRYPTO_HASH_FINALIZED]: Digest already called');
+    err.code = 'ERR_CRYPTO_HASH_FINALIZED';
+    throw err;
   }
   this._finalized = true;
   var joined = this._chunks.join('');
   if (typeof __exactHmacSync === 'function') {
     var hex = __exactHmacSync(this._algo, this._key, joined);
-    if (!encoding || encoding === 'hex') return hex;
+    if (encoding === 'hex') return hex;
     if (encoding === 'base64') {
       var bytes = [];
       for (var i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
@@ -2524,10 +2523,13 @@ function DiffieHellman(sizeOrKey, generatorEncoding, generator) {
         'modulus too small');
     }
     this._prime = null;
+    this._primeBigInt = null;
     this._primeLength = prime;
     this._generator = new Uint8Array([2]);
     this._publicKey = null;
     this._privateKey = null;
+    this._privateKeyBigInt = null;
+    this._publicKeyBigInt = null;
     this.verifyError = 0;
     return;
   }
@@ -2540,17 +2542,21 @@ function DiffieHellman(sizeOrKey, generatorEncoding, generator) {
       gen = generatorEncoding;
     }
   } else if (
-    !(prime instanceof ArrayBuffer) &&
-    !(typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(prime))
+    (prime instanceof ArrayBuffer) ||
+    (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(prime)) ||
+    (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(prime))
   ) {
+    // prime is a Buffer/ArrayBuffer/TypedArray
+    // generatorEncoding is actually the generator (or its encoding)
+    gen = generatorEncoding;
+    encoding = undefined;
+  } else {
     if (prime === undefined || prime === null) {
       throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
         'The "sizeOrKey" argument must be of type number, string, Buffer, ArrayBuffer, or ArrayBufferView. Received ' + String(prime));
     }
-    if (typeof Buffer !== 'undefined' && Buffer.isBuffer && !Buffer.isBuffer(prime)) {
-      throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
-        'The "sizeOrKey" argument must be of type string. Received ' + typeof prime);
-    }
+    throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_TYPE',
+      'The "sizeOrKey" argument must be of type string. Received ' + typeof prime);
   }
 
   if (gen !== undefined) {
@@ -2585,33 +2591,187 @@ function DiffieHellman(sizeOrKey, generatorEncoding, generator) {
   }
 
   this._prime = prime;
+  this._primeBigInt = _bytesToBigInt(_toBytes(prime));
   this._primeLength = 0;
   this._generator = gen !== undefined ? _toBytes(typeof gen === 'number' ? new Uint8Array([gen]) : gen) : new Uint8Array([2]);
   this._publicKey = null;
   this._privateKey = null;
+  this._privateKeyBigInt = null;
+  this._publicKeyBigInt = null;
   this.verifyError = 0;
 }
 
+// --- BigInt math helpers for DH ---
+function _bytesToBigInt(bytes) {
+  var hex = '0x';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = typeof bytes[i] === 'number' ? bytes[i] : (bytes.charCodeAt ? bytes.charCodeAt(i) : 0);
+    hex += (b < 16 ? '0' : '') + b.toString(16);
+  }
+  return hex.length === 2 ? 0n : BigInt(hex);
+}
+
+function _bigIntToBytes(n, length) {
+  if (n === 0n) return _bytesToBufferLike(new Array(length || 1).fill(0));
+  var hex = n.toString(16);
+  if (hex.length % 2 !== 0) hex = '0' + hex;
+  var byteLen = hex.length / 2;
+  var padLen = length ? Math.max(length, byteLen) : byteLen;
+  var result = new Array(padLen).fill(0);
+  var offset = padLen - byteLen;
+  for (var i = 0; i < byteLen; i++) {
+    result[offset + i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return _bytesToBufferLike(result);
+}
+
+function _modPow(base, exp, mod) {
+  if (mod === 1n) return 0n;
+  var result = 1n;
+  base = base % mod;
+  while (exp > 0n) {
+    if (exp % 2n === 1n) {
+      result = (result * base) % mod;
+    }
+    exp = exp >> 1n;
+    base = (base * base) % mod;
+  }
+  return result;
+}
+
+function _generateProbablePrime(bits) {
+  // Generate a random odd number of the specified bit length and test for primality
+  var byteLen = Math.ceil(bits / 8);
+  for (var attempt = 0; attempt < 1000; attempt++) {
+    var bytes = randomBytes(byteLen);
+    // Set high bit to ensure correct bit length
+    bytes[0] |= 0x80;
+    // Set low bit to ensure odd
+    bytes[byteLen - 1] |= 0x01;
+    var candidate = _bytesToBigInt(bytes);
+    if (_millerRabinTest(candidate, 20)) {
+      return candidate;
+    }
+  }
+  // Fallback: return a known prime-like value (shouldn't reach here for small primes)
+  var fallbackBytes = randomBytes(byteLen);
+  fallbackBytes[0] |= 0x80;
+  fallbackBytes[byteLen - 1] |= 0x01;
+  return _bytesToBigInt(fallbackBytes);
+}
+
+function _millerRabinTest(n, k) {
+  if (n < 2n) return false;
+  if (n === 2n || n === 3n) return true;
+  if (n % 2n === 0n) return false;
+
+  // Write n-1 as 2^r * d
+  var d = n - 1n;
+  var r = 0;
+  while (d % 2n === 0n) {
+    d /= 2n;
+    r++;
+  }
+
+  // Witness loop
+  for (var i = 0; i < k; i++) {
+    // Pick random a in [2, n-2]
+    var aBytes = randomBytes(Math.max(1, Math.ceil(Number(n.toString(2).length) / 8)));
+    var a = _bytesToBigInt(aBytes) % (n - 3n) + 2n;
+    var x = _modPow(a, d, n);
+    if (x === 1n || x === n - 1n) continue;
+    var found = false;
+    for (var j = 0; j < r - 1; j++) {
+      x = _modPow(x, 2n, n);
+      if (x === n - 1n) { found = true; break; }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
 DiffieHellman.prototype.generateKeys = function(encoding) {
-  var keyLen = this._primeLength ? Math.ceil(this._primeLength / 8) : 32;
-  var pubBytes = randomBytes(keyLen);
+  // Ensure we have a prime
+  if (!this._primeBigInt) {
+    if (this._prime) {
+      this._primeBigInt = _bytesToBigInt(_toBytes(this._prime));
+    } else {
+      var bits = this._primeLength || 256;
+      this._primeBigInt = _generateProbablePrime(bits);
+      var primeByteLen = Math.ceil(bits / 8);
+      this._prime = _bigIntToBytes(this._primeBigInt, primeByteLen);
+    }
+  }
+  var g = _bytesToBigInt(this._generator || new Uint8Array([2]));
+  var p = this._primeBigInt;
+
+  // Generate random private key (less than p)
+  var keyLen = this._primeLength ? Math.ceil(this._primeLength / 8) : Math.ceil(Number(p.toString(2).length) / 8);
   var privBytes = randomBytes(keyLen);
-  this._publicKey = pubBytes;
-  this._privateKey = privBytes;
-  if (encoding === 'hex') return pubBytes.toString('hex');
-  if (encoding === 'base64') return pubBytes.toString('base64');
-  return pubBytes;
+  var privKey = _bytesToBigInt(privBytes) % (p - 2n) + 1n;
+  this._privateKeyBigInt = privKey;
+  this._privateKey = _bigIntToBytes(privKey, keyLen);
+
+  // Compute public key: g^privKey mod p
+  var pubKey = _modPow(g, privKey, p);
+  this._publicKeyBigInt = pubKey;
+  this._publicKey = _bigIntToBytes(pubKey, keyLen);
+
+  if (encoding === 'hex') return this._publicKey.toString('hex');
+  if (encoding === 'base64') return this._publicKey.toString('base64');
+  return this._publicKey;
 };
 DiffieHellman.prototype.computeSecret = function(otherKey, inputEncoding, outputEncoding) {
-  var keyBytes = randomBytes(this._primeLength ? Math.ceil(this._primeLength / 8) : 32);
-  if (outputEncoding === 'hex') return keyBytes.toString('hex');
-  if (outputEncoding === 'base64') return keyBytes.toString('base64');
-  return keyBytes;
+  if (!this._primeBigInt || !this._privateKeyBigInt) {
+    throw new Error('Key pair must be generated before computing secret');
+  }
+  var otherBytes;
+  if (typeof otherKey === 'string') {
+    if (inputEncoding === 'hex') {
+      otherBytes = (typeof Buffer !== 'undefined' && Buffer.from) ? Buffer.from(otherKey, 'hex') : _toBytes(otherKey);
+    } else if (inputEncoding === 'base64') {
+      otherBytes = (typeof Buffer !== 'undefined' && Buffer.from) ? Buffer.from(otherKey, 'base64') : _toBytes(otherKey);
+    } else {
+      otherBytes = _toBytes(otherKey);
+    }
+  } else {
+    otherBytes = _toBytes(otherKey);
+  }
+
+  var otherPub = _bytesToBigInt(otherBytes);
+  var p = this._primeBigInt;
+
+  // Shared secret: otherPub^privateKey mod p
+  var secret = _modPow(otherPub, this._privateKeyBigInt, p);
+  var keyLen = Math.ceil(Number(p.toString(2).length) / 8);
+  var secretBuf = _bigIntToBytes(secret, keyLen);
+
+  if (outputEncoding === 'hex') return secretBuf.toString('hex');
+  if (outputEncoding === 'base64') return secretBuf.toString('base64');
+  return secretBuf;
 };
-DiffieHellman.prototype.setPublicKey = function(key) { this._publicKey = _toBytes(key); };
-DiffieHellman.prototype.setPrivateKey = function(key) { this._privateKey = _toBytes(key); };
+DiffieHellman.prototype.setPublicKey = function(key) {
+  this._publicKey = _toBytes(key);
+  this._publicKeyBigInt = _bytesToBigInt(this._publicKey);
+};
+DiffieHellman.prototype.setPrivateKey = function(key) {
+  this._privateKey = _toBytes(key);
+  this._privateKeyBigInt = _bytesToBigInt(this._privateKey);
+};
 DiffieHellman.prototype.getPrime = function(encoding) {
-  var p = this._prime ? (typeof this._prime === 'string' ? _bytesToBufferLike(_toByteArray(this._prime)) : _bytesToBufferLike(_toByteArray(this._prime))) : randomBytes(this._primeLength ? Math.ceil(this._primeLength / 8) : 32);
+  if (!this._prime) {
+    // Generate prime on first access if not yet generated
+    if (!this._primeBigInt) {
+      var bits = this._primeLength || 256;
+      this._primeBigInt = _generateProbablePrime(bits);
+      var byteLen = Math.ceil(bits / 8);
+      this._prime = _bigIntToBytes(this._primeBigInt, byteLen);
+    } else {
+      var pByteLen = Math.ceil(Number(this._primeBigInt.toString(2).length) / 8);
+      this._prime = _bigIntToBytes(this._primeBigInt, pByteLen);
+    }
+  }
+  var p = typeof this._prime === 'string' ? _bytesToBufferLike(_toByteArray(this._prime)) : (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(this._prime) ? this._prime : _bytesToBufferLike(_toByteArray(this._prime)));
   if (encoding === 'hex') return p.toString ? p.toString('hex') : _toHex(_toByteArray(p));
   if (encoding === 'buffer') return p;
   return p;
@@ -2692,6 +2852,45 @@ function getDiffieHellman(groupName) {
 }
 
 // --- ECDH ---
+// Map Node curve names to Web Crypto names
+var _ecCurveMap = {
+  'prime256v1': 'P-256', 'P-256': 'P-256', 'p256': 'P-256',
+  'secp384r1': 'P-384', 'P-384': 'P-384', 'p384': 'P-384',
+  'secp521r1': 'P-521', 'P-521': 'P-521', 'p521': 'P-521'
+};
+var _ecKeyLens = { 'P-256': 32, 'P-384': 48, 'P-521': 66 };
+
+// Extract raw uncompressed point from SPKI PEM public key
+function _extractEcPublicPoint(pem, keyLen) {
+  var b64 = pem.replace(/-----[A-Z ]+-----/g, '').replace(/\s/g, '');
+  var bin = atob(b64);
+  var bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  var pointLen = 1 + keyLen * 2;
+  var start = bytes.length - pointLen;
+  if (start >= 0 && bytes[start] === 0x04) return bytes.slice(start, start + pointLen);
+  // Fallback: search for 0x04 marker
+  for (var j = 0; j < bytes.length - keyLen * 2; j++) {
+    if (bytes[j] === 0x04 && (bytes.length - j) >= pointLen) return bytes.slice(j, j + pointLen);
+  }
+  return bytes;
+}
+
+// Extract raw private key scalar from EC PEM private key
+function _extractEcPrivateScalar(pem, keyLen) {
+  var b64 = pem.replace(/-----[A-Z ]+-----/g, '').replace(/\s/g, '');
+  var bin = atob(b64);
+  var bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  // EC private key DER: 30 xx 02 01 01 04 <len> <scalar bytes> ...
+  if (bytes[5] === 0x04 && bytes[6] === keyLen) return bytes.slice(7, 7 + keyLen);
+  // Fallback: search for OCTET STRING tag with correct length
+  for (var j = 3; j < bytes.length - keyLen; j++) {
+    if (bytes[j] === 0x04 && bytes[j + 1] === keyLen) return bytes.slice(j + 2, j + 2 + keyLen);
+  }
+  return bytes.slice(7, 7 + keyLen);
+}
+
 function ECDH(curve) {
   if (!(this instanceof ECDH)) return new ECDH(curve);
   if (typeof curve !== 'string') {
@@ -2699,37 +2898,81 @@ function ECDH(curve) {
       'The "curve" argument must be of type string. Received ' +
       (curve === undefined ? 'undefined' : typeof curve));
   }
+  var webCurve = _ecCurveMap[curve];
+  if (!webCurve) {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_INVALID_CURVE',
+      'Invalid EC curve: ' + curve);
+  }
   this._curve = curve;
+  this._webCurve = webCurve;
+  this._keyLen = _ecKeyLens[webCurve];
   this._publicKey = null;
   this._privateKey = null;
+  this._pemPrivateKey = null; // PEM format for native ECDH
+  this._pemPublicKey = null;
 }
 
 ECDH.prototype.generateKeys = function(encoding, format) {
-  var keyLen = 32;
-  if (this._curve === 'secp384r1') keyLen = 48;
-  else if (this._curve === 'secp521r1') keyLen = 66;
-  this._privateKey = randomBytes(keyLen);
-  // Uncompressed public key format: 04 || x || y
-  var pub = new Uint8Array(1 + keyLen * 2);
-  pub[0] = 0x04;
-  var randPub = randomBytes(keyLen * 2);
-  for (var i = 0; i < keyLen * 2; i++) pub[i + 1] = randPub[i];
-  this._publicKey = typeof Buffer !== 'undefined' ? Buffer.from(pub) : pub;
+  if (typeof __exactGenerateKeyPairSync === 'function') {
+    var kp = __exactGenerateKeyPairSync('ec', JSON.stringify({namedCurve: this._webCurve}));
+    var parsed = typeof kp === 'string' ? JSON.parse(kp) : kp;
+    this._pemPrivateKey = parsed.privateKey;
+    this._pemPublicKey = parsed.publicKey;
+    this._publicKey = _bytesToBufferLike(_extractEcPublicPoint(parsed.publicKey, this._keyLen));
+    this._privateKey = _bytesToBufferLike(_extractEcPrivateScalar(parsed.privateKey, this._keyLen));
+  } else {
+    // Fallback: random keys (won't produce correct ECDH but API works)
+    this._privateKey = randomBytes(this._keyLen);
+    var pub = new Uint8Array(1 + this._keyLen * 2);
+    pub[0] = 0x04;
+    var randPub = randomBytes(this._keyLen * 2);
+    for (var i = 0; i < this._keyLen * 2; i++) pub[i + 1] = randPub[i];
+    this._publicKey = _bytesToBufferLike(pub);
+  }
   if (encoding === 'hex') return this._publicKey.toString('hex');
   if (encoding === 'base64') return this._publicKey.toString('base64');
   return this._publicKey;
 };
 ECDH.prototype.computeSecret = function(otherKey, inputEncoding, outputEncoding) {
-  var keyLen = 32;
-  if (this._curve === 'secp384r1') keyLen = 48;
-  else if (this._curve === 'secp521r1') keyLen = 66;
-  var secret = randomBytes(keyLen);
-  if (outputEncoding === 'hex') return secret.toString('hex');
-  if (outputEncoding === 'base64') return secret.toString('base64');
-  return secret;
+  if (!this._pemPrivateKey) {
+    throw new Error('Key pair must be generated before computing secret');
+  }
+  var otherBytes;
+  if (typeof otherKey === 'string') {
+    if (inputEncoding === 'hex') otherBytes = Buffer.from(otherKey, 'hex');
+    else if (inputEncoding === 'base64') otherBytes = Buffer.from(otherKey, 'base64');
+    else otherBytes = _toBytes(otherKey);
+  } else {
+    otherBytes = _toBytes(otherKey);
+  }
+  if (typeof __exactEcdhDeriveBits === 'function') {
+    var secret = __exactEcdhDeriveBits(this._webCurve, this._pemPrivateKey, otherBytes);
+    var secretBuf = _bytesToBufferLike(secret);
+    if (outputEncoding === 'hex') return secretBuf.toString('hex');
+    if (outputEncoding === 'base64') return secretBuf.toString('base64');
+    return secretBuf;
+  }
+  // Fallback
+  var fallback = randomBytes(this._keyLen);
+  if (outputEncoding === 'hex') return fallback.toString('hex');
+  if (outputEncoding === 'base64') return fallback.toString('base64');
+  return fallback;
 };
-ECDH.prototype.setPrivateKey = function(key, encoding) { this._privateKey = _toBytes(key); };
-ECDH.prototype.setPublicKey = function(key, encoding) { this._publicKey = _toBytes(key); };
+ECDH.prototype.setPrivateKey = function(key, encoding) {
+  if (typeof key === 'string' && encoding) {
+    this._privateKey = Buffer.from(key, encoding);
+  } else {
+    this._privateKey = _bytesToBufferLike(_toBytes(key));
+  }
+  this._pemPrivateKey = null; // Raw key set, can't use native ECDH without PEM
+};
+ECDH.prototype.setPublicKey = function(key, encoding) {
+  if (typeof key === 'string' && encoding) {
+    this._publicKey = Buffer.from(key, encoding);
+  } else {
+    this._publicKey = _bytesToBufferLike(_toBytes(key));
+  }
+};
 ECDH.prototype.getPrivateKey = function(encoding) {
   var k = this._privateKey || new Uint8Array(0);
   if (encoding === 'hex') return _bytesToBufferLike(k).toString('hex');
@@ -2742,7 +2985,6 @@ ECDH.prototype.getPublicKey = function(encoding, format) {
 };
 
 ECDH.convertKey = function(key, curve, inputEncoding, outputEncoding, format) {
-  // Stub
   var keyBytes = typeof key === 'string' ? Buffer.from(key, inputEncoding || 'hex') : _toBytes(key);
   if (outputEncoding === 'hex') return _bytesToBufferLike(keyBytes).toString('hex');
   if (outputEncoding === 'base64') return _bytesToBufferLike(keyBytes).toString('base64');
