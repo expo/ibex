@@ -750,6 +750,7 @@ function Readable(options) {
     endedRead: false,
     needReadable: false,
     emittedReadable: false,
+    emittingReadable: false,
     readable: true,
     readableListening: false,
     resumeScheduled: false,
@@ -1200,7 +1201,12 @@ function _emitReadableNow(stream, state, force) {
   if (!state.destroyed &&
       !state.errored &&
       (state.length > 0 || state.ended)) {
-    stream.emit('readable');
+    state.emittingReadable = true;
+    try {
+      stream.emit('readable');
+    } finally {
+      state.emittingReadable = false;
+    }
   }
   state.emittedReadable = false;
   if (stream.readableFlowing !== true &&
@@ -1250,7 +1256,9 @@ Readable.prototype._updateReadableLength = function(delta) {
       state.length = 0;
     }
     this.readableLength = state.length;
-    state.readableListening = this._events && this._events.readable !== undefined;
+    if (!state.emittingReadable) {
+      state.readableListening = this._events && this._events.readable !== undefined;
+    }
     return;
   }
   throw new Error("The \"delta\" argument must be a finite number");
@@ -1281,7 +1289,12 @@ Readable.prototype._emitReadableIfNeeded = function() {
     if (!readableState.destroyed &&
         !readableState.errored &&
         (readableState.length > 0 || readableState.ended)) {
-      self.emit('readable');
+      readableState.emittingReadable = true;
+      try {
+        self.emit('readable');
+      } finally {
+        readableState.emittingReadable = false;
+      }
     }
     readableState.emittedReadable = false;
     if (self.readableFlowing !== true &&
@@ -1760,7 +1773,7 @@ Readable.prototype.on = function(event, listener) {
   if (event === 'readable' && arguments.length === 1) {
     var state = this._readableState;
     this.readableFlowing = false;
-    if (state) {
+    if (state && !state.readableListening) {
       state.readableListening = true;
       state.needReadable = true;
       state.emittedReadable = false;
@@ -1777,14 +1790,16 @@ Readable.prototype.on = function(event, listener) {
   if (event === 'readable') {
     var state = this._readableState;
     this.readableFlowing = false;
-    state.readableListening = true;
-    state.needReadable = true;
-    state.emittedReadable = false;
-    if (state.length > 0) {
-      this._emitReadableIfNeeded();
-    } else if (!state.reading) {
-      var self = this;
-      _nextTick(function() { self.read(0); });
+    if (!state.readableListening) {
+      state.readableListening = true;
+      state.needReadable = true;
+      state.emittedReadable = false;
+      if (state.length > 0) {
+        this._emitReadableIfNeeded();
+      } else if (!state.reading) {
+        var self = this;
+        _nextTick(function() { self.read(0); });
+      }
     }
   }
   // Adding a 'data' listener starts flowing mode (unless explicitly paused)
