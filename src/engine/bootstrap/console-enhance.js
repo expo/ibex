@@ -7,6 +7,32 @@
   var _clearSequence = '\x1b[1;1H\x1b[0J';
   var _stdoutWriteInProgress = false;
   var _stderrWriteInProgress = false;
+  var _utilModuleLoaded = false;
+  var _utilModule = null;
+  var _diagnosticsModuleLoaded = false;
+  var _diagnosticsModule = null;
+
+  function _getUtilModule() {
+    if (_utilModuleLoaded) return _utilModule;
+    _utilModuleLoaded = true;
+    try {
+      _utilModule = globalThis.require ? globalThis.require('util') : null;
+    } catch (_) {
+      _utilModule = null;
+    }
+    return _utilModule;
+  }
+
+  function _getDiagnosticsModule() {
+    if (_diagnosticsModuleLoaded) return _diagnosticsModule;
+    _diagnosticsModuleLoaded = true;
+    try {
+      _diagnosticsModule = globalThis.require ? globalThis.require('diagnostics_channel') : null;
+    } catch (_) {
+      _diagnosticsModule = null;
+    }
+    return _diagnosticsModule;
+  }
 
   function _isValidStreamWrite(stream, candidate) {
     return stream && typeof stream.write === 'function' && stream.write === candidate;
@@ -38,8 +64,12 @@
 
   // Format arguments using util.format for proper %s, %d, etc. support
   function _formatArgs(args, inspectOpts) {
+    if (args.length === 0) return '';
+    if (!inspectOpts && args.length === 1 && typeof args[0] === 'string') {
+      return args[0];
+    }
     try {
-      var util = globalThis.require ? globalThis.require('util') : null;
+      var util = _getUtilModule();
       if (util && typeof util.format === 'function') {
         if (inspectOpts) {
           // Use formatWithOptions if available, otherwise fallback
@@ -90,7 +120,7 @@
   function _publishConsoleChannel(methodName, args) {
     if (!methodName || !globalThis.require) return;
     try {
-      var diagnostics = globalThis.require('diagnostics_channel');
+      var diagnostics = _getDiagnosticsModule();
       if (!diagnostics || typeof diagnostics.channel !== 'function') return;
       var channelName = 'console.' + methodName;
       if (typeof diagnostics.hasSubscribers === 'function' &&
@@ -165,7 +195,7 @@
 
     // Validate colorMode
     if (colorMode !== 'auto' && colorMode !== true && colorMode !== false) {
-      var util = globalThis.require ? globalThis.require('util') : null;
+      var util = _getUtilModule();
       var received = util && util.inspect ? util.inspect(colorMode) : String(colorMode);
       var cmErr = new TypeError("The argument 'colorMode' must be one of: 'auto', true, false. Received " + received);
       cmErr.code = 'ERR_INVALID_ARG_VALUE';
@@ -292,7 +322,7 @@
   Console.prototype.error = function error() { _consoleWrite(this, this._stderr, arguments, 'error'); };
   Console.prototype.dir = function dir(obj, options) {
     try {
-      var util = globalThis.require ? globalThis.require('util') : null;
+      var util = _getUtilModule();
       var inspectOpts = _getInspectOpts(this, this._stdout);
       if (options) {
         var oKeys = Object.keys(options);
