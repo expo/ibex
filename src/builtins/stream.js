@@ -6389,6 +6389,30 @@ function isStreamDone(stream) {
     }
   }
 
+  function guardLateSettledErrors() {
+    var guarded = [];
+    var seenGuarded = [];
+    for (var gi = 0; gi < streamErrors.length; gi++) {
+      var guardedStream = streamErrors[gi];
+      if (!guardedStream || seenGuarded.indexOf(guardedStream) !== -1) continue;
+      if (typeof guardedStream.on !== 'function' || typeof guardedStream.removeListener !== 'function') continue;
+      seenGuarded.push(guardedStream);
+      var guardHandler = function() {};
+      guardedStream.on('error', guardHandler);
+      guarded.push([guardedStream, guardHandler]);
+    }
+    if (guarded.length === 0) return;
+    var releaseGuards = function() {
+      for (var g = 0; g < guarded.length; g++) {
+        guarded[g][0].removeListener('error', guarded[g][1]);
+      }
+    };
+    var guardTimer = setTimeout(releaseGuards, 50);
+    if (guardTimer && typeof guardTimer.unref === 'function') {
+      guardTimer.unref();
+    }
+  }
+
   function settle(err) {
     if (__pipelineDebug) {
       console.log('pipeline', __pipelineDebugId, 'settle', err && (err.message || err.code || err));
@@ -6430,6 +6454,9 @@ function isStreamDone(stream) {
     }
     if (settled) return;
     settled = true;
+    if (finalErr) {
+      guardLateSettledErrors();
+    }
     cleanup();
     finalErr = normalizePipelineError(finalErr);
     if (finalErr) {
@@ -6513,13 +6540,6 @@ function isStreamDone(stream) {
         return;
       }
       if (hasFunctionBackedLastStage && stream !== last) {
-        return;
-      }
-      if (
-        stream === last &&
-        hasFunctionBackedLastStage
-      ) {
-        settle(null);
         return;
       }
       if (!isStreamDone(stream)) {

@@ -1858,8 +1858,8 @@ ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
       err = earlySocketError;
     }
     if (err) {
-      if (self.destroyed || self._destroyRequested || self._closed) {
-        if (!isAbortLikeRequestError(err)) {
+      if (self.destroyed || self._destroyRequested || self._closed || self._aborted) {
+        if (!self._aborted && !isAbortLikeRequestError(err)) {
           self.errored = err;
           self.emit('error', err);
         }
@@ -2833,9 +2833,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   function onError(err) {
     socket._hadError = true;
     if ((self._aborted || self._destroyRequested) &&
-        self.errored !== err &&
-        isAbortLikeRequestError(err)) {
-      return;
+        self.errored !== err) {
+      if (!self.res || isAbortLikeRequestError(err)) {
+        return;
+      }
     }
     self.emit('error', err);
   }
