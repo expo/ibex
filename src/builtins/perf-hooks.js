@@ -153,6 +153,31 @@ function _freezePrototypeProperty(ctor) {
   } catch (_err) {}
 }
 
+function _setFunctionName(fn, name) {
+  if (typeof fn !== 'function') {
+    return fn;
+  }
+  try {
+    Object.defineProperty(fn, 'name', {
+      configurable: true,
+      value: name
+    });
+  } catch (_err) {}
+  return fn;
+}
+
+function _requirePerformanceReceiver(value) {
+  if (!(value instanceof Performance)) {
+    throw _illegalConstructor();
+  }
+}
+
+function _requireArgumentCount(actual, required) {
+  if (actual < required) {
+    throw new TypeError(required + ' argument required, but only ' + actual + ' present.');
+  }
+}
+
 function _toArray(args) {
   var list = [];
   for (var i = 0; i < args.length; i++) {
@@ -288,10 +313,32 @@ function PerformanceMark(name) {
   _allowPerformanceEntryConstruction = true;
   PerformanceEntry.call(this, String(name), 'mark', startTime, 0);
   _allowPerformanceEntryConstruction = false;
-  this.detail = _cloneDetail(options.detail);
+  this._detail = _cloneDetail(options.detail);
 }
 PerformanceMark.prototype = Object.create(PerformanceEntry.prototype);
-PerformanceMark.prototype.constructor = PerformanceMark;
+Object.defineProperty(PerformanceMark.prototype, 'constructor', {
+  configurable: true,
+  enumerable: false,
+  writable: true,
+  value: PerformanceMark
+});
+var _performanceMarkDetailGetter = function() {
+  if (!(this instanceof PerformanceMark)) {
+    throw _illegalConstructor();
+  }
+  return this._detail;
+};
+try {
+  Object.defineProperty(_performanceMarkDetailGetter, 'name', {
+    configurable: true,
+    value: 'get detail'
+  });
+} catch (_performanceMarkDetailGetterNameErr) {}
+Object.defineProperty(PerformanceMark.prototype, 'detail', {
+  configurable: true,
+  enumerable: true,
+  get: _performanceMarkDetailGetter
+});
 Object.defineProperty(PerformanceMark.prototype, Symbol.toStringTag, {
   configurable: true,
   enumerable: false,
@@ -312,10 +359,32 @@ function PerformanceMeasure() {
   _allowPerformanceEntryConstruction = true;
   PerformanceEntry.call(this, name, 'measure', startTime, duration);
   _allowPerformanceEntryConstruction = false;
-  this.detail = _cloneDetail(detail);
+  this._detail = _cloneDetail(detail);
 }
 PerformanceMeasure.prototype = Object.create(PerformanceEntry.prototype);
-PerformanceMeasure.prototype.constructor = PerformanceMeasure;
+Object.defineProperty(PerformanceMeasure.prototype, 'constructor', {
+  configurable: true,
+  enumerable: false,
+  writable: true,
+  value: PerformanceMeasure
+});
+var _performanceMeasureDetailGetter = function() {
+  if (!(this instanceof PerformanceMeasure)) {
+    throw _illegalConstructor();
+  }
+  return this._detail;
+};
+try {
+  Object.defineProperty(_performanceMeasureDetailGetter, 'name', {
+    configurable: true,
+    value: 'get detail'
+  });
+} catch (_performanceMeasureDetailGetterNameErr) {}
+Object.defineProperty(PerformanceMeasure.prototype, 'detail', {
+  configurable: true,
+  enumerable: true,
+  get: _performanceMeasureDetailGetter
+});
 Object.defineProperty(PerformanceMeasure.prototype, Symbol.toStringTag, {
   configurable: true,
   enumerable: false,
@@ -361,7 +430,12 @@ function PerformanceResourceTiming() {
   this.responseStatus = config.responseStatus || 0;
 }
 PerformanceResourceTiming.prototype = Object.create(PerformanceEntry.prototype);
-PerformanceResourceTiming.prototype.constructor = PerformanceResourceTiming;
+Object.defineProperty(PerformanceResourceTiming.prototype, 'constructor', {
+  configurable: true,
+  enumerable: false,
+  writable: true,
+  value: PerformanceResourceTiming
+});
 PerformanceResourceTiming.prototype.toJSON = function() {
   return {
     name: this.name,
@@ -410,12 +484,16 @@ _freezePrototypeProperty(PerformanceResourceTiming);
 
 function Performance() {}
 Performance.prototype.now = function() {
+  _requirePerformanceReceiver(this);
   var t = _perfNow();
   _updateNodeTiming();
   return t;
 };
 Performance.prototype.timeOrigin = _perfStart;
-Performance.prototype.mark = function(name, options) {
+Performance.prototype.mark = function(name) {
+  _requirePerformanceReceiver(this);
+  _requireArgumentCount(arguments.length, 1);
+  var options = arguments[1];
   _updateNodeTiming();
   if (typeof name === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string');
   var entry = new PerformanceMark(name, options);
@@ -423,7 +501,11 @@ Performance.prototype.mark = function(name, options) {
   _notifyObservers(entry);
   return entry;
 };
-Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
+Performance.prototype.measure = function(name) {
+  _requirePerformanceReceiver(this);
+  _requireArgumentCount(arguments.length, 1);
+  var startMarkOrOptions = arguments[1];
+  var endMark = arguments[2];
   _updateNodeTiming();
   var startTime = 0;
   var endTime = _perfNow();
@@ -493,9 +575,13 @@ Performance.prototype.measure = function(name, startMarkOrOptions, endMark) {
   return entry;
 };
 Performance.prototype.getEntries = function() {
+  _requirePerformanceReceiver(this);
   return _marks.concat(_measures, _resources).sort(function(a, b) { return a.startTime - b.startTime; });
 };
-Performance.prototype.getEntriesByName = function(name, type) {
+Performance.prototype.getEntriesByName = function(name) {
+  var type = arguments[1];
+  _requirePerformanceReceiver(this);
+  _requireArgumentCount(arguments.length, 1);
   var all = _marks.concat(_measures, _resources);
   var result = [];
   for (var i = 0; i < all.length; i++) {
@@ -506,6 +592,8 @@ Performance.prototype.getEntriesByName = function(name, type) {
   return result.sort(function(a, b) { return a.startTime - b.startTime; });
 };
 Performance.prototype.getEntriesByType = function(type) {
+  _requirePerformanceReceiver(this);
+  _requireArgumentCount(arguments.length, 1);
   var all = _marks.concat(_measures, _resources);
   var result = [];
   for (var i = 0; i < all.length; i++) {
@@ -515,7 +603,9 @@ Performance.prototype.getEntriesByType = function(type) {
   }
   return result.sort(function(a, b) { return a.startTime - b.startTime; });
 };
-Performance.prototype.clearMarks = function(name) {
+Performance.prototype.clearMarks = function() {
+  var name = arguments[0];
+  _requirePerformanceReceiver(this);
   if (typeof name === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string');
   if (name === undefined) {
     _marks = [];
@@ -524,7 +614,9 @@ Performance.prototype.clearMarks = function(name) {
     _marks = _marks.filter(function(m) { return m.name !== nameStr; });
   }
 };
-Performance.prototype.clearMeasures = function(name) {
+Performance.prototype.clearMeasures = function() {
+  var name = arguments[0];
+  _requirePerformanceReceiver(this);
   if (name === undefined) {
     _measures = [];
   } else {
@@ -532,6 +624,7 @@ Performance.prototype.clearMeasures = function(name) {
   }
 };
 Performance.prototype.clearResourceTimings = function() {
+  _requirePerformanceReceiver(this);
   _resources = [];
 };
 Performance.prototype.markResourceTiming = function(
@@ -544,6 +637,7 @@ Performance.prototype.markResourceTiming = function(
   responseStatus,
   deliveryType
 ) {
+  _requirePerformanceReceiver(this);
   var connectionInfo = timingInfo && timingInfo.finalConnectionTimingInfo || {};
   var encodedBodySize = timingInfo && timingInfo.encodedBodySize || 0;
   var duration = 0;
@@ -583,12 +677,24 @@ Performance.prototype.markResourceTiming = function(
   return entry;
 };
 Performance.prototype.toJSON = function() {
+  _requirePerformanceReceiver(this);
   _updateNodeTiming();
   return {
     timeOrigin: this.timeOrigin,
     nodeTiming: this.nodeTiming
   };
 };
+_setFunctionName(Performance.prototype.now, 'now');
+_setFunctionName(Performance.prototype.mark, 'mark');
+_setFunctionName(Performance.prototype.measure, 'measure');
+_setFunctionName(Performance.prototype.getEntries, 'getEntries');
+_setFunctionName(Performance.prototype.getEntriesByName, 'getEntriesByName');
+_setFunctionName(Performance.prototype.getEntriesByType, 'getEntriesByType');
+_setFunctionName(Performance.prototype.clearMarks, 'clearMarks');
+_setFunctionName(Performance.prototype.clearMeasures, 'clearMeasures');
+_setFunctionName(Performance.prototype.clearResourceTimings, 'clearResourceTimings');
+_setFunctionName(Performance.prototype.markResourceTiming, 'markResourceTiming');
+_setFunctionName(Performance.prototype.toJSON, 'toJSON');
 
 var _nodeTiming = {
   name: 'node',
@@ -931,7 +1037,8 @@ function PerformanceObserver(callback) {
   this._entryQueue = [];
   this._flushScheduled = false;
 }
-PerformanceObserver.prototype.observe = function(options) {
+PerformanceObserver.prototype.observe = function() {
+  var options = arguments[0];
   if (!options || typeof options !== 'object') {
     throw _invalidArgType('The "options" argument must be of type object.');
   }
@@ -974,6 +1081,9 @@ PerformanceObserver.prototype.takeRecords = function() {
   this._entryQueue.length = 0;
   return entries;
 };
+_setFunctionName(PerformanceObserver.prototype.observe, 'observe');
+_setFunctionName(PerformanceObserver.prototype.disconnect, 'disconnect');
+_setFunctionName(PerformanceObserver.prototype.takeRecords, 'takeRecords');
 PerformanceObserver.supportedEntryTypes = ['mark', 'measure', 'function', 'resource'];
 
 var performance = new Performance();
