@@ -3611,6 +3611,8 @@ var _hermesUnhandledRejectionHandlerPatched = false;
 var _hermesUnhandledRejectionOriginalHandler = null;
 var _hermesUnhandledRejectionOriginalGlobalHandler = null;
 var _handledStreamErrors = [];
+var _hermesUnhandledRejectionReleaseTimer = null;
+var _hermesUnhandledRejectionReleaseAmount = 0;
 
 function _getSharedHermesUnhandledRejectionFilter() {
   if (typeof globalThis !== 'object' || !globalThis) return 0;
@@ -3688,14 +3690,23 @@ function _suppressHermesAsyncIteratorUnhandledRejections() {
   _setSharedHermesUnhandledRejectionFilter(
     Math.max(_getSharedHermesUnhandledRejectionFilter(), 1000)
   );
-  var releaseTimer = setTimeout(function() {
-    _hermesUnhandledRejectionFilter = Math.max(0, _hermesUnhandledRejectionFilter - 1000);
+  _hermesUnhandledRejectionReleaseAmount = 1000;
+  if (_hermesUnhandledRejectionReleaseTimer) {
+    clearTimeout(_hermesUnhandledRejectionReleaseTimer);
+    _hermesUnhandledRejectionReleaseTimer = null;
+  }
+  _hermesUnhandledRejectionReleaseTimer = setTimeout(function() {
+    var releaseAmount = _hermesUnhandledRejectionReleaseAmount || 1000;
+    _hermesUnhandledRejectionReleaseAmount = 0;
+    _hermesUnhandledRejectionReleaseTimer = null;
+    _hermesUnhandledRejectionFilter = Math.max(0, _hermesUnhandledRejectionFilter - releaseAmount);
     _setSharedHermesUnhandledRejectionFilter(
-      Math.max(0, _getSharedHermesUnhandledRejectionFilter() - 1000)
+      Math.max(0, _getSharedHermesUnhandledRejectionFilter() - releaseAmount)
     );
-  }, 10000);
-  if (releaseTimer && typeof releaseTimer.unref === 'function') {
-    releaseTimer.unref();
+  }, 250);
+  if (_hermesUnhandledRejectionReleaseTimer &&
+      typeof _hermesUnhandledRejectionReleaseTimer.unref === 'function') {
+    _hermesUnhandledRejectionReleaseTimer.unref();
   }
 }
 
