@@ -981,12 +981,16 @@ function _coerceReadSize(value) {
   return Math.floor(value);
 }
 
-function _howMuchToRead(n, state) {
+function _howMuchToRead(n, state, stream) {
   if (n <= 0 || (state.length === 0 && state.ended)) return 0;
   if (state.objectMode) return 1;
   if (isNaN(n)) {
     if (state.flowing === true && state.length > 0) {
-      return readableStateChunkLength(state.buffer[0], false);
+      // Data is stored in stream._data, not state.buffer
+      var firstChunk = stream && stream._data && stream._data[0];
+      if (firstChunk !== undefined) {
+        return readableStateChunkLength(firstChunk, false);
+      }
     }
     return state.length;
   }
@@ -1248,6 +1252,10 @@ function _emitReadableNow(stream, state, force) {
   if (!state || (state.emittedReadable && !force)) {
     return;
   }
+  // Don't emit readable after end has been emitted (unless forced during push(null))
+  if (state.endEmitted && !force) {
+    return;
+  }
   state.emittedReadable = true;
   state.needReadable = false;
   if (!state.destroyed &&
@@ -1325,6 +1333,7 @@ Readable.prototype._emitReadableIfNeeded = function() {
   var state = this._readableState;
   if (!state.needReadable ||
       state.emittedReadable ||
+      state.endEmitted ||
       state.readableFlowing ||
       this.readableFlowing === true ||
       (state.length === 0 && !state.ended)) {
@@ -1336,6 +1345,9 @@ Readable.prototype._emitReadableIfNeeded = function() {
   _nextTick(function() {
     var readableState = self && self._readableState;
     if (self._destroyed || self._closed || !readableState) {
+      return;
+    }
+    if (readableState.endEmitted) {
       return;
     }
     if (!readableState.destroyed &&
@@ -1608,7 +1620,7 @@ Readable.prototype.read = function(size) {
     return null;
   }
 
-  n = _howMuchToRead(n, state);
+  n = _howMuchToRead(n, state, this);
   if (n === 0 && state.ended) {
     state.needReadable = false;
     if (state.length === 0 && !state.endEmitted) {
@@ -1645,11 +1657,12 @@ Readable.prototype.read = function(size) {
         state.sync = false;
       }
     if (!state.reading) {
-      n = _howMuchToRead(nOrig, state);
+      n = _howMuchToRead(nOrig, state, this);
     }
   }
 
   if (state.length === 0 && state.ended && !state.endEmitted) {
+    state.needReadable = false;
     if (this.readableFlowing === true) {
       this.pause();
     }
@@ -1947,6 +1960,11 @@ Readable.prototype[Symbol.asyncIterator] = function(options) {
       return;
     }
     if (stream && stream._closed) {
+      finishedState = makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close');
+      return;
+    }
+    // If stream is destroyed but close hasn't fired yet, treat as premature close
+    if (stream && (stream._destroyed || stream.destroyed) && !state.ended) {
       finishedState = makeError(Error, 'ERR_STREAM_PREMATURE_CLOSE', 'Premature close');
     }
   }
@@ -2879,6 +2897,15 @@ Readable.prototype.take = function(limit, options) {
     closeSource(error || null);
     cb(error || null);
   };
+
+  if (limit <= 0) {
+    // take(0) - immediately push null, no data needed
+    _nextTick(function() {
+      finish();
+    });
+    _attachReadableAbortSignal(result, signal);
+    return result;
+  }
 
   if (source && typeof source.pause === 'function') {
     source.pause();

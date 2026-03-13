@@ -731,50 +731,168 @@ function eventTargetAgnosticAddListener(emitter, name, listener, flags) {
 
 // Static on (async iterator)
 function on(emitter, eventName, options) {
+  // Validate emitter
+  var isEmitterObject = (emitter !== null && (typeof emitter === 'object' || typeof emitter === 'function'));
+  if (!isEmitterObject) {
+    throw _invalidArgType('emitter', emitter);
+  }
+
+  // Validate options
+  if (options !== undefined) {
+    if (options === null || typeof options !== 'object') {
+      throw _invalidArgType('options', options);
+    }
+    if (options.signal !== undefined) {
+      if (options.signal === null || (typeof options.signal !== 'object' && typeof options.signal !== 'function') ||
+          typeof options.signal.addEventListener !== 'function') {
+        var signalType = options.signal === null ? 'null' : (typeof options.signal);
+        var signalErr = new TypeError(
+          'The "options.signal" property must be an AbortSignal. Received ' + signalType
+        );
+        signalErr.code = 'ERR_INVALID_ARG_TYPE';
+        throw signalErr;
+      }
+      if (options.signal.aborted) {
+        var abortErr = new (typeof DOMException === 'function' ? DOMException : Error)(
+          'The operation was aborted', 'AbortError'
+        );
+        abortErr.code = 'ABORT_ERR';
+        throw abortErr;
+      }
+    }
+  }
+
   var unconsumed = [];
   var waiting = [];
   var done = false;
   var errored = null;
+  var signal = options && options.signal;
+  var removeSignalListener = null;
 
   function handler() {
     var args = [];
     for (var i = 0; i < arguments.length; i++) args.push(arguments[i]);
     if (waiting.length > 0) {
-      var resolve = waiting.shift();
-      resolve({ value: args, done: false });
+      var item = waiting.shift();
+      item.resolve({ value: args, done: false });
     } else {
       unconsumed.push(args);
     }
   }
 
   function errorHandler(err) {
+    done = true;
     errored = err;
+    // Reject the first waiting promise, resolve the rest as done
     if (waiting.length > 0) {
-      var reject = waiting.shift();
-      reject(err);
+      var first = waiting.shift();
+      first.reject(err);
+    }
+    // Resolve remaining as done
+    while (waiting.length > 0) {
+      var item = waiting.shift();
+      item.resolve({ value: undefined, done: true });
+    }
+    cleanup();
+  }
+
+  function cleanup() {
+    if (typeof emitter.removeListener === 'function') {
+      emitter.removeListener(eventName, handler);
+      if (eventName !== 'error') emitter.removeListener('error', errorHandler);
+    } else if (typeof emitter.removeEventListener === 'function') {
+      emitter.removeEventListener(eventName, eventTargetHandler);
+    }
+    if (typeof removeSignalListener === 'function') {
+      removeSignalListener();
+      removeSignalListener = null;
     }
   }
 
-  emitter.on(eventName, handler);
-  if (eventName !== 'error') emitter.on('error', errorHandler);
+  // EventTarget support
+  var eventTargetHandler;
+  if (typeof emitter.on === 'function') {
+    emitter.on(eventName, handler);
+    if (eventName !== 'error') emitter.on('error', errorHandler);
+  } else if (typeof emitter.addEventListener === 'function') {
+    eventTargetHandler = function(event) {
+      handler(event);
+    };
+    emitter.addEventListener(eventName, eventTargetHandler);
+  }
+
+  // Signal support
+  if (signal) {
+    var onAbort = function() {
+      var abortError = new (typeof DOMException === 'function' ? DOMException : Error)(
+        'The operation was aborted', 'AbortError'
+      );
+      abortError.code = 'ABORT_ERR';
+      done = true;
+      errored = abortError;
+      // Reject the first waiting promise, resolve the rest as done
+      if (waiting.length > 0) {
+        var first = waiting.shift();
+        first.reject(abortError);
+      }
+      while (waiting.length > 0) {
+        var item = waiting.shift();
+        item.resolve({ value: undefined, done: true });
+      }
+      cleanup();
+    };
+    signal.addEventListener('abort', onAbort);
+    removeSignalListener = function() {
+      signal.removeEventListener('abort', onAbort);
+    };
+  }
 
   var iterator = {};
   iterator.next = function() {
     if (unconsumed.length > 0) {
       return Promise.resolve({ value: unconsumed.shift(), done: false });
     }
-    if (errored) return Promise.reject(errored);
+    if (errored) {
+      var err = errored;
+      errored = null;
+      done = true;
+      return Promise.reject(err);
+    }
     if (done) return Promise.resolve({ value: undefined, done: true });
     return new Promise(function(resolve, reject) {
-      waiting.push(resolve);
+      waiting.push({ resolve: resolve, reject: reject });
     });
   };
   iterator.return = function() {
     done = true;
-    emitter.removeListener(eventName, handler);
-    if (eventName !== 'error') emitter.removeListener('error', errorHandler);
+    cleanup();
     while (waiting.length > 0) {
-      waiting.shift()({ value: undefined, done: true });
+      var item = waiting.shift();
+      item.resolve({ value: undefined, done: true });
+    }
+    return Promise.resolve({ value: undefined, done: true });
+  };
+  iterator.throw = function(err) {
+    if (err !== undefined && !(err instanceof Error)) {
+      var typeErr = new TypeError(
+        'The "EventEmitter.AsyncIterator" property must be' +
+        ' an instance of Error. Received ' +
+        (err === undefined ? 'undefined' : typeof err)
+      );
+      typeErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw typeErr;
+    }
+    errored = err;
+    done = true;
+    cleanup();
+    // Reject the first waiting promise, resolve the rest as done
+    if (waiting.length > 0) {
+      var first = waiting.shift();
+      first.reject(err);
+    }
+    while (waiting.length > 0) {
+      var item = waiting.shift();
+      item.resolve({ value: undefined, done: true });
     }
     return Promise.resolve({ value: undefined, done: true });
   };
