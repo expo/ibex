@@ -13,6 +13,7 @@
 
 pub mod abi;
 pub mod capability;
+pub mod capability_bits;
 pub mod policy;
 pub mod process;
 
