@@ -3152,39 +3152,57 @@ function X509Certificate(buf) {
   if (!buf) {
     throw _errInvalidArgType('buffer', 'an instance of Buffer, TypedArray, DataView, or string', buf);
   }
+  if (buf && typeof buf === 'object' && buf.__exactX509Data === true) {
+    this._exactData = buf;
+    this._raw = _toBytes(buf.raw || buf.pem || '');
+    this._pem = typeof buf.pem === 'string' ? buf.pem : '';
+    this._issuerCertificate = null;
+    return;
+  }
   this._raw = _toBytes(buf);
   this._pem = typeof buf === 'string' ? buf : '';
+  this._exactData = null;
+  this._issuerCertificate = null;
 }
 
 Object.defineProperty(X509Certificate.prototype, 'subject', {
-  get: function() { return ''; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.subject || '' : ''; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'issuer', {
-  get: function() { return ''; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.issuer || '' : ''; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'subjectAltName', {
-  get: function() { return undefined; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.subjectAltName : undefined; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'infoAccess', {
-  get: function() { return undefined; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.infoAccess : undefined; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'validFrom', {
-  get: function() { return ''; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.validFrom || '' : ''; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'validTo', {
-  get: function() { return ''; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.validTo || '' : ''; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'serialNumber', {
-  get: function() { return ''; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.serialNumber || '' : ''; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'fingerprint', {
-  get: function() { return ''; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.fingerprint || '' : ''; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'fingerprint256', {
-  get: function() { return ''; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.fingerprint256 || '' : ''; }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'keyUsage', {
-  get: function() { return []; }, enumerable: true
+  get: function() { return this._exactData ? this._exactData.keyUsage || [] : []; }, enumerable: true
+});
+Object.defineProperty(X509Certificate.prototype, 'issuerCertificate', {
+  get: function() {
+    if (!this._exactData || !this._exactData.issuerCertificate) return undefined;
+    if (!this._issuerCertificate) {
+      this._issuerCertificate = new X509Certificate(this._exactData.issuerCertificate);
+    }
+    return this._issuerCertificate;
+  }, enumerable: true
 });
 Object.defineProperty(X509Certificate.prototype, 'raw', {
   get: function() { return typeof Buffer !== 'undefined' ? Buffer.from(this._raw) : this._raw; }, enumerable: true
@@ -3192,7 +3210,9 @@ Object.defineProperty(X509Certificate.prototype, 'raw', {
 
 X509Certificate.prototype.toString = function() { return this._pem; };
 X509Certificate.prototype.toJSON = function() { return this._pem; };
-X509Certificate.prototype.toLegacyObject = function() { return {}; };
+X509Certificate.prototype.toLegacyObject = function() {
+  return this._exactData && this._exactData.legacyObject ? this._exactData.legacyObject : {};
+};
 X509Certificate.prototype.checkHost = function() { return undefined; };
 X509Certificate.prototype.checkEmail = function() { return undefined; };
 X509Certificate.prototype.checkIP = function() { return undefined; };

@@ -4,6 +4,8 @@ var _kReinitializeHandle = Symbol.for('nodejs.net.kReinitializeHandle');
 
 var eventsModule;
 try { eventsModule = require('events'); } catch(e) {}
+var cryptoModule;
+try { cryptoModule = require('crypto'); } catch(e) {}
 
 var EventEmitter = eventsModule && (eventsModule.EventEmitter || eventsModule);
 var hasOwn = Object.prototype.hasOwnProperty;
@@ -497,6 +499,26 @@ function _generateFingerprint(seed, algorithm) {
 
 var _certificateParseCache = typeof Map !== 'undefined' ? new Map() : null;
 
+function _pemSourceToString(source) {
+  if (source == null) return '';
+  if (typeof source === 'string') return source;
+  if (Array.isArray(source)) {
+    var combined = '';
+    for (var i = 0; i < source.length; i++) {
+      combined += _pemSourceToString(source[i]);
+      if (combined && combined[combined.length - 1] !== '\n') combined += '\n';
+    }
+    return combined;
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(source)) {
+    return source.toString('utf8');
+  }
+  if (_isArrayBufferView(source)) {
+    return _bufferFromBytes(source).toString ? _bufferFromBytes(source).toString('utf8') : String(source);
+  }
+  return String(source);
+}
+
 function _bufferFromBase64(value) {
   if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
     return Buffer.from(value, 'base64');
@@ -515,8 +537,9 @@ function _bufferFromBytes(value) {
 }
 
 function _splitPemCertificates(source) {
-  if (typeof source !== 'string' || !source) return [];
-  var matches = source.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
+  var normalized = _pemSourceToString(source);
+  if (!normalized) return [];
+  var matches = normalized.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
   return matches || [];
 }
 
@@ -641,7 +664,17 @@ function _parseDerName(bytes, element) {
       var attrChildren = _readDerChildren(bytes, attrs[j].valueStart, attrs[j].valueEnd);
       if (attrChildren.length < 2) continue;
       var oid = _decodeDerOid(bytes, attrChildren[0].valueStart, attrChildren[0].valueEnd);
-      result[_attributeNameForOid(oid)] = _decodeDerString(bytes, attrChildren[1]);
+      var attrName = _attributeNameForOid(oid);
+      var attrValue = _decodeDerString(bytes, attrChildren[1]);
+      if (hasOwn.call(result, attrName)) {
+        if (Array.isArray(result[attrName])) {
+          result[attrName].push(attrValue);
+        } else {
+          result[attrName] = [result[attrName], attrValue];
+        }
+      } else {
+        result[attrName] = attrValue;
+      }
     }
   }
   return result;
@@ -723,6 +756,37 @@ function _cloneCertificate(cert, detailed, seen) {
     }
   }
   return clone;
+}
+
+function _toX509CertificateData(cert, includeIssuer) {
+  if (!cert || typeof cert !== 'object') return null;
+  var data = {
+    __exactX509Data: true,
+    raw: cert.raw || null,
+    pem: typeof cert.pem === 'string' ? cert.pem : '',
+    subject: _cloneSimpleObject(cert.subject),
+    issuer: _cloneSimpleObject(cert.issuer),
+    subjectAltName: cert.subjectaltname,
+    infoAccess: _cloneSimpleObject(cert.infoAccess),
+    validFrom: cert.valid_from,
+    validTo: cert.valid_to,
+    serialNumber: cert.serialNumber,
+    fingerprint: cert.fingerprint,
+    fingerprint256: cert.fingerprint256,
+    keyUsage: _cloneSimpleObject(cert.keyUsage),
+    legacyObject: _cloneCertificate(cert, true)
+  };
+  if (includeIssuer && cert.issuerCertificate && cert.issuerCertificate !== cert) {
+    data.issuerCertificate = _toX509CertificateData(cert.issuerCertificate, false);
+  }
+  return data;
+}
+
+function _toX509Certificate(cert, includeIssuer) {
+  if (!cert || !cryptoModule || typeof cryptoModule.X509Certificate !== 'function') {
+    return undefined;
+  }
+  return new cryptoModule.X509Certificate(_toX509CertificateData(cert, includeIssuer));
 }
 
 function _nameKey(name) {
@@ -1112,10 +1176,16 @@ TLSSocket.prototype.getPeerCertificate = function(detailed) {
   return this._peerCertificate ? _cloneCertificate(this._peerCertificate, detailed === true) : {};
 };
 
-TLSSocket.prototype.getPeerX509Certificate = TLSSocket.prototype.getPeerCertificate;
+TLSSocket.prototype.getPeerX509Certificate = function() {
+  return _toX509Certificate(this._peerCertificate, true);
+};
 
 TLSSocket.prototype.getCertificate = function() {
   return this._localCertificate ? _cloneCertificate(this._localCertificate, true) : {};
+};
+
+TLSSocket.prototype.getX509Certificate = function() {
+  return _toX509Certificate(this._localCertificate, false);
 };
 
 TLSSocket.prototype.getCipher = function() {

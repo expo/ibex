@@ -714,6 +714,15 @@ function _emitAsyncSocketError(socket, err, callback) {
   }, 0, socket);
 }
 
+function _shouldTreatResetAsEof(socket, err) {
+  return !!(socket &&
+    err &&
+    err.code === 'ECONNRESET' &&
+    (socket._ended === true ||
+     socket._closeAfterEnd === true ||
+     socket._autoEndedFromPeer === true));
+}
+
 function _createAbortError() {
   var err = new Error('The operation was aborted');
   err.code = 'ABORT_ERR';
@@ -1636,7 +1645,17 @@ Socket.prototype._startPolling = function() {
       } catch(e) {
         self._pollTimer = null;
         if (!self.destroyed) {
-          self.destroy(_normalizeSocketIOError(e, 'read'));
+          var onreadErr = _normalizeSocketIOError(e, 'read');
+          if (_shouldTreatResetAsEof(self, onreadErr)) {
+            self._readEnded = true;
+            if (!self._notifyOnreadEOF()) {
+              _schedulePausedSocketPoll(self, poll);
+              return;
+            }
+            _handleSocketEOF(self);
+            return;
+          }
+          self.destroy(onreadErr);
         }
         return;
       }
@@ -1694,7 +1713,12 @@ Socket.prototype._startPolling = function() {
     } catch(e) {
       self._pollTimer = null;
       if (!self.destroyed) {
-        self.destroy(_normalizeSocketIOError(e, 'read'));
+        var readErr = _normalizeSocketIOError(e, 'read');
+        if (_shouldTreatResetAsEof(self, readErr)) {
+          _handleSocketEOF(self);
+          return;
+        }
+        self.destroy(readErr);
       }
       return;
     }
