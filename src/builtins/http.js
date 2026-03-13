@@ -1072,6 +1072,69 @@ function toHeaders(source) {
   return out;
 }
 
+function applyOutgoingHeaderEntries(target, headers) {
+  if (!target || !headers) return;
+  if (Array.isArray(headers) && headers.length > 0 && Array.isArray(headers[0])) {
+    for (var i = 0; i < headers.length; i++) {
+      var pair = headers[i];
+      if (!Array.isArray(pair) || pair.length !== 2) {
+        var pairHeadersErr = new TypeError('The argument \'headers\' is invalid. Received ' + JSON.stringify(headers));
+        pairHeadersErr.code = 'ERR_INVALID_ARG_VALUE';
+        throw pairHeadersErr;
+      }
+      var pairName = String(pair[0]);
+      var pairValue = pair[1];
+      validateHeaderName(pairName);
+      validateHeaderValue(pairName, pairValue);
+      var pairLc = resolveHeaderName(pairName);
+      target._headers[pairLc] = pairValue;
+      target._headerNames[pairLc] = pairName;
+      delete target._removedHeaderNames[pairLc];
+      if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
+        target[kOutHeaders] = {};
+      }
+      target[kOutHeaders][pairLc] = [pairName, pairValue];
+    }
+    return;
+  }
+  if (Array.isArray(headers)) {
+    if (headers.length % 2 !== 0) {
+      var headersErr = new TypeError('The argument \'headers\' is invalid. Received ' + JSON.stringify(headers));
+      headersErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw headersErr;
+    }
+    for (var j = 0; j + 1 < headers.length; j += 2) {
+      var hName = String(headers[j]);
+      var hVal = headers[j + 1];
+      validateHeaderName(hName);
+      validateHeaderValue(hName, hVal);
+      var lc = resolveHeaderName(hName);
+      target._headers[lc] = hVal;
+      target._headerNames[lc] = hName;
+      delete target._removedHeaderNames[lc];
+      if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
+        target[kOutHeaders] = {};
+      }
+      target[kOutHeaders][lc] = [hName, hVal];
+    }
+    return;
+  }
+  for (var k in headers) {
+    if (Object.prototype.hasOwnProperty.call(headers, k)) {
+      validateHeaderName(k);
+      validateHeaderValue(k, headers[k]);
+      var lc2 = resolveHeaderName(k);
+      target._headers[lc2] = headers[k];
+      target._headerNames[lc2] = k;
+      delete target._removedHeaderNames[lc2];
+      if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
+        target[kOutHeaders] = {};
+      }
+      target[kOutHeaders][lc2] = [k, headers[k]];
+    }
+  }
+}
+
 function parseHeaders(response) {
   var result = {};
   if (response && response.headers && typeof response.headers.forEach === 'function') {
@@ -4451,42 +4514,7 @@ ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers
   this._headerStatusCode = sc;
   this._headerStatusMessage = this.statusMessage !== undefined ? this.statusMessage : (STATUS_CODES[sc] || 'unknown');
   if (headers) {
-    if (Array.isArray(headers)) {
-      if (headers.length % 2 !== 0) {
-        var headersErr = new TypeError('The argument \'headers\' is invalid. Received ' + JSON.stringify(headers));
-        headersErr.code = 'ERR_INVALID_ARG_VALUE';
-        throw headersErr;
-      }
-      for (var i = 0; i + 1 < headers.length; i += 2) {
-        var hName = String(headers[i]);
-        var hVal = headers[i + 1];
-        validateHeaderName(hName);
-        validateHeaderValue(hName, hVal);
-        var lc = resolveHeaderName(hName);
-        this._headers[lc] = hVal;
-        this._headerNames[lc] = hName;
-        delete this._removedHeaderNames[lc];
-        if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
-          this[kOutHeaders] = {};
-        }
-        this[kOutHeaders][lc] = [hName, hVal];
-      }
-    } else {
-      for (var k in headers) {
-        if (Object.prototype.hasOwnProperty.call(headers, k)) {
-          validateHeaderName(k);
-          validateHeaderValue(k, headers[k]);
-          var lc2 = resolveHeaderName(k);
-          this._headers[lc2] = headers[k];
-          this._headerNames[lc2] = k;
-          delete this._removedHeaderNames[lc2];
-          if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
-            this[kOutHeaders] = {};
-          }
-          this[kOutHeaders][lc2] = [k, headers[k]];
-        }
-      }
-    }
+    applyOutgoingHeaderEntries(this, headers);
   }
   this._header = '';
   return this;
