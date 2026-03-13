@@ -113,6 +113,20 @@ void ensureStreamEnhance(ExactHermesRuntime* handle);
 void ensureWebCrypto(ExactHermesRuntime* handle);
 void ensureWebStorage(ExactHermesRuntime* handle);
 void ensureFormData(ExactHermesRuntime* handle);
+void installDnsHostFunctions(ExactHermesRuntime* handle);
+
+std::string escapeJson(const std::string& input);
+bool appendEscapedJsonText(std::string& out, const uint8_t* bytes, size_t len);
+std::string jsonString(const std::string& value);
+std::string makeRemoteObject(facebook::jsi::Runtime& rt, const facebook::jsi::Value& value);
+std::string stringifyValue(facebook::jsi::Runtime& runtime, const facebook::jsi::Value& value);
+facebook::jsi::Value parseJsonValue(facebook::jsi::Runtime& runtime, const char* json);
+void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event);
+std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
+    ExactHermesRuntime* runtime);
+void clearDebugger(ExactHermesRuntime* runtime);
+void disableDebugger(ExactHermesRuntime* runtime);
+std::string buildPausedEvent(ExactHermesRuntime* runtime);
 
 extern const char* g_streamEnhanceJS;
 extern const char* g_webCryptoJS;
