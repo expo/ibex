@@ -762,6 +762,55 @@ function _parseAuthorityInfoAccess(bytes, element) {
   return hasEntries ? infoAccess : undefined;
 }
 
+function _formatSubjectAltNameText(value) {
+  if (typeof value !== 'string') return '';
+  if (!/[\u0000-\u001f"\\]/.test(value)) return value;
+  return '"' + value.replace(/[\u0000-\u001f"\\]/g, function(ch) {
+    var code = ch.charCodeAt(0);
+    if (ch === '"' || ch === '\\') return '\\' + ch;
+    var hex = code.toString(16).toUpperCase();
+    while (hex.length < 4) hex = '0' + hex;
+    return '\\u' + hex;
+  }) + '"';
+}
+
+function _formatIpAddress(bytes, start, end) {
+  var length = end - start;
+  if (length === 4) {
+    return String(bytes[start]) + '.' + String(bytes[start + 1]) + '.' +
+      String(bytes[start + 2]) + '.' + String(bytes[start + 3]);
+  }
+  if (length === 16) {
+    var parts = [];
+    for (var i = start; i < end; i += 2) {
+      parts.push(((bytes[i] << 8) | bytes[i + 1]).toString(16));
+    }
+    return parts.join(':');
+  }
+  return _bytesToHex(bytes, start, end);
+}
+
+function _parseSubjectAltName(bytes, element) {
+  if (!element || element.tag !== 0x04) return undefined;
+  var wrapped = _readDerElement(bytes, element.valueStart);
+  if (!wrapped || wrapped.nextOffset > element.valueEnd || wrapped.tag !== 0x30) return undefined;
+  var names = _readDerChildren(bytes, wrapped.valueStart, wrapped.valueEnd);
+  var out = [];
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    if (name.tag === 0x82) {
+      out.push('DNS:' + _formatSubjectAltNameText(_bytesToAscii(bytes, name.valueStart, name.valueEnd)));
+    } else if (name.tag === 0x86) {
+      out.push('URI:' + _formatSubjectAltNameText(_bytesToAscii(bytes, name.valueStart, name.valueEnd)));
+    } else if (name.tag === 0x87) {
+      out.push('IP Address:' + _formatIpAddress(bytes, name.valueStart, name.valueEnd));
+    } else if (name.tag === 0x81) {
+      out.push('email:' + _formatSubjectAltNameText(_bytesToAscii(bytes, name.valueStart, name.valueEnd)));
+    }
+  }
+  return out.length ? out.join(', ') : undefined;
+}
+
 function _parseSubjectPublicKeyInfo(bytes, element) {
   if (!element || element.tag !== 0x30) return {};
   var children = _readDerChildren(bytes, element.valueStart, element.valueEnd);
@@ -824,6 +873,9 @@ function _parseCertificateExtensions(bytes, tbsChildren, startIdx) {
       if (extOid === '1.3.6.1.5.5.7.1.1') {
         var infoAccess = _parseAuthorityInfoAccess(bytes, valueElement);
         if (infoAccess) parsed.infoAccess = infoAccess;
+      } else if (extOid === '2.5.29.17') {
+        var subjectAltName = _parseSubjectAltName(bytes, valueElement);
+        if (subjectAltName) parsed.subjectaltname = subjectAltName;
       }
     }
   }
@@ -946,7 +998,6 @@ function _parsePemCertificate(pem, host, port) {
     var parsed = {
       subject: _parseDerName(bytes, subjectElement),
       issuer: _parseDerName(bytes, issuerElement),
-      subjectaltname: 'DNS:' + (host || 'localhost'),
       valid_from: _formatDerTime(bytes, validityChildren[0]),
       valid_to: _formatDerTime(bytes, validityChildren[1]),
       serialNumber: _bytesToHex(bytes, serialElement.valueStart, serialElement.valueEnd).replace(/^00+/, '') || '0',
@@ -959,7 +1010,9 @@ function _parsePemCertificate(pem, host, port) {
     for (var key in keyInfo) {
       if (hasOwn.call(keyInfo, key) && keyInfo[key] !== undefined) parsed[key] = keyInfo[key];
     }
+    if (!parsed.subjectaltname) parsed.subjectaltname = 'DNS:' + (host || 'localhost');
     if (extensionInfo.infoAccess !== undefined) parsed.infoAccess = extensionInfo.infoAccess;
+    if (extensionInfo.subjectaltname !== undefined) parsed.subjectaltname = extensionInfo.subjectaltname;
     if (_certificateParseCache) _certificateParseCache.set(pem, parsed);
     return _cloneCertificate(parsed, true);
   } catch (_parseErr) {
@@ -1105,6 +1158,49 @@ function _defaultCheckServerIdentity(hostname, cert) {
 
 function checkServerIdentity(hostname, cert) {
   return _defaultCheckServerIdentity(hostname, cert);
+}
+
+function _translateInfoAccess(value) {
+  if (value == null) return value;
+  if (typeof value !== 'string') return value;
+  var infoAccess = Object.create(null);
+  if (!value) return infoAccess;
+  var lines = value.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (!line) continue;
+    var sep = line.indexOf(':');
+    if (sep === -1) continue;
+    var key = line.slice(0, sep);
+    var entryValue = line.slice(sep + 1);
+    if (!hasOwn.call(infoAccess, key)) infoAccess[key] = [];
+    infoAccess[key].push(entryValue);
+  }
+  return infoAccess;
+}
+
+function translatePeerCertificate(cert, seen) {
+  if (cert == null || cert === 0) return null;
+  if (!cert || typeof cert !== 'object') return cert;
+  seen = seen || [];
+  for (var i = 0; i < seen.length; i++) {
+    if (seen[i].source === cert) return seen[i].clone;
+  }
+  var clone = {};
+  seen.push({ source: cert, clone: clone });
+  for (var key in cert) {
+    if (!hasOwn.call(cert, key)) continue;
+    if (key === 'issuerCertificate') {
+      clone[key] = cert[key] && typeof cert[key] === 'object'
+        ? translatePeerCertificate(cert[key], seen)
+        : null;
+    } else if (key === 'infoAccess') {
+      clone[key] = _translateInfoAccess(cert[key]);
+    } else {
+      clone[key] = cert[key];
+    }
+  }
+  return clone;
 }
 
 function _copySocketMetadata(socket, rawSocket) {
@@ -1915,6 +2011,7 @@ module.exports = {
   connect: connect,
   createSecureContext: createSecureContext,
   checkServerIdentity: checkServerIdentity,
+  translatePeerCertificate: translatePeerCertificate,
   createServer: createServer,
   convertALPNProtocols: convertALPNProtocols,
   getCACertificates: getCACertificates,

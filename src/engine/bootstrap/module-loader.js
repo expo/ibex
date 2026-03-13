@@ -1756,6 +1756,25 @@
       }
       return cache[normalized].exports;
     }
+    if (normalized === '_tls_common') {
+      if (!cache[normalized]) {
+        var tlsModule = load('tls', '');
+        cache[normalized] = {
+          exports: {
+            checkServerIdentity: tlsModule && tlsModule.checkServerIdentity,
+            translatePeerCertificate: tlsModule && tlsModule.translatePeerCertificate
+          },
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
+    }
     if (normalized === 'internal/event_target') {
       if (!cache[normalized]) {
         cache[normalized] = {
