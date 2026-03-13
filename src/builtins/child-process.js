@@ -53,16 +53,21 @@ function _makeIpcError(code, message) {
 
 function _finalizeSentSocketEntry(entry) {
   if (!entry) return;
-  var server = entry.server || entry;
   var nativeHandle = entry.nativeHandle;
   if (nativeHandle != null && typeof globalThis.__exactTcpClose === 'function') {
     try { globalThis.__exactTcpClose(nativeHandle); } catch (e) {}
   }
-  if (server) {
+  // Only decrement _connections on the actual server object, not the
+  // wrapper entry.  entry.server is null when the sent socket had no
+  // associated server (plain net.Socket without _server).
+  var server = entry.server;
+  if (server && typeof server._connections === 'number') {
     server._connections--;
     if (server._connections < 0) server._connections = 0;
     if (server._closing && server._connections === 0) {
-      server.emit('close');
+      if (typeof server.emit === 'function') {
+        server.emit('close');
+      }
     }
   }
 }
@@ -2205,6 +2210,15 @@ function ChildProcess(handle, pid, stdioModes) {
 
   // Create stdin as a Writable stream
   if (modes.stdin === 'pipe') {
+    var _stdinClosed = false;
+    var _closeStdinPipe = function() {
+      if (_stdinClosed) return;
+      _stdinClosed = true;
+      if (typeof globalThis.__exactSpawnCloseStdin === 'function' &&
+          self._handle !== null && self._handle !== undefined && self._handle >= 0) {
+        try { globalThis.__exactSpawnCloseStdin(self._handle, 'stdin'); } catch (e) {}
+      }
+    };
     this.stdin = new Stream.Writable({
       write: function(chunk, encoding, callback) {
         var data = _toUint8String(chunk);
@@ -2212,18 +2226,17 @@ function ChildProcess(handle, pid, stdioModes) {
         if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
       },
       final: function(callback) {
-        // Close native stdin pipe when all writes have drained
-        if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
-          globalThis.__exactSpawnCloseStdin(self._handle);
-        }
+        _closeStdinPipe();
         if (typeof callback === 'function') callback();
+      },
+      destroy: function(err, callback) {
+        _closeStdinPipe();
+        if (typeof callback === 'function') callback(err || null);
       }
     });
     this.stdin.readable = false;
-  } else if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
-    globalThis.__exactSpawnCloseStdin(this._handle);
-    this.stdin = null;
   } else {
+    // For inherit/ignore modes there is no stdin pipe to close.
     this.stdin = null;
   }
 
@@ -2706,6 +2719,71 @@ ChildProcess.prototype.spawn = function(options) {
 
   var signalNames2 = { 1: 'SIGHUP', 2: 'SIGINT', 3: 'SIGQUIT', 6: 'SIGABRT', 9: 'SIGKILL', 14: 'SIGALRM', 15: 'SIGTERM' };
 
+  // IPC message handling for prototype.spawn path
+  var _ipcBuffer2 = '';
+  var _pendingRecvFd2 = -1;
+
+  function emitDisconnect2() {
+    if (self3._disconnectEmitted) return;
+    self3._disconnectEmitted = true;
+    self3.connected = false;
+    self3._ipcMode = false;
+    self3.channel = null;
+    _flushSentSocketEntries(self3._sentSocketServers);
+    if (typeof setTimeout === 'function') {
+      setTimeout(function() { self3.emit('disconnect'); }, 0);
+    } else {
+      self3.emit('disconnect');
+    }
+  }
+
+  function closeIpcChannel2() {
+    if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
+      globalThis.__exactSpawnCloseStdin(self3._handle, 'ipc');
+    }
+    emitDisconnect2();
+  }
+
+  function drainIpcPackets2(rawData, recvFd) {
+    if (typeof recvFd === 'number' && recvFd >= 0) {
+      _pendingRecvFd2 = recvFd;
+    }
+    if (!rawData || !rawData.length) return;
+    var rawStr = (typeof rawData === 'string') ? rawData : _toUtf8String(rawData);
+    _ipcBuffer2 += rawStr;
+    while (_ipcBuffer2.length > 0) {
+      var lineEnd = _ipcBuffer2.indexOf('\n');
+      if (lineEnd < 0) return;
+      var line = _ipcBuffer2.slice(0, lineEnd);
+      _ipcBuffer2 = _ipcBuffer2.slice(lineEnd + 1);
+      if (!line) continue;
+      var packet;
+      try { packet = JSON.parse(line); } catch (err) { continue; }
+      if (!packet || packet.__exactIpc !== true) continue;
+      if (packet.type === 'message') {
+        if (packet.data && packet.data.cmd === 'NODE_SOCKET_CLOSED') {
+          if (self3._sentSocketServers && self3._sentSocketServers.length > 0) {
+            _finalizeSentSocketEntry(self3._sentSocketServers.shift());
+          }
+          continue;
+        }
+        var handle = null;
+        if (packet.handleType && _pendingRecvFd2 >= 0) {
+          handle = _reconstructHandle(packet.handleType, _pendingRecvFd2);
+          _pendingRecvFd2 = -1;
+        }
+        var packetData = _ipcDeserializePacketData(packet.data, packet.serialization);
+        if (handle) {
+          self3.emit('message', packetData, handle);
+        } else {
+          self3.emit('message', packetData);
+        }
+      } else if (packet.type === 'disconnect') {
+        closeIpcChannel2();
+      }
+    }
+  }
+
   function closeStreams2() {
     if (self3.stdout && typeof self3.stdout.push === 'function') self3.stdout.push(null);
     if (self3.stderr && typeof self3.stderr.push === 'function') self3.stderr.push(null);
@@ -2733,6 +2811,18 @@ ChildProcess.prototype.spawn = function(options) {
         if (errOut && errOut.length > 0) self3.stderr.push(errOut);
       } catch(e) {}
     }
+    // Poll IPC messages
+    if (self3._ipcMode && !self3._disconnectPending) {
+      if (typeof globalThis.__exactSpawnRecvMsg === 'function') {
+        var ipcResult = globalThis.__exactSpawnRecvMsg(self3._handle);
+        if (ipcResult) {
+          drainIpcPackets2(ipcResult.data, ipcResult.fd);
+        }
+      } else {
+        var ipcData = globalThis.__exactSpawnRead(self3._handle, 'ipc');
+        drainIpcPackets2(ipcData);
+      }
+    }
     // Poll exit status
     if (!self3._exited) {
       try {
@@ -2754,6 +2844,17 @@ ChildProcess.prototype.spawn = function(options) {
                 if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(finalErr);
               } catch(e) {}
             }
+          }
+          // Final IPC drain
+          if (self3._ipcMode) {
+            if (typeof globalThis.__exactSpawnRecvMsg === 'function') {
+              var finalIpcResult = globalThis.__exactSpawnRecvMsg(self3._handle);
+              if (finalIpcResult) drainIpcPackets2(finalIpcResult.data, finalIpcResult.fd);
+            } else {
+              var finalIpc = globalThis.__exactSpawnRead(self3._handle, 'ipc');
+              drainIpcPackets2(finalIpc);
+            }
+            closeIpcChannel2();
           }
           closeStreams2();
           if (status.signal > 0) {
