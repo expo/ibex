@@ -4629,7 +4629,22 @@ ServerResponse.prototype.writeEarlyHints = function(hints, callback) {
 };
 
 ServerResponse.prototype.addTrailers = function(headers) {
-  return OutgoingMessage.prototype.addTrailers.call(this, headers);
+  OutgoingMessage.prototype.addTrailers.call(this, headers);
+  this.trailers = this.trailers || {};
+  for (var name in headers) {
+    if (!Object.prototype.hasOwnProperty.call(headers, name)) continue;
+    var lc = resolveHeaderName(name);
+    this.trailers[name] = headers[name];
+    if (this._trailers && !Object.prototype.hasOwnProperty.call(this._trailers, name)) {
+      Object.defineProperty(this._trailers, name, {
+        value: this._trailers[lc],
+        configurable: true,
+        writable: true,
+        enumerable: false,
+      });
+    }
+  }
+  return this;
 };
 
 ServerResponse.prototype._ensureImplicitHeaders = function() {
