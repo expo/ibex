@@ -11,7 +11,7 @@
 
 use super::Host;
 use getrandom::getrandom;
-use rusqlite::{params_from_iter, types::ValueRef, Connection, OpenFlags};
+use rusqlite::{params_from_iter, types::ValueRef, Connection, OpenFlags, ToSql};
 use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr, CString};
@@ -247,18 +247,62 @@ fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
     }
 }
 
-fn parse_bindings(raw: *const c_char) -> Vec<rusqlite::types::Value> {
+enum SqlBindings {
+    Positional(Vec<rusqlite::types::Value>),
+    Named(Vec<(String, rusqlite::types::Value)>),
+}
+
+fn parse_bindings(raw: *const c_char) -> SqlBindings {
     if raw.is_null() {
-        return vec![];
+        return SqlBindings::Positional(vec![]);
     }
 
     let raw = unsafe { CStr::from_ptr(raw) }.to_string_lossy();
     match serde_json::from_str::<serde_json::Value>(&raw) {
-        Ok(serde_json::Value::Array(values)) => values.iter().map(to_sql_value).collect(),
-        Ok(serde_json::Value::Object(values)) => values.values().map(to_sql_value).collect(),
-        Ok(serde_json::Value::Null) => vec![],
-        Ok(other) => vec![to_sql_value(&other)],
-        Err(_) => vec![],
+        Ok(serde_json::Value::Array(values)) => {
+            SqlBindings::Positional(values.iter().map(to_sql_value).collect())
+        }
+        Ok(serde_json::Value::Object(values)) => SqlBindings::Named(
+            values
+                .into_iter()
+                .map(|(key, value)| (key, to_sql_value(&value)))
+                .collect(),
+        ),
+        Ok(serde_json::Value::Null) => SqlBindings::Positional(vec![]),
+        Ok(other) => SqlBindings::Positional(vec![to_sql_value(&other)]),
+        Err(_) => SqlBindings::Positional(vec![]),
+    }
+}
+
+fn query_with_bindings<'stmt>(
+    stmt: &'stmt mut rusqlite::Statement<'_>,
+    bindings: &SqlBindings,
+) -> rusqlite::Result<rusqlite::Rows<'stmt>> {
+    match bindings {
+        SqlBindings::Positional(values) => stmt.query(params_from_iter(values.iter())),
+        SqlBindings::Named(values) => {
+            let named: Vec<(&str, &dyn ToSql)> = values
+                .iter()
+                .map(|(name, value)| (name.as_str(), value as &dyn ToSql))
+                .collect();
+            stmt.query(named.as_slice())
+        }
+    }
+}
+
+fn execute_with_bindings(
+    stmt: &mut rusqlite::Statement<'_>,
+    bindings: &SqlBindings,
+) -> rusqlite::Result<usize> {
+    match bindings {
+        SqlBindings::Positional(values) => stmt.execute(params_from_iter(values.iter())),
+        SqlBindings::Named(values) => {
+            let named: Vec<(&str, &dyn ToSql)> = values
+                .iter()
+                .map(|(name, value)| (name.as_str(), value as &dyn ToSql))
+                .collect();
+            stmt.execute(named.as_slice())
+        }
     }
 }
 
@@ -714,10 +758,7 @@ pub extern "C" fn ex_host_fs_stat(path: *const c_char) -> *mut c_char {
         Some(payload) => as_json_cstring(&payload),
         None => match std::fs::metadata(&path) {
             Ok(_) => {
-                set_errno_from_io_error(&std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "stat payload failed",
-                ));
+                set_errno_from_io_error(&std::io::Error::other("stat payload failed"));
                 ptr::null_mut()
             }
             Err(err) => {
@@ -741,10 +782,7 @@ pub extern "C" fn ex_host_fs_lstat(path: *const c_char) -> *mut c_char {
         Some(payload) => as_json_cstring(&payload),
         None => match std::fs::symlink_metadata(&path) {
             Ok(_) => {
-                set_errno_from_io_error(&std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "lstat payload failed",
-                ));
+                set_errno_from_io_error(&std::io::Error::other("lstat payload failed"));
                 ptr::null_mut()
             }
             Err(err) => {
@@ -775,10 +813,7 @@ pub extern "C" fn ex_host_fs_readdir(path: *const c_char) -> *mut c_char {
             match CString::new(payload) {
                 Ok(cstr) => cstr.into_raw(),
                 Err(_) => {
-                    set_errno_from_io_error(&std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "invalid JSON payload",
-                    ));
+                    set_errno_from_io_error(&std::io::Error::other("invalid JSON payload"));
                     ptr::null_mut()
                 }
             }
@@ -901,10 +936,7 @@ pub extern "C" fn ex_host_fs_realpath(path: *const c_char) -> *mut c_char {
         Ok(canonical) => match CString::new(canonical.to_string_lossy().to_string()) {
             Ok(cstr) => cstr.into_raw(),
             Err(_) => {
-                set_errno_from_io_error(&std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "invalid canonical path",
-                ));
+                set_errno_from_io_error(&std::io::Error::other("invalid canonical path"));
                 ptr::null_mut()
             }
         },
@@ -1028,10 +1060,7 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
         Ok(_) => match CString::new(dir_path.to_string_lossy().to_string()) {
             Ok(cstr) => cstr.into_raw(),
             Err(_) => {
-                set_errno_from_io_error(&std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "invalid temp path",
-                ));
+                set_errno_from_io_error(&std::io::Error::other("invalid temp path"));
                 ptr::null_mut()
             }
         },
@@ -1247,7 +1276,7 @@ pub extern "C" fn ex_host_sqlite_all(
         let column_names: Vec<String> = (0..column_count)
             .filter_map(|index| stmt.column_name(index).ok().map(|name| name.to_string()))
             .collect();
-        let mut rows = match stmt.query(params_from_iter(bindings.iter())) {
+        let mut rows = match query_with_bindings(&mut stmt, &bindings) {
             Ok(result) => result,
             Err(err) => {
                 return as_json_cstring(&json!({"error": err.to_string()}));
@@ -1324,7 +1353,7 @@ pub extern "C" fn ex_host_sqlite_get(
         let column_names: Vec<String> = (0..column_count)
             .filter_map(|index| stmt.column_name(index).ok().map(|name| name.to_string()))
             .collect();
-        let mut rows = match stmt.query(params_from_iter(bindings.iter())) {
+        let mut rows = match query_with_bindings(&mut stmt, &bindings) {
             Ok(result) => result,
             Err(err) => {
                 return as_json_cstring(&json!({"error": err.to_string()}));
@@ -1392,7 +1421,7 @@ pub extern "C" fn ex_host_sqlite_values(
         };
 
         let column_count = stmt.column_count();
-        let mut rows = match stmt.query(params_from_iter(bindings.iter())) {
+        let mut rows = match query_with_bindings(&mut stmt, &bindings) {
             Ok(result) => result,
             Err(err) => {
                 return as_json_cstring(&json!({"error": err.to_string()}));
@@ -1459,7 +1488,7 @@ pub extern "C" fn ex_host_sqlite_run(
             }
         };
 
-        if let Err(err) = stmt.execute(params_from_iter(bindings.iter())) {
+        if let Err(err) = execute_with_bindings(&mut stmt, &bindings) {
             return as_json_cstring(&json!({"error": err.to_string()}));
         }
 
@@ -1496,7 +1525,7 @@ pub extern "C" fn ex_host_sqlite_exec(
             }
         };
 
-        if let Err(err) = stmt.execute(params_from_iter(bindings.iter())) {
+        if let Err(err) = execute_with_bindings(&mut stmt, &bindings) {
             return as_json_cstring(&json!({"error": err.to_string()}));
         }
 
@@ -1558,5 +1587,35 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
         0 => println!("{}", msg),
         1 => eprintln!("{}", msg),
         _ => println!("{}", msg),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_sqlite_bindings_are_bound_by_name() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)", [])
+            .unwrap();
+
+        let insert_json = CString::new("{\":name\":\"alice\",\":id\":7}").unwrap();
+        let insert_bindings = parse_bindings(insert_json.as_ptr());
+        let mut insert = conn
+            .prepare("INSERT INTO items (id, name) VALUES (:id, :name)")
+            .unwrap();
+        execute_with_bindings(&mut insert, &insert_bindings).unwrap();
+
+        let query_json = CString::new("{\":id\":7}").unwrap();
+        let query_bindings = parse_bindings(query_json.as_ptr());
+        let mut query = conn
+            .prepare("SELECT name FROM items WHERE id = :id")
+            .unwrap();
+        let mut rows = query_with_bindings(&mut query, &query_bindings).unwrap();
+        let row = rows.next().unwrap().unwrap();
+        let name: String = row.get(0).unwrap();
+
+        assert_eq!(name, "alice");
     }
 }

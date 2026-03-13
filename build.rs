@@ -129,7 +129,7 @@ fn main() {
                     .file_name()
                     .and_then(|name| name.to_str())
                     .unwrap_or("js runner");
-                let missing_js_deps_hint = missing_js_build_deps_hint(&repo_root);
+                let missing_js_deps_hint = missing_js_build_deps_hint(repo_root);
                 let status = std::process::Command::new(&runner_path)
                     .arg(&build_script)
                     .arg("--src-dir")
@@ -146,7 +146,7 @@ fn main() {
                     }
                     Ok(s) => {
                         if try_build_builtins_via_primary_checkout(
-                            &repo_root,
+                            repo_root,
                             &builtins_src,
                             &builtins_out,
                         ) {
@@ -166,7 +166,7 @@ fn main() {
                     }
                     Err(e) => {
                         if try_build_builtins_via_primary_checkout(
-                            &repo_root,
+                            repo_root,
                             &builtins_src,
                             &builtins_out,
                         ) {
