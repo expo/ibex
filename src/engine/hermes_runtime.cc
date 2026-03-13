@@ -632,11 +632,12 @@ void emitScriptParsed(ExactHermesRuntime* runtime,
   pushDebugEvent(runtime, out.str());
 }
 
-void emitNewScripts(ExactHermesRuntime* runtime) {
+void emitNewScripts(ExactHermesRuntime* runtime,
+                    facebook::hermes::debugger::Debugger& debugger) {
   if (!runtime || !runtime->runtime) {
     return;
   }
-  auto scripts = runtime->runtime->getDebugger().getLoadedScripts();
+  auto scripts = debugger.getLoadedScripts();
   for (const auto& script : scripts) {
     if (runtime->known_scripts.insert(script.fileId).second) {
       runtime->script_id_to_name[script.fileId] = script.fileName;
@@ -695,6 +696,56 @@ std::string runOnRuntimeThread(ExactHermesRuntime* runtime, F func) {
     ex_host_console_log(1, "Unknown native error");
     return std::string();
   }
+  return future.get();
+}
+
+template <typename F>
+std::string withDebuggerOnRuntimeThread(ExactHermesRuntime* runtime, F func) {
+  auto debugger_snapshot = snapshotDebugger(runtime);
+  if (!runtime || !runtime->runtime || !debugger_snapshot) {
+    return std::string();
+  }
+
+  auto safe_call = [runtime, debugger_snapshot, &func]() -> std::string {
+    try {
+      return func(runtime, runtime->runtime->getDebugger());
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(1, err.getMessage().c_str());
+      return std::string();
+    } catch (const std::exception& err) {
+      ex_host_console_log(1, err.what());
+      return std::string();
+    } catch (...) {
+      ex_host_console_log(1, "Unknown native error");
+      return std::string();
+    }
+  };
+
+  if (std::this_thread::get_id() == runtime->runtime_thread) {
+    return safe_call();
+  }
+  if (!runtime->debugger_available.load()) {
+    return std::string();
+  }
+
+  auto promise = std::make_shared<std::promise<std::string>>();
+  auto future = promise->get_future();
+  try {
+    debugger_snapshot->triggerInterrupt_TS(
+        [promise, safe_call](facebook::hermes::HermesRuntime&) mutable {
+          promise->set_value(safe_call());
+        });
+  } catch (const facebook::jsi::JSError& err) {
+    ex_host_console_log(1, err.getMessage().c_str());
+    return std::string();
+  } catch (const std::exception& err) {
+    ex_host_console_log(1, err.what());
+    return std::string();
+  } catch (...) {
+    ex_host_console_log(1, "Unknown native error");
+    return std::string();
+  }
+
   return future.get();
 }
 
@@ -12694,7 +12745,7 @@ extern "C" int ex_hermes_eval(
     runNextTickQueue(runtime);
     drainMicrotasks(*runtime->runtime);
     if (runtime->debugger_attached.load()) {
-      emitNewScripts(runtime);
+      emitNewScripts(runtime, runtime->runtime->getDebugger());
     }
 
     // If the result is a thenable/Promise, resolve it before returning.
@@ -13109,9 +13160,10 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
     if (!handle || !handle->runtime) {
       return std::string();
     }
-    handle->runtime->getDebugger().setIsDebuggerAttached(true);
+    auto& runtime_debugger = handle->runtime->getDebugger();
+    runtime_debugger.setIsDebuggerAttached(true);
     debugger->setDebuggerEventCallback_TS(
-        [handle](facebook::hermes::HermesRuntime&,
+        [handle](facebook::hermes::HermesRuntime& rt,
                  facebook::hermes::debugger::AsyncDebuggerAPI&,
                  facebook::hermes::debugger::DebuggerEventType) {
           if (!runtimeIsAlive(handle)) {
@@ -13120,14 +13172,14 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
           if (!handle->debugger_attached.load()) {
             return;
           }
-          auto event = buildPausedEvent(handle);
+          auto event = buildPausedEvent(rt.getDebugger());
           if (!event.empty()) {
             pushDebugEvent(handle, event);
           }
         });
     handle->debugger_callback_set = true;
 
-    emitNewScripts(handle);
+    emitNewScripts(handle, runtime_debugger);
     return std::string("1");
   });
 
@@ -13145,11 +13197,11 @@ extern "C" char* ex_hermes_debugger_get_scripts(ExactHermesRuntime* runtime) {
   (void)runtime;
   return nullptr;
 #else
-  auto json = runOnRuntimeThread(runtime, [](ExactHermesRuntime* handle) {
+  auto json = withDebuggerOnRuntimeThread(runtime, [](ExactHermesRuntime* handle, auto& debugger) {
     std::ostringstream out;
     out << "[";
     if (handle && handle->runtime) {
-      auto scripts = handle->runtime->getDebugger().getLoadedScripts();
+      auto scripts = debugger.getLoadedScripts();
       for (size_t i = 0; i < scripts.size(); ++i) {
         const auto& script = scripts[i];
         if (i > 0) {
@@ -13186,13 +13238,13 @@ extern "C" char* ex_hermes_debugger_get_script_source(
   (void)script_id;
   return nullptr;
 #else
-  auto source = runOnRuntimeThread(runtime, [=](ExactHermesRuntime* handle) {
+  auto source = withDebuggerOnRuntimeThread(runtime, [=](ExactHermesRuntime* handle, auto& debugger) {
     if (!handle || !handle->runtime) {
       return std::string();
     }
     auto it = handle->script_id_to_name.find(script_id);
     if (it == handle->script_id_to_name.end()) {
-      auto scripts = handle->runtime->getDebugger().getLoadedScripts();
+      auto scripts = debugger.getLoadedScripts();
       for (const auto& script : scripts) {
         handle->script_id_to_name[script.fileId] = script.fileName;
       }
@@ -13235,7 +13287,7 @@ extern "C" char* ex_hermes_debugger_set_breakpoint(
   (void)condition;
   return nullptr;
 #else
-  auto json = runOnRuntimeThread(runtime, [=](ExactHermesRuntime* handle) {
+  auto json = withDebuggerOnRuntimeThread(runtime, [=](ExactHermesRuntime* handle, auto& debugger) {
     if (!handle || !handle->runtime) {
       return std::string();
     }
@@ -13247,7 +13299,6 @@ extern "C" char* ex_hermes_debugger_set_breakpoint(
     loc.line = line_number + 1;
     loc.column = column_number + 1;
 
-    auto& debugger = handle->runtime->getDebugger();
     auto id = debugger.setBreakpoint(loc);
     if (condition && std::strlen(condition) > 0) {
       debugger.setBreakpointCondition(id, condition);
@@ -13291,9 +13342,9 @@ extern "C" void ex_hermes_debugger_remove_breakpoint(
   (void)breakpoint_id;
   return;
 #else
-  runOnRuntimeThread(runtime, [=](ExactHermesRuntime* handle) {
+  withDebuggerOnRuntimeThread(runtime, [=](ExactHermesRuntime* handle, auto& debugger) {
     if (handle && handle->runtime) {
-      handle->runtime->getDebugger().deleteBreakpoint(breakpoint_id);
+      debugger.deleteBreakpoint(breakpoint_id);
     }
     return std::string();
   });
@@ -13308,12 +13359,11 @@ extern "C" void ex_hermes_debugger_pause(ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime || !runtime->debugger_available.load()) {
     return;
   }
-  runOnRuntimeThread(runtime, [](ExactHermesRuntime* handle) {
+  withDebuggerOnRuntimeThread(runtime, [](ExactHermesRuntime* handle, auto& debugger) {
     if (!handle || !handle->runtime) {
       return std::string();
     }
-    handle->runtime->getDebugger().triggerAsyncPause(
-        facebook::hermes::debugger::AsyncPauseKind::Explicit);
+    debugger.triggerAsyncPause(facebook::hermes::debugger::AsyncPauseKind::Explicit);
     return std::string();
   });
 #endif

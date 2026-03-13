@@ -126,7 +126,7 @@ std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
     ExactHermesRuntime* runtime);
 void clearDebugger(ExactHermesRuntime* runtime);
 void disableDebugger(ExactHermesRuntime* runtime);
-std::string buildPausedEvent(ExactHermesRuntime* runtime);
+std::string buildPausedEvent(facebook::hermes::debugger::Debugger& debugger);
 
 extern const char* g_streamEnhanceJS;
 extern const char* g_webCryptoJS;

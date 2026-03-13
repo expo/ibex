@@ -419,9 +419,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
               runtime,
               ("getnameinfo failed for " + ip + ": " + gai_strerror(ret)).c_str());
         }
-        return facebook::jsi::String::createFromUtf8(
-            runtime,
-            "[\"" + std::string(host) + "\"]");
+        return facebook::jsi::String::createFromUtf8(runtime, std::string("[") + jsonString(host) + "]");
       });
   rt.global().setProperty(rt, "__exactDnsReverse", std::move(dnsReverseFn));
 }

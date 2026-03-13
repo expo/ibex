@@ -106,7 +106,10 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root.join("js").join("vite.config.runtime.ts").display()
+        repo_root
+            .join("js")
+            .join("vite.config.runtime.ts")
+            .display()
     );
     println!(
         "cargo:rerun-if-changed={}",
@@ -813,9 +816,7 @@ fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow
         runtime_bundle_literal
     );
     std::fs::write(&header_path, header).expect("Failed to write runtime_bundle_source.h");
-    eprintln!(
-        "cargo:warning=Generated runtime_bundle_source.h from shared runtime bundle"
-    );
+    eprintln!("cargo:warning=Generated runtime_bundle_source.h from shared runtime bundle");
 }
 
 fn build_runtime_bundle_source(

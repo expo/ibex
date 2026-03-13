@@ -224,12 +224,8 @@ static std::string pauseReasonToString(facebook::hermes::debugger::PauseReason r
   }
 }
 
-std::string buildPausedEvent(ExactHermesRuntime* runtime) {
+std::string buildPausedEvent(facebook::hermes::debugger::Debugger& debugger) {
   using facebook::hermes::debugger::kInvalidLocation;
-  if (!runtime || !runtime->runtime) {
-    return "";
-  }
-  auto& debugger = runtime->runtime->getDebugger();
   const auto& state = debugger.getProgramState();
   auto reason = pauseReasonToString(state.getPauseReason());
   auto stack = state.getStackTrace();
