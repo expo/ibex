@@ -1107,53 +1107,155 @@ function _isIpAddress(host) {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
 }
 
-function _hostMatchesPattern(host, pattern) {
-  if (!host || !pattern) return false;
-  host = host.toLowerCase();
-  pattern = pattern.toLowerCase();
-  if (pattern[0] === '[' && pattern[pattern.length - 1] === ']') {
-    pattern = pattern.substring(1, pattern.length - 1);
+function _unfqdn(host) {
+  return String(host || '').replace(/[.]$/, '');
+}
+
+function _toLowerCaseAscii(ch) {
+  return String.fromCharCode(ch.charCodeAt(0) + 32);
+}
+
+function _splitHost(host) {
+  return _unfqdn(host).replace(/[A-Z]/g, _toLowerCaseAscii).split('.');
+}
+
+function _checkHostPattern(hostParts, pattern, wildcards) {
+  if (!pattern) return false;
+  var patternParts = _splitHost(pattern);
+  if (hostParts.length !== patternParts.length) return false;
+  for (var i = 0; i < patternParts.length; i++) {
+    if (patternParts[i] === '') return false;
+    if (/[^\u0021-\u007F]/u.test(patternParts[i])) return false;
   }
-  if (pattern.indexOf('*') === -1) return host === pattern;
-  if (pattern.indexOf('*.') !== 0) return false;
-  var suffix = pattern.substring(1);
-  if (host.length <= suffix.length) return false;
-  if (host.slice(-suffix.length) !== suffix) return false;
-  return host.charAt(host.length - suffix.length - 1) === '.';
+  for (var j = hostParts.length - 1; j > 0; j--) {
+    if (hostParts[j] !== patternParts[j]) return false;
+  }
+  var hostSubdomain = hostParts[0];
+  var patternSubdomain = patternParts[0];
+  var patternSubdomainParts = patternSubdomain.split('*', 3);
+  if (patternSubdomainParts.length === 1 || patternSubdomain.indexOf('xn--') !== -1) {
+    return hostSubdomain === patternSubdomain;
+  }
+  if (!wildcards) return false;
+  if (patternSubdomainParts.length > 2) return false;
+  if (patternParts.length <= 2) return false;
+  var prefix = patternSubdomainParts[0];
+  var suffix = patternSubdomainParts[1];
+  if (prefix.length + suffix.length > hostSubdomain.length) return false;
+  if (hostSubdomain.indexOf(prefix) !== 0) return false;
+  if (hostSubdomain.slice(hostSubdomain.length - suffix.length) !== suffix) return false;
+  return true;
+}
+
+var _jsonStringPattern =
+  /^"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/;
+
+function _splitEscapedAltNames(altNames) {
+  var result = [];
+  var currentToken = '';
+  var offset = 0;
+  while (offset !== altNames.length) {
+    var nextSep = altNames.indexOf(',', offset);
+    var nextQuote = altNames.indexOf('"', offset);
+    if (nextQuote !== -1 && (nextSep === -1 || nextQuote < nextSep)) {
+      currentToken += altNames.substring(offset, nextQuote);
+      var match = _jsonStringPattern.exec(altNames.substring(nextQuote));
+      if (!match) throw new Error('Invalid subject alternative name format');
+      currentToken += JSON.parse(match[0]);
+      offset = nextQuote + match[0].length;
+    } else if (nextSep !== -1) {
+      currentToken += altNames.substring(offset, nextSep);
+      result.push(currentToken);
+      currentToken = '';
+      offset = nextSep + 2;
+    } else {
+      currentToken += altNames.substring(offset);
+      offset = altNames.length;
+    }
+  }
+  result.push(currentToken);
+  return result;
+}
+
+function _canonicalizeIp(host) {
+  host = String(host || '');
+  if (!_isIpAddress(host)) return undefined;
+  return host;
+}
+
+function _createAltNameError(reason, hostname, cert) {
+  var err = new Error(reason);
+  err.reason = reason;
+  err.host = hostname;
+  err.cert = cert;
+  err.code = 'ERR_TLS_CERT_ALTNAME_INVALID';
+  return err;
 }
 
 function _defaultCheckServerIdentity(hostname, cert) {
-  if (!cert) return new Error('No server certificate');
-  var host = (hostname || '').toLowerCase();
-  if (!host) return new Error('Missing hostname');
-  if (host[0] === '[' && host[host.length - 1] === ']') {
-    host = host.substring(1, host.length - 1);
-  }
-  var isIp = _isIpAddress(host);
+  var subject = cert && cert.subject;
+  var altNames = cert && cert.subjectaltname;
+  var dnsNames = [];
+  var ips = [];
 
-  var patterns = [];
-  if (cert.subject && cert.subject.CN) patterns.push(cert.subject.CN);
-  if (typeof cert.subjectaltname === 'string') {
-    var parts = cert.subjectaltname.split(',');
-    for (var i = 0; i < parts.length; i++) {
-      var p = parts[i].trim();
-      if (p.indexOf('DNS:') === 0) patterns.push(p.substr(4));
-      if (p.indexOf('IP Address:') === 0) patterns.push('ip:' + p.substr(11).trim());
+  hostname = '' + hostname;
+
+  if (altNames) {
+    var splitAltNames = altNames.indexOf('"') !== -1 ?
+      _splitEscapedAltNames(altNames) :
+      altNames.split(', ');
+    for (var i = 0; i < splitAltNames.length; i++) {
+      var name = splitAltNames[i];
+      if (name.indexOf('DNS:') === 0) {
+        dnsNames.push(name.slice(4));
+      } else if (name.indexOf('IP Address:') === 0) {
+        ips.push(_canonicalizeIp(name.slice(11)));
+      }
     }
   }
 
-  if (!patterns.length) return null;
+  var valid = false;
+  var reason = 'Unknown reason';
+  hostname = _unfqdn(hostname);
 
-  for (var j = 0; j < patterns.length; j++) {
-    var pattern = patterns[j];
-    if (isIp && pattern.indexOf('ip:') === 0) {
-      if (_hostMatchesPattern(host, pattern.substr(3).trim())) return null;
-      continue;
+  if (_isIpAddress(hostname)) {
+    valid = ips.indexOf(_canonicalizeIp(hostname)) !== -1;
+    if (!valid) {
+      reason = 'IP: ' + hostname + ' is not in the cert\'s list: ' + ips.join(', ');
     }
-    if (!isIp && _hostMatchesPattern(host, pattern)) return null;
+  } else if (dnsNames.length > 0 || (subject && subject.CN)) {
+    var hostParts = _splitHost(hostname);
+    if (dnsNames.length > 0) {
+      for (var j = 0; j < dnsNames.length; j++) {
+        if (_checkHostPattern(hostParts, dnsNames[j], true)) {
+          valid = true;
+          break;
+        }
+      }
+      if (!valid) {
+        reason = 'Host: ' + hostname + '. is not in the cert\'s altnames: ' + altNames;
+      }
+    } else {
+      var cn = subject.CN;
+      if (Array.isArray(cn)) {
+        for (var k = 0; k < cn.length; k++) {
+          if (_checkHostPattern(hostParts, cn[k], true)) {
+            valid = true;
+            break;
+          }
+        }
+      } else if (cn) {
+        valid = _checkHostPattern(hostParts, cn, true);
+      }
+      if (!valid) {
+        reason = 'Host: ' + hostname + '. is not cert\'s CN: ' + cn;
+      }
+    }
+  } else {
+    reason = 'Cert does not contain a DNS name';
   }
 
-  return new Error('Hostname/IP mismatch');
+  if (!valid) return _createAltNameError(reason, hostname, cert);
 }
 
 function checkServerIdentity(hostname, cert) {
