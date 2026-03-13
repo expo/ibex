@@ -723,6 +723,7 @@
   };
   defineExactValue('inspect', function(obj, opts) {
     var seen = new WeakSet(), depth = (opts && opts.depth) || 4;
+    var maxBytes = 50;
     function iv(v, d) {
       if (d > depth) return '[...]';
       if (v === null) return 'null';
@@ -735,6 +736,23 @@
       if (t !== 'object') return String(v);
       if (seen.has(v)) return '[Circular]';
       seen.add(v);
+      // Buffer / TypedArray
+      if (ArrayBuffer.isView(v) && !(v instanceof DataView)) {
+        var isBuffer = (v.constructor && v.constructor.name === 'Buffer') || (typeof Symbol !== 'undefined' && v[Symbol.toStringTag] === 'Buffer');
+        if (isBuffer) {
+          var hex = [];
+          var limit = Math.min(v.length, maxBytes);
+          for (var i = 0; i < limit; i++) hex.push(('0' + v[i].toString(16)).slice(-2));
+          var tail = v.length > maxBytes ? ' ... ' + (v.length - maxBytes) + ' more bytes' : '';
+          return '<Buffer ' + hex.join(' ') + tail + '>';
+        }
+        var typeName = (v.constructor && v.constructor.name) || 'TypedArray';
+        var items = [];
+        var arrLimit = Math.min(v.length, 100);
+        for (var j = 0; j < arrLimit; j++) items.push(String(v[j]));
+        var arrTail = v.length > 100 ? ', ... ' + (v.length - 100) + ' more items' : '';
+        return typeName + '(' + v.length + ') [ ' + items.join(', ') + arrTail + ' ]';
+      }
       if (Array.isArray(v)) return v.length ? '[ ' + v.map(function(x){return iv(x,d+1)}).join(', ') + ' ]' : '[]';
       var k = Object.keys(v);
       return k.length ? '{ ' + k.map(function(x){return x+': '+iv(v[x],d+1)}).join(', ') + ' }' : '{}';

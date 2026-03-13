@@ -2201,6 +2201,7 @@
     function compatInspect(obj, opts) {
       var seen = new WeakSet();
       var depth = (opts && opts.depth) || 4;
+      var maxBytes = 50;
       function inspectValue(value, level) {
         if (level > depth) return '[...]';
         if (value === null) return 'null';
@@ -2213,6 +2214,23 @@
         if (type !== 'object') return String(value);
         if (seen.has(value)) return '[Circular]';
         seen.add(value);
+        // Buffer / TypedArray
+        if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
+          var isBuffer = (value.constructor && value.constructor.name === 'Buffer') || (typeof Symbol !== 'undefined' && value[Symbol.toStringTag] === 'Buffer');
+          if (isBuffer) {
+            var hex = [];
+            var limit = Math.min(value.length, maxBytes);
+            for (var i = 0; i < limit; i++) hex.push(('0' + value[i].toString(16)).slice(-2));
+            var tail = value.length > maxBytes ? ' ... ' + (value.length - maxBytes) + ' more bytes' : '';
+            return '<Buffer ' + hex.join(' ') + tail + '>';
+          }
+          var typeName = (value.constructor && value.constructor.name) || 'TypedArray';
+          var items = [];
+          var arrLimit = Math.min(value.length, 100);
+          for (var j = 0; j < arrLimit; j++) items.push(String(value[j]));
+          var arrTail = value.length > 100 ? ', ... ' + (value.length - 100) + ' more items' : '';
+          return typeName + '(' + value.length + ') [ ' + items.join(', ') + arrTail + ' ]';
+        }
         if (Array.isArray(value)) {
           return value.length ? '[ ' + value.map(function(item) { return inspectValue(item, level + 1); }).join(', ') + ' ]' : '[]';
         }
