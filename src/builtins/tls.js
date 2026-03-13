@@ -495,6 +495,351 @@ function _generateFingerprint(seed, algorithm) {
   }
 }
 
+var _certificateParseCache = typeof Map !== 'undefined' ? new Map() : null;
+
+function _bufferFromBase64(value) {
+  if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+    return Buffer.from(value, 'base64');
+  }
+  var binary = atob(value);
+  var out = typeof Uint8Array !== 'undefined' ? new Uint8Array(binary.length) : [];
+  for (var i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i) & 255;
+  return out;
+}
+
+function _bufferFromBytes(value) {
+  if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+    return Buffer.from(value);
+  }
+  return value;
+}
+
+function _splitPemCertificates(source) {
+  if (typeof source !== 'string' || !source) return [];
+  var matches = source.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
+  return matches || [];
+}
+
+function _readDerElement(bytes, offset) {
+  if (offset >= bytes.length) return null;
+  var tag = bytes[offset++];
+  if (offset >= bytes.length) return null;
+  var lengthByte = bytes[offset++];
+  var length = 0;
+  if ((lengthByte & 0x80) === 0) {
+    length = lengthByte;
+  } else {
+    var count = lengthByte & 0x7f;
+    if (!count || offset + count > bytes.length) return null;
+    for (var i = 0; i < count; i++) {
+      length = (length << 8) | bytes[offset++];
+    }
+  }
+  var valueStart = offset;
+  var valueEnd = offset + length;
+  if (valueEnd > bytes.length) return null;
+  return {
+    tag: tag,
+    valueStart: valueStart,
+    valueEnd: valueEnd,
+    nextOffset: valueEnd
+  };
+}
+
+function _readDerChildren(bytes, start, end) {
+  var children = [];
+  var offset = start;
+  while (offset < end) {
+    var element = _readDerElement(bytes, offset);
+    if (!element) break;
+    children.push(element);
+    offset = element.nextOffset;
+  }
+  return children;
+}
+
+function _bytesToAscii(bytes, start, end) {
+  var chars = [];
+  for (var i = start; i < end; i++) chars.push(String.fromCharCode(bytes[i]));
+  return chars.join('');
+}
+
+function _bytesToUtf8(bytes, start, end) {
+  var raw = _bufferFromBytes(bytes.slice ? bytes.slice(start, end) : Array.prototype.slice.call(bytes, start, end));
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(raw)) {
+    return raw.toString('utf8');
+  }
+  if (typeof TextDecoder !== 'undefined') {
+    try {
+      return new TextDecoder('utf-8').decode(raw);
+    } catch (_decodeErr) {}
+  }
+  return _bytesToAscii(bytes, start, end);
+}
+
+function _bytesToBmpString(bytes, start, end) {
+  var chars = [];
+  for (var i = start; i + 1 < end; i += 2) {
+    chars.push(String.fromCharCode((bytes[i] << 8) | bytes[i + 1]));
+  }
+  return chars.join('');
+}
+
+function _bytesToHex(bytes, start, end) {
+  var out = '';
+  for (var i = start; i < end; i++) {
+    var hex = bytes[i].toString(16).toUpperCase();
+    out += hex.length === 1 ? '0' + hex : hex;
+  }
+  return out;
+}
+
+function _decodeDerOid(bytes, start, end) {
+  if (start >= end) return '';
+  var first = bytes[start++];
+  var parts = [Math.floor(first / 40), first % 40];
+  var value = 0;
+  while (start < end) {
+    var byte = bytes[start++];
+    value = (value << 7) | (byte & 0x7f);
+    if ((byte & 0x80) === 0) {
+      parts.push(value);
+      value = 0;
+    }
+  }
+  return parts.join('.');
+}
+
+function _decodeDerString(bytes, element) {
+  if (!element) return '';
+  if (element.tag === 0x0c) return _bytesToUtf8(bytes, element.valueStart, element.valueEnd);
+  if (element.tag === 0x16 || element.tag === 0x13) return _bytesToAscii(bytes, element.valueStart, element.valueEnd);
+  if (element.tag === 0x1e) return _bytesToBmpString(bytes, element.valueStart, element.valueEnd);
+  return _bytesToUtf8(bytes, element.valueStart, element.valueEnd);
+}
+
+function _attributeNameForOid(oid) {
+  if (oid === '2.5.4.3') return 'CN';
+  if (oid === '2.5.4.6') return 'C';
+  if (oid === '2.5.4.7') return 'L';
+  if (oid === '2.5.4.8') return 'ST';
+  if (oid === '2.5.4.10') return 'O';
+  if (oid === '2.5.4.11') return 'OU';
+  if (oid === '1.2.840.113549.1.9.1') return 'emailAddress';
+  return oid;
+}
+
+function _parseDerName(bytes, element) {
+  var result = {};
+  if (!element || element.tag !== 0x30) return result;
+  var rdns = _readDerChildren(bytes, element.valueStart, element.valueEnd);
+  for (var i = 0; i < rdns.length; i++) {
+    if (rdns[i].tag !== 0x31) continue;
+    var attrs = _readDerChildren(bytes, rdns[i].valueStart, rdns[i].valueEnd);
+    for (var j = 0; j < attrs.length; j++) {
+      if (attrs[j].tag !== 0x30) continue;
+      var attrChildren = _readDerChildren(bytes, attrs[j].valueStart, attrs[j].valueEnd);
+      if (attrChildren.length < 2) continue;
+      var oid = _decodeDerOid(bytes, attrChildren[0].valueStart, attrChildren[0].valueEnd);
+      result[_attributeNameForOid(oid)] = _decodeDerString(bytes, attrChildren[1]);
+    }
+  }
+  return result;
+}
+
+function _formatDerTime(bytes, element) {
+  if (!element) return '';
+  var text = _bytesToAscii(bytes, element.valueStart, element.valueEnd);
+  if (element.tag === 0x17 && text.length >= 12) {
+    var year = Number(text.slice(0, 2));
+    year += year >= 50 ? 1900 : 2000;
+    var month = text.slice(2, 4);
+    var day = text.slice(4, 6);
+    var hour = text.slice(6, 8);
+    var minute = text.slice(8, 10);
+    var second = text.slice(10, 12);
+    return new Date(year + '-' + month + '-' + day + 'T' + hour + ':' + minute + ':' + second + 'Z').toUTCString();
+  }
+  if (element.tag === 0x18 && text.length >= 14) {
+    return new Date(
+      text.slice(0, 4) + '-' + text.slice(4, 6) + '-' + text.slice(6, 8) + 'T' +
+      text.slice(8, 10) + ':' + text.slice(10, 12) + ':' + text.slice(12, 14) + 'Z'
+    ).toUTCString();
+  }
+  return text;
+}
+
+function _fingerprintFromRaw(raw, algorithm) {
+  if (!raw || typeof __exactHashSync !== 'function') return '';
+  try {
+    var hash = __exactHashSync(algorithm, raw);
+    return typeof hash === 'string'
+      ? hash.toUpperCase().replace(/(.{2})(?!$)/g, '$1:')
+      : '';
+  } catch (_fingerprintErr) {
+    return '';
+  }
+}
+
+function _cloneSimpleObject(value) {
+  if (!value || typeof value !== 'object') return value;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(value)) {
+    return Buffer.from(value);
+  }
+  if (Array.isArray(value)) {
+    var arr = [];
+    for (var i = 0; i < value.length; i++) arr.push(_cloneSimpleObject(value[i]));
+    return arr;
+  }
+  var clone = {};
+  for (var key in value) {
+    if (hasOwn.call(value, key)) clone[key] = _cloneSimpleObject(value[key]);
+  }
+  return clone;
+}
+
+function _cloneCertificate(cert, detailed, seen) {
+  if (!cert || typeof cert !== 'object') return {};
+  if (!detailed) {
+    var shallow = {};
+    for (var key in cert) {
+      if (!hasOwn.call(cert, key) || key === 'issuerCertificate') continue;
+      shallow[key] = _cloneSimpleObject(cert[key]);
+    }
+    return shallow;
+  }
+  seen = seen || [];
+  for (var i = 0; i < seen.length; i++) {
+    if (seen[i].source === cert) return seen[i].clone;
+  }
+  var clone = {};
+  seen.push({ source: cert, clone: clone });
+  for (var key2 in cert) {
+    if (!hasOwn.call(cert, key2)) continue;
+    if (key2 === 'issuerCertificate' && cert[key2]) {
+      clone[key2] = _cloneCertificate(cert[key2], true, seen);
+    } else {
+      clone[key2] = _cloneSimpleObject(cert[key2]);
+    }
+  }
+  return clone;
+}
+
+function _nameKey(name) {
+  if (!name || typeof name !== 'object') return '';
+  var parts = [];
+  var keys = Object.keys(name).sort();
+  for (var i = 0; i < keys.length; i++) {
+    parts.push(keys[i] + '=' + String(name[keys[i]]));
+  }
+  return parts.join(',');
+}
+
+function _parsePemCertificate(pem, host, port) {
+  if (typeof pem !== 'string' || pem.indexOf('BEGIN CERTIFICATE') === -1) return null;
+  if (_certificateParseCache && _certificateParseCache.has(pem)) {
+    return _cloneCertificate(_certificateParseCache.get(pem), true);
+  }
+
+  try {
+    var base64 = pem.replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, '');
+    var der = _bufferFromBase64(base64);
+    var bytes = der;
+    var root = _readDerElement(bytes, 0);
+    if (!root || root.tag !== 0x30) return null;
+    var rootChildren = _readDerChildren(bytes, root.valueStart, root.valueEnd);
+    if (!rootChildren.length) return null;
+    var tbs = rootChildren[0];
+    var tbsChildren = _readDerChildren(bytes, tbs.valueStart, tbs.valueEnd);
+    var idx = 0;
+    if (tbsChildren[idx] && tbsChildren[idx].tag === 0xa0) idx += 1;
+    var serialElement = tbsChildren[idx++];
+    idx += 1; // signature algorithm
+    var issuerElement = tbsChildren[idx++];
+    var validityElement = tbsChildren[idx++];
+    var subjectElement = tbsChildren[idx++];
+    var validityChildren = validityElement ? _readDerChildren(bytes, validityElement.valueStart, validityElement.valueEnd) : [];
+    var raw = _bufferFromBytes(der);
+    var parsed = {
+      subject: _parseDerName(bytes, subjectElement),
+      issuer: _parseDerName(bytes, issuerElement),
+      subjectaltname: 'DNS:' + (host || 'localhost'),
+      valid_from: _formatDerTime(bytes, validityChildren[0]),
+      valid_to: _formatDerTime(bytes, validityChildren[1]),
+      serialNumber: _bytesToHex(bytes, serialElement.valueStart, serialElement.valueEnd).replace(/^00+/, '') || '0',
+      fingerprint: _fingerprintFromRaw(raw, 'sha1'),
+      fingerprint256: _fingerprintFromRaw(raw, 'sha256'),
+      raw: raw,
+      ca: false
+    };
+    if (_certificateParseCache) _certificateParseCache.set(pem, parsed);
+    return _cloneCertificate(parsed, true);
+  } catch (_parseErr) {
+    return null;
+  }
+}
+
+function _buildCertificateChain(host, port, leafSource, chainSource, trustedSource) {
+  var blocks = _splitPemCertificates(leafSource).concat(_splitPemCertificates(chainSource));
+  var trustedBlocks = _splitPemCertificates(trustedSource);
+  var parsed = [];
+  var seen = Object.create(null);
+
+  function appendBlock(block) {
+    var cert = _parsePemCertificate(block, host, port);
+    if (!cert || !cert.serialNumber || seen[cert.serialNumber]) return;
+    seen[cert.serialNumber] = true;
+    parsed.push(cert);
+  }
+
+  for (var i = 0; i < blocks.length; i++) appendBlock(blocks[i]);
+  if (!parsed.length) {
+    return _buildSyntheticCertificate(host, port, leafSource || 'ExactTLS');
+  }
+
+  var lastIssuerKey = _nameKey(parsed[parsed.length - 1].issuer);
+  for (var j = 0; j < trustedBlocks.length; j++) {
+    var trusted = _parsePemCertificate(trustedBlocks[j], host, port);
+    if (!trusted || !trusted.serialNumber || seen[trusted.serialNumber]) continue;
+    if (!lastIssuerKey || _nameKey(trusted.subject) === lastIssuerKey) {
+      seen[trusted.serialNumber] = true;
+      parsed.push(trusted);
+      lastIssuerKey = _nameKey(trusted.issuer);
+    }
+  }
+
+  for (var k = 0; k < parsed.length; k++) {
+    parsed[k].ca = k > 0 || _nameKey(parsed[k].subject) === _nameKey(parsed[k].issuer);
+    if (k + 1 < parsed.length) {
+      parsed[k].issuerCertificate = parsed[k + 1];
+    }
+  }
+  if (_nameKey(parsed[parsed.length - 1].subject) === _nameKey(parsed[parsed.length - 1].issuer)) {
+    parsed[parsed.length - 1].issuerCertificate = parsed[parsed.length - 1];
+  }
+
+  return parsed[0];
+}
+
+function _buildPeerCertificate(host, port, remoteOptions, localOptions) {
+  var remote = remoteOptions || {};
+  if (remote.cert || remote.pfx) {
+    return _buildCertificateChain(host, port, remote.cert || remote.pfx, remote.ca, localOptions && localOptions.ca);
+  }
+  return _buildSyntheticCertificate(host, port, remote.cert || remote.pfx || 'ExactTLS');
+}
+
+function _buildLocalCertificate(host, port, options) {
+  var local = options || {};
+  if (local.cert || local.pfx) {
+    return _buildCertificateChain(host, port, local.cert || local.pfx, local.ca, null);
+  }
+  if (local.key) {
+    return _buildSyntheticCertificate(host, port, local.key);
+  }
+  return null;
+}
+
 function _buildSyntheticCertificate(host, port, certSource) {
   var identity = host || 'localhost';
   var now = new Date();
@@ -625,14 +970,8 @@ function _finalizeHandshake(socket, peerOptions, negotiatedCipher) {
   var opts = socket._tlsOptions || {};
   var remoteOptions = peerOptions || {};
   var host = socket._servername || socket.remoteAddress || 'localhost';
-  socket._peerCertificate = _buildSyntheticCertificate(
-    host,
-    socket.remotePort,
-    remoteOptions.cert || remoteOptions.pfx || 'ExactTLS'
-  );
-  socket._localCertificate = (opts.key || opts.cert || opts.pfx)
-    ? _buildSyntheticCertificate(host, socket.remotePort, opts.key || opts.cert || opts.pfx)
-    : null;
+  socket._peerCertificate = _buildPeerCertificate(host, socket.remotePort, remoteOptions, opts);
+  socket._localCertificate = _buildLocalCertificate(host, socket.remotePort, opts);
   socket._cipher = {
     name: negotiatedCipher || _normalizeCipherName(remoteOptions.ciphers || opts.ciphers),
     version: socket._protocol
@@ -653,11 +992,9 @@ function _finalizeServerHandshake(socket, clientOptions, negotiatedCipher) {
   var serverOptions = socket._tlsOptions || {};
   var host = socket.remoteAddress || socket.servername || 'localhost';
   socket._peerCertificate = (clientOptions && (clientOptions.cert || clientOptions.pfx))
-    ? _buildSyntheticCertificate(host, socket.remotePort, clientOptions.cert || clientOptions.pfx)
+    ? _buildPeerCertificate(host, socket.remotePort, clientOptions, serverOptions)
     : null;
-  socket._localCertificate = (serverOptions.cert || serverOptions.key || serverOptions.pfx)
-    ? _buildSyntheticCertificate(host, socket.remotePort, serverOptions.cert || serverOptions.key || serverOptions.pfx)
-    : null;
+  socket._localCertificate = _buildLocalCertificate(host, socket.remotePort, serverOptions);
   socket._cipher = {
     name: negotiatedCipher || _normalizeCipherName(serverOptions.ciphers),
     version: socket._protocol
@@ -771,14 +1108,14 @@ TLSSocket.prototype[_kReinitializeHandle] = function() {
   return this;
 };
 
-TLSSocket.prototype.getPeerCertificate = function() {
-  return this._peerCertificate || {};
+TLSSocket.prototype.getPeerCertificate = function(detailed) {
+  return this._peerCertificate ? _cloneCertificate(this._peerCertificate, detailed === true) : {};
 };
 
 TLSSocket.prototype.getPeerX509Certificate = TLSSocket.prototype.getPeerCertificate;
 
 TLSSocket.prototype.getCertificate = function() {
-  return this._localCertificate || {};
+  return this._localCertificate ? _cloneCertificate(this._localCertificate, true) : {};
 };
 
 TLSSocket.prototype.getCipher = function() {
