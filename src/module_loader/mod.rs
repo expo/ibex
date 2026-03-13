@@ -127,15 +127,7 @@ impl Default for ModuleLoader {
 
 impl ModuleLoader {
     pub fn new() -> Self {
-        let mut builtins = HashMap::new();
-        let mut source_cache: HashMap<BuiltinSource, String> = HashMap::new();
-        for registration in BUILTIN_MANIFEST_REGISTRATIONS {
-            let source = source_cache
-                .entry(BuiltinSource::from_key(registration.source_key))
-                .or_insert_with(|| builtin_source(BuiltinSource::from_key(registration.source_key)))
-                .clone();
-            builtins.insert(registration.specifier.to_string(), source);
-        }
+        let builtins = build_builtin_registry(BUILTIN_MANIFEST_REGISTRATIONS);
 
         let options = ResolveOptions {
             extensions: vec![
@@ -649,8 +641,8 @@ fn repo_root() -> Result<PathBuf> {
 }
 
 impl BuiltinSource {
-    fn from_key(source_key: &str) -> Self {
-        match source_key {
+    fn from_key(source_key: &str) -> Option<Self> {
+        Some(match source_key {
             "exact_process" => Self::ExactProcess,
             "exact_crypto" => Self::ExactCrypto,
             "exact_clipboard" => Self::ExactClipboard,
@@ -719,9 +711,33 @@ impl BuiltinSource {
             "node_trace_events" => Self::NodeTraceEvents,
             "node_inspector" => Self::NodeInspector,
             "node_wasi" => Self::NodeWasi,
-            _ => panic!("unknown builtin source key: {source_key}"),
-        }
+            _ => return None,
+        })
     }
+}
+
+fn build_builtin_registry(
+    registrations: &[BuiltinManifestRegistration],
+) -> HashMap<String, String> {
+    let mut builtins = HashMap::new();
+    let mut source_cache: HashMap<BuiltinSource, String> = HashMap::new();
+
+    for registration in registrations {
+        let Some(source_key) = BuiltinSource::from_key(registration.source_key) else {
+            eprintln!(
+                "Skipping builtin manifest entry {} with unknown source key {}",
+                registration.specifier, registration.source_key
+            );
+            continue;
+        };
+        let source = source_cache
+            .entry(source_key)
+            .or_insert_with(|| builtin_source(source_key))
+            .clone();
+        builtins.insert(registration.specifier.to_string(), source);
+    }
+
+    builtins
 }
 
 fn builtin_source(source: BuiltinSource) -> String {
@@ -1592,13 +1608,17 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    fn test_loader() -> ModuleLoader {
+        ModuleLoader::new()
+    }
+
     #[test]
     fn resolves_relative_extension() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("mod.js");
         std::fs::write(&file, "export const x = 1;").unwrap();
 
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader
             .resolve("./mod", Some(&dir.path().join("entry.js")))
             .unwrap();
@@ -1618,7 +1638,7 @@ mod tests {
         std::fs::write(pkg_dir.join("package.json"), r#"{ "main": "index.js" }"#).unwrap();
         std::fs::write(pkg_dir.join("index.js"), "module.exports = { ok: true };").unwrap();
 
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader
             .resolve("demo-pkg", Some(&dir.path().join("entry.js")))
             .unwrap();
@@ -1642,7 +1662,7 @@ mod tests {
         std::fs::write(pkg_dir.join("cjs.js"), "module.exports = { ok: true };").unwrap();
         std::fs::write(pkg_dir.join("esm.js"), "export const ok = true;").unwrap();
 
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader
             .resolve("exports-pkg", Some(&dir.path().join("entry.js")))
             .unwrap();
@@ -1654,7 +1674,7 @@ mod tests {
 
     #[test]
     fn resolves_node_fs_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:fs", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("readFileSync"));
@@ -1662,7 +1682,7 @@ mod tests {
 
     #[test]
     fn resolves_bun_fs_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("bun:fs", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("readFileSync"));
@@ -1670,7 +1690,7 @@ mod tests {
 
     #[test]
     fn resolves_fs_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("fs", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("readFileSync"));
@@ -1678,7 +1698,7 @@ mod tests {
 
     #[test]
     fn resolves_node_fs_promises_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:fs/promises", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("fs.promises"));
@@ -1686,7 +1706,7 @@ mod tests {
 
     #[test]
     fn resolves_bun_fs_promises_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("bun:fs/promises", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("fs.promises"));
@@ -1694,7 +1714,7 @@ mod tests {
 
     #[test]
     fn resolves_node_path_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:path", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("dirname"));
@@ -1702,7 +1722,7 @@ mod tests {
 
     #[test]
     fn resolves_path_builtin_alias() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("path", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("dirname"));
@@ -1710,7 +1730,7 @@ mod tests {
 
     #[test]
     fn builtin_aliases_have_distinct_ids() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let path = loader.resolve("path", None).unwrap();
         let node_path = loader.resolve("node:path", None).unwrap();
         let bun_fs = loader.resolve("bun:fs", None).unwrap();
@@ -1733,7 +1753,7 @@ mod tests {
 
     #[test]
     fn resolves_bun_sqlite_aliases_exact_sqlite() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let exact_sqlite = loader.resolve("exact:sqlite", None).unwrap();
         let bun_sqlite = loader.resolve("bun:sqlite", None).unwrap();
         assert_eq!(exact_sqlite.kind, ModuleKind::Builtin);
@@ -1745,7 +1765,7 @@ mod tests {
 
     #[test]
     fn resolves_node_process_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:process", None).unwrap();
         let source = resolved.source.unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
@@ -1755,7 +1775,7 @@ mod tests {
 
     #[test]
     fn resolves_process_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("process", None).unwrap();
         let source = resolved.source.unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
@@ -1765,7 +1785,7 @@ mod tests {
 
     #[test]
     fn resolves_node_async_hooks_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:async_hooks", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1775,7 +1795,7 @@ mod tests {
 
     #[test]
     fn resolves_async_hooks_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("async_hooks", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("AsyncLocalStorage"));
@@ -1783,7 +1803,7 @@ mod tests {
 
     #[test]
     fn resolves_node_crypto_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:crypto", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("randomBytes"));
@@ -1791,7 +1811,7 @@ mod tests {
 
     #[test]
     fn resolves_crypto_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("crypto", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("randomBytes"));
@@ -1799,7 +1819,7 @@ mod tests {
 
     #[test]
     fn resolves_node_events_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:events", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1811,7 +1831,7 @@ mod tests {
 
     #[test]
     fn resolves_events_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("events", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("EventEmitter"));
@@ -1819,7 +1839,7 @@ mod tests {
 
     #[test]
     fn resolves_node_stream_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:stream", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("PassThrough"));
@@ -1827,7 +1847,7 @@ mod tests {
 
     #[test]
     fn resolves_stream_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("stream", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("PassThrough"));
@@ -1835,7 +1855,7 @@ mod tests {
 
     #[test]
     fn resolves_node_stream_promises_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:stream/promises", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("pipeline"));
@@ -1843,7 +1863,7 @@ mod tests {
 
     #[test]
     fn resolves_stream_promises_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("stream/promises", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("pipeline"));
@@ -1851,7 +1871,7 @@ mod tests {
 
     #[test]
     fn resolves_node_buffer_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:buffer", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1861,7 +1881,7 @@ mod tests {
 
     #[test]
     fn resolves_buffer_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("buffer", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1871,7 +1891,7 @@ mod tests {
 
     #[test]
     fn resolves_node_util_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:util", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("util ="));
@@ -1879,7 +1899,7 @@ mod tests {
 
     #[test]
     fn resolves_util_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("util", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1889,7 +1909,7 @@ mod tests {
 
     #[test]
     fn resolves_node_timers_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:timers", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1899,7 +1919,7 @@ mod tests {
 
     #[test]
     fn resolves_timers_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("timers", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1908,7 +1928,7 @@ mod tests {
 
     #[test]
     fn resolves_node_timers_promises_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:timers/promises", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1918,7 +1938,7 @@ mod tests {
 
     #[test]
     fn resolves_node_stream_web_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:stream/web", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1928,7 +1948,7 @@ mod tests {
 
     #[test]
     fn resolves_stream_web_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("stream/web", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1938,7 +1958,7 @@ mod tests {
 
     #[test]
     fn stream_web_aliases_share_source() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let node_stream_web = loader.resolve("node:stream/web", None).unwrap();
         let stream_web = loader.resolve("stream/web", None).unwrap();
         assert_eq!(node_stream_web.id, "node:stream/web");
@@ -1949,7 +1969,7 @@ mod tests {
 
     #[test]
     fn resolves_node_http_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:http", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1959,7 +1979,7 @@ mod tests {
 
     #[test]
     fn resolves_http_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("http", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         assert!(resolved.source.unwrap().contains("request"));
@@ -1967,7 +1987,7 @@ mod tests {
 
     #[test]
     fn resolves_node_https_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:https", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1979,7 +1999,7 @@ mod tests {
 
     #[test]
     fn resolves_node_url_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("node:url", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1989,7 +2009,7 @@ mod tests {
 
     #[test]
     fn resolves_url_builtin() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader.resolve("url", None).unwrap();
         assert_eq!(resolved.kind, ModuleKind::Builtin);
         let source = resolved.source.unwrap();
@@ -1999,7 +2019,7 @@ mod tests {
 
     #[test]
     fn url_aliases_use_distinct_sources() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let node_url = loader.resolve("node:url", None).unwrap();
         let url = loader.resolve("url", None).unwrap();
         assert_eq!(node_url.id, "node:url");
@@ -2029,7 +2049,7 @@ export const value = <span />;
         )
         .unwrap();
 
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
 
         let resolved = loader
             .resolve("./mod", Some(&dir.path().join("entry.ts")))
@@ -2075,6 +2095,24 @@ const asyncIterable = {
     }
 
     #[test]
+    fn skips_unknown_manifest_source_keys() {
+        let registrations = [
+            BuiltinManifestRegistration {
+                specifier: "node:process",
+                source_key: "exact_process",
+            },
+            BuiltinManifestRegistration {
+                specifier: "node:broken",
+                source_key: "missing_source_key",
+            },
+        ];
+
+        let builtins = build_builtin_registry(&registrations);
+        assert!(builtins.contains_key("node:process"));
+        assert!(!builtins.contains_key("node:broken"));
+    }
+
+    #[test]
     fn resolves_exports_import_only() {
         let dir = tempdir().unwrap();
         let node_modules = dir.path().join("node_modules");
@@ -2087,7 +2125,7 @@ const asyncIterable = {
         .unwrap();
         std::fs::write(pkg_dir.join("esm.js"), "export const ok = true;").unwrap();
 
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let resolved = loader
             .resolve("exports-import-only", Some(&dir.path().join("entry.js")))
             .unwrap();
@@ -2099,7 +2137,7 @@ const asyncIterable = {
 
     #[test]
     fn manifest_registrations_resolve_as_builtins() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
 
         for registration in BUILTIN_MANIFEST_REGISTRATIONS {
             let resolved = loader.resolve(registration.specifier, None).unwrap();
@@ -2114,7 +2152,7 @@ const asyncIterable = {
 
     #[test]
     fn manifest_aliases_share_sources_and_keep_distinct_ids() {
-        let loader = ModuleLoader::new();
+        let loader = test_loader();
         let mut registrations_by_source: HashMap<&str, Vec<&str>> = HashMap::new();
 
         for registration in BUILTIN_MANIFEST_REGISTRATIONS {
