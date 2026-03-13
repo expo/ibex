@@ -5600,7 +5600,7 @@ function Server(options, requestListener) {
   this._listening = false;
   this._closing = false;
   this._port = 0;
-  this._hostname = '0.0.0.0';
+  this._hostname = '127.0.0.1';
   this._netServer = null;
   this._serverId = 0;
   this._useNative = false;
@@ -6004,14 +6004,14 @@ Server.prototype.listen = function(port, hostname, callback) {
       callback = hostname;
       hostname = undefined;
     }
-    hostname = opts.host || opts.hostname || hostname || '0.0.0.0';
+    hostname = opts.host || opts.hostname || hostname || '127.0.0.1';
   }
   if (typeof hostname === 'function') {
     callback = hostname;
-    hostname = '0.0.0.0';
+    hostname = '127.0.0.1';
   }
   port = port || 0;
-  hostname = hostname || '0.0.0.0';
+  hostname = hostname || '127.0.0.1';
 
   if (typeof callback === 'function') {
     this.once('listening', callback);
@@ -6211,7 +6211,7 @@ Server.prototype.address = function() {
         try { return JSON.parse(json); } catch(e) {}
       }
     }
-    return { address: this._hostname || '0.0.0.0', family: 'IPv4', port: this._port || 0 };
+    return { address: this._hostname || '127.0.0.1', family: 'IPv4', port: this._port || 0 };
   }
   return null;
 };

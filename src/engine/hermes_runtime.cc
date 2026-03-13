@@ -3758,7 +3758,7 @@ static void installHttpHostFunctions(ExactHermesRuntime* handle) {
         if (count > 0 && args[0].isNumber()) {
           port = static_cast<uint16_t>(args[0].asNumber());
         }
-        std::string hostname = "0.0.0.0";
+        std::string hostname = "127.0.0.1";
         if (count > 1 && args[1].isString()) {
           hostname = args[1].toString(runtime).utf8(runtime);
         }

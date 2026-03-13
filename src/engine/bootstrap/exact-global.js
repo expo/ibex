@@ -1399,7 +1399,8 @@
     }
 
     var port = options.port !== undefined ? options.port : 3000;
-    var hostname = options.hostname !== undefined ? options.hostname : '0.0.0.0';
+    var hostnameProvided = options.hostname !== undefined;
+    var hostname = hostnameProvided ? options.hostname : '127.0.0.1';
 
     if (typeof __exactHttpServe !== 'function' && typeof __exactEnsureHttp === 'function') {
       try { __exactEnsureHttp(); } catch (err) {}
@@ -1426,7 +1427,7 @@
       if (url.indexOf('http://') === 0 || url.indexOf('https://') === 0) {
         fullUrl = url;
       } else {
-        var h = hostname === '0.0.0.0' ? 'localhost' : hostname;
+        var h = !hostnameProvided || hostname === '0.0.0.0' ? 'localhost' : hostname;
         fullUrl = scheme + '://' + formatUrlHost(h) + ':' + actualPort + url;
       }
       var headers = null;
@@ -1581,7 +1582,7 @@
     }
     pollLoop();
 
-    var h = hostname === '0.0.0.0' ? 'localhost' : hostname;
+    var h = !hostnameProvided || hostname === '0.0.0.0' ? 'localhost' : hostname;
     var urlObject = new URL(scheme + '://' + formatUrlHost(h) + ':' + actualPort + '/');
     var server = {
       port: actualPort, hostname: h,
