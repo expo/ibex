@@ -177,12 +177,15 @@ fn normalize_capability(capability: &str) -> String {
         return scope.to_lowercase();
     }
 
-    let scope = scope.to_lowercase();
+    let scope = match scope.to_lowercase().as_str() {
+        "net" => "network".to_string(),
+        other => other.to_string(),
+    };
     let action = action.to_lowercase();
     let normalized_resource = match scope.as_str() {
         "fs" => normalize_fs_resource(resource),
         "env" => normalize_env_resource(resource),
-        "net" => normalize_net_resource(resource),
+        "network" => normalize_network_resource(resource),
         _ => resource.to_string(),
     };
 
@@ -197,7 +200,7 @@ fn normalize_env_resource(resource: &str) -> String {
     resource.trim().to_string()
 }
 
-fn normalize_net_resource(resource: &str) -> String {
+fn normalize_network_resource(resource: &str) -> String {
     resource.trim().to_lowercase()
 }
 
@@ -283,13 +286,27 @@ fn matches_denials(grants: Option<&Vec<CapabilityGrant>>, capability: &str) -> b
 }
 
 fn matches_capability(pattern: &str, value: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
     if pattern == value {
         return true;
     }
     if pattern.contains('*') {
         return wildcard_match(pattern, value);
     }
-    false
+
+    let pattern_parts: Vec<&str> = pattern.splitn(3, ':').collect();
+    let value_parts: Vec<&str> = value.splitn(3, ':').collect();
+
+    if pattern_parts.len() > value_parts.len() {
+        return false;
+    }
+
+    pattern_parts
+        .iter()
+        .zip(value_parts.iter())
+        .all(|(pattern_part, value_part)| pattern_part == value_part)
 }
 
 fn wildcard_match(pattern: &str, value: &str) -> bool {
@@ -318,4 +335,53 @@ fn wildcard_match(pattern: &str, value: &str) -> bool {
     }
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_capability_aliases_net_to_network() {
+        assert_eq!(
+            normalize_capability("NET:FETCH:Api.Example.Com"),
+            "network:fetch:api.example.com"
+        );
+        assert_eq!(
+            normalize_capability("network:fetch:Api.Example.Com"),
+            "network:fetch:api.example.com"
+        );
+    }
+
+    #[test]
+    fn matches_capability_allows_base_grants_for_parameterized_values() {
+        assert!(matches_capability(
+            "network:fetch",
+            "network:fetch:api.example.com"
+        ));
+        assert!(matches_capability("fs:read", "fs:read:/tmp/file.txt"));
+        assert!(!matches_capability(
+            "network:fetch:api.example.com",
+            "network:fetch:other.example.com"
+        ));
+    }
+
+    #[test]
+    fn matches_capability_does_not_treat_resource_prefixes_as_exact_matches() {
+        let root = normalize_capability("fs:read:/tmp/exact-capabilities");
+        let child = normalize_capability("fs:read:/tmp/exact-capabilities/file.txt");
+        assert!(!matches_capability(&root, &child));
+    }
+
+    #[test]
+    fn capability_manager_matches_js_style_base_grants_and_network_aliases() {
+        let manager = CapabilityManager::new(SecurityMode::Strict);
+
+        manager.grant("module-a", "network:fetch", None);
+        manager.grant("module-b", "net:fetch", None);
+
+        assert!(manager.check("module-a", "network:fetch:api.example.com"));
+        assert!(manager.check("module-b", "network:fetch:api.example.com"));
+        assert!(!manager.check("module-a", "network:connect:api.example.com"));
+    }
 }
