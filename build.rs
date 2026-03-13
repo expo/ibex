@@ -66,6 +66,8 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_bootstrap.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_linux.cc");
@@ -444,6 +446,7 @@ fn main() {
     build
         .cpp(true)
         .file("src/engine/hermes_runtime.cc")
+        .file("src/engine/hermes_bootstrap.cc")
         .include(&hermes_include_dir)
         .include(&out_dir) // For bootstrap_bytecode.h
         .flag_if_supported("-std=c++17")

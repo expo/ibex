@@ -148,6 +148,8 @@ extern "C" char **environ;
 #include "bootstrap_source.h"
 #endif
 
+#include "hermes_runtime_internal.h"
+
 // Concrete Buffer for static HBC byte arrays (used by precompiled bootstrap)
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
 class StaticHBCBuffer : public facebook::jsi::Buffer {
@@ -170,7 +172,7 @@ static void signal_handler(int sig) {
   g_pending_signal.store(sig, std::memory_order_relaxed);
 }
 
-static bool startup_trace_enabled() {
+bool startup_trace_enabled() {
   static int cached = -1;
   if (cached < 0) {
     const char* val = std::getenv("EX_STARTUP_TRACE");
@@ -179,7 +181,7 @@ static bool startup_trace_enabled() {
   return cached == 1;
 }
 
-static bool env_flag_enabled(const char* env_name) {
+bool env_flag_enabled(const char* env_name) {
   const char* val = std::getenv(env_name);
   return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y');
 }
@@ -441,17 +443,6 @@ facebook::jsi::Function makeLogFunction(facebook::jsi::Runtime& rt, int32_t leve
       });
 }
 
-struct TimerEntry {
-  uint64_t id;
-  uint64_t due_ms;
-  uint64_t interval_ms;
-  bool repeat;
-  bool referenced = true;
-  facebook::jsi::Function callback;
-};
-
-struct ExactHermesRuntime;
-
 uint64_t nowMs() {
   using namespace std::chrono;
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -488,80 +479,6 @@ bool runtimeIsAlive(ExactHermesRuntime* runtime) {
 }
 
 constexpr uint32_t EXACT_FETCH_TIMEOUT_MS = 30000;
-
-struct FetchCallbackEntry {
-    std::shared_ptr<facebook::jsi::Function> resolve;
-    std::shared_ptr<facebook::jsi::Function> reject;
-    std::string url;
-    std::chrono::steady_clock::time_point deadline;
-};
-
-struct ExactHermesRuntime {
-  std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
-  std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debugger;
-  bool debugger_callback_set{false};
-  std::atomic<bool> debugger_attached{false};
-  std::atomic<bool> debugger_available{true};
-  std::mutex debug_mutex;
-  std::deque<std::string> debug_events;
-  std::unordered_set<uint32_t> known_scripts;
-  std::unordered_map<uint32_t, std::string> script_id_to_name;
-  std::unordered_map<std::string, std::string> sources_by_name;
-  std::thread::id runtime_thread;
-  uint64_t next_timer_id{1};
-  std::unordered_map<uint64_t, TimerEntry> timers;
-  std::deque<facebook::jsi::Function> next_tick;
-  // Task queue for cross-thread execution
-  std::mutex task_mutex;
-  std::vector<std::function<void(facebook::jsi::Runtime&)>> pending_tasks;
-  std::atomic<int> active_spawn_processes{0};
-  // Fetch infrastructure
-  std::mutex fetchMutex;
-  uint32_t nextFetchId{1};
-  std::unordered_map<uint32_t, FetchCallbackEntry> fetchCallbacks;
-  // Cross-thread callback queue (for delivering results from background threads)
-  std::mutex callbackMutex;
-  std::deque<std::function<void(facebook::jsi::Runtime&)>> callbackQueue;
-
-  // --- iOS rendering pipeline callbacks ---
-  // These are set by the iOS app to receive binary dispatch and module calls.
-  // On CLI, these remain null and the corresponding JS functions are not installed.
-
-  // Callback for exact.dispatch(Uint8Array) - binary protocol for rendering
-  void (*ios_dispatch_callback)(const uint8_t* data, size_t length, void* context) = nullptr;
-  void* ios_dispatch_context = nullptr;
-
-  // Callback for exact.dispatchModule(Uint8Array) - async native module calls
-  void (*ios_module_dispatch_callback)(const uint8_t* data, size_t length, void* context) = nullptr;
-  void* ios_module_dispatch_context = nullptr;
-
-  // Callback for exact.callModuleSync(Uint8Array) - blocking native module calls
-  // Returns 0 on success, fills result_data/result_length
-  int (*ios_module_sync_callback)(const uint8_t* data, size_t length,
-                                   uint8_t** result_data, size_t* result_length,
-                                   void* context) = nullptr;
-  void* ios_module_sync_context = nullptr;
-
-  // Lazy-load flags for non-essential bootstrap blocks
-  bool stream_enhance_loaded = false;
-  bool web_crypto_loaded = false;
-  bool web_storage_loaded = false;
-  bool form_data_loaded = false;
-
-  // Deferred host function group flags (startup optimization #2)
-  bool dns_functions_loaded = false;
-  bool fs_functions_loaded = false;
-  bool child_process_functions_loaded = false;
-  bool net_functions_loaded = false;
-  bool sqlite_functions_loaded = false;
-  bool http_functions_loaded = false;
-
-  // --- Valet host-call bridge ---
-  // Generic callback for embedding: JS calls __hostCall(op, argsJson) which
-  // invokes this function pointer. Returns a malloc'd JSON string (caller frees)
-  // or NULL on error (error message in out_error).
-  char* (*host_call_fn)(const char* op, const char* args_json) = nullptr;
-};
 
 bool hasPendingFetchCallbacks(ExactHermesRuntime* runtime) {
   if (!runtime) {
@@ -1525,126 +1442,6 @@ static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
 
 void runNextTickQueue(ExactHermesRuntime* runtime);
 
-// Used for startup bootstrap scripts to preserve the same evaluation path as `ex_hermes_eval`.
-extern "C" int ex_hermes_eval(
-    struct ExactHermesRuntime* runtime,
-    const uint8_t* data,
-    size_t len,
-    const char* source_url,
-    int is_bytecode,
-    char** out_value);
-
-// Evaluate bootstrap source/HBC with shared semantics used by REPL startup scripts.
-static bool eval_bootstrap_script(
-    ExactHermesRuntime* handle,
-    const char* source,
-    const uint8_t* hbc,
-    size_t hbcLen,
-    const char* sourceUrl,
-    bool preferSource,
-    bool allowHbc);
-
-void installModuleLoader(ExactHermesRuntime* handle) {
-  bool skip_module_loader = env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER");
-  bool skip_module_loader_script = env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER_SCRIPT");
-  if (skip_module_loader) {
-    if (startup_trace_enabled()) {
-      fprintf(stderr, "[startup]   module_loader skipped (set EX_SKIP_STARTUP_MODULE_LOADER=0 to re-enable)\n");
-    }
-    return;
-  }
-
-  static const char* loader = MODULE_LOADER_SRC;
-
-  auto _t0 = std::chrono::steady_clock::now();
-  if (skip_module_loader_script) {
-    if (startup_trace_enabled()) {
-      fprintf(stderr, "[startup]   module_loader_script skipped (set EX_SKIP_STARTUP_MODULE_LOADER_SCRIPT=0 to re-enable)\n");
-    }
-  } else {
-    bool source_module_loader = env_flag_enabled("EX_MODULE_LOADER_SOURCE");
-    // Keep module-loader bootstrap HBC opt-in for now.
-    bool module_loader_hbc = env_flag_enabled("EX_MODULE_LOADER_HBC");
-    try {
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-      bool moduleLoaderEvaluated = eval_bootstrap_script(
-          handle,
-          loader,
-          reinterpret_cast<const uint8_t*>(MODULE_LOADER_HBC),
-          MODULE_LOADER_HBC_LEN,
-          "<module-loader>",
-          source_module_loader || !module_loader_hbc,
-          module_loader_hbc);
-#else
-      bool moduleLoaderEvaluated = eval_bootstrap_script(
-          handle,
-          loader,
-          nullptr,
-          0,
-          "<module-loader>",
-          true,
-          false);
-#endif
-      if (!moduleLoaderEvaluated) {
-        throw std::runtime_error("Module loader failed to evaluate");
-      }
-    } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, err.getMessage().c_str());
-    } catch (const std::exception& err) {
-      ex_host_console_log(1, err.what());
-    }
-  }
-  if (startup_trace_enabled()) {
-    auto _el = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now() - _t0).count();
-    fprintf(stderr, "[startup]   %-28s %6lld us (%5.1f ms)\n",
-            "module_loader", (long long)_el, _el / 1000.0);
-  }
-
-  // Expose common globals from modules (Buffer, URL, URLSearchParams, setImmediate, etc.)
-  _t0 = std::chrono::steady_clock::now();
-  if (env_flag_enabled("EX_SKIP_STARTUP_BOOTSTRAP_GLOBALS")) {
-    if (startup_trace_enabled()) {
-      fprintf(stderr, "[startup]   bootstrap_globals skipped (set EX_SKIP_STARTUP_BOOTSTRAP_GLOBALS=0 to re-enable)\n");
-    }
-  } else {
-    bool source_bootstrap_globals = env_flag_enabled("EX_BOOTSTRAP_GLOBALS_SOURCE");
-    // Keep bootstrap globals HBC opt-in for now.
-    bool bootstrap_globals_hbc = env_flag_enabled("EX_BOOTSTRAP_GLOBALS_HBC");
-    try {
-      const char* globals = BOOTSTRAP_GLOBALS_SRC;
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-      bool bootstrapGlobalsEvaluated = eval_bootstrap_script(
-          handle,
-          globals,
-          reinterpret_cast<const uint8_t*>(BOOTSTRAP_GLOBALS_HBC),
-          BOOTSTRAP_GLOBALS_HBC_LEN,
-          "<bootstrap>",
-          source_bootstrap_globals || !bootstrap_globals_hbc,
-          bootstrap_globals_hbc);
-#else
-      bool bootstrapGlobalsEvaluated = eval_bootstrap_script(
-          handle,
-          globals,
-          nullptr,
-          0,
-          "<bootstrap>",
-          true,
-          false);
-#endif
-      if (!bootstrapGlobalsEvaluated) {
-        throw std::runtime_error("Bootstrap globals failed to evaluate");
-      }
-    } catch (...) {}
-    if (startup_trace_enabled()) {
-      auto _el = std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::steady_clock::now() - _t0).count();
-      fprintf(stderr, "[startup]   %-28s %6lld us (%5.1f ms)\n",
-              "bootstrap_globals", (long long)_el, _el / 1000.0);
-    }
-  }
-}
-
 // Native StringBuffer for O(1) amortized string append (avoids O(n^2) JS string concatenation)
 class StringBufferHostObject : public facebook::jsi::HostObject {
 public:
@@ -1753,154 +1550,6 @@ static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) 
   }
   return envVec;
 }
-
-// --- Lazy-load ensure functions for non-essential bootstrap blocks ---
-// These evaluate the corresponding HBC block on first access and set the loaded flag.
-// Only used when HAS_PRECOMPILED_BOOTSTRAP is defined; without HBC, these blocks
-// are evaluated eagerly in installGlobals() (the existing behavior).
-// The source strings are declared extern here — they're defined as function-scope statics
-// in installGlobals() which share the same linkage.
-
-// Execute bootstrap source/HBC with bytecode-first fallback semantics while reusing
-// the same runtime/microtask flow as normal `ex eval`.
-static bool eval_bootstrap_script(
-    ExactHermesRuntime* handle,
-    const char* source,
-    const uint8_t* hbc,
-    size_t hbcLen,
-    const char* sourceUrl,
-    bool preferSource,
-    bool allowHbc) {
-  if (!handle || !source || !sourceUrl) {
-    return false;
-  }
-
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-  if (!preferSource && allowHbc && hbc != nullptr && hbcLen > 0) {
-    if (ex_hermes_eval(handle, hbc, hbcLen, sourceUrl, 1, nullptr) == 0) {
-      return true;
-    }
-  }
-#endif
-  return ex_hermes_eval(handle,
-                        reinterpret_cast<const uint8_t*>(source),
-                        std::strlen(source),
-                        sourceUrl,
-                        0,
-                        nullptr) == 0;
-}
-
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-
-// Store source string pointers for lazy-load fallback
-static const char* g_streamEnhanceJS = nullptr;
-static const char* g_webCryptoJS = nullptr;
-static const char* g_webStorageJS = nullptr;
-static const char* g_formDataJS = nullptr;
-
-void ensureStreamEnhance(ExactHermesRuntime* handle) {
-  if (handle->stream_enhance_loaded) return;
-  handle->stream_enhance_loaded = true;
-  if (!g_streamEnhanceJS) {
-    return;
-  }
-  try {
-    if (!eval_bootstrap_script(
-            handle,
-            g_streamEnhanceJS,
-            reinterpret_cast<const uint8_t*>(STREAM_ENHANCE_HBC),
-            STREAM_ENHANCE_HBC_LEN,
-            "<stream-enhance>",
-            true,
-            env_flag_enabled("EX_STREAM_ENHANCE_HBC"))) {
-      throw std::runtime_error("Stream enhance failed to evaluate");
-    }
-  } catch (const facebook::jsi::JSError& err) {
-    ex_host_console_log(1, (std::string("Stream enhance error: ") + err.getMessage()).c_str());
-  } catch (const std::exception& err) {
-    ex_host_console_log(1, (std::string("Stream enhance error: ") + err.what()).c_str());
-  } catch (...) {}
-}
-
-void ensureWebCrypto(ExactHermesRuntime* handle) {
-  if (handle->web_crypto_loaded) return;
-  handle->web_crypto_loaded = true;
-  if (!g_webCryptoJS) {
-    return;
-  }
-  try {
-    bool source_preferred = !env_flag_enabled("EX_WEB_CRYPTO_HBC");
-    bool hbc_enabled = env_flag_enabled("EX_WEB_CRYPTO_HBC");
-    if (!eval_bootstrap_script(
-            handle,
-            g_webCryptoJS,
-            reinterpret_cast<const uint8_t*>(WEB_CRYPTO_HBC),
-            WEB_CRYPTO_HBC_LEN,
-            "<web-crypto>",
-            source_preferred,
-            hbc_enabled)) {
-      throw std::runtime_error("Web Crypto failed to evaluate");
-    }
-  } catch (const facebook::jsi::JSError& err) {
-    ex_host_console_log(1, (std::string("Web Crypto error: ") + err.getMessage()).c_str());
-  } catch (const std::exception& err) {
-    ex_host_console_log(1, (std::string("Web Crypto error: ") + err.what()).c_str());
-  } catch (...) {}
-}
-
-void ensureWebStorage(ExactHermesRuntime* handle) {
-  if (handle->web_storage_loaded) return;
-  handle->web_storage_loaded = true;
-  if (!g_webStorageJS) {
-    return;
-  }
-  try {
-    bool source_preferred = !env_flag_enabled("EX_WEB_STORAGE_HBC");
-    bool hbc_enabled = env_flag_enabled("EX_WEB_STORAGE_HBC");
-    if (!eval_bootstrap_script(
-            handle,
-            g_webStorageJS,
-            reinterpret_cast<const uint8_t*>(WEB_STORAGE_HBC),
-            WEB_STORAGE_HBC_LEN,
-            "<web-storage>",
-            source_preferred,
-            hbc_enabled)) {
-      throw std::runtime_error("Storage failed to evaluate");
-    }
-  } catch (const facebook::jsi::JSError& err) {
-    ex_host_console_log(1, (std::string("Storage error: ") + err.getMessage()).c_str());
-  } catch (const std::exception& err) {
-    ex_host_console_log(1, (std::string("Storage error: ") + err.what()).c_str());
-  } catch (...) {}
-}
-
-void ensureFormData(ExactHermesRuntime* handle) {
-  if (handle->form_data_loaded) return;
-  handle->form_data_loaded = true;
-  if (!g_formDataJS) {
-    return;
-  }
-  try {
-    bool source_preferred = !env_flag_enabled("EX_FORM_DATA_HBC");
-    bool hbc_enabled = env_flag_enabled("EX_FORM_DATA_HBC");
-    if (!eval_bootstrap_script(
-            handle,
-            g_formDataJS,
-            reinterpret_cast<const uint8_t*>(FORM_DATA_HBC),
-            FORM_DATA_HBC_LEN,
-            "<form-data>",
-            source_preferred,
-            hbc_enabled)) {
-      throw std::runtime_error("FormData failed to evaluate");
-    }
-  } catch (const facebook::jsi::JSError& err) {
-    ex_host_console_log(1, (std::string("FormData error: ") + err.getMessage()).c_str());
-  } catch (const std::exception& err) {
-    ex_host_console_log(1, (std::string("FormData error: ") + err.what()).c_str());
-  } catch (...) {}
-}
-#endif // HAS_PRECOMPILED_BOOTSTRAP
-
 
 // =============================================================================
 // Deferred host function installation helpers (startup optimization #2)
