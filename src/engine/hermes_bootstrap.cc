@@ -15,6 +15,11 @@
 #include "bootstrap_source.h"
 #endif
 
+#if __has_include("runtime_bundle_source.h")
+#include "runtime_bundle_source.h"
+#define HAS_SHARED_RUNTIME_BUNDLE 1
+#endif
+
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" int ex_hermes_eval(
     ExactHermesRuntime* runtime,
@@ -23,6 +28,7 @@ extern "C" int ex_hermes_eval(
     const char* source_url,
     int is_bytecode,
     char** out_value);
+extern "C" void ex_hermes_free_string(char* value);
 
 const char* g_streamEnhanceJS = nullptr;
 const char* g_webCryptoJS = nullptr;
@@ -56,7 +62,47 @@ bool eval_bootstrap_script(
                         nullptr) == 0;
 }
 
-void installModuleLoader(ExactHermesRuntime* handle) {
+static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
+#ifdef HAS_SHARED_RUNTIME_BUNDLE
+  if (!handle || !handle->runtime || SHARED_RUNTIME_BUNDLE_SRC[0] == '\0') {
+    return false;
+  }
+
+  auto& rt = *handle->runtime;
+  try {
+    rt.global().setProperty(rt, "__exactSuppressRuntimeBanner", true);
+  } catch (...) {
+  }
+
+  char* error = nullptr;
+  bool evaluated = ex_hermes_eval(
+                       handle,
+                       reinterpret_cast<const uint8_t*>(SHARED_RUNTIME_BUNDLE_SRC),
+                       std::strlen(SHARED_RUNTIME_BUNDLE_SRC),
+                       "<shared-runtime-bundle>",
+                       0,
+                       &error) == 0;
+  if (!evaluated) {
+    if (error != nullptr) {
+      ex_host_console_log(1, error);
+      ex_hermes_free_string(error);
+    }
+    return false;
+  }
+
+  try {
+    auto loaded = rt.global().getProperty(rt, "__exactRuntimeLoaded");
+    return loaded.isBool() && loaded.getBool();
+  } catch (...) {
+    return false;
+  }
+#else
+  (void)handle;
+  return false;
+#endif
+}
+
+bool installModuleLoader(ExactHermesRuntime* handle) {
   bool skip_module_loader = env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER");
   bool skip_module_loader_script = env_flag_enabled("EX_SKIP_STARTUP_MODULE_LOADER_SCRIPT");
   if (skip_module_loader) {
@@ -65,7 +111,7 @@ void installModuleLoader(ExactHermesRuntime* handle) {
               "[startup]   module_loader skipped (set EX_SKIP_STARTUP_MODULE_LOADER=0 to "
               "re-enable)\n");
     }
-    return;
+    return false;
   }
 
   static const char* loader = MODULE_LOADER_SRC;
@@ -115,6 +161,15 @@ void installModuleLoader(ExactHermesRuntime* handle) {
             elapsed / 1000.0);
   }
 
+  bool sharedRuntimeInstalled = installSharedRuntimeBundle(handle);
+  if (sharedRuntimeInstalled) {
+    if (startup_trace_enabled()) {
+      fprintf(stderr,
+              "[startup]   shared_runtime_bundle installed; skipping legacy bootstrap_globals\n");
+    }
+    return true;
+  }
+
   t0 = std::chrono::steady_clock::now();
   if (env_flag_enabled("EX_SKIP_STARTUP_BOOTSTRAP_GLOBALS")) {
     if (startup_trace_enabled()) {
@@ -156,6 +211,8 @@ void installModuleLoader(ExactHermesRuntime* handle) {
               elapsed / 1000.0);
     }
   }
+
+  return false;
 }
 
 void ensureStreamEnhance(ExactHermesRuntime* handle) {

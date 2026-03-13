@@ -108,7 +108,7 @@ bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            bool preferSource,
                            bool allowHbc);
 
-void installModuleLoader(ExactHermesRuntime* handle);
+bool installModuleLoader(ExactHermesRuntime* handle);
 void ensureStreamEnhance(ExactHermesRuntime* handle);
 void ensureWebCrypto(ExactHermesRuntime* handle);
 void ensureWebStorage(ExactHermesRuntime* handle);

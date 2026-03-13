@@ -6793,6 +6793,7 @@ static void installNetHostFunctions(ExactHermesRuntime* handle) {
 
 void installGlobals(struct ExactHermesRuntime* handle) {
   bool _tracing = startup_trace_enabled();
+  bool sharedRuntimeInstalled = false;
   auto _t_now = std::chrono::steady_clock::now();
   auto _t_console_enhance = _t_now;
   auto _t_host_functions = _t_now;
@@ -12350,14 +12351,16 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactEnsureNet", std::move(ensureNetFn));
-
-
-  installModuleLoader(handle);
+  sharedRuntimeInstalled = installModuleLoader(handle);
 
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
   // --- Register lazy-load host functions and install lazy getters ---
   // These defer evaluation of non-essential bootstrap blocks until first use.
-  if (env_flag_enabled("EX_SKIP_STARTUP_LAZY_GETTERS")) {
+  if (sharedRuntimeInstalled) {
+    if (_tracing) {
+      fprintf(stderr, "[startup]   legacy_lazy_getters skipped (shared runtime bundle)\n");
+    }
+  } else if (env_flag_enabled("EX_SKIP_STARTUP_LAZY_GETTERS")) {
     if (_tracing) {
       fprintf(stderr, "[startup]   lazy_getters skipped (set EX_SKIP_STARTUP_LAZY_GETTERS=0 to re-enable)\n");
     }
@@ -12414,16 +12417,18 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // Compatibility post-bootstrap fixups for host shims used by test suites.
   // Run these before other high-level bootstrap scripts that expect stable
   // process metadata/config wiring.
-  {
-  static const char* processCompatFixJS = PROCESS_COMPAT_FIX_SRC;
+  if (!sharedRuntimeInstalled) {
+    static const char* processCompatFixJS = PROCESS_COMPAT_FIX_SRC;
     try {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(processCompatFixJS);
       rt.evaluateJavaScript(buffer, "<process-compat-fix>");
     } catch (const facebook::jsi::JSError& err) {
       ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.getMessage()).c_str());
-  } catch (const std::exception& err) {
+    } catch (const std::exception& err) {
       ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.what()).c_str());
     }
+  } else if (_tracing) {
+    fprintf(stderr, "[startup]   process_compat_fix skipped (shared runtime bundle)\n");
   }
 
   // Reinstall a hard process.exit on the process object itself after compatibility
@@ -12444,7 +12449,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   }
 
   // Compatibility polyfills for modern ECMAScript APIs used by npm modules.
-  if (env_flag_enabled("EX_SKIP_STARTUP_COMPAT_POLYFILLS")) {
+  if (sharedRuntimeInstalled) {
+    if (_tracing) {
+      fprintf(stderr, "[startup]   compat_polyfills skipped (shared runtime bundle)\n");
+    }
+  } else if (env_flag_enabled("EX_SKIP_STARTUP_COMPAT_POLYFILLS")) {
     if (_tracing) {
       fprintf(stderr, "[startup]   compat_polyfills skipped (set EX_SKIP_STARTUP_COMPAT_POLYFILLS=0 to re-enable)\n");
     }
@@ -12484,7 +12493,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   bool skip_exact_global = env_flag_enabled("EX_SKIP_STARTUP_EXACT_GLOBAL");
   bool source_exact_global = env_flag_enabled("EX_EXACT_GLOBAL_SOURCE");
   bool exact_global_hbc = env_flag_enabled("EX_EXACT_GLOBAL_HBC");
-  if (skip_exact_global) {
+  if (sharedRuntimeInstalled) {
+    if (_tracing) {
+      fprintf(stderr, "[startup]   exact_global skipped (shared runtime bundle)\n");
+    }
+  } else if (skip_exact_global) {
     if (_tracing) {
       fprintf(stderr, "[startup]   exact_global skipped (set EX_SKIP_STARTUP_EXACT_GLOBAL=0 to re-enable)\n");
     }
