@@ -2,14 +2,59 @@ use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::Path;
 use std::path::PathBuf;
 
-fn main() {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let repo_root = manifest_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("Failed to resolve repo root");
+fn env_path(var: &str) -> PathBuf {
+    match std::env::var(var) {
+        Ok(value) => PathBuf::from(value),
+        Err(error) => panic!("Required environment variable {var} is not set: {error}"),
+    }
+}
 
-    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+fn read_bytes_or_panic(path: &Path, context: &str) -> Vec<u8> {
+    std::fs::read(path)
+        .unwrap_or_else(|error| panic!("Failed to read {context} at {}: {error}", path.display()))
+}
+
+fn read_text_or_panic(path: &Path, context: &str) -> String {
+    std::fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("Failed to read {context} at {}: {error}", path.display()))
+}
+
+fn write_file_or_panic(path: &Path, contents: impl AsRef<[u8]>, context: &str) {
+    if let Err(error) = std::fs::write(path, contents) {
+        panic!("Failed to write {context} at {}: {error}", path.display());
+    }
+}
+
+fn read_dir_paths_or_panic(path: &Path, context: &str) -> Vec<PathBuf> {
+    let entries = std::fs::read_dir(path).unwrap_or_else(|error| {
+        panic!(
+            "Failed to read directory for {context} at {}: {error}",
+            path.display()
+        )
+    });
+    let mut paths = Vec::new();
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|error| {
+            panic!(
+                "Failed to read directory entry for {context} under {}: {error}",
+                path.display()
+            )
+        });
+        paths.push(entry.path());
+    }
+    paths
+}
+
+fn main() {
+    let manifest_dir = env_path("CARGO_MANIFEST_DIR");
+    let Some(repo_root) = manifest_dir.parent().and_then(|p| p.parent()) else {
+        panic!(
+            "Failed to resolve repo root from CARGO_MANIFEST_DIR={}",
+            manifest_dir.display()
+        );
+    };
+
+    let out_dir = env_path("OUT_DIR");
 
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let default_ios_headers = repo_root
@@ -328,7 +373,11 @@ fn main() {
              #pragma once\n\n",
         );
         let mut all_ok = true;
-        let expected_version = hermesc_hbc_version.unwrap();
+        let Some(expected_version) = hermesc_hbc_version else {
+            panic!(
+                "Internal build.rs invariant failed: missing hermesc HBC version after precompile_bootstrap_hbc gate"
+            );
+        };
 
         for (js_file, array_name) in &bootstrap_files {
             let js_path = bootstrap_dir.join(js_file);
@@ -391,7 +440,7 @@ fn main() {
                         }
                     }
 
-                    let bytes = std::fs::read(&hbc_path).unwrap();
+                    let bytes = read_bytes_or_panic(&hbc_path, "compiled bootstrap HBC");
                     header.push_str(&format!(
                         "alignas(8) static const uint8_t {}_HBC[] = {{\n",
                         array_name
@@ -422,7 +471,7 @@ fn main() {
         }
 
         if all_ok {
-            std::fs::write(&bootstrap_hbc_header, &header).unwrap();
+            write_file_or_panic(&bootstrap_hbc_header, &header, "bootstrap_bytecode.h");
             eprintln!("cargo:warning=Generated bootstrap_bytecode.h with precompiled HBC");
         } else if !allow_fallback {
             panic!("HBC precompilation failed and EXACT_ALLOW_FALLBACK is not set");
@@ -457,7 +506,7 @@ fn main() {
                 break;
             }
 
-            let source = std::fs::read_to_string(&js_path).unwrap();
+            let source = read_text_or_panic(&js_path, "bootstrap source");
             src_header.push_str(&format!(
                 "static const char* {}_SRC = R\"JSSRC(\n{})JSSRC\";\n\n",
                 const_name, source
@@ -465,7 +514,7 @@ fn main() {
         }
 
         if all_ok {
-            std::fs::write(&bootstrap_source_header, &src_header).unwrap();
+            write_file_or_panic(&bootstrap_source_header, &src_header, "bootstrap_source.h");
             eprintln!("cargo:warning=Generated bootstrap_source.h with JS source literals");
         } else if !allow_fallback {
             panic!("bootstrap_source.h generation failed because EXACT_ALLOW_FALLBACK is not set");
@@ -619,8 +668,7 @@ fn main() {
             // Add all brotli C sources
             for subdir in &["common", "dec", "enc"] {
                 let dir = brotli_dir.join(subdir);
-                for entry in std::fs::read_dir(&dir).unwrap() {
-                    let path = entry.unwrap().path();
+                for path in read_dir_paths_or_panic(&dir, "vendored Brotli source discovery") {
                     if path.extension().is_some_and(|e| e == "c") {
                         brotli_build.file(&path);
                     }
@@ -723,8 +771,7 @@ fn main() {
             .flag_if_supported("-fPIC");
         for subdir in &["common", "dec", "enc"] {
             let dir = brotli_dir.join(subdir);
-            for entry in std::fs::read_dir(&dir).unwrap() {
-                let path = entry.unwrap().path();
+            for path in read_dir_paths_or_panic(&dir, "vendored Brotli source discovery") {
                 if path.extension().is_some_and(|e| e == "c") {
                     brotli_build.file(&path);
                 }
@@ -827,7 +874,7 @@ fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow
          static const char* SHARED_RUNTIME_BUNDLE_SRC = {};\n",
         runtime_bundle_literal
     );
-    std::fs::write(&header_path, header).expect("Failed to write runtime_bundle_source.h");
+    write_file_or_panic(&header_path, header, "runtime_bundle_source.h");
     eprintln!("cargo:warning=Generated runtime_bundle_source.h from shared runtime bundle");
 }
 
@@ -982,7 +1029,14 @@ fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|e| e == "js" || e == "ts") {
-                let dest = dst.join(path.file_name().unwrap());
+                let Some(file_name) = path.file_name() else {
+                    eprintln!(
+                        "cargo:warning=Skipping builtin copy for {} because it has no file name",
+                        path.display()
+                    );
+                    continue;
+                };
+                let dest = dst.join(file_name);
                 let _ = std::fs::copy(&path, &dest);
             }
         }

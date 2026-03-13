@@ -564,6 +564,8 @@ CFRefPtr<T> adoptCF(T ptr) {
   return CFRefPtr<T>(ptr);
 }
 
+} // namespace
+
 extern "C" void ex_hermes_notify_callback();
 
 void pushRuntimeCallback(ExactHermesRuntime* runtime,
@@ -573,6 +575,8 @@ void pushRuntimeCallback(ExactHermesRuntime* runtime,
     runtime->callbackQueue.push_back(std::move(fn));
     ex_hermes_notify_callback();
 }
+
+namespace {
 
 int drainCallbackQueue(ExactHermesRuntime* runtime) {
     std::deque<std::function<void(facebook::jsi::Runtime&)>> queue;
