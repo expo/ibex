@@ -751,11 +751,8 @@ function _execStringEncoding(encoding, validEncodings) {
 
 function _validateCredentialOption(name, value) {
   if (value == null) return;
-  if (typeof value !== 'number') {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 2147483647) {
     _throwInvalidArgType(name, 'of type number', value);
-  }
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 2147483647) {
-    _throwOutOfRange(name, '>= 0 && <= 2147483647', value);
   }
 }
 
@@ -766,6 +763,20 @@ function _validateNonNegativeIntegerOption(name, value) {
   }
   if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
     _throwOutOfRange(name, 'a non-negative integer', value);
+  }
+}
+
+function _validateTimeoutOption(name, value) {
+  if (value == null) return;
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    _throwOutOfRange(name, 'a non-negative integer', value);
+  }
+}
+
+function _validateMaxBufferOption(name, value) {
+  if (value == null) return;
+  if (typeof value !== 'number' || value !== value || value < 0) {
+    _throwOutOfRange(name, 'a non-negative number', value);
   }
 }
 
@@ -846,10 +857,10 @@ function _validateSpawnSyncOptions(options) {
     _throwInvalidArgType('options.windowsVerbatimArguments', 'of type boolean or undefined', options.windowsVerbatimArguments);
   }
   if (options.timeout != null) {
-    _validateNonNegativeIntegerOption('options.timeout', options.timeout);
+    _validateTimeoutOption('options.timeout', options.timeout);
   }
   if (options.maxBuffer != null) {
-    _validateNonNegativeNumberOption('options.maxBuffer', options.maxBuffer);
+    _validateMaxBufferOption('options.maxBuffer', options.maxBuffer);
   }
   if (options.killSignal != null) {
     if (typeof options.killSignal !== 'string' && typeof options.killSignal !== 'number') {
@@ -1233,6 +1244,13 @@ cp.exec = function exec(command, options, callback) {
     env: opts.env
   });
   child._cmd = command;
+  // Set encoding on stdout/stderr so data events emit strings (Node.js exec behavior)
+  if (!useBuffer && child.stdout && typeof child.stdout.setEncoding === 'function') {
+    child.stdout.setEncoding(stringEncoding);
+  }
+  if (!useBuffer && child.stderr && typeof child.stderr.setEncoding === 'function') {
+    child.stderr.setEncoding(stringEncoding);
+  }
   var stdoutChunks = [];
   var stderrChunks = [];
   var stdoutLen = 0;
@@ -3188,7 +3206,7 @@ cp.spawn = function spawn(command, args, options) {
   _validateOptionsNullBytes(options);
   // Validate timeout option
   if (options.timeout !== undefined && options.timeout !== null) {
-    _validateNonNegativeIntegerOption('options.timeout', options.timeout);
+    _validateTimeoutOption('options.timeout', options.timeout);
   }
   // Validate killSignal option
   if (options.killSignal !== undefined && options.killSignal !== null) {

@@ -1263,6 +1263,62 @@
     } catch (err) {}
   }
 
+  // Install process.execve polyfill early so it is available on the global
+  // process object without requiring the 'process' module first.
+  if (typeof globalThis.process === 'object' && globalThis.process !== null &&
+      typeof globalThis.process.execve !== 'function') {
+    try {
+      var __exactInspectValue = function(v) {
+        if (typeof v === 'string') return "'" + v.replace(/\0/g, '\\x00') + "'";
+        return String(v);
+      };
+      globalThis.process.execve = function execve(execPath, args, envObj) {
+        if (typeof execPath !== 'string') {
+          var e = new TypeError('The "execPath" argument must be of type string. Received type ' + typeof execPath + ' (' + String(execPath) + ')');
+          e.code = 'ERR_INVALID_ARG_TYPE';
+          throw e;
+        }
+        if (!Array.isArray(args)) {
+          var e2 = new TypeError('The "args" argument must be an instance of Array. Received type ' + typeof args + ' (' + __exactInspectValue(args) + ')');
+          e2.code = 'ERR_INVALID_ARG_TYPE';
+          throw e2;
+        }
+        for (var i = 0; i < args.length; i++) {
+          if (typeof args[i] !== 'string' || args[i].indexOf('\0') !== -1) {
+            var e3 = new TypeError("The argument 'args[" + i + "]' must be a string without null bytes. Received " + __exactInspectValue(args[i]));
+            e3.code = 'ERR_INVALID_ARG_VALUE';
+            throw e3;
+          }
+        }
+        if (arguments.length >= 3) {
+          if (typeof envObj !== 'object' || envObj === null || Array.isArray(envObj)) {
+            var e4 = new TypeError('The "env" argument must be of type object. Received type ' + typeof envObj + ' (' + __exactInspectValue(envObj) + ')');
+            e4.code = 'ERR_INVALID_ARG_TYPE';
+            throw e4;
+          }
+          var keys = Object.keys(envObj);
+          for (var j = 0; j < keys.length; j++) {
+            var val = envObj[keys[j]];
+            if (typeof val !== 'string' || val.indexOf('\0') !== -1) {
+              var pairs = [];
+              for (var k = 0; k < keys.length; k++) {
+                pairs.push(keys[k] + ': ' + __exactInspectValue(envObj[keys[k]]));
+              }
+              var e5 = new TypeError("The argument 'env' must be an object with string keys and values without null bytes. Received { " + pairs.join(', ') + ' }');
+              e5.code = 'ERR_INVALID_ARG_VALUE';
+              throw e5;
+            }
+          }
+        }
+        var e6 = new Error('Access to this API has been restricted');
+        e6.code = 'ERR_ACCESS_DENIED';
+        e6.permission = 'ChildProcess';
+        e6.resource = execPath;
+        throw e6;
+      };
+    } catch (err) {}
+  }
+
   // Node-oriented packages expect `process.versions.node` to exist.
   // In some Hermes runtimes process.versions is a host-managed accessor object
   // that may not include the Node key even though the process object is writable.

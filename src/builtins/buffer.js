@@ -157,6 +157,9 @@ function fillRange(target, value, start, end, encoding) {
   return fillRangeWithBytes(target, fillBytes, start, end);
 }
 
+var _Uint8Array_fill = typeof Uint8Array !== "undefined" && Uint8Array.prototype.fill
+  ? Uint8Array.prototype.fill : null;
+
 function fillRangeWithBytes(target, fillBytes, start, end) {
   var from = start == null ? 0 : start;
   var to = end == null ? target.length : end;
@@ -169,8 +172,8 @@ function fillRangeWithBytes(target, fillBytes, start, end) {
   }
   var i;
   if (!fillBytes || fillBytes.length === 0) {
-    if (typeof target.fill === "function") {
-      target.fill(0, from, to);
+    if (_Uint8Array_fill && target instanceof Uint8Array) {
+      _Uint8Array_fill.call(target, 0, from, to);
       return target;
     }
     for (i = from; i < to; i++) {
@@ -178,8 +181,8 @@ function fillRangeWithBytes(target, fillBytes, start, end) {
     }
     return target;
   }
-  if (typeof target.fill === "function" && fillBytes.length === 1) {
-    target.fill(fillBytes[0] & 0xff, from, to);
+  if (_Uint8Array_fill && target instanceof Uint8Array && fillBytes.length === 1) {
+    _Uint8Array_fill.call(target, fillBytes[0] & 0xff, from, to);
     return target;
   }
   if (typeof target.set === "function" && typeof target.subarray === "function") {

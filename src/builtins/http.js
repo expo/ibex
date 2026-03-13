@@ -1248,7 +1248,12 @@ function setupHttpClientErrorParsing(server, socket) {
 // Node.js: new http.IncomingMessage(socket) — socket is optional
 // ---------------------------------------------------------------------------
 function IncomingMessage(socketOrResponse) {
-  EventEmitter.call(this);
+  var ReadableCtor = getReadableCtor();
+  if (ReadableCtor) {
+    ReadableCtor.call(this);
+  } else {
+    EventEmitter.call(this);
+  }
 
   // If called with a fetch Response object (internal path)
   if (socketOrResponse && typeof socketOrResponse === 'object'
@@ -1297,7 +1302,12 @@ function IncomingMessage(socketOrResponse) {
   this._response = null;
   this._body = '';
 }
-IncomingMessage.prototype = Object.create(EventEmitter.prototype);
+// Inherit from Readable if available, otherwise EventEmitter
+var _IncomingMessageBase = (function() {
+  var R = getReadableCtor();
+  return R ? R.prototype : EventEmitter.prototype;
+})();
+IncomingMessage.prototype = Object.create(_IncomingMessageBase);
 IncomingMessage.prototype.constructor = IncomingMessage;
 
 // connection getter/setter mirrors socket
@@ -1320,20 +1330,33 @@ IncomingMessage.prototype._consumeBody = function() {
   this._consumed = true;
   var self = this;
   var response = this._response;
+  var canPush = typeof self.push === 'function';
+  function deliverChunk(chunk) {
+    if (canPush) {
+      self.push(chunk);
+    } else {
+      self.emit('data', chunk);
+    }
+  }
+  function deliverEnd() {
+    self.complete = true;
+    if (canPush) {
+      self.push(null);
+    } else {
+      self.emit('end');
+      self.emit('close');
+    }
+  }
   if (!response) {
     if (self._body) {
       var body = self._body;
       setTimeout(function() {
-        self.emit('data', body);
-        self.complete = true;
-        self.emit('end');
-        self.emit('close');
+        deliverChunk(body);
+        deliverEnd();
       }, 0);
     } else {
       setTimeout(function() {
-        self.complete = true;
-        self.emit('end');
-        self.emit('close');
+        deliverEnd();
       }, 0);
     }
     return;
@@ -1344,16 +1367,14 @@ IncomingMessage.prototype._consumeBody = function() {
     function pump() {
       reader.read().then(function(result) {
         if (result.done) {
-          self.complete = true;
-          self.emit("end");
-          self.emit("close");
+          deliverEnd();
           return;
         }
         var chunk = result.value;
         if (chunk instanceof Uint8Array && decoder) {
-          self.emit("data", decoder.decode(chunk, { stream: true }));
+          deliverChunk(decoder.decode(chunk, { stream: true }));
         } else {
-          self.emit("data", chunk);
+          deliverChunk(chunk);
         }
         pump();
       }).catch(function(err) {
@@ -1365,10 +1386,8 @@ IncomingMessage.prototype._consumeBody = function() {
     response
       .text()
       .then(function(text) {
-        if (text) self.emit("data", text);
-        self.complete = true;
-        self.emit("end");
-        self.emit("close");
+        if (text) deliverChunk(text);
+        deliverEnd();
       })
       .catch(function(err) {
         self.emit("error", err);
@@ -1376,12 +1395,17 @@ IncomingMessage.prototype._consumeBody = function() {
   }
 };
 IncomingMessage.prototype.setEncoding = function() { return this; };
-IncomingMessage.prototype.pause = function() { return this; };
+if (!IncomingMessage.prototype.pause) {
+  IncomingMessage.prototype.pause = function() { return this; };
+}
 IncomingMessage.prototype.resume = function() {
   if (this._response) this._consumeBody();
   return this;
 };
-IncomingMessage.prototype.read = function() { return null; };
+IncomingMessage.prototype._read = function() {
+  // Trigger consumption of the response body when Readable requests data
+  if (this._response && !this._consumed) this._consumeBody();
+};
 IncomingMessage.prototype.destroy = function(err) {
   if (err) this.emit('error', err);
   this.emit("close");
@@ -1554,26 +1578,6 @@ function ClientRequest(options, callback) {
 
   if (typeof callback === "function") {
     this.once("response", callback);
-  }
-
-  var requestSignal = this.options && this.options.signal;
-  if (requestSignal && typeof requestSignal.addEventListener === 'function') {
-    var self = this;
-    this._requestSignal = requestSignal;
-    this._onRequestSignalAbort = function() {
-      if (self._aborted) return;
-      self.abort();
-    };
-    if (requestSignal.aborted) {
-      setTimeout(this._onRequestSignalAbort, 0);
-    } else {
-      requestSignal.addEventListener('abort', this._onRequestSignalAbort, { once: true });
-    }
-    this.once('close', function() {
-      if (self._requestSignal && self._onRequestSignalAbort && typeof self._requestSignal.removeEventListener === 'function') {
-        try { self._requestSignal.removeEventListener('abort', self._onRequestSignalAbort); } catch (_removeAbortListenerErr) {}
-      }
-    });
   }
 
   if (_requestUsesSocketTransport(this)) {
@@ -2987,8 +2991,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       });
 
       responseEmitted = true;
+      // Check listener count BEFORE emit, because once() listeners are removed during emit
+      var hadResponseListeners = self.listenerCount ? self.listenerCount('response') > 0 : true;
       self.emit('response', tcpIncoming);
-      if (!self.listenerCount || self.listenerCount('response') === 0) {
+      if (!hadResponseListeners) {
         if (typeof tcpIncoming._dump === 'function') tcpIncoming._dump();
         else if (typeof tcpIncoming.resume === 'function') tcpIncoming.resume();
       }
@@ -4704,9 +4710,13 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
     if (!_isOutgoingChunk(chunk)) {
       throw _createInvalidChunkTypeError(chunk);
     }
-    // Empty string/buffer writes are no-ops (Node.js behavior)
+    // Empty string/buffer writes trigger header flush but don't send body data
     var chunkLen = _getOutgoingChunkLength(chunk, encoding);
     if (chunkLen === 0) {
+      // Still need to flush headers if not yet sent (Node.js compat)
+      if (!this._headersSent && this.socket && !this._nativeMode) {
+        this._send(undefined);
+      }
       if (callback) setTimeout(callback, 0);
       return true;
     }
@@ -4719,13 +4729,16 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
       // Already streaming: use chunked encoding to send data
       if (this._useChunkedEncoding) {
         try {
-          writeOk = this.socket.write(_buildChunkedRequestFrame(data));
+          var streamChunkedFrame = _buildChunkedRequestFrame(data);
+          writeOk = this.socket.write(streamChunkedFrame);
+          _recordOutgoingBytes(this, _getOutgoingBodyPartLength(streamChunkedFrame));
         } catch(e) {
           writeOk = false;
         }
       } else {
         try {
           writeOk = this.socket.write(data);
+          _recordOutgoingBytes(this, _getOutgoingBodyPartLength(data));
         } catch(e) {
           writeOk = false;
         }
@@ -5093,9 +5106,9 @@ ServerResponse.prototype._send = function(data) {
     this._bodyParts.push(data);
   }
   var writeOk = true;
-  // In socket mode, flush any pending body parts
+  // In socket mode, flush any pending body parts (or flush headers if not yet sent)
   if (this.socket && !this._nativeMode &&
-      (this._bodyParts.length > 0 || (!this._headersSent && hasData))) {
+      (this._bodyParts.length > 0 || !this._headersSent)) {
     var flushed = _concatServerResponseSocketBody(this._bodyParts);
     var flushedLength = _getOutgoingBodyPartLength(flushed);
     this._bodyParts = [];
@@ -5141,11 +5154,16 @@ ServerResponse.prototype._send = function(data) {
       head += '\r\n';
       this._headersSent = true;
       this._streaming = true;
+      var headLen = _getOutgoingBodyPartLength(head);
       if (this._useChunkedEncoding) {
         try {
           writeOk = this.socket.write(head);
+          _recordOutgoingBytes(this, headLen);
           if (flushedLength > 0) {
-            writeOk = this.socket.write(_buildChunkedRequestFrame(flushed)) && writeOk;
+            var chunkedFrame = _buildChunkedRequestFrame(flushed);
+            var chunkedFrameLen = _getOutgoingBodyPartLength(chunkedFrame);
+            writeOk = this.socket.write(chunkedFrame) && writeOk;
+            _recordOutgoingBytes(this, chunkedFrameLen);
           }
         } catch(e) {
           writeOk = false;
@@ -5153,8 +5171,10 @@ ServerResponse.prototype._send = function(data) {
       } else {
         try {
           writeOk = this.socket.write(head);
+          _recordOutgoingBytes(this, headLen);
           if (flushedLength > 0) {
             writeOk = this.socket.write(flushed) && writeOk;
+            _recordOutgoingBytes(this, flushedLength);
           }
         } catch(e) {
           writeOk = false;
@@ -5164,13 +5184,17 @@ ServerResponse.prototype._send = function(data) {
       // Already streaming
       if (this._useChunkedEncoding && flushedLength > 0) {
         try {
-          writeOk = this.socket.write(_buildChunkedRequestFrame(flushed));
+          var chunkedFrame2 = _buildChunkedRequestFrame(flushed);
+          var chunkedFrame2Len = _getOutgoingBodyPartLength(chunkedFrame2);
+          writeOk = this.socket.write(chunkedFrame2);
+          _recordOutgoingBytes(this, chunkedFrame2Len);
         } catch(e) {
           writeOk = false;
         }
       } else if (flushedLength > 0) {
         try {
           writeOk = this.socket.write(flushed);
+          _recordOutgoingBytes(this, flushedLength);
         } catch(e) {
           writeOk = false;
         }
@@ -5636,7 +5660,35 @@ function Server(options, requestListener) {
       _destroyHttpTimer(selfTimer[kConnectionsCheckingInterval]);
     }
     if (selfTimer.connectionsCheckingInterval > 0) {
-      selfTimer[kConnectionsCheckingInterval] = setInterval(function() {}, selfTimer.connectionsCheckingInterval);
+      selfTimer[kConnectionsCheckingInterval] = setInterval(function() {
+        if (!selfTimer._sockets) return;
+        var now = Date.now();
+        selfTimer._sockets.forEach(function(socket) {
+          if (socket.destroyed) return;
+          if (socket._headersTimeoutAt && now >= socket._headersTimeoutAt) {
+            socket._headersTimeoutAt = 0;
+            socket._requestTimeoutAt = 0;
+            if (socket._headersTimeoutId) {
+              _destroyHttpTimer(socket._headersTimeoutId);
+              socket._headersTimeoutId = null;
+            }
+            if (socket._requestTimeoutId) {
+              _destroyHttpTimer(socket._requestTimeoutId);
+              socket._requestTimeoutId = null;
+            }
+            socket.end('HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n');
+            return;
+          }
+          if (socket._requestTimeoutAt && now >= socket._requestTimeoutAt) {
+            socket._requestTimeoutAt = 0;
+            if (socket._requestTimeoutId) {
+              _destroyHttpTimer(socket._requestTimeoutId);
+              socket._requestTimeoutId = null;
+            }
+            socket.end('HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n');
+          }
+        });
+      }, selfTimer.connectionsCheckingInterval);
       if (selfTimer[kConnectionsCheckingInterval] && typeof selfTimer[kConnectionsCheckingInterval].unref === 'function') {
         selfTimer[kConnectionsCheckingInterval].unref();
       }
@@ -5760,7 +5812,12 @@ Server.prototype._onConnection = function(socket) {
   }
 
   function armPendingRequestTimeouts() {
-    if (socket.destroyed || socket._requestTimeoutArmed || !hasPendingHttpRequestData()) {
+    if (socket.destroyed || !hasPendingHttpRequestData()) {
+      return;
+    }
+    // Only re-arm if no timeout is currently active; avoid resetting
+    // an already-running headers timeout each time a data chunk arrives.
+    if (socket._headersTimeoutId || socket._requestTimeoutId) {
       return;
     }
     clearHeadersTimeout();
@@ -5997,7 +6054,11 @@ Server.prototype._onConnection = function(socket) {
 };
 
 Server.prototype.listen = function(port, hostname, callback) {
-  if (typeof port === 'object' && port !== null) {
+  if (typeof port === 'function') {
+    callback = port;
+    port = 0;
+    hostname = '0.0.0.0';
+  } else if (typeof port === 'object' && port !== null) {
     var opts = port;
     port = opts.port || 0;
     if (typeof hostname === 'function') {

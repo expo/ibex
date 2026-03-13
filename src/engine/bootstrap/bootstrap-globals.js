@@ -444,9 +444,196 @@
     if (listeners.size === 0) map.delete(type);
   }
 
-  // Wrap native setTimeout with callback validation, delay clamping, and domain support
-  if (typeof globalThis.setTimeout === 'function') {
-    var _nativeSetTimeout = globalThis.setTimeout;
+  // ---------------------------------------------------------------------------
+  // Timeout / Immediate wrapper classes (Node.js-compatible timer objects)
+  // ---------------------------------------------------------------------------
+  var _timerIdCounter = 1;
+
+  // Extract the native timer functions before we overwrite them
+  var _nativeSetTimeout = typeof globalThis.setTimeout === 'function' ? globalThis.setTimeout : null;
+  var _nativeSetInterval = typeof globalThis.setInterval === 'function' ? globalThis.setInterval : null;
+  var _nativeClearTimeout = typeof globalThis.clearTimeout === 'function' ? globalThis.clearTimeout : null;
+  var _nativeClearInterval = typeof globalThis.clearInterval === 'function' ? globalThis.clearInterval : null;
+  // Native ref/unref control (set by C++ runtime to control event loop keep-alive)
+  var _nativeTimerRef = typeof globalThis.__exactTimerRef === 'function' ? globalThis.__exactTimerRef : null;
+  var _nativeTimerUnref = typeof globalThis.__exactTimerUnref === 'function' ? globalThis.__exactTimerUnref : null;
+
+  // Helper to extract the native timer id from a Timeout/Immediate or raw id
+  function _unwrapTimerId(handle) {
+    if (handle === null || handle === undefined) return handle;
+    if (typeof handle === 'number') return handle;
+    if (typeof handle === 'string') return Number(handle);
+    if (handle && typeof handle._nativeId !== 'undefined') return handle._nativeId;
+    return handle;
+  }
+
+  // --- Timeout class (returned by setTimeout / setInterval) ---
+  function Timeout(callback, delay, args, isRepeat) {
+    this._id = _timerIdCounter++;
+    this._nativeId = null; // set after native scheduling
+    this._idleTimeout = delay;
+    this._onTimeout = callback;
+    this._timerArgs = args;
+    this._repeat = isRepeat ? delay : null;
+    this._destroyed = false;
+    this._refed = true;
+  }
+
+  Timeout.prototype.ref = function ref() {
+    this._refed = true;
+    if (_nativeTimerRef && this._nativeId !== null) {
+      _nativeTimerRef(this._nativeId);
+    }
+    return this;
+  };
+
+  Timeout.prototype.unref = function unref() {
+    this._refed = false;
+    if (_nativeTimerUnref && this._nativeId !== null) {
+      _nativeTimerUnref(this._nativeId);
+    }
+    return this;
+  };
+
+  Timeout.prototype.hasRef = function hasRef() {
+    return this._refed;
+  };
+
+  Timeout.prototype.refresh = function refresh() {
+    if (this._destroyed) return this;
+    // Cancel the old native timer and reschedule
+    if (this._nativeId !== null) {
+      if (this._repeat) {
+        _nativeClearInterval(this._nativeId);
+      } else {
+        _nativeClearTimeout(this._nativeId);
+      }
+    }
+    var self = this;
+    if (this._repeat) {
+      this._nativeId = _nativeSetInterval(function() { self._invokeCallback(); }, this._idleTimeout);
+    } else {
+      this._nativeId = _nativeSetTimeout(function() { self._invokeCallback(); }, this._idleTimeout);
+    }
+    return this;
+  };
+
+  Timeout.prototype.close = function close() {
+    if (!this._destroyed) {
+      this._destroyed = true;
+      if (this._nativeId !== null) {
+        if (this._repeat) {
+          _nativeClearInterval(this._nativeId);
+        } else {
+          _nativeClearTimeout(this._nativeId);
+        }
+      }
+    }
+    return this;
+  };
+
+  Timeout.prototype[Symbol.toPrimitive] = function() {
+    return this._id;
+  };
+
+  Timeout.prototype[Symbol.dispose] = function() {
+    this.close();
+  };
+
+  Timeout.prototype._invokeCallback = function _invokeCallback() {
+    if (this._destroyed) return;
+    var cb = this._onTimeout;
+    if (typeof cb !== 'function') return;
+    // Mark non-repeating timers as destroyed after firing
+    if (!this._repeat) {
+      this._destroyed = true;
+    }
+    // Check _idleTimeout: if set to -1, treat as cancelled
+    if (this._idleTimeout === -1) {
+      this.close();
+      return;
+    }
+    var args = this._timerArgs;
+    // Use Function.prototype.call/apply to avoid issues with monkey-patched .call/.apply
+    if (args && args.length > 0) {
+      Function.prototype.apply.call(cb, this, args);
+    } else {
+      Function.prototype.call.call(cb, this);
+    }
+    // After callback, check if _onTimeout was nulled or _idleTimeout set to -1
+    if (this._repeat) {
+      if (typeof this._onTimeout !== 'function' || this._idleTimeout === -1) {
+        this.close();
+      }
+    }
+  };
+
+  // --- Immediate class (returned by setImmediate) ---
+  function Immediate(callback, args) {
+    this._id = _timerIdCounter++;
+    this._nativeId = null;
+    this._onImmediate = callback;
+    this._immediateArgs = args;
+    this._destroyed = false;
+    this._refed = true;
+  }
+
+  Immediate.prototype.ref = function ref() {
+    this._refed = true;
+    if (_nativeTimerRef && this._nativeId !== null) {
+      _nativeTimerRef(this._nativeId);
+    }
+    return this;
+  };
+
+  Immediate.prototype.unref = function unref() {
+    this._refed = false;
+    if (_nativeTimerUnref && this._nativeId !== null) {
+      _nativeTimerUnref(this._nativeId);
+    }
+    return this;
+  };
+
+  Immediate.prototype.hasRef = function hasRef() {
+    return this._refed;
+  };
+
+  Immediate.prototype.close = function close() {
+    if (!this._destroyed) {
+      this._destroyed = true;
+      if (this._nativeId !== null) {
+        _nativeClearTimeout(this._nativeId);
+      }
+    }
+    return this;
+  };
+
+  Immediate.prototype[Symbol.toPrimitive] = function() {
+    return this._id;
+  };
+
+  Immediate.prototype[Symbol.dispose] = function() {
+    this.close();
+  };
+
+  Immediate.prototype._invokeCallback = function _invokeCallback() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    var cb = this._onImmediate;
+    if (typeof cb !== 'function') return;
+    var args = this._immediateArgs;
+    if (args && args.length > 0) {
+      Function.prototype.apply.call(cb, this, args);
+    } else {
+      Function.prototype.call.call(cb, this);
+    }
+  };
+
+  // Map from Timeout._id to Timeout instance so clearTimeout(numericId) works
+  var _timeoutMap = {};
+
+  // --- Wrap setTimeout ---
+  if (_nativeSetTimeout) {
     globalThis.setTimeout = function(callback, delay) {
       _validateTimerCallback(callback, 'setTimeout');
       var d = _clampDelay(delay);
@@ -460,50 +647,104 @@
           var prevDomain = process.domain;
           process.domain = activeDomain;
           try {
-            return callback.apply(null, args.length > 0 ? args : arguments);
+            return Function.prototype.apply.call(callback, this, arguments);
           } catch (e) {
             activeDomain.emit('error', e);
           } finally {
             process.domain = prevDomain;
           }
         };
-        // Already handled args inside the wrapper
-        return _nativeSetTimeout(wrappedCallback, d);
       }
-      if (args.length > 0) {
-        return _nativeSetTimeout(function() { callback.apply(null, args); }, d);
-      }
-      return _nativeSetTimeout(callback, d);
+      var timeout = new Timeout(wrappedCallback, d, args, false);
+      _timeoutMap[timeout._id] = timeout;
+      timeout._nativeId = _nativeSetTimeout(function() {
+        delete _timeoutMap[timeout._id];
+        timeout._invokeCallback();
+      }, d);
+      return timeout;
     };
   }
 
-  // Wrap native setInterval with callback validation and delay clamping
-  if (typeof globalThis.setInterval === 'function') {
-    var _nativeSetInterval = globalThis.setInterval;
+  // --- Wrap setInterval ---
+  if (_nativeSetInterval) {
     globalThis.setInterval = function(callback, delay) {
       _validateTimerCallback(callback, 'setInterval');
       var d = _clampDelay(delay);
       var args = [];
       for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
-      if (args.length > 0) {
-        return _nativeSetInterval(function() { callback.apply(null, args); }, d);
-      }
-      return _nativeSetInterval(callback, d);
+      var timeout = new Timeout(callback, d, args, true);
+      _timeoutMap[timeout._id] = timeout;
+      timeout._nativeId = _nativeSetInterval(function() {
+        timeout._invokeCallback();
+        // Clean up map if timer was closed during callback
+        if (timeout._destroyed) {
+          delete _timeoutMap[timeout._id];
+        }
+      }, d);
+      return timeout;
     };
   }
 
-  // setImmediate / clearImmediate — lazy (Node.js global)
+  // --- Wrap clearTimeout ---
+  if (_nativeClearTimeout) {
+    globalThis.clearTimeout = function(handle) {
+      if (handle === null || handle === undefined) return;
+      if (handle instanceof Timeout) {
+        handle.close();
+        delete _timeoutMap[handle._id];
+        return;
+      }
+      // Handle numeric or string id (from Symbol.toPrimitive)
+      var numId = typeof handle === 'string' ? Number(handle) : handle;
+      if (typeof numId === 'number' && _timeoutMap[numId]) {
+        _timeoutMap[numId].close();
+        delete _timeoutMap[numId];
+        return;
+      }
+      // Fallback: pass raw value to native clearTimeout
+      _nativeClearTimeout(handle);
+    };
+  }
+
+  // --- Wrap clearInterval ---
+  if (_nativeClearInterval) {
+    globalThis.clearInterval = function(handle) {
+      if (handle === null || handle === undefined) return;
+      if (handle instanceof Timeout) {
+        handle.close();
+        delete _timeoutMap[handle._id];
+        return;
+      }
+      var numId = typeof handle === 'string' ? Number(handle) : handle;
+      if (typeof numId === 'number' && _timeoutMap[numId]) {
+        _timeoutMap[numId].close();
+        delete _timeoutMap[numId];
+        return;
+      }
+      _nativeClearInterval(handle);
+    };
+  }
+
+  // --- setImmediate / clearImmediate ---
   if (typeof globalThis.setImmediate === 'undefined') {
     defineLazyGlobal('setImmediate', function() {
       var impl = function(callback) {
         _validateTimerCallback(callback, 'setImmediate');
         var args = [];
         for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
-        return globalThis.setTimeout(function() { callback.apply(null, args); }, 0);
+        var imm = new Immediate(callback, args);
+        imm._nativeId = _nativeSetTimeout(function() {
+          imm._invokeCallback();
+        }, 0);
+        return imm;
       };
       // Also install clearImmediate eagerly
       globalThis.clearImmediate = function(handle) {
-        globalThis.clearTimeout(handle);
+        if (handle instanceof Immediate) {
+          handle.close();
+        } else {
+          _nativeClearTimeout(_unwrapTimerId(handle));
+        }
       };
       return impl;
     });
@@ -513,7 +754,13 @@
       // Trigger setImmediate lazy init which installs both
       void globalThis.setImmediate;
       if (globalThis.clearImmediate) return globalThis.clearImmediate;
-      return function(handle) { globalThis.clearTimeout(handle); };
+      return function(handle) {
+        if (handle instanceof Immediate) {
+          handle.close();
+        } else {
+          _nativeClearTimeout(_unwrapTimerId(handle));
+        }
+      };
     });
   }
 
