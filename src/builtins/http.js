@@ -591,6 +591,13 @@ OutgoingMessage.prototype.write = function(chunk, encoding, callback) {
   }
 
   var length = _getOutgoingChunkLength(chunk, encoding);
+  // Empty string/buffer writes are no-ops (Node.js behavior)
+  if (length === 0) {
+    if (typeof callback === 'function') {
+      setTimeout(callback, 0);
+    }
+    return true;
+  }
   if (this.socket && typeof this.socket.write === 'function') {
     _recordOutgoingBytes(this, length);
     return this.socket.write(
@@ -948,7 +955,10 @@ function toHttpUrl(options) {
 function toHttpPath(options) {
   if (!options) return "/";
   if (typeof options === "string") return "/";
-  return options.path || options.pathname || "/";
+  var p = options.path || options.pathname || "/";
+  // Empty string path should default to "/" (Node.js behavior)
+  if (!p) p = "/";
+  return p;
 }
 
 function normalizeClientRequestOptions(options) {
@@ -982,6 +992,14 @@ function normalizeClientRequestOptions(options) {
     }
     return normalizedUrlOptions;
   }
+  if (options && typeof options === 'object') {
+    // Handle server.address() style objects: { address, family, port }
+    // Map 'address' to 'hostname' if hostname/host not already set
+    if (options.address && !options.hostname && !options.host) {
+      options = Object.assign({}, options);
+      options.hostname = options.address;
+    }
+  }
   return options;
 }
 
@@ -1012,7 +1030,10 @@ function hasUrlOptionOverrides(options) {
 }
 
 function toMethod(options) {
-  return ((options && options.method) || "GET").toUpperCase();
+  var m = (options && options.method) || "GET";
+  // Empty string should default to GET (Node.js behavior)
+  if (!m) m = "GET";
+  return m.toUpperCase();
 }
 
 function toHeaders(source) {
@@ -1561,6 +1582,20 @@ function ClientRequest(options, callback) {
 }
 ClientRequest.prototype = Object.create(EventEmitter.prototype);
 ClientRequest.prototype.constructor = ClientRequest;
+
+// parser getter - delegates to socket.parser for compat with Node.js internal APIs
+Object.defineProperty(ClientRequest.prototype, 'parser', {
+  get: function() {
+    if (this._parser !== undefined) return this._parser;
+    if (this.socket && this.socket.parser !== undefined) return this.socket.parser;
+    return null;
+  },
+  set: function(val) {
+    this._parser = val;
+  },
+  enumerable: true,
+  configurable: true
+});
 
 function _requestUsesSocketTransport(request) {
   if (!request) return false;
@@ -2134,6 +2169,12 @@ ClientRequest.prototype.write = function(chunk, encoding, callback) {
   }
   if (chunk !== undefined && chunk !== null && !_isOutgoingChunk(chunk)) {
     throw _createInvalidChunkTypeError(chunk);
+  }
+
+  // Empty string/buffer writes are no-ops (Node.js behavior)
+  if (chunk !== undefined && chunk !== null && _getOutgoingChunkLength(chunk, encoding) === 0) {
+    if (callback) setTimeout(callback, 0);
+    return true;
   }
 
   var isUpgradeRequest = !this._sent &&
@@ -4663,6 +4704,12 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
     if (!_isOutgoingChunk(chunk)) {
       throw _createInvalidChunkTypeError(chunk);
     }
+    // Empty string/buffer writes are no-ops (Node.js behavior)
+    var chunkLen = _getOutgoingChunkLength(chunk, encoding);
+    if (chunkLen === 0) {
+      if (callback) setTimeout(callback, 0);
+      return true;
+    }
     var data = this._nativeMode
       ? _toOutgoingBodyPart(chunk, encoding)
       : _coerceServerResponseSocketChunk(chunk, encoding);
@@ -5543,8 +5590,10 @@ function Server(options, requestListener) {
     return new Server(options, requestListener);
   }
   if (typeof options === 'function') {
-    requestListener = options;
-    options = {};
+    // Handle Server(requestListener, options) form
+    var _tmpListener = options;
+    options = (typeof requestListener === 'object' && requestListener !== null) ? requestListener : {};
+    requestListener = _tmpListener;
   }
   options = options || {};
   EventEmitter.call(this);
@@ -6070,7 +6119,22 @@ Server.prototype.close = function(callback) {
 
   var self = this;
   if (this._netServer) {
+    // Set a fallback to destroy all remaining connections if they don't close naturally.
+    // This prevents the server from hanging indefinitely on close().
+    var _closeGuardTimer = setTimeout(function() {
+      if (self._sockets && self._sockets.size > 0) {
+        var remaining = [];
+        self._sockets.forEach(function(s) { remaining.push(s); });
+        for (var i = 0; i < remaining.length; i++) {
+          try { remaining[i].destroy(); } catch(e) {}
+        }
+      }
+    }, 100);
+    if (_closeGuardTimer && typeof _closeGuardTimer.unref === 'function') {
+      _closeGuardTimer.unref();
+    }
     this._netServer.close(function() {
+      clearTimeout(_closeGuardTimer);
       if (self._sockets && self._sockets.size > 0) {
         var remaining = [];
         self._sockets.forEach(function(s) { remaining.push(s); });
@@ -6216,10 +6280,7 @@ Server.prototype.unref = function() {
 };
 
 function createServer(options, requestListener) {
-  if (typeof options === 'function') {
-    requestListener = options;
-    options = {};
-  }
+  // Server constructor handles argument normalization
   return new Server(options, requestListener);
 }
 

@@ -334,12 +334,33 @@ function randomBytes(size, callback) {
     if (typeof callback !== 'function') {
       throw _errInvalidArgType('cb', 'of type function', callback);
     }
+    // Capture domain context for async callback (Node.js compat)
+    var _activeDomain = (typeof process !== 'undefined' && process.domain) ? process.domain : null;
     try {
       var bytes = __exactRandomBytes(len);
       var buf = (typeof Buffer !== 'undefined' && Buffer.from) ? Buffer.from(bytes) : bytes;
-      setTimeout(function() { callback(null, buf); }, 0);
+      var _nextTick = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+      _nextTick(function() {
+        if (_activeDomain) {
+          try { _activeDomain.enter(); } catch(_de) {}
+        }
+        try {
+          callback(null, buf);
+        } catch(callbackErr) {
+          if (_activeDomain && typeof _activeDomain.emit === 'function') {
+            _activeDomain.emit('error', callbackErr);
+          } else {
+            throw callbackErr;
+          }
+        } finally {
+          if (_activeDomain) {
+            try { _activeDomain.exit(); } catch(_de2) {}
+          }
+        }
+      });
     } catch(e) {
-      setTimeout(function() { callback(e); }, 0);
+      var _nextTick2 = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+      _nextTick2(function() { callback(e); });
     }
     return;
   }
@@ -1053,14 +1074,34 @@ function pbkdf2(password, salt, iterations, keylen, digest, callback) {
   if (typeof callback !== 'function') {
     throw _errInvalidArgType('callback', 'of type function', callback);
   }
+  // Capture domain context for async callback (Node.js compat)
+  var _activeDomain = (typeof process !== 'undefined' && process.domain) ? process.domain : null;
+  var _nextTick = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
   try {
     if (digest === undefined) {
       throw _errInvalidArgType('digest', 'of type string', digest);
     }
     var result = pbkdf2Sync(password, salt, iterations, keylen, digest);
-    setTimeout(function() { callback(null, result); }, 0);
+    _nextTick(function() {
+      if (_activeDomain) {
+        try { _activeDomain.enter(); } catch(_de) {}
+      }
+      try {
+        callback(null, result);
+      } catch(callbackErr) {
+        if (_activeDomain && typeof _activeDomain.emit === 'function') {
+          _activeDomain.emit('error', callbackErr);
+        } else {
+          throw callbackErr;
+        }
+      } finally {
+        if (_activeDomain) {
+          try { _activeDomain.exit(); } catch(_de2) {}
+        }
+      }
+    });
   } catch(e) {
-    setTimeout(function() { callback(e); }, 0);
+    _nextTick(function() { callback(e); });
   }
 }
 
@@ -1620,10 +1661,18 @@ if (_CipherStreamTransform) {
   Cipher.prototype._flushStreamResult = function() {
     var result = this.final();
     if (result && result.length) this.push(result);
-    this.push(null);
+  };
+  Cipher.prototype._flush = function(callback) {
+    try {
+      this._flushStreamResult();
+    } catch(e) {
+      if (typeof callback === 'function') { callback(e); return; }
+      throw e;
+    }
+    if (typeof callback === 'function') callback();
   };
   Cipher.prototype._final = function(callback) {
-    this._flushStreamResult();
+    // _flush handles the finalization for Transform streams
     if (typeof callback === 'function') callback();
   };
   Cipher.prototype.end = function(chunk, encoding, callback) {
@@ -1635,8 +1684,13 @@ if (_CipherStreamTransform) {
     }
     this._streamEnded = true;
     if (chunk !== undefined && chunk !== null) this._chunks.push(_parseInputData(chunk, encoding));
+    // Delegate to Transform.prototype.end for proper stream lifecycle
+    if (_CipherStreamTransform && _CipherStreamTransform.prototype && typeof _CipherStreamTransform.prototype.end === 'function') {
+      return _CipherStreamTransform.prototype.end.call(this, callback);
+    }
     try {
       this._flushStreamResult();
+      this.push(null);
       if (typeof callback === 'function') callback();
     } catch (e) {
       if (typeof callback === 'function') callback(e);
@@ -1801,10 +1855,18 @@ if (_CipherStreamTransform) {
   Decipher.prototype._flushStreamResult = function() {
     var result = this.final();
     if (result && result.length) this.push(result);
-    this.push(null);
+  };
+  Decipher.prototype._flush = function(callback) {
+    try {
+      this._flushStreamResult();
+    } catch(e) {
+      if (typeof callback === 'function') { callback(e); return; }
+      throw e;
+    }
+    if (typeof callback === 'function') callback();
   };
   Decipher.prototype._final = function(callback) {
-    this._flushStreamResult();
+    // _flush handles the finalization for Transform streams
     if (typeof callback === 'function') callback();
   };
   Decipher.prototype.end = function(chunk, encoding, callback) {
@@ -1816,8 +1878,13 @@ if (_CipherStreamTransform) {
     }
     this._streamEnded = true;
     if (chunk !== undefined && chunk !== null) this._chunks.push(_parseInputData(chunk, encoding));
+    // Delegate to Transform.prototype.end for proper stream lifecycle
+    if (_CipherStreamTransform && _CipherStreamTransform.prototype && typeof _CipherStreamTransform.prototype.end === 'function') {
+      return _CipherStreamTransform.prototype.end.call(this, callback);
+    }
     try {
       this._flushStreamResult();
+      this.push(null);
       if (typeof callback === 'function') callback();
     } catch (e) {
       if (typeof callback === 'function') callback(e);
@@ -2107,7 +2174,7 @@ function sign(algorithm, data, key, outputEncoding) {
   throw new Error('crypto.sign not available');
 }
 
-function verify(algorithm, data, key, signature) {
+function verify(algorithm, data, key, signature, callback) {
   if (algorithm === null) algorithm = undefined;
   var hash = algorithm ? _normalizeHashForSign(algorithm) : 'sha256';
   var keyText = _extractKeyText(key);
@@ -2122,23 +2189,52 @@ function verify(algorithm, data, key, signature) {
   }
   var dataText = _toByteString(data);
 
+  var result = false;
   if (typeof keyText === 'string' && _isPemKeyText(keyText) && typeof __exactVerifySync === 'function') {
     try {
-      return __exactVerifySync(hash, signatureValue, dataText, keyText);
-    } catch (e) {}
+      result = __exactVerifySync(hash, signatureValue, dataText, keyText);
+    } catch (e) {
+      if (typeof callback === 'function') {
+        var _nextTick = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+        _nextTick(function() { callback(null, false); });
+        return;
+      }
+      result = false;
+    }
+    if (typeof callback === 'function') {
+      var _nextTick2 = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+      _nextTick2(function() { callback(null, result); });
+      return;
+    }
+    return result;
   }
 
-  if (typeof __exactHmacSync !== 'function') return false;
+  if (typeof __exactHmacSync !== 'function') {
+    if (typeof callback === 'function') {
+      var _nextTick3 = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+      _nextTick3(function() { callback(null, false); });
+      return;
+    }
+    return false;
+  }
   var expectedHex = __exactHmacSync(hash, fallbackKey, dataText);
   var expected = _hexToBytes(expectedHex);
   var provided = _toByteArray(signatureValue);
   if (typeof signature === 'string' && signature.length === expected.length * 2 && /^[0-9a-fA-F]+$/.test(signature)) {
     provided = _hexToBytes(signature);
   }
-  if (provided.length !== expected.length) return false;
-  var mismatch = 0;
-  for (var i = 0; i < expected.length; i++) mismatch |= expected[i] ^ provided[i];
-  return mismatch === 0;
+  if (provided.length !== expected.length) result = false;
+  else {
+    var mismatch = 0;
+    for (var i = 0; i < expected.length; i++) mismatch |= expected[i] ^ provided[i];
+    result = mismatch === 0;
+  }
+  if (typeof callback === 'function') {
+    var _nextTick4 = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+    _nextTick4(function() { callback(null, result); });
+    return;
+  }
+  return result;
 }
 
 function Sign(algorithm) {
