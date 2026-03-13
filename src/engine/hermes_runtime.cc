@@ -1942,8 +1942,9 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
               std::string("getaddrinfo failed for ") + hostname + ": " + gai_strerror(ret));
         }
 
-        // Build JSON result
-        std::string json = "[";
+        // Stream JSON output to avoid quadratic reallocations as records accumulate.
+        std::ostringstream json;
+        json << '[';
         bool first = true;
         for (struct addrinfo* p = result; p != nullptr; p = p->ai_next) {
           char addr[INET6_ADDRSTRLEN] = {};
@@ -1959,14 +1960,14 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
           } else {
             continue;
           }
-          if (!first) json += ",";
-          json += "{\"address\":\"" + std::string(addr) + "\",\"family\":" + std::to_string(fam) + "}";
+          if (!first) json << ',';
+          json << "{\"address\":\"" << addr << "\",\"family\":" << fam << '}';
           first = false;
         }
-        json += "]";
+        json << ']';
         freeaddrinfo(result);
 
-        return facebook::jsi::String::createFromUtf8(runtime, json);
+        return facebook::jsi::String::createFromUtf8(runtime, json.str());
       });
   rt.global().setProperty(rt, "__exactDnsLookup", std::move(dnsLookupFn));
 
@@ -1992,12 +1993,14 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
     ns_msg msg;
     if (ns_initparse(answer, len, &msg) < 0) throw facebook::jsi::JSError(runtime, "Failed to parse DNS response");
     int rrCount = ns_msg_count(msg, ns_s_an);
-    std::string json = "[";
+    // Stream JSON output to avoid quadratic string growth when a response contains many records.
+    std::ostringstream json;
+    json << '[';
     bool first = true;
     auto appendRecord = [&json, &first](const std::string& record) {
-      if (!first) json += ",";
+      if (!first) json << ',';
       first = false;
-      json += record;
+      json << record;
     };
     for (int i = 0; i < rrCount; i++) {
       ns_rr rr;
@@ -2006,7 +2009,7 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
       const unsigned char* rdata = ns_rr_rdata(rr);
       int rdlen = ns_rr_rdlen(rr);
       if (qtype == ns_t_mx) {
-        if (rdlen < 3) { first = true; continue; }
+        if (rdlen < 3) { continue; }
         uint32_t prio = (static_cast<uint32_t>(rdata[0]) << 8) |
                         static_cast<uint32_t>(rdata[1]);
         char ex[NS_MAXDNAME];
@@ -2021,7 +2024,8 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
         int p = 0;
         bool valid = true;
         bool firstText = true;
-        std::string ta = "[";
+        std::ostringstream ta;
+        ta << '[';
         while (p < rdlen) {
           uint8_t sl = static_cast<uint8_t>(rdata[p]);
           p++;
@@ -2034,16 +2038,16 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
             valid = false;
             break;
           }
-          if (!firstText) ta += ",";
+          if (!firstText) ta << ',';
           firstText = false;
-          ta += textJson;
+          ta << textJson;
           p += sl;
         }
         if (!valid) {
           continue;
         }
-        ta += "]";
-        appendRecord(ta);
+        ta << ']';
+        appendRecord(ta.str());
       } else if (qtype == ns_t_srv) {
         if (rdlen < 7) { continue; }
         uint32_t prio = (static_cast<uint32_t>(rdata[0]) << 8) |
@@ -2139,8 +2143,8 @@ static void installDnsHostFunctions(ExactHermesRuntime* handle) {
         appendRecord("{\"critical\":" + std::to_string(static_cast<uint32_t>(fl)) + "," + tag + ":" + val + "}");
       }
     }
-    json += "]";
-    return facebook::jsi::String::createFromUtf8(runtime, json);
+    json << ']';
+    return facebook::jsi::String::createFromUtf8(runtime, json.str());
   });
   rt.global().setProperty(rt, "__exactDnsResolve", std::move(dnsResolveFn));
 
