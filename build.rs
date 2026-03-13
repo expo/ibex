@@ -69,6 +69,12 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_bootstrap.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_utils.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_dns.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_crypto.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fs.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_process.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_net.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_http.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_sqlite.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
@@ -476,6 +482,12 @@ fn main() {
         .file("src/engine/hermes_bootstrap.cc")
         .file("src/engine/hermes_runtime_utils.cc")
         .file("src/engine/hermes_runtime_dns.cc")
+        .file("src/engine/hermes_runtime_crypto.cc")
+        .file("src/engine/hermes_runtime_fs.cc")
+        .file("src/engine/hermes_runtime_process.cc")
+        .file("src/engine/hermes_runtime_net.cc")
+        .file("src/engine/hermes_runtime_http.cc")
+        .file("src/engine/hermes_runtime_sqlite.cc")
         .include(&hermes_include_dir)
         .include(&out_dir) // For bootstrap_bytecode.h
         .flag_if_supported("-std=c++17")

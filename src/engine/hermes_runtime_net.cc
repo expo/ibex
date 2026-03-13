@@ -1,0 +1,951 @@
+#include "hermes_runtime_internal.h"
+
+#include <arpa/inet.h>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <mutex>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <string>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+
+void installNetHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  {
+    static std::unordered_map<int, int> g_tcp_sockets;
+    static int g_tcp_next_handle = 1;
+    static std::mutex g_tcp_mutex;
+
+    // __exactTcpConnect(host, port) -> handle or throws
+    auto tcpConnectFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpConnect"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpConnect: host (string) and port (number) required");
+          }
+          std::string host = args[0].toString(runtime).utf8(runtime);
+          int port = static_cast<int>(args[1].asNumber());
+          struct addrinfo hints{}, *result = nullptr;
+          hints.ai_family = AF_UNSPEC;
+          hints.ai_socktype = SOCK_STREAM;
+          hints.ai_protocol = IPPROTO_TCP;
+          std::string portStr = std::to_string(port);
+          int gai_err = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
+          if (gai_err != 0) {
+            throw facebook::jsi::JSError(runtime,
+                ("getaddrinfo failed for " + host + ":" + portStr + ": " + gai_strerror(gai_err)).c_str());
+          }
+          int fd = -1;
+          for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+            fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+            if (fd == -1) continue;
+            if (::connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) break;
+            ::close(fd);
+            fd = -1;
+          }
+          freeaddrinfo(result);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("connect failed for " + host + ":" + portStr + ": " + strerror(errno)).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactTcpConnect", std::move(tcpConnectFn));
+
+    // __exactTcpRead(handle, maxBytes) -> Uint8Array (data), null (EOF), "" (EAGAIN)
+    auto tcpReadFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpRead"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpRead: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int maxBytes = 65536;
+          if (count > 1 && args[1].isNumber()) {
+            maxBytes = static_cast<int>(args[1].asNumber());
+            if (maxBytes <= 0) maxBytes = 65536;
+          }
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpRead: invalid handle");
+            fd = it->second;
+          }
+          std::vector<uint8_t> buf(maxBytes);
+          ssize_t n = ::read(fd, buf.data(), maxBytes);
+          if (n > 0) {
+            buf.resize(n);
+            return makeUint8Array(runtime, std::move(buf));
+          } else if (n == 0) {
+            return facebook::jsi::Value::null();
+          } else {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+              return facebook::jsi::String::createFromUtf8(runtime, "");
+            }
+            throw facebook::jsi::JSError(runtime, ("__exactTcpRead error: " + std::string(strerror(errno))).c_str());
+          }
+        });
+    rt.global().setProperty(rt, "__exactTcpRead", std::move(tcpReadFn));
+
+    auto stringToUtf8BytesFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactStringToUtf8Bytes"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1) {
+            throw facebook::jsi::JSError(runtime, "__exactStringToUtf8Bytes: string required");
+          }
+          std::string data = args[0].toString(runtime).utf8(runtime);
+          std::vector<uint8_t> bytes(data.begin(), data.end());
+          return makeUint8Array(runtime, std::move(bytes));
+        });
+    rt.global().setProperty(rt, "__exactStringToUtf8Bytes", std::move(stringToUtf8BytesFn));
+
+    // __exactTcpWrite(handle, data) -> bytes written
+    auto tcpWriteFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpWrite"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 2 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpWrite: handle and data required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid handle");
+            fd = it->second;
+          }
+          ssize_t written;
+          if (args[1].isString()) {
+            std::string data = args[1].toString(runtime).utf8(runtime);
+            written = ::write(fd, data.data(), data.size());
+          } else if (args[1].isObject()) {
+            auto obj = args[1].asObject(runtime);
+            if (obj.isArrayBuffer(runtime)) {
+              auto ab = obj.getArrayBuffer(runtime);
+              written = ::write(fd, ab.data(runtime), ab.size(runtime));
+            } else {
+              auto bufProp = obj.getProperty(runtime, "buffer");
+              auto byteLenProp = obj.getProperty(runtime, "byteLength");
+              auto byteOffProp = obj.getProperty(runtime, "byteOffset");
+              if (bufProp.isObject() && bufProp.asObject(runtime).isArrayBuffer(runtime)) {
+                auto ab = bufProp.asObject(runtime).getArrayBuffer(runtime);
+                size_t offset = byteOffProp.isNumber() ? static_cast<size_t>(byteOffProp.asNumber()) : 0;
+                size_t len = byteLenProp.isNumber() ? static_cast<size_t>(byteLenProp.asNumber()) : ab.size(runtime) - offset;
+                if (offset > ab.size(runtime)) {
+                  throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid byteOffset");
+                }
+                if (offset + len > ab.size(runtime)) {
+                  len = ab.size(runtime) - offset;
+                }
+                if (len == 0) {
+                  written = 0;
+                } else {
+                  written = ::write(fd, ab.data(runtime) + offset, len);
+                }
+              } else {
+                std::string data = args[1].toString(runtime).utf8(runtime);
+                written = ::write(fd, data.data(), data.size());
+              }
+            }
+          } else {
+            std::string data = args[1].toString(runtime).utf8(runtime);
+            written = ::write(fd, data.data(), data.size());
+          }
+          if (written < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(0);
+            throw facebook::jsi::JSError(runtime, ("__exactTcpWrite error: " + std::string(strerror(errno))).c_str());
+          }
+          return facebook::jsi::Value(static_cast<int>(written));
+        });
+    rt.global().setProperty(rt, "__exactTcpWrite", std::move(tcpWriteFn));
+
+    // __exactTcpClose(handle) -> 0
+    auto tcpCloseFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpClose"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpClose: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+            g_tcp_sockets.erase(it);
+          }
+          ::close(fd);
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpClose", std::move(tcpCloseFn));
+
+    // __exactTcpFromFd(fd) -> handle
+    // Register an existing raw file descriptor as a TCP handle in g_tcp_sockets.
+    // Used for SCM_RIGHTS: after receiving an fd via recvmsg, register it so
+    // net.Socket can wrap it with full read/write/close support.
+    auto tcpFromFdFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpFromFd"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpFromFd: fd (number) required");
+          }
+          int fd = static_cast<int>(args[0].asNumber());
+          if (fd < 0) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpFromFd: invalid fd");
+          }
+          // Set non-blocking mode
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactTcpFromFd", std::move(tcpFromFdFn));
+
+    // __exactTcpGetFd(handle) -> raw fd
+    // Get the underlying raw file descriptor for a TCP handle.
+    // Used for SCM_RIGHTS: need the raw fd to send via sendmsg.
+    auto tcpGetFdFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpGetFd"), 1,
+        [](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            return facebook::jsi::Value(-1);
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          std::lock_guard<std::mutex> lock(g_tcp_mutex);
+          auto it = g_tcp_sockets.find(handle);
+          if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+          return facebook::jsi::Value(it->second);
+        });
+    rt.global().setProperty(rt, "__exactTcpGetFd", std::move(tcpGetFdFn));
+
+    // __exactTcpShutdown(handle, how) -> 0
+    // how: 0=SHUT_RD, 1=SHUT_WR, 2=SHUT_RDWR
+    auto tcpShutdownFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpShutdown"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpShutdown: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int how = SHUT_WR;
+          if (count > 1 && args[1].isNumber()) {
+            int h = static_cast<int>(args[1].asNumber());
+            if (h == 0) how = SHUT_RD;
+            else if (h == 2) how = SHUT_RDWR;
+          }
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+          }
+          ::shutdown(fd, how);
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpShutdown", std::move(tcpShutdownFn));
+
+    // __exactTcpReset(handle) -> 0
+    auto tcpResetFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpReset"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpReset: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+          }
+          struct linger lingerOpt;
+          lingerOpt.l_onoff = 1;
+          lingerOpt.l_linger = 0;
+          setsockopt(fd, SOL_SOCKET, SO_LINGER, &lingerOpt, sizeof(lingerOpt));
+          ::shutdown(fd, SHUT_RDWR);
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpReset", std::move(tcpResetFn));
+
+    // __exactTcpSetNoDelay(handle, enable) -> 0
+    auto tcpSetNoDelayFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetNoDelay"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetNoDelay: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+            fd = it->second;
+          }
+          int flag = enable ? 1 : 0;
+          setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpSetNoDelay", std::move(tcpSetNoDelayFn));
+
+    // __exactTcpSetKeepAlive(handle, enable) -> 0
+    auto tcpSetKeepAliveFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetKeepAlive"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetKeepAlive: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+            fd = it->second;
+          }
+          int flag = enable ? 1 : 0;
+          setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactTcpSetKeepAlive", std::move(tcpSetKeepAliveFn));
+
+    // __exactTcpListen(host, port, backlog, ipv6Only, reusePort) -> handle or throws
+    auto tcpListenFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpListen"), 5,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          std::string host = "0.0.0.0";
+          if (count > 0 && args[0].isString()) host = args[0].toString(runtime).utf8(runtime);
+          int port = 0;
+          if (count > 1 && args[1].isNumber()) port = static_cast<int>(args[1].asNumber());
+          int backlog = 128;
+          if (count > 2 && args[2].isNumber()) backlog = static_cast<int>(args[2].asNumber());
+          int ipv6Only = 0;
+          if (count > 3 && args[3].isNumber()) ipv6Only = static_cast<int>(args[3].asNumber());
+          int reusePort = 0;
+          if (count > 4 && args[4].isNumber()) reusePort = static_cast<int>(args[4].asNumber());
+          struct addrinfo hints{}, *result = nullptr;
+          if (ipv6Only || host.find(':') != std::string::npos) {
+            hints.ai_family = AF_INET6;
+          } else {
+            hints.ai_family = AF_UNSPEC;
+          }
+          hints.ai_socktype = SOCK_STREAM;
+          hints.ai_protocol = IPPROTO_TCP;
+          hints.ai_flags = AI_PASSIVE;
+          std::string portStr = std::to_string(port);
+          const char* nodeStr = host == "0.0.0.0" ? nullptr : host.c_str();
+          int gai_err = getaddrinfo(nodeStr, portStr.c_str(), &hints, &result);
+          if (gai_err != 0) {
+            throw facebook::jsi::JSError(runtime, ("getaddrinfo failed: " + std::string(gai_strerror(gai_err))).c_str());
+          }
+          int fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+          if (fd == -1) {
+            freeaddrinfo(result);
+            throw facebook::jsi::JSError(runtime, ("socket() failed: " + std::string(strerror(errno))).c_str());
+          }
+          if (hints.ai_family == AF_INET6 && ipv6Only) {
+            int flag = 1;
+            setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag));
+          }
+          int reuse = 1;
+          setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+          if (reusePort) {
+#ifdef SO_REUSEPORT
+            int rp = 1;
+            setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &rp, sizeof(rp));
+#endif
+          }
+          if (::bind(fd, result->ai_addr, result->ai_addrlen) == -1) {
+            freeaddrinfo(result);
+            ::close(fd);
+            throw facebook::jsi::JSError(runtime, ("bind() failed: " + std::string(strerror(errno))).c_str());
+          }
+          freeaddrinfo(result);
+          if (::listen(fd, backlog) == -1) {
+            ::close(fd);
+            throw facebook::jsi::JSError(runtime, ("listen() failed: " + std::string(strerror(errno))).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactTcpListen", std::move(tcpListenFn));
+
+    // __exactTcpAccept(handle) -> new handle or -1 (EAGAIN)
+    auto tcpAcceptFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpAccept"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpAccept: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int listenFd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpAccept: invalid handle");
+            listenFd = it->second;
+          }
+          struct sockaddr_storage clientAddr;
+          socklen_t clientLen = sizeof(clientAddr);
+          int clientFd = ::accept(listenFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
+          if (clientFd == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(-1);
+            throw facebook::jsi::JSError(runtime, ("__exactTcpAccept error: " + std::string(strerror(errno))).c_str());
+          }
+          int flags = fcntl(clientFd, F_GETFL, 0);
+          if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
+          int newHandle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            newHandle = g_tcp_next_handle++;
+            g_tcp_sockets[newHandle] = clientFd;
+          }
+          return facebook::jsi::Value(newHandle);
+        });
+    rt.global().setProperty(rt, "__exactTcpAccept", std::move(tcpAcceptFn));
+
+    // __exactTcpLocalAddr(handle) -> JSON string or null
+    auto tcpLocalAddrFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpLocalAddr"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
+            fd = it->second;
+          }
+          struct sockaddr_storage addr;
+          socklen_t addrLen = sizeof(addr);
+          if (getsockname(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1) return facebook::jsi::Value::null();
+          char ipStr[INET6_ADDRSTRLEN]; int port = 0; std::string family;
+          if (addr.ss_family == AF_INET) {
+            auto* sa = reinterpret_cast<struct sockaddr_in*>(&addr);
+            inet_ntop(AF_INET, &sa->sin_addr, ipStr, sizeof(ipStr));
+            port = ntohs(sa->sin_port); family = "IPv4";
+          } else if (addr.ss_family == AF_INET6) {
+            auto* sa = reinterpret_cast<struct sockaddr_in6*>(&addr);
+            inet_ntop(AF_INET6, &sa->sin6_addr, ipStr, sizeof(ipStr));
+            port = ntohs(sa->sin6_port); family = "IPv6";
+          } else { return facebook::jsi::Value::null(); }
+          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(port) + ",\"family\":\"" + family + "\"}";
+          return facebook::jsi::String::createFromUtf8(runtime, json);
+        });
+    rt.global().setProperty(rt, "__exactTcpLocalAddr", std::move(tcpLocalAddrFn));
+
+    // __exactTcpRemoteAddr(handle) -> JSON string or null
+    auto tcpRemoteAddrFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpRemoteAddr"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
+            fd = it->second;
+          }
+          struct sockaddr_storage addr;
+          socklen_t addrLen = sizeof(addr);
+          if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1) return facebook::jsi::Value::null();
+          char ipStr[INET6_ADDRSTRLEN]; int port = 0; std::string family;
+          if (addr.ss_family == AF_INET) {
+            auto* sa = reinterpret_cast<struct sockaddr_in*>(&addr);
+            inet_ntop(AF_INET, &sa->sin_addr, ipStr, sizeof(ipStr));
+            port = ntohs(sa->sin_port); family = "IPv4";
+          } else if (addr.ss_family == AF_INET6) {
+            auto* sa = reinterpret_cast<struct sockaddr_in6*>(&addr);
+            inet_ntop(AF_INET6, &sa->sin6_addr, ipStr, sizeof(ipStr));
+            port = ntohs(sa->sin6_port); family = "IPv6";
+          } else { return facebook::jsi::Value::null(); }
+          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(port) + ",\"family\":\"" + family + "\"}";
+          return facebook::jsi::String::createFromUtf8(runtime, json);
+        });
+    rt.global().setProperty(rt, "__exactTcpRemoteAddr", std::move(tcpRemoteAddrFn));
+
+    // ============================================================
+    // Unix Domain Socket host functions
+    // Reuses g_tcp_sockets/g_tcp_next_handle/g_tcp_mutex so that
+    // __exactTcpRead, __exactTcpWrite, __exactTcpClose work on
+    // Unix socket fds too (they all use the same fd-based I/O).
+    // ============================================================
+
+    // __exactUnixConnect(path) -> handle or throws
+    auto unixConnectFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixConnect"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isString()) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixConnect: path (string) required");
+          }
+          std::string path = args[0].toString(runtime).utf8(runtime);
+          if (path.size() >= sizeof(((struct sockaddr_un*)0)->sun_path)) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixConnect: path too long");
+          }
+          int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("socket(AF_UNIX) failed: " + std::string(strerror(errno))).c_str());
+          }
+          struct sockaddr_un addr;
+          memset(&addr, 0, sizeof(addr));
+          addr.sun_family = AF_UNIX;
+          strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+          if (::connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
+            int saved_errno = errno;
+            ::close(fd);
+            throw facebook::jsi::JSError(runtime,
+                ("connect(AF_UNIX) failed for " + path + ": " + strerror(saved_errno)).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactUnixConnect", std::move(unixConnectFn));
+
+    // __exactUnixListen(path, backlog) -> handle or throws
+    auto unixListenFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixListen"), 2,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isString()) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixListen: path (string) required");
+          }
+          std::string path = args[0].toString(runtime).utf8(runtime);
+          if (path.size() >= sizeof(((struct sockaddr_un*)0)->sun_path)) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixListen: path too long");
+          }
+          int backlog = 128;
+          if (count > 1 && args[1].isNumber()) backlog = static_cast<int>(args[1].asNumber());
+          int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("socket(AF_UNIX) failed: " + std::string(strerror(errno))).c_str());
+          }
+          struct sockaddr_un addr;
+          memset(&addr, 0, sizeof(addr));
+          addr.sun_family = AF_UNIX;
+          strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+          if (::bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
+            int saved_errno = errno;
+            ::close(fd);
+            throw facebook::jsi::JSError(runtime,
+                ("bind(AF_UNIX) failed for " + path + ": " + strerror(saved_errno)).c_str());
+          }
+          if (::listen(fd, backlog) == -1) {
+            int saved_errno = errno;
+            ::close(fd);
+            ::unlink(path.c_str());
+            throw facebook::jsi::JSError(runtime,
+                ("listen(AF_UNIX) failed: " + std::string(strerror(saved_errno))).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactUnixListen", std::move(unixListenFn));
+
+    // __exactUnixAccept(handle) -> new handle or -1 (EAGAIN)
+    // Identical to __exactTcpAccept but kept separate for clarity
+    auto unixAcceptFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUnixAccept"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactUnixAccept: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int listenFd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) {
+              throw facebook::jsi::JSError(runtime, "__exactUnixAccept: invalid handle");
+            }
+            listenFd = it->second;
+          }
+          struct sockaddr_un clientAddr;
+          socklen_t clientLen = sizeof(clientAddr);
+          int clientFd = ::accept(listenFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
+          if (clientFd == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(-1);
+            throw facebook::jsi::JSError(runtime,
+                ("__exactUnixAccept error: " + std::string(strerror(errno))).c_str());
+          }
+          int flags = fcntl(clientFd, F_GETFL, 0);
+          if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
+          int newHandle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            newHandle = g_tcp_next_handle++;
+            g_tcp_sockets[newHandle] = clientFd;
+          }
+          return facebook::jsi::Value(newHandle);
+        });
+    rt.global().setProperty(rt, "__exactUnixAccept", std::move(unixAcceptFn));
+
+  // ============================================================
+    // UDP (dgram) host functions
+    // Reuses g_tcp_sockets/g_tcp_next_handle/g_tcp_mutex for
+    // the handle→fd mapping (same pattern as Unix sockets).
+    // ============================================================
+
+    // __exactUdpSocket(type) -> handle  (type: "udp4" or "udp6")
+    auto udpSocketFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpSocket"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          int family = AF_INET;
+          if (count > 0 && args[0].isString()) {
+            std::string type = args[0].toString(runtime).utf8(runtime);
+            if (type == "udp6") family = AF_INET6;
+          }
+          int fd = socket(family, SOCK_DGRAM, IPPROTO_UDP);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("socket(SOCK_DGRAM) failed: " + std::string(strerror(errno))).c_str());
+          }
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          // Enable SO_REUSEADDR so parent+child can both receive
+          int reuse = 1;
+          setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+#ifdef SO_REUSEPORT
+          setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
+#endif
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactUdpSocket", std::move(udpSocketFn));
+
+    // __exactUdpBind(handle, host, port) -> JSON {address, port, family}
+    auto udpBindFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpBind"), 3,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpBind: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          std::string host = "0.0.0.0";
+          int port = 0;
+          if (count > 1 && args[1].isString()) host = args[1].toString(runtime).utf8(runtime);
+          if (count > 2 && args[2].isNumber()) port = static_cast<int>(args[2].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpBind: invalid handle");
+            fd = it->second;
+          }
+          struct sockaddr_in addr4;
+          struct sockaddr_in6 addr6;
+          struct sockaddr* sa; socklen_t sa_len;
+          if (host.find(':') != std::string::npos) {
+            memset(&addr6, 0, sizeof(addr6));
+            addr6.sin6_family = AF_INET6;
+            addr6.sin6_port = htons(port);
+            inet_pton(AF_INET6, host.c_str(), &addr6.sin6_addr);
+            sa = reinterpret_cast<struct sockaddr*>(&addr6);
+            sa_len = sizeof(addr6);
+          } else {
+            memset(&addr4, 0, sizeof(addr4));
+            addr4.sin_family = AF_INET;
+            addr4.sin_port = htons(port);
+            inet_pton(AF_INET, host.c_str(), &addr4.sin_addr);
+            sa = reinterpret_cast<struct sockaddr*>(&addr4);
+            sa_len = sizeof(addr4);
+          }
+          if (::bind(fd, sa, sa_len) == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("bind failed: " + std::string(strerror(errno))).c_str());
+          }
+          // Get actual bound address
+          struct sockaddr_storage bound; socklen_t boundLen = sizeof(bound);
+          getsockname(fd, reinterpret_cast<struct sockaddr*>(&bound), &boundLen);
+          char ipStr[INET6_ADDRSTRLEN]; int boundPort = 0; std::string family;
+          if (bound.ss_family == AF_INET) {
+            auto* s = reinterpret_cast<struct sockaddr_in*>(&bound);
+            inet_ntop(AF_INET, &s->sin_addr, ipStr, sizeof(ipStr));
+            boundPort = ntohs(s->sin_port); family = "IPv4";
+          } else {
+            auto* s = reinterpret_cast<struct sockaddr_in6*>(&bound);
+            inet_ntop(AF_INET6, &s->sin6_addr, ipStr, sizeof(ipStr));
+            boundPort = ntohs(s->sin6_port); family = "IPv6";
+          }
+          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(boundPort) + ",\"family\":\"" + family + "\"}";
+          return facebook::jsi::String::createFromUtf8(runtime, json);
+        });
+    rt.global().setProperty(rt, "__exactUdpBind", std::move(udpBindFn));
+
+    // __exactUdpSend(handle, data, port, host) -> bytes sent
+    auto udpSendFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpSend"), 4,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 4 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpSend: handle, data, port, host required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int port = static_cast<int>(args[2].asNumber());
+          std::string host = args[3].toString(runtime).utf8(runtime);
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpSend: invalid handle");
+            fd = it->second;
+          }
+          // Get data bytes
+          const uint8_t* dataPtr = nullptr; size_t dataLen = 0;
+          std::string strData;
+          if (args[1].isString()) {
+            strData = args[1].toString(runtime).utf8(runtime);
+            dataPtr = reinterpret_cast<const uint8_t*>(strData.data());
+            dataLen = strData.size();
+          } else if (args[1].isObject()) {
+            auto obj = args[1].asObject(runtime);
+            if (obj.isArrayBuffer(runtime)) {
+              auto ab = obj.getArrayBuffer(runtime);
+              dataPtr = ab.data(runtime);
+              dataLen = ab.size(runtime);
+            } else {
+              // Try as TypedArray (Uint8Array, Buffer)
+              auto bufProp = obj.getProperty(runtime, "buffer");
+              auto byteLenProp = obj.getProperty(runtime, "byteLength");
+              auto byteOffProp = obj.getProperty(runtime, "byteOffset");
+              if (bufProp.isObject() && byteLenProp.isNumber()) {
+                auto ab = bufProp.asObject(runtime).getArrayBuffer(runtime);
+                size_t offset = byteOffProp.isNumber() ? static_cast<size_t>(byteOffProp.asNumber()) : 0;
+                dataLen = static_cast<size_t>(byteLenProp.asNumber());
+                dataPtr = ab.data(runtime) + offset;
+              }
+            }
+          }
+          if (!dataPtr || dataLen == 0) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpSend: invalid data");
+          }
+          // Build destination address
+          struct sockaddr_in addr4;
+          struct sockaddr_in6 addr6;
+          struct sockaddr* sa; socklen_t sa_len;
+          if (host.find(':') != std::string::npos) {
+            memset(&addr6, 0, sizeof(addr6));
+            addr6.sin6_family = AF_INET6;
+            addr6.sin6_port = htons(port);
+            inet_pton(AF_INET6, host.c_str(), &addr6.sin6_addr);
+            sa = reinterpret_cast<struct sockaddr*>(&addr6);
+            sa_len = sizeof(addr6);
+          } else {
+            memset(&addr4, 0, sizeof(addr4));
+            addr4.sin_family = AF_INET;
+            addr4.sin_port = htons(port);
+            inet_pton(AF_INET, host.c_str(), &addr4.sin_addr);
+            sa = reinterpret_cast<struct sockaddr*>(&addr4);
+            sa_len = sizeof(addr4);
+          }
+          ssize_t sent = ::sendto(fd, dataPtr, dataLen, 0, sa, sa_len);
+          if (sent == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(0);
+            throw facebook::jsi::JSError(runtime,
+                ("sendto failed: " + std::string(strerror(errno))).c_str());
+          }
+          return facebook::jsi::Value(static_cast<int>(sent));
+        });
+    rt.global().setProperty(rt, "__exactUdpSend", std::move(udpSendFn));
+
+    // __exactUdpRecv(handle) -> JSON {data (base64), address, port, family} or null (EAGAIN)
+    auto udpRecvFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpRecv"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpRecv: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpRecv: invalid handle");
+            fd = it->second;
+          }
+          uint8_t buf[65536];
+          struct sockaddr_storage from; socklen_t fromLen = sizeof(from);
+          ssize_t n = ::recvfrom(fd, buf, sizeof(buf), 0,
+              reinterpret_cast<struct sockaddr*>(&from), &fromLen);
+          if (n == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value::null();
+            throw facebook::jsi::JSError(runtime,
+                ("recvfrom failed: " + std::string(strerror(errno))).c_str());
+          }
+          if (n == 0) return facebook::jsi::Value::null();
+          // Return data as Uint8Array + sender info as JSON
+          char ipStr[INET6_ADDRSTRLEN]; int fromPort = 0; std::string family;
+          if (from.ss_family == AF_INET) {
+            auto* s = reinterpret_cast<struct sockaddr_in*>(&from);
+            inet_ntop(AF_INET, &s->sin_addr, ipStr, sizeof(ipStr));
+            fromPort = ntohs(s->sin_port); family = "IPv4";
+          } else {
+            auto* s = reinterpret_cast<struct sockaddr_in6*>(&from);
+            inet_ntop(AF_INET6, &s->sin6_addr, ipStr, sizeof(ipStr));
+            fromPort = ntohs(s->sin6_port); family = "IPv6";
+          }
+          // Return as object with Uint8Array data and rinfo
+          auto result = facebook::jsi::Object(runtime);
+          // Create Uint8Array from data using makeUint8Array helper
+          std::vector<uint8_t> dataVec(buf, buf + n);
+          auto typedArray = makeUint8Array(runtime, std::move(dataVec));
+          result.setProperty(runtime, "data", std::move(typedArray));
+          result.setProperty(runtime, "address", facebook::jsi::String::createFromUtf8(runtime, ipStr));
+          result.setProperty(runtime, "port", facebook::jsi::Value(fromPort));
+          result.setProperty(runtime, "family", facebook::jsi::String::createFromUtf8(runtime, family));
+          result.setProperty(runtime, "size", facebook::jsi::Value(static_cast<int>(n)));
+          return result;
+        });
+    rt.global().setProperty(rt, "__exactUdpRecv", std::move(udpRecvFn));
+
+    // __exactUdpClose(handle) -> 0
+    auto udpCloseFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpClose"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactUdpClose: handle required");
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
+            fd = it->second;
+            g_tcp_sockets.erase(it);
+          }
+          ::close(fd);
+          return facebook::jsi::Value(0);
+        });
+    rt.global().setProperty(rt, "__exactUdpClose", std::move(udpCloseFn));
+
+    // __exactUdpAddress(handle) -> JSON {address, port, family}
+    auto udpAddressFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpAddress"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            auto it = g_tcp_sockets.find(handle);
+            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
+            fd = it->second;
+          }
+          struct sockaddr_storage addr; socklen_t addrLen = sizeof(addr);
+          if (getsockname(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1)
+            return facebook::jsi::Value::null();
+          char ipStr[INET6_ADDRSTRLEN]; int port = 0; std::string family;
+          if (addr.ss_family == AF_INET) {
+            auto* s = reinterpret_cast<struct sockaddr_in*>(&addr);
+            inet_ntop(AF_INET, &s->sin_addr, ipStr, sizeof(ipStr));
+            port = ntohs(s->sin_port); family = "IPv4";
+          } else {
+            auto* s = reinterpret_cast<struct sockaddr_in6*>(&addr);
+            inet_ntop(AF_INET6, &s->sin6_addr, ipStr, sizeof(ipStr));
+            port = ntohs(s->sin6_port); family = "IPv6";
+          }
+          std::string json = "{\"address\":\"" + std::string(ipStr) + "\",\"port\":" + std::to_string(port) + ",\"family\":\"" + family + "\"}";
+          return facebook::jsi::String::createFromUtf8(runtime, json);
+        });
+    rt.global().setProperty(rt, "__exactUdpAddress", std::move(udpAddressFn));
+
+    // __exactUdpFromFd(fd) -> handle
+    auto udpFromFdFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpFromFd"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactUdpFromFd: fd required");
+          int fd = static_cast<int>(args[0].asNumber());
+          if (fd < 0) throw facebook::jsi::JSError(runtime, "__exactUdpFromFd: invalid fd");
+          int flags = fcntl(fd, F_GETFL, 0);
+          if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+          int handle;
+          {
+            std::lock_guard<std::mutex> lock(g_tcp_mutex);
+            handle = g_tcp_next_handle++;
+            g_tcp_sockets[handle] = fd;
+          }
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactUdpFromFd", std::move(udpFromFdFn));
+
+    // __exactUdpGetFd(handle) -> fd
+    auto udpGetFdFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpGetFd"), 1,
+        [](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value(-1);
+          int handle = static_cast<int>(args[0].asNumber());
+          std::lock_guard<std::mutex> lock(g_tcp_mutex);
+          auto it = g_tcp_sockets.find(handle);
+          if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
+          return facebook::jsi::Value(it->second);
+        });
+    rt.global().setProperty(rt, "__exactUdpGetFd", std::move(udpGetFdFn));
+
+  } // end TCP + Unix socket host functions
+
+}

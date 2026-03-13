@@ -1,0 +1,3633 @@
+#include "hermes_runtime_internal.h"
+
+#include <atomic>
+#include <cctype>
+#include <cstdint>
+#include <csignal>
+#include <cstring>
+#include <iomanip>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#if defined(__APPLE__)
+#include <CommonCrypto/CommonCryptor.h>
+#include <CommonCrypto/CommonDigest.h>
+#include <CommonCrypto/CommonHmac.h>
+#include <CommonCrypto/CommonKeyDerivation.h>
+#include <Security/SecRandom.h>
+#include <Security/Security.h>
+#include <zlib.h>
+#if !defined(EXACT_NO_BROTLI)
+#include <brotli/decode.h>
+#include <brotli/encode.h>
+#endif
+#if !defined(EXACT_NO_OPENSSL)
+#include <openssl/bn.h>
+#include <openssl/core_names.h>
+#include <openssl/ec.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/param_build.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#endif
+extern "C" {
+  CCCryptorStatus CCCryptorGCMOneshotEncrypt(
+      CCAlgorithm alg, const void* key, size_t keyLength,
+      const void* iv, size_t ivLength,
+      const void* aData, size_t aDataLength,
+      const void* dataIn, size_t dataInLength,
+      void* cipherOut,
+      void* tagOut, size_t tagLength);
+  CCCryptorStatus CCCryptorGCMOneshotDecrypt(
+      CCAlgorithm alg, const void* key, size_t keyLength,
+      const void* iv, size_t ivLength,
+      const void* aData, size_t aDataLength,
+      const void* cipherIn, size_t dataInLength,
+      void* dataOut,
+      const void* tagIn, size_t tagLength);
+}
+#else
+#include <openssl/bn.h>
+#include <openssl/core_names.h>
+#include <openssl/ec.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+#include <openssl/param_build.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#include <zlib.h>
+#include <brotli/decode.h>
+#include <brotli/encode.h>
+#endif
+
+extern "C" void ex_host_grant_capability(uint64_t module_id, const char* capability);
+
+namespace {
+
+static std::atomic<int> g_pending_signal{0};
+
+static void signal_handler(int sig) {
+  g_pending_signal.store(sig, std::memory_order_relaxed);
+}
+
+struct CFUniqueReleaser {
+  void operator()(const void* ptr) const {
+    if (ptr) {
+#if defined(__APPLE__)
+      CFRelease(ptr);
+#endif
+    }
+  }
+};
+
+using CFUniquePtr = std::unique_ptr<const void, CFUniqueReleaser>;
+
+template <typename T>
+using CFRefPtr = std::unique_ptr<std::remove_pointer_t<T>, CFUniqueReleaser>;
+
+template <typename T>
+CFRefPtr<T> adoptCF(T ptr) {
+  return CFRefPtr<T>(ptr);
+}
+
+static std::string normalizeHashForNodeCrypto(const std::string& algorithm) {
+  auto lowered = algorithm;
+  for (auto& ch : lowered) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  }
+
+  if (lowered == "ecdsa" || lowered == "ecdsa-with-sha1") return "sha1";
+  if (lowered == "ecdsa-with-sha256" || lowered == "rsa-sha256" || lowered == "sha256") return "sha256";
+  if (lowered == "ecdsa-with-sha384" || lowered == "rsa-sha384" || lowered == "sha384") return "sha384";
+  if (lowered == "ecdsa-with-sha512" || lowered == "rsa-sha512" || lowered == "sha512") return "sha512";
+  if (lowered.find("sha1") != std::string::npos) return "sha1";
+  if (lowered.find("sha256") != std::string::npos) return "sha256";
+  if (lowered.find("sha384") != std::string::npos) return "sha384";
+  if (lowered.find("sha512") != std::string::npos) return "sha512";
+  if (lowered.find("md5") != std::string::npos) return "md5";
+  return "sha256";
+}
+
+static SecKeyAlgorithm pickSecKeySignAlgorithm(const std::string& hashName, bool isRsa) {
+  if (isRsa) {
+    if (hashName == "sha1") return kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA1;
+    if (hashName == "sha256") return kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256;
+    if (hashName == "sha384") return kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA384;
+    if (hashName == "sha512") return kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA512;
+    return nullptr;
+  }
+
+  if (hashName == "sha1") return kSecKeyAlgorithmECDSASignatureMessageX962SHA1;
+  if (hashName == "sha256") return kSecKeyAlgorithmECDSASignatureMessageX962SHA256;
+  if (hashName == "sha384") return kSecKeyAlgorithmECDSASignatureMessageX962SHA384;
+  if (hashName == "sha512") return kSecKeyAlgorithmECDSASignatureMessageX962SHA512;
+  return nullptr;
+}
+
+static bool isRsaSecKey(SecKeyRef key) {
+  bool isRsa = false;
+  CFUniquePtr attrs(static_cast<const void*>(SecKeyCopyAttributes(key)));
+  if (attrs.get()) {
+    auto type = CFDictionaryGetValue(
+        static_cast<CFDictionaryRef>(attrs.get()), kSecAttrKeyType);
+    if (type != nullptr) {
+      isRsa = CFEqual(type, kSecAttrKeyTypeRSA);
+    }
+  }
+  return isRsa;
+}
+
+static std::string dataToString(CFDataRef data) {
+  if (!data) return {};
+  const auto bytes = CFDataGetBytePtr(data);
+  const auto len = CFDataGetLength(data);
+  return std::string(reinterpret_cast<const char*>(bytes), static_cast<size_t>(len));
+}
+
+#if !defined(EXACT_PLATFORM_IOS)
+// SecItemImport/SecItemExport are macOS-only APIs (not available on iOS)
+static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType itemType) {
+  auto keyBytes = std::vector<uint8_t>(pemText.begin(), pemText.end());
+  CFUniquePtr keyData(static_cast<const void*>(CFDataCreate(
+      kCFAllocatorDefault,
+      keyBytes.data(),
+      static_cast<CFIndex>(keyBytes.size()))));
+  if (!keyData) {
+    return nullptr;
+  }
+
+  SecItemImportExportKeyParameters keyParams{};
+  keyParams.version = SEC_KEY_IMPORT_EXPORT_PARAMS_VERSION;
+
+  CFArrayRef importedItems = nullptr;
+  SecExternalFormat inputFormat = kSecFormatPEMSequence;
+  SecExternalItemType effectiveType = itemType;
+  auto status = SecItemImport(
+      static_cast<CFDataRef>(keyData.get()),
+      nullptr,
+      &inputFormat,
+      &effectiveType,
+      0,
+      &keyParams,
+      nullptr,
+      &importedItems);
+  CFUniquePtr importedItemsHandle(static_cast<const void*>(importedItems));
+
+  if (status != noErr) {
+    if (status != noErr && itemType != kSecItemTypeUnknown) {
+      effectiveType = kSecItemTypeUnknown;
+      importedItemsHandle.reset();
+      importedItems = nullptr;
+      status = SecItemImport(
+          static_cast<CFDataRef>(keyData.get()),
+          nullptr,
+          &inputFormat,
+          &effectiveType,
+          0,
+          &keyParams,
+          nullptr,
+          &importedItems);
+      importedItemsHandle.reset(static_cast<const void*>(importedItems));
+    }
+  }
+
+  if (status != noErr || !importedItems) {
+    return nullptr;
+  }
+
+  auto importedItemsArray = static_cast<CFArrayRef>(importedItemsHandle.get());
+  if (CFArrayGetCount(importedItemsArray) == 0) {
+    return nullptr;
+  }
+
+  auto maybeKey = CFArrayGetValueAtIndex(importedItemsArray, 0);
+  if (!maybeKey) {
+    return nullptr;
+  }
+
+  if (CFGetTypeID(maybeKey) != SecKeyGetTypeID()) {
+    return nullptr;
+  }
+
+  auto key = static_cast<SecKeyRef>(const_cast<void*>(maybeKey));
+  CFRetain(key);
+  return key;
+}
+#endif // !EXACT_PLATFORM_IOS
+
+// These helpers are only used by the non-Apple (Linux/OpenSSL) sign/verify path.
+// On Apple, sign/verify uses Security.framework directly.
+#if !defined(__APPLE__) && !defined(EXACT_NO_OPENSSL)
+static const EVP_MD* selectDigestForCryptoAlgo(const std::string& algorithm) {
+  if (algorithm == "sha1" || algorithm == "sha-1") return EVP_sha1();
+  if (algorithm == "sha256" || algorithm == "sha-256") return EVP_sha256();
+  if (algorithm == "sha384" || algorithm == "sha-384") return EVP_sha384();
+  if (algorithm == "sha512" || algorithm == "sha-512") return EVP_sha512();
+  if (algorithm == "md5" || algorithm == "md5") return EVP_md5();
+  return nullptr;
+}
+
+static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
+  auto lowered = algorithm;
+  for (auto& ch : lowered) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  }
+
+  if (lowered == "ecdsa" || lowered == "ecdsa-with-sha1") return "sha1";
+  if (lowered == "ecdsa-with-sha256" || lowered == "rsa-sha256" || lowered == "sha256") return "sha256";
+  if (lowered == "ecdsa-with-sha384" || lowered == "rsa-sha384" || lowered == "sha384") return "sha384";
+  if (lowered == "ecdsa-with-sha512" || lowered == "rsa-sha512" || lowered == "sha512") return "sha512";
+  if (lowered.find("sha1") != std::string::npos) return "sha1";
+  if (lowered.find("sha256") != std::string::npos) return "sha256";
+  if (lowered.find("sha384") != std::string::npos) return "sha384";
+  if (lowered.find("sha512") != std::string::npos) return "sha512";
+  if (lowered.find("md5") != std::string::npos) return "md5";
+  return "sha256";
+}
+#endif
+
+
+
+} // namespace
+
+void installCryptoHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  // --- Crypto: sync hash ---
+  // __exactHashSync(algorithm, data) -> hex string
+  auto hashSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHashSync"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactHashSync: algorithm and data required");
+        }
+        auto algo = args[0].asString(runtime).utf8(runtime);
+        auto inputBytes = extractBytes(runtime, args[1]);
+
+        std::vector<uint8_t> digest;
+#if defined(__APPLE__)
+        if (algo == "sha256" || algo == "sha-256") {
+          digest.resize(CC_SHA256_DIGEST_LENGTH);
+          CC_SHA256(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha1" || algo == "sha-1") {
+          digest.resize(CC_SHA1_DIGEST_LENGTH);
+          CC_SHA1(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha224" || algo == "sha-224") {
+          digest.resize(CC_SHA224_DIGEST_LENGTH);
+          CC_SHA224(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha384" || algo == "sha-384") {
+          digest.resize(CC_SHA384_DIGEST_LENGTH);
+          CC_SHA384(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha512" || algo == "sha-512") {
+          digest.resize(CC_SHA512_DIGEST_LENGTH);
+          CC_SHA512(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "md5") {
+#if !defined(EXACT_NO_OPENSSL)
+          // Use OpenSSL for MD5 — CommonCrypto's CC_MD5 is deprecated
+          unsigned int md5Len = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &md5Len, EVP_md5(), nullptr);
+          digest.resize(md5Len);
+#else
+          // Fallback to CommonCrypto CC_MD5 (deprecated but functional)
+          digest.resize(CC_MD5_DIGEST_LENGTH);
+          CC_MD5(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+#endif
+#if !defined(EXACT_NO_OPENSSL)
+        } else if (algo == "sha3224" || algo == "sha3-224") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_224(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3256" || algo == "sha3-256") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_256(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3384" || algo == "sha3-384") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_384(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3512" || algo == "sha3-512") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_512(), nullptr);
+          digest.resize(digestLen);
+#endif
+        } else {
+          throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
+        }
+#else
+        const EVP_MD* md = nullptr;
+        if (algo == "sha256" || algo == "sha-256") md = EVP_sha256();
+        else if (algo == "sha1" || algo == "sha-1") md = EVP_sha1();
+        else if (algo == "sha224" || algo == "sha-224") md = EVP_sha224();
+        else if (algo == "sha384" || algo == "sha-384") md = EVP_sha384();
+        else if (algo == "sha512" || algo == "sha-512") md = EVP_sha512();
+        else if (algo == "sha3224" || algo == "sha3-224") md = EVP_sha3_224();
+        else if (algo == "sha3256" || algo == "sha3-256") md = EVP_sha3_256();
+        else if (algo == "sha3384" || algo == "sha3-384") md = EVP_sha3_384();
+        else if (algo == "sha3512" || algo == "sha3-512") md = EVP_sha3_512();
+        else if (algo == "md5") md = EVP_md5();
+        else throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
+
+        unsigned int digestLen = 0;
+        digest.resize(EVP_MAX_MD_SIZE);
+        EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, md, nullptr);
+        digest.resize(digestLen);
+#endif
+
+        // Convert to hex string
+        std::ostringstream hex;
+        hex << std::hex << std::setfill('0');
+        for (auto b : digest) {
+          hex << std::setw(2) << static_cast<int>(b);
+        }
+        return facebook::jsi::String::createFromUtf8(runtime, hex.str());
+      });
+  rt.global().setProperty(rt, "__exactHashSync", std::move(hashSyncFn));
+
+  // __exactHmacSync(algorithm, key, data) -> hex string
+  auto hmacSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHmacSync"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactHmacSync: algorithm, key, and data required");
+        }
+        auto algo = args[0].asString(runtime).utf8(runtime);
+
+        // Get key bytes
+        std::vector<uint8_t> keyBytes;
+        if (args[1].isString()) {
+          auto str = args[1].asString(runtime).utf8(runtime);
+          keyBytes.assign(str.begin(), str.end());
+        }
+
+        // Get data bytes
+        std::vector<uint8_t> dataBytes;
+        if (args[2].isString()) {
+          auto str = args[2].asString(runtime).utf8(runtime);
+          dataBytes.assign(str.begin(), str.end());
+        }
+
+        std::vector<uint8_t> mac;
+#if defined(__APPLE__)
+        CCHmacAlgorithm ccAlgo;
+        size_t macLen;
+        if (algo == "sha256" || algo == "sha-256") {
+          ccAlgo = kCCHmacAlgSHA256; macLen = CC_SHA256_DIGEST_LENGTH;
+        } else if (algo == "sha1" || algo == "sha-1") {
+          ccAlgo = kCCHmacAlgSHA1; macLen = CC_SHA1_DIGEST_LENGTH;
+        } else if (algo == "sha384" || algo == "sha-384") {
+          ccAlgo = kCCHmacAlgSHA384; macLen = CC_SHA384_DIGEST_LENGTH;
+        } else if (algo == "sha512" || algo == "sha-512") {
+          ccAlgo = kCCHmacAlgSHA512; macLen = CC_SHA512_DIGEST_LENGTH;
+        } else if (algo == "md5") {
+          ccAlgo = kCCHmacAlgMD5; macLen = CC_MD5_DIGEST_LENGTH;
+        } else {
+          throw facebook::jsi::JSError(runtime, "Unsupported HMAC algorithm: " + algo);
+        }
+        mac.resize(macLen);
+        CCHmac(ccAlgo, keyBytes.data(), keyBytes.size(),
+               dataBytes.data(), dataBytes.size(), mac.data());
+#else
+        const EVP_MD* md = nullptr;
+        if (algo == "sha256" || algo == "sha-256") md = EVP_sha256();
+        else if (algo == "sha1" || algo == "sha-1") md = EVP_sha1();
+        else if (algo == "sha384" || algo == "sha-384") md = EVP_sha384();
+        else if (algo == "sha512" || algo == "sha-512") md = EVP_sha512();
+        else if (algo == "md5") md = EVP_md5();
+        else throw facebook::jsi::JSError(runtime, "Unsupported HMAC algorithm: " + algo);
+
+        unsigned int macLen = 0;
+        mac.resize(EVP_MAX_MD_SIZE);
+        HMAC(md, keyBytes.data(), keyBytes.size(),
+             dataBytes.data(), dataBytes.size(), mac.data(), &macLen);
+        mac.resize(macLen);
+#endif
+
+        std::ostringstream hex;
+        hex << std::hex << std::setfill('0');
+        for (auto b : mac) {
+          hex << std::setw(2) << static_cast<int>(b);
+        }
+        return facebook::jsi::String::createFromUtf8(runtime, hex.str());
+      });
+  rt.global().setProperty(rt, "__exactHmacSync", std::move(hmacSyncFn));
+
+  // __exactHashRaw(algorithm, data) -> Uint8Array (raw bytes, not hex)
+  auto hashRawFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHashRaw"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactHashRaw: algorithm and data required");
+        }
+        auto algo = args[0].asString(runtime).utf8(runtime);
+        auto inputBytes = extractBytes(runtime, args[1]);
+
+        std::vector<uint8_t> digest;
+#if defined(__APPLE__)
+        if (algo == "sha256" || algo == "sha-256") {
+          digest.resize(CC_SHA256_DIGEST_LENGTH);
+          CC_SHA256(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha1" || algo == "sha-1") {
+          digest.resize(CC_SHA1_DIGEST_LENGTH);
+          CC_SHA1(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha224" || algo == "sha-224") {
+          digest.resize(CC_SHA224_DIGEST_LENGTH);
+          CC_SHA224(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha384" || algo == "sha-384") {
+          digest.resize(CC_SHA384_DIGEST_LENGTH);
+          CC_SHA384(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha512" || algo == "sha-512") {
+          digest.resize(CC_SHA512_DIGEST_LENGTH);
+          CC_SHA512(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "md5") {
+#if !defined(EXACT_NO_OPENSSL)
+          // Use OpenSSL for MD5 — CommonCrypto's CC_MD5 is deprecated
+          unsigned int md5Len = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &md5Len, EVP_md5(), nullptr);
+          digest.resize(md5Len);
+#else
+          // Fallback to CommonCrypto CC_MD5 (deprecated but functional)
+          digest.resize(CC_MD5_DIGEST_LENGTH);
+          CC_MD5(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+#endif
+#if !defined(EXACT_NO_OPENSSL)
+        } else if (algo == "sha3224" || algo == "sha3-224") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_224(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3256" || algo == "sha3-256") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_256(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3384" || algo == "sha3-384") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_384(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3512" || algo == "sha3-512") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_512(), nullptr);
+          digest.resize(digestLen);
+#endif
+        } else {
+          throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
+        }
+#else
+        const EVP_MD* md = nullptr;
+        if (algo == "sha256" || algo == "sha-256") md = EVP_sha256();
+        else if (algo == "sha1" || algo == "sha-1") md = EVP_sha1();
+        else if (algo == "sha224" || algo == "sha-224") md = EVP_sha224();
+        else if (algo == "sha384" || algo == "sha-384") md = EVP_sha384();
+        else if (algo == "sha512" || algo == "sha-512") md = EVP_sha512();
+        else if (algo == "sha3224" || algo == "sha3-224") md = EVP_sha3_224();
+        else if (algo == "sha3256" || algo == "sha3-256") md = EVP_sha3_256();
+        else if (algo == "sha3384" || algo == "sha3-384") md = EVP_sha3_384();
+        else if (algo == "sha3512" || algo == "sha3-512") md = EVP_sha3_512();
+        else if (algo == "md5") md = EVP_md5();
+        else throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
+
+        unsigned int digestLen = 0;
+        digest.resize(EVP_MAX_MD_SIZE);
+        EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, md, nullptr);
+        digest.resize(digestLen);
+#endif
+        return makeUint8Array(runtime, std::move(digest));
+      });
+  rt.global().setProperty(rt, "__exactHashRaw", std::move(hashRawFn));
+
+  // --- SubtleCrypto: AES-CBC encrypt/decrypt ---
+  // __exactAesCbcEncrypt(key, iv, data) -> Uint8Array (ciphertext with PKCS7 padding)
+  auto aesCbcEncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAesCbcEncrypt"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) throw facebook::jsi::JSError(runtime, "key, iv, data required");
+        auto keyBytes = extractBytes(runtime, args[0]);
+        auto ivBytes = extractBytes(runtime, args[1]);
+        auto data = extractBytes(runtime, args[2]);
+        if (keyBytes.size() != 16 && keyBytes.size() != 24 && keyBytes.size() != 32) {
+          throw facebook::jsi::JSError(runtime, "AES key must be 128, 192, or 256 bits");
+        }
+        if (ivBytes.size() != 16) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC IV must be 16 bytes");
+        }
+#if defined(__APPLE__)
+        size_t outLen = 0;
+        std::vector<uint8_t> out(data.size() + kCCBlockSizeAES128);
+        CCCryptorStatus status = CCCrypt(
+            kCCEncrypt, kCCAlgorithmAES, kCCOptionPKCS7Padding,
+            keyBytes.data(), keyBytes.size(),
+            ivBytes.data(),
+            data.data(), data.size(),
+            out.data(), out.size(), &outLen);
+        if (status != kCCSuccess) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC encryption failed: " + std::to_string(status));
+        }
+        out.resize(outLen);
+        return makeUint8Array(runtime, std::move(out));
+#else
+        throw facebook::jsi::JSError(runtime, "AES-CBC not yet supported on this platform");
+#endif
+      });
+  rt.global().setProperty(rt, "__exactAesCbcEncrypt", std::move(aesCbcEncFn));
+
+  // __exactAesCbcDecrypt(key, iv, data) -> Uint8Array (plaintext)
+  auto aesCbcDecFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAesCbcDecrypt"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) throw facebook::jsi::JSError(runtime, "key, iv, data required");
+        auto keyBytes = extractBytes(runtime, args[0]);
+        auto ivBytes = extractBytes(runtime, args[1]);
+        auto data = extractBytes(runtime, args[2]);
+#if defined(__APPLE__)
+        size_t outLen = 0;
+        std::vector<uint8_t> out(data.size() + kCCBlockSizeAES128);
+        CCCryptorStatus status = CCCrypt(
+            kCCDecrypt, kCCAlgorithmAES, kCCOptionPKCS7Padding,
+            keyBytes.data(), keyBytes.size(),
+            ivBytes.data(),
+            data.data(), data.size(),
+            out.data(), out.size(), &outLen);
+        if (status != kCCSuccess) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC decryption failed: " + std::to_string(status));
+        }
+        out.resize(outLen);
+        return makeUint8Array(runtime, std::move(out));
+#else
+        throw facebook::jsi::JSError(runtime, "AES-CBC not yet supported on this platform");
+#endif
+      });
+  rt.global().setProperty(rt, "__exactAesCbcDecrypt", std::move(aesCbcDecFn));
+
+  // __exactAesCtrEncrypt(key, counter, data) -> Uint8Array
+  auto aesCtrEncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAesCtrEncrypt"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) throw facebook::jsi::JSError(runtime, "key, counter, data required");
+        auto keyBytes = extractBytes(runtime, args[0]);
+        auto ctrBytes = extractBytes(runtime, args[1]);
+        auto data = extractBytes(runtime, args[2]);
+        if (ctrBytes.size() != 16) {
+          throw facebook::jsi::JSError(runtime, "AES-CTR counter must be 16 bytes");
+        }
+#if defined(__APPLE__)
+        // CTR mode: use CCCryptorCreateWithMode
+        CCCryptorRef cryptor = nullptr;
+        CCCryptorStatus status = CCCryptorCreateWithMode(
+            kCCEncrypt, kCCModeCTR, kCCAlgorithmAES, ccNoPadding,
+            ctrBytes.data(), keyBytes.data(), keyBytes.size(),
+            nullptr, 0, 0, kCCModeOptionCTR_BE, &cryptor);
+        if (status != kCCSuccess || !cryptor) {
+          throw facebook::jsi::JSError(runtime, "AES-CTR init failed");
+        }
+        std::vector<uint8_t> out(data.size());
+        size_t outLen = 0;
+        status = CCCryptorUpdate(cryptor, data.data(), data.size(), out.data(), out.size(), &outLen);
+        CCCryptorRelease(cryptor);
+        if (status != kCCSuccess) {
+          throw facebook::jsi::JSError(runtime, "AES-CTR encryption failed");
+        }
+        out.resize(outLen);
+        return makeUint8Array(runtime, std::move(out));
+#else
+        throw facebook::jsi::JSError(runtime, "AES-CTR not yet supported on this platform");
+#endif
+      });
+  rt.global().setProperty(rt, "__exactAesCtrEncrypt", std::move(aesCtrEncFn));
+
+  // __exactAesGcmEncrypt(key, iv, data, aad, tagLength) -> Uint8Array (ciphertext + tag)
+  auto aesGcmEncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAesGcmEncrypt"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) throw facebook::jsi::JSError(runtime, "key, iv, data required");
+        auto keyBytes = extractBytes(runtime, args[0]);
+        auto ivBytes = extractBytes(runtime, args[1]);
+        auto data = extractBytes(runtime, args[2]);
+        std::vector<uint8_t> aad;
+        if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+          aad = extractBytes(runtime, args[3]);
+        }
+        size_t tagLen = 16;
+        if (count > 4 && args[4].isNumber()) {
+          tagLen = static_cast<size_t>(args[4].asNumber()) / 8; // bits to bytes
+        }
+#if defined(__APPLE__)
+        std::vector<uint8_t> out(data.size());
+        std::vector<uint8_t> tag(tagLen);
+        CCCryptorStatus status = CCCryptorGCMOneshotEncrypt(
+            kCCAlgorithmAES,
+            keyBytes.data(), keyBytes.size(),
+            ivBytes.data(), ivBytes.size(),
+            aad.data(), aad.size(),
+            data.data(), data.size(),
+            out.data(),
+            tag.data(), tagLen);
+        if (status != kCCSuccess) {
+          throw facebook::jsi::JSError(runtime, "AES-GCM encryption failed: " + std::to_string(status));
+        }
+        // Append tag to ciphertext
+        out.insert(out.end(), tag.begin(), tag.end());
+        return makeUint8Array(runtime, std::move(out));
+#else
+        throw facebook::jsi::JSError(runtime, "AES-GCM not yet supported on this platform");
+#endif
+      });
+  rt.global().setProperty(rt, "__exactAesGcmEncrypt", std::move(aesGcmEncFn));
+
+  // __exactAesGcmDecrypt(key, iv, data, aad, tagLength) -> Uint8Array (plaintext)
+  // data includes the tag appended at the end
+  auto aesGcmDecFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAesGcmDecrypt"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) throw facebook::jsi::JSError(runtime, "key, iv, data required");
+        auto keyBytes = extractBytes(runtime, args[0]);
+        auto ivBytes = extractBytes(runtime, args[1]);
+        auto dataWithTag = extractBytes(runtime, args[2]);
+        std::vector<uint8_t> aad;
+        if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+          aad = extractBytes(runtime, args[3]);
+        }
+        size_t tagLen = 16;
+        if (count > 4 && args[4].isNumber()) {
+          tagLen = static_cast<size_t>(args[4].asNumber()) / 8;
+        }
+        if (dataWithTag.size() < tagLen) {
+          throw facebook::jsi::JSError(runtime, "Data too short for GCM tag");
+        }
+        size_t cipherLen = dataWithTag.size() - tagLen;
+#if defined(__APPLE__)
+        std::vector<uint8_t> out(cipherLen);
+        CCCryptorStatus status = CCCryptorGCMOneshotDecrypt(
+            kCCAlgorithmAES,
+            keyBytes.data(), keyBytes.size(),
+            ivBytes.data(), ivBytes.size(),
+            aad.data(), aad.size(),
+            dataWithTag.data(), cipherLen,
+            out.data(),
+            dataWithTag.data() + cipherLen, tagLen);
+        if (status != kCCSuccess) {
+          throw facebook::jsi::JSError(runtime, "AES-GCM decryption failed (auth tag mismatch or invalid data)");
+        }
+        return makeUint8Array(runtime, std::move(out));
+#else
+        throw facebook::jsi::JSError(runtime, "AES-GCM not yet supported on this platform");
+#endif
+      });
+  rt.global().setProperty(rt, "__exactAesGcmDecrypt", std::move(aesGcmDecFn));
+
+#if !defined(EXACT_NO_OPENSSL)
+  // __exactEvpCipherEncrypt(algorithm, key, iv, data) -> Uint8Array
+  // Generic EVP cipher encrypt for DES, 3DES, Blowfish, ChaCha20-Poly1305, etc.
+  auto evpCipherEncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactEvpCipherEncrypt"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 4) throw facebook::jsi::JSError(runtime, "algorithm, key, iv, data required");
+        auto algo = args[0].asString(runtime).utf8(runtime);
+        auto keyBytes = extractBytes(runtime, args[1]);
+        auto ivBytes = extractBytes(runtime, args[2]);
+        auto data = extractBytes(runtime, args[3]);
+        auto aad = (count > 4 && !args[4].isUndefined() && !args[4].isNull())
+                       ? extractBytes(runtime, args[4])
+                       : std::vector<uint8_t>();
+        auto tagLen = (size_t)16;
+        if (count > 5 && !args[5].isUndefined() && !args[5].isNull()) {
+          auto requestedTagLen = static_cast<int>(args[5].asNumber());
+          if (requestedTagLen >= 1 && requestedTagLen <= 16) tagLen = static_cast<size_t>(requestedTagLen);
+        }
+
+        const EVP_CIPHER* cipher = EVP_get_cipherbyname(algo.c_str());
+        if (!cipher) {
+          throw facebook::jsi::JSError(runtime, "Unsupported cipher: " + algo);
+        }
+
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) throw facebook::jsi::JSError(runtime, "Failed to create cipher context");
+
+        int outLen = 0;
+        int finalLen = 0;
+        bool isAEAD = (EVP_CIPHER_flags(cipher) & EVP_CIPH_FLAG_AEAD_CIPHER) != 0;
+        bool isCCM = algo.find("-ccm") != std::string::npos;
+
+        // Output buffer: data + block size + possible tag
+        int blockSize = EVP_CIPHER_block_size(cipher);
+        std::vector<uint8_t> out(data.size() + (blockSize * 2) + (isAEAD ? static_cast<int>(tagLen) : 0));
+
+        if (EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "Cipher init failed");
+        }
+
+        // Set key and IV lengths if needed
+        if ((int)ivBytes.size() != EVP_CIPHER_CTX_iv_length(ctx)) {
+          EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, ivBytes.size(), nullptr);
+        }
+
+        if (isCCM) {
+          if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_TAG, static_cast<int>(tagLen), nullptr) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher set CCM tag length failed");
+          }
+        }
+
+        if (EVP_EncryptInit_ex(ctx, nullptr, nullptr, keyBytes.data(), ivBytes.data()) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "Cipher key/iv init failed");
+        }
+
+        if (isCCM && isAEAD) {
+          int msgLen = static_cast<int>(data.size());
+          int msgLenOut = 0;
+          if (EVP_EncryptUpdate(ctx, nullptr, &msgLenOut, nullptr, msgLen) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher set CCM message length failed");
+          }
+        }
+        if (!aad.empty() && isAEAD) {
+          int aadLen = 0;
+          if (EVP_EncryptUpdate(ctx, nullptr, &aadLen, aad.data(), static_cast<int>(aad.size())) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher encrypt aad failed");
+          }
+        }
+
+        if (EVP_EncryptUpdate(ctx, out.data(), &outLen, data.data(), data.size()) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "Cipher encrypt update failed");
+        }
+
+        if (EVP_EncryptFinal_ex(ctx, out.data() + outLen, &finalLen) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "Cipher encrypt final failed");
+        }
+
+        int totalLen = outLen + finalLen;
+
+        // For AEAD ciphers, append the auth tag
+        if (isAEAD) {
+          std::vector<uint8_t> tag(tagLen);
+          if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, static_cast<int>(tagLen), tag.data()) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Failed to get auth tag");
+          }
+          memcpy(out.data() + totalLen, tag.data(), tag.size());
+          totalLen += static_cast<int>(tag.size());
+        }
+
+        EVP_CIPHER_CTX_free(ctx);
+        out.resize(totalLen);
+        return makeUint8Array(runtime, std::move(out));
+      });
+  rt.global().setProperty(rt, "__exactEvpCipherEncrypt", std::move(evpCipherEncFn));
+#endif // !EXACT_NO_OPENSSL
+
+#if !defined(EXACT_NO_OPENSSL)
+  // __exactEvpCipherDecrypt(algorithm, key, iv, data, authTag?) -> Uint8Array
+  // Generic EVP cipher decrypt for DES, 3DES, Blowfish, ChaCha20-Poly1305, etc.
+  auto evpCipherDecFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactEvpCipherDecrypt"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 4) throw facebook::jsi::JSError(runtime, "algorithm, key, iv, data required");
+        auto algo = args[0].asString(runtime).utf8(runtime);
+        auto keyBytes = extractBytes(runtime, args[1]);
+        auto ivBytes = extractBytes(runtime, args[2]);
+        auto data = extractBytes(runtime, args[3]);
+        auto authTag = (count > 4 && !args[4].isUndefined() && !args[4].isNull())
+                           ? extractBytes(runtime, args[4])
+                           : std::vector<uint8_t>();
+        auto aad = (count > 5 && !args[5].isUndefined() && !args[5].isNull())
+                       ? extractBytes(runtime, args[5])
+                       : std::vector<uint8_t>();
+        auto tagLen = (size_t)16;
+        if (!authTag.empty()) tagLen = authTag.size();
+        if (count > 6 && !args[6].isUndefined() && !args[6].isNull()) {
+          auto requestedTagLen = static_cast<int>(args[6].asNumber());
+          if (requestedTagLen >= 1 && requestedTagLen <= 16) tagLen = static_cast<size_t>(requestedTagLen);
+        }
+
+        const EVP_CIPHER* cipher = EVP_get_cipherbyname(algo.c_str());
+        if (!cipher) {
+          throw facebook::jsi::JSError(runtime, "Unsupported cipher: " + algo);
+        }
+
+        bool isAEAD = (EVP_CIPHER_flags(cipher) & EVP_CIPH_FLAG_AEAD_CIPHER) != 0;
+        bool isCCM = algo.find("-ccm") != std::string::npos;
+
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) throw facebook::jsi::JSError(runtime, "Failed to create cipher context");
+
+        if (EVP_DecryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "Cipher init failed");
+        }
+
+        // Set IV length if needed
+        if ((int)ivBytes.size() != EVP_CIPHER_CTX_iv_length(ctx)) {
+          EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, ivBytes.size(), nullptr);
+        }
+
+        if (isCCM && isAEAD) {
+          if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_TAG, static_cast<int>(tagLen), nullptr) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher set CCM tag length failed");
+          }
+        }
+
+        if (EVP_DecryptInit_ex(ctx, nullptr, nullptr, keyBytes.data(), ivBytes.data()) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "Cipher key/iv init failed");
+        }
+
+        // For AEAD ciphers, set the auth tag (from arg 4 or last 16 bytes of data)
+        if (isAEAD) {
+          if (!authTag.empty()) {
+            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, static_cast<int>(tagLen), authTag.data()) != 1) {
+              EVP_CIPHER_CTX_free(ctx);
+              throw facebook::jsi::JSError(runtime, "Failed to set auth tag");
+            }
+          } else if (data.size() >= 16) {
+            // Tag appended to end of data
+            auto tag = std::vector<uint8_t>(tagLen);
+            if (tag.empty()) {
+              tag.resize(16);
+            }
+            if (tag.size() < 16) {
+              tag.resize(16);
+            }
+            memcpy(tag.data(), data.data() + data.size() - 16, 16);
+            data.resize(data.size() - 16);
+            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, static_cast<int>(tag.size()), tag.data()) != 1) {
+              EVP_CIPHER_CTX_free(ctx);
+              throw facebook::jsi::JSError(runtime, "Failed to set auth tag");
+            }
+          }
+        }
+
+        if (isCCM && isAEAD) {
+          int msgLen = static_cast<int>(data.size());
+          int msgLenOut = 0;
+          if (EVP_DecryptUpdate(ctx, nullptr, &msgLenOut, nullptr, msgLen) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher set CCM message length failed");
+          }
+        }
+        if (!aad.empty() && isAEAD) {
+          int aadLen = 0;
+          if (EVP_DecryptUpdate(ctx, nullptr, &aadLen, aad.data(), static_cast<int>(aad.size())) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "Cipher decrypt aad failed");
+          }
+        }
+
+        int blockSize = EVP_CIPHER_block_size(cipher);
+        std::vector<uint8_t> out(data.size() + (blockSize * 2));
+        int outLen = 0;
+        int finalLen = 0;
+
+        if (EVP_DecryptUpdate(ctx, out.data(), &outLen, data.data(), data.size()) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "Cipher decrypt update failed");
+        }
+
+        if (EVP_DecryptFinal_ex(ctx, out.data() + outLen, &finalLen) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "Cipher decrypt final failed (auth tag mismatch or bad padding)");
+        }
+
+        EVP_CIPHER_CTX_free(ctx);
+        out.resize(outLen + finalLen);
+        return makeUint8Array(runtime, std::move(out));
+      });
+  rt.global().setProperty(rt, "__exactEvpCipherDecrypt", std::move(evpCipherDecFn));
+#endif // !EXACT_NO_OPENSSL
+
+  // __exactPbkdf2(password, salt, iterations, keyLength, hashAlgo) -> Uint8Array
+  auto pbkdf2Fn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPbkdf2"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 5) throw facebook::jsi::JSError(runtime, "password, salt, iterations, keyLength, hash required");
+        auto password = extractBytes(runtime, args[0]);
+        auto salt = extractBytes(runtime, args[1]);
+        auto iterations = static_cast<unsigned int>(args[2].asNumber());
+        auto keyLength = static_cast<size_t>(args[3].asNumber());
+        auto hash = args[4].asString(runtime).utf8(runtime);
+#if defined(__APPLE__)
+        CCPseudoRandomAlgorithm prf;
+        if (hash == "SHA-1" || hash == "sha1") prf = kCCPRFHmacAlgSHA1;
+        else if (hash == "SHA-256" || hash == "sha256") prf = kCCPRFHmacAlgSHA256;
+        else if (hash == "SHA-384" || hash == "sha384") prf = kCCPRFHmacAlgSHA384;
+        else if (hash == "SHA-512" || hash == "sha512") prf = kCCPRFHmacAlgSHA512;
+        else throw facebook::jsi::JSError(runtime, "Unsupported PBKDF2 hash: " + hash);
+        std::vector<uint8_t> derivedKey(keyLength);
+        CCCryptorStatus status = CCKeyDerivationPBKDF(
+            kCCPBKDF2,
+            reinterpret_cast<const char*>(password.data()), password.size(),
+            salt.data(), salt.size(),
+            prf, iterations,
+            derivedKey.data(), keyLength);
+        if (status != kCCSuccess) {
+          throw facebook::jsi::JSError(runtime, "PBKDF2 derivation failed");
+        }
+        return makeUint8Array(runtime, std::move(derivedKey));
+#else
+        throw facebook::jsi::JSError(runtime, "PBKDF2 not yet supported on this platform");
+#endif
+      });
+  rt.global().setProperty(rt, "__exactPbkdf2", std::move(pbkdf2Fn));
+
+  // __exactScryptSync(password, salt, N, r, p, keylen) -> Uint8Array
+  // Real scrypt implementation using Salsa20/8 core + PBKDF2-HMAC-SHA256
+  auto scryptFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactScryptSync"),
+      6,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 6) throw facebook::jsi::JSError(runtime, "password, salt, N, r, p, keylen required");
+        auto password = extractBytes(runtime, args[0]);
+        auto salt = extractBytes(runtime, args[1]);
+        uint64_t N = static_cast<uint64_t>(args[2].asNumber());
+        uint32_t r = static_cast<uint32_t>(args[3].asNumber());
+        uint32_t p = static_cast<uint32_t>(args[4].asNumber());
+        size_t keylen = static_cast<size_t>(args[5].asNumber());
+
+        // Validate parameters
+        if (N == 0 || (N & (N - 1)) != 0) {
+          throw facebook::jsi::JSError(runtime, "scrypt: N must be a power of 2");
+        }
+        if (r == 0) throw facebook::jsi::JSError(runtime, "scrypt: r must be > 0");
+        if (p == 0) throw facebook::jsi::JSError(runtime, "scrypt: p must be > 0");
+        // Check for overflow: p * 128 * r
+        if (p > 0 && r > 0 && static_cast<uint64_t>(p) * 128 * r > 1073741824ULL) {
+          throw facebook::jsi::JSError(runtime, "scrypt: parameters too large");
+        }
+
+#if defined(__APPLE__)
+        // Helper lambdas for scrypt algorithm
+
+        // Salsa20/8 core: applies 8 rounds of Salsa20 quarter-round in place
+        // Input/output: 16 uint32_t words (64 bytes)
+        auto salsa20_8 = [](uint32_t B[16]) {
+          uint32_t x[16];
+          std::memcpy(x, B, 64);
+
+          #define ROTL32(v, n) (((v) << (n)) | ((v) >> (32 - (n))))
+          for (int i = 0; i < 8; i += 2) {
+            // Column round
+            x[ 4] ^= ROTL32(x[ 0] + x[12],  7);
+            x[ 8] ^= ROTL32(x[ 4] + x[ 0],  9);
+            x[12] ^= ROTL32(x[ 8] + x[ 4], 13);
+            x[ 0] ^= ROTL32(x[12] + x[ 8], 18);
+            x[ 9] ^= ROTL32(x[ 5] + x[ 1],  7);
+            x[13] ^= ROTL32(x[ 9] + x[ 5],  9);
+            x[ 1] ^= ROTL32(x[13] + x[ 9], 13);
+            x[ 5] ^= ROTL32(x[ 1] + x[13], 18);
+            x[14] ^= ROTL32(x[10] + x[ 6],  7);
+            x[ 2] ^= ROTL32(x[14] + x[10],  9);
+            x[ 6] ^= ROTL32(x[ 2] + x[14], 13);
+            x[10] ^= ROTL32(x[ 6] + x[ 2], 18);
+            x[ 3] ^= ROTL32(x[15] + x[11],  7);
+            x[ 7] ^= ROTL32(x[ 3] + x[15],  9);
+            x[11] ^= ROTL32(x[ 7] + x[ 3], 13);
+            x[15] ^= ROTL32(x[11] + x[ 7], 18);
+            // Row round
+            x[ 1] ^= ROTL32(x[ 0] + x[ 3],  7);
+            x[ 2] ^= ROTL32(x[ 1] + x[ 0],  9);
+            x[ 3] ^= ROTL32(x[ 2] + x[ 1], 13);
+            x[ 0] ^= ROTL32(x[ 3] + x[ 2], 18);
+            x[ 6] ^= ROTL32(x[ 5] + x[ 4],  7);
+            x[ 7] ^= ROTL32(x[ 6] + x[ 5],  9);
+            x[ 4] ^= ROTL32(x[ 7] + x[ 6], 13);
+            x[ 5] ^= ROTL32(x[ 4] + x[ 7], 18);
+            x[11] ^= ROTL32(x[10] + x[ 9],  7);
+            x[ 8] ^= ROTL32(x[11] + x[10],  9);
+            x[ 9] ^= ROTL32(x[ 8] + x[11], 13);
+            x[10] ^= ROTL32(x[ 9] + x[ 8], 18);
+            x[12] ^= ROTL32(x[15] + x[14],  7);
+            x[13] ^= ROTL32(x[12] + x[15],  9);
+            x[14] ^= ROTL32(x[13] + x[12], 13);
+            x[15] ^= ROTL32(x[14] + x[13], 18);
+          }
+          #undef ROTL32
+
+          for (int i = 0; i < 16; i++) {
+            B[i] += x[i];
+          }
+        };
+
+        // scryptBlockMix: mixes 2*r 64-byte blocks
+        // B is 2*r*16 uint32_t words (2*r * 64 bytes)
+        // Output Y is same size, with even blocks then odd blocks
+        auto blockMix = [&salsa20_8](uint32_t* B, uint32_t* Y, uint32_t r) {
+          uint32_t blockCount = 2 * r;
+          // X = B[2r-1] (last 64-byte block)
+          uint32_t X[16];
+          std::memcpy(X, &B[(blockCount - 1) * 16], 64);
+
+          // Temporary arrays for even and odd blocks
+          for (uint32_t i = 0; i < blockCount; i++) {
+            // X = X xor B[i]
+            for (int k = 0; k < 16; k++) {
+              X[k] ^= B[i * 16 + k];
+            }
+            salsa20_8(X);
+            // Copy result to Y
+            std::memcpy(&Y[i * 16], X, 64);
+          }
+
+          // Rearrange: even blocks first, then odd blocks
+          // Y currently has blocks in order 0,1,2,...,2r-1
+          // We need: 0,2,4,...,2r-2, 1,3,5,...,2r-1
+          std::vector<uint32_t> tmp(blockCount * 16);
+          uint32_t half = 0;
+          for (uint32_t i = 0; i < blockCount; i += 2) {
+            std::memcpy(&tmp[half * 16], &Y[i * 16], 64);
+            half++;
+          }
+          for (uint32_t i = 1; i < blockCount; i += 2) {
+            std::memcpy(&tmp[half * 16], &Y[i * 16], 64);
+            half++;
+          }
+          std::memcpy(Y, tmp.data(), blockCount * 64);
+        };
+
+        // scryptROMix: memory-hard function
+        // B is 2*r*16 uint32_t words
+        auto roMix = [&blockMix](uint32_t* B, uint64_t N, uint32_t r) {
+          size_t blockWords = 2 * static_cast<size_t>(r) * 16; // words per block (each word is 4 bytes)
+          size_t blockBytes = blockWords * 4;
+
+          // Allocate V: N blocks
+          std::vector<uint32_t> V(N * blockWords);
+          std::vector<uint32_t> Y(blockWords);
+
+          // Step 1: Build V
+          for (uint64_t i = 0; i < N; i++) {
+            std::memcpy(&V[i * blockWords], B, blockBytes);
+            blockMix(B, Y.data(), r);
+            std::memcpy(B, Y.data(), blockBytes);
+          }
+
+          // Step 2: Mix
+          for (uint64_t i = 0; i < N; i++) {
+            // Integerify: take last 64-byte block of B, interpret first 4 bytes as LE uint32
+            uint32_t lastBlockStart = (2 * r - 1) * 16;
+            uint64_t j = B[lastBlockStart] % N;
+
+            // X = X xor V[j]
+            for (size_t k = 0; k < blockWords; k++) {
+              B[k] ^= V[j * blockWords + k];
+            }
+            blockMix(B, Y.data(), r);
+            std::memcpy(B, Y.data(), blockBytes);
+          }
+        };
+
+        // PBKDF2-HMAC-SHA256 implemented manually using CCHmac
+        // (CommonCrypto's CCKeyDerivationPBKDF fails with empty password/salt)
+        auto pbkdf2_sha256 = [](const uint8_t* pass, size_t passLen,
+                                const uint8_t* saltData, size_t saltLen,
+                                uint32_t iterations,
+                                uint8_t* out, size_t outLen) {
+          const size_t hLen = CC_SHA256_DIGEST_LENGTH; // 32
+          uint32_t blockCount = static_cast<uint32_t>((outLen + hLen - 1) / hLen);
+
+          for (uint32_t blockIdx = 1; blockIdx <= blockCount; blockIdx++) {
+            // U_1 = HMAC-SHA256(pass, salt || INT_32_BE(blockIdx))
+            // Prepare salt || INT_32_BE(blockIdx)
+            std::vector<uint8_t> saltBlock(saltLen + 4);
+            if (saltLen > 0) std::memcpy(saltBlock.data(), saltData, saltLen);
+            saltBlock[saltLen + 0] = static_cast<uint8_t>((blockIdx >> 24) & 0xFF);
+            saltBlock[saltLen + 1] = static_cast<uint8_t>((blockIdx >> 16) & 0xFF);
+            saltBlock[saltLen + 2] = static_cast<uint8_t>((blockIdx >> 8) & 0xFF);
+            saltBlock[saltLen + 3] = static_cast<uint8_t>(blockIdx & 0xFF);
+
+            uint8_t U[CC_SHA256_DIGEST_LENGTH];
+            uint8_t T[CC_SHA256_DIGEST_LENGTH];
+
+            // U_1
+            CCHmac(kCCHmacAlgSHA256, pass, passLen,
+                   saltBlock.data(), saltBlock.size(), U);
+            std::memcpy(T, U, hLen);
+
+            // U_2 .. U_c
+            for (uint32_t iter = 1; iter < iterations; iter++) {
+              CCHmac(kCCHmacAlgSHA256, pass, passLen, U, hLen, U);
+              for (size_t k = 0; k < hLen; k++) {
+                T[k] ^= U[k];
+              }
+            }
+
+            // Copy T to output
+            size_t offset = static_cast<size_t>(blockIdx - 1) * hLen;
+            size_t copyLen = (offset + hLen <= outLen) ? hLen : (outLen - offset);
+            std::memcpy(out + offset, T, copyLen);
+          }
+        };
+
+        // === Main scrypt algorithm ===
+        size_t BLen = static_cast<size_t>(128) * r * p;
+        std::vector<uint8_t> B(BLen);
+
+        // Step 1: B = PBKDF2-HMAC-SHA256(password, salt, 1, p * 128 * r)
+        pbkdf2_sha256(password.data(), password.size(),
+                      salt.data(), salt.size(),
+                      1, B.data(), BLen);
+
+        // Step 2: For each block i in 0..p, apply ROMix
+        for (uint32_t i = 0; i < p; i++) {
+          // Interpret B[i*128*r .. (i+1)*128*r] as uint32_t array (little-endian)
+          uint32_t* block = reinterpret_cast<uint32_t*>(&B[static_cast<size_t>(i) * 128 * r]);
+          // Note: On little-endian systems (x86/ARM), this is correct.
+          // The scrypt spec defines the data as little-endian uint32 words.
+          roMix(block, N, r);
+        }
+
+        // Step 3: Output = PBKDF2-HMAC-SHA256(password, B, 1, keylen)
+        std::vector<uint8_t> derivedKey(keylen);
+        pbkdf2_sha256(password.data(), password.size(),
+                      B.data(), B.size(),
+                      1, derivedKey.data(), keylen);
+
+        return makeUint8Array(runtime, std::move(derivedKey));
+#else
+        throw facebook::jsi::JSError(runtime, "scrypt not yet supported on this platform");
+#endif
+      });
+  rt.global().setProperty(rt, "__exactScryptSync", std::move(scryptFn));
+
+#if defined(__APPLE__)
+#if !defined(EXACT_PLATFORM_IOS)
+  auto signFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSignSync"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isString() || !args[1].isString() || !args[2].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: algorithm, data, and key required");
+        }
+
+        auto rawAlgorithm = args[0].asString(runtime).utf8(runtime);
+        auto hashName = normalizeHashForNodeCrypto(rawAlgorithm);
+        auto dataText = args[1].asString(runtime).utf8(runtime);
+        auto keyText = args[2].asString(runtime).utf8(runtime);
+        auto key = adoptCF(importPemKey(keyText, kSecItemTypePrivateKey));
+        if (!key) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: invalid PEM private key");
+        }
+
+        auto isRsa = isRsaSecKey(key.get());
+        auto algorithm = pickSecKeySignAlgorithm(hashName, isRsa);
+        if (!algorithm) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: unsupported algorithm " + rawAlgorithm);
+        }
+
+        auto dataBytes = std::vector<uint8_t>(dataText.begin(), dataText.end());
+        auto dataRef = adoptCF(CFDataCreate(
+            kCFAllocatorDefault,
+            dataBytes.data(),
+            static_cast<CFIndex>(dataBytes.size())));
+        if (!dataRef) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: failed to allocate data");
+        }
+
+        CFErrorRef error = nullptr;
+        auto signatureRef = adoptCF(SecKeyCreateSignature(
+            key.get(),
+            algorithm,
+            dataRef.get(),
+            &error));
+        auto errorRef = adoptCF(error);
+        if (!signatureRef) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: signing failed");
+        }
+
+        auto signature = dataToString(signatureRef.get());
+        return makeUint8Array(runtime, std::vector<uint8_t>(signature.begin(), signature.end()));
+      });
+  rt.global().setProperty(rt, "__exactSignSync", std::move(signFn));
+#endif // !EXACT_PLATFORM_IOS
+
+#if !defined(EXACT_PLATFORM_IOS)
+  auto verifyFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactVerifySync"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 4 || !args[0].isString() || !args[2].isString() || !args[3].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: algorithm, signature, data, and key required");
+        }
+
+        auto rawAlgorithm = args[0].asString(runtime).utf8(runtime);
+        auto hashName = normalizeHashForNodeCrypto(rawAlgorithm);
+        auto signatureBytes = extractBytes(runtime, args[1]);
+        auto dataText = args[2].asString(runtime).utf8(runtime);
+        auto keyText = args[3].asString(runtime).utf8(runtime);
+        auto key = adoptCF(importPemKey(keyText, kSecItemTypePublicKey));
+        if (!key) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: invalid PEM public key");
+        }
+
+        auto isRsa = isRsaSecKey(key.get());
+        auto algorithm = pickSecKeySignAlgorithm(hashName, isRsa);
+        if (!algorithm) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: unsupported algorithm " + rawAlgorithm);
+        }
+
+        auto dataBytes = std::vector<uint8_t>(dataText.begin(), dataText.end());
+        auto signatureRef = adoptCF(CFDataCreate(
+            kCFAllocatorDefault,
+            signatureBytes.data(),
+            static_cast<CFIndex>(signatureBytes.size())));
+        auto dataRef = adoptCF(CFDataCreate(
+            kCFAllocatorDefault,
+            dataBytes.data(),
+            static_cast<CFIndex>(dataBytes.size())));
+        if (!dataRef || !signatureRef) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: failed to allocate data");
+        }
+
+        CFErrorRef error = nullptr;
+        auto verified = SecKeyVerifySignature(
+            key.get(),
+            algorithm,
+            dataRef.get(),
+            signatureRef.get(),
+            &error);
+        auto errorRef = adoptCF(error);
+        return facebook::jsi::Value(static_cast<bool>(verified));
+      });
+  rt.global().setProperty(rt, "__exactVerifySync", std::move(verifyFn));
+#endif // !EXACT_PLATFORM_IOS
+
+  auto generateKeyPairSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactGenerateKeyPairSync"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key type required");
+        }
+        auto keyType = args[0].asString(runtime).utf8(runtime);
+        if (keyType != "rsa" && keyType != "ec" && keyType != "rsa-pss" &&
+            keyType != "ecdsa" && keyType != "ed25519" && keyType != "x25519") {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: unsupported key type " + keyType);
+        }
+
+        uint32_t bits = 2048;
+        uint32_t exponent = 65537;
+        std::string namedCurve = "P-256";
+        if (count >= 2 && args[1].isObject()) {
+          auto options = args[1].asObject(runtime);
+          if (options.hasProperty(runtime, "modulusLength")) {
+            auto v = options.getProperty(runtime, "modulusLength");
+            if (v.isNumber()) bits = static_cast<uint32_t>(v.asNumber());
+          }
+          if (options.hasProperty(runtime, "publicExponent")) {
+            auto v = options.getProperty(runtime, "publicExponent");
+            if (v.isNumber()) exponent = static_cast<uint32_t>(v.asNumber());
+            else if (v.isString()) {
+              exponent = static_cast<uint32_t>(std::stoul(v.asString(runtime).utf8(runtime)));
+            }
+          }
+          if (options.hasProperty(runtime, "namedCurve")) {
+            auto v = options.getProperty(runtime, "namedCurve");
+            if (v.isString()) namedCurve = v.asString(runtime).utf8(runtime);
+          }
+        }
+
+        // --- Ed25519 and X25519: use OpenSSL on macOS ---
+        if (keyType == "ed25519" || keyType == "x25519") {
+#if !defined(EXACT_NO_OPENSSL)
+          int evpType = (keyType == "ed25519") ? EVP_PKEY_ED25519 : EVP_PKEY_X25519;
+          EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(evpType, nullptr);
+          if (!ctx) {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to create context for " + keyType);
+          }
+          if (EVP_PKEY_keygen_init(ctx) != 1) {
+            EVP_PKEY_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: keygen init failed for " + keyType);
+          }
+          EVP_PKEY* pkey = nullptr;
+          if (EVP_PKEY_keygen(ctx, &pkey) != 1) {
+            EVP_PKEY_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key generation failed for " + keyType);
+          }
+          EVP_PKEY_CTX_free(ctx);
+
+          // Export as PEM
+          BIO* privateBio = BIO_new(BIO_s_mem());
+          BIO* publicBio = BIO_new(BIO_s_mem());
+          if (!privateBio || !publicBio) {
+            if (privateBio) BIO_free(privateBio);
+            if (publicBio) BIO_free(publicBio);
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate PEM buffers");
+          }
+          if (PEM_write_bio_PrivateKey(privateBio, pkey, nullptr, nullptr, 0, nullptr, nullptr) != 1 ||
+              PEM_write_bio_PUBKEY(publicBio, pkey) != 1) {
+            BIO_free(privateBio);
+            BIO_free(publicBio);
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to serialize PEM keys for " + keyType);
+          }
+          EVP_PKEY_free(pkey);
+
+          char* privatePtr = nullptr;
+          char* publicPtr = nullptr;
+          auto privateLen = BIO_get_mem_data(privateBio, &privatePtr);
+          auto publicLen = BIO_get_mem_data(publicBio, &publicPtr);
+          std::string privatePem = privatePtr && privateLen > 0 ? std::string(privatePtr, static_cast<size_t>(privateLen)) : std::string();
+          std::string publicPem = publicPtr && publicLen > 0 ? std::string(publicPtr, static_cast<size_t>(publicLen)) : std::string();
+          BIO_free(privateBio);
+          BIO_free(publicBio);
+
+          facebook::jsi::Object result(runtime);
+          result.setProperty(runtime, "privateKey", facebook::jsi::String::createFromUtf8(runtime, privatePem));
+          result.setProperty(runtime, "publicKey", facebook::jsi::String::createFromUtf8(runtime, publicPem));
+          return result;
+#else
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: " + keyType + " key generation requires OpenSSL (not available on iOS)");
+#endif // !EXACT_NO_OPENSSL
+        }
+
+        // --- ECDSA: use Security.framework on macOS ---
+        if (keyType == "ec" || keyType == "ecdsa") {
+          uint32_t ecBits = 256;
+          if (namedCurve == "P-256" || namedCurve == "prime256v1") ecBits = 256;
+          else if (namedCurve == "P-384" || namedCurve == "secp384r1") ecBits = 384;
+          else if (namedCurve == "P-521" || namedCurve == "secp521r1") ecBits = 521;
+          else {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: unsupported EC curve " + namedCurve);
+          }
+
+          auto ecBitsValue = adoptCF(CFNumberCreate(
+              kCFAllocatorDefault,
+              kCFNumberSInt32Type,
+              &ecBits));
+          if (!ecBitsValue) {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate EC options");
+          }
+
+          CFTypeRef ecKeys[2] = { kSecAttrKeyType, kSecAttrKeySizeInBits };
+          CFTypeRef ecValues[2] = { kSecAttrKeyTypeECSECPrimeRandom, ecBitsValue.get() };
+          auto ecParams = adoptCF(CFDictionaryCreate(
+              kCFAllocatorDefault, ecKeys, ecValues, 2,
+              &kCFTypeDictionaryKeyCallBacks,
+              &kCFTypeDictionaryValueCallBacks));
+          if (!ecParams) {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate EC key params");
+          }
+
+          CFErrorRef ecError = nullptr;
+          auto ecPrivateKey = adoptCF(SecKeyCreateRandomKey(
+              static_cast<CFDictionaryRef>(ecParams.get()),
+              &ecError));
+          auto ecErrorRef = adoptCF(ecError);
+          if (!ecPrivateKey) {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: EC key generation failed");
+          }
+          auto ecPublicKey = adoptCF(SecKeyCopyPublicKey(ecPrivateKey.get()));
+          if (!ecPublicKey) {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: EC key generation failed");
+          }
+
+#if !defined(EXACT_PLATFORM_IOS)
+          CFDataRef ecPrivateDataRaw = nullptr;
+          CFDataRef ecPublicDataRaw = nullptr;
+          auto ecExportStatus = SecItemExport(
+              ecPrivateKey.get(),
+              kSecFormatOpenSSL,
+              kSecItemPemArmour,
+              nullptr,
+              &ecPrivateDataRaw);
+          auto ecPrivateData = adoptCF(ecPrivateDataRaw);
+          if (ecExportStatus == errSecSuccess) {
+            ecExportStatus = SecItemExport(
+                ecPublicKey.get(),
+                kSecFormatOpenSSL,
+                kSecItemPemArmour,
+                nullptr,
+                &ecPublicDataRaw);
+          }
+          auto ecPublicData = adoptCF(ecPublicDataRaw);
+          if (ecExportStatus != errSecSuccess || !ecPrivateData || !ecPublicData) {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to export EC PEM keys");
+          }
+
+          std::string privatePem = dataToString(ecPrivateData.get());
+          std::string publicPem = dataToString(ecPublicData.get());
+
+          facebook::jsi::Object result(runtime);
+          result.setProperty(runtime, "privateKey", facebook::jsi::String::createFromUtf8(runtime, privatePem));
+          result.setProperty(runtime, "publicKey", facebook::jsi::String::createFromUtf8(runtime, publicPem));
+          return result;
+#else
+          throw facebook::jsi::JSError(runtime, "PEM key export not yet available on iOS");
+#endif // !EXACT_PLATFORM_IOS
+        }
+
+        // --- RSA ---
+        if (bits < 1024) bits = 1024;
+        if (bits > 16384) bits = 16384;
+
+        if (exponent != 65537) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: unsupported public exponent");
+        }
+
+        auto bitsValue = adoptCF(CFNumberCreate(
+            kCFAllocatorDefault,
+            kCFNumberSInt32Type,
+            &bits));
+        if (!bitsValue) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate options");
+        }
+
+        CFTypeRef keys[2] = { kSecAttrKeyType, kSecAttrKeySizeInBits };
+        CFTypeRef values[2] = { kSecAttrKeyTypeRSA, bitsValue.get() };
+        auto params = adoptCF(CFDictionaryCreate(
+            kCFAllocatorDefault,
+            keys,
+            values,
+            2,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks));
+        if (!params) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate key params");
+        }
+
+        CFErrorRef rsaError = nullptr;
+        auto privateKey = adoptCF(SecKeyCreateRandomKey(
+            static_cast<CFDictionaryRef>(params.get()),
+            &rsaError));
+        auto rsaErrorRef = adoptCF(rsaError);
+        if (!privateKey) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key generation failed");
+        }
+        auto publicKey = adoptCF(SecKeyCopyPublicKey(privateKey.get()));
+        if (!publicKey) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key generation failed");
+        }
+
+#if !defined(EXACT_PLATFORM_IOS)
+        CFDataRef privateDataRaw = nullptr;
+        CFDataRef publicDataRaw = nullptr;
+        auto exportStatus = SecItemExport(
+            privateKey.get(),
+            kSecFormatOpenSSL,
+            kSecItemPemArmour,
+            nullptr,
+            &privateDataRaw);
+        auto privateData = adoptCF(privateDataRaw);
+        if (exportStatus == errSecSuccess) {
+          exportStatus = SecItemExport(
+              publicKey.get(),
+              kSecFormatOpenSSL,
+              kSecItemPemArmour,
+              nullptr,
+              &publicDataRaw);
+        }
+        auto publicData = adoptCF(publicDataRaw);
+        if (exportStatus != errSecSuccess || !privateData || !publicData) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to export PEM keys");
+        }
+
+        std::string privatePem = dataToString(privateData.get());
+        std::string publicPem = dataToString(publicData.get());
+
+        facebook::jsi::Object result(runtime);
+        result.setProperty(runtime, "privateKey", facebook::jsi::String::createFromUtf8(runtime, privatePem));
+        result.setProperty(runtime, "publicKey", facebook::jsi::String::createFromUtf8(runtime, publicPem));
+        return result;
+#else
+        throw facebook::jsi::JSError(runtime, "PEM key export not yet available on iOS");
+#endif // !EXACT_PLATFORM_IOS
+      });
+  rt.global().setProperty(rt, "__exactGenerateKeyPairSync", std::move(generateKeyPairSyncFn));
+#else
+  auto signFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSignSync"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isString() || !args[1].isString() || !args[2].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: algorithm, data, and key required");
+        }
+
+        auto rawAlgorithm = args[0].asString(runtime).utf8(runtime);
+        auto hashName = digestAlgorithmFromNodeCrypto(rawAlgorithm);
+        const EVP_MD* md = selectDigestForCryptoAlgo(hashName);
+        if (!md) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: unsupported algorithm " + rawAlgorithm);
+        }
+
+        auto dataText = args[1].asString(runtime).utf8(runtime);
+        auto keyText = args[2].asString(runtime).utf8(runtime);
+        std::vector<uint8_t> data(dataText.begin(), dataText.end());
+        std::vector<uint8_t> keyBytes(keyText.begin(), keyText.end());
+
+        std::vector<uint8_t> signature;
+        BIO* keyBio = BIO_new_mem_buf(keyBytes.data(), static_cast<int>(keyBytes.size()));
+        if (!keyBio) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: failed to allocate key BIO");
+        }
+
+        EVP_PKEY* pkey = PEM_read_bio_PrivateKey(keyBio, nullptr, nullptr, nullptr);
+        BIO_free(keyBio);
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: invalid PEM private key");
+        }
+
+        EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
+        if (!mdCtx) {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: failed to allocate digest context");
+        }
+
+        if (EVP_DigestSignInit(mdCtx, nullptr, md, nullptr, pkey) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: EVP_DigestSignInit failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        if (EVP_DigestSignUpdate(mdCtx, data.data(), data.size()) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: EVP_DigestSignUpdate failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        size_t sigLen = 0;
+        if (EVP_DigestSignFinal(mdCtx, nullptr, &sigLen) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: EVP_DigestSignFinal failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        signature.resize(sigLen);
+        if (EVP_DigestSignFinal(mdCtx, signature.data(), &sigLen) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: signing failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        signature.resize(sigLen);
+
+        EVP_MD_CTX_free(mdCtx);
+        EVP_PKEY_free(pkey);
+
+        return makeUint8Array(runtime, std::move(signature));
+      });
+  rt.global().setProperty(rt, "__exactSignSync", std::move(signFn));
+
+  auto verifyFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactVerifySync"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 4 || !args[0].isString() || !args[2].isString() || !args[3].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: algorithm, signature, data, and key required");
+        }
+
+        auto rawAlgorithm = args[0].asString(runtime).utf8(runtime);
+        auto hashName = digestAlgorithmFromNodeCrypto(rawAlgorithm);
+        const EVP_MD* md = selectDigestForCryptoAlgo(hashName);
+        if (!md) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: unsupported algorithm " + rawAlgorithm);
+        }
+
+        auto signatureBytes = extractBytes(runtime, args[1]);
+        auto dataText = args[2].asString(runtime).utf8(runtime);
+        auto keyText = args[3].asString(runtime).utf8(runtime);
+        std::vector<uint8_t> data(dataText.begin(), dataText.end());
+        std::vector<uint8_t> keyBytes(keyText.begin(), keyText.end());
+
+        BIO* keyBio = BIO_new_mem_buf(keyBytes.data(), static_cast<int>(keyBytes.size()));
+        if (!keyBio) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: failed to allocate key BIO");
+        }
+
+        EVP_PKEY* pkey = PEM_read_bio_PUBKEY(keyBio, nullptr, nullptr, nullptr);
+        BIO_free(keyBio);
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: invalid PEM public key");
+        }
+
+        EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
+        if (!mdCtx) {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: failed to allocate digest context");
+        }
+
+        if (EVP_DigestVerifyInit(mdCtx, nullptr, md, nullptr, pkey) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: EVP_DigestVerifyInit failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        if (EVP_DigestVerifyUpdate(mdCtx, data.data(), data.size()) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: EVP_DigestVerifyUpdate failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        auto result = EVP_DigestVerifyFinal(mdCtx, signatureBytes.data(), signatureBytes.size());
+        EVP_MD_CTX_free(mdCtx);
+        EVP_PKEY_free(pkey);
+        if (result != 1 && result != 0) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: verify failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        return facebook::jsi::Value(static_cast<bool>(result == 1));
+      });
+  rt.global().setProperty(rt, "__exactVerifySync", std::move(verifyFn));
+
+  auto generateKeyPairSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactGenerateKeyPairSync"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key type required");
+        }
+        auto keyType = args[0].asString(runtime).utf8(runtime);
+        if (keyType != "rsa" && keyType != "ec" && keyType != "rsa-pss" &&
+            keyType != "ecdsa" && keyType != "ed25519" && keyType != "x25519") {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: unsupported key type " + keyType);
+        }
+
+        uint32_t bits = 2048;
+        uint32_t exponent = 65537;
+        std::string namedCurve = "P-256";
+        if (count >= 2 && args[1].isObject()) {
+          auto options = args[1].asObject(runtime);
+          if (options.hasProperty(runtime, "modulusLength")) {
+            auto v = options.getProperty(runtime, "modulusLength");
+            if (v.isNumber()) bits = static_cast<uint32_t>(v.asNumber());
+          }
+          if (options.hasProperty(runtime, "publicExponent")) {
+            auto v = options.getProperty(runtime, "publicExponent");
+            if (v.isNumber()) exponent = static_cast<uint32_t>(v.asNumber());
+            else if (v.isString()) {
+              exponent = static_cast<uint32_t>(std::stoul(v.asString(runtime).utf8(runtime)));
+            }
+          }
+          if (options.hasProperty(runtime, "namedCurve")) {
+            auto v = options.getProperty(runtime, "namedCurve");
+            if (v.isString()) namedCurve = v.asString(runtime).utf8(runtime);
+          }
+        }
+
+        // Helper lambda: generate EVP_PKEY and serialize to PEM
+        auto serializeKeyPairToPem = [&](EVP_PKEY* pkey) -> facebook::jsi::Value {
+          BIO* privateBio = BIO_new(BIO_s_mem());
+          BIO* publicBio = BIO_new(BIO_s_mem());
+          if (!privateBio || !publicBio) {
+            if (privateBio) BIO_free(privateBio);
+            if (publicBio) BIO_free(publicBio);
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate PEM buffers");
+          }
+          if (PEM_write_bio_PrivateKey(privateBio, pkey, nullptr, nullptr, 0, nullptr, nullptr) != 1 ||
+              PEM_write_bio_PUBKEY(publicBio, pkey) != 1) {
+            BIO_free(privateBio);
+            BIO_free(publicBio);
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to serialize PEM keys");
+          }
+          EVP_PKEY_free(pkey);
+
+          char* privatePtr = nullptr;
+          char* publicPtr = nullptr;
+          auto privateLen = BIO_get_mem_data(privateBio, &privatePtr);
+          auto publicLen = BIO_get_mem_data(publicBio, &publicPtr);
+          std::string privatePem = privatePtr && privateLen > 0 ? std::string(privatePtr, static_cast<size_t>(privateLen)) : std::string();
+          std::string publicPem = publicPtr && publicLen > 0 ? std::string(publicPtr, static_cast<size_t>(publicLen)) : std::string();
+          BIO_free(privateBio);
+          BIO_free(publicBio);
+
+          facebook::jsi::Object result(runtime);
+          result.setProperty(runtime, "privateKey", facebook::jsi::String::createFromUtf8(runtime, privatePem));
+          result.setProperty(runtime, "publicKey", facebook::jsi::String::createFromUtf8(runtime, publicPem));
+          return result;
+        };
+
+        // --- Ed25519 and X25519 ---
+        if (keyType == "ed25519" || keyType == "x25519") {
+          int evpType = (keyType == "ed25519") ? EVP_PKEY_ED25519 : EVP_PKEY_X25519;
+          EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(evpType, nullptr);
+          if (!ctx) {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to create context for " + keyType);
+          }
+          if (EVP_PKEY_keygen_init(ctx) != 1) {
+            EVP_PKEY_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: keygen init failed for " + keyType);
+          }
+          EVP_PKEY* pkey = nullptr;
+          if (EVP_PKEY_keygen(ctx, &pkey) != 1) {
+            EVP_PKEY_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key generation failed for " + keyType);
+          }
+          EVP_PKEY_CTX_free(ctx);
+          return serializeKeyPairToPem(pkey);
+        }
+
+        // --- ECDSA ---
+        if (keyType == "ec" || keyType == "ecdsa") {
+          int nid = NID_X9_62_prime256v1;
+          if (namedCurve == "P-256" || namedCurve == "prime256v1") nid = NID_X9_62_prime256v1;
+          else if (namedCurve == "P-384" || namedCurve == "secp384r1") nid = NID_secp384r1;
+          else if (namedCurve == "P-521" || namedCurve == "secp521r1") nid = NID_secp521r1;
+          else {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: unsupported EC curve " + namedCurve);
+          }
+
+          EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
+          if (!ctx) {
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to create EC context");
+          }
+          if (EVP_PKEY_keygen_init(ctx) != 1) {
+            EVP_PKEY_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: EC keygen init failed");
+          }
+          if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, nid) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to set EC curve");
+          }
+          EVP_PKEY* pkey = nullptr;
+          if (EVP_PKEY_keygen(ctx, &pkey) != 1) {
+            EVP_PKEY_CTX_free(ctx);
+            throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: EC key generation failed");
+          }
+          EVP_PKEY_CTX_free(ctx);
+          return serializeKeyPairToPem(pkey);
+        }
+
+        // --- RSA ---
+        if (bits < 1024) bits = 1024;
+        if (bits > 16384) bits = 16384;
+        if (exponent != 65537) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: unsupported public exponent");
+        }
+
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        if (!ctx) {
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate key context");
+        }
+        if (EVP_PKEY_keygen_init(ctx) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: keygen init failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, bits) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to set RSA key length");
+        }
+
+        BIGNUM* exp = nullptr;
+        if (exponent == 0) {
+          exponent = 65537;
+        }
+        exp = BN_new();
+        if (!exp || !BN_set_word(exp, exponent) || EVP_PKEY_CTX_set_rsa_keygen_pubexp(ctx, exp) <= 0) {
+          if (exp) BN_clear_free(exp);
+          EVP_PKEY_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to set public exponent");
+        }
+        // Note: after successful EVP_PKEY_CTX_set_rsa_keygen_pubexp, ownership of exp transfers
+        // Do NOT free exp here
+
+        EVP_PKEY* pkey = nullptr;
+        if (EVP_PKEY_keygen(ctx, &pkey) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key generation failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        EVP_PKEY_CTX_free(ctx);
+        return serializeKeyPairToPem(pkey);
+      });
+  rt.global().setProperty(rt, "__exactGenerateKeyPairSync", std::move(generateKeyPairSyncFn));
+#endif
+
+#if !defined(EXACT_NO_OPENSSL)
+  // --- Ed25519 Sign ---
+  // __exactEd25519Sign(privateKeyBytes, data) -> Uint8Array (64-byte signature)
+  auto ed25519SignFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactEd25519Sign"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2) {
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Sign: privateKey and data required");
+        }
+        auto privKeyBytes = extractBytes(runtime, args[0]);
+        auto data = extractBytes(runtime, args[1]);
+
+        // Import the private key - try raw 32-byte key first, then PEM/PKCS8
+        EVP_PKEY* pkey = nullptr;
+        if (privKeyBytes.size() == 32) {
+          // Raw 32-byte Ed25519 private key seed
+          pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, privKeyBytes.data(), privKeyBytes.size());
+        }
+        if (!pkey) {
+          // Try PEM format
+          BIO* bio = BIO_new_mem_buf(privKeyBytes.data(), static_cast<int>(privKeyBytes.size()));
+          if (bio) {
+            pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pkey) {
+          // Try DER/PKCS8 format
+          const unsigned char* p = privKeyBytes.data();
+          pkey = d2i_PrivateKey(EVP_PKEY_ED25519, nullptr, &p, static_cast<long>(privKeyBytes.size()));
+        }
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Sign: failed to import Ed25519 private key");
+        }
+
+        EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
+        if (!mdCtx) {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Sign: failed to allocate context");
+        }
+
+        // Ed25519 uses NULL as the digest (it does its own hashing)
+        if (EVP_DigestSignInit(mdCtx, nullptr, nullptr, nullptr, pkey) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Sign: EVP_DigestSignInit failed");
+        }
+
+        size_t sigLen = 0;
+        if (EVP_DigestSign(mdCtx, nullptr, &sigLen, data.data(), data.size()) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Sign: failed to get signature length");
+        }
+        std::vector<uint8_t> signature(sigLen);
+        if (EVP_DigestSign(mdCtx, signature.data(), &sigLen, data.data(), data.size()) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Sign: signing failed");
+        }
+        signature.resize(sigLen);
+
+        EVP_MD_CTX_free(mdCtx);
+        EVP_PKEY_free(pkey);
+        return makeUint8Array(runtime, std::move(signature));
+      });
+  rt.global().setProperty(rt, "__exactEd25519Sign", std::move(ed25519SignFn));
+
+  // --- Ed25519 Verify ---
+  // __exactEd25519Verify(publicKeyBytes, signature, data) -> boolean
+  auto ed25519VerifyFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactEd25519Verify"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Verify: publicKey, signature, and data required");
+        }
+        auto pubKeyBytes = extractBytes(runtime, args[0]);
+        auto sigBytes = extractBytes(runtime, args[1]);
+        auto data = extractBytes(runtime, args[2]);
+
+        // Import the public key - try raw 32-byte key first, then PEM/SPKI
+        EVP_PKEY* pkey = nullptr;
+        if (pubKeyBytes.size() == 32) {
+          pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr, pubKeyBytes.data(), pubKeyBytes.size());
+        }
+        if (!pkey) {
+          // Try PEM format
+          BIO* bio = BIO_new_mem_buf(pubKeyBytes.data(), static_cast<int>(pubKeyBytes.size()));
+          if (bio) {
+            pkey = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pkey) {
+          // Try DER/SPKI format
+          const unsigned char* p = pubKeyBytes.data();
+          pkey = d2i_PUBKEY(nullptr, &p, static_cast<long>(pubKeyBytes.size()));
+        }
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Verify: failed to import Ed25519 public key");
+        }
+
+        EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
+        if (!mdCtx) {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Verify: failed to allocate context");
+        }
+
+        if (EVP_DigestVerifyInit(mdCtx, nullptr, nullptr, nullptr, pkey) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEd25519Verify: EVP_DigestVerifyInit failed");
+        }
+
+        auto result = EVP_DigestVerify(mdCtx, sigBytes.data(), sigBytes.size(), data.data(), data.size());
+        EVP_MD_CTX_free(mdCtx);
+        EVP_PKEY_free(pkey);
+
+        return facebook::jsi::Value(result == 1);
+      });
+  rt.global().setProperty(rt, "__exactEd25519Verify", std::move(ed25519VerifyFn));
+
+  // --- ECDSA Sign ---
+  // __exactEcdsaSign(curve, hash, privateKeyBytes, data) -> Uint8Array (DER-encoded signature)
+  auto ecdsaSignFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactEcdsaSign"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 4) {
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaSign: curve, hash, privateKey, and data required");
+        }
+        auto curve = args[0].asString(runtime).utf8(runtime);
+        auto hash = args[1].asString(runtime).utf8(runtime);
+        auto privKeyBytes = extractBytes(runtime, args[2]);
+        auto data = extractBytes(runtime, args[3]);
+
+        // Select digest
+        const EVP_MD* md = nullptr;
+        if (hash == "SHA-256" || hash == "sha256" || hash == "sha-256") md = EVP_sha256();
+        else if (hash == "SHA-384" || hash == "sha384" || hash == "sha-384") md = EVP_sha384();
+        else if (hash == "SHA-512" || hash == "sha512" || hash == "sha-512") md = EVP_sha512();
+        else if (hash == "SHA-1" || hash == "sha1" || hash == "sha-1") md = EVP_sha1();
+        else {
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaSign: unsupported hash algorithm " + hash);
+        }
+
+        // Import private key - try PEM first, then DER/PKCS8
+        EVP_PKEY* pkey = nullptr;
+        {
+          BIO* bio = BIO_new_mem_buf(privKeyBytes.data(), static_cast<int>(privKeyBytes.size()));
+          if (bio) {
+            pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pkey) {
+          const unsigned char* p = privKeyBytes.data();
+          pkey = d2i_PrivateKey(EVP_PKEY_EC, nullptr, &p, static_cast<long>(privKeyBytes.size()));
+        }
+        if (!pkey) {
+          // Try as PKCS8 DER
+          const unsigned char* p = privKeyBytes.data();
+          PKCS8_PRIV_KEY_INFO* p8 = d2i_PKCS8_PRIV_KEY_INFO(nullptr, &p, static_cast<long>(privKeyBytes.size()));
+          if (p8) {
+            pkey = EVP_PKCS82PKEY(p8);
+            PKCS8_PRIV_KEY_INFO_free(p8);
+          }
+        }
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaSign: failed to import EC private key");
+        }
+
+        EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
+        if (!mdCtx) {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaSign: failed to allocate context");
+        }
+
+        if (EVP_DigestSignInit(mdCtx, nullptr, md, nullptr, pkey) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaSign: EVP_DigestSignInit failed");
+        }
+        if (EVP_DigestSignUpdate(mdCtx, data.data(), data.size()) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaSign: EVP_DigestSignUpdate failed");
+        }
+
+        size_t sigLen = 0;
+        if (EVP_DigestSignFinal(mdCtx, nullptr, &sigLen) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaSign: failed to get signature length");
+        }
+        std::vector<uint8_t> signature(sigLen);
+        if (EVP_DigestSignFinal(mdCtx, signature.data(), &sigLen) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaSign: signing failed");
+        }
+        signature.resize(sigLen);
+
+        EVP_MD_CTX_free(mdCtx);
+        EVP_PKEY_free(pkey);
+        return makeUint8Array(runtime, std::move(signature));
+      });
+  rt.global().setProperty(rt, "__exactEcdsaSign", std::move(ecdsaSignFn));
+
+  // --- ECDSA Verify ---
+  // __exactEcdsaVerify(curve, hash, publicKeyBytes, signature, data) -> boolean
+  auto ecdsaVerifyFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactEcdsaVerify"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 5) {
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaVerify: curve, hash, publicKey, signature, and data required");
+        }
+        auto curve = args[0].asString(runtime).utf8(runtime);
+        auto hash = args[1].asString(runtime).utf8(runtime);
+        auto pubKeyBytes = extractBytes(runtime, args[2]);
+        auto sigBytes = extractBytes(runtime, args[3]);
+        auto data = extractBytes(runtime, args[4]);
+
+        const EVP_MD* md = nullptr;
+        if (hash == "SHA-256" || hash == "sha256" || hash == "sha-256") md = EVP_sha256();
+        else if (hash == "SHA-384" || hash == "sha384" || hash == "sha-384") md = EVP_sha384();
+        else if (hash == "SHA-512" || hash == "sha512" || hash == "sha-512") md = EVP_sha512();
+        else if (hash == "SHA-1" || hash == "sha1" || hash == "sha-1") md = EVP_sha1();
+        else {
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaVerify: unsupported hash algorithm " + hash);
+        }
+
+        // Import public key - try PEM first, then DER/SPKI
+        EVP_PKEY* pkey = nullptr;
+        {
+          BIO* bio = BIO_new_mem_buf(pubKeyBytes.data(), static_cast<int>(pubKeyBytes.size()));
+          if (bio) {
+            pkey = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pkey) {
+          const unsigned char* p = pubKeyBytes.data();
+          pkey = d2i_PUBKEY(nullptr, &p, static_cast<long>(pubKeyBytes.size()));
+        }
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaVerify: failed to import EC public key");
+        }
+
+        EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
+        if (!mdCtx) {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaVerify: failed to allocate context");
+        }
+
+        if (EVP_DigestVerifyInit(mdCtx, nullptr, md, nullptr, pkey) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaVerify: EVP_DigestVerifyInit failed");
+        }
+        if (EVP_DigestVerifyUpdate(mdCtx, data.data(), data.size()) != 1) {
+          EVP_MD_CTX_free(mdCtx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaVerify: EVP_DigestVerifyUpdate failed");
+        }
+
+        auto result = EVP_DigestVerifyFinal(mdCtx, sigBytes.data(), sigBytes.size());
+        EVP_MD_CTX_free(mdCtx);
+        EVP_PKEY_free(pkey);
+
+        if (result != 1 && result != 0) {
+          throw facebook::jsi::JSError(runtime, "__exactEcdsaVerify: verification error");
+        }
+        return facebook::jsi::Value(result == 1);
+      });
+  rt.global().setProperty(rt, "__exactEcdsaVerify", std::move(ecdsaVerifyFn));
+
+  // --- X25519 Derive Bits (ECDH with Curve25519) ---
+  // __exactX25519DeriveBits(privateKeyBytes, publicKeyBytes) -> Uint8Array (32-byte shared secret)
+  auto x25519DeriveFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactX25519DeriveBits"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2) {
+          throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: privateKey and publicKey required");
+        }
+        auto privKeyBytes = extractBytes(runtime, args[0]);
+        auto pubKeyBytes = extractBytes(runtime, args[1]);
+
+        // Import private key
+        EVP_PKEY* privKey = nullptr;
+        if (privKeyBytes.size() == 32) {
+          privKey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr, privKeyBytes.data(), privKeyBytes.size());
+        }
+        if (!privKey) {
+          BIO* bio = BIO_new_mem_buf(privKeyBytes.data(), static_cast<int>(privKeyBytes.size()));
+          if (bio) {
+            privKey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!privKey) {
+          const unsigned char* p = privKeyBytes.data();
+          privKey = d2i_PrivateKey(EVP_PKEY_X25519, nullptr, &p, static_cast<long>(privKeyBytes.size()));
+        }
+        if (!privKey) {
+          throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: failed to import X25519 private key");
+        }
+
+        // Import public key
+        EVP_PKEY* pubKey = nullptr;
+        if (pubKeyBytes.size() == 32) {
+          pubKey = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr, pubKeyBytes.data(), pubKeyBytes.size());
+        }
+        if (!pubKey) {
+          BIO* bio = BIO_new_mem_buf(pubKeyBytes.data(), static_cast<int>(pubKeyBytes.size()));
+          if (bio) {
+            pubKey = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pubKey) {
+          const unsigned char* p = pubKeyBytes.data();
+          pubKey = d2i_PUBKEY(nullptr, &p, static_cast<long>(pubKeyBytes.size()));
+        }
+        if (!pubKey) {
+          EVP_PKEY_free(privKey);
+          throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: failed to import X25519 public key");
+        }
+
+        // Derive shared secret
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(privKey, nullptr);
+        if (!ctx) {
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: failed to create derive context");
+        }
+
+        if (EVP_PKEY_derive_init(ctx) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: derive init failed");
+        }
+
+        if (EVP_PKEY_derive_set_peer(ctx, pubKey) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: failed to set peer key");
+        }
+
+        size_t secretLen = 0;
+        if (EVP_PKEY_derive(ctx, nullptr, &secretLen) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: failed to get secret length");
+        }
+
+        std::vector<uint8_t> secret(secretLen);
+        if (EVP_PKEY_derive(ctx, secret.data(), &secretLen) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: key derivation failed");
+        }
+        secret.resize(secretLen);
+
+        EVP_PKEY_CTX_free(ctx);
+        EVP_PKEY_free(privKey);
+        EVP_PKEY_free(pubKey);
+        return makeUint8Array(runtime, std::move(secret));
+      });
+  rt.global().setProperty(rt, "__exactX25519DeriveBits", std::move(x25519DeriveFn));
+
+  // --- Export Key to SPKI (SubjectPublicKeyInfo DER) ---
+  // __exactExportKeySpki(keyType, keyData) -> Uint8Array (DER-encoded SPKI)
+  auto exportSpkiFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactExportKeySpki"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2) {
+          throw facebook::jsi::JSError(runtime, "__exactExportKeySpki: keyType and keyData required");
+        }
+        auto keyType = args[0].asString(runtime).utf8(runtime);
+        auto keyData = extractBytes(runtime, args[1]);
+
+        EVP_PKEY* pkey = nullptr;
+
+        // Try to import the key based on type
+        if (keyType == "ed25519" && keyData.size() == 32) {
+          pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr, keyData.data(), keyData.size());
+        } else if (keyType == "x25519" && keyData.size() == 32) {
+          pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr, keyData.data(), keyData.size());
+        }
+
+        if (!pkey) {
+          // Try PEM format
+          BIO* bio = BIO_new_mem_buf(keyData.data(), static_cast<int>(keyData.size()));
+          if (bio) {
+            pkey = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pkey) {
+          // Try DER SPKI format (already SPKI - just pass through)
+          const unsigned char* p = keyData.data();
+          pkey = d2i_PUBKEY(nullptr, &p, static_cast<long>(keyData.size()));
+        }
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactExportKeySpki: failed to import public key");
+        }
+
+        // Export to DER SPKI
+        unsigned char* der = nullptr;
+        int derLen = i2d_PUBKEY(pkey, &der);
+        EVP_PKEY_free(pkey);
+        if (derLen <= 0 || !der) {
+          if (der) OPENSSL_free(der);
+          throw facebook::jsi::JSError(runtime, "__exactExportKeySpki: failed to export SPKI");
+        }
+
+        std::vector<uint8_t> result(der, der + derLen);
+        OPENSSL_free(der);
+        return makeUint8Array(runtime, std::move(result));
+      });
+  rt.global().setProperty(rt, "__exactExportKeySpki", std::move(exportSpkiFn));
+
+  // --- Export Key to PKCS8 (PrivateKeyInfo DER) ---
+  // __exactExportKeyPkcs8(keyType, keyData) -> Uint8Array (DER-encoded PKCS8)
+  auto exportPkcs8Fn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactExportKeyPkcs8"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2) {
+          throw facebook::jsi::JSError(runtime, "__exactExportKeyPkcs8: keyType and keyData required");
+        }
+        auto keyType = args[0].asString(runtime).utf8(runtime);
+        auto keyData = extractBytes(runtime, args[1]);
+
+        EVP_PKEY* pkey = nullptr;
+
+        // Try raw key import for Ed25519/X25519
+        if (keyType == "ed25519" && keyData.size() == 32) {
+          pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, keyData.data(), keyData.size());
+        } else if (keyType == "x25519" && keyData.size() == 32) {
+          pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr, keyData.data(), keyData.size());
+        }
+
+        if (!pkey) {
+          // Try PEM format
+          BIO* bio = BIO_new_mem_buf(keyData.data(), static_cast<int>(keyData.size()));
+          if (bio) {
+            pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pkey) {
+          // Try DER PKCS8 format
+          const unsigned char* p = keyData.data();
+          PKCS8_PRIV_KEY_INFO* p8 = d2i_PKCS8_PRIV_KEY_INFO(nullptr, &p, static_cast<long>(keyData.size()));
+          if (p8) {
+            pkey = EVP_PKCS82PKEY(p8);
+            PKCS8_PRIV_KEY_INFO_free(p8);
+          }
+        }
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactExportKeyPkcs8: failed to import private key");
+        }
+
+        // Export to PKCS8 DER
+        PKCS8_PRIV_KEY_INFO* p8 = EVP_PKEY2PKCS8(pkey);
+        EVP_PKEY_free(pkey);
+        if (!p8) {
+          throw facebook::jsi::JSError(runtime, "__exactExportKeyPkcs8: failed to create PKCS8 structure");
+        }
+
+        unsigned char* der = nullptr;
+        int derLen = i2d_PKCS8_PRIV_KEY_INFO(p8, &der);
+        PKCS8_PRIV_KEY_INFO_free(p8);
+        if (derLen <= 0 || !der) {
+          if (der) OPENSSL_free(der);
+          throw facebook::jsi::JSError(runtime, "__exactExportKeyPkcs8: failed to export PKCS8");
+        }
+
+        std::vector<uint8_t> result(der, der + derLen);
+        OPENSSL_free(der);
+        return makeUint8Array(runtime, std::move(result));
+      });
+  rt.global().setProperty(rt, "__exactExportKeyPkcs8", std::move(exportPkcs8Fn));
+
+  // --- Import Key from SPKI (SubjectPublicKeyInfo DER) ---
+  // __exactImportKeySpki(keyData) -> { keyType: string, rawKeyData: Uint8Array }
+  auto importSpkiFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactImportKeySpki"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1) {
+          throw facebook::jsi::JSError(runtime, "__exactImportKeySpki: keyData required");
+        }
+        auto keyData = extractBytes(runtime, args[0]);
+
+        // Parse DER SPKI
+        const unsigned char* p = keyData.data();
+        EVP_PKEY* pkey = d2i_PUBKEY(nullptr, &p, static_cast<long>(keyData.size()));
+        if (!pkey) {
+          // Try PEM
+          BIO* bio = BIO_new_mem_buf(keyData.data(), static_cast<int>(keyData.size()));
+          if (bio) {
+            pkey = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactImportKeySpki: failed to parse SPKI key data");
+        }
+
+        // Determine key type
+        std::string keyTypeStr;
+        int pkeyType = EVP_PKEY_base_id(pkey);
+        std::vector<uint8_t> rawKey;
+
+        if (pkeyType == EVP_PKEY_ED25519) {
+          keyTypeStr = "ed25519";
+          size_t len = 32;
+          rawKey.resize(len);
+          if (EVP_PKEY_get_raw_public_key(pkey, rawKey.data(), &len) != 1) {
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactImportKeySpki: failed to extract Ed25519 public key");
+          }
+          rawKey.resize(len);
+        } else if (pkeyType == EVP_PKEY_X25519) {
+          keyTypeStr = "x25519";
+          size_t len = 32;
+          rawKey.resize(len);
+          if (EVP_PKEY_get_raw_public_key(pkey, rawKey.data(), &len) != 1) {
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactImportKeySpki: failed to extract X25519 public key");
+          }
+          rawKey.resize(len);
+        } else if (pkeyType == EVP_PKEY_EC) {
+          keyTypeStr = "ec";
+          // Export the full SPKI DER as rawKeyData (the caller can use it as-is)
+          unsigned char* der = nullptr;
+          int derLen = i2d_PUBKEY(pkey, &der);
+          if (derLen > 0 && der) {
+            rawKey.assign(der, der + derLen);
+            OPENSSL_free(der);
+          }
+        } else if (pkeyType == EVP_PKEY_RSA) {
+          keyTypeStr = "rsa";
+          unsigned char* der = nullptr;
+          int derLen = i2d_PUBKEY(pkey, &der);
+          if (derLen > 0 && der) {
+            rawKey.assign(der, der + derLen);
+            OPENSSL_free(der);
+          }
+        } else {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactImportKeySpki: unsupported key type in SPKI");
+        }
+
+        EVP_PKEY_free(pkey);
+
+        facebook::jsi::Object result(runtime);
+        result.setProperty(runtime, "keyType", facebook::jsi::String::createFromUtf8(runtime, keyTypeStr));
+        result.setProperty(runtime, "rawKeyData", makeUint8Array(runtime, std::move(rawKey)));
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactImportKeySpki", std::move(importSpkiFn));
+
+  // --- Import Key from PKCS8 (PrivateKeyInfo DER) ---
+  // __exactImportKeyPkcs8(keyData) -> { keyType: string, rawKeyData: Uint8Array }
+  auto importPkcs8Fn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactImportKeyPkcs8"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1) {
+          throw facebook::jsi::JSError(runtime, "__exactImportKeyPkcs8: keyData required");
+        }
+        auto keyData = extractBytes(runtime, args[0]);
+
+        // Parse DER PKCS8
+        EVP_PKEY* pkey = nullptr;
+        {
+          const unsigned char* p = keyData.data();
+          PKCS8_PRIV_KEY_INFO* p8 = d2i_PKCS8_PRIV_KEY_INFO(nullptr, &p, static_cast<long>(keyData.size()));
+          if (p8) {
+            pkey = EVP_PKCS82PKEY(p8);
+            PKCS8_PRIV_KEY_INFO_free(p8);
+          }
+        }
+        if (!pkey) {
+          // Try PEM
+          BIO* bio = BIO_new_mem_buf(keyData.data(), static_cast<int>(keyData.size()));
+          if (bio) {
+            pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactImportKeyPkcs8: failed to parse PKCS8 key data");
+        }
+
+        // Determine key type
+        std::string keyTypeStr;
+        int pkeyType = EVP_PKEY_base_id(pkey);
+        std::vector<uint8_t> rawKey;
+
+        if (pkeyType == EVP_PKEY_ED25519) {
+          keyTypeStr = "ed25519";
+          size_t len = 32;
+          rawKey.resize(len);
+          if (EVP_PKEY_get_raw_private_key(pkey, rawKey.data(), &len) != 1) {
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactImportKeyPkcs8: failed to extract Ed25519 private key");
+          }
+          rawKey.resize(len);
+        } else if (pkeyType == EVP_PKEY_X25519) {
+          keyTypeStr = "x25519";
+          size_t len = 32;
+          rawKey.resize(len);
+          if (EVP_PKEY_get_raw_private_key(pkey, rawKey.data(), &len) != 1) {
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactImportKeyPkcs8: failed to extract X25519 private key");
+          }
+          rawKey.resize(len);
+        } else if (pkeyType == EVP_PKEY_EC) {
+          keyTypeStr = "ec";
+          // Export as PKCS8 DER
+          PKCS8_PRIV_KEY_INFO* p8 = EVP_PKEY2PKCS8(pkey);
+          if (p8) {
+            unsigned char* der = nullptr;
+            int derLen = i2d_PKCS8_PRIV_KEY_INFO(p8, &der);
+            PKCS8_PRIV_KEY_INFO_free(p8);
+            if (derLen > 0 && der) {
+              rawKey.assign(der, der + derLen);
+              OPENSSL_free(der);
+            }
+          }
+        } else if (pkeyType == EVP_PKEY_RSA) {
+          keyTypeStr = "rsa";
+          PKCS8_PRIV_KEY_INFO* p8 = EVP_PKEY2PKCS8(pkey);
+          if (p8) {
+            unsigned char* der = nullptr;
+            int derLen = i2d_PKCS8_PRIV_KEY_INFO(p8, &der);
+            PKCS8_PRIV_KEY_INFO_free(p8);
+            if (derLen > 0 && der) {
+              rawKey.assign(der, der + derLen);
+              OPENSSL_free(der);
+            }
+          }
+        } else {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactImportKeyPkcs8: unsupported key type in PKCS8");
+        }
+
+        EVP_PKEY_free(pkey);
+
+        facebook::jsi::Object result(runtime);
+        result.setProperty(runtime, "keyType", facebook::jsi::String::createFromUtf8(runtime, keyTypeStr));
+        result.setProperty(runtime, "rawKeyData", makeUint8Array(runtime, std::move(rawKey)));
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactImportKeyPkcs8", std::move(importPkcs8Fn));
+#endif // !EXACT_NO_OPENSSL
+
+  // --- HKDF (RFC 5869) ---
+  // __exactHkdf(hashAlgo, ikm, salt, info, length) -> Uint8Array
+  auto hkdfFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHkdf"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 5) throw facebook::jsi::JSError(runtime, "__exactHkdf: hashAlgo, ikm, salt, info, length required");
+        auto hashAlgo = args[0].asString(runtime).utf8(runtime);
+        auto ikm = extractBytes(runtime, args[1]);
+        auto salt = extractBytes(runtime, args[2]);
+        auto info = extractBytes(runtime, args[3]);
+        auto length = static_cast<size_t>(args[4].asNumber());
+
+#if defined(__APPLE__)
+        CCHmacAlgorithm ccAlgo;
+        size_t hashLen;
+        if (hashAlgo == "SHA-256" || hashAlgo == "sha256" || hashAlgo == "sha-256") {
+          ccAlgo = kCCHmacAlgSHA256; hashLen = CC_SHA256_DIGEST_LENGTH;
+        } else if (hashAlgo == "SHA-1" || hashAlgo == "sha1" || hashAlgo == "sha-1") {
+          ccAlgo = kCCHmacAlgSHA1; hashLen = CC_SHA1_DIGEST_LENGTH;
+        } else if (hashAlgo == "SHA-384" || hashAlgo == "sha384" || hashAlgo == "sha-384") {
+          ccAlgo = kCCHmacAlgSHA384; hashLen = CC_SHA384_DIGEST_LENGTH;
+        } else if (hashAlgo == "SHA-512" || hashAlgo == "sha512" || hashAlgo == "sha-512") {
+          ccAlgo = kCCHmacAlgSHA512; hashLen = CC_SHA512_DIGEST_LENGTH;
+        } else {
+          throw facebook::jsi::JSError(runtime, "__exactHkdf: unsupported hash algorithm: " + hashAlgo);
+        }
+
+        // If salt is empty, use a hash-length block of zeros
+        std::vector<uint8_t> actualSalt;
+        if (salt.empty()) {
+          actualSalt.resize(hashLen, 0);
+        } else {
+          actualSalt = std::move(salt);
+        }
+
+        // HKDF-Extract: PRK = HMAC-Hash(salt, IKM)
+        std::vector<uint8_t> prk(hashLen);
+        CCHmac(ccAlgo, actualSalt.data(), actualSalt.size(),
+               ikm.data(), ikm.size(), prk.data());
+
+        // HKDF-Expand
+        size_t n = (length + hashLen - 1) / hashLen;
+        std::vector<uint8_t> okm;
+        okm.reserve(n * hashLen);
+        std::vector<uint8_t> prev;
+
+        for (size_t i = 1; i <= n; i++) {
+          // T(i) = HMAC-Hash(PRK, T(i-1) || info || i)
+          std::vector<uint8_t> input;
+          input.insert(input.end(), prev.begin(), prev.end());
+          input.insert(input.end(), info.begin(), info.end());
+          input.push_back(static_cast<uint8_t>(i));
+
+          prev.resize(hashLen);
+          CCHmac(ccAlgo, prk.data(), prk.size(),
+                 input.data(), input.size(), prev.data());
+          okm.insert(okm.end(), prev.begin(), prev.end());
+        }
+        okm.resize(length);
+        return makeUint8Array(runtime, std::move(okm));
+#else
+        // OpenSSL path
+        const EVP_MD* md = nullptr;
+        if (hashAlgo == "SHA-256" || hashAlgo == "sha256" || hashAlgo == "sha-256") md = EVP_sha256();
+        else if (hashAlgo == "SHA-1" || hashAlgo == "sha1" || hashAlgo == "sha-1") md = EVP_sha1();
+        else if (hashAlgo == "SHA-384" || hashAlgo == "sha384" || hashAlgo == "sha-384") md = EVP_sha384();
+        else if (hashAlgo == "SHA-512" || hashAlgo == "sha512" || hashAlgo == "sha-512") md = EVP_sha512();
+        else throw facebook::jsi::JSError(runtime, "__exactHkdf: unsupported hash algorithm: " + hashAlgo);
+
+        size_t hashLen = static_cast<size_t>(EVP_MD_size(md));
+
+        std::vector<uint8_t> actualSalt;
+        if (salt.empty()) {
+          actualSalt.resize(hashLen, 0);
+        } else {
+          actualSalt = std::move(salt);
+        }
+
+        // HKDF-Extract: PRK = HMAC-Hash(salt, IKM)
+        unsigned int prkLen = 0;
+        std::vector<uint8_t> prk(EVP_MAX_MD_SIZE);
+        HMAC(md, actualSalt.data(), actualSalt.size(),
+             ikm.data(), ikm.size(), prk.data(), &prkLen);
+        prk.resize(prkLen);
+
+        // HKDF-Expand
+        size_t n = (length + hashLen - 1) / hashLen;
+        std::vector<uint8_t> okm;
+        okm.reserve(n * hashLen);
+        std::vector<uint8_t> prev;
+
+        for (size_t i = 1; i <= n; i++) {
+          std::vector<uint8_t> input;
+          input.insert(input.end(), prev.begin(), prev.end());
+          input.insert(input.end(), info.begin(), info.end());
+          input.push_back(static_cast<uint8_t>(i));
+
+          unsigned int tLen = 0;
+          prev.resize(EVP_MAX_MD_SIZE);
+          HMAC(md, prk.data(), prk.size(),
+               input.data(), input.size(), prev.data(), &tLen);
+          prev.resize(tLen);
+          okm.insert(okm.end(), prev.begin(), prev.end());
+        }
+        okm.resize(length);
+        return makeUint8Array(runtime, std::move(okm));
+#endif
+      });
+  rt.global().setProperty(rt, "__exactHkdf", std::move(hkdfFn));
+
+#if !defined(EXACT_NO_OPENSSL)
+  // --- ECDH DeriveBits for NIST curves ---
+  // __exactEcdhDeriveBits(curve, privateKeyBytes, publicKeyBytes) -> Uint8Array
+  auto ecdhDeriveFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactEcdhDeriveBits"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: curve, privateKey, and publicKey required");
+        }
+        auto curve = args[0].asString(runtime).utf8(runtime);
+        auto privKeyBytes = extractBytes(runtime, args[1]);
+        auto pubKeyBytes = extractBytes(runtime, args[2]);
+
+        // Map curve name to NID
+        int nid = 0;
+        if (curve == "P-256" || curve == "prime256v1") nid = NID_X9_62_prime256v1;
+        else if (curve == "P-384" || curve == "secp384r1") nid = NID_secp384r1;
+        else if (curve == "P-521" || curve == "secp521r1") nid = NID_secp521r1;
+        else {
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: unsupported curve " + curve);
+        }
+
+        // Import private key - try PEM first, then raw DER
+        EVP_PKEY* privKey = nullptr;
+        {
+          BIO* bio = BIO_new_mem_buf(privKeyBytes.data(), static_cast<int>(privKeyBytes.size()));
+          if (bio) {
+            privKey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!privKey) {
+          // Try DER
+          const unsigned char* p = privKeyBytes.data();
+          privKey = d2i_PrivateKey(EVP_PKEY_EC, nullptr, &p, static_cast<long>(privKeyBytes.size()));
+        }
+        if (!privKey) {
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: failed to import EC private key");
+        }
+
+        // Import public key - try PEM first, then raw uncompressed point, then DER
+        EVP_PKEY* pubKey = nullptr;
+        {
+          BIO* bio = BIO_new_mem_buf(pubKeyBytes.data(), static_cast<int>(pubKeyBytes.size()));
+          if (bio) {
+            pubKey = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pubKey) {
+          // Try DER/SPKI
+          const unsigned char* p = pubKeyBytes.data();
+          pubKey = d2i_PUBKEY(nullptr, &p, static_cast<long>(pubKeyBytes.size()));
+        }
+        if (!pubKey && pubKeyBytes.size() > 0 && pubKeyBytes[0] == 0x04) {
+          // Try as raw uncompressed point using modern EVP_PKEY_fromdata API
+          const char* groupName = nullptr;
+          if (nid == NID_X9_62_prime256v1) groupName = "P-256";
+          else if (nid == NID_secp384r1) groupName = "P-384";
+          else if (nid == NID_secp521r1) groupName = "P-521";
+          if (groupName) {
+            OSSL_PARAM_BLD* bld = OSSL_PARAM_BLD_new();
+            if (bld) {
+              OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, groupName, 0);
+              OSSL_PARAM_BLD_push_octet_string(bld, OSSL_PKEY_PARAM_PUB_KEY,
+                  pubKeyBytes.data(), pubKeyBytes.size());
+              OSSL_PARAM* osslParams = OSSL_PARAM_BLD_to_param(bld);
+              if (osslParams) {
+                EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_from_name(nullptr, "EC", nullptr);
+                if (pctx) {
+                  EVP_PKEY_fromdata_init(pctx);
+                  EVP_PKEY_fromdata(pctx, &pubKey, EVP_PKEY_PUBLIC_KEY, osslParams);
+                  EVP_PKEY_CTX_free(pctx);
+                }
+                OSSL_PARAM_free(osslParams);
+              }
+              OSSL_PARAM_BLD_free(bld);
+            }
+          }
+        }
+        if (!pubKey) {
+          EVP_PKEY_free(privKey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: failed to import EC public key");
+        }
+
+        // Derive shared secret
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(privKey, nullptr);
+        if (!ctx) {
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: failed to create derive context");
+        }
+
+        if (EVP_PKEY_derive_init(ctx) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: derive init failed");
+        }
+
+        if (EVP_PKEY_derive_set_peer(ctx, pubKey) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: failed to set peer key");
+        }
+
+        size_t secretLen = 0;
+        if (EVP_PKEY_derive(ctx, nullptr, &secretLen) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: failed to get secret length");
+        }
+
+        std::vector<uint8_t> secret(secretLen);
+        if (EVP_PKEY_derive(ctx, secret.data(), &secretLen) != 1) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(privKey);
+          EVP_PKEY_free(pubKey);
+          throw facebook::jsi::JSError(runtime, "__exactEcdhDeriveBits: key derivation failed");
+        }
+        secret.resize(secretLen);
+
+        EVP_PKEY_CTX_free(ctx);
+        EVP_PKEY_free(privKey);
+        EVP_PKEY_free(pubKey);
+        return makeUint8Array(runtime, std::move(secret));
+      });
+  rt.global().setProperty(rt, "__exactEcdhDeriveBits", std::move(ecdhDeriveFn));
+
+  // --- RSA-OAEP Encrypt ---
+  // __exactRsaOaepEncrypt(publicKeyData, hashAlgorithm, label, plaintext) -> Uint8Array (ciphertext)
+  auto rsaOaepEncryptFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRsaOaepEncrypt"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 4) {
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: publicKeyData, hashAlgorithm, label, and plaintext required");
+        }
+
+        auto keyBytes = extractBytes(runtime, args[0]);
+        auto hashAlgorithm = args[1].asString(runtime).utf8(runtime);
+        auto labelBytes = extractBytes(runtime, args[2]);
+        auto plaintext = extractBytes(runtime, args[3]);
+
+        // Select hash algorithm for OAEP (Web Crypto style names: SHA-1, SHA-256, SHA-384, SHA-512)
+        const EVP_MD* md = nullptr;
+        if (hashAlgorithm == "SHA-1" || hashAlgorithm == "sha-1" || hashAlgorithm == "sha1") md = EVP_sha1();
+        else if (hashAlgorithm == "SHA-256" || hashAlgorithm == "sha-256" || hashAlgorithm == "sha256") md = EVP_sha256();
+        else if (hashAlgorithm == "SHA-384" || hashAlgorithm == "sha-384" || hashAlgorithm == "sha384") md = EVP_sha384();
+        else if (hashAlgorithm == "SHA-512" || hashAlgorithm == "sha-512" || hashAlgorithm == "sha512") md = EVP_sha512();
+        if (!md) {
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: unsupported hash algorithm " + hashAlgorithm);
+        }
+
+        // Import public key from PEM
+        BIO* keyBio = BIO_new_mem_buf(keyBytes.data(), static_cast<int>(keyBytes.size()));
+        if (!keyBio) {
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: failed to allocate key BIO");
+        }
+        EVP_PKEY* pkey = PEM_read_bio_PUBKEY(keyBio, nullptr, nullptr, nullptr);
+        BIO_free(keyBio);
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: invalid PEM public key");
+        }
+
+        // Create encryption context
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
+        if (!ctx) {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: failed to create context");
+        }
+
+        if (EVP_PKEY_encrypt_init(ctx) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: EVP_PKEY_encrypt_init failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: failed to set OAEP padding: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: failed to set OAEP hash: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        // Set MGF1 hash to match OAEP hash (Web Crypto spec requires this)
+        if (EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, md) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: failed to set MGF1 hash: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        // Set OAEP label if provided
+        if (!labelBytes.empty()) {
+          // OpenSSL takes ownership of the label buffer, so we must allocate with OPENSSL_malloc
+          unsigned char* labelCopy = static_cast<unsigned char*>(OPENSSL_malloc(labelBytes.size()));
+          if (!labelCopy) {
+            EVP_PKEY_CTX_free(ctx);
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: failed to allocate label");
+          }
+          memcpy(labelCopy, labelBytes.data(), labelBytes.size());
+          if (EVP_PKEY_CTX_set0_rsa_oaep_label(ctx, labelCopy, static_cast<int>(labelBytes.size())) <= 0) {
+            OPENSSL_free(labelCopy);
+            EVP_PKEY_CTX_free(ctx);
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: failed to set OAEP label: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+          }
+          // labelCopy ownership transferred to ctx - do NOT free
+        }
+
+        // Determine output size
+        size_t outLen = 0;
+        if (EVP_PKEY_encrypt(ctx, nullptr, &outLen, plaintext.data(), plaintext.size()) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: failed to get output size: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        std::vector<uint8_t> ciphertext(outLen);
+        if (EVP_PKEY_encrypt(ctx, ciphertext.data(), &outLen, plaintext.data(), plaintext.size()) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepEncrypt: encryption failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        ciphertext.resize(outLen);
+
+        EVP_PKEY_CTX_free(ctx);
+        EVP_PKEY_free(pkey);
+        return makeUint8Array(runtime, std::move(ciphertext));
+      });
+  rt.global().setProperty(rt, "__exactRsaOaepEncrypt", std::move(rsaOaepEncryptFn));
+
+  // --- RSA-OAEP Decrypt ---
+  // __exactRsaOaepDecrypt(privateKeyData, hashAlgorithm, label, ciphertext) -> Uint8Array (plaintext)
+  auto rsaOaepDecryptFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRsaOaepDecrypt"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 4) {
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: privateKeyData, hashAlgorithm, label, and ciphertext required");
+        }
+
+        auto keyBytes = extractBytes(runtime, args[0]);
+        auto hashAlgorithm = args[1].asString(runtime).utf8(runtime);
+        auto labelBytes = extractBytes(runtime, args[2]);
+        auto ciphertext = extractBytes(runtime, args[3]);
+
+        // Select hash algorithm for OAEP (Web Crypto style names: SHA-1, SHA-256, SHA-384, SHA-512)
+        const EVP_MD* md = nullptr;
+        if (hashAlgorithm == "SHA-1" || hashAlgorithm == "sha-1" || hashAlgorithm == "sha1") md = EVP_sha1();
+        else if (hashAlgorithm == "SHA-256" || hashAlgorithm == "sha-256" || hashAlgorithm == "sha256") md = EVP_sha256();
+        else if (hashAlgorithm == "SHA-384" || hashAlgorithm == "sha-384" || hashAlgorithm == "sha384") md = EVP_sha384();
+        else if (hashAlgorithm == "SHA-512" || hashAlgorithm == "sha-512" || hashAlgorithm == "sha512") md = EVP_sha512();
+        if (!md) {
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: unsupported hash algorithm " + hashAlgorithm);
+        }
+
+        // Import private key from PEM
+        BIO* keyBio = BIO_new_mem_buf(keyBytes.data(), static_cast<int>(keyBytes.size()));
+        if (!keyBio) {
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: failed to allocate key BIO");
+        }
+        EVP_PKEY* pkey = PEM_read_bio_PrivateKey(keyBio, nullptr, nullptr, nullptr);
+        BIO_free(keyBio);
+        if (!pkey) {
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: invalid PEM private key");
+        }
+
+        // Create decryption context
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
+        if (!ctx) {
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: failed to create context");
+        }
+
+        if (EVP_PKEY_decrypt_init(ctx) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: EVP_PKEY_decrypt_init failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: failed to set OAEP padding: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: failed to set OAEP hash: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        // Set MGF1 hash to match OAEP hash (Web Crypto spec requires this)
+        if (EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, md) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: failed to set MGF1 hash: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        // Set OAEP label if provided
+        if (!labelBytes.empty()) {
+          // OpenSSL takes ownership of the label buffer, so we must allocate with OPENSSL_malloc
+          unsigned char* labelCopy = static_cast<unsigned char*>(OPENSSL_malloc(labelBytes.size()));
+          if (!labelCopy) {
+            EVP_PKEY_CTX_free(ctx);
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: failed to allocate label");
+          }
+          memcpy(labelCopy, labelBytes.data(), labelBytes.size());
+          if (EVP_PKEY_CTX_set0_rsa_oaep_label(ctx, labelCopy, static_cast<int>(labelBytes.size())) <= 0) {
+            OPENSSL_free(labelCopy);
+            EVP_PKEY_CTX_free(ctx);
+            EVP_PKEY_free(pkey);
+            throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: failed to set OAEP label: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+          }
+          // labelCopy ownership transferred to ctx - do NOT free
+        }
+
+        // Determine output size
+        size_t outLen = 0;
+        if (EVP_PKEY_decrypt(ctx, nullptr, &outLen, ciphertext.data(), ciphertext.size()) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: failed to get output size: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+
+        std::vector<uint8_t> plaintext(outLen);
+        if (EVP_PKEY_decrypt(ctx, plaintext.data(), &outLen, ciphertext.data(), ciphertext.size()) <= 0) {
+          EVP_PKEY_CTX_free(ctx);
+          EVP_PKEY_free(pkey);
+          throw facebook::jsi::JSError(runtime, "__exactRsaOaepDecrypt: decryption failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
+        }
+        plaintext.resize(outLen);
+
+        EVP_PKEY_CTX_free(ctx);
+        EVP_PKEY_free(pkey);
+        return makeUint8Array(runtime, std::move(plaintext));
+      });
+  rt.global().setProperty(rt, "__exactRsaOaepDecrypt", std::move(rsaOaepDecryptFn));
+#endif // !EXACT_NO_OPENSSL
+
+  // --- Zlib: sync compress/decompress ---
+  // __exactDeflateSync(data, level, mode) -> Uint8Array
+  // mode: 0 = deflate (zlib header, windowBits=15), 1 = gzip (windowBits=15+16), 2 = raw (windowBits=-15)
+  auto deflateSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactDeflateSync"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactDeflateSync: data required");
+        }
+
+        auto input = extractBytes(runtime, args[0]);
+
+        int level = Z_DEFAULT_COMPRESSION;
+        if (count > 1 && args[1].isNumber()) {
+          level = static_cast<int>(args[1].asNumber());
+        }
+        int mode = 0; // 0=deflate, 1=gzip, 2=raw
+        if (count > 2 && args[2].isNumber()) {
+          mode = static_cast<int>(args[2].asNumber());
+        }
+
+        // deflate
+        z_stream strm = {};
+        int windowBits;
+        if (mode == 2) {
+          windowBits = -15; // raw deflate: no header, no checksum
+        } else if (mode == 1) {
+          windowBits = 15 + 16; // gzip header
+        } else {
+          windowBits = 15; // zlib header (default)
+        }
+        if (deflateInit2(&strm, level, Z_DEFLATED, windowBits, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+          throw facebook::jsi::JSError(runtime, "deflateInit2 failed");
+        }
+
+        strm.next_in = input.data();
+        strm.avail_in = static_cast<uInt>(input.size());
+
+        std::vector<uint8_t> output;
+        uint8_t outBuf[32768];
+        do {
+          strm.next_out = outBuf;
+          strm.avail_out = sizeof(outBuf);
+          deflate(&strm, Z_FINISH);
+          size_t have = sizeof(outBuf) - strm.avail_out;
+          output.insert(output.end(), outBuf, outBuf + have);
+        } while (strm.avail_out == 0);
+        deflateEnd(&strm);
+
+        return makeUint8Array(runtime, std::move(output));
+      });
+  rt.global().setProperty(rt, "__exactDeflateSync", std::move(deflateSyncFn));
+
+  // __exactInflateSync(data, mode, strict?, flags?) -> Uint8Array or [Uint8Array, bytesConsumed]
+  // mode: 0 = deflate (zlib header, windowBits=15), 1 = gzip (windowBits=15+32), 2 = raw (windowBits=-15)
+  // flags: bitmask - bit0=lenientMode (ignore trailing data), bit1=returnConsumed (return [data, consumed])
+  auto inflateSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactInflateSync"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactInflateSync: data required");
+        }
+
+        auto input = extractBytes(runtime, args[0]);
+
+        bool strictMode = false;
+        bool lenientMode = false;
+        bool returnConsumed = false;
+        int mode = 0; // 0=deflate, 1=gzip, 2=raw
+        if (count > 1 && args[1].isNumber()) {
+          mode = static_cast<int>(args[1].asNumber());
+        }
+        if (count > 2 && args[2].isBool()) {
+          strictMode = args[2].getBool();
+        }
+        // 4th arg: flags number (bit0=lenient, bit1=returnConsumed)
+        if (count > 3 && args[3].isNumber()) {
+          int flags = static_cast<int>(args[3].asNumber());
+          lenientMode = (flags & 1) != 0;
+          returnConsumed = (flags & 2) != 0;
+        }
+
+        z_stream strm = {};
+        int windowBits;
+        if (mode == 2) {
+          windowBits = -15; // raw inflate: no header expected
+        } else if (mode == 1) {
+          windowBits = 15 + 32; // auto-detect gzip/deflate
+        } else {
+          windowBits = 15; // zlib header (default)
+        }
+        if (inflateInit2(&strm, windowBits) != Z_OK) {
+          throw facebook::jsi::JSError(runtime, "inflateInit2 failed");
+        }
+
+        strm.next_in = const_cast<Bytef*>(input.data());
+        strm.avail_in = static_cast<uInt>(input.size());
+
+        std::vector<uint8_t> output;
+        uint8_t outBuf[32768];
+        int ret = Z_OK;
+
+        // For gzip mode, support multi-member streams by looping
+        do {
+          do {
+            strm.next_out = outBuf;
+            strm.avail_out = sizeof(outBuf);
+            ret = inflate(&strm, Z_NO_FLUSH);
+            if (ret == Z_MEM_ERROR) {
+              inflateEnd(&strm);
+              throw facebook::jsi::JSError(runtime, "inflate failed: memory error");
+            }
+            if (ret == Z_DATA_ERROR) {
+              std::string msg = "inflate failed: data error";
+              if (strm.msg) { msg += ": "; msg += strm.msg; }
+              if (!lenientMode) {
+                inflateEnd(&strm);
+                throw facebook::jsi::JSError(runtime, msg);
+              }
+              // In lenient mode, stop processing but don't throw
+              ret = Z_STREAM_END;
+              break;
+            }
+            size_t have = sizeof(outBuf) - strm.avail_out;
+            output.insert(output.end(), outBuf, outBuf + have);
+          } while (strm.avail_out == 0);
+
+          // Multi-member gzip: after Z_STREAM_END, reset and continue if more data
+          if (ret == Z_STREAM_END && strm.avail_in > 0 && mode == 1) {
+            // Save remaining input pointer
+            uInt remaining = strm.avail_in;
+            const Bytef* nextIn = strm.next_in;
+
+            // Check if next chunk looks like a gzip header (magic bytes 0x1f 0x8b)
+            // If it doesn't start with gzip magic, it's trailing non-gzip data - stop
+            if (remaining < 2 || nextIn[0] != 0x1f || nextIn[1] != 0x8b) {
+              inflateEnd(&strm);
+              strm = {};
+              strm.next_in = const_cast<Bytef*>(nextIn);
+              strm.avail_in = remaining;
+              break;
+            }
+
+            // Reinitialize for next gzip member
+            inflateEnd(&strm);
+            strm = {};
+            if (inflateInit2(&strm, windowBits) != Z_OK) {
+              throw facebook::jsi::JSError(runtime, "inflateInit2 failed for next gzip member");
+            }
+            strm.next_in = const_cast<Bytef*>(nextIn);
+            strm.avail_in = remaining;
+            ret = Z_OK;
+          } else {
+            break;
+          }
+        } while (true);
+
+        // Record bytes consumed before inflateEnd clears strm
+        size_t bytesConsumed = input.size() - strm.avail_in;
+
+        // Check for truncated input: all input consumed but stream didn't reach Z_STREAM_END
+        if (ret != Z_STREAM_END && strm.avail_in == 0 && !lenientMode) {
+          inflateEnd(&strm);
+          throw facebook::jsi::JSError(runtime, "inflate failed: unexpected end of file");
+        }
+
+        inflateEnd(&strm);
+
+        if (strictMode && bytesConsumed < input.size()) {
+          throw facebook::jsi::JSError(runtime, "inflate failed: trailing data");
+        }
+
+        if (returnConsumed) {
+          // Return [Uint8Array, bytesConsumed]
+          auto arr = facebook::jsi::Array(runtime, 2);
+          arr.setValueAtIndex(runtime, 0, makeUint8Array(runtime, std::move(output)));
+          arr.setValueAtIndex(runtime, 1, facebook::jsi::Value(static_cast<double>(bytesConsumed)));
+          return arr;
+        }
+
+        return makeUint8Array(runtime, std::move(output));
+      });
+  rt.global().setProperty(rt, "__exactInflateSync", std::move(inflateSyncFn));
+
+#if !defined(EXACT_NO_BROTLI)
+  // --- Brotli: sync compress/decompress ---
+  // __exactBrotliCompressSync(data, quality) -> Uint8Array
+  // quality: 0-11, default BROTLI_DEFAULT_QUALITY (11)
+  auto brotliCompressSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactBrotliCompressSync"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactBrotliCompressSync: data required");
+        }
+
+        auto input = extractBytes(runtime, args[0]);
+
+        int quality = BROTLI_DEFAULT_QUALITY;
+        if (count > 1 && args[1].isNumber()) {
+          quality = static_cast<int>(args[1].asNumber());
+          if (quality < BROTLI_MIN_QUALITY) quality = BROTLI_MIN_QUALITY;
+          if (quality > BROTLI_MAX_QUALITY) quality = BROTLI_MAX_QUALITY;
+        }
+
+        size_t maxSize = BrotliEncoderMaxCompressedSize(input.size());
+        if (maxSize == 0) {
+          // BrotliEncoderMaxCompressedSize returns 0 for very large inputs;
+          // use a generous estimate
+          maxSize = input.size() + (input.size() >> 2) + 1024;
+        }
+        std::vector<uint8_t> output(maxSize);
+        size_t encodedSize = maxSize;
+
+        BROTLI_BOOL ok = BrotliEncoderCompress(
+            quality,
+            BROTLI_DEFAULT_WINDOW,
+            BROTLI_DEFAULT_MODE,
+            input.size(),
+            input.data(),
+            &encodedSize,
+            output.data());
+
+        if (!ok) {
+          throw facebook::jsi::JSError(runtime, "BrotliEncoderCompress failed");
+        }
+
+        output.resize(encodedSize);
+        return makeUint8Array(runtime, std::move(output));
+      });
+  rt.global().setProperty(rt, "__exactBrotliCompressSync", std::move(brotliCompressSyncFn));
+
+  // __exactBrotliDecompressSync(data, strict?, flags?) -> Uint8Array or [Uint8Array, bytesConsumed]
+  // flags: bitmask - bit1=returnConsumed (return [data, consumed])
+  auto brotliDecompressSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactBrotliDecompressSync"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+        const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactBrotliDecompressSync: data required");
+        }
+
+        auto input = extractBytes(runtime, args[0]);
+
+        bool strictMode = false;
+        bool returnConsumed = false;
+        if (count > 1 && args[1].isBool()) {
+          strictMode = args[1].getBool();
+        }
+        // 3rd arg: flags number (bit1=returnConsumed)
+        if (count > 2 && args[2].isNumber()) {
+          int flags = static_cast<int>(args[2].asNumber());
+          returnConsumed = (flags & 2) != 0;
+        }
+
+        // Use streaming decoder for unknown output size
+        BrotliDecoderState* state = BrotliDecoderCreateInstance(nullptr, nullptr, nullptr);
+        if (!state) {
+          throw facebook::jsi::JSError(runtime, "BrotliDecoderCreateInstance failed");
+        }
+
+        std::vector<uint8_t> output;
+        const uint8_t* nextIn = input.data();
+        size_t availableIn = input.size();
+        BrotliDecoderResult result;
+        bool acceptedTrailingData = false;
+
+        do {
+          uint8_t outBuf[32768];
+          uint8_t* nextOut = outBuf;
+          size_t availableOut = sizeof(outBuf);
+
+          result = BrotliDecoderDecompressStream(
+              state,
+              &availableIn,
+              &nextIn,
+              &availableOut,
+              &nextOut,
+              nullptr);
+
+          size_t have = sizeof(outBuf) - availableOut;
+          output.insert(output.end(), outBuf, outBuf + have);
+
+          if (result == BROTLI_DECODER_RESULT_ERROR) {
+            auto errorCode = BrotliDecoderGetErrorCode(state);
+            if (!strictMode &&
+                (errorCode == BROTLI_DECODER_ERROR_FORMAT_PADDING_1 ||
+                 errorCode == BROTLI_DECODER_ERROR_FORMAT_PADDING_2)) {
+              acceptedTrailingData = true;
+              break;
+            }
+            if (!strictMode && availableIn > 0 && BrotliDecoderIsFinished(state)) {
+              acceptedTrailingData = true;
+              break;
+            }
+
+            if (errorCode == BROTLI_DECODER_ERROR_FORMAT_PADDING_1 ||
+                errorCode == BROTLI_DECODER_ERROR_FORMAT_PADDING_2) {
+              if (strictMode) {
+                BrotliDecoderDestroyInstance(state);
+                throw facebook::jsi::JSError(
+                    runtime, "Brotli decompression failed: trailing data");
+              }
+            }
+
+            BrotliDecoderDestroyInstance(state);
+            throw facebook::jsi::JSError(runtime, "BrotliDecoderDecompressStream failed: corrupt data");
+          }
+
+          // Stop after decompressing one complete brotli stream (trailing data = new stream or garbage)
+          if (result == BROTLI_DECODER_RESULT_SUCCESS) {
+            break;
+          }
+        } while (result == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT);
+
+        // Record bytes consumed
+        size_t bytesConsumed = input.size() - availableIn;
+
+        if (strictMode && !acceptedTrailingData && availableIn > 0) {
+          BrotliDecoderDestroyInstance(state);
+          throw facebook::jsi::JSError(
+              runtime, "Brotli decompression failed: trailing data");
+        }
+
+        BrotliDecoderDestroyInstance(state);
+
+        if (!acceptedTrailingData && result != BROTLI_DECODER_RESULT_SUCCESS) {
+          throw facebook::jsi::JSError(runtime, "Brotli decompression failed: incomplete data");
+        }
+
+        if (returnConsumed) {
+          // Return [Uint8Array, bytesConsumed]
+          auto arr = facebook::jsi::Array(runtime, 2);
+          arr.setValueAtIndex(runtime, 0, makeUint8Array(runtime, std::move(output)));
+          arr.setValueAtIndex(runtime, 1, facebook::jsi::Value(static_cast<double>(bytesConsumed)));
+          return arr;
+        }
+
+        return makeUint8Array(runtime, std::move(output));
+      });
+  rt.global().setProperty(rt, "__exactBrotliDecompressSync", std::move(brotliDecompressSyncFn));
+#endif // !EXACT_NO_BROTLI
+
+  // --- Signal handling setup ---
+  // __exactPollSignal() -> signal number or 0
+  auto pollSignalFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPollSignal"),
+      0,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        int sig = g_pending_signal.exchange(0, std::memory_order_relaxed);
+        return facebook::jsi::Value(sig);
+      });
+  rt.global().setProperty(rt, "__exactPollSignal", std::move(pollSignalFn));
+
+  // __exactTrapSignal(signalNumber) -> void
+  auto trapSignalFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactTrapSignal"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactTrapSignal: signal number required");
+        }
+        int sig = static_cast<int>(args[0].asNumber());
+        struct sigaction sa = {};
+        sa.sa_handler = signal_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+        sigaction(sig, &sa, nullptr);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactTrapSignal", std::move(trapSignalFn));
+
+  // __exactResetSignal(signalNumber) -> void (restore default handler)
+  auto resetSignalFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactResetSignal"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactResetSignal: signal number required");
+        }
+        int sig = static_cast<int>(args[0].asNumber());
+        struct sigaction sa = {};
+        sa.sa_handler = SIG_DFL;
+        sigemptyset(&sa.sa_mask);
+        sigaction(sig, &sa, nullptr);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactResetSignal", std::move(resetSignalFn));
+
+  // --- Stdin reading ---
+  // __exactStdinRead(maxBytes) -> string or null (EOF/no data)
+  // Non-blocking read from fd 0. Returns null when no data available or EOF.
+  auto stdinReadFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactStdinRead"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        size_t maxBytes = 4096;
+        if (count > 0 && args[0].isNumber()) {
+          maxBytes = static_cast<size_t>(args[0].asNumber());
+          if (maxBytes == 0) maxBytes = 4096;
+          if (maxBytes > 65536) maxBytes = 65536;
+        }
+
+        // Set stdin to non-blocking
+        int flags = fcntl(0, F_GETFL, 0);
+        if (flags == -1) return facebook::jsi::Value::null();
+        fcntl(0, F_SETFL, flags | O_NONBLOCK);
+
+        std::vector<char> buf(maxBytes);
+        ssize_t nread = ::read(0, buf.data(), maxBytes);
+
+        // Restore blocking mode
+        fcntl(0, F_SETFL, flags);
+
+        if (nread < 0) {
+          // EAGAIN/EWOULDBLOCK means no data available (not an error)
+          if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return facebook::jsi::Value::null();
+          }
+          // Real error
+          return facebook::jsi::Value::null();
+        }
+        if (nread == 0) {
+          // EOF — return empty string to distinguish from "no data"
+          return facebook::jsi::String::createFromUtf8(runtime, "");
+        }
+
+        return facebook::jsi::String::createFromUtf8(
+            runtime, reinterpret_cast<const uint8_t*>(buf.data()), nread);
+      });
+  rt.global().setProperty(rt, "__exactStdinRead", std::move(stdinReadFn));
+
+  auto bytesToUtf8StringFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactBytesToUtf8String"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1) {
+          throw facebook::jsi::JSError(runtime, "__exactBytesToUtf8String: bytes required");
+        }
+
+        const uint8_t* ptr = nullptr;
+        size_t length = 0;
+
+        if (args[0].isString()) {
+          return facebook::jsi::Value(args[0].getString(runtime));
+        }
+
+        if (!args[0].isObject()) {
+          throw facebook::jsi::JSError(runtime, "__exactBytesToUtf8String: expected ArrayBuffer or TypedArray");
+        }
+
+        auto obj = args[0].asObject(runtime);
+        if (obj.isArrayBuffer(runtime)) {
+          auto ab = obj.getArrayBuffer(runtime);
+          ptr = ab.data(runtime);
+          length = ab.size(runtime);
+        } else {
+          auto bufferValue = obj.getProperty(runtime, "buffer");
+          if (!bufferValue.isObject() || !bufferValue.asObject(runtime).isArrayBuffer(runtime)) {
+            throw facebook::jsi::JSError(runtime, "__exactBytesToUtf8String: expected ArrayBuffer-backed view");
+          }
+          auto ab = bufferValue.asObject(runtime).getArrayBuffer(runtime);
+          size_t offset = 0;
+          size_t byteLength = ab.size(runtime);
+          auto offsetValue = obj.getProperty(runtime, "byteOffset");
+          if (offsetValue.isNumber()) {
+            offset = static_cast<size_t>(offsetValue.asNumber());
+          }
+          auto lengthValue = obj.getProperty(runtime, "byteLength");
+          if (lengthValue.isNumber()) {
+            byteLength = static_cast<size_t>(lengthValue.asNumber());
+          } else if (offset <= ab.size(runtime)) {
+            byteLength = ab.size(runtime) - offset;
+          }
+          if (offset > ab.size(runtime)) {
+            offset = ab.size(runtime);
+          }
+          if (offset + byteLength > ab.size(runtime)) {
+            byteLength = ab.size(runtime) - offset;
+          }
+          ptr = ab.data(runtime) + offset;
+          length = byteLength;
+        }
+
+        return facebook::jsi::String::createFromUtf8(runtime, ptr, length);
+      });
+  rt.global().setProperty(rt, "__exactBytesToUtf8String", std::move(bytesToUtf8StringFn));
+
+  // Deferred: Dns host functions (registered lazily on first use)
+  auto ensureDnsFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureDns"), 0,
+      [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+               const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
+        if (!handle->dns_functions_loaded) {
+          handle->dns_functions_loaded = true;
+          installDnsHostFunctions(handle);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactEnsureDns", std::move(ensureDnsFn));
+
+
+  // __exactGrantCapability(moduleId, capability) -> void
+  auto grantCapabilityFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactGrantCapability"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          return facebook::jsi::Value::undefined();
+        }
+        auto module_id = static_cast<uint64_t>(args[0].asNumber());
+        auto capability = args[1].toString(runtime).utf8(runtime);
+        ex_host_grant_capability(module_id, capability.c_str());
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactGrantCapability", std::move(grantCapabilityFn));
+
+  // Deferred: Fs host functions (registered lazily on first use)
+
+}
