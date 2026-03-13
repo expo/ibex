@@ -162,13 +162,33 @@ function gunzipSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
   var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
-  var result;
-  try {
-    result = toBuffer(__exactInflateSync(bytes, 1, false, lenient ? 1 : 0));
-  } catch (e) {
-    if (lenient) return toBuffer(new Uint8Array(0));
-    throw wrapInflateError(e);
+
+  // Handle multi-member (concatenated) gzip
+  var allOutputs = [];
+  var remaining = bytes;
+  while (remaining.length > 0) {
+    var memberResult;
+    var consumed;
+    try {
+      var raw = __exactInflateSync(remaining, 1, false, lenient ? 1 : (2 /* returnConsumed */));
+      if (Array.isArray(raw)) {
+        memberResult = toBuffer(raw[0]);
+        consumed = raw[1];
+      } else {
+        memberResult = toBuffer(raw);
+        consumed = remaining.length;
+      }
+    } catch (e) {
+      if (allOutputs.length > 0) break; // trailing garbage after valid members
+      if (lenient) return toBuffer(new Uint8Array(0));
+      throw wrapInflateError(e);
+    }
+    allOutputs.push(memberResult);
+    if (consumed >= remaining.length || consumed === 0) break;
+    remaining = remaining.slice(consumed);
   }
+
+  var result = allOutputs.length === 1 ? allOutputs[0] : Buffer.concat(allOutputs);
   checkKMaxLength(result.length);
   if (options && options.info) return { engine: new Gunzip(options), buffer: result }; // eslint-disable-line no-use-before-define
   return result;
@@ -203,17 +223,52 @@ function unzipSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
   var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
-  var result;
+
+  // Check if data starts with gzip magic bytes (1f 8b) for multi-member support
+  var isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+
+  if (isGzip) {
+    // Handle multi-member (concatenated) gzip
+    var allOutputs = [];
+    var remaining = bytes;
+    while (remaining.length > 0) {
+      var memberResult;
+      var consumed;
+      try {
+        var raw = __exactInflateSync(remaining, 1, false, lenient ? 1 : 2);
+        if (Array.isArray(raw)) {
+          memberResult = toBuffer(raw[0]);
+          consumed = raw[1];
+        } else {
+          memberResult = toBuffer(raw);
+          consumed = remaining.length;
+        }
+      } catch (e) {
+        if (allOutputs.length > 0) break;
+        if (lenient) return toBuffer(new Uint8Array(0));
+        throw wrapInflateError(e);
+      }
+      allOutputs.push(memberResult);
+      if (consumed >= remaining.length || consumed === 0) break;
+      remaining = remaining.slice(consumed);
+    }
+    var result = allOutputs.length === 1 ? allOutputs[0] : Buffer.concat(allOutputs);
+    checkKMaxLength(result.length);
+    if (options && options.info) return { engine: new Unzip(options), buffer: result }; // eslint-disable-line no-use-before-define
+    return result;
+  }
+
+  // Non-gzip: single member only
+  var singleResult;
   try {
-    // mode=1 auto-detects gzip/deflate; handles multi-member gzip
-    result = toBuffer(__exactInflateSync(bytes, 1, false, lenient ? 1 : 0));
+    singleResult = toBuffer(__exactInflateSync(bytes, 1, false, lenient ? 1 : 0));
   } catch (e) {
     if (lenient) return toBuffer(new Uint8Array(0));
     throw wrapInflateError(e);
   }
-  checkKMaxLength(result.length);
-  if (options && options.info) return { engine: new Unzip(options), buffer: result }; // eslint-disable-line no-use-before-define
-  return result;
+  checkKMaxLength(singleResult.length);
+  if (options && options.info) return { engine: new Unzip(options), buffer: singleResult }; // eslint-disable-line no-use-before-define
+  return singleResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +352,7 @@ function brotliDecompressSync(data, options) {
 // ---------------------------------------------------------------------------
 
 function zstdCompressSync(data, options) {
+  validateInput(data);
   var bytes = toBytes(data);
   var level = -1;
   if (options && options.level !== undefined) {
@@ -304,31 +360,64 @@ function zstdCompressSync(data, options) {
   } else if (options && options.params && options.params[100] !== undefined) {
     level = options.params[100];
   }
-  return toBuffer(__exactDeflateSync(bytes, level, 0));
+  var buf;
+  if (typeof __exactZstdCompressSync === 'function') {
+    buf = toBuffer(__exactZstdCompressSync(bytes, level));
+  } else {
+    // Fallback: use deflate as placeholder
+    buf = toBuffer(__exactDeflateSync(bytes, level, 0));
+  }
+  if (options && options.info) return { engine: new ZstdCompress(options), buffer: buf }; // eslint-disable-line no-use-before-define
+  return buf;
 }
 
 function zstdDecompressSync(data, options) {
+  validateInput(data);
   var bytes = toBytes(data);
-  return toBuffer(__exactInflateSync(bytes, 0));
+  var buf;
+  if (typeof __exactZstdDecompressSync === 'function') {
+    buf = toBuffer(__exactZstdDecompressSync(bytes));
+  } else {
+    // Fallback: use inflate as placeholder
+    buf = toBuffer(__exactInflateSync(bytes, 0));
+  }
+  if (options && options.info) return { engine: new ZstdDecompress(options), buffer: buf }; // eslint-disable-line no-use-before-define
+  return buf;
 }
 
 function zstdCompress(data, options, callback) {
   if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new ZstdCompress(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
   try {
-    var result = zstdCompressSync(data, options);
-    if (callback) setTimeout(function() { callback(null, result); }, 0);
+    var result = zstdCompressSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
   } catch(e) {
-    if (callback) setTimeout(function() { callback(e); }, 0);
+    setTimeout(function() { callback(e); }, 0);
   }
 }
 
 function zstdDecompress(data, options, callback) {
   if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof callback !== 'function') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "callback" argument must be of type function. Received undefined');
+  }
+  var info = options && options.info;
+  var engine = info ? new ZstdDecompress(options) : null; // eslint-disable-line no-use-before-define
+  var syncOpts = info ? Object.assign({}, options, { info: false }) : options;
   try {
-    var result = zstdDecompressSync(data, options);
-    if (callback) setTimeout(function() { callback(null, result); }, 0);
+    var result = zstdDecompressSync(data, syncOpts);
+    var ret = info ? { engine: engine, buffer: result } : result;
+    setTimeout(function() { callback(null, ret); }, 0);
   } catch(e) {
-    if (callback) setTimeout(function() { callback(e); }, 0);
+    setTimeout(function() { callback(e); }, 0);
   }
 }
 
@@ -684,6 +773,7 @@ function ZlibTransform(syncFn, opts, isDecoder) {
   this.bytesWritten = 0;
   this.bytesRead = 0;
   this._handle = {};
+  this._flushed = false;
 
   this._level = (opts && opts.level !== undefined && !isNaN(opts.level) && isFinite(opts.level)) ? opts.level : -1;
   this._strategy = (opts && opts.strategy !== undefined && !isNaN(opts.strategy) && isFinite(opts.strategy)) ? opts.strategy : 0;
@@ -692,6 +782,15 @@ function ZlibTransform(syncFn, opts, isDecoder) {
   var defaultFinal = this._final;
   this._final = function(callback) {
     if (typeof callback !== 'function') callback = function() {};
+    if (self._flushed) {
+      // Already flushed, just finish
+      if (typeof defaultFinal === 'function') {
+        defaultFinal.call(self, callback);
+      } else {
+        callback();
+      }
+      return;
+    }
     self._flush(function(err) {
       if (err) {
         callback(err);
@@ -763,8 +862,59 @@ ZlibTransform.prototype._transform = function(chunk, encoding, callback) {
 
 ZlibTransform.prototype._flush = function(callback) {
   if (typeof callback !== 'function') callback = function() {};
+  if (this._flushed) { callback(); return; }
+  this._flushed = true;
   try {
     var input = Buffer.concat(this._chunks);
+
+    // Handle multi-member gzip streams (concatenated gzip)
+    if (this._multiMember && input.length > 0) {
+      var allOutputs = [];
+      var remaining = input;
+      var totalConsumed = 0;
+
+      while (remaining.length > 0) {
+        var resultRaw;
+        try {
+          resultRaw = this._syncFn(remaining);
+        } catch (innerErr) {
+          // If we already decompressed at least one member and we get an error
+          // on subsequent data, stop (it might be trailing garbage)
+          if (allOutputs.length > 0) break;
+          throw innerErr;
+        }
+
+        var memberOutput;
+        var consumed = remaining.length;
+        if (resultRaw && typeof resultRaw === 'object' && resultRaw.output !== undefined) {
+          memberOutput = resultRaw.output;
+          if (typeof resultRaw.consumed === 'number') {
+            consumed = resultRaw.consumed;
+          }
+        } else {
+          memberOutput = resultRaw;
+        }
+
+        allOutputs.push(memberOutput);
+        totalConsumed += consumed;
+
+        if (consumed >= remaining.length || consumed === 0) break;
+        remaining = remaining.slice(consumed);
+      }
+
+      var finalResult = allOutputs.length === 1 ? allOutputs[0] : Buffer.concat(allOutputs);
+
+      if (this._isDecoder) {
+        this._bytesWritten = totalConsumed;
+        this.bytesWritten = totalConsumed;
+        this.bytesRead = this.bytesWritten;
+      }
+
+      this.push(finalResult);
+      callback();
+      return;
+    }
+
     var resultRaw = this._syncFn(input);
 
     var result;
@@ -885,6 +1035,7 @@ ZlibTransform.prototype.reset = function() {
   this._bytesWritten = 0;
   this.bytesWritten = 0;
   this.bytesRead = 0;
+  this._flushed = false;
   return this;
 };
 
@@ -955,6 +1106,7 @@ Gzip.prototype.constructor = Gzip;
 function Gunzip(opts) {
   if (!(this instanceof Gunzip)) return new Gunzip(opts);
   ZlibTransform.call(this, gunzipStreamFn, opts, true);
+  this._multiMember = true;
 }
 Gunzip.prototype = Object.create(ZlibTransform.prototype);
 Gunzip.prototype.constructor = Gunzip;
@@ -981,6 +1133,7 @@ InflateRaw.prototype.constructor = InflateRaw;
 function Unzip(opts) {
   if (!(this instanceof Unzip)) return new Unzip(opts);
   ZlibTransform.call(this, unzipStreamFn, opts, true);
+  this._multiMember = true;
 }
 Unzip.prototype = Object.create(ZlibTransform.prototype);
 Unzip.prototype.constructor = Unzip;
@@ -1006,19 +1159,40 @@ function BrotliDecompress(opts) {
 BrotliDecompress.prototype = Object.create(ZlibTransform.prototype);
 BrotliDecompress.prototype.constructor = BrotliDecompress;
 
-// Zstd placeholder stream classes
+// Zstd stream classes
 function ZstdCompress(opts) {
   if (!(this instanceof ZstdCompress)) return new ZstdCompress(opts);
-  Deflate.call(this, opts);
+  var _opts = opts;
+  ZlibTransform.call(this, function(buf) {
+    var bytes = toBytes(buf);
+    var level = -1;
+    if (_opts && _opts.level !== undefined) {
+      level = _opts.level;
+    } else if (_opts && _opts.params && _opts.params[100] !== undefined) {
+      level = _opts.params[100];
+    }
+    if (typeof __exactZstdCompressSync === 'function') {
+      return toBuffer(__exactZstdCompressSync(bytes, level));
+    }
+    return toBuffer(__exactDeflateSync(bytes, level, 0));
+  }, opts, false);
 }
-ZstdCompress.prototype = Object.create(Deflate.prototype);
+ZstdCompress.prototype = Object.create(ZlibTransform.prototype);
 ZstdCompress.prototype.constructor = ZstdCompress;
 
 function ZstdDecompress(opts) {
   if (!(this instanceof ZstdDecompress)) return new ZstdDecompress(opts);
-  Inflate.call(this, opts);
+  ZlibTransform.call(this, function(buf) {
+    var bytes = toBytes(buf);
+    if (typeof __exactZstdDecompressSync === 'function') {
+      var r = __exactZstdDecompressSync(bytes);
+      return { output: toBuffer(r), consumed: bytes.length };
+    }
+    var r2 = inflateSyncConsumed(bytes, 0);
+    return { output: r2[0], consumed: r2[1] };
+  }, opts, true);
 }
-ZstdDecompress.prototype = Object.create(Inflate.prototype);
+ZstdDecompress.prototype = Object.create(ZlibTransform.prototype);
 ZstdDecompress.prototype.constructor = ZstdDecompress;
 
 // ---------------------------------------------------------------------------
@@ -1174,6 +1348,72 @@ var codes = Object.freeze({
 });
 
 // ---------------------------------------------------------------------------
+// CRC32
+// ---------------------------------------------------------------------------
+
+var _crc32Table = null;
+function _getCrc32Table() {
+  if (_crc32Table) return _crc32Table;
+  _crc32Table = new Uint32Array(256);
+  for (var i = 0; i < 256; i++) {
+    var c = i;
+    for (var j = 0; j < 8; j++) {
+      if (c & 1) {
+        c = 0xEDB88320 ^ (c >>> 1);
+      } else {
+        c = c >>> 1;
+      }
+    }
+    _crc32Table[i] = c;
+  }
+  return _crc32Table;
+}
+
+function crc32(data, value) {
+  // Validate first argument
+  if (typeof data !== 'string' &&
+      !(typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) &&
+      !ArrayBuffer.isView(data) &&
+      !(data instanceof ArrayBuffer)) {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "data" argument must be of type string or an instance of Buffer, TypedArray, or DataView.' +
+      invalidArgTypeHelper(data));
+  }
+  // Validate second argument
+  if (value !== undefined) {
+    if (typeof value !== 'number') {
+      throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+        'The "value" argument must be of type number.' +
+        invalidArgTypeHelper(value));
+    }
+  }
+
+  // Use native if available
+  if (typeof __exactCrc32 === 'function') {
+    var bytes = toBytes(data);
+    return __exactCrc32(bytes, value || 0) >>> 0;
+  }
+
+  // Pure JS CRC32 implementation
+  var table = _getCrc32Table();
+  var crc = (value !== undefined ? value : 0) ^ 0xFFFFFFFF;
+  var buf;
+  if (typeof data === 'string') {
+    buf = toBytes(data);
+  } else if (data instanceof ArrayBuffer) {
+    buf = new Uint8Array(data);
+  } else if (ArrayBuffer.isView(data)) {
+    buf = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  } else {
+    buf = data;
+  }
+  for (var i = 0; i < buf.length; i++) {
+    crc = table[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -1222,13 +1462,14 @@ var zlibExports = {
   BrotliDecompress: BrotliDecompress,
   ZstdCompress: ZstdCompress,
   ZstdDecompress: ZstdDecompress,
-  constants: constants
+  constants: constants,
+  crc32: crc32
 };
 
-// Make 'codes' non-writable on module exports
+// Make 'codes' non-writable on module exports (setter must throw TypeError)
 Object.defineProperty(zlibExports, 'codes', {
   get: function() { return codes; },
-  set: function() {},
+  set: function() { throw new TypeError('Cannot assign to read only property \'codes\' of object'); },
   enumerable: true,
   configurable: false
 });

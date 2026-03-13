@@ -444,12 +444,15 @@ Hash.prototype.digest = function(encoding) {
     encoding = '' + encoding;
   }
   if (this._finalized) {
-    if (this._streamMode && this._digestResult !== null) {
-      // For streaming/pipe usage, return the cached result
+    if (this._digestResult !== null) {
+      // Return the cached result when digest is called again
       if (encoding === 'hex' && typeof this._digestResult !== 'string') return this._digestResult.toString('hex');
+      if (encoding && encoding !== 'buffer' && typeof this._digestResult !== 'string' && this._digestResult && typeof this._digestResult.toString === 'function') {
+        return this._digestResult.toString(encoding);
+      }
       return this._digestResult;
     }
-    // Non-streaming: throw finalized error
+    // No cached result available - throw finalized error
     var err = new Error('[ERR_CRYPTO_HASH_FINALIZED]: Digest already called');
     err.code = 'ERR_CRYPTO_HASH_FINALIZED';
     throw err;
