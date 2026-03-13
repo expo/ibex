@@ -1693,6 +1693,55 @@
     return decoder.decode(bodyText);
   }
 
+  // Add Response.json() static method per the Fetch spec.
+  // Response.json(data, init?) creates a Response with JSON-serialized body
+  // and appropriate Content-Type header.
+  function __exactPatchResponseJson() {
+    if (typeof globalThis.Response !== 'function') return;
+    if (typeof globalThis.Response.json === 'function') return;
+
+    globalThis.Response.json = function(data, init) {
+      var body = JSON.stringify(data);
+      if (body === undefined) {
+        throw new TypeError('The data is not JSON serializable');
+      }
+      var responseInit = {};
+      if (init && typeof init === 'object') {
+        if (init.status !== undefined) responseInit.status = init.status;
+        if (init.statusText !== undefined) responseInit.statusText = init.statusText;
+        if (init.headers !== undefined) responseInit.headers = init.headers;
+      }
+      var response = new globalThis.Response(body, responseInit);
+      // Set Content-Type to application/json if not already set by init.headers
+      var hasContentType = false;
+      if (init && init.headers) {
+        if (init.headers instanceof globalThis.Headers) {
+          hasContentType = init.headers.has('content-type');
+        } else if (Array.isArray(init.headers)) {
+          for (var hi = 0; hi < init.headers.length; hi++) {
+            if (String(init.headers[hi][0]).toLowerCase() === 'content-type') {
+              hasContentType = true;
+              break;
+            }
+          }
+        } else if (typeof init.headers === 'object') {
+          var headerKeys = Object.keys(init.headers);
+          for (var hk = 0; hk < headerKeys.length; hk++) {
+            if (headerKeys[hk].toLowerCase() === 'content-type') {
+              hasContentType = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!hasContentType) {
+        try { response.headers.set('content-type', 'application/json'); } catch (e) {}
+      }
+      return response;
+    };
+  }
+  __exactPatchResponseJson();
+
   function __exactPatchUrlEncodedFormData() {
     if (typeof globalThis.Request !== 'function' || typeof globalThis.Response !== 'function') {
       return;
@@ -3589,4 +3638,165 @@
       }
     }
   } catch (err) {}
+
+  // In-memory Cache API polyfill (CacheStorage / Cache / caches).
+  // This provides a spec-compliant in-memory implementation so that WPT tests
+  // and application code that use the Cache API can run without a service worker.
+  if (typeof globalThis.caches === 'undefined') {
+    (function() {
+      function Cache() {
+        this._entries = []; // [{request: Request, response: Response}]
+      }
+
+      Cache.prototype.match = function(request) {
+        var url = (typeof request === 'string') ? request : (request && request.url);
+        for (var i = 0; i < this._entries.length; i++) {
+          var entryUrl = this._entries[i].request.url || this._entries[i].request;
+          if (entryUrl === url) {
+            return Promise.resolve(this._entries[i].response.clone());
+          }
+        }
+        return Promise.resolve(undefined);
+      };
+
+      Cache.prototype.matchAll = function(request) {
+        if (!request) {
+          var all = [];
+          for (var i = 0; i < this._entries.length; i++) {
+            all.push(this._entries[i].response.clone());
+          }
+          return Promise.resolve(all);
+        }
+        var url = (typeof request === 'string') ? request : (request && request.url);
+        var results = [];
+        for (var j = 0; j < this._entries.length; j++) {
+          var entryUrl = this._entries[j].request.url || this._entries[j].request;
+          if (entryUrl === url) {
+            results.push(this._entries[j].response.clone());
+          }
+        }
+        return Promise.resolve(results);
+      };
+
+      Cache.prototype.put = function(request, response) {
+        var req;
+        if (typeof request === 'string') {
+          req = (typeof globalThis.Request === 'function') ? new globalThis.Request(request) : { url: request };
+        } else {
+          // Clone the request to detach signals etc.
+          req = (typeof request.clone === 'function') ? request.clone() : { url: request.url, method: request.method, headers: request.headers };
+        }
+        var url = req.url;
+        // Replace existing entry with same URL
+        for (var i = 0; i < this._entries.length; i++) {
+          var entryUrl = this._entries[i].request.url || this._entries[i].request;
+          if (entryUrl === url) {
+            this._entries[i] = { request: req, response: response.clone() };
+            return Promise.resolve();
+          }
+        }
+        this._entries.push({ request: req, response: response.clone() });
+        return Promise.resolve();
+      };
+
+      Cache.prototype.add = function(request) {
+        var cache = this;
+        var req = (typeof request === 'string') ? new globalThis.Request(request) : request;
+        return globalThis.fetch(req).then(function(response) {
+          if (!response.ok) {
+            throw new TypeError('Bad response status');
+          }
+          return cache.put(req, response);
+        });
+      };
+
+      Cache.prototype.addAll = function(requests) {
+        var cache = this;
+        var promises = [];
+        for (var i = 0; i < requests.length; i++) {
+          promises.push(cache.add(requests[i]));
+        }
+        return Promise.all(promises);
+      };
+
+      Cache.prototype['delete'] = function(request) {
+        var url = (typeof request === 'string') ? request : (request && request.url);
+        for (var i = 0; i < this._entries.length; i++) {
+          var entryUrl = this._entries[i].request.url || this._entries[i].request;
+          if (entryUrl === url) {
+            this._entries.splice(i, 1);
+            return Promise.resolve(true);
+          }
+        }
+        return Promise.resolve(false);
+      };
+
+      Cache.prototype.keys = function(request) {
+        if (request) {
+          var url = (typeof request === 'string') ? request : request.url;
+          var matched = [];
+          for (var i = 0; i < this._entries.length; i++) {
+            var entryUrl = this._entries[i].request.url || this._entries[i].request;
+            if (entryUrl === url) {
+              var r = this._entries[i].request;
+              matched.push((typeof r.clone === 'function') ? r.clone() : r);
+            }
+          }
+          return Promise.resolve(matched);
+        }
+        var all = [];
+        for (var j = 0; j < this._entries.length; j++) {
+          var rq = this._entries[j].request;
+          all.push((typeof rq.clone === 'function') ? rq.clone() : rq);
+        }
+        return Promise.resolve(all);
+      };
+
+      var _cacheStore = {};
+
+      function CacheStorage() {}
+
+      CacheStorage.prototype.open = function(cacheName) {
+        var name = String(cacheName);
+        if (!_cacheStore[name]) {
+          _cacheStore[name] = new Cache();
+        }
+        return Promise.resolve(_cacheStore[name]);
+      };
+
+      CacheStorage.prototype.has = function(cacheName) {
+        return Promise.resolve(!!_cacheStore[String(cacheName)]);
+      };
+
+      CacheStorage.prototype['delete'] = function(cacheName) {
+        var name = String(cacheName);
+        if (_cacheStore[name]) {
+          delete _cacheStore[name];
+          return Promise.resolve(true);
+        }
+        return Promise.resolve(false);
+      };
+
+      CacheStorage.prototype.keys = function() {
+        return Promise.resolve(Object.keys(_cacheStore));
+      };
+
+      CacheStorage.prototype.match = function(request) {
+        var keys = Object.keys(_cacheStore);
+        var index = 0;
+        function tryNext() {
+          if (index >= keys.length) return Promise.resolve(undefined);
+          return _cacheStore[keys[index++]].match(request).then(function(result) {
+            if (result !== undefined) return result;
+            return tryNext();
+          });
+        }
+        return tryNext();
+      };
+
+      globalThis.caches = new CacheStorage();
+      globalThis.CacheStorage = CacheStorage;
+      globalThis.Cache = Cache;
+    })();
+  }
 })();

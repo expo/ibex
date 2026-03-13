@@ -291,18 +291,78 @@
     return fallback;
   }
 
+  // Spec-compliant forgiving-base64 decode (per WHATWG Infra + HTML spec).
+  // 1. Remove ASCII whitespace (U+0009, U+000A, U+000C, U+000D, U+0020).
+  // 2. If length % 4 == 0, strip up to 2 trailing '=' padding characters.
+  // 3. If length % 4 == 1, throw InvalidCharacterError.
+  // 4. Validate remaining chars are in the base64 alphabet (A-Z a-z 0-9 + /).
+  // 5. Decode the data.
   globalThis.atob = function() {
     var input = String(arguments[0]);
 
-    if (!__exactNativeAtob) {
+    // Step 1: Remove ASCII whitespace
+    var stripped = '';
+    for (var i = 0; i < input.length; i++) {
+      var cc = input.charCodeAt(i);
+      if (cc !== 0x09 && cc !== 0x0A && cc !== 0x0C && cc !== 0x0D && cc !== 0x20) {
+        stripped += input.charAt(i);
+      }
+    }
+
+    // Step 2: Handle padding
+    var lastNonPad = stripped.length;
+    if (lastNonPad > 0 && stripped.charAt(lastNonPad - 1) === '=') {
+      lastNonPad--;
+      if (lastNonPad > 0 && stripped.charAt(lastNonPad - 1) === '=') {
+        lastNonPad--;
+      }
+    }
+    var unpaddedLen = lastNonPad;
+    var paddingLen = stripped.length - lastNonPad;
+
+    // Step 3: If length % 4 == 1, that's invalid
+    if (unpaddedLen % 4 === 1) {
       throw __exactAtobInvalidCharacterError();
     }
 
-    try {
-      return __exactNativeAtob(input);
-    } catch (err) {
-      throw __exactAtobInvalidCharacterError();
+    // Step 4: Validate chars
+    var b64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    var b64Lookup = {};
+    for (var bi = 0; bi < 64; bi++) {
+      b64Lookup[b64Chars.charAt(bi)] = bi;
     }
+
+    for (var vi = 0; vi < unpaddedLen; vi++) {
+      if (b64Lookup[stripped.charAt(vi)] === undefined) {
+        throw __exactAtobInvalidCharacterError();
+      }
+    }
+
+    // Reject padding that makes the final quantum invalid
+    if (paddingLen > 0) {
+      // Padding only valid if it completes a 4-char group
+      if ((unpaddedLen + paddingLen) % 4 !== 0) {
+        throw __exactAtobInvalidCharacterError();
+      }
+    }
+
+    // Step 5: Decode
+    var output = '';
+    for (var di = 0; di < unpaddedLen; di += 4) {
+      var a = b64Lookup[stripped.charAt(di)] || 0;
+      var b = (di + 1 < unpaddedLen) ? b64Lookup[stripped.charAt(di + 1)] : 0;
+      var c = (di + 2 < unpaddedLen) ? b64Lookup[stripped.charAt(di + 2)] : -1;
+      var d = (di + 3 < unpaddedLen) ? b64Lookup[stripped.charAt(di + 3)] : -1;
+
+      output += String.fromCharCode((a << 2) | (b >> 4));
+      if (c !== -1) {
+        output += String.fromCharCode(((b & 15) << 4) | (c >> 2));
+      }
+      if (d !== -1) {
+        output += String.fromCharCode(((c & 3) << 6) | d);
+      }
+    }
+    return output;
   };
 
   // Replace btoa definition after atob to ensure both helpers are available.

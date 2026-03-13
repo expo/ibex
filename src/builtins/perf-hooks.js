@@ -138,7 +138,16 @@ function _scheduleObserverFlush(observer) {
         }
       };
       observer._callback(list, observer);
-    } catch (e) {}
+    } catch (e) {
+      // Re-throw observer callback errors asynchronously so they propagate to
+      // test harnesses (e.g. WPT async_test step_func_done) instead of being
+      // silently swallowed.
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(function() { throw e; });
+      } else if (typeof setTimeout === 'function') {
+        setTimeout(function() { throw e; }, 0);
+      }
+    }
   });
 }
 
@@ -1084,7 +1093,9 @@ PerformanceObserver.prototype.takeRecords = function() {
 _setFunctionName(PerformanceObserver.prototype.observe, 'observe');
 _setFunctionName(PerformanceObserver.prototype.disconnect, 'disconnect');
 _setFunctionName(PerformanceObserver.prototype.takeRecords, 'takeRecords');
-PerformanceObserver.supportedEntryTypes = ['mark', 'measure', 'function', 'resource'];
+// Per the spec, supportedEntryTypes must be a frozen, alphabetically sorted array.
+// 'function' comes before 'mark' alphabetically, but 'mark' before 'measure'.
+PerformanceObserver.supportedEntryTypes = Object.freeze(['function', 'mark', 'measure', 'resource']);
 
 var performance = new Performance();
 performance.nodeTiming = _nodeTiming;
