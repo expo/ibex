@@ -282,6 +282,10 @@ function _normalizeInputEncoding(encoding) {
 function _toByteStringWithEncoding(value, encoding) {
   var inputEncoding = _normalizeInputEncoding(encoding);
   if (typeof value === 'string' && inputEncoding) {
+    if (typeof Buffer !== 'undefined' && Buffer.from &&
+        inputEncoding !== 'base64url') {
+      return Buffer.from(value, inputEncoding === 'binary' ? 'latin1' : inputEncoding).toString('latin1');
+    }
     if (inputEncoding === 'hex') {
       if (value.length % 2 !== 0) throw new TypeError('Invalid hex string');
       var hexBytes = new Uint8Array(value.length / 2);
@@ -298,6 +302,10 @@ function _toByteStringWithEncoding(value, encoding) {
         return atob(base64Url);
       }
       return atob(value);
+    }
+    if ((inputEncoding === 'utf8' || inputEncoding === 'utf-8') &&
+        typeof TextEncoder === 'function') {
+      return _bytesToString(new TextEncoder().encode(value));
     }
   }
   return _toByteString(value);
@@ -349,7 +357,8 @@ function Hash(algorithm, options) {
   if (typeof algorithm !== 'string') {
     throw _errInvalidArgType('algorithm', 'of type string', algorithm);
   }
-  this._algo = algorithm.toLowerCase().replace('-', '');
+  _validateDigestAlgorithm(algorithm);
+  this._algo = algorithm.toLowerCase().replace(/-/g, '');
   this._chunks = [];
   this._finalized = false;
   this._digestResult = null;
@@ -420,18 +429,7 @@ Hash.prototype.update = function(data, encoding) {
   }
   if (data === undefined) throw _errInvalidArgType('data', 'of type string or an instance of Buffer, TypedArray, or DataView', data);
   if (typeof data === 'string') {
-    if (encoding === 'hex') {
-      var hexStr = '';
-      for (var hi = 0; hi < data.length; hi += 2) hexStr += String.fromCharCode(parseInt(data.substr(hi, 2), 16));
-      this._chunks.push(hexStr);
-    } else if (encoding === 'base64') {
-      if (typeof atob === 'function') this._chunks.push(atob(data));
-      else this._chunks.push(data);
-    } else if (encoding === 'latin1' || encoding === 'binary') {
-      this._chunks.push(data);
-    } else {
-      this._chunks.push(data);
-    }
+    this._chunks.push(_toByteStringWithEncoding(data, encoding || 'utf8'));
   } else if (data && data.length !== undefined) {
     var str = '';
     for (var i = 0; i < data.length; i++) str += String.fromCharCode(data[i]);
@@ -562,7 +560,7 @@ function _validateDigestAlgorithm(algorithm) {
   var normalized = algorithm.toLowerCase().replace(/-/g, '');
   var algos = _getValidDigestAlgos();
   if (!algos[normalized] && !algos[algorithm.toLowerCase()]) {
-    throw new Error('Invalid digest: ' + algorithm);
+    throw new Error('Digest method not supported');
   }
 }
 
@@ -700,7 +698,8 @@ function createHmac(algorithm, key) {
 
 // --- getHashes / getCiphers / getCurves ---
 function getHashes() {
-  return ['md5', 'sha1', 'sha256', 'sha384', 'sha512',
+  return ['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512',
+          'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512',
           'RSA-MD5', 'RSA-SHA1', 'RSA-SHA1-2', 'RSA-SHA256',
           'RSA-SHA384', 'RSA-SHA512'];
 }

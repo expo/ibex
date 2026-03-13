@@ -7876,6 +7876,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         } else if (algo == "sha1" || algo == "sha-1") {
           digest.resize(CC_SHA1_DIGEST_LENGTH);
           CC_SHA1(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha224" || algo == "sha-224") {
+          digest.resize(CC_SHA224_DIGEST_LENGTH);
+          CC_SHA224(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
         } else if (algo == "sha384" || algo == "sha-384") {
           digest.resize(CC_SHA384_DIGEST_LENGTH);
           CC_SHA384(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
@@ -7894,6 +7897,28 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           digest.resize(CC_MD5_DIGEST_LENGTH);
           CC_MD5(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
 #endif
+#if !defined(EXACT_NO_OPENSSL)
+        } else if (algo == "sha3224" || algo == "sha3-224") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_224(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3256" || algo == "sha3-256") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_256(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3384" || algo == "sha3-384") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_384(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3512" || algo == "sha3-512") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_512(), nullptr);
+          digest.resize(digestLen);
+#endif
         } else {
           throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
         }
@@ -7901,8 +7926,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         const EVP_MD* md = nullptr;
         if (algo == "sha256" || algo == "sha-256") md = EVP_sha256();
         else if (algo == "sha1" || algo == "sha-1") md = EVP_sha1();
+        else if (algo == "sha224" || algo == "sha-224") md = EVP_sha224();
         else if (algo == "sha384" || algo == "sha-384") md = EVP_sha384();
         else if (algo == "sha512" || algo == "sha-512") md = EVP_sha512();
+        else if (algo == "sha3224" || algo == "sha3-224") md = EVP_sha3_224();
+        else if (algo == "sha3256" || algo == "sha3-256") md = EVP_sha3_256();
+        else if (algo == "sha3384" || algo == "sha3-384") md = EVP_sha3_384();
+        else if (algo == "sha3512" || algo == "sha3-512") md = EVP_sha3_512();
         else if (algo == "md5") md = EVP_md5();
         else throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
 
@@ -8022,6 +8052,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         } else if (algo == "sha1" || algo == "sha-1") {
           digest.resize(CC_SHA1_DIGEST_LENGTH);
           CC_SHA1(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
+        } else if (algo == "sha224" || algo == "sha-224") {
+          digest.resize(CC_SHA224_DIGEST_LENGTH);
+          CC_SHA224(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
         } else if (algo == "sha384" || algo == "sha-384") {
           digest.resize(CC_SHA384_DIGEST_LENGTH);
           CC_SHA384(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
@@ -8040,6 +8073,28 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           digest.resize(CC_MD5_DIGEST_LENGTH);
           CC_MD5(inputBytes.data(), static_cast<CC_LONG>(inputBytes.size()), digest.data());
 #endif
+#if !defined(EXACT_NO_OPENSSL)
+        } else if (algo == "sha3224" || algo == "sha3-224") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_224(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3256" || algo == "sha3-256") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_256(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3384" || algo == "sha3-384") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_384(), nullptr);
+          digest.resize(digestLen);
+        } else if (algo == "sha3512" || algo == "sha3-512") {
+          unsigned int digestLen = 0;
+          digest.resize(EVP_MAX_MD_SIZE);
+          EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, EVP_sha3_512(), nullptr);
+          digest.resize(digestLen);
+#endif
         } else {
           throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
         }
@@ -8047,8 +8102,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         const EVP_MD* md = nullptr;
         if (algo == "sha256" || algo == "sha-256") md = EVP_sha256();
         else if (algo == "sha1" || algo == "sha-1") md = EVP_sha1();
+        else if (algo == "sha224" || algo == "sha-224") md = EVP_sha224();
         else if (algo == "sha384" || algo == "sha-384") md = EVP_sha384();
         else if (algo == "sha512" || algo == "sha-512") md = EVP_sha512();
+        else if (algo == "sha3224" || algo == "sha3-224") md = EVP_sha3_224();
+        else if (algo == "sha3256" || algo == "sha3-256") md = EVP_sha3_256();
+        else if (algo == "sha3384" || algo == "sha3-384") md = EVP_sha3_384();
+        else if (algo == "sha3512" || algo == "sha3-512") md = EVP_sha3_512();
         else if (algo == "md5") md = EVP_md5();
         else throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
 
