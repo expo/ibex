@@ -4666,7 +4666,10 @@ constants.O_NOCTTY = 131072;
 constants.O_TRUNC = 1024;
 constants.O_APPEND = 8;
 constants.O_DIRECTORY = 1048576;
-constants.O_NOATIME = 262144;
+// O_NOATIME is Linux-only; do not expose on other platforms
+if (typeof process !== 'undefined' && process.platform === 'linux') {
+  constants.O_NOATIME = 262144;
+}
 constants.O_NOFOLLOW = 256;
 constants.O_DIRECT = 65536;
 constants.O_SYNC = 128;

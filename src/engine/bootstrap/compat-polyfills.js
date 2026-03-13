@@ -1,4 +1,84 @@
 (function() {
+  // Hermes does not support subclassing Date via ES6 `class X extends Date`.
+  // The super() call returns a primitive string instead of a Date object, so
+  // `this[0] = '1'` inside a subclass constructor throws:
+  //   "Cannot create property '0' on string '...'"
+  // Fix: wrap the native Date constructor so that `new (class extends Date)`
+  // produces a real Date object whose [[Prototype]] is the subclass prototype.
+  (function patchDateSubclassing() {
+    if (typeof Date === 'undefined') return;
+    // Quick probe: try subclassing and see if the result is a proper object.
+    var needsPatch = false;
+    try {
+      var TestSub = function TestDateSub() { Date.call(this); };
+      TestSub.prototype = Object.create(Date.prototype);
+      TestSub.prototype.constructor = TestSub;
+      var inst = new TestSub();
+      // If inst is not a real object (e.g. typeof is 'string'), we need the patch
+      if (typeof inst !== 'object' || inst === null) {
+        needsPatch = true;
+      } else {
+        // Also check that we can set indexed properties
+        try { inst[0] = '1'; } catch (e) { needsPatch = true; }
+      }
+    } catch (e) {
+      needsPatch = true;
+    }
+    if (!needsPatch) return;
+
+    var NativeDate = Date;
+    var WrappedDate = function Date() {
+      var args = arguments;
+      // Called as function (without new) — return a string like native Date()
+      if (!(this instanceof WrappedDate)) {
+        return NativeDate.apply(null, args);
+      }
+      // Construct a real NativeDate object
+      var d;
+      switch (args.length) {
+        case 0: d = new NativeDate(); break;
+        case 1: d = new NativeDate(args[0]); break;
+        case 2: d = new NativeDate(args[0], args[1]); break;
+        case 3: d = new NativeDate(args[0], args[1], args[2]); break;
+        case 4: d = new NativeDate(args[0], args[1], args[2], args[3]); break;
+        case 5: d = new NativeDate(args[0], args[1], args[2], args[3], args[4]); break;
+        case 6: d = new NativeDate(args[0], args[1], args[2], args[3], args[4], args[5]); break;
+        default: d = new NativeDate(args[0], args[1], args[2], args[3], args[4], args[5], args[6]); break;
+      }
+      // Set the prototype chain to the subclass (or WrappedDate) prototype.
+      // `new.target` is not available in Hermes, so use `this.constructor` which
+      // is set by the engine when the subclass constructor calls super().
+      var proto = (this.constructor && this.constructor !== WrappedDate)
+        ? this.constructor.prototype
+        : WrappedDate.prototype;
+      if (proto && proto !== Object.prototype) {
+        Object.setPrototypeOf(d, proto);
+      }
+      return d; // returning an object from a constructor replaces `this`
+    };
+    // Copy static methods (Date.now, Date.parse, Date.UTC, etc.)
+    var staticKeys = Object.getOwnPropertyNames(NativeDate);
+    for (var i = 0; i < staticKeys.length; i++) {
+      var key = staticKeys[i];
+      if (key === 'prototype' || key === 'length' || key === 'name') continue;
+      try {
+        var desc = Object.getOwnPropertyDescriptor(NativeDate, key);
+        if (desc) Object.defineProperty(WrappedDate, key, desc);
+      } catch (e) {}
+    }
+    // Set up prototype chain
+    WrappedDate.prototype = NativeDate.prototype;
+    WrappedDate.prototype.constructor = WrappedDate;
+    // Make instanceof work: WrappedDate[Symbol.hasInstance] should check NativeDate
+    try {
+      Object.defineProperty(WrappedDate, Symbol.hasInstance, {
+        value: function(inst) { return inst instanceof NativeDate; },
+        configurable: true
+      });
+    } catch (e) {}
+    globalThis.Date = WrappedDate;
+  })();
+
   if (typeof Array !== 'undefined' && typeof Array.isArray !== 'function') {
     Array.isArray = function(value) {
       return Object.prototype.toString.call(value) === '[object Array]';

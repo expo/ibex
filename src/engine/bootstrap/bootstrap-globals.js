@@ -384,7 +384,7 @@
     if (listeners.size === 0) map.delete(type);
   }
 
-  // Wrap native setTimeout with callback validation and delay clamping
+  // Wrap native setTimeout with callback validation, delay clamping, and domain support
   if (typeof globalThis.setTimeout === 'function') {
     var _nativeSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = function(callback, delay) {
@@ -392,6 +392,24 @@
       var d = _clampDelay(delay);
       var args = [];
       for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
+      // Capture active domain at schedule time so async callbacks inherit it
+      var activeDomain = (typeof process !== 'undefined' && process.domain) ? process.domain : null;
+      var wrappedCallback = callback;
+      if (activeDomain) {
+        wrappedCallback = function() {
+          var prevDomain = process.domain;
+          process.domain = activeDomain;
+          try {
+            return callback.apply(null, args.length > 0 ? args : arguments);
+          } catch (e) {
+            activeDomain.emit('error', e);
+          } finally {
+            process.domain = prevDomain;
+          }
+        };
+        // Already handled args inside the wrapper
+        return _nativeSetTimeout(wrappedCallback, d);
+      }
       if (args.length > 0) {
         return _nativeSetTimeout(function() { callback.apply(null, args); }, d);
       }

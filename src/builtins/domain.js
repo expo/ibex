@@ -22,8 +22,17 @@ Domain.prototype.remove = function(emitter) {
   }
 };
 Domain.prototype.run = function(fn) {
-  try { return fn(); }
+  var args = [];
+  for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+  var previousDomain = (typeof process !== 'undefined') ? process.domain : null;
+  if (typeof process !== 'undefined') process.domain = this;
+  this.enter();
+  try { return fn.apply(null, args); }
   catch(e) { this.emit('error', e); }
+  finally {
+    this.exit();
+    if (typeof process !== 'undefined') process.domain = previousDomain || null;
+  }
 };
 Domain.prototype.bind = function(fn) {
   var self = this;
