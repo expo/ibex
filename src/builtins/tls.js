@@ -545,6 +545,7 @@ function _splitPemCertificates(source) {
 
 function _readDerElement(bytes, offset) {
   if (offset >= bytes.length) return null;
+  var startOffset = offset;
   var tag = bytes[offset++];
   if (offset >= bytes.length) return null;
   var lengthByte = bytes[offset++];
@@ -563,6 +564,7 @@ function _readDerElement(bytes, offset) {
   if (valueEnd > bytes.length) return null;
   return {
     tag: tag,
+    startOffset: startOffset,
     valueStart: valueStart,
     valueEnd: valueEnd,
     nextOffset: valueEnd
@@ -615,6 +617,11 @@ function _bytesToHex(bytes, start, end) {
     out += hex.length === 1 ? '0' + hex : hex;
   }
   return out;
+}
+
+function _sliceBytes(bytes, start, end) {
+  if (bytes.slice) return bytes.slice(start, end);
+  return Array.prototype.slice.call(bytes, start, end);
 }
 
 function _decodeDerOid(bytes, start, end) {
@@ -712,6 +719,115 @@ function _fingerprintFromRaw(raw, algorithm) {
   } catch (_fingerprintErr) {
     return '';
   }
+}
+
+function _extensionNameForOid(oid) {
+  if (oid === '1.3.6.1.5.5.7.48.1') return 'OCSP';
+  if (oid === '1.3.6.1.5.5.7.48.2') return 'CA Issuers';
+  return oid;
+}
+
+function _curveNamesForOid(oid) {
+  if (oid === '1.2.840.10045.3.1.7') {
+    return { asn1Curve: 'prime256v1', nistCurve: 'P-256', bits: 256 };
+  }
+  if (oid === '1.3.132.0.34') {
+    return { asn1Curve: 'secp384r1', nistCurve: 'P-384', bits: 384 };
+  }
+  if (oid === '1.3.132.0.35') {
+    return { asn1Curve: 'secp521r1', nistCurve: 'P-521', bits: 521 };
+  }
+  return null;
+}
+
+function _parseAuthorityInfoAccess(bytes, element) {
+  if (!element || element.tag !== 0x04) return undefined;
+  var wrapped = _readDerElement(bytes, element.valueStart);
+  if (!wrapped || wrapped.nextOffset > element.valueEnd || wrapped.tag !== 0x30) return undefined;
+  var entries = _readDerChildren(bytes, wrapped.valueStart, wrapped.valueEnd);
+  var infoAccess = {};
+  var hasEntries = false;
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].tag !== 0x30) continue;
+    var parts = _readDerChildren(bytes, entries[i].valueStart, entries[i].valueEnd);
+    if (parts.length < 2) continue;
+    var methodOid = _decodeDerOid(bytes, parts[0].valueStart, parts[0].valueEnd);
+    var location = parts[1];
+    if (location.tag !== 0x86) continue;
+    var entryName = _extensionNameForOid(methodOid) + ' - URI';
+    if (!hasOwn.call(infoAccess, entryName)) infoAccess[entryName] = [];
+    infoAccess[entryName].push(_bytesToAscii(bytes, location.valueStart, location.valueEnd));
+    hasEntries = true;
+  }
+  return hasEntries ? infoAccess : undefined;
+}
+
+function _parseSubjectPublicKeyInfo(bytes, element) {
+  if (!element || element.tag !== 0x30) return {};
+  var children = _readDerChildren(bytes, element.valueStart, element.valueEnd);
+  if (children.length < 2 || children[0].tag !== 0x30 || children[1].tag !== 0x03) return {};
+
+  var algorithmParts = _readDerChildren(bytes, children[0].valueStart, children[0].valueEnd);
+  if (!algorithmParts.length) return {};
+
+  var algorithmOid = _decodeDerOid(bytes, algorithmParts[0].valueStart, algorithmParts[0].valueEnd);
+  var bitString = children[1];
+  var bitStringStart = bitString.valueStart;
+  if (bitStringStart >= bitString.valueEnd) return {};
+  var unusedBits = bytes[bitStringStart];
+  if (unusedBits !== 0) return {};
+
+  if (algorithmOid === '1.2.840.113549.1.1.1') {
+    var rsaKey = _readDerElement(bytes, bitStringStart + 1);
+    if (!rsaKey || rsaKey.tag !== 0x30 || rsaKey.nextOffset > bitString.valueEnd) return {};
+    var rsaParts = _readDerChildren(bytes, rsaKey.valueStart, rsaKey.valueEnd);
+    if (rsaParts.length < 2) return {};
+    var modulusHex = _bytesToHex(bytes, rsaParts[0].valueStart, rsaParts[0].valueEnd).replace(/^00+/, '') || '0';
+    var exponentHex = _bytesToHex(bytes, rsaParts[1].valueStart, rsaParts[1].valueEnd).replace(/^0+/, '') || '0';
+    return {
+      pubkey: _bufferFromBytes(_sliceBytes(bytes, element.startOffset, element.nextOffset)),
+      modulus: modulusHex,
+      exponent: '0x' + exponentHex.toLowerCase(),
+      bits: modulusHex.length / 2 * 8
+    };
+  }
+
+  if (algorithmOid === '1.2.840.10045.2.1') {
+    var point = _bufferFromBytes(_sliceBytes(bytes, bitStringStart + 1, bitString.valueEnd));
+    var curveOid = algorithmParts[1] ? _decodeDerOid(bytes, algorithmParts[1].valueStart, algorithmParts[1].valueEnd) : '';
+    var curveNames = _curveNamesForOid(curveOid);
+    var pointBits = point && point.length > 1 ? ((point.length - 1) / 2) * 8 : undefined;
+    return {
+      pubkey: point,
+      bits: curveNames && curveNames.bits ? curveNames.bits : pointBits,
+      asn1Curve: curveNames && curveNames.asn1Curve ? curveNames.asn1Curve : undefined,
+      nistCurve: curveNames && curveNames.nistCurve ? curveNames.nistCurve : undefined
+    };
+  }
+
+  return {};
+}
+
+function _parseCertificateExtensions(bytes, tbsChildren, startIdx) {
+  var parsed = {};
+  for (var i = startIdx; i < tbsChildren.length; i++) {
+    if (tbsChildren[i].tag !== 0xa3) continue;
+    var extensionWrappers = _readDerChildren(bytes, tbsChildren[i].valueStart, tbsChildren[i].valueEnd);
+    if (!extensionWrappers.length || extensionWrappers[0].tag !== 0x30) continue;
+    var extensions = _readDerChildren(bytes, extensionWrappers[0].valueStart, extensionWrappers[0].valueEnd);
+    for (var j = 0; j < extensions.length; j++) {
+      if (extensions[j].tag !== 0x30) continue;
+      var parts = _readDerChildren(bytes, extensions[j].valueStart, extensions[j].valueEnd);
+      if (parts.length < 2) continue;
+      var extOid = _decodeDerOid(bytes, parts[0].valueStart, parts[0].valueEnd);
+      var valueElement = parts[parts.length - 1];
+      if (extOid === '1.3.6.1.5.5.7.1.1') {
+        var infoAccess = _parseAuthorityInfoAccess(bytes, valueElement);
+        if (infoAccess) parsed.infoAccess = infoAccess;
+      }
+    }
+  }
+  return parsed;
 }
 
 function _cloneSimpleObject(value) {
@@ -822,8 +938,11 @@ function _parsePemCertificate(pem, host, port) {
     var issuerElement = tbsChildren[idx++];
     var validityElement = tbsChildren[idx++];
     var subjectElement = tbsChildren[idx++];
+    var subjectPublicKeyInfoElement = tbsChildren[idx++];
     var validityChildren = validityElement ? _readDerChildren(bytes, validityElement.valueStart, validityElement.valueEnd) : [];
     var raw = _bufferFromBytes(der);
+    var keyInfo = _parseSubjectPublicKeyInfo(bytes, subjectPublicKeyInfoElement);
+    var extensionInfo = _parseCertificateExtensions(bytes, tbsChildren, idx);
     var parsed = {
       subject: _parseDerName(bytes, subjectElement),
       issuer: _parseDerName(bytes, issuerElement),
@@ -833,9 +952,14 @@ function _parsePemCertificate(pem, host, port) {
       serialNumber: _bytesToHex(bytes, serialElement.valueStart, serialElement.valueEnd).replace(/^00+/, '') || '0',
       fingerprint: _fingerprintFromRaw(raw, 'sha1'),
       fingerprint256: _fingerprintFromRaw(raw, 'sha256'),
+      fingerprint512: _fingerprintFromRaw(raw, 'sha512'),
       raw: raw,
       ca: false
     };
+    for (var key in keyInfo) {
+      if (hasOwn.call(keyInfo, key) && keyInfo[key] !== undefined) parsed[key] = keyInfo[key];
+    }
+    if (extensionInfo.infoAccess !== undefined) parsed.infoAccess = extensionInfo.infoAccess;
     if (_certificateParseCache) _certificateParseCache.set(pem, parsed);
     return _cloneCertificate(parsed, true);
   } catch (_parseErr) {
