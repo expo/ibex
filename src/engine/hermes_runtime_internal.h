@@ -113,6 +113,12 @@ void ensureStreamEnhance(ExactHermesRuntime* handle);
 void ensureWebCrypto(ExactHermesRuntime* handle);
 void ensureWebStorage(ExactHermesRuntime* handle);
 void ensureFormData(ExactHermesRuntime* handle);
+void installLegacyLazyBootstrapGetters(ExactHermesRuntime* handle, bool sharedRuntimeInstalled);
+void runLegacyProcessCompatFix(ExactHermesRuntime* handle, bool sharedRuntimeInstalled);
+void runLegacyCompatPolyfills(ExactHermesRuntime* handle, bool sharedRuntimeInstalled);
+void runLegacyExactGlobal(ExactHermesRuntime* handle, bool sharedRuntimeInstalled);
+void runFinalProcessVersionsFix(ExactHermesRuntime* handle);
+void installWebStreamsPolyfill(ExactHermesRuntime* handle);
 void installDnsHostFunctions(ExactHermesRuntime* handle);
 
 std::string escapeJson(const std::string& input);

@@ -6317,8 +6317,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto _t_now = std::chrono::steady_clock::now();
   auto _t_console_enhance = _t_now;
   auto _t_host_functions = _t_now;
-  auto _t_compat_polyfills = _t_now;
-  auto _t_exact_global = _t_now;
   #define IG_TRACE_START(n) _t_##n = std::chrono::steady_clock::now()
   #define IG_TRACE_END(n) if (_tracing) { \
     auto _el = std::chrono::duration_cast<std::chrono::microseconds>( \
@@ -11873,83 +11871,14 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactEnsureNet", std::move(ensureNetFn));
   sharedRuntimeInstalled = installModuleLoader(handle);
 
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-  // --- Register lazy-load host functions and install lazy getters ---
-  // These defer evaluation of non-essential bootstrap blocks until first use.
-  if (sharedRuntimeInstalled) {
-    if (_tracing) {
-      fprintf(stderr, "[startup]   legacy_lazy_getters skipped (shared runtime bundle)\n");
-    }
-  } else if (env_flag_enabled("EX_SKIP_STARTUP_LAZY_GETTERS")) {
-    if (_tracing) {
-      fprintf(stderr, "[startup]   lazy_getters skipped (set EX_SKIP_STARTUP_LAZY_GETTERS=0 to re-enable)\n");
-    }
-  } else {
-  {
-    auto ensureStreamFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureStreamEnhance"), 0,
-        [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
-                 const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
-          ensureStreamEnhance(handle);
-          return facebook::jsi::Value::undefined();
-        });
-    rt.global().setProperty(rt, "__exactEnsureStreamEnhance", std::move(ensureStreamFn));
-
-    auto ensureCryptoFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureWebCrypto"), 0,
-        [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
-                 const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
-          ensureWebCrypto(handle);
-          return facebook::jsi::Value::undefined();
-        });
-    rt.global().setProperty(rt, "__exactEnsureWebCrypto", std::move(ensureCryptoFn));
-
-    auto ensureStorageFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureWebStorage"), 0,
-        [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
-                 const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
-          ensureWebStorage(handle);
-          return facebook::jsi::Value::undefined();
-        });
-    rt.global().setProperty(rt, "__exactEnsureWebStorage", std::move(ensureStorageFn));
-
-    auto ensureFormDataFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureFormData"), 0,
-        [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
-                 const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
-          ensureFormData(handle);
-          return facebook::jsi::Value::undefined();
-        });
-    rt.global().setProperty(rt, "__exactEnsureFormData", std::move(ensureFormDataFn));
-
-    // Install lazy getters that trigger loading on first access
-    static const char* lazyGettersJS = LAZY_GETTERS_SRC;
-    try {
-      auto buf = std::make_shared<facebook::jsi::StringBuffer>(lazyGettersJS);
-      rt.evaluateJavaScript(buf, "<lazy-getters>");
-    } catch (...) {}
-  }
-  }
-#endif // HAS_PRECOMPILED_BOOTSTRAP
+  installLegacyLazyBootstrapGetters(handle, sharedRuntimeInstalled);
   IG_TRACE_END(host_functions);
   }
 
   // Compatibility post-bootstrap fixups for host shims used by test suites.
   // Run these before other high-level bootstrap scripts that expect stable
   // process metadata/config wiring.
-  if (!sharedRuntimeInstalled) {
-    static const char* processCompatFixJS = PROCESS_COMPAT_FIX_SRC;
-    try {
-      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(processCompatFixJS);
-      rt.evaluateJavaScript(buffer, "<process-compat-fix>");
-    } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.getMessage()).c_str());
-    } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("Process compatibility fix error: ") + err.what()).c_str());
-    }
-  } else if (_tracing) {
-    fprintf(stderr, "[startup]   process_compat_fix skipped (shared runtime bundle)\n");
-  }
+  runLegacyProcessCompatFix(handle, sharedRuntimeInstalled);
 
   // Reinstall a hard process.exit on the process object itself after compatibility
   // patches so JS wrappers (if any) can't shadow termination semantics.
@@ -11968,175 +11897,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
 
-  // Compatibility polyfills for modern ECMAScript APIs used by npm modules.
-  if (sharedRuntimeInstalled) {
-    if (_tracing) {
-      fprintf(stderr, "[startup]   compat_polyfills skipped (shared runtime bundle)\n");
-    }
-  } else if (env_flag_enabled("EX_SKIP_STARTUP_COMPAT_POLYFILLS")) {
-    if (_tracing) {
-      fprintf(stderr, "[startup]   compat_polyfills skipped (set EX_SKIP_STARTUP_COMPAT_POLYFILLS=0 to re-enable)\n");
-    }
-  } else {
-    IG_TRACE_START(compat_polyfills);
-    bool compatEvaluated = false;
-    {
-      static const char* compatibilityPolyfillsJS = COMPAT_POLYFILLS_SRC;
-      bool source_compat_polyfills = env_flag_enabled("EX_COMPAT_POLYFILLS_SOURCE");
-      bool compat_polyfills_hbc = env_flag_enabled("EX_COMPAT_POLYFILLS_HBC");
-
-      try {
-        compatEvaluated = eval_bootstrap_script(
-            handle,
-            compatibilityPolyfillsJS,
-            reinterpret_cast<const uint8_t*>(COMPAT_POLYFILLS_HBC),
-            COMPAT_POLYFILLS_HBC_LEN,
-            "<compat-polyfills>",
-            source_compat_polyfills || !compat_polyfills_hbc,
-            compat_polyfills_hbc);
-        if (!compatEvaluated) {
-          throw std::runtime_error("Compatibility polyfills failed to evaluate");
-        }
-      } catch (const facebook::jsi::JSError& err) {
-        ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.getMessage()).c_str());
-      } catch (const std::exception& err) {
-        ex_host_console_log(1, (std::string("Compatibility polyfill error: ") + err.what()).c_str());
-      }
-    }
-    if (compatEvaluated) {
-      drainMicrotasks(rt);
-    }
-    IG_TRACE_END(compat_polyfills);
-  }
-
-  // Install Exact global (with Bun alias) including Exact.file() and Exact.write()
-  bool skip_exact_global = env_flag_enabled("EX_SKIP_STARTUP_EXACT_GLOBAL");
-  bool source_exact_global = env_flag_enabled("EX_EXACT_GLOBAL_SOURCE");
-  bool exact_global_hbc = env_flag_enabled("EX_EXACT_GLOBAL_HBC");
-  if (sharedRuntimeInstalled) {
-    if (_tracing) {
-      fprintf(stderr, "[startup]   exact_global skipped (shared runtime bundle)\n");
-    }
-  } else if (skip_exact_global) {
-    if (_tracing) {
-      fprintf(stderr, "[startup]   exact_global skipped (set EX_SKIP_STARTUP_EXACT_GLOBAL=0 to re-enable)\n");
-    }
-  } else {
-    IG_TRACE_START(exact_global);
-    static const char* exactGlobalJS = EXACT_GLOBAL_SRC;
-    bool exactEvaluated = false;
-
-    try {
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-      // Keep exact_global source-first by default to avoid startup regressions from
-      // precompiled bootstrap bytecode incompatibilities.
-      if (source_exact_global || !exact_global_hbc) {
-        exactEvaluated = eval_bootstrap_script(
-            handle,
-            exactGlobalJS,
-            reinterpret_cast<const uint8_t*>(EXACT_GLOBAL_HBC),
-            EXACT_GLOBAL_HBC_LEN,
-            "<exact-global>",
-            true,
-            false);
-      } else {
-        exactEvaluated = eval_bootstrap_script(
-            handle,
-            exactGlobalJS,
-            reinterpret_cast<const uint8_t*>(EXACT_GLOBAL_HBC),
-            EXACT_GLOBAL_HBC_LEN,
-            "<exact-global>",
-            false,
-            exact_global_hbc);
-      }
-#else
-      exactEvaluated = eval_bootstrap_script(
-          handle,
-          exactGlobalJS,
-          nullptr,
-          0,
-          "<exact-global>",
-          true,
-          false);
-#endif
-        if (!exactEvaluated) {
-          throw std::runtime_error("Exact global script failed to evaluate");
-        }
-    } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, err.getMessage().c_str());
-    } catch (const std::exception& err) {
-      ex_host_console_log(1, err.what());
-    }
-    if (exactEvaluated) {
-      drainMicrotasks(rt);
-    }
-    IG_TRACE_END(exact_global);
-  }
-
-  // Final process.versions fix — ensure openssl and other required fields are present.
-  // This runs after ALL bootstrap scripts to ensure no later bootstrap overwrites.
-  {
-    static const char* versionsFixJS = R"JS(
-(function() {
-  if (typeof process !== 'object' || process === null) return;
-  var cur = process.versions;
-  if (!cur || typeof cur !== 'object') cur = {};
-  var v = {};
-  var keys = Object.keys(cur);
-  for (var i = 0; i < keys.length; i++) {
-    try { v[keys[i]] = cur[keys[i]]; } catch(e) {}
-  }
-  if (!v.node) v.node = '24.13.1';
-  if (!v.openssl) v.openssl = '3.0.0';
-  if (!v.v8) v.v8 = '0.0.0';
-  if (!v.uv) v.uv = '0.0.0';
-  if (!v.zlib) v.zlib = '1.3.1';
-  if (!v.modules) v.modules = '127';
-  if (!v.napi) v.napi = '9';
-  if (!v.hermes) v.hermes = '0.12.0';
-  if (!v.exact) v.exact = '0.1.0';
-  // Define on process directly
-  try {
-    Object.defineProperty(process, 'versions', {
-      value: v, writable: true, configurable: true, enumerable: true
-    });
-  } catch(e) {}
-  if (process.versions === v) return;
-  // Try prototype
-  var p = Object.getPrototypeOf(process);
-  if (p && p !== Object.prototype) {
-    try {
-      Object.defineProperty(p, 'versions', {
-        value: v, writable: true, configurable: true, enumerable: false
-      });
-    } catch(e) {}
-    if (process.versions === v) return;
-    // Insert new prototype
-    try {
-      var np = Object.create(p);
-      Object.defineProperty(np, 'versions', {
-        value: v, writable: true, configurable: true, enumerable: false
-      });
-      Object.setPrototypeOf(process, np);
-    } catch(e) {}
-  }
-  // Also set process.version
-  if (!process.version || process.version === 'v0.1.0') {
-    try { process.version = 'v24.13.1'; } catch(e) {}
-  }
-  // And process.release.name
-  try {
-    if (!process.release || process.release.name !== 'node') {
-      process.release = { name: 'node' };
-    }
-  } catch(e) {}
-})();
-)JS";
-    try {
-      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(versionsFixJS);
-      rt.evaluateJavaScript(buffer, "<final-versions-fix>");
-    } catch (...) {}
-  }
+  runLegacyCompatPolyfills(handle, sharedRuntimeInstalled);
+  runLegacyExactGlobal(handle, sharedRuntimeInstalled);
+  runFinalProcessVersionsFix(handle);
 
   // Final child-process IPC listener fix. This runs after all other process
   // bootstrap shaping so the wrapper lands on the same process.on surface that
@@ -12632,36 +12395,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   // on the final runtime surface that user code observes.
   if (env_flag_enabled("EX_WEB_STREAMS_POLYFILL")) {
     TRACE_START(web_streams_polyfill);
-    static const char* webStreamsPolyfillJS = WEB_STREAMS_POLYFILL_SRC;
-
-    try {
-#ifdef HAS_PRECOMPILED_BOOTSTRAP
-      bool webStreamsPolyfillEvaluated = eval_bootstrap_script(
-          handle,
-          webStreamsPolyfillJS,
-          reinterpret_cast<const uint8_t*>(WEB_STREAMS_POLYFILL_HBC),
-          WEB_STREAMS_POLYFILL_HBC_LEN,
-          "<web-streams-polyfill>",
-          true,
-          true);
-#else
-      bool webStreamsPolyfillEvaluated = eval_bootstrap_script(
-          handle,
-          webStreamsPolyfillJS,
-          nullptr,
-          0,
-          "<web-streams-polyfill>",
-          true,
-          false);
-#endif
-      if (!webStreamsPolyfillEvaluated) {
-        throw std::runtime_error("Web Streams polyfill failed to evaluate");
-      }
-    } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.getMessage()).c_str());
-    } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("Web Streams polyfill error: ") + err.what()).c_str());
-    }
+    installWebStreamsPolyfill(handle);
     TRACE_END(web_streams_polyfill);
   } else if (startup_trace_enabled()) {
     fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");
