@@ -1,31 +1,14 @@
-var builtinList = [
-  'assert', 'assert/strict', 'buffer', 'child_process', 'cluster',
-  'console', 'constants', 'crypto', 'dgram', 'dns', 'dns/promises',
-  'domain', 'events',
-  'fs', 'fs/promises',
-  'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path',
-  'path/posix', 'path/win32',
-  'perf_hooks', 'process', 'punycode', 'querystring', 'readline',
-  'readline/promises',
-  'stream', 'stream/consumers', 'stream/promises', 'stream/web',
-  'string_decoder', 'sys', 'test',
-  'timers', 'timers/promises', 'tls', 'trace_events', 'tty', 'url',
-  'util', 'util/types',
-  'v8', 'vm', 'wasi', 'worker_threads', 'zlib'
-];
-
-// Modules that only exist with the node: prefix (not available as bare specifiers)
-var nodeOnlyBuiltins = ['test', 'sqlite', 'sea'];
+var runtimeModuleManifest = require('./helpers/runtime-module-manifest.cjs');
+var builtinList = runtimeModuleManifest.moduleBuiltinList.slice();
+var nodeOnlyBuiltins = runtimeModuleManifest.nodeOnlyBuiltinModules.slice();
+var builtinRuntimeSpecifiers = runtimeModuleManifest.moduleBuiltinRuntimeSpecifiers;
+var builtinSpecifierSet = Object.create(null);
+for (var i = 0; i < builtinRuntimeSpecifiers.length; i++) {
+  builtinSpecifierSet[builtinRuntimeSpecifiers[i]] = true;
+}
 
 function isBuiltin(specifier) {
-  if (typeof specifier !== 'string') return false;
-  var name = specifier;
-  var hasNodePrefix = name.indexOf('node:') === 0;
-  if (hasNodePrefix) name = name.slice(5);
-  if (name.indexOf('bun:') === 0) name = name.slice(4);
-  // node:-only modules require the prefix
-  if (!hasNodePrefix && nodeOnlyBuiltins.indexOf(name) !== -1) return false;
-  return builtinList.indexOf(name) !== -1;
+  return typeof specifier === 'string' && builtinSpecifierSet[specifier] === true;
 }
 
 function createRequire(filename) {

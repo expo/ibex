@@ -15,6 +15,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
+#[path = "builtin_manifest.generated.rs"]
+mod builtin_manifest_generated;
+
+use builtin_manifest_generated::BUILTIN_MANIFEST_REGISTRATIONS;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
     Esm,
@@ -36,6 +41,84 @@ pub struct ModuleLoader {
     resolver: Resolver,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct BuiltinManifestRegistration {
+    specifier: &'static str,
+    source_key: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum BuiltinSource {
+    ExactProcess,
+    ExactCrypto,
+    ExactClipboard,
+    ExactHttp,
+    ExactSqlite,
+    Bun,
+    BunTest,
+    BunHarness,
+    NodeHarness,
+    BunJsc,
+    BunInternalForTesting,
+    NodeTestAlias,
+    NodeFs,
+    NodeFsPromises,
+    NodePath,
+    PathPosixAlias,
+    PathWin32Alias,
+    NodeEvents,
+    NodeStream,
+    LegacyStreamReadable,
+    LegacyStreamWritable,
+    LegacyStreamDuplex,
+    LegacyStreamTransform,
+    LegacyStreamPassthrough,
+    NodeStreamConsumers,
+    NodeStreamPromises,
+    NodeBuffer,
+    NodeUtil,
+    UtilTypesAlias,
+    NodeUtilTypesAlias,
+    NodeTimers,
+    NodeTimersPromises,
+    NodeHttp,
+    NodeHttps,
+    NodeStreamWeb,
+    NodeUrl,
+    UrlAlias,
+    NodeAssert,
+    NodeOs,
+    NodeTty,
+    NodeStringDecoder,
+    NodeQuerystring,
+    NodePunycode,
+    NodeChildProcess,
+    NodeReadline,
+    NodeModule,
+    NodeZlib,
+    NodeTls,
+    NodeDns,
+    NodeDnsPromises,
+    InternalFsUtils,
+    NodeNet,
+    NodePerfHooks,
+    NodeAsyncHooks,
+    NodeWorkerThreads,
+    NodeVm,
+    NodeConsole,
+    NodeCluster,
+    NodeDgram,
+    NodeDomain,
+    NodeV8,
+    NodeConstants,
+    Ws,
+    NodeHttp2,
+    NodeDiagnosticsChannel,
+    NodeTraceEvents,
+    NodeInspector,
+    NodeWasi,
+}
+
 impl Default for ModuleLoader {
     fn default() -> Self {
         Self::new()
@@ -45,299 +128,14 @@ impl Default for ModuleLoader {
 impl ModuleLoader {
     pub fn new() -> Self {
         let mut builtins = HashMap::new();
-        builtins.insert("exact:process".to_string(), exact_process_module());
-        builtins.insert("exact:crypto".to_string(), exact_crypto_module());
-        builtins.insert("exact:clipboard".to_string(), exact_clipboard_module());
-        builtins.insert("exact:http".to_string(), exact_http_module());
-        builtins.insert("exact:sqlite".to_string(), exact_sqlite_module());
-        builtins.insert("bun:sqlite".to_string(), exact_sqlite_module());
-        builtins.insert("bun".to_string(), bun_module());
-        builtins.insert("bun:test".to_string(), bun_test_module());
-        builtins.insert("harness".to_string(), bun_harness_module());
-        builtins.insert("node-harness".to_string(), node_harness_module());
-        builtins.insert("bun:jsc".to_string(), bun_jsc_module());
-        builtins.insert(
-            "bun:internal-for-testing".to_string(),
-            bun_internal_for_testing_module(),
-        );
-
-        let node_test_src = "module.exports = require('test');".to_string();
-        builtins.insert("node:test".to_string(), node_test_src);
-
-        let node_fs_src = node_fs_module();
-        builtins.insert("bun:fs".to_string(), node_fs_src.clone());
-        builtins.insert("node:fs".to_string(), node_fs_src.clone());
-        builtins.insert("fs".to_string(), node_fs_src);
-
-        let node_process_src = exact_process_module();
-        builtins.insert("node:process".to_string(), node_process_src.clone());
-        builtins.insert("process".to_string(), node_process_src);
-
-        let node_fs_promises_src = node_fs_promises_module();
-        builtins.insert("bun:fs/promises".to_string(), node_fs_promises_src.clone());
-        builtins.insert("node:fs/promises".to_string(), node_fs_promises_src.clone());
-        builtins.insert("fs/promises".to_string(), node_fs_promises_src.clone());
-        builtins.insert(
-            "internal/fs/promises".to_string(),
-            node_fs_promises_src.clone(),
-        );
-
-        let path_module = node_path_module();
-        builtins.insert("node:path".to_string(), path_module.clone());
-        builtins.insert("path".to_string(), path_module);
-
-        let path_posix_src = "module.exports = require('path').posix;".to_string();
-        builtins.insert("node:path/posix".to_string(), path_posix_src.clone());
-        builtins.insert("path/posix".to_string(), path_posix_src);
-
-        let path_win32_src = "module.exports = require('path').win32;".to_string();
-        builtins.insert("node:path/win32".to_string(), path_win32_src.clone());
-        builtins.insert("path/win32".to_string(), path_win32_src);
-
-        let crypto_module = exact_crypto_module();
-        builtins.insert("node:crypto".to_string(), crypto_module.clone());
-        builtins.insert("crypto".to_string(), crypto_module);
-
-        let events_module = node_events_module();
-        builtins.insert("node:events".to_string(), events_module.clone());
-        builtins.insert("events".to_string(), events_module);
-
-        let stream_module = node_stream_module();
-        builtins.insert("node:stream".to_string(), stream_module.clone());
-        builtins.insert("stream".to_string(), stream_module);
-
-        // Legacy _stream_* aliases (Node.js internal compat)
-        builtins.insert(
-            "_stream_readable".to_string(),
-            "module.exports = require('stream').Readable;".to_string(),
-        );
-        builtins.insert(
-            "_stream_writable".to_string(),
-            "module.exports = require('stream').Writable;".to_string(),
-        );
-        builtins.insert(
-            "_stream_duplex".to_string(),
-            "module.exports = require('stream').Duplex;".to_string(),
-        );
-        builtins.insert(
-            "_stream_transform".to_string(),
-            "module.exports = require('stream').Transform;".to_string(),
-        );
-        builtins.insert(
-            "_stream_passthrough".to_string(),
-            "module.exports = require('stream').PassThrough;".to_string(),
-        );
-
-        let stream_consumers_module = node_stream_consumers_module();
-        builtins.insert(
-            "node:stream/consumers".to_string(),
-            stream_consumers_module.clone(),
-        );
-        builtins.insert("stream/consumers".to_string(), stream_consumers_module);
-
-        let stream_promises_module = node_stream_promises_module();
-        builtins.insert(
-            "node:stream/promises".to_string(),
-            stream_promises_module.clone(),
-        );
-        builtins.insert("stream/promises".to_string(), stream_promises_module);
-
-        let buffer_module = node_buffer_module();
-        builtins.insert("node:buffer".to_string(), buffer_module.clone());
-        builtins.insert("buffer".to_string(), buffer_module);
-
-        let util_module = node_util_module();
-        builtins.insert("node:util".to_string(), util_module.clone());
-        builtins.insert("util".to_string(), util_module.clone());
-        builtins.insert("sys".to_string(), util_module.clone());
-        builtins.insert("node:sys".to_string(), util_module);
-        builtins.insert(
-            "util/types".to_string(),
-            "module.exports = require('util').types;".to_string(),
-        );
-        builtins.insert(
-            "node:util/types".to_string(),
-            "module.exports = require('node:util').types;".to_string(),
-        );
-
-        let timers_module = node_timers_module();
-        builtins.insert("node:timers".to_string(), timers_module.clone());
-        builtins.insert("timers".to_string(), timers_module);
-
-        let timers_promises_module = node_timers_promises_module();
-        builtins.insert(
-            "node:timers/promises".to_string(),
-            timers_promises_module.clone(),
-        );
-        builtins.insert("timers/promises".to_string(), timers_promises_module);
-
-        let http_module = node_http_module();
-        builtins.insert("node:http".to_string(), http_module.clone());
-        builtins.insert("http".to_string(), http_module.clone());
-        builtins.insert("_http_agent".to_string(), http_module.clone());
-        builtins.insert("_http_common".to_string(), http_module.clone());
-        builtins.insert("_http_server".to_string(), http_module.clone());
-        builtins.insert("_http_outgoing".to_string(), http_module.clone());
-        builtins.insert("_http_incoming".to_string(), http_module);
-
-        let https_module = node_https_module();
-        builtins.insert("node:https".to_string(), https_module.clone());
-        builtins.insert("https".to_string(), https_module);
-
-        let stream_web_module = node_stream_web_module();
-        builtins.insert("node:stream/web".to_string(), stream_web_module.clone());
-        builtins.insert("stream/web".to_string(), stream_web_module);
-
-        builtins.insert("node:url".to_string(), node_url_module());
-        builtins.insert("url".to_string(), url_alias_module());
-
-        let os_module = node_os_module();
-        builtins.insert("node:os".to_string(), os_module.clone());
-        builtins.insert("os".to_string(), os_module);
-
-        let tty_module = node_tty_module();
-        builtins.insert("node:tty".to_string(), tty_module.clone());
-        builtins.insert("tty".to_string(), tty_module);
-
-        let assert_module = node_assert_module();
-        builtins.insert("node:assert".to_string(), assert_module.clone());
-        builtins.insert("assert".to_string(), assert_module.clone());
-        builtins.insert("node:assert/strict".to_string(), assert_module.clone());
-        builtins.insert("assert/strict".to_string(), assert_module);
-
-        let string_decoder_module = node_string_decoder_module();
-        builtins.insert(
-            "node:string_decoder".to_string(),
-            string_decoder_module.clone(),
-        );
-        builtins.insert("string_decoder".to_string(), string_decoder_module);
-
-        let querystring_module = node_querystring_module();
-        builtins.insert("node:querystring".to_string(), querystring_module.clone());
-        builtins.insert("querystring".to_string(), querystring_module);
-
-        let punycode_module = node_punycode_module();
-        builtins.insert("node:punycode".to_string(), punycode_module.clone());
-        builtins.insert("punycode".to_string(), punycode_module);
-
-        let child_process_module = node_child_process_module();
-        builtins.insert(
-            "node:child_process".to_string(),
-            child_process_module.clone(),
-        );
-        builtins.insert("child_process".to_string(), child_process_module);
-
-        let readline_module = node_readline_module();
-        builtins.insert("node:readline".to_string(), readline_module.clone());
-        builtins.insert("readline".to_string(), readline_module.clone());
-        builtins.insert(
-            "node:readline/promises".to_string(),
-            readline_module.clone(),
-        );
-        builtins.insert("readline/promises".to_string(), readline_module);
-
-        let module_module = node_module_module();
-        builtins.insert("node:module".to_string(), module_module.clone());
-        builtins.insert("module".to_string(), module_module);
-
-        let zlib_module = node_zlib_module();
-        builtins.insert("node:zlib".to_string(), zlib_module.clone());
-        builtins.insert("zlib".to_string(), zlib_module);
-
-        let tls_module = node_tls_module();
-        builtins.insert("node:tls".to_string(), tls_module.clone());
-        builtins.insert("tls".to_string(), tls_module);
-
-        let dns_module = node_dns_module();
-        builtins.insert("node:dns".to_string(), dns_module.clone());
-        builtins.insert("dns".to_string(), dns_module);
-        let dns_promises_module = node_dns_promises_module();
-        builtins.insert("node:dns/promises".to_string(), dns_promises_module.clone());
-        builtins.insert("dns/promises".to_string(), dns_promises_module);
-
-        let internal_fs_utils_module = internal_fs_utils_module();
-        builtins.insert("internal/fs/utils".to_string(), internal_fs_utils_module);
-
-        let net_module = node_net_module();
-        builtins.insert("node:net".to_string(), net_module.clone());
-        builtins.insert("net".to_string(), net_module);
-
-        let perf_hooks_module = node_perf_hooks_module();
-        builtins.insert("node:perf_hooks".to_string(), perf_hooks_module.clone());
-        builtins.insert("perf_hooks".to_string(), perf_hooks_module);
-
-        let async_hooks_module = node_async_hooks_module();
-        builtins.insert("node:async_hooks".to_string(), async_hooks_module.clone());
-        builtins.insert("async_hooks".to_string(), async_hooks_module);
-
-        let worker_threads_module = node_worker_threads_module();
-        builtins.insert(
-            "node:worker_threads".to_string(),
-            worker_threads_module.clone(),
-        );
-        builtins.insert("worker_threads".to_string(), worker_threads_module);
-
-        let vm_module = node_vm_module();
-        builtins.insert("node:vm".to_string(), vm_module.clone());
-        builtins.insert("vm".to_string(), vm_module);
-
-        let console_module = node_console_module();
-        builtins.insert("node:console".to_string(), console_module.clone());
-        builtins.insert("console".to_string(), console_module);
-
-        let cluster_module = node_cluster_module();
-        builtins.insert("node:cluster".to_string(), cluster_module.clone());
-        builtins.insert("cluster".to_string(), cluster_module);
-
-        let dgram_module = node_dgram_module();
-        builtins.insert("node:dgram".to_string(), dgram_module.clone());
-        builtins.insert("dgram".to_string(), dgram_module);
-
-        let domain_module = node_domain_module();
-        builtins.insert("node:domain".to_string(), domain_module.clone());
-        builtins.insert("domain".to_string(), domain_module);
-
-        let v8_module = node_v8_module();
-        builtins.insert("node:v8".to_string(), v8_module.clone());
-        builtins.insert("v8".to_string(), v8_module);
-
-        let constants_module = node_constants_module();
-        builtins.insert("node:constants".to_string(), constants_module.clone());
-        builtins.insert("constants".to_string(), constants_module);
-
-        let ws_module = ws_module();
-        builtins.insert("ws".to_string(), ws_module);
-
-        let http2_module = node_http2_module();
-        builtins.insert("node:http2".to_string(), http2_module.clone());
-        builtins.insert("http2".to_string(), http2_module);
-
-        let diagnostics_channel_module = node_diagnostics_channel_module();
-        builtins.insert(
-            "node:diagnostics_channel".to_string(),
-            diagnostics_channel_module.clone(),
-        );
-        builtins.insert(
-            "diagnostics_channel".to_string(),
-            diagnostics_channel_module,
-        );
-
-        let trace_events_module = node_trace_events_module();
-        builtins.insert("node:trace_events".to_string(), trace_events_module.clone());
-        builtins.insert("trace_events".to_string(), trace_events_module);
-
-        let inspector_module = node_inspector_module();
-        builtins.insert("node:inspector".to_string(), inspector_module.clone());
-        builtins.insert("inspector".to_string(), inspector_module.clone());
-        builtins.insert(
-            "node:inspector/promises".to_string(),
-            inspector_module.clone(),
-        );
-        builtins.insert("inspector/promises".to_string(), inspector_module);
-
-        let wasi_module = node_wasi_module();
-        builtins.insert("node:wasi".to_string(), wasi_module.clone());
-        builtins.insert("wasi".to_string(), wasi_module);
+        let mut source_cache: HashMap<BuiltinSource, String> = HashMap::new();
+        for registration in BUILTIN_MANIFEST_REGISTRATIONS {
+            let source = source_cache
+                .entry(BuiltinSource::from_key(registration.source_key))
+                .or_insert_with(|| builtin_source(BuiltinSource::from_key(registration.source_key)))
+                .clone();
+            builtins.insert(registration.specifier.to_string(), source);
+        }
 
         let options = ResolveOptions {
             extensions: vec![
@@ -470,7 +268,8 @@ impl ModuleLoader {
     }
 
     fn source_needs_downlevel(source: &str) -> bool {
-        Self::source_needs_async_downlevel(source) || Self::source_needs_loop_scope_downlevel(source)
+        Self::source_needs_async_downlevel(source)
+            || Self::source_needs_loop_scope_downlevel(source)
     }
 
     fn source_needs_async_downlevel(source: &str) -> bool {
@@ -847,6 +646,195 @@ fn repo_root() -> Result<PathBuf> {
         .and_then(|p| p.parent())
         .map(|p| p.to_path_buf())
         .ok_or_else(|| anyhow::anyhow!("Failed to resolve repo root"))
+}
+
+impl BuiltinSource {
+    fn from_key(source_key: &str) -> Self {
+        match source_key {
+            "exact_process" => Self::ExactProcess,
+            "exact_crypto" => Self::ExactCrypto,
+            "exact_clipboard" => Self::ExactClipboard,
+            "exact_http" => Self::ExactHttp,
+            "exact_sqlite" => Self::ExactSqlite,
+            "bun" => Self::Bun,
+            "bun_test" => Self::BunTest,
+            "bun_harness" => Self::BunHarness,
+            "node_harness" => Self::NodeHarness,
+            "bun_jsc" => Self::BunJsc,
+            "bun_internal_for_testing" => Self::BunInternalForTesting,
+            "node_test_alias" => Self::NodeTestAlias,
+            "node_fs" => Self::NodeFs,
+            "node_fs_promises" => Self::NodeFsPromises,
+            "node_path" => Self::NodePath,
+            "path_posix_alias" => Self::PathPosixAlias,
+            "path_win32_alias" => Self::PathWin32Alias,
+            "node_events" => Self::NodeEvents,
+            "node_stream" => Self::NodeStream,
+            "legacy_stream_readable" => Self::LegacyStreamReadable,
+            "legacy_stream_writable" => Self::LegacyStreamWritable,
+            "legacy_stream_duplex" => Self::LegacyStreamDuplex,
+            "legacy_stream_transform" => Self::LegacyStreamTransform,
+            "legacy_stream_passthrough" => Self::LegacyStreamPassthrough,
+            "node_stream_consumers" => Self::NodeStreamConsumers,
+            "node_stream_promises" => Self::NodeStreamPromises,
+            "node_buffer" => Self::NodeBuffer,
+            "node_util" => Self::NodeUtil,
+            "util_types_alias" => Self::UtilTypesAlias,
+            "node_util_types_alias" => Self::NodeUtilTypesAlias,
+            "node_timers" => Self::NodeTimers,
+            "node_timers_promises" => Self::NodeTimersPromises,
+            "node_http" => Self::NodeHttp,
+            "node_https" => Self::NodeHttps,
+            "node_stream_web" => Self::NodeStreamWeb,
+            "node_url" => Self::NodeUrl,
+            "url_alias" => Self::UrlAlias,
+            "node_assert" => Self::NodeAssert,
+            "node_os" => Self::NodeOs,
+            "node_tty" => Self::NodeTty,
+            "node_string_decoder" => Self::NodeStringDecoder,
+            "node_querystring" => Self::NodeQuerystring,
+            "node_punycode" => Self::NodePunycode,
+            "node_child_process" => Self::NodeChildProcess,
+            "node_readline" => Self::NodeReadline,
+            "node_module" => Self::NodeModule,
+            "node_zlib" => Self::NodeZlib,
+            "node_tls" => Self::NodeTls,
+            "node_dns" => Self::NodeDns,
+            "node_dns_promises" => Self::NodeDnsPromises,
+            "internal_fs_utils" => Self::InternalFsUtils,
+            "node_net" => Self::NodeNet,
+            "node_perf_hooks" => Self::NodePerfHooks,
+            "node_async_hooks" => Self::NodeAsyncHooks,
+            "node_worker_threads" => Self::NodeWorkerThreads,
+            "node_vm" => Self::NodeVm,
+            "node_console" => Self::NodeConsole,
+            "node_cluster" => Self::NodeCluster,
+            "node_dgram" => Self::NodeDgram,
+            "node_domain" => Self::NodeDomain,
+            "node_v8" => Self::NodeV8,
+            "node_constants" => Self::NodeConstants,
+            "ws" => Self::Ws,
+            "node_http2" => Self::NodeHttp2,
+            "node_diagnostics_channel" => Self::NodeDiagnosticsChannel,
+            "node_trace_events" => Self::NodeTraceEvents,
+            "node_inspector" => Self::NodeInspector,
+            "node_wasi" => Self::NodeWasi,
+            _ => panic!("unknown builtin source key: {source_key}"),
+        }
+    }
+}
+
+fn builtin_source(source: BuiltinSource) -> String {
+    match source {
+        BuiltinSource::ExactProcess => exact_process_module(),
+        BuiltinSource::ExactCrypto => exact_crypto_module(),
+        BuiltinSource::ExactClipboard => exact_clipboard_module(),
+        BuiltinSource::ExactHttp => exact_http_module(),
+        BuiltinSource::ExactSqlite => exact_sqlite_module(),
+        BuiltinSource::Bun => bun_module(),
+        BuiltinSource::BunTest => bun_test_module(),
+        BuiltinSource::BunHarness => bun_harness_module(),
+        BuiltinSource::NodeHarness => node_harness_module(),
+        BuiltinSource::BunJsc => bun_jsc_module(),
+        BuiltinSource::BunInternalForTesting => bun_internal_for_testing_module(),
+        BuiltinSource::NodeTestAlias => node_test_alias_source(),
+        BuiltinSource::NodeFs => node_fs_module(),
+        BuiltinSource::NodeFsPromises => node_fs_promises_module(),
+        BuiltinSource::NodePath => node_path_module(),
+        BuiltinSource::PathPosixAlias => path_posix_alias_source(),
+        BuiltinSource::PathWin32Alias => path_win32_alias_source(),
+        BuiltinSource::NodeEvents => node_events_module(),
+        BuiltinSource::NodeStream => node_stream_module(),
+        BuiltinSource::LegacyStreamReadable => legacy_stream_readable_alias_source(),
+        BuiltinSource::LegacyStreamWritable => legacy_stream_writable_alias_source(),
+        BuiltinSource::LegacyStreamDuplex => legacy_stream_duplex_alias_source(),
+        BuiltinSource::LegacyStreamTransform => legacy_stream_transform_alias_source(),
+        BuiltinSource::LegacyStreamPassthrough => legacy_stream_passthrough_alias_source(),
+        BuiltinSource::NodeStreamConsumers => node_stream_consumers_module(),
+        BuiltinSource::NodeStreamPromises => node_stream_promises_module(),
+        BuiltinSource::NodeBuffer => node_buffer_module(),
+        BuiltinSource::NodeUtil => node_util_module(),
+        BuiltinSource::UtilTypesAlias => util_types_alias_source(),
+        BuiltinSource::NodeUtilTypesAlias => node_util_types_alias_source(),
+        BuiltinSource::NodeTimers => node_timers_module(),
+        BuiltinSource::NodeTimersPromises => node_timers_promises_module(),
+        BuiltinSource::NodeHttp => node_http_module(),
+        BuiltinSource::NodeHttps => node_https_module(),
+        BuiltinSource::NodeStreamWeb => node_stream_web_module(),
+        BuiltinSource::NodeUrl => node_url_module(),
+        BuiltinSource::UrlAlias => url_alias_module(),
+        BuiltinSource::NodeAssert => node_assert_module(),
+        BuiltinSource::NodeOs => node_os_module(),
+        BuiltinSource::NodeTty => node_tty_module(),
+        BuiltinSource::NodeStringDecoder => node_string_decoder_module(),
+        BuiltinSource::NodeQuerystring => node_querystring_module(),
+        BuiltinSource::NodePunycode => node_punycode_module(),
+        BuiltinSource::NodeChildProcess => node_child_process_module(),
+        BuiltinSource::NodeReadline => node_readline_module(),
+        BuiltinSource::NodeModule => node_module_module(),
+        BuiltinSource::NodeZlib => node_zlib_module(),
+        BuiltinSource::NodeTls => node_tls_module(),
+        BuiltinSource::NodeDns => node_dns_module(),
+        BuiltinSource::NodeDnsPromises => node_dns_promises_module(),
+        BuiltinSource::InternalFsUtils => internal_fs_utils_module(),
+        BuiltinSource::NodeNet => node_net_module(),
+        BuiltinSource::NodePerfHooks => node_perf_hooks_module(),
+        BuiltinSource::NodeAsyncHooks => node_async_hooks_module(),
+        BuiltinSource::NodeWorkerThreads => node_worker_threads_module(),
+        BuiltinSource::NodeVm => node_vm_module(),
+        BuiltinSource::NodeConsole => node_console_module(),
+        BuiltinSource::NodeCluster => node_cluster_module(),
+        BuiltinSource::NodeDgram => node_dgram_module(),
+        BuiltinSource::NodeDomain => node_domain_module(),
+        BuiltinSource::NodeV8 => node_v8_module(),
+        BuiltinSource::NodeConstants => node_constants_module(),
+        BuiltinSource::Ws => ws_module(),
+        BuiltinSource::NodeHttp2 => node_http2_module(),
+        BuiltinSource::NodeDiagnosticsChannel => node_diagnostics_channel_module(),
+        BuiltinSource::NodeTraceEvents => node_trace_events_module(),
+        BuiltinSource::NodeInspector => node_inspector_module(),
+        BuiltinSource::NodeWasi => node_wasi_module(),
+    }
+}
+
+fn node_test_alias_source() -> String {
+    "module.exports = require('test');".to_string()
+}
+
+fn path_posix_alias_source() -> String {
+    "module.exports = require('path').posix;".to_string()
+}
+
+fn path_win32_alias_source() -> String {
+    "module.exports = require('path').win32;".to_string()
+}
+
+fn legacy_stream_readable_alias_source() -> String {
+    "module.exports = require('stream').Readable;".to_string()
+}
+
+fn legacy_stream_writable_alias_source() -> String {
+    "module.exports = require('stream').Writable;".to_string()
+}
+
+fn legacy_stream_duplex_alias_source() -> String {
+    "module.exports = require('stream').Duplex;".to_string()
+}
+
+fn legacy_stream_transform_alias_source() -> String {
+    "module.exports = require('stream').Transform;".to_string()
+}
+
+fn legacy_stream_passthrough_alias_source() -> String {
+    "module.exports = require('stream').PassThrough;".to_string()
+}
+
+fn util_types_alias_source() -> String {
+    "module.exports = require('util').types;".to_string()
+}
+
+fn node_util_types_alias_source() -> String {
+    "module.exports = require('node:util').types;".to_string()
 }
 
 fn exact_process_module() -> String {
@@ -2107,5 +2095,48 @@ const asyncIterable = {
             .path
             .unwrap()
             .ends_with("node_modules/exports-import-only/esm.js"));
+    }
+
+    #[test]
+    fn manifest_registrations_resolve_as_builtins() {
+        let loader = ModuleLoader::new();
+
+        for registration in BUILTIN_MANIFEST_REGISTRATIONS {
+            let resolved = loader.resolve(registration.specifier, None).unwrap();
+            assert_eq!(
+                resolved.kind,
+                ModuleKind::Builtin,
+                "{}",
+                registration.specifier
+            );
+        }
+    }
+
+    #[test]
+    fn manifest_aliases_share_sources_and_keep_distinct_ids() {
+        let loader = ModuleLoader::new();
+        let mut registrations_by_source: HashMap<&str, Vec<&str>> = HashMap::new();
+
+        for registration in BUILTIN_MANIFEST_REGISTRATIONS {
+            registrations_by_source
+                .entry(registration.source_key)
+                .or_default()
+                .push(registration.specifier);
+        }
+
+        for specifiers in registrations_by_source.values() {
+            if specifiers.len() < 2 {
+                continue;
+            }
+
+            let first = loader.resolve(specifiers[0], None).unwrap();
+            let first_source = first.source.clone();
+
+            for specifier in &specifiers[1..] {
+                let resolved = loader.resolve(specifier, None).unwrap();
+                assert_ne!(resolved.id, first.id, "{}", specifier);
+                assert_eq!(resolved.source, first_source, "{}", specifier);
+            }
+        }
     }
 }

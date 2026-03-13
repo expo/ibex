@@ -853,11 +853,6 @@
         return [];
       }
     },
-    'internal/url': {
-      isURL: function(value) {
-        return typeof globalThis.URL === 'function' && value instanceof globalThis.URL;
-      }
-    },
     'internal/crypto/util': {
       getOpenSSLSecLevel: function() { return 0; }
     },
@@ -868,6 +863,9 @@
     },
     'internal/url': {
       isURL: function(value) {
+        if (typeof globalThis.URL === 'function' && value instanceof globalThis.URL) {
+          return true;
+        }
         if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
           return false;
         }
