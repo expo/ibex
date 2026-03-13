@@ -1149,10 +1149,10 @@ function toBuffer(value) {
   if (value == null) return null;
   if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return value;
   if (typeof value === 'string') {
-    if (typeof Buffer !== 'undefined') return Buffer.from(value, 'utf8');
+    if (typeof Buffer !== 'undefined') return Buffer.from(value, 'latin1');
     return value;
   }
-  return typeof Buffer !== 'undefined' ? Buffer.from(String(value), 'utf8') : String(value);
+  return typeof Buffer !== 'undefined' ? Buffer.from(String(value), 'latin1') : String(value);
 }
 
 function isValidMethodStart(byte) {
@@ -2486,22 +2486,29 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var socketRetired = false;
   var parseErrored = false;
 
-  function createResponseParseError(rawPacket, bytesParsed) {
+  function createResponseParseError(rawPacket, bytesParsed, code, reason) {
     var raw = toBuffer(rawPacket);
-    var err = new Error('Parse Error: Expected HTTP/, RTSP/ or ICE/');
-    err.code = 'HPE_INVALID_CONSTANT';
+    var message = reason || 'Expected HTTP/, RTSP/ or ICE/';
+    var err = new Error('Parse Error: ' + message);
+    err.code = code || 'HPE_INVALID_CONSTANT';
     err.rawPacket = raw || toBuffer('');
     err.bytesParsed = typeof bytesParsed === 'number' ? bytesParsed : 0;
+    if (reason) {
+      err.reason = reason;
+    }
     return err;
   }
 
-  function emitResponseParseError(rawPacket, bytesParsed, finishParsedResponse) {
+  function emitResponseParseError(rawPacket, bytesParsed, finishParsedResponse, code, reason) {
     if (parseErrored || self._aborted) return;
     parseErrored = true;
     socket._hadError = true;
     socket.removeListener('data', onData);
     socket.removeListener('end', onEnd);
-    self.emit('error', createResponseParseError(rawPacket, bytesParsed));
+    self.emit('error', createResponseParseError(rawPacket, bytesParsed, code, reason));
+    try {
+      socket.destroy();
+    } catch (_responseParseDestroyErr) {}
     if (finishParsedResponse && responseEmitted && !responseEnded) {
       finishResponse();
     }
@@ -2855,6 +2862,14 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       var cl = responseHeaders['content-length'];
       if (cl !== undefined) contentLength = parseInt(cl, 10) || 0;
       var te = responseHeaders['transfer-encoding'];
+      if (cl !== undefined && te !== undefined) {
+        var reason = "Transfer-Encoding can't be present with Content-Length";
+        var headerLower = headerSection.toLowerCase();
+        var teIndex = headerLower.indexOf('transfer-encoding');
+        if (teIndex < 0) teIndex = 0;
+        emitResponseParseError(responseBuffer, teIndex, false, 'HPE_INVALID_TRANSFER_ENCODING', reason);
+        return;
+      }
       if (te && te.toLowerCase().indexOf('chunked') !== -1) {
         isChunked = true;
       }
@@ -4942,6 +4957,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
               var finalBody = (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(body))
                 ? Buffer.concat([Buffer.from(head, 'latin1'), body])
                 : head + body;
+              socket._ended = true;
               socket.write(finalBody, function(writeErr) {
                 if (writeErr) {
                   try { socket.destroy(writeErr); } catch (_destroyAfterBodyErr) {}
