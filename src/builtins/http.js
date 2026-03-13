@@ -288,6 +288,80 @@ function _validateTrailerValue(name, value) {
   }
 }
 
+function _appendIncomingTrailerValue(target, rawTarget, name, value) {
+  if (!target || !rawTarget) return;
+  var lowerName = resolveHeaderName(name);
+  if (target[lowerName] === undefined) {
+    target[lowerName] = value;
+  } else if (Array.isArray(target[lowerName])) {
+    target[lowerName].push(value);
+  } else {
+    target[lowerName] = [target[lowerName], value];
+  }
+  rawTarget.push(name, value);
+}
+
+function _parseTrailerSection(section, target, rawTarget) {
+  if (!section || !target || !rawTarget) return;
+  var lines = section.split('\r\n');
+  for (var i = 0; i < lines.length; i++) {
+    if (!lines[i]) continue;
+    var colonIdx = lines[i].indexOf(':');
+    if (colonIdx <= 0) continue;
+    var name = lines[i].substring(0, colonIdx).trim();
+    var value = lines[i].substring(colonIdx + 1).trim();
+    _appendIncomingTrailerValue(target, rawTarget, name, value);
+  }
+}
+
+function _formatOutgoingTrailers(headers, headerNames) {
+  if (!headers || typeof headers !== 'object') return '';
+  var trailer = '';
+  for (var key in headers) {
+    if (!Object.prototype.hasOwnProperty.call(headers, key)) continue;
+    var casedName = (headerNames && headerNames[key]) || key;
+    var value = headers[key];
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) {
+        trailer += casedName + ': ' + value[i] + '\r\n';
+      }
+    } else {
+      trailer += casedName + ': ' + value + '\r\n';
+    }
+  }
+  return trailer;
+}
+
+function _hasOutgoingTrailers(target) {
+  if (!target || !target._trailers) return false;
+  for (var key in target._trailers) {
+    if (Object.prototype.hasOwnProperty.call(target._trailers, key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function _invalidTimeoutTypeError(value) {
+  var err = new TypeError('The "timeout" argument must be of type number.' +
+    _invalidArgTypeHelper(value));
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  return err;
+}
+
+function _validateTimeoutValue(value) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    throw _invalidTimeoutTypeError(value);
+  }
+  if (!isFinite(value) || value < 0 || value > 2147483647) {
+    var err = new RangeError('The value of "timeout" is out of range. It must be >= 0 && <= 2147483647. Received ' + value);
+    err.code = 'ERR_OUT_OF_RANGE';
+    throw err;
+  }
+  return Math.floor(value);
+}
+
 function initOutgoingMessage(target) {
   _ensureOutgoingHeaderState(target);
   target[kOutHeaders] = null;
@@ -479,11 +553,14 @@ OutgoingMessage.prototype.addTrailers = function(headers) {
     throw new TypeError('Cannot convert undefined or null to object');
   }
   this._trailers = this._trailers || {};
+  this._trailerNames = this._trailerNames || {};
   for (var name in headers) {
     if (!Object.prototype.hasOwnProperty.call(headers, name)) continue;
     _validateTrailerName(name);
     _validateTrailerValue(name, headers[name]);
-    this._trailers[resolveHeaderName(name)] = headers[name];
+    var lc = resolveHeaderName(name);
+    this._trailers[lc] = headers[name];
+    this._trailerNames[lc] = name;
   }
 };
 
@@ -1280,6 +1357,10 @@ function ClientRequest(options, callback) {
     insecureParserErr.code = 'ERR_INVALID_ARG_TYPE';
     throw insecureParserErr;
   }
+  var requestTimeout = _validateTimeoutValue(this.options.timeout);
+  if (requestTimeout !== undefined) {
+    this.options.timeout = requestTimeout;
+  }
 
   var resolvedAgent = this.options.agent;
   if (resolvedAgent === false) {
@@ -1332,8 +1413,9 @@ function ClientRequest(options, callback) {
   this.agent = resolvedAgent;
   this.host = this.options.hostname || this.options.host || 'localhost';
   this.protocol = this.options.protocol || (this.agent && this.agent.protocol) || 'http:';
-  this.timeout = this.options.timeout;
+  this.timeout = requestTimeout;
   this.timeoutCb = null;
+  this._timeoutEmitted = false;
   this.res = null;
   this._pendingRawRequest = null;
   this._agentDispatched = false;
@@ -1587,7 +1669,8 @@ ClientRequest.prototype._queueStreamingRequestBody = function(chunk, encoding, c
 
 function emitRequestTimeout() {
   var req = this && this._httpMessage;
-  if (req) {
+  if (req && !req._timeoutEmitted) {
+    req._timeoutEmitted = true;
     req.emit('timeout');
   }
 }
@@ -1918,24 +2001,24 @@ ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
 };
 
 ClientRequest.prototype.setTimeout = function(timeout, callback) {
-  if (typeof timeout === 'number' && timeout >= 0) {
-    this.timeout = timeout;
-    if (callback) {
-      this.once('timeout', callback);
+  timeout = _validateTimeoutValue(timeout);
+  this.timeout = timeout;
+  this._timeoutEmitted = false;
+  if (callback) {
+    this.once('timeout', callback);
+  }
+  if (timeout === 0) {
+    if (this.socket && typeof this.socket.setTimeout === 'function') {
+      this.socket.setTimeout(0);
     }
-    if (timeout === 0) {
-      if (this.socket && typeof this.socket.setTimeout === 'function') {
-        this.socket.setTimeout(0);
-      }
-      if (this.socket) {
-        clearSocketTimeoutListener(this, this.socket);
-      }
-      return this;
-    }
-    listenSocketTimeout(this);
     if (this.socket) {
-      setSocketTimeout(this.socket, timeout);
+      clearSocketTimeoutListener(this, this.socket);
     }
+    return this;
+  }
+  listenSocketTimeout(this);
+  if (this.socket) {
+    setSocketTimeout(this.socket, timeout);
   }
   return this;
 };
@@ -2498,6 +2581,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     responseEnded = true;
     clearAbortResponseHook();
     if (tcpIncoming) {
+      if (socket && tcpIncoming._socketTimeoutListener) {
+        socket.removeListener('timeout', tcpIncoming._socketTimeoutListener);
+        tcpIncoming._socketTimeoutListener = null;
+      }
       tcpIncoming._finishResponse();
     }
     finishRequestWrite();
@@ -2508,6 +2595,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     responseEnded = true;
     clearAbortResponseHook();
     if (tcpIncoming) {
+      if (socket && tcpIncoming._socketTimeoutListener) {
+        socket.removeListener('timeout', tcpIncoming._socketTimeoutListener);
+        tcpIncoming._socketTimeoutListener = null;
+      }
       var abortErr = err || new Error('aborted');
       if (!abortErr.code) {
         abortErr.code = 'ECONNRESET';
@@ -2563,9 +2654,13 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         var sizeStr = chunkBuffer.substring(0, nlIdx).split(';')[0].trim();
         chunkRemaining = parseInt(sizeStr, 16);
         chunkBuffer = chunkBuffer.substring(nlIdx + 2);
-        if (isNaN(chunkRemaining) || chunkRemaining === 0) {
-          finishResponse();
+        if (isNaN(chunkRemaining)) {
+          emitResponseParseError(data, 0, false);
           return;
+        }
+        if (chunkRemaining === 0) {
+          chunkParserState = 'trailers';
+          continue;
         }
         chunkParserState = 'data';
       } else if (chunkParserState === 'data') {
@@ -2585,11 +2680,29 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
           var chunkDataBuf = (typeof Buffer !== 'undefined') ? Buffer.from(chunkData, 'latin1') : chunkData;
           if (!pushIncomingResponseChunk(chunkDataBuf)) return;
         }
-        chunkParserState = 'trailer';
-      } else if (chunkParserState === 'trailer') {
+        chunkParserState = 'chunk-end';
+      } else if (chunkParserState === 'chunk-end') {
         if (chunkBuffer.length < 2) return;
         chunkBuffer = chunkBuffer.substring(2);
         chunkParserState = 'size';
+      } else if (chunkParserState === 'trailers') {
+        if (chunkBuffer.indexOf('\r\n') === 0) {
+          chunkBuffer = chunkBuffer.substring(2);
+          finishResponse();
+          return;
+        }
+        var trailerEndIdx = chunkBuffer.indexOf('\r\n\r\n');
+        if (trailerEndIdx === -1) return;
+        if (tcpIncoming) {
+          _parseTrailerSection(
+            chunkBuffer.substring(0, trailerEndIdx),
+            tcpIncoming.trailers,
+            tcpIncoming.rawTrailers
+          );
+        }
+        chunkBuffer = chunkBuffer.substring(trailerEndIdx + 4);
+        finishResponse();
+        return;
       }
     }
   }
@@ -2690,6 +2803,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       tcpIncoming.httpVersionMajor = httpVerMajor;
       tcpIncoming.httpVersionMinor = httpVerMinor;
       tcpIncoming.httpVersion = httpVerMajor + '.' + httpVerMinor;
+      tcpIncoming._socketTimeoutListener = function() {
+        tcpIncoming.emit('timeout');
+      };
+      socket.on('timeout', tcpIncoming._socketTimeoutListener);
       self.res = tcpIncoming;
       var connHdr = (responseHeaders['connection'] || '').toLowerCase();
       var responseEndsAtEof = !isChunked &&
@@ -2722,6 +2839,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       }
 
       tcpIncoming.on('end', function() {
+        if (socket && tcpIncoming._socketTimeoutListener) {
+          socket.removeListener('timeout', tcpIncoming._socketTimeoutListener);
+          tcpIncoming._socketTimeoutListener = null;
+        }
         clearSocketTimeoutListener(self, socket);
         if (self.shouldKeepAlive && !tcpIncoming.aborted) {
           if (!self._ended || !self.writableEnded || !self.finished) {
@@ -2761,6 +2882,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         }
       }
       if (skipResponseBody) {
+        finishResponse();
+        return;
+      }
+      if (!isChunked && contentLength === 0) {
         finishResponse();
       }
     } else if (tcpIncoming && !skipResponseBody) {
@@ -3365,6 +3490,9 @@ function Agent(options) {
   }
   EventEmitter.call(this);
   this.options = options || {};
+  if (this.options.timeout !== undefined) {
+    this.options.timeout = _validateTimeoutValue(this.options.timeout);
+  }
   this.defaultPort = this.options.defaultPort || 80;
   this.protocol = this.options.protocol || 'http:';
   if (this.options.noDelay === undefined) {
@@ -4200,7 +4328,9 @@ Object.defineProperty(ServerResponse.prototype, 'writableHighWaterMark', {
 
 ServerResponse.prototype.assignSocket = function(socket) {
   if (this.socket) {
-    throw new Error('Socket already assigned');
+    var socketAssignedErr = new Error('ServerResponse has an already assigned socket');
+    socketAssignedErr.code = 'ERR_HTTP_SOCKET_ASSIGNED';
+    throw socketAssignedErr;
   }
   this.socket = socket;
   if (!socket) return;
@@ -4409,7 +4539,7 @@ ServerResponse.prototype.writeEarlyHints = function(hints, callback) {
 };
 
 ServerResponse.prototype.addTrailers = function(headers) {
-  this._trailers = headers || {};
+  return OutgoingMessage.prototype.addTrailers.call(this, headers);
 };
 
 ServerResponse.prototype._ensureImplicitHeaders = function() {
@@ -4675,6 +4805,11 @@ ServerResponse.prototype._sendSocketResponse = function() {
       var statusCode = _getServerResponseStatusCode(this);
       var statusMsg = _getServerResponseStatusMessage(this);
       var head = 'HTTP/1.1 ' + statusCode + ' ' + statusMsg + '\r\n';
+      var shouldSendTrailers = _hasOutgoingTrailers(this) &&
+        httpVersionMajor === 1 && httpVersionMinor === 1;
+      if (shouldSendTrailers) {
+        keepAlive = false;
+      }
 
       if (httpVersionMajor === 1 && httpVersionMinor === 0) {
         var hasExplicitFraming = this._headers['content-length'] != null
@@ -4686,6 +4821,15 @@ ServerResponse.prototype._sendSocketResponse = function() {
             this._headers['connection'] = 'close';
           }
         }
+      }
+      if (shouldSendTrailers && !_hasChunkedTransferEncoding(this._headers['transfer-encoding'])) {
+        delete this._headers['content-length'];
+        delete this._headerNames['content-length'];
+        if (this[kOutHeaders] && typeof this[kOutHeaders] === 'object') {
+          delete this[kOutHeaders]['content-length'];
+        }
+        this._headers['transfer-encoding'] = 'chunked';
+        this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
       }
       if (this._headers['content-length'] == null &&
           !_hasChunkedTransferEncoding(this._headers['transfer-encoding'])) {
@@ -4734,7 +4878,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
           socket.write(head);
           if (useChunkedBody) {
             if (bodyLength > 0) socket.write(_buildChunkedRequestFrame(body));
-            socket.write('0\r\n\r\n');
+            socket.write('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
           } else if (bodyLength > 0) {
             socket.write(body);
           }
@@ -4748,7 +4892,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         socket[kTimeout] = null;
         try {
           if (useChunkedBody && bodyLength === 0) {
-            socket.end(head + '0\r\n\r\n');
+            socket.end(head + '0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
           } else if (!useChunkedBody && bodyLength === 0) {
             socket.write(head, function(writeErr) {
               if (writeErr) {
@@ -4762,12 +4906,27 @@ ServerResponse.prototype._sendSocketResponse = function() {
               }, 0);
             });
           } else {
-            socket.write(head);
             if (useChunkedBody) {
+              socket.write(head);
               socket.write(_buildChunkedRequestFrame(body));
-              socket.end('0\r\n\r\n');
+              socket.end('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
             } else {
-              socket.end(body);
+              var finalBody = (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(body))
+                ? Buffer.concat([Buffer.from(head, 'latin1'), body])
+                : head + body;
+              socket.write(finalBody, function(writeErr) {
+                if (writeErr) {
+                  try { socket.destroy(writeErr); } catch (_destroyAfterBodyErr) {}
+                  return;
+                }
+                setTimeout(function() {
+                  if (!socket.destroyed) {
+                    try {
+                      socket.end(typeof Buffer !== 'undefined' && Buffer.alloc ? Buffer.alloc(0) : '');
+                    } catch (_endAfterBodyErr) {}
+                  }
+                }, 0);
+              });
             }
           }
         } catch(e) {
@@ -4787,7 +4946,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         try {
           if (this._useChunkedEncoding) {
             if (remainingBodyLength > 0) socket.write(_buildChunkedRequestFrame(remainingBody));
-            socket.write('0\r\n\r\n');
+            socket.write('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
           } else if (remainingBodyLength > 0) {
             socket.write(remainingBody);
           }
@@ -4802,7 +4961,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         try {
           if (this._useChunkedEncoding) {
             if (remainingBodyLength > 0) socket.write(_buildChunkedRequestFrame(remainingBody));
-            socket.end('0\r\n\r\n');
+            socket.end('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
           } else if (remainingBodyLength > 0) {
             socket.end(remainingBody);
           } else {

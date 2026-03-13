@@ -1000,6 +1000,7 @@ function Socket(options) {
   this._timeoutMs = 0;
   this._timeoutTimer = null;
   this._lastActivity = 0;
+  this._timeoutEmitted = false;
   this._handle = _makeSocketHandle(null);
   this._pollTimer = null;
   this._drainTimer = null;
@@ -1418,6 +1419,7 @@ Socket.prototype._drainWriteQueue = function() {
       item.deferredOffset += written;
     }
     this._lastActivity = Date.now();
+    this._timeoutEmitted = false;
 
     if (_isQueuedWriteItemComplete(item)) {
       this._writeQueue.shift();
@@ -1587,6 +1589,7 @@ Socket.prototype._startPolling = function() {
   if (this._pollTimer != null || this.destroyed) return;
   var self = this;
   self._lastActivity = Date.now();
+  self._timeoutEmitted = false;
   function poll() {
     if (self.destroyed) return;
     var nativeHandle = _unwrapHandle(self._handle);
@@ -1623,6 +1626,7 @@ Socket.prototype._startPolling = function() {
           }
           readOnreadData = true;
           self._lastActivity = Date.now();
+          self._timeoutEmitted = false;
           self.bytesRead += onreadData.length;
           self._appendToReadBuffer(onreadData);
           if (!self._processOnreadBuffer()) {
@@ -1638,7 +1642,8 @@ Socket.prototype._startPolling = function() {
         return;
       }
       // Check idle timeout
-      if (self._timeoutMs > 0 && (Date.now() - self._lastActivity) >= self._timeoutMs) {
+      if (self._timeoutMs > 0 && !self._timeoutEmitted && (Date.now() - self._lastActivity) >= self._timeoutMs) {
+        self._timeoutEmitted = true;
         self.emit('timeout');
       }
       self._pollTimer = _scheduleTimer(poll, _getSocketPollDelay(self, readOnreadData), self);
@@ -1663,6 +1668,7 @@ Socket.prototype._startPolling = function() {
         }
         readData = true;
         self._lastActivity = Date.now();
+        self._timeoutEmitted = false;
         self.bytesRead += data.length;
         self._appendToReadBuffer(data);
         self.emit('readable');
@@ -1694,7 +1700,8 @@ Socket.prototype._startPolling = function() {
       return;
     }
     // Check idle timeout
-    if (self._timeoutMs > 0 && (Date.now() - self._lastActivity) >= self._timeoutMs) {
+    if (self._timeoutMs > 0 && !self._timeoutEmitted && (Date.now() - self._lastActivity) >= self._timeoutMs) {
+      self._timeoutEmitted = true;
       self.emit('timeout');
     }
     self._pollTimer = _scheduleTimer(poll, _getSocketPollDelay(self, readData), self);
@@ -2431,6 +2438,7 @@ Socket.prototype.setTimeout = function(timeout, callback) {
   }
   this.timeout = timeout || 0;
   this._timeoutMs = timeout || 0;
+  this._timeoutEmitted = false;
   if (callback !== undefined) {
     if (typeof callback !== 'function') {
       var cbErr = new TypeError('The "callback" argument must be of type function. Received type ' + typeof callback);
