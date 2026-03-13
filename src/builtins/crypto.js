@@ -456,9 +456,10 @@ Hash.prototype.digest = function(encoding) {
   }
   this._finalized = true;
   var joined = this._chunks.join('');
+  var joinedBytes = _bytesToBufferLike(_toByteArray(joined));
   if (!encoding || encoding === 'buffer') {
     if (typeof __exactHashRaw === 'function') {
-      var raw = __exactHashRaw(this._algo, joined);
+      var raw = __exactHashRaw(this._algo, joinedBytes);
       if (typeof Buffer !== 'undefined' && Buffer.from) {
         this._digestResult = Buffer.from(raw);
       } else {
@@ -468,7 +469,7 @@ Hash.prototype.digest = function(encoding) {
     }
   }
   if (typeof __exactHashSync === 'function') {
-    var hex = __exactHashSync(this._algo, joined);
+    var hex = __exactHashSync(this._algo, joinedBytes);
     if (!encoding || encoding === 'hex') { this._digestResult = hex; return hex; }
     // For any encoding, first get a Buffer from the hex, then convert
     if (typeof Buffer !== 'undefined' && Buffer.from) {

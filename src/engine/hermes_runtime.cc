@@ -7850,23 +7850,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactHashSync: algorithm and data required");
         }
         auto algo = args[0].asString(runtime).utf8(runtime);
-
-        // Get input data as bytes
-        std::vector<uint8_t> inputBytes;
-        if (args[1].isString()) {
-          auto str = args[1].asString(runtime).utf8(runtime);
-          inputBytes.assign(str.begin(), str.end());
-        } else if (args[1].isObject()) {
-          auto obj = args[1].asObject(runtime);
-          if (obj.isArrayBuffer(runtime)) {
-            auto buf = obj.getArrayBuffer(runtime);
-            inputBytes.assign(buf.data(runtime), buf.data(runtime) + buf.size(runtime));
-          } else {
-            // Try as Uint8Array via __inner
-            auto str = args[1].asString(runtime).utf8(runtime);
-            inputBytes.assign(str.begin(), str.end());
-          }
-        }
+        auto inputBytes = extractBytes(runtime, args[1]);
 
         std::vector<uint8_t> digest;
 #if defined(__APPLE__)
@@ -8038,11 +8022,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactHashRaw: algorithm and data required");
         }
         auto algo = args[0].asString(runtime).utf8(runtime);
-        std::vector<uint8_t> inputBytes;
-        if (args[1].isString()) {
-          auto str = args[1].asString(runtime).utf8(runtime);
-          inputBytes.assign(str.begin(), str.end());
-        }
+        auto inputBytes = extractBytes(runtime, args[1]);
 
         std::vector<uint8_t> digest;
 #if defined(__APPLE__)
