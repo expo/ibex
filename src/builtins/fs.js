@@ -2885,6 +2885,9 @@ function _initReadStream(rs, path, options) {
     });
     rs._exactReadStreamInitialized = true;
   }
+  if (encoding) {
+    rs.setEncoding(encoding);
+  }
   rs.path = ((fdOption === undefined || fdOption === null) || path !== null && path !== undefined) ? path : undefined;
   rs.start = start;
   rs.end = end;
@@ -3199,6 +3202,9 @@ function _initWriteStream(ws, path, options) {
     Stream.Writable.call(ws, { emitClose: autoClose });
     ws._exactWriteStreamInitialized = true;
   }
+  if (encoding) {
+    ws.setDefaultEncoding(encoding);
+  }
   ws.path = path;
   ws.fd = fd;
   ws.closed = false;
@@ -3290,9 +3296,6 @@ function emitWriteError(err, callback, operation) {
     if (ws._writableState) {
       ws._writableState.autoDestroy = false;
     }
-    if (typeof callback === 'function') {
-      callback(writeErr);
-    }
     if (!ws._writeErrorClosed && autoClose) {
       ws._writeErrorClosed = true;
       closeWriteFd(function(closeErr) {
@@ -3300,9 +3303,15 @@ function emitWriteError(err, callback, operation) {
           ws.emit('error', closeErr);
         }
         ws._emitClose();
+        if (typeof callback === 'function') {
+          callback(writeErr);
+        }
         ws.emit('error', writeErr);
       });
       return;
+    }
+    if (typeof callback === 'function') {
+      callback(writeErr);
     }
     ws.emit('error', writeErr);
   }

@@ -44,10 +44,10 @@ function Interface(options) {
       if (self.closed) return;
       var str = typeof chunk === 'string' ? chunk : (chunk && typeof chunk.toString === 'function' ? chunk.toString('utf8') : String(chunk));
       self._lineBuffer += str;
-      var lines = self._lineBuffer.split('\n');
+      var lines = self._lineBuffer.split(/\r\n|[\n\r\x85\u2028\u2029]/);
       self._lineBuffer = lines.pop() || '';
       for (var i = 0; i < lines.length; i++) {
-        var line = lines[i].replace(/\r$/, '');
+        var line = lines[i];
         self.line = line;
         if (self.history.length === 0 || self.history[0] !== line) {
           self.history.unshift(line);
@@ -58,7 +58,7 @@ function Interface(options) {
     this._onEnd = function() {
       if (self.closed) return;
       if (self._lineBuffer.length > 0) {
-        var remaining = self._lineBuffer.replace(/\r$/, '');
+        var remaining = self._lineBuffer;
         self._lineBuffer = '';
         self.line = remaining;
         self.emit('line', remaining);
