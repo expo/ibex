@@ -7,19 +7,16 @@
   // produces a real Date object whose [[Prototype]] is the subclass prototype.
   (function patchDateSubclassing() {
     if (typeof Date === 'undefined') return;
-    // Quick probe: try subclassing and see if the result is a proper object.
+    // Quick probe: try subclassing with ES6 class syntax and see if it works.
     var needsPatch = false;
     try {
-      var TestSub = function TestDateSub() { Date.call(this); };
-      TestSub.prototype = Object.create(Date.prototype);
-      TestSub.prototype.constructor = TestSub;
+      // Use Function() to avoid parse errors in engines that don't support class syntax
+      var TestSubFn = Function('Date', 'return class TestDateSub extends Date { constructor() { super(); this[0] = "x"; } }');
+      var TestSub = TestSubFn(Date);
       var inst = new TestSub();
-      // If inst is not a real object (e.g. typeof is 'string'), we need the patch
-      if (typeof inst !== 'object' || inst === null) {
+      // If inst is not a real object or setting indexed properties failed, we need the patch
+      if (typeof inst !== 'object' || inst === null || inst[0] !== 'x') {
         needsPatch = true;
-      } else {
-        // Also check that we can set indexed properties
-        try { inst[0] = '1'; } catch (e) { needsPatch = true; }
       }
     } catch (e) {
       needsPatch = true;

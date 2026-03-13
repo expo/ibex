@@ -3082,7 +3082,7 @@ function _initReadStream(rs, path, options) {
         rs.bytesRead += bytesRead;
         rs._position += bytesRead;
         var chunk = data ? data.slice(0, bytesRead) : buf.slice(0, bytesRead);
-        var shouldContinue = encoding ? rs.push(decodeBytes(chunk, encoding)) : rs.push(wrapBuffer(chunk));
+        var shouldContinue = rs.push(wrapBuffer(chunk));
         if (bytesRead < chunkSize) {
           rs.push(null);
           if (autoClose) closeFd();

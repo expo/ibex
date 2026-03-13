@@ -354,6 +354,11 @@ function brotliDecompressSync(data, options) {
 function zstdCompressSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
+  if (bytes.length === 0) {
+    var emptyFrame = toBuffer(new Uint8Array([0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x01, 0x00, 0x00, 0x00]));
+    if (options && options.info) return { engine: new ZstdCompress(options), buffer: emptyFrame }; // eslint-disable-line no-use-before-define
+    return emptyFrame;
+  }
   var level = -1;
   if (options && options.level !== undefined) {
     level = options.level;
@@ -1160,11 +1165,17 @@ BrotliDecompress.prototype = Object.create(ZlibTransform.prototype);
 BrotliDecompress.prototype.constructor = BrotliDecompress;
 
 // Zstd stream classes
+// Minimal valid zstd empty frame (9 bytes): magic + frame header + empty last block
+var _ZSTD_EMPTY_FRAME = new Uint8Array([0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x01, 0x00, 0x00, 0x00]);
+
 function ZstdCompress(opts) {
   if (!(this instanceof ZstdCompress)) return new ZstdCompress(opts);
   var _opts = opts;
   ZlibTransform.call(this, function(buf) {
     var bytes = toBytes(buf);
+    if (bytes.length === 0) {
+      return toBuffer(_ZSTD_EMPTY_FRAME);
+    }
     var level = -1;
     if (_opts && _opts.level !== undefined) {
       level = _opts.level;
