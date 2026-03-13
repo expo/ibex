@@ -39,6 +39,7 @@
 #include <vector>
 #include <thread>
 #include <tuple>
+#include <type_traits>
 #include <sys/poll.h>
 #include <unistd.h>
 #include <sys/resource.h>
@@ -646,6 +647,14 @@ struct CFUniqueReleaser {
 };
 
 using CFUniquePtr = std::unique_ptr<const void, CFUniqueReleaser>;
+
+template <typename T>
+using CFRefPtr = std::unique_ptr<std::remove_pointer_t<T>, CFUniqueReleaser>;
+
+template <typename T>
+CFRefPtr<T> adoptCF(T ptr) {
+  return CFRefPtr<T>(ptr);
+}
 
 class VectorBuffer : public facebook::jsi::MutableBuffer {
  public:
@@ -8849,38 +8858,38 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto hashName = normalizeHashForNodeCrypto(rawAlgorithm);
         auto dataText = args[1].asString(runtime).utf8(runtime);
         auto keyText = args[2].asString(runtime).utf8(runtime);
-        auto key = importPemKey(keyText, kSecItemTypePrivateKey);
+        auto key = adoptCF(importPemKey(keyText, kSecItemTypePrivateKey));
         if (!key) {
           throw facebook::jsi::JSError(runtime, "__exactSignSync: invalid PEM private key");
         }
 
-        auto isRsa = isRsaSecKey(key);
+        auto isRsa = isRsaSecKey(key.get());
         auto algorithm = pickSecKeySignAlgorithm(hashName, isRsa);
         if (!algorithm) {
-          CFRelease(key);
           throw facebook::jsi::JSError(runtime, "__exactSignSync: unsupported algorithm " + rawAlgorithm);
         }
 
         auto dataBytes = std::vector<uint8_t>(dataText.begin(), dataText.end());
-        auto dataRef = CFDataCreate(kCFAllocatorDefault, dataBytes.data(), static_cast<CFIndex>(dataBytes.size()));
+        auto dataRef = adoptCF(CFDataCreate(
+            kCFAllocatorDefault,
+            dataBytes.data(),
+            static_cast<CFIndex>(dataBytes.size())));
         if (!dataRef) {
-          CFRelease(key);
           throw facebook::jsi::JSError(runtime, "__exactSignSync: failed to allocate data");
         }
 
         CFErrorRef error = nullptr;
-        auto signatureRef = SecKeyCreateSignature(key, algorithm, dataRef, &error);
-        CFRelease(dataRef);
-        CFRelease(key);
+        auto signatureRef = adoptCF(SecKeyCreateSignature(
+            key.get(),
+            algorithm,
+            dataRef.get(),
+            &error));
+        auto errorRef = adoptCF(error);
         if (!signatureRef) {
-          if (error) {
-            CFRelease(error);
-          }
           throw facebook::jsi::JSError(runtime, "__exactSignSync: signing failed");
         }
 
-        auto signature = dataToString(signatureRef);
-        CFRelease(signatureRef);
+        auto signature = dataToString(signatureRef.get());
         return makeUint8Array(runtime, std::vector<uint8_t>(signature.begin(), signature.end()));
       });
   rt.global().setProperty(rt, "__exactSignSync", std::move(signFn));
@@ -8904,36 +8913,38 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto signatureBytes = extractBytes(runtime, args[1]);
         auto dataText = args[2].asString(runtime).utf8(runtime);
         auto keyText = args[3].asString(runtime).utf8(runtime);
-        auto key = importPemKey(keyText, kSecItemTypePublicKey);
+        auto key = adoptCF(importPemKey(keyText, kSecItemTypePublicKey));
         if (!key) {
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: invalid PEM public key");
         }
 
-        auto isRsa = isRsaSecKey(key);
+        auto isRsa = isRsaSecKey(key.get());
         auto algorithm = pickSecKeySignAlgorithm(hashName, isRsa);
         if (!algorithm) {
-          CFRelease(key);
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: unsupported algorithm " + rawAlgorithm);
         }
 
         auto dataBytes = std::vector<uint8_t>(dataText.begin(), dataText.end());
-        auto signatureRef = CFDataCreate(kCFAllocatorDefault, signatureBytes.data(), static_cast<CFIndex>(signatureBytes.size()));
-        auto dataRef = CFDataCreate(kCFAllocatorDefault, dataBytes.data(), static_cast<CFIndex>(dataBytes.size()));
+        auto signatureRef = adoptCF(CFDataCreate(
+            kCFAllocatorDefault,
+            signatureBytes.data(),
+            static_cast<CFIndex>(signatureBytes.size())));
+        auto dataRef = adoptCF(CFDataCreate(
+            kCFAllocatorDefault,
+            dataBytes.data(),
+            static_cast<CFIndex>(dataBytes.size())));
         if (!dataRef || !signatureRef) {
-          if (signatureRef) CFRelease(signatureRef);
-          if (dataRef) CFRelease(dataRef);
-          CFRelease(key);
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: failed to allocate data");
         }
 
         CFErrorRef error = nullptr;
-        auto verified = SecKeyVerifySignature(key, algorithm, dataRef, signatureRef, &error);
-        CFRelease(signatureRef);
-        CFRelease(dataRef);
-        CFRelease(key);
-        if (error) {
-          CFRelease(error);
-        }
+        auto verified = SecKeyVerifySignature(
+            key.get(),
+            algorithm,
+            dataRef.get(),
+            signatureRef.get(),
+            &error);
+        auto errorRef = adoptCF(error);
         return facebook::jsi::Value(static_cast<bool>(verified));
       });
   rt.global().setProperty(rt, "__exactVerifySync", std::move(verifyFn));
@@ -9043,64 +9054,68 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: unsupported EC curve " + namedCurve);
           }
 
-          auto ecBitsValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &ecBits);
+          auto ecBitsValue = adoptCF(CFNumberCreate(
+              kCFAllocatorDefault,
+              kCFNumberSInt32Type,
+              &ecBits));
           if (!ecBitsValue) {
             throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate EC options");
           }
 
           CFTypeRef ecKeys[2] = { kSecAttrKeyType, kSecAttrKeySizeInBits };
-          CFTypeRef ecValues[2] = { kSecAttrKeyTypeECSECPrimeRandom, ecBitsValue };
-          auto ecParams = CFDictionaryCreate(
+          CFTypeRef ecValues[2] = { kSecAttrKeyTypeECSECPrimeRandom, ecBitsValue.get() };
+          auto ecParams = adoptCF(CFDictionaryCreate(
               kCFAllocatorDefault, ecKeys, ecValues, 2,
               &kCFTypeDictionaryKeyCallBacks,
-              &kCFTypeDictionaryValueCallBacks);
+              &kCFTypeDictionaryValueCallBacks));
           if (!ecParams) {
-            CFRelease(ecBitsValue);
             throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate EC key params");
           }
 
           CFErrorRef ecError = nullptr;
-          SecKeyRef ecPrivateKey = SecKeyCreateRandomKey(ecParams, &ecError);
-          CFRelease(ecParams);
-          CFRelease(ecBitsValue);
+          auto ecPrivateKey = adoptCF(SecKeyCreateRandomKey(
+              static_cast<CFDictionaryRef>(ecParams.get()),
+              &ecError));
+          auto ecErrorRef = adoptCF(ecError);
           if (!ecPrivateKey) {
-            if (ecError) CFRelease(ecError);
             throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: EC key generation failed");
           }
-          if (ecError) CFRelease(ecError);
-          SecKeyRef ecPublicKey = SecKeyCopyPublicKey(ecPrivateKey);
+          auto ecPublicKey = adoptCF(SecKeyCopyPublicKey(ecPrivateKey.get()));
           if (!ecPublicKey) {
-            CFRelease(ecPrivateKey);
             throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: EC key generation failed");
           }
 
 #if !defined(EXACT_PLATFORM_IOS)
-          CFDataRef ecPrivateData = nullptr;
-          CFDataRef ecPublicData = nullptr;
-          auto ecExportStatus = SecItemExport(ecPrivateKey, kSecFormatOpenSSL, kSecItemPemArmour, nullptr, &ecPrivateData);
+          CFDataRef ecPrivateDataRaw = nullptr;
+          CFDataRef ecPublicDataRaw = nullptr;
+          auto ecExportStatus = SecItemExport(
+              ecPrivateKey.get(),
+              kSecFormatOpenSSL,
+              kSecItemPemArmour,
+              nullptr,
+              &ecPrivateDataRaw);
+          auto ecPrivateData = adoptCF(ecPrivateDataRaw);
           if (ecExportStatus == errSecSuccess) {
-            ecExportStatus = SecItemExport(ecPublicKey, kSecFormatOpenSSL, kSecItemPemArmour, nullptr, &ecPublicData);
+            ecExportStatus = SecItemExport(
+                ecPublicKey.get(),
+                kSecFormatOpenSSL,
+                kSecItemPemArmour,
+                nullptr,
+                &ecPublicDataRaw);
           }
-          CFRelease(ecPrivateKey);
-          CFRelease(ecPublicKey);
+          auto ecPublicData = adoptCF(ecPublicDataRaw);
           if (ecExportStatus != errSecSuccess || !ecPrivateData || !ecPublicData) {
-            if (ecPrivateData) CFRelease(ecPrivateData);
-            if (ecPublicData) CFRelease(ecPublicData);
             throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to export EC PEM keys");
           }
 
-          std::string privatePem = dataToString(ecPrivateData);
-          std::string publicPem = dataToString(ecPublicData);
-          CFRelease(ecPrivateData);
-          CFRelease(ecPublicData);
+          std::string privatePem = dataToString(ecPrivateData.get());
+          std::string publicPem = dataToString(ecPublicData.get());
 
           facebook::jsi::Object result(runtime);
           result.setProperty(runtime, "privateKey", facebook::jsi::String::createFromUtf8(runtime, privatePem));
           result.setProperty(runtime, "publicKey", facebook::jsi::String::createFromUtf8(runtime, publicPem));
           return result;
 #else
-          CFRelease(ecPrivateKey);
-          CFRelease(ecPublicKey);
           throw facebook::jsi::JSError(runtime, "PEM key export not yet available on iOS");
 #endif // !EXACT_PLATFORM_IOS
         }
@@ -9113,67 +9128,71 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: unsupported public exponent");
         }
 
-        auto bitsValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &bits);
+        auto bitsValue = adoptCF(CFNumberCreate(
+            kCFAllocatorDefault,
+            kCFNumberSInt32Type,
+            &bits));
         if (!bitsValue) {
           throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate options");
         }
 
         CFTypeRef keys[2] = { kSecAttrKeyType, kSecAttrKeySizeInBits };
-        CFTypeRef values[2] = { kSecAttrKeyTypeRSA, bitsValue };
-        auto params = CFDictionaryCreate(
+        CFTypeRef values[2] = { kSecAttrKeyTypeRSA, bitsValue.get() };
+        auto params = adoptCF(CFDictionaryCreate(
             kCFAllocatorDefault,
             keys,
             values,
             2,
             &kCFTypeDictionaryKeyCallBacks,
-            &kCFTypeDictionaryValueCallBacks);
+            &kCFTypeDictionaryValueCallBacks));
         if (!params) {
-          CFRelease(bitsValue);
           throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to allocate key params");
         }
 
         CFErrorRef rsaError = nullptr;
-        SecKeyRef privateKey = SecKeyCreateRandomKey(params, &rsaError);
-        CFRelease(params);
-        CFRelease(bitsValue);
+        auto privateKey = adoptCF(SecKeyCreateRandomKey(
+            static_cast<CFDictionaryRef>(params.get()),
+            &rsaError));
+        auto rsaErrorRef = adoptCF(rsaError);
         if (!privateKey) {
-          if (rsaError) CFRelease(rsaError);
           throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key generation failed");
         }
-        if (rsaError) CFRelease(rsaError);
-        SecKeyRef publicKey = SecKeyCopyPublicKey(privateKey);
+        auto publicKey = adoptCF(SecKeyCopyPublicKey(privateKey.get()));
         if (!publicKey) {
-          CFRelease(privateKey);
           throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: key generation failed");
         }
 
 #if !defined(EXACT_PLATFORM_IOS)
-        CFDataRef privateData = nullptr;
-        CFDataRef publicData = nullptr;
-        auto exportStatus = SecItemExport(privateKey, kSecFormatOpenSSL, kSecItemPemArmour, nullptr, &privateData);
+        CFDataRef privateDataRaw = nullptr;
+        CFDataRef publicDataRaw = nullptr;
+        auto exportStatus = SecItemExport(
+            privateKey.get(),
+            kSecFormatOpenSSL,
+            kSecItemPemArmour,
+            nullptr,
+            &privateDataRaw);
+        auto privateData = adoptCF(privateDataRaw);
         if (exportStatus == errSecSuccess) {
-          exportStatus = SecItemExport(publicKey, kSecFormatOpenSSL, kSecItemPemArmour, nullptr, &publicData);
+          exportStatus = SecItemExport(
+              publicKey.get(),
+              kSecFormatOpenSSL,
+              kSecItemPemArmour,
+              nullptr,
+              &publicDataRaw);
         }
-        CFRelease(privateKey);
-        CFRelease(publicKey);
+        auto publicData = adoptCF(publicDataRaw);
         if (exportStatus != errSecSuccess || !privateData || !publicData) {
-          if (privateData) CFRelease(privateData);
-          if (publicData) CFRelease(publicData);
           throw facebook::jsi::JSError(runtime, "__exactGenerateKeyPairSync: failed to export PEM keys");
         }
 
-        std::string privatePem = dataToString(privateData);
-        std::string publicPem = dataToString(publicData);
-        CFRelease(privateData);
-        CFRelease(publicData);
+        std::string privatePem = dataToString(privateData.get());
+        std::string publicPem = dataToString(publicData.get());
 
         facebook::jsi::Object result(runtime);
         result.setProperty(runtime, "privateKey", facebook::jsi::String::createFromUtf8(runtime, privatePem));
         result.setProperty(runtime, "publicKey", facebook::jsi::String::createFromUtf8(runtime, publicPem));
         return result;
 #else
-        CFRelease(privateKey);
-        CFRelease(publicKey);
         throw facebook::jsi::JSError(runtime, "PEM key export not yet available on iOS");
 #endif // !EXACT_PLATFORM_IOS
       });
