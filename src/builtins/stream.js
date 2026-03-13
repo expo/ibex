@@ -8,6 +8,16 @@ try {
   StringDecoder = null;
 }
 
+// Polyfill Symbol.dispose and Symbol.asyncDispose if missing (e.g. Hermes)
+if (typeof Symbol !== 'undefined') {
+  if (!Symbol.dispose) {
+    Symbol.dispose = Symbol.for('nodejs.dispose');
+  }
+  if (!Symbol.asyncDispose) {
+    Symbol.asyncDispose = Symbol.for('nodejs.asyncDispose');
+  }
+}
+
 var defaultHighWaterMark = 65536;
 var defaultHighWaterMarkObjectMode = 16;
 
@@ -1016,6 +1026,13 @@ function _maybeReadMore(stream, state) {
              !state.errored &&
              (state.length < state.highWaterMark ||
               (stream.readableFlowing === true && state.length === 0))) {
+        // When the stream has piped destinations and is paused (not flowing),
+        // do not pre-fill the buffer — the pipe will resume when the
+        // destination drains.  This matches Node.js behaviour where
+        // maybeReadMore_ respects the paused state set by pipe backpressure.
+        if (stream.readableFlowing === false && state.pipes && state.pipes.length > 0) {
+          break;
+        }
         var length = state.length;
         if (stream.readableFlowing === true) {
           stream.read(0);
@@ -4720,16 +4737,22 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 
     // Node.js: when the stream is destroyed AND ending AND no more writes
     // are buffered, the just-completed write was the final end() write, so
-    // deliver ERR_STREAM_DESTROYED to its callback.
+    // deliver the destroy error (or ERR_STREAM_DESTROYED) to its callback.
     if (!err && (self._destroyed || self.destroyed) && state.ending &&
         (!self._writeQueue || self._writeQueue.length === 0)) {
-      err = new Error('Cannot call write after a stream was destroyed');
-      err.code = 'ERR_STREAM_DESTROYED';
+      // If the stream was destroyed with an explicit error, propagate that
+      // to the end callback instead of a generic ERR_STREAM_DESTROYED.
+      if (self.errored || state.errored) {
+        err = self.errored || state.errored;
+      } else {
+        err = new Error('Cannot call write after a stream was destroyed');
+        err.code = 'ERR_STREAM_DESTROYED';
+      }
     }
 
     if (err) {
-      self.errored = err;
-      if (state) state.errored = err;
+      if (!self.errored) self.errored = err;
+      if (state && !state.errored) state.errored = err;
       self.writable = false;
       state.writable = false;
       // Call the write callback first, then emit error (Node.js guarantees callback before error event)
@@ -4737,10 +4760,10 @@ Writable.prototype.write = function(chunk, encoding, callback) {
         queued.callback(err);
       }
       _drainPendingEnd(self, err);
-      // When the error is a synthetic ERR_STREAM_DESTROYED (produced because
-      // the stream was destroyed while ending), the callback already received
-      // it – do not re-emit as an 'error' event.
-      if (err.code !== 'ERR_STREAM_DESTROYED' || !(self._destroyed || self.destroyed)) {
+      // When the stream is already destroyed (error came from the destroy
+      // path or is a synthetic ERR_STREAM_DESTROYED), do not re-emit the
+      // error – destroy() already handled error emission.
+      if (!(self._destroyed || self.destroyed)) {
         _nextTick(function() {
           if (state.autoDestroy && !self._destroyed) {
             self.destroy(err);
@@ -5045,13 +5068,17 @@ Writable.prototype.end = function(chunk, encoding, callback) {
     // finish fires asynchronously
     _nextTick(function() {
       if (self._destroyed || state.finished) return;
+      self.writableFinished = true;
+      state.finished = true;
+      // End callbacks fire before the finish event so that code registering
+      // .end(cb) before .on('finish', ...) sees cb first (matching Node.js
+      // behaviour where the end callback is an internal finish listener
+      // prepended to the list).
       var callbacks = self._endCallbacks;
       self._endCallbacks = [];
       for (var j = 0; j < callbacks.length; j++) {
         callbacks[j](null);
       }
-      self.writableFinished = true;
-      state.finished = true;
       self.emit('finish');
       state.errorEmitted = false;
       var shouldDestroy = self._writableState.autoDestroy && !self._destroyed;
