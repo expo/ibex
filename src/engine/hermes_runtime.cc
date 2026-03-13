@@ -497,7 +497,7 @@ struct FetchCallbackEntry {
 
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
-  std::unique_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debugger;
+  std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debugger;
   bool debugger_callback_set{false};
   std::atomic<bool> debugger_attached{false};
   std::atomic<bool> debugger_available{true};
@@ -854,6 +854,39 @@ void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event) {
   runtime->debug_events.push_back(event);
 }
 
+std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->debugger_available.load()) {
+    return nullptr;
+  }
+
+  std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+  if (!runtime->debugger || !runtime->debugger_available.load()) {
+    return nullptr;
+  }
+  return runtime->debugger;
+}
+
+void clearDebugger(ExactHermesRuntime* runtime) {
+  if (!runtime) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+  runtime->debugger.reset();
+  runtime->debugger_callback_set = false;
+}
+
+void disableDebugger(ExactHermesRuntime* runtime) {
+  if (!runtime) {
+    return;
+  }
+
+  runtime->debugger_attached.store(false);
+  runtime->debugger_available.store(false);
+  clearDebugger(runtime);
+}
+
 std::string pauseReasonToString(facebook::hermes::debugger::PauseReason reason) {
   using facebook::hermes::debugger::PauseReason;
   switch (reason) {
@@ -976,19 +1009,15 @@ std::string runOnRuntimeThread(ExactHermesRuntime* runtime, F func) {
     }
   };
 
-  facebook::hermes::debugger::AsyncDebuggerAPI* debugger_snapshot = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(runtime->debug_mutex);
-    if (!runtime->debugger || !runtime->debugger_available.load()) {
-      return std::string();
-    }
-    debugger_snapshot = runtime->debugger.get();
+  auto debugger_snapshot = snapshotDebugger(runtime);
+  if (!debugger_snapshot) {
+    return std::string();
   }
 
   if (std::this_thread::get_id() == runtime->runtime_thread) {
     return safe_call();
   }
-  if (!debugger_snapshot || !runtime->debugger_available.load()) {
+  if (!runtime->debugger_available.load()) {
     return std::string();
   }
 
@@ -13371,24 +13400,21 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   TRACE_START(debugger_init);
 #if defined(HERMES_ENABLE_DEBUGGER)
   try {
-    handle->debugger = std::make_unique<facebook::hermes::debugger::AsyncDebuggerAPI>(*handle->runtime);
+    handle->debugger =
+        std::make_shared<facebook::hermes::debugger::AsyncDebuggerAPI>(*handle->runtime);
     handle->debugger_available.store(true);
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(1, err.getMessage().c_str());
-    handle->debugger.reset();
-    handle->debugger_available.store(false);
+    disableDebugger(handle);
   } catch (const std::exception& err) {
     ex_host_console_log(1, err.what());
-    handle->debugger.reset();
-    handle->debugger_available.store(false);
+    disableDebugger(handle);
   } catch (...) {
     ex_host_console_log(1, "Debugger not available in this Hermes build.");
-    handle->debugger.reset();
-    handle->debugger_available.store(false);
+    disableDebugger(handle);
   }
 #else
-  handle->debugger.reset();
-  handle->debugger_available.store(false);
+  disableDebugger(handle);
 #endif
   TRACE_END(debugger_init);
 
@@ -13445,6 +13471,7 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   if (runtime == nullptr) {
     return;
   }
+  disableDebugger(runtime);
   unregisterRuntime(runtime);
   delete runtime;
 }
@@ -13915,7 +13942,8 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
   (void)runtime;
   return 0;
 #else
-  if (!runtime || !runtime->debugger || !runtime->debugger_available.load()) {
+  auto debugger = snapshotDebugger(runtime);
+  if (!runtime || !debugger) {
     return 0;
   }
   if (runtime->debugger_attached.load()) {
@@ -13923,15 +13951,18 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
   }
 
   runtime->debugger_attached.store(true);
-  auto result = runOnRuntimeThread(runtime, [](ExactHermesRuntime* handle) {
-    if (!handle || !handle->runtime || !handle->debugger) {
+  auto result = runOnRuntimeThread(runtime, [debugger](ExactHermesRuntime* handle) {
+    if (!handle || !handle->runtime) {
       return std::string();
     }
     handle->runtime->getDebugger().setIsDebuggerAttached(true);
-    handle->debugger->setDebuggerEventCallback_TS(
+    debugger->setDebuggerEventCallback_TS(
         [handle](facebook::hermes::HermesRuntime&,
                  facebook::hermes::debugger::AsyncDebuggerAPI&,
                  facebook::hermes::debugger::DebuggerEventType) {
+          if (!runtimeIsAlive(handle)) {
+            return;
+          }
           if (!handle->debugger_attached.load()) {
             return;
           }
@@ -13947,9 +13978,7 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
   });
 
   if (result != "1") {
-    runtime->debugger_attached.store(false);
-    runtime->debugger_available.store(false);
-    runtime->debugger.reset();
+    disableDebugger(runtime);
     return 0;
   }
 
@@ -14142,7 +14171,8 @@ extern "C" void ex_hermes_debugger_resume(ExactHermesRuntime* runtime, int comma
   (void)command;
   return;
 #else
-  if (!runtime || !runtime->debugger || !runtime->debugger_available.load()) {
+  auto debugger = snapshotDebugger(runtime);
+  if (!runtime || !debugger) {
     return;
   }
   auto cmd = facebook::hermes::debugger::AsyncDebugCommand::Continue;
@@ -14162,8 +14192,8 @@ extern "C" void ex_hermes_debugger_resume(ExactHermesRuntime* runtime, int comma
   }
 
   try {
-    runtime->debugger->triggerInterrupt_TS([runtime, cmd](facebook::hermes::HermesRuntime&) {
-      if (runtime->debugger && runtime->debugger->resumeFromPaused(cmd)) {
+    debugger->triggerInterrupt_TS([runtime, debugger, cmd](facebook::hermes::HermesRuntime&) {
+      if (runtimeIsAlive(runtime) && debugger->resumeFromPaused(cmd)) {
         pushDebugEvent(runtime, "{\"method\":\"Debugger.resumed\",\"params\":{}}");
       }
     });
@@ -14214,7 +14244,8 @@ extern "C" char* ex_hermes_debugger_eval(
   (void)frame_index;
   return nullptr;
 #else
-  if (!expression || !runtime || !runtime->debugger) {
+  auto debugger = snapshotDebugger(runtime);
+  if (!expression || !runtime || !debugger) {
     return nullptr;
   }
   auto expr = std::string(expression);
@@ -14230,11 +14261,11 @@ extern "C" char* ex_hermes_debugger_eval(
 
   if (runtime->debugger_attached.load()) {
     // Schedule eval via interrupt - this gets us onto the runtime thread
-    runtime->debugger->triggerInterrupt_TS(
-        [runtime, expr, frame_index, result_holder, result_mutex, result_cv, result_ready](
+    debugger->triggerInterrupt_TS(
+        [debugger, expr, frame_index, result_holder, result_mutex, result_cv, result_ready](
             facebook::hermes::HermesRuntime& rt) {
           // Try evalWhilePaused first (for paused debugger state)
-          auto ok = runtime->debugger->evalWhilePaused(
+          auto ok = debugger->evalWhilePaused(
               expr,
               frame_index,
               [&rt, result_holder, result_mutex, result_cv, result_ready](
