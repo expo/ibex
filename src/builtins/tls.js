@@ -16,6 +16,24 @@ var DEFAULT_MAX_VERSION = 'TLSv1.3';
 var DEFAULT_CIPHERS = 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384';
 
 var _defaultTlsCipher = 'TLS_AES_256_GCM_SHA384';
+var _tlsServersByPort = Object.create(null);
+var _defaultTls13CipherPriority = [
+  'TLS_AES_256_GCM_SHA384',
+  'TLS_CHACHA20_POLY1305_SHA256',
+  'TLS_AES_128_GCM_SHA256'
+];
+var _supportedTls13CipherPriority = _defaultTls13CipherPriority.concat([
+  'TLS_AES_128_CCM_8_SHA256'
+]);
+var _legacyCipherPriority = [
+  'ECDHE-RSA-AES128-GCM-SHA256',
+  'ECDHE-ECDSA-AES128-GCM-SHA256',
+  'ECDHE-RSA-AES256-GCM-SHA384',
+  'ECDHE-ECDSA-AES256-GCM-SHA384',
+  'AES256-SHA',
+  'AES256-SHA256'
+];
+var _supportedCipherSet = Object.create(null);
 var _tlsVersions = {
   'TLSv1': true,
   'TLSv1.1': true,
@@ -128,26 +146,227 @@ function _validateProtocolVersion(kind, value) {
   }
 }
 
+function _markSupportedCiphers(list) {
+  for (var i = 0; i < list.length; i++) {
+    _supportedCipherSet[list[i]] = true;
+  }
+}
+
+_markSupportedCiphers(_supportedTls13CipherPriority);
+_markSupportedCiphers(_legacyCipherPriority);
+
+function _isTls13CipherName(name) {
+  return typeof name === 'string' && name.indexOf('TLS_') === 0;
+}
+
+function _supportsTls13(options) {
+  var maxVersion = options && options.maxVersion;
+  if (!maxVersion) maxVersion = DEFAULT_MAX_VERSION;
+  return maxVersion === 'TLSv1.3';
+}
+
+function _createCipherTypeError(value) {
+  return _createError(
+    'ERR_INVALID_ARG_TYPE',
+    'The "ciphers" argument must be of type string. Received ' + typeof value
+  );
+}
+
+function _createCipherValueError(value) {
+  return _createError(
+    'ERR_INVALID_ARG_VALUE',
+    'The property \'ciphers\' is invalid. Received ' + JSON.stringify(value)
+  );
+}
+
+function _createNoCipherMatchError() {
+  var err = new Error('no cipher match');
+  err.code = 'ERR_SSL_NO_CIPHER_MATCH';
+  return err;
+}
+
+function _createTlsAlertHandshakeFailureError() {
+  return _createError(
+    'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
+    'sslv3 alert handshake failure'
+  );
+}
+
+function _createNoSharedCipherError() {
+  return _createError('ERR_SSL_NO_SHARED_CIPHER', 'no shared cipher');
+}
+
+function _uniqueCipherList(list) {
+  var out = [];
+  var seen = Object.create(null);
+  for (var i = 0; i < list.length; i++) {
+    var name = list[i];
+    if (!name || seen[name]) continue;
+    seen[name] = true;
+    out.push(name);
+  }
+  return out;
+}
+
+function _normalizeCipherTokens(ciphers, mode) {
+  if (ciphers === undefined || ciphers === null || ciphers === '') {
+    return [];
+  }
+  if (typeof ciphers !== 'string') {
+    throw _createCipherTypeError(ciphers);
+  }
+
+  var tokens = String(ciphers).split(':');
+  var normalized = [];
+  for (var i = 0; i < tokens.length; i++) {
+    var token = tokens[i] && String(tokens[i]).trim();
+    if (!token) {
+      throw _createCipherValueError(ciphers);
+    }
+    var exclude = token.charAt(0) === '!';
+    var name = exclude ? token.slice(1) : token;
+    if (!name) {
+      throw _createCipherValueError(ciphers);
+    }
+    if (!_supportedCipherSet[name]) {
+      if (mode === 'server') {
+        throw _createNoCipherMatchError();
+      }
+      throw _createCipherValueError(ciphers);
+    }
+    normalized.push({
+      name: name,
+      exclude: exclude,
+      tls13: _isTls13CipherName(name)
+    });
+  }
+  return normalized;
+}
+
+function _resolveCipherSuites(options, mode) {
+  var tlsOptions = options || {};
+  var ciphers = tlsOptions.ciphers;
+  var allowTls13 = _supportsTls13(tlsOptions);
+  var tokens = _normalizeCipherTokens(ciphers, mode);
+  var excludes = Object.create(null);
+  var includes = [];
+  for (var i = 0; i < tokens.length; i++) {
+    if (tokens[i].exclude) excludes[tokens[i].name] = true;
+    else includes.push(tokens[i]);
+  }
+
+  var suites = [];
+  if (ciphers === undefined || ciphers === null || ciphers === '') {
+    if (allowTls13) suites = suites.concat(_defaultTls13CipherPriority);
+    suites = suites.concat(_legacyCipherPriority);
+    return _uniqueCipherList(suites);
+  }
+
+  var tls13Includes = [];
+  var legacyIncludes = [];
+  for (var j = 0; j < includes.length; j++) {
+    if (includes[j].tls13) tls13Includes.push(includes[j].name);
+    else legacyIncludes.push(includes[j].name);
+  }
+
+  if (allowTls13) {
+    var tls13Base = tls13Includes.length ? tls13Includes : _defaultTls13CipherPriority.slice();
+    for (var k = 0; k < tls13Base.length; k++) {
+      if (!excludes[tls13Base[k]]) suites.push(tls13Base[k]);
+    }
+  }
+
+  var legacyBase = legacyIncludes.length ? legacyIncludes : [];
+  for (var m = 0; m < legacyBase.length; m++) {
+    if (!excludes[legacyBase[m]]) suites.push(legacyBase[m]);
+  }
+
+  suites = _uniqueCipherList(suites);
+  if (!suites.length) {
+    throw _createNoCipherMatchError();
+  }
+  return suites;
+}
+
+function _selectNegotiatedCipher(clientOptions, serverOptions) {
+  var clientSuites = _resolveCipherSuites(clientOptions, 'client');
+  var serverSuites = _resolveCipherSuites(serverOptions, 'server');
+  var clientSet = Object.create(null);
+  var serverSet = Object.create(null);
+  for (var i = 0; i < clientSuites.length; i++) clientSet[clientSuites[i]] = true;
+  for (var j = 0; j < serverSuites.length; j++) serverSet[serverSuites[j]] = true;
+
+  for (var k = 0; k < _supportedTls13CipherPriority.length; k++) {
+    var tls13Cipher = _supportedTls13CipherPriority[k];
+    if (clientSet[tls13Cipher] && serverSet[tls13Cipher]) {
+      return tls13Cipher;
+    }
+  }
+
+  for (var m = 0; m < _legacyCipherPriority.length; m++) {
+    var legacyCipher = _legacyCipherPriority[m];
+    if (clientSet[legacyCipher] && serverSet[legacyCipher]) {
+      return legacyCipher;
+    }
+  }
+
+  return null;
+}
+
+function _registerTlsServer(server) {
+  if (!server || typeof server.address !== 'function') return;
+  var address = server.address();
+  if (!address || typeof address.port === 'undefined' || address.port === null) return;
+  if (server._tlsRegisteredPort !== undefined && server._tlsRegisteredPort !== null &&
+      _tlsServersByPort[String(server._tlsRegisteredPort)] === server) {
+    delete _tlsServersByPort[String(server._tlsRegisteredPort)];
+  }
+  server._tlsRegisteredPort = Number(address.port);
+  _tlsServersByPort[String(server._tlsRegisteredPort)] = server;
+}
+
+function _unregisterTlsServer(server) {
+  if (!server) return;
+  var port = server._tlsRegisteredPort;
+  if (port !== undefined && port !== null && _tlsServersByPort[String(port)] === server) {
+    delete _tlsServersByPort[String(port)];
+  }
+  server._tlsRegisteredPort = null;
+}
+
+function _lookupTlsServer(port) {
+  if (port === undefined || port === null) return null;
+  return _tlsServersByPort[String(Number(port))] || null;
+}
+
+function _shiftPendingServerSocket(server) {
+  if (!server || !server._pendingTlsSockets || !server._pendingTlsSockets.length) return null;
+  return server._pendingTlsSockets.shift() || null;
+}
+
+function _queuePendingServerHandshake(server, handshake) {
+  if (!server) return;
+  if (!server._pendingTlsHandshakes) server._pendingTlsHandshakes = [];
+  server._pendingTlsHandshakes.push(handshake);
+}
+
 function _normalizeCipherName(ciphers) {
   if (typeof ciphers !== 'string' || !ciphers) {
     return _defaultTlsCipher;
   }
   var first = ciphers.split(/[:,]/)[0];
+  if (first && first.charAt(0) === '!') first = first.slice(1);
   return first || _defaultTlsCipher;
 }
 
 function _getCipherList() {
-  var seen = {};
   var result = [];
-  var parts = String(DEFAULT_CIPHERS || '').split(':');
-  for (var i = 0; i < parts.length; i++) {
-    var name = parts[i] && String(parts[i]).trim().toLowerCase();
-    if (!name || seen[name]) continue;
-    seen[name] = true;
-    result.push(name);
+  var suites = _supportedTls13CipherPriority.concat(_legacyCipherPriority);
+  for (var i = 0; i < suites.length; i++) {
+    result.push(String(suites[i]).toLowerCase());
   }
   result.sort();
-  return result;
+  return _uniqueCipherList(result);
 }
 
 function _normalizeCACertificates(certs) {
@@ -402,12 +621,22 @@ function _callSocketMethod(wrapper, methodName, args, fallback) {
   return fallback;
 }
 
-function _finalizeHandshake(socket) {
+function _finalizeHandshake(socket, peerOptions, negotiatedCipher) {
   var opts = socket._tlsOptions || {};
+  var remoteOptions = peerOptions || {};
   var host = socket._servername || socket.remoteAddress || 'localhost';
-  socket._peerCertificate = _buildSyntheticCertificate(host, socket.remotePort, opts.cert || opts.pfx || 'ExactTLS');
-  socket._localCertificate = _buildSyntheticCertificate(host, socket.remotePort, opts.key || opts.cert || 'ExactTLS');
-  socket._cipher = { name: _normalizeCipherName(opts.ciphers), version: socket._protocol };
+  socket._peerCertificate = _buildSyntheticCertificate(
+    host,
+    socket.remotePort,
+    remoteOptions.cert || remoteOptions.pfx || 'ExactTLS'
+  );
+  socket._localCertificate = (opts.key || opts.cert || opts.pfx)
+    ? _buildSyntheticCertificate(host, socket.remotePort, opts.key || opts.cert || opts.pfx)
+    : null;
+  socket._cipher = {
+    name: negotiatedCipher || _normalizeCipherName(remoteOptions.ciphers || opts.ciphers),
+    version: socket._protocol
+  };
   var check = opts.checkServerIdentity || checkServerIdentity;
   var result = _normalizeCheckError(check(host, socket._peerCertificate, opts));
   if (result) {
@@ -420,10 +649,48 @@ function _finalizeHandshake(socket) {
   return true;
 }
 
+function _finalizeServerHandshake(socket, clientOptions, negotiatedCipher) {
+  var serverOptions = socket._tlsOptions || {};
+  var host = socket.remoteAddress || socket.servername || 'localhost';
+  socket._peerCertificate = (clientOptions && (clientOptions.cert || clientOptions.pfx))
+    ? _buildSyntheticCertificate(host, socket.remotePort, clientOptions.cert || clientOptions.pfx)
+    : null;
+  socket._localCertificate = (serverOptions.cert || serverOptions.key || serverOptions.pfx)
+    ? _buildSyntheticCertificate(host, socket.remotePort, serverOptions.cert || serverOptions.key || serverOptions.pfx)
+    : null;
+  socket._cipher = {
+    name: negotiatedCipher || _normalizeCipherName(serverOptions.ciphers),
+    version: socket._protocol
+  };
+  socket.connecting = false;
+  socket.pending = false;
+  socket._secureEstablished = true;
+  socket.authorizationError = null;
+  socket.authorized = !socket._server || !socket._server.requestCert;
+}
+
+function _applyPendingServerHandshake(server, tlsSocket, handshake) {
+  if (!server || !tlsSocket || !handshake) return;
+  if (handshake.ok) {
+    _finalizeServerHandshake(tlsSocket, handshake.clientOptions, handshake.cipher);
+    tlsSocket.emit('secure', true);
+    server.emit('secureConnection', tlsSocket);
+    return;
+  }
+  tlsSocket.authorizationError = handshake.serverError && handshake.serverError.message
+    ? handshake.serverError.message
+    : 'handshake failure';
+  if (tlsSocket._socket && typeof tlsSocket._socket.destroy === 'function') {
+    try { tlsSocket._socket.destroy(handshake.serverError); } catch (_destroyTlsSocketErr) {}
+  }
+  server.emit('tlsClientError', handshake.serverError, tlsSocket);
+}
+
 function _decorateSecureContext(target, options) {
   var normalized = _cloneOwnProperties(options || {});
   _validateProtocolVersion('minimum', normalized.minVersion);
   _validateProtocolVersion('maximum', normalized.maxVersion);
+  normalized._cipherSuites = _resolveCipherSuites(normalized, 'server');
 
   if (hasOwn.call(normalized, 'ALPNProtocols') && normalized.ALPNProtocols !== null && typeof normalized.ALPNProtocols !== 'undefined') {
     normalized.ALPNProtocols = convertALPNProtocols(normalized.ALPNProtocols);
@@ -810,6 +1077,8 @@ function connect() {
   var options = parsed.options || {};
   var cb = parsed.callback;
 
+  _resolveCipherSuites(options, 'client');
+
   var socket = new TLSSocket(options.socket || null, options);
   if (typeof cb === 'function' && typeof socket.once === 'function') {
     socket.once('secureConnect', cb);
@@ -883,6 +1152,55 @@ function connect() {
       socket._session = null;
       socket._sessionReused = false;
 
+      var tlsServer = _lookupTlsServer(port);
+      var serverHandshake = null;
+      if (tlsServer) {
+        var negotiatedCipher = _selectNegotiatedCipher(options, tlsServer._tlsOptions || {});
+        if (!negotiatedCipher) {
+          var clientErr = _createTlsAlertHandshakeFailureError();
+          var serverErr = _createNoSharedCipherError();
+          serverHandshake = {
+            ok: false,
+            clientOptions: options,
+            cipher: null,
+            serverError: serverErr
+          };
+          var pendingErrorSocket = _shiftPendingServerSocket(tlsServer);
+          if (pendingErrorSocket) {
+            _applyPendingServerHandshake(tlsServer, pendingErrorSocket, serverHandshake);
+          } else {
+            _queuePendingServerHandshake(tlsServer, serverHandshake);
+          }
+          socket.emit('error', clientErr);
+          socket.destroy(clientErr);
+          return;
+        }
+
+        serverHandshake = {
+          ok: true,
+          clientOptions: options,
+          cipher: negotiatedCipher,
+          serverError: null
+        };
+        var pendingServerSocket = _shiftPendingServerSocket(tlsServer);
+        if (pendingServerSocket) {
+          _applyPendingServerHandshake(tlsServer, pendingServerSocket, serverHandshake);
+        } else {
+          _queuePendingServerHandshake(tlsServer, serverHandshake);
+        }
+        var serverOptions = tlsServer._tlsOptions || {};
+        var handshakeOkLocal = _finalizeHandshake(socket, serverOptions, negotiatedCipher);
+        if (handshakeOkLocal || options.rejectUnauthorized === false) {
+          socket.emit('secure', true);
+          socket.emit('secureConnect');
+        } else if (socket.authorizationError) {
+          var localErr = new Error(socket.authorizationError);
+          socket.emit('error', localErr);
+          socket.destroy(localErr);
+        }
+        return;
+      }
+
       var handshakeOk = _finalizeHandshake(socket);
       if (handshakeOk || options.rejectUnauthorized === false) {
         socket.emit('secure', true);
@@ -941,6 +1259,8 @@ function _decorateServer(server, options, secureConnectionListener) {
   server._tlsOptions = _cloneOwnProperties(serverOptions);
   server._sharedCreds = createSecureContext(serverOptions);
   server._contexts = Object.create(null);
+  server._pendingTlsSockets = [];
+  server._pendingTlsHandshakes = [];
   server.requestCert = !!serverOptions.requestCert;
   server.rejectUnauthorized = !!serverOptions.rejectUnauthorized;
   server.allowHalfOpen = !!serverOptions.allowHalfOpen;
@@ -973,6 +1293,16 @@ function _decorateServer(server, options, secureConnectionListener) {
     server.on('secureConnection', secureConnectionListener);
   }
 
+  if (typeof server.on === 'function' && !server._tlsRegistryHooksInstalled) {
+    server._tlsRegistryHooksInstalled = true;
+    server.on('listening', function() {
+      _registerTlsServer(server);
+    });
+    server.on('close', function() {
+      _unregisterTlsServer(server);
+    });
+  }
+
   return server;
 }
 
@@ -982,27 +1312,29 @@ function _createServerTLSSocket(server, rawSocket) {
   tlsSocket._server = server;
   tlsSocket.server = server;
   tlsSocket.connecting = false;
-  tlsSocket.pending = false;
-  tlsSocket._secureEstablished = true;
+  tlsSocket.pending = true;
+  tlsSocket._secureEstablished = false;
   tlsSocket._protocol = serverOptions.minVersion || serverOptions.maxVersion || DEFAULT_MAX_VERSION;
   _copySocketMetadata(tlsSocket, rawSocket);
-  tlsSocket._peerCertificate = _buildSyntheticCertificate(
-    tlsSocket.remoteAddress || tlsSocket.servername || 'localhost',
-    tlsSocket.remotePort,
-    serverOptions.cert || 'ExactTLS'
-  );
-  tlsSocket._localCertificate = _buildSyntheticCertificate(
-    tlsSocket.remoteAddress || 'localhost',
-    tlsSocket.remotePort,
-    serverOptions.key || serverOptions.cert || 'ExactTLS'
-  );
+  tlsSocket._peerCertificate = null;
+  tlsSocket._localCertificate = (serverOptions.key || serverOptions.cert || serverOptions.pfx)
+    ? _buildSyntheticCertificate(
+        tlsSocket.remoteAddress || 'localhost',
+        tlsSocket.remotePort,
+        serverOptions.key || serverOptions.cert || serverOptions.pfx
+      )
+    : null;
   tlsSocket._cipher = {
     name: _normalizeCipherName(serverOptions.ciphers),
     version: tlsSocket._protocol
   };
-  tlsSocket.authorized = !server.requestCert;
+  tlsSocket.authorized = false;
   tlsSocket.authorizationError = null;
-  tlsSocket.emit('secure', true);
+  if (server._pendingTlsHandshakes && server._pendingTlsHandshakes.length) {
+    _applyPendingServerHandshake(server, tlsSocket, server._pendingTlsHandshakes.shift());
+  } else {
+    server._pendingTlsSockets.push(tlsSocket);
+  }
   return tlsSocket;
 }
 

@@ -251,7 +251,12 @@ function inspect(value, options) {
       } else if (val instanceof RegExp) {
         result = _colorize(String(val), 'regexp');
       } else if (val instanceof Error) {
-        result = '[' + (val.constructor.name || 'Error') + ': ' + val.message + ']';
+        var stack = typeof val.stack === 'string' && val.stack ? val.stack : '';
+        if (!stack) {
+          stack = (val.constructor && val.constructor.name ? val.constructor.name : 'Error') +
+            (val.message ? ': ' + val.message : '');
+        }
+        result = stack;
       } else if (typeof val.constructor === 'function' && val.constructor.name === 'Buffer') {
         result = '<Buffer ' + Array.prototype.slice.call(val, 0, Math.min(val.length, 50)).map(function(b) { return (b < 16 ? '0' : '') + b.toString(16); }).join(' ') + (val.length > 50 ? ' ... ' + (val.length - 50) + ' more bytes' : '') + '>';
       } else {
@@ -415,6 +420,18 @@ var util = {
 };
 
 util.promisify.custom = kCustomPromisifiedSymbol;
+
+util._extend = function _extend(target, source) {
+  if (target == null) return target;
+  if (!source || (typeof source !== 'object' && typeof source !== 'function')) {
+    return target;
+  }
+  var keys = Object.keys(source);
+  for (var i = 0; i < keys.length; i++) {
+    target[keys[i]] = source[keys[i]];
+  }
+  return target;
+};
 
 util.parseArgs = function parseArgs(config) {
   config = config || {};
