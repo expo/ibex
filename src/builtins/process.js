@@ -366,15 +366,48 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
   // Ensure our module-level cwd/env/argv are present
   proc.chdir = chdir;
   proc.cwd = cwd;
-  if (typeof proc.geteuid !== 'function' && typeof proc.getuid === 'function') {
+  if (typeof proc.getuid !== 'function') {
+    proc.getuid = function getuid() { return 0; };
+  }
+  if (typeof proc.getgid !== 'function') {
+    proc.getgid = function getgid() { return 0; };
+  }
+  if (typeof proc.geteuid !== 'function') {
     proc.geteuid = function geteuid() {
-      return proc.getuid();
+      return typeof proc.getuid === 'function' ? proc.getuid() : 0;
     };
   }
-  if (typeof proc.getegid !== 'function' && typeof proc.getgid === 'function') {
+  if (typeof proc.getegid !== 'function') {
     proc.getegid = function getegid() {
-      return proc.getgid();
+      return typeof proc.getgid === 'function' ? proc.getgid() : 0;
     };
+  }
+  if (typeof proc.getgroups !== 'function') {
+    proc.getgroups = function getgroups() { return [0]; };
+  }
+  if (typeof proc.kill !== 'function') {
+    proc.kill = function kill(pid, signal) {
+      if (typeof pid !== 'number' || pid !== (pid | 0)) {
+        var te = new TypeError('The "pid" argument must be of type number. Received type ' + typeof pid);
+        te.code = 'ERR_INVALID_ARG_TYPE';
+        throw te;
+      }
+      var sig = signal === undefined ? 'SIGTERM' : signal;
+      if (pid === proc.pid && (sig === 0 || sig === 'SIGTERM' || sig === 'SIGUSR1' || sig === 'SIGUSR2')) {
+        return true;
+      }
+      if (sig === 0) {
+        var e = new Error('kill ESRCH');
+        e.code = 'ESRCH';
+        e.errno = -3;
+        e.syscall = 'kill';
+        throw e;
+      }
+      return true;
+    };
+  }
+  if (typeof proc.channel === 'undefined' && !('channel' in proc)) {
+    proc.channel = undefined;
   }
   if (!proc.argv || proc.argv.length === 0) proc.argv = argv;
   if (!Array.isArray(proc.execArgv)) proc.execArgv = [];

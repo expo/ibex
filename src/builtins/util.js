@@ -366,21 +366,80 @@ var util = {
     isArrayBufferView: function(value) {
       return value && (typeof ArrayBuffer !== "undefined") && ArrayBuffer.isView(value);
     },
+    isAnyArrayBuffer: function(value) {
+      return value instanceof ArrayBuffer ||
+        (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer);
+    },
+    isArgumentsObject: function(value) {
+      return Object.prototype.toString.call(value) === "[object Arguments]";
+    },
     isDate: function(value) { return value instanceof Date; },
     isRegExp: function(value) { return value instanceof RegExp; },
     isSet: function(value) { return typeof Set !== "undefined" && value instanceof Set; },
+    isSetIterator: function(value) {
+      return Object.prototype.toString.call(value) === "[object Set Iterator]";
+    },
     isMap: function(value) { return typeof Map !== "undefined" && value instanceof Map; },
+    isMapIterator: function(value) {
+      return Object.prototype.toString.call(value) === "[object Map Iterator]";
+    },
     isTypedArray: function(value) {
       return value && (value instanceof Int8Array || value instanceof Uint8Array ||
         value instanceof Uint8ClampedArray || value instanceof Int16Array ||
         value instanceof Uint16Array || value instanceof Int32Array ||
         value instanceof Uint32Array || value instanceof Float32Array ||
-        value instanceof Float64Array);
+        value instanceof Float64Array ||
+        (typeof BigInt64Array !== "undefined" && value instanceof BigInt64Array) ||
+        (typeof BigUint64Array !== "undefined" && value instanceof BigUint64Array));
     },
     isNativeError: function(value) { return value instanceof Error; },
     isNumberObject: function(value) { return typeof value === "object" && value instanceof Number; },
     isStringObject: function(value) { return typeof value === "object" && value instanceof String; },
-    isBooleanObject: function(value) { return typeof value === "object" && value instanceof Boolean; }
+    isBooleanObject: function(value) { return typeof value === "object" && value instanceof Boolean; },
+    isSymbolObject: function(value) {
+      return Object.prototype.toString.call(value) === "[object Symbol]" && typeof value === "object";
+    },
+    isBigInt64Array: function(value) {
+      return typeof BigInt64Array !== "undefined" && value instanceof BigInt64Array;
+    },
+    isBigUint64Array: function(value) {
+      return typeof BigUint64Array !== "undefined" && value instanceof BigUint64Array;
+    },
+    isBoxedPrimitive: function(value) {
+      return value instanceof Number || value instanceof String ||
+        value instanceof Boolean ||
+        (typeof Symbol !== "undefined" && Object.prototype.toString.call(value) === "[object Symbol]" && typeof value === "object") ||
+        (typeof BigInt !== "undefined" && Object.prototype.toString.call(value) === "[object BigInt]" && typeof value === "object");
+    },
+    isDataView: function(value) { return value instanceof DataView; },
+    isExternal: function(value) {
+      // V8 external values are not available in Hermes; always return false
+      return false;
+    },
+    isFloat32Array: function(value) { return value instanceof Float32Array; },
+    isFloat64Array: function(value) { return value instanceof Float64Array; },
+    isGeneratorFunction: function(value) {
+      return value && value.constructor && value.constructor.name === "GeneratorFunction";
+    },
+    isGeneratorObject: function(value) {
+      return Object.prototype.toString.call(value) === "[object Generator]";
+    },
+    isInt8Array: function(value) { return value instanceof Int8Array; },
+    isInt16Array: function(value) { return value instanceof Int16Array; },
+    isInt32Array: function(value) { return value instanceof Int32Array; },
+    isProxy: function(value) {
+      // Cannot reliably detect Proxy in userland; always return false
+      return false;
+    },
+    isSharedArrayBuffer: function(value) {
+      return typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer;
+    },
+    isUint8Array: function(value) { return value instanceof Uint8Array; },
+    isUint8ClampedArray: function(value) { return value instanceof Uint8ClampedArray; },
+    isUint16Array: function(value) { return value instanceof Uint16Array; },
+    isUint32Array: function(value) { return value instanceof Uint32Array; },
+    isWeakMap: function(value) { return typeof WeakMap !== "undefined" && value instanceof WeakMap; },
+    isWeakSet: function(value) { return typeof WeakSet !== "undefined" && value instanceof WeakSet; }
   },
   TextEncoder: typeof TextEncoder !== "undefined" ? TextEncoder : undefined,
   TextDecoder: typeof TextDecoder !== "undefined" ? TextDecoder : undefined,
