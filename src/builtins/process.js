@@ -346,12 +346,13 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
         return proc._umask;
       }
       if (typeof mask === 'string') {
-        if (!/^[0-7]+$/.test(mask)) {
+        if (!/^(0o?)?[0-7]+$/i.test(mask)) {
           var ve = new TypeError("[ERR_INVALID_ARG_VALUE]: The argument 'mask' is invalid. Received '" + mask + "'");
           ve.code = 'ERR_INVALID_ARG_VALUE';
           throw ve;
         }
-        mask = parseInt(mask, 8);
+        var stripped = mask.replace(/^0o/i, '').replace(/^0+(?=\d)/, '');
+        mask = parseInt(stripped || '0', 8);
       } else if (typeof mask !== 'number' || (mask !== (mask | 0))) {
         var te = new TypeError('[ERR_INVALID_ARG_TYPE]: The "mask" argument must be of type number. Received type ' + typeof mask);
         te.code = 'ERR_INVALID_ARG_TYPE';
@@ -386,6 +387,14 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
     proc.getgroups = function getgroups() { return [0]; };
   }
   if (typeof proc.kill !== 'function') {
+    var _validSignals = [
+      'SIGHUP', 'SIGINT', 'SIGQUIT', 'SIGILL', 'SIGTRAP', 'SIGABRT', 'SIGIOT',
+      'SIGBUS', 'SIGFPE', 'SIGKILL', 'SIGUSR1', 'SIGSEGV', 'SIGUSR2', 'SIGPIPE',
+      'SIGALRM', 'SIGTERM', 'SIGSTKFLT', 'SIGCHLD', 'SIGCONT', 'SIGSTOP',
+      'SIGTSTP', 'SIGTTIN', 'SIGTTOU', 'SIGURG', 'SIGXCPU', 'SIGXFSZ',
+      'SIGVTALRM', 'SIGPROF', 'SIGWINCH', 'SIGIO', 'SIGPOLL', 'SIGPWR',
+      'SIGSYS', 'SIGUNUSED', 'SIGINFO'
+    ];
     proc.kill = function kill(pid, signal) {
       if (typeof pid !== 'number' || pid !== (pid | 0)) {
         var te = new TypeError('The "pid" argument must be of type number. Received type ' + typeof pid);
@@ -393,17 +402,32 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
         throw te;
       }
       var sig = signal === undefined ? 'SIGTERM' : signal;
-      if (pid === proc.pid && (sig === 0 || sig === 'SIGTERM' || sig === 'SIGUSR1' || sig === 'SIGUSR2')) {
-        return true;
+      // Validate signal name
+      if (typeof sig === 'string' && sig !== '0' && _validSignals.indexOf(sig) === -1) {
+        var ue = new Error('Unknown signal: ' + sig);
+        ue.code = 'ERR_UNKNOWN_SIGNAL';
+        throw ue;
       }
-      if (sig === 0) {
+      if (typeof sig === 'number' && (sig < 0 || sig > 31)) {
+        var ue2 = new Error('Unknown signal: ' + sig);
+        ue2.code = 'ERR_UNKNOWN_SIGNAL';
+        throw ue2;
+      }
+      // Signal 0 is used to test process existence
+      if (sig === 0 || sig === '0') {
+        if (pid === proc.pid) return true;
         var e = new Error('kill ESRCH');
         e.code = 'ESRCH';
         e.errno = -3;
         e.syscall = 'kill';
         throw e;
       }
-      return true;
+      if (pid === proc.pid) return true;
+      var e2 = new Error('kill ESRCH');
+      e2.code = 'ESRCH';
+      e2.errno = -3;
+      e2.syscall = 'kill';
+      throw e2;
     };
   }
   if (typeof proc.channel === 'undefined' && !('channel' in proc)) {
