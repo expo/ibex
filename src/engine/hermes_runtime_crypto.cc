@@ -3070,12 +3070,13 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
 #endif // !EXACT_NO_OPENSSL
 
   // --- Zlib: sync compress/decompress ---
-  // __exactDeflateSync(data, level, mode) -> Uint8Array
+  // __exactDeflateSync(data, level, mode, dictionary?) -> Uint8Array
   // mode: 0 = deflate (zlib header, windowBits=15), 1 = gzip (windowBits=15+16), 2 = raw (windowBits=-15)
+  // dictionary: optional Uint8Array/Buffer for preset dictionary
   auto deflateSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactDeflateSync"),
-      3,
+      4,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -3095,6 +3096,12 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           mode = static_cast<int>(args[2].asNumber());
         }
 
+        // Optional dictionary (4th argument)
+        std::vector<uint8_t> dictionary;
+        if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+          dictionary = extractBytes(runtime, args[3]);
+        }
+
         // deflate
         z_stream strm = {};
         int windowBits;
@@ -3107,6 +3114,16 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
         if (deflateInit2(&strm, level, Z_DEFLATED, windowBits, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
           throw facebook::jsi::JSError(runtime, "deflateInit2 failed");
+        }
+
+        // Set dictionary if provided (not supported for gzip mode)
+        if (!dictionary.empty() && mode != 1) {
+          int dictRet = deflateSetDictionary(&strm, dictionary.data(),
+                                              static_cast<uInt>(dictionary.size()));
+          if (dictRet != Z_OK) {
+            deflateEnd(&strm);
+            throw facebook::jsi::JSError(runtime, "deflateSetDictionary failed");
+          }
         }
 
         strm.next_in = input.data();
@@ -3127,13 +3144,14 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactDeflateSync", std::move(deflateSyncFn));
 
-  // __exactInflateSync(data, mode, strict?, flags?) -> Uint8Array or [Uint8Array, bytesConsumed]
+  // __exactInflateSync(data, mode, strict?, flags?, dictionary?) -> Uint8Array or [Uint8Array, bytesConsumed]
   // mode: 0 = deflate (zlib header, windowBits=15), 1 = gzip (windowBits=15+32), 2 = raw (windowBits=-15)
   // flags: bitmask - bit0=lenientMode (ignore trailing data), bit1=returnConsumed (return [data, consumed])
+  // dictionary: optional Uint8Array/Buffer for preset dictionary (5th argument)
   auto inflateSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactInflateSync"),
-      2,
+      5,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -3159,6 +3177,12 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           int flags = static_cast<int>(args[3].asNumber());
           lenientMode = (flags & 1) != 0;
           returnConsumed = (flags & 2) != 0;
+        }
+
+        // 5th arg: optional dictionary
+        std::vector<uint8_t> dictionary;
+        if (count > 4 && !args[4].isUndefined() && !args[4].isNull()) {
+          dictionary = extractBytes(runtime, args[4]);
         }
 
         z_stream strm = {};
@@ -3187,6 +3211,19 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
             strm.next_out = outBuf;
             strm.avail_out = sizeof(outBuf);
             ret = inflate(&strm, Z_NO_FLUSH);
+            if (ret == Z_NEED_DICT) {
+              if (dictionary.empty()) {
+                inflateEnd(&strm);
+                throw facebook::jsi::JSError(runtime, "inflate failed: dictionary required");
+              }
+              int dictRet = inflateSetDictionary(&strm, dictionary.data(),
+                                                  static_cast<uInt>(dictionary.size()));
+              if (dictRet != Z_OK) {
+                inflateEnd(&strm);
+                throw facebook::jsi::JSError(runtime, "inflateSetDictionary failed");
+              }
+              continue; // Retry inflate after setting dictionary
+            }
             if (ret == Z_MEM_ERROR) {
               inflateEnd(&strm);
               throw facebook::jsi::JSError(runtime, "inflate failed: memory error");

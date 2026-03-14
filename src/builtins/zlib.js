@@ -128,7 +128,8 @@ function deflateSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
-  var buf = toBuffer(__exactDeflateSync(bytes, level, 0));
+  var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
+  var buf = toBuffer(__exactDeflateSync(bytes, level, 0, dict));
   if (options && options.info) return { engine: new Deflate(options), buffer: buf }; // eslint-disable-line no-use-before-define
   return buf;
 }
@@ -137,9 +138,10 @@ function inflateSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
   var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
+  var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
   var result;
   try {
-    result = toBuffer(__exactInflateSync(bytes, 0, false, lenient ? 1 : 0));
+    result = toBuffer(__exactInflateSync(bytes, 0, false, lenient ? 1 : 0, dict));
   } catch (e) {
     if (lenient) return toBuffer(new Uint8Array(0));
     throw wrapInflateError(e);
@@ -198,7 +200,8 @@ function deflateRawSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
-  var buf = toBuffer(__exactDeflateSync(bytes, level, 2));
+  var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
+  var buf = toBuffer(__exactDeflateSync(bytes, level, 2, dict));
   if (options && options.info) return { engine: new DeflateRaw(options), buffer: buf }; // eslint-disable-line no-use-before-define
   return buf;
 }
@@ -207,9 +210,10 @@ function inflateRawSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
   var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
+  var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
   var result;
   try {
-    result = toBuffer(__exactInflateSync(bytes, 2, false, lenient ? 1 : 0));
+    result = toBuffer(__exactInflateSync(bytes, 2, false, lenient ? 1 : 0, dict));
   } catch (e) {
     if (lenient) return toBuffer(new Uint8Array(0));
     throw wrapInflateError(e);
@@ -1081,9 +1085,10 @@ function Deflate(opts) {
   if (!(this instanceof Deflate)) return new Deflate(opts);
   validateZlibOptions(opts, true, false);
   var _opts = opts;
+  var _dict = (_opts && _opts.dictionary) ? toBytes(_opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
     var level = (_opts && _opts.level !== undefined) ? _opts.level : -1;
-    return toBuffer(__exactDeflateSync(toBytes(buf), level, 0));
+    return toBuffer(__exactDeflateSync(toBytes(buf), level, 0, _dict));
   }, opts, false);
 }
 Deflate.prototype = Object.create(ZlibTransform.prototype);
@@ -1091,7 +1096,12 @@ Deflate.prototype.constructor = Deflate;
 
 function Inflate(opts) {
   if (!(this instanceof Inflate)) return new Inflate(opts);
-  ZlibTransform.call(this, inflateStreamFn, opts, true);
+  var _dict = (opts && opts.dictionary) ? toBytes(opts.dictionary) : undefined;
+  ZlibTransform.call(this, function(buf) {
+    var r = __exactInflateSync(toBytes(buf), 0, false, 2, _dict);
+    if (Array.isArray(r)) return { output: toBuffer(r[0]), consumed: r[1] };
+    return { output: toBuffer(r), consumed: toBytes(buf).length };
+  }, opts, true);
 }
 Inflate.prototype = Object.create(ZlibTransform.prototype);
 Inflate.prototype.constructor = Inflate;
@@ -1120,9 +1130,10 @@ function DeflateRaw(opts) {
   if (!(this instanceof DeflateRaw)) return new DeflateRaw(opts);
   validateZlibOptions(opts, true, false);
   var _opts = opts;
+  var _dict = (_opts && _opts.dictionary) ? toBytes(_opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
     var level = (_opts && _opts.level !== undefined) ? _opts.level : -1;
-    return toBuffer(__exactDeflateSync(toBytes(buf), level, 2));
+    return toBuffer(__exactDeflateSync(toBytes(buf), level, 2, _dict));
   }, opts, false);
 }
 DeflateRaw.prototype = Object.create(ZlibTransform.prototype);
@@ -1130,7 +1141,12 @@ DeflateRaw.prototype.constructor = DeflateRaw;
 
 function InflateRaw(opts) {
   if (!(this instanceof InflateRaw)) return new InflateRaw(opts);
-  ZlibTransform.call(this, inflateRawStreamFn, opts, true);
+  var _dict = (opts && opts.dictionary) ? toBytes(opts.dictionary) : undefined;
+  ZlibTransform.call(this, function(buf) {
+    var r = __exactInflateSync(toBytes(buf), 2, false, 2, _dict);
+    if (Array.isArray(r)) return { output: toBuffer(r[0]), consumed: r[1] };
+    return { output: toBuffer(r), consumed: toBytes(buf).length };
+  }, opts, true);
 }
 InflateRaw.prototype = Object.create(ZlibTransform.prototype);
 InflateRaw.prototype.constructor = InflateRaw;

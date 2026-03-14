@@ -441,7 +441,9 @@ Socket.prototype.send = function(msg, offset, length, port, address, callback) {
     } else if (typeof msg === 'string') {
       msg = msg.substring(offset, offset + length);
     } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(msg)) {
-      msg = Buffer.from(msg.buffer, msg.byteOffset + offset, length);
+      var _copy = Buffer.alloc(length);
+      _copy.set(new Uint8Array(msg.buffer, msg.byteOffset + offset, length));
+      msg = _copy;
     }
     offset = 0;
   }
@@ -513,7 +515,9 @@ Socket.prototype.send = function(msg, offset, length, port, address, callback) {
       if (typeof msg[pi] === 'string') parts.push(Buffer.from(msg[pi]));
       else if (Buffer.isBuffer(msg[pi])) parts.push(msg[pi]);
       else if (msg[pi] && typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(msg[pi])) {
-        parts.push(Buffer.from(msg[pi].buffer, msg[pi].byteOffset, msg[pi].byteLength));
+        var _partCopy = Buffer.alloc(msg[pi].byteLength);
+        _partCopy.set(new Uint8Array(msg[pi].buffer, msg[pi].byteOffset, msg[pi].byteLength));
+        parts.push(_partCopy);
       }
     }
     sendData = parts.length > 0 ? Buffer.concat(parts) : Buffer.alloc(0);

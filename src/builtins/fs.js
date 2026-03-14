@@ -178,7 +178,9 @@ function _pathBufferViewToString(path) {
   var bytes = _pathBufferViewToUint8Array(path);
   if (!bytes) return String(path);
   if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
-    return Buffer.from(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength).toString();
+    var _copy = Buffer.alloc(bytes.byteLength);
+    _copy.set(new Uint8Array(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength));
+    return _copy.toString();
   }
   var out = '';
   for (var i = 0; i < bytes.length; i++) {
@@ -979,7 +981,9 @@ function decodeBytes(bytes, encoding) {
   if (enc === 'utf8' || enc === 'utf-8') enc = 'utf8';
   if (enc === 'utf8') {
     if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
-      return Buffer.from(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength).toString('utf8');
+      var _copy = Buffer.alloc(bytes.byteLength);
+      _copy.set(new Uint8Array(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength));
+      return _copy.toString('utf8');
     }
     if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(bytes);
     var result = '';

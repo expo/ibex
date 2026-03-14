@@ -1179,7 +1179,9 @@ function toBufferData(data, encoding) {
   if (data == null) return null;
   if (typeof Buffer !== 'undefined' && Buffer.isBuffer(data)) return data;
   if (typeof Buffer !== 'undefined' && typeof ArrayBuffer !== 'undefined' && typeof ArrayBuffer.isView === 'function' && ArrayBuffer.isView(data)) {
-    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    var _copy = Buffer.alloc(data.byteLength);
+    _copy.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+    return _copy;
   }
   if (typeof data === 'string') {
     if (typeof Buffer !== 'undefined') return Buffer.from(data, encoding || 'utf8');
