@@ -313,6 +313,409 @@
     }
   }
 
+  function _repeatTableChar(ch, count) {
+    var out = '';
+    while (count-- > 0) out += ch;
+    return out;
+  }
+
+  function _getTableStringWidth(str) {
+    if (typeof str !== 'string') return 0;
+    str = str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+    var width = 0;
+    for (var i = 0; i < str.length; i++) {
+      var code = str.codePointAt(i);
+      if (code > 0xFFFF) i++;
+      if ((code >= 0x1100 && code <= 0x115F) ||
+          (code >= 0x2E80 && code <= 0xA4CF && code !== 0x303F) ||
+          (code >= 0xAC00 && code <= 0xD7A3) ||
+          (code >= 0xF900 && code <= 0xFAFF) ||
+          (code >= 0xFE10 && code <= 0xFE6F) ||
+          (code >= 0xFF01 && code <= 0xFF60) ||
+          (code >= 0xFFE0 && code <= 0xFFE6) ||
+          (code >= 0x20000 && code <= 0x2FFFD) ||
+          (code >= 0x30000 && code <= 0x3FFFD)) {
+        width += 2;
+      } else if (code >= 0x20) {
+        width += 1;
+      }
+    }
+    return width;
+  }
+
+  function _padTableCell(value, width) {
+    value = String(value);
+    var actualWidth = _getTableStringWidth(value);
+    if (actualWidth >= width) return value;
+    return value + _repeatTableChar(' ', width - actualWidth);
+  }
+
+  function _formatTableInspect(value, depth) {
+    var util = _getUtilModule();
+    if (util && typeof util.inspect === 'function') {
+      try {
+        return util.inspect(value, {
+          colors: false,
+          compact: true,
+          breakLength: Infinity,
+          maxArrayLength: null,
+          maxStringLength: null,
+          depth: depth
+        });
+      } catch (_err) {}
+    }
+    try {
+      return String(value);
+    } catch (_err2) {
+      return '[Object]';
+    }
+  }
+
+  function _createTableArgTypeError(name, value) {
+    var err = new TypeError(
+      'The "' + name + '" argument must be an instance of Array. Received type ' +
+      typeof value + ' (' + String(value) + ')'
+    );
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    return err;
+  }
+
+  function _formatNonTableValue(value) {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'function') {
+      return value.name ? '[Function: ' + value.name + ']' : '[Function (anonymous)]';
+    }
+    if (typeof value === 'symbol') return String(value);
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    return String(value);
+  }
+
+  function _formatTableCellValue(value, depth) {
+    if (typeof value === 'function') {
+      return value.name ? '[Function: ' + value.name + ']' : '[Function (anonymous)]';
+    }
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    if (typeof value === 'string' || typeof value === 'symbol' || typeof value === 'bigint') {
+      return _formatTableInspect(value, 0);
+    }
+    if (typeof value !== 'object') {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      if (depth > 0) return '[Array]';
+      if (value.length === 0) return '[]';
+      var items = [];
+      var limit = value.length > 3 ? 3 : value.length;
+      for (var ai = 0; ai < limit; ai++) {
+        items.push(_formatTableCellValue(value[ai], depth + 1));
+      }
+      if (value.length > 3) {
+        var remaining = value.length - 3;
+        items.push('... ' + remaining + ' more item' + (remaining === 1 ? '' : 's'));
+      }
+      return '[ ' + items.join(', ') + ' ]';
+    }
+    if (_isPlainTableObject(value)) {
+      if (depth > 0) return '[Object]';
+      var keys = Object.keys(value);
+      if (keys.length === 0) return '{}';
+      if (keys.length > 2) return '[Object]';
+      var parts = [];
+      for (var oi = 0; oi < keys.length; oi++) {
+        parts.push(keys[oi] + ': ' + _formatTableCellValue(value[keys[oi]], depth + 1));
+      }
+      return '{ ' + parts.join(', ') + ' }';
+    }
+    return _formatTableInspect(value, 0);
+  }
+
+  function _isTableBuffer(value) {
+    return typeof Buffer !== 'undefined' && Buffer && typeof Buffer.isBuffer === 'function' &&
+      Buffer.isBuffer(value);
+  }
+
+  function _isTableTypedArray(value) {
+    return typeof ArrayBuffer !== 'undefined' &&
+      typeof ArrayBuffer.isView === 'function' &&
+      ArrayBuffer.isView(value) &&
+      !(typeof DataView !== 'undefined' && value instanceof DataView);
+  }
+
+  function _isTableArrayLike(value) {
+    return Array.isArray(value) || _isTableBuffer(value) || _isTableTypedArray(value);
+  }
+
+  function _isPlainTableObject(value) {
+    if (!value || typeof value !== 'object') return false;
+    return Object.prototype.toString.call(value) === '[object Object]';
+  }
+
+  function _isTableRowValue(value) {
+    return _isTableArrayLike(value) || _isPlainTableObject(value);
+  }
+
+  function _normalizeTableColumns(properties) {
+    if (properties === undefined) return null;
+    if (!Array.isArray(properties)) {
+      throw _createTableArgTypeError('properties', properties);
+    }
+    var normalized = [];
+    for (var i = 0; i < properties.length; i++) {
+      normalized.push(String(properties[i]));
+    }
+    return normalized;
+  }
+
+  function _renderConsoleTable(indexHeader, rows, columns) {
+    var headers = [indexHeader];
+    for (var hi = 0; hi < columns.length; hi++) headers.push(columns[hi]);
+
+    var widths = [];
+    for (var wi = 0; wi < headers.length; wi++) {
+      widths[wi] = _getTableStringWidth(headers[wi]);
+    }
+
+    for (var ri = 0; ri < rows.length; ri++) {
+      var row = rows[ri];
+      var indexText = String(row.index);
+      if (_getTableStringWidth(indexText) > widths[0]) {
+        widths[0] = _getTableStringWidth(indexText);
+      }
+      for (var ci = 0; ci < columns.length; ci++) {
+        var key = columns[ci];
+        var value = '';
+        if (row.values && Object.prototype.hasOwnProperty.call(row.values, key)) {
+          value = row.values[key];
+        }
+        value = value == null ? '' : String(value);
+        if (_getTableStringWidth(value) > widths[ci + 1]) {
+          widths[ci + 1] = _getTableStringWidth(value);
+        }
+      }
+    }
+
+    function border(left, join, right) {
+      var out = left;
+      for (var bi = 0; bi < widths.length; bi++) {
+        out += _repeatTableChar('─', widths[bi] + 2);
+        out += bi === widths.length - 1 ? right : join;
+      }
+      return out;
+    }
+
+    function rowLine(values) {
+      var out = '│';
+      for (var vi = 0; vi < values.length; vi++) {
+        out += ' ' + _padTableCell(values[vi], widths[vi]) + ' │';
+      }
+      return out;
+    }
+
+    var lines = [
+      border('┌', '┬', '┐'),
+      rowLine(headers),
+      border('├', '┼', '┤')
+    ];
+    for (var rj = 0; rj < rows.length; rj++) {
+      var rowValues = [String(rows[rj].index)];
+      for (var cj = 0; cj < columns.length; cj++) {
+        var column = columns[cj];
+        var cell = '';
+        if (rows[rj].values && Object.prototype.hasOwnProperty.call(rows[rj].values, column)) {
+          cell = rows[rj].values[column];
+        }
+        rowValues.push(cell == null ? '' : String(cell));
+      }
+      lines.push(rowLine(rowValues));
+    }
+    lines.push(border('└', '┴', '┘'));
+    return lines.join('\n') + '\n';
+  }
+
+  function _formatStructuredTable(indexHeader, entries, properties) {
+    var rows = [];
+    var columns = properties ? properties.slice() : [];
+    var seenColumns = Object.create(null);
+    var hasValuesColumn = false;
+
+    if (!properties) {
+      for (var si = 0; si < columns.length; si++) {
+        seenColumns[columns[si]] = true;
+      }
+    }
+
+    for (var ei = 0; ei < entries.length; ei++) {
+      var entry = entries[ei];
+      var rowValue = entry[1];
+      var values = Object.create(null);
+
+      if (_isTableRowValue(rowValue)) {
+        var rowKeys = properties || Object.keys(rowValue);
+        for (var ki = 0; ki < rowKeys.length; ki++) {
+          var key = String(rowKeys[ki]);
+          if (!properties && !seenColumns[key]) {
+            seenColumns[key] = true;
+            columns.push(key);
+          }
+          if (Object.prototype.hasOwnProperty.call(rowValue, key)) {
+            values[key] = _formatTableCellValue(rowValue[key], 0);
+          }
+        }
+      } else {
+        hasValuesColumn = true;
+        values.Values = _formatTableCellValue(rowValue, 0);
+      }
+
+      rows.push({
+        index: entry[0],
+        values: values
+      });
+    }
+
+    if (!properties && hasValuesColumn && !seenColumns.Values) {
+      columns.push('Values');
+    }
+
+    return _renderConsoleTable(indexHeader, rows, columns);
+  }
+
+  function _formatMapTable(map) {
+    var rows = [];
+    var index = 0;
+    map.forEach(function(value, key) {
+      var row = Object.create(null);
+      row.Key = _formatTableCellValue(key, 0);
+      row.Values = _formatTableCellValue(value, 0);
+      rows.push({
+        index: String(index++),
+        values: row
+      });
+    });
+    return _renderConsoleTable('(iteration index)', rows, ['Key', 'Values']);
+  }
+
+  function _formatSetTable(set) {
+    var rows = [];
+    var index = 0;
+    set.forEach(function(value) {
+      var row = Object.create(null);
+      row.Values = _formatTableCellValue(value, 0);
+      rows.push({
+        index: String(index++),
+        values: row
+      });
+    });
+    return _renderConsoleTable('(iteration index)', rows, ['Values']);
+  }
+
+  function _formatIterableTable(iterable) {
+    var values = [];
+    try {
+      values = Array.from(iterable);
+    } catch (_err) {
+      return null;
+    }
+
+    var isEntryIterable = values.length > 0;
+    for (var i = 0; i < values.length; i++) {
+      if (!Array.isArray(values[i]) || values[i].length !== 2) {
+        isEntryIterable = false;
+        break;
+      }
+    }
+
+    if (isEntryIterable) {
+      var entryRows = [];
+      for (var ei = 0; ei < values.length; ei++) {
+        var entryRow = Object.create(null);
+        entryRow.Key = _formatTableCellValue(values[ei][0], 0);
+        entryRow.Values = _formatTableCellValue(values[ei][1], 0);
+        entryRows.push({
+          index: String(ei),
+          values: entryRow
+        });
+      }
+      return _renderConsoleTable('(iteration index)', entryRows, ['Key', 'Values']);
+    }
+
+    var structuredEntries = [];
+    for (var vi = 0; vi < values.length; vi++) {
+      structuredEntries.push([String(vi), values[vi]]);
+    }
+    return _formatStructuredTable('(iteration index)', structuredEntries, null);
+  }
+
+  function _formatConsoleTable(data, properties) {
+    properties = _normalizeTableColumns(properties);
+
+    if (data === null || data === undefined || typeof data === 'boolean' ||
+        typeof data === 'number' || typeof data === 'bigint' ||
+        typeof data === 'string' || typeof data === 'symbol' ||
+        typeof data === 'function') {
+      return null;
+    }
+
+    if (typeof Map === 'function' && data instanceof Map) {
+      return _formatMapTable(data);
+    }
+    if (typeof Set === 'function' && data instanceof Set) {
+      return _formatSetTable(data);
+    }
+    if (_isTableArrayLike(data)) {
+      var arrayEntries = [];
+      for (var ai = 0; ai < data.length; ai++) {
+        arrayEntries.push([String(ai), data[ai]]);
+      }
+      return _formatStructuredTable('(index)', arrayEntries, properties);
+    }
+    if (typeof Symbol !== 'undefined' && Symbol.iterator &&
+        data && typeof data[Symbol.iterator] === 'function') {
+      return _formatIterableTable(data);
+    }
+    if (_isPlainTableObject(data)) {
+      var objectKeys = Object.keys(data);
+      var objectEntries = [];
+      for (var oi = 0; oi < objectKeys.length; oi++) {
+        objectEntries.push([objectKeys[oi], data[objectKeys[oi]]]);
+      }
+      return _formatStructuredTable('(index)', objectEntries, properties);
+    }
+
+    return null;
+  }
+
+  function _writeConsoleTable(self, stream, data, properties, methodName) {
+    var table = _formatConsoleTable(data, properties);
+    if (table === null) {
+      _publishConsoleChannel(methodName, [data, properties]);
+      var rawValue = _formatNonTableValue(data) + '\n';
+      var rawIndent = _getGroupIndent(self);
+      if (self._ignoreErrors) {
+        try {
+          _streamWrite(stream, rawValue, rawIndent);
+        } catch (e) {
+          if (e instanceof RangeError) throw e;
+        }
+      } else {
+        _streamWrite(stream, rawValue, rawIndent);
+      }
+      return;
+    }
+    _publishConsoleChannel(methodName, [data, properties]);
+    var indent = _getGroupIndent(self);
+    if (self._ignoreErrors) {
+      try {
+        _streamWrite(stream, table, indent);
+      } catch (e) {
+        if (e instanceof RangeError) throw e;
+      }
+    } else {
+      _streamWrite(stream, table, indent);
+    }
+  }
+
   // Define methods on Console.prototype
   Console.prototype.log = function log() { _consoleWrite(this, this._stdout, arguments, 'log'); };
   Console.prototype.debug = function debug() { _consoleWrite(this, this._stdout, arguments, 'debug'); };
@@ -413,7 +816,9 @@
     this._groupDepth++;
   };
   Console.prototype.groupEnd = function groupEnd() { if (this._groupDepth > 0) this._groupDepth--; };
-  Console.prototype.table = function table(data) { _consoleWrite(this, this._stdout, [data]); };
+  Console.prototype.table = function table(data, properties) {
+    _writeConsoleTable(this, this._stdout, data, properties, 'table');
+  };
 
   // Make globalThis.console instanceof Console return true
   if (typeof Symbol !== 'undefined' && Symbol.hasInstance) {
@@ -586,27 +991,15 @@
     _groupIndent = '';
     for (var i = 0; i < _groupDepth * 2; i++) _groupIndent += ' ';
   };
-  console.table = function table(data) {
-    if (Array.isArray(data)) {
-      _writeStdout('(index) | Value\n');
-      for (var i = 0; i < data.length; i++) {
-        if (typeof data[i] === 'object' && data[i] !== null) {
-          var keys = Object.keys(data[i]);
-          var parts = [];
-          for (var k = 0; k < keys.length; k++) parts.push(keys[k] + ': ' + data[i][keys[k]]);
-          _writeStdout(i + '       | { ' + parts.join(', ') + ' }\n');
-        } else {
-          _writeStdout(i + '       | ' + data[i] + '\n');
-        }
-      }
-    } else if (typeof data === 'object' && data !== null) {
-      var objKeys = Object.keys(data);
-      for (var j = 0; j < objKeys.length; j++) {
-        _writeStdout(objKeys[j] + ': ' + data[objKeys[j]] + '\n');
-      }
-    } else {
-      _writeStdout(String(data) + '\n');
+  console.table = function table(data, properties) {
+    var table = _formatConsoleTable(data, properties);
+    if (table === null) {
+      _publishConsoleChannel('table', arguments);
+      _writeStdout(_formatNonTableValue(data) + '\n');
+      return;
     }
+    _publishConsoleChannel('table', arguments);
+    _writeStdout(table);
   };
   console.assert = function assert(condition) {
     if (!condition) {

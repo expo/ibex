@@ -4824,8 +4824,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     if (err && err.code === 'ERR_METHOD_NOT_IMPLEMENTED') {
       throw err;
     }
-    onWriteComplete(err);
-    return false;
+    throw err;
   }
   if (callbackCalled && state.errored) {
     return false;
@@ -4926,7 +4925,7 @@ Writable.prototype._flushWriteQueue = function() {
         cleanup(err);
       });
     } catch (err) {
-      cleanup(err);
+      throw err;
     }
     return;
   }
@@ -4955,7 +4954,7 @@ Writable.prototype._flushWriteQueue = function() {
         runNext();
       });
     } catch (err) {
-      cleanup(err);
+      throw err;
     }
   }
   runNext();
