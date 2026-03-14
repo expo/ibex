@@ -5,9 +5,11 @@
 
 use super::SecurityMode;
 use crate::host::policy::PolicyFile;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Component, Path, PathBuf};
 use std::sync::RwLock;
+
+const MAX_AUDIT_LOG_ENTRIES: usize = 1024;
 
 /// A capability grant record
 #[derive(Debug, Clone)]
@@ -28,7 +30,7 @@ pub struct CapabilityManager {
     /// Grants by module ID
     grants: RwLock<HashMap<String, Vec<CapabilityGrant>>>,
     /// Audit log of capability checks
-    audit_log: RwLock<Vec<AuditEntry>>,
+    audit_log: RwLock<VecDeque<AuditEntry>>,
 }
 
 /// An entry in the capability audit log
@@ -49,7 +51,7 @@ impl CapabilityManager {
         Self {
             mode,
             grants: RwLock::new(HashMap::new()),
-            audit_log: RwLock::new(Vec::new()),
+            audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
         }
     }
 
@@ -86,7 +88,10 @@ impl CapabilityManager {
         };
 
         if let Ok(mut log) = self.audit_log.write() {
-            log.push(entry);
+            if log.len() == MAX_AUDIT_LOG_ENTRIES {
+                log.pop_front();
+            }
+            log.push_back(entry);
         }
 
         granted
@@ -151,7 +156,10 @@ impl CapabilityManager {
 
     /// Get the audit log
     pub fn audit_log(&self) -> Vec<AuditEntry> {
-        self.audit_log.read().map(|l| l.clone()).unwrap_or_default()
+        self.audit_log
+            .read()
+            .map(|entries| entries.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Clear the audit log
@@ -383,5 +391,28 @@ mod tests {
         assert!(manager.check("module-a", "network:fetch:api.example.com"));
         assert!(manager.check("module-b", "network:fetch:api.example.com"));
         assert!(!manager.check("module-a", "network:connect:api.example.com"));
+    }
+
+    #[test]
+    fn capability_audit_log_is_bounded() {
+        let manager = CapabilityManager::new(SecurityMode::Strict);
+
+        for index in 0..(MAX_AUDIT_LOG_ENTRIES + 50) {
+            let capability = format!("network:fetch:api-{index}.example.com");
+            manager.check("module-a", &capability);
+        }
+
+        let log = manager.audit_log();
+        assert_eq!(log.len(), MAX_AUDIT_LOG_ENTRIES);
+        assert!(log
+            .first()
+            .expect("bounded log should keep newest entries")
+            .capability
+            .contains("api-50"));
+        assert!(log
+            .last()
+            .expect("bounded log should keep newest entries")
+            .capability
+            .contains(&format!("api-{}", MAX_AUDIT_LOG_ENTRIES + 49)));
     }
 }

@@ -12,8 +12,8 @@ HERMES_VERSION="0.11.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
-RUNTIME_SHA256="593773e4800c5be3f041162cd18880181153da2e7b0340bf43f0e051b2717a"
-CLI_SHA256="b051e3f099023c5d131fcd7b5a6d664e845588db440c9ea8ee0396ade370bf99a"
+RUNTIME_SHA256="5937737e4800c5be3f041162cdd18880181153da2e7b0340bf43f0e051b2717a"
+CLI_SHA256="b051e3e099023c5d131fcd7b5a6d664e84558db440c9ea8ee0396ade370bf99a"
 
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
 TOOLS_DIR="$PROJECT_ROOT/tools/hermes"
@@ -87,7 +87,7 @@ else
 
     echo "[↓] Extracting..."
     mkdir -p "$TEMP_DIR/runtime"
-    tar -xzf "$RUNTIME_TAR" -C "$TEMP_DIR/runtime" 2>/dev/null || true
+    tar -xzf "$RUNTIME_TAR" -C "$TEMP_DIR/runtime"
 
     # Copy xcframework
     mkdir -p "$FRAMEWORKS_DIR"
@@ -137,7 +137,7 @@ else
 
     echo "[↓] Extracting..."
     mkdir -p "$TOOLS_DIR"
-    tar -xzf "$CLI_TAR" -C "$TOOLS_DIR" 2>/dev/null || true
+    tar -xzf "$CLI_TAR" -C "$TOOLS_DIR"
 
     # Keep only the tools we need
     if [ -f "$TOOLS_DIR/hermesc" ]; then

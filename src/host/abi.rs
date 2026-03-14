@@ -16,8 +16,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
-use std::sync::Mutex;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(all(
@@ -59,7 +58,7 @@ use std::os::unix::fs::MetadataExt;
 
 pub const EXACT_HOST_ABI_VERSION: u32 = 1;
 
-static HOST: OnceLock<Host> = OnceLock::new();
+static HOST: OnceLock<RwLock<Host>> = OnceLock::new();
 static SECURITY_LOG_ENABLED: OnceLock<bool> = OnceLock::new();
 
 struct SqliteConnectionRecord {
@@ -103,11 +102,30 @@ fn with_sqlite_state<T>(f: impl FnOnce(&mut SqliteState) -> T) -> T {
 }
 
 pub fn install_host(host: Host) {
-    let _ = HOST.set(host);
+    if let Some(slot) = HOST.get() {
+        match slot.write() {
+            Ok(mut current) => {
+                *current = host;
+            }
+            Err(poisoned) => {
+                *poisoned.into_inner() = host;
+            }
+        }
+        return;
+    }
+
+    let _ = HOST.set(RwLock::new(host));
 }
 
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
-    HOST.get().map(f).unwrap_or(default)
+    let Some(host) = HOST.get() else {
+        return default;
+    };
+
+    match host.read() {
+        Ok(current) => f(&current),
+        Err(poisoned) => f(&poisoned.into_inner()),
+    }
 }
 
 fn security_log_enabled() -> bool {
@@ -1593,6 +1611,7 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::{Host, HostConfig, SecurityMode};
 
     #[test]
     fn named_sqlite_bindings_are_bound_by_name() {
@@ -1617,5 +1636,17 @@ mod tests {
         let name: String = row.get(0).unwrap();
 
         assert_eq!(name, "alice");
+    }
+
+    #[test]
+    fn install_host_replaces_existing_host() {
+        install_host(Host::default_legacy());
+        assert!(with_host(|host| host.is_allow_all(), false));
+
+        install_host(Host::new(HostConfig {
+            mode: SecurityMode::Strict,
+            ..Default::default()
+        }));
+        assert!(!with_host(|host| host.is_allow_all(), true));
     }
 }

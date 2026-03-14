@@ -6,6 +6,14 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{OnceLock, RwLock};
+
+type EnvOverlay = HashMap<String, Option<String>>;
+
+fn env_overlay() -> &'static RwLock<EnvOverlay> {
+    static OVERLAY: OnceLock<RwLock<EnvOverlay>> = OnceLock::new();
+    OVERLAY.get_or_init(|| RwLock::new(HashMap::new()))
+}
 
 /// Get the current working directory
 pub fn cwd() -> Result<PathBuf> {
@@ -20,22 +28,47 @@ pub fn chdir(path: &std::path::Path) -> Result<()> {
 
 /// Get an environment variable
 pub fn env_get(key: &str) -> Option<String> {
+    if let Some(value) = env_overlay()
+        .read()
+        .ok()
+        .and_then(|overlay| overlay.get(key).cloned())
+    {
+        return value;
+    }
+
     std::env::var(key).ok()
 }
 
 /// Set an environment variable
 pub fn env_set(key: &str, value: &str) {
-    std::env::set_var(key, value);
+    if let Ok(mut overlay) = env_overlay().write() {
+        overlay.insert(key.to_string(), Some(value.to_string()));
+    }
 }
 
 /// Remove an environment variable
 pub fn env_remove(key: &str) {
-    std::env::remove_var(key);
+    if let Ok(mut overlay) = env_overlay().write() {
+        overlay.insert(key.to_string(), None);
+    }
 }
 
 /// Get all environment variables
 pub fn env_all() -> HashMap<String, String> {
-    std::env::vars().collect()
+    let mut all = std::env::vars().collect::<HashMap<_, _>>();
+    if let Ok(overlay) = env_overlay().read() {
+        for (key, value) in overlay.iter() {
+            match value {
+                Some(value) => {
+                    all.insert(key.clone(), value.clone());
+                }
+                None => {
+                    all.remove(key);
+                }
+            }
+        }
+    }
+    all
 }
 
 /// Get the command line arguments
