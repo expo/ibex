@@ -214,6 +214,11 @@ extern "C" uint32_t ex_host_env_get(const char* key, char* out_buf, uint32_t len
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 extern "C" char* ex_host_module_resolve(const char* specifier, const char* referrer);
 extern "C" void ex_host_free_string(char* value);
+extern "C" int32_t exact_get_state_mirror_buffer(
+    void* handle,
+    uint8_t** out_ptr,
+    size_t* out_size);
+extern "C" int64_t exact_module_get_state_offset(void* handle, uint16_t module_id);
 
 // HTTP server (implemented in host/http_server.rs)
 extern "C" char* ex_host_http_serve(uint16_t port, const char* hostname);
@@ -4612,26 +4617,99 @@ extern "C" void ex_hermes_set_module_sync_callback(
             &resultData, &resultLength,
             runtime->ios_module_sync_context);
 
-        if (status != 0 || !resultData) {
+        if (status != 0) {
           return facebook::jsi::Value::undefined();
         }
 
-        // Return result as Uint8Array
-        auto arrayBuffer = std::make_unique<VectorBuffer>(
-            std::vector<uint8_t>(resultData, resultData + resultLength));
+        if (!resultData && resultLength == 0) {
+          return makeUint8Array(rt, {});
+        }
+
+        if (!resultData) {
+          return facebook::jsi::Value::undefined();
+        }
+
+        std::vector<uint8_t> resultBytes(resultData, resultData + resultLength);
         free(resultData);
-        auto ab = rt.global()
-            .getPropertyAsFunction(rt, "ArrayBuffer")
-            .callAsConstructor(rt, static_cast<int>(resultLength))
-            .getObject(rt)
-            .getArrayBuffer(rt);
-        memcpy(ab.data(rt), arrayBuffer->data(), resultLength);
-        auto uint8ArrayCtor = rt.global().getPropertyAsFunction(rt, "Uint8Array");
-        return uint8ArrayCtor.callAsConstructor(
-            rt, rt.global().getProperty(rt, "ArrayBuffer"));
+        return makeUint8Array(rt, std::move(resultBytes));
       });
 
   exactObj.setProperty(rt, "callModuleSync", std::move(fn));
+  rt.global().setProperty(rt, "exact", std::move(exactObj));
+}
+
+extern "C" void ex_hermes_set_kernel_handle(
+    ExactHermesRuntime* runtime,
+    void* kernel_handle) {
+  if (!runtime || !runtime->runtime) return;
+  runtime->kernel_handle = kernel_handle;
+
+  auto& rt = *runtime->runtime;
+
+  facebook::jsi::Value exactVal = rt.global().getProperty(rt, "exact");
+  facebook::jsi::Object exactObj = exactVal.isObject()
+      ? exactVal.getObject(rt)
+      : facebook::jsi::Object(rt);
+
+  auto getStateMirrorFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "getStateMirror"),
+      0,
+      [runtime](facebook::jsi::Runtime& rt,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value*,
+                size_t) -> facebook::jsi::Value {
+        if (!runtime->kernel_handle) {
+          return facebook::jsi::Value::null();
+        }
+
+        uint8_t* buffer = nullptr;
+        size_t size = 0;
+        if (exact_get_state_mirror_buffer(runtime->kernel_handle, &buffer, &size) != 0 ||
+            !buffer) {
+          return facebook::jsi::Value::null();
+        }
+
+        auto arrayBufferObject = rt.global()
+            .getPropertyAsFunction(rt, "ArrayBuffer")
+            .callAsConstructor(rt, static_cast<double>(size))
+            .getObject(rt);
+        auto arrayBuffer = arrayBufferObject.getArrayBuffer(rt);
+        if (size > 0) {
+          memcpy(arrayBuffer.data(rt), buffer, size);
+        }
+        return facebook::jsi::Value(std::move(arrayBufferObject));
+      });
+
+  auto getModuleStateOffsetFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "getModuleStateOffset"),
+      1,
+      [runtime](facebook::jsi::Runtime&,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->kernel_handle || count == 0 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+
+        double rawModuleId = args[0].asNumber();
+        if (rawModuleId < 0 || rawModuleId > static_cast<double>(UINT16_MAX)) {
+          return facebook::jsi::Value::null();
+        }
+
+        auto offset = exact_module_get_state_offset(
+            runtime->kernel_handle,
+            static_cast<uint16_t>(rawModuleId));
+        if (offset < 0) {
+          return facebook::jsi::Value::null();
+        }
+
+        return facebook::jsi::Value(static_cast<double>(offset));
+      });
+
+  exactObj.setProperty(rt, "getStateMirror", std::move(getStateMirrorFn));
+  exactObj.setProperty(rt, "getModuleStateOffset", std::move(getModuleStateOffsetFn));
   rt.global().setProperty(rt, "exact", std::move(exactObj));
 }
 

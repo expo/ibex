@@ -279,7 +279,7 @@ var promises = {
     });
   },
   FileHandle: FileHandle,
-  constants: base.constants || { F_OK: 0, R_OK: 1, W_OK: 2, X_OK: 4 },
+  constants: base.constants || { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 },
   access: base.access || function(path, mode) { return Promise.resolve(fs.accessSync(path, mode)); },
   stat: base.stat || function(path) { return Promise.resolve(fs.statSync(path)); },
   lstat: base.lstat || function(path) { return Promise.resolve(fs.lstatSync(path)); },

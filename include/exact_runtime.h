@@ -125,6 +125,12 @@ void ex_hermes_set_module_sync_callback(
                     void* context),
     void* context);
 
+/// Attach the Exact kernel handle so the runtime can expose kernel-backed
+/// state-mirror snapshots and module metadata through the `exact` global.
+void ex_hermes_set_kernel_handle(
+    ExactHermesRuntime* runtime,
+    void* kernel_handle);
+
 /// Emit a module event from native code to JavaScript.
 /// Calls globalThis.__exactModuleEvent(moduleName, eventName, payload).
 /// @param runtime The runtime handle

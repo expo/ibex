@@ -82,6 +82,7 @@ struct ExactHermesRuntime {
                                   size_t* result_length,
                                   void* context) = nullptr;
   void* ios_module_sync_context = nullptr;
+  void* kernel_handle = nullptr;
 
   bool stream_enhance_loaded = false;
   bool web_crypto_loaded = false;
