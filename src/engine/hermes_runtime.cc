@@ -969,6 +969,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isNumber()) {
           delay = static_cast<uint64_t>(args[1].asNumber());
         }
+        std::vector<facebook::jsi::Value> callbackArgs;
+        if (count > 2) {
+          callbackArgs.reserve(count - 2);
+          for (size_t i = 2; i < count; i++) {
+            callbackArgs.emplace_back(runtime, args[i]);
+          }
+        }
         uint64_t id = handle->next_timer_id++;
         TimerEntry entry{
             id,
@@ -977,6 +984,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             false,
             true,
             std::move(callback),
+            std::move(callbackArgs),
         };
         handle->timers.emplace(id, std::move(entry));
         return facebook::jsi::Value(static_cast<double>(id));
@@ -1016,6 +1024,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isNumber()) {
           delay = static_cast<uint64_t>(args[1].asNumber());
         }
+        std::vector<facebook::jsi::Value> callbackArgs;
+        if (count > 2) {
+          callbackArgs.reserve(count - 2);
+          for (size_t i = 2; i < count; i++) {
+            callbackArgs.emplace_back(runtime, args[i]);
+          }
+        }
         uint64_t id = handle->next_timer_id++;
         TimerEntry entry{
             id,
@@ -1024,6 +1039,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             true,
             true,
             std::move(callback),
+            std::move(callbackArgs),
         };
         handle->timers.emplace(id, std::move(entry));
         return facebook::jsi::Value(static_cast<double>(id));
@@ -1607,7 +1623,15 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         auto callback = args[0].asObject(runtime).asFunction(runtime);
-        handle->next_tick.push_back(std::move(callback));
+        std::vector<facebook::jsi::Value> callbackArgs;
+        if (count > 1) {
+          callbackArgs.reserve(count - 1);
+          for (size_t i = 1; i < count; i++) {
+            callbackArgs.emplace_back(runtime, args[i]);
+          }
+        }
+        handle->next_tick.push_back(
+            NextTickEntry{std::move(callback), std::move(callbackArgs)});
         return facebook::jsi::Value::undefined();
       });
 
@@ -3441,10 +3465,17 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
   }
   auto& rt = *runtime->runtime;
   while (!runtime->next_tick.empty()) {
-    auto fn = std::move(runtime->next_tick.front());
+    auto entry = std::move(runtime->next_tick.front());
     runtime->next_tick.pop_front();
     try {
-      fn.call(rt);
+      if (entry.args.empty()) {
+        entry.callback.call(rt);
+      } else {
+        entry.callback.call(
+            rt,
+            static_cast<const facebook::jsi::Value*>(entry.args.data()),
+            entry.args.size());
+      }
     } catch (const facebook::jsi::JSError& err) {
       // Try uncaughtException handler first
       bool handled = false;
@@ -3927,7 +3958,14 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       continue;
     }
     try {
-      it->second.callback.call(*runtime->runtime);
+      if (it->second.args.empty()) {
+        it->second.callback.call(*runtime->runtime);
+      } else {
+        it->second.callback.call(
+            *runtime->runtime,
+            static_cast<const facebook::jsi::Value*>(it->second.args.data()),
+            it->second.args.size());
+      }
       executed += 1;
       runNextTickQueue(runtime);
       drainMicrotasks(*runtime->runtime);

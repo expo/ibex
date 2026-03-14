@@ -520,6 +520,34 @@
   function _internalFsUtilsStringToInt(value) {
     return parseInt(value, 10);
   }
+  function _internalFsUtilsIsFd(fd) {
+    return typeof fd === 'number' && Number.isInteger(fd) && fd >= 0;
+  }
+  function _internalFsUtilsIsFileMode(mode) {
+    return typeof mode === 'number' && Number.isInteger(mode);
+  }
+  function _internalFsUtilsValidateFd(fd) {
+    if (!_internalFsUtilsIsFd(fd)) {
+      throw new TypeError('The "fd" argument must be a non-negative integer. Received ' + String(fd));
+    }
+  }
+  function _internalFsUtilsToPathIfFileURL(value) {
+    if (typeof value === 'string' || value instanceof String) {
+      return value;
+    }
+    if (value && typeof value === 'object' && typeof value.path === 'string') {
+      return value.path;
+    }
+    return value;
+  }
+  function _internalFsUtilsInvalidArgType(name, value, expected) {
+    var err = new TypeError(
+      'The "' + name + '" argument must be of type ' + expected + '. Received ' +
+      (value === null ? 'null' : typeof value)
+    );
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    return err;
+  }
   function _internalFsUtilsValidateOffsetLength(offset, length, byteLength, mode, maxLength) {
     if (!Number.isInteger(offset) || offset < 0) {
       var offsetErr = new RangeError('The value of "offset" is out of range. It must be >= 0. Received ' + offset);
@@ -550,6 +578,83 @@
       throw lenErr;
     }
   }
+  function _internalFsUtilsValidateOption(name, value, expectedType) {
+    if (expectedType === 'boolean' && typeof value !== 'boolean') {
+      var boolErr = new TypeError(
+        'The "options.' + name + '" property must be of type boolean. Received type ' + typeof value + '.'
+      );
+      boolErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw boolErr;
+    }
+    if (expectedType === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
+      var rangeError = new RangeError('The value of "options.' + name + '" is out of range. Received ' + value);
+      rangeError.code = 'ERR_OUT_OF_RANGE';
+      throw rangeError;
+    }
+  }
+  function _internalFsUtilsValidateRmdirOptions(options) {
+    if (options === undefined) {
+      return { retryDelay: 100, maxRetries: 0, recursive: false };
+    }
+    if (options === null || typeof options !== 'object') {
+      throw _internalFsUtilsInvalidArgType('options', options, 'object');
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'recursive')) {
+      _internalFsUtilsValidateOption('recursive', options.recursive, 'boolean');
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'retryDelay')) {
+      if (
+        typeof options.retryDelay !== 'number' ||
+        !Number.isFinite(options.retryDelay) ||
+        options.retryDelay < 0
+      ) {
+        var retryErr = new RangeError(
+          'The value of "options.retryDelay" is out of range. Received ' + options.retryDelay
+        );
+        retryErr.code = 'ERR_OUT_OF_RANGE';
+        throw retryErr;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'maxRetries')) {
+      if (
+        typeof options.maxRetries !== 'number' ||
+        !Number.isFinite(options.maxRetries) ||
+        options.maxRetries < 0
+      ) {
+        var maxErr = new RangeError(
+          'The value of "options.maxRetries" is out of range. Received ' + options.maxRetries
+        );
+        maxErr.code = 'ERR_OUT_OF_RANGE';
+        throw maxErr;
+      }
+    }
+    return {
+      retryDelay: options.retryDelay === undefined ? 100 : options.retryDelay,
+      maxRetries: options.maxRetries === undefined ? 0 : options.maxRetries,
+      recursive: options.recursive === undefined ? false : options.recursive
+    };
+  }
+  function _internalFsUtilsValidateRmOptionsSync(path, options) {
+    var base = _internalFsUtilsValidateRmdirOptions(options);
+    var hasForce = !!(options && Object.prototype.hasOwnProperty.call(options, 'force'));
+    if (hasForce) {
+      _internalFsUtilsValidateOption('force', options.force, 'boolean');
+    }
+    return {
+      retryDelay: base.retryDelay,
+      maxRetries: base.maxRetries,
+      recursive: base.recursive,
+      force: hasForce ? options.force : false
+    };
+  }
+  function _internalFsUtilsSyncWriteStream() {}
+  _internalFsUtilsSyncWriteStream.prototype = {
+    _write: function(chunk, encoding, cb) {
+      if (cb && typeof cb === 'function') {
+        cb();
+      }
+    }
+  };
   function _getExactNativeWrapState() {
     var root = typeof globalThis === 'object' ? globalThis : {};
     if (root.__exactNativeWrapState) {
@@ -877,6 +982,10 @@
       }
     },
     'internal/fs/utils': {
+      isFd: _internalFsUtilsIsFd,
+      isFileMode: _internalFsUtilsIsFileMode,
+      validateFd: _internalFsUtilsValidateFd,
+      toPathIfFileURL: _internalFsUtilsToPathIfFileURL,
       validateOffsetLengthRead: function(offset, length, byteLength, lengthIsBigInt) {
         if (lengthIsBigInt !== undefined && lengthIsBigInt) {
           if (typeof offset === 'bigint' || typeof length === 'bigint') {
@@ -954,6 +1063,8 @@
         }
         return result;
       },
+      validateRmdirOptions: _internalFsUtilsValidateRmdirOptions,
+      validateRmOptionsSync: _internalFsUtilsValidateRmOptionsSync,
       BigIntStats: function(
         dev,
         mode,
@@ -1194,7 +1305,9 @@
         var result = new (require('fs').Dirent)(name, path, stat);
         if (callback) return callback(null, result);
         return result;
-      }
+      },
+      SyncWriteStream: _internalFsUtilsSyncWriteStream,
+      kMinPoolSpace: 8192
     },
     'internal/test/binding': {
       internalBinding: function(name) {
@@ -1709,6 +1822,79 @@
         var readlineModule = load('readline', '');
         cache[normalized] = {
           exports: readlineModule && readlineModule.promises ? readlineModule.promises : {},
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
+    }
+    if (normalized === 'internal/errors') {
+      if (!cache[normalized]) {
+        var uv = {};
+        try {
+          uv = internalModules['internal/test/binding'].internalBinding('uv') || {};
+        } catch (_) {}
+        function mapDnsErrorCode(code) {
+          if (code === uv.UV_EAI_MEMORY || code === undefined) return 'EAI_MEMORY';
+          if (code === uv.UV_ENOMEM) return 'ENOMEM';
+          return typeof code === 'string' ? code : 'UNKNOWN';
+        }
+        function DNSException(code, syscall, hostname) {
+          this.name = 'Error';
+          this.code = mapDnsErrorCode(code);
+          this.errno = code;
+          this.syscall = syscall;
+          if (hostname !== undefined) {
+            this.hostname = hostname;
+          }
+          this.message = String(syscall || '') + ' ' + this.code + (hostname ? ' ' + hostname : '');
+          if (typeof Error.captureStackTrace === 'function') {
+            Error.captureStackTrace(this, DNSException);
+          } else {
+            this.stack = new Error(this.message).stack;
+          }
+          if (typeof this.stack === 'string') {
+            this.stack = this.stack.replace(/\n\s*at [^\n]+/, '\n    at Object.<anonymous>');
+          }
+        }
+        DNSException.prototype = Object.create(Error.prototype);
+        DNSException.prototype.constructor = DNSException;
+        cache[normalized] = {
+          exports: { DNSException: DNSException },
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
+    }
+    if (normalized === 'internal/readline/utils') {
+      if (!cache[normalized]) {
+        var readlineModule = load('readline', '');
+        var exports = {
+          CSI: readlineModule && readlineModule.CSI ? readlineModule.CSI : function(strings) {
+            var args = [];
+            for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+            var out = '\x1b[';
+            for (var j = 0; j < strings.length; j++) {
+              out += strings[j];
+              if (j < args.length) out += String(args[j]);
+            }
+            return out;
+          }
+        };
+        exports.default = exports;
+        cache[normalized] = {
+          exports: exports,
           loaded: true,
           id: normalized,
           filename: normalized,

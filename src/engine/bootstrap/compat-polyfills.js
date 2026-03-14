@@ -1497,6 +1497,43 @@
     } catch (err) {}
   }
 
+  if (typeof globalThis.URL === 'function') {
+    try {
+      var __exactObjectURLCounter = 0;
+      var __exactObjectURLRegistry = Object.create(null);
+      var __nativeCreateObjectURL =
+        typeof globalThis.URL.createObjectURL === 'function' ? globalThis.URL.createObjectURL : null;
+      var __nativeRevokeObjectURL =
+        typeof globalThis.URL.revokeObjectURL === 'function' ? globalThis.URL.revokeObjectURL : null;
+
+      globalThis.URL.createObjectURL = function createObjectURL(object) {
+        if (arguments.length === 0) {
+          var createErr = new TypeError('The "object" argument must be specified');
+          createErr.code = 'ERR_MISSING_ARGS';
+          throw createErr;
+        }
+        if (__nativeCreateObjectURL) {
+          return __nativeCreateObjectURL.call(this, object);
+        }
+        var objectURL = 'blob:exact:' + (++__exactObjectURLCounter);
+        __exactObjectURLRegistry[objectURL] = object;
+        return objectURL;
+      };
+
+      globalThis.URL.revokeObjectURL = function revokeObjectURL(url) {
+        if (arguments.length === 0) {
+          var revokeErr = new TypeError('The "url" argument must be specified');
+          revokeErr.code = 'ERR_MISSING_ARGS';
+          throw revokeErr;
+        }
+        if (__nativeRevokeObjectURL) {
+          return __nativeRevokeObjectURL.call(this, url);
+        }
+        delete __exactObjectURLRegistry[String(url)];
+      };
+    } catch (err) {}
+  }
+
   // Install process.execve polyfill early so it is available on the global
   // process object without requiring the 'process' module first.
   if (typeof globalThis.process === 'object' && globalThis.process !== null &&

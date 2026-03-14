@@ -1322,7 +1322,6 @@ function validateOffsetLengthWrite(offset, length, byteLength, lengthIsBigInt) {
 }
 
 function _validateOption(name, value, expectedType) {
-  if (value === undefined) return;
   if (expectedType === 'boolean' && typeof value !== 'boolean') {
     var boolErr = new TypeError('The "options.' + name + '" property must be of type boolean. Received type ' + typeof value + '.');
     boolErr.code = 'ERR_INVALID_ARG_TYPE';
@@ -1344,17 +1343,17 @@ function validateRmdirOptions(options) {
     e.code = 'ERR_INVALID_ARG_TYPE';
     throw e;
   }
-  if (options.recursive !== undefined) {
+  if (Object.prototype.hasOwnProperty.call(options, 'recursive')) {
     _validateOption('recursive', options.recursive, 'boolean');
   }
-  if (options.retryDelay !== undefined) {
+  if (Object.prototype.hasOwnProperty.call(options, 'retryDelay')) {
     if (typeof options.retryDelay !== 'number' || !Number.isFinite(options.retryDelay) || options.retryDelay < 0) {
       var retryErr = new RangeError('The value of "options.retryDelay" is out of range. Received ' + options.retryDelay);
       retryErr.code = 'ERR_OUT_OF_RANGE';
       throw retryErr;
     }
   }
-  if (options.maxRetries !== undefined) {
+  if (Object.prototype.hasOwnProperty.call(options, 'maxRetries')) {
     if (typeof options.maxRetries !== 'number' || !Number.isFinite(options.maxRetries) || options.maxRetries < 0) {
       var maxErr = new RangeError('The value of "options.maxRetries" is out of range. Received ' + options.maxRetries);
       maxErr.code = 'ERR_OUT_OF_RANGE';
@@ -1370,15 +1369,15 @@ function validateRmdirOptions(options) {
 
 function validateRmOptionsSync(path, options) {
   var base = validateRmdirOptions(options);
-  var force = options && options.force;
-  if (options && options.force !== undefined) {
+  var hasForce = !!(options && Object.prototype.hasOwnProperty.call(options, 'force'));
+  if (hasForce) {
     _validateOption('force', options.force, 'boolean');
   }
   return {
     retryDelay: base.retryDelay,
     maxRetries: base.maxRetries,
     recursive: base.recursive,
-    force: options && options.force !== undefined ? options.force : false
+    force: hasForce ? options.force : false
   };
 }
 

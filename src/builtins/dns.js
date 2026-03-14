@@ -32,6 +32,31 @@ function lookup(hostname, options, callback) {
 var _hasDnsResolve = typeof __exactDnsResolve === 'function';
 var _hasDnsReverse = typeof __exactDnsReverse === 'function';
 
+function _isValidIpAddress(value, family) {
+  if (typeof value !== 'string') return false;
+  try {
+    var net = require('net');
+    if (!net || typeof net.isIP !== 'function') return false;
+    var detected = net.isIP(value);
+    return family ? detected === family : detected !== 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function _trackResolverCallback(resolver, callback) {
+  if (!resolver || typeof callback !== 'function') return callback;
+  resolver._pendingQueries = (resolver._pendingQueries || 0) + 1;
+  var called = false;
+  return function() {
+    if (!called) {
+      called = true;
+      resolver._pendingQueries = Math.max(0, (resolver._pendingQueries || 1) - 1);
+    }
+    return callback.apply(this, arguments);
+  };
+}
+
 function _resolveViaQuery(hostname, rrtype, callback) {
   if (!_hasDnsResolve) {
     var err = new Error('DNS record type ' + rrtype + ' requires native resolver');
@@ -299,6 +324,21 @@ function resolveAny(hostname, callback) {
 function Resolver(options) {
   if (!(this instanceof Resolver)) return new Resolver(options);
   this._servers = _servers.slice();
+  this._pendingQueries = 0;
+  this._localAddressIPv4 = undefined;
+  this._localAddressIPv6 = undefined;
+  var self = this;
+  this._handle = {
+    getServers: function() {
+      return self._servers.slice();
+    },
+    setServers: function(servers) {
+      self._servers = servers.slice();
+    },
+    cancel: function() {
+      self._pendingQueries = 0;
+    }
+  };
   if (options && options.timeout !== undefined) {
     if (typeof options.timeout !== 'number') {
       var err = new TypeError('The "options.timeout" property must be of type number. Received type ' + typeof options.timeout);
@@ -323,6 +363,10 @@ function Resolver(options) {
 }
 
 Resolver.prototype.getServers = function() {
+  if (this._handle && typeof this._handle.getServers === 'function') {
+    var servers = this._handle.getServers();
+    return Array.isArray(servers) ? servers.slice() : [];
+  }
   return this._servers.slice();
 };
 
@@ -339,30 +383,78 @@ Resolver.prototype.setServers = function(servers) {
       throw err;
     }
   }
+  if (this._pendingQueries > 0) {
+    var pendingErr = new Error('c-ares failed to set servers: "There are pending queries." [' + servers.join(', ') + ']');
+    pendingErr.code = 'ERR_DNS_SET_SERVERS_FAILED';
+    throw pendingErr;
+  }
   this._servers = servers.slice();
+  if (this._handle && typeof this._handle.setServers === 'function') {
+    this._handle.setServers(this._servers);
+  }
 };
 
 Resolver.prototype.setLocalAddress = function(ipv4, ipv6) {
-  // Stub
+  if (arguments.length === 0) {
+    throw new Error('At least one local address is required');
+  }
+  if (ipv4 !== undefined && typeof ipv4 !== 'string') {
+    var ipv4TypeErr = new TypeError('The "ipv4" argument must be of type string. Received type ' + typeof ipv4);
+    ipv4TypeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw ipv4TypeErr;
+  }
+  if (ipv6 !== undefined && typeof ipv6 !== 'string') {
+    var ipv6TypeErr = new TypeError('The "ipv6" argument must be of type string. Received type ' + typeof ipv6);
+    ipv6TypeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw ipv6TypeErr;
+  }
+  if (arguments.length === 1) {
+    if (_isValidIpAddress(ipv4, 4)) {
+      this._localAddressIPv4 = ipv4;
+      return;
+    }
+    if (_isValidIpAddress(ipv4, 6)) {
+      this._localAddressIPv6 = ipv4;
+      return;
+    }
+    throw new Error('The "ipv4" argument must be a valid IP address');
+  }
+  if (ipv4 !== undefined && !_isValidIpAddress(ipv4, 4)) {
+    throw new Error('The "ipv4" argument must be a valid IPv4 address');
+  }
+  if (ipv6 !== undefined && !_isValidIpAddress(ipv6, 6)) {
+    throw new Error('The "ipv6" argument must be a valid IPv6 address');
+  }
+  if (ipv4 !== undefined) this._localAddressIPv4 = ipv4;
+  if (ipv6 !== undefined) this._localAddressIPv6 = ipv6;
 };
 
 Resolver.prototype.resolve = function(hostname, rrtype, callback) {
-  resolve(hostname, rrtype, callback);
+  if (typeof rrtype === 'function') {
+    callback = rrtype;
+    rrtype = undefined;
+  }
+  resolve(hostname, rrtype, _trackResolverCallback(this, callback));
 };
-Resolver.prototype.resolve4 = function(hostname, options, callback) { resolve4(hostname, options, callback); };
-Resolver.prototype.resolve6 = function(hostname, options, callback) { resolve6(hostname, options, callback); };
-Resolver.prototype.resolveMx = function(hostname, callback) { resolveMx(hostname, callback); };
-Resolver.prototype.resolveTxt = function(hostname, callback) { resolveTxt(hostname, callback); };
-Resolver.prototype.resolveSrv = function(hostname, callback) { resolveSrv(hostname, callback); };
-Resolver.prototype.resolveNs = function(hostname, callback) { resolveNs(hostname, callback); };
-Resolver.prototype.resolveCname = function(hostname, callback) { resolveCname(hostname, callback); };
-Resolver.prototype.resolveSoa = function(hostname, callback) { resolveSoa(hostname, callback); };
-Resolver.prototype.resolvePtr = function(hostname, callback) { resolvePtr(hostname, callback); };
-Resolver.prototype.resolveCaa = function(hostname, callback) { resolveCaa(hostname, callback); };
-Resolver.prototype.resolveNaptr = function(hostname, callback) { resolveNaptr(hostname, callback); };
-Resolver.prototype.resolveAny = function(hostname, callback) { resolveAny(hostname, callback); };
-Resolver.prototype.reverse = function(ip, callback) { reverse(ip, callback); };
-Resolver.prototype.cancel = function() { /* no-op stub */ };
+Resolver.prototype.resolve4 = function(hostname, options, callback) { resolve4(hostname, options, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolve6 = function(hostname, options, callback) { resolve6(hostname, options, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveMx = function(hostname, callback) { resolveMx(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveTxt = function(hostname, callback) { resolveTxt(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveSrv = function(hostname, callback) { resolveSrv(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveNs = function(hostname, callback) { resolveNs(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveCname = function(hostname, callback) { resolveCname(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveSoa = function(hostname, callback) { resolveSoa(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolvePtr = function(hostname, callback) { resolvePtr(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveCaa = function(hostname, callback) { resolveCaa(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveNaptr = function(hostname, callback) { resolveNaptr(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.resolveAny = function(hostname, callback) { resolveAny(hostname, _trackResolverCallback(this, callback)); };
+Resolver.prototype.reverse = function(ip, callback) { reverse(ip, _trackResolverCallback(this, callback)); };
+Resolver.prototype.cancel = function() {
+  this._pendingQueries = 0;
+  if (this._handle && typeof this._handle.cancel === 'function') {
+    this._handle.cancel();
+  }
+};
 
 // Error codes
 var NODATA = 'ENODATA';
@@ -389,6 +481,32 @@ var NOTINITIALIZED = 'ENOTINITIALIZED';
 var LOADIPHLPAPI = 'ELOADIPHLPAPI';
 var ADDRGETNETWORKPARAMS = 'EADDRGETNETWORKPARAMS';
 var CANCELLED = 'ECANCELLED';
+
+promises.Resolver = Resolver;
+promises.NODATA = NODATA;
+promises.FORMERR = FORMERR;
+promises.SERVFAIL = SERVFAIL;
+promises.NOTFOUND = NOTFOUND;
+promises.NOTIMP = NOTIMP;
+promises.REFUSED = REFUSED;
+promises.BADQUERY = BADQUERY;
+promises.BADNAME = BADNAME;
+promises.BADFAMILY = BADFAMILY;
+promises.BADRESP = BADRESP;
+promises.CONNREFUSED = CONNREFUSED;
+promises.TIMEOUT = TIMEOUT;
+promises.EOF = EOF;
+promises.FILE = FILE;
+promises.NOMEM = NOMEM;
+promises.DESTRUCTION = DESTRUCTION;
+promises.BADSTR = BADSTR;
+promises.BADFLAGS = BADFLAGS;
+promises.NONAME = NONAME;
+promises.BADHINTS = BADHINTS;
+promises.NOTINITIALIZED = NOTINITIALIZED;
+promises.LOADIPHLPAPI = LOADIPHLPAPI;
+promises.ADDRGETNETWORKPARAMS = ADDRGETNETWORKPARAMS;
+promises.CANCELLED = CANCELLED;
 
 module.exports = {
   lookup: lookup,

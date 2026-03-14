@@ -38,6 +38,12 @@ struct TimerEntry {
   bool repeat;
   bool referenced = true;
   facebook::jsi::Function callback;
+  std::vector<facebook::jsi::Value> args;
+};
+
+struct NextTickEntry {
+  facebook::jsi::Function callback;
+  std::vector<facebook::jsi::Value> args;
 };
 
 struct FetchCallbackEntry {
@@ -61,7 +67,7 @@ struct ExactHermesRuntime {
   std::thread::id runtime_thread;
   uint64_t next_timer_id{1};
   std::unordered_map<uint64_t, TimerEntry> timers;
-  std::deque<facebook::jsi::Function> next_tick;
+  std::deque<NextTickEntry> next_tick;
   std::mutex task_mutex;
   std::vector<std::function<void(facebook::jsi::Runtime&)>> pending_tasks;
   std::atomic<int> active_spawn_processes{0};

@@ -1340,6 +1340,64 @@ function _isDoubleDotPathSegment(segment) {
   return lower === ".." || lower === ".%2e" || lower === "%2e." || lower === "%2e%2e";
 }
 
+var _legacyUrlParseDeprecationWarned = false;
+var _legacyInvalidUrlWarned = false;
+
+function _shouldFallbackFromWhatwgInvalidUrlError(value) {
+  return (
+    typeof value === 'string' &&
+    (
+      value.indexOf(':.') !== -1 ||
+      /^git\+ssh:\/\/[^/]+:[^/]/i.test(value) ||
+      /^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\/\//.test(value)
+    )
+  );
+}
+
+function _emitLegacyInvalidUrlWarnings(value) {
+  if (typeof process !== 'object' || !process || typeof process.emitWarning !== 'function') {
+    return;
+  }
+  if (!_legacyUrlParseDeprecationWarned) {
+    _legacyUrlParseDeprecationWarned = true;
+    var legacyWarn = new Error('`url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.');
+    legacyWarn.name = 'DeprecationWarning';
+    legacyWarn.code = 'DEP0169';
+    process.emitWarning(legacyWarn);
+  }
+  if (!_legacyInvalidUrlWarned) {
+    _legacyInvalidUrlWarned = true;
+    var invalidWarn = new Error('The URL ' + value + ' is invalid. Future versions of Node.js will throw an error.');
+    invalidWarn.name = 'DeprecationWarning';
+    invalidWarn.code = 'DEP0170';
+    process.emitWarning(invalidWarn);
+  }
+}
+
+function _markLegacyMalformedAuthority(result, value) {
+  if (
+    result &&
+    typeof value === 'string' &&
+    result.protocol &&
+    result.protocol !== 'file:' &&
+    _slashedProtocol[result.protocol] &&
+    result.host &&
+    typeof result.pathname === 'string' &&
+    result.pathname.slice(0, 2) === '//' &&
+    /^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\/\/[^/?#]/.test(value)
+  ) {
+    try {
+      Object.defineProperty(result, '__exactLegacyMalformedAuthority', {
+        value: true,
+        configurable: true,
+        enumerable: false,
+        writable: false
+      });
+    } catch (_) {}
+  }
+  return result;
+}
+
 function URL(input, base) {
   if (!(this instanceof URL)) {
     return new URL(input, base);
@@ -3329,12 +3387,18 @@ function parse(value, parseQueryString, slashesDenoteHost) {
       } else {
         result.query = u.search ? u.search.slice(1) : null;
       }
-      return result;
+      return _markLegacyMalformedAuthority(result, value);
     } catch (e) {
       // Propagate URIError (bad percent encoding like %E0%A4%A)
       if (e instanceof URIError) throw e;
       // Propagate ERR_INVALID_URL for null chars in hostname etc.
-      if (e && e.code === 'ERR_INVALID_URL' && e.input !== undefined) throw e;
+      if (e && e.code === 'ERR_INVALID_URL' && e.input !== undefined) {
+        if (_shouldFallbackFromWhatwgInvalidUrlError(value)) {
+          _emitLegacyInvalidUrlWarnings(value);
+        } else {
+          throw e;
+        }
+      }
       // Other parse errors: fall through to legacy parsing
     }
   }
@@ -3416,7 +3480,7 @@ function parse(value, parseQueryString, slashesDenoteHost) {
     if (_hashFragment !== null) result.hash = _hashFragment.replace(/\\/g, '%5C');
     result.path = (_pathStr || '') + (result.search || '') || null;
     result.href = proto + (_hostStr || '') + (_pathStr || '') + (result.search || '') + (result.hash || '');
-    return result;
+    return _markLegacyMalformedAuthority(result, value);
   }
 
   // Now store hash (backslashes in hash must be percent-encoded per Node.js behavior)
@@ -3508,15 +3572,24 @@ function parse(value, parseQueryString, slashesDenoteHost) {
     result.query = qs2Mod.parse('');
   }
 
-  return result;
+  return _markLegacyMalformedAuthority(result, value);
 }
 
 function resolve(from, to) {
   if (!from) return to;
   // Use legacy resolveObject to match Node.js behavior exactly.
-  // Pass slashesDenoteHost=true to match Node.js's internal parse behavior
-  // (non-special protocols like foo:abc treat 'abc' as the host, not path).
-  return format(resolveObject(parse(from, false, true), to));
+  var resolvedFrom = parse(from, false, true);
+  var needsLegacyCanonicalize =
+    resolvedFrom &&
+    resolvedFrom.protocol &&
+    resolvedFrom.protocol !== 'file:' &&
+    _slashedProtocol[resolvedFrom.protocol] &&
+    resolvedFrom.host === '' &&
+    typeof resolvedFrom.pathname === 'string' &&
+    resolvedFrom.pathname.charAt(0) === '/' &&
+    String(from).indexOf(':///') !== -1;
+  var resolved = format(resolveObject(resolvedFrom, to));
+  return needsLegacyCanonicalize ? format(resolved) : resolved;
 }
 
 // Protocols that always use // authority (slashed protocols)
@@ -3542,6 +3615,66 @@ function _spliceOne(list, index) {
   list.pop();
 }
 
+function _normalizeLegacyPath(pathname, preserveTrailingSlash) {
+  pathname = String(pathname || '');
+  var segments = pathname.split('/');
+  var absolute = pathname.charAt(0) === '/';
+  var normalized = [];
+  for (var i = 0; i < segments.length; i++) {
+    var segment = segments[i];
+    var isFirst = i === 0;
+    var isLast = i === segments.length - 1;
+    if (segment === '') {
+      if (isFirst || !isLast) {
+        normalized.push('');
+      }
+      continue;
+    }
+    if (segment === '.') {
+      continue;
+    }
+    if (segment === '..') {
+      var last = normalized.length ? normalized[normalized.length - 1] : null;
+      if (last && last !== '..') {
+        normalized.pop();
+      } else if (!absolute) {
+        normalized.push('..');
+      }
+      continue;
+    }
+    normalized.push(segment);
+  }
+  if (absolute && normalized[0] !== '') {
+    normalized.unshift('');
+  }
+  if (preserveTrailingSlash && normalized[normalized.length - 1] !== '') {
+    normalized.push('');
+  }
+  if (!normalized.length) {
+    return absolute ? '/' : '';
+  }
+  return normalized.join('/') || (absolute ? '/' : '');
+}
+
+function _preserveLegacyFileUrlShape(source, result) {
+  if (
+    source &&
+    result &&
+    source.protocol === 'file:' &&
+    source.slashes === null &&
+    source.host === null &&
+    result.protocol === 'file:' &&
+    result.host === '' &&
+    result.hostname === ''
+  ) {
+    result.slashes = null;
+    result.host = null;
+    result.hostname = null;
+    result.href = _legacyResolveHref(result);
+  }
+  return result;
+}
+
 function resolveObject(source, relative) {
   if (source === '') {
     return relative;
@@ -3551,6 +3684,25 @@ function resolveObject(source, relative) {
   }
   if (!source || typeof source !== 'object') {
     return parse(relative, false, true);
+  }
+  var relativeSource = relative;
+  if (typeof relative === 'string') {
+    relative = parse(relative, false, true);
+  } else if (!relative || typeof relative !== 'object') {
+    relative = parse(String(relative), false, true);
+  } else {
+    relativeSource = format(relative);
+  }
+
+  if (source.__exactLegacyMalformedAuthority) {
+    var malformedSourceHref = String(source.protocol || '') + '///';
+    if (source.auth) malformedSourceHref += source.auth + '@';
+    malformedSourceHref += source.host || '';
+    malformedSourceHref += source.pathname || '';
+    malformedSourceHref += source.search || '';
+    malformedSourceHref += source.hash || '';
+    var malformedRelativeHref = typeof relativeSource === 'string' ? relativeSource : format(relative);
+    return parse(resolve(malformedSourceHref, malformedRelativeHref), false, false);
   }
 
   if (
@@ -3603,7 +3755,7 @@ function resolveObject(source, relative) {
       inheritedRelative.hash = relative.hash != null ? relative.hash : (hasExplicitPathname ? null : source.hash);
       inheritedRelative.path = (inheritedRelative.pathname || '') + (inheritedRelative.search || '') || null;
       inheritedRelative.href = _legacyResolveHref(inheritedRelative);
-      return inheritedRelative;
+      return _preserveLegacyFileUrlShape(source, inheritedRelative);
     }
   }
 
@@ -3629,7 +3781,7 @@ function resolveObject(source, relative) {
     inherited.hash = relative.hash != null ? relative.hash : source.hash;
     inherited.path = (inherited.pathname || '') + (inherited.search || '') || null;
     inherited.href = _legacyResolveHref(inherited);
-    return inherited;
+    return _preserveLegacyFileUrlShape(source, inherited);
   }
 
   if (
@@ -3667,7 +3819,7 @@ function resolveObject(source, relative) {
     protocolRelative.hash = relative.hash || null;
     protocolRelative.path = (protocolRelative.pathname || '') + (protocolRelative.search || '') || null;
     protocolRelative.href = _legacyResolveHref(protocolRelative);
-    return protocolRelative;
+    return _preserveLegacyFileUrlShape(source, protocolRelative);
   }
 
   var result = new Url();
@@ -3689,7 +3841,7 @@ function resolveObject(source, relative) {
   // If relative href is empty, return source (without hash)
   if (relative.href === '') {
     result.href = _legacyFormat(result);
-    return result;
+    return _preserveLegacyFileUrlShape(source, result);
   }
 
   // Hrefs like //foo/bar always cut to the protocol
@@ -3810,7 +3962,7 @@ function resolveObject(source, relative) {
       result.path = (result.pathname || '') + (result.search || '');
     }
     result.href = _legacyFormat(result);
-    return result;
+    return _preserveLegacyFileUrlShape(source, result);
   }
 
   if (!srcPath.length) {
@@ -3888,7 +4040,23 @@ function resolveObject(source, relative) {
   result.auth = relative.auth || result.auth;
   result.slashes = result.slashes || relative.slashes;
   result.href = _legacyFormat(result);
-  return result;
+  return _preserveLegacyFileUrlShape(source, result);
+}
+
+function _normalizeLegacyResolveObjectResult(result) {
+  if (!result || typeof result !== 'object') {
+    return result;
+  }
+  if (
+    result.protocol === 'file:' &&
+    result.slashes === null &&
+    result.host === null &&
+    result.hostname === null
+  ) {
+    result.href = _legacyResolveHref(result);
+    return result;
+  }
+  return parse(format(result), false, true);
 }
 
 Url.prototype.resolveObject = function(relative) {

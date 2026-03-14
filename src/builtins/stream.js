@@ -6381,6 +6381,9 @@ function isStreamDone(stream) {
     if (!stream || stream._closed || stream.closed === true) {
       return false;
     }
+    if (stream === last && _isReadableLike(stream)) {
+      return false;
+    }
 
     var readableState = stream._readableState;
     var writableState = stream._writableState;
@@ -6570,8 +6573,16 @@ function isStreamDone(stream) {
   }
 
   function cleanup() {
+    function shouldRetainErrorListener(stream) {
+      return !!(stream && (stream !== last || !_isReadableLike(stream)));
+    }
     for (var li = 0; li < listeners.length; li++) {
-      listeners[li][0].removeListener(listeners[li][1], listeners[li][2]);
+      var listenerStream = listeners[li][0];
+      var listenerEvent = listeners[li][1];
+      if (listenerEvent === 'error' && shouldRetainErrorListener(listenerStream)) {
+        continue;
+      }
+      listenerStream.removeListener(listenerEvent, listeners[li][2]);
     }
     listeners = [];
     if (signal && signal.removeEventListener) {
@@ -7176,15 +7187,13 @@ function compose() {
     throw makeError(TypeError, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified');
   }
   if (args.length === 1) {
-    if (typeof args[0] === 'function') {
-      return Duplex.from(args[0]);
-    }
     if (args[0] && typeof args[0].pipe === 'function') {
       return args[0];
     }
-    // Try Duplex.from for readable/writable pair objects
-    if (args[0] && typeof args[0] === 'object' && (args[0].readable || args[0].writable)) {
-      try { return Duplex.from(args[0]); } catch (_e) {}
+    try {
+      return Duplex.from(args[0]);
+    } catch (_e) {
+      // Fall through to the standardized type error below.
     }
     throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams" argument must be a stream.');
   }
@@ -7193,14 +7202,15 @@ function compose() {
   var typeHints = [];
   for (var ni = 0; ni < args.length; ni++) {
     var stage = args[ni];
+    var stageOptions = _inferComposeFunctionOptions(args, ni);
     if (typeof stage === 'function') {
-      stage = Duplex.from(stage, _inferComposeFunctionOptions(args, ni));
-    } else if (!stage || (typeof stage !== 'object' && typeof stage !== 'function')) {
+      stage = Duplex.from(stage, stageOptions);
+    } else if (stage == null) {
       var invalidStageErr = makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams" argument must be a stream.');
       throw invalidStageErr;
     } else if (stage && typeof stage.pipe !== 'function') {
       try {
-        stage = Duplex.from(stage);
+        stage = Duplex.from(stage, stageOptions);
       } catch (_err) {
         // Fall through to the standardized type error below.
       }

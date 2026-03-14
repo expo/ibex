@@ -223,29 +223,68 @@ var promises = {
   }
 };
 
+function _validateReadlineCallback(callback) {
+  if (callback !== undefined && typeof callback !== 'function') {
+    var err = new TypeError('The "callback" argument must be of type function. Received type ' + typeof callback);
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    err.name = 'TypeError [ERR_INVALID_ARG_TYPE]';
+    throw err;
+  }
+}
+
+function _validateReadlineCoordinate(name, value) {
+  if (typeof value === 'number' && value !== value) {
+    var err = new TypeError('The value of "' + name + '" is out of range. It must be a valid number. Received NaN');
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    err.name = 'TypeError [ERR_INVALID_ARG_VALUE]';
+    throw err;
+  }
+}
+
 function clearLine(stream, dir, callback) {
+  _validateReadlineCallback(callback);
   if (stream && typeof stream.write === 'function') {
     var code = dir < 0 ? '\x1b[1K' : dir > 0 ? '\x1b[0K' : '\x1b[2K';
     stream.write(code);
   }
-  if (typeof callback === 'function') callback();
+  if (typeof callback === 'function') callback(null);
+  return true;
 }
 
 function clearScreenDown(stream, callback) {
+  _validateReadlineCallback(callback);
   if (stream && typeof stream.write === 'function') stream.write('\x1b[0J');
-  if (typeof callback === 'function') callback();
+  if (typeof callback === 'function') callback(null);
+  return true;
 }
 
 function cursorTo(stream, x, y, callback) {
   if (typeof y === 'function') { callback = y; y = undefined; }
+  _validateReadlineCallback(callback);
+  _validateReadlineCoordinate('x', x);
+  _validateReadlineCoordinate('y', y);
+  if (typeof x !== 'number') {
+    if (typeof y === 'number') {
+      var posErr = new TypeError('Cannot set cursor row without setting its column');
+      posErr.code = 'ERR_INVALID_CURSOR_POS';
+      throw posErr;
+    }
+    if (typeof callback === 'function') callback(null);
+    return true;
+  }
+  if (typeof y !== 'undefined' && typeof y !== 'number') {
+    y = undefined;
+  }
   if (stream && typeof stream.write === 'function') {
     if (y !== undefined) stream.write('\x1b[' + (y + 1) + ';' + (x + 1) + 'H');
     else stream.write('\x1b[' + (x + 1) + 'G');
   }
-  if (typeof callback === 'function') callback();
+  if (typeof callback === 'function') callback(null);
+  return true;
 }
 
 function moveCursor(stream, dx, dy, callback) {
+  _validateReadlineCallback(callback);
   if (stream && typeof stream.write === 'function') {
     var s = '';
     if (dx > 0) s += '\x1b[' + dx + 'C';
@@ -254,7 +293,8 @@ function moveCursor(stream, dx, dy, callback) {
     else if (dy < 0) s += '\x1b[' + (-dy) + 'A';
     if (s) stream.write(s);
   }
-  if (typeof callback === 'function') callback();
+  if (typeof callback === 'function') callback(null);
+  return true;
 }
 
 function emitKeypressEvents(stream, iface) {

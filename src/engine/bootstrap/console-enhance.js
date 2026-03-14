@@ -457,10 +457,15 @@
       return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
     }).join('\n') : msg;
 
-    if (!_isValidStreamWrite(stdout, _writeStdout) && _isExactNativeWrite(stdout)) {
+    if (stdout && typeof stdout.write === 'function') {
       _stdoutWriteInProgress = true;
       try {
         stdout.write(encoded);
+      } catch (e) {
+        if (e instanceof RangeError) throw e;
+        if (typeof _nativeLog === 'function') {
+          _nativeLog.call(console, msg.replace(/\n$/, ''));
+        }
       } finally {
         _stdoutWriteInProgress = false;
       }
@@ -483,14 +488,21 @@
       return (i === arr.length - 1 && line === '') ? '' : _groupIndent + line;
     }).join('\n') : msg;
 
-    if (!_isValidStreamWrite(stderr, _writeStderr) && _isExactNativeWrite(stderr)) {
+    if (stderr && typeof stderr.write === 'function') {
       _stderrWriteInProgress = true;
       try {
         stderr.write(encoded);
+      } catch (e) {
+        if (e instanceof RangeError) throw e;
+        if (typeof _nativeError === 'function') {
+          _nativeError.call(console, msg.replace(/\n$/, ''));
+        }
       } finally {
         _stderrWriteInProgress = false;
       }
-    } else if (typeof _nativeError === 'function') {
+      return;
+    }
+    if (typeof _nativeError === 'function') {
       _nativeError.call(console, msg.replace(/\n$/, ''));
       return;
     }

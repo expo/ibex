@@ -114,6 +114,47 @@ function _fsInvalidArgValue(name, value, reason) {
   return err;
 }
 
+var _VALID_SYMLINK_TYPES = {
+  dir: true,
+  file: true,
+  junction: true,
+};
+
+function _validateSymlinkType(type) {
+  if (type === undefined) {
+    return;
+  }
+  if (typeof type !== 'string' || !_VALID_SYMLINK_TYPES[type]) {
+    throw _fsInvalidArgValue('type', type, "one of: 'dir', 'file', 'junction', or undefined");
+  }
+}
+
+function _normalizeRmError(err, path, recursive) {
+  if (!err || typeof err !== 'object') {
+    return err;
+  }
+  if (err.syscall === 'rmdir' || err.syscall === 'unlink') {
+    err.syscall = 'rm';
+    if (typeof err.message === 'string') {
+      err.message = err.message.replace(/, (?:rmdir|unlink) /, ', rm ');
+    }
+  }
+  if (
+    recursive &&
+    typeof process === 'object' &&
+    process !== null &&
+    process.platform === 'darwin' &&
+    err.code === 'EACCES'
+  ) {
+    err.code = 'ENOTEMPTY';
+    if (path) {
+      err.path = path;
+      err.message = "ENOTEMPTY: directory not empty, rm '" + path + "'";
+    }
+  }
+  return err;
+}
+
 function _coerceMode(mode) {
   if (typeof mode === 'number') return mode;
   if (typeof mode === 'string') {
@@ -4186,6 +4227,7 @@ function symlinkSync(target, path, type) {
   var t = _coercePathFromURL(target, 'target');
   _validatePath(t, 'target');
   _validatePath(path, 'path');
+  _validateSymlinkType(type);
   ensureExactFs();
   var p = _pathToString(path);
   var targetPath = typeof t === 'string' ? t : Buffer.isBuffer(t) ? t.toString() : _coercePathFromURL(t, 'target');
@@ -4196,10 +4238,11 @@ function symlinkSync(target, path, type) {
   } catch(e) { throw _makeFsError(e, 'symlink', targetPath, linkPath); }
 }
 function symlink(target, path, type, cb) {
-  if (typeof type === 'function') { cb = type; type = null; }
+  if (typeof type === 'function') { cb = type; type = undefined; }
   _validateCallback(cb);
   _validatePath(target, 'target');
-  _validatePath(path);
+  _validatePath(path, 'path');
+  _validateSymlinkType(type);
   wrapCallback(function() { symlinkSync(target, path, type); }, cb, 'symlink');
 }
 function linkSync(existingPath, newPath) {
@@ -4306,6 +4349,7 @@ function utimes(path, atime, mtime, cb) {
 }
 function rmSync(path, options) {
   ensureExactFs();
+  _validatePath(path, 'path');
   if (typeof options === 'boolean') {
     options = { recursive: true, force: true };
   } else {
@@ -4386,13 +4430,14 @@ function rmSync(path, options) {
       if (attempt < maxRetries && shouldRetryRm(e)) {
         continue;
       }
-      throw e;
+      throw _normalizeRmError(e, path, recursive);
     }
   }
 }
 function rm(path, options, cb) {
   if (typeof options === 'function') { cb = options; options = {}; }
   _validateCallback(cb);
+  _validatePath(path, 'path');
   wrapCallback(function() { rmSync(path, options); }, cb, 'rm', _pathToString(path));
 }
 
@@ -4923,7 +4968,7 @@ function fstatSync(fd, opts) {
 
 // futimes/futimesSync
 function futimes(fd, atime, mtime, callback) {
-  _validateFd(fd);
+  _validateFdNonNegative(fd);
   _validateCallback(callback);
   ensureExactFs();
   try {
@@ -4938,7 +4983,7 @@ function futimes(fd, atime, mtime, callback) {
   }
 }
 function futimesSync(fd, atime, mtime) {
-  _validateFd(fd);
+  _validateFdNonNegative(fd);
   ensureExactFs();
   try {
     if (typeof g.__exactFsFutimesSync === 'function') {
