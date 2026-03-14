@@ -2162,6 +2162,7 @@ function writeFile(path, data, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
+  _validateWriteData(data);
   var target = _getFdOrPath(path, 'path');
   var writeOptions;
   try {
@@ -2184,6 +2185,7 @@ function appendFile(path, data, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
+  _validateWriteData(data);
   var target = _getFdOrPath(path, 'path');
   var writeOptions;
   try {

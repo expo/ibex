@@ -3783,14 +3783,23 @@ function _rememberHandledStreamError(reason) {
   if (!reason || (typeof reason !== 'object' && typeof reason !== 'function')) return;
   _handledStreamErrors.push(reason);
   if (typeof setTimeout === 'function') {
+    var cleanupDelay = 10000;
     var cleanupTimer = setTimeout(function() {
       var idx = _handledStreamErrors.indexOf(reason);
       if (idx !== -1) {
         _handledStreamErrors.splice(idx, 1);
       }
-    }, 10000);
+    }, cleanupDelay);
     if (cleanupTimer && typeof cleanupTimer.unref === 'function') {
       cleanupTimer.unref();
+    } else {
+      clearTimeout(cleanupTimer);
+      setTimeout(function() {
+        var idx = _handledStreamErrors.indexOf(reason);
+        if (idx !== -1) {
+          _handledStreamErrors.splice(idx, 1);
+        }
+      }, 25);
     }
   }
 }
@@ -3984,8 +3993,6 @@ Readable.from = function(iterable, options) {
     };
 
     readable._destroy = function(error, cb) {
-      wakeAsyncPump();
-
       function shouldPreserveAbortError(originalError, destroyError) {
         if (
           !originalError ||
@@ -4092,7 +4099,6 @@ Readable.from = function(iterable, options) {
     if (asyncPumpTask && typeof asyncPumpTask.catch === 'function') {
       asyncPumpTask.catch(function() {});
     }
-
     return readable;
   }
   // Sync iterable - store data in buffer without emitting events

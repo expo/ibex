@@ -3012,12 +3012,16 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // process metadata/config wiring.
   runLegacyProcessCompatFix(handle, sharedRuntimeInstalled);
 
-  // Reinstall a hard process.exit on the process object itself after compatibility
-  // patches so JS wrappers (if any) can't shadow termination semantics.
-  // NOTE: Only set exit on the process object itself, NOT on its prototype.
-  // At this point process.__proto__ is Object.prototype, so setting exit there
-  // would pollute every object's for...in enumeration.
-  {
+  // Legacy bootstraps rely on a hard process.exit() on the process object.
+  // The shared runtime bundle installs a JS Process implementation whose
+  // prototype exit() preserves Node's recursive exit listener semantics and
+  // terminates through __exactExit(). Replacing it with a hard host function
+  // breaks tests like test-process-exit-recursive.js by bypassing exit
+  // listeners and exitCode overrides.
+  if (!sharedRuntimeInstalled) {
+    // NOTE: Only set exit on the process object itself, NOT on its prototype.
+    // At this point process.__proto__ is Object.prototype, so setting exit there
+    // would pollute every object's for...in enumeration.
     auto processValue = rt.global().getProperty(rt, "process");
     if (processValue.isObject()) {
       auto processObjFinal = processValue.asObject(rt);

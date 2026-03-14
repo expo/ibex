@@ -63,7 +63,17 @@ module.exports = {
       cpu_profiler_metadata_size: 0
     };
   },
-  setFlagsFromString: function() {},
+  setFlagsFromString: function(flags) {
+    if (typeof flags !== 'string') {
+      return;
+    }
+    var parts = flags.split(/\s+/);
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i] === '--allow-natives-syntax') {
+        globalThis.__exactAllowNativesSyntax = true;
+      }
+    }
+  },
   serialize: function(value) {
     var json = JSON.stringify(value);
     if (typeof Buffer !== 'undefined') return Buffer.from(json);

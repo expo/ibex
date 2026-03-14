@@ -97,24 +97,125 @@
     return false;
   }
 
+  function __exactCreateProcessVersions(source) {
+    var current = source && typeof source === 'object' ? source : {};
+    var versions = {};
+    var entries = [
+      ['node', current.node || '24.13.1'],
+      ['acorn', current.acorn || '8.15.0'],
+      ['ada', current.ada || '2.9.2'],
+      ['ares', current.ares || '1.34.4'],
+      ['brotli', current.brotli || '1.1.0'],
+      ['cjs_module_lexer', current.cjs_module_lexer || '2.1.0'],
+      ['cldr', current.cldr || '46.0'],
+      ['icu', current.icu || '76.1'],
+      ['llhttp', current.llhttp || '9.3.0'],
+      ['modules', current.modules || '131'],
+      ['napi', current.napi || '9'],
+      ['nbytes', current.nbytes || '0.1.1'],
+      ['ncrypto', current.ncrypto || '0.0.1'],
+      ['nghttp2', current.nghttp2 || '1.64.0'],
+      ['openssl', current.openssl || '3.4.1'],
+      ['simdjson', current.simdjson || '3.13.0'],
+      ['simdutf', current.simdutf || '6.4.2'],
+      ['tz', current.tz || '2025a'],
+      ['unicode', current.unicode || '16.0'],
+      ['uv', current.uv || '1.50.0'],
+      ['uvwasi', current.uvwasi || '0.0.21'],
+      ['v8', current.v8 || '13.6.233.8-node.26'],
+      ['zlib', current.zlib || '1.3.1.1-motley-82a5fec'],
+      ['zstd', current.zstd || '1.5.7']
+    ];
+    for (var versionIndex = 0; versionIndex < entries.length; versionIndex++) {
+      Object.defineProperty(versions, entries[versionIndex][0], {
+        value: entries[versionIndex][1],
+        writable: false,
+        enumerable: true,
+        configurable: true
+      });
+    }
+    Object.defineProperty(versions, 'hermes', {
+      value: current.hermes || '0.12.0',
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+    Object.defineProperty(versions, 'exact', {
+      value: current.exact || '0.1.0',
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+    return versions;
+  }
+
+  function __exactAllowNativesSyntaxEnabled() {
+    if (globalThis.__exactAllowNativesSyntax === true) {
+      return true;
+    }
+    if (Array.isArray(process.execArgv)) {
+      for (var argIndex = 0; argIndex < process.execArgv.length; argIndex++) {
+        if (String(process.execArgv[argIndex]) === '--allow-natives-syntax') {
+          globalThis.__exactAllowNativesSyntax = true;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function __exactMaybeHandleNativesSyntax(source) {
+    if (!__exactAllowNativesSyntaxEnabled() || typeof source !== 'string') {
+      return { handled: false };
+    }
+    var trimmed = source.trim();
+    var match = /^%([A-Za-z0-9_]+)\(([\s\S]*)\);?$/.exec(trimmed);
+    if (!match) {
+      return { handled: false };
+    }
+    var intrinsicName = match[1];
+    var args = [];
+    if (match[2].trim().length > 0) {
+      args = Function('return [' + match[2] + '];')();
+    }
+    switch (intrinsicName) {
+      case 'PrepareFunctionForOptimization':
+      case 'OptimizeFunctionOnNextCall':
+      case 'DebugPrint':
+        return { handled: true, value: undefined };
+      case 'CollectGarbage':
+        if (typeof globalThis.gc === 'function') {
+          try { globalThis.gc(); } catch (err) {}
+        }
+        return { handled: true, value: undefined };
+      case 'HaveSameMap':
+        return { handled: true, value: args.length >= 2 && Object.getPrototypeOf(args[0]) === Object.getPrototypeOf(args[1]) };
+      case 'IsSmi':
+        return { handled: true, value: typeof args[0] === 'number' && args[0] === (args[0] | 0) };
+      default:
+        return { handled: true, value: undefined };
+    }
+  }
+
+  if (typeof globalThis.eval === 'function' && globalThis.eval.__exactWrappedForNativesSyntax !== true) {
+    try {
+      var __exactNativeEval = globalThis.eval;
+      var __exactCompatEval = function evalCompat(source) {
+        var handled = __exactMaybeHandleNativesSyntax(source);
+        if (handled.handled) {
+          return handled.value;
+        }
+        return __exactNativeEval.apply(globalThis, arguments);
+      };
+      __exactCompatEval.__exactWrappedForNativesSyntax = true;
+      globalThis.__exactCompatEval = __exactCompatEval;
+      globalThis.eval = __exactCompatEval;
+      eval = __exactCompatEval;
+    } catch (e) {}
+  }
+
   (function __exactPatchProcessVersions() {
-    var patchedVersions = {
-      node: process.versions && process.versions.node ? process.versions.node : '24.13.1',
-      v8: process.versions && process.versions.v8 ? process.versions.v8 : '0.0.0',
-      uv: process.versions && process.versions.uv ? process.versions.uv : '0.0.0',
-      zlib: process.versions && process.versions.zlib ? process.versions.zlib : '1.3.1',
-      brotli: process.versions && process.versions.brotli ? process.versions.brotli : '0.0.0',
-      ares: process.versions && process.versions.ares ? process.versions.ares : '0.0.0',
-      modules: process.versions && process.versions.modules ? process.versions.modules : '127',
-      nghttp2: process.versions && process.versions.nghttp2 ? process.versions.nghttp2 : '0.0.0',
-      napi: process.versions && process.versions.napi ? process.versions.napi : '9',
-      llhttp: process.versions && process.versions.llhttp ? process.versions.llhttp : '0.0.0',
-      uvwasi: process.versions && process.versions.uvwasi ? process.versions.uvwasi : '0.0.0',
-      unicode: process.versions && process.versions.unicode ? process.versions.unicode : '15.1',
-      openssl: process.versions && process.versions.openssl ? process.versions.openssl : '3.0.0',
-      hermes: process.versions && process.versions.hermes ? process.versions.hermes : '0.12.0',
-      exact: process.versions && process.versions.exact ? process.versions.exact : '0.1.0'
-    };
+    var patchedVersions = __exactCreateProcessVersions(process.versions);
 
     try {
       __exactApplyVersionsPatch(process, patchedVersions);
@@ -234,6 +335,60 @@
         processProto.versions = versionsValue;
       }
     } catch (e4) {}
+  })();
+
+  (function __exactPatchProcessEventEmitterPrototype() {
+    var currentProto = Object.getPrototypeOf(process);
+    if (!currentProto || currentProto.__exactEventEmitterProtoPatched) {
+      return;
+    }
+    var EventsCtor;
+    try {
+      EventsCtor = require('events');
+      EventsCtor = EventsCtor && (EventsCtor.EventEmitter || EventsCtor.default || EventsCtor);
+    } catch (e) {
+      EventsCtor = null;
+    }
+    if (typeof EventsCtor !== 'function' || currentProto instanceof EventsCtor) {
+      return;
+    }
+    var patchedProto = Object.create(EventsCtor.prototype);
+    var descriptors = Object.getOwnPropertyDescriptors(currentProto);
+    delete descriptors.constructor;
+    try {
+      Object.defineProperties(patchedProto, descriptors);
+    } catch (e) {
+      var descriptorKeys = Object.keys(descriptors);
+      for (var descriptorIndex = 0; descriptorIndex < descriptorKeys.length; descriptorIndex++) {
+        try {
+          Object.defineProperty(patchedProto, descriptorKeys[descriptorIndex], descriptors[descriptorKeys[descriptorIndex]]);
+        } catch (e2) {}
+      }
+    }
+    try {
+      Object.defineProperty(patchedProto, 'constructor', {
+        value: process.constructor,
+        writable: true,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (e) {}
+    try {
+      if (process.constructor && process.constructor.prototype !== patchedProto) {
+        process.constructor.prototype = patchedProto;
+      }
+    } catch (e) {}
+    try {
+      Object.defineProperty(patchedProto, '__exactEventEmitterProtoPatched', {
+        value: true,
+        writable: false,
+        configurable: true,
+        enumerable: false
+      });
+    } catch (e) {}
+    try {
+      Object.setPrototypeOf(process, patchedProto);
+    } catch (e) {}
   })();
 
   // Add missing process methods for Node.js compat
@@ -439,21 +594,7 @@
       // Get the current versions value, wherever it lives (own or prototype getter)
       var curVersions = process.versions;
       if (!curVersions || typeof curVersions !== 'object') curVersions = {};
-      // Build a plain new object with all current values plus our required defaults
-      var finalVersions = {};
-      var keys = Object.keys(curVersions);
-      for (var i = 0; i < keys.length; i++) {
-        try { finalVersions[keys[i]] = curVersions[keys[i]]; } catch(e) {}
-      }
-      if (!finalVersions.node) finalVersions.node = '24.13.1';
-      if (!finalVersions.openssl) finalVersions.openssl = '3.0.0';
-      if (!finalVersions.v8) finalVersions.v8 = '0.0.0';
-      if (!finalVersions.uv) finalVersions.uv = '0.0.0';
-      if (!finalVersions.zlib) finalVersions.zlib = '1.3.1';
-      if (!finalVersions.modules) finalVersions.modules = '127';
-      if (!finalVersions.napi) finalVersions.napi = '9';
-      if (!finalVersions.hermes) finalVersions.hermes = '0.12.0';
-      if (!finalVersions.exact) finalVersions.exact = '0.1.0';
+      var finalVersions = __exactCreateProcessVersions(curVersions);
       globalThis.__exactFinalVersionsObj = finalVersions;
       globalThis.__exactFinalVersionsOpenssl = finalVersions.openssl;
 

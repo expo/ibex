@@ -6,39 +6,54 @@ try {
 // Set process.versions.openssl (we emulate OpenSSL 3.0.x behavior)
 if (typeof process !== 'undefined') {
   if (process.versions) {
-    // The versions object may be returned from a getter that returns a fresh object each time
-    // We need to capture it, add our properties, and replace the getter with a data descriptor
     (function() {
-      var _v = process.versions;
-      if (!_v || typeof _v !== 'object') return;
-      // Create a new plain object with all existing properties plus our additions
       var _newVersions = {};
-      var _vKeys = Object.keys(_v);
-      for (var _vi = 0; _vi < _vKeys.length; _vi++) {
-        _newVersions[_vKeys[_vi]] = _v[_vKeys[_vi]];
+      var _versionEntries = [
+        ['node', '24.13.1'],
+        ['acorn', '8.15.0'],
+        ['ada', '2.9.2'],
+        ['ares', '1.34.4'],
+        ['brotli', '1.1.0'],
+        ['cjs_module_lexer', '2.1.0'],
+        ['cldr', '46.0'],
+        ['icu', '76.1'],
+        ['llhttp', '9.3.0'],
+        ['modules', '131'],
+        ['napi', '9'],
+        ['nbytes', '0.1.1'],
+        ['ncrypto', '0.0.1'],
+        ['nghttp2', '1.64.0'],
+        ['openssl', '3.4.1'],
+        ['simdjson', '3.13.0'],
+        ['simdutf', '6.4.2'],
+        ['tz', '2025a'],
+        ['unicode', '16.0'],
+        ['uv', '1.50.0'],
+        ['uvwasi', '0.0.21'],
+        ['v8', '13.6.233.8-node.26'],
+        ['zlib', '1.3.1.1-motley-82a5fec'],
+        ['zstd', '1.5.7'],
+      ];
+      for (var _vi = 0; _vi < _versionEntries.length; _vi++) {
+        Object.defineProperty(_newVersions, _versionEntries[_vi][0], {
+          value: _versionEntries[_vi][1],
+          writable: false,
+          configurable: true,
+          enumerable: true,
+        });
       }
-      if (
-        !_newVersions.openssl ||
-        _newVersions.openssl === '0.0.0' ||
-        _newVersions.openssl === '0'
-      ) {
-        _newVersions.openssl = '3.0.0';
-      }
-      if (!_newVersions.v8 || _newVersions.v8 === '0.0.0' || _newVersions.v8 === '0') {
-        _newVersions.v8 = '0.0.0';
-      }
-      if (!_newVersions.uv || _newVersions.uv === '0.0.0' || _newVersions.uv === '0') {
-        _newVersions.uv = '0.0.0';
-      }
-      if (!_newVersions.zlib || _newVersions.zlib === '0.0.0' || _newVersions.zlib === '0') {
-        _newVersions.zlib = '1.3.1';
-      }
-      if (!_newVersions.modules || _newVersions.modules === '0') {
-        _newVersions.modules = '127';
-      }
-      if (!_newVersions.napi || _newVersions.napi === '0') {
-        _newVersions.napi = '9';
-      }
+      Object.defineProperty(_newVersions, 'hermes', {
+        value: '0.12.0',
+        writable: true,
+        configurable: true,
+        enumerable: false,
+      });
+      Object.defineProperty(_newVersions, 'exact', {
+        value: '0.1.0',
+        writable: true,
+        configurable: true,
+        enumerable: false,
+      });
       // Define as own data property on process
       try {
         Object.defineProperty(process, 'versions', {
@@ -46,7 +61,7 @@ if (typeof process !== 'undefined') {
         });
       } catch(e) {}
       // Also try the prototype
-      if (!process.versions || process.versions.openssl !== '3.0.0') {
+      if (!process.versions || process.versions.openssl !== '3.4.1') {
         try {
           var _vProto = Object.getPrototypeOf(process);
           if (_vProto && typeof _vProto === 'object' && _vProto !== Object.prototype) {

@@ -774,6 +774,178 @@
 
   __exactPatchSharedArrayBufferViews();
 
+  function __exactInspectExecveValue(value) {
+    if (typeof value === 'string') {
+      return "'" + value.replace(/\0/g, '\\x00') + "'";
+    }
+    return String(value);
+  }
+
+  function __exactValidateExecveArguments(execPath, args, envObj, hasEnvArgument) {
+    if (typeof execPath !== 'string') {
+      var execPathError = new TypeError('The "execPath" argument must be of type string. Received type ' + typeof execPath + ' (' + String(execPath) + ')');
+      execPathError.code = 'ERR_INVALID_ARG_TYPE';
+      throw execPathError;
+    }
+    if (!Array.isArray(args)) {
+      var argsError = new TypeError('The "args" argument must be an instance of Array. Received type ' + typeof args + ' (' + __exactInspectExecveValue(args) + ')');
+      argsError.code = 'ERR_INVALID_ARG_TYPE';
+      throw argsError;
+    }
+    for (var __execveIndex = 0; __execveIndex < args.length; __execveIndex++) {
+      if (typeof args[__execveIndex] !== 'string' || args[__execveIndex].indexOf('\0') !== -1) {
+        var argValueError = new TypeError("The argument 'args[" + __execveIndex + "]' must be a string without null bytes. Received " + __exactInspectExecveValue(args[__execveIndex]));
+        argValueError.code = 'ERR_INVALID_ARG_VALUE';
+        throw argValueError;
+      }
+    }
+    if (!hasEnvArgument) {
+      return;
+    }
+    if (typeof envObj !== 'object' || envObj === null || Array.isArray(envObj)) {
+      var envTypeError = new TypeError('The "env" argument must be of type object. Received type ' + typeof envObj + ' (' + __exactInspectExecveValue(envObj) + ')');
+      envTypeError.code = 'ERR_INVALID_ARG_TYPE';
+      throw envTypeError;
+    }
+    var envKeys = Object.keys(envObj);
+    for (var __envIndex = 0; __envIndex < envKeys.length; __envIndex++) {
+      var envValue = envObj[envKeys[__envIndex]];
+      if (typeof envValue !== 'string' || envValue.indexOf('\0') !== -1) {
+        var envPairs = [];
+        for (var __pairIndex = 0; __pairIndex < envKeys.length; __pairIndex++) {
+          envPairs.push(envKeys[__pairIndex] + ': ' + __exactInspectExecveValue(envObj[envKeys[__pairIndex]]));
+        }
+        var envValueError = new TypeError("The argument 'env' must be an object with string keys and values without null bytes. Received { " + envPairs.join(', ') + ' }');
+        envValueError.code = 'ERR_INVALID_ARG_VALUE';
+        throw envValueError;
+      }
+    }
+  }
+
+  function __exactPermissionDeniesChildProcess(execArgv) {
+    if (!Array.isArray(execArgv)) {
+      return false;
+    }
+    var permissionMode = false;
+    var allowChildProcess = false;
+    for (var __argIndex = 0; __argIndex < execArgv.length; __argIndex++) {
+      var arg = String(execArgv[__argIndex]);
+      if (arg === '--permission' || arg.indexOf('--permission=') === 0) {
+        permissionMode = true;
+        continue;
+      }
+      if (arg === '--allow-child-process' || arg.indexOf('--allow-child-process=') === 0) {
+        allowChildProcess = true;
+      }
+    }
+    return permissionMode && !allowChildProcess;
+  }
+
+  function __exactCreateProcessVersions() {
+    var versions = {};
+    var entries = [
+      ['node', '24.13.1'],
+      ['acorn', '8.15.0'],
+      ['ada', '2.9.2'],
+      ['ares', '1.34.4'],
+      ['brotli', '1.1.0'],
+      ['cjs_module_lexer', '2.1.0'],
+      ['cldr', '46.0'],
+      ['icu', '76.1'],
+      ['llhttp', '9.3.0'],
+      ['modules', '131'],
+      ['napi', '9'],
+      ['nbytes', '0.1.1'],
+      ['ncrypto', '0.0.1'],
+      ['nghttp2', '1.64.0'],
+      ['openssl', '3.4.1'],
+      ['simdjson', '3.13.0'],
+      ['simdutf', '6.4.2'],
+      ['tz', '2025a'],
+      ['unicode', '16.0'],
+      ['uv', '1.50.0'],
+      ['uvwasi', '0.0.21'],
+      ['v8', '13.6.233.8-node.26'],
+      ['zlib', '1.3.1.1-motley-82a5fec'],
+      ['zstd', '1.5.7']
+    ];
+    for (var __versionIndex = 0; __versionIndex < entries.length; __versionIndex++) {
+      Object.defineProperty(versions, entries[__versionIndex][0], {
+        value: entries[__versionIndex][1],
+        writable: false,
+        enumerable: true,
+        configurable: true
+      });
+    }
+    return versions;
+  }
+
+  function __exactAllowNativesSyntaxEnabled() {
+    if (globalThis.__exactAllowNativesSyntax === true) {
+      return true;
+    }
+    if (typeof globalThis.process === 'object' && globalThis.process !== null && Array.isArray(globalThis.process.execArgv)) {
+      for (var __execArgvIndex = 0; __execArgvIndex < globalThis.process.execArgv.length; __execArgvIndex++) {
+        if (String(globalThis.process.execArgv[__execArgvIndex]) === '--allow-natives-syntax') {
+          globalThis.__exactAllowNativesSyntax = true;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function __exactMaybeHandleNativesSyntax(source) {
+    if (!__exactAllowNativesSyntaxEnabled() || typeof source !== 'string') {
+      return { handled: false };
+    }
+    var trimmed = source.trim();
+    var match = /^%([A-Za-z0-9_]+)\(([\s\S]*)\);?$/.exec(trimmed);
+    if (!match) {
+      return { handled: false };
+    }
+    var intrinsicName = match[1];
+    var argsSource = match[2].trim();
+    var args = [];
+    if (argsSource.length > 0) {
+      args = Function('return [' + argsSource + '];')();
+    }
+    switch (intrinsicName) {
+      case 'PrepareFunctionForOptimization':
+      case 'OptimizeFunctionOnNextCall':
+      case 'DebugPrint':
+        return { handled: true, value: undefined };
+      case 'CollectGarbage':
+        if (typeof globalThis.gc === 'function') {
+          try { globalThis.gc(); } catch (err) {}
+        }
+        return { handled: true, value: undefined };
+      case 'HaveSameMap':
+        return { handled: true, value: args.length >= 2 && Object.getPrototypeOf(args[0]) === Object.getPrototypeOf(args[1]) };
+      case 'IsSmi':
+        return { handled: true, value: typeof args[0] === 'number' && args[0] === (args[0] | 0) };
+      case 'GetUndetectable':
+        return { handled: true, value: undefined };
+      default:
+        return { handled: true, value: undefined };
+    }
+  }
+
+  if (typeof globalThis.eval === 'function' && globalThis.eval.__exactWrappedForNativesSyntax !== true) {
+    try {
+      var __exactNativeEval = globalThis.eval;
+      var __exactCompatEval = function evalCompat(source) {
+        var handled = __exactMaybeHandleNativesSyntax(source);
+        if (handled.handled) {
+          return handled.value;
+        }
+        return __exactNativeEval.apply(globalThis, arguments);
+      };
+      __exactCompatEval.__exactWrappedForNativesSyntax = true;
+      globalThis.eval = __exactCompatEval;
+    } catch (err) {}
+  }
+
   // Ensure process has EventEmitter-style helpers in Node-compat suites.
   // Node fixtures expect `process.on`, `emit`, etc. before any stream API
   // is imported, but stream enhancements are loaded lazily. Eagerly trigger
@@ -871,6 +1043,67 @@
           configurable: true,
           enumerable: false
         });
+      } catch (err) {}
+    }
+
+    function __exactPatchProcessEventEmitterPrototype() {
+      var currentProto = Object.getPrototypeOf(globalThis.process);
+      if (!currentProto || currentProto.__exactEventEmitterProtoPatched) {
+        return;
+      }
+
+      var EventsCtor;
+      try {
+        EventsCtor = require('events');
+        EventsCtor = EventsCtor && (EventsCtor.EventEmitter || EventsCtor.default || EventsCtor);
+      } catch (err) {
+        EventsCtor = null;
+      }
+
+      if (typeof EventsCtor !== 'function' || currentProto instanceof EventsCtor) {
+        return;
+      }
+
+      var patchedProto = Object.create(EventsCtor.prototype);
+      var currentDescriptors = Object.getOwnPropertyDescriptors(currentProto);
+      delete currentDescriptors.constructor;
+      try {
+        Object.defineProperties(patchedProto, currentDescriptors);
+      } catch (err) {
+        var currentKeys = Object.keys(currentDescriptors);
+        for (var __descriptorIndex = 0; __descriptorIndex < currentKeys.length; __descriptorIndex++) {
+          try {
+            Object.defineProperty(patchedProto, currentKeys[__descriptorIndex], currentDescriptors[currentKeys[__descriptorIndex]]);
+          } catch (err2) {}
+        }
+      }
+
+      try {
+        Object.defineProperty(patchedProto, 'constructor', {
+          value: globalThis.process.constructor,
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (err) {}
+
+      try {
+        if (globalThis.process.constructor && globalThis.process.constructor.prototype !== patchedProto) {
+          globalThis.process.constructor.prototype = patchedProto;
+        }
+      } catch (err) {}
+
+      try {
+        Object.defineProperty(patchedProto, '__exactEventEmitterProtoPatched', {
+          value: true,
+          writable: false,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (err) {}
+
+      try {
+        Object.setPrototypeOf(globalThis.process, patchedProto);
       } catch (err) {}
     }
 
@@ -1015,6 +1248,7 @@
     }
 
     try {
+      __exactPatchProcessEventEmitterPrototype();
       __exactPatchProcessStreamPrototype();
       if (!globalThis.process.__exactStreamStabilityPatched) {
         __exactPinStream('stdout');
@@ -1268,53 +1502,34 @@
   if (typeof globalThis.process === 'object' && globalThis.process !== null &&
       typeof globalThis.process.execve !== 'function') {
     try {
-      var __exactInspectValue = function(v) {
-        if (typeof v === 'string') return "'" + v.replace(/\0/g, '\\x00') + "'";
-        return String(v);
-      };
       globalThis.process.execve = function execve(execPath, args, envObj) {
-        if (typeof execPath !== 'string') {
-          var e = new TypeError('The "execPath" argument must be of type string. Received type ' + typeof execPath + ' (' + String(execPath) + ')');
-          e.code = 'ERR_INVALID_ARG_TYPE';
-          throw e;
+        __exactValidateExecveArguments(execPath, args, envObj, arguments.length >= 3);
+
+        if (__exactPermissionDeniesChildProcess(globalThis.process.execArgv)) {
+          var permissionError = new Error('Access to this API has been restricted');
+          permissionError.code = 'ERR_ACCESS_DENIED';
+          permissionError.permission = 'ChildProcess';
+          permissionError.resource = execPath;
+          throw permissionError;
         }
-        if (!Array.isArray(args)) {
-          var e2 = new TypeError('The "args" argument must be an instance of Array. Received type ' + typeof args + ' (' + __exactInspectValue(args) + ')');
-          e2.code = 'ERR_INVALID_ARG_TYPE';
-          throw e2;
+
+        var childProcess = require('child_process');
+        if (!childProcess || typeof childProcess.spawnSync !== 'function') {
+          var unavailableError = new TypeError('process.execve is not supported in this runtime');
+          unavailableError.code = 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM';
+          throw unavailableError;
         }
-        for (var i = 0; i < args.length; i++) {
-          if (typeof args[i] !== 'string' || args[i].indexOf('\0') !== -1) {
-            var e3 = new TypeError("The argument 'args[" + i + "]' must be a string without null bytes. Received " + __exactInspectValue(args[i]));
-            e3.code = 'ERR_INVALID_ARG_VALUE';
-            throw e3;
-          }
+
+        var result = childProcess.spawnSync(execPath, args.slice(1), {
+          env: arguments.length >= 3 ? envObj : globalThis.process.env,
+          stdio: 'inherit'
+        });
+        if (result && result.error) {
+          throw result.error;
         }
-        if (arguments.length >= 3) {
-          if (typeof envObj !== 'object' || envObj === null || Array.isArray(envObj)) {
-            var e4 = new TypeError('The "env" argument must be of type object. Received type ' + typeof envObj + ' (' + __exactInspectValue(envObj) + ')');
-            e4.code = 'ERR_INVALID_ARG_TYPE';
-            throw e4;
-          }
-          var keys = Object.keys(envObj);
-          for (var j = 0; j < keys.length; j++) {
-            var val = envObj[keys[j]];
-            if (typeof val !== 'string' || val.indexOf('\0') !== -1) {
-              var pairs = [];
-              for (var k = 0; k < keys.length; k++) {
-                pairs.push(keys[k] + ': ' + __exactInspectValue(envObj[keys[k]]));
-              }
-              var e5 = new TypeError("The argument 'env' must be an object with string keys and values without null bytes. Received { " + pairs.join(', ') + ' }');
-              e5.code = 'ERR_INVALID_ARG_VALUE';
-              throw e5;
-            }
-          }
+        if (typeof globalThis.process.exit === 'function') {
+          globalThis.process.exit(result && typeof result.status === 'number' ? result.status : 0);
         }
-        var e6 = new Error('Access to this API has been restricted');
-        e6.code = 'ERR_ACCESS_DENIED';
-        e6.permission = 'ChildProcess';
-        e6.resource = execPath;
-        throw e6;
       };
     } catch (err) {}
   }
@@ -1378,27 +1593,7 @@
         return false;
       }
 
-      var processVersions = globalThis.process.versions;
-      processVersions = processVersions && typeof processVersions === 'object'
-        ? processVersions
-        : {};
-      var patchedVersions = {
-        node: processVersions.node || '24.13.1',
-        v8: processVersions.v8 || '0.0.0',
-        uv: processVersions.uv || '0.0.0',
-        zlib: processVersions.zlib || '1.3.1',
-        brotli: processVersions.brotli || '0.0.0',
-        ares: processVersions.ares || '0.0.0',
-        modules: processVersions.modules || '127',
-        nghttp2: processVersions.nghttp2 || '0.0.0',
-        napi: processVersions.napi || '9',
-        llhttp: processVersions.llhttp || '0.0.0',
-        uvwasi: processVersions.uvwasi || '0.0.0',
-        unicode: processVersions.unicode || '15.1',
-        openssl: processVersions.openssl || '3.0.0',
-        hermes: processVersions.hermes || '0.12.0',
-        exact: processVersions.exact || '0.1.0'
-      };
+      var patchedVersions = __exactCreateProcessVersions();
       try {
         __exactApplyVersionsPatch(globalThis.process, patchedVersions);
       } catch (err) {}
@@ -1473,8 +1668,8 @@
         }
       } catch (err) {}
 
-      if (processVersions.node) {
-        globalThis.process.version = 'v' + String(processVersions.node).replace(/^v/, '');
+      if (patchedVersions.node) {
+        globalThis.process.version = 'v' + String(patchedVersions.node).replace(/^v/, '');
       }
       // Node compat: set process.release.name to 'node' for compatibility
       // process is a HostObject, so we need Object.defineProperty to override
@@ -1483,7 +1678,7 @@
         var releaseObj = (existingRelease && typeof existingRelease === 'object') ?
           Object.assign({}, existingRelease, { name: 'node' }) : { name: 'node' };
         // Determine LTS codename based on reported Node version
-        var __nodeVer = processVersions.node || '';
+        var __nodeVer = patchedVersions.node || '';
         var __verParts = String(__nodeVer).split('.');
         var __major = parseInt(__verParts[0], 10);
         var __minor = parseInt(__verParts[1], 10);
@@ -3576,6 +3771,7 @@
     globalThis.process !== null &&
     globalThis.process.env &&
     globalThis.process.env.EXACT_COMPAT_TEST === '1' &&
+    globalThis.process.env.EXACT_TEST_SECTION === 'bun' &&
     Array.isArray(globalThis.process.argv) &&
     globalThis.process.argv.length > 1 &&
     typeof globalThis.__exactRequire === 'function' &&

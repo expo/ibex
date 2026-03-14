@@ -323,11 +323,45 @@ function execve(execPath, args, envObj) {
       }
     }
   }
-  var e6 = new Error('Access to this API has been restricted');
-  e6.code = 'ERR_ACCESS_DENIED';
-  e6.permission = 'ChildProcess';
-  e6.resource = execPath;
-  throw e6;
+
+  var execArgv = (typeof process === 'object' && process && Array.isArray(process.execArgv)) ? process.execArgv : [];
+  var permissionMode = false;
+  var allowChildProcess = false;
+  for (var ai = 0; ai < execArgv.length; ai++) {
+    var execArg = String(execArgv[ai]);
+    if (execArg === '--permission' || execArg.indexOf('--permission=') === 0) {
+      permissionMode = true;
+      continue;
+    }
+    if (execArg === '--allow-child-process' || execArg.indexOf('--allow-child-process=') === 0) {
+      allowChildProcess = true;
+    }
+  }
+  if (permissionMode && !allowChildProcess) {
+    var deniedError = new Error('Access to this API has been restricted');
+    deniedError.code = 'ERR_ACCESS_DENIED';
+    deniedError.permission = 'ChildProcess';
+    deniedError.resource = execPath;
+    throw deniedError;
+  }
+
+  var childProcess = require('child_process');
+  if (!childProcess || typeof childProcess.spawnSync !== 'function') {
+    var unavailableError = new TypeError('process.execve is not supported in this runtime');
+    unavailableError.code = 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM';
+    throw unavailableError;
+  }
+
+  var result = childProcess.spawnSync(execPath, args.slice(1), {
+    env: arguments.length >= 3 ? envObj : process.env,
+    stdio: 'inherit'
+  });
+  if (result && result.error) {
+    throw result.error;
+  }
+  if (typeof process.exit === 'function') {
+    process.exit(result && typeof result.status === 'number' ? result.status : 0);
+  }
 }
 
 // Re-export the full globalThis.process object (which has all the C++ properties)
@@ -434,7 +468,7 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
     proc.channel = undefined;
   }
   if (!proc.argv || proc.argv.length === 0) proc.argv = argv;
-  if (!Array.isArray(proc.execArgv)) proc.execArgv = [];
+  if (!Array.isArray(proc.execArgv)) proc.execArgv = Array.isArray(globalThis.__exactExecArgv) ? globalThis.__exactExecArgv : [];
   if (!proc.execve) proc.execve = execve;
   _installReadableStdinFallback(proc);
 

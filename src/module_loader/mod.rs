@@ -490,9 +490,17 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
     }
 }
 
+fn hash_cache_input_file<H: Hasher>(hasher: &mut H, path: &Path) -> Result<()> {
+    path.hash(hasher);
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("Failed to read transpile cache input {}", path.display()))?;
+    bytes.hash(hasher);
+    Ok(())
+}
+
 fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v7-refresh-for-await-cache".hash(&mut hasher);
+    "loader-transpile-v8-pipeline-aware".hash(&mut hasher);
     target.hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
@@ -504,6 +512,18 @@ fn module_cache_key(path: &Path, target: &str) -> Result<String> {
             }
         }
     }
+    let root = repo_root()?;
+    hash_cache_input_file(
+        &mut hasher,
+        &root
+            .join("js")
+            .join("scripts")
+            .join("transpile-typescript.mjs"),
+    )?;
+    hash_cache_input_file(
+        &mut hasher,
+        &root.join("js").join("scripts").join("transforms.mjs"),
+    )?;
     Ok(format!("{:x}", hasher.finish()))
 }
 

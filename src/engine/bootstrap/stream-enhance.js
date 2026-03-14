@@ -456,6 +456,43 @@
   // --- Make process itself an EventEmitter ---
   addEventEmitter(p);
 
+  try {
+    var ProcessEventsCtor = require('events');
+    ProcessEventsCtor = ProcessEventsCtor && (ProcessEventsCtor.EventEmitter || ProcessEventsCtor.default || ProcessEventsCtor);
+    var processProto = Object.getPrototypeOf(p);
+    if (typeof ProcessEventsCtor === 'function' && processProto && !(processProto instanceof ProcessEventsCtor)) {
+      var patchedProcessProto = Object.create(ProcessEventsCtor.prototype);
+      var processDescriptors = Object.getOwnPropertyDescriptors(processProto);
+      delete processDescriptors.constructor;
+      try {
+        Object.defineProperties(patchedProcessProto, processDescriptors);
+      } catch (err) {
+        var processDescriptorKeys = Object.keys(processDescriptors);
+        for (var pdi = 0; pdi < processDescriptorKeys.length; pdi++) {
+          try {
+            Object.defineProperty(patchedProcessProto, processDescriptorKeys[pdi], processDescriptors[processDescriptorKeys[pdi]]);
+          } catch (err2) {}
+        }
+      }
+      try {
+        Object.defineProperty(patchedProcessProto, 'constructor', {
+          value: p.constructor,
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (err) {}
+      try {
+        if (p.constructor && p.constructor.prototype !== patchedProcessProto) {
+          p.constructor.prototype = patchedProcessProto;
+        }
+      } catch (err) {}
+      try {
+        Object.setPrototypeOf(p, patchedProcessProto);
+      } catch (err) {}
+    }
+  } catch (err) {}
+
   // process.on('exit') — fire exit hooks before process exits
   var origExit = p.exit;
   if (!origExit || !origExit.__exactHostExit) {
@@ -465,10 +502,21 @@
       if (code === undefined) {
         code = currentProcess.exitCode || 0;
       }
+      currentProcess.exitCode = code;
+      if (currentProcess._exactExiting) {
+        return;
+      }
       currentProcess._exactExiting = true;
       try { currentProcess.emit('exit', code); } catch(e) {}
+      var finalCode = currentProcess.exitCode || 0;
+      if (origExit && origExit.__exactHostExit) {
+        return origExit.call(currentProcess, finalCode);
+      }
+      if (typeof globalThis.__exactExit === 'function') {
+        return globalThis.__exactExit(finalCode);
+      }
       if (origExit) {
-        return origExit.call(currentProcess, code);
+        return origExit.call(currentProcess, finalCode);
       }
     };
   }
@@ -880,23 +928,53 @@
 
   // process.versions — many packages check process.versions.node
   if (!p.versions || !p.versions.node) {
-    var compatibilityVersions = {
-      node: '24.13.1',
-      v8: '0.0.0',
-      uv: '0.0.0',
-      zlib: '1.3.1',
-      brotli: '0.0.0',
-      ares: '0.0.0',
-      modules: '127',
-      nghttp2: '0.0.0',
-      napi: '9',
-      llhttp: '0.0.0',
-      uvwasi: '0.0.0',
-      unicode: '15.1',
-      openssl: '3.0.0',
-      hermes: '0.12.0',
-      exact: '0.1.0'
-    };
+    var compatibilityVersions = {};
+    var versionEntries = [
+      ['node', '24.13.1'],
+      ['acorn', '8.15.0'],
+      ['ada', '2.9.2'],
+      ['ares', '1.34.4'],
+      ['brotli', '1.1.0'],
+      ['cjs_module_lexer', '2.1.0'],
+      ['cldr', '46.0'],
+      ['icu', '76.1'],
+      ['llhttp', '9.3.0'],
+      ['modules', '131'],
+      ['napi', '9'],
+      ['nbytes', '0.1.1'],
+      ['ncrypto', '0.0.1'],
+      ['nghttp2', '1.64.0'],
+      ['openssl', '3.4.1'],
+      ['simdjson', '3.13.0'],
+      ['simdutf', '6.4.2'],
+      ['tz', '2025a'],
+      ['unicode', '16.0'],
+      ['uv', '1.50.0'],
+      ['uvwasi', '0.0.21'],
+      ['v8', '13.6.233.8-node.26'],
+      ['zlib', '1.3.1.1-motley-82a5fec'],
+      ['zstd', '1.5.7']
+    ];
+    for (var vi = 0; vi < versionEntries.length; vi++) {
+      Object.defineProperty(compatibilityVersions, versionEntries[vi][0], {
+        value: versionEntries[vi][1],
+        writable: false,
+        enumerable: true,
+        configurable: true
+      });
+    }
+    Object.defineProperty(compatibilityVersions, 'hermes', {
+      value: '0.12.0',
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+    Object.defineProperty(compatibilityVersions, 'exact', {
+      value: '0.1.0',
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
     try {
       Object.defineProperty(p, 'versions', {
         value: compatibilityVersions,

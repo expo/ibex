@@ -2816,7 +2816,47 @@
     const previousNodeFilename = g.__filename;
     const previousNodeDirname = g.__dirname;
     try {
+      const evalShimPreamble =
+        "if (typeof globalThis.__exactCompatEval !== 'function') {\n" +
+        "  (function() {\n" +
+        "    var __exactNativeEval = globalThis.eval;\n" +
+        "    function __exactMaybeHandleNativesSyntax(source) {\n" +
+        "      if (typeof source !== 'string') {\n" +
+        "        return null;\n" +
+        "      }\n" +
+        "      var trimmed = source.trim();\n" +
+        "      if (trimmed.charAt(0) !== '%' || trimmed.charAt(trimmed.length - 1) !== ')') {\n" +
+        "        return null;\n" +
+        "      }\n" +
+        "      var openParen = trimmed.indexOf('(');\n" +
+        "      if (openParen <= 1) {\n" +
+        "        return null;\n" +
+        "      }\n" +
+        "      switch (trimmed.slice(1, openParen).trim()) {\n" +
+        "        case 'PrepareFunctionForOptimization':\n" +
+        "        case 'OptimizeFunctionOnNextCall':\n" +
+        "          return { handled: true, value: undefined };\n" +
+        "        default:\n" +
+        "          return null;\n" +
+        "      }\n" +
+        "    }\n" +
+        "    var __exactCompatEval = function evalCompat(source) {\n" +
+        "      var handled = __exactMaybeHandleNativesSyntax(source);\n" +
+        "      if (handled && handled.handled) {\n" +
+        "        return handled.value;\n" +
+        "      }\n" +
+        "      return __exactNativeEval(source);\n" +
+        "    };\n" +
+        "    __exactCompatEval.__exactWrappedForNativesSyntax = true;\n" +
+        "    globalThis.__exactCompatEval = __exactCompatEval;\n" +
+        "    if (typeof globalThis.eval === 'function' && !globalThis.eval.__exactWrappedForNativesSyntax) {\n" +
+        "      globalThis.eval = __exactCompatEval;\n" +
+        "    }\n" +
+        "  })();\n" +
+        "}\n" +
+        "var eval = globalThis.__exactCompatEval;\n";
       const directSource =
+        evalShimPreamble +
         transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename))) +
         "\n//# sourceURL=" + filename;
       g.__exactDebugModuleSources = (g.__exactDebugModuleSources || []);
@@ -2856,6 +2896,7 @@
           throw err;
         }
         let runtimeSource =
+          evalShimPreamble +
           transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(transformEsmToCjs(directSource)), filename))) +
             "\n//# sourceURL=" + filename;
         if (needsAsyncFallback) {

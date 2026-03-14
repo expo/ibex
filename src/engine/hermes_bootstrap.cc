@@ -551,51 +551,90 @@ void runFinalProcessVersionsFix(ExactHermesRuntime* handle) {
   static const char* versionsFixJS = R"JS(
 (function() {
   if (typeof process !== 'object' || process === null) return;
-  var cur = process.versions;
-  if (!cur || typeof cur !== 'object') cur = {};
   var v = {};
-  var keys = Object.keys(cur);
-  for (var i = 0; i < keys.length; i++) {
-    try { v[keys[i]] = cur[keys[i]]; } catch(e) {}
+  var versionEntries = [
+    ['node', '24.13.1'],
+    ['acorn', '8.15.0'],
+    ['ada', '2.9.2'],
+    ['ares', '1.34.4'],
+    ['brotli', '1.1.0'],
+    ['cjs_module_lexer', '2.1.0'],
+    ['cldr', '46.0'],
+    ['icu', '76.1'],
+    ['llhttp', '9.3.0'],
+    ['modules', '131'],
+    ['napi', '9'],
+    ['nbytes', '0.1.1'],
+    ['ncrypto', '0.0.1'],
+    ['nghttp2', '1.64.0'],
+    ['openssl', '3.4.1'],
+    ['simdjson', '3.13.0'],
+    ['simdutf', '6.4.2'],
+    ['tz', '2025a'],
+    ['unicode', '16.0'],
+    ['uv', '1.50.0'],
+    ['uvwasi', '0.0.21'],
+    ['v8', '13.6.233.8-node.26'],
+    ['zlib', '1.3.1.1-motley-82a5fec'],
+    ['zstd', '1.5.7']
+  ];
+  for (var i = 0; i < versionEntries.length; i++) {
+    Object.defineProperty(v, versionEntries[i][0], {
+      value: versionEntries[i][1],
+      writable: false,
+      enumerable: true,
+      configurable: true
+    });
   }
-  if (!v.node) v.node = '24.13.1';
-  if (!v.openssl) v.openssl = '3.0.0';
-  if (!v.v8) v.v8 = '0.0.0';
-  if (!v.uv) v.uv = '0.0.0';
-  if (!v.zlib) v.zlib = '1.3.1';
-  if (!v.modules) v.modules = '127';
-  if (!v.napi) v.napi = '9';
-  if (!v.hermes) v.hermes = '0.12.0';
-  if (!v.exact) v.exact = '0.1.0';
+  Object.defineProperty(v, 'hermes', {
+    value: '0.12.0',
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+  Object.defineProperty(v, 'exact', {
+    value: '0.1.0',
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
   try {
     Object.defineProperty(process, 'versions', {
       value: v, writable: true, configurable: true, enumerable: true
     });
   } catch(e) {}
-  if (process.versions === v) return;
   var p = Object.getPrototypeOf(process);
   if (p && p !== Object.prototype) {
     try {
-      Object.defineProperty(p, 'versions', {
-        value: v, writable: true, configurable: true, enumerable: false
+      Object.defineProperty(p, 'constructor', {
+        value: process.constructor,
+        writable: true,
+        configurable: true,
+        enumerable: false
       });
     } catch(e) {}
-    if (process.versions === v) return;
     try {
-      var np = Object.create(p);
-      Object.defineProperty(np, 'versions', {
-        value: v, writable: true, configurable: true, enumerable: false
-      });
-      Object.setPrototypeOf(process, np);
+      var EventsCtor = require('events');
+      EventsCtor = EventsCtor && (EventsCtor.EventEmitter || EventsCtor.default || EventsCtor);
+      if (typeof EventsCtor === 'function' && !(p instanceof EventsCtor)) {
+        Object.setPrototypeOf(p, EventsCtor.prototype);
+      }
     } catch(e) {}
-  }
-  if (!process.version || process.version === 'v0.1.0') {
-    try { process.version = 'v24.13.1'; } catch(e) {}
   }
   try {
-    if (!process.release || process.release.name !== 'node') {
-      process.release = { name: 'node' };
+    process.version = 'v24.13.1';
+  } catch(e) {}
+  try {
+    var release = {};
+    try { release = process.release || {}; } catch(_) {}
+    var nextRelease = { name: 'node', lts: 'Krypton' };
+    var releaseKeys = Object.keys(release);
+    for (var ri = 0; ri < releaseKeys.length; ri++) {
+      var releaseKey = releaseKeys[ri];
+      if (releaseKey === 'name' || releaseKey === 'lts') continue;
+      nextRelease[releaseKey] = release[releaseKey];
     }
+    process.release = nextRelease;
   } catch(e) {}
 })();
 )JS";
