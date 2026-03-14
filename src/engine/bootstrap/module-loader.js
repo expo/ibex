@@ -2113,7 +2113,7 @@
       for (var b = 0; b < bodyLines.length; b++) {
         out.push(bodyLines[b]);
       }
-      out.push(indent + "});");
+      out.push(indent + "}, this);");
       i = j;
     }
     return out.join("\n");
@@ -2183,12 +2183,27 @@
     var lines = String(source).split("\n");
     var out = [];
     var importCounter = 0;
+    var pendingVarExport = null;
+    var pendingDefaultExport = null;
     var isIdent = /^[A-Za-z_$][\w$]*$/;
     var isExportName = function(value) {
       return value === "default" || isIdent.test(value);
     };
     var quote = function(value) {
       return JSON.stringify(value);
+    };
+    var countDelimiters = function(value) {
+      var text = String(value || "");
+      var balance = 0;
+      for (var index = 0; index < text.length; index++) {
+        var ch = text.charCodeAt(index);
+        if (123 === ch || 40 === ch || 91 === ch) {
+          balance++;
+        } else if (125 === ch || 41 === ch || 93 === ch) {
+          balance--;
+        }
+      }
+      return balance;
     };
     var emitNamedBindings = function(spec, modName) {
       var parts = spec ? spec.split(",") : [];
@@ -2250,8 +2265,39 @@
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       var trimmed = line.trim();
+      if (pendingDefaultExport) {
+        var continuedDefault = line.indexOf("import.meta") !== -1 ? transformImportMeta(line) : line;
+        out.push(continuedDefault);
+        pendingDefaultExport.depth += countDelimiters(continuedDefault);
+        if (pendingDefaultExport.depth <= 0 && /;\s*$/.test(trimmed)) {
+          pendingDefaultExport = null;
+        }
+        continue;
+      }
+      if (pendingVarExport) {
+        var continued = line.indexOf("import.meta") !== -1 ? transformImportMeta(line) : line;
+        out.push(continued);
+        pendingVarExport.depth += countDelimiters(continued);
+        if (pendingVarExport.depth <= 0 && /;\s*$/.test(trimmed)) {
+          out.push("module.exports." + pendingVarExport.name + " = " + pendingVarExport.name + ";");
+          pendingVarExport = null;
+        }
+        continue;
+      }
       var statement = line;
-      if (/^\s*(import|export)\b/.test(trimmed) && trimmed.indexOf(";") === -1) {
+      var isBlockExportDeclaration =
+        /^\s*export\s+(default\s+)?(?:async\s+)?(?:function|class)\b/.test(trimmed);
+      var isVarExportDeclaration = /^\s*export\s+(const|let|var)\b/.test(trimmed);
+      var isDefaultExportExpression =
+        /^\s*export\s+default\b/.test(trimmed) &&
+        !/^\s*export\s+default\s+(?:async\s+)?(?:function|class)\b/.test(trimmed);
+      if (
+        /^\s*(import|export)\b/.test(trimmed) &&
+        trimmed.indexOf(";") === -1 &&
+        !isBlockExportDeclaration &&
+        !isVarExportDeclaration &&
+        !isDefaultExportExpression
+      ) {
         for (var j = i + 1; j < lines.length; j++) {
           statement = statement + "\n" + lines[j];
           if (statement.indexOf(";") !== -1) {
@@ -2396,10 +2442,122 @@
         continue;
       }
 
-      m = trimmed.match(/^\s*export\s+(function|class)\s+([A-Za-z_$][\w$]*)/);
+      m = transformed.match(
+        /^(\s*)export\s+default\s+async\s+function\s+([A-Za-z_$][\w$]*)([\s\S]*)$/
+      );
       if (m) {
-        out.push(transformed.replace(/\bexport\s+/, ""));
-        out.push("module.exports." + m[2] + " = " + m[2] + ";");
+        out.push(
+          m[1] +
+            "const " +
+            m[2] +
+            " = module.exports.default = async function " +
+            m[2] +
+            m[3]
+        );
+        continue;
+      }
+
+      m = transformed.match(
+        /^(\s*)export\s+default\s+function\s+([A-Za-z_$][\w$]*)([\s\S]*)$/
+      );
+      if (m) {
+        out.push(
+          m[1] +
+            "const " +
+            m[2] +
+            " = module.exports.default = function " +
+            m[2] +
+            m[3]
+        );
+        continue;
+      }
+
+      m = transformed.match(/^(\s*)export\s+default\s+class\s+([A-Za-z_$][\w$]*)([\s\S]*)$/);
+      if (m) {
+        out.push(
+          m[1] +
+            "const " +
+            m[2] +
+            " = module.exports.default = class " +
+            m[2] +
+            m[3]
+        );
+        continue;
+      }
+
+      m = transformed.match(/^(\s*)export\s+default\s+async\s+function([\s\S]*)$/);
+      if (m) {
+        out.push(m[1] + "module.exports.default = async function" + m[2]);
+        continue;
+      }
+
+      m = transformed.match(/^(\s*)export\s+default\s+function([\s\S]*)$/);
+      if (m) {
+        out.push(m[1] + "module.exports.default = function" + m[2]);
+        continue;
+      }
+
+      m = transformed.match(/^(\s*)export\s+default\s+class([\s\S]*)$/);
+      if (m) {
+        out.push(m[1] + "module.exports.default = class" + m[2]);
+        continue;
+      }
+
+      m = transformed.match(/^(\s*)export\s+default\s+([\s\S]*)$/);
+      if (m) {
+        var defaultDeclaration = m[1] + "module.exports.default = " + m[2];
+        out.push(defaultDeclaration);
+        var defaultDepth = countDelimiters(defaultDeclaration);
+        if (!/;\s*$/.test(trimmed) || defaultDepth > 0) {
+          pendingDefaultExport = {
+            depth: defaultDepth
+          };
+        }
+        continue;
+      }
+
+      m = transformed.match(/^(\s*)export\s+async\s+function\s+([A-Za-z_$][\w$]*)([\s\S]*)$/);
+      if (m) {
+        out.push(
+          m[1] +
+            "const " +
+            m[2] +
+            " = module.exports." +
+            m[2] +
+            " = async function " +
+            m[2] +
+            m[3]
+        );
+        continue;
+      }
+
+      m = transformed.match(/^(\s*)export\s+function\s+([A-Za-z_$][\w$]*)([\s\S]*)$/);
+      if (m) {
+        out.push(
+          m[1] +
+            "const " +
+            m[2] +
+            " = module.exports." +
+            m[2] +
+            " = function " +
+            m[2] +
+            m[3]
+        );
+        continue;
+      }
+
+      m = transformed.match(/^(\s*)export\s+class\s+([A-Za-z_$][\w$]*)([\s\S]*)$/);
+      if (m) {
+        out.push(
+          m[1] +
+            "const " +
+            m[2] +
+            " = module.exports." +
+            m[2] +
+            " = class " +
+            m[2] +
+            m[3]
+        );
         continue;
       }
 
@@ -2409,10 +2567,19 @@
         continue;
       }
 
-      m = trimmed.match(/^\s*export\s+(const|let|var)\s+([A-Za-z_$][\w$]*)/);
+      m = transformed.match(/^(\s*)export\s+(const|let|var)\s+([A-Za-z_$][\w$]*)([\s\S]*)$/);
       if (m) {
-        out.push(transformed.replace(/\bexport\s+/, ""));
-        out.push("module.exports." + m[2] + " = " + m[2] + ";");
+        var declaration = transformed.replace(/\bexport\s+/, "");
+        out.push(declaration);
+        var declarationDepth = countDelimiters(declaration);
+        if (/;\s*$/.test(trimmed) && declarationDepth <= 0) {
+          out.push("module.exports." + m[3] + " = " + m[3] + ";");
+        } else {
+          pendingVarExport = {
+            name: m[3],
+            depth: declarationDepth
+          };
+        }
         continue;
       }
 
@@ -2666,10 +2833,9 @@
           "exports",
           "__filename",
           "__dirname",
-          "process",
           directSource
         );
-        directFn(localRequire, module, module.exports, filename, dir, g.process);
+        directFn(localRequire, module, module.exports, filename, dir);
       } catch (err) {
         const needsAsyncFallback = looksLikeTopLevelAwait(directSource);
         const isAwaitReferenceError = needsAsyncFallback &&
@@ -2705,12 +2871,11 @@
           "exports",
           "__filename",
           "__dirname",
-          "process",
           runtimeSource
         );
         g.__filename = filename;
         g.__dirname = dir;
-        fallbackFn(localRequire, module, module.exports, filename, dir, g.process);
+        fallbackFn(localRequire, module, module.exports, filename, dir);
         if (module.exports && typeof module.exports === "object") {
           module.exports.__esModule = true;
           Object.defineProperty(module.exports, '__esmShimmed', { value: true });
