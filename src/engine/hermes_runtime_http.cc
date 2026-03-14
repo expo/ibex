@@ -51,8 +51,6 @@ extern "C" char* ex_host_http_drain(uint32_t server_id, uint32_t max_count);
 extern "C" int32_t ex_host_http_close(uint32_t server_id, int32_t force);
 extern "C" void ex_host_http_set_ref(uint32_t server_id, int32_t referenced);
 extern "C" void ex_host_free_string(char* value);
-void pushRuntimeCallback(ExactHermesRuntime* runtime,
-                         std::function<void(facebook::jsi::Runtime&)> fn);
 
 void installHttpHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;

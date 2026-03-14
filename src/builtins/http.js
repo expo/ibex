@@ -166,7 +166,10 @@ function _toOutgoingBodyPart(chunk, encoding) {
       typeof ArrayBuffer !== 'undefined' &&
       ArrayBuffer.isView &&
       ArrayBuffer.isView(chunk)) {
-    return Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
+    var _len = chunk.byteLength || chunk.length || 0;
+    var _copy = Buffer.alloc(_len);
+    _copy.set(new Uint8Array(chunk.buffer, chunk.byteOffset || 0, _len));
+    return _copy;
   }
   if (typeof Buffer !== 'undefined') {
     if (typeof chunk === 'string') {
@@ -1248,11 +1251,10 @@ function setupHttpClientErrorParsing(server, socket) {
 // Node.js: new http.IncomingMessage(socket) — socket is optional
 // ---------------------------------------------------------------------------
 function IncomingMessage(socketOrResponse) {
+  EventEmitter.call(this);
   var ReadableCtor = getReadableCtor();
   if (ReadableCtor) {
-    ReadableCtor.call(this);
-  } else {
-    EventEmitter.call(this);
+    try { ReadableCtor.call(this); } catch (_readableInitErr) {}
   }
 
   // If called with a fetch Response object (internal path)
@@ -1302,13 +1304,47 @@ function IncomingMessage(socketOrResponse) {
   this._response = null;
   this._body = '';
 }
-// Inherit from Readable if available, otherwise EventEmitter
+// Inherit from Readable if available, otherwise EventEmitter.
+// Always ensure EventEmitter methods are available in the chain.
 var _IncomingMessageBase = (function() {
   var R = getReadableCtor();
-  return R ? R.prototype : EventEmitter.prototype;
+  if (R && R.prototype) {
+    // Check if Readable already inherits from EventEmitter
+    if (typeof R.prototype.on === 'function') {
+      return R.prototype;
+    }
+    // Readable exists but doesn't have EventEmitter methods in its chain.
+    // Build a combined prototype: Readable methods + EventEmitter methods.
+    var combined = Object.create(EventEmitter.prototype);
+    var names = Object.getOwnPropertyNames(R.prototype);
+    for (var i = 0; i < names.length; i++) {
+      if (names[i] !== 'constructor') {
+        Object.defineProperty(combined, names[i], Object.getOwnPropertyDescriptor(R.prototype, names[i]));
+      }
+    }
+    return combined;
+  }
+  return EventEmitter.prototype;
 })();
 IncomingMessage.prototype = Object.create(_IncomingMessageBase);
 IncomingMessage.prototype.constructor = IncomingMessage;
+
+// Provide a fallback read() if Readable didn't supply one
+if (typeof IncomingMessage.prototype.read !== 'function') {
+  IncomingMessage.prototype.read = function() { return null; };
+}
+if (typeof IncomingMessage.prototype._read !== 'function') {
+  IncomingMessage.prototype._read = function() {};
+}
+if (typeof IncomingMessage.prototype.resume !== 'function') {
+  IncomingMessage.prototype.resume = function() { return this; };
+}
+if (typeof IncomingMessage.prototype.pause !== 'function') {
+  IncomingMessage.prototype.pause = function() { return this; };
+}
+if (typeof IncomingMessage.prototype.push !== 'function') {
+  IncomingMessage.prototype.push = function() { return true; };
+}
 
 // connection getter/setter mirrors socket
 Object.defineProperty(IncomingMessage.prototype, 'connection', {
@@ -2145,7 +2181,10 @@ function _coerceClientRequestBodyChunk(chunk, encoding) {
     }
     if (typeof ArrayBuffer !== 'undefined') {
       if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
-        return Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
+        var _len = chunk.byteLength || chunk.length || 0;
+        var _copy = Buffer.alloc(_len);
+        _copy.set(new Uint8Array(chunk.buffer, chunk.byteOffset || 0, _len));
+        return _copy;
       }
       if (chunk instanceof ArrayBuffer) {
         return Buffer.from(chunk);
@@ -4664,7 +4703,10 @@ function _coerceServerResponseSocketChunk(chunk, encoding) {
     }
     if (typeof ArrayBuffer !== 'undefined') {
       if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
-        return Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
+        var _len = chunk.byteLength || chunk.length || 0;
+        var _copy = Buffer.alloc(_len);
+        _copy.set(new Uint8Array(chunk.buffer, chunk.byteOffset || 0, _len));
+        return _copy;
       }
       if (chunk instanceof ArrayBuffer) {
         return Buffer.from(chunk);

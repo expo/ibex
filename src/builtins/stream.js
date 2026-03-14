@@ -397,7 +397,13 @@ function _bufferFromChunk(chunk) {
     return Buffer ? Buffer.from(new Uint8Array(chunk)) : new Uint8Array(chunk);
   }
   if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
-    return Buffer ? Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0) : new Uint8Array(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
+    if (Buffer) {
+      var _len = chunk.byteLength || chunk.length || 0;
+      var _copy = Buffer.alloc(_len);
+      _copy.set(new Uint8Array(chunk.buffer, chunk.byteOffset || 0, _len));
+      return _copy;
+    }
+    return new Uint8Array(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
   }
   if (typeof chunk === 'string') {
     return Buffer ? Buffer.from(chunk) : new TextEncoder().encode(chunk);
@@ -1181,7 +1187,13 @@ function _consumeReadableChunk(stream, needed) {
       if (typeof item === 'string') piece = Buffer ? Buffer.from(item) : new TextEncoder().encode(item);
       else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(item)) piece = item;
       else if (item && item.buffer instanceof ArrayBuffer) {
-        piece = Buffer && Buffer.isBuffer(item) ? item : Buffer.from(new Uint8Array(item.buffer, item.byteOffset || 0, item.byteLength || item.length || 0));
+        if (Buffer && Buffer.isBuffer(item)) {
+          piece = item;
+        } else {
+          var _pLen = item.byteLength || item.length || 0;
+          piece = Buffer.alloc(_pLen);
+          piece.set(new Uint8Array(item.buffer, item.byteOffset || 0, _pLen));
+        }
       } else {
         piece = Buffer ? Buffer.from(String(item)) : new TextEncoder().encode(String(item));
       }
