@@ -1881,6 +1881,12 @@
     }
     return relativePath.replace(/\\/g, "/");
   }
+  function normalizeHashbang(source) {
+    if (!source || source.indexOf("#!") !== 0) {
+      return source;
+    }
+    return "//" + source.slice(2);
+  }
   function applyRolldownCjsDirnameBindings(source, bundlePath) {
     // Strip const/let/var __dirname/__filename declarations to avoid
     // clashing with the function parameters injected by the module loader.
@@ -2702,7 +2708,7 @@
       return cache[id].exports;
     }
     const kind = record.kind || "cjs";
-    const source = record.source || "";
+    const source = normalizeHashbang(record.source || "");
     var filename = record.path || id;
     // For the entry module, use the original source path so that
     // __dirname/__filename and require.resolve work relative to
