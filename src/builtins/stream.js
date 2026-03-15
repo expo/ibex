@@ -657,6 +657,10 @@ Stream.prototype.destroy = function(error, callback) {
       self.errored = err;
       if (self._readableState) self._readableState.errored = err;
       if (self._writableState) self._writableState.errored = err;
+      var errorAlreadyEmitted = !!(
+        (self._readableState && self._readableState.errorEmitted) ||
+        (self._writableState && self._writableState.errorEmitted)
+      );
       if (self._readableState) self._readableState.errorEmitted = true;
       if (self._writableState) self._writableState.errorEmitted = true;
       var hasErrorListener = false;
@@ -665,7 +669,7 @@ Stream.prototype.destroy = function(error, callback) {
       } else if (self._events && self._events.error) {
         hasErrorListener = true;
       }
-      if (hasErrorListener) {
+      if (hasErrorListener && !errorAlreadyEmitted) {
         try {
           self.emit('error', err);
         } catch (emitErr) {
@@ -844,7 +848,7 @@ function Readable(options) {
     var self = this;
     var called = false;
     setTimeout(function() {
-      options.construct(function(err) {
+      options.construct.call(self, function(err) {
         if (called) {
           var multiErr = new Error('Callback called multiple times');
           multiErr.code = 'ERR_MULTIPLE_CALLBACK';
@@ -1370,28 +1374,6 @@ Readable.prototype._emitReadableIfNeeded = function() {
   }
   state.emittedReadable = true;
   state.needReadable = false;
-  if (!state.sync) {
-    if (!this._destroyed &&
-        !this._closed &&
-        !state.destroyed &&
-        !state.errored &&
-        !state.endEmitted &&
-        (state.length > 0 || state.ended)) {
-      state.emittingReadable = true;
-      try {
-        this.emit('readable');
-      } finally {
-        state.emittingReadable = false;
-      }
-    }
-    state.emittedReadable = false;
-    if (this.readableFlowing !== true &&
-        !state.ended &&
-        state.length <= state.highWaterMark) {
-      state.needReadable = true;
-    }
-    return;
-  }
   var self = this;
   _nextTick(function() {
     var readableState = self && self._readableState;
@@ -1514,7 +1496,10 @@ Readable.prototype.push = function(chunk, encoding) {
         state.readingMore &&
         state.readableListening &&
         this.readableFlowing !== true) {
+      var emittedReadableOnEnd = true;
       _emitReadableNow(this, state, true);
+    } else {
+      var emittedReadableOnEnd = false;
     }
     if (this.readableFlowing === true && state.length === 0 && !state.endEmitted) {
       _nextTick(function() {
@@ -1531,11 +1516,11 @@ Readable.prototype.push = function(chunk, encoding) {
           _scheduleReadableEnd(self, state);
         }
       });
-    } else if (!hadReadableEventPending && state.sync) {
+    } else if (!hadReadableEventPending && !emittedReadableOnEnd && state.sync) {
       _nextTick(function() {
         self._emitReadableIfNeeded();
       });
-    } else if (!hadReadableEventPending) {
+    } else if (!hadReadableEventPending && !emittedReadableOnEnd) {
       if (state.readableListening && this.readableFlowing !== true) {
         _emitReadableNow(this, state);
       } else {
@@ -1631,13 +1616,10 @@ Readable.prototype.push = function(chunk, encoding) {
 
   this._data.push(chunk);
   this._updateReadableLength(chunkLength);
-  var hadReadableEventPending = this._readableState.emittedReadable;
+  var shouldEmitReadable = !!this._readableState.needReadable && !this._readableState.emittedReadable;
   this._syncReadableState();
-  if (!hadReadableEventPending) {
-    this._readableState.needReadable = true;
+  if (shouldEmitReadable) {
     this._readableState.emittedReadable = false;
-  }
-  if (!hadReadableEventPending) {
     this._emitReadableIfNeeded();
   }
   _maybeReadMore(this, state);
@@ -4429,7 +4411,7 @@ function Writable(options) {
     this._writableState.constructed = false;
     var called = false;
     setTimeout(function() {
-      options.construct(function(err) {
+      options.construct.call(self, function(err) {
         if (called) {
           var multiErr = new Error('Callback called multiple times');
           multiErr.code = 'ERR_MULTIPLE_CALLBACK';
@@ -4536,6 +4518,19 @@ Object.defineProperties(Writable.prototype, {
       if (this._writableState) this._writableState.objectMode = !!val;
     }
   },
+  writableBuffer: {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      if (!this._writableState || typeof this._writableState.getBuffer !== 'function') {
+        return [];
+      }
+      return this._writableState.getBuffer();
+    },
+    set: function() {
+      // read-only compatibility getter
+    }
+  },
 });
 
 // Verify defineProperties applied (catch silent errors)
@@ -4582,6 +4577,14 @@ if (!Object.hasOwn(Writable.prototype, 'writableFinished')) {
       get: function() { return this._writableState ? !!this._writableState.objectMode : false; },
       set: function(val) { if (this._writableState) this._writableState.objectMode = !!val; }
     });
+    Object.defineProperty(Writable.prototype, 'writableBuffer', {
+      configurable: true, enumerable: true,
+      get: function() {
+        if (!this._writableState || typeof this._writableState.getBuffer !== 'function') return [];
+        return this._writableState.getBuffer();
+      },
+      set: function() {}
+    });
   } catch (_defErr) {
     // Silently fail if defineProperty doesn't work
   }
@@ -4610,6 +4613,11 @@ Writable.prototype._write = function(chunk, encoding, callback) {
   var err = new Error('The _write() method is not implemented');
   err.code = 'ERR_METHOD_NOT_IMPLEMENTED';
   throw err;
+};
+
+Writable.prototype.pipe = function() {
+  this.emit('error', makeError(Error, 'ERR_STREAM_CANNOT_PIPE', 'Cannot pipe, not readable'));
+  return undefined;
 };
 
 Writable.prototype.write = function(chunk, encoding, callback) {
@@ -4676,12 +4684,13 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     if (state) state.errored = endErr;
     this.errored = endErr;
     var _endSelf = this;
+    var shouldEmitWriteAfterEnd = !!state && !state.errorEmitted;
+    if (state) state.errorEmitted = true;
     _nextTick(function() {
       if (typeof callback === 'function') {
         callback(endErr);
       }
-      if (state && !state.errorEmitted) {
-        state.errorEmitted = true;
+      if (shouldEmitWriteAfterEnd) {
         _endSelf.emit('error', endErr);
       }
     });
@@ -4838,7 +4847,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
       _scheduleDrain(self);
     }
 
-    if (typeof queued.callback === 'function') queued.callback();
+    if (typeof queued.callback === 'function') queued.callback(null);
     if (self._writeQueue && self._writeQueue.length) {
       self._flushWriteQueue();
     }
@@ -4936,7 +4945,7 @@ Writable.prototype._flushWriteQueue = function() {
     maybeEmitDrain();
     for (var bi3 = 0; bi3 < batch.length; bi3++) {
       if (typeof batch[bi3].callback === 'function') {
-        batch[bi3].callback();
+        batch[bi3].callback(null);
       }
     }
     if (!self._destroyed && self._writeQueue && self._writeQueue.length) {
@@ -4982,7 +4991,7 @@ Writable.prototype._flushWriteQueue = function() {
           return;
         }
         if (typeof item.callback === 'function') {
-          item.callback();
+          item.callback(null);
         }
         runNext();
       });
@@ -5333,7 +5342,7 @@ function Duplex(options) {
     var self = this;
     var called = false;
     setTimeout(function() {
-      construct(function(err) {
+      construct.call(self, function(err) {
         if (called) {
           var multiErr = new Error('Callback called multiple times');
           multiErr.code = 'ERR_MULTIPLE_CALLBACK';
@@ -5364,6 +5373,9 @@ Object.getOwnPropertyNames(Writable.prototype).forEach(function(k) {
   }
 });
 Duplex.prototype.constructor = Duplex;
+Duplex.prototype.pipe = function(dest, options) {
+  return Stream.prototype.pipe.call(this, dest, options);
+};
 
 function _transformDefaultFinal(callback) {
   var self = this;
@@ -5400,7 +5412,9 @@ function Transform(options) {
     pendingWrites: 0,
     finalCallback: null,
     finalizing: false,
-    backpressureCallback: null
+    backpressureCallback: null,
+    transforming: false,
+    backpressured: false
   };
   // Default _final calls _flush and push(null)
   if (options && typeof options.transform === 'function') this._transform = options.transform;
@@ -5429,11 +5443,22 @@ Transform.prototype._transform = function(chunk, encoding, callback) {
   throw err;
 };
 
+Transform.prototype.push = function(chunk, encoding) {
+  var ret = Duplex.prototype.push.call(this, chunk, encoding);
+  var state = this._transformState;
+  if (state && state.transforming && ret === false) {
+    state.backpressured = true;
+  }
+  return ret;
+};
+
 Transform.prototype._write = function(chunk, encoding, callback) {
   var self = this;
   var callbackCalled = false;
   var state = self._transformState || {};
   state.pendingWrites = (state.pendingWrites || 0) + 1;
+  state.transforming = true;
+  state.backpressured = false;
 
   function finalizeIfNeeded() {
     if (!state.finalizing || state.pendingWrites > 0 || typeof state.finalCallback !== 'function') {
@@ -5448,16 +5473,17 @@ Transform.prototype._write = function(chunk, encoding, callback) {
   function done(err, transformedChunk) {
     if (callbackCalled) return;
     callbackCalled = true;
+    state.transforming = false;
     state.pendingWrites = Math.max(0, state.pendingWrites - 1);
     if (err) {
       if (typeof callback === 'function') callback(err);
       return;
     }
-    var canPushMore = true;
+    var shouldWaitForDrain = !!state.backpressured;
     if (transformedChunk !== undefined) {
-      canPushMore = self.push(transformedChunk);
+      shouldWaitForDrain = self.push(transformedChunk) === false || shouldWaitForDrain;
     }
-    if (canPushMore === false) {
+    if (shouldWaitForDrain) {
       state.backpressureCallback = function() {
         finalizeIfNeeded();
         if (typeof callback === 'function') {
@@ -5474,6 +5500,7 @@ Transform.prototype._write = function(chunk, encoding, callback) {
   try {
     this._transform(chunk, encoding || 'utf8', done);
   } catch (err) {
+    state.transforming = false;
     state.pendingWrites = Math.max(0, state.pendingWrites - 1);
     if (err && err.code === 'ERR_METHOD_NOT_IMPLEMENTED') {
       throw err;
