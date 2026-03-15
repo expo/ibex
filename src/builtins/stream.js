@@ -233,7 +233,7 @@ function _scheduleHalfOpenWritableEnd(stream) {
 function _createWriteQueueItem(chunk, encoding, callback, chunkLen) {
   return {
     chunk: chunk,
-    encoding: encoding || 'utf8',
+    encoding: encoding,
     callback: _wrapCallbackOnce(callback),
     chunkLen: chunkLen || 0
   };
@@ -1370,6 +1370,28 @@ Readable.prototype._emitReadableIfNeeded = function() {
   }
   state.emittedReadable = true;
   state.needReadable = false;
+  if (!state.sync) {
+    if (!this._destroyed &&
+        !this._closed &&
+        !state.destroyed &&
+        !state.errored &&
+        !state.endEmitted &&
+        (state.length > 0 || state.ended)) {
+      state.emittingReadable = true;
+      try {
+        this.emit('readable');
+      } finally {
+        state.emittingReadable = false;
+      }
+    }
+    state.emittedReadable = false;
+    if (this.readableFlowing !== true &&
+        !state.ended &&
+        state.length <= state.highWaterMark) {
+      state.needReadable = true;
+    }
+    return;
+  }
   var self = this;
   _nextTick(function() {
     var readableState = self && self._readableState;
@@ -4589,7 +4611,7 @@ Writable.prototype._write = function(chunk, encoding, callback) {
 };
 
 Writable.prototype.write = function(chunk, encoding, callback) {
-  if (typeof encoding === 'function') { callback = encoding; encoding = 'utf8'; }
+  if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   var state = this._writableState;
 
   // If the stream is errored, return false immediately
@@ -4702,6 +4724,15 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     encoding = 'buffer';
   }
 
+  var writeEncoding = encoding;
+  if (!this.writableObjectMode) {
+    if (typeof chunk === 'string') {
+      writeEncoding = writeEncoding || (state && state.defaultEncoding) || 'utf8';
+    } else if (_isBinaryReadableChunk(chunk)) {
+      writeEncoding = 'buffer';
+    }
+  }
+
   if (!this.writableObjectMode && typeof chunk !== 'string' &&
       !(typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) &&
       !(chunk instanceof Uint8Array)) {
@@ -4717,7 +4748,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   _syncWritableBufferState(this);
 
   var shouldNeedDrain = this.writableLength >= this.writableHighWaterMark;
-  var queued = _createWriteQueueItem(chunk, encoding || 'utf8', callback, chunkLen);
+  var queued = _createWriteQueueItem(chunk, writeEncoding, callback, chunkLen);
 
   if (state.constructed === false || this.writableCorked > 0 || state.writing || state.bufferProcessing) {
     this._writeQueue.push(queued);
@@ -4819,7 +4850,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   }
 
   try {
-    self._write(chunk, encoding || 'utf8', onWriteComplete);
+    self._write(chunk, writeEncoding, onWriteComplete);
   } catch (err) {
     if (err && err.code === 'ERR_METHOD_NOT_IMPLEMENTED') {
       throw err;

@@ -1026,7 +1026,13 @@ function decodeBytes(bytes, encoding) {
       _copy.set(new Uint8Array(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength));
       return _copy.toString('utf8');
     }
-    if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(bytes);
+    if (typeof TextDecoder !== 'undefined') {
+      try {
+        return new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes);
+      } catch (_utf8DecodeErr) {
+        return new TextDecoder('utf-8').decode(bytes);
+      }
+    }
     var result = '';
     for (var i = 0; i < bytes.length; i++) result += String.fromCharCode(bytes[i]);
     return result;
