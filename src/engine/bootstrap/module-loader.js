@@ -3883,6 +3883,129 @@
   });
   globalThis.__exactRequire = load;
 
+  function __exactInstallGlobalBuffer() {
+    var bufferModule;
+    try {
+      bufferModule = load('buffer', '');
+    } catch (_bufferLoadErr) {
+      return;
+    }
+    if (!bufferModule || typeof bufferModule.Buffer !== 'function') {
+      return;
+    }
+
+    var BufferCtor = bufferModule.Buffer;
+    if (!BufferCtor.__exactArrayBufferViewPatched) {
+      var nativeFrom = BufferCtor.from;
+
+      function normalizeBufferOffset(value, fallback) {
+        if (value === undefined) return fallback;
+        var number = Number(value);
+        if (number !== number) return fallback;
+        if (!isFinite(number)) return number;
+        if (number < 0) return Math.ceil(number);
+        return Math.floor(number);
+      }
+
+      function makeBufferBoundsError(which) {
+        var err = new RangeError('"' + which + '" is outside of buffer bounds');
+        err.code = 'ERR_BUFFER_OUT_OF_BOUNDS';
+        return err;
+      }
+
+      function promoteArrayBufferView(value, byteOffset, length) {
+        var backing = value;
+        if (
+          typeof SharedArrayBuffer === 'function' &&
+          Object.prototype.toString.call(value) === '[object SharedArrayBuffer]' &&
+          value._buffer &&
+          Object.prototype.toString.call(value._buffer) === '[object ArrayBuffer]'
+        ) {
+          backing = value._buffer;
+        }
+
+        var totalLength = backing.byteLength >>> 0;
+        var offset = normalizeBufferOffset(byteOffset, 0);
+        if (!isFinite(offset) || offset < 0 || offset > totalLength) {
+          throw makeBufferBoundsError('offset');
+        }
+
+        var viewLength;
+        if (length === undefined) {
+          viewLength = totalLength - offset;
+        } else {
+          viewLength = normalizeBufferOffset(length, 0);
+          if (!isFinite(viewLength) || viewLength < 0 || offset + viewLength > totalLength) {
+            throw makeBufferBoundsError('length');
+          }
+        }
+
+        var view = new Uint8Array(backing, offset, viewLength);
+        Object.setPrototypeOf(view, BufferCtor.prototype);
+        try {
+          Object.defineProperty(view, '__isExactBuffer', {
+            value: true,
+            configurable: true,
+            enumerable: false,
+            writable: true
+          });
+        } catch (_bufferMarkerErr) {
+          view.__isExactBuffer = true;
+        }
+        if (backing !== value) {
+          try {
+            Object.defineProperty(view, 'buffer', {
+              configurable: true,
+              enumerable: false,
+              get: function() {
+                return value;
+              }
+            });
+          } catch (_bufferViewErr) {}
+        }
+        return view;
+      }
+
+      BufferCtor.from = function(value, encoding, length) {
+        if (typeof ArrayBuffer === 'function' &&
+            value instanceof ArrayBuffer &&
+            value.constructor === ArrayBuffer) {
+          return promoteArrayBufferView(value, encoding, length);
+        }
+        if (typeof SharedArrayBuffer === 'function' &&
+            value instanceof SharedArrayBuffer &&
+            value.constructor === SharedArrayBuffer) {
+          return promoteArrayBufferView(value, encoding, length);
+        }
+        return nativeFrom.apply(this, arguments);
+      };
+
+      try {
+        Object.defineProperty(BufferCtor, '__exactArrayBufferViewPatched', {
+          value: true,
+          configurable: true,
+          enumerable: false,
+          writable: false
+        });
+      } catch (_bufferPatchErr) {
+        BufferCtor.__exactArrayBufferViewPatched = true;
+      }
+    }
+
+    try {
+      Object.defineProperty(globalThis, 'Buffer', {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: BufferCtor
+      });
+    } catch (_globalBufferErr) {
+      globalThis.Buffer = BufferCtor;
+    }
+  }
+
+  __exactInstallGlobalBuffer();
+
   try {
     if (
       typeof globalThis.process === 'object' &&

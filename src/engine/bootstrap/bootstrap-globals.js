@@ -14,13 +14,143 @@
     });
   }
 
-  // Buffer — lazy, from require('buffer')
-  defineLazyGlobal('Buffer', function() {
+  function patchArrayBufferBackedBuffer(BufferCtor) {
+    if (typeof BufferCtor !== 'function' || BufferCtor.__exactArrayBufferViewPatched) {
+      return BufferCtor;
+    }
+
+    var nativeFrom = BufferCtor.from;
+
+    function normalizeBufferOffset(value, fallback) {
+      if (value === undefined) return fallback;
+      var number = Number(value);
+      if (number !== number) return fallback;
+      if (!isFinite(number)) return number;
+      if (number < 0) return Math.ceil(number);
+      return Math.floor(number);
+    }
+
+    function makeBufferBoundsError(which) {
+      var err = new RangeError('"' + which + '" is outside of buffer bounds');
+      err.code = 'ERR_BUFFER_OUT_OF_BOUNDS';
+      return err;
+    }
+
+    function promoteArrayBufferView(value, byteOffset, length) {
+      var backing = value;
+      if (
+        typeof SharedArrayBuffer === 'function' &&
+        Object.prototype.toString.call(value) === '[object SharedArrayBuffer]' &&
+        value._buffer &&
+        Object.prototype.toString.call(value._buffer) === '[object ArrayBuffer]'
+      ) {
+        backing = value._buffer;
+      }
+
+      var totalLength = backing.byteLength >>> 0;
+      var offset = normalizeBufferOffset(byteOffset, 0);
+      if (!isFinite(offset) || offset < 0 || offset > totalLength) {
+        throw makeBufferBoundsError('offset');
+      }
+
+      var viewLength;
+      if (length === undefined) {
+        viewLength = totalLength - offset;
+      } else {
+        viewLength = normalizeBufferOffset(length, 0);
+        if (!isFinite(viewLength) || viewLength < 0 || offset + viewLength > totalLength) {
+          throw makeBufferBoundsError('length');
+        }
+      }
+
+      var view = new Uint8Array(backing, offset, viewLength);
+      Object.setPrototypeOf(view, BufferCtor.prototype);
+      try {
+        Object.defineProperty(view, '__isExactBuffer', {
+          value: true,
+          configurable: true,
+          enumerable: false,
+          writable: true
+        });
+      } catch (err) {
+        view.__isExactBuffer = true;
+      }
+      if (backing !== value) {
+        try {
+          Object.defineProperty(view, 'buffer', {
+            configurable: true,
+            enumerable: false,
+            get: function() {
+              return value;
+            }
+          });
+        } catch (err) {}
+      }
+      return view;
+    }
+
+    BufferCtor.from = function(value, encoding, length) {
+      if (typeof ArrayBuffer === 'function' &&
+          value instanceof ArrayBuffer &&
+          value.constructor === ArrayBuffer) {
+        return promoteArrayBufferView(value, encoding, length);
+      }
+      if (typeof SharedArrayBuffer === 'function' &&
+          value instanceof SharedArrayBuffer &&
+          value.constructor === SharedArrayBuffer) {
+        return promoteArrayBufferView(value, encoding, length);
+      }
+      return nativeFrom.apply(this, arguments);
+    };
+
     try {
-      var buf = globalThis.require('buffer');
-      if (buf && buf.Buffer) { return buf.Buffer; }
-    } catch(e) {}
-    return undefined;
+      Object.defineProperty(BufferCtor, '__exactArrayBufferViewPatched', {
+        value: true,
+        configurable: true,
+        enumerable: false,
+        writable: false
+      });
+    } catch (err) {
+      BufferCtor.__exactArrayBufferViewPatched = true;
+    }
+    return BufferCtor;
+  }
+
+  function installBufferModuleCompat() {
+    if (typeof globalThis.require !== 'function') {
+      return null;
+    }
+    try {
+      var bufferModule = globalThis.require('buffer');
+      if (bufferModule && bufferModule.Buffer) {
+        patchArrayBufferBackedBuffer(bufferModule.Buffer);
+      }
+      return bufferModule || null;
+    } catch (e) {}
+    return null;
+  }
+
+  // Buffer — override the engine stub with the Node-compatible module version
+  Object.defineProperty(globalThis, 'Buffer', {
+    configurable: true,
+    enumerable: true,
+    get: function() {
+      var buf = installBufferModuleCompat();
+      if (!buf || !buf.Buffer) {
+        return undefined;
+      }
+      try {
+        Object.defineProperty(globalThis, 'Buffer', {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: buf.Buffer
+        });
+      } catch (err) {
+        globalThis.Buffer = buf.Buffer;
+      }
+      return buf.Buffer;
+    }
   });
 
   // URL — lazy, from require('url')
