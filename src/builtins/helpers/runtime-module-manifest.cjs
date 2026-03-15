@@ -201,6 +201,7 @@ const staticBootstrapInternalModules = Object.freeze([
   'internal/util/debuglog',
   'internal/linkedlist',
   'internal/util',
+  'internal/util/inspect',
   'internal/options',
   'internal/http',
   'internal/net',
