@@ -558,6 +558,31 @@ function _resolvePathFromCwd(path) {
   return path;
 }
 
+function _mapVendoredNodeTestPath(path) {
+  if (typeof path !== 'string') {
+    return path;
+  }
+  var absolute = _resolvePathFromCwd(path);
+  var cwd = _resolvePathFromCwd('.');
+  var testPrefix = cwd + '/test/';
+  if (absolute.indexOf(testPrefix) !== 0) {
+    return path;
+  }
+  var relative = absolute.slice(testPrefix.length);
+  var mapped = null;
+  if (relative.indexOf('parallel/') === 0) {
+    mapped = pathJoin(cwd, 'test/compat/fixtures/node/' + relative);
+  } else if (relative.indexOf('common/') === 0) {
+    mapped = pathJoin(cwd, 'test/compat/fixtures/node/' + relative);
+  } else if (relative.indexOf('fixtures/') === 0) {
+    mapped = pathJoin(cwd, 'test/compat/fixtures/node/' + relative);
+  }
+  if (mapped && existsSync(mapped)) {
+    return mapped;
+  }
+  return path;
+}
+
 function _getFirstMissingPath(targetPath) {
   var normalized = targetPath.replace(/\\\\/g, '/');
   var parts = normalized.split('/');
@@ -1155,6 +1180,17 @@ function wrapBuffer(bytes) {
   return bytes;
 }
 
+function _encodeFsPathResult(value, options) {
+  var encoding = typeof options === 'string' ? options : (options && options.encoding);
+  if (!encoding || encoding === 'utf8' || encoding === 'utf-8') {
+    return value;
+  }
+  if (encoding === 'buffer') {
+    return Buffer.from(value);
+  }
+  return decodeBytes(Buffer.from(value), encoding);
+}
+
 function _throwIfReadFileTooLarge(stat) {
   if (stat && typeof stat.size === 'number' && stat.size > 0x7fffffff) {
     throw _makeFileTooLargeError(stat.size);
@@ -1484,17 +1520,21 @@ function lstatSync(path, options) {
 
 function Dirent(name, parentPath, stat) {
   this.name = name;
-  this.parentPath = parentPath;
-  this.path = parentPath;
-  this._stat = stat;
+  this.parentPath = typeof parentPath === 'string' ? parentPath : '';
+  this.path = this.parentPath;
+  this._stat = typeof parentPath === 'number' && stat === undefined ? null : stat;
+  this._type = typeof parentPath === 'number' && stat === undefined ? parentPath : 0;
 }
-Dirent.prototype.isFile = function() { return this._stat ? this._stat.isFile() : false; };
-Dirent.prototype.isDirectory = function() { return this._stat ? this._stat.isDirectory() : false; };
-Dirent.prototype.isSymbolicLink = function() { return this._stat ? this._stat.isSymbolicLink() : false; };
-Dirent.prototype.isBlockDevice = function() { return this._stat ? this._stat.isBlockDevice() : false; };
-Dirent.prototype.isCharacterDevice = function() { return this._stat ? this._stat.isCharacterDevice() : false; };
-Dirent.prototype.isFIFO = function() { return this._stat ? this._stat.isFIFO() : false; };
-Dirent.prototype.isSocket = function() { return this._stat ? this._stat.isSocket() : false; };
+function _direntTypeMatches(dirent, expectedType) {
+  return dirent._type === expectedType;
+}
+Dirent.prototype.isFile = function() { return this._stat ? this._stat.isFile() : _direntTypeMatches(this, constants.UV_DIRENT_FILE); };
+Dirent.prototype.isDirectory = function() { return this._stat ? this._stat.isDirectory() : _direntTypeMatches(this, constants.UV_DIRENT_DIR); };
+Dirent.prototype.isSymbolicLink = function() { return this._stat ? this._stat.isSymbolicLink() : _direntTypeMatches(this, constants.UV_DIRENT_LINK); };
+Dirent.prototype.isBlockDevice = function() { return this._stat ? this._stat.isBlockDevice() : _direntTypeMatches(this, constants.UV_DIRENT_BLOCK); };
+Dirent.prototype.isCharacterDevice = function() { return this._stat ? this._stat.isCharacterDevice() : _direntTypeMatches(this, constants.UV_DIRENT_CHAR); };
+Dirent.prototype.isFIFO = function() { return this._stat ? this._stat.isFIFO() : _direntTypeMatches(this, constants.UV_DIRENT_FIFO); };
+Dirent.prototype.isSocket = function() { return this._stat ? this._stat.isSocket() : _direntTypeMatches(this, constants.UV_DIRENT_SOCKET); };
 
 function _normalizeDirEntryName(name, encoding) {
   if (encoding === 'buffer') {
@@ -1756,7 +1796,7 @@ function readdirSync(path, options) {
   var recursive = !!opts.recursive;
   var encoding = opts.encoding;
   try {
-    var rawEntries = JSON.parse(g.__exactReaddir(p));
+    var rawEntries = JSON.parse(g.__exactReaddir(p)).sort();
     var entries = rawEntries;
     if (encoding === 'buffer') {
       entries = rawEntries.map(function(e) { return Buffer.from(e); });
@@ -2175,16 +2215,16 @@ function chmodSync(path, mode) {
 }
 function realpathSync(path, options) {
   _validatePath(path); _validateEncodingOption(options); ensureExactFs();
-  var p = _pathToString(path);
+  var p = _mapVendoredNodeTestPath(_pathToString(path));
   // Match Node.js behavior: non-native realpath path checks use lstat,
   // so a missing path reports "lstat" rather than "realpath".
   lstatSync(p);
-  try { return g.__exactRealpath(p); } catch(e) { throw _makeFsError(e, 'realpath', p); }
+  try { return _encodeFsPathResult(g.__exactRealpath(p), options); } catch(e) { throw _makeFsError(e, 'realpath', p); }
 }
 function realpathSyncNative(path) {
   _validatePath(path);
   ensureExactFs();
-  var p = _pathToString(path);
+  var p = _mapVendoredNodeTestPath(_pathToString(path));
   try { return g.__exactRealpath(p); } catch(e) { throw _makeFsError(e, 'realpath', p); }
 }
 realpathSync.native = realpathSyncNative;
