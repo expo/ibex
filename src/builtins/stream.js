@@ -7241,13 +7241,22 @@ function compose() {
     throw makeError(TypeError, 'ERR_MISSING_ARGS', 'The "streams" argument must be specified');
   }
   if (args.length === 1) {
-    if (args[0] && typeof args[0].pipe === 'function') {
-      return args[0];
+    var single = args[0];
+    if (single && typeof single.pipe === 'function') {
+      return single;
     }
-    try {
-      return Duplex.from(args[0]);
-    } catch (_e) {
-      // Fall through to the standardized type error below.
+    // Only attempt Duplex.from for types that represent valid stream stages:
+    // functions, async generators, iterables, or ReadableStream/WritableStream.
+    if (typeof single === 'function' ||
+        (single && typeof single[Symbol.asyncIterator] === 'function') ||
+        (single && typeof single[Symbol.iterator] === 'function') ||
+        (single && typeof single.getReader === 'function') ||
+        (single && typeof single.getWriter === 'function')) {
+      try {
+        return Duplex.from(single);
+      } catch (_e) {
+        // Fall through to the standardized type error below.
+      }
     }
     throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams" argument must be a stream.');
   }
