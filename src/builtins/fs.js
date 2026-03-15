@@ -832,6 +832,12 @@ function _makeAbortError() {
   return err;
 }
 
+function _makeFileTooLargeError(size) {
+  var err = new RangeError('File size (' + size + ') is greater than 2 GiB');
+  err.code = 'ERR_FS_FILE_TOO_LARGE';
+  return err;
+}
+
 function _normalizeWatchOptions(options) {
   if (options === undefined || options === null) {
     return {};
@@ -895,6 +901,27 @@ function _normalizeWriteOptions(options) {
   _validateEncodingOption(options);
   _validateFlushOption(options.flush);
   _checkForAbortedSignal(options);
+  return _extend({}, options);
+}
+
+function _normalizeReadFileOptions(options, allowSignal) {
+  if (options === undefined || options === null) return {};
+  if (typeof options === 'string') {
+    _assertEncoding(options);
+    return { encoding: options };
+  }
+  if (typeof options !== 'object') {
+    throw _fsInvalidArgType('options', 'string or an object', options);
+  }
+  _validateEncodingOption(options);
+  if (
+    allowSignal &&
+    options.signal !== undefined &&
+    options.signal !== null &&
+    (typeof options.signal !== 'object' || typeof options.signal.addEventListener !== 'function')
+  ) {
+    throw _fsInvalidArgType('options.signal', 'AbortSignal', options.signal);
+  }
   return _extend({}, options);
 }
 
@@ -1085,6 +1112,16 @@ function decodeBytes(bytes, encoding) {
     for (var i = 0; i < bytes.length; i++) result += String.fromCharCode(bytes[i]);
     return result;
   }
+  if (enc === 'utf16le' || enc === 'ucs2') {
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+      var utf16Copy = Buffer.alloc(bytes.byteLength);
+      utf16Copy.set(new Uint8Array(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength));
+      return utf16Copy.toString('utf16le');
+    }
+    if (typeof TextDecoder !== 'undefined') {
+      return new TextDecoder('utf-16le').decode(bytes);
+    }
+  }
   if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') {
     var result = '';
     for (var i = 0; i < bytes.length; i++) result += String.fromCharCode(bytes[i]);
@@ -1118,11 +1155,25 @@ function wrapBuffer(bytes) {
   return bytes;
 }
 
+function _throwIfReadFileTooLarge(stat) {
+  if (stat && typeof stat.size === 'number' && stat.size > 0x7fffffff) {
+    throw _makeFileTooLargeError(stat.size);
+  }
+}
+
 function readFileSync(path, options) {
+  var readOptions = _normalizeReadFileOptions(options, false);
   // Support fd as first arg
   if (typeof path === 'number') {
     ensureExactFs();
-    var encoding = typeof options === 'string' ? options : (options && options.encoding);
+    var encoding = readOptions.encoding;
+    try {
+      _throwIfReadFileTooLarge(fstatSync(path));
+    } catch (sizeErr) {
+      if (sizeErr && sizeErr.code === 'ERR_FS_FILE_TOO_LARGE') {
+        throw sizeErr;
+      }
+    }
     var chunks = [];
     var buf = new Uint8Array(65536);
     var bytesRead;
@@ -1142,17 +1193,17 @@ function readFileSync(path, options) {
     return wrapBuffer(result);
   }
   _validatePath(path);
-  _validateEncodingOption(options);
   ensureExactFs();
   var p = _pathToString(path);
-  var encoding = typeof options === 'string' ? options : (options && options.encoding);
+  var encoding = readOptions.encoding;
   var fd;
   try {
-    fd = openSync(p, 'r');
+    fd = openSync(p, readOptions.flag || readOptions.flags || 'r', readOptions.mode);
   } catch(e) {
     throw _makeFsError(e, 'open', p);
   }
   try {
+    _throwIfReadFileTooLarge(fstatSync(fd));
     var chunks = [];
     var fileBuffer = new Uint8Array(65536);
     var fileBytesRead;
@@ -1173,6 +1224,9 @@ function readFileSync(path, options) {
     if (encoding) return decodeBytes(fileResult, encoding);
     return wrapBuffer(fileResult);
   } catch(e) {
+    if (e && typeof e.code === 'string' && e.code.indexOf('ERR_') === 0) {
+      throw e;
+    }
     throw _makeFsError(e, 'read', p);
   } finally {
     try { closeSync(fd); } catch(_ignore) {}
@@ -2250,12 +2304,47 @@ function wrapCallback(fn, cb, syscall, path) {
 }
 
 function readFile(path, optOrCb, cb) {
-  var opts, callback;
+  var opts, callback, readOptions, signal, completed, onAbort;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
   if (typeof path !== 'number') _validatePath(path);
-  _validateEncodingOption(opts);
-  wrapCallback(function() { return readFileSync(path, opts); }, callback, 'open', typeof path === 'number' ? undefined : _pathToString(path));
+  readOptions = _normalizeReadFileOptions(opts, true);
+  signal = readOptions.signal;
+  completed = false;
+  if (signal && signal.aborted === true) {
+    _deferFsCallback(function() { callback(_makeAbortError(signal.reason)); });
+    return;
+  }
+  onAbort = function() {
+    if (completed) return;
+    completed = true;
+    if (signal && typeof signal.removeEventListener === 'function') {
+      signal.removeEventListener('abort', onAbort);
+    }
+    callback(_makeAbortError(signal.reason));
+  };
+  if (signal && typeof signal.addEventListener === 'function') {
+    signal.addEventListener('abort', onAbort);
+  }
+  _deferFsCallback(function() {
+    if (completed) return;
+    try {
+      var result = readFileSync(path, readOptions);
+      if (completed) return;
+      completed = true;
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onAbort);
+      }
+      callback(null, result);
+    } catch (err) {
+      if (completed) return;
+      completed = true;
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onAbort);
+      }
+      callback(err);
+    }
+  });
 }
 
 function writeFile(path, data, optOrCb, cb) {
