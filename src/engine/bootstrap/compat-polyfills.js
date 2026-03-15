@@ -3648,15 +3648,6 @@
           missingErr.code = 'ERR_MISSING_ARGS';
           throw missingErr;
         }
-        if (!exactIpcConnected) {
-          var ipcError = exactCreateIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is closed');
-          if (typeof callback === 'function') {
-            setTimeout(function() {
-              callback(ipcError);
-            }, 0);
-          }
-          return false;
-        }
         try {
           if (globalThis.process.channel &&
               typeof globalThis.process.channel.ref === 'function' &&
@@ -3683,6 +3674,11 @@
             throw optsErr;
           }
         }
+        if (callback !== undefined && typeof callback !== 'function') {
+          var cbErr = new TypeError('The "callback" argument must be of type function. Received type ' + typeof callback);
+          cbErr.code = 'ERR_INVALID_ARG_TYPE';
+          throw cbErr;
+        }
         // Validate sendHandle
         if (sendHandle != null && sendHandle !== false) {
           if (typeof sendHandle !== 'object' && typeof sendHandle !== 'function') {
@@ -3690,6 +3686,15 @@
             handleErr.code = 'ERR_INVALID_HANDLE_TYPE';
             throw handleErr;
           }
+        }
+        if (!exactIpcConnected) {
+          var ipcError = exactCreateIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is closed');
+          if (typeof callback === 'function') {
+            setTimeout(function() {
+              callback(ipcError);
+            }, 0);
+          }
+          return false;
         }
         // Extract fd from sendHandle if present
         var handleFd = -1;

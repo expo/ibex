@@ -766,14 +766,14 @@ function _validateCredentialOption(name, value) {
     _throwInvalidArgType(name, 'of type number', value);
   }
   if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 2147483647) {
-    _throwOutOfRange(name, '>= 0 && <= 2147483647', value);
+    _throwInvalidArgType(name, 'of type number', value);
   }
 }
 
 function _validateNonNegativeIntegerOption(name, value) {
   if (value == null) return;
   if (typeof value !== 'number') {
-    _throwInvalidArgType(name, 'of type number', value);
+    _throwOutOfRange(name, 'a non-negative integer', value);
   }
   if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
     _throwOutOfRange(name, 'a non-negative integer', value);
@@ -783,7 +783,7 @@ function _validateNonNegativeIntegerOption(name, value) {
 function _validateNonNegativeNumberOption(name, value) {
   if (value == null) return;
   if (typeof value !== 'number') {
-    _throwInvalidArgType(name, 'of type number', value);
+    _throwOutOfRange(name, 'a non-negative number', value);
   }
   if (value !== value || value < 0) {
     _throwOutOfRange(name, 'a non-negative number', value);

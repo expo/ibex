@@ -920,11 +920,122 @@
     };
   }
 
-  // process.channel — not applicable (no IPC), but stub for compatibility
-  p.channel = undefined;
-  p.connected = false;
-  p.disconnect = function() {};
-  p.send = function() { return false; };
+  function exactCreateBootstrapIpcError(code, message) {
+    var err = new Error(message);
+    err.code = code;
+    return err;
+  }
+
+  function exactBootstrapIpcPacket(type, data) {
+    return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
+  }
+
+  function exactNormalizeBootstrapSendArgs(message, sendHandle, opts, callback) {
+    if (message === undefined) {
+      var missingErr = new TypeError('The "message" argument must be specified');
+      missingErr.code = 'ERR_MISSING_ARGS';
+      throw missingErr;
+    }
+    if (typeof sendHandle === 'function') {
+      callback = sendHandle;
+      sendHandle = undefined;
+      opts = undefined;
+    } else if (typeof opts === 'function') {
+      callback = opts;
+      opts = undefined;
+    } else if (opts !== undefined) {
+      if (opts === null || typeof opts !== 'object') {
+        var optsErr = new TypeError('The "options" argument must be of type object. Received ' + opts);
+        optsErr.code = 'ERR_INVALID_ARG_TYPE';
+        throw optsErr;
+      }
+    }
+    if (callback !== undefined && typeof callback !== 'function') {
+      var cbErr = new TypeError('The "callback" argument must be of type function. Received ' + callback);
+      cbErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw cbErr;
+    }
+    if (sendHandle != null && sendHandle !== false &&
+        typeof sendHandle !== 'object' && typeof sendHandle !== 'function') {
+      var handleErr = new TypeError("This handle type can't be sent");
+      handleErr.code = 'ERR_INVALID_HANDLE_TYPE';
+      throw handleErr;
+    }
+    return { callback: callback };
+  }
+
+  // process.channel/process.send are only stubbed when the runtime was not
+  // booted with an IPC pipe. Forked child processes get an early shim here,
+  // then a fuller implementation later in compat bootstrap.
+  var hasIpcBootstrap = !!(p.env && p.env.EXACT_IPC_FD);
+  if (hasIpcBootstrap) {
+    var exactBootstrapIpcFd = Number(p.env.EXACT_IPC_FD);
+    p.connected = true;
+    p.channel = {
+      fd: exactBootstrapIpcFd,
+      connected: true,
+      ref: function() {},
+      unref: function() {}
+    };
+    p.send = function(message, sendHandle, opts, callback) {
+      var normalized = exactNormalizeBootstrapSendArgs(message, sendHandle, opts, callback);
+      if (!p.connected) {
+        var disconnectedErr = exactCreateBootstrapIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is closed');
+        if (typeof normalized.callback === 'function') {
+          setTimeout(function() { normalized.callback(disconnectedErr); }, 0);
+        }
+        return false;
+      }
+      var written = false;
+      if (isFinite(exactBootstrapIpcFd) &&
+          exactBootstrapIpcFd >= 0 &&
+          typeof globalThis.__exactFsWrite === 'function') {
+        try {
+          written = globalThis.__exactFsWrite(
+            exactBootstrapIpcFd,
+            exactBootstrapIpcPacket('message', message),
+            -1
+          ) > 0;
+        } catch (_) {
+          written = false;
+        }
+      }
+      if (typeof normalized.callback === 'function') {
+        setTimeout(function() {
+          normalized.callback(
+            written ? null :
+              exactCreateBootstrapIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed')
+          );
+        }, 0);
+      }
+      return written;
+    };
+    p.disconnect = function() {
+      if (!p.connected) {
+        throw exactCreateBootstrapIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is already disconnected');
+      }
+      p.connected = false;
+      if (p.channel) p.channel.connected = false;
+      if (isFinite(exactBootstrapIpcFd) &&
+          exactBootstrapIpcFd >= 0 &&
+          typeof globalThis.__exactFsWrite === 'function') {
+        try {
+          globalThis.__exactFsWrite(
+            exactBootstrapIpcFd,
+            exactBootstrapIpcPacket('disconnect'),
+            -1
+          );
+        } catch (_) {}
+      }
+      p.channel = null;
+      setTimeout(function() { p.emit('disconnect'); }, 0);
+    };
+  } else {
+    p.channel = undefined;
+    p.connected = false;
+    p.disconnect = function() {};
+    p.send = function() { return false; };
+  }
 
   // process.versions — many packages check process.versions.node
   if (!p.versions || !p.versions.node) {
