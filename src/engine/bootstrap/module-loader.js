@@ -2685,6 +2685,49 @@
     if (!source || !/\bfor\s*\(\s*(?:const|let)\b[^)]*\bof\b/.test(source)) {
       return source;
     }
+    var isSimpleBinding = /^[A-Za-z_$][\w$]*$/;
+    function splitForOfBinding(inner) {
+      var declMatch = inner.match(/^(?:const|let)\s+/);
+      if (!declMatch) return null;
+      var text = inner.slice(declMatch[0].length);
+      var depthParen = 0;
+      var depthBrace = 0;
+      var depthBracket = 0;
+      var inStr = false;
+      var strCh = 0;
+      for (var index = 0; index < text.length; index++) {
+        var ch = text.charCodeAt(index);
+        if (inStr) {
+          if (ch === 92) {
+            index++;
+            continue;
+          }
+          if (ch === strCh) {
+            inStr = false;
+            strCh = 0;
+          }
+          continue;
+        }
+        if (ch === 34 || ch === 39 || ch === 96) {
+          inStr = true;
+          strCh = ch;
+          continue;
+        }
+        if (ch === 40) depthParen++;
+        else if (ch === 41) depthParen--;
+        else if (ch === 123) depthBrace++;
+        else if (ch === 125) depthBrace--;
+        else if (ch === 91) depthBracket++;
+        else if (ch === 93) depthBracket--;
+        if (depthParen === 0 && depthBrace === 0 && depthBracket === 0 && text.slice(index, index + 4) === " of ") {
+          return {
+            binding: text.slice(0, index).replace(/^\s+|\s+$/g, ""),
+            expr: text.slice(index + 4).replace(/^\s+|\s+$/g, "")
+          };
+        }
+      }
+      return null;
+    }
     var lines = source.split("\n");
     var out = [];
     var i = 0;
@@ -2718,11 +2761,10 @@
       }
       if (forEnd === -1) { out.push(line); i++; continue; }
       var inner = trimmed.slice(forStart + 1, forEnd).replace(/^\s+|\s+$/g, "");
-      // Check if it's const/let ... of ...
-      var ofMatch = inner.match(/^(?:const|let)\s+(\S+)\s+of\s+([\s\S]+)$/);
-      if (!ofMatch) { out.push(line); i++; continue; }
-      var binding = ofMatch[1];
-      var expr = ofMatch[2];
+      var parts = splitForOfBinding(inner);
+      if (!parts || !parts.binding || !parts.expr) { out.push(line); i++; continue; }
+      var binding = parts.binding;
+      var expr = parts.expr;
       // Rest of line after for(...) must be just "{"
       var afterFor = trimmed.slice(forEnd + 1).replace(/^\s+|\s+$/g, "");
       if (afterFor !== "{") { out.push(line); i++; continue; }
@@ -2788,7 +2830,16 @@
         i++;
         continue;
       }
-      out.push(indent + "Array.from(" + expr + ").forEach(function(" + binding + ") {");
+      var callbackParam = binding;
+      var bindingPreamble = "";
+      if (!isSimpleBinding.test(binding)) {
+        callbackParam = "__exactForOfValue" + i;
+        bindingPreamble = indent + "  var " + binding + " = " + callbackParam + ";";
+      }
+      out.push(indent + "Array.from(" + expr + ").forEach(function(" + callbackParam + ") {");
+      if (bindingPreamble) {
+        out.push(bindingPreamble);
+      }
       for (var b = 0; b < bodyLines.length; b++) {
         out.push(bodyLines[b]);
       }
