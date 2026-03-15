@@ -278,10 +278,332 @@ impl ModuleLoader {
     }
 
     fn source_needs_loop_scope_downlevel(source: &str) -> bool {
-        source.contains("for (let")
-            || source.contains("for(let")
-            || source.contains("for (const")
-            || source.contains("for(const")
+        fn skip_ws_and_comments(bytes: &[u8], mut idx: usize) -> usize {
+            while idx < bytes.len() {
+                if bytes[idx].is_ascii_whitespace() {
+                    idx += 1;
+                    continue;
+                }
+                if bytes[idx] == b'/' && bytes.get(idx + 1) == Some(&b'/') {
+                    idx += 2;
+                    while idx < bytes.len() && bytes[idx] != b'\n' {
+                        idx += 1;
+                    }
+                    continue;
+                }
+                if bytes[idx] == b'/' && bytes.get(idx + 1) == Some(&b'*') {
+                    idx += 2;
+                    while idx + 1 < bytes.len()
+                        && !(bytes[idx] == b'*' && bytes[idx + 1] == b'/')
+                    {
+                        idx += 1;
+                    }
+                    idx = (idx + 2).min(bytes.len());
+                    continue;
+                }
+                break;
+            }
+            idx
+        }
+
+        fn scan_balanced_region(bytes: &[u8], start: usize, open: u8, close: u8) -> Option<usize> {
+            let mut depth = 1usize;
+            let mut idx = start + 1;
+            let mut in_single = false;
+            let mut in_double = false;
+            let mut in_template = false;
+            let mut in_line_comment = false;
+            let mut in_block_comment = false;
+            let mut escaped = false;
+
+            while idx < bytes.len() {
+                let ch = bytes[idx];
+                let next = bytes.get(idx + 1).copied();
+
+                if in_line_comment {
+                    if ch == b'\n' {
+                        in_line_comment = false;
+                    }
+                    idx += 1;
+                    continue;
+                }
+
+                if in_block_comment {
+                    if ch == b'*' && next == Some(b'/') {
+                        in_block_comment = false;
+                        idx += 2;
+                    } else {
+                        idx += 1;
+                    }
+                    continue;
+                }
+
+                if escaped {
+                    escaped = false;
+                    idx += 1;
+                    continue;
+                }
+
+                if in_single {
+                    if ch == b'\\' {
+                        escaped = true;
+                    } else if ch == b'\'' {
+                        in_single = false;
+                    }
+                    idx += 1;
+                    continue;
+                }
+
+                if in_double {
+                    if ch == b'\\' {
+                        escaped = true;
+                    } else if ch == b'"' {
+                        in_double = false;
+                    }
+                    idx += 1;
+                    continue;
+                }
+
+                if in_template {
+                    if ch == b'\\' {
+                        escaped = true;
+                    } else if ch == b'`' {
+                        in_template = false;
+                    }
+                    idx += 1;
+                    continue;
+                }
+
+                if ch == b'/' && next == Some(b'/') {
+                    in_line_comment = true;
+                    idx += 2;
+                    continue;
+                }
+
+                if ch == b'/' && next == Some(b'*') {
+                    in_block_comment = true;
+                    idx += 2;
+                    continue;
+                }
+
+                if ch == b'\'' {
+                    in_single = true;
+                    idx += 1;
+                    continue;
+                }
+
+                if ch == b'"' {
+                    in_double = true;
+                    idx += 1;
+                    continue;
+                }
+
+                if ch == b'`' {
+                    in_template = true;
+                    idx += 1;
+                    continue;
+                }
+
+                if ch == open {
+                    depth += 1;
+                } else if ch == close {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(idx);
+                    }
+                }
+
+                idx += 1;
+            }
+
+            None
+        }
+
+        let bytes = source.as_bytes();
+        let mut idx = 0;
+
+        while idx + 3 <= bytes.len() {
+            if &bytes[idx..idx + 3] != b"for" {
+                idx += 1;
+                continue;
+            }
+
+            if idx > 0 {
+                let prev = bytes[idx - 1];
+                if prev == b'_' || prev.is_ascii_alphanumeric() {
+                    idx += 3;
+                    continue;
+                }
+            }
+
+            let mut cursor = idx + 3;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            if cursor >= bytes.len() || bytes[cursor] != b'(' {
+                idx += 3;
+                continue;
+            }
+
+            let mut paren_depth = 1usize;
+            let mut header_end = None;
+            let mut semicolons = 0usize;
+            let mut in_single = false;
+            let mut in_double = false;
+            let mut in_template = false;
+            let mut in_line_comment = false;
+            let mut in_block_comment = false;
+            let mut escaped = false;
+            let mut scan = cursor + 1;
+
+            while scan < bytes.len() {
+                let ch = bytes[scan];
+                let next = bytes.get(scan + 1).copied();
+
+                if in_line_comment {
+                    if ch == b'\n' {
+                        in_line_comment = false;
+                    }
+                    scan += 1;
+                    continue;
+                }
+
+                if in_block_comment {
+                    if ch == b'*' && next == Some(b'/') {
+                        in_block_comment = false;
+                        scan += 2;
+                    } else {
+                        scan += 1;
+                    }
+                    continue;
+                }
+
+                if escaped {
+                    escaped = false;
+                    scan += 1;
+                    continue;
+                }
+
+                if in_single {
+                    if ch == b'\\' {
+                        escaped = true;
+                    } else if ch == b'\'' {
+                        in_single = false;
+                    }
+                    scan += 1;
+                    continue;
+                }
+
+                if in_double {
+                    if ch == b'\\' {
+                        escaped = true;
+                    } else if ch == b'"' {
+                        in_double = false;
+                    }
+                    scan += 1;
+                    continue;
+                }
+
+                if in_template {
+                    if ch == b'\\' {
+                        escaped = true;
+                    } else if ch == b'`' {
+                        in_template = false;
+                    }
+                    scan += 1;
+                    continue;
+                }
+
+                if ch == b'/' && next == Some(b'/') {
+                    in_line_comment = true;
+                    scan += 2;
+                    continue;
+                }
+
+                if ch == b'/' && next == Some(b'*') {
+                    in_block_comment = true;
+                    scan += 2;
+                    continue;
+                }
+
+                if ch == b'\'' {
+                    in_single = true;
+                    scan += 1;
+                    continue;
+                }
+
+                if ch == b'"' {
+                    in_double = true;
+                    scan += 1;
+                    continue;
+                }
+
+                if ch == b'`' {
+                    in_template = true;
+                    scan += 1;
+                    continue;
+                }
+
+                if ch == b'(' {
+                    paren_depth += 1;
+                } else if ch == b')' {
+                    paren_depth -= 1;
+                    if paren_depth == 0 {
+                        header_end = Some(scan);
+                        break;
+                    }
+                } else if ch == b';' && paren_depth == 1 {
+                    semicolons += 1;
+                }
+
+                scan += 1;
+            }
+
+            if let Some(end) = header_end {
+                if semicolons >= 2 {
+                    let header = source[cursor + 1..end].trim_start();
+                    if header.starts_with("let ")
+                        || header.starts_with("let\t")
+                        || header.starts_with("let[")
+                        || header.starts_with("let{")
+                        || header.starts_with("const ")
+                        || header.starts_with("const\t")
+                        || header.starts_with("const[")
+                        || header.starts_with("const{")
+                    {
+                        let body_start = skip_ws_and_comments(bytes, end + 1);
+                        let body_end = if body_start < bytes.len() && bytes[body_start] == b'{' {
+                            scan_balanced_region(bytes, body_start, b'{', b'}')
+                                .map(|idx| idx + 1)
+                                .unwrap_or(bytes.len())
+                        } else {
+                            let mut body_end = body_start;
+                            while body_end < bytes.len() && bytes[body_end] != b';' {
+                                body_end += 1;
+                            }
+                            if body_end < bytes.len() {
+                                body_end += 1;
+                            }
+                            body_end
+                        };
+                        let body = &source[body_start..body_end];
+                        if body.contains("=>")
+                            || body.contains("function")
+                            || body.contains("class ")
+                            || body.contains("class\n")
+                        {
+                            return true;
+                        }
+                    }
+                }
+                idx = end + 1;
+                continue;
+            }
+
+            idx = cursor + 1;
+        }
+
+        false
     }
 
     fn transpile_target_for_source(source: &str) -> &'static str {
@@ -2111,6 +2433,45 @@ const asyncIterable = {
             std::path::Path::new("fixture.js"),
             source
         ));
+    }
+
+    #[test]
+    fn skips_for_of_loops_when_selecting_loop_scope_downlevel_target() {
+        let source = r#"
+const values = [1, 2, 3];
+for (const value of values) {
+    queue.push(() => value);
+}
+"#;
+
+        assert!(!ModuleLoader::source_needs_loop_scope_downlevel(source));
+        assert_eq!(ModuleLoader::transpile_target_for_source(source), "es2015");
+    }
+
+    #[test]
+    fn keeps_classic_let_for_loops_with_closures_on_es5_fallback_path() {
+        let source = r#"
+const queue = [];
+for (let i = 0; i < 3; i++) {
+    queue.push(() => i);
+}
+"#;
+
+        assert!(ModuleLoader::source_needs_loop_scope_downlevel(source));
+        assert_eq!(ModuleLoader::transpile_target_for_source(source), "es5");
+    }
+
+    #[test]
+    fn skips_classic_let_for_loops_without_closures() {
+        let source = r#"
+const a = {};
+for (let i = 0; i < 3; i++) {
+    a[`key${i}`] = i;
+}
+"#;
+
+        assert!(!ModuleLoader::source_needs_loop_scope_downlevel(source));
+        assert_eq!(ModuleLoader::transpile_target_for_source(source), "es2015");
     }
 
     #[test]

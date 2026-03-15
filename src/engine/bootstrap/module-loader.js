@@ -1600,6 +1600,7 @@
   };
   var streamBuiltinsCache = null;
   var streamInternalModuleCache = null;
+  var eventTargetModuleCache = null;
 
   function _resolveAbortError(name) {
     var err = new Error(name + ' is missing');
@@ -1785,19 +1786,266 @@
   }
 
   function createEventTargetModule() {
-    return {
-      get kEvents() { return Symbol.for('nodejs.internal.event_target.kEvents'); },
-      get kWeakHandler() { return Symbol.for('nodejs.internal.event_target.kWeakHandler'); },
-      get Event() { return globalThis.Event; },
-      get EventTarget() { return globalThis.EventTarget; },
-      get CustomEvent() { return globalThis.CustomEvent; },
-      get NodeEventTarget() {
-        if (globalThis.EventTarget) {
-          return globalThis.EventTarget;
+    if (eventTargetModuleCache) {
+      return eventTargetModuleCache;
+    }
+
+    var kEvents = Symbol.for('nodejs.internal.event_target.kEvents');
+    var kWeakHandler = Symbol.for('nodejs.internal.event_target.kWeakHandler');
+
+    function ensureEventMap(target) {
+      if (!target[kEvents]) {
+        Object.defineProperty(target, kEvents, {
+          value: new Map(),
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      }
+      return target[kEvents];
+    }
+
+    function addTrackedListener(target, type, listener) {
+      var map = ensureEventMap(target);
+      var listeners = map.get(type);
+      if (!listeners) {
+        listeners = new Set();
+        map.set(type, listeners);
+      }
+      listeners.add(listener);
+    }
+
+    function removeTrackedListener(target, type, listener) {
+      var map = target[kEvents];
+      if (!map) return;
+      var listeners = map.get(type);
+      if (!listeners) return;
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        map.delete(type);
+      }
+    }
+
+    function EventTarget() {
+      this._listeners = {};
+      ensureEventMap(this);
+    }
+
+    EventTarget.prototype.addEventListener = function(type, listener, options) {
+      if (listener === null || listener === undefined) {
+        return;
+      }
+      var capture = false;
+      var once = false;
+      var passive = false;
+      var signal = null;
+      if (options === true || options === false) {
+        capture = !!options;
+      } else if (options !== null && options !== undefined && typeof options === 'object') {
+        capture = !!options.capture;
+        once = !!options.once;
+        passive = !!options.passive;
+        if ('signal' in options) {
+          var rawSignal = options.signal;
+          if (rawSignal === null || (rawSignal !== undefined && !(rawSignal && typeof rawSignal === 'object' && 'aborted' in rawSignal))) {
+            throw new TypeError("Failed to execute 'addEventListener': The provided value is not of type 'AbortSignal'.");
+          }
+          signal = rawSignal || null;
         }
-        return undefined;
+      }
+      if (signal && signal.aborted) return;
+      if (!this._listeners[type]) this._listeners[type] = [];
+      var listeners = this._listeners[type];
+      for (var i = 0; i < listeners.length; i++) {
+        if (listeners[i].fn === listener && listeners[i].capture === capture) {
+          return;
+        }
+      }
+      listeners.push({ fn: listener, once: once, capture: capture, passive: passive, signal: signal });
+      addTrackedListener(this, type, listener);
+      if (signal && typeof signal.addEventListener === 'function') {
+        var self = this;
+        signal.addEventListener('abort', function() {
+          self.removeEventListener(type, listener, { capture: capture });
+        }, { once: true });
       }
     };
+
+    EventTarget.prototype.removeEventListener = function(type, listener, options) {
+      if (!this._listeners[type]) return;
+      var capture = false;
+      if (options === true || options === false) {
+        capture = !!options;
+      } else if (options && typeof options === 'object') {
+        capture = !!options.capture;
+      }
+      this._listeners[type] = this._listeners[type].filter(function(entry) {
+        return !(entry.fn === listener && entry.capture === capture);
+      });
+      removeTrackedListener(this, type, listener);
+    };
+
+    EventTarget.prototype.dispatchEvent = function(event) {
+      if (!event || !event.type) return true;
+      var listeners = this._listeners[event.type];
+      event.target = this;
+      event.currentTarget = this;
+      if (event.srcElement !== undefined) event.srcElement = this;
+      if (event.eventPhase !== undefined) event.eventPhase = 2;
+      if (!listeners || listeners.length === 0) {
+        event.eventPhase = 0;
+        event.currentTarget = null;
+        return !event.defaultPrevented;
+      }
+      var snapshot = listeners.slice();
+      for (var i = 0; i < snapshot.length; i++) {
+        if (event._stopImmediatePropagation) break;
+        var listener = snapshot[i];
+        if (!listener) continue;
+        if (listener.once) {
+          this.removeEventListener(event.type, listener.fn, { capture: listener.capture });
+        }
+        if (listener.passive) {
+          event._passive = true;
+        }
+        try {
+          if (typeof listener.fn === 'function') {
+            listener.fn.call(this, event);
+          } else if (listener.fn && typeof listener.fn.handleEvent === 'function') {
+            listener.fn.handleEvent(event);
+          }
+        } finally {
+          event._passive = false;
+        }
+      }
+      event.eventPhase = 0;
+      event.currentTarget = null;
+      return !event.defaultPrevented;
+    };
+
+    function Event(type, options) {
+      if (!(this instanceof Event)) {
+        throw new TypeError("Failed to construct 'Event': Please use the 'new' operator.");
+      }
+      if (arguments.length === 0) {
+        throw new TypeError("Failed to construct 'Event': 1 argument required, but only 0 present.");
+      }
+      this.type = String(type);
+      this.bubbles = !!(options && options.bubbles);
+      this.cancelable = !!(options && options.cancelable);
+      this.composed = !!(options && options.composed);
+      this.defaultPrevented = false;
+      this.target = null;
+      this.currentTarget = null;
+      this.srcElement = null;
+      this.timeStamp = Date.now();
+      this.eventPhase = 0;
+      this._cancelBubble = false;
+      this._stopPropagation = false;
+      this._stopImmediatePropagation = false;
+      this._passive = false;
+      Object.defineProperty(this, 'isTrusted', {
+        get: function() { return false; },
+        enumerable: true,
+        configurable: false
+      });
+    }
+
+    Object.defineProperty(Event.prototype, 'cancelBubble', {
+      get: function() { return this._cancelBubble; },
+      set: function(value) {
+        if (value) this._cancelBubble = true;
+      },
+      enumerable: true,
+      configurable: true
+    });
+
+    Object.defineProperty(Event.prototype, 'returnValue', {
+      get: function() { return !this.defaultPrevented; },
+      set: function(value) {
+        if (value === false && !this._passive && this.cancelable) {
+          this.defaultPrevented = true;
+        }
+      },
+      enumerable: true,
+      configurable: true
+    });
+
+    Event.prototype.composedPath = function() {
+      return this.currentTarget ? [this.currentTarget] : [];
+    };
+    Event.prototype.preventDefault = function() {
+      if (this.cancelable && !this._passive) this.defaultPrevented = true;
+    };
+    Event.prototype.stopPropagation = function() {
+      this._cancelBubble = true;
+      this._stopPropagation = true;
+    };
+    Event.prototype.stopImmediatePropagation = function() {
+      this._cancelBubble = true;
+      this._stopPropagation = true;
+      this._stopImmediatePropagation = true;
+    };
+    Event.prototype.initEvent = function(type, bubbles, cancelable) {
+      this.type = String(type);
+      this.bubbles = !!bubbles;
+      this.cancelable = !!cancelable;
+    };
+    Event.NONE = 0;
+    Event.CAPTURING_PHASE = 1;
+    Event.AT_TARGET = 2;
+    Event.BUBBLING_PHASE = 3;
+    Object.defineProperty(Event.prototype, Symbol.toStringTag, {
+      value: 'Event',
+      writable: false,
+      configurable: true
+    });
+
+    function CustomEvent(type, options) {
+      if (!(this instanceof CustomEvent)) {
+        throw new TypeError("Failed to construct 'CustomEvent': Please use the 'new' operator.");
+      }
+      if (arguments.length === 0) {
+        throw new TypeError("Failed to construct 'CustomEvent': 1 argument required, but only 0 present.");
+      }
+      if (typeof type === 'symbol') {
+        throw new TypeError('Cannot convert a Symbol value to a string');
+      }
+      if (options !== undefined && options !== null && typeof options !== 'object') {
+        var err = new TypeError('The "options" argument must be of type object. Received type ' + typeof options + ' (' + String(options) + ')');
+        err.code = 'ERR_INVALID_ARG_TYPE';
+        throw err;
+      }
+      Event.call(this, type, options);
+      Object.defineProperty(this, 'detail', {
+        value: options && options.detail !== undefined ? options.detail : null,
+        writable: false,
+        enumerable: true,
+        configurable: false
+      });
+    }
+    CustomEvent.prototype = Object.create(Event.prototype);
+    CustomEvent.prototype.constructor = CustomEvent;
+    CustomEvent.NONE = 0;
+    CustomEvent.CAPTURING_PHASE = 1;
+    CustomEvent.AT_TARGET = 2;
+    CustomEvent.BUBBLING_PHASE = 3;
+    Object.defineProperty(CustomEvent, 'length', { value: 1, writable: false, configurable: true });
+    Object.defineProperty(CustomEvent.prototype, Symbol.toStringTag, {
+      value: 'CustomEvent',
+      writable: false,
+      configurable: true
+    });
+
+    eventTargetModuleCache = {
+      kEvents: kEvents,
+      kWeakHandler: kWeakHandler,
+      Event: Event,
+      EventTarget: EventTarget,
+      CustomEvent: CustomEvent,
+      NodeEventTarget: EventTarget
+    };
+    return eventTargetModuleCache;
   }
   function loadInternal(specifier) {
     var normalized = normalizeSpecifier(specifier);

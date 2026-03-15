@@ -8,6 +8,9 @@ var errorMonitorSymbol = Symbol('events.errorMonitor');
 var captureRejectionSymbol = typeof Symbol === 'function' && typeof Symbol.for === 'function'
   ? Symbol.for('nodejs.rejection')
   : '__nodejsRejection';
+var eventTargetEventsSymbol = typeof Symbol === 'function' && typeof Symbol.for === 'function'
+  ? Symbol.for('nodejs.internal.event_target.kEvents')
+  : '__nodejs_internal_event_target_kEvents';
 var objectToString = Object.prototype.toString;
 var __AsyncResource;
 var _captureRejections = false;
@@ -16,6 +19,88 @@ try {
 } catch (e) {
   __AsyncResource = null;
 }
+
+function _ensureTrackedEventTargetMap(target) {
+  if (!target) return null;
+  var map = target[eventTargetEventsSymbol];
+  if (!map || typeof map.get !== 'function') {
+    map = new Map();
+    Object.defineProperty(target, eventTargetEventsSymbol, {
+      value: map,
+      writable: true,
+      configurable: true,
+      enumerable: false
+    });
+  }
+  return map;
+}
+
+function _trackEventTargetListener(target, type, listener) {
+  if (!listener || !type) return;
+  var map = _ensureTrackedEventTargetMap(target);
+  if (!map) return;
+  var listeners = map.get(type);
+  if (!listeners) {
+    listeners = new Set();
+    map.set(type, listeners);
+  }
+  listeners.add(listener);
+}
+
+function _untrackEventTargetListener(target, type, listener) {
+  if (!target || !type || !listener) return;
+  var map = target[eventTargetEventsSymbol];
+  if (!map || typeof map.get !== 'function') return;
+  var listeners = map.get(type);
+  if (!listeners || typeof listeners.delete !== 'function') return;
+  listeners.delete(listener);
+  if (listeners.size === 0) {
+    map.delete(type);
+  }
+}
+
+function patchNativeEventTargetTracking() {
+  if (typeof EventTarget !== 'function' || !EventTarget.prototype) {
+    return;
+  }
+  var proto = EventTarget.prototype;
+  if (proto.__exactEventTargetTrackingPatched) {
+    return;
+  }
+  var nativeAdd = proto.addEventListener;
+  var nativeRemove = proto.removeEventListener;
+  if (typeof nativeAdd !== 'function' || typeof nativeRemove !== 'function') {
+    return;
+  }
+  Object.defineProperty(proto, '__exactEventTargetTrackingPatched', {
+    value: true,
+    writable: false,
+    configurable: true,
+    enumerable: false
+  });
+  Object.defineProperty(proto, 'addEventListener', {
+    value: function addEventListener(type, listener, options) {
+      var result = nativeAdd.call(this, type, listener, options);
+      _trackEventTargetListener(this, type, listener);
+      return result;
+    },
+    writable: true,
+    configurable: true,
+    enumerable: false
+  });
+  Object.defineProperty(proto, 'removeEventListener', {
+    value: function removeEventListener(type, listener, options) {
+      var result = nativeRemove.call(this, type, listener, options);
+      _untrackEventTargetListener(this, type, listener);
+      return result;
+    },
+    writable: true,
+    configurable: true,
+    enumerable: false
+  });
+}
+
+patchNativeEventTargetTracking();
 
 function _safeInspectUnhandledError(value) {
   try {
@@ -908,6 +993,11 @@ function getEventListeners(emitter, eventName) {
   }
   if (typeof emitter.listeners === 'function') {
     return emitter.listeners(eventName);
+  }
+  if (emitter[eventTargetEventsSymbol] && typeof emitter[eventTargetEventsSymbol].get === 'function') {
+    var tracked = emitter[eventTargetEventsSymbol].get(eventName);
+    if (!tracked) return [];
+    return Array.from(tracked);
   }
   // Support EventTarget (stores listeners as {fn, once, capture} objects in _listeners[type])
   if (emitter._listeners && !Array.isArray(emitter._listeners) && emitter._listeners[eventName]) {
