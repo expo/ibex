@@ -1877,6 +1877,245 @@
       }
       return cache[normalized].exports;
     }
+    if (normalized === 'internal/js_stream_socket') {
+      if (!cache[normalized]) {
+        var netModule = load('net', '');
+        var Socket = netModule && netModule.Socket ? netModule.Socket : function() {};
+
+        function createStreamWrapError() {
+          var err = new Error('Stream has StringDecoder set or is in objectMode');
+          err.name = 'Error';
+          err.code = 'ERR_STREAM_WRAP';
+          return err;
+        }
+
+        function scheduleStreamWrapCallback(callback, arg) {
+          if (typeof callback !== 'function') return;
+          if (typeof setImmediate === 'function') {
+            setImmediate(function() { callback(arg); });
+            return;
+          }
+          setTimeout(function() { callback(arg); }, 0);
+        }
+
+        function toStreamWrapBuffer(chunk) {
+          if (chunk == null) return chunk;
+          if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+            return chunk;
+          }
+          if (typeof ArrayBuffer !== 'undefined' &&
+              typeof ArrayBuffer.isView === 'function' &&
+              ArrayBuffer.isView(chunk)) {
+            return Buffer.from(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0);
+          }
+          return chunk;
+        }
+
+        function JSStreamSocket(stream) {
+          if (!(this instanceof JSStreamSocket)) return new JSStreamSocket(stream);
+          var writableHighWaterMark = stream && stream.writableHighWaterMark != null
+            ? stream.writableHighWaterMark
+            : (stream && stream._writableState ? stream._writableState.highWaterMark : undefined);
+          Socket.call(this, {
+            allowHalfOpen: true,
+            writableHighWaterMark: writableHighWaterMark
+          });
+
+          var self = this;
+          this.stream = stream;
+          this.readable = !!(stream && stream.readable !== false);
+          this.writable = !!(stream && stream.writable !== false);
+          this._jsStreamWrapWriting = false;
+          this._jsStreamWrapClosed = false;
+          this._jsStreamWrapPendingShutdown = null;
+
+          this._handle = {
+            _owner: this,
+            _closed: false,
+            close: function(callback) {
+              self.doClose(callback);
+            },
+            readStart: function() {
+              if (stream && typeof stream.resume === 'function') stream.resume();
+              return 0;
+            },
+            readStop: function() {
+              if (stream && typeof stream.pause === 'function') stream.pause();
+              return 0;
+            },
+            shutdown: function(req) {
+              return self.doShutdown(req);
+            }
+          };
+
+          if (stream && typeof stream.on === 'function') {
+            stream.on('error', function(err) {
+              self.emit('error', err);
+            });
+
+            var ondata = function(chunk) {
+              if (typeof chunk === 'string' ||
+                  stream.readableObjectMode === true ||
+                  (stream._readableState && stream._readableState.objectMode === true)) {
+                if (typeof stream.pause === 'function') stream.pause();
+                if (typeof stream.removeListener === 'function') {
+                  stream.removeListener('data', ondata);
+                }
+                self.emit('error', createStreamWrapError());
+                return;
+              }
+              self.emit('data', toStreamWrapBuffer(chunk));
+            };
+
+            stream.on('data', ondata);
+            stream.on('drain', function() {
+              self.emit('drain');
+              self._tryShutdownPending();
+            });
+            stream.once('end', function() {
+              self.readable = false;
+              self.emit('end');
+            });
+            stream.once('close', function() {
+              if (!self.destroyed) {
+                self.destroy();
+              }
+            });
+          }
+        }
+
+        JSStreamSocket.prototype = Object.create(Socket.prototype);
+        JSStreamSocket.prototype.constructor = JSStreamSocket;
+
+        JSStreamSocket.prototype._finishShutdown = function(req, code) {
+          if (req && typeof req.oncomplete === 'function') {
+            scheduleStreamWrapCallback(req.oncomplete, code);
+          }
+        };
+
+        JSStreamSocket.prototype._performShutdown = function(req) {
+          var self = this;
+          if (this._jsStreamWrapClosed || this.destroyed || !this.stream) {
+            this._finishShutdown(req, -1);
+            return 0;
+          }
+          process.nextTick(function() {
+            if (!self.stream || self._jsStreamWrapClosed || self.destroyed) {
+              self._finishShutdown(req, -1);
+              return;
+            }
+            try {
+              self.stream.end(function() {
+                self._finishShutdown(req, 0);
+              });
+            } catch (_shutdownErr) {
+              self._finishShutdown(req, -1);
+            }
+          });
+          return 0;
+        };
+
+        JSStreamSocket.prototype._tryShutdownPending = function() {
+          if (!this._jsStreamWrapPendingShutdown) return;
+          if (this._jsStreamWrapWriting) return;
+          if (this.stream && this.stream.writableNeedDrain) return;
+          var req = this._jsStreamWrapPendingShutdown;
+          this._jsStreamWrapPendingShutdown = null;
+          this._performShutdown(req);
+        };
+
+        JSStreamSocket.prototype.doShutdown = function(req) {
+          if (this._jsStreamWrapClosed || this.destroyed) {
+            this._finishShutdown(req, -1);
+            return 0;
+          }
+          if (this._jsStreamWrapWriting || (this.stream && this.stream.writableNeedDrain)) {
+            this._jsStreamWrapPendingShutdown = req;
+            return 0;
+          }
+          return this._performShutdown(req);
+        };
+
+        JSStreamSocket.prototype.doClose = function(callback) {
+          this._jsStreamWrapClosed = true;
+          if (this._handle) this._handle._closed = true;
+          if (this.stream && typeof this.stream.destroy === 'function') {
+            try { this.stream.destroy(); } catch (_closeErr) {}
+          }
+          scheduleStreamWrapCallback(callback);
+        };
+
+        JSStreamSocket.prototype.write = function(chunk, encoding, callback) {
+          if (typeof encoding === 'function') {
+            callback = encoding;
+            encoding = undefined;
+          }
+          if (!this.stream || typeof this.stream.write !== 'function') {
+            return Socket.prototype.write.call(this, chunk, encoding, callback);
+          }
+          var self = this;
+          this._jsStreamWrapWriting = true;
+          function onwrite(err) {
+            self._jsStreamWrapWriting = false;
+            if (typeof callback === 'function') callback(err);
+            self._tryShutdownPending();
+          }
+          return this.stream.write(chunk, encoding, onwrite);
+        };
+
+        JSStreamSocket.prototype.end = function(chunk, encoding, callback) {
+          if (typeof chunk === 'function') {
+            callback = chunk;
+            chunk = undefined;
+            encoding = undefined;
+          } else if (typeof encoding === 'function') {
+            callback = encoding;
+            encoding = undefined;
+          }
+          if (!this.stream || typeof this.stream.end !== 'function') {
+            return Socket.prototype.end.call(this, chunk, encoding, callback);
+          }
+          this.writable = false;
+          this.stream.end(chunk, encoding, callback);
+          return this;
+        };
+
+        JSStreamSocket.prototype.destroy = function(err) {
+          if (this.destroyed) return this;
+          this.destroyed = true;
+          this._jsStreamWrapClosed = true;
+          this.readable = false;
+          this.writable = false;
+          if (this._handle) {
+            this._handle._closed = true;
+          }
+          if (this.stream && typeof this.stream.destroy === 'function') {
+            try { this.stream.destroy(err); } catch (_destroyErr) {}
+          }
+          this._handle = null;
+          if (err) this.emit('error', err);
+          var self = this;
+          scheduleStreamWrapCallback(function() {
+            self.emit('close', !!err);
+          });
+          return this;
+        };
+
+        JSStreamSocket.StreamWrap = JSStreamSocket;
+
+        cache[normalized] = {
+          exports: JSStreamSocket,
+          loaded: true,
+          id: normalized,
+          filename: normalized,
+          path: '',
+          __exactId: idToModuleId(normalized),
+          parent: null,
+          children: []
+        };
+      }
+      return cache[normalized].exports;
+    }
     if (normalized === 'internal/readline/utils') {
       if (!cache[normalized]) {
         var readlineModule = load('readline', '');
