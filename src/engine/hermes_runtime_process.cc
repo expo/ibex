@@ -1149,6 +1149,12 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         if (stderrPipeRequested) close(stderrPipeFd[1]); // close write end of stderr pipe (child writes)
         if (ipcRequested) close(ipcPair[0]); // close read end in parent
 
+        if (stdinPipeRequested) {
+          int flags = fcntl(stdinPipeFd[1], F_GETFL, 0);
+          if (flags >= 0) {
+            fcntl(stdinPipeFd[1], F_SETFL, flags | O_NONBLOCK);
+          }
+        }
         if (stdoutPipeRequested) fcntl(stdoutPipeFd[0], F_SETFL, O_NONBLOCK);
         if (stderrPipeRequested) fcntl(stderrPipeFd[0], F_SETFL, O_NONBLOCK);
         if (ipcRequested) {
@@ -1171,6 +1177,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           proc.ipcFd = ipcRequested ? ipcPair[1] : -1;
           // Store parent-side fds for extra stdio pipes and close child ends
           for (size_t i = 0; i < extraPipes.size(); i++) {
+            int extraFlags = fcntl(extraPipes[i].first, F_GETFL, 0);
+            if (extraFlags >= 0) {
+              fcntl(extraPipes[i].first, F_SETFL, extraFlags | O_NONBLOCK);
+            }
             proc.extraFds.push_back(extraPipes[i].first);
             if (extraPipes[i].second >= 0) close(extraPipes[i].second); // close child end in parent
           }
@@ -1306,7 +1316,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactSpawnGetFd", std::move(spawnGetFdFn));
 
-  // __exactSpawnWrite(handle, data, stream?) -> boolean (success)
+  // __exactSpawnWrite(handle, data, stream?) -> number
+  // For stdio pipes this returns the number of bytes written (0 on EAGAIN).
+  // IPC writes still attempt to write the full payload and return bytes written.
   auto spawnWriteFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnWrite"),
@@ -1316,7 +1328,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
-          return facebook::jsi::Value(false);
+          return facebook::jsi::Value(-1);
         }
         int handle = static_cast<int>(args[0].asNumber());
         auto data = args[1].toString(runtime).utf8(runtime);
@@ -1330,7 +1342,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           std::lock_guard<std::mutex> lock(s_spawnMutex);
           auto it = s_spawnedProcesses.find(handle);
           if (it == s_spawnedProcesses.end()) {
-            return facebook::jsi::Value(false);
+            return facebook::jsi::Value(-1);
           }
           if (streamName == "stdin") {
             fd = it->second.stdinFd;
@@ -1348,11 +1360,25 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (streamName == "ipc" && startup_trace_enabled()) {
             fprintf(stderr, "[spawn_write] ipc fd=-1 for handle %d\n", handle);
           }
-          return facebook::jsi::Value(false);
+          return facebook::jsi::Value(-1);
         }
 
         if (streamName == "ipc" && startup_trace_enabled()) {
           fprintf(stderr, "[spawn_write] ipc fd=%d data_len=%zu: %.80s\n", fd, data.size(), data.c_str());
+        }
+
+        if (streamName != "ipc") {
+          while (true) {
+            ssize_t n = write(fd, data.c_str(), data.size());
+            if (n < 0) {
+              if (errno == EINTR) continue;
+              if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return facebook::jsi::Value(0);
+              }
+              return facebook::jsi::Value(-1);
+            }
+            return facebook::jsi::Value(static_cast<int>(n));
+          }
         }
 
         size_t totalWritten = 0;
@@ -1360,14 +1386,17 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           ssize_t n = write(fd, data.c_str() + totalWritten, data.size() - totalWritten);
           if (n < 0) {
             if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+              return facebook::jsi::Value(static_cast<int>(totalWritten));
+            }
             if (startup_trace_enabled()) {
               fprintf(stderr, "[spawn_write] ipc write error: fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
             }
-            return facebook::jsi::Value(false);
+            return facebook::jsi::Value(-1);
           }
           totalWritten += static_cast<size_t>(n);
         }
-        return facebook::jsi::Value(true);
+        return facebook::jsi::Value(static_cast<int>(totalWritten));
       });
   rt.global().setProperty(rt, "__exactSpawnWrite", std::move(spawnWriteFn));
 

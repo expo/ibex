@@ -1802,15 +1802,13 @@ function _setupSharedReadablePipeRelays(relayReadablePipes, child) {
         }
 
         if (data && data.length > 0) {
-          var wrote = false;
-          try {
-            wrote = globalThis.__exactSpawnWrite(child._handle, data, targetName);
-          } catch (_relayWriteErr) {}
-          if (!wrote) {
-            stopRelay(targetName === 'stdin');
-            return;
-          }
-          schedule(0);
+          _writeSpawnStream(child._handle, targetName, data, function(writeErr) {
+            if (writeErr) {
+              stopRelay(targetName === 'stdin');
+              return;
+            }
+            schedule(0);
+          });
           return;
         }
 
@@ -2073,6 +2071,70 @@ function _toUint8String(value) {
   return str;
 }
 
+var _spawnWriteChunkSize = 32768;
+
+// Break large stdio writes into smaller async chunks so chained child pipes
+// don't deadlock while one stage is blocked on the next stage's pipe buffer.
+function _writeSpawnStream(handle, streamName, data, callback) {
+  if (typeof callback !== 'function') {
+    callback = function() {};
+  }
+  if (handle == null || handle < 0 || typeof globalThis.__exactSpawnWrite !== 'function') {
+    callback(new Error('write failed'));
+    return;
+  }
+  var payload = _toUint8String(data);
+  var offset = 0;
+
+  function step() {
+    if (offset >= payload.length) {
+      callback(null);
+      return;
+    }
+    var nextOffset = offset + _spawnWriteChunkSize;
+    var chunk = payload.slice(offset, nextOffset);
+    var written = 0;
+    try {
+      written = globalThis.__exactSpawnWrite(handle, chunk, streamName);
+    } catch (err) {
+      callback(err);
+      return;
+    }
+    if (written === true) {
+      written = chunk.length;
+    } else if (written === false || written == null) {
+      written = -1;
+    }
+    if (typeof written !== 'number') {
+      written = Number(written);
+    }
+    if (written < 0 || written !== written) {
+      callback(new Error('write failed'));
+      return;
+    }
+    if (written === 0) {
+      if (typeof setTimeout === 'function') {
+        setTimeout(step, 0);
+      } else {
+        step();
+      }
+      return;
+    }
+    offset += written;
+    if (offset >= payload.length) {
+      callback(null);
+      return;
+    }
+    if (typeof setTimeout === 'function') {
+      setTimeout(step, 0);
+    } else {
+      step();
+    }
+  }
+
+  step();
+}
+
 // Signal name to number mapping
 var signalMap = {
   'SIGHUP': 1, 'SIGINT': 2, 'SIGQUIT': 3, 'SIGILL': 4, 'SIGTRAP': 5,
@@ -2251,9 +2313,7 @@ function ChildProcess(handle, pid, stdioModes) {
     };
     this.stdin = new Stream.Writable({
       write: function(chunk, encoding, callback) {
-        var data = _toUint8String(chunk);
-        var ok = globalThis.__exactSpawnWrite(self._handle, data);
-        if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+        _writeSpawnStream(self._handle, 'stdin', chunk, callback);
       },
       final: function(callback) {
         _closeStdinPipe();
@@ -2307,9 +2367,7 @@ function ChildProcess(handle, pid, stdioModes) {
       if (modes.extra[extraIdx] === 'pipe') {
         var extraStream = new Stream.Writable({
           write: function(chunk, encoding, callback) {
-            var data = _toUint8String(chunk);
-            var ok = globalThis.__exactSpawnWrite(self._handle, data, 'extra:' + this._extraIndex);
-            if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+            _writeSpawnStream(self._handle, 'extra:' + this._extraIndex, chunk, callback);
           }
         });
         extraStream._extraIndex = extraIdx;
@@ -2415,7 +2473,7 @@ function ChildProcess(handle, pid, stdioModes) {
   }
 
   // Start polling for stdout/stderr, ipc packets and exit status
-  var pollInterval = 10; // ms
+  var pollInterval = 2; // ms
   var stdoutEnded = false;
   var stderrEnded = false;
 
@@ -2442,10 +2500,12 @@ function ChildProcess(handle, pid, stdioModes) {
     if (self._pumpInProgress) return;
     if (self._exited && stdoutEnded && stderrEnded) return;
     self._pumpInProgress = true;
+    var hadActivity = false;
 
     // Poll stdout
     if (!stdoutEnded && !self._exactSuppressStdoutPump) {
       var outData = globalThis.__exactSpawnRead(self._handle, 'stdout');
+      if (outData && outData.length) hadActivity = true;
       pushStreamData('stdout', outData, modes.stdout);
       if (modes.stdout === 'pipe' && (!outData || !outData.length)) {
         if (self._exited) stdoutEnded = true;
@@ -2455,6 +2515,7 @@ function ChildProcess(handle, pid, stdioModes) {
     // Poll stderr
     if (!stderrEnded && !self._exactSuppressStderrPump) {
       var errData = globalThis.__exactSpawnRead(self._handle, 'stderr');
+      if (errData && errData.length) hadActivity = true;
       pushStreamData('stderr', errData, modes.stderr);
       if (modes.stderr === 'pipe' && (!errData || !errData.length)) {
         if (self._exited) stderrEnded = true;
@@ -2466,10 +2527,12 @@ function ChildProcess(handle, pid, stdioModes) {
       if (typeof globalThis.__exactSpawnRecvMsg === 'function') {
         var ipcResult = globalThis.__exactSpawnRecvMsg(self._handle);
         if (ipcResult) {
+          if (ipcResult.data && ipcResult.data.length) hadActivity = true;
           drainIpcPackets(ipcResult.data, ipcResult.fd);
         }
       } else {
         var ipcData = globalThis.__exactSpawnRead(self._handle, 'ipc');
+        if (ipcData && ipcData.length) hadActivity = true;
         drainIpcPackets(ipcData);
       }
     }
@@ -2541,7 +2604,7 @@ function ChildProcess(handle, pid, stdioModes) {
     }
 
     if (!self._useNativePump && self._ref) {
-      self._pollTimer = setTimeout(pollStreams, pollInterval);
+      self._pollTimer = setTimeout(pollStreams, hadActivity ? 0 : pollInterval);
     }
     self._pumpInProgress = false;
   }
@@ -2689,9 +2752,7 @@ ChildProcess.prototype.spawn = function(options) {
     }
     this.stdin = new Stream.Writable({
       write: function(chunk, encoding, callback) {
-        var data = _toUint8String(chunk);
-        var ok = globalThis.__exactSpawnWrite(self2._handle, data);
-        if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+        _writeSpawnStream(self2._handle, 'stdin', chunk, callback);
       },
       final: function(callback) {
         closeSpawnStdin();
@@ -2715,9 +2776,7 @@ ChildProcess.prototype.spawn = function(options) {
         var extraStreamIdx = extraIdx;
         var extraStream = new Stream.Writable({
           write: function(chunk, encoding, callback) {
-            var data = _toUint8String(chunk);
-            var ok = globalThis.__exactSpawnWrite(self2._handle, data, 'extra:' + this._extraIndex);
-            if (typeof callback === 'function') callback(ok ? null : new Error('write failed'));
+            _writeSpawnStream(self2._handle, 'extra:' + this._extraIndex, chunk, callback);
           }
         });
         extraStream._extraIndex = extraIdx;
@@ -2745,7 +2804,7 @@ ChildProcess.prototype.spawn = function(options) {
   self3._exited = false;
   self3._ref = true;
   self3._useNativePump = typeof globalThis.__exactSpawnRead === 'function';
-  var pollInterval = 50;
+  var pollInterval = 2;
 
   var signalNames2 = { 1: 'SIGHUP', 2: 'SIGINT', 3: 'SIGQUIT', 6: 'SIGABRT', 9: 'SIGKILL', 14: 'SIGALRM', 15: 'SIGTERM' };
 
@@ -2827,18 +2886,25 @@ ChildProcess.prototype.spawn = function(options) {
 
   function pollStreams2() {
     if (self3._exited) return;
+    var hadActivity = false;
     // Read stdout
     if (self3.stdout && self3._useNativePump && !self3._exactSuppressStdoutPump) {
       try {
         var out = globalThis.__exactSpawnRead(self3._handle, 1);
-        if (out && out.length > 0) self3.stdout.push(out);
+        if (out && out.length > 0) {
+          hadActivity = true;
+          self3.stdout.push(out);
+        }
       } catch(e) {}
     }
     // Read stderr
     if (self3.stderr && self3._useNativePump && !self3._exactSuppressStderrPump) {
       try {
         var errOut = globalThis.__exactSpawnRead(self3._handle, 2);
-        if (errOut && errOut.length > 0) self3.stderr.push(errOut);
+        if (errOut && errOut.length > 0) {
+          hadActivity = true;
+          self3.stderr.push(errOut);
+        }
       } catch(e) {}
     }
     // Poll IPC messages
@@ -2846,10 +2912,12 @@ ChildProcess.prototype.spawn = function(options) {
       if (typeof globalThis.__exactSpawnRecvMsg === 'function') {
         var ipcResult = globalThis.__exactSpawnRecvMsg(self3._handle);
         if (ipcResult) {
+          if (ipcResult.data && ipcResult.data.length) hadActivity = true;
           drainIpcPackets2(ipcResult.data, ipcResult.fd);
         }
       } else {
         var ipcData = globalThis.__exactSpawnRead(self3._handle, 'ipc');
+        if (ipcData && ipcData.length) hadActivity = true;
         drainIpcPackets2(ipcData);
       }
     }
@@ -2910,7 +2978,7 @@ ChildProcess.prototype.spawn = function(options) {
       } catch(e) {}
     }
     if (!self3._exited && self3._ref) {
-      self3._pollTimer = setTimeout(pollStreams2, pollInterval);
+      self3._pollTimer = setTimeout(pollStreams2, hadActivity ? 0 : pollInterval);
     }
   }
 

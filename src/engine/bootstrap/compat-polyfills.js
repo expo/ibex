@@ -1167,9 +1167,9 @@
         if (!stream._ended && !stream._pollTimer) {
           (function pollStdin() {
             if (stream._paused || stream._ended || stream.destroyed) return;
-            var data = globalThis.__exactStdinRead(4096);
+            var data = globalThis.__exactStdinRead(262144);
             if (data === null) {
-              stream._pollTimer = setTimeout(pollStdin, 25);
+              stream._pollTimer = setTimeout(pollStdin, 1);
               return;
             }
             if (data === '') {
@@ -1188,7 +1188,7 @@
             stream.emit('data', data);
             stream.readableLength = 0;
             if (!stream._paused && !stream._ended) {
-              stream._pollTimer = setTimeout(pollStdin, 10);
+              stream._pollTimer = setTimeout(pollStdin, 0);
             }
           })();
         }
@@ -1206,7 +1206,7 @@
       };
 
       stream.read = function(size) {
-        var data = globalThis.__exactStdinRead(size || 4096);
+        var data = globalThis.__exactStdinRead(size || 262144);
         if (data === '') return null;
         if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
           return Buffer.from(data, 'binary').toString(stream._encoding);
@@ -3052,9 +3052,9 @@
             if (!stream._ended && !stream._pollTimer) {
               (function exactPollStdin() {
                 if (stream._paused || stream._ended || stream.destroyed) return;
-                var data = globalThis.__exactStdinRead(4096);
+                var data = globalThis.__exactStdinRead(262144);
                 if (data === null) {
-                  stream._pollTimer = setTimeout(exactPollStdin, 25);
+                  stream._pollTimer = setTimeout(exactPollStdin, 1);
                   return;
                 }
                 if (data === '') {
@@ -3077,7 +3077,7 @@
                 }
                 stream.readableLength = 0;
                 if (!stream._paused && !stream._ended) {
-                  stream._pollTimer = setTimeout(exactPollStdin, 10);
+                  stream._pollTimer = setTimeout(exactPollStdin, 0);
                 }
               })();
             }
@@ -3093,7 +3093,7 @@
             return stream;
           };
           stream.read = function(size) {
-            var data = globalThis.__exactStdinRead(size || 4096);
+            var data = globalThis.__exactStdinRead(size || 262144);
             if (data === '') return null;
             if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
               return Buffer.from(data, 'binary').toString(stream._encoding);

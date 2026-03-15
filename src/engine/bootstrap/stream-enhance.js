@@ -324,10 +324,10 @@
       if (!stream._ended && typeof __exactStdinRead === 'function' && !stream._pollTimer) {
         (function pollStdin() {
           if (stream._paused || stream._ended || stream.destroyed) return;
-          var data = __exactStdinRead(4096);
+          var data = __exactStdinRead(262144);
           if (data === null) {
             // No data available, poll again
-            stream._pollTimer = setTimeout(pollStdin, 50);
+            stream._pollTimer = setTimeout(pollStdin, 1);
           } else if (data === '') {
             // EOF
             stream._ended = true;
@@ -341,7 +341,7 @@
             stream.emit('data', data);
             stream.readableLength = 0;
             if (!stream._paused && !stream._ended) {
-              stream._pollTimer = setTimeout(pollStdin, 10);
+              stream._pollTimer = setTimeout(pollStdin, 0);
             }
           }
         })();
@@ -361,7 +361,7 @@
 
     stream.read = function(size) {
       if (typeof __exactStdinRead === 'function') {
-        var data = __exactStdinRead(size || 4096);
+        var data = __exactStdinRead(size || 262144);
         if (data === '') return null; // EOF
         return data;
       }

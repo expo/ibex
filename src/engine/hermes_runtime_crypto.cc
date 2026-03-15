@@ -3544,7 +3544,7 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         if (count > 0 && args[0].isNumber()) {
           maxBytes = static_cast<size_t>(args[0].asNumber());
           if (maxBytes == 0) maxBytes = 4096;
-          if (maxBytes > 65536) maxBytes = 65536;
+          if (maxBytes > 262144) maxBytes = 262144;
         }
 
         // Set stdin to non-blocking

@@ -200,9 +200,9 @@ function _installReadableStdinFallback(proc) {
     if (!stream._ended && !stream._pollTimer) {
       (function pollStdin() {
         if (stream._paused || stream._ended || stream.destroyed) return;
-        var data = __exactStdinRead(4096);
+        var data = __exactStdinRead(262144);
         if (data === null) {
-          stream._pollTimer = setTimeout(pollStdin, 25);
+          stream._pollTimer = setTimeout(pollStdin, 1);
           return;
         }
         if (data === '') {
@@ -225,7 +225,7 @@ function _installReadableStdinFallback(proc) {
         }
         stream.readableLength = 0;
         if (!stream._paused && !stream._ended) {
-          stream._pollTimer = setTimeout(pollStdin, 10);
+          stream._pollTimer = setTimeout(pollStdin, 0);
         }
       })();
     }
@@ -243,7 +243,7 @@ function _installReadableStdinFallback(proc) {
   };
 
   stream.read = function(size) {
-    var data = __exactStdinRead(size || 4096);
+    var data = __exactStdinRead(size || 262144);
     if (data === '') return null;
     if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
       return Buffer.from(data, 'binary').toString(stream._encoding);
