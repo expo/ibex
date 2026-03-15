@@ -3496,7 +3496,11 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
         int sig = static_cast<int>(args[0].asNumber());
         struct sigaction sa = {};
-        sa.sa_handler = signal_handler;
+        sa.sa_handler =
+#ifdef SIGXFSZ
+            sig == SIGXFSZ ? SIG_IGN :
+#endif
+                             signal_handler;
         sigemptyset(&sa.sa_mask);
         sa.sa_flags = SA_RESTART;
         sigaction(sig, &sa, nullptr);

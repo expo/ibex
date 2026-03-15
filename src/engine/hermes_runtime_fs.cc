@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <sys/poll.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
@@ -187,6 +188,22 @@ static void throwFsError(
     const std::string& dest = "") {
   int errn = errno;
   throw facebook::jsi::JSError(runtime, fsErrorMessage(errn, syscall, path, dest));
+}
+
+static void normalizeWriteErrno(int fd) {
+#ifdef RLIMIT_FSIZE
+  struct rlimit limit = {};
+  if (getrlimit(RLIMIT_FSIZE, &limit) != 0 || limit.rlim_cur == RLIM_INFINITY) {
+    return;
+  }
+  struct stat st = {};
+  if (fstat(fd, &st) != 0 || st.st_size < 0) {
+    return;
+  }
+  if (static_cast<rlim_t>(st.st_size) >= limit.rlim_cur) {
+    errno = EFBIG;
+  }
+#endif
 }
 
 void installFsHostFunctions(ExactHermesRuntime* handle) {
@@ -999,6 +1016,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
 
         ssize_t bytesWritten = ::write(fd, dataBytes.data(), dataBytes.size());
         if (bytesWritten < 0) {
+          normalizeWriteErrno(fd);
           throwFsError(runtime, "write");
         }
         return facebook::jsi::Value(static_cast<int>(bytesWritten));
@@ -1135,6 +1153,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         ssize_t bytesWritten = ::writev(fd, iovecs.data(), static_cast<int>(iovecs.size()));
         if (bytesWritten < 0) {
+          normalizeWriteErrno(fd);
           auto errorMessage = fsErrorMessage(errno, "writev", "", "");
           if (hasCallback) {
             callback->call(runtime, facebook::jsi::String::createFromUtf8(runtime, errorMessage));

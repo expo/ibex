@@ -3543,6 +3543,17 @@
     }
   } catch (_timerInstallErr) {}
 
+  try {
+    if (
+      typeof globalThis.process === 'object' &&
+      globalThis.process !== null &&
+      globalThis.process.platform !== 'win32' &&
+      typeof globalThis.__exactTrapSignal === 'function'
+    ) {
+      globalThis.__exactTrapSignal(25);
+    }
+  } catch (_sigxfszInstallErr) {}
+
   if (typeof globalThis.createExternalizableString !== 'function') {
     globalThis.createExternalizableString = function(value) {
       return String(value);
