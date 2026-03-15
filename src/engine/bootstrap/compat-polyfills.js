@@ -2586,12 +2586,18 @@
   }
 
   // Child-process IPC bootstrap for exact child runtimes.
-  if (
-    typeof globalThis.process === 'object' &&
-    globalThis.process !== null &&
-    globalThis.process.env &&
-    globalThis.process.env.EXACT_IPC_FD
-  ) {
+  function __exactInstallProcessIpcBootstrap() {
+    if (
+      typeof globalThis.process !== 'object' ||
+      globalThis.process === null ||
+      !globalThis.process.env ||
+      !globalThis.process.env.EXACT_IPC_FD
+    ) {
+      return false;
+    }
+    if (globalThis.process.__exactProcessIpcBootstrapInstalled) {
+      return true;
+    }
     var exactIpcFd = Number(globalThis.process.env.EXACT_IPC_FD);
     if (isFinite(exactIpcFd) && exactIpcFd >= 0) {
       // Ensure FS host functions are loaded (they are lazily initialized)
@@ -3838,8 +3844,26 @@
       // We can't unref it (no .unref() method), but it fires immediately
       // (timeout=0). The first poll will create a new timer with the wrapped
       // setTimeout (returns Timeout object) which will be properly unref'd.
+      try {
+        Object.defineProperty(globalThis.process, '__exactProcessIpcBootstrapInstalled', {
+          value: true,
+          writable: false,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (_) {
+        try {
+          globalThis.process.__exactProcessIpcBootstrapInstalled = true;
+        } catch (_) {}
+      }
+      return true;
     }
+    return false;
   }
+  try {
+    globalThis.__exactInstallProcessIpcBootstrap = __exactInstallProcessIpcBootstrap;
+  } catch (_) {}
+  __exactInstallProcessIpcBootstrap();
 
   // When running compat tests, auto-load bun:test so test/describe/it/expect
   // globals are available even if the test file doesn't explicitly import them.
