@@ -930,6 +930,46 @@
     return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
   }
 
+  function exactBootstrapIpcWrite(fd, packet) {
+    if (!isFinite(fd) || fd < 0) return false;
+    if (typeof globalThis.__exactFsWrite === 'function') {
+      try {
+        return globalThis.__exactFsWrite(fd, packet, -1) > 0;
+      } catch (_) {}
+    }
+    try {
+      var fs = require('fs');
+      if (fs && typeof fs.writeSync === 'function') {
+        return fs.writeSync(fd, packet) > 0;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  function exactBootstrapIpcChunkToString(chunk) {
+    if (chunk == null) return '';
+    if (typeof chunk === 'string') return chunk;
+    if (typeof Buffer === 'function' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+      return chunk.toString('utf8');
+    }
+    if (typeof TextDecoder === 'function' &&
+        typeof Uint8Array === 'function' &&
+        chunk instanceof Uint8Array) {
+      try { return new TextDecoder().decode(chunk); } catch (_) {}
+    }
+    return String(chunk);
+  }
+
+  function exactBootstrapIpcRead(fd) {
+    if (!isFinite(fd) || fd < 0) return null;
+    if (typeof globalThis.__exactFsRead === 'function') {
+      try {
+        return globalThis.__exactFsRead(fd, 65536, -1);
+      } catch (_) {}
+    }
+    return null;
+  }
+
   function exactNormalizeBootstrapSendArgs(message, sendHandle, opts, callback) {
     if (message === undefined) {
       var missingErr = new TypeError('The "message" argument must be specified');
@@ -964,19 +1004,152 @@
     return { callback: callback };
   }
 
+  function exactBootstrapSetProcessChannel(target, value) {
+    try {
+      Object.defineProperty(target, 'channel', {
+        value: value,
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+      return;
+    } catch (_) {}
+    try {
+      target.channel = value;
+    } catch (_) {}
+  }
+
   // process.channel/process.send are only stubbed when the runtime was not
   // booted with an IPC pipe. Forked child processes get an early shim here,
   // then a fuller implementation later in compat bootstrap.
   var hasIpcBootstrap = !!(p.env && p.env.EXACT_IPC_FD);
   if (hasIpcBootstrap) {
     var exactBootstrapIpcFd = Number(p.env.EXACT_IPC_FD);
+    var exactBootstrapIpcBuffer = '';
+    var exactBootstrapIpcPollTimer = 0;
+    var exactBootstrapIpcReadPending = false;
+    var exactBootstrapIpcPollEnabled = false;
+    function exactBootstrapSchedulePoll(delay) {
+      if (!p.connected || !exactBootstrapIpcPollEnabled || exactBootstrapIpcReadPending) {
+        return;
+      }
+      if (exactBootstrapIpcPollTimer) {
+        clearTimeout(exactBootstrapIpcPollTimer);
+      }
+      exactBootstrapIpcPollTimer = setTimeout(function() {
+        exactBootstrapIpcPollTimer = 0;
+        exactBootstrapPollIncoming();
+      }, delay);
+    }
+    function exactBootstrapStartPolling() {
+      if (!p.connected || exactBootstrapIpcPollEnabled) {
+        return;
+      }
+      exactBootstrapIpcPollEnabled = true;
+      exactBootstrapSchedulePoll(0);
+    }
+    function exactBootstrapStopPolling() {
+      exactBootstrapIpcPollEnabled = false;
+      if (exactBootstrapIpcPollTimer) {
+        clearTimeout(exactBootstrapIpcPollTimer);
+        exactBootstrapIpcPollTimer = 0;
+      }
+    }
+    function exactBootstrapMaybeDecodeBuffer() {
+      if (!exactBootstrapIpcBuffer || exactBootstrapIpcBuffer.charCodeAt(0) !== 34) {
+        return;
+      }
+      try {
+        var decodedBuffer = JSON.parse(exactBootstrapIpcBuffer);
+        if (typeof decodedBuffer === 'string') {
+          exactBootstrapIpcBuffer = decodedBuffer;
+        }
+      } catch (_) {}
+    }
+    function exactBootstrapEmitDisconnect() {
+      if (!p.connected) return;
+      p.connected = false;
+      if (p.channel) p.channel.connected = false;
+      exactBootstrapStopPolling();
+      exactBootstrapSetProcessChannel(p, null);
+      setTimeout(function() { p.emit('disconnect'); }, 0);
+    }
+    function exactBootstrapHandleIncomingLine(line) {
+      var packet = null;
+      if (!line) return;
+      try {
+        packet = JSON.parse(line);
+      } catch (_) {
+        return;
+      }
+      if (typeof packet === 'string') {
+        try {
+          packet = JSON.parse(packet);
+        } catch (_) {
+          return;
+        }
+      }
+      if (!packet || packet.__exactIpc !== true) return;
+      if (packet.type === 'message') {
+        p.emit('message', packet.data);
+        return;
+      }
+      if (packet.type === 'disconnect') {
+        exactBootstrapEmitDisconnect();
+      }
+    }
+    function exactBootstrapDrainIncoming(chunk) {
+      var newlineIndex;
+      var text = exactBootstrapIpcChunkToString(chunk);
+      exactBootstrapIpcBuffer += text;
+      exactBootstrapMaybeDecodeBuffer();
+      while ((newlineIndex = exactBootstrapIpcBuffer.indexOf('\n')) !== -1) {
+        var line = exactBootstrapIpcBuffer.slice(0, newlineIndex);
+        exactBootstrapIpcBuffer = exactBootstrapIpcBuffer.slice(newlineIndex + 1);
+        exactBootstrapHandleIncomingLine(line);
+        exactBootstrapMaybeDecodeBuffer();
+      }
+    }
+    function exactBootstrapPollIncoming() {
+      if (!p.connected || !exactBootstrapIpcPollEnabled) return;
+      var chunk = exactBootstrapIpcRead(exactBootstrapIpcFd);
+      if (chunk != null) {
+        if (chunk.length) {
+          exactBootstrapDrainIncoming(chunk);
+        }
+        exactBootstrapSchedulePoll(10);
+        return;
+      }
+      try {
+        var fs = require('fs');
+        var BufferCtor = typeof Buffer === 'function' ? Buffer : null;
+        if (fs && BufferCtor && typeof fs.read === 'function') {
+          var buf = BufferCtor.alloc(65536);
+          exactBootstrapIpcReadPending = true;
+          fs.read(exactBootstrapIpcFd, buf, 0, buf.length, null, function(err, bytesRead) {
+            exactBootstrapIpcReadPending = false;
+            if (!p.connected) return;
+            if (!err && bytesRead > 0) {
+              exactBootstrapDrainIncoming(buf.subarray(0, bytesRead));
+            }
+            exactBootstrapSchedulePoll(10);
+          });
+          return;
+        }
+      } catch (_) {}
+      exactBootstrapSchedulePoll(10);
+    }
     p.connected = true;
-    p.channel = {
+    exactBootstrapSetProcessChannel(p, {
       fd: exactBootstrapIpcFd,
       connected: true,
-      ref: function() {},
-      unref: function() {}
-    };
+      ref: function() {
+        exactBootstrapStartPolling();
+      },
+      unref: function() {
+        exactBootstrapStopPolling();
+      }
+    });
     p.send = function(message, sendHandle, opts, callback) {
       var normalized = exactNormalizeBootstrapSendArgs(message, sendHandle, opts, callback);
       if (!p.connected) {
@@ -987,19 +1160,10 @@
         return false;
       }
       var written = false;
-      if (isFinite(exactBootstrapIpcFd) &&
-          exactBootstrapIpcFd >= 0 &&
-          typeof globalThis.__exactFsWrite === 'function') {
-        try {
-          written = globalThis.__exactFsWrite(
-            exactBootstrapIpcFd,
-            exactBootstrapIpcPacket('message', message),
-            -1
-          ) > 0;
-        } catch (_) {
-          written = false;
-        }
-      }
+      written = exactBootstrapIpcWrite(
+        exactBootstrapIpcFd,
+        exactBootstrapIpcPacket('message', message)
+      );
       if (typeof normalized.callback === 'function') {
         setTimeout(function() {
           normalized.callback(
@@ -1014,24 +1178,14 @@
       if (!p.connected) {
         throw exactCreateBootstrapIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is already disconnected');
       }
-      p.connected = false;
-      if (p.channel) p.channel.connected = false;
-      if (isFinite(exactBootstrapIpcFd) &&
-          exactBootstrapIpcFd >= 0 &&
-          typeof globalThis.__exactFsWrite === 'function') {
-        try {
-          globalThis.__exactFsWrite(
-            exactBootstrapIpcFd,
-            exactBootstrapIpcPacket('disconnect'),
-            -1
-          );
-        } catch (_) {}
-      }
-      p.channel = null;
-      setTimeout(function() { p.emit('disconnect'); }, 0);
+      exactBootstrapIpcWrite(
+        exactBootstrapIpcFd,
+        exactBootstrapIpcPacket('disconnect')
+      );
+      exactBootstrapEmitDisconnect();
     };
   } else {
-    p.channel = undefined;
+    exactBootstrapSetProcessChannel(p, undefined);
     p.connected = false;
     p.disconnect = function() {};
     p.send = function() { return false; };

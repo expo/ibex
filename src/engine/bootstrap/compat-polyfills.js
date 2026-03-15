@@ -3151,6 +3151,21 @@
         return err;
       }
 
+      function exactSetProcessChannel(value) {
+        try {
+          Object.defineProperty(globalThis.process, 'channel', {
+            value: value,
+            writable: true,
+            configurable: true,
+            enumerable: true
+          });
+          return;
+        } catch (_) {}
+        try {
+          globalThis.process.channel = value;
+        } catch (_) {}
+      }
+
       function exactCloseIpc() {
         if (!exactIpcConnected) return;
         exactIpcConnected = false;
@@ -3168,7 +3183,7 @@
           exactIpcStartupHoldTimer = null;
         }
         globalThis.process.connected = false;
-        globalThis.process.channel = null;
+        exactSetProcessChannel(null);
         var exactChannelHandleKey = globalThis.__exactKChannelHandleKey;
         if (exactChannelHandleKey === undefined) {
           exactChannelHandleKey = '__exactKChannelHandle';
@@ -3196,6 +3211,17 @@
       }
 
       var _exactPendingRecvFd = -1;
+      function exactMaybeDecodeIpcBuffer() {
+        if (!exactIpcBuffer || exactIpcBuffer.charCodeAt(0) !== 34) {
+          return;
+        }
+        try {
+          var decodedBuffer = JSON.parse(exactIpcBuffer);
+          if (typeof decodedBuffer === 'string') {
+            exactIpcBuffer = decodedBuffer;
+          }
+        } catch (_) {}
+      }
 
       function exactProcessIncomingPackets(rawData, recvFd) {
         if (typeof recvFd === 'number' && recvFd >= 0) {
@@ -3203,6 +3229,7 @@
         }
         if (!rawData || !rawData.length) return;
         exactIpcBuffer += exactToString(rawData);
+        exactMaybeDecodeIpcBuffer();
         while (exactIpcBuffer.length > 0) {
           var lineEnd = exactIpcBuffer.indexOf('\n');
           if (lineEnd < 0) {
@@ -3215,6 +3242,14 @@
           try {
             packet = JSON.parse(line);
           } catch (err) { continue; }
+          if (typeof packet === 'string') {
+            try {
+              packet = JSON.parse(packet);
+            } catch (err2) {
+              exactMaybeDecodeIpcBuffer();
+              continue;
+            }
+          }
           if (!packet || packet.__exactIpc !== true) continue;
           if (packet.type === 'message') {
             // Reconstruct handle from received fd if present
@@ -3242,6 +3277,7 @@
           } else if (packet.type === 'disconnect') {
             exactCloseIpc();
           }
+          exactMaybeDecodeIpcBuffer();
         }
       }
 
@@ -3462,11 +3498,11 @@
           exactIpcStartupHoldTimer.ref();
         }
       }
-      globalThis.process.channel = {
+      exactSetProcessChannel({
         fd: exactIpcFd,
         ref: function() { exactRefIpcTimer(); },
         unref: function() { exactUnrefIpcTimer(); }
-      };
+      });
       exactEnsureStdioRefUnref();
       // Expose kChannelHandle for internal/child_process compatibility
       var kChannelHandle = globalThis.__exactKChannelHandleKey;

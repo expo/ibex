@@ -464,8 +464,18 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
       throw e2;
     };
   }
-  if (typeof proc.channel === 'undefined' && !('channel' in proc)) {
-    proc.channel = undefined;
+  if (typeof proc.channel === 'undefined' &&
+      !Object.prototype.hasOwnProperty.call(proc, 'channel')) {
+    try {
+      Object.defineProperty(proc, 'channel', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+    } catch (_) {
+      proc.channel = undefined;
+    }
   }
   if (!proc.argv || proc.argv.length === 0) proc.argv = argv;
   if (!Array.isArray(proc.execArgv)) proc.execArgv = Array.isArray(globalThis.__exactExecArgv) ? globalThis.__exactExecArgv : [];

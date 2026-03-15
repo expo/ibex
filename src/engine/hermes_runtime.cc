@@ -3068,8 +3068,178 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     static const char* finalIpcListenerFixJS = R"JS(
 (function() {
   if (typeof process !== 'object' || process === null) return;
+  function defineOwnProcessProperty(name, value, enumerable) {
+    try {
+      Object.defineProperty(process, name, {
+        value: value,
+        writable: true,
+        configurable: true,
+        enumerable: !!enumerable,
+      });
+      return true;
+    } catch (_) {}
+    try {
+      process[name] = value;
+      return true;
+    } catch (_) {}
+    return false;
+  }
+  function installLateIpcChannel() {
+    if (process.channel && typeof process.channel.ref === 'function') return;
+    if (!process.connected || !process.env || !process.env.EXACT_IPC_FD) return;
+    var ipcFd = Number(process.env.EXACT_IPC_FD);
+    if (!isFinite(ipcFd) || ipcFd < 0) return;
+    var fsMod = null;
+    var ipcBuffer = '';
+    var pollTimer = 0;
+    var pollEnabled = false;
+    var readPending = false;
+    function getFsModule() {
+      if (fsMod !== null) return fsMod;
+      try {
+        fsMod = typeof require === 'function' ? require('fs') : null;
+      } catch (_) {
+        fsMod = null;
+      }
+      return fsMod;
+    }
+    function chunkToString(chunk) {
+      if (chunk == null) return '';
+      if (typeof chunk === 'string') return chunk;
+      if (typeof Buffer === 'function' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+        return chunk.toString('utf8');
+      }
+      if (typeof TextDecoder === 'function' &&
+          typeof Uint8Array === 'function' &&
+          chunk instanceof Uint8Array) {
+        try { return new TextDecoder().decode(chunk); } catch (_) {}
+      }
+      return String(chunk);
+    }
+    function maybeDecodeBuffer() {
+      if (!ipcBuffer || ipcBuffer.charCodeAt(0) !== 34) return;
+      try {
+        var decodedBuffer = JSON.parse(ipcBuffer);
+        if (typeof decodedBuffer === 'string') {
+          ipcBuffer = decodedBuffer;
+        }
+      } catch (_) {}
+    }
+    function emitDisconnect() {
+      if (!process.connected) return;
+      process.connected = false;
+      pollEnabled = false;
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = 0;
+      }
+      readPending = false;
+      if (process.channel) {
+        try { process.channel.connected = false; } catch (_) {}
+      }
+      defineOwnProcessProperty('channel', null, true);
+      setTimeout(function() {
+        process.emit('disconnect');
+      }, 0);
+    }
+    function handleLine(line) {
+      var packet = null;
+      if (!line) return;
+      try {
+        packet = JSON.parse(line);
+      } catch (_) {
+        return;
+      }
+      if (typeof packet === 'string') {
+        try {
+          packet = JSON.parse(packet);
+        } catch (_) {
+          return;
+        }
+      }
+      if (!packet || packet.__exactIpc !== true) return;
+      if (packet.type === 'message') {
+        process.emit('message', packet.data);
+      } else if (packet.type === 'disconnect') {
+        emitDisconnect();
+      }
+    }
+    function drainIncoming(chunk) {
+      var newlineIndex;
+      ipcBuffer += chunkToString(chunk);
+      maybeDecodeBuffer();
+      while ((newlineIndex = ipcBuffer.indexOf('\n')) !== -1) {
+        var line = ipcBuffer.slice(0, newlineIndex);
+        ipcBuffer = ipcBuffer.slice(newlineIndex + 1);
+        handleLine(line);
+        maybeDecodeBuffer();
+      }
+    }
+    function schedulePoll(delay) {
+      if (!process.connected || !pollEnabled || readPending) return;
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+      }
+      pollTimer = setTimeout(function() {
+        pollTimer = 0;
+        pollIncoming();
+      }, delay);
+    }
+    function pollIncoming() {
+      if (!process.connected || !pollEnabled) return;
+      var fs = getFsModule();
+      var BufferCtor = typeof Buffer === 'function' ? Buffer : null;
+      if (fs && BufferCtor && typeof fs.read === 'function') {
+        var buf = BufferCtor.alloc(65536);
+        readPending = true;
+        fs.read(ipcFd, buf, 0, buf.length, null, function(err, bytesRead) {
+          readPending = false;
+          if (!process.connected) return;
+          if (!err && bytesRead > 0) {
+            drainIncoming(buf.subarray(0, bytesRead));
+            schedulePoll(10);
+            return;
+          }
+          schedulePoll(10);
+        });
+        return;
+      }
+      schedulePoll(10);
+    }
+    defineOwnProcessProperty('channel', {
+      fd: ipcFd,
+      connected: true,
+      ref: function() {
+        if (!process.connected || pollEnabled) return;
+        pollEnabled = true;
+        schedulePoll(0);
+      },
+      unref: function() {
+        pollEnabled = false;
+        if (pollTimer) {
+          clearTimeout(pollTimer);
+          pollTimer = 0;
+        }
+      },
+    }, true);
+  }
+  installLateIpcChannel();
   if (!process.channel || typeof process.channel.ref !== 'function') return;
   if (process.__exactLateIpcListenerPatch) return;
+  function refProcessChannel() {
+    if (process.channel && typeof process.channel.ref === 'function') {
+      process.channel.ref();
+      return true;
+    }
+    return false;
+  }
+  function unrefProcessChannel() {
+    if (process.channel && typeof process.channel.unref === 'function') {
+      process.channel.unref();
+      return true;
+    }
+    return false;
+  }
 
   function syncIpcRef() {
     if (typeof process.listenerCount !== 'function') return;
@@ -3078,9 +3248,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         process.listenerCount('message') +
         process.listenerCount('disconnect');
       if (activeListeners > 0) {
-        process.channel.ref();
-      } else if (typeof process.channel.unref === 'function') {
-        process.channel.unref();
+        refProcessChannel();
+      } else {
+        unrefProcessChannel();
       }
     } catch (_) {}
   }
@@ -3120,9 +3290,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   }
   function syncTrackedIpcRef() {
     if (getTrackedIpcListeners() > 0) {
-      process.channel.ref();
-    } else if (typeof process.channel.unref === 'function') {
-      process.channel.unref();
+      refProcessChannel();
+    } else {
+      unrefProcessChannel();
     }
   }
   function syncTrackedIpcListenersAfterDispatch() {
@@ -3172,7 +3342,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       defineMethod('on', function(event, listener) {
         var result = originalOn.apply(this, arguments);
         if (shouldTrack(this, event)) {
-          process.channel.ref();
+          refProcessChannel();
         }
         return result;
       });
@@ -3183,7 +3353,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       defineMethod('addListener', function(event, listener) {
         var result = originalAddListener.apply(this, arguments);
         if (shouldTrack(this, event)) {
-          process.channel.ref();
+          refProcessChannel();
         }
         return result;
       });
@@ -3194,7 +3364,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       defineMethod('prependListener', function(event, listener) {
         var result = originalPrependListener.apply(this, arguments);
         if (shouldTrack(this, event)) {
-          process.channel.ref();
+          refProcessChannel();
         }
         return result;
       });
@@ -3203,7 +3373,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     function wrapSingleUseListener(originalRegistrar) {
       return function(event, listener) {
         if (shouldTrack(this, event) && typeof listener === 'function') {
-          process.channel.ref();
+          refProcessChannel();
           var wrappedListener = function() {
             try {
               return listener.apply(this, arguments);
@@ -3218,7 +3388,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         }
         var result = originalRegistrar.apply(this, arguments);
         if (shouldTrack(this, event)) {
-          process.channel.ref();
+          refProcessChannel();
         }
         return result;
       };
@@ -3287,7 +3457,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   wrapTarget(process, '__exactLateIpcProcessWrapped');
   syncIpcRef();
   try {
-    process.channel.ref();
+    refProcessChannel();
     var startupHold = setTimeout(function() {
       syncIpcRef();
     }, 1000);
