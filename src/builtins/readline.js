@@ -128,6 +128,69 @@ function commonPrefix(strings) {
   return min.slice(0, i);
 }
 
+function _formatCompletionBlock(entries, columns) {
+  var values = entries.map(function(entry) { return String(entry); });
+  var maxWidth = 0;
+  var columnWidth;
+  var columnCount;
+  var rowCount;
+  var lines = [];
+  var row;
+  var col;
+  if (values.length <= 1 || !isFinite(columns) || columns <= 0) {
+    return values.join('\r\n');
+  }
+  for (row = 0; row < values.length; row++) {
+    maxWidth = Math.max(maxWidth, getStringWidth(values[row]));
+  }
+  columnWidth = maxWidth + 2;
+  columnCount = Math.max(1, Math.floor(columns / columnWidth));
+  if (columnCount <= 1) {
+    return values.join('\r\n');
+  }
+  rowCount = Math.ceil(values.length / columnCount);
+  for (row = 0; row < rowCount; row++) {
+    var line = '';
+    for (col = 0; col < columnCount; col++) {
+      var index = row * columnCount + col;
+      var entry;
+      if (index >= values.length) break;
+      entry = values[index];
+      line += entry;
+      if (col + 1 < columnCount && index + 1 < values.length) {
+        line += Array(columnWidth - getStringWidth(entry) + 1).join(' ');
+      }
+    }
+    lines.push(line);
+  }
+  return lines.join('\r\n');
+}
+
+function _formatCompletions(entries, columns) {
+  var parts = [];
+  var block = [];
+  var i;
+  for (i = 0; i < entries.length; i++) {
+    if (entries[i] === '') {
+      if (block.length > 0) {
+        parts.push(_formatCompletionBlock(block, columns));
+        block = [];
+      }
+      parts.push('');
+      continue;
+    }
+    block.push(entries[i]);
+  }
+  if (block.length > 0) {
+    parts.push(_formatCompletionBlock(block, columns));
+  }
+  return parts.join('\r\n');
+}
+
+function _isWhitespace(char) {
+  return /\s/.test(char);
+}
+
 function CSI(strings) {
   var out = kEscape + '[';
   for (var i = 0; i < strings.length; i++) {
@@ -422,10 +485,9 @@ function emitKeypressEvents(stream, iface) {
     }
   }
 
+  stream.on('data', onData);
   if (typeof stream.read === 'function') {
     stream.on('readable', onReadable);
-  } else {
-    stream.on('data', onData);
   }
   if (typeof stream.write === 'function' && !stream[KEYPRESS_WRITE_PATCHED]) {
     var originalWrite = stream.write;
@@ -466,6 +528,7 @@ function Interface() {
   this.closed = false;
   this.line = '';
   this._lineBuffer = '';
+  this._normalDecoder = new StringDecoder('utf8');
   this.cursor = 0;
   this.history = options.history === undefined ? [] : options.history;
   this.historyIndex = -1;
@@ -475,8 +538,19 @@ function Interface() {
   this.tabSize = 8;
   this.crlfDelay = Math.max(options.crlfDelay || 100, kMinCrlfDelay);
   this._paused = false;
+  this.paused = false;
   this._questionReject = null;
+  this._questionCallback = null;
+  this._questionOnLine = null;
   this._lastTabLine = null;
+  this._historySearch = null;
+  this._questionPrompt = null;
+  this._killRing = [];
+  this._lastYank = null;
+  this._undoStack = [];
+  this._redoStack = [];
+  this._lastReturnAt = 0;
+  this._pendingCR = false;
   this.isCompletionEnabled = true;
   this._sawKeyPress = false;
   if (this.completer !== undefined && typeof this.completer !== 'function') {
@@ -509,6 +583,11 @@ function Interface() {
     }
     this.escapeCodeTimeout = options.escapeCodeTimeout;
   }
+  if (options.signal !== undefined) {
+    if (!options.signal || typeof options.signal.addEventListener !== 'function' || typeof options.signal.removeEventListener !== 'function') {
+      throw _createInvalidArgTypeError('signal', 'AbortSignal', options.signal);
+    }
+  }
 
   var self = this;
   if (this.input && typeof this.input.on === 'function') {
@@ -522,6 +601,13 @@ function Interface() {
     };
     this._onEnd = function() {
       if (self.closed) return;
+      if (!self.terminal && self._normalDecoder) {
+        self._lineBuffer += self._normalDecoder.end();
+      }
+      if (!self.terminal && self._pendingCR) {
+        self._lineBuffer += '\n';
+        self._pendingCR = false;
+      }
       if (!self.terminal && self._lineBuffer.length > 0) {
         var remaining = self._lineBuffer;
         self._lineBuffer = '';
@@ -549,6 +635,17 @@ function Interface() {
     this.input.on('end', this._onEnd);
     this.input.on('close', this._onClose);
     if (typeof this.input.resume === 'function') this.input.resume();
+  }
+  if (options.signal && typeof options.signal.addEventListener === 'function') {
+    this._abortSignal = options.signal;
+    this._onAbortSignal = function() {
+      self.close();
+    };
+    if (options.signal.aborted) {
+      this.close();
+    } else {
+      options.signal.addEventListener('abort', this._onAbortSignal);
+    }
   }
 }
 Interface.prototype = Object.create(EventEmitter.prototype);
@@ -601,7 +698,7 @@ Interface.prototype._getDisplayPos = function(str) {
 };
 
 Interface.prototype.getCursorPos = function() {
-  return this._getDisplayPos(this._promptStr + this.line.slice(0, this.cursor));
+  return this._getDisplayPos(this._getPromptText() + this.line.slice(0, this.cursor));
 };
 
 Interface.prototype._writeToOutput = function(text) {
@@ -615,33 +712,229 @@ Interface.prototype._writeToOutput = function(text) {
   }
 };
 
+Interface.prototype._getPromptText = function() {
+  return this._questionPrompt !== null ? this._questionPrompt : this._promptStr;
+};
+
 Interface.prototype._refreshLine = function() {
   var cursorPos;
   if (!this.terminal || !this.output || typeof this.output.write !== 'function') return;
   cursorPos = this.getCursorPos();
-  this.output.write('\x1b[1G\x1b[0J' + this._promptStr + this.line + '\x1b[' + (cursorPos.cols + 1) + 'G');
+  this._writeToOutput('\x1b[1G\x1b[0J' + this._getPromptText() + this.line + '\x1b[' + (cursorPos.cols + 1) + 'G');
+};
+
+Interface.prototype._replaceLine = function(value) {
+  this.line = String(value);
+  this.cursor = this.line.length;
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._pushUndoSnapshot = function() {
+  var last = this._undoStack.length > 0 ? this._undoStack[this._undoStack.length - 1] : null;
+  if (!last || last.line !== this.line || last.cursor !== this.cursor) {
+    this._undoStack.push({ line: this.line, cursor: this.cursor });
+    if (this._undoStack.length > 100) this._undoStack.shift();
+  }
+  this._redoStack.length = 0;
+};
+
+Interface.prototype._rememberKill = function(text) {
+  if (!text) return;
+  this._killRing.unshift(text);
+  if (this._killRing.length > 32) this._killRing.length = 32;
+  this._lastYank = null;
+};
+
+Interface.prototype._resetHistorySearch = function() {
+  this.historyIndex = -1;
+  this._historySearch = null;
 };
 
 Interface.prototype._insertString = function(value) {
+  var atEnd = this.cursor === this.line.length;
   var text = String(value);
+  this._pushUndoSnapshot();
+  if (this.historyIndex !== -1 || this._historySearch !== null) {
+    this._resetHistorySearch();
+  }
+  this._lastYank = null;
   this.line = this.line.slice(0, this.cursor) + text + this.line.slice(this.cursor);
   this.cursor += text.length;
-  if (this.terminal) this._writeToOutput(text);
+  if (this.terminal) {
+    if (atEnd) this._writeToOutput(text);
+    else this._refreshLine();
+  }
 };
 
 Interface.prototype._deleteLeft = function() {
   var len;
   if (this.cursor <= 0) return;
+  this._pushUndoSnapshot();
+  if (this.historyIndex !== -1 || this._historySearch !== null) {
+    this._resetHistorySearch();
+  }
+  this._lastYank = null;
   len = charLengthLeft(this.line, this.cursor);
   this.line = this.line.slice(0, this.cursor - len) + this.line.slice(this.cursor);
   this.cursor -= len;
   if (this.terminal) this._refreshLine();
 };
 
+Interface.prototype._deleteRight = function() {
+  var len;
+  var removed;
+  if (this.cursor >= this.line.length) return '';
+  this._pushUndoSnapshot();
+  if (this.historyIndex !== -1 || this._historySearch !== null) {
+    this._resetHistorySearch();
+  }
+  this._lastYank = null;
+  len = charLengthAt(this.line, this.cursor);
+  removed = this.line.slice(this.cursor, this.cursor + len);
+  this.line = this.line.slice(0, this.cursor) + this.line.slice(this.cursor + len);
+  if (this.terminal) this._refreshLine();
+  return removed;
+};
+
 Interface.prototype._deleteLineLeft = function() {
   if (this.cursor <= 0) return;
+  this._pushUndoSnapshot();
+  if (this.historyIndex !== -1 || this._historySearch !== null) {
+    this._resetHistorySearch();
+  }
+  this._rememberKill(this.line.slice(0, this.cursor));
   this.line = this.line.slice(this.cursor);
   this.cursor = 0;
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._deleteLineRight = function() {
+  if (this.cursor >= this.line.length) return;
+  this._pushUndoSnapshot();
+  if (this.historyIndex !== -1 || this._historySearch !== null) {
+    this._resetHistorySearch();
+  }
+  this._rememberKill(this.line.slice(this.cursor));
+  this.line = this.line.slice(0, this.cursor);
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._wordLeftIndex = function() {
+  var index = this.cursor;
+  while (index > 0) {
+    var leftLen = charLengthLeft(this.line, index);
+    var leftChar = this.line.slice(index - leftLen, index);
+    if (!_isWhitespace(leftChar)) break;
+    index -= leftLen;
+  }
+  while (index > 0) {
+    var charLen = charLengthLeft(this.line, index);
+    var char = this.line.slice(index - charLen, index);
+    if (_isWhitespace(char)) break;
+    index -= charLen;
+  }
+  return index;
+};
+
+Interface.prototype._wordRightIndex = function() {
+  var index = this.cursor;
+  while (index < this.line.length) {
+    var spaceLen = charLengthAt(this.line, index);
+    var spaceChar = this.line.slice(index, index + spaceLen);
+    if (!_isWhitespace(spaceChar)) break;
+    index += spaceLen;
+  }
+  while (index < this.line.length) {
+    var charLen = charLengthAt(this.line, index);
+    var char = this.line.slice(index, index + charLen);
+    if (_isWhitespace(char)) break;
+    index += charLen;
+  }
+  while (index < this.line.length) {
+    var tailLen = charLengthAt(this.line, index);
+    var tailChar = this.line.slice(index, index + tailLen);
+    if (!_isWhitespace(tailChar)) break;
+    index += tailLen;
+  }
+  return index;
+};
+
+Interface.prototype._moveCursorTo = function(position) {
+  if (this.historyIndex !== -1 || this._historySearch !== null) {
+    this._resetHistorySearch();
+  }
+  this.cursor = Math.max(0, Math.min(this.line.length, position));
+  this._lastYank = null;
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._deleteWordLeft = function() {
+  var next = this._wordLeftIndex();
+  var removed;
+  if (next === this.cursor) return;
+  this._pushUndoSnapshot();
+  removed = this.line.slice(next, this.cursor);
+  this.line = this.line.slice(0, next) + this.line.slice(this.cursor);
+  this.cursor = next;
+  this._rememberKill(removed);
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._deleteWordRight = function() {
+  var next = this._wordRightIndex();
+  var removed;
+  if (next === this.cursor) return;
+  this._pushUndoSnapshot();
+  removed = this.line.slice(this.cursor, next);
+  this.line = this.line.slice(0, this.cursor) + this.line.slice(next);
+  this._rememberKill(removed);
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._yank = function() {
+  var text;
+  var start;
+  if (!this._killRing.length) return;
+  this._pushUndoSnapshot();
+  text = this._killRing[0];
+  start = this.cursor;
+  this.line = this.line.slice(0, start) + text + this.line.slice(start);
+  this.cursor = start + text.length;
+  this._lastYank = { start: start, end: this.cursor, ringIndex: 0 };
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._yankPop = function() {
+  var nextIndex;
+  var text;
+  if (!this._lastYank || !this._killRing.length) return;
+  nextIndex = (this._lastYank.ringIndex + 1) % this._killRing.length;
+  text = this._killRing[nextIndex];
+  this.line = this.line.slice(0, this._lastYank.start) + text + this.line.slice(this._lastYank.end);
+  this.cursor = this._lastYank.start + text.length;
+  this._lastYank = { start: this._lastYank.start, end: this.cursor, ringIndex: nextIndex };
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._undoEdit = function() {
+  var snapshot;
+  if (!this._undoStack.length) return;
+  snapshot = this._undoStack.pop();
+  this._redoStack.push({ line: this.line, cursor: this.cursor });
+  this.line = snapshot.line;
+  this.cursor = snapshot.cursor;
+  this._lastYank = null;
+  if (this.terminal) this._refreshLine();
+};
+
+Interface.prototype._redoEdit = function() {
+  var snapshot;
+  if (!this._redoStack.length) return;
+  snapshot = this._redoStack.pop();
+  this._undoStack.push({ line: this.line, cursor: this.cursor });
+  this.line = snapshot.line;
+  this.cursor = snapshot.cursor;
+  this._lastYank = null;
   if (this.terminal) this._refreshLine();
 };
 
@@ -656,36 +949,38 @@ Interface.prototype._addHistory = function(line) {
   }
   this.history.unshift(line);
   if (this.history.length > this.historySize) this.history.length = this.historySize;
-  this.emit('history', this.history.slice());
+  this.emit('history', this.history);
 };
 
 Interface.prototype._finishLine = function() {
   var line = this.line;
   this._addHistory(line);
+  this._resetHistorySearch();
   this.line = '';
   this.cursor = 0;
+  this._lastYank = null;
   if (this.terminal) this._writeToOutput('\r\n');
   this.emit('line', line);
 };
 
 Interface.prototype._resolveCompletion = function(done) {
   var self = this;
-  if (!this.completer) return done([[], this.line]);
+  if (!this.completer) return done(null, [[], this.line]);
   try {
     if (this.completer.length === 2) {
       return this.completer(this.line, function(err, value) {
-        if (err) done([[], self.line]);
-        else done(value || [[], self.line]);
+        if (err) done(err);
+        else done(null, value || [[], self.line]);
       });
     }
     var result = this.completer(this.line);
     if (result && typeof result.then === 'function') {
-      result.then(function(value) { done(value || [[], self.line]); }, function() { done([[], self.line]); });
+      result.then(function(value) { done(null, value || [[], self.line]); }, function(err) { done(err); });
       return;
     }
-    done(result || [[], self.line]);
-  } catch (_) {
-    done([[], this.line]);
+    done(null, result || [[], this.line]);
+  } catch (err) {
+    done(err);
   }
 };
 
@@ -693,14 +988,67 @@ Interface.prototype._showCompletions = function(completions) {
   var cols = this._getColumns();
   var lines;
   if (!this.terminal) return;
-  if (!isFinite(cols)) {
-    this._writeToOutput('\r\n' + completions.join('\r\n'));
-    this._refreshLine();
+  lines = _formatCompletions(completions, cols);
+  this._writeToOutput('\r\n' + lines + '\r\n\r\n');
+  this._refreshLine();
+};
+
+Interface.prototype._showCompletionError = function(err) {
+  var message = err && err.stack ? err.stack : String(err);
+  this._writeToOutput('Tab completion error: ' + message);
+};
+
+Interface.prototype._historyStep = function(direction) {
+  var searchLine;
+  var index;
+  if (!this.terminal || this.history.length === 0) return;
+  if (this._historySearch === null) {
+    this._historySearch = this.line;
+  }
+  searchLine = this._historySearch;
+  if (direction < 0) {
+    index = this.historyIndex >= 0 ? this.historyIndex + 1 : 0;
+    for (; index < this.history.length; index++) {
+      if (!searchLine || this.history[index].indexOf(searchLine) === 0) {
+        this.historyIndex = index;
+        this._replaceLine(this.history[index]);
+        return;
+      }
+    }
+    if (searchLine) {
+      this.historyIndex = this.history.length;
+      this._replaceLine(searchLine);
+    }
     return;
   }
-  lines = completions.join('\r\n');
-  this._writeToOutput('\r\n' + lines + '\r\n');
-  this._refreshLine();
+  if (this.historyIndex === -1) return;
+  index = this.historyIndex === this.history.length ? this.history.length - 1 : this.historyIndex - 1;
+  for (; index >= 0; index--) {
+    if (!searchLine || this.history[index].indexOf(searchLine) === 0) {
+      this.historyIndex = index;
+      this._replaceLine(this.history[index]);
+      return;
+    }
+  }
+  this.historyIndex = -1;
+  this._replaceLine(searchLine || this.line);
+};
+
+Interface.prototype._moveCursor = function(direction) {
+  var next;
+  if (this.historyIndex !== -1 || this._historySearch !== null) {
+    this._resetHistorySearch();
+    return;
+  }
+  if (direction < 0) {
+    if (this.cursor <= 0) return;
+    this.cursor -= charLengthLeft(this.line, this.cursor);
+  } else {
+    if (this.cursor >= this.line.length) return;
+    next = charLengthAt(this.line, this.cursor);
+    this.cursor += next;
+  }
+  if (this.terminal) this._refreshLine();
 };
 
 Interface.prototype._tabComplete = function() {
@@ -709,18 +1057,29 @@ Interface.prototype._tabComplete = function() {
     this._insertString('\t');
     return;
   }
-  this._resolveCompletion(function(result) {
-    var completions = Array.isArray(result && result[0]) ? result[0].filter(function(entry) { return entry !== ''; }) : [];
+  this._resolveCompletion(function(err, result) {
+    var displayCompletions;
+    var completions;
     var completeOn = result && typeof result[1] === 'string' ? result[1] : self.line;
-    var prefix = commonPrefix(completions);
-    if (prefix && prefix.length > completeOn.length && self.line.indexOf(completeOn, self.cursor - completeOn.length) !== -1) {
-      var insert = prefix.slice(completeOn.length);
-      self._insertString(insert);
+    var replacement;
+    var start;
+    if (err) {
+      self._showCompletionError(err);
+      return;
+    }
+    displayCompletions = Array.isArray(result && result[0]) ? result[0].slice() : [];
+    completions = displayCompletions.filter(function(entry) { return entry !== ''; });
+    replacement = completions.length === 1 ? String(completions[0]) : commonPrefix(completions);
+    start = self.cursor - completeOn.length;
+    if (replacement && replacement !== completeOn && start >= 0 && self.line.slice(start, self.cursor) === completeOn) {
+      self.line = self.line.slice(0, start) + replacement + self.line.slice(self.cursor);
+      self.cursor = start + replacement.length;
+      self._refreshLine();
       self._lastTabLine = self.line;
       return;
     }
-    if (self._lastTabLine === self.line && completions.length > 0) {
-      self._showCompletions(completions);
+    if (self._lastTabLine === self.line && displayCompletions.length > 0) {
+      self._showCompletions(displayCompletions);
       return;
     }
     self._lastTabLine = self.line;
@@ -728,35 +1087,211 @@ Interface.prototype._tabComplete = function() {
 };
 
 Interface.prototype._ttyWrite = function(s, key) {
+  var now;
   key = key || {};
+  if (key.sequence === '\x1F') {
+    this._undoEdit();
+    this._lastTabLine = null;
+    return;
+  }
+  if (key.sequence === '\x1E') {
+    this._redoEdit();
+    this._lastTabLine = null;
+    return;
+  }
   if (key && key.ctrl) {
+    if (key.name === 'p') {
+      this._historyStep(-1);
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'n') {
+      this._historyStep(1);
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'a') {
+      this._moveCursorTo(0);
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'e') {
+      this._moveCursorTo(this.line.length);
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'b') {
+      this._moveCursor(-1);
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'f') {
+      this._moveCursor(1);
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'left') {
+      this._moveCursorTo(this._wordLeftIndex());
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'right') {
+      this._moveCursorTo(this._wordRightIndex());
+      this._lastTabLine = null;
+      return;
+    }
     if (key.name === 'u') {
       this._deleteLineLeft();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.shift && key.name === 'backspace') {
+      this._deleteLineLeft();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.shift && key.name === 'delete') {
+      this._deleteLineRight();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'w' || key.name === 'backspace') {
+      this._deleteWordLeft();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'delete') {
+      this._deleteWordRight();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'h') {
+      this._deleteLeft();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'k') {
+      this._deleteLineRight();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'y') {
+      this._yank();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'l') {
+      if (this.terminal) this._refreshLine();
+      this._lastTabLine = null;
       return;
     }
     if (key.name === 'c' || key.name === 'd') {
+      if (key.name === 'd' && this.line.length > 0) {
+        if (this.cursor < this.line.length) {
+          this._deleteRight();
+        }
+        this._lastTabLine = null;
+        return;
+      }
       if (typeof this._questionReject === 'function') {
         var reject = this._questionReject;
         this._questionReject = null;
+        this._questionPrompt = null;
+        this._questionCallback = null;
+        if (this._questionOnLine) {
+          this.removeListener('line', this._questionOnLine);
+          this._questionOnLine = null;
+        }
         reject(_createAbortError());
       }
       this.close();
       return;
     }
   }
+  if (key && key.meta) {
+    if (key.name === 'b') {
+      this._moveCursorTo(this._wordLeftIndex());
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'f') {
+      this._moveCursorTo(this._wordRightIndex());
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'backspace') {
+      this._deleteWordLeft();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'delete' || key.name === 'd') {
+      this._deleteWordRight();
+      this._lastTabLine = null;
+      return;
+    }
+    if (key.name === 'y') {
+      this._yankPop();
+      this._lastTabLine = null;
+      return;
+    }
+  }
   if (key && key.name === 'backspace') {
     this._deleteLeft();
+    this._lastTabLine = null;
     return;
   }
   if (key && key.name === 'tab') {
     this._tabComplete();
     return;
   }
-  if (key && (key.name === 'return' || key.name === 'enter')) {
-    this._finishLine();
+  if (key && key.name === 'up') {
+    this._historyStep(-1);
     this._lastTabLine = null;
     return;
   }
+  if (key && key.name === 'down') {
+    this._historyStep(1);
+    this._lastTabLine = null;
+    return;
+  }
+  if (key && key.name === 'left') {
+    this._moveCursor(-1);
+    this._lastTabLine = null;
+    return;
+  }
+  if (key && key.name === 'right') {
+    this._moveCursor(1);
+    this._lastTabLine = null;
+    return;
+  }
+  if (key && key.name === 'home') {
+    this._moveCursorTo(0);
+    this._lastTabLine = null;
+    return;
+  }
+  if (key && key.name === 'end') {
+    this._moveCursorTo(this.line.length);
+    this._lastTabLine = null;
+    return;
+  }
+  if (key && key.name === 'delete') {
+    this._deleteRight();
+    this._lastTabLine = null;
+    return;
+  }
+  if (key && (key.name === 'return' || key.name === 'enter')) {
+    now = Date.now();
+    if (key.name === 'enter' && this._lastReturnAt && now - this._lastReturnAt <= this.crlfDelay) {
+      this._lastReturnAt = 0;
+      this._lastTabLine = null;
+      return;
+    }
+    this._finishLine();
+    this._lastReturnAt = key.name === 'return' ? now : 0;
+    this._lastTabLine = null;
+    return;
+  }
+  this._lastReturnAt = 0;
   if (typeof s === 'string' && s.length > 0) {
     this._insertString(s);
     this._lastTabLine = null;
@@ -764,7 +1299,27 @@ Interface.prototype._ttyWrite = function(s, key) {
 };
 
 Interface.prototype._normalWrite = function(chunk) {
-  var str = typeof chunk === 'string' ? chunk : (chunk && typeof chunk.toString === 'function' ? chunk.toString('utf8') : String(chunk));
+  var str;
+  var now = Date.now();
+  if (typeof chunk === 'string') {
+    str = chunk;
+  } else if (chunk && this._normalDecoder && typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+    str = this._normalDecoder.write(Buffer.from(chunk));
+  } else {
+    str = chunk && typeof chunk.toString === 'function' ? chunk.toString('utf8') : String(chunk);
+  }
+  if (this._pendingCR) {
+    this._lineBuffer += '\n';
+    this._pendingCR = false;
+    if (str.charAt(0) === '\n' && now - this._lastReturnAt <= this.crlfDelay) {
+      str = str.slice(1);
+    }
+  }
+  if (str.charAt(str.length - 1) === '\r') {
+    this._pendingCR = true;
+    this._lastReturnAt = now;
+    str = str.slice(0, -1);
+  }
   this._lineBuffer += str;
   var lines = this._lineBuffer.split(/\r\n|[\n\r\x85\u2028\u2029]/);
   this._lineBuffer = lines.pop() || '';
@@ -789,28 +1344,67 @@ Interface.prototype.getPrompt = function() {
 };
 
 Interface.prototype.prompt = function() {
-  if (!this.closed) this._writeToOutput(this._promptStr);
+  if (this.closed) return;
+  if (!this.terminal) {
+    this._writeToOutput(this._promptStr);
+    return;
+  }
+  this._writeToOutput('\x1b[1G');
+  this._writeToOutput('\x1b[0J');
+  this._writeToOutput(this._promptStr + this.line);
+  this._writeToOutput('\x1b[' + (this.getCursorPos().cols + 1) + 'G');
 };
 
 Interface.prototype.question = function(query, options, cb) {
+  var signal;
   if (typeof options === 'function') {
     cb = options;
     options = {};
   }
+  options = options || {};
   if (this.closed) throw _createUseAfterCloseError();
-  if (this.output) this.output.write(String(query));
+  if (this._questionCallback) return;
+  signal = options.signal;
+  this._questionPrompt = String(query);
+  this._questionCallback = cb || null;
+  if (this.output) this._writeToOutput(this._questionPrompt);
   var self = this;
+  function cleanup() {
+    if (signal && typeof signal.removeEventListener === 'function') {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
   function onLine(answer) {
     self.removeListener('line', onLine);
+    self._questionPrompt = null;
+    self._questionCallback = null;
+    self._questionOnLine = null;
+    cleanup();
     if (cb) cb(answer);
   }
+  function onAbort() {
+    self.removeListener('line', onLine);
+    self._questionPrompt = null;
+    self._questionCallback = null;
+    self._questionOnLine = null;
+    cleanup();
+  }
+  if (signal && signal.aborted) {
+    onAbort();
+    return;
+  }
+  if (signal && typeof signal.addEventListener === 'function') {
+    signal.addEventListener('abort', onAbort);
+  }
+  this._questionOnLine = onLine;
   this.on('line', onLine);
 };
 
 Interface.prototype.write = function(data, key) {
   var str;
   var i;
-  if (this.closed) return;
+  if (this.closed) throw _createUseAfterCloseError();
+  if (this._paused) this.resume();
   if (key) {
     this._ttyWrite(data == null ? '' : String(data), key);
     return;
@@ -831,12 +1425,21 @@ Interface.prototype.write = function(data, key) {
 Interface.prototype.close = function() {
   if (this.closed) return;
   this.closed = true;
+  this._questionPrompt = null;
+  this._questionCallback = null;
+  if (this._questionOnLine) {
+    this.removeListener('line', this._questionOnLine);
+    this._questionOnLine = null;
+  }
   if (this.input && typeof this.input.removeListener === 'function') {
     if (this._onData) this.input.removeListener('data', this._onData);
     if (this._onKeypress) this.input.removeListener('keypress', this._onKeypress);
     if (this._onError) this.input.removeListener('error', this._onError);
     if (this._onEnd) this.input.removeListener('end', this._onEnd);
     if (this._onClose) this.input.removeListener('close', this._onClose);
+  }
+  if (this._abortSignal && this._onAbortSignal && typeof this._abortSignal.removeEventListener === 'function') {
+    this._abortSignal.removeEventListener('abort', this._onAbortSignal);
   }
   if (this.terminal && this.input && typeof this.input.setRawMode === 'function') {
     this.input.setRawMode(false);
@@ -846,14 +1449,18 @@ Interface.prototype.close = function() {
 };
 
 Interface.prototype.pause = function() {
+  if (this.closed) throw _createUseAfterCloseError();
   this._paused = true;
+  this.paused = true;
   if (this.input && typeof this.input.pause === 'function') this.input.pause();
   this.emit('pause');
   return this;
 };
 
 Interface.prototype.resume = function() {
+  if (this.closed) throw _createUseAfterCloseError();
   this._paused = false;
+  this.paused = false;
   if (this.input && typeof this.input.resume === 'function') this.input.resume();
   this.emit('resume');
   return this;
