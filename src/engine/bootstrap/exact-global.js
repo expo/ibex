@@ -23,6 +23,9 @@
     var nativeClearTimeout = g.clearTimeout || function() {};
     var nativeSetInterval = g.setInterval;
     var nativeClearInterval = g.clearInterval || function() {};
+    var symbolDispose = typeof Symbol === 'function'
+      ? (Symbol.dispose || (typeof Symbol.for === 'function' ? Symbol.for('nodejs.dispose') : null))
+      : null;
 
     function Timeout(handle, clearHandle, schedule, args) {
       if (handle && typeof handle === 'object' && typeof handle.unref === 'function') {
@@ -83,8 +86,8 @@
     if (typeof Symbol === 'function' && Symbol.toPrimitive) {
       Timeout.prototype[Symbol.toPrimitive] = function() { return this._exactHandle; };
     }
-    if (typeof Symbol === 'function' && Symbol.dispose) {
-      Timeout.prototype[Symbol.dispose] = function() { this.close(); };
+    if (symbolDispose) {
+      Timeout.prototype[symbolDispose] = function() { this.close(); };
     }
 
     function Immediate(handle, clearHandle, schedule, args) {
@@ -197,9 +200,9 @@
       return nativeClearInterval(handle);
     };
 
-    if (typeof g.setImmediate === 'function' && typeof g.clearImmediate === 'function') {
+    if (typeof g.setImmediate === 'function') {
       var nativeSetImmediate = g.setImmediate;
-      var nativeClearImmediate = g.clearImmediate;
+      var nativeClearImmediate = typeof g.clearImmediate === 'function' ? g.clearImmediate : nativeClearTimeout;
 
       g.setImmediate = function(callback) {
         callback = _validateTimerCb(callback);

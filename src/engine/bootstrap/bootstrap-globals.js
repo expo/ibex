@@ -454,9 +454,14 @@
   var _nativeSetInterval = typeof globalThis.setInterval === 'function' ? globalThis.setInterval : null;
   var _nativeClearTimeout = typeof globalThis.clearTimeout === 'function' ? globalThis.clearTimeout : null;
   var _nativeClearInterval = typeof globalThis.clearInterval === 'function' ? globalThis.clearInterval : null;
+  var _nativeSetImmediate = typeof globalThis.setImmediate === 'function' ? globalThis.setImmediate : null;
+  var _nativeClearImmediate = typeof globalThis.clearImmediate === 'function' ? globalThis.clearImmediate : null;
   // Native ref/unref control (set by C++ runtime to control event loop keep-alive)
   var _nativeTimerRef = typeof globalThis.__exactTimerRef === 'function' ? globalThis.__exactTimerRef : null;
   var _nativeTimerUnref = typeof globalThis.__exactTimerUnref === 'function' ? globalThis.__exactTimerUnref : null;
+  var _symbolDispose = typeof Symbol === 'function'
+    ? (Symbol.dispose || (typeof Symbol.for === 'function' ? Symbol.for('nodejs.dispose') : null))
+    : null;
 
   // Helper to extract the native timer id from a Timeout/Immediate or raw id
   function _unwrapTimerId(handle) {
@@ -536,9 +541,11 @@
     return this._id;
   };
 
-  Timeout.prototype[Symbol.dispose] = function() {
-    this.close();
-  };
+  if (_symbolDispose) {
+    Timeout.prototype[_symbolDispose] = function() {
+      this.close();
+    };
+  }
 
   Timeout.prototype._invokeCallback = function _invokeCallback() {
     if (this._destroyed) return;
@@ -580,7 +587,9 @@
 
   Immediate.prototype.ref = function ref() {
     this._refed = true;
-    if (_nativeTimerRef && this._nativeId !== null) {
+    if (this._nativeId && typeof this._nativeId === 'object' && typeof this._nativeId.ref === 'function') {
+      this._nativeId.ref();
+    } else if (_nativeTimerRef && this._nativeId !== null) {
       _nativeTimerRef(this._nativeId);
     }
     return this;
@@ -588,7 +597,9 @@
 
   Immediate.prototype.unref = function unref() {
     this._refed = false;
-    if (_nativeTimerUnref && this._nativeId !== null) {
+    if (this._nativeId && typeof this._nativeId === 'object' && typeof this._nativeId.unref === 'function') {
+      this._nativeId.unref();
+    } else if (_nativeTimerUnref && this._nativeId !== null) {
       _nativeTimerUnref(this._nativeId);
     }
     return this;
@@ -602,7 +613,11 @@
     if (!this._destroyed) {
       this._destroyed = true;
       if (this._nativeId !== null) {
-        _nativeClearTimeout(this._nativeId);
+        if (_nativeClearImmediate) {
+          _nativeClearImmediate(this._nativeId);
+        } else {
+          _nativeClearTimeout(this._nativeId);
+        }
       }
     }
     return this;
@@ -612,9 +627,11 @@
     return this._id;
   };
 
-  Immediate.prototype[Symbol.dispose] = function() {
-    this.close();
-  };
+  if (_symbolDispose) {
+    Immediate.prototype[_symbolDispose] = function() {
+      this.close();
+    };
+  }
 
   Immediate.prototype._invokeCallback = function _invokeCallback() {
     if (this._destroyed) return;
@@ -726,42 +743,64 @@
   }
 
   // --- setImmediate / clearImmediate ---
-  if (typeof globalThis.setImmediate === 'undefined') {
-    defineLazyGlobal('setImmediate', function() {
-      var impl = function(callback) {
-        _validateTimerCallback(callback, 'setImmediate');
-        var args = [];
-        for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
-        var imm = new Immediate(callback, args);
-        imm._nativeId = _nativeSetTimeout(function() {
-          imm._invokeCallback();
-        }, 0);
-        return imm;
-      };
-      // Also install clearImmediate eagerly
-      globalThis.clearImmediate = function(handle) {
-        if (handle instanceof Immediate) {
-          handle.close();
-        } else {
-          _nativeClearTimeout(_unwrapTimerId(handle));
-        }
-      };
-      return impl;
-    });
-  }
-  if (typeof globalThis.clearImmediate === 'undefined') {
-    defineLazyGlobal('clearImmediate', function() {
-      // Trigger setImmediate lazy init which installs both
-      void globalThis.setImmediate;
-      if (globalThis.clearImmediate) return globalThis.clearImmediate;
-      return function(handle) {
-        if (handle instanceof Immediate) {
-          handle.close();
-        } else {
-          _nativeClearTimeout(_unwrapTimerId(handle));
-        }
-      };
-    });
+  if (_nativeSetImmediate) {
+    globalThis.setImmediate = function(callback) {
+      _validateTimerCallback(callback, 'setImmediate');
+      var args = [];
+      for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+      var imm = new Immediate(callback, args);
+      imm._nativeId = _nativeSetImmediate(function() {
+        imm._invokeCallback();
+      });
+      return imm;
+    };
+    globalThis.clearImmediate = function(handle) {
+      if (handle instanceof Immediate) {
+        handle.close();
+      } else if (_nativeClearImmediate) {
+        _nativeClearImmediate(_unwrapTimerId(handle));
+      } else {
+        _nativeClearTimeout(_unwrapTimerId(handle));
+      }
+    };
+  } else {
+    if (typeof globalThis.setImmediate === 'undefined') {
+      defineLazyGlobal('setImmediate', function() {
+        var impl = function(callback) {
+          _validateTimerCallback(callback, 'setImmediate');
+          var args = [];
+          for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
+          var imm = new Immediate(callback, args);
+          imm._nativeId = _nativeSetTimeout(function() {
+            imm._invokeCallback();
+          }, 0);
+          return imm;
+        };
+        // Also install clearImmediate eagerly
+        globalThis.clearImmediate = function(handle) {
+          if (handle instanceof Immediate) {
+            handle.close();
+          } else {
+            _nativeClearTimeout(_unwrapTimerId(handle));
+          }
+        };
+        return impl;
+      });
+    }
+    if (typeof globalThis.clearImmediate === 'undefined') {
+      defineLazyGlobal('clearImmediate', function() {
+        // Trigger setImmediate lazy init which installs both
+        void globalThis.setImmediate;
+        if (globalThis.clearImmediate) return globalThis.clearImmediate;
+        return function(handle) {
+          if (handle instanceof Immediate) {
+            handle.close();
+          } else {
+            _nativeClearTimeout(_unwrapTimerId(handle));
+          }
+        };
+      });
+    }
   }
 
   // AbortController / AbortSignal — lazy (Web API)

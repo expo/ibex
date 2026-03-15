@@ -6,12 +6,29 @@ var _setInterval = globalThis.setInterval;
 var _clearInterval = globalThis.clearInterval;
 var _FuncApply = Function.prototype.apply;
 var _FuncBind = Function.prototype.bind;
+var _symbolDispose = typeof Symbol === 'function'
+  ? (Symbol.dispose || (typeof Symbol.for === 'function' ? Symbol.for('nodejs.dispose') : null))
+  : null;
 
 function _validateTimerCallback(callback, name) {
   if (typeof callback !== 'function') {
     var err = new TypeError('[ERR_INVALID_ARG_TYPE]: The "' + name + '" argument must be of type function. Received type ' + typeof callback);
     err.code = 'ERR_INVALID_ARG_TYPE';
     throw err;
+  }
+}
+
+function _setTimerReference(handle, shouldRef) {
+  if (handle && typeof handle === 'object') {
+    var method = shouldRef ? handle.ref : handle.unref;
+    if (typeof method === 'function') {
+      method.call(handle);
+      return;
+    }
+  }
+  var control = shouldRef ? globalThis.__exactTimerRef : globalThis.__exactTimerUnref;
+  if (typeof control === 'function' && handle !== undefined && handle !== null) {
+    control(handle);
   }
 }
 
@@ -55,15 +72,20 @@ Timeout.prototype._scheduleNative = function() {
       _FuncApply.call(self._callback, self, self._args);
     }, this._delay);
   }
+  if (!this._refed) {
+    _setTimerReference(this._nativeHandle, false);
+  }
 };
 
 Timeout.prototype.ref = function() {
   this._refed = true;
+  _setTimerReference(this._nativeHandle, true);
   return this;
 };
 
 Timeout.prototype.unref = function() {
   this._refed = false;
+  _setTimerReference(this._nativeHandle, false);
   return this;
 };
 
@@ -98,11 +120,13 @@ Timeout.prototype[Symbol.toPrimitive] = function() {
   return this._id;
 };
 
-Timeout.prototype[Symbol.dispose] = function() {
-  if (!this._destroyed) {
-    this.close();
-  }
-};
+if (_symbolDispose) {
+  Timeout.prototype[_symbolDispose] = function() {
+    if (!this._destroyed) {
+      this.close();
+    }
+  };
+}
 
 // Immediate wrapper
 function Immediate(callback, args) {
@@ -122,15 +146,20 @@ function Immediate(callback, args) {
     _timerById.delete(self._id);
     _FuncApply.call(self._callback, self, self._args);
   }, 0);
+  if (!this._refed) {
+    _setTimerReference(this._nativeHandle, false);
+  }
 }
 
 Immediate.prototype.ref = function() {
   this._refed = true;
+  _setTimerReference(this._nativeHandle, true);
   return this;
 };
 
 Immediate.prototype.unref = function() {
   this._refed = false;
+  _setTimerReference(this._nativeHandle, false);
   return this;
 };
 
@@ -149,11 +178,13 @@ Immediate.prototype[Symbol.toPrimitive] = function() {
   return this._id;
 };
 
-Immediate.prototype[Symbol.dispose] = function() {
-  if (!this._destroyed) {
-    this.close();
-  }
-};
+if (_symbolDispose) {
+  Immediate.prototype[_symbolDispose] = function() {
+    if (!this._destroyed) {
+      this.close();
+    }
+  };
+}
 
 function setTimeout$1(callback, delay) {
   _validateTimerCallback(callback, 'callback');
