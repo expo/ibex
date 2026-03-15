@@ -159,6 +159,17 @@ function _normalizeRmError(err, path, recursive) {
   return err;
 }
 
+function _makeRmDirError(path) {
+  var err = new Error('ERR_FS_EISDIR: Path is a directory: rm returned EISDIR (is a directory) ' + path);
+  err.code = 'ERR_FS_EISDIR';
+  err.syscall = 'rm';
+  err.path = path;
+  if (_uvErrnoMap.EISDIR !== undefined) {
+    err.errno = -_uvErrnoMap.EISDIR;
+  }
+  return err;
+}
+
 function _coerceMode(mode) {
   if (typeof mode === 'number') return mode;
   if (typeof mode === 'string') {
@@ -677,6 +688,12 @@ function _extractFsCode(message) {
   if (typeof message !== 'string') return null;
   var match = message.match(/^([A-Z][A-Z0-9_]+):/);
   return match ? match[1] : null;
+}
+
+function _getFsErrorCode(err) {
+  if (!err || typeof err !== 'object') return null;
+  if (typeof err.code === 'string') return err.code;
+  return _extractFsCode(err.message) || _uvCodeFromErrno(err.errno);
 }
 
 function _makeFsThisError(name) {
@@ -1371,17 +1388,64 @@ function _coerceToBigInt(raw) {
   return 0n;
 }
 
+function _coerceStatsMillisecondsToBigInt(msValue, nsValue) {
+  if (typeof nsValue === 'bigint') {
+    return nsValue / 1000000n;
+  }
+  if (typeof nsValue === 'number' && !isNaN(nsValue)) {
+    return BigInt(Math.floor(nsValue / 1e6));
+  }
+  if (typeof msValue === 'bigint') {
+    return msValue;
+  }
+  if (typeof msValue === 'number' && !isNaN(msValue)) {
+    return BigInt(Math.floor(msValue));
+  }
+  return 0n;
+}
+
+function _coerceStatsMilliseconds(msValue, nsValue, useBigInt) {
+  if (useBigInt) {
+    return _coerceStatsMillisecondsToBigInt(msValue, nsValue);
+  }
+  if (typeof nsValue === 'bigint') {
+    return Number(nsValue / 1000000n);
+  }
+  if (typeof nsValue === 'number' && !isNaN(nsValue)) {
+    return Math.floor(nsValue / 1e6);
+  }
+  if (typeof msValue === 'number' && !isNaN(msValue)) {
+    return Math.floor(msValue);
+  }
+  return msValue || 0;
+}
+
 function _makeBigIntStats(raw) {
   var ctor = _getInternalBigIntStats();
   if (typeof ctor !== 'function') {
     return new Stats(raw || {}, true);
+  }
+  if (typeof ctor.prototype.isFile !== 'function') {
+    Object.defineProperties(ctor.prototype, {
+      isFile: { value: Stats.prototype.isFile, configurable: true, writable: true },
+      isDirectory: { value: Stats.prototype.isDirectory, configurable: true, writable: true },
+      isSymbolicLink: { value: Stats.prototype.isSymbolicLink, configurable: true, writable: true },
+      isBlockDevice: { value: Stats.prototype.isBlockDevice, configurable: true, writable: true },
+      isCharacterDevice: { value: Stats.prototype.isCharacterDevice, configurable: true, writable: true },
+      isFIFO: { value: Stats.prototype.isFIFO, configurable: true, writable: true },
+      isSocket: { value: Stats.prototype.isSocket, configurable: true, writable: true }
+    });
   }
   var safe = raw || {};
   var mt = safe.mtime_ms || safe.mtimeMs || 0;
   var at = safe.atime_ms || safe.atimeMs || mt;
   var ct = safe.ctime_ms || safe.ctimeMs || mt;
   var bt = safe.birthtime_ms || safe.birthtimeMs || mt;
-  return new ctor(
+  var atNs = safe.atime_ns || safe.atimeNs || 0;
+  var mtNs = safe.mtime_ns || safe.mtimeNs || 0;
+  var ctNs = safe.ctime_ns || safe.ctimeNs || 0;
+  var btNs = safe.birthtime_ns || safe.birthtimeNs || 0;
+  var stats = new ctor(
     _coerceToBigInt(safe.dev),
     _coerceToBigInt(safe.mode),
     _coerceToBigInt(safe.nlink || 1),
@@ -1392,15 +1456,23 @@ function _makeBigIntStats(raw) {
     _coerceToBigInt(safe.ino),
     _coerceToBigInt(safe.size),
     _coerceToBigInt(safe.blocks),
-    _coerceToBigInt(at),
-    _coerceToBigInt(mt),
-    _coerceToBigInt(ct),
-    _coerceToBigInt(bt),
-    _coerceToBigInt(safe.atime_ns || safe.atimeNs || 0),
-    _coerceToBigInt(safe.mtime_ns || safe.mtimeNs || 0),
-    _coerceToBigInt(safe.ctime_ns || safe.ctimeNs || 0),
-    _coerceToBigInt(safe.birthtime_ns || safe.birthtimeNs || 0)
+    _coerceStatsMillisecondsToBigInt(at, atNs),
+    _coerceStatsMillisecondsToBigInt(mt, mtNs),
+    _coerceStatsMillisecondsToBigInt(ct, ctNs),
+    _coerceStatsMillisecondsToBigInt(bt, btNs),
+    _coerceToBigInt(atNs),
+    _coerceToBigInt(mtNs),
+    _coerceToBigInt(ctNs),
+    _coerceToBigInt(btNs)
   );
+  stats._isFile = !!safe.is_file;
+  stats._isDir = !!safe.is_dir;
+  stats._isSymlink = !!safe.is_symlink;
+  stats._isChrDev = !!safe.is_char_device;
+  stats._isBlkDev = !!safe.is_block_device;
+  stats._isFifo = !!safe.is_fifo;
+  stats._isSock = !!safe.is_socket;
+  return stats;
 }
 
 function _coerceStatsDate(raw) {
@@ -1423,14 +1495,18 @@ function Stats(raw, useBigInt) {
   var at = raw.atime_ms || raw.atimeMs || mt;
   var ct = raw.ctime_ms || raw.ctimeMs || mt;
   var bt = raw.birthtime_ms || raw.birthtimeMs || mt;
-  this.atimeMs = toValue(at);
-  this.mtimeMs = toValue(mt);
-  this.ctimeMs = toValue(ct);
-  this.birthtimeMs = toValue(bt);
-  this.atimeNs = toValue(raw.atime_ns || raw.atimeNs || 0);
-  this.mtimeNs = toValue(raw.mtime_ns || raw.mtimeNs || 0);
-  this.ctimeNs = toValue(raw.ctime_ns || raw.ctimeNs || 0);
-  this.birthtimeNs = toValue(raw.birthtime_ns || raw.birthtimeNs || 0);
+  var atNs = raw.atime_ns || raw.atimeNs || 0;
+  var mtNs = raw.mtime_ns || raw.mtimeNs || 0;
+  var ctNs = raw.ctime_ns || raw.ctimeNs || 0;
+  var btNs = raw.birthtime_ns || raw.birthtimeNs || 0;
+  this.atimeMs = _coerceStatsMilliseconds(at, atNs, useBigInt);
+  this.mtimeMs = _coerceStatsMilliseconds(mt, mtNs, useBigInt);
+  this.ctimeMs = _coerceStatsMilliseconds(ct, ctNs, useBigInt);
+  this.birthtimeMs = _coerceStatsMilliseconds(bt, btNs, useBigInt);
+  this.atimeNs = toValue(atNs);
+  this.mtimeNs = toValue(mtNs);
+  this.ctimeNs = toValue(ctNs);
+  this.birthtimeNs = toValue(btNs);
   this.atime = _coerceStatsDate(Number(at));
   this.mtime = _coerceStatsDate(Number(mt));
   this.ctime = _coerceStatsDate(Number(ct));
@@ -1454,7 +1530,7 @@ Stats.prototype.isSocket = function() { return this._isSock; };
 function _makeStats(json, opts) {
   var raw = JSON.parse(json);
   var options = _extractStatOptions(opts);
-  return new Stats(raw, options.bigint);
+  return options.bigint ? _makeBigIntStats(raw) : new Stats(raw, false);
 }
 
 function _coerceStatOptions(options) {
@@ -1494,7 +1570,7 @@ function statSync(path, options) {
     var json = g.__exactStat(p);
     return _makeStats(json, opts);
   } catch(e) {
-    if (opts.throwIfNoEntry === false && e && e.code === 'ENOENT') {
+    if (opts.throwIfNoEntry === false && _getFsErrorCode(e) === 'ENOENT') {
       return undefined;
     }
     throw _makeFsError(e, 'stat', p);
@@ -1511,7 +1587,7 @@ function lstatSync(path, options) {
     var json = g.__exactLstat(p);
     return _makeStats(json, opts);
   } catch(e) {
-    if (opts.throwIfNoEntry === false && e && e.code === 'ENOENT') {
+    if (opts.throwIfNoEntry === false && _getFsErrorCode(e) === 'ENOENT') {
       return undefined;
     }
     throw _makeFsError(e, 'lstat', p);
@@ -1519,11 +1595,12 @@ function lstatSync(path, options) {
 }
 
 function Dirent(name, parentPath, stat) {
+  var hasTypeCode = typeof parentPath === 'number' && stat === undefined;
   this.name = name;
-  this.parentPath = typeof parentPath === 'string' ? parentPath : '';
+  this.parentPath = hasTypeCode ? '' : (parentPath === undefined ? '' : parentPath);
   this.path = this.parentPath;
-  this._stat = typeof parentPath === 'number' && stat === undefined ? null : stat;
-  this._type = typeof parentPath === 'number' && stat === undefined ? parentPath : 0;
+  this._stat = hasTypeCode ? null : stat;
+  this._type = hasTypeCode ? parentPath : 0;
 }
 function _direntTypeMatches(dirent, expectedType) {
   return dirent._type === expectedType;
@@ -2155,6 +2232,35 @@ function mkdirSync(path, options) {
 function rmdirSync(path, options) {
   _validatePath(path); ensureExactFs();
   var p = _pathToString(path);
+  var opts = options;
+  if (opts === undefined) {
+    opts = {};
+  } else {
+    try {
+      var fsUtils = require('internal/fs/utils');
+      if (fsUtils && typeof fsUtils.validateRmdirOptions === 'function') {
+        opts = fsUtils.validateRmdirOptions(opts);
+      }
+    } catch (_err) {}
+  }
+  if (opts && opts.recursive === true) {
+    try {
+      var info = lstatSync(p);
+      if (!info || typeof info.isDirectory !== 'function' || !info.isDirectory()) {
+        g.__exactRmdir(p);
+        return;
+      }
+      _rmSyncInternal(p, {
+        recursive: true,
+        force: false,
+        maxRetries: opts.maxRetries,
+        retryDelay: opts.retryDelay
+      }, true);
+      return;
+    } catch(e) {
+      throw _makeFsError(e, 'rmdir', p);
+    }
+  }
   try { g.__exactRmdir(p); } catch(e) { throw _makeFsError(e, 'rmdir', p); }
 }
 function unlinkSync(path) {
@@ -4595,6 +4701,9 @@ function _rmSyncInternal(path, options, preserveOriginalError) {
     // Use lstatSync to not follow symlinks - symlinks should be unlinked, not traversed
     var info = lstatSync(path);
     if (typeof info.isDirectory === 'function' ? info.isDirectory() : info.is_dir) {
+      if (!recursive) {
+        throw _makeRmDirError(path);
+      }
       if (recursive) {
         var entries;
         if (force) {
