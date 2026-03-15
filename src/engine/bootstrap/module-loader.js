@@ -3008,6 +3008,88 @@
     const previousNodeFilename = g.__filename;
     const previousNodeDirname = g.__dirname;
     try {
+      const splitDirectivePrologue = function(text) {
+        var sourceText = String(text || "");
+        var length = sourceText.length;
+        var cursor = 0;
+        var prologueEnd = 0;
+
+        function skipWhitespaceAndComments(index) {
+          var current = index;
+          while (current < length) {
+            var ch = sourceText.charAt(current);
+            if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n' || ch === '\f') {
+              current++;
+              continue;
+            }
+            if (ch === '/' && sourceText.charAt(current + 1) === '/') {
+              current += 2;
+              while (current < length && sourceText.charAt(current) !== '\n') current++;
+              continue;
+            }
+            if (ch === '/' && sourceText.charAt(current + 1) === '*') {
+              current += 2;
+              while (current < length) {
+                if (sourceText.charAt(current) === '*' && sourceText.charAt(current + 1) === '/') {
+                  current += 2;
+                  break;
+                }
+                current++;
+              }
+              continue;
+            }
+            break;
+          }
+          return current;
+        }
+
+        cursor = skipWhitespaceAndComments(0);
+        while (cursor < length) {
+          var quote = sourceText.charAt(cursor);
+          if (quote !== '"' && quote !== "'") break;
+          var scan = cursor + 1;
+          while (scan < length) {
+            var token = sourceText.charAt(scan);
+            if (token === '\\') {
+              scan += 2;
+              continue;
+            }
+            if (token === quote) break;
+            scan++;
+          }
+          if (scan >= length || sourceText.charAt(scan) !== quote) break;
+          scan++;
+          while (scan < length) {
+            var trailing = sourceText.charAt(scan);
+            if (trailing === ' ' || trailing === '\t' || trailing === '\r') {
+              scan++;
+              continue;
+            }
+            if (trailing === ';') {
+              scan++;
+            }
+            break;
+          }
+          cursor = skipWhitespaceAndComments(scan);
+          prologueEnd = cursor;
+        }
+
+        if (prologueEnd === 0) {
+          return {
+            prologue: '',
+            body: sourceText
+          };
+        }
+
+        return {
+          prologue: sourceText.slice(0, prologueEnd),
+          body: sourceText.slice(prologueEnd)
+        };
+      };
+      const injectEvalShimPreamble = function(text) {
+        var split = splitDirectivePrologue(text);
+        return split.prologue + evalShimPreamble + split.body;
+      };
       const evalShimPreamble =
         "if (typeof globalThis.__exactCompatEval !== 'function') {\n" +
         "  (function() {\n" +
@@ -3045,11 +3127,11 @@
         "      globalThis.eval = __exactCompatEval;\n" +
         "    }\n" +
         "  })();\n" +
-        "}\n" +
-        "var eval = globalThis.__exactCompatEval;\n";
+        "}\n";
+      const transformedSource =
+        transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename)));
       const directSource =
-        evalShimPreamble +
-        transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename))) +
+        injectEvalShimPreamble(transformedSource) +
         "\n//# sourceURL=" + filename;
       g.__exactDebugModuleSources = (g.__exactDebugModuleSources || []);
       if (Array.isArray(g.__exactDebugModuleSources)) {
@@ -3087,10 +3169,16 @@
         if (!canFallback) {
           throw err;
         }
-        let runtimeSource =
-          evalShimPreamble +
-          transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(transformEsmToCjs(directSource)), filename))) +
-            "\n//# sourceURL=" + filename;
+        let runtimeSource = transformDynamicImport(
+          transformImportMeta(
+            applyRolldownCjsDirnameBindings(
+              fixForOfScoping(transformEsmToCjs(transformedSource)),
+              filename
+            )
+          )
+        );
+        runtimeSource = injectEvalShimPreamble(runtimeSource) +
+          "\n//# sourceURL=" + filename;
         if (needsAsyncFallback) {
           runtimeSource = wrapAsyncModule(runtimeSource);
         }
