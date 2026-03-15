@@ -892,6 +892,62 @@
     root.__exactNativeWrapState = state;
     return state;
   }
+  var internalAnsiPattern = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?(?:\u0007|\u001B\u005C|\u009C))|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+  function internalStripVTControlCharacters(str) {
+    return String(str).replace(internalAnsiPattern, '');
+  }
+  function internalIsZeroWidthCodePoint(code) {
+    return code <= 0x1F ||
+      (code >= 0x7F && code <= 0x9F) ||
+      (code >= 0x300 && code <= 0x36F) ||
+      (code >= 0x200B && code <= 0x200F) ||
+      (code >= 0x20D0 && code <= 0x20FF) ||
+      (code >= 0xFE00 && code <= 0xFE0F) ||
+      (code >= 0xFE20 && code <= 0xFE2F) ||
+      (code >= 0xE0100 && code <= 0xE01EF);
+  }
+  function internalIsFullWidthCodePoint(code) {
+    return code >= 0x1100 && (
+      code <= 0x115f ||
+      code === 0x2329 ||
+      code === 0x232a ||
+      (code >= 0x2e80 && code <= 0x3247 && code !== 0x303f) ||
+      (code >= 0x3250 && code <= 0x4dbf) ||
+      (code >= 0x4e00 && code <= 0xa4c6) ||
+      (code >= 0xa960 && code <= 0xa97c) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe19) ||
+      (code >= 0xfe30 && code <= 0xfe6b) ||
+      (code >= 0xff01 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1b000 && code <= 0x1b001) ||
+      (code >= 0x1f200 && code <= 0x1f251) ||
+      (code >= 0x1f300 && code <= 0x1f64f) ||
+      (code >= 0x20000 && code <= 0x3fffd)
+    );
+  }
+  function internalGetStringWidth(str, removeControlChars) {
+    var text = String(str);
+    var width = 0;
+    var i = 0;
+    if (removeControlChars !== false) {
+      text = internalStripVTControlCharacters(text);
+    }
+    if (typeof text.normalize === 'function') {
+      text = text.normalize('NFC');
+    }
+    while (i < text.length) {
+      var code = text.codePointAt(i);
+      if (internalIsFullWidthCodePoint(code)) {
+        width += 2;
+      } else if (!internalIsZeroWidthCodePoint(code)) {
+        width += 1;
+      }
+      i += code > 0xFFFF ? 2 : 1;
+    }
+    return width;
+  }
   var internalModules = {
     'internal/util/debuglog': {
       formatTime: formatTime,
@@ -903,6 +959,14 @@
         var end = Date.now() + ms;
         while (Date.now() < end) { /* busy-wait */ }
       }
+    },
+    'internal/util/inspect': {
+      inspect: function(value, options) {
+        return require('util').inspect(value, options);
+      },
+      getStringWidth: internalGetStringWidth,
+      stripVTControlCharacters: internalStripVTControlCharacters,
+      isZeroWidthCodePoint: internalIsZeroWidthCodePoint
     },
     'internal/options': {
       getOptionValue: _internalGetOptionValue,
