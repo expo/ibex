@@ -13,9 +13,9 @@ function normalizeEncoding(enc) {
 
 function utf8ByteLength(leadByte) {
   if (leadByte < 0x80) return 1;
-  if ((leadByte & 0xE0) === 0xC0) return 2;
-  if ((leadByte & 0xF0) === 0xE0) return 3;
-  if ((leadByte & 0xF8) === 0xF0) return 4;
+  if (leadByte >= 0xC2 && leadByte <= 0xDF) return 2;
+  if (leadByte >= 0xE0 && leadByte <= 0xEF) return 3;
+  if (leadByte >= 0xF0 && leadByte <= 0xF4) return 4;
   return 1;
 }
 
@@ -75,7 +75,9 @@ function _decodeUtf8Complete(bytes) {
   return result;
 }
 
-var utf8DecoderSupportsStream = typeof TextDecoder === 'function';
+// WHATWG streaming UTF-8 decoding diverges from Node's StringDecoder on
+// invalid byte boundaries, so use the buffer-mirroring path instead.
+var utf8DecoderSupportsStream = false;
 
 function StringDecoder(encoding) {
   this.encoding = normalizeEncoding(encoding);
