@@ -1093,6 +1093,62 @@ function _getCurrentExport(name) {
   return (typeof module !== 'undefined' && module.exports && module.exports[name]) || null;
 }
 
+function _callOpenSync(path, flags, mode) {
+  var fn = _getCurrentExport('openSync');
+  if (typeof fn === 'function' && fn !== openSync) return fn(path, flags, mode);
+  return openSync(path, flags, mode);
+}
+
+function _callCloseSync(fd) {
+  var fn = _getCurrentExport('closeSync');
+  if (typeof fn === 'function' && fn !== closeSync) return fn(fd);
+  return closeSync(fd);
+}
+
+function _callWriteSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
+  var fn = _getCurrentExport('writeSync');
+  if (typeof fn === 'function' && fn !== writeSync) {
+    return fn(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position);
+  }
+  return writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position);
+}
+
+var _exactInternalFsBinding;
+var _exactDefaultWriteFileUtf8;
+
+function _getInternalFsBinding() {
+  if (_exactInternalFsBinding !== undefined) {
+    return _exactInternalFsBinding;
+  }
+  var binding = null;
+  try {
+    var testBinding = require('internal/test/binding');
+    if (testBinding && typeof testBinding.internalBinding === 'function') {
+      binding = testBinding.internalBinding('fs');
+    }
+  } catch (_err) {}
+  if (binding && _exactDefaultWriteFileUtf8 === undefined) {
+    _exactDefaultWriteFileUtf8 = binding.writeFileUtf8;
+  }
+  _exactInternalFsBinding = binding;
+  return binding;
+}
+
+function _shouldUseSyncUtf8FastPath(data, options) {
+  if (typeof data !== 'string') return false;
+  if (options && options.flush === true) return false;
+  var encoding = options && options.encoding;
+  return encoding === undefined || encoding === null || encoding === 'utf8' || encoding === 'utf-8';
+}
+
+function _hasCustomSyncUtf8FastPath(binding) {
+  return !!(
+    binding &&
+    typeof binding.writeFileUtf8 === 'function' &&
+    binding.writeFileUtf8 !== _exactDefaultWriteFileUtf8
+  );
+}
+
 function _callFsync(fd, callback) {
   var fn = _getCurrentExport('fsync');
   if (typeof fn === 'function') return fn(fd, callback);
@@ -1293,7 +1349,7 @@ function writeFileSync(path, data, options) {
   if (typeof path === 'number') {
     ensureExactFs();
     var fdData = toUint8Array(data, writeOptions.encoding);
-    writeSync(path, fdData, 0, fdData.length, -1);
+    _callWriteSync(path, fdData, 0, fdData.length, -1);
     if (writeOptions.flush === true) {
       _callFsyncSync(path);
     }
@@ -1302,16 +1358,22 @@ function writeFileSync(path, data, options) {
   _validatePath(path);
   ensureExactFs();
   var p = _pathToString(path);
+  if (_shouldUseSyncUtf8FastPath(data, writeOptions)) {
+    var binding = _getInternalFsBinding();
+    if (_hasCustomSyncUtf8FastPath(binding)) {
+      return binding.writeFileUtf8(p, data, writeOptions.flag || writeOptions.flags || 'w', writeOptions.mode);
+    }
+  }
   try {
     var writeData = toUint8Array(data, writeOptions.encoding);
-    var writeFd = openSync(p, writeOptions.flag || writeOptions.flags || 'w', writeOptions.mode);
+    var writeFd = _callOpenSync(p, writeOptions.flag || writeOptions.flags || 'w', writeOptions.mode);
     try {
-      writeSync(writeFd, writeData, 0, writeData.length, -1);
+      _callWriteSync(writeFd, writeData, 0, writeData.length, -1);
       if (writeOptions.flush === true) {
         _callFsyncSync(writeFd);
       }
     } finally {
-      closeSync(writeFd);
+      _callCloseSync(writeFd);
     }
   } catch(e) {
     throw _makeFsError(e, 'open', p);
@@ -1333,7 +1395,7 @@ function appendFileSync(path, data, options) {
   if (target.fd !== null) {
     ensureExactFs();
     var fdData = toUint8Array(data, writeOptions.encoding);
-    writeSync(target.fd, fdData, 0, fdData.length, -1);
+    _callWriteSync(target.fd, fdData, 0, fdData.length, -1);
     if (writeOptions.flush === true) {
       _callFsyncSync(target.fd);
     }
@@ -1342,16 +1404,22 @@ function appendFileSync(path, data, options) {
 
   ensureExactFs();
   var p = target.path;
+  if (_shouldUseSyncUtf8FastPath(data, writeOptions)) {
+    var appendBinding = _getInternalFsBinding();
+    if (_hasCustomSyncUtf8FastPath(appendBinding)) {
+      return appendBinding.writeFileUtf8(p, data, writeOptions.flag || writeOptions.flags || 'a', writeOptions.mode);
+    }
+  }
   try {
     var appendData = toUint8Array(data, writeOptions.encoding);
-    var appendFallbackFd = openSync(p, writeOptions.flag || writeOptions.flags || 'a', writeOptions.mode);
+    var appendFallbackFd = _callOpenSync(p, writeOptions.flag || writeOptions.flags || 'a', writeOptions.mode);
     try {
-      writeSync(appendFallbackFd, appendData, 0, appendData.length, -1);
+      _callWriteSync(appendFallbackFd, appendData, 0, appendData.length, -1);
       if (writeOptions.flush === true) {
         _callFsyncSync(appendFallbackFd);
       }
     } finally {
-      closeSync(appendFallbackFd);
+      _callCloseSync(appendFallbackFd);
     }
   } catch(e) {
     throw _makeFsError(e, 'open', p);
@@ -4648,12 +4716,33 @@ function lchownSync(path, uid, gid) {
     if (typeof g.__exactLchown === 'function') return g.__exactLchown(p, uid, gid);
   } catch(e) { throw _makeFsError(e, 'lchown', p); }
 }
+
+function _toUnixTimestamp(time) {
+  if (time instanceof Date) {
+    return time.getTime() / 1000;
+  }
+  if (typeof time === 'string') {
+    var parsed = Number(time);
+    if (!Number.isFinite(parsed)) {
+      throw _fsInvalidArgType('time', 'Date or finite number or numeric string', time);
+    }
+    return parsed;
+  }
+  if (typeof time === 'number') {
+    if (!Number.isFinite(time)) {
+      throw _fsInvalidArgType('time', 'Date or finite number or numeric string', time);
+    }
+    return time;
+  }
+  throw _fsInvalidArgType('time', 'Date or finite number or numeric string', time);
+}
+
 function utimesSync(path, atime, mtime) {
   _validatePath(path);
   ensureExactFs();
   var p = _pathToString(path);
-  var at = atime instanceof Date ? atime.getTime() / 1000 : (typeof atime === 'string' ? Number(atime) : atime);
-  var mt = mtime instanceof Date ? mtime.getTime() / 1000 : (typeof mtime === 'string' ? Number(mtime) : mtime);
+  var at = _toUnixTimestamp(atime);
+  var mt = _toUnixTimestamp(mtime);
   try {
     if (typeof g.__exactUtimes === 'function') return g.__exactUtimes(p, at, mt);
   } catch(e) { throw _makeFsError(e, 'utime', p); }
@@ -5309,8 +5398,8 @@ function futimesSync(fd, atime, mtime) {
   ensureExactFs();
   try {
     if (typeof g.__exactFsFutimesSync === 'function') {
-      var at = atime instanceof Date ? atime.getTime() : (typeof atime === 'number' ? atime : 0);
-      var mt = mtime instanceof Date ? mtime.getTime() : (typeof mtime === 'number' ? mtime : 0);
+      var at = _toUnixTimestamp(atime);
+      var mt = _toUnixTimestamp(mtime);
       g.__exactFsFutimesSync(fd, at, mt);
     }
   } catch(e) {
@@ -5366,8 +5455,8 @@ function lutimes(path, atime, mtime, callback) {
 function lutimesSync(path, atime, mtime) {
   _validatePath(path);
   ensureExactFs();
-  var at = atime instanceof Date ? atime.getTime() : (typeof atime === 'number' ? atime : 0);
-  var mt = mtime instanceof Date ? mtime.getTime() : (typeof mtime === 'number' ? mtime : 0);
+  var at = _toUnixTimestamp(atime);
+  var mt = _toUnixTimestamp(mtime);
   if (typeof g.__exactLutimes === 'function') {
     g.__exactLutimes(path, at, mt);
     return;
@@ -5481,6 +5570,7 @@ module.exports = {
   lutimesSync: lutimesSync,
   opendir: opendir,
   opendirSync: opendirSync,
+  _toUnixTimestamp: _toUnixTimestamp,
   promises: promises,
   constants: constants
 };
