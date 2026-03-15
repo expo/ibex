@@ -751,9 +751,11 @@ function _makeFsError(err, syscall, path, dest) {
   }
 
   var fsErr = new Error(message);
+  var resolvedFilename = err.filename !== undefined ? err.filename : resolvedPath;
   if (code) fsErr.code = code;
   if (resolvedSyscall) fsErr.syscall = resolvedSyscall;
   if (resolvedPath !== undefined) fsErr.path = resolvedPath;
+  if (resolvedFilename !== undefined) fsErr.filename = resolvedFilename;
   if (resolvedDest !== undefined) fsErr.dest = resolvedDest;
   if (typeof err.errno === 'number' && !Number.isNaN(err.errno)) {
     fsErr.errno = err.errno >= 0 ? -err.errno : err.errno;
@@ -1488,6 +1490,10 @@ function _coerceStatsMilliseconds(msValue, nsValue, useBigInt) {
   return msValue || 0;
 }
 
+function _coalesceStatsField(value, fallback) {
+  return value === undefined || value === null ? fallback : value;
+}
+
 function _makeBigIntStats(raw) {
   var ctor = _getInternalBigIntStats();
   if (typeof ctor !== 'function') {
@@ -1516,11 +1522,11 @@ function _makeBigIntStats(raw) {
   var stats = new ctor(
     _coerceToBigInt(safe.dev),
     _coerceToBigInt(safe.mode),
-    _coerceToBigInt(safe.nlink || 1),
+    _coerceToBigInt(_coalesceStatsField(safe.nlink, 1)),
     _coerceToBigInt(safe.uid),
     _coerceToBigInt(safe.gid),
     _coerceToBigInt(safe.rdev),
-    _coerceToBigInt(safe.blksize || 4096),
+    _coerceToBigInt(_coalesceStatsField(safe.blksize, 4096)),
     _coerceToBigInt(safe.ino),
     _coerceToBigInt(safe.size),
     _coerceToBigInt(safe.blocks),
@@ -1552,12 +1558,12 @@ function Stats(raw, useBigInt) {
   this.dev = toValue(raw.dev);
   this.ino = toValue(raw.ino);
   this.mode = toValue(raw.mode);
-  this.nlink = toValue(raw.nlink || 1);
+  this.nlink = toValue(_coalesceStatsField(raw.nlink, 1));
   this.uid = toValue(raw.uid);
   this.gid = toValue(raw.gid);
   this.rdev = toValue(raw.rdev);
   this.size = toValue(raw.size);
-  this.blksize = toValue(raw.blksize || 4096);
+  this.blksize = toValue(_coalesceStatsField(raw.blksize, 4096));
   this.blocks = toValue(raw.blocks);
   var mt = raw.mtime_ms || raw.mtimeMs || 0;
   var at = raw.atime_ms || raw.atimeMs || mt;
@@ -3581,6 +3587,26 @@ function WriteStream(path, options) {
 
 WriteStream.prototype = Object.create(require('node:stream').Writable.prototype);
 WriteStream.prototype.constructor = WriteStream;
+Object.defineProperty(WriteStream.prototype, 'autoClose', {
+  configurable: true,
+  enumerable: true,
+  get: function() {
+    if (!(this instanceof WriteStream)) {
+      var err = new TypeError('Value of "this" must be of type WriteStream');
+      err.code = 'ERR_INVALID_THIS';
+      throw err;
+    }
+    return this._shouldAutoClose;
+  },
+  set: function(value) {
+    if (!(this instanceof WriteStream)) {
+      var err = new TypeError('Value of "this" must be of type WriteStream');
+      err.code = 'ERR_INVALID_THIS';
+      throw err;
+    }
+    this._shouldAutoClose = value !== false;
+  }
+});
 
 function _initWriteStream(ws, path, options) {
   var opts = _normalizeWriteOptions(options);
@@ -4235,7 +4261,7 @@ function buildWatchDirState(dirname, recursive, prefix) {
     var file = files[i];
     var fullPath = pathJoin(dirname, file);
     var stat;
-    try { stat = statSync(fullPath); } catch(e) { continue; }
+    try { stat = lstatSync(fullPath); } catch(e) { continue; }
     var key = prefix ? prefix + '/' + file : file;
     entries[key] = {
       isDirectory: typeof stat.isDirectory === 'function' && stat.isDirectory(),
@@ -4281,9 +4307,27 @@ function emitWatchDirectoryChanges(watcher, encoding, prevState, nextState) {
   return changed;
 }
 function makeZeroStats(bigint) {
-  var s = !!bigint ? _makeBigIntStats({}) : new Stats({}, false);
-  s.__exactExists = false;
-  return s;
+  var zeroRaw = {
+    dev: 0,
+    ino: 0,
+    mode: 0,
+    nlink: 0,
+    uid: 0,
+    gid: 0,
+    rdev: 0,
+    size: 0,
+    blksize: 0,
+    blocks: 0,
+    atimeMs: 0,
+    mtimeMs: 0,
+    ctimeMs: 0,
+    birthtimeMs: 0,
+    atimeNs: 0,
+    mtimeNs: 0,
+    ctimeNs: 0,
+    birthtimeNs: 0
+  };
+  return !!bigint ? _makeBigIntStats(zeroRaw) : new Stats({}, false);
 }
 
 function watch(filename, options, listener) {
@@ -4312,6 +4356,7 @@ function watch(filename, options, listener) {
         pathValue
       );
       watcher.emit('error', err);
+      watcher.close();
     }
   };
   watcher._onSignalAbort = function() {
@@ -4510,35 +4555,37 @@ function watchFile(filename, options, listener) {
     watcher._hadInitialStat = false;
     watcher._timer = null;
     watcher._statOptions = statOptions;
+    watcher._prevExists = false;
     watcher._prev = makeZeroStats(watcher._statOptions.bigint);
     try {
       var prevStats = statSync(resolvedFilename, watcher._statOptions);
       watcher._prev = watcher._statOptions.bigint ? _makeBigIntStats(prevStats) : prevStats;
-      watcher._prev.__exactExists = true;
+      watcher._prevExists = true;
       watcher._hadInitialStat = true;
     } catch(e) {
-      watcher._prev.__exactExists = false;
+      watcher._prevExists = false;
     }
     var watchFileInterval = options.interval || 5007;
     watcher._poll = function() {
       if (watcher._closed || watcher._stopped) return;
       var curr;
+      var currExists = false;
       try {
         var rawCurr = statSync(resolvedFilename, watcher._statOptions);
         curr = watcher._statOptions.bigint ? _makeBigIntStats(rawCurr) : rawCurr;
-        curr.__exactExists = true;
+        currExists = true;
       } catch(e) {
         curr = makeZeroStats(watcher._statOptions.bigint);
-        curr.__exactExists = false;
+        currExists = false;
       }
       if (!watcher._initialized) watcher._initialized = true;
-      if (watcher._prev.__exactExists !== curr.__exactExists ||
+      if (watcher._prevExists !== currExists ||
           (curr.mtimeMs || 0) !== (watcher._prev.mtimeMs || 0) ||
           (curr.size || 0) !== (watcher._prev.size || 0)) {
         watcher.emit('change', curr, watcher._prev);
-        watcher._prev = curr;
       }
       watcher._prev = curr;
+      watcher._prevExists = currExists;
     };
     watcher._pollInterval = watchFileInterval;
     watcher._start = function() {
@@ -4554,7 +4601,7 @@ function watchFile(filename, options, listener) {
     watcher._start();
     if (options.persistent === false) watcher.unref();
     _watchedFiles[resolvedFilename] = watcher;
-    if (!watcher._prev.__exactExists) {
+    if (!watcher._prevExists) {
       _deferFsCallback(function() {
         if (!watcher._closed) {
           watcher.emit('change', watcher._prev, watcher._prev);

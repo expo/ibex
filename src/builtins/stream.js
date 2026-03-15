@@ -8265,4 +8265,64 @@ function duplexPair(options) {
 Stream.duplexPair = duplexPair;
 Duplex.duplexPair = duplexPair;
 
+function _patchExactWritableStdioStream(stream) {
+  if (!stream || typeof stream !== 'object') return stream;
+  try {
+    if (Object.getPrototypeOf(stream) !== Writable.prototype) {
+      Object.setPrototypeOf(stream, Writable.prototype);
+    }
+  } catch (_) {}
+  if (stream.readable === undefined) stream.readable = false;
+  if (stream.writable === undefined) stream.writable = true;
+  return stream;
+}
+
+function _installProcessWritableStdioAccessors() {
+  if (typeof process !== 'object' || process === null || process.__exactWritableStdioPatched) return;
+  var names = ['stdout', 'stderr'];
+  for (var i = 0; i < names.length; i++) {
+    (function(name) {
+      var current = _patchExactWritableStdioStream(process[name]);
+      try {
+        Object.defineProperty(process, name, {
+          configurable: true,
+          enumerable: true,
+          get: function() {
+            current = _patchExactWritableStdioStream(current);
+            return current;
+          },
+          set: function(value) {
+            current = _patchExactWritableStdioStream(value);
+          }
+        });
+      } catch (_) {
+        try {
+          process[name] = current;
+        } catch (_) {}
+      }
+    })(names[i]);
+  }
+  try {
+    Object.defineProperty(process, '__exactWritableStdioPatched', {
+      value: true,
+      writable: false,
+      configurable: true,
+      enumerable: false
+    });
+  } catch (_) {
+    process.__exactWritableStdioPatched = true;
+  }
+}
+
+function _patchProcessWritableStdio() {
+  if (typeof process !== 'object' || process === null) return;
+  _installProcessWritableStdioAccessors();
+  var names = ['stdout', 'stderr'];
+  for (var i = 0; i < names.length; i++) {
+    _patchExactWritableStdioStream(process[names[i]]);
+  }
+}
+
+_patchProcessWritableStdio();
+
 module.exports = Stream;

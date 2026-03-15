@@ -3520,6 +3520,56 @@
   });
   globalThis.__exactRequire = load;
 
+  try {
+    if (
+      typeof globalThis.process === 'object' &&
+      globalThis.process !== null &&
+      globalThis.process.versions &&
+      typeof globalThis.process.versions.node === 'string'
+    ) {
+      var nodeTimers = load('timers', '');
+      if (nodeTimers && typeof nodeTimers.setTimeout === 'function') {
+        globalThis.setTimeout = nodeTimers.setTimeout;
+      }
+      if (nodeTimers && typeof nodeTimers.clearTimeout === 'function') {
+        globalThis.clearTimeout = nodeTimers.clearTimeout;
+      }
+      if (nodeTimers && typeof nodeTimers.setInterval === 'function') {
+        globalThis.setInterval = nodeTimers.setInterval;
+      }
+      if (nodeTimers && typeof nodeTimers.clearInterval === 'function') {
+        globalThis.clearInterval = nodeTimers.clearInterval;
+      }
+    }
+  } catch (_timerInstallErr) {}
+
+  if (typeof globalThis.createExternalizableString !== 'function') {
+    globalThis.createExternalizableString = function(value) {
+      return String(value);
+    };
+  }
+  if (typeof globalThis.createExternalizableTwoByteString !== 'function') {
+    globalThis.createExternalizableTwoByteString = function(value) {
+      return String(value);
+    };
+  }
+  if (typeof globalThis.externalizeString !== 'function') {
+    globalThis.externalizeString = function(value) {
+      return String(value);
+    };
+  }
+  if (typeof globalThis.isOneByteString !== 'function') {
+    globalThis.isOneByteString = function(value) {
+      var str = String(value);
+      for (var i = 0; i < str.length; i++) {
+        if (str.charCodeAt(i) > 0xFF) {
+          return false;
+        }
+      }
+      return true;
+    };
+  }
+
   // Polyfill dynamic import() using require()
   // import() returns a Promise that resolves to the module
   // ESM default export becomes { default: ... }, named exports are direct properties
