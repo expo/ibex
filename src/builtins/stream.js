@@ -1575,6 +1575,7 @@ Readable.prototype.push = function(chunk, encoding) {
   }
 
   if (this.readableFlowing === true) {
+    var hadBufferedData = this._data.length > 0;
     this._data.push(chunk);
     this._updateReadableLength(chunkLength);
     this._syncReadableState();
@@ -1583,7 +1584,7 @@ Readable.prototype.push = function(chunk, encoding) {
     if (this._readableState.reading) {
       return state.length < state.highWaterMark || state.length === 0;
     }
-    if (this._readableState.resumeScheduled) {
+    if (this._readableState.resumeScheduled && hadBufferedData) {
       _maybeReadMore(this, state);
       return state.length < state.highWaterMark || state.length === 0;
     }

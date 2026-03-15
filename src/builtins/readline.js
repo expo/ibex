@@ -477,19 +477,11 @@ function emitKeypressEvents(stream, iface) {
     }
   }
 
-  function onReadable() {
-    var chunk;
-    if (typeof stream.read !== 'function') return;
-    while ((chunk = stream.read()) != null) {
-      onData(chunk);
-    }
-  }
-
   stream.on('data', onData);
-  if (typeof stream.read === 'function') {
-    stream.on('readable', onReadable);
-  }
-  if (typeof stream.write === 'function' && !stream[KEYPRESS_WRITE_PATCHED]) {
+  if (typeof stream.write === 'function' &&
+      !stream[KEYPRESS_WRITE_PATCHED] &&
+      typeof stream.read !== 'function' &&
+      !stream._readableState) {
     var originalWrite = stream.write;
     stream[KEYPRESS_WRITE_PATCHED] = true;
     stream.write = function(chunk) {
@@ -720,7 +712,10 @@ Interface.prototype._refreshLine = function() {
   var cursorPos;
   if (!this.terminal || !this.output || typeof this.output.write !== 'function') return;
   cursorPos = this.getCursorPos();
-  this._writeToOutput('\x1b[1G\x1b[0J' + this._getPromptText() + this.line + '\x1b[' + (cursorPos.cols + 1) + 'G');
+  this._writeToOutput('\x1b[1G');
+  this._writeToOutput('\x1b[0J');
+  this._writeToOutput(this._getPromptText() + this.line);
+  this._writeToOutput('\x1b[' + (cursorPos.cols + 1) + 'G');
 };
 
 Interface.prototype._replaceLine = function(value) {
@@ -965,20 +960,23 @@ Interface.prototype._finishLine = function() {
 
 Interface.prototype._resolveCompletion = function(done) {
   var self = this;
+  var settled = false;
+  function settle(err, value) {
+    if (settled) return;
+    settled = true;
+    if (err) done(err);
+    else done(null, value || [[], self.line]);
+  }
   if (!this.completer) return done(null, [[], this.line]);
   try {
-    if (this.completer.length === 2) {
-      return this.completer(this.line, function(err, value) {
-        if (err) done(err);
-        else done(null, value || [[], self.line]);
-      });
-    }
-    var result = this.completer(this.line);
+    var result = this.completer(this.line, function(err, value) {
+      settle(err, value);
+    });
     if (result && typeof result.then === 'function') {
-      result.then(function(value) { done(null, value || [[], self.line]); }, function(err) { done(err); });
+      result.then(function(value) { settle(null, value); }, function(err) { settle(err); });
       return;
     }
-    done(null, result || [[], this.line]);
+    if (result !== undefined) settle(null, result);
   } catch (err) {
     done(err);
   }
@@ -1526,6 +1524,44 @@ function PromiseInterface() {
 }
 PromiseInterface.prototype = Object.create(Interface.prototype);
 PromiseInterface.prototype.constructor = PromiseInterface;
+PromiseInterface.prototype._resolveCompletion = function(done) {
+  var self = this;
+  var sync = true;
+  var settled = false;
+  function finish(err, value) {
+    if (settled) return;
+    settled = true;
+    if (err) done(err);
+    else done(null, value || [[], self.line]);
+  }
+  function settle(err, value) {
+    if (sync) {
+      queueMicrotask(function() { finish(err, value); });
+      return;
+    }
+    finish(err, value);
+  }
+  if (!this.completer) return done(null, [[], this.line]);
+  try {
+    var result = this.completer(this.line, function(err, value) {
+      settle(err, value);
+    });
+    if (result && typeof result.then === 'function') {
+      sync = false;
+      result.then(function(value) { finish(null, value); }, function(err) { finish(err); });
+      return;
+    }
+    if (result !== undefined) {
+      settle(null, result);
+      sync = false;
+      return;
+    }
+    sync = false;
+  } catch (err) {
+    sync = false;
+    done(err);
+  }
+};
 PromiseInterface.prototype.question = function(query, options, cb) {
   if (typeof options === 'function' || typeof cb === 'function') {
     return Interface.prototype.question.call(this, query, options, cb);
