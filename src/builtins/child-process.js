@@ -749,6 +749,17 @@ function _execStringEncoding(encoding, validEncodings) {
   return 'utf8';
 }
 
+function _childProcessBufferCtor() {
+  if (typeof Buffer !== 'undefined' && Buffer && typeof Buffer.from === 'function') {
+    return Buffer;
+  }
+  try {
+    return require('buffer').Buffer;
+  } catch (_) {
+    return null;
+  }
+}
+
 function _validateCredentialOption(name, value) {
   if (value == null) return;
   if (typeof value !== 'number') {
@@ -1083,9 +1094,9 @@ function _validateSpawnSyncOptions(options) {
   var stdoutOutput = result.stdout || '';
   var stderrOutput = result.stderr || '';
 
-  var _Buffer = require('buffer').Buffer;
+  var _Buffer = _childProcessBufferCtor();
 
-  if (encoding === 'buffer' || encoding === null) {
+  if (_Buffer && (encoding === 'buffer' || encoding === null)) {
     stdoutOutput = typeof stdoutOutput === 'string' ? _Buffer.from(stdoutOutput, 'utf8') : _Buffer.from(stdoutOutput || '');
     stderrOutput = typeof stderrOutput === 'string' ? _Buffer.from(stderrOutput, 'utf8') : _Buffer.from(stderrOutput || '');
   } else if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
@@ -1242,6 +1253,15 @@ cp.exec = function exec(command, options, callback) {
   var exited = false;
   var timeoutId = null;
   var maxBufferExceeded = null; // track which stream exceeded maxBuffer
+
+  if (!useBuffer) {
+    if (child.stdout && typeof child.stdout.setEncoding === 'function') {
+      child.stdout.setEncoding(stringEncoding);
+    }
+    if (child.stderr && typeof child.stderr.setEncoding === 'function') {
+      child.stderr.setEncoding(stringEncoding);
+    }
+  }
 
   function exitHandler(code, signal) {
     if (exited) return;
@@ -1458,6 +1478,15 @@ cp.execFile = function execFile(file, args, options, callback) {
   var exited = false;
   var timeoutId = null;
   var maxBufferExceeded = null;
+
+  if (!useBuffer) {
+    if (child.stdout && typeof child.stdout.setEncoding === 'function') {
+      child.stdout.setEncoding(stringEncoding);
+    }
+    if (child.stderr && typeof child.stderr.setEncoding === 'function') {
+      child.stderr.setEncoding(stringEncoding);
+    }
+  }
 
   function exitHandler(code, signal) {
     if (exited) return;
