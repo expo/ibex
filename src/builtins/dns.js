@@ -57,6 +57,18 @@ function _trackResolverCallback(resolver, callback) {
   };
 }
 
+function _invalidArgTypeSuffix(value) {
+  if (value == null) return ' Received ' + value;
+  if (typeof value === 'function') return ' Received function ' + value.name;
+  if (typeof value === 'object') {
+    if (value.constructor && value.constructor.name) {
+      return ' Received an instance of ' + value.constructor.name;
+    }
+    return ' Received ' + String(value);
+  }
+  return ' Received type ' + typeof value + ' (' + String(value) + ')';
+}
+
 function _resolveViaQuery(hostname, rrtype, callback) {
   if (!_hasDnsResolve) {
     var err = new Error('DNS record type ' + rrtype + ' requires native resolver');
@@ -274,15 +286,14 @@ function getServers() {
 
 function setServers(servers) {
   if (!Array.isArray(servers)) {
-    var received = servers === null ? 'null' : servers === undefined ? 'undefined' : 'an instance of ' + (servers && servers.constructor ? servers.constructor.name : typeof servers);
-    var err = new TypeError('The "servers" argument must be an instance of Array. Received ' + received);
+    var err = new TypeError('The "servers" argument must be an instance of Array.' + _invalidArgTypeSuffix(servers));
     err.code = 'ERR_INVALID_ARG_TYPE';
     throw err;
   }
   // Validate server addresses
   for (var i = 0; i < servers.length; i++) {
     if (typeof servers[i] !== 'string') {
-      var err = new TypeError('The "servers[' + i + ']" argument must be of type string. Received type ' + typeof servers[i]);
+      var err = new TypeError('The "servers[' + i + ']" argument must be of type string.' + _invalidArgTypeSuffix(servers[i]));
       err.code = 'ERR_INVALID_ARG_TYPE';
       throw err;
     }
@@ -345,7 +356,7 @@ function Resolver(options) {
       err.code = 'ERR_INVALID_ARG_TYPE';
       throw err;
     }
-    if (options.timeout < -1 || options.timeout > 2147483647) {
+    if (options.timeout < -1 || options.timeout > 2147483647 || options.timeout % 1 !== 0) {
       var err = new RangeError('The value of "options.timeout" is out of range. It must be >= -1 && <= 2147483647. Received ' + options.timeout);
       err.code = 'ERR_OUT_OF_RANGE';
       throw err;
@@ -372,13 +383,13 @@ Resolver.prototype.getServers = function() {
 
 Resolver.prototype.setServers = function(servers) {
   if (!Array.isArray(servers)) {
-    var err = new TypeError('The "servers" argument must be an instance of Array. Received type ' + typeof servers);
+    var err = new TypeError('The "servers" argument must be an instance of Array.' + _invalidArgTypeSuffix(servers));
     err.code = 'ERR_INVALID_ARG_TYPE';
     throw err;
   }
   for (var i = 0; i < servers.length; i++) {
     if (typeof servers[i] !== 'string') {
-      var err = new TypeError('The "servers[' + i + ']" argument must be of type string. Received type ' + typeof servers[i]);
+      var err = new TypeError('The "servers[' + i + ']" argument must be of type string.' + _invalidArgTypeSuffix(servers[i]));
       err.code = 'ERR_INVALID_ARG_TYPE';
       throw err;
     }

@@ -75,9 +75,7 @@ function _decodeUtf8Complete(bytes) {
   return result;
 }
 
-// Disable TextDecoder streaming mode; we use non-streaming TextDecoder for each
-// complete chunk to match Buffer.toString('utf8') replacement behavior exactly.
-var utf8DecoderSupportsStream = false;
+var utf8DecoderSupportsStream = typeof TextDecoder === 'function';
 
 function StringDecoder(encoding) {
   this.encoding = normalizeEncoding(encoding);
@@ -238,6 +236,9 @@ StringDecoder.prototype._writeUtf8 = function _writeUtf8(bytes) {
   // Buffer.toString('utf8') uses in this runtime.
   if (trailStart === 0) return '';
   var toDecode = (trailStart === input.length) ? input : input.slice(0, trailStart);
+  if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+    return Buffer.from(toDecode).toString('utf8');
+  }
   return _decodeUtf8Complete(toDecode);
 };
 
@@ -248,17 +249,16 @@ StringDecoder.prototype.end = function end(buf) {
   }
   var enc = this.encoding;
   if (enc === 'utf8' && this._utf8Decoder) {
-    // Check if the streaming decoder has buffered incomplete bytes by attempting
-    // a non-streaming flush. If it produces anything (replacement chars), emit
-    // a single U+FFFD instead, matching Node.js "maximal subpart" behavior.
-    var flushed = this._utf8Decoder.decode(new Uint8Array(), { stream: false });
-    if (flushed.length > 0) {
-      result += '\uFFFD';
-    }
+    result += this._utf8Decoder.decode();
     this._utf8Decoder = null;
   } else if (this._bufLen > 0) {
     if (enc === 'utf8') {
-      result += '\uFFFD';
+      var remaining = this._bufLen === this._buf.length ? this._buf : this._buf.slice(0, this._bufLen);
+      if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+        result += Buffer.from(remaining).toString('utf8');
+      } else {
+        result += _decodeUtf8Complete(remaining);
+      }
     } else if (enc === 'utf16le') {
       // Lone trailing byte is discarded in Node.js utf16le StringDecoder
     } else if (enc === 'base64' || enc === 'base64url') {
