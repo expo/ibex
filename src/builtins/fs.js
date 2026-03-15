@@ -32,7 +32,11 @@ function _fsInvalidArgType(name, expected, actual) {
   else if (typeof actual === 'boolean') received = 'type boolean (' + actual + ')';
   else if (typeof actual === 'symbol') received = 'type symbol (' + String(actual) + ')';
   else received = 'type ' + typeof actual;
-  var err = new TypeError('The "' + name + '" argument must be of type ' + expected + '. Received ' + received);
+  var expectedText = String(expected);
+  var requirement = expectedText.indexOf('an instance of ') === 0
+    ? expectedText
+    : ('of type ' + expectedText);
+  var err = new TypeError('The "' + name + '" argument must be ' + requirement + '. Received ' + received);
   err.code = 'ERR_INVALID_ARG_TYPE';
   err.toString = function() {
     return 'TypeError [ERR_INVALID_ARG_TYPE]: ' + this.message;
@@ -372,8 +376,15 @@ function _validateReadSyncLength(length, bufferLength) {
   if (typeof length !== 'number' || !Number.isFinite(length) || length % 1 !== 0) {
     throw _fsInvalidArgType('length', 'number', length);
   }
-  if (length < 0 || length > bufferLength) {
-    throw _fsOutOfRange('length', length, 0, bufferLength);
+  if (length < 0) {
+    var negativeLengthErr = new RangeError('The value of "length" is out of range. It must be >= 0. Received ' + length);
+    negativeLengthErr.code = 'ERR_OUT_OF_RANGE';
+    throw negativeLengthErr;
+  }
+  if (length > bufferLength) {
+    var lengthTooLargeErr = new RangeError('The value of "length" is out of range. It must be <= ' + bufferLength + '. Received ' + length);
+    lengthTooLargeErr.code = 'ERR_OUT_OF_RANGE';
+    throw lengthTooLargeErr;
   }
   return length;
 }
@@ -395,6 +406,12 @@ function _validateReadWritePosition(name, position) {
   if (position === undefined || position === null) {
     return -1;
   }
+  if (typeof position === 'bigint') {
+    if (position < -1n || position > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw _fsOutOfRange(name, position, -1, Number.MAX_SAFE_INTEGER);
+    }
+    return Number(position);
+  }
   if (typeof position !== 'number') {
     throw _fsInvalidArgType(name, 'bigint or integer', position);
   }
@@ -405,6 +422,37 @@ function _validateReadWritePosition(name, position) {
     throw _fsOutOfRange(name, position, -1, Number.MAX_SAFE_INTEGER);
   }
   return position;
+}
+
+function _normalizeFsReadArgs(buffer, offset, length, position) {
+  if (!_isBufferLike(buffer)) {
+    throw _fsInvalidArgType('buffer', 'an instance of Buffer, TypedArray, or DataView', buffer);
+  }
+  var targetBuffer = toUint8Array(buffer);
+  var bufferLen = targetBuffer.length;
+  var off = _validateOffset('offset', offset === undefined || offset === null ? 0 : offset, bufferLen);
+  if (bufferLen === 0 && typeof length === 'number' && Number.isFinite(length) && length !== 0) {
+    throw _throwEmptyBufferError('buffer', buffer);
+  }
+  var len = _validateReadSyncLength(length, bufferLen - off);
+  var pos = _validateReadWritePosition('position', position);
+  return {
+    buffer: buffer,
+    targetBuffer: targetBuffer,
+    offset: off,
+    length: len,
+    position: pos
+  };
+}
+
+function _isFsReadOptionsObject(value, allowUndefined) {
+  if (value === null) {
+    return true;
+  }
+  if (value === undefined) {
+    return !!allowUndefined;
+  }
+  return typeof value === 'object' && !Array.isArray(value) && !_isBufferLike(value);
 }
 
 function _validateOffset(name, offset, bufferLength) {
@@ -1427,6 +1475,11 @@ function _buildDirEntries(path, options) {
 }
 
 function Dir(path, options) {
+  if (arguments.length === 0) {
+    var missingArgsErr = new TypeError('The "path" argument must be specified');
+    missingArgsErr.code = 'ERR_MISSING_ARGS';
+    throw missingArgsErr;
+  }
   this._path = path;
   this._entries = _buildDirEntries(path, options || {});
   this._index = 0;
@@ -2087,7 +2140,7 @@ function _mkdtempDisposableFromPath(pathValue, removePath, returnPromise) {
   var removed = false;
   function removeDisposablePath() {
     try {
-      rmSync(disposalPath, { recursive: true, force: false });
+      _rmSyncInternal(disposalPath, { recursive: true, force: false }, true);
       removed = true;
       return;
     } catch(err) {
@@ -2393,25 +2446,20 @@ function readSync(fd, buffer, offset, length, position) {
   ensureExactFs();
   _validateFd(fd);
   // Handle readSync(fd, buffer, options) form
-  if (typeof offset === 'object' && offset !== null) {
+  if (arguments.length === 3) {
+    if (!_isFsReadOptionsObject(offset, true)) {
+      throw _fsInvalidArgType('options', 'object', offset);
+    }
     var ropts = offset;
-    offset = ropts.offset === undefined ? 0 : ropts.offset;
-    length = ropts.length;
-    position = ropts.position;
+    offset = ropts && ropts.offset === undefined ? 0 : (ropts ? ropts.offset : 0);
+    length = ropts ? ropts.length : undefined;
+    position = ropts ? ropts.position : undefined;
   }
-  if (!_isBufferLike(buffer)) {
-    throw _fsInvalidArgType('buffer', 'Buffer, TypedArray, or DataView', buffer);
-  }
-  var targetBuffer = toUint8Array(buffer);
-  var bufferLen = targetBuffer.length;
-  if (bufferLen === 0) {
-    throw _throwEmptyBufferError('buffer', buffer);
-  }
-  var off = _validateOffset('offset', offset === undefined || offset === null ? 0 : offset, bufferLen);
-  var len = _validateReadSyncLength(length, bufferLen - off);
-  var pos = _validateReadWritePosition('position', position);
+  var readArgs = _normalizeFsReadArgs(buffer, offset, length, position);
+  var targetBuffer = readArgs.targetBuffer;
+  var off = readArgs.offset;
   try {
-    var data = g.__exactFsRead(fd, len, pos);
+    var data = g.__exactFsRead(fd, readArgs.length, readArgs.position);
     if (buffer && data.length > 0) {
       if (typeof targetBuffer.set === 'function') {
         targetBuffer.set(data, off);
@@ -2451,7 +2499,7 @@ function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, posit
     } catch(err) { throw _makeFsError(err, 'write'); }
   }
   if (!_isBufferLike(bufferOrString)) {
-    throw _fsInvalidArgType('buffer', 'Buffer, TypedArray, or DataView', bufferOrString);
+    throw _fsInvalidArgType('buffer', 'an instance of Buffer, TypedArray, or DataView', bufferOrString);
   }
   var bytesBuffer = toUint8Array(bufferOrString);
   var bufferLen = bytesBuffer.length;
@@ -2732,6 +2780,10 @@ function close(fd, cb) {
 }
 
 function fsRead(fd, buffer, offset, length, position, cb) {
+  var argc = arguments.length;
+  var validateCallbackFirst = false;
+  var bufferLike = _isBufferLike(buffer);
+  _validateFd(fd);
   // Support fs.read(fd, callback)
   if (typeof buffer === 'function') {
     cb = buffer;
@@ -2741,34 +2793,57 @@ function fsRead(fd, buffer, offset, length, position, cb) {
     position = -1;
   }
   // Support fs.read(fd, options, callback)
-  else if (typeof buffer === 'object' && buffer !== null && !Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) {
+  else if (argc <= 3 && _isFsReadOptionsObject(buffer, true)) {
     var opts = buffer;
     cb = offset;
-    buffer = opts.buffer || Buffer.alloc(16384);
-    offset = opts.offset || 0;
-    length = opts.length !== undefined ? opts.length : (buffer.length - offset);
-    position = opts.position !== undefined ? opts.position : -1;
+    buffer = opts && opts.buffer !== undefined ? opts.buffer : Buffer.alloc(16384);
+    offset = opts && opts.offset !== undefined && opts.offset !== null ? opts.offset : 0;
+    length = opts && opts.length !== undefined ? opts.length : (_bufferLikeLength(buffer) - offset);
+    position = opts && opts.position !== undefined ? opts.position : -1;
+  }
+  else if (bufferLike && argc === 3) {
+    cb = offset;
+    offset = 0;
+    length = _bufferLikeLength(buffer);
+    position = -1;
   }
   // Support fs.read(fd, buffer, options, callback)
-  else if (typeof offset === 'object' && offset !== null) {
+  else if (bufferLike && argc === 4) {
+    cb = length;
+    if (!_isFsReadOptionsObject(offset, false)) {
+      throw _fsInvalidArgType('options', 'object', offset);
+    }
     var readOpts = offset;
-    cb = typeof length === 'function' ? length : position;
-    offset = readOpts.offset || 0;
-    length = readOpts.length !== undefined ? readOpts.length : (buffer ? buffer.length - offset : 0);
-    position = readOpts.position !== undefined ? readOpts.position : -1;
+    offset = readOpts && readOpts.offset !== undefined && readOpts.offset !== null ? readOpts.offset : 0;
+    length = readOpts && readOpts.length !== undefined ? readOpts.length : (_bufferLikeLength(buffer) - offset);
+    position = readOpts && readOpts.position !== undefined ? readOpts.position : -1;
   }
-  // Handle various callback positions
-  if (typeof offset === 'function') {
-    cb = offset;
-    if (!buffer) buffer = Buffer.alloc(16384);
-    offset = 0; length = buffer.length; position = -1;
+  else if (bufferLike && argc >= 5) {
+    validateCallbackFirst = true;
   }
-  else if (typeof length === 'function') { cb = length; length = buffer ? buffer.length - (offset || 0) : 0; position = -1; }
-  else if (typeof position === 'function') { cb = position; position = -1; }
-  _validateCallback(cb);
+  else if (typeof position === 'function') {
+    cb = position;
+    position = -1;
+  }
+  if (validateCallbackFirst) {
+    _validateCallback(cb);
+  }
+  var readArgs = _normalizeFsReadArgs(buffer, offset, length, position);
+  if (!validateCallbackFirst) {
+    _validateCallback(cb);
+  }
   try {
-    var bytesRead = readSync(fd, buffer, offset, length, position);
-    _deferFsCallback(function() { cb(null, bytesRead, buffer); });
+    var data = g.__exactFsRead(fd, readArgs.length, readArgs.position);
+    if (data.length > 0) {
+      if (typeof readArgs.targetBuffer.set === 'function') {
+        readArgs.targetBuffer.set(data, readArgs.offset);
+      } else {
+        for (var i = 0; i < data.length; i++) {
+          readArgs.targetBuffer[readArgs.offset + i] = data[i];
+        }
+      }
+    }
+    _deferFsCallback(function() { cb(null, data.length, buffer); });
   } catch(err) {
     if (err && typeof err.code === 'string' && err.code.indexOf('ERR_') === 0) {
       throw err;
@@ -4353,7 +4428,7 @@ function utimes(path, atime, mtime, cb) {
   _validatePath(path);
   wrapCallback(function() { utimesSync(path, atime, mtime); }, cb, 'utime', _pathToString(path));
 }
-function rmSync(path, options) {
+function _rmSyncInternal(path, options, preserveOriginalError) {
   ensureExactFs();
   _validatePath(path, 'path');
   if (typeof options === 'boolean') {
@@ -4436,9 +4511,12 @@ function rmSync(path, options) {
       if (attempt < maxRetries && shouldRetryRm(e)) {
         continue;
       }
-      throw _normalizeRmError(e, path, recursive);
+      throw preserveOriginalError ? e : _normalizeRmError(e, path, recursive);
     }
   }
+}
+function rmSync(path, options) {
+  return _rmSyncInternal(path, options, false);
 }
 function rm(path, options, cb) {
   if (typeof options === 'function') { cb = options; options = {}; }
