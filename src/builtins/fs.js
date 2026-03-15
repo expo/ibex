@@ -493,6 +493,14 @@ function _deferFsCallback(callback) {
   }
 }
 
+function _deferFsWriteCallback(callback) {
+  if (typeof process !== 'undefined' && process && typeof process.nextTick === 'function') {
+    process.nextTick(callback);
+    return;
+  }
+  _deferFsCallback(callback);
+}
+
 function _pathToString(path) {
   if (typeof path === 'string') return _resolvePathFromCwd(path);
   if (_isPathBufferView(path)) return _pathBufferViewToString(path);
@@ -923,7 +931,10 @@ function _normalizeWatchFileOptions(path, options) {
     throw _makeAbortError(options.signal.reason);
   }
   if (options.maxQueue !== undefined) {
-    if (typeof options.maxQueue !== 'number' || !Number.isFinite(options.maxQueue) || options.maxQueue % 1 !== 0) {
+    if (typeof options.maxQueue !== 'number') {
+      throw _fsInvalidArgTypeProperty('options.maxQueue', 'number', options.maxQueue);
+    }
+    if (!Number.isFinite(options.maxQueue) || options.maxQueue % 1 !== 0) {
       throw _fsInvalidArgValue('options.maxQueue', options.maxQueue, 'a number');
     }
     if (options.maxQueue < 0) {
@@ -931,8 +942,8 @@ function _normalizeWatchFileOptions(path, options) {
     }
   }
   if (options.overflow !== undefined) {
-    if (options.overflow !== 'throw' && options.overflow !== 'ignore') {
-      throw _fsInvalidArgValue('options.overflow', options.overflow, 'one of "throw", "ignore"');
+    if (options.overflow !== 'error' && options.overflow !== 'ignore') {
+      throw _fsInvalidArgValue('options.overflow', options.overflow, 'one of "ignore", "error"');
     }
   }
   return options;
@@ -982,7 +993,13 @@ function _normalizeReadFileOptions(options, allowSignal) {
 
 function _validateEncodingOption(options) {
   var encoding = typeof options === 'string' ? options : (options && options.encoding);
-  if (encoding) _assertEncoding(encoding);
+  if (encoding === undefined || encoding === null) return;
+  if (typeof encoding !== 'string') {
+    var err = new TypeError("The argument '" + encoding + "' is invalid encoding. Received 'encoding'");
+    err.code = 'ERR_INVALID_ARG_VALUE';
+    throw err;
+  }
+  _assertEncoding(encoding);
 }
 
 function _validateMkdirRecursiveOption(options) {
@@ -3283,13 +3300,13 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
   }
   try {
     var written = writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position);
-    _deferFsCallback(function() { cb(null, written, bufferOrString); });
+    _deferFsWriteCallback(function() { cb(null, written, bufferOrString); });
   } catch(err) {
     if (err && typeof err.code === 'string' && err.code.indexOf('ERR_') === 0) {
       throw err;
     }
     var error = _makeFsError(err, 'write');
-    _deferFsCallback(function() { cb(error); });
+    _deferFsWriteCallback(function() { cb(error); });
   }
 }
 
@@ -4365,6 +4382,34 @@ function buildWatchDirState(dirname, recursive, prefix) {
   }
   return entries;
 }
+function _watchFileSignature(data) {
+  if (!data) return '0:0';
+  var bytes = data;
+  if (!(bytes instanceof Uint8Array)) {
+    bytes = toUint8Array(bytes);
+  }
+  var sum = 0;
+  var xor = 0;
+  for (var i = 0; i < bytes.length; i++) {
+    var value = bytes[i];
+    sum = (sum + value) >>> 0;
+    xor = xor ^ ((value << (i % 8)) >>> 0);
+  }
+  return bytes.length + ':' + sum + ':' + xor;
+}
+function buildWatchFileState(filename) {
+  try {
+    var stat = statSync(filename);
+    var data = readFileSync(filename);
+    return {
+      mtime: stat.mtimeMs || 0,
+      size: stat.size || 0,
+      signature: _watchFileSignature(data)
+    };
+  } catch (e) {
+    return null;
+  }
+}
 function emitWatchDirectoryChanges(watcher, encoding, prevState, nextState) {
   var changed = false;
   if (!prevState) prevState = {};
@@ -4501,23 +4546,24 @@ function watch(filename, options, listener) {
     };
     watcher._start();
   } else {
-    var lastMtime = 0;
-    try { var s = stat || statSync(watcher._filename); lastMtime = s.mtimeMs || 0; } catch(e) {}
+    var lastFileState = buildWatchFileState(watcher._filename);
     var fileInterval = options.interval || 25;
     watcher._poll = function() {
       if (watcher._closed) return;
-      try {
-        var s2 = statSync(watcher._filename);
-        var mtime = s2.mtimeMs || 0;
-        if (mtime !== lastMtime) {
-          lastMtime = mtime;
-          watcher.emit('change', 'change', watchFilename(pathBasename(watcher._filename), encoding));
-        }
-      } catch(e) {
-        if (lastMtime !== 0) {
-          lastMtime = 0;
+      var nextFileState = buildWatchFileState(watcher._filename);
+      if (!nextFileState) {
+        if (lastFileState) {
+          lastFileState = null;
           watcher.emit('change', 'rename', watchFilename(pathBasename(watcher._filename), encoding));
         }
+        return;
+      }
+      if (!lastFileState ||
+          nextFileState.mtime !== lastFileState.mtime ||
+          nextFileState.size !== lastFileState.size ||
+          nextFileState.signature !== lastFileState.signature) {
+        lastFileState = nextFileState;
+        watcher.emit('change', 'change', watchFilename(pathBasename(watcher._filename), encoding));
       }
     };
     watcher._pollInterval = fileInterval;
@@ -4543,17 +4589,19 @@ function _promisesWatch(path, options) {
   var signal = options && options.signal;
   var syncWatcher = watch(path, options);
   var queue = [];
-  var waiting = null;
+  var pendingResolve = null;
+  var pendingReject = null;
   var closed = false;
   var abortError = null;
 
   function onChange(eventType, filename) {
     if (closed) return;
     var payload = { eventType: eventType, filename: filename };
-    if (waiting) {
-      var waitingNext = waiting;
-      waiting = null;
-      waitingNext(Promise.resolve({ done: false, value: payload }));
+    if (pendingResolve) {
+      var resolveNext = pendingResolve;
+      pendingResolve = null;
+      pendingReject = null;
+      resolveNext({ done: false, value: payload });
     } else {
       queue.push(payload);
     }
@@ -4564,13 +4612,18 @@ function _promisesWatch(path, options) {
     closed = true;
     syncWatcher.removeListener('change', onChange);
     syncWatcher.close();
-    if (waiting) {
-      var pending = waiting;
-      waiting = null;
+    if (signal && typeof signal.removeEventListener === 'function') {
+      signal.removeEventListener('abort', onSignalAbort);
+    }
+    if (pendingResolve) {
+      var resolvePending = pendingResolve;
+      var rejectPending = pendingReject;
+      pendingResolve = null;
+      pendingReject = null;
       if (abortError) {
-        pending(Promise.reject(abortError));
+        rejectPending(abortError);
       } else {
-        pending(Promise.resolve({ done: true }));
+        resolvePending({ done: true });
       }
     }
   }
@@ -4597,22 +4650,12 @@ function _promisesWatch(path, options) {
         return Promise.resolve({ done: false, value: queue.shift() });
       }
       return new Promise(function(resolve, reject) {
-        waiting = function(nextValue) {
-          Promise.resolve(nextValue).then(function(resolved) {
-            resolve(resolved);
-          }, function(rejected) {
-            reject(rejected);
-          });
-        };
+        pendingResolve = resolve;
+        pendingReject = reject;
       });
     },
     return: function() {
-      if (!closed) {
-        closeWatch();
-      }
-      if (signal && typeof signal.removeEventListener === 'function') {
-        signal.removeEventListener('abort', onSignalAbort);
-      }
+      closeWatch();
       return Promise.resolve({ done: true });
     },
     [Symbol.asyncIterator]: function() { return this; }

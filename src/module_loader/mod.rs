@@ -560,40 +560,53 @@ impl ModuleLoader {
             }
 
             if let Some(end) = header_end {
-                if semicolons >= 2 {
-                    let header = source[cursor + 1..end].trim_start();
-                    if header.starts_with("let ")
-                        || header.starts_with("let\t")
-                        || header.starts_with("let[")
-                        || header.starts_with("let{")
-                        || header.starts_with("const ")
-                        || header.starts_with("const\t")
-                        || header.starts_with("const[")
-                        || header.starts_with("const{")
-                    {
-                        let body_start = skip_ws_and_comments(bytes, end + 1);
-                        let body_end = if body_start < bytes.len() && bytes[body_start] == b'{' {
-                            scan_balanced_region(bytes, body_start, b'{', b'}')
-                                .map(|idx| idx + 1)
-                                .unwrap_or(bytes.len())
-                        } else {
-                            let mut body_end = body_start;
-                            while body_end < bytes.len() && bytes[body_end] != b';' {
-                                body_end += 1;
-                            }
-                            if body_end < bytes.len() {
-                                body_end += 1;
-                            }
-                            body_end
-                        };
-                        let body = &source[body_start..body_end];
-                        if body.contains("=>")
-                            || body.contains("function")
-                            || body.contains("class ")
-                            || body.contains("class\n")
-                        {
-                            return true;
+                let header = source[cursor + 1..end].trim_start();
+                let has_block_scoped_loop_binding = header.starts_with("let ")
+                    || header.starts_with("let\t")
+                    || header.starts_with("let[")
+                    || header.starts_with("let{")
+                    || header.starts_with("const ")
+                    || header.starts_with("const\t")
+                    || header.starts_with("const[")
+                    || header.starts_with("const{");
+
+                if has_block_scoped_loop_binding {
+                    let body_start = skip_ws_and_comments(bytes, end + 1);
+                    let body_end = if body_start < bytes.len() && bytes[body_start] == b'{' {
+                        scan_balanced_region(bytes, body_start, b'{', b'}')
+                            .map(|idx| idx + 1)
+                            .unwrap_or(bytes.len())
+                    } else {
+                        let mut body_end = body_start;
+                        while body_end < bytes.len() && bytes[body_end] != b';' {
+                            body_end += 1;
                         }
+                        if body_end < bytes.len() {
+                            body_end += 1;
+                        }
+                        body_end
+                    };
+                    let body = &source[body_start..body_end];
+                    let captures_loop_binding = body.contains("=>")
+                        || body.contains("function")
+                        || body.contains("class ")
+                        || body.contains("class\n");
+                    let is_for_of_or_in = semicolons < 2
+                        && (header.contains(" of ")
+                            || header.contains(" of\t")
+                            || header.contains("\tof ")
+                            || header.contains(" in ")
+                            || header.contains(" in\t")
+                            || header.contains("\tin "));
+                    let has_unsafe_for_of_control_flow = body.contains("continue")
+                        || body.contains("break")
+                        || body.contains("return");
+
+                    if captures_loop_binding
+                        && (semicolons >= 2
+                            || (is_for_of_or_in && has_unsafe_for_of_control_flow))
+                    {
+                        return true;
                     }
                 }
                 idx = end + 1;
@@ -2446,6 +2459,22 @@ for (const value of values) {
 
         assert!(!ModuleLoader::source_needs_loop_scope_downlevel(source));
         assert_eq!(ModuleLoader::transpile_target_for_source(source), "es2015");
+    }
+
+    #[test]
+    fn keeps_for_of_loops_with_closures_and_continue_on_es5_fallback_path() {
+        let source = r#"
+const cases = [{ skip: false, filePath: 'a' }, { skip: false, filePath: 'b' }];
+for (const testCase of cases) {
+    if (testCase.skip) continue;
+    setInterval(() => {
+        write(testCase.filePath);
+    }, 100);
+}
+"#;
+
+        assert!(ModuleLoader::source_needs_loop_scope_downlevel(source));
+        assert_eq!(ModuleLoader::transpile_target_for_source(source), "es5");
     }
 
     #[test]
