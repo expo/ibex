@@ -9,12 +9,43 @@ var _nativeFs = (function() {
 var _nativeFsOpen = _nativeFs ? _nativeFs.open : null;
 var _nativeFsClose = _nativeFs ? _nativeFs.close : null;
 var _exactFsInitialized = false;
+var _streamModule = null;
+var _readdirSyncBurstCount = 0;
+var _readdirSyncBurstPath = null;
+var _readdirSyncBurstResetScheduled = false;
+var MAX_READDIR_SYNC_RECURSION_DEPTH = 256;
 function ensureExactFs() {
   if (_exactFsInitialized) return;
   if (typeof g.__exactEnsureFs === 'function') {
     try { g.__exactEnsureFs(); } catch (e) {}
   }
   _exactFsInitialized = true;
+}
+
+function _getStreamModule() {
+  if (_streamModule) return _streamModule;
+  _streamModule = require('node:stream');
+  return _streamModule;
+}
+
+function _trackReaddirSyncBurst(path) {
+  if (!_readdirSyncBurstResetScheduled) {
+    _readdirSyncBurstResetScheduled = true;
+    _deferFsCallback(function() {
+      _readdirSyncBurstCount = 0;
+      _readdirSyncBurstPath = null;
+      _readdirSyncBurstResetScheduled = false;
+    });
+  }
+  if (_readdirSyncBurstPath === path) {
+    _readdirSyncBurstCount += 1;
+  } else {
+    _readdirSyncBurstPath = path;
+    _readdirSyncBurstCount = 1;
+  }
+  if (_readdirSyncBurstCount > MAX_READDIR_SYNC_RECURSION_DEPTH) {
+    throw new RangeError('Maximum call stack size exceeded');
+  }
 }
 
 // Argument validation helpers (match Node.js ERR_INVALID_ARG_TYPE format)
@@ -2009,12 +2040,13 @@ function readdirSync(path, options) {
   _validatePath(path);
   _validateEncodingOption(options);
   ensureExactFs();
-  var p = _pathToString(path);
-  var opts = typeof options === 'string' ? { encoding: options } : (options || {});
-  var withFileTypes = !!opts.withFileTypes;
-  var recursive = !!opts.recursive;
-  var encoding = opts.encoding;
   try {
+    var p = _pathToString(path);
+    _trackReaddirSyncBurst(p);
+    var opts = typeof options === 'string' ? { encoding: options } : (options || {});
+    var withFileTypes = !!opts.withFileTypes;
+    var recursive = !!opts.recursive;
+    var encoding = opts.encoding;
     var rawEntries = JSON.parse(g.__exactReaddir(p)).sort();
     var entries = rawEntries;
     if (encoding === 'buffer') {
@@ -2064,6 +2096,9 @@ function readdirSync(path, options) {
     }
     return entries;
   } catch(e) {
+    if (e && e.name === 'RangeError' && e.message === 'Maximum call stack size exceeded') {
+      throw e;
+    }
     throw _makeFsError(e, 'scandir', p);
   }
 }
@@ -3315,14 +3350,14 @@ function createReadStream(path, options) {
 }
 
 function ReadStream(path, options) {
-  var Stream = require('node:stream');
+  var Stream = _getStreamModule();
   if (!(this instanceof Stream.Readable)) {
     return new ReadStream(path, options);
   }
   return _initReadStream(this, path, options);
 }
 
-ReadStream.prototype = Object.create(require('node:stream').Readable.prototype);
+ReadStream.prototype = Object.create(_getStreamModule().Readable.prototype);
 ReadStream.prototype.constructor = ReadStream;
 
 function _initReadStream(rs, path, options) {
@@ -3331,7 +3366,7 @@ function _initReadStream(rs, path, options) {
   }
   _validateEncodingOption(options);
   ensureExactFs();
-  var Stream = require('node:stream');
+  var Stream = _getStreamModule();
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
   var fsModule = opts.fs || require('fs');
   var useSyncReadFastPath = opts.fs === undefined;
@@ -3680,14 +3715,14 @@ function createWriteStream(path, options) {
 }
 
 function WriteStream(path, options) {
-  var Stream = require('node:stream');
+  var Stream = _getStreamModule();
   if (!(this instanceof Stream.Writable)) {
     return new WriteStream(path, options);
   }
   return _initWriteStream(this, path, options);
 }
 
-WriteStream.prototype = Object.create(require('node:stream').Writable.prototype);
+WriteStream.prototype = Object.create(_getStreamModule().Writable.prototype);
 WriteStream.prototype.constructor = WriteStream;
 Object.defineProperty(WriteStream.prototype, 'autoClose', {
   configurable: true,
@@ -3715,7 +3750,7 @@ function _initWriteStream(ws, path, options) {
   _validateEncodingOption(opts);
   _validateFlushOption(opts.flush);
   ensureExactFs();
-  var Stream = require('node:stream');
+  var Stream = _getStreamModule();
   var fsModule = opts.fs || require('fs');
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'write', 'writev']);
   var flags = opts.flags || 'w';
