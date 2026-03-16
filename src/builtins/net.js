@@ -1137,8 +1137,11 @@ function Socket(options) {
   }
 }
 
-// bytesWritten getter - always returns a number (0 if not set)
+// Unconstructed prototypes should report undefined like Node.js.
 Socket.prototype.__defineGetter__('bytesWritten', function() {
+  if (!this || !Object.prototype.hasOwnProperty.call(this, '_bytesWritten')) {
+    return undefined;
+  }
   return this._bytesWritten || 0;
 });
 Socket.prototype.__defineSetter__('bytesWritten', function(v) {
