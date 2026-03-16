@@ -1170,7 +1170,12 @@ function _getClientRequestHostHeaderValue(request, resolvedPort) {
   var options = request && request.options && typeof request.options === 'object'
     ? request.options
     : {};
-  var defaultPort = request && request.protocol === 'https:' ? 443 : 80;
+  var protocolDefaultPort = request && request.protocol === 'https:' ? 443 : 80;
+  var defaultPort = options.defaultPort != null
+    ? Number(options.defaultPort)
+    : (request && request.agent && request.agent.defaultPort != null
+      ? Number(request.agent.defaultPort)
+      : protocolDefaultPort);
   var rawHost;
   if (options.host !== undefined && options.host !== null) {
     rawHost = String(options.host);
@@ -1181,9 +1186,9 @@ function _getClientRequestHostHeaderValue(request, resolvedPort) {
   } else {
     rawHost = 'localhost';
   }
-  var actualPort = resolvedPort != null
-    ? Number(resolvedPort)
-    : (options.port != null ? Number(options.port) : defaultPort);
+  var actualPort = options.port != null
+    ? Number(options.port)
+    : defaultPort;
   var appendPort = false;
   if (options.port != null) {
     appendPort = actualPort !== defaultPort || rawHost.indexOf(':') !== -1;

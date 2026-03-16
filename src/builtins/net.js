@@ -201,6 +201,22 @@ function _resolveDefaultAutoSelectFamilyAttemptTimeout() {
   return configured < 10 ? 10 : configured;
 }
 
+function _getFastLocalhostConnectCandidates(family, autoSelectFamily) {
+  if (family === 4) {
+    return [{ address: '127.0.0.1', family: 4 }];
+  }
+  if (family === 6) {
+    return [{ address: '::1', family: 6 }];
+  }
+  if (autoSelectFamily) {
+    return [
+      { address: '::1', family: 6 },
+      { address: '127.0.0.1', family: 4 }
+    ];
+  }
+  return [{ address: '127.0.0.1', family: 4 }];
+}
+
 var _defaultAutoSelectFamilyAttemptTimeout = _resolveDefaultAutoSelectFamilyAttemptTimeout();
 var _defaultAutoSelectFamily = false;
 var _boundTcpServers = [];
@@ -1098,6 +1114,7 @@ function Socket(options) {
   this._abortPending = false;
   this._customHandle = false;
   this._customReadStarted = false;
+  this._deferReadableStart = false;
   this.pending = true;
   this.readyState = 'closed';
 
@@ -1162,10 +1179,7 @@ function Socket(options) {
       try {
         fdHandle = __exactTcpFromFd(options.fd);
       } catch (_fdErr) {
-        fdHandle = {
-          fd: options.fd,
-          close: function() {}
-        };
+        fdHandle = null;
       }
       fdHandle = _makeSocketHandle(fdHandle, 'tcp', options.fd, null);
     } else {
@@ -1178,14 +1192,23 @@ function Socket(options) {
     this.readyState = 'open';
     if (options.readable !== false) this.readable = true;
     if (options.writable !== false) this.writable = true;
+    this._deferReadableStart = options.readable !== false;
     _setHandleRefState(this._handle, !this._unrefed);
-    if (options.readable !== false) {
-      this._startPolling();
-    }
   }
   if (options.signal !== undefined) {
     _attachSocketAbortSignal(this, options.signal);
   }
+}
+
+function _maybeActivateDeferredReadableSocket(socket, eventName) {
+  if (!socket || socket.destroyed || socket._customHandle || !socket._deferReadableStart) {
+    return;
+  }
+  if (eventName !== 'data' && eventName !== 'readable' && eventName !== 'end') {
+    return;
+  }
+  socket._deferReadableStart = false;
+  socket.resume();
 }
 
 // Unconstructed prototypes should report undefined like Node.js.
@@ -2218,6 +2241,18 @@ Socket.prototype.connect = function(options, connectListener) {
   setTimeout(function() {
     if (self.destroyed) return;
 
+    if (!customLookup && self._requestedAddress === 'localhost') {
+      var localhostCandidates = _getFastLocalhostConnectCandidates(lookupFamily, autoSelectFamily);
+      if (localhostCandidates.length > 0) {
+        var firstLocalhostCandidate = localhostCandidates[0];
+        self.emit('lookup', null, firstLocalhostCandidate.address,
+          firstLocalhostCandidate.family || lookupFamily || isIP(firstLocalhostCandidate.address),
+          self._requestedAddress);
+        _startTcpConnect(self, localhostCandidates, autoSelectFamily);
+        return;
+      }
+    }
+
     if (typeof resolver === 'function') {
       var lookupOptions = { family: lookupFamily };
       if (options.hints !== undefined) lookupOptions.hints = options.hints;
@@ -2549,6 +2584,9 @@ Socket.prototype.setTimeout = function(timeout, callback) {
   this.timeout = timeout || 0;
   this._timeoutMs = timeout || 0;
   this._timeoutEmitted = false;
+  if (timeout > 0) {
+    this._lastActivity = Date.now();
+  }
   if (callback !== undefined) {
     if (typeof callback !== 'function') {
       var cbErr = new TypeError('The "callback" argument must be of type function. Received type ' + typeof callback);
@@ -2567,6 +2605,24 @@ Socket.prototype.setTimeout = function(timeout, callback) {
 
 Socket.prototype.read = function(size) {
   return this._consumeReadBuffer(typeof size === 'number' ? size : undefined);
+};
+
+Socket.prototype.on = function(eventName, listener) {
+  var result = EventEmitter.prototype.on.call(this, eventName, listener);
+  _maybeActivateDeferredReadableSocket(this, eventName);
+  return result;
+};
+
+Socket.prototype.addListener = function(eventName, listener) {
+  var result = EventEmitter.prototype.addListener.call(this, eventName, listener);
+  _maybeActivateDeferredReadableSocket(this, eventName);
+  return result;
+};
+
+Socket.prototype.prependListener = function(eventName, listener) {
+  var result = EventEmitter.prototype.prependListener.call(this, eventName, listener);
+  _maybeActivateDeferredReadableSocket(this, eventName);
+  return result;
 };
 
 Socket.prototype.push = function(chunk, encoding) {
@@ -2685,6 +2741,7 @@ Socket.prototype.pause = function() {
 Socket.prototype.resume = function() {
   var wasPaused = this._paused === true;
   this._paused = false;
+  this._deferReadableStart = false;
   if (this._pollTimer != null) {
     clearTimeout(this._pollTimer);
     this._pollTimer = null;
