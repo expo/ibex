@@ -273,6 +273,52 @@ function _responseCanHaveBody(statusCode, method) {
     statusCode !== 304;
 }
 
+function _createInvalidArgTypeError(name, expected, value) {
+  var err = new TypeError('The "' + name + '" argument must be of type ' + expected + '.' +
+    _invalidArgTypeHelper(value));
+  err.code = 'ERR_INVALID_ARG_TYPE';
+  return err;
+}
+
+function _createInvalidArgValueError(name, value, reason) {
+  var err = new TypeError('The "' + name + '" argument is invalid. ' + reason + '. Received ' + String(value));
+  err.code = 'ERR_INVALID_ARG_VALUE';
+  return err;
+}
+
+var EARLY_HINTS_LINK_RE = /^<[^<>\r\n]+>(?:\s*;\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+(?:=(?:"[^"\r\n]*"|[^;\r\n]+))?)*\s*$/;
+
+function _isValidEarlyHintsLinkValue(value) {
+  return typeof value === 'string' && EARLY_HINTS_LINK_RE.test(value);
+}
+
+function _collectEarlyHintsHeaderLines(hints) {
+  if (!hints || typeof hints !== 'object' || Array.isArray(hints)) {
+    throw _createInvalidArgTypeError('hints', 'object', hints);
+  }
+
+  var lines = [];
+  for (var key in hints) {
+    if (!Object.prototype.hasOwnProperty.call(hints, key)) continue;
+    validateHeaderName(key);
+    var values = Array.isArray(hints[key]) ? hints[key] : [hints[key]];
+    for (var i = 0; i < values.length; i++) {
+      var value = values[i];
+      validateHeaderValue(key, value);
+      var stringValue = String(value);
+      if (resolveHeaderName(key) === 'link' && !_isValidEarlyHintsLinkValue(stringValue)) {
+        throw _createInvalidArgValueError(
+          'hints',
+          stringValue,
+          'The "link" early hints header must be a valid RFC 8288 link-value'
+        );
+      }
+      lines.push(key + ': ' + stringValue + '\r\n');
+    }
+  }
+  return lines;
+}
+
 function _getOutgoingContentLength(target) {
   if (!target || !target._headers) return null;
   var contentLength = target._headers['content-length'];
@@ -1901,6 +1947,21 @@ function ClientRequest(options, callback) {
   if (_requestUsesSocketTransport(this)) {
     this._ensureSocketAssigned();
   }
+
+  var expectHeader = this.headers && this.headers['expect'];
+  if (Array.isArray(expectHeader)) {
+    expectHeader = expectHeader.length > 0 ? expectHeader[0] : '';
+  }
+  if (typeof expectHeader === 'string' &&
+      expectHeader.trim().toLowerCase() === '100-continue') {
+    var self = this;
+    scheduleNextTick(function() {
+      if (self._sent || self._ended || self.destroyed || self._destroyRequested) {
+        return;
+      }
+      self.flushHeaders();
+    });
+  }
 }
 ClientRequest.prototype = Object.create(EventEmitter.prototype);
 ClientRequest.prototype.constructor = ClientRequest;
@@ -2881,6 +2942,56 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var parseErrored = false;
   var destroySocketAfterResponse = false;
 
+  function resetCurrentResponseState(preservedBuffer) {
+    responseBuffer = preservedBuffer || '';
+    headersParsed = false;
+    statusCode = 200;
+    statusMessage = 'OK';
+    responseHeaders = {};
+    rawResponseHeaders = [];
+    contentLength = -1;
+    isChunked = false;
+    bodyBytesReceived = 0;
+    skipResponseBody = false;
+    tcpIncoming = null;
+    chunkParserState = 'size';
+    chunkRemaining = 0;
+    chunkBuffer = '';
+    destroySocketAfterResponse = false;
+  }
+
+  function emitInformationalResponse(infoMessage, remainingData) {
+    var emitErr = null;
+    infoMessage.complete = true;
+    infoMessage.readable = false;
+    infoMessage.destroyed = true;
+    infoMessage.closed = true;
+
+    if (statusCode === 100) {
+      try {
+        self.emit('continue', infoMessage);
+      } catch (continueErr) {
+        emitErr = emitErr || continueErr;
+      }
+    }
+
+    try {
+      self.emit('information', infoMessage);
+    } catch (informationErr) {
+      emitErr = emitErr || informationErr;
+    }
+
+    resetCurrentResponseState(remainingData);
+    if (responseBuffer.length > 0) {
+      onData('');
+    }
+    if (emitErr) {
+      scheduleNextTick(function() {
+        throw emitErr;
+      });
+    }
+  }
+
   function setSocketResetAsEofFlag(enabled) {
     if (!socket) return;
     socket._allowResetAsEof = enabled === true;
@@ -3304,19 +3415,14 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       if (te && te.toLowerCase().indexOf('chunked') !== -1) {
         isChunked = true;
       }
-      skipResponseBody = statusCode === 204 || statusCode === 304 || self.method === 'HEAD';
+      skipResponseBody = !_responseCanHaveBody(statusCode, self.method);
 
-      tcpIncoming = new TcpIncomingMessage(statusCode, statusMessage, responseHeaders, rawResponseHeaders);
-      tcpIncoming.socket = socket;
-      tcpIncoming.req = self;
-      tcpIncoming.httpVersionMajor = httpVerMajor;
-      tcpIncoming.httpVersionMinor = httpVerMinor;
-      tcpIncoming.httpVersion = httpVerMajor + '.' + httpVerMinor;
-      tcpIncoming._socketTimeoutListener = function() {
-        tcpIncoming.emit('timeout');
-      };
-      socket.on('timeout', tcpIncoming._socketTimeoutListener);
-      self.res = tcpIncoming;
+      var incomingMessage = new TcpIncomingMessage(statusCode, statusMessage, responseHeaders, rawResponseHeaders);
+      incomingMessage.socket = socket;
+      incomingMessage.req = self;
+      incomingMessage.httpVersionMajor = httpVerMajor;
+      incomingMessage.httpVersionMinor = httpVerMinor;
+      incomingMessage.httpVersion = httpVerMajor + '.' + httpVerMinor;
       var connHdr = (responseHeaders['connection'] || '').toLowerCase();
       var responseEndsAtEof = !isChunked &&
         contentLength < 0 &&
@@ -3324,16 +3430,30 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         statusCode !== 304 &&
         (statusCode < 100 || statusCode >= 200);
       if (httpVerMajor === 1 && httpVerMinor === 0) {
-        tcpIncoming.shouldKeepAlive = connHdr.indexOf('keep-alive') !== -1;
+        incomingMessage.shouldKeepAlive = connHdr.indexOf('keep-alive') !== -1;
       } else {
-        tcpIncoming.shouldKeepAlive = connHdr.indexOf('close') === -1;
+        incomingMessage.shouldKeepAlive = connHdr.indexOf('close') === -1;
       }
       if (responseEndsAtEof && self.method !== 'HEAD') {
-        tcpIncoming.shouldKeepAlive = false;
+        incomingMessage.shouldKeepAlive = false;
       }
-      if (self.shouldKeepAlive && !tcpIncoming.shouldKeepAlive) {
+      if (self.shouldKeepAlive && !incomingMessage.shouldKeepAlive) {
         self.shouldKeepAlive = false;
       }
+      var isInformationalResponse = statusCode >= 100 &&
+        statusCode < 200 &&
+        statusCode !== 101;
+      if (isInformationalResponse) {
+        emitInformationalResponse(incomingMessage, bodyStart);
+        return;
+      }
+
+      tcpIncoming = incomingMessage;
+      tcpIncoming._socketTimeoutListener = function() {
+        tcpIncoming.emit('timeout');
+      };
+      socket.on('timeout', tcpIncoming._socketTimeoutListener);
+      self.res = tcpIncoming;
       var isUpgradeResponse = statusCode === 101 &&
         connHdr.indexOf('upgrade') !== -1 &&
         typeof responseHeaders['upgrade'] === 'string' &&
@@ -4800,14 +4920,24 @@ HttpRequestParser.prototype._parse = function() {
       } else {
         var headerLine = this._buffer.substring(0, idx2);
         this._buffer = this._buffer.substring(idx2 + 2);
-        var colonIdx = headerLine.indexOf(':');
-        if (colonIdx > 0) {
-          var key = headerLine.substring(0, colonIdx);
-          var value = headerLine.substring(colonIdx + 1).trim();
-          var keyLower = key.toLowerCase();
-          _appendIncomingHeaderValue(this._headers, keyLower, value);
-          this._rawHeaders.push(key, value);
+        if (headerLine.indexOf('\r') !== -1 || headerLine.indexOf('\n') !== -1) {
+          this._emitParseError();
+          return;
         }
+        var colonIdx = headerLine.indexOf(':');
+        if (colonIdx <= 0) {
+          this._emitParseError();
+          return;
+        }
+        var key = headerLine.substring(0, colonIdx).trim();
+        var value = headerLine.substring(colonIdx + 1).trim();
+        if (!_checkIsHttpToken(key) || _checkInvalidHeaderChar(value)) {
+          this._emitParseError();
+          return;
+        }
+        var keyLower = key.toLowerCase();
+        _appendIncomingHeaderValue(this._headers, keyLower, value);
+        this._rawHeaders.push(key, value);
       }
     } else if (this._state === 2) {
       if (this._streamingBody) {
@@ -5181,31 +5311,53 @@ ServerResponse.prototype._renderHeaders = function() {
   return rendered;
 };
 
-ServerResponse.prototype.writeContinue = function() {
-  if (!this.socket) return;
-  try { this.socket.write('HTTP/1.1 100 Continue\r\n\r\n'); } catch(e) {}
+ServerResponse.prototype._writeRaw = function(data, callback) {
+  if (!this.socket) {
+    if (typeof callback === 'function') {
+      setTimeout(callback, 0);
+    }
+    return false;
+  }
+  try {
+    return this.socket.write(
+      data,
+      typeof callback === 'function'
+        ? function() { setTimeout(callback, 0); }
+        : undefined
+    );
+  } catch (writeErr) {
+    if (typeof callback === 'function') {
+      setTimeout(function() {
+        callback(writeErr);
+      }, 0);
+      return false;
+    }
+    throw writeErr;
+  }
 };
 
-ServerResponse.prototype.writeProcessing = function() {
-  if (!this.socket) return;
-  try { this.socket.write('HTTP/1.1 102 Processing\r\n\r\n'); } catch(e) {}
+ServerResponse.prototype.writeContinue = function(callback) {
+  return this._writeRaw('HTTP/1.1 100 Continue\r\n\r\n', callback);
+};
+
+ServerResponse.prototype.writeProcessing = function(callback) {
+  return this._writeRaw('HTTP/1.1 102 Processing\r\n\r\n', callback);
 };
 
 ServerResponse.prototype.writeEarlyHints = function(hints, callback) {
-  if (!this.socket) { if (callback) callback(); return; }
   var head = 'HTTP/1.1 103 Early Hints\r\n';
-  if (hints) {
-    for (var k in hints) {
-      if (Object.prototype.hasOwnProperty.call(hints, k)) {
-        var vals = Array.isArray(hints[k]) ? hints[k] : [hints[k]];
-        for (var i = 0; i < vals.length; i++) {
-          head += k + ': ' + vals[i] + '\r\n';
-        }
-      }
+  var headerLines = _collectEarlyHintsHeaderLines(hints);
+  if (headerLines.length === 0) {
+    if (typeof callback === 'function') {
+      setTimeout(callback, 0);
     }
+    return;
+  }
+  for (var i = 0; i < headerLines.length; i++) {
+    head += headerLines[i];
   }
   head += '\r\n';
-  try { this.socket.write(head, callback); } catch(e) { if (callback) callback(e); }
+  return this._writeRaw(head, callback);
 };
 
 ServerResponse.prototype.addTrailers = function(headers) {
@@ -6635,6 +6787,29 @@ Server.prototype._onConnection = function(socket) {
         armPendingRequestTimeouts();
       }
     });
+
+    var expectHeader = req.headers && req.headers['expect'];
+    if (Array.isArray(expectHeader)) {
+      expectHeader = expectHeader.length > 0 ? expectHeader[0] : '';
+    }
+    if (typeof expectHeader === 'string' && expectHeader.trim() !== '') {
+      var expectValue = expectHeader.trim().toLowerCase();
+      if (expectValue === '100-continue') {
+        if (self.listenerCount('checkContinue') > 0) {
+          self.emit('checkContinue', req, res);
+          return req;
+        }
+        res.writeContinue();
+      } else {
+        if (self.listenerCount('checkExpectation') > 0) {
+          self.emit('checkExpectation', req, res);
+          return req;
+        }
+        res.statusCode = 417;
+        res.end();
+        return req;
+      }
+    }
 
     self.emit('request', req, res);
     return req;
