@@ -2487,6 +2487,43 @@ Socket.prototype.read = function(size) {
   return this._consumeReadBuffer(typeof size === 'number' ? size : undefined);
 };
 
+Socket.prototype.push = function(chunk, encoding) {
+  if (chunk === null) {
+    _handleSocketEOF(this);
+    return false;
+  }
+
+  var pushData = toBufferData(chunk, encoding);
+  if (pushData == null || !pushData.length) {
+    return !this._paused;
+  }
+
+  this.bytesRead += pushData.length;
+  this._lastActivity = Date.now();
+  this._timeoutEmitted = false;
+  this._appendToReadBuffer(pushData);
+
+  if (this._onread) {
+    if (!this._paused) {
+      this._processOnreadBuffer();
+    }
+    return !this._paused;
+  }
+
+  this.emit('readable');
+  if (this._encoding) {
+    var encodedChunk = this._decoder && typeof this._decoder.write === 'function'
+      ? this._decoder.write(toBufferData(pushData))
+      : toBufferData(pushData).toString(this._encoding);
+    if (encodedChunk && encodedChunk.length) {
+      this.emit('data', encodedChunk);
+    }
+  } else {
+    this.emit('data', pushData);
+  }
+  return !this._paused;
+};
+
 Socket.prototype.unshift = function(chunk) {
   if (chunk == null) return;
   var unshiftData = toBufferData(chunk);

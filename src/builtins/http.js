@@ -948,6 +948,7 @@ function _appendClientRequestHeaderEntries(target, headerName, value) {
 }
 
 function _setClientRequestHeaderState(target, headerName, value, appendOnly) {
+  validateHeaderName(headerName);
   var lowerName = resolveHeaderName(headerName);
   var normalizedValue = _normalizeOutgoingHeaderValue(headerName, value);
   if (!appendOnly) {
@@ -975,7 +976,29 @@ function _initializeClientRequestHeaders(target, source) {
       for (var i = 0; i < source.length; i++) {
         var pair = source[i];
         if (!Array.isArray(pair) || pair.length < 2) continue;
-        _setClientRequestHeaderState(target, String(pair[0]), pair[1], false);
+        var pairName = String(pair[0]);
+        var pairValue = _normalizeOutgoingHeaderValue(pairName, pair[1]);
+        var pairLowerName = resolveHeaderName(pairName);
+        _appendClientRequestHeaderEntries(target, pairName, pairValue);
+        if (target.headers[pairLowerName] === undefined) {
+          target.headers[pairLowerName] = _cloneOutgoingHeaderValue(pairValue);
+        } else if (!_singleValueHeaders[pairLowerName]) {
+          if (Array.isArray(target.headers[pairLowerName])) {
+            if (Array.isArray(pairValue)) {
+              Array.prototype.push.apply(target.headers[pairLowerName], pairValue);
+            } else {
+              target.headers[pairLowerName].push(pairValue);
+            }
+          } else if (Array.isArray(pairValue)) {
+            target.headers[pairLowerName] = [target.headers[pairLowerName]].concat(pairValue);
+          } else if (pairLowerName === 'cookie') {
+            target.headers[pairLowerName] = target.headers[pairLowerName] + '; ' + pairValue;
+          } else {
+            target.headers[pairLowerName] = [target.headers[pairLowerName], pairValue];
+          }
+        }
+        target._headerNames[pairLowerName] = pairName;
+        target[kOutHeaders][pairLowerName] = [pairName, _cloneOutgoingHeaderValue(target.headers[pairLowerName])];
       }
       return;
     }
@@ -1724,7 +1747,9 @@ function ClientRequest(options, callback) {
   this._last = true;
   this.shouldKeepAlive = false;
 
-  if (this._setHostHeader && !_clientRequestHasHeader(this, 'host')) {
+  if (!this._headersIsArray &&
+      this._setHostHeader &&
+      !_clientRequestHasHeader(this, 'host')) {
     var defaultPort = this.protocol === 'https:' ? 443 : 80;
     var headerHost = this.host;
     var configuredPort = this.options && this.options.port != null ? Number(this.options.port) : null;
@@ -1733,7 +1758,8 @@ function ClientRequest(options, callback) {
     }
     _setClientRequestHeaderState(this, 'Host', headerHost, false);
   }
-  if (this.options &&
+  if (!this._headersIsArray &&
+      this.options &&
       this.options.auth &&
       !_clientRequestHasHeader(this, 'authorization')) {
     _setClientRequestHeaderState(
@@ -5058,14 +5084,12 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
         try {
           var streamChunkedFrame = _buildChunkedRequestFrame(data);
           writeOk = this.socket.write(streamChunkedFrame);
-          _recordOutgoingBytes(this, _getOutgoingBodyPartLength(streamChunkedFrame));
         } catch(e) {
           writeOk = false;
         }
       } else {
         try {
           writeOk = this.socket.write(data);
-          _recordOutgoingBytes(this, _getOutgoingBodyPartLength(data));
         } catch(e) {
           writeOk = false;
         }
@@ -5502,16 +5526,12 @@ ServerResponse.prototype._send = function(data) {
       head += '\r\n';
       this._headersSent = true;
       this._streaming = true;
-      var headLen = _getOutgoingBodyPartLength(head);
       if (this._useChunkedEncoding) {
         try {
           writeOk = this.socket.write(head);
-          _recordOutgoingBytes(this, headLen);
           if (flushedLength > 0) {
             var chunkedFrame = _buildChunkedRequestFrame(flushed);
-            var chunkedFrameLen = _getOutgoingBodyPartLength(chunkedFrame);
             writeOk = this.socket.write(chunkedFrame) && writeOk;
-            _recordOutgoingBytes(this, chunkedFrameLen);
           }
         } catch(e) {
           writeOk = false;
@@ -5519,10 +5539,8 @@ ServerResponse.prototype._send = function(data) {
       } else {
         try {
           writeOk = this.socket.write(head);
-          _recordOutgoingBytes(this, headLen);
           if (flushedLength > 0) {
             writeOk = this.socket.write(flushed) && writeOk;
-            _recordOutgoingBytes(this, flushedLength);
           }
         } catch(e) {
           writeOk = false;
@@ -5533,16 +5551,13 @@ ServerResponse.prototype._send = function(data) {
       if (this._useChunkedEncoding && flushedLength > 0) {
         try {
           var chunkedFrame2 = _buildChunkedRequestFrame(flushed);
-          var chunkedFrame2Len = _getOutgoingBodyPartLength(chunkedFrame2);
           writeOk = this.socket.write(chunkedFrame2);
-          _recordOutgoingBytes(this, chunkedFrame2Len);
         } catch(e) {
           writeOk = false;
         }
       } else if (flushedLength > 0) {
         try {
           writeOk = this.socket.write(flushed);
-          _recordOutgoingBytes(this, flushedLength);
         } catch(e) {
           writeOk = false;
         }
