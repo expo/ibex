@@ -83,6 +83,31 @@ function countBytesForChunk(chunk, encoding) {
   return chunk.length || 0;
 }
 
+function chunkToBuffer(chunk) {
+  if (chunk == null) return Buffer.alloc(0);
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+    return chunk;
+  }
+  if (typeof chunk === 'string') {
+    return Buffer.from(chunk);
+  }
+  if (chunk instanceof ArrayBuffer) {
+    return Buffer.from(chunk);
+  }
+  if (ArrayBuffer.isView(chunk)) {
+    return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  return Buffer.from(chunk);
+}
+
+function concatChunks(chunks) {
+  if (!chunks || chunks.length === 0) return Buffer.alloc(0);
+  if (chunks.length === 1) {
+    return chunkToBuffer(chunks[0]);
+  }
+  return Buffer.concat(chunks.map(chunkToBuffer));
+}
+
 // Wrap inflate errors with Z_DATA_ERROR code
 function wrapInflateError(e) {
   if (!e) return e;
@@ -874,7 +899,7 @@ ZlibTransform.prototype._flush = function(callback) {
   if (this._flushed) { callback(); return; }
   this._flushed = true;
   try {
-    var input = Buffer.concat(this._chunks);
+    var input = concatChunks(this._chunks);
 
     // Handle multi-member gzip streams (concatenated gzip)
     if (this._multiMember && input.length > 0) {
