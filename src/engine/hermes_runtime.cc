@@ -219,6 +219,16 @@ extern "C" int32_t exact_get_state_mirror_buffer(
     uint8_t** out_ptr,
     size_t* out_size);
 extern "C" int64_t exact_module_get_state_offset(void* handle, uint16_t module_id);
+extern "C" int32_t exact_get_layout(
+    void* handle,
+    uint32_t view_id,
+    float* out_x,
+    float* out_y,
+    float* out_width,
+    float* out_height);
+extern "C" int32_t exact_hit_test(void* handle, float x, float y);
+extern "C" int32_t exact_node_exists(void* handle, uint32_t view_id);
+extern "C" int32_t exact_get_root_view_id(void* handle, uint32_t root_id);
 
 // HTTP server (implemented in host/http_server.rs)
 extern "C" char* ex_host_http_serve(uint16_t port, const char* hostname);
@@ -5637,8 +5647,127 @@ extern "C" void ex_hermes_set_kernel_handle(
         return facebook::jsi::Value(static_cast<double>(offset));
       });
 
+  auto getLayoutFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "getLayout"),
+      1,
+      [runtime](facebook::jsi::Runtime& rt,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->kernel_handle || count == 0 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+
+        double rawViewId = args[0].asNumber();
+        if (rawViewId < 0 || rawViewId > static_cast<double>(UINT32_MAX)) {
+          return facebook::jsi::Value::null();
+        }
+
+        float x = 0;
+        float y = 0;
+        float width = 0;
+        float height = 0;
+        int32_t result = exact_get_layout(
+            runtime->kernel_handle,
+            static_cast<uint32_t>(rawViewId),
+            &x,
+            &y,
+            &width,
+            &height);
+
+        if (result != 0) {
+          return facebook::jsi::Value::null();
+        }
+
+        facebook::jsi::Object frame(rt);
+        frame.setProperty(rt, "x", static_cast<double>(x));
+        frame.setProperty(rt, "y", static_cast<double>(y));
+        frame.setProperty(rt, "width", static_cast<double>(width));
+        frame.setProperty(rt, "height", static_cast<double>(height));
+        return facebook::jsi::Value(std::move(frame));
+      });
+
+  auto hitTestFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "hitTest"),
+      2,
+      [runtime](facebook::jsi::Runtime&,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->kernel_handle || count < 2 ||
+            !args[0].isNumber() || !args[1].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+
+        int32_t viewId = exact_hit_test(
+            runtime->kernel_handle,
+            static_cast<float>(args[0].asNumber()),
+            static_cast<float>(args[1].asNumber()));
+
+        if (viewId < 0) {
+          return facebook::jsi::Value::null();
+        }
+
+        return facebook::jsi::Value(static_cast<double>(viewId));
+      });
+
+  auto nodeExistsFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "nodeExists"),
+      1,
+      [runtime](facebook::jsi::Runtime&,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->kernel_handle || count == 0 || !args[0].isNumber()) {
+          return facebook::jsi::Value(false);
+        }
+
+        double rawViewId = args[0].asNumber();
+        if (rawViewId < 0 || rawViewId > static_cast<double>(UINT32_MAX)) {
+          return facebook::jsi::Value(false);
+        }
+
+        return facebook::jsi::Value(
+            exact_node_exists(runtime->kernel_handle, static_cast<uint32_t>(rawViewId)) == 1);
+      });
+
+  auto getRootViewIdFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "getRootViewId"),
+      1,
+      [runtime](facebook::jsi::Runtime&,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->kernel_handle || count == 0 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+
+        double rawRootId = args[0].asNumber();
+        if (rawRootId < 0 || rawRootId > static_cast<double>(UINT32_MAX)) {
+          return facebook::jsi::Value::null();
+        }
+
+        int32_t rootViewId = exact_get_root_view_id(
+            runtime->kernel_handle,
+            static_cast<uint32_t>(rawRootId));
+        if (rootViewId < 0) {
+          return facebook::jsi::Value::null();
+        }
+
+        return facebook::jsi::Value(static_cast<double>(rootViewId));
+      });
+
   exactObj.setProperty(rt, "getStateMirror", std::move(getStateMirrorFn));
   exactObj.setProperty(rt, "getModuleStateOffset", std::move(getModuleStateOffsetFn));
+  exactObj.setProperty(rt, "getLayout", std::move(getLayoutFn));
+  exactObj.setProperty(rt, "hitTest", std::move(hitTestFn));
+  exactObj.setProperty(rt, "nodeExists", std::move(nodeExistsFn));
+  exactObj.setProperty(rt, "getRootViewId", std::move(getRootViewIdFn));
+  exactObj.setProperty(rt, "hasKernelInspector", runtime->kernel_handle != nullptr);
   rt.global().setProperty(rt, "exact", std::move(exactObj));
 }
 

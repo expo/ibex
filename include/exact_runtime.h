@@ -125,6 +125,13 @@ void ex_hermes_set_module_sync_callback(
                     void* context),
     void* context);
 
+/// Install the generic `__hostCall(op, argsJson)` bridge in JavaScript.
+/// The callback should return a malloc'd C string. Prefix with `+` for a JSON
+/// success payload or `-` for an error message.
+void ex_hermes_set_host_call(
+    ExactHermesRuntime* runtime,
+    char* (*callback)(const char* op, const char* args_json));
+
 /// Attach the Exact kernel handle so the runtime can expose kernel-backed
 /// state-mirror snapshots and module metadata through the `exact` global.
 void ex_hermes_set_kernel_handle(
