@@ -178,6 +178,7 @@ try {
 } catch (e) {}
 var _normalizedArgsSymbol = Symbol.for('nodejs.net.normalizedArgs');
 var _kReinitializeHandle = Symbol.for('nodejs.net.kReinitializeHandle');
+var kTimeout = Symbol.for('kTimeout');
 function _readExecArgvNumericFlag(flag) {
   var execArgv = (typeof process !== 'undefined' && Array.isArray(process.execArgv))
     ? process.execArgv
@@ -219,6 +220,24 @@ function _unwrapHandle(handle) {
     return handle._exactHandle;
   }
   return handle;
+}
+
+function _updateSocketTimeoutHandleState(socket) {
+  if (!socket) return;
+  if (socket.destroyed || socket.connecting || socket._timeoutMs <= 0) {
+    socket[kTimeout] = null;
+    return;
+  }
+  if (!socket[kTimeout] || typeof socket[kTimeout] !== 'object') {
+    socket[kTimeout] = {
+      _idleTimeout: socket._timeoutMs,
+      refresh: function() { return this; },
+      ref: function() { return this; },
+      unref: function() { return this; }
+    };
+    return;
+  }
+  socket[kTimeout]._idleTimeout = socket._timeoutMs;
 }
 
 function _makeSocketHandle(handle, kind, fd, path) {
@@ -1032,6 +1051,7 @@ function Socket(options) {
   this._timeoutTimer = null;
   this._lastActivity = 0;
   this._timeoutEmitted = false;
+  this[kTimeout] = null;
   this._handle = _makeSocketHandle(null);
   this._pollTimer = null;
   this._drainTimer = null;
@@ -1909,6 +1929,7 @@ Socket.prototype.connect = function(options, connectListener) {
         self.readyState = 'open';
         self._updateAddressInfo();
         self._startPolling();
+        _updateSocketTimeoutHandleState(self);
         self.emit('connect');
         self.emit('ready');
       } catch(e) {
@@ -1972,6 +1993,7 @@ Socket.prototype.connect = function(options, connectListener) {
       if (typeof self._handle.readStart === 'function') {
         try { self._handle.readStart(); } catch (_customReadStartErr) {}
       }
+      _updateSocketTimeoutHandleState(self);
       self.emit('connect');
       self.emit('ready');
     }, 0);
@@ -2146,6 +2168,7 @@ Socket.prototype.connect = function(options, connectListener) {
         }
         selfRef._startPolling();
         selfRef._drainWriteQueue();
+        _updateSocketTimeoutHandleState(selfRef);
         selfRef.emit('connect');
         selfRef.emit('ready');
         return;
@@ -2422,6 +2445,7 @@ Socket.prototype.destroy = function(err) {
     clearTimeout(this._timeoutTimer);
     this._timeoutTimer = null;
   }
+  this[kTimeout] = null;
   if (this._writeQueue.length) {
     var endErr;
     if (err instanceof Error) {
@@ -2504,6 +2528,7 @@ Socket.prototype.setTimeout = function(timeout, callback) {
       this.removeListener('timeout', callback);
     }
   }
+  _updateSocketTimeoutHandleState(this);
   return this;
 };
 

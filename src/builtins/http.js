@@ -239,6 +239,35 @@ function _responseCanHaveBody(statusCode, method) {
     statusCode !== 304;
 }
 
+function _getOutgoingContentLength(target) {
+  if (!target || !target._headers) return null;
+  var contentLength = target._headers['content-length'];
+  if (contentLength == null) return null;
+  var parsed = parseInt(contentLength, 10);
+  return isFinite(parsed) ? parsed : null;
+}
+
+function _checkStrictContentLength(target, additionalBytes, isFinal) {
+  if (!target || target.strictContentLength !== true) return;
+  if (_hasChunkedTransferEncoding(target._headers && target._headers['transfer-encoding'])) {
+    return;
+  }
+  var expected = _getOutgoingContentLength(target);
+  if (expected == null) return;
+  var written = target._contentLengthWritten || 0;
+  var next = written + (additionalBytes || 0);
+  if (next > expected || (isFinal && next < expected)) {
+    var err = new Error('Response body length does not match content-length header');
+    err.code = 'ERR_HTTP_CONTENT_LENGTH_MISMATCH';
+    throw err;
+  }
+}
+
+function _recordStrictContentLength(target, bytes) {
+  if (!target || !bytes) return;
+  target._contentLengthWritten = (target._contentLengthWritten || 0) + bytes;
+}
+
 function _ensureOutgoingHeaderState(target) {
   if (!target._headers || typeof target._headers !== 'object') target._headers = {};
   if (!target._headerNames || typeof target._headerNames !== 'object') target._headerNames = {};
@@ -2465,7 +2494,15 @@ ClientRequest.prototype.end = function(chunk, encoding, callback) {
     return this;
   }
   if (chunk !== undefined && chunk !== null) {
-    this.write(chunk, encoding);
+    if (!_isOutgoingChunk(chunk)) {
+      throw _createInvalidChunkTypeError(chunk);
+    }
+    if (!this._streamingRequest && !this._sent && this.protocol === 'http:') {
+      this._bodyParts.push(_coerceClientRequestBodyChunk(chunk, encoding));
+      _recordOutgoingBytes(this, _getOutgoingChunkLength(chunk, encoding));
+    } else {
+      this.write(chunk, encoding);
+    }
   }
   this._ended = true;
   this.writableEnded = true;
@@ -2486,7 +2523,9 @@ ClientRequest.prototype.end = function(chunk, encoding, callback) {
 
 ClientRequest.prototype.destroy = function(err) {
   if (this.destroyed) return this;
-  if (!err && !this._aborted && !this.res) {
+  if (!err &&
+      !this.res &&
+      (!this._aborted || (this.socket && !this.socket.destroyed))) {
     err = new Error('socket hang up');
     err.code = 'ECONNRESET';
   }
@@ -2935,6 +2974,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     if (typeof socket.setTimeout === 'function') {
       socket.setTimeout(self.agent.options && self.agent.options.timeout ? self.agent.options.timeout : 0);
     }
+    if (socket._httpAgentTimeoutListener && !socket._httpAgentTimeoutListenerAttached) {
+      socket.on('timeout', socket._httpAgentTimeoutListener);
+      socket._httpAgentTimeoutListenerAttached = true;
+    }
     clearSocketTimeoutListener(self, socket);
     cleanupRequestListeners();
     self.destroyed = true;
@@ -3253,7 +3296,12 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         if (typeof socket.setTimeout === 'function') {
           socket.setTimeout(0);
         }
+        socket.removeAllListeners('timeout');
+        socket[kTimeout] = null;
         cleanupRequestListeners();
+        if (self.agent && typeof socket.emit === 'function') {
+          socket.emit('agentRemove');
+        }
         finishRequestWrite();
         self.destroyed = true;
         self.emit('connect', tcpIncoming, socket,
@@ -4858,6 +4906,8 @@ function ServerResponse(reqOrServerId, requestId) {
   this.writableEnded = false;
   this.writableFinished = false;
   this.sendDate = true;
+  this.strictContentLength = false;
+  this._contentLengthWritten = 0;
 
   if (typeof reqOrServerId === 'number') {
     this._serverId = reqOrServerId;
@@ -5188,6 +5238,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   if (this._finished) { if (callback) callback(new Error('write after end')); return false; }
   var writeOk = true;
+  var chunkLen = 0;
   if (chunk === null) {
     throw _createNullWriteError();
   }
@@ -5196,7 +5247,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
       throw _createInvalidChunkTypeError(chunk);
     }
     // Empty string/buffer writes trigger header flush but don't send body data
-    var chunkLen = _getOutgoingChunkLength(chunk, encoding);
+    chunkLen = _getOutgoingChunkLength(chunk, encoding);
     if (chunkLen === 0) {
       // Still need to flush headers if not yet sent (Node.js compat)
       if (!this._headersSent && this.socket && !this._nativeMode) {
@@ -5205,6 +5256,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
       if (callback) setTimeout(callback, 0);
       return true;
     }
+    _checkStrictContentLength(this, chunkLen, false);
     var data = this._nativeMode
       ? _toOutgoingBodyPart(chunk, encoding)
       : _coerceServerResponseSocketChunk(chunk, encoding);
@@ -5232,6 +5284,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
       _recordOutgoingBytes(this, _getOutgoingBodyPartLength(data));
       this._bodyParts.push(data);
     }
+    _recordStrictContentLength(this, chunkLen);
   }
   if (callback) setTimeout(callback, 0);
   var responseWriteOk = writeOk && this.writableLength < this.writableHighWaterMark;
@@ -5297,13 +5350,18 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
     if (!_isOutgoingChunk(chunk)) {
       throw _createInvalidChunkTypeError(chunk);
     }
+    var endChunkLength = _getOutgoingChunkLength(chunk, encoding);
+    _checkStrictContentLength(this, endChunkLength, true);
     if (!this._nativeMode && !this._headersSent && !this._streaming) {
       var endData = _coerceServerResponseSocketChunk(chunk, encoding);
       this._bodyParts.push(endData);
       _recordOutgoingBytes(this, _getOutgoingBodyPartLength(endData));
+      _recordStrictContentLength(this, endChunkLength);
     } else {
       this.write(chunk, encoding);
     }
+  } else {
+    _checkStrictContentLength(this, 0, true);
   }
   this._finished = true;
   this.finished = true;
@@ -5627,13 +5685,23 @@ ServerResponse.prototype._send = function(data) {
     // Determine if chunked encoding should be used (HTTP/1.1 only)
     var req = this._req;
     var isHttp10 = req && req.httpVersionMajor === 1 && req.httpVersionMinor === 0;
+    var reqConnection = (req && req.headers && req.headers['connection']) || '';
+    var reqConnectionLower = reqConnection.toLowerCase();
+    var clientSupportsKeepAlive = isHttp10
+      ? reqConnectionLower.indexOf('keep-alive') !== -1
+      : reqConnectionLower.indexOf('close') === -1;
+    var keepAlive = clientSupportsKeepAlive;
 
     if (!this._headersSent) {
       this._ensureImplicitHeaders();
       // Start streaming - set connection before transfer-encoding for proper header ordering
-      if (!this._headers['connection']) {
-        this._headers['connection'] = 'close';
+      if (!this._headers['connection'] && !this._removedHeaderNames['connection']) {
+        this._headers['connection'] = keepAlive ? 'keep-alive' : 'close';
         this._headerNames['connection'] = 'Connection';
+      } else if (this._headers['connection']) {
+        keepAlive = String(this._headers['connection']).toLowerCase().indexOf('keep-alive') !== -1;
+      } else {
+        keepAlive = false;
       }
       if (!isHttp10 && !this._headers['content-length'] && !this._headers['transfer-encoding']) {
         this._headers['transfer-encoding'] = 'chunked';
@@ -5645,7 +5713,7 @@ ServerResponse.prototype._send = function(data) {
       var statusCode = _getServerResponseStatusCode(this);
       var statusMsg = _getServerResponseStatusMessage(this);
       var head = 'HTTP/1.1 ' + statusCode + ' ' + statusMsg + '\r\n';
-      if (this.sendDate && !this._headers['date']) {
+      if (this.sendDate && !this._headers['date'] && !this._removedHeaderNames['date']) {
         this._headers['date'] = new Date().toUTCString();
         this._headerNames['date'] = 'Date';
       }
@@ -6336,6 +6404,17 @@ Server.prototype._onConnection = function(socket) {
       (typeof parser._buffer === 'string' && parser._buffer.length > 0);
   }
 
+  function detachServerHttpSocket() {
+    clearHeadersTimeout();
+    clearRequestTimeout();
+    socket.removeAllListeners('data');
+    socket.removeAllListeners('close');
+    socket.removeAllListeners('error');
+    socket.removeAllListeners('timeout');
+    socket[kTimeout] = null;
+    if (self._sockets) self._sockets.delete(socket);
+  }
+
   function armPendingRequestTimeouts() {
     if (socket.destroyed || !hasPendingHttpRequestData()) {
       return;
@@ -6423,6 +6502,7 @@ Server.prototype._onConnection = function(socket) {
         parser._buffer = '';
         parser.close();
       }
+      detachServerHttpSocket();
       if (self.listenerCount('connect') > 0) {
         self.emit('connect', req, socket, head);
       } else {
@@ -6441,6 +6521,7 @@ Server.prototype._onConnection = function(socket) {
         parser._buffer = '';
         parser.close();
       }
+      detachServerHttpSocket();
       self.emit('upgrade', req, socket, upgradeHead);
       return req;
     }
