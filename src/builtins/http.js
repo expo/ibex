@@ -5657,6 +5657,9 @@ ServerResponse.prototype._sendSocketResponse = function() {
 
     var keepAlive = clientSupportsKeepAlive
       && respConnectionLower.indexOf('close') === -1;
+    if (req && req.complete !== true) {
+      keepAlive = false;
+    }
 
     if (!this._headersSent) {
       this._ensureImplicitHeaders();
@@ -5742,6 +5745,11 @@ ServerResponse.prototype._sendSocketResponse = function() {
       if (autoConnectionValue !== null) {
         this._headers['connection'] = autoConnectionValue;
         this._headerNames['connection'] = 'Connection';
+      }
+      if (req && req.complete !== true && !this._removedHeaderNames['connection']) {
+        this._headers['connection'] = 'close';
+        this._headerNames['connection'] = 'Connection';
+        keepAlive = false;
       }
       for (var k in this._headers) {
         if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
@@ -5918,6 +5926,13 @@ ServerResponse.prototype._send = function(data) {
       } else {
         keepAlive = false;
       }
+      if (req && req.complete !== true) {
+        keepAlive = false;
+        if (!this._removedHeaderNames['connection']) {
+          this._headers['connection'] = 'close';
+          this._headerNames['connection'] = 'Connection';
+        }
+      }
       if (!isHttp10 && !this._headers['content-length'] && !this._headers['transfer-encoding']) {
         this._headers['transfer-encoding'] = 'chunked';
         this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
@@ -5991,33 +6006,12 @@ ServerResponse.prototype._send = function(data) {
 
 ServerResponse.prototype.flushHeaders = function() {
   if (this._headersSent) return;
-  if (this.socket && !this._nativeMode) {
+  if (this._nativeMode) {
     this._ensureImplicitHeaders();
-    var statusCode = _getServerResponseStatusCode(this);
-    var statusMsg = _getServerResponseStatusMessage(this);
-    var head = 'HTTP/1.1 ' + statusCode + ' ' + statusMsg + '\r\n';
-    if (this.sendDate && !this._headers['date']) {
-      this._headers['date'] = new Date().toUTCString();
-      this._headerNames['date'] = 'Date';
-    }
-    for (var k in this._headers) {
-      if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
-        var casedName = this._headerNames[k] || toHeaderCase(k);
-        var hVal = this._headers[k];
-        if (Array.isArray(hVal)) {
-          for (var hi = 0; hi < hVal.length; hi++) {
-            head += casedName + ': ' + hVal[hi] + '\r\n';
-          }
-        } else {
-          head += casedName + ': ' + hVal + '\r\n';
-        }
-      }
-    }
-    head += '\r\n';
-    this._headersSent = true;
-    this._streaming = true;
-    try { this.socket.write(head); } catch(e) {}
+    this._ensureStreaming();
+    return;
   }
+  this._send();
 };
 
 ServerResponse.prototype.destroy = function(err) {
@@ -6093,6 +6087,8 @@ function ServerIncomingMessage(requestData, serverId) {
   this._manualEnded = requestData.bodyComplete !== false;
   this._manualEndEmitted = false;
   this._manualReadableScheduled = false;
+  this._manualPaused = false;
+  this._dumped = false;
   this._encoding = null;
   this._serverId = serverId || 0;
   this._requestId = requestData.id || 0;
@@ -6193,6 +6189,9 @@ ServerIncomingMessage.prototype._emitManualEnd = function() {
 };
 ServerIncomingMessage.prototype._flushManualData = function() {
   var self = this;
+  if (self._manualPaused) {
+    return;
+  }
   if (!this._manualFlowing && (!this.listenerCount || this.listenerCount('data') === 0)) {
     return;
   }
@@ -6212,7 +6211,22 @@ ServerIncomingMessage.prototype._pushBodyChunk = function(chunk) {
     chunk = chunk.toString(this._encoding);
   }
   this._manualChunks.push(chunk);
-  if (this._manualFlowing || (this.listenerCount && this.listenerCount('data') > 0)) {
+  var hasDataListeners = this.listenerCount && this.listenerCount('data') > 0;
+  var bufferedBytes = 0;
+  for (var i = 0; i < this._manualChunks.length; i++) {
+    bufferedBytes += _getOutgoingBodyPartLength(this._manualChunks[i]);
+  }
+  var highWaterMark = this._readableState && typeof this._readableState.highWaterMark === 'number'
+    ? this._readableState.highWaterMark
+    : _defaultHttpHighWaterMark;
+  if ((this._manualPaused || (!this._manualFlowing && !hasDataListeners)) &&
+      bufferedBytes >= highWaterMark &&
+      this.socket &&
+      this.socket._paused !== true &&
+      typeof this.socket.pause === 'function') {
+    this.socket.pause();
+  }
+  if (this._manualFlowing || (hasDataListeners && !this._manualPaused)) {
     this._flushManualData();
   } else {
     this._scheduleManualReadable();
@@ -6231,14 +6245,23 @@ ServerIncomingMessage.prototype._finishBody = function() {
   }
 };
 ServerIncomingMessage.prototype.isPaused = function() {
-  return !this._manualFlowing;
+  return this._manualPaused === true || !this._manualFlowing;
 };
 ServerIncomingMessage.prototype.pause = function() {
+  this._manualPaused = true;
   this._manualFlowing = false;
   return this;
 };
 ServerIncomingMessage.prototype.resume = function() {
+  var wasPaused = this._manualPaused === true || this._manualFlowing === false;
+  this._manualPaused = false;
   this._manualFlowing = true;
+  if (wasPaused) {
+    this.emit('resume');
+  }
+  if (this.socket && this.socket._paused === true && typeof this.socket.resume === 'function') {
+    this.socket.resume();
+  }
   this._flushManualData();
   return this;
 };
@@ -6300,10 +6323,19 @@ ServerIncomingMessage.prototype.setTimeout = function(msecs, callback) {
   return this;
 };
 
+ServerIncomingMessage.prototype._dump = function() {
+  this._dumped = true;
+  this.removeAllListeners('data');
+  this.resume();
+  return this;
+};
+
 ServerIncomingMessage.prototype.on = function(event, listener) {
   EventEmitter.prototype.on.call(this, event, listener);
   if (event === 'data') {
-    this.resume();
+    if (!this._manualPaused) {
+      this.resume();
+    }
   } else if (event === 'readable' && this._manualChunks.length > 0) {
     this._scheduleManualReadable();
   } else if (event === 'end' && this._manualEnded && this._manualChunks.length === 0) {
@@ -6756,6 +6788,15 @@ Server.prototype._onConnection = function(socket) {
     res.once('close', function() {
       if (req.complete && _activeReq === req) {
         _activeReq = null;
+      }
+      if (!req.destroyed &&
+          !req._dumped &&
+          typeof req._dump === 'function' &&
+          (
+            req._manualEndEmitted !== true ||
+            (req._manualChunks && req._manualChunks.length > 0)
+          )) {
+        req._dump();
       }
       if (req.complete && !req._closeEmitted && !req._closeScheduled) {
         req.readable = false;

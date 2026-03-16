@@ -2633,6 +2633,7 @@ Socket.prototype.address = function() {
 };
 
 Socket.prototype.pause = function() {
+  var wasPaused = this._paused === true;
   this._paused = true;
   _setTimerRefState(this._pollTimer, false);
   if (this._customHandle && this._customReadStarted && this._handle &&
@@ -2642,10 +2643,14 @@ Socket.prototype.pause = function() {
       this._customReadStarted = false;
     } catch (_pauseReadStopErr) {}
   }
+  if (!wasPaused) {
+    this.emit('pause');
+  }
   return this;
 };
 
 Socket.prototype.resume = function() {
+  var wasPaused = this._paused === true;
   this._paused = false;
   if (this._pollTimer != null) {
     clearTimeout(this._pollTimer);
@@ -2688,6 +2693,9 @@ Socket.prototype.resume = function() {
       this._pollTimer == null &&
       !this._customHandle) {
     this._startPolling();
+  }
+  if (wasPaused) {
+    this.emit('resume');
   }
   return this;
 };
