@@ -902,6 +902,135 @@ function _appendIncomingHeaderValue(dest, key, value) {
   dest[key] = value;
 }
 
+function _cloneOutgoingHeaderValue(value) {
+  return Array.isArray(value) ? value.slice() : value;
+}
+
+function _normalizeOutgoingHeaderValue(name, value) {
+  if (Array.isArray(value)) {
+    if (resolveHeaderName(name) === 'host') {
+      var hostErr = new TypeError('The "options.headers.host" property must be of type string.');
+      hostErr.code = 'ERR_INVALID_ARG_TYPE';
+      throw hostErr;
+    }
+    var normalized = new Array(value.length);
+    for (var i = 0; i < value.length; i++) {
+      validateHeaderValue(String(name), value[i]);
+      normalized[i] = String(value[i]);
+    }
+    return normalized;
+  }
+  validateHeaderValue(String(name), value);
+  return String(value);
+}
+
+function _removeClientRequestHeaderEntries(target, lowerName) {
+  if (!target || !target._headerList || !target._headerList.length) return;
+  var next = [];
+  for (var i = 0; i < target._headerList.length; i++) {
+    var pair = target._headerList[i];
+    if (resolveHeaderName(pair[0]) !== lowerName) {
+      next.push(pair);
+    }
+  }
+  target._headerList = next;
+}
+
+function _appendClientRequestHeaderEntries(target, headerName, value) {
+  if (!target._headerList) target._headerList = [];
+  if (Array.isArray(value)) {
+    for (var i = 0; i < value.length; i++) {
+      target._headerList.push([headerName, value[i]]);
+    }
+    return;
+  }
+  target._headerList.push([headerName, value]);
+}
+
+function _setClientRequestHeaderState(target, headerName, value, appendOnly) {
+  var lowerName = resolveHeaderName(headerName);
+  var normalizedValue = _normalizeOutgoingHeaderValue(headerName, value);
+  if (!appendOnly) {
+    _removeClientRequestHeaderEntries(target, lowerName);
+  }
+  _appendClientRequestHeaderEntries(target, headerName, normalizedValue);
+  target.headers[lowerName] = _cloneOutgoingHeaderValue(normalizedValue);
+  target._headerNames[lowerName] = headerName;
+  if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
+    target[kOutHeaders] = {};
+  }
+  target[kOutHeaders][lowerName] = [headerName, _cloneOutgoingHeaderValue(normalizedValue)];
+}
+
+function _initializeClientRequestHeaders(target, source) {
+  target.headers = {};
+  target._headerNames = {};
+  target._headerList = [];
+  target[kOutHeaders] = {};
+
+  if (!source || typeof source !== 'object') return;
+
+  if (Array.isArray(source)) {
+    if (source.length > 0 && Array.isArray(source[0])) {
+      for (var i = 0; i < source.length; i++) {
+        var pair = source[i];
+        if (!Array.isArray(pair) || pair.length < 2) continue;
+        _setClientRequestHeaderState(target, String(pair[0]), pair[1], false);
+      }
+      return;
+    }
+    if (source.length % 2 !== 0) {
+      var headersErr = new TypeError('The argument \'headers\' is invalid. Received ' + JSON.stringify(source));
+      headersErr.code = 'ERR_INVALID_ARG_VALUE';
+      throw headersErr;
+    }
+    for (var j = 0; j + 1 < source.length; j += 2) {
+      var headerName = String(source[j]);
+      var headerValue = _normalizeOutgoingHeaderValue(headerName, source[j + 1]);
+      var lowerName = resolveHeaderName(headerName);
+      _appendClientRequestHeaderEntries(target, headerName, headerValue);
+      if (target.headers[lowerName] === undefined) {
+        target.headers[lowerName] = _cloneOutgoingHeaderValue(headerValue);
+      } else if (!_singleValueHeaders[lowerName]) {
+        if (Array.isArray(target.headers[lowerName])) {
+          if (Array.isArray(headerValue)) {
+            Array.prototype.push.apply(target.headers[lowerName], headerValue);
+          } else {
+            target.headers[lowerName].push(headerValue);
+          }
+        } else if (Array.isArray(headerValue)) {
+          target.headers[lowerName] = [target.headers[lowerName]].concat(headerValue);
+        } else {
+          target.headers[lowerName] = [target.headers[lowerName], headerValue];
+        }
+      }
+      target._headerNames[lowerName] = headerName;
+      target[kOutHeaders][lowerName] = [headerName, _cloneOutgoingHeaderValue(target.headers[lowerName])];
+    }
+    return;
+  }
+
+  for (var key in source) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      _setClientRequestHeaderState(target, String(key), source[key], false);
+    }
+  }
+}
+
+function _appendClientRequestHeaderLines(request, list) {
+  if (!request || !list) return;
+  for (var i = 0; i < request._headerList.length; i++) {
+    var pair = request._headerList[i];
+    list.push(pair[0] + ': ' + pair[1] + '\r\n');
+  }
+}
+
+function _clientRequestHasHeader(request, lowerName) {
+  return !!request &&
+    !!request.headers &&
+    Object.prototype.hasOwnProperty.call(request.headers, lowerName);
+}
+
 function _invalidArgTypeHelper(input) {
   if (input == null) return ' Received ' + input;
   if (typeof input === 'function') return ' Received function ' + input.name;
@@ -965,7 +1094,19 @@ function toHttpUrl(options) {
 function toHttpPath(options) {
   if (!options) return "/";
   if (typeof options === "string") return "/";
-  var p = options.path || options.pathname || "/";
+  var p = options.path;
+  if (p === undefined) {
+    var pathname = options.pathname || "/";
+    var search = options.search || "";
+    var hash = options.hash || "";
+    if (search && search.charAt(0) !== "?") {
+      search = "?" + search;
+    }
+    if (hash && hash.charAt(0) !== '#') {
+      hash = '#' + hash;
+    }
+    p = pathname + search + hash;
+  }
   // Empty string path should default to "/" (Node.js behavior)
   if (!p) p = "/";
   return p;
@@ -1537,16 +1678,12 @@ function ClientRequest(options, callback) {
   this.method = toMethod(this.options);
   this.path = toHttpPath(this.options);
   validateClientRequestPath(this.path);
-  this.headers = toHeaders(this.options.headers);
   this._headersIsArray = Array.isArray(this.options.headers);
-  this._headerNames = {};
-  if (this.options.headers) {
-    for (var hk in this.options.headers) {
-      if (Object.prototype.hasOwnProperty.call(this.options.headers, hk)) {
-        this._headerNames[hk.toLowerCase()] = hk;
-      }
-    }
-  }
+  this._setDefaultHeaders = this.options.setDefaultHeaders !== false;
+  this._setHostHeader = this.options.setHost !== undefined
+    ? this.options.setHost !== false
+    : this._setDefaultHeaders;
+  _initializeClientRequestHeaders(this, this.options.headers);
   this._bodyParts = [];
   this._ended = false;
   this._sent = false;
@@ -1587,22 +1724,24 @@ function ClientRequest(options, callback) {
   this._last = true;
   this.shouldKeepAlive = false;
 
-  if (!this._headersIsArray && !Object.prototype.hasOwnProperty.call(this.headers, 'host')) {
+  if (this._setHostHeader && !_clientRequestHasHeader(this, 'host')) {
     var defaultPort = this.protocol === 'https:' ? 443 : 80;
     var headerHost = this.host;
     var configuredPort = this.options && this.options.port != null ? Number(this.options.port) : null;
     if (configuredPort && configuredPort !== defaultPort) {
       headerHost += ':' + configuredPort;
     }
-    this.headers.host = headerHost;
-    this._headerNames.host = 'Host';
+    _setClientRequestHeaderState(this, 'Host', headerHost, false);
   }
-  if (!this._headersIsArray &&
-      this.options &&
+  if (this.options &&
       this.options.auth &&
-      !Object.prototype.hasOwnProperty.call(this.headers, 'authorization')) {
-    this.headers.authorization = 'Basic ' + Buffer.from(String(this.options.auth)).toString('base64');
-    this._headerNames.authorization = 'Authorization';
+      !_clientRequestHasHeader(this, 'authorization')) {
+    _setClientRequestHeaderState(
+      this,
+      'Authorization',
+      'Basic ' + Buffer.from(String(this.options.auth)).toString('base64'),
+      false
+    );
   }
 
   if (this.agent) {
@@ -1665,15 +1804,7 @@ ClientRequest.prototype._implicitHeader = function() {
 ClientRequest.prototype.setHeader = function(name, value) {
   var lc = resolveHeaderName(name);
   validateHeaderName(name);
-  name = String(name);
-  if (Array.isArray(value) && lc === 'host') {
-    var hostErr = new TypeError('The "options.headers.host" property must be of type string.');
-    hostErr.code = 'ERR_INVALID_ARG_TYPE';
-    throw hostErr;
-  }
-  validateHeaderValue(name, value);
-  this.headers[lc] = Array.isArray(value) ? value.map(String).join(', ') : String(value);
-  this._headerNames[lc] = name;
+  _setClientRequestHeaderState(this, String(name), value, false);
 };
 
 ClientRequest.prototype.getHeader = function(name) {
@@ -1687,6 +1818,10 @@ ClientRequest.prototype.removeHeader = function(name) {
   var value = this.headers[key];
   delete this.headers[key];
   delete this._headerNames[key];
+  if (this[kOutHeaders] && typeof this[kOutHeaders] === 'object') {
+    delete this[kOutHeaders][key];
+  }
+  _removeClientRequestHeaderEntries(this, key);
   return value;
 };
 
@@ -1735,30 +1870,29 @@ ClientRequest.prototype.flushHeaders = function() {
 
 function _buildRawTcpRequestHead(request, host, port, bodyLength, forceChunked) {
   var reqLine = request.method + ' ' + request.path + ' HTTP/1.1\r\n';
-  var headerStr = '';
-  if (!request.headers['host']) {
-    headerStr += 'Host: ' + host + (port !== 80 ? ':' + port : '') + '\r\n';
+  var headerLines = [];
+  if (request._setHostHeader && !_clientRequestHasHeader(request, 'host')) {
+    headerLines.push('Host: ' + host + (port !== 80 ? ':' + port : '') + '\r\n');
   }
-  for (var k in request.headers) {
-    if (!Object.prototype.hasOwnProperty.call(request.headers, k)) continue;
-    var casedName = request._headerNames[k] || toHeaderCase(k);
-    headerStr += casedName + ': ' + request.headers[k] + '\r\n';
-  }
+  _appendClientRequestHeaderLines(request, headerLines);
   if (typeof bodyLength === 'number' &&
-      bodyLength > 0 &&
       !request.headers['content-length'] &&
-      !request.headers['transfer-encoding']) {
-    headerStr += 'Content-Length: ' + bodyLength + '\r\n';
+      !request.headers['transfer-encoding'] &&
+      request._setDefaultHeaders) {
+    if (bodyLength > 0 || request.method === 'POST' || request.method === 'PUT') {
+      headerLines.push('Content-Length: ' + bodyLength + '\r\n');
+    }
   } else if (forceChunked &&
              !request.headers['content-length'] &&
-             !request.headers['transfer-encoding']) {
-    headerStr += 'Transfer-Encoding: chunked\r\n';
+             !request.headers['transfer-encoding'] &&
+             request._setDefaultHeaders) {
+    headerLines.push('Transfer-Encoding: chunked\r\n');
   }
-  if (!request.headers['connection']) {
-    headerStr += 'Connection: ' + (request.shouldKeepAlive ? 'keep-alive' : 'close') + '\r\n';
+  if (!request.headers['connection'] && request._setDefaultHeaders) {
+    headerLines.push('Connection: ' + (request.shouldKeepAlive ? 'keep-alive' : 'close') + '\r\n');
   }
-  headerStr += '\r\n';
-  return reqLine + headerStr;
+  headerLines.push('\r\n');
+  return reqLine + headerLines.join('');
 }
 
 function _buildChunkedRequestFrame(bodyPart) {
@@ -1777,9 +1911,17 @@ ClientRequest.prototype._startStreamingRequest = function() {
   this._sent = true;
   this.headersSent = true;
   this._streamingRequest = true;
-  if (!this.headers['content-length'] && !this.headers['transfer-encoding']) {
+  if (this._setDefaultHeaders &&
+      !this.headers['content-length'] &&
+      !this.headers['transfer-encoding']) {
     this.headers['transfer-encoding'] = 'chunked';
     this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
+    if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
+      this[kOutHeaders] = {};
+    }
+    this[kOutHeaders]['transfer-encoding'] = ['Transfer-Encoding', 'chunked'];
+    _removeClientRequestHeaderEntries(this, 'transfer-encoding');
+    _appendClientRequestHeaderEntries(this, 'Transfer-Encoding', 'chunked');
     this._requestUsesChunkedEncoding = true;
   } else {
     this._requestUsesChunkedEncoding = _hasChunkedTransferEncoding(this.headers['transfer-encoding']);
@@ -2412,32 +2554,31 @@ ClientRequest.prototype._sendViaTcp = function(body) {
 
   // Build raw HTTP request
   var reqLine = this.method + ' ' + this.path + ' HTTP/1.1\r\n';
-  var headerStr = '';
-  if (!this.headers['host'] && !this._headersIsArray) {
-    headerStr += 'Host: ' + host + (port !== 80 ? ':' + port : '') + '\r\n';
+  var headerLines = [];
+  if (this._setHostHeader && !_clientRequestHasHeader(this, 'host')) {
+    headerLines.push('Host: ' + host + (port !== 80 ? ':' + port : '') + '\r\n');
   }
-  for (var k in this.headers) {
-    if (Object.prototype.hasOwnProperty.call(this.headers, k)) {
-      var casedName = this._headerNames[k] || toHeaderCase(k);
-      headerStr += casedName + ': ' + this.headers[k] + '\r\n';
-    }
-  }
-  if (body) {
-    if (!this.headers['content-length'] && !this.headers['transfer-encoding']) {
+  _appendClientRequestHeaderLines(this, headerLines);
+  if (!this.headers['content-length'] &&
+      !this.headers['transfer-encoding'] &&
+      this._setDefaultHeaders) {
+    if (body) {
       var bodyLen = (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(body))
         ? body.length
         : ((typeof Buffer !== 'undefined' && typeof Buffer.byteLength === 'function')
           ? Buffer.byteLength(body)
           : body.length);
-      headerStr += 'Content-Length: ' + bodyLen + '\r\n';
+      headerLines.push('Content-Length: ' + bodyLen + '\r\n');
+    } else if (this.method === 'POST' || this.method === 'PUT') {
+      headerLines.push('Content-Length: 0\r\n');
     }
   }
-  if (!this.headers['connection']) {
-    headerStr += 'Connection: ' + (this.shouldKeepAlive ? 'keep-alive' : 'close') + '\r\n';
+  if (!this.headers['connection'] && this._setDefaultHeaders) {
+    headerLines.push('Connection: ' + (this.shouldKeepAlive ? 'keep-alive' : 'close') + '\r\n');
   }
-  headerStr += '\r\n';
+  headerLines.push('\r\n');
 
-  var rawRequest = reqLine + headerStr;
+  var rawRequest = reqLine + headerLines.join('');
   if (body && typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(body)) {
     rawRequest = Buffer.concat([Buffer.from(rawRequest, 'latin1'), body]);
   } else if (body) {
@@ -2457,6 +2598,9 @@ ClientRequest.prototype._resolveConnectionOptions = function() {
   var options = (this.options && typeof this.options === 'object') ? this.options : {};
   var host = options.hostname || options.host;
   var port = options.port;
+  var defaultPort = options.defaultPort ||
+    (this.agent && this.agent.defaultPort) ||
+    (this.protocol === 'https:' ? 443 : 80);
   if (!host || !port) {
     try {
       var parsed = new URL(this._url);
@@ -2465,7 +2609,7 @@ ClientRequest.prototype._resolveConnectionOptions = function() {
         if (parsed.port) {
           port = Number(parsed.port);
         } else {
-          port = parsed.protocol === 'https:' ? 443 : 80;
+          port = defaultPort;
         }
       }
       if ((!options.path || options.path === '/') && parsed.pathname) {
@@ -2479,7 +2623,7 @@ ClientRequest.prototype._resolveConnectionOptions = function() {
     if (!port && parts[1]) port = Number(parts[1]);
   }
   if (!host) host = 'localhost';
-  if (!port) port = 80;
+  if (!port) port = defaultPort || 80;
 
   var connectionOptions = {};
   for (var optKey in options) {
@@ -2557,6 +2701,10 @@ ClientRequest.prototype._ensureSocketAssigned = function() {
 ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var self = this;
   if (!socket) return;
+  socket._allowResetAsEof = false;
+  if (socket._socket && typeof socket._socket === 'object') {
+    socket._socket._allowResetAsEof = false;
+  }
 
   var responseBuffer = '';
   var headersParsed = false;
@@ -2576,6 +2724,14 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var chunkBuffer = '';
   var socketRetired = false;
   var parseErrored = false;
+
+  function setSocketResetAsEofFlag(enabled) {
+    if (!socket) return;
+    socket._allowResetAsEof = enabled === true;
+    if (socket._socket && typeof socket._socket === 'object') {
+      socket._socket._allowResetAsEof = enabled === true;
+    }
+  }
 
   function createResponseParseError(rawPacket, bytesParsed, code, reason) {
     var raw = toBuffer(rawPacket);
@@ -2740,6 +2896,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   function finishResponse() {
     if (responseEnded) return;
     responseEnded = true;
+    setSocketResetAsEofFlag(true);
     clearAbortResponseHook();
     if (tcpIncoming) {
       if (socket && tcpIncoming._socketTimeoutListener) {
@@ -2754,6 +2911,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   function abortResponse(err) {
     if (responseEnded) return;
     responseEnded = true;
+    setSocketResetAsEofFlag(false);
     clearAbortResponseHook();
     if (tcpIncoming) {
       if (socket && tcpIncoming._socketTimeoutListener) {
@@ -2785,6 +2943,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     if (responseEnded) return;
     responseEmitted = true;
     responseEnded = true;
+    setSocketResetAsEofFlag(false);
     clearAbortResponseHook();
     socket._httpMessage = null;
     socket.parser = null;
@@ -3167,6 +3326,21 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   }
 
   function onError(err) {
+    var completedFixedLengthResponse = responseEmitted &&
+      !isChunked &&
+      contentLength >= 0 &&
+      bodyBytesReceived >= contentLength;
+    if (err && err.code === 'ECONNRESET') {
+      if (responseEmitted) {
+        if (!responseEnded && !completedFixedLengthResponse) {
+          abortResponse(err);
+        }
+        return;
+      }
+      if (responseEnded || completedFixedLengthResponse) {
+        return;
+      }
+    }
     socket._hadError = true;
     if ((self._aborted || self._destroyRequested) &&
         self.errored !== err) {
@@ -5090,13 +5264,13 @@ ServerResponse.prototype._sendSocketResponse = function() {
       }
       if (this._headers['content-length'] == null &&
           !_hasChunkedTransferEncoding(this._headers['transfer-encoding'])) {
-        if (canHaveBody &&
+        if (shouldSendTrailers &&
             httpVersionMajor === 1 &&
             httpVersionMinor === 1) {
           this._headers['transfer-encoding'] = 'chunked';
           this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
-        } else if (!this._removedHeaderNames['content-length'] &&
-            this.statusCode !== 204 && this.statusCode !== 304) {
+        } else if (canHaveBody &&
+            !this._removedHeaderNames['content-length']) {
           this._headers['content-length'] = String(bodyLength);
           this._headerNames['content-length'] = 'Content-Length';
         }
@@ -5493,14 +5667,29 @@ function ServerIncomingMessage(requestData, serverId) {
         if (!pair || pair.length < 2) continue;
         var lkPair = resolveHeaderName(pair[0]);
         this.headers[lkPair] = pair[1];
-        this.rawHeaders.push(pair[0], pair[1]);
       }
     } else if (typeof requestData.headers === 'object') {
       for (var kh in requestData.headers) {
         if (Object.prototype.hasOwnProperty.call(requestData.headers, kh)) {
           var lk = resolveHeaderName(kh);
           this.headers[lk] = requestData.headers[kh];
-          this.rawHeaders.push(kh, requestData.headers[kh]);
+        }
+      }
+    }
+  }
+  if (Array.isArray(requestData.rawHeaders) && requestData.rawHeaders.length > 0) {
+    this.rawHeaders = requestData.rawHeaders.slice();
+  } else if (requestData.headers) {
+    if (Array.isArray(requestData.headers)) {
+      for (var rhi = 0; rhi < requestData.headers.length; rhi++) {
+        var rawPair = requestData.headers[rhi];
+        if (!rawPair || rawPair.length < 2) continue;
+        this.rawHeaders.push(rawPair[0], rawPair[1]);
+      }
+    } else if (typeof requestData.headers === 'object') {
+      for (var rhk in requestData.headers) {
+        if (Object.prototype.hasOwnProperty.call(requestData.headers, rhk)) {
+          this.rawHeaders.push(rhk, requestData.headers[rhk]);
         }
       }
     }
@@ -6133,7 +6322,13 @@ Server.prototype._onConnection = function(socket) {
       }
       if (self._closing && !socket.destroyed) {
         if (!socket._writeQueue || socket._writeQueue.length === 0) {
-          try { socket.destroy(); } catch(e) {}
+          try {
+            if (typeof socket.end === 'function') {
+              socket.end();
+            } else {
+              socket.destroy();
+            }
+          } catch(e) {}
         }
       }
       if (!socket.destroyed) {
@@ -6427,12 +6622,24 @@ Server.prototype.closeIdleConnections = function() {
   for (var i = 0; i < sockets.length; i++) {
     var sock = sockets[i];
     if (sock._isIdle && (!sock._writeQueue || sock._writeQueue.length === 0)) {
-      try { sock.destroy(); } catch(e) {}
+      try {
+        if (typeof sock.end === 'function') {
+          sock.end();
+        } else {
+          sock.destroy();
+        }
+      } catch(e) {}
     }
   }
 };
 
 Server.prototype.address = function() {
+  if (this._netServer && typeof this._netServer.address === 'function') {
+    var netAddress = this._netServer.address();
+    if (this._netServer._handle != null && netAddress != null) {
+      return netAddress;
+    }
+  }
   if (!this._listening) {
     return null;
   }

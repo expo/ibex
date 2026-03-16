@@ -261,6 +261,7 @@ impl ModuleLoader {
 
     fn source_needs_downlevel(source: &str) -> bool {
         Self::source_needs_async_downlevel(source)
+            || Self::source_needs_for_of_scoping_fix(source)
             || Self::source_needs_loop_scope_downlevel(source)
     }
 
@@ -277,7 +278,10 @@ impl ModuleLoader {
             || source.contains("\n    using ")
     }
 
-    fn source_needs_loop_scope_downlevel(source: &str) -> bool {
+    fn scan_block_scoped_loop_closures<F>(source: &str, mut matcher: F) -> bool
+    where
+        F: FnMut(usize, bool, bool, bool, bool) -> bool,
+    {
         fn skip_ws_and_comments(bytes: &[u8], mut idx: usize) -> usize {
             while idx < bytes.len() {
                 if bytes[idx].is_ascii_whitespace() {
@@ -591,10 +595,12 @@ impl ModuleLoader {
                         || body.contains("function")
                         || body.contains("class ")
                         || body.contains("class\n");
-                    let is_for_of_or_in = semicolons < 2
+                    let is_for_of = semicolons < 2
                         && (header.contains(" of ")
                             || header.contains(" of\t")
-                            || header.contains("\tof ")
+                            || header.contains("\tof "));
+                    let is_for_of_or_in = semicolons < 2
+                        && (is_for_of
                             || header.contains(" in ")
                             || header.contains(" in\t")
                             || header.contains("\tin "));
@@ -602,10 +608,13 @@ impl ModuleLoader {
                         || body.contains("break")
                         || body.contains("return");
 
-                    if captures_loop_binding
-                        && (semicolons >= 2
-                            || (is_for_of_or_in && has_unsafe_for_of_control_flow))
-                    {
+                    if matcher(
+                        semicolons,
+                        captures_loop_binding,
+                        is_for_of,
+                        is_for_of_or_in,
+                        has_unsafe_for_of_control_flow,
+                    ) {
                         return true;
                     }
                 }
@@ -617,6 +626,24 @@ impl ModuleLoader {
         }
 
         false
+    }
+
+    fn source_needs_for_of_scoping_fix(source: &str) -> bool {
+        Self::scan_block_scoped_loop_closures(
+            source,
+            |_, captures_loop_binding, is_for_of, _, _| captures_loop_binding && is_for_of,
+        )
+    }
+
+    fn source_needs_loop_scope_downlevel(source: &str) -> bool {
+        Self::scan_block_scoped_loop_closures(
+            source,
+            |semicolons, captures_loop_binding, _, is_for_of_or_in, has_unsafe_for_of_control_flow| {
+                captures_loop_binding
+                    && (semicolons >= 2
+                        || (is_for_of_or_in && has_unsafe_for_of_control_flow))
+            },
+        )
     }
 
     fn transpile_target_for_source(source: &str) -> &'static str {
@@ -2457,6 +2484,21 @@ for (const value of values) {
 }
 "#;
 
+        assert!(ModuleLoader::source_needs_for_of_scoping_fix(source));
+        assert!(!ModuleLoader::source_needs_loop_scope_downlevel(source));
+        assert_eq!(ModuleLoader::transpile_target_for_source(source), "es2015");
+    }
+
+    #[test]
+    fn detects_destructured_for_of_loops_for_es2015_scoping_fix() {
+        let source = r#"
+const cases = [{ value: 1 }, { value: 2 }];
+for (const { value } of cases) {
+    setTimeout(() => write(value), 0);
+}
+"#;
+
+        assert!(ModuleLoader::source_needs_for_of_scoping_fix(source));
         assert!(!ModuleLoader::source_needs_loop_scope_downlevel(source));
         assert_eq!(ModuleLoader::transpile_target_for_source(source), "es2015");
     }
@@ -2473,6 +2515,7 @@ for (const testCase of cases) {
 }
 "#;
 
+        assert!(ModuleLoader::source_needs_for_of_scoping_fix(source));
         assert!(ModuleLoader::source_needs_loop_scope_downlevel(source));
         assert_eq!(ModuleLoader::transpile_target_for_source(source), "es5");
     }

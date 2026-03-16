@@ -124,11 +124,10 @@ function _prepareRequestOptions(options) {
   if (!normalized.protocol) {
     normalized.protocol = 'https:';
   }
-  var needsSocketTransport = _requiresSocketTransport(normalized);
 
   if (normalized.agent === false) {
     delete normalized.agent;
-    if (needsSocketTransport && typeof normalized.createConnection !== 'function') {
+    if (_requiresSocketTransport(normalized) && typeof normalized.createConnection !== 'function') {
       normalized.createConnection = function(connectOptions, connectCallback) {
         var tlsOptions = _copyOwnProperties(connectOptions);
         if (!tlsOptions.servername) {
@@ -143,10 +142,10 @@ function _prepareRequestOptions(options) {
   }
 
   if (normalized.agent === undefined || normalized.agent === null) {
-    if (needsSocketTransport) {
-      normalized.agent = globalAgent;
-    } else {
+    if (typeof normalized.createConnection === 'function') {
       normalized.__exactSkipDefaultAgent = true;
+    } else {
+      normalized.agent = globalAgent;
     }
   }
   return normalized;
@@ -178,9 +177,35 @@ function createServer(options, requestListener) {
 
   var server = http.createServer(requestListener);
   var tlsServer = tls.createServer(options || {}, function(socket) {
+    if (socket && socket._exactHttpsHttpAttached) {
+      return;
+    }
+    if (socket) {
+      socket._exactHttpsHttpAttached = true;
+    }
     server.emit('secureConnection', socket);
     server._onConnection(socket);
   });
+  if (tlsServer && typeof tlsServer.on === 'function') {
+    tlsServer.on('listening', function() {
+      var address = null;
+      if (typeof tlsServer.address === 'function') {
+        address = tlsServer.address();
+      }
+      server._listening = true;
+      if (address && typeof address === 'object') {
+        if (address.port != null) {
+          server._port = address.port;
+        }
+        if (address.address) {
+          server._hostname = address.address;
+        }
+      }
+    });
+    tlsServer.on('close', function() {
+      server._listening = false;
+    });
+  }
   server._netServer = tlsServer;
   return server;
 }

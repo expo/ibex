@@ -720,6 +720,7 @@ function _shouldTreatResetAsEof(socket, err) {
     err.code === 'ECONNRESET' &&
     (socket._ended === true ||
      socket._closeAfterEnd === true ||
+     socket._allowResetAsEof === true ||
      socket._autoEndedFromPeer === true));
 }
 

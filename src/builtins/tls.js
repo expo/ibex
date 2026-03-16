@@ -1315,6 +1315,10 @@ function _copySocketMetadata(socket, rawSocket) {
   if (typeof rawSocket.localFamily !== 'undefined') socket.localFamily = rawSocket.localFamily;
   if (typeof rawSocket.readable === 'boolean') socket.readable = rawSocket.readable;
   if (typeof rawSocket.writable === 'boolean') socket.writable = rawSocket.writable;
+  if (typeof rawSocket.destroyed === 'boolean') socket.destroyed = rawSocket.destroyed;
+  if (typeof rawSocket.connecting === 'boolean') socket.connecting = rawSocket.connecting;
+  if (typeof rawSocket._isWriting === 'boolean') socket._isWriting = rawSocket._isWriting;
+  if (rawSocket._writeQueue) socket._writeQueue = rawSocket._writeQueue;
 }
 
 function _bindSocket(wrapper, rawSocket) {
