@@ -1109,7 +1109,7 @@ function Socket(options) {
   this._onreadEOF = false;
   this._isUnix = false;
   this._socketPath = null;
-  this._corked = false;
+  this._corked = 0;
   this._server = null;
   this.server = null;
   this.allowHalfOpen = options.allowHalfOpen === true;
@@ -1256,6 +1256,10 @@ Socket.prototype.__defineGetter__('readableHighWaterMark', function() {
 
 Socket.prototype.__defineGetter__('writableNeedDrain', function() {
   return !!this._needDrain;
+});
+
+Socket.prototype.__defineGetter__('writableCorked', function() {
+  return this._corked || 0;
 });
 
 Socket.prototype.__defineGetter__('writableEnded', function() {
@@ -2828,12 +2832,14 @@ Socket.prototype.setEncoding = function(enc) {
 };
 
 Socket.prototype.cork = function() {
-  this._corked = true;
+  this._corked += 1;
 };
 
 Socket.prototype.uncork = function() {
-  this._corked = false;
-  if (this._writeQueue.length > 0 && !this._isWriting) {
+  if (this._corked > 0) {
+    this._corked -= 1;
+  }
+  if (this._corked === 0 && this._writeQueue.length > 0 && !this._isWriting) {
     _scheduleWriteQueueDrain(this, 0);
   }
 };

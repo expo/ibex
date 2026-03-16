@@ -124,6 +124,7 @@ function _prepareRequestOptions(options) {
   if (!normalized.protocol) {
     normalized.protocol = 'https:';
   }
+  normalized.__exactAllowHttpsProtocol = true;
 
   if (normalized.agent === false) {
     delete normalized.agent;
