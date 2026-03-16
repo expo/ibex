@@ -453,7 +453,12 @@ function _parseLookupFamily(value) {
   if (value === 4 || value === '4') return 4;
   if (value === 6 || value === '6') return 6;
   if (value === undefined || value === null) return 0;
-  if (typeof value === 'string') return parseInt(value, 10) || 0;
+  if (typeof value === 'string') {
+    var lowered = value.toLowerCase();
+    if (lowered === 'ipv4') return 4;
+    if (lowered === 'ipv6') return 6;
+    return parseInt(value, 10) || 0;
+  }
   return value || 0;
 }
 
@@ -1855,6 +1860,15 @@ Socket.prototype.connect = function(options, connectListener) {
     throw boolTypeErr;
   }
   options = options || {};
+  if (options.address !== undefined &&
+      options.address !== null &&
+      options.host === undefined &&
+      options.hostname === undefined &&
+      options.path === undefined) {
+    options = Object.assign({}, options, {
+      host: options.address
+    });
+  }
   var hasCustomConnectHandle = this._handle &&
     this._handle._exactHandle === undefined &&
     typeof this._handle.connect === 'function';
@@ -3175,13 +3189,64 @@ Server.prototype._startAccepting = function() {
   if (this._acceptTimer != null) return;
   var self = this;
   var acceptFn = self._isUnix ? __exactUnixAccept : __exactTcpAccept;
+  function handleAcceptedClient(clientHandle, acceptedInfo) {
+    var shouldDrop = self.maxConnections === 0 ||
+      (typeof self.maxConnections === 'number' &&
+       self.maxConnections > 0 &&
+       self._connections >= self.maxConnections);
+    if (shouldDrop) {
+      var dropInfo = acceptedInfo || _describeAcceptedSocket(clientHandle, self);
+      try { __exactTcpClose(clientHandle); } catch(e) {}
+      self.emit('drop', dropInfo);
+      return true;
+    }
+    self._connections++;
+    var socketOpts = {
+      _handle: clientHandle,
+      allowHalfOpen: self.allowHalfOpen || false
+    };
+    if (self._isUnix) {
+      socketOpts._isUnix = true;
+      socketOpts._socketPath = self._socketPath;
+    }
+    var socket = new Socket(socketOpts);
+    socket.server = self;
+    socket._server = self;
+    // Apply server-level socket options
+    if (self.noDelay !== undefined) {
+      socket.setNoDelay(self.noDelay);
+    }
+    if (self.keepAlive !== undefined) {
+      socket.setKeepAlive(self.keepAlive, self.keepAliveInitialDelay);
+    }
+    if (self.pauseOnConnect) {
+      socket.pause();
+    }
+    socket.once('close', function() {
+      // If socket was sent to a child via IPC, _server is cleared.
+      // In that case, the SocketList protocol handles _connections decrement.
+      if (socket._server !== self) return;
+      self._connections--;
+      if (self._connections < 0) self._connections = 0;
+      if (self._closing && self._connections === 0) {
+        self.emit('close');
+      }
+    });
+    self.emit('connection', socket);
+    return true;
+  }
   function acceptLoop() {
     if (!self.listening || self._handle == null) return;
     var nativeH = _unwrapHandle(self._handle);
     if (nativeH == null) return;
     try {
-      var clientHandle = acceptFn(nativeH);
-      if (clientHandle !== -1) {
+      var acceptedAny = false;
+      for (var acceptCount = 0; acceptCount < 64; acceptCount++) {
+        var clientHandle = acceptFn(nativeH);
+        if (clientHandle === -1) {
+          break;
+        }
+        acceptedAny = true;
         var acceptedInfo = null;
         if (self.blockList && typeof self.blockList.check === 'function') {
           acceptedInfo = _describeAcceptedSocket(clientHandle, self);
@@ -3189,57 +3254,11 @@ Server.prototype._startAccepting = function() {
             var blockedType = isIPv6(acceptedInfo.remoteAddress) ? 'ipv6' : 'ipv4';
             if (self.blockList.check(acceptedInfo.remoteAddress, blockedType)) {
               try { __exactTcpClose(clientHandle); } catch (_blockCloseErr) {}
-              self._acceptTimer = _scheduleTimer(acceptLoop, 10, self);
-              return;
+              continue;
             }
           }
         }
-        var shouldDrop = self.maxConnections === 0 ||
-          (typeof self.maxConnections === 'number' &&
-           self.maxConnections > 0 &&
-           self._connections >= self.maxConnections);
-        if (shouldDrop) {
-          var dropInfo = acceptedInfo || _describeAcceptedSocket(clientHandle, self);
-          try { __exactTcpClose(clientHandle); } catch(e) {}
-          self.emit('drop', dropInfo);
-          self._acceptTimer = _scheduleTimer(acceptLoop, 10, self);
-          return;
-        }
-        self._connections++;
-        var socketOpts = {
-          _handle: clientHandle,
-          allowHalfOpen: self.allowHalfOpen || false
-        };
-        if (self._isUnix) {
-          socketOpts._isUnix = true;
-          socketOpts._socketPath = self._socketPath;
-        }
-        var socket = new Socket(socketOpts);
-        socket.server = self;
-        socket._server = self;
-        // Apply server-level socket options
-        if (self.noDelay !== undefined) {
-          socket.setNoDelay(self.noDelay);
-        }
-        if (self.keepAlive !== undefined) {
-          socket.setKeepAlive(self.keepAlive, self.keepAliveInitialDelay);
-        }
-        if (self.pauseOnConnect) {
-          socket.pause();
-        }
-        socket.once('close', function() {
-          // If socket was sent to a child via IPC, _server is cleared.
-          // In that case, the SocketList protocol handles _connections decrement.
-          if (socket._server !== self) return;
-          self._connections--;
-          if (self._connections < 0) self._connections = 0;
-          if (self._closing && self._connections === 0) {
-            self.emit('close');
-          }
-        });
-        if (!self.emit('connection', socket)) {
-          socket.end();
-        }
+        handleAcceptedClient(clientHandle, acceptedInfo);
       }
     } catch(e) {
       if (self.listening) {
@@ -3247,7 +3266,7 @@ Server.prototype._startAccepting = function() {
       }
       return;
     }
-    self._acceptTimer = _scheduleTimer(acceptLoop, 10, self);
+    self._acceptTimer = _scheduleTimer(acceptLoop, acceptedAny ? 0 : 10, self);
   }
   self._acceptTimer = _scheduleTimer(acceptLoop, 0, self);
 };
