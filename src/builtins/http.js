@@ -2819,6 +2819,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
 
   function maybeReleaseSocketAfterFlush() {
     if (self._responseEndedBeforeRequestEnd) {
+      if (!self._ended || !self.writableEnded || !self.writableFinished) {
+        return;
+      }
       retireSocketFromAgent();
       return;
     }
@@ -3650,6 +3653,7 @@ TcpIncomingMessage.prototype._read = function() {};
 TcpIncomingMessage.prototype._emitHttpClose = function() {
   if (this._httpCloseEmitted) return;
   this._httpCloseEmitted = true;
+  this.closed = true;
   this.emit('close');
 };
 TcpIncomingMessage.prototype._scheduleManualReadable = function() {
@@ -3845,17 +3849,32 @@ TcpIncomingMessage.prototype._destroy = function(err, callback) {
   if (typeof callback === 'function') callback(err || null);
 };
 TcpIncomingMessage.prototype.destroy = function(err) {
-  var ReadableCtor = getReadableCtor();
-  if (ReadableCtor && this._readableState && ReadableCtor.prototype.destroy) {
-    return ReadableCtor.prototype.destroy.call(this, err);
-  }
   if (this.destroyed) return this;
   this.destroyed = true;
+  this.readable = false;
+  if (this._readableState) {
+    this._readableState.destroyed = true;
+    this._readableState.reading = false;
+  }
+  if (err) {
+    this.errored = err;
+  }
   if (this.socket && !this.socket.destroyed) {
     try { this.socket.destroy(); } catch(e) {}
   }
-  if (err) this.emit('error', err);
-  this._emitHttpClose();
+  var self = this;
+  if (err) {
+    scheduleNextTick(function() {
+      if (self.listenerCount && self.listenerCount('error') > 0) {
+        self.emit('error', err);
+      } else {
+        throw err;
+      }
+    });
+  }
+  scheduleNextTick(function() {
+    self._emitHttpClose();
+  });
   return this;
 };
 TcpIncomingMessage.prototype.setTimeout = function(msecs, callback) {
