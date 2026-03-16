@@ -4916,6 +4916,11 @@ HttpRequestParser.prototype._parse = function() {
       if (this._buffer.length === 0) {
         return;
       }
+      var firstMethodChar = this._buffer.charCodeAt(0);
+      if (firstMethodChar < 0x41 || firstMethodChar > 0x5A) {
+        this._emitParseError();
+        return;
+      }
       var idx = this._buffer.indexOf('\r\n');
       if (idx === -1) {
         if (this._buffer.length > maxHeaderSize) {
