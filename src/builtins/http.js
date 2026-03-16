@@ -1333,7 +1333,10 @@ function _getClientRequestHostHeaderValue(request, resolvedPort) {
   } else {
     rawHost = 'localhost';
   }
-  if (options.hostname === undefined && options.host !== undefined && options.host !== null) {
+  if (options.__exactUrlLikeHost === true &&
+      options.hostname === undefined &&
+      options.host !== undefined &&
+      options.host !== null) {
     if (_isBracketedIpv6Host(rawHost)) {
       var bracketEnd = rawHost.indexOf(']');
       if (bracketEnd > 0 && rawHost.charAt(bracketEnd + 1) === ':') {
@@ -1391,7 +1394,7 @@ _singleValueHeaders['retry-after'] = true;
 _singleValueHeaders['server'] = true;
 _singleValueHeaders['user-agent'] = true;
 
-function _appendIncomingHeaderValue(dest, key, value, joinDuplicateHeaders) {
+function _appendIncomingHeaderValue(dest, key, value, joinDuplicateHeaders, preserveValidationArrays) {
   if (key === 'set-cookie') {
     if (dest[key] !== undefined) {
       if (Array.isArray(dest[key])) {
@@ -1406,7 +1409,8 @@ function _appendIncomingHeaderValue(dest, key, value, joinDuplicateHeaders) {
   }
 
   if (dest[key] !== undefined) {
-    if (key === 'content-length' || key === 'transfer-encoding') {
+    if (preserveValidationArrays === true &&
+        (key === 'content-length' || key === 'transfer-encoding')) {
       dest[key] = _mergeOutgoingHeaderValue(dest[key], String(value));
       return;
     }
@@ -1690,6 +1694,7 @@ function normalizeClientRequestOptions(options) {
       var parsedUrl = new URL(options);
       var normalizedStringOptions = {
         __exactOriginalUrl: options,
+        __exactUrlLikeHost: true,
         protocol: parsedUrl.protocol,
         hostname: parsedUrl.hostname,
         port: parsedUrl.port ? Number(parsedUrl.port) : undefined,
@@ -1708,6 +1713,7 @@ function normalizeClientRequestOptions(options) {
   }
   if (options instanceof URL) {
     var normalizedUrlOptions = {
+      __exactUrlLikeHost: true,
       protocol: options.protocol,
       hostname: options.hostname,
       port: options.port ? Number(options.port) : undefined,
@@ -1727,8 +1733,14 @@ function normalizeClientRequestOptions(options) {
     return normalizedUrlOptions;
   }
   if (options && typeof options === 'object') {
+    if (typeof options.href === 'string' && options.__exactUrlLikeHost !== true) {
+      options = Object.assign({}, options, {
+        __exactUrlLikeHost: true
+      });
+    }
     if (typeof options.auth === 'string' && typeof options.href === 'string') {
       options = Object.assign({}, options, {
+        __exactUrlLikeHost: true,
         auth: _normalizeLegacyParsedUrlAuth(options.auth)
       });
     }
@@ -3916,7 +3928,13 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
             return;
           }
           var hKeyLower = hKey.toLowerCase();
-          _appendIncomingHeaderValue(responseHeaders, hKeyLower, hVal, self.joinDuplicateHeaders === true);
+          _appendIncomingHeaderValue(
+            responseHeaders,
+            hKeyLower,
+            hVal,
+            self.joinDuplicateHeaders === true,
+            true
+          );
           rawResponseHeaders.push(hKey, hVal);
         }
       }
@@ -5656,7 +5674,13 @@ HttpRequestParser.prototype._parse = function() {
           return;
         }
         var keyLower = key.toLowerCase();
-        _appendIncomingHeaderValue(this._headers, keyLower, value, this.joinDuplicateHeaders === true);
+        _appendIncomingHeaderValue(
+          this._headers,
+          keyLower,
+          value,
+          this.joinDuplicateHeaders === true,
+          true
+        );
         this._rawHeaders.push(key, value);
       }
     } else if (this._state === 2) {
@@ -5909,7 +5933,10 @@ ServerResponse.prototype.assignSocket = function(socket) {
       self.emit('drain');
     }
   };
-  this._socketErrorListener = function() {
+  this._socketErrorListener = function(err) {
+    if (err && typeof err.code === 'string' && err.code.indexOf('HPE_') === 0) {
+      return;
+    }
     if (self.socket !== socket || socket.destroyed || self._closed) {
       return;
     }
@@ -7554,11 +7581,6 @@ Server.prototype._onConnection = function(socket) {
     emitClientError(self, socket, rawPacket, bytesParsed);
     if (socket.destroyed) return;
     if (typeof self.listenerCount === 'function' && self.listenerCount('clientError') > 0) {
-      scheduleNextTick(function() {
-        if (!socket.destroyed && socket._ended !== true) {
-          try { socket.destroy(); } catch (_destroyErrInvalidMethod) {}
-        }
-      });
       return;
     }
     try {
@@ -7577,6 +7599,9 @@ Server.prototype._onConnection = function(socket) {
       "Transfer-Encoding can't be present with Content-Length"
     );
     if (socket.destroyed) return;
+    if (typeof self.listenerCount === 'function' && self.listenerCount('clientError') > 0) {
+      return;
+    }
     try {
       socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
     } catch (_writeErrInvalidTe) {
@@ -7594,11 +7619,6 @@ Server.prototype._onConnection = function(socket) {
     );
     if (socket.destroyed) return;
     if (typeof self.listenerCount === 'function' && self.listenerCount('clientError') > 0) {
-      scheduleNextTick(function() {
-        if (!socket.destroyed && socket._ended !== true) {
-          try { socket.destroy(); } catch (_destroyErrLfExpected) {}
-        }
-      });
       return;
     }
     try {
@@ -7629,6 +7649,9 @@ Server.prototype._onConnection = function(socket) {
       'Header overflow'
     );
     if (socket.destroyed) return;
+    if (typeof self.listenerCount === 'function' && self.listenerCount('clientError') > 0) {
+      return;
+    }
     try {
       socket.end('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
     } catch (_writeErr3) {
@@ -7825,7 +7848,7 @@ Server.prototype._onConnection = function(socket) {
         req.httpVersionMajor === 1 &&
         req.httpVersionMinor >= 1 &&
         req.method !== 'CONNECT' &&
-        !req.headers.host) {
+        !Object.prototype.hasOwnProperty.call(req.headers, 'host')) {
       sendBadRequestAndClose();
       return null;
     }
