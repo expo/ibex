@@ -534,6 +534,49 @@ function _buildDistinctHeaderMap(rawList) {
   return distinct;
 }
 
+function _applyMaxHeadersCount(headers, rawHeaders, maxHeadersCount) {
+  if (!(typeof maxHeadersCount === 'number' && isFinite(maxHeadersCount) && maxHeadersCount > 0)) {
+    return {
+      headers: headers,
+      rawHeaders: rawHeaders
+    };
+  }
+
+  var limit = Math.floor(maxHeadersCount);
+  if (limit <= 0 || !Array.isArray(rawHeaders) || rawHeaders.length === 0) {
+    return {
+      headers: headers,
+      rawHeaders: rawHeaders
+    };
+  }
+
+  var limitedHeaders = {};
+  var limitedRawHeaders = [];
+  var seen = Object.create(null);
+  var distinctCount = 0;
+
+  for (var i = 0; i + 1 < rawHeaders.length; i += 2) {
+    var rawName = rawHeaders[i];
+    var rawValue = rawHeaders[i + 1];
+    var lowerName = resolveHeaderName(rawName);
+    var alreadySeen = Object.prototype.hasOwnProperty.call(seen, lowerName);
+    if (!alreadySeen) {
+      if (distinctCount >= limit) {
+        continue;
+      }
+      seen[lowerName] = true;
+      distinctCount += 1;
+    }
+    limitedRawHeaders.push(rawName, rawValue);
+    _appendIncomingHeaderValue(limitedHeaders, lowerName, String(rawValue));
+  }
+
+  return {
+    headers: limitedHeaders,
+    rawHeaders: limitedRawHeaders
+  };
+}
+
 function _defineDistinctHeaderAccessors(proto) {
   Object.defineProperty(proto, 'headersDistinct', {
     get: function() {
@@ -3602,11 +3645,23 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         statusCode = parseInt(statusParts[3], 10);
         statusMessage = statusParts[4] || '';
       }
+      var responseHeaderBytes = statusMessage.length;
       for (var i = 1; i < lines.length; i++) {
         var colonIdx = lines[i].indexOf(':');
         if (colonIdx > 0) {
           var hKey = lines[i].substring(0, colonIdx).trim();
           var hVal = lines[i].substring(colonIdx + 1).trim();
+          responseHeaderBytes += hKey.length + hVal.length;
+          if (responseHeaderBytes >= maxHeaderSize) {
+            emitResponseParseError(
+              responseBuffer,
+              responseHeaderBytes,
+              false,
+              'HPE_HEADER_OVERFLOW',
+              'Header overflow'
+            );
+            return;
+          }
           var hKeyLower = hKey.toLowerCase();
           _appendIncomingHeaderValue(responseHeaders, hKeyLower, hVal);
           rawResponseHeaders.push(hKey, hVal);
@@ -3628,7 +3683,17 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       }
       skipResponseBody = !_responseCanHaveBody(statusCode, self.method);
 
-      var incomingMessage = new TcpIncomingMessage(statusCode, statusMessage, responseHeaders, rawResponseHeaders);
+      var limitedResponseHeaders = _applyMaxHeadersCount(
+        responseHeaders,
+        rawResponseHeaders,
+        self.maxHeadersCount
+      );
+      var incomingMessage = new TcpIncomingMessage(
+        statusCode,
+        statusMessage,
+        limitedResponseHeaders.headers,
+        limitedResponseHeaders.rawHeaders
+      );
       incomingMessage.socket = socket;
       if (incomingMessage._readableState) {
         var socketReadableHighWaterMark = _getSocketReadableHighWaterMark(socket);
@@ -4967,6 +5032,7 @@ function HttpRequestParser() {
   this._chunkRemaining = 0;
   this._streamingBody = false;
   this._headerBytes = 0;
+  this.maxHeadersCount = 0;
   this._insecureHTTPParser = false;
   this._rawPacket = '';
   this.onRequest = null;
@@ -5037,6 +5103,7 @@ HttpRequestParser.prototype._resetMessageState = function() {
 
 HttpRequestParser.prototype._buildRequestData = function(options) {
   options = options || {};
+  var limitedHeaders = _applyMaxHeadersCount(this._headers, this._rawHeaders, this.maxHeadersCount);
   var verParts = this._httpVersion.split('.');
   return {
     method: this._method,
@@ -5044,8 +5111,8 @@ HttpRequestParser.prototype._buildRequestData = function(options) {
     httpVersion: this._httpVersion,
     httpVersionMajor: verParts[0] !== undefined ? (parseInt(verParts[0], 10) || 1) : 1,
     httpVersionMinor: verParts[1] !== undefined ? parseInt(verParts[1], 10) : 1,
-    headers: this._headers,
-    rawHeaders: this._rawHeaders,
+    headers: limitedHeaders.headers,
+    rawHeaders: limitedHeaders.rawHeaders,
     trailers: this._trailers,
     rawTrailers: this._rawTrailers,
     body: options.body !== undefined ? options.body : this._bodyData,
@@ -5089,6 +5156,26 @@ function _parseHttpChunkSizeLine(line) {
   return {
     size: parseInt(sizePart, 16)
   };
+}
+
+function _measureHttpRequestTargetBytes(line) {
+  if (typeof line !== 'string' || line.length === 0) return 0;
+  var firstSpace = line.indexOf(' ');
+  if (firstSpace === -1) return 0;
+  var rest = line.substring(firstSpace + 1);
+  var secondSpace = rest.indexOf(' ');
+  if (secondSpace === -1) {
+    return rest.trim().length;
+  }
+  return rest.substring(0, secondSpace).trim().length;
+}
+
+function _measureHttpHeaderLineBytes(line) {
+  if (typeof line !== 'string' || line.length === 0) return 0;
+  var colonIdx = line.indexOf(':');
+  if (colonIdx <= 0) return 0;
+  return line.substring(0, colonIdx).trim().length +
+    line.substring(colonIdx + 1).trim().length;
 }
 
 HttpRequestParser.prototype._parse = function() {
@@ -5136,23 +5223,22 @@ HttpRequestParser.prototype._parse = function() {
         return;
       }
       this._httpVersion = ver.substring(5);
-      this._headerBytes = line.length + 2;
+      this._headerBytes = _measureHttpRequestTargetBytes(line);
+      if (this._headerBytes >= maxHeaderSize) {
+        this._emitParseError('header_overflow', this._rawPacket, this._rawPacket.length);
+        return;
+      }
       this._state = 1;
     } else if (this._state === 1) {
       var idx2 = this._buffer.indexOf('\r\n');
       if (idx2 === -1) {
-        if ((this._headerBytes + this._buffer.length) > maxHeaderSize) {
+        if ((this._headerBytes + _measureHttpHeaderLineBytes(this._buffer)) >= maxHeaderSize) {
           this._emitParseError('header_overflow', this._rawPacket, this._rawPacket.length);
         }
         return;
       }
-      if ((this._headerBytes + idx2 + 2) > maxHeaderSize) {
-        this._emitParseError('header_overflow', this._rawPacket, this._rawPacket.length);
-        return;
-      }
       if (idx2 === 0) {
         this._buffer = this._buffer.substring(2);
-        this._headerBytes += 2;
         var te = this._headers['transfer-encoding'];
         var cl = this._headers['content-length'];
         if (te !== undefined && cl !== undefined) {
@@ -5202,7 +5288,6 @@ HttpRequestParser.prototype._parse = function() {
       } else {
         var headerLine = this._buffer.substring(0, idx2);
         this._buffer = this._buffer.substring(idx2 + 2);
-        this._headerBytes += headerLine.length + 2;
         if (headerLine.indexOf('\r') !== -1 || headerLine.indexOf('\n') !== -1) {
           this._emitParseError('lf_expected', this._rawPacket, this._rawPacket.length);
           return;
@@ -5217,6 +5302,11 @@ HttpRequestParser.prototype._parse = function() {
         if (!_checkIsHttpToken(key) ||
             (!this._insecureHTTPParser && _checkInvalidHeaderChar(value))) {
           this._emitParseError();
+          return;
+        }
+        this._headerBytes += key.length + value.length;
+        if (this._headerBytes >= maxHeaderSize) {
+          this._emitParseError('header_overflow', this._rawPacket, this._rawPacket.length);
           return;
         }
         var keyLower = key.toLowerCase();
@@ -7002,6 +7092,7 @@ Server.prototype._onConnection = function(socket) {
   this.emit('connection', socket);
 
   var parser = new HttpRequestParser();
+  parser.maxHeadersCount = self.maxHeadersCount;
   parser._insecureHTTPParser = self.insecureHTTPParser === true;
   socket.parser = parser;
   function sendBadRequestAndClose() {
