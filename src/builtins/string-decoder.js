@@ -11,281 +11,297 @@ function normalizeEncoding(enc) {
   throw new TypeError('Unknown encoding: ' + enc);
 }
 
-function utf8ByteLength(leadByte) {
-  if (leadByte < 0x80) return 1;
-  if (leadByte >= 0xC2 && leadByte <= 0xDF) return 2;
-  if (leadByte >= 0xE0 && leadByte <= 0xEF) return 3;
-  if (leadByte >= 0xF0 && leadByte <= 0xF4) return 4;
-  return 1;
-}
-
-// UTF-8 decoder following WHATWG "maximal subpart" replacement rule.
-// Must produce identical output to the UTF-8 branch in buffer.js.
-function _decodeUtf8Complete(bytes) {
-  var result = '';
-  var i = 0;
-  var len = bytes.length;
-  while (i < len) {
-    var b = bytes[i];
-    if (b < 0x80) {
-      result += String.fromCharCode(b);
-      i++;
-      continue;
-    }
-    var seqLen, minCp;
-    if ((b & 0xE0) === 0xC0)      { seqLen = 2; minCp = 0x80; }
-    else if ((b & 0xF0) === 0xE0)  { seqLen = 3; minCp = 0x800; }
-    else if ((b & 0xF8) === 0xF0)  { seqLen = 4; minCp = 0x10000; }
-    else {
-      result += '\uFFFD';
-      i++;
-      continue;
-    }
-    var got = 1;
-    for (var j = 1; j < seqLen && i + j < len; j++) {
-      if ((bytes[i + j] & 0xC0) !== 0x80) break;
-      got++;
-    }
-    if (got < seqLen) {
-      result += '\uFFFD';
-      i += got;
-      continue;
-    }
-    var cp;
-    if (seqLen === 2) {
-      cp = ((b & 0x1F) << 6) | (bytes[i + 1] & 0x3F);
-    } else if (seqLen === 3) {
-      cp = ((b & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F);
-    } else {
-      cp = ((b & 0x07) << 18) | ((bytes[i + 1] & 0x3F) << 12) | ((bytes[i + 2] & 0x3F) << 6) | (bytes[i + 3] & 0x3F);
-    }
-    if (cp < minCp || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF) {
-      result += '\uFFFD';
-      i++;
-      continue;
-    }
-    if (cp > 0xFFFF) {
-      cp -= 0x10000;
-      result += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
-    } else {
-      result += String.fromCharCode(cp);
-    }
-    i += seqLen;
+function toDecoderBuffer(buf) {
+  if (typeof buf === 'string') return buf;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(buf)) {
+    return buf;
   }
-  return result;
+  if (typeof Buffer !== 'undefined' && Buffer.from) {
+    if (typeof ArrayBuffer !== 'undefined' && buf instanceof ArrayBuffer) {
+      return Buffer.from(new Uint8Array(buf));
+    }
+    if (typeof ArrayBuffer !== 'undefined' &&
+        ArrayBuffer.isView &&
+        ArrayBuffer.isView(buf)) {
+      return Buffer.from(buf.buffer, buf.byteOffset || 0, buf.byteLength || buf.length || 0);
+    }
+    return Buffer.from(buf);
+  }
+  return buf;
 }
 
-// WHATWG streaming UTF-8 decoding diverges from Node's StringDecoder on
-// invalid byte boundaries, so use the buffer-mirroring path instead.
-var utf8DecoderSupportsStream = false;
+function bufferToEncoding(buf, encoding, start, end) {
+  var out = buf.toString(encoding, start, end);
+  if (encoding === 'base64url') {
+    return out.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  }
+  return out;
+}
 
 function StringDecoder(encoding) {
   this.encoding = normalizeEncoding(encoding);
-  this._buf = null;
-  this._bufLen = 0;
-  this._needBytes = 0;
-  this._utf8Decoder = (this.encoding === 'utf8' && utf8DecoderSupportsStream)
-    ? new TextDecoder('utf-8')
-    : null;
+  this.lastNeed = 0;
+  this.lastTotal = 0;
+
+  var lastCharBytes;
+  switch (this.encoding) {
+    case 'utf16le':
+      this.text = utf16Text;
+      this.end = utf16End;
+      lastCharBytes = 4;
+      break;
+    case 'utf8':
+      this.fillLast = utf8FillLast;
+      this.text = utf8Text;
+      this.end = utf8End;
+      lastCharBytes = 4;
+      break;
+    case 'base64':
+      this.text = base64Text;
+      this.end = base64End;
+      lastCharBytes = 3;
+      break;
+    case 'base64url':
+      this.text = base64UrlText;
+      this.end = base64UrlEnd;
+      lastCharBytes = 3;
+      break;
+    default:
+      this.write = simpleWrite;
+      this.end = simpleEnd;
+      return;
+  }
+
+  this.lastChar = Buffer.allocUnsafe(lastCharBytes);
 }
 
 StringDecoder.prototype.write = function write(buf) {
-  if (!buf || (typeof buf === 'object' && buf.length === 0)) return '';
-  var bytes;
-  if (buf instanceof Uint8Array) {
-    bytes = buf;
-  } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(buf)) {
-    bytes = new Uint8Array(buf.buffer || buf, buf.byteOffset || 0, buf.length);
-  } else if (typeof buf === 'string') {
-    return buf;
+  if (buf == null) return '';
+  buf = toDecoderBuffer(buf);
+  if (typeof buf === 'string') return buf;
+  if (!buf || buf.length === 0) return '';
+
+  var result;
+  var offset;
+  if (this.lastNeed) {
+    result = this.fillLast(buf);
+    if (result === undefined) {
+      return '';
+    }
+    offset = this.lastNeed;
+    this.lastNeed = 0;
   } else {
-    bytes = new Uint8Array(buf);
+    offset = 0;
   }
-  if (bytes.length === 0) return '';
-  var enc = this.encoding;
-  if (enc === 'ascii') {
-    var result = '';
-    for (var i = 0; i < bytes.length; i++) result += String.fromCharCode(bytes[i] & 0x7F);
-    return result;
+
+  if (offset < buf.length) {
+    var tail = this.text(buf, offset);
+    return result ? result + tail : tail;
   }
-  if (enc === 'latin1') {
-    var result = '';
-    for (var i = 0; i < bytes.length; i++) result += String.fromCharCode(bytes[i]);
-    return result;
-  }
-  if (enc === 'hex') {
-    var result = '';
-    for (var i = 0; i < bytes.length; i++) {
-      var h = bytes[i].toString(16);
-      if (h.length === 1) h = '0' + h;
-      result += h;
-    }
-    return result;
-  }
-  if (enc === 'base64' || enc === 'base64url') {
-    var input;
-    if (this._bufLen > 0) {
-      input = new Uint8Array(this._bufLen + bytes.length);
-      for (var i = 0; i < this._bufLen; i++) input[i] = this._buf[i];
-      for (var i = 0; i < bytes.length; i++) input[this._bufLen + i] = bytes[i];
-    } else {
-      input = bytes;
-    }
-    var remainder = input.length % 3;
-    var encodeLen = input.length - remainder;
-    if (remainder > 0) {
-      this._buf = new Uint8Array(remainder);
-      for (var i = 0; i < remainder; i++) this._buf[i] = input[encodeLen + i];
-      this._bufLen = remainder;
-    } else {
-      this._buf = null;
-      this._bufLen = 0;
-    }
-    if (encodeLen === 0) return '';
-    var toEncode = (encodeLen === input.length) ? input : input.slice(0, encodeLen);
-    var binary = '';
-    for (var i = 0; i < toEncode.length; i++) binary += String.fromCharCode(toEncode[i]);
-    var b64 = typeof btoa === 'function' ? btoa(binary) : '';
-    if (enc === 'base64url') {
-      return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    }
-    return b64;
-  }
-  if (enc === 'utf16le') {
-    var input;
-    if (this._bufLen > 0) {
-      input = new Uint8Array(this._bufLen + bytes.length);
-      for (var i = 0; i < this._bufLen; i++) input[i] = this._buf[i];
-      for (var i = 0; i < bytes.length; i++) input[this._bufLen + i] = bytes[i];
-    } else {
-      input = bytes;
-    }
-    var remainder = input.length % 2;
-    var decodeLen = input.length - remainder;
-    if (remainder > 0) {
-      this._buf = new Uint8Array(1);
-      this._buf[0] = input[decodeLen];
-      this._bufLen = 1;
-    } else {
-      this._buf = null;
-      this._bufLen = 0;
-    }
-    var result = '';
-    for (var i = 0; i < decodeLen; i += 2) {
-      result += String.fromCharCode(input[i] | (input[i + 1] << 8));
-    }
-    return result;
-  }
-  return this._writeUtf8(bytes);
+
+  return result || '';
 };
 
-StringDecoder.prototype._writeUtf8 = function _writeUtf8(bytes) {
-  if (this._utf8Decoder) {
-    return this._utf8Decoder.decode(bytes, { stream: true });
-  }
+StringDecoder.prototype.text = utf8Text;
+StringDecoder.prototype.end = utf8End;
 
-  // Strategy: combine any buffered bytes with new bytes, find where to split
-  // off incomplete trailing multi-byte sequences, then decode the complete
-  // portion with TextDecoder (non-streaming) to match Buffer.toString('utf8').
-  var input;
-  if (this._bufLen > 0) {
-    input = new Uint8Array(this._bufLen + bytes.length);
-    for (var j = 0; j < this._bufLen; j++) input[j] = this._buf[j];
-    for (var j = 0; j < bytes.length; j++) input[this._bufLen + j] = bytes[j];
-    this._buf = null;
-    this._bufLen = 0;
-    this._needBytes = 0;
-  } else {
-    input = bytes;
+StringDecoder.prototype.fillLast = function fillLast(buf) {
+  if (this.lastNeed <= buf.length) {
+    buf.copy(this.lastChar, this.lastTotal - this.lastNeed, 0, this.lastNeed);
+    return bufferToEncoding(this.lastChar, this.encoding, 0, this.lastTotal);
   }
-
-  if (input.length === 0) return '';
-
-  // Scan backwards from end to find any incomplete multi-byte sequence
-  var trailStart = input.length;
-  // Check if the last few bytes form an incomplete UTF-8 sequence
-  // We need to look back at most 3 bytes (max incomplete = 3 bytes of a 4-byte seq)
-  for (var back = 1; back <= 3 && back <= input.length; back++) {
-    var idx = input.length - back;
-    var b = input[idx];
-    if (b < 0x80) {
-      // ASCII - no incomplete sequence
-      break;
-    }
-    if ((b & 0xC0) === 0x80) {
-      // Continuation byte - keep scanning back
-      continue;
-    }
-    // Lead byte found
-    var seqLen = utf8ByteLength(b);
-    if (idx + seqLen > input.length) {
-      // Incomplete sequence
-      trailStart = idx;
-    }
-    break;
-  }
-
-  // Buffer any trailing incomplete bytes
-  if (trailStart < input.length) {
-    var remaining = input.length - trailStart;
-    this._buf = new Uint8Array(remaining);
-    for (var j = 0; j < remaining; j++) this._buf[j] = input[trailStart + j];
-    this._bufLen = remaining;
-    this._needBytes = utf8ByteLength(input[trailStart]);
-  }
-
-  // Decode the complete portion with the same UTF-8 replacement behavior
-  // Buffer.toString('utf8') uses in this runtime.
-  if (trailStart === 0) return '';
-  var toDecode = (trailStart === input.length) ? input : input.slice(0, trailStart);
-  if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
-    return Buffer.from(toDecode).toString('utf8');
-  }
-  return _decodeUtf8Complete(toDecode);
+  buf.copy(this.lastChar, this.lastTotal - this.lastNeed, 0, buf.length);
+  this.lastNeed -= buf.length;
+  return undefined;
 };
 
-StringDecoder.prototype.end = function end(buf) {
-  var result = '';
-  if (buf && (typeof buf === 'string' || (typeof buf === 'object' && buf.length > 0))) {
-    result = this.write(buf);
+function utf8CheckByte(byte) {
+  if (byte <= 0x7F) return 0;
+  if (byte >> 5 === 0x06) return 2;
+  if (byte >> 4 === 0x0E) return 3;
+  if (byte >> 3 === 0x1E) return 4;
+  return (byte >> 6 === 0x02 ? -1 : -2);
+}
+
+function utf8CheckIncomplete(self, buf, offset) {
+  var j = buf.length - 1;
+  if (j < offset) return 0;
+
+  var nb = utf8CheckByte(buf[j]);
+  if (nb >= 0) {
+    if (nb > 0) self.lastNeed = nb - 1;
+    return nb;
   }
-  var enc = this.encoding;
-  if (enc === 'utf8' && this._utf8Decoder) {
-    result += this._utf8Decoder.decode();
-    this._utf8Decoder = null;
-  } else if (this._bufLen > 0) {
-    if (enc === 'utf8') {
-      var remaining = this._bufLen === this._buf.length ? this._buf : this._buf.slice(0, this._bufLen);
-      if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
-        result += Buffer.from(remaining).toString('utf8');
+  if (--j < offset || nb === -2) return 0;
+
+  nb = utf8CheckByte(buf[j]);
+  if (nb >= 0) {
+    if (nb > 0) self.lastNeed = nb - 2;
+    return nb;
+  }
+  if (--j < offset || nb === -2) return 0;
+
+  nb = utf8CheckByte(buf[j]);
+  if (nb >= 0) {
+    if (nb > 0) {
+      if (nb === 2) {
+        nb = 0;
       } else {
-        result += _decodeUtf8Complete(remaining);
+        self.lastNeed = nb - 3;
       }
-    } else if (enc === 'utf16le') {
-      // Lone trailing byte is discarded in Node.js utf16le StringDecoder
-    } else if (enc === 'base64' || enc === 'base64url') {
-      var binary = '';
-      for (var i = 0; i < this._bufLen; i++) binary += String.fromCharCode(this._buf[i]);
-      var b64 = typeof btoa === 'function' ? btoa(binary) : '';
-      if (enc === 'base64url') {
-        b64 = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+    return nb;
+  }
+
+  return 0;
+}
+
+function utf8CheckExtraBytes(self, buf) {
+  if ((buf[0] & 0xC0) !== 0x80) {
+    self.lastNeed = 0;
+    return '\uFFFD';
+  }
+
+  if (self.lastNeed > 1 && buf.length > 1) {
+    if ((buf[1] & 0xC0) !== 0x80) {
+      self.lastNeed = 1;
+      return '\uFFFD';
+    }
+    if (self.lastNeed > 2 && buf.length > 2) {
+      if ((buf[2] & 0xC0) !== 0x80) {
+        self.lastNeed = 2;
+        return '\uFFFD';
       }
-      result += b64;
     }
   }
-  // Always reset state after end() so next write() starts fresh
-  this._buf = null;
-  this._bufLen = 0;
-  this._needBytes = 0;
-  // Recreate the streaming TextDecoder so the decoder is reusable after end()
-  if (this.encoding === 'utf8' && utf8DecoderSupportsStream && !this._utf8Decoder) {
-    this._utf8Decoder = new TextDecoder('utf-8');
+
+  return undefined;
+}
+
+function utf8FillLast(buf) {
+  var result = utf8CheckExtraBytes(this, buf);
+  if (result !== undefined) {
+    return result;
+  }
+
+  var prefixLength = this.lastTotal - this.lastNeed;
+  if (this.lastNeed <= buf.length) {
+    buf.copy(this.lastChar, prefixLength, 0, this.lastNeed);
+    return this.lastChar.toString('utf8', 0, this.lastTotal);
+  }
+
+  buf.copy(this.lastChar, prefixLength, 0, buf.length);
+  this.lastNeed -= buf.length;
+  return undefined;
+}
+
+function utf8Text(buf, offset) {
+  var total = utf8CheckIncomplete(this, buf, offset);
+  if (!this.lastNeed) {
+    return buf.toString('utf8', offset);
+  }
+
+  this.lastTotal = total;
+  var end = buf.length - (total - this.lastNeed);
+  buf.copy(this.lastChar, 0, end);
+  return buf.toString('utf8', offset, end);
+}
+
+function utf8End(buf) {
+  var result = (buf && buf.length) ? this.write(buf) : '';
+  if (this.lastNeed) {
+    this.lastNeed = 0;
+    this.lastTotal = 0;
+    return result + '\uFFFD';
   }
   return result;
-};
+}
 
-StringDecoder.prototype.text = function text(buf, i) {
-  return this.write(buf);
+function utf16Text(buf, offset) {
+  if ((buf.length - offset) % 2 === 0) {
+    var result = buf.toString('utf16le', offset);
+    if (result) {
+      var code = result.charCodeAt(result.length - 1);
+      if (code >= 0xD800 && code <= 0xDBFF) {
+        this.lastNeed = 2;
+        this.lastTotal = 4;
+        this.lastChar[0] = buf[buf.length - 2];
+        this.lastChar[1] = buf[buf.length - 1];
+        return result.slice(0, -1);
+      }
+    }
+    return result;
+  }
+
+  this.lastNeed = 1;
+  this.lastTotal = 2;
+  this.lastChar[0] = buf[buf.length - 1];
+  return buf.toString('utf16le', offset, buf.length - 1);
+}
+
+function utf16End(buf) {
+  var result = (buf && buf.length) ? this.write(buf) : '';
+  if (this.lastNeed) {
+    var end = this.lastTotal - this.lastNeed;
+    this.lastNeed = 0;
+    this.lastTotal = 0;
+    return result + this.lastChar.toString('utf16le', 0, end);
+  }
+  return result;
+}
+
+function base64Text(buf, offset) {
+  var remainder = (buf.length - offset) % 3;
+  if (remainder === 0) {
+    return buf.toString('base64', offset);
+  }
+
+  this.lastNeed = 3 - remainder;
+  this.lastTotal = 3;
+  if (remainder === 1) {
+    this.lastChar[0] = buf[buf.length - 1];
+  } else {
+    this.lastChar[0] = buf[buf.length - 2];
+    this.lastChar[1] = buf[buf.length - 1];
+  }
+  return buf.toString('base64', offset, buf.length - remainder);
+}
+
+function base64End(buf) {
+  var result = (buf && buf.length) ? this.write(buf) : '';
+  if (this.lastNeed) {
+    var end = 3 - this.lastNeed;
+    this.lastNeed = 0;
+    this.lastTotal = 0;
+    return result + this.lastChar.toString('base64', 0, end);
+  }
+  return result;
+}
+
+function base64UrlText(buf, offset) {
+  var result = base64Text.call(this, buf, offset);
+  return result.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function base64UrlEnd(buf) {
+  var result = base64End.call(this, buf);
+  return result.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function simpleWrite(buf) {
+  buf = toDecoderBuffer(buf);
+  if (typeof buf === 'string') return buf;
+  return bufferToEncoding(buf, this.encoding);
+}
+
+function simpleEnd(buf) {
+  return (buf && buf.length) ? this.write(buf) : '';
+}
+
+StringDecoder.prototype.text = function text(buf, offset) {
+  this.lastNeed = 0;
+  this.lastTotal = 0;
+  return this.write(buf.slice(offset));
 };
 
 StringDecoder.prototype[Symbol.toPrimitive] = function() {

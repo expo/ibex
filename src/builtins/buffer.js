@@ -724,14 +724,6 @@ function decodeBytes(bytes, encoding, start, end) {
     ? (typeof bytes.subarray === "function" ? bytes.subarray(sliceStart, end) : Uint8Array.prototype.slice.call(bytes, sliceStart, end))
     : bytes;
   if (enc === "utf8") {
-    var hasUtf8Bom = slice &&
-      slice.length >= 3 &&
-      slice[0] === 0xef &&
-      slice[1] === 0xbb &&
-      slice[2] === 0xbf;
-    if (typeof __exactBytesToUtf8String === "function" && !hasUtf8Bom) {
-      return __exactBytesToUtf8String(slice);
-    }
     return decodeUtf8Bytes(slice);
   }
   if (enc === "hex") {
