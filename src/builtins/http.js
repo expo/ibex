@@ -428,13 +428,7 @@ function _validateTrailerValue(name, value) {
 function _appendIncomingTrailerValue(target, rawTarget, name, value) {
   if (!target || !rawTarget) return;
   var lowerName = resolveHeaderName(name);
-  if (target[lowerName] === undefined) {
-    target[lowerName] = value;
-  } else if (Array.isArray(target[lowerName])) {
-    target[lowerName].push(value);
-  } else {
-    target[lowerName] = [target[lowerName], value];
-  }
+  _appendIncomingHeaderValue(target, lowerName, value);
   rawTarget.push(name, value);
 }
 
@@ -451,7 +445,7 @@ function _parseTrailerSection(section, target, rawTarget) {
   }
 }
 
-function _formatOutgoingTrailers(headers, headerNames) {
+function _formatOutgoingTrailers(headers, headerNames, uniqueHeaders) {
   if (!headers || typeof headers !== 'object') return '';
   var trailer = '';
   for (var key in headers) {
@@ -459,14 +453,102 @@ function _formatOutgoingTrailers(headers, headerNames) {
     var casedName = (headerNames && headerNames[key]) || key;
     var value = headers[key];
     if (Array.isArray(value)) {
-      for (var i = 0; i < value.length; i++) {
-        trailer += casedName + ': ' + value[i] + '\r\n';
+      if (uniqueHeaders && uniqueHeaders[key]) {
+        trailer += casedName + ': ' + value.join('; ') + '\r\n';
+      } else {
+        for (var i = 0; i < value.length; i++) {
+          trailer += casedName + ': ' + value[i] + '\r\n';
+        }
       }
     } else {
       trailer += casedName + ': ' + value + '\r\n';
     }
   }
   return trailer;
+}
+
+function _toUniqueHeaderLookup(headers) {
+  if (!Array.isArray(headers) || headers.length === 0) return null;
+  var lookup = Object.create(null);
+  for (var i = 0; i < headers.length; i++) {
+    if (headers[i] == null) continue;
+    lookup[resolveHeaderName(String(headers[i]))] = true;
+  }
+  return lookup;
+}
+
+function _hasUniqueOutgoingHeader(target, lowerName) {
+  return !!(target && target._uniqueHeaders && target._uniqueHeaders[lowerName]);
+}
+
+function _mergeOutgoingHeaderValue(existing, value) {
+  var incoming = _cloneOutgoingHeaderValue(value);
+  if (existing === undefined) {
+    return incoming;
+  }
+  if (Array.isArray(existing)) {
+    return existing.concat(Array.isArray(incoming) ? incoming : [incoming]);
+  }
+  if (Array.isArray(incoming)) {
+    return [existing].concat(incoming);
+  }
+  return [existing, incoming];
+}
+
+function _serializeOutgoingHeaderLine(target, lowerName, headerName, value) {
+  var line = '';
+  if (Array.isArray(value)) {
+    if (_hasUniqueOutgoingHeader(target, lowerName)) {
+      return headerName + ': ' + value.join('; ') + '\r\n';
+    }
+    for (var i = 0; i < value.length; i++) {
+      line += headerName + ': ' + value[i] + '\r\n';
+    }
+    return line;
+  }
+  return headerName + ': ' + value + '\r\n';
+}
+
+function _hideAutoTransferEncoding(target) {
+  if (!target || target._autoTransferEncoding !== true) return;
+  delete target._headers['transfer-encoding'];
+  delete target._headerNames['transfer-encoding'];
+  if (target[kOutHeaders] && typeof target[kOutHeaders] === 'object') {
+    delete target[kOutHeaders]['transfer-encoding'];
+  }
+  target._autoTransferEncoding = false;
+}
+
+function _buildDistinctHeaderMap(rawList) {
+  var distinct = Object.create(null);
+  if (!Array.isArray(rawList)) return distinct;
+  for (var i = 0; i + 1 < rawList.length; i += 2) {
+    var key = resolveHeaderName(rawList[i]);
+    var value = String(rawList[i + 1]);
+    if (!Object.prototype.hasOwnProperty.call(distinct, key)) {
+      distinct[key] = [value];
+    } else {
+      distinct[key].push(value);
+    }
+  }
+  return distinct;
+}
+
+function _defineDistinctHeaderAccessors(proto) {
+  Object.defineProperty(proto, 'headersDistinct', {
+    get: function() {
+      return _buildDistinctHeaderMap(this.rawHeaders);
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(proto, 'trailersDistinct', {
+    get: function() {
+      return _buildDistinctHeaderMap(this.rawTrailers);
+    },
+    enumerable: true,
+    configurable: true
+  });
 }
 
 function _hasOutgoingTrailers(target) {
@@ -518,6 +600,7 @@ function initOutgoingMessage(target) {
   target._closed = false;
   target.closed = false;
   target.errored = undefined;
+  target._uniqueHeaders = null;
   if (target.socket === undefined) {
     target.socket = null;
   }
@@ -617,6 +700,28 @@ OutgoingMessage.prototype.setHeader = function(name, value) {
 OutgoingMessage.prototype.getHeader = function(name) {
   _validateHeaderLookupName(name);
   return this._headers[resolveHeaderName(name)];
+};
+
+OutgoingMessage.prototype.appendHeader = function(name, value) {
+  if (this._header !== null || this._headersSent) {
+    throw _createHeadersSentError('append');
+  }
+  validateHeaderName(name);
+  name = String(name);
+  validateHeaderValue(name, value);
+  _ensureOutgoingHeaderState(this);
+  var lc = resolveHeaderName(name);
+  var normalizedValue = _normalizeOutgoingHeaderValue(name, value);
+  this._headers[lc] = _mergeOutgoingHeaderValue(this._headers[lc], normalizedValue);
+  if (!Object.prototype.hasOwnProperty.call(this._headerNames, lc)) {
+    this._headerNames[lc] = name;
+  }
+  delete this._removedHeaderNames[lc];
+  if (!this[kOutHeaders] || typeof this[kOutHeaders] !== 'object') {
+    this[kOutHeaders] = {};
+  }
+  this[kOutHeaders][lc] = [this._headerNames[lc], _cloneOutgoingHeaderValue(this._headers[lc])];
+  return this;
 };
 
 OutgoingMessage.prototype.removeHeader = function(name) {
@@ -1136,16 +1241,21 @@ function _setClientRequestHeaderState(target, headerName, value, appendOnly) {
   validateHeaderName(headerName);
   var lowerName = resolveHeaderName(headerName);
   var normalizedValue = _normalizeOutgoingHeaderValue(headerName, value);
+  var storedHeaderName = appendOnly && target._headerNames[lowerName]
+    ? target._headerNames[lowerName]
+    : headerName;
   if (!appendOnly) {
     _removeClientRequestHeaderEntries(target, lowerName);
+    target.headers[lowerName] = _cloneOutgoingHeaderValue(normalizedValue);
+  } else {
+    target.headers[lowerName] = _mergeOutgoingHeaderValue(target.headers[lowerName], normalizedValue);
   }
-  _appendClientRequestHeaderEntries(target, headerName, normalizedValue);
-  target.headers[lowerName] = _cloneOutgoingHeaderValue(normalizedValue);
-  target._headerNames[lowerName] = headerName;
+  _appendClientRequestHeaderEntries(target, storedHeaderName, normalizedValue);
+  target._headerNames[lowerName] = storedHeaderName;
   if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
     target[kOutHeaders] = {};
   }
-  target[kOutHeaders][lowerName] = [headerName, _cloneOutgoingHeaderValue(normalizedValue)];
+  target[kOutHeaders][lowerName] = [storedHeaderName, _cloneOutgoingHeaderValue(target.headers[lowerName])];
 }
 
 function _initializeClientRequestHeaders(target, source) {
@@ -1225,11 +1335,40 @@ function _initializeClientRequestHeaders(target, source) {
   }
 }
 
-function _appendClientRequestHeaderLines(request, list) {
+function _appendClientRequestHeaderLines(request, list, port) {
   if (!request || !list) return;
+  var emittedUniqueHeaders = null;
+  var emittedImplicitHost = false;
   for (var i = 0; i < request._headerList.length; i++) {
     var pair = request._headerList[i];
+    var lowerName = resolveHeaderName(pair[0]);
+    if (request._implicitHostHeader &&
+        !emittedImplicitHost &&
+        (lowerName === 'content-length' || lowerName === 'transfer-encoding')) {
+      list.push('Host: ' + _getClientRequestHostHeaderValue(request, port) + '\r\n');
+      emittedImplicitHost = true;
+    }
+    if (request._implicitHostHeader && lowerName === 'host') {
+      continue;
+    }
+    if (_hasUniqueOutgoingHeader(request, lowerName)) {
+      if (!emittedUniqueHeaders) emittedUniqueHeaders = Object.create(null);
+      if (emittedUniqueHeaders[lowerName]) continue;
+      emittedUniqueHeaders[lowerName] = true;
+      var joinedValues = [];
+      for (var j = i; j < request._headerList.length; j++) {
+        var nextPair = request._headerList[j];
+        if (resolveHeaderName(nextPair[0]) === lowerName) {
+          joinedValues.push(nextPair[1]);
+        }
+      }
+      list.push(pair[0] + ': ' + joinedValues.join('; ') + '\r\n');
+      continue;
+    }
     list.push(pair[0] + ': ' + pair[1] + '\r\n');
+  }
+  if (request._implicitHostHeader && !emittedImplicitHost) {
+    list.push('Host: ' + _getClientRequestHostHeaderValue(request, port) + '\r\n');
   }
 }
 
@@ -1848,6 +1987,7 @@ IncomingMessage.prototype.setTimeout = function(msecs, callback) {
   return this;
 };
 _attachHttpAsyncIterator(IncomingMessage.prototype);
+_defineDistinctHeaderAccessors(IncomingMessage.prototype);
 
 // ---------------------------------------------------------------------------
 // ClientRequest
@@ -1932,7 +2072,9 @@ function ClientRequest(options, callback) {
   this._setHostHeader = this.options.setHost !== undefined
     ? this.options.setHost !== false
     : this._setDefaultHeaders;
+  this._implicitHostHeader = false;
   _initializeClientRequestHeaders(this, this.options.headers);
+  this._uniqueHeaders = _toUniqueHeaderLookup(this.options.uniqueHeaders);
   this._bodyParts = [];
   this._ended = false;
   this._sent = false;
@@ -1977,6 +2119,7 @@ function ClientRequest(options, callback) {
       this._setHostHeader &&
       !_clientRequestHasHeader(this, 'host')) {
     _setClientRequestHeaderState(this, 'Host', _getClientRequestHostHeaderValue(this), false);
+    this._implicitHostHeader = true;
   }
   if (!this._headersIsArray &&
       this.options &&
@@ -2065,7 +2208,16 @@ ClientRequest.prototype._implicitHeader = function() {
 ClientRequest.prototype.setHeader = function(name, value) {
   var lc = resolveHeaderName(name);
   validateHeaderName(name);
+  if (lc === 'host') {
+    this._implicitHostHeader = false;
+  }
   _setClientRequestHeaderState(this, String(name), value, false);
+};
+
+ClientRequest.prototype.appendHeader = function(name, value) {
+  validateHeaderName(name);
+  _setClientRequestHeaderState(this, String(name), value, true);
+  return this;
 };
 
 ClientRequest.prototype.getHeader = function(name) {
@@ -2132,10 +2284,10 @@ ClientRequest.prototype.flushHeaders = function() {
 function _buildRawTcpRequestHead(request, host, port, bodyLength, forceChunked) {
   var reqLine = request.method + ' ' + request.path + ' HTTP/1.1\r\n';
   var headerLines = [];
+  _appendClientRequestHeaderLines(request, headerLines, port);
   if (request._setHostHeader && !_clientRequestHasHeader(request, 'host')) {
     headerLines.push('Host: ' + _getClientRequestHostHeaderValue(request, port) + '\r\n');
   }
-  _appendClientRequestHeaderLines(request, headerLines);
   if (typeof bodyLength === 'number' &&
       !request.headers['content-length'] &&
       !request.headers['transfer-encoding'] &&
@@ -2835,10 +2987,10 @@ ClientRequest.prototype._sendViaTcp = function(body) {
   // Build raw HTTP request
   var reqLine = this.method + ' ' + this.path + ' HTTP/1.1\r\n';
   var headerLines = [];
+  _appendClientRequestHeaderLines(this, headerLines, port);
   if (this._setHostHeader && !_clientRequestHasHeader(this, 'host')) {
     headerLines.push('Host: ' + _getClientRequestHostHeaderValue(this, port) + '\r\n');
   }
-  _appendClientRequestHeaderLines(this, headerLines);
   if (!this.headers['content-length'] &&
       !this.headers['transfer-encoding'] &&
       this._setDefaultHeaders) {
@@ -3806,7 +3958,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     if (self._requestUsesChunkedEncoding) {
       beginSocketWrite();
       try {
-        socket.write('0\r\n\r\n', function(writeErr) {
+        socket.write(
+          '0\r\n' + _formatOutgoingTrailers(self._trailers, self._trailerNames, self._uniqueHeaders) + '\r\n',
+          function(writeErr) {
           endSocketWrite();
           if (writeErr) {
             socket._hadError = true;
@@ -4018,6 +4172,7 @@ function _abortIncomingMessageStream(message, err) {
 
 TcpIncomingMessage.prototype = Object.create((Readable || EventEmitter).prototype);
 TcpIncomingMessage.prototype.constructor = TcpIncomingMessage;
+_defineDistinctHeaderAccessors(TcpIncomingMessage.prototype);
 
 Object.defineProperty(TcpIncomingMessage.prototype, 'connection', {
   get: function() { return this.socket; },
@@ -4804,6 +4959,8 @@ function HttpRequestParser() {
   this._httpVersion = '1.1';
   this._headers = {};
   this._rawHeaders = [];
+  this._trailers = {};
+  this._rawTrailers = [];
   this._contentLength = 0;
   this._bodyData = '';
   this._isChunked = false;
@@ -4867,6 +5024,8 @@ HttpRequestParser.prototype._resetMessageState = function() {
   this._httpVersion = '1.1';
   this._headers = {};
   this._rawHeaders = [];
+  this._trailers = {};
+  this._rawTrailers = [];
   this._contentLength = 0;
   this._bodyData = '';
   this._isChunked = false;
@@ -4887,6 +5046,8 @@ HttpRequestParser.prototype._buildRequestData = function(options) {
     httpVersionMinor: verParts[1] !== undefined ? parseInt(verParts[1], 10) : 1,
     headers: this._headers,
     rawHeaders: this._rawHeaders,
+    trailers: this._trailers,
+    rawTrailers: this._rawTrailers,
     body: options.body !== undefined ? options.body : this._bodyData,
     hasBody: options.hasBody === true || (options.body !== undefined ? options.body.length > 0 : this._bodyData.length > 0),
     bodyComplete: options.bodyComplete !== false,
@@ -5163,7 +5324,16 @@ HttpRequestParser.prototype._parse = function() {
           this._emitRequest();
         }
       } else {
+        var trailerLine = this._buffer.substring(0, nlIdx2);
         this._buffer = this._buffer.substring(nlIdx2 + 2);
+        var trailerColonIdx = trailerLine.indexOf(':');
+        if (trailerColonIdx > 0) {
+          var trailerName = trailerLine.substring(0, trailerColonIdx).trim();
+          var trailerValue = trailerLine.substring(trailerColonIdx + 1).trim();
+          if (trailerName) {
+            _appendIncomingTrailerValue(this._trailers, this._rawTrailers, trailerName, trailerValue);
+          }
+        }
       }
     } else if (this._state === 6) {
       if (this._buffer.length >= this._contentLength) {
@@ -5668,7 +5838,7 @@ ServerResponse.prototype._streamChunk = function(data, callback) {
     for (var k in this._headers) {
       if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
         var casedName = this._headerNames[k] || toHeaderCase(k);
-        head += casedName + ': ' + this._headers[k] + '\r\n';
+        head += _serializeOutgoingHeaderLine(this, k, casedName, this._headers[k]);
       }
     }
     head += '\r\n';
@@ -5881,6 +6051,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
           }
         }
       }
+      this._autoTransferEncoding = false;
       if (shouldSendTrailers && !_hasChunkedTransferEncoding(this._headers['transfer-encoding'])) {
         delete this._headers['content-length'];
         delete this._headerNames['content-length'];
@@ -5889,6 +6060,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         }
         this._headers['transfer-encoding'] = 'chunked';
         this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
+        this._autoTransferEncoding = true;
       }
       if (this._headers['content-length'] == null &&
           !_hasChunkedTransferEncoding(this._headers['transfer-encoding'])) {
@@ -5897,12 +6069,14 @@ ServerResponse.prototype._sendSocketResponse = function() {
             httpVersionMinor === 1) {
           this._headers['transfer-encoding'] = 'chunked';
           this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
+          this._autoTransferEncoding = true;
         } else if (hadExplicitHeader &&
             canHaveBody &&
             httpVersionMajor === 1 &&
             httpVersionMinor === 1) {
           this._headers['transfer-encoding'] = 'chunked';
           this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
+          this._autoTransferEncoding = true;
         } else if (canHaveBody &&
             !this._removedHeaderNames['content-length']) {
           this._headers['content-length'] = String(bodyLength);
@@ -5955,17 +6129,11 @@ ServerResponse.prototype._sendSocketResponse = function() {
       for (var k in this._headers) {
         if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
           var casedName = this._headerNames[k] || toHeaderCase(k);
-          var hVal = this._headers[k];
-          if (Array.isArray(hVal)) {
-            for (var hi = 0; hi < hVal.length; hi++) {
-              head += casedName + ': ' + hVal[hi] + '\r\n';
-            }
-          } else {
-            head += casedName + ': ' + hVal + '\r\n';
-          }
+          head += _serializeOutgoingHeaderLine(this, k, casedName, this._headers[k]);
         }
       }
       head += '\r\n';
+      _hideAutoTransferEncoding(this);
       this._headersSent = true;
       var useChunkedBody = this._useChunkedEncoding;
       var deferCloseForOverLimit = maxRequestsReached && socket._pendingServiceUnavailableCount > 0;
@@ -5975,7 +6143,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
           socket.write(head);
           if (useChunkedBody) {
             if (bodyLength > 0) socket.write(_buildChunkedRequestFrame(body));
-            socket.write('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
+            socket.write('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames, this._uniqueHeaders) + '\r\n');
           } else if (bodyLength > 0) {
             socket.write(body);
           }
@@ -5989,7 +6157,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         socket[kTimeout] = null;
         try {
           if (useChunkedBody && bodyLength === 0) {
-            socket.end(head + '0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
+            socket.end(head + '0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames, this._uniqueHeaders) + '\r\n');
           } else if (!useChunkedBody && bodyLength === 0) {
             socket.write(head, function(writeErr) {
               if (writeErr) {
@@ -6006,7 +6174,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
             if (useChunkedBody) {
               socket.write(head);
               socket.write(_buildChunkedRequestFrame(body));
-              socket.end('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
+              socket.end('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames, this._uniqueHeaders) + '\r\n');
             } else {
               var finalBody = (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(body))
                 ? Buffer.concat([Buffer.from(head, 'latin1'), body])
@@ -6045,7 +6213,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         try {
           if (this._useChunkedEncoding) {
             if (remainingBodyLength > 0) socket.write(_buildChunkedRequestFrame(remainingBody));
-            socket.write('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
+            socket.write('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames, this._uniqueHeaders) + '\r\n');
           } else if (remainingBodyLength > 0) {
             socket.write(remainingBody);
           }
@@ -6060,7 +6228,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
         try {
           if (this._useChunkedEncoding) {
             if (remainingBodyLength > 0) socket.write(_buildChunkedRequestFrame(remainingBody));
-            socket.end('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames) + '\r\n');
+            socket.end('0\r\n' + _formatOutgoingTrailers(this._trailers, this._trailerNames, this._uniqueHeaders) + '\r\n');
           } else if (remainingBodyLength > 0) {
             socket.end(remainingBody);
           } else {
@@ -6156,6 +6324,7 @@ ServerResponse.prototype._send = function(data) {
         }
       }
       _maybeSetServerKeepAliveHeader(this, this.socket, keepAlive);
+      this._autoTransferEncoding = false;
       if (!canHaveBody) {
         this._useChunkedEncoding = false;
       } else if (!isHttp10 &&
@@ -6163,6 +6332,7 @@ ServerResponse.prototype._send = function(data) {
           !this._headers['transfer-encoding']) {
         this._headers['transfer-encoding'] = 'chunked';
         this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
+        this._autoTransferEncoding = true;
         this._useChunkedEncoding = true;
       } else {
         this._useChunkedEncoding = _hasChunkedTransferEncoding(this._headers['transfer-encoding']);
@@ -6177,17 +6347,11 @@ ServerResponse.prototype._send = function(data) {
       for (var k in this._headers) {
         if (Object.prototype.hasOwnProperty.call(this._headers, k)) {
           var casedName = this._headerNames[k] || toHeaderCase(k);
-          var hVal = this._headers[k];
-          if (Array.isArray(hVal)) {
-            for (var hi = 0; hi < hVal.length; hi++) {
-              head += casedName + ': ' + hVal[hi] + '\r\n';
-            }
-          } else {
-            head += casedName + ': ' + hVal + '\r\n';
-          }
+          head += _serializeOutgoingHeaderLine(this, k, casedName, this._headers[k]);
         }
       }
       head += '\r\n';
+      _hideAutoTransferEncoding(this);
       this._headersSent = true;
       this._streaming = true;
       if (this._useChunkedEncoding) {
@@ -6353,6 +6517,24 @@ function ServerIncomingMessage(requestData, serverId) {
         }
       }
     }
+  }
+  if (requestData.trailers) {
+    if (Array.isArray(requestData.trailers)) {
+      for (var ti = 0; ti < requestData.trailers.length; ti++) {
+        var trailerPair = requestData.trailers[ti];
+        if (!trailerPair || trailerPair.length < 2) continue;
+        this.trailers[resolveHeaderName(trailerPair[0])] = trailerPair[1];
+      }
+    } else if (typeof requestData.trailers === 'object') {
+      for (var tk in requestData.trailers) {
+        if (Object.prototype.hasOwnProperty.call(requestData.trailers, tk)) {
+          this.trailers[resolveHeaderName(tk)] = requestData.trailers[tk];
+        }
+      }
+    }
+  }
+  if (Array.isArray(requestData.rawTrailers) && requestData.rawTrailers.length > 0) {
+    this.rawTrailers = requestData.rawTrailers.slice();
   }
   this.complete = this._manualEnded;
   this.aborted = false;
@@ -6637,6 +6819,7 @@ function _createServerResponse(server, req, serverId, requestId) {
   if (server && server._serverResponseCtor && server._serverResponseCtor !== ServerResponse) {
     _copyPrototypeMembers(res, server._serverResponseCtor);
   }
+  res._uniqueHeaders = server && server._uniqueHeaders ? server._uniqueHeaders : null;
   return res;
 }
 
@@ -6701,6 +6884,7 @@ function Server(options, requestListener) {
   this.requestTimeout = options.requestTimeout != null ? options.requestTimeout : 300000;
   this.headersTimeout = options.headersTimeout != null ? options.headersTimeout : Math.min(60000, this.requestTimeout || 60000);
   this.maxRequestsPerSocket = options.maxRequestsPerSocket != null ? options.maxRequestsPerSocket : 0;
+  this._uniqueHeaders = _toUniqueHeaderLookup(options.uniqueHeaders);
   this.connectionsCheckingInterval =
     options.connectionsCheckingInterval != null ? options.connectionsCheckingInterval : 30000;
   this[kHighWaterMark] = options.highWaterMark != null ? options.highWaterMark : _defaultHttpHighWaterMark;
@@ -7261,6 +7445,10 @@ Server.prototype._onConnection = function(socket) {
   parser.onMessageComplete = function() {
     clearRequestTimeout();
     var completedReq = _activeReq;
+    if (completedReq) {
+      completedReq.trailers = parser && parser._trailers ? Object.assign({}, parser._trailers) : {};
+      completedReq.rawTrailers = parser && parser._rawTrailers ? parser._rawTrailers.slice() : [];
+    }
     if (completedReq && typeof completedReq._finishBody === 'function') {
       completedReq._finishBody();
     }
