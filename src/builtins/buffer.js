@@ -2010,8 +2010,6 @@ var exported = {
   atob: typeof atob === "function" ? atob : undefined,
   btoa: typeof btoa === "function" ? btoa : undefined,
   SlowBuffer: Buffer,
-  Blob: typeof Blob === "undefined" ? undefined : Blob,
-  File: typeof File === "undefined" ? undefined : File,
   isAscii: isAsciiBytes,
   isUtf8: isUtf8Bytes,
   kMaxLength: kMaxLength,
@@ -2019,6 +2017,20 @@ var exported = {
   constants: constants,
 };
 exported.default = exported;
+Object.defineProperty(exported, "Blob", {
+  get: function() {
+    return typeof globalThis.Blob === "function" ? globalThis.Blob : undefined;
+  },
+  enumerable: true,
+  configurable: true
+});
+Object.defineProperty(exported, "File", {
+  get: function() {
+    return typeof globalThis.File === "function" ? globalThis.File : undefined;
+  },
+  enumerable: true,
+  configurable: true
+});
 Object.defineProperty(exported, "INSPECT_MAX_BYTES", {
   get: function() {
     return INSPECT_MAX_BYTES;
