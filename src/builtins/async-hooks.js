@@ -147,13 +147,11 @@ function createHook(callbacks) {
   callbacks = callbacks || {};
   var hook = {
     _callbacks: callbacks,
-    _enabled: false
-  };
-  return {
+    _enabled: false,
     enable: function() {
       if (!hook._enabled) {
         hook._enabled = true;
-        _activeHooks.push(callbacks);
+        _activeHooks.push(hook);
       }
       _hooksEnabled = true;
       return this;
@@ -161,7 +159,7 @@ function createHook(callbacks) {
     disable: function() {
       if (hook._enabled) {
         hook._enabled = false;
-        var idx = _activeHooks.indexOf(callbacks);
+        var idx = _activeHooks.indexOf(hook);
         if (idx !== -1) _activeHooks.splice(idx, 1);
       }
       if (_activeHooks.length === 0) _hooksEnabled = false;
@@ -169,6 +167,7 @@ function createHook(callbacks) {
     },
     _callbacks: callbacks
   };
+  return hook;
 }
 
 function __nextAsyncId() {
@@ -179,10 +178,11 @@ function __emitInit(asyncId, type, triggerAsyncId, resource) {
   if (!_hooksEnabled) return;
   var i;
   for (i = 0; i < _activeHooks.length; i++) {
-    var callbacks = _activeHooks[i];
+    var hook = _activeHooks[i];
+    var callbacks = hook && hook._callbacks;
     if (callbacks && typeof callbacks.init === 'function') {
       try {
-        callbacks.init(asyncId, type, triggerAsyncId, resource);
+        callbacks.init.call(hook, asyncId, type, triggerAsyncId, resource);
       } catch (e) {}
     }
   }
@@ -192,10 +192,11 @@ function __emitDestroy(asyncId) {
   if (!_hooksEnabled) return;
   var i;
   for (i = 0; i < _activeHooks.length; i++) {
-    var callbacks = _activeHooks[i];
+    var hook = _activeHooks[i];
+    var callbacks = hook && hook._callbacks;
     if (callbacks && typeof callbacks.destroy === 'function') {
       try {
-        callbacks.destroy(asyncId);
+        callbacks.destroy.call(hook, asyncId);
       } catch (e) {}
     }
   }

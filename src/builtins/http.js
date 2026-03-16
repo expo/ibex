@@ -2750,6 +2750,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var chunkBuffer = '';
   var socketRetired = false;
   var parseErrored = false;
+  var destroySocketAfterResponse = false;
 
   function setSocketResetAsEofFlag(enabled) {
     if (!socket) return;
@@ -3084,7 +3085,12 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       }
 
       if (extraData.length > 0) {
-        emitResponseParseError(extraData, 0, true);
+        if (tcpIncoming) {
+          tcpIncoming.shouldKeepAlive = false;
+        }
+        self.shouldKeepAlive = false;
+        destroySocketAfterResponse = true;
+        finishResponse();
         return false;
       }
 
@@ -3238,8 +3244,17 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
           releaseSocket();
         } else if (!socket.destroyed) {
           try {
-            if (typeof socket.end === 'function') socket.end();
-            else socket.destroy();
+            if (destroySocketAfterResponse) {
+              socket._httpMessage = null;
+              if (self.socket === socket) {
+                self.socket = null;
+              }
+              socket.destroy();
+            } else if (typeof socket.end === 'function') {
+              socket.end();
+            } else {
+              socket.destroy();
+            }
           } catch (_closeErr) {
             try { socket.destroy(); } catch (_destroyErr) {}
           }
@@ -3331,16 +3346,35 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   }
 
   function onClose() {
+    var closedResponse = self.res;
     if (!responseEmitted && socket && typeof socket._consumeReadBuffer === 'function' && socket._readBufferLength > 0) {
       var closeTrailingData = socket._consumeReadBuffer();
       if (closeTrailingData && closeTrailingData.length > 0) {
         onData(closeTrailingData);
       }
     }
+    clearAbortResponseHook();
+    clearSocketTimeoutListener(self, socket);
+    cleanupRequestListeners();
+    if (socket && socket._httpMessage === self) {
+      socket._httpMessage = null;
+    }
+    if (self.res && self.res.socket === socket) {
+      self.res.socket = null;
+    }
+    if (self.socket === socket) {
+      self.socket = null;
+    }
     if (!responseEmitted) {
       if (!self._closed) {
         self._closed = true;
         self.emit('close');
+      }
+      if (closedResponse && closedResponse.req === self) {
+        closedResponse.req = null;
+      }
+      if (self.res === closedResponse) {
+        self.res = null;
       }
       return;
     }
@@ -3351,6 +3385,12 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     if (!self._closed) {
       self._closed = true;
       self.emit('close');
+    }
+    if (closedResponse && closedResponse.req === self) {
+      closedResponse.req = null;
+    }
+    if (self.res === closedResponse) {
+      self.res = null;
     }
   }
 
@@ -6846,3 +6886,14 @@ module.exports = {
   kConnectionsCheckingInterval: kConnectionsCheckingInterval,
   kHighWaterMark: kHighWaterMark
 };
+
+Object.defineProperty(module.exports, 'globalAgent', {
+  get: function() {
+    return globalAgent;
+  },
+  set: function(value) {
+    globalAgent = value;
+  },
+  enumerable: true,
+  configurable: true
+});
