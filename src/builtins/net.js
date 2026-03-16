@@ -438,6 +438,27 @@ function _createConnectError(code, address, port, syscall) {
   return err;
 }
 
+function _createConnectErrorFromRaw(err, address, port) {
+  if (_isGetAddrInfoError(err)) {
+    return _createGetAddrInfoError(address);
+  }
+  var message = err && err.message ? String(err.message) : String(err);
+  var lower = message.toLowerCase();
+  var code = 'ECONNREFUSED';
+  if (lower.indexOf('cannot assign requested address') !== -1 || message.indexOf('EADDRNOTAVAIL') !== -1) {
+    code = 'EADDRNOTAVAIL';
+  } else if (lower.indexOf('address already in use') !== -1 || message.indexOf('EADDRINUSE') !== -1) {
+    code = 'EADDRINUSE';
+  } else if (lower.indexOf('network is unreachable') !== -1 || message.indexOf('ENETUNREACH') !== -1) {
+    code = 'ENETUNREACH';
+  } else if (lower.indexOf('permission denied') !== -1 || message.indexOf('EACCES') !== -1) {
+    code = 'EACCES';
+  } else if (lower.indexOf('timed out') !== -1 || message.indexOf('ETIMEDOUT') !== -1) {
+    code = 'ETIMEDOUT';
+  }
+  return _createConnectError(code, address, port, 'connect');
+}
+
 function _uvConnectCodeToErrno(code) {
   if (code === -101) return 'ENETUNREACH';
   if (code === -111) return 'ECONNREFUSED';
@@ -2099,7 +2120,12 @@ Socket.prototype.connect = function(options, connectListener) {
       }
 
       try {
-        var nativeHandle = __exactTcpConnect(address, selfRef._requestedPort);
+        var nativeHandle = __exactTcpConnect(
+          address,
+          selfRef._requestedPort,
+          options.localAddress === undefined ? null : options.localAddress,
+          options.localPort === undefined ? null : options.localPort
+        );
         if (selfRef.destroyed) {
           try { __exactTcpClose(nativeHandle); } catch(e) {}
           return;
@@ -2124,9 +2150,7 @@ Socket.prototype.connect = function(options, connectListener) {
         selfRef.emit('ready');
         return;
       } catch (err) {
-        var connErr = _isGetAddrInfoError(err)
-          ? _createGetAddrInfoError(address)
-          : _createConnectError('ECONNREFUSED', address, selfRef._requestedPort, 'connect');
+        var connErr = _createConnectErrorFromRaw(err, address, selfRef._requestedPort);
         attemptErrors.push(connErr);
         nextAttempt();
         return;

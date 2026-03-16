@@ -20,9 +20,9 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
     static int g_tcp_next_handle = 1;
     static std::mutex g_tcp_mutex;
 
-    // __exactTcpConnect(host, port) -> handle or throws
+    // __exactTcpConnect(host, port, localAddress?, localPort?) -> handle or throws
     auto tcpConnectFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpConnect"), 2,
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpConnect"), 4,
         [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
@@ -30,6 +30,22 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           std::string host = args[0].toString(runtime).utf8(runtime);
           int port = static_cast<int>(args[1].asNumber());
+          bool hasLocalAddress = count > 2 && !args[2].isUndefined() && !args[2].isNull();
+          bool hasLocalPort = count > 3 && !args[3].isUndefined() && !args[3].isNull();
+          std::string localAddress;
+          if (hasLocalAddress) {
+            if (!args[2].isString()) {
+              throw facebook::jsi::JSError(runtime, "__exactTcpConnect: localAddress must be a string");
+            }
+            localAddress = args[2].toString(runtime).utf8(runtime);
+          }
+          int localPort = 0;
+          if (hasLocalPort) {
+            if (!args[3].isNumber()) {
+              throw facebook::jsi::JSError(runtime, "__exactTcpConnect: localPort must be a number");
+            }
+            localPort = static_cast<int>(args[3].asNumber());
+          }
           struct addrinfo hints{}, *result = nullptr;
           hints.ai_family = AF_UNSPEC;
           hints.ai_socktype = SOCK_STREAM;
@@ -44,6 +60,37 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
             fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
             if (fd == -1) continue;
+            if (hasLocalAddress || hasLocalPort) {
+              struct addrinfo bindHints{}, *bindResult = nullptr;
+              bindHints.ai_family = rp->ai_family;
+              bindHints.ai_socktype = rp->ai_socktype;
+              bindHints.ai_protocol = rp->ai_protocol;
+              bindHints.ai_flags = AI_PASSIVE;
+              std::string localPortStr = std::to_string(localPort);
+              const char* bindNode = hasLocalAddress ? localAddress.c_str() : nullptr;
+              int bindGaiErr = getaddrinfo(bindNode, localPortStr.c_str(), &bindHints, &bindResult);
+              if (bindGaiErr != 0) {
+                ::close(fd);
+                fd = -1;
+                continue;
+              }
+              bool bound = false;
+              int bindErrno = 0;
+              for (struct addrinfo* bp = bindResult; bp != nullptr; bp = bp->ai_next) {
+                if (::bind(fd, bp->ai_addr, bp->ai_addrlen) == 0) {
+                  bound = true;
+                  break;
+                }
+                bindErrno = errno;
+              }
+              freeaddrinfo(bindResult);
+              if (!bound) {
+                ::close(fd);
+                freeaddrinfo(result);
+                throw facebook::jsi::JSError(runtime,
+                    ("bind() failed: " + std::string(strerror(bindErrno))).c_str());
+              }
+            }
             if (::connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) break;
             ::close(fd);
             fd = -1;

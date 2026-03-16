@@ -5293,6 +5293,12 @@ ServerResponse.prototype._sendSocketResponse = function() {
             httpVersionMinor === 1) {
           this._headers['transfer-encoding'] = 'chunked';
           this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
+        } else if (keepAlive &&
+            canHaveBody &&
+            httpVersionMajor === 1 &&
+            httpVersionMinor === 1) {
+          this._headers['transfer-encoding'] = 'chunked';
+          this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
         } else if (canHaveBody &&
             !this._removedHeaderNames['content-length']) {
           this._headers['content-length'] = String(bodyLength);
