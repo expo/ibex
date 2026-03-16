@@ -434,13 +434,14 @@ function emitKeypressEvents(stream, iface) {
   iface = iface || {};
   if (!stream || stream[KEYPRESS_DECODER]) return;
   stream[KEYPRESS_DECODER] = new StringDecoder('utf8');
-  stream[KEYPRESS_STATE] = { pending: '', timeoutId: null };
+  stream[KEYPRESS_STATE] = { pending: '', timeoutId: null, pendingDeadline: 0 };
 
   function triggerEscape() {
     var state = stream[KEYPRESS_STATE];
     if (!state || !state.pending) return;
     state.pending = '';
     state.timeoutId = null;
+    state.pendingDeadline = 0;
     stream.emit('keypress', undefined, {
       sequence: kEscape,
       name: 'escape',
@@ -465,16 +466,28 @@ function emitKeypressEvents(stream, iface) {
       state.timeoutId = null;
     }
     if (state.pending) {
-      string = state.pending + string;
-      state.pending = '';
+      if (state.pending === kEscape &&
+          state.pendingDeadline > 0 &&
+          Date.now() >= state.pendingDeadline) {
+        triggerEscape();
+        state = stream[KEYPRESS_STATE];
+      } else {
+        string = state.pending + string;
+        state.pending = '';
+      }
+      state.pendingDeadline = 0;
     }
     iface._sawKeyPress = charLengthAt(string, 0) === string.length;
     iface.isCompletionEnabled = false;
     while (index < string.length) {
       var parsed = _decodeKeyAt(string, index);
       if (parsed.needMore) {
+        var escapeTimeout = iface.escapeCodeTimeout !== undefined
+          ? iface.escapeCodeTimeout
+          : kEscapeCodeTimeout;
         state.pending = parsed.prefix || string.slice(index);
-        state.timeoutId = setTimeout(triggerEscape, iface.escapeCodeTimeout || kEscapeCodeTimeout);
+        state.pendingDeadline = Date.now() + escapeTimeout;
+        state.timeoutId = setTimeout(triggerEscape, escapeTimeout);
         index = string.length;
         break;
       }
