@@ -4783,8 +4783,8 @@ function HttpRequestParser() {
   this._isChunked = false;
   this._chunkRemaining = 0;
   this._streamingBody = false;
+  this._headerBytes = 0;
   this._rawPacket = '';
-  this._messageBytes = 0;
   this.onRequest = null;
   this.onHeadersComplete = null;
   this.onBody = null;
@@ -4830,11 +4830,6 @@ HttpRequestParser.prototype.execute = function(chunk) {
   chunk = _toHttpParserString(chunk);
   this._buffer += chunk;
   this._rawPacket += chunk;
-  this._messageBytes += chunk.length;
-  if (this._state <= 1 && this._messageBytes > maxHeaderSize) {
-    this._emitParseError('header_overflow', this._rawPacket, this._messageBytes);
-    return;
-  }
   this._parse();
 };
 
@@ -4850,8 +4845,8 @@ HttpRequestParser.prototype._resetMessageState = function() {
   this._isChunked = false;
   this._chunkRemaining = 0;
   this._streamingBody = false;
+  this._headerBytes = 0;
   this._rawPacket = '';
-  this._messageBytes = 0;
 };
 
 HttpRequestParser.prototype._buildRequestData = function(options) {
@@ -4912,7 +4907,12 @@ HttpRequestParser.prototype._parse = function() {
   while (this._buffer.length > 0) {
     if (this._state === 0) {
       var idx = this._buffer.indexOf('\r\n');
-      if (idx === -1) return;
+      if (idx === -1) {
+        if (this._buffer.length > maxHeaderSize) {
+          this._emitParseError('header_overflow', this._rawPacket, this._rawPacket.length);
+        }
+        return;
+      }
       var line = this._buffer.substring(0, idx);
       this._buffer = this._buffer.substring(idx + 2);
       var spaceIdx = line.indexOf(' ');
@@ -4934,12 +4934,23 @@ HttpRequestParser.prototype._parse = function() {
         return;
       }
       this._httpVersion = ver.substring(5);
+      this._headerBytes = line.length + 2;
       this._state = 1;
     } else if (this._state === 1) {
       var idx2 = this._buffer.indexOf('\r\n');
-      if (idx2 === -1) return;
+      if (idx2 === -1) {
+        if ((this._headerBytes + this._buffer.length) > maxHeaderSize) {
+          this._emitParseError('header_overflow', this._rawPacket, this._rawPacket.length);
+        }
+        return;
+      }
+      if ((this._headerBytes + idx2 + 2) > maxHeaderSize) {
+        this._emitParseError('header_overflow', this._rawPacket, this._rawPacket.length);
+        return;
+      }
       if (idx2 === 0) {
         this._buffer = this._buffer.substring(2);
+        this._headerBytes += 2;
         var te = this._headers['transfer-encoding'];
         this._isChunked = !!(te && te.toLowerCase().indexOf('chunked') !== -1);
         var cl = this._headers['content-length'];
@@ -4985,6 +4996,7 @@ HttpRequestParser.prototype._parse = function() {
       } else {
         var headerLine = this._buffer.substring(0, idx2);
         this._buffer = this._buffer.substring(idx2 + 2);
+        this._headerBytes += headerLine.length + 2;
         if (headerLine.indexOf('\r') !== -1 || headerLine.indexOf('\n') !== -1) {
           this._emitParseError();
           return;

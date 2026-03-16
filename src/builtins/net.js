@@ -1591,8 +1591,18 @@ Socket.prototype._processOnreadBuffer = function() {
     }
     var nread = remaining < buffer.length ? remaining : buffer.length;
     var sourceEnd = offset + nread;
-    for (var i = 0; i < nread; i++) {
-      buffer[i] = data[offset + i];
+    if (typeof Buffer !== 'undefined' &&
+        Buffer.isBuffer &&
+        Buffer.isBuffer(data) &&
+        Buffer.isBuffer(buffer) &&
+        typeof data.copy === 'function') {
+      data.copy(buffer, 0, offset, sourceEnd);
+    } else if (buffer && typeof buffer.set === 'function' && data && typeof data.subarray === 'function') {
+      buffer.set(data.subarray(offset, sourceEnd), 0);
+    } else {
+      for (var i = 0; i < nread; i++) {
+        buffer[i] = data[offset + i];
+      }
     }
     offset = sourceEnd;
     remaining = data.length - offset;
