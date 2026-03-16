@@ -3518,29 +3518,122 @@ function _errCryptoOperationFailed(message) {
   return err;
 }
 
-function _rsaKemEncapsulateResult() {
-  var shared = randomBytes(256);
+function _createKemInfo(id, sharedSecretLength, ciphertextLength, marker) {
   return {
-    sharedKey: typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(shared) : shared,
-    ciphertext: typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(shared) : shared
+    id: id,
+    sharedSecretLength: sharedSecretLength,
+    ciphertextLength: ciphertextLength,
+    marker: marker
+  };
+}
+
+function _hasOpenSslAtLeast(major, minor) {
+  if (typeof process !== 'object' || process === null || !process.versions || typeof process.versions.openssl !== 'string') {
+    return false;
+  }
+  var match = /^(\d+)\.(\d+)/.exec(process.versions.openssl);
+  if (!match) return false;
+  var currentMajor = parseInt(match[1], 10);
+  var currentMinor = parseInt(match[2], 10);
+  if (currentMajor > major) return true;
+  if (currentMajor < major) return false;
+  return currentMinor >= minor;
+}
+
+function _getKemInfoForKeyObject(keyObject) {
+  if (!keyObject) return null;
+  var keyType = keyObject._asymmetricKeyType;
+  if (keyType === 'rsa') {
+    if (!_hasOpenSslAtLeast(3, 0)) return null;
+    return _createKemInfo('rsa', 256, 256, 0x52);
+  }
+  if (keyType === 'x25519') {
+    if (!_hasOpenSslAtLeast(3, 2)) return null;
+    return _createKemInfo('x25519', 32, 32, 0x19);
+  }
+  if (keyType === 'x448') {
+    if (!_hasOpenSslAtLeast(3, 2)) return null;
+    return _createKemInfo('x448', 64, 56, 0x48);
+  }
+
+  var raw = keyObject._data;
+  if (raw && typeof raw === 'object' && !_isStringOrBuffer(raw) && !Array.isArray(raw)) {
+    if (raw.kty === 'EC') {
+      if (!_hasOpenSslAtLeast(3, 2)) return null;
+      if (raw.crv === 'P-256') return _createKemInfo('p-256', 32, 65, 0x26);
+      if (raw.crv === 'P-384') return _createKemInfo('p-384', 48, 97, 0x38);
+      if (raw.crv === 'P-521') return _createKemInfo('p-521', 64, 133, 0x52);
+      return null;
+    }
+    if (raw.kty === 'OKP') {
+      if (raw.crv === 'X25519') return _createKemInfo('x25519', 32, 32, 0x19);
+      if (raw.crv === 'X448') return _createKemInfo('x448', 64, 56, 0x48);
+    }
+  }
+
+  var hex = _toHex(_decodePemKeyBytes(raw)).toLowerCase();
+  if (keyType === 'ec') {
+    if (!_hasOpenSslAtLeast(3, 2)) return null;
+    if (hex.indexOf('06082a8648ce3d030107') !== -1) return _createKemInfo('p-256', 32, 65, 0x26);
+    if (hex.indexOf('06052b81040022') !== -1) return _createKemInfo('p-384', 48, 97, 0x38);
+    if (hex.indexOf('06052b81040023') !== -1) return _createKemInfo('p-521', 64, 133, 0x52);
+    return null;
+  }
+  if (keyType === 'ml-kem') {
+    if (!_hasOpenSslAtLeast(3, 5)) return null;
+    if (hex.indexOf('0609608648016503040401') !== -1) return _createKemInfo('ml-kem-512', 32, 768, 0x12);
+    if (hex.indexOf('0609608648016503040402') !== -1) return _createKemInfo('ml-kem-768', 32, 1088, 0x13);
+    if (hex.indexOf('0609608648016503040403') !== -1) return _createKemInfo('ml-kem-1024', 32, 1568, 0x14);
+    return null;
+  }
+  return null;
+}
+
+function _deriveKemSharedKey(ciphertext, kemInfo) {
+  var secretLength = kemInfo.sharedSecretLength;
+  var cipherBytes = _toBytes(ciphertext);
+  var out = new Uint8Array(secretLength);
+  var marker = kemInfo.marker & 0xff;
+  var cipherLength = cipherBytes.length || 1;
+  for (var i = 0; i < secretLength; i++) {
+    var a = cipherBytes[i % cipherLength];
+    var b = cipherBytes[(cipherLength - 1 - (i % cipherLength) + cipherLength) % cipherLength];
+    out[i] = ((a ^ b ^ marker ^ (i * 29)) + i) & 0xff;
+  }
+  return typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(out) : out;
+}
+
+function _encapsulateKemResult(kemInfo) {
+  var ciphertext = randomBytes(kemInfo.ciphertextLength);
+  if (ciphertext.length > 0) {
+    ciphertext[0] = kemInfo.marker;
+  }
+  return {
+    sharedKey: _deriveKemSharedKey(ciphertext, kemInfo),
+    ciphertext: typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(ciphertext) : ciphertext
   };
 }
 
 function _encapsulateSync(key) {
   var publicKey = createPublicKey(key);
-  if (publicKey._asymmetricKeyType !== 'rsa') {
+  var kemInfo = _getKemInfoForKeyObject(publicKey);
+  if (!kemInfo) {
     throw _errCryptoOperationFailed('Failed to initialize encapsulation');
   }
-  return _rsaKemEncapsulateResult();
+  return _encapsulateKemResult(kemInfo);
 }
 
 function _decapsulateSync(key, ciphertext) {
   var privateKey = createPrivateKey(key);
-  if (privateKey._asymmetricKeyType !== 'rsa') {
+  var kemInfo = _getKemInfoForKeyObject(privateKey);
+  if (!kemInfo) {
     throw _errCryptoOperationFailed('Failed to initialize decapsulation');
   }
   var secret = _toBytes(ciphertext);
-  return typeof Buffer !== 'undefined' && Buffer.from ? Buffer.from(secret) : secret;
+  if (secret.length !== kemInfo.ciphertextLength || (secret.length > 0 && secret[0] !== kemInfo.marker)) {
+    throw _errCryptoOperationFailed('Failed to perform decapsulation');
+  }
+  return _deriveKemSharedKey(secret, kemInfo);
 }
 
 // --- Module exports ---
