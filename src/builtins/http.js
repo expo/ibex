@@ -1733,6 +1733,31 @@ function normalizeClientRequestOptions(options) {
     return normalizedUrlOptions;
   }
   if (options && typeof options === 'object') {
+    if (typeof options.href === 'string' &&
+        typeof options.protocol === 'string' &&
+        typeof options.pathname === 'string' &&
+        (typeof options.hostname === 'string' || typeof options.host === 'string')) {
+      var normalizedUrlLikeOptions = {
+        __exactUrlLikeHost: true,
+        protocol: options.protocol,
+        hostname: options.hostname || undefined,
+        host: options.host || undefined,
+        port: options.port ? Number(options.port) : undefined,
+        path: options.pathname + (options.search || ''),
+        method: 'GET'
+      };
+      if (options.username || options.password) {
+        normalizedUrlLikeOptions.auth =
+          _decodeHttpAuthComponent(options.username || '') + ':' +
+          _decodeHttpAuthComponent(options.password || '');
+      }
+      for (var urlLikeOptionKey in options) {
+        if (Object.prototype.hasOwnProperty.call(options, urlLikeOptionKey)) {
+          normalizedUrlLikeOptions[urlLikeOptionKey] = options[urlLikeOptionKey];
+        }
+      }
+      return normalizedUrlLikeOptions;
+    }
     if (typeof options.href === 'string' && options.__exactUrlLikeHost !== true) {
       options = Object.assign({}, options, {
         __exactUrlLikeHost: true
@@ -1883,6 +1908,7 @@ function toHeaders(source) {
 function applyOutgoingHeaderEntries(target, headers) {
   if (!target || !headers) return;
   if (Array.isArray(headers) && headers.length > 0 && Array.isArray(headers[0])) {
+    var seenPairHeaderNames = _createHeaderBag();
     for (var i = 0; i < headers.length; i++) {
       var pair = headers[i];
       if (!Array.isArray(pair) || pair.length !== 2) {
@@ -1895,7 +1921,12 @@ function applyOutgoingHeaderEntries(target, headers) {
       validateHeaderName(pairName);
       validateHeaderValue(pairName, pairValue);
       var pairLc = resolveHeaderName(pairName);
-      target._headers[pairLc] = pairValue;
+      if (seenPairHeaderNames[pairLc]) {
+        target._headers[pairLc] = _mergeOutgoingHeaderValue(target._headers[pairLc], pairValue);
+      } else {
+        target._headers[pairLc] = pairValue;
+        seenPairHeaderNames[pairLc] = true;
+      }
       target._headerNames[pairLc] = pairName;
       delete target._removedHeaderNames[pairLc];
       if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
@@ -1906,6 +1937,7 @@ function applyOutgoingHeaderEntries(target, headers) {
     return;
   }
   if (Array.isArray(headers)) {
+    var seenFlatHeaderNames = _createHeaderBag();
     if (headers.length % 2 !== 0) {
       var headersErr = new TypeError('The argument \'headers\' is invalid. Received ' + JSON.stringify(headers));
       headersErr.code = 'ERR_INVALID_ARG_VALUE';
@@ -1917,7 +1949,12 @@ function applyOutgoingHeaderEntries(target, headers) {
       validateHeaderName(hName);
       validateHeaderValue(hName, hVal);
       var lc = resolveHeaderName(hName);
-      target._headers[lc] = hVal;
+      if (seenFlatHeaderNames[lc]) {
+        target._headers[lc] = _mergeOutgoingHeaderValue(target._headers[lc], hVal);
+      } else {
+        target._headers[lc] = hVal;
+        seenFlatHeaderNames[lc] = true;
+      }
       target._headerNames[lc] = hName;
       delete target._removedHeaderNames[lc];
       if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
@@ -3728,7 +3765,11 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     }
     finishRequestWrite();
     self.destroyed = true;
-    self.emit('upgrade', tcpIncoming, socket, upgradeHead);
+    if (typeof self.listenerCount === 'function' && self.listenerCount('upgrade') > 0) {
+      self.emit('upgrade', tcpIncoming, socket, upgradeHead);
+    } else if (!socket.destroyed) {
+      try { socket.destroy(); } catch (_destroyUpgradeWithoutListenerErr) {}
+    }
     if (!self._closed) {
       self._closed = true;
       scheduleNextTick(function() {
