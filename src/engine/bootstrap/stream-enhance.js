@@ -160,6 +160,9 @@
     }
 
     function writeViaFs(chunk) {
+      if ((stream === p.stdout || stream === p.stderr) && typeof origWrite === 'function') {
+        return false;
+      }
       if (typeof stream.fd !== 'number') {
         return false;
       }
@@ -184,6 +187,17 @@
       }
 
       return false;
+    }
+
+    function scheduleWritableDrain() {
+      if (stream._exactDrainScheduled) return;
+      stream._exactDrainScheduled = true;
+      setTimeout(function() {
+        stream._exactDrainScheduled = false;
+        if (!stream.destroyed && stream.writable && !stream.writableEnded) {
+          stream.emit('drain');
+        }
+      }, 0);
     }
 
     stream.writable = true;
@@ -212,13 +226,21 @@
         }
       } catch (_) {
         try {
-          return origWrite.call(stream, chunk, encoding, callback);
+          var fallbackResult = origWrite.call(stream, chunk, encoding, callback);
+          if (fallbackResult === false) {
+            scheduleWritableDrain();
+          }
+          return fallbackResult;
         } catch (_) {
           if (typeof callback === 'function') callback();
           return false;
         }
       }
-      return origWrite.call(stream, chunk, encoding, callback);
+      var writeResult = origWrite.call(stream, chunk, encoding, callback);
+      if (writeResult === false) {
+        scheduleWritableDrain();
+      }
+      return writeResult;
     };
     _exactWriteImpl.__exactNativeWrite = true;
     stream.write = _exactWriteImpl;
