@@ -3347,17 +3347,9 @@ function _normalizeArgs(args) {
 }
 
 function createConnection(options, connectListener) {
-  if (typeof options === 'number') {
-    var port = options;
-    var host = 'localhost';
-    if (typeof connectListener === 'string') {
-      host = connectListener;
-      connectListener = arguments[2];
-    }
-    options = { port: port, host: host };
-  } else if (typeof options === 'string') {
-    options = { path: options };
-  }
+  var normalized = _normalizeArgs(Array.prototype.slice.call(arguments));
+  options = normalized[0] || {};
+  connectListener = normalized[1];
   // Must have options with port or path
   if (!options || (typeof options === 'object' && !options.path && options.port === undefined)) {
     var missingErr = new TypeError('The "options" or "port" or "path" argument must be specified');
@@ -3365,7 +3357,7 @@ function createConnection(options, connectListener) {
     throw missingErr;
   }
   var socket = new Socket(options);
-  return socket.connect(options, connectListener);
+  return socket.connect(normalized);
 }
 
 function createServer(options, connectionListener) {

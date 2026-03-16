@@ -6360,7 +6360,7 @@ function ServerIncomingMessage(requestData, serverId) {
   this._closeEmitted = false;
   this._closeScheduled = false;
 }
-ServerIncomingMessage.prototype = Object.create(EventEmitter.prototype);
+ServerIncomingMessage.prototype = Object.create(IncomingMessage.prototype);
 ServerIncomingMessage.prototype.constructor = ServerIncomingMessage;
 
 Object.defineProperty(ServerIncomingMessage.prototype, 'connection', {
@@ -6693,6 +6693,7 @@ function Server(options, requestListener) {
   this._serverTimeoutId = null;
   this[kConnectionsCheckingInterval] = null;
   this.timeout = 0;
+  this.noDelay = options.noDelay !== false;
   this.keepAliveTimeout = options.keepAliveTimeout != null ? options.keepAliveTimeout : 5000;
   this.maxHeadersCount = options.maxHeadersCount != null ? options.maxHeadersCount : 2000;
   this.insecureHTTPParser = options.insecureHTTPParser === true || configuredInsecureHTTPParser === true;
@@ -6809,6 +6810,9 @@ Server.prototype._onConnection = function(socket) {
     socket.setTimeout(self._socketTimeout, function() {
       self.emit('timeout', socket);
     });
+  }
+  if (self.noDelay !== undefined && typeof socket.setNoDelay === 'function') {
+    socket.setNoDelay(self.noDelay);
   }
 
   this.emit('connection', socket);
@@ -7072,11 +7076,14 @@ Server.prototype._onConnection = function(socket) {
     }
     if (self.maxRequestsPerSocket > 0) {
       if (socket._httpRequestCount >= self.maxRequestsPerSocket) {
+        var droppedReq = _createServerIncomingMessage(self, reqData, 0, socket);
+        droppedReq.complete = reqData.bodyComplete !== false;
         socket._pendingServiceUnavailableCount += 1;
+        self.emit('dropRequest', droppedReq, socket);
         if (!_activeRes && !socket._httpMessage) {
           sendServiceUnavailableAndClose();
         }
-        return null;
+        return droppedReq;
       }
       socket._httpRequestCount += 1;
     }
