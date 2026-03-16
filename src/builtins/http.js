@@ -49,6 +49,40 @@ var captureRejectionSymbol = typeof Symbol === 'function' && typeof Symbol.for =
 var HEADER_NAME_RE = /^[\^_`a-zA-Z\-0-9\!#$%&'*+.|~]+$/;
 var DEFAULT_OUTGOING_HIGH_WATER_MARK = 64 * 1024;
 
+function _decodeHttpAuthComponent(value) {
+  if (!value) return '';
+  try {
+    return decodeURIComponent(value);
+  } catch (_decodeAuthErr) {
+    return value;
+  }
+}
+
+function _maybeWarnNodeDebugHttp() {
+  if (typeof process === 'undefined' || !process || !process.env) return;
+  var env = process.env.NODE_DEBUG;
+  if (typeof env !== 'string' || !env) return;
+  var parts = env.split(/[\s,]+/);
+  var hasHttp = false;
+  for (var i = 0; i < parts.length; i++) {
+    if (parts[i] && parts[i].trim().toUpperCase() === 'HTTP') {
+      hasHttp = true;
+      break;
+    }
+  }
+  if (!hasHttp || (typeof globalThis === 'object' && globalThis.__exactWarnedNodeDebugHttp)) {
+    return;
+  }
+  if (typeof globalThis === 'object') {
+    globalThis.__exactWarnedNodeDebugHttp = true;
+  }
+  if (typeof console !== 'undefined' && console && typeof console.error === 'function') {
+    console.error("Setting the NODE_DEBUG environment variable to 'http' can expose sensitive data (such as passwords, tokens and authentication headers) in the resulting log.");
+  }
+}
+
+_maybeWarnNodeDebugHttp();
+
 function validateHeaderName(name) {
   if (typeof name !== 'string' || !HEADER_NAME_RE.test(name)) {
     var err = new TypeError('Header name must be a valid HTTP token ["' + String(name) + '"]');
@@ -1186,7 +1220,7 @@ function normalizeClientRequestOptions(options) {
   if (typeof options === 'string') {
     try {
       var parsedUrl = new URL(options);
-      return {
+      var normalizedStringOptions = {
         __exactOriginalUrl: options,
         protocol: parsedUrl.protocol,
         hostname: parsedUrl.hostname,
@@ -1194,6 +1228,12 @@ function normalizeClientRequestOptions(options) {
         path: parsedUrl.pathname + (parsedUrl.search || ''),
         method: 'GET'
       };
+      if (parsedUrl.username || parsedUrl.password) {
+        normalizedStringOptions.auth =
+          _decodeHttpAuthComponent(parsedUrl.username) + ':' +
+          _decodeHttpAuthComponent(parsedUrl.password);
+      }
+      return normalizedStringOptions;
     } catch (_parseClientRequestUrlErr) {
       return { href: options, method: 'GET' };
     }
@@ -1206,6 +1246,11 @@ function normalizeClientRequestOptions(options) {
       path: options.pathname + (options.search || ''),
       method: 'GET'
     };
+    if (options.username || options.password) {
+      normalizedUrlOptions.auth =
+        _decodeHttpAuthComponent(options.username) + ':' +
+        _decodeHttpAuthComponent(options.password);
+    }
     for (var optionKey in options) {
       if (Object.prototype.hasOwnProperty.call(options, optionKey)) {
         normalizedUrlOptions[optionKey] = options[optionKey];
@@ -1214,6 +1259,24 @@ function normalizeClientRequestOptions(options) {
     return normalizedUrlOptions;
   }
   if (options && typeof options === 'object') {
+    if (options.auth === undefined &&
+        (typeof options.username === 'string' || typeof options.password === 'string')) {
+      options = Object.assign({}, options, {
+        protocol: options.protocol,
+        hostname: options.hostname,
+        host: options.host,
+        port: options.port,
+        pathname: options.pathname,
+        search: options.search,
+        hash: options.hash,
+        path: options.path !== undefined
+          ? options.path
+          : ((options.pathname || '/') + (options.search || '')),
+        auth:
+        _decodeHttpAuthComponent(options.username || '') + ':' +
+        _decodeHttpAuthComponent(options.password || '')
+      });
+    }
     // Handle server.address() style objects: { address, family, port }
     // Map 'address' to 'hostname' if hostname/host not already set
     if (options.address && !options.hostname && !options.host) {
