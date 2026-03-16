@@ -3905,8 +3905,10 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
           emitResponseParseError(headerSection, 0, false);
           return;
         }
-        httpVerMajor = parseInt(statusParts[1], 10) || 1;
-        httpVerMinor = parseInt(statusParts[2], 10) || 1;
+        var parsedHttpVerMajor = parseInt(statusParts[1], 10);
+        var parsedHttpVerMinor = parseInt(statusParts[2], 10);
+        httpVerMajor = parsedHttpVerMajor === parsedHttpVerMajor ? parsedHttpVerMajor : 1;
+        httpVerMinor = parsedHttpVerMinor === parsedHttpVerMinor ? parsedHttpVerMinor : 1;
         statusCode = parseInt(statusParts[3], 10);
         statusMessage = statusParts[4] || '';
       }
@@ -5282,7 +5284,7 @@ Agent.prototype.reuseSocket = function(socket, req) {
   }
 };
 
-var globalAgent = new Agent();
+var globalAgent = new Agent({ keepAlive: true });
 
 var METHODS = [
   "ACL", "BIND", "CHECKOUT", "CONNECT", "COPY", "DELETE", "GET", "HEAD",
