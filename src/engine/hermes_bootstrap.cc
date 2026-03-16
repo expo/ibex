@@ -20,6 +20,11 @@
 #define HAS_SHARED_RUNTIME_BUNDLE 1
 #endif
 
+#if __has_include("runtime_bundle_bytecode.h")
+#include "runtime_bundle_bytecode.h"
+#define HAS_SHARED_RUNTIME_BUNDLE_HBC 1
+#endif
+
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" int ex_hermes_eval(
     ExactHermesRuntime* runtime,
@@ -74,14 +79,40 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
   } catch (...) {
   }
 
+  bool sourceSharedRuntimeBundle = env_flag_enabled("EX_SHARED_RUNTIME_BUNDLE_SOURCE");
+#ifdef HAS_SHARED_RUNTIME_BUNDLE_HBC
+  const uint8_t* sharedRuntimeBundleHbc =
+      reinterpret_cast<const uint8_t*>(SHARED_RUNTIME_BUNDLE_HBC);
+  size_t sharedRuntimeBundleHbcLen = SHARED_RUNTIME_BUNDLE_HBC_LEN;
+#else
+  const uint8_t* sharedRuntimeBundleHbc = nullptr;
+  size_t sharedRuntimeBundleHbcLen = 0;
+#endif
+
   char* error = nullptr;
-  bool evaluated = ex_hermes_eval(
-                       handle,
-                       reinterpret_cast<const uint8_t*>(SHARED_RUNTIME_BUNDLE_SRC),
-                       std::strlen(SHARED_RUNTIME_BUNDLE_SRC),
-                       "<shared-runtime-bundle>",
-                       0,
-                       &error) == 0;
+  bool evaluated = false;
+  if (!sourceSharedRuntimeBundle &&
+      sharedRuntimeBundleHbc != nullptr &&
+      sharedRuntimeBundleHbcLen > 0) {
+    evaluated = ex_hermes_eval(handle,
+                               sharedRuntimeBundleHbc,
+                               sharedRuntimeBundleHbcLen,
+                               "<shared-runtime-bundle>",
+                               1,
+                               &error) == 0;
+    if (!evaluated && error != nullptr) {
+      ex_hermes_free_string(error);
+      error = nullptr;
+    }
+  }
+  if (!evaluated) {
+    evaluated = ex_hermes_eval(handle,
+                               reinterpret_cast<const uint8_t*>(SHARED_RUNTIME_BUNDLE_SRC),
+                               std::strlen(SHARED_RUNTIME_BUNDLE_SRC),
+                               "<shared-runtime-bundle>",
+                               0,
+                               &error) == 0;
+  }
   if (!evaluated) {
     if (error != nullptr) {
       ex_host_console_log(1, error);
@@ -125,7 +156,8 @@ bool installModuleLoader(ExactHermesRuntime* handle) {
     }
   } else {
     bool source_module_loader = env_flag_enabled("EX_MODULE_LOADER_SOURCE");
-    bool module_loader_hbc = env_flag_enabled("EX_MODULE_LOADER_HBC");
+    bool module_loader_hbc =
+        env_flag_enabled("EX_MODULE_LOADER_HBC") || !source_module_loader;
     try {
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
       bool moduleLoaderEvaluated = eval_bootstrap_script(
@@ -179,7 +211,8 @@ bool installModuleLoader(ExactHermesRuntime* handle) {
     }
   } else {
     bool source_bootstrap_globals = env_flag_enabled("EX_BOOTSTRAP_GLOBALS_SOURCE");
-    bool bootstrap_globals_hbc = env_flag_enabled("EX_BOOTSTRAP_GLOBALS_HBC");
+    bool bootstrap_globals_hbc =
+        env_flag_enabled("EX_BOOTSTRAP_GLOBALS_HBC") || !source_bootstrap_globals;
     try {
       const char* globals = BOOTSTRAP_GLOBALS_SRC;
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
@@ -222,14 +255,17 @@ void ensureStreamEnhance(ExactHermesRuntime* handle) {
     return;
   }
   try {
+    bool sourceStreamEnhance = env_flag_enabled("EX_STREAM_ENHANCE_SOURCE");
+    bool streamEnhanceHbc =
+        env_flag_enabled("EX_STREAM_ENHANCE_HBC") || !sourceStreamEnhance;
     if (!eval_bootstrap_script(
             handle,
             g_streamEnhanceJS,
             reinterpret_cast<const uint8_t*>(STREAM_ENHANCE_HBC),
             STREAM_ENHANCE_HBC_LEN,
             "<stream-enhance>",
-            true,
-            env_flag_enabled("EX_STREAM_ENHANCE_HBC"))) {
+            sourceStreamEnhance,
+            streamEnhanceHbc)) {
       throw std::runtime_error("Stream enhance failed to evaluate");
     }
   } catch (const facebook::jsi::JSError& err) {
@@ -247,8 +283,8 @@ void ensureWebCrypto(ExactHermesRuntime* handle) {
     return;
   }
   try {
-    bool source_preferred = !env_flag_enabled("EX_WEB_CRYPTO_HBC");
-    bool hbc_enabled = env_flag_enabled("EX_WEB_CRYPTO_HBC");
+    bool source_preferred = env_flag_enabled("EX_WEB_CRYPTO_SOURCE");
+    bool hbc_enabled = env_flag_enabled("EX_WEB_CRYPTO_HBC") || !source_preferred;
     if (!eval_bootstrap_script(
             handle,
             g_webCryptoJS,
@@ -274,8 +310,8 @@ void ensureWebStorage(ExactHermesRuntime* handle) {
     return;
   }
   try {
-    bool source_preferred = !env_flag_enabled("EX_WEB_STORAGE_HBC");
-    bool hbc_enabled = env_flag_enabled("EX_WEB_STORAGE_HBC");
+    bool source_preferred = env_flag_enabled("EX_WEB_STORAGE_SOURCE");
+    bool hbc_enabled = env_flag_enabled("EX_WEB_STORAGE_HBC") || !source_preferred;
     if (!eval_bootstrap_script(
             handle,
             g_webStorageJS,
@@ -301,8 +337,8 @@ void ensureFormData(ExactHermesRuntime* handle) {
     return;
   }
   try {
-    bool source_preferred = !env_flag_enabled("EX_FORM_DATA_HBC");
-    bool hbc_enabled = env_flag_enabled("EX_FORM_DATA_HBC");
+    bool source_preferred = env_flag_enabled("EX_FORM_DATA_SOURCE");
+    bool hbc_enabled = env_flag_enabled("EX_FORM_DATA_HBC") || !source_preferred;
     if (!eval_bootstrap_script(
             handle,
             g_formDataJS,
@@ -388,8 +424,17 @@ void installLegacyLazyBootstrapGetters(ExactHermesRuntime* handle, bool sharedRu
   rt.global().setProperty(rt, "__exactEnsureFormData", std::move(ensureFormDataFn));
 
   try {
-    auto buf = std::make_shared<facebook::jsi::StringBuffer>(LAZY_GETTERS_SRC);
-    rt.evaluateJavaScript(buf, "<lazy-getters>");
+    bool sourceLazyGetters = env_flag_enabled("EX_LAZY_GETTERS_SOURCE");
+    bool lazyGettersHbc = env_flag_enabled("EX_LAZY_GETTERS_HBC") || !sourceLazyGetters;
+    if (!eval_bootstrap_script(handle,
+                               LAZY_GETTERS_SRC,
+                               reinterpret_cast<const uint8_t*>(LAZY_GETTERS_HBC),
+                               LAZY_GETTERS_HBC_LEN,
+                               "<lazy-getters>",
+                               sourceLazyGetters,
+                               lazyGettersHbc)) {
+      throw std::runtime_error("Lazy getters failed to evaluate");
+    }
   } catch (...) {
   }
 #else
@@ -410,10 +455,19 @@ void runLegacyProcessCompatFix(ExactHermesRuntime* handle, bool sharedRuntimeIns
     return;
   }
 
-  auto& rt = *handle->runtime;
   try {
-    auto buffer = std::make_shared<facebook::jsi::StringBuffer>(PROCESS_COMPAT_FIX_SRC);
-    rt.evaluateJavaScript(buffer, "<process-compat-fix>");
+    bool sourceProcessCompatFix = env_flag_enabled("EX_PROCESS_COMPAT_FIX_SOURCE");
+    bool processCompatFixHbc =
+        env_flag_enabled("EX_PROCESS_COMPAT_FIX_HBC") || !sourceProcessCompatFix;
+    if (!eval_bootstrap_script(handle,
+                               PROCESS_COMPAT_FIX_SRC,
+                               reinterpret_cast<const uint8_t*>(PROCESS_COMPAT_FIX_HBC),
+                               PROCESS_COMPAT_FIX_HBC_LEN,
+                               "<process-compat-fix>",
+                               sourceProcessCompatFix,
+                               processCompatFixHbc)) {
+      throw std::runtime_error("Process compatibility fix failed to evaluate");
+    }
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(
         1, (std::string("Process compatibility fix error: ") + err.getMessage()).c_str());
@@ -447,7 +501,8 @@ void runLegacyCompatPolyfills(ExactHermesRuntime* handle, bool sharedRuntimeInst
   bool compatEvaluated = false;
   try {
     bool sourceCompatPolyfills = env_flag_enabled("EX_COMPAT_POLYFILLS_SOURCE");
-    bool compatPolyfillsHbc = env_flag_enabled("EX_COMPAT_POLYFILLS_HBC");
+    bool compatPolyfillsHbc =
+        env_flag_enabled("EX_COMPAT_POLYFILLS_HBC") || !sourceCompatPolyfills;
     compatEvaluated = eval_bootstrap_script(handle,
                                             COMPAT_POLYFILLS_SRC,
                                             reinterpret_cast<const uint8_t*>(COMPAT_POLYFILLS_HBC),
@@ -505,7 +560,7 @@ void runLegacyExactGlobal(ExactHermesRuntime* handle, bool sharedRuntimeInstalle
   bool exactEvaluated = false;
   try {
     bool sourceExactGlobal = env_flag_enabled("EX_EXACT_GLOBAL_SOURCE");
-    bool exactGlobalHbc = env_flag_enabled("EX_EXACT_GLOBAL_HBC");
+    bool exactGlobalHbc = env_flag_enabled("EX_EXACT_GLOBAL_HBC") || !sourceExactGlobal;
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
     exactEvaluated = eval_bootstrap_script(handle,
                                            EXACT_GLOBAL_SRC,
@@ -653,14 +708,17 @@ void installWebStreamsPolyfill(ExactHermesRuntime* handle) {
 
   try {
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
+    bool sourceWebStreamsPolyfill = env_flag_enabled("EX_WEB_STREAMS_POLYFILL_SOURCE");
+    bool webStreamsPolyfillHbc =
+        env_flag_enabled("EX_WEB_STREAMS_POLYFILL_HBC") || !sourceWebStreamsPolyfill;
     bool webStreamsPolyfillEvaluated = eval_bootstrap_script(
         handle,
         WEB_STREAMS_POLYFILL_SRC,
         reinterpret_cast<const uint8_t*>(WEB_STREAMS_POLYFILL_HBC),
         WEB_STREAMS_POLYFILL_HBC_LEN,
         "<web-streams-polyfill>",
-        true,
-        true);
+        sourceWebStreamsPolyfill,
+        webStreamsPolyfillHbc);
 #else
     bool webStreamsPolyfillEvaluated = eval_bootstrap_script(
         handle, WEB_STREAMS_POLYFILL_SRC, nullptr, 0, "<web-streams-polyfill>", true, false);

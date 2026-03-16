@@ -876,7 +876,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     // Enhance console with time/count/group/table/assert/clear via JS
     bool skip_console_enhance = env_flag_enabled("EX_SKIP_STARTUP_CONSOLE_ENHANCE");
     bool source_console_enhance = env_flag_enabled("EX_CONSOLE_ENHANCE_SOURCE");
-    bool console_enhance_hbc = env_flag_enabled("EX_CONSOLE_ENHANCE_HBC");
+    bool console_enhance_hbc =
+        env_flag_enabled("EX_CONSOLE_ENHANCE_HBC") || !source_console_enhance;
     if (skip_console_enhance) {
       if (_tracing) {
         fprintf(stderr, "[startup]   console_enhance skipped (set EX_SKIP_STARTUP_CONSOLE_ENHANCE=0 to re-enable)\n");
