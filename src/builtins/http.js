@@ -5043,7 +5043,7 @@ HttpRequestParser.prototype._parse = function() {
         this._buffer = this._buffer.substring(idx2 + 2);
         this._headerBytes += headerLine.length + 2;
         if (headerLine.indexOf('\r') !== -1 || headerLine.indexOf('\n') !== -1) {
-          this._emitParseError();
+          this._emitParseError('lf_expected', this._rawPacket, this._rawPacket.length);
           return;
         }
         var colonIdx = headerLine.indexOf(':');
@@ -6848,6 +6848,30 @@ Server.prototype._onConnection = function(socket) {
       try { socket.destroy(); } catch (_destroyErrInvalidTe) {}
     }
   }
+  function sendLfExpectedAndClose(rawPacket, bytesParsed) {
+    emitClientParseError(
+      self,
+      socket,
+      rawPacket,
+      bytesParsed,
+      'HPE_LF_EXPECTED',
+      'Missing expected LF after header value'
+    );
+    if (socket.destroyed) return;
+    if (typeof self.listenerCount === 'function' && self.listenerCount('clientError') > 0) {
+      scheduleNextTick(function() {
+        if (!socket.destroyed && socket._ended !== true) {
+          try { socket.destroy(); } catch (_destroyErrLfExpected) {}
+        }
+      });
+      return;
+    }
+    try {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+    } catch (_writeErrLfExpected) {
+      try { socket.destroy(); } catch (_destroyErrLfExpected2) {}
+    }
+  }
   function sendServiceUnavailableAndClose() {
     clearHeadersTimeout();
     clearRequestTimeout();
@@ -7204,6 +7228,10 @@ Server.prototype._onConnection = function(socket) {
     }
     if (code === 'invalid_transfer_encoding') {
       sendInvalidTransferEncodingAndClose(rawPacket, bytesParsed);
+      return;
+    }
+    if (code === 'lf_expected') {
+      sendLfExpectedAndClose(rawPacket, bytesParsed);
       return;
     }
     sendBadRequestAndClose();
