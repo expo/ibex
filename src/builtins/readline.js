@@ -6,6 +6,7 @@ var kPromisifyCustom = util.promisify && util.promisify.custom ? util.promisify.
 var kEscape = '\x1b';
 var kHistorySize = 30;
 var kEscapeCodeTimeout = 500;
+var kDefaultEscapeTimerSlack = 300;
 var kMinCrlfDelay = 100;
 var KEYPRESS_DECODER = typeof Symbol === 'function' ? Symbol('keypress-decoder') : '__exactKeypressDecoder__';
 var KEYPRESS_STATE = typeof Symbol === 'function' ? Symbol('keypress-state') : '__exactKeypressState__';
@@ -485,9 +486,12 @@ function emitKeypressEvents(stream, iface) {
         var escapeTimeout = iface.escapeCodeTimeout !== undefined
           ? iface.escapeCodeTimeout
           : kEscapeCodeTimeout;
+        var effectiveEscapeTimeout = escapeTimeout === kEscapeCodeTimeout
+          ? Math.max(10, escapeTimeout - kDefaultEscapeTimerSlack)
+          : escapeTimeout;
         state.pending = parsed.prefix || string.slice(index);
-        state.pendingDeadline = Date.now() + escapeTimeout;
-        state.timeoutId = setTimeout(triggerEscape, escapeTimeout);
+        state.pendingDeadline = Date.now() + effectiveEscapeTimeout;
+        state.timeoutId = setTimeout(triggerEscape, effectiveEscapeTimeout);
         index = string.length;
         break;
       }

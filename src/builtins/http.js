@@ -219,6 +219,13 @@ function _concatOutgoingBodyParts(parts) {
     return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : '';
   }
   if (typeof Buffer !== 'undefined') {
+    if (parts.length === 1) {
+      var onlyPart = parts[0];
+      if (onlyPart == null) {
+        return Buffer.alloc(0);
+      }
+      return Buffer.isBuffer(onlyPart) ? onlyPart : Buffer.from(String(onlyPart), 'utf8');
+    }
     var buffers = [];
     var total = 0;
     for (var i = 0; i < parts.length; i++) {
@@ -2782,7 +2789,7 @@ function _coerceClientRequestBodyChunk(chunk, encoding) {
   if (chunk == null) return null;
   if (typeof Buffer !== 'undefined') {
     if (Buffer.isBuffer(chunk)) {
-      return Buffer.from(chunk);
+      return chunk;
     }
     if (typeof ArrayBuffer !== 'undefined') {
       if (ArrayBuffer.isView && ArrayBuffer.isView(chunk)) {
@@ -2959,9 +2966,15 @@ ClientRequest.prototype._send = function() {
   var body = null;
   if (this._bodyParts.length > 0) {
     if (typeof Buffer !== 'undefined' && Buffer.concat) {
-      body = Buffer.concat(this._bodyParts.map(function(part) {
-        return _coerceClientRequestBodyChunk(part);
-      }));
+      if (this._bodyParts.length === 1) {
+        body = _coerceClientRequestBodyChunk(this._bodyParts[0]);
+      } else {
+        var coercedParts = [];
+        for (var i = 0; i < this._bodyParts.length; i++) {
+          coercedParts.push(_coerceClientRequestBodyChunk(this._bodyParts[i]));
+        }
+        body = _concatOutgoingBodyParts(coercedParts);
+      }
       if (body.length === 0) body = null;
     } else {
       body = this._bodyParts.join("");
@@ -3055,11 +3068,19 @@ ClientRequest.prototype._sendViaTcp = function(body) {
 
   var rawRequest = reqLine + headerLines.join('');
   if (body && typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(body)) {
-    rawRequest = Buffer.concat([Buffer.from(rawRequest, 'latin1'), body]);
+    this._pendingRawRequest = null;
+    this._pendingRawRequestHead = Buffer.from(rawRequest, 'latin1');
+    this._pendingRawRequestBody = body;
   } else if (body) {
     rawRequest += body;
+    this._pendingRawRequest = rawRequest;
+    this._pendingRawRequestHead = null;
+    this._pendingRawRequestBody = null;
+  } else {
+    this._pendingRawRequest = rawRequest;
+    this._pendingRawRequestHead = null;
+    this._pendingRawRequestBody = null;
   }
-  this._pendingRawRequest = rawRequest;
 
   if (this._writePendingRequest) {
     this._writePendingRequest();
@@ -4102,11 +4123,66 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
 
   function writeRawRequest() {
     var rawRequest = self._pendingRawRequest || '';
-    if (self._requestHeadWritten || self.destroyed || self._aborted || !rawRequest) {
+    var rawRequestHead = self._pendingRawRequestHead || null;
+    var rawRequestBody = self._pendingRawRequestBody || null;
+    if (self._requestHeadWritten || self.destroyed || self._aborted ||
+        (!rawRequest && !rawRequestHead)) {
       flushQueuedRequestBody();
       return;
     }
     self._requestHeadWritten = true;
+    self._pendingRawRequest = null;
+    self._pendingRawRequestHead = null;
+    self._pendingRawRequestBody = null;
+    if (rawRequestHead && typeof Buffer !== 'undefined' &&
+        Buffer.isBuffer && Buffer.isBuffer(rawRequestHead) &&
+        rawRequestBody && Buffer.isBuffer && Buffer.isBuffer(rawRequestBody)) {
+      beginSocketWrite();
+      try {
+        socket.write(rawRequestHead, function(headErr) {
+          endSocketWrite();
+          if (headErr) {
+            socket._hadError = true;
+            if (!self._aborted) {
+              self.emit('error', headErr);
+            }
+            return;
+          }
+          beginSocketWrite();
+          try {
+            socket.write(rawRequestBody, function(bodyErr) {
+              endSocketWrite();
+              if (bodyErr) {
+                socket._hadError = true;
+                if (!self._aborted) {
+                  self.emit('error', bodyErr);
+                }
+                return;
+              }
+              if (self._streamingRequest) {
+                flushQueuedRequestBody();
+                return;
+              }
+              finishRequestWrite();
+              maybeReleaseSocketAfterFlush();
+            });
+          } catch (bodyWriteErr) {
+            endSocketWrite();
+            socket._hadError = true;
+            if (!self._aborted) {
+              self.emit('error', bodyWriteErr);
+            }
+          }
+        });
+      } catch (headWriteErr) {
+        endSocketWrite();
+        socket._hadError = true;
+        if (!self._aborted) {
+          self.emit('error', headWriteErr);
+        }
+      }
+      return;
+    }
     beginSocketWrite();
     try {
       socket.write(rawRequest, function(writeErr) {
