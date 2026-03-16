@@ -1332,7 +1332,7 @@ function normalizeClientRequestOptions(options) {
       }
       return normalizedStringOptions;
     } catch (_parseClientRequestUrlErr) {
-      return { href: options, method: 'GET' };
+      throw _parseClientRequestUrlErr;
     }
   }
   if (options instanceof URL) {
@@ -1387,10 +1387,13 @@ function normalizeClientRequestOptions(options) {
 function validateClientRequestPath(path) {
   if (path == null) return;
   var pathString = String(path);
-  if (/[^\u0021-\u00ff]/.test(pathString)) {
-    var err = new TypeError('Request path contains unescaped characters');
-    err.code = 'ERR_UNESCAPED_CHARACTERS';
-    throw err;
+  for (var i = 0; i < pathString.length; i++) {
+    var codePoint = pathString.charCodeAt(i);
+    if (codePoint < 0x21 || codePoint > 0xFF) {
+      var err = new TypeError('Request path contains unescaped characters');
+      err.code = 'ERR_UNESCAPED_CHARACTERS';
+      throw err;
+    }
   }
 }
 
@@ -1898,6 +1901,8 @@ function ClientRequest(options, callback) {
   if (requestTimeout !== undefined) {
     this.options.timeout = requestTimeout;
   }
+  var validatedRequestPath = toHttpPath(this.options);
+  validateClientRequestPath(validatedRequestPath);
 
   var resolvedAgent = this.options.agent;
   if (resolvedAgent === false) {
@@ -1921,8 +1926,7 @@ function ClientRequest(options, callback) {
     ? this.options.__exactOriginalUrl
     : toHttpUrl(this.options);
   this.method = toMethod(this.options);
-  this.path = toHttpPath(this.options);
-  validateClientRequestPath(this.path);
+  this.path = validatedRequestPath;
   this._headersIsArray = Array.isArray(this.options.headers);
   this._setDefaultHeaders = this.options.setDefaultHeaders !== false;
   this._setHostHeader = this.options.setHost !== undefined
@@ -3474,6 +3478,12 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
 
       var incomingMessage = new TcpIncomingMessage(statusCode, statusMessage, responseHeaders, rawResponseHeaders);
       incomingMessage.socket = socket;
+      if (incomingMessage._readableState) {
+        var socketReadableHighWaterMark = _getSocketReadableHighWaterMark(socket);
+        if (typeof socketReadableHighWaterMark === 'number') {
+          incomingMessage._readableState.highWaterMark = socketReadableHighWaterMark;
+        }
+      }
       incomingMessage.req = self;
       incomingMessage.httpVersionMajor = httpVerMajor;
       incomingMessage.httpVersionMinor = httpVerMinor;
@@ -4016,6 +4026,21 @@ Object.defineProperty(TcpIncomingMessage.prototype, 'connection', {
   configurable: true
 });
 
+Object.defineProperty(TcpIncomingMessage.prototype, 'readableHighWaterMark', {
+  get: function() {
+    if (this._readableState && typeof this._readableState.highWaterMark === 'number') {
+      return this._readableState.highWaterMark;
+    }
+    var socketReadableHighWaterMark = _getSocketReadableHighWaterMark(this.socket);
+    if (typeof socketReadableHighWaterMark === 'number') {
+      return socketReadableHighWaterMark;
+    }
+    return 16384;
+  },
+  enumerable: true,
+  configurable: true
+});
+
 TcpIncomingMessage.prototype._read = function() {};
 TcpIncomingMessage.prototype._emitHttpClose = function() {
   if (this._httpCloseEmitted) return;
@@ -4273,6 +4298,7 @@ function request(options, callback) {
       }
     }
   }
+  validateClientRequestPath(toHttpPath(requestOptions));
   return new ClientRequest(requestOptions, callback);
 }
 
@@ -4967,8 +4993,12 @@ HttpRequestParser.prototype._parse = function() {
         this._buffer = this._buffer.substring(2);
         this._headerBytes += 2;
         var te = this._headers['transfer-encoding'];
-        this._isChunked = !!(te && te.toLowerCase().indexOf('chunked') !== -1);
         var cl = this._headers['content-length'];
+        if (te !== undefined && cl !== undefined) {
+          this._emitParseError('invalid_transfer_encoding', this._rawPacket, this._rawPacket.length);
+          return;
+        }
+        this._isChunked = !!(te && te.toLowerCase().indexOf('chunked') !== -1);
         this._contentLength = cl !== undefined ? (parseInt(cl, 10) || 0) : 0;
         if (this._isChunked || this._contentLength > 0) {
           this._streamingBody = typeof this.onBody === 'function';
@@ -5781,6 +5811,17 @@ function _maybeSetServerKeepAliveHeader(response, socket, keepAlive) {
     response._headers['keep-alive'] = keepAliveTokens.join(', ');
     response._headerNames['keep-alive'] = 'Keep-Alive';
   }
+}
+
+function _getSocketReadableHighWaterMark(socket) {
+  if (!socket) return undefined;
+  if (typeof socket.readableHighWaterMark === 'number') {
+    return socket.readableHighWaterMark;
+  }
+  if (typeof socket._readableHighWaterMark === 'number') {
+    return socket._readableHighWaterMark;
+  }
+  return undefined;
 }
 
 ServerResponse.prototype._sendSocketResponse = function() {
@@ -6791,6 +6832,22 @@ Server.prototype._onConnection = function(socket) {
       try { socket.destroy(); } catch (_destroyErr2) {}
     }
   }
+  function sendInvalidTransferEncodingAndClose(rawPacket, bytesParsed) {
+    emitClientParseError(
+      self,
+      socket,
+      rawPacket,
+      bytesParsed,
+      'HPE_INVALID_TRANSFER_ENCODING',
+      "Transfer-Encoding can't be present with Content-Length"
+    );
+    if (socket.destroyed) return;
+    try {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+    } catch (_writeErrInvalidTe) {
+      try { socket.destroy(); } catch (_destroyErrInvalidTe) {}
+    }
+  }
   function sendServiceUnavailableAndClose() {
     clearHeadersTimeout();
     clearRequestTimeout();
@@ -7143,6 +7200,10 @@ Server.prototype._onConnection = function(socket) {
     }
     if (code === 'chunk_extension_overflow') {
       sendChunkExtensionTooLargeAndClose();
+      return;
+    }
+    if (code === 'invalid_transfer_encoding') {
+      sendInvalidTransferEncodingAndClose(rawPacket, bytesParsed);
       return;
     }
     sendBadRequestAndClose();

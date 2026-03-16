@@ -864,6 +864,15 @@ function _normalizeWritableHighWaterMark(options) {
   return Math.floor(highWaterMark);
 }
 
+function _normalizeReadableHighWaterMark(options) {
+  var highWaterMark = options && options.readableHighWaterMark;
+  if (highWaterMark == null && options) highWaterMark = options.highWaterMark;
+  if (typeof highWaterMark !== 'number' || !isFinite(highWaterMark) || highWaterMark < 0) {
+    return 65536;
+  }
+  return Math.floor(highWaterMark);
+}
+
 function _createSocketWriteError(socket) {
   var err;
   if (socket && socket.destroyed) {
@@ -1068,6 +1077,7 @@ function Socket(options) {
   this._needDrain = false;
   this._finishEmitted = false;
   this._writableHighWaterMark = _normalizeWritableHighWaterMark(options);
+  this._readableHighWaterMark = _normalizeReadableHighWaterMark(options);
   this._paused = false;
   this._encoding = null;
   this._decoder = null;
@@ -1210,6 +1220,10 @@ Socket.prototype.__defineGetter__('writableLength', function() {
 
 Socket.prototype.__defineGetter__('writableHighWaterMark', function() {
   return this._writableHighWaterMark;
+});
+
+Socket.prototype.__defineGetter__('readableHighWaterMark', function() {
+  return this._readableHighWaterMark;
 });
 
 Socket.prototype.__defineGetter__('writableNeedDrain', function() {
