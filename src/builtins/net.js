@@ -2094,11 +2094,17 @@ Socket.prototype.connect = function(options, connectListener) {
       if (connected) {
         return;
       }
+      if (selfRef.destroyed || selfRef._abortPending) {
+        return;
+      }
       if (typeof process !== 'undefined' && process._exactExiting) {
         return;
       }
       if (idx >= attemptList.length) {
         if (connected) {
+          return;
+        }
+        if (selfRef.destroyed || selfRef._abortPending) {
           return;
         }
         selfRef.connecting = false;
@@ -2197,6 +2203,9 @@ Socket.prototype.connect = function(options, connectListener) {
         selfRef.emit('ready');
         return;
       } catch (err) {
+        if (selfRef.destroyed || selfRef._abortPending) {
+          return;
+        }
         var connErr = _createConnectErrorFromRaw(err, address, selfRef._requestedPort);
         attemptErrors.push(connErr);
         nextAttempt();
