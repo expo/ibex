@@ -2001,52 +2001,34 @@ function parseInvalidClientRequest(server, socket, chunk) {
   if (!chunk || !chunk.length) return;
   if (!socket._exactHttpClientErrorState) return;
   var state = socket._exactHttpClientErrorState;
-  if (state.done) return;
-
   var data = toBuffer(chunk);
   if (!data || !data.length) return;
-  if (state.awaitingReplay) {
+  if (state.code === 'HPE_INVALID_METHOD') {
     emitClientError(server, socket, data, data.length);
-    state.done = true;
     return;
-  }
-
-  if (isValidMethodStart(data[0])) {
-    state.done = true;
-    return;
-  }
-
-  emitClientError(server, socket, data.slice(0, 1), 1);
-  var remaining = data.slice(1);
-  if (remaining.length > 0) {
-    emitClientError(server, socket, remaining, remaining.length);
-    state.done = true;
-  } else {
-    state.awaitingReplay = true;
   }
 }
 
-function setupHttpClientErrorParsing(server, socket) {
+function setupHttpClientErrorParsing(server, socket, code) {
   if (!socket || !socket.on) return;
   if (socket._exactHttpClientParserAttached) return;
   socket._exactHttpClientParserAttached = true;
-  socket._exactHttpClientErrorState = { done: false, awaitingReplay: false };
+  socket._exactHttpClientErrorState = {
+    code: code || 'HPE_INVALID_METHOD'
+  };
 
   var onData = function(data) {
     parseInvalidClientRequest(server, socket, data);
-    if (socket._exactHttpClientErrorState.done) {
-      socket.removeListener('data', onData);
-    }
   };
 
   socket.on('data', onData);
-  var buffered = socket.read();
-  if (buffered && buffered.length) {
-    parseInvalidClientRequest(server, socket, buffered);
-    if (socket._exactHttpClientErrorState.done) {
+  socket.once('close', function() {
+    if (socket._exactHttpClientParserAttached) {
       socket.removeListener('data', onData);
     }
-  }
+    socket._exactHttpClientParserAttached = false;
+    socket._exactHttpClientErrorState = null;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -7566,7 +7548,11 @@ Server.prototype._onConnection = function(socket) {
   function sendBadRequestAndClose() {
     if (socket.destroyed) return;
     try {
-      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n', function() {
+        if (!socket.destroyed) {
+          try { socket.destroy(); } catch (_destroyAfterBadRequestErr) {}
+        }
+      });
     } catch (_writeErr) {
       try { socket.destroy(); } catch (_destroyErr) {}
     }
@@ -7574,7 +7560,11 @@ Server.prototype._onConnection = function(socket) {
   function sendChunkExtensionTooLargeAndClose() {
     if (socket.destroyed) return;
     try {
-      socket.end('HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n');
+      socket.end('HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n', function() {
+        if (!socket.destroyed) {
+          try { socket.destroy(); } catch (_destroyAfterChunkExtensionErr) {}
+        }
+      });
     } catch (_writeErr2) {
       try { socket.destroy(); } catch (_destroyErr2) {}
     }
@@ -7583,10 +7573,15 @@ Server.prototype._onConnection = function(socket) {
     emitClientError(self, socket, rawPacket, bytesParsed);
     if (socket.destroyed) return;
     if (typeof self.listenerCount === 'function' && self.listenerCount('clientError') > 0) {
+      setupHttpClientErrorParsing(self, socket, 'HPE_INVALID_METHOD');
       return;
     }
     try {
-      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n', function() {
+        if (!socket.destroyed) {
+          try { socket.destroy(); } catch (_destroyAfterInvalidMethodErr) {}
+        }
+      });
     } catch (_writeErrInvalidMethod) {
       try { socket.destroy(); } catch (_destroyErrInvalidMethod2) {}
     }
@@ -7605,7 +7600,11 @@ Server.prototype._onConnection = function(socket) {
       return;
     }
     try {
-      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n', function() {
+        if (!socket.destroyed) {
+          try { socket.destroy(); } catch (_destroyAfterInvalidTransferEncodingErr) {}
+        }
+      });
     } catch (_writeErrInvalidTe) {
       try { socket.destroy(); } catch (_destroyErrInvalidTe) {}
     }
@@ -7624,7 +7623,11 @@ Server.prototype._onConnection = function(socket) {
       return;
     }
     try {
-      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n', function() {
+        if (!socket.destroyed) {
+          try { socket.destroy(); } catch (_destroyAfterLfExpectedErr) {}
+        }
+      });
     } catch (_writeErrLfExpected) {
       try { socket.destroy(); } catch (_destroyErrLfExpected2) {}
     }
@@ -7655,7 +7658,11 @@ Server.prototype._onConnection = function(socket) {
       return;
     }
     try {
-      socket.end('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
+      socket.end('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n', function() {
+        if (!socket.destroyed) {
+          try { socket.destroy(); } catch (_destroyAfterHeaderOverflowErr) {}
+        }
+      });
     } catch (_writeErr3) {
       try { socket.destroy(); } catch (_destroyErr3) {}
     }
@@ -8304,14 +8311,36 @@ Server.prototype.closeIdleConnections = function() {
     var sock = sockets[i];
     if (sock._isIdle && (!sock._writeQueue || sock._writeQueue.length === 0)) {
       try {
-        if (typeof sock.end === 'function') {
-          sock.end();
+        if (typeof sock.end === 'function' && sock.writable !== false) {
+          sock.end(function() {
+            if (!sock.destroyed) {
+              try { sock.destroy(); } catch (_destroyIdleSocketErr) {}
+            }
+          });
         } else {
           sock.destroy();
         }
       } catch(e) {}
     }
   }
+};
+
+Server.prototype.getConnections = function(callback) {
+  if (typeof callback !== 'function') {
+    return this;
+  }
+  if (this._netServer && typeof this._netServer.getConnections === 'function') {
+    this._netServer.getConnections(callback);
+    return this;
+  }
+  var self = this;
+  setTimeout(function() {
+    var count = self._sockets && typeof self._sockets.size === 'number'
+      ? self._sockets.size
+      : 0;
+    callback(null, count);
+  }, 0);
+  return this;
 };
 
 Server.prototype.address = function() {
