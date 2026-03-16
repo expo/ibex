@@ -1895,10 +1895,8 @@ function applyOutgoingHeaderEntries(target, headers) {
       validateHeaderName(pairName);
       validateHeaderValue(pairName, pairValue);
       var pairLc = resolveHeaderName(pairName);
-      target._headers[pairLc] = _mergeOutgoingHeaderValue(target._headers[pairLc], pairValue);
-      if (!target._headerNames[pairLc]) {
-        target._headerNames[pairLc] = pairName;
-      }
+      target._headers[pairLc] = pairValue;
+      target._headerNames[pairLc] = pairName;
       delete target._removedHeaderNames[pairLc];
       if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
         target[kOutHeaders] = _createHeaderBag();
@@ -1919,10 +1917,8 @@ function applyOutgoingHeaderEntries(target, headers) {
       validateHeaderName(hName);
       validateHeaderValue(hName, hVal);
       var lc = resolveHeaderName(hName);
-      target._headers[lc] = _mergeOutgoingHeaderValue(target._headers[lc], hVal);
-      if (!target._headerNames[lc]) {
-        target._headerNames[lc] = hName;
-      }
+      target._headers[lc] = hVal;
+      target._headerNames[lc] = hName;
       delete target._removedHeaderNames[lc];
       if (!target[kOutHeaders] || typeof target[kOutHeaders] !== 'object') {
         target[kOutHeaders] = _createHeaderBag();
@@ -7196,7 +7192,9 @@ ServerIncomingMessage.prototype.destroy = function(err) {
   }
   var self = this;
   setTimeout(function() {
-    if (err) self.emit('error', err);
+    if (err && (!self.listenerCount || self.listenerCount('error') > 0)) {
+      self.emit('error', err);
+    }
     if (!self._closeEmitted) {
       self._closeEmitted = true;
       self.emit('close');
@@ -7402,6 +7400,10 @@ function Server(options, requestListener) {
   this.maxRequestsPerSocket = options.maxRequestsPerSocket != null ? options.maxRequestsPerSocket : 0;
   this.requireHostHeader = options.requireHostHeader !== false;
   this.joinDuplicateHeaders = options.joinDuplicateHeaders === true;
+  this.shouldUpgradeCallback =
+    typeof options.shouldUpgradeCallback === 'function'
+      ? options.shouldUpgradeCallback
+      : null;
   this._uniqueHeaders = _toUniqueHeaderLookup(options.uniqueHeaders);
   this.connectionsCheckingInterval =
     options.connectionsCheckingInterval != null ? options.connectionsCheckingInterval : 30000;
@@ -7857,6 +7859,7 @@ Server.prototype._onConnection = function(socket) {
         req.httpVersionMajor === 1 &&
         req.httpVersionMinor >= 1 &&
         req.method !== 'CONNECT' &&
+        !isUpgradeRequest(reqData) &&
         !Object.prototype.hasOwnProperty.call(req.headers, 'host')) {
       sendBadRequestAndClose();
       return null;
@@ -7887,7 +7890,15 @@ Server.prototype._onConnection = function(socket) {
       return req;
     }
 
-    if (isUpgradeRequest(reqData) && self.listenerCount('upgrade') > 0) {
+    var upgradeRequested = isUpgradeRequest(reqData);
+    if (upgradeRequested && self.shouldUpgradeCallback) {
+      if (self.shouldUpgradeCallback(req) !== true) {
+        upgradeRequested = false;
+      }
+    }
+
+    if (upgradeRequested && self.listenerCount('upgrade') > 0) {
+      clearRequestTimeout();
       socket._isIdle = false;
       socket.parser = null;
       var upgradeHead = (typeof Buffer !== 'undefined')
@@ -7899,6 +7910,19 @@ Server.prototype._onConnection = function(socket) {
       }
       detachServerHttpSocket();
       self.emit('upgrade', req, socket, upgradeHead);
+      return req;
+    }
+
+    if (upgradeRequested) {
+      clearRequestTimeout();
+      socket._isIdle = false;
+      socket.parser = null;
+      if (parser) {
+        parser._buffer = '';
+        parser.close();
+      }
+      detachServerHttpSocket();
+      try { socket.destroy(); } catch (_destroyUpgradeSocketErr) {}
       return req;
     }
 
@@ -8086,11 +8110,23 @@ Server.prototype._onConnection = function(socket) {
     var abortedReq = _activeReq || (_activeRes && _activeRes._req);
     if (abortedReq && _activeRes && !_activeRes._finished) {
       abortedReq.aborted = true;
+      abortedReq.destroyed = true;
+      abortedReq.readable = false;
+      if (abortedReq._readableState) {
+        abortedReq._readableState.destroyed = true;
+        abortedReq._readableState.ended = true;
+      }
       abortedReq.emit('aborted');
       var abortErr = new Error('aborted');
       abortErr.code = 'ECONNRESET';
       if (!abortedReq.listenerCount || abortedReq.listenerCount('error') > 0) {
         abortedReq.emit('error', abortErr);
+      }
+      if (typeof abortedReq._emitHttpClose === 'function') {
+        abortedReq._emitHttpClose();
+      } else if (!abortedReq._closeEmitted) {
+        abortedReq._closeEmitted = true;
+        abortedReq.emit('close');
       }
     }
     _activeReq = null;
@@ -8234,7 +8270,18 @@ Server.prototype._handleNativeRequest = function(json) {
 };
 
 Server.prototype.close = function(callback) {
-  if (typeof callback === 'function') this.once('close', callback);
+  var netListening = !!(this._netServer && this._netServer.listening);
+  if (typeof callback === 'function') {
+    if (!this._listening && !netListening && !this._useNative) {
+      setTimeout(function() {
+        var err = new Error('Server is not running.');
+        err.code = 'ERR_SERVER_NOT_RUNNING';
+        callback(err);
+      }, 0);
+      return this;
+    }
+    this.once('close', callback);
+  }
   this._closing = true;
   this._listening = false;
   if (this[kConnectionsCheckingInterval]) {
