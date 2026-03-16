@@ -218,6 +218,66 @@
     wrapCtor('DataView');
   }
   _patchBrokenSharedArrayBufferViews();
+
+  function _patchBase64DomExceptions() {
+    var nativeBtoa = typeof globalThis.btoa === 'function' ? globalThis.btoa : null;
+    var nativeAtob = typeof globalThis.atob === 'function' ? globalThis.atob : null;
+
+    function invalidCharacterError(message) {
+      if (typeof globalThis.DOMException === 'function') {
+        return new globalThis.DOMException(message, 'InvalidCharacterError');
+      }
+      var err = new Error(message);
+      err.name = 'InvalidCharacterError';
+      err.code = 5;
+      return err;
+    }
+
+    if (nativeAtob && nativeAtob.__exactDomWrapped !== true) {
+      var wrappedAtob = function(input) {
+        try {
+          return nativeAtob(String(input));
+        } catch (_err) {
+          throw invalidCharacterError('The string to be decoded is not correctly encoded.');
+        }
+      };
+      try {
+        Object.defineProperty(wrappedAtob, '__exactDomWrapped', {
+          value: true,
+          writable: false,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (_atobMarkerErr) {}
+      globalThis.atob = wrappedAtob;
+    }
+
+    if (nativeBtoa && nativeBtoa.__exactDomWrapped !== true) {
+      var wrappedBtoa = function(input) {
+        var str = String(input);
+        for (var i = 0; i < str.length; i++) {
+          if (str.charCodeAt(i) > 255) {
+            throw invalidCharacterError('The string to be encoded contains characters outside of the Latin1 range.');
+          }
+        }
+        try {
+          return nativeBtoa(str);
+        } catch (_err) {
+          throw invalidCharacterError('The string to be encoded contains characters outside of the Latin1 range.');
+        }
+      };
+      try {
+        Object.defineProperty(wrappedBtoa, '__exactDomWrapped', {
+          value: true,
+          writable: false,
+          configurable: true,
+          enumerable: false
+        });
+      } catch (_btoaMarkerErr) {}
+      globalThis.btoa = wrappedBtoa;
+    }
+  }
+  _patchBase64DomExceptions();
   function _createNodeTestModule() {
     var context = null;
     var topLevelQueue = Promise.resolve();

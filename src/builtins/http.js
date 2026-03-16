@@ -1750,9 +1750,14 @@ function normalizeClientRequestOptions(options) {
         normalizedUrlLikeOptions.auth =
           _decodeHttpAuthComponent(options.username || '') + ':' +
           _decodeHttpAuthComponent(options.password || '');
+      } else if (typeof options.auth === 'string') {
+        normalizedUrlLikeOptions.auth = _normalizeLegacyParsedUrlAuth(options.auth);
       }
       for (var urlLikeOptionKey in options) {
         if (Object.prototype.hasOwnProperty.call(options, urlLikeOptionKey)) {
+          if (urlLikeOptionKey === 'auth' && normalizedUrlLikeOptions.auth !== undefined) {
+            continue;
+          }
           normalizedUrlLikeOptions[urlLikeOptionKey] = options[urlLikeOptionKey];
         }
       }
