@@ -2502,7 +2502,16 @@ function realpathSync(path, options) {
   // Match Node.js behavior: non-native realpath path checks use lstat,
   // so a missing path reports "lstat" rather than "realpath".
   lstatSync(p);
-  try { return _encodeFsPathResult(g.__exactRealpath(p), options); } catch(e) { throw _makeFsError(e, 'realpath', p); }
+  try {
+    return _encodeFsPathResult(g.__exactRealpath(p), options);
+  } catch(e) {
+    var fsErr = _makeFsError(e, 'realpath', p);
+    if (fsErr && fsErr.code === 'ELOOP') {
+      fsErr.syscall = 'lstat';
+      fsErr.message = _buildFsErrorMessage(fsErr.code, fsErr.syscall, fsErr.path, fsErr.dest);
+    }
+    throw fsErr;
+  }
 }
 function realpathSyncNative(path) {
   _validatePath(path);

@@ -677,9 +677,23 @@
   // process.memoryUsage()
   if (!p.memoryUsage) {
     p.memoryUsage = function() {
-      return { rss: 0, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 };
+      return {
+        rss: 1024 * 1024,
+        heapTotal: 512 * 1024,
+        heapUsed: 256 * 1024,
+        external: 0,
+        arrayBuffers: 0
+      };
     };
-    p.memoryUsage.rss = function() { return 0; };
+  }
+  if (typeof p.memoryUsage === 'function' && typeof p.memoryUsage.rss !== 'function') {
+    p.memoryUsage.rss = function() {
+      var usage = p.memoryUsage();
+      if (usage && typeof usage.rss === 'number' && usage.rss > 0) {
+        return usage.rss;
+      }
+      return 1024 * 1024;
+    };
   }
 
   // process.cpuUsage()

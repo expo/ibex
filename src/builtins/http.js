@@ -5943,7 +5943,7 @@ Object.defineProperty(ServerResponse.prototype, 'writableHighWaterMark', {
 
 ServerResponse.prototype.assignSocket = function(socket) {
   if (this.socket) {
-    var socketAssignedErr = new Error('ServerResponse has an already assigned socket');
+    var socketAssignedErr = new Error('Socket already assigned');
     socketAssignedErr.code = 'ERR_HTTP_SOCKET_ASSIGNED';
     throw socketAssignedErr;
   }

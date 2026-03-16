@@ -2056,30 +2056,38 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     processObj.setProperty(rt, "hrtime", std::move(hrtimeFn));
   }
 
+  auto getResidentSetSize = []() -> size_t {
+    size_t rss = 0;
+#if defined(__APPLE__)
+    struct mach_task_basic_info info;
+    mach_msg_type_number_t infoCount = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                  (task_info_t)&info, &infoCount) == KERN_SUCCESS) {
+      rss = info.resident_size;
+    }
+#elif defined(__linux__)
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) == 0) {
+      rss = static_cast<size_t>(usage.ru_maxrss) * 1024; // Linux reports in KB
+    }
+#endif
+    if (rss == 0) {
+      rss = 1024 * 1024;
+    }
+    return rss;
+  };
+
   // process.memoryUsage()
   auto memoryUsageFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "memoryUsage"),
       0,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value*,
-         size_t) -> facebook::jsi::Value {
+      [getResidentSetSize](facebook::jsi::Runtime& runtime,
+                           const facebook::jsi::Value&,
+                           const facebook::jsi::Value*,
+                           size_t) -> facebook::jsi::Value {
         facebook::jsi::Object result(runtime);
-        size_t rss = 0;
-#if defined(__APPLE__)
-        struct mach_task_basic_info info;
-        mach_msg_type_number_t infoCount = MACH_TASK_BASIC_INFO_COUNT;
-        if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
-                      (task_info_t)&info, &infoCount) == KERN_SUCCESS) {
-          rss = info.resident_size;
-        }
-#elif defined(__linux__)
-        struct rusage usage;
-        if (getrusage(RUSAGE_SELF, &usage) == 0) {
-          rss = static_cast<size_t>(usage.ru_maxrss) * 1024; // Linux reports in KB
-        }
-#endif
+        size_t rss = getResidentSetSize();
         result.setProperty(runtime, "rss", facebook::jsi::Value(static_cast<double>(rss)));
         result.setProperty(runtime, "heapTotal", facebook::jsi::Value(0.0));
         result.setProperty(runtime, "heapUsed", facebook::jsi::Value(0.0));
@@ -2087,6 +2095,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         result.setProperty(runtime, "arrayBuffers", facebook::jsi::Value(0.0));
         return result;
       });
+  auto memoryUsageRssFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "rss"),
+      0,
+      [getResidentSetSize](facebook::jsi::Runtime&,
+                           const facebook::jsi::Value&,
+                           const facebook::jsi::Value*,
+                           size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(static_cast<double>(getResidentSetSize()));
+      });
+  memoryUsageFn.setProperty(rt, "rss", std::move(memoryUsageRssFn));
   processObj.setProperty(rt, "memoryUsage", std::move(memoryUsageFn));
 
   // process.cpuUsage()

@@ -7272,6 +7272,9 @@ function compose() {
       var invalidStageErr = makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams" argument must be a stream.');
       throw invalidStageErr;
     } else if (stage && typeof stage.pipe !== 'function') {
+      if (ni > 0 && typeof stage !== 'object') {
+        throw makeError(TypeError, 'ERR_INVALID_ARG_TYPE', 'The "streams" argument must be a stream.');
+      }
       try {
         stage = Duplex.from(stage, stageOptions);
       } catch (_err) {

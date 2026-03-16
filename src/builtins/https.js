@@ -145,6 +145,8 @@ function _prepareRequestOptions(options) {
   if (normalized.agent === undefined || normalized.agent === null) {
     if (typeof normalized.createConnection === 'function') {
       normalized.__exactSkipDefaultAgent = true;
+    } else if (!_requiresSocketTransport(normalized)) {
+      normalized.__exactSkipDefaultAgent = true;
     } else {
       normalized.agent = globalAgent;
     }
