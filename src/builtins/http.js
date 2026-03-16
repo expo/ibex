@@ -5238,6 +5238,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
     var reqTE = (req && req.headers && req.headers['te']) || '';
     var httpVersionMajor = (req && req.httpVersionMajor != null) ? req.httpVersionMajor : 1;
     var httpVersionMinor = (req && req.httpVersionMinor != null) ? req.httpVersionMinor : 1;
+    var hadExplicitHeader = this._header !== null;
     var respConnection = this._headers['connection'] || '';
     var reqConnectionLower = reqConnection.toLowerCase();
     var respConnectionLower = (typeof respConnection === 'string') ? respConnection.toLowerCase() : '';
@@ -5293,7 +5294,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
             httpVersionMinor === 1) {
           this._headers['transfer-encoding'] = 'chunked';
           this._headerNames['transfer-encoding'] = 'Transfer-Encoding';
-        } else if (keepAlive &&
+        } else if (hadExplicitHeader &&
             canHaveBody &&
             httpVersionMajor === 1 &&
             httpVersionMinor === 1) {
