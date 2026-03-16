@@ -14,6 +14,9 @@
 pub mod engine;
 pub mod host;
 pub mod module_loader;
+mod sync;
+#[cfg(not(feature = "cli-notify"))]
+mod cdp;
 
 use anyhow::Result;
 use std::path::PathBuf;

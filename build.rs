@@ -121,6 +121,11 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_http.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_sqlite.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
+    println!("cargo:rerun-if-changed=src/host/mod.rs");
+    println!("cargo:rerun-if-changed=src/sync.rs");
+    println!("cargo:rerun-if-changed=src/cdp/mod.rs");
+    println!("cargo:rerun-if-changed=src/cdp/network.rs");
+    println!("cargo:rerun-if-changed=../exact-cli/src/host/http_server.rs");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_linux.cc");
@@ -171,6 +176,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
+    let cli_notify_enabled = std::env::var_os("CARGO_FEATURE_CLI_NOTIFY").is_some();
     let hermes_macos_binary = if target_os == "macos" {
         let binary = find_macos_hermes_binary(&hermes_framework_dir)
             .or_else(|| find_macos_hermes_binary(&hermes_lib_dir));
@@ -593,6 +599,9 @@ fn main() {
     if enable_debugger {
         build.define("HERMES_ENABLE_DEBUGGER", None);
         println!("cargo:rustc-cfg=hermes_debugger");
+    }
+    if cli_notify_enabled {
+        build.define("EXACT_RUNTIME_USE_HTTP_STUBS", None);
     }
 
     build.compile("exact_hermes_runtime");

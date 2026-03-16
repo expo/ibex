@@ -15,6 +15,9 @@ crate-type = ["staticlib", "rlib"]
 thiserror = "1.0"
 anyhow = "1.0"
 
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
 # JSON handling
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -33,6 +36,14 @@ async-trait = "0.1"
 
 # Base64 for source maps
 base64 = "0.21"
+
+# HTTP server host bridge
+hyper = { version = "1.1", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "http1", "http2", "server-auto"] }
+h2 = "0.4"
+http-body-util = "0.1"
+futures-util = "0.3"
+socket2 = "0.6.2"
 
 # Kernel integration
 exact-kernel = { path = "../../kernel" }

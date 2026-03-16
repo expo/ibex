@@ -14,6 +14,9 @@
 pub mod abi;
 pub mod capability;
 pub mod capability_bits;
+#[cfg(not(feature = "cli-notify"))]
+#[path = "../../../exact-cli/src/host/http_server.rs"]
+pub mod http_server;
 pub mod policy;
 pub mod process;
 

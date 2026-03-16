@@ -5835,6 +5835,7 @@ extern "C" void ex_hermes_gc(ExactHermesRuntime* runtime) {
 // via tokio (http_server.rs). In standalone/Xcode builds (iOS, macOS app),
 // these no-op stubs are used instead. The __attribute__((weak)) ensures the
 // CLI's strong symbols override these when both are linked.
+#if defined(EXACT_RUNTIME_USE_HTTP_STUBS)
 #define WEAK_STUB __attribute__((weak))
 
 extern "C" WEAK_STUB char* ex_host_http_serve(uint16_t, const char*) { return nullptr; }
@@ -5857,3 +5858,4 @@ extern "C" WEAK_STUB int32_t ex_host_http_has_pending_requests(void) { return 0;
 extern "C" WEAK_STUB void ex_host_http_set_ref(uint32_t, int32_t) {}
 
 #undef WEAK_STUB
+#endif
