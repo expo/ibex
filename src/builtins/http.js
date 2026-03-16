@@ -214,6 +214,24 @@ function _hasChunkedTransferEncoding(value) {
   return value != null && String(value).toLowerCase().indexOf('chunked') !== -1;
 }
 
+function _findInvalidHeaderLineBreak(data) {
+  if (!data) return -1;
+  for (var i = 0; i < data.length; i++) {
+    var ch = data.charCodeAt(i);
+    if (ch === 13) {
+      if (i + 1 >= data.length || data.charCodeAt(i + 1) !== 10) {
+        return i;
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === 10 && (i === 0 || data.charCodeAt(i - 1) !== 13)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 function _responseCanHaveBody(statusCode, method) {
   if (method === 'HEAD') return false;
   return !(statusCode >= 100 && statusCode < 200) &&
@@ -2401,8 +2419,17 @@ ClientRequest.prototype.write = function(chunk, encoding, callback) {
     typeof this.headers['upgrade'] === 'string' &&
     typeof this.headers['connection'] === 'string' &&
     this.headers['connection'].toLowerCase().indexOf('upgrade') !== -1;
+  var isConnectRequest = !this._sent &&
+    !this._ended &&
+    this.protocol === 'http:' &&
+    this.method === 'CONNECT';
 
-  if (chunk !== undefined && chunk !== null && !isUpgradeRequest && this.protocol === 'http:' && !this._ended) {
+  if (chunk !== undefined &&
+      chunk !== null &&
+      !isUpgradeRequest &&
+      !isConnectRequest &&
+      this.protocol === 'http:' &&
+      !this._ended) {
     if (!this._streamingRequest) {
       this._startStreamingRequest();
     }
@@ -2986,6 +3013,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       socket.emit('agentRemove');
     }
     finishRequestWrite();
+    self.destroyed = true;
     self.emit('upgrade', tcpIncoming, socket, upgradeHead);
     if (!self._closed) {
       self._closed = true;
@@ -3119,6 +3147,18 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       var bodyStart = responseBuffer.substring(headerEnd + 4);
       headersParsed = true;
 
+      var invalidLineBreakIndex = _findInvalidHeaderLineBreak(headerSection);
+      if (invalidLineBreakIndex !== -1) {
+        emitResponseParseError(
+          responseBuffer,
+          invalidLineBreakIndex,
+          false,
+          'HPE_LF_EXPECTED',
+          'Missing expected LF after header value'
+        );
+        return;
+      }
+
       var lines = headerSection.split('\r\n');
       var httpVerMajor = 1;
       var httpVerMinor = 1;
@@ -3215,6 +3255,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         }
         cleanupRequestListeners();
         finishRequestWrite();
+        self.destroyed = true;
         self.emit('connect', tcpIncoming, socket,
           (typeof Buffer !== 'undefined') ? Buffer.from(bodyStart, 'latin1') : bodyStart);
         if (!self._closed) {
@@ -3693,6 +3734,10 @@ TcpIncomingMessage.prototype._read = function() {};
 TcpIncomingMessage.prototype._emitHttpClose = function() {
   if (this._httpCloseEmitted) return;
   this._httpCloseEmitted = true;
+  this.destroyed = true;
+  if (this._readableState) {
+    this._readableState.destroyed = true;
+  }
   this.closed = true;
   this.emit('close');
 };
@@ -4147,10 +4192,33 @@ Agent.prototype.createConnection = function(options, callback) {
 };
 
 function installAgentListeners(agent, socket, options) {
+  function setFreeSocketTimeoutListener(enabled) {
+    if (!socket || !socket._httpAgentTimeoutListener) return;
+    if (enabled) {
+      if (socket._httpAgentTimeoutListenerAttached) return;
+      socket.on('timeout', socket._httpAgentTimeoutListener);
+      socket._httpAgentTimeoutListenerAttached = true;
+      return;
+    }
+    if (!socket._httpAgentTimeoutListenerAttached) return;
+    socket.removeListener('timeout', socket._httpAgentTimeoutListener);
+    socket._httpAgentTimeoutListenerAttached = false;
+  }
+
   function onFree() {
     agent.emit('free', socket, options);
+    var pools = agent.freeSockets;
+    var isFree = false;
+    for (var name in pools) {
+      if (Object.prototype.hasOwnProperty.call(pools, name) && pools[name].indexOf(socket) !== -1) {
+        isFree = true;
+        break;
+      }
+    }
+    setFreeSocketTimeoutListener(isFree);
   }
   function onClose() {
+    setFreeSocketTimeoutListener(false);
     agent.totalSocketCount--;
     agent.removeSocket(socket, options);
   }
@@ -4164,17 +4232,18 @@ function installAgentListeners(agent, socket, options) {
     }
   }
   function onRemove() {
+    setFreeSocketTimeoutListener(false);
     agent.totalSocketCount--;
     agent.removeSocket(socket, options);
     socket.removeListener('close', onClose);
     socket.removeListener('free', onFree);
-    socket.removeListener('timeout', onTimeout);
     socket.removeListener('agentRemove', onRemove);
   }
 
+  socket._httpAgentTimeoutListener = onTimeout;
+  socket._httpAgentTimeoutListenerAttached = false;
   socket.on('free', onFree);
   socket.on('close', onClose);
-  socket.on('timeout', onTimeout);
   socket.on('agentRemove', onRemove);
 }
 
@@ -4326,6 +4395,10 @@ Agent.prototype.keepSocketAlive = function(socket) {
 
 Agent.prototype.reuseSocket = function(socket, req) {
   socket.removeListener('error', freeSocketErrorListener);
+  if (socket._httpAgentTimeoutListener && socket._httpAgentTimeoutListenerAttached) {
+    socket.removeListener('timeout', socket._httpAgentTimeoutListener);
+    socket._httpAgentTimeoutListenerAttached = false;
+  }
   req.reusedSocket = true;
   if (typeof socket.ref === 'function') {
     socket.ref();
