@@ -1,5 +1,7 @@
 var EventEmitter = require('events');
+var util = require('util');
 var StringDecoder = require('string_decoder').StringDecoder;
+var kPromisifyCustom = util.promisify && util.promisify.custom ? util.promisify.custom : undefined;
 
 var kEscape = '\x1b';
 var kHistorySize = 30;
@@ -9,6 +11,7 @@ var KEYPRESS_DECODER = typeof Symbol === 'function' ? Symbol('keypress-decoder')
 var KEYPRESS_STATE = typeof Symbol === 'function' ? Symbol('keypress-state') : '__exactKeypressState__';
 var KEYPRESS_WRITE_PATCHED = typeof Symbol === 'function' ? Symbol('keypress-write-patched') : '__exactKeypressWritePatched__';
 var KEYPRESS_SUPPRESS_WRITE = typeof Symbol === 'function' ? Symbol('keypress-suppress-write') : '__exactKeypressSuppressWrite__';
+var KEYPRESS_PENDING_WRITES = typeof Symbol === 'function' ? Symbol('keypress-pending-writes') : '__exactKeypressPendingWrites__';
 var internalSymbol = typeof Symbol === 'function' ? Symbol.for('__BUN_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED__') : '__BUN_INTERNALS__';
 var ansiPattern = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?(?:\u0007|\u001B\u005C|\u009C))|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 
@@ -447,10 +450,14 @@ function emitKeypressEvents(stream, iface) {
     });
   }
 
-  function onData(input) {
+  function onData(input, fromWrite) {
     var state = stream[KEYPRESS_STATE];
     var string;
     var index = 0;
+    if (!fromWrite && stream[KEYPRESS_PENDING_WRITES] > 0) {
+      stream[KEYPRESS_PENDING_WRITES] -= 1;
+      return;
+    }
     string = typeof input === 'string' ? input : stream[KEYPRESS_DECODER].write(input);
     if (!string) return;
     if (state.timeoutId) {
@@ -477,16 +484,24 @@ function emitKeypressEvents(stream, iface) {
     }
   }
 
-  stream.on('data', onData);
+  stream.on('data', function(input) {
+    onData(input, false);
+  });
   if (typeof stream.write === 'function' &&
-      !stream[KEYPRESS_WRITE_PATCHED] &&
-      typeof stream.read !== 'function' &&
-      !stream._readableState) {
+      !stream[KEYPRESS_WRITE_PATCHED]) {
     var originalWrite = stream.write;
     stream[KEYPRESS_WRITE_PATCHED] = true;
     stream.write = function(chunk) {
+      if (this._readableState) {
+        this[KEYPRESS_PENDING_WRITES] = (this[KEYPRESS_PENDING_WRITES] || 0) + 1;
+      }
       if (!this[KEYPRESS_SUPPRESS_WRITE]) {
-        onData(chunk);
+        var keypressListenerCount = typeof this.listenerCount === 'function'
+          ? this.listenerCount('keypress')
+          : 0;
+        if (keypressListenerCount > 0) {
+          onData(chunk, true);
+        }
       }
       return originalWrite.apply(this, arguments);
     };
@@ -1605,6 +1620,12 @@ PromiseInterface.prototype.question = function(query, options, cb) {
     });
   });
 };
+
+if (kPromisifyCustom) {
+  Interface.prototype.question[kPromisifyCustom] = function(query, options) {
+    return PromiseInterface.prototype.question.call(this, query, options);
+  };
+}
 
 function createInterface() {
   if (arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object' && arguments[0].input) {

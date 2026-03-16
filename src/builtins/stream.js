@@ -1584,7 +1584,7 @@ Readable.prototype.push = function(chunk, encoding) {
     if (this._readableState.reading) {
       return state.length < state.highWaterMark || state.length === 0;
     }
-    if (this._readableState.resumeScheduled && hadBufferedData) {
+    if (this._readableState.resumeScheduled && !this._transformState) {
       _maybeReadMore(this, state);
       return state.length < state.highWaterMark || state.length === 0;
     }
