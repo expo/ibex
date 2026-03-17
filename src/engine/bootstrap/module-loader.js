@@ -2987,7 +2987,8 @@
       .replace(/import\.meta\.path/g, "__filename")
       .replace(/import\.meta\.filename/g, "__filename")
       .replace(/import\.meta\.file(?!name)/g, "(typeof __filename !== 'undefined' ? __filename.split('/').pop() : '')")
-      .replace(/import\.meta\.dir/g, "__dirname")
+      .replace(/import\.meta\.dirname/g, "__dirname")
+      .replace(/import\.meta\.dir(?!name)/g, "__dirname")
       .replace(/import\.meta\.main/g, "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))")
       .replace(/import\.meta\.require/g, "require");
   }
