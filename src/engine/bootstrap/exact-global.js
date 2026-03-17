@@ -895,12 +895,46 @@
       if (i < arguments.length - 1) cmd += String(arguments[i + 1]);
     }
     var cp = require('child_process');
-    var result = cp.execSync(cmd.trim(), { encoding: 'utf8' });
-    return {
-      text: function() { return result; },
-      toString: function() { return result; },
-      exitCode: 0,
+    function createShellResult(stdoutBuffer, stderrBuffer, status) {
+      var stdout = Buffer.from(stdoutBuffer || []);
+      var stderr = Buffer.from(stderrBuffer || []);
+      return {
+        stdout: stdout,
+        stderr: stderr,
+        exitCode: status,
+        text: function() { return stdout.toString(); },
+        toString: function() { return stdout.toString(); },
+      };
+    }
+    var shellPromise = new Promise(function(resolve) {
+      var child = cp.spawn(cmd.trim(), { shell: true });
+      var stdoutChunks = [];
+      var stderrChunks = [];
+
+      if (child.stdout && typeof child.stdout.on === 'function') {
+        child.stdout.on('data', function(chunk) {
+          stdoutChunks.push(Buffer.from(chunk));
+        });
+      }
+      if (child.stderr && typeof child.stderr.on === 'function') {
+        child.stderr.on('data', function(chunk) {
+          stderrChunks.push(Buffer.from(chunk));
+        });
+      }
+      child.on('error', function(error) {
+        stderrChunks.push(Buffer.from(String(error && error.message ? error.message : error)));
+      });
+      child.on('close', function(code) {
+        resolve(createShellResult(Buffer.concat(stdoutChunks), Buffer.concat(stderrChunks), typeof code === 'number' ? code : 0));
+      });
+    });
+    shellPromise.quiet = function() { return shellPromise; };
+    shellPromise.text = function() {
+      return shellPromise.then(function(result) { return result.text(); });
     };
+    shellPromise.toString = function() { return cmd.trim(); };
+    shellPromise.exitCode = 0;
+    return shellPromise;
   };
 
   // Bun.semver (version comparison)
@@ -1441,6 +1475,66 @@
     var actualPort = result.port || port;
     var closing = false;
 
+    function decodeBase64ToBytes(value) {
+      if (!value) return new Uint8Array(0);
+      if (typeof Buffer !== 'undefined' && Buffer.from) {
+        return new Uint8Array(Buffer.from(String(value), 'base64'));
+      }
+      var binary = atob(String(value));
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    function createReadableRequestBody(activeServerId, requestId) {
+      return new ReadableStream({
+        pull: function(controller) {
+          return new Promise(function(resolve, reject) {
+            function pollBody() {
+              if (typeof __exactHttpReadBody !== 'function') {
+                reject(new Error('Request body streaming unavailable'));
+                return;
+              }
+
+              var resultJson = __exactHttpReadBody(activeServerId, requestId);
+              if (!resultJson) {
+                resolve();
+                return;
+              }
+
+              var result;
+              try {
+                result = JSON.parse(resultJson);
+              } catch (error) {
+                reject(error);
+                return;
+              }
+
+              if (result.error) {
+                reject(new Error(String(result.error)));
+                return;
+              }
+              if (result.done) {
+                controller.close();
+                resolve();
+                return;
+              }
+              if (result.chunk) {
+                controller.enqueue(decodeBase64ToBytes(result.chunk));
+                resolve();
+                return;
+              }
+              setTimeout(pollBody, 0);
+            }
+
+            pollBody();
+          });
+        }
+      });
+    }
+
     function buildRequest(data) {
       var method = data.method || 'GET';
       var url = data.url || '/';
@@ -1473,8 +1567,12 @@
       if (headers) {
         init.headers = headers;
       }
-      if (method !== 'GET' && method !== 'HEAD' && data.body) {
-        try { init.body = atob(data.body); } catch(e) { init.body = data.body; }
+      if (method !== 'GET' && method !== 'HEAD' && data && data.hasBody) {
+        if (typeof data.body === 'string') {
+          init.body = decodeBase64ToBytes(data.body);
+        } else {
+          init.body = createReadableRequestBody(serverId, data.id);
+        }
       }
       return new Request(fullUrl, init);
     }
@@ -1530,14 +1628,43 @@
       return false;
     }
 
-    function sendResponse(requestId, response) {
+    function sendResponse(requestId, response, requestUrl) {
+      if (!(response instanceof Response)) {
+        response = new Response(response == null ? '' : String(response));
+      }
       var status = response.status || 200;
       var hdrs = [];
-      if (response.headers) response.headers.forEach(function(val, key) { hdrs.push([key, val]); });
+      var streamBody = response.body && typeof response.body.getReader === 'function';
+      if (response.headers) response.headers.forEach(function(val, key) {
+        if (key.toLowerCase() === 'location' && typeof val === 'string' && val.indexOf('://') === 0) {
+          var schemeMatch = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(String(requestUrl || ''));
+          if (schemeMatch) {
+            val = schemeMatch[0] + val.slice(1);
+          }
+        }
+        if (streamBody && key.toLowerCase() === 'content-length') {
+          return;
+        }
+        hdrs.push([key, val]);
+      });
       var headersJson = JSON.stringify(hdrs);
-      response.text().then(function(bodyText) {
+      response.arrayBuffer().then(function(buffer) {
+        if (typeof __exactHttpRespond === 'function') {
+          __exactHttpRespond(serverId, requestId, status, headersJson, {
+            buffer: buffer,
+            byteOffset: 0,
+            byteLength: buffer.byteLength || 0
+          });
+          return;
+        }
         if (typeof __exactHttpRespondString === 'function') {
-          __exactHttpRespondString(serverId, requestId, status, headersJson, bodyText || '');
+          __exactHttpRespondString(
+            serverId,
+            requestId,
+            status,
+            headersJson,
+            new TextDecoder().decode(new Uint8Array(buffer))
+          );
         }
       }).catch(function() {
         if (typeof __exactHttpRespondString === 'function') {
@@ -1563,28 +1690,28 @@
         var result = fetchHandler(request);
         if (result && typeof result.then === 'function') {
           result.then(function(response) {
-            sendResponse(requestId, response instanceof Response ? response : new Response(String(response || '')));
+            sendResponse(requestId, response instanceof Response ? response : new Response(String(response || '')), request.url);
           }).catch(function(err) {
             try {
               var errR = errorHandler(err);
               if (errR && typeof errR.then === 'function') {
-                errR.then(function(r) { sendResponse(requestId, r instanceof Response ? r : new Response(String(r || ''), { status: 500 })); })
-                  .catch(function() { sendResponse(requestId, new Response('Internal Server Error', { status: 500 })); });
+                errR.then(function(r) { sendResponse(requestId, r instanceof Response ? r : new Response(String(r || ''), { status: 500 }), request.url); })
+                  .catch(function() { sendResponse(requestId, new Response('Internal Server Error', { status: 500 }), request.url); });
               } else {
-                sendResponse(requestId, errR instanceof Response ? errR : new Response(String(errR || ''), { status: 500 }));
+                sendResponse(requestId, errR instanceof Response ? errR : new Response(String(errR || ''), { status: 500 }), request.url);
               }
-            } catch(e2) { sendResponse(requestId, new Response('Internal Server Error', { status: 500 })); }
+            } catch(e2) { sendResponse(requestId, new Response('Internal Server Error', { status: 500 }), request.url); }
           });
         } else if (result instanceof Response) {
-          sendResponse(requestId, result);
+          sendResponse(requestId, result, request.url);
         } else {
-          sendResponse(requestId, new Response(String(result || '')));
+          sendResponse(requestId, new Response(String(result || '')), request.url);
         }
       } catch(err) {
         try {
           var errR2 = errorHandler(err);
-          sendResponse(requestId, errR2 instanceof Response ? errR2 : new Response(String(errR2 || ''), { status: 500 }));
-        } catch(e2) { sendResponse(requestId, new Response('Internal Server Error', { status: 500 })); }
+          sendResponse(requestId, errR2 instanceof Response ? errR2 : new Response(String(errR2 || ''), { status: 500 }), request.url);
+        } catch(e2) { sendResponse(requestId, new Response('Internal Server Error', { status: 500 }), request.url); }
       }
     }
 
@@ -1774,6 +1901,7 @@
       throw new TypeError('Bun.listen() requires a socket handlers object');
     }
     var hostname = options.hostname || '0.0.0.0';
+    var hostnameProvided = Object.prototype.hasOwnProperty.call(options, 'hostname');
     var port = options.port || 0;
 
     if (typeof __exactTcpListen !== 'function') {
@@ -1785,7 +1913,7 @@
     try {
       var info = JSON.parse(__exactTcpLocalAddr(serverHandle));
       actualPort = info.port;
-      if (info.address && info.address !== '0.0.0.0') hostname = info.address;
+      if ((!hostnameProvided || hostname === '0.0.0.0') && info.address && info.address !== '0.0.0.0') hostname = info.address;
     } catch(e) {}
 
     var closing = false;
@@ -1805,10 +1933,19 @@
     BunSocket.prototype.write = function(data) {
       if (this._destroyed) return 0;
       try {
-        var str = (typeof data === 'string') ? data :
-          (data instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(data))) ?
-            (typeof Buffer !== 'undefined' ? Buffer.from(data).toString() : String.fromCharCode.apply(null, data)) : String(data);
-        return __exactTcpWrite(this._handle, str);
+        var payload = data;
+        if (typeof payload !== 'string') {
+          if (payload instanceof ArrayBuffer) {
+            payload = new Uint8Array(payload);
+          } else if (payload && typeof payload === 'object' && ArrayBuffer.isView(payload)) {
+            payload = new Uint8Array(payload.buffer, payload.byteOffset || 0, payload.byteLength || payload.length || 0);
+          } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(payload)) {
+            payload = Buffer.from(payload);
+          } else {
+            payload = String(payload);
+          }
+        }
+        return __exactTcpWrite(this._handle, payload);
       } catch(e) { return 0; }
     };
     BunSocket.prototype.end = function(data) {
