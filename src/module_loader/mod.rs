@@ -297,9 +297,7 @@ impl ModuleLoader {
                 }
                 if bytes[idx] == b'/' && bytes.get(idx + 1) == Some(&b'*') {
                     idx += 2;
-                    while idx + 1 < bytes.len()
-                        && !(bytes[idx] == b'*' && bytes[idx + 1] == b'/')
-                    {
+                    while idx + 1 < bytes.len() && !(bytes[idx] == b'*' && bytes[idx + 1] == b'/') {
                         idx += 1;
                     }
                     idx = (idx + 2).min(bytes.len());
@@ -638,10 +636,13 @@ impl ModuleLoader {
     fn source_needs_loop_scope_downlevel(source: &str) -> bool {
         Self::scan_block_scoped_loop_closures(
             source,
-            |semicolons, captures_loop_binding, _, is_for_of_or_in, has_unsafe_for_of_control_flow| {
+            |semicolons,
+             captures_loop_binding,
+             _,
+             is_for_of_or_in,
+             has_unsafe_for_of_control_flow| {
                 captures_loop_binding
-                    && (semicolons >= 2
-                        || (is_for_of_or_in && has_unsafe_for_of_control_flow))
+                    && (semicolons >= 2 || (is_for_of_or_in && has_unsafe_for_of_control_flow))
             },
         )
     }
@@ -862,7 +863,7 @@ fn hash_cache_input_file<H: Hasher>(hasher: &mut H, path: &Path) -> Result<()> {
 
 fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v8-pipeline-aware".hash(&mut hasher);
+    "loader-transpile-v11-explicit-iterator-for-of".hash(&mut hasher);
     target.hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
