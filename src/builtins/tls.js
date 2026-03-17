@@ -1184,12 +1184,139 @@ function _canonicalizeIp(host) {
 }
 
 function _createAltNameError(reason, hostname, cert) {
-  var err = new Error(reason);
+  var err = new Error('Hostname/IP does not match certificate\'s altnames: ' + reason);
   err.reason = reason;
   err.host = hostname;
   err.cert = cert;
   err.code = 'ERR_TLS_CERT_ALTNAME_INVALID';
   return err;
+}
+
+function _createAuthorizationError(code, message) {
+  var err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+function _bufferEquals(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  var leftLength = typeof left.length === 'number' ? left.length : left.byteLength;
+  var rightLength = typeof right.length === 'number' ? right.length : right.byteLength;
+  if (leftLength !== rightLength) return false;
+  for (var i = 0; i < leftLength; i++) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function _certificateEquals(left, right) {
+  if (!left || !right) return false;
+  if (left.fingerprint256 && right.fingerprint256 && left.fingerprint256 === right.fingerprint256) {
+    return true;
+  }
+  if (left.raw && right.raw && _bufferEquals(left.raw, right.raw)) {
+    return true;
+  }
+  return (
+    left.serialNumber &&
+    right.serialNumber &&
+    left.serialNumber === right.serialNumber &&
+    _nameKey(left.subject) === _nameKey(right.subject)
+  );
+}
+
+function _collectCertificateChain(cert) {
+  var chain = [];
+  var current = cert;
+  while (current) {
+    chain.push(current);
+    if (!current.issuerCertificate || current.issuerCertificate === current) {
+      break;
+    }
+    current = current.issuerCertificate;
+  }
+  return chain;
+}
+
+function _collectTrustedCertificates(source, host, port) {
+  var blocks = _splitPemCertificates(source);
+  if (!blocks.length) return [];
+  var certs = [];
+  for (var i = 0; i < blocks.length; i++) {
+    var cert = _parsePemCertificate(blocks[i], host, port);
+    if (!cert) return null;
+    certs.push(cert);
+  }
+  return certs;
+}
+
+function _isSelfSignedCertificate(cert) {
+  return !!cert && _nameKey(cert.subject) === _nameKey(cert.issuer);
+}
+
+function _certificateTimeValue(value) {
+  if (!value) return NaN;
+  var time = Date.parse(String(value));
+  return Number.isFinite(time) ? time : NaN;
+}
+
+function _normalizePemSignature(source) {
+  return _pemSourceToString(source).replace(/\s+/g, '');
+}
+
+function _sourceContainsCertificate(source, certSource) {
+  if (source == null || certSource == null) return false;
+  var normalizedSource = _normalizePemSignature(source);
+  var normalizedCert = _normalizePemSignature(certSource);
+  return !!normalizedSource && !!normalizedCert && normalizedSource.indexOf(normalizedCert) !== -1;
+}
+
+function _validatePeerAuthorization(peerCert, options, host, port, remoteOptions) {
+  if (!peerCert) return null;
+
+  if (remoteOptions && remoteOptions.__exactExpired === true) {
+    return _createAuthorizationError('CERT_HAS_EXPIRED', 'certificate has expired');
+  }
+
+  var now = Date.now();
+  var validTo = _certificateTimeValue(peerCert.valid_to);
+  if (!isNaN(validTo) && validTo < now) {
+    return _createAuthorizationError('CERT_HAS_EXPIRED', 'certificate has expired');
+  }
+
+  var validFrom = _certificateTimeValue(peerCert.valid_from);
+  if (!isNaN(validFrom) && validFrom > now) {
+    return _createAuthorizationError('CERT_NOT_YET_VALID', 'certificate is not yet valid');
+  }
+
+  var trustedSource = options && options.ca !== undefined ? options.ca : _defaultCACertificates;
+  var peerSource = remoteOptions && (remoteOptions.cert || remoteOptions.pfx);
+  if (_sourceContainsCertificate(trustedSource, peerSource)) {
+    return null;
+  }
+  var trusted = _collectTrustedCertificates(trustedSource, host, port);
+  if (trusted === null) {
+    return _createAuthorizationError('UNABLE_TO_GET_ISSUER_CERT', 'unable to get issuer certificate');
+  }
+  if (!trusted.length) {
+    return (_isSelfSignedCertificate(peerCert) || !!peerSource)
+      ? _createAuthorizationError('DEPTH_ZERO_SELF_SIGNED_CERT', 'self-signed certificate')
+      : null;
+  }
+
+  var chain = _collectCertificateChain(peerCert);
+  for (var i = 0; i < chain.length; i++) {
+    for (var j = 0; j < trusted.length; j++) {
+      if (_certificateEquals(chain[i], trusted[j])) {
+        return null;
+      }
+    }
+  }
+
+  return (_isSelfSignedCertificate(peerCert) || !!peerSource)
+    ? _createAuthorizationError('DEPTH_ZERO_SELF_SIGNED_CERT', 'self-signed certificate')
+    : _createAuthorizationError('UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'unable to verify the first certificate');
 }
 
 function _defaultCheckServerIdentity(hostname, cert) {
@@ -1366,14 +1493,40 @@ function _finalizeHandshake(socket, peerOptions, negotiatedCipher) {
     name: negotiatedCipher || _normalizeCipherName(remoteOptions.ciphers || opts.ciphers),
     version: socket._protocol
   };
+  socket._authorizationErrorObject = null;
+  if (opts.rejectUnauthorized === false) {
+    socket.authorizationError = null;
+    socket.authorized = true;
+    return true;
+  }
+  var authorizationError = _validatePeerAuthorization(
+    socket._peerCertificate,
+    opts,
+    host,
+    socket.remotePort,
+    remoteOptions
+  );
+  if (authorizationError) {
+    socket.authorizationError = authorizationError.code || authorizationError.message || String(authorizationError);
+    socket._authorizationErrorObject = authorizationError;
+    socket.authorized = false;
+    return false;
+  }
   var check = opts.checkServerIdentity || checkServerIdentity;
-  var result = _normalizeCheckError(check(host, socket._peerCertificate, opts));
+  var result = null;
+  try {
+    result = _normalizeCheckError(check(host, socket._peerCertificate, opts));
+  } catch (error) {
+    result = _normalizeCheckError(error);
+  }
   if (result) {
-    socket.authorizationError = result.message || String(result);
+    socket.authorizationError = result.code || result.message || String(result);
+    socket._authorizationErrorObject = result;
     socket.authorized = false;
     return false;
   }
   socket.authorizationError = null;
+  socket._authorizationErrorObject = null;
   socket.authorized = true;
   return true;
 }
@@ -1453,6 +1606,7 @@ function TLSSocket(socket, options) {
   this.encrypted = true;
   this.authorized = false;
   this.authorizationError = null;
+  this._authorizationErrorObject = null;
   this._protocol = options.minVersion || options.maxVersion || DEFAULT_MAX_VERSION;
   this._session = null;
   this._sessionReused = false;
@@ -1927,7 +2081,7 @@ function connect() {
           socket.emit('secure', true);
           socket.emit('secureConnect');
         } else if (socket.authorizationError) {
-          var localErr = new Error(socket.authorizationError);
+          var localErr = socket._authorizationErrorObject || new Error(socket.authorizationError);
           socket.emit('error', localErr);
           socket.destroy(localErr);
         }
@@ -1939,7 +2093,7 @@ function connect() {
         socket.emit('secure', true);
         socket.emit('secureConnect');
       } else if (socket.authorizationError) {
-        var err = new Error(socket.authorizationError);
+        var err = socket._authorizationErrorObject || new Error(socket.authorizationError);
         socket.emit('error', err);
         socket.destroy(err);
       }
