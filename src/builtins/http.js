@@ -3555,10 +3555,18 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   function emitResponseParseError(rawPacket, bytesParsed, finishParsedResponse, code, reason) {
     if (parseErrored || self._aborted) return;
     parseErrored = true;
+    var parseErr = createResponseParseError(rawPacket, bytesParsed, code, reason);
     socket._hadError = true;
     socket.removeListener('data', onData);
     socket.removeListener('end', onEnd);
-    self.emit('error', createResponseParseError(rawPacket, bytesParsed, code, reason));
+    self.emit('error', parseErr);
+    if (!finishParsedResponse && responseEmitted && !responseEnded && tcpIncoming) {
+      if (typeof tcpIncoming.destroy === 'function') {
+        tcpIncoming.destroy(parseErr);
+      } else if (typeof tcpIncoming.emit === 'function') {
+        tcpIncoming.emit('error', parseErr);
+      }
+    }
     try {
       socket.destroy();
     } catch (_responseParseDestroyErr) {}
@@ -3821,6 +3829,16 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         chunkParserState = 'chunk-end';
       } else if (chunkParserState === 'chunk-end') {
         if (chunkBuffer.length < 2) return;
+        if (chunkBuffer.charCodeAt(0) !== 13 || chunkBuffer.charCodeAt(1) !== 10) {
+          emitResponseParseError(
+            chunkBuffer,
+            0,
+            false,
+            'HPE_INVALID_CHUNK_SIZE',
+            'Invalid chunk terminator'
+          );
+          return;
+        }
         chunkBuffer = chunkBuffer.substring(2);
         chunkParserState = 'size';
       } else if (chunkParserState === 'trailers') {
@@ -3843,6 +3861,40 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         return;
       }
     }
+  }
+
+  function finishChunkedResponseAtEof() {
+    if (chunkParserState === 'trailers') {
+      if (chunkBuffer.length > 0 && tcpIncoming) {
+        var trailerSection = chunkBuffer;
+        if (trailerSection.length >= 2 && trailerSection.slice(-2) === '\r\n') {
+          trailerSection = trailerSection.slice(0, -2);
+        }
+        if (trailerSection.length > 0) {
+          _parseTrailerSection(
+            trailerSection,
+            tcpIncoming.trailers,
+            tcpIncoming.rawTrailers
+          );
+        }
+      }
+      chunkBuffer = '';
+      finishResponse();
+      return true;
+    }
+
+    if (chunkParserState === 'chunk-end') {
+      emitResponseParseError(
+        chunkBuffer,
+        0,
+        false,
+        'HPE_INVALID_CHUNK_SIZE',
+        'Invalid chunk terminator'
+      );
+      return true;
+    }
+
+    return false;
   }
 
   function pushIdentityResponseData(data) {
@@ -4207,6 +4259,9 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       return;
     }
     if (responseEnded) return;
+    if (isChunked && finishChunkedResponseAtEof()) {
+      return;
+    }
     if (contentLength >= 0 || isChunked || (tcpIncoming && tcpIncoming.shouldKeepAlive) || self._aborted) {
       abortResponse();
       return;
@@ -4235,6 +4290,19 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
       self.socket = null;
     }
     if (!responseEmitted) {
+      if (!self._closed) {
+        self._closed = true;
+        self.emit('close');
+      }
+      if (closedResponse && closedResponse.req === self) {
+        closedResponse.req = null;
+      }
+      if (self.res === closedResponse) {
+        self.res = null;
+      }
+      return;
+    }
+    if (parseErrored) {
       if (!self._closed) {
         self._closed = true;
         self.emit('close');

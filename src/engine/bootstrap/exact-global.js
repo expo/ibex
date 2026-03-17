@@ -2243,6 +2243,26 @@
   };
 
   // Bun.CryptoHasher
+  function exactHashToByteString(data) {
+    if (typeof data === 'string') {
+      return data;
+    }
+    if (typeof Buffer !== 'undefined' && Buffer.from) {
+      if (data instanceof ArrayBuffer) {
+        return Buffer.from(data).toString('latin1');
+      }
+      if (data && typeof data === 'object' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
+        return Buffer.from(data.buffer, data.byteOffset || 0, data.byteLength || 0).toString('latin1');
+      }
+    }
+    if (data && typeof data === 'object' && data.length !== undefined) {
+      var str = '';
+      for (var i = 0; i < data.length; i++) str += String.fromCharCode(data[i] & 0xff);
+      return str;
+    }
+    return '';
+  }
+
   E.CryptoHasher = (function() {
     function CH(algorithm) {
       if (!(this instanceof CH)) return new CH(algorithm);
@@ -2254,11 +2274,7 @@
       var h = new CH(algorithm); h.update(data); return h.digest(encoding || 'hex');
     };
     CH.prototype.update = function(data) {
-      if (typeof data === 'string') { this._chunks.push(data); }
-      else if (data && data.length !== undefined) {
-        var str = ''; for (var i = 0; i < data.length; i++) str += String.fromCharCode(data[i]);
-        this._chunks.push(str);
-      }
+      this._chunks.push(exactHashToByteString(data));
       return this;
     };
     CH.prototype.digest = function(encoding) {
@@ -2282,6 +2298,31 @@
     CH.prototype.copy = function() { var h = new CH(this._algo); h._chunks = this._chunks.slice(); return h; };
     return CH;
   })();
+
+  function createNamedHasher(algorithm) {
+    function NamedHasher() {
+      if (!(this instanceof NamedHasher)) return new NamedHasher();
+      this._hasher = new E.CryptoHasher(algorithm);
+    }
+    NamedHasher.hash = function(data, encoding) {
+      return new NamedHasher().update(data).digest(encoding || 'hex');
+    };
+    NamedHasher.prototype.update = function(data) {
+      this._hasher.update(data);
+      return this;
+    };
+    NamedHasher.prototype.digest = function(encoding) {
+      return this._hasher.digest(encoding || 'hex');
+    };
+    return NamedHasher;
+  }
+
+  E.MD5 = createNamedHasher('md5');
+  E.SHA1 = createNamedHasher('sha1');
+  E.SHA224 = createNamedHasher('sha224');
+  E.SHA256 = createNamedHasher('sha256');
+  E.SHA384 = createNamedHasher('sha384');
+  E.SHA512 = createNamedHasher('sha512');
 
   // Bun.deepMatch(subset, object)
   E.deepMatch = function deepMatch(subset, object) {
