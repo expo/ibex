@@ -1406,56 +1406,260 @@
       }
       return host;
     }
+
+    function restoreRequestHeaders(request, rawHeaders) {
+      if (!request || !request.headers || !rawHeaders) {
+        return request;
+      }
+      request.headers._guard = 'none';
+      request.headers.forEach(function(_value, key) {
+        request.headers.delete(key);
+      });
+      if (Array.isArray(rawHeaders)) {
+        for (var i = 0; i < rawHeaders.length; i++) {
+          var entry = rawHeaders[i];
+          if (Array.isArray(entry) && entry.length >= 2) {
+            request.headers.append(entry[0], entry[1]);
+          }
+        }
+      } else {
+        var keys = Object.keys(rawHeaders);
+        for (var j = 0; j < keys.length; j++) {
+          var key = keys[j];
+          var value = rawHeaders[key];
+          if (Array.isArray(value)) {
+            for (var k = 0; k < value.length; k++) {
+              request.headers.append(key, value[k]);
+            }
+          } else if (value !== undefined && value !== null) {
+            request.headers.append(key, value);
+          }
+        }
+      }
+      request.headers._guard = 'request';
+      return request;
+    }
+
+    function normalizeNodeRequestHeaders(req) {
+      if (Array.isArray(req && req.rawHeaders) && req.rawHeaders.length > 0) {
+        var pairs = [];
+        for (var i = 0; i + 1 < req.rawHeaders.length; i += 2) {
+          pairs.push([req.rawHeaders[i], req.rawHeaders[i + 1]]);
+        }
+        return pairs;
+      }
+      return req && req.headers ? req.headers : undefined;
+    }
+
+    function createReadableRequestBodyFromNode(req) {
+      return new ReadableStream({
+        start: function(controller) {
+          req.on('data', function(chunk) {
+            controller.enqueue(chunk instanceof Uint8Array ? chunk : new Uint8Array(Buffer.from(chunk)));
+          });
+          req.on('end', function() {
+            controller.close();
+          });
+          req.on('error', function(error) {
+            controller.error(error);
+          });
+        },
+        cancel: function(reason) {
+          if (typeof req.destroy === 'function') {
+            req.destroy(reason);
+          }
+        }
+      });
+    }
+
+    function buildResponseHeaders(response, requestUrl) {
+      var headers = [];
+      response.headers.forEach(function(value, key) {
+        if (key.toLowerCase() === 'location' && typeof value === 'string' && value.indexOf('://') === 0) {
+          var schemeMatch = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(String(requestUrl || ''));
+          if (schemeMatch) {
+            value = schemeMatch[0] + value.slice(1);
+          }
+        }
+        headers.push([key, value]);
+      });
+      return headers;
+    }
+
+    function validateUnixSocketPath(pathValue) {
+      if (!pathValue) {
+        return;
+      }
+      var limit = {
+        darwin: 104,
+        linux: 108,
+        win32: 260,
+        sunos: 104,
+        aix: 104,
+        freebsd: 104,
+        openbsd: 104,
+        netbsd: 104,
+        plan9: 104,
+        android: 104,
+        haiku: 104,
+        cygwin: 260
+      }[process.platform] || 104;
+      if (pathValue.length >= limit) {
+        throw new Error('too long');
+      }
+      if (pathValue.charAt(0) === '\0') {
+        return;
+      }
+      var fsMod = require('node:fs');
+      var pathMod = require('node:path');
+      var directory = pathMod.dirname(pathValue);
+      if (directory && directory !== '.' && !fsMod.existsSync(directory)) {
+        throw new Error('no such file or directory');
+      }
+    }
+
     var scheme = options.tls ? 'https' : 'http';
     var unixPath = options.unix != null ? String(options.unix) : '';
+    var port = options.port !== undefined ? options.port : 3000;
+    var hostnameProvided = options.hostname !== undefined;
+    var hostname = hostnameProvided ? options.hostname : '127.0.0.1';
+    var requestHost = !hostnameProvided || hostname === '0.0.0.0' ? 'localhost' : hostname;
 
-    if (unixPath) {
-      var unixUrl = new URL('unix://' + (unixPath.charAt(0) === '/' ? '' : '/') + unixPath);
-      var unixServer = {
-        port: undefined,
-        hostname: undefined,
-        url: unixUrl,
+    if (options.tls || unixPath) {
+      if (unixPath) {
+        validateUnixSocketPath(unixPath);
+      }
+
+      var nodeHttp = require('node:http');
+      var nodeHttps = options.tls ? require('node:https') : null;
+      var listenTarget = unixPath || { port: port, host: hostname };
+      var baseUrl = unixPath ? scheme + '://localhost' : scheme + '://' + formatUrlHost(requestHost) + ':' + port;
+      var nodeServer = (options.tls ? nodeHttps : nodeHttp).createServer(
+        options.tls ? {
+          key: options.tls.key,
+          cert: options.tls.cert,
+          ca: options.tls.ca,
+          passphrase: options.tls.passphrase
+        } : undefined,
+        function(req, res) {
+          var request;
+          try {
+            var method = req && req.method ? req.method : 'GET';
+            var init = { method: method };
+            if (method !== 'GET' && method !== 'HEAD') {
+              init.body = createReadableRequestBodyFromNode(req);
+            }
+            var fullUrl = req && req.url ? String(req.url) : '/';
+            if (fullUrl.indexOf('http://') !== 0 && fullUrl.indexOf('https://') !== 0) {
+              fullUrl = baseUrl + fullUrl;
+            }
+            request = restoreRequestHeaders(new Request(fullUrl, init), normalizeNodeRequestHeaders(req));
+          } catch (_err) {
+            res.statusCode = 400;
+            res.end('Bad Request');
+            return;
+          }
+
+          Promise.resolve()
+            .then(function() {
+              return fetchHandler(request, server);
+            })
+            .then(function(response) {
+              if (!(response instanceof Response)) {
+                response = new Response(response == null ? '' : String(response));
+              }
+              var headerPairs = buildResponseHeaders(response, request.url);
+              response.arrayBuffer().then(function(buffer) {
+                var headerObject = {};
+                for (var i = 0; i < headerPairs.length; i++) {
+                  headerObject[headerPairs[i][0]] = headerPairs[i][1];
+                }
+                res.writeHead(response.status || 200, headerObject);
+                res.end(Buffer.from(buffer));
+              }).catch(function() {
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
+                res.end('Internal Server Error');
+              });
+            })
+            .catch(function(err) {
+              try {
+                var handled = errorHandler(err);
+                if (!(handled instanceof Response)) {
+                  handled = new Response(handled == null ? '' : String(handled));
+                }
+                var handledPairs = buildResponseHeaders(handled, request.url);
+                handled.arrayBuffer().then(function(buffer) {
+                  var handledHeaders = {};
+                  for (var i = 0; i < handledPairs.length; i++) {
+                    handledHeaders[handledPairs[i][0]] = handledPairs[i][1];
+                  }
+                  res.writeHead(handled.status || 500, handledHeaders);
+                  res.end(Buffer.from(buffer));
+                }).catch(function() {
+                  res.writeHead(500, { 'Content-Type': 'text/plain' });
+                  res.end('Internal Server Error');
+                });
+              } catch (_handlerErr) {
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
+                res.end('Internal Server Error');
+              }
+            });
+        }
+      );
+
+      nodeServer.listen(listenTarget);
+      var address = typeof nodeServer.address === 'function' ? nodeServer.address() : null;
+      var actualNodePort = address && typeof address === 'object' && address.port ? address.port : port;
+      var serverUrl = unixPath
+        ? new URL(unixPath.charAt(0) === '\0'
+          ? 'abstract://' + unixPath.slice(1) + '/'
+          : 'unix://' + (unixPath.charAt(0) === '/' ? '' : '/') + unixPath)
+        : new URL(scheme + '://' + formatUrlHost(requestHost) + ':' + actualNodePort + '/');
+      var closed = false;
+      var fsMod = unixPath && unixPath.charAt(0) !== '\0' ? require('node:fs') : null;
+      var server = {
+        port: unixPath ? undefined : actualNodePort,
+        hostname: unixPath ? undefined : requestHost,
+        url: serverUrl,
         development: options.development !== undefined ? !!options.development : false,
         id: '',
         pendingRequests: 0,
-        stop: function() {},
+        stop: function(force) {
+          if (closed) {
+            return;
+          }
+          closed = true;
+          if (force && typeof nodeServer.closeAllConnections === 'function') {
+            try { nodeServer.closeAllConnections(); } catch (err) {}
+          }
+          nodeServer.close(function() {
+            if (fsMod) {
+              try { fsMod.unlinkSync(unixPath); } catch (err) {}
+            }
+          });
+        },
         reload: function(o) {
           if (o && typeof o.fetch === 'function') fetchHandler = o.fetch;
           if (o && typeof o.error === 'function') errorHandler = o.error;
         },
-        ref: function() {},
-        unref: function() {},
+        ref: function() {
+          if (typeof nodeServer.ref === 'function') nodeServer.ref();
+        },
+        unref: function() {
+          if (typeof nodeServer.unref === 'function') nodeServer.unref();
+        },
         requestIP: function() { return null; },
         upgrade: function() { return false; },
         publish: function() {},
         fetch: fetchHandler
       };
-      if (typeof Symbol === 'function') {
-        try {
-          if (Symbol.dispose && typeof unixServer[Symbol.dispose] !== 'function') {
-            Object.defineProperty(unixServer, Symbol.dispose, {
-              value: function() {},
-              configurable: true,
-              enumerable: false,
-              writable: true
-            });
-          }
-          if (Symbol.asyncDispose && typeof unixServer[Symbol.asyncDispose] !== 'function') {
-            Object.defineProperty(unixServer, Symbol.asyncDispose, {
-              value: function() { return Promise.resolve(); },
-              configurable: true,
-              enumerable: false,
-              writable: true
-            });
-          }
-        } catch (err) {}
-      }
-      return unixServer;
+      return defineDisposable(server, function() {
+        server.stop(true);
+      }, function() {
+        server.stop(true);
+        return Promise.resolve();
+      });
     }
-
-    var port = options.port !== undefined ? options.port : 3000;
-    var hostnameProvided = options.hostname !== undefined;
-    var hostname = hostnameProvided ? options.hostname : '127.0.0.1';
 
     if (typeof __exactHttpServe !== 'function' && typeof __exactEnsureHttp === 'function') {
       try { __exactEnsureHttp(); } catch (err) {}
@@ -1574,7 +1778,7 @@
           init.body = createReadableRequestBody(serverId, data.id);
         }
       }
-      return new Request(fullUrl, init);
+      return restoreRequestHeaders(new Request(fullUrl, init), data.headers || headers);
     }
 
     function currentMaxHeaderSize() {
