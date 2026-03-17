@@ -1687,7 +1687,7 @@
         return;
       }
       try {
-        var result = fetchHandler(request);
+        var result = fetchHandler(request, server);
         if (result && typeof result.then === 'function') {
           result.then(function(response) {
             sendResponse(requestId, response instanceof Response ? response : new Response(String(response || '')), request.url);
