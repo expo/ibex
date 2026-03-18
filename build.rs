@@ -791,21 +791,90 @@ fn main() {
 }
 
 fn which_js_runner() -> Option<PathBuf> {
-    let path_var = std::env::var("PATH").unwrap_or_default();
-    let dirs: Vec<&str> = if cfg!(target_os = "windows") {
-        path_var.split(';').collect()
-    } else {
-        path_var.split(':').collect()
-    };
     for name in &["bun", "node"] {
-        for dir in &dirs {
-            let candidate = PathBuf::from(dir).join(name);
+        for candidate in js_runner_candidates(name) {
             if candidate.exists() {
                 return Some(candidate);
             }
         }
     }
     None
+}
+
+fn js_runner_candidates(name: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    for env_var in js_runner_env_vars(name) {
+        if let Ok(value) = std::env::var(env_var) {
+            if !value.trim().is_empty() {
+                candidates.push(PathBuf::from(value));
+            }
+        }
+    }
+
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let path_entries: Vec<&str> = if cfg!(target_os = "windows") {
+        path_var.split(';').collect()
+    } else {
+        path_var.split(':').collect()
+    };
+    for dir in path_entries {
+        if dir.is_empty() {
+            continue;
+        }
+        candidates.push(PathBuf::from(dir).join(name));
+    }
+
+    candidates.extend(common_js_runner_locations(name));
+    dedupe_paths(candidates)
+}
+
+fn js_runner_env_vars(name: &str) -> &'static [&'static str] {
+    match name {
+        "bun" => &["EXACT_BUN", "BUN"],
+        "node" => &["EXACT_NODE", "NODE"],
+        _ => &[],
+    }
+}
+
+fn common_js_runner_locations(name: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        candidates.push(home.join(".bun").join("bin").join(name));
+        candidates.push(home.join(".volta").join("bin").join(name));
+        candidates.push(home.join(".asdf").join("shims").join(name));
+
+        if let Ok(nvm_bin) = std::env::var("NVM_BIN") {
+            if !nvm_bin.trim().is_empty() {
+                candidates.push(PathBuf::from(nvm_bin).join(name));
+            }
+        }
+
+        if let Ok(asdf_dir) = std::env::var("ASDF_DIR") {
+            if !asdf_dir.trim().is_empty() {
+                candidates.push(PathBuf::from(asdf_dir).join("shims").join(name));
+            }
+        }
+    }
+
+    candidates.push(PathBuf::from("/opt/homebrew/bin").join(name));
+    candidates.push(PathBuf::from("/usr/local/bin").join(name));
+
+    candidates
+}
+
+fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    let mut unique = Vec::new();
+    for path in paths {
+        let key = path.as_os_str().to_os_string();
+        if seen.insert(key) {
+            unique.push(path);
+        }
+    }
+    unique
 }
 
 fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow_fallback: bool) {
