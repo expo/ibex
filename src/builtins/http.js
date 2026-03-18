@@ -2511,7 +2511,13 @@ ClientRequest.prototype.appendHeader = function(name, value) {
 
 ClientRequest.prototype.getHeader = function(name) {
   _validateHeaderLookupName(name);
-  return this.headers[resolveHeaderName(name)];
+  var value = this.headers[resolveHeaderName(name)];
+  if (Array.isArray(value)) {
+    var lc = resolveHeaderName(name);
+    var sep = (lc === 'cookie' || lc === 'set-cookie') ? '; ' : ', ';
+    return value.join(sep);
+  }
+  return value;
 };
 
 ClientRequest.prototype.removeHeader = function(name) {
