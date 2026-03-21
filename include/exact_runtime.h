@@ -83,9 +83,19 @@ int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
 /// @return 1 if there are pending tasks, 0 if idle
 int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
 
+/// Get the current number of queued cross-thread callbacks waiting to run.
+uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
+
 /// Wake the event loop when a callback is pushed from a background thread.
 /// Called automatically by the runtime when async operations complete.
 void ex_hermes_notify_callback(void);
+
+/// Queue a lightweight watchdog callback onto the cross-thread callback queue.
+/// The callback executes during the next poll on the runtime-owning thread.
+void ex_hermes_schedule_watchdog_heartbeat(
+    ExactHermesRuntime* runtime,
+    void (*callback)(void* context),
+    void* context);
 
 // =============================================================================
 // iOS Rendering Pipeline Callbacks

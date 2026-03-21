@@ -462,6 +462,7 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
 extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
+extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
 
 std::mutex g_runtimeRegistryMutex;
 std::unordered_set<ExactHermesRuntime*> g_activeRuntimes;
@@ -4965,6 +4966,28 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
     }
   }
   return 0;
+}
+
+extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
+  if (!runtime) {
+    return 0;
+  }
+
+  std::lock_guard<std::mutex> lock(runtime->callbackMutex);
+  return static_cast<uint32_t>(runtime->callbackQueue.size());
+}
+
+extern "C" void ex_hermes_schedule_watchdog_heartbeat(
+    ExactHermesRuntime* runtime,
+    void (*callback)(void* context),
+    void* context) {
+  if (!runtime || !callback) {
+    return;
+  }
+
+  pushRuntimeCallback(runtime, [callback, context](facebook::jsi::Runtime&) {
+    callback(context);
+  });
 }
 
 extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
