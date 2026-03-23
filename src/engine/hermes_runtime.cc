@@ -775,7 +775,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             #n, (long long)_el, _el / 1000.0); }
 
   auto& rt = *handle->runtime;
+  auto _t_console_globals = std::chrono::steady_clock::now();
   installConsoleGlobals(handle);
+  IG_TRACE_END(console_globals);
 
   bool skip_host_functions = env_flag_enabled("EX_SKIP_STARTUP_HOST_FUNCTIONS");
   if (skip_host_functions) {
@@ -1161,6 +1163,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // Compatibility post-bootstrap fixups for host shims used by test suites.
   // Run these before other high-level bootstrap scripts that expect stable
   // process metadata/config wiring.
+  auto _t_post_host_fns = std::chrono::steady_clock::now();
+  auto _t_versions_fix = std::chrono::steady_clock::now();
+  auto _t_ipc_patch = std::chrono::steady_clock::now();
   runLegacyProcessCompatFix(handle, sharedRuntimeInstalled);
 
   // Legacy bootstraps rely on a hard process.exit() on the process object.
@@ -1186,8 +1191,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
   runLegacyCompatPolyfills(handle, sharedRuntimeInstalled);
   runLegacyExactGlobal(handle, sharedRuntimeInstalled);
+  IG_TRACE_START(versions_fix);
   runFinalProcessVersionsFix(handle);
+  IG_TRACE_END(versions_fix);
+  IG_TRACE_START(ipc_patch);
   installIpcListenerPatch(handle);
+  IG_TRACE_END(ipc_patch);
+  IG_TRACE_END(post_host_fns);
 }
 
 void runNextTickQueue(ExactHermesRuntime* runtime) {
