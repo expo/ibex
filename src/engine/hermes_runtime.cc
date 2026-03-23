@@ -479,7 +479,7 @@ void unregisterRuntime(ExactHermesRuntime* runtime) {
   g_activeRuntimes.erase(runtime);
 }
 
-bool runtimeIsAlive(ExactHermesRuntime* runtime) {
+bool runtimeIsAliveImpl(ExactHermesRuntime* runtime) {
   if (!runtime) return false;
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
   return g_activeRuntimes.find(runtime) != g_activeRuntimes.end();
@@ -582,6 +582,10 @@ CFRefPtr<T> adoptCF(T ptr) {
 
 } // namespace
 
+bool runtimeIsAlive(ExactHermesRuntime* runtime) {
+  return runtimeIsAliveImpl(runtime);
+}
+
 extern "C" void ex_hermes_notify_callback();
 
 void pushRuntimeCallback(ExactHermesRuntime* runtime,
@@ -632,8 +636,8 @@ void emitScriptParsed(ExactHermesRuntime* runtime,
   pushDebugEvent(runtime, out.str());
 }
 
-void emitNewScripts(ExactHermesRuntime* runtime,
-                    facebook::hermes::debugger::Debugger& debugger) {
+void emitNewScriptsImpl(ExactHermesRuntime* runtime,
+                        facebook::hermes::debugger::Debugger& debugger) {
   if (!runtime || !runtime->runtime) {
     return;
   }
@@ -4319,6 +4323,11 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
 }
 
 } // namespace
+
+void emitNewScripts(ExactHermesRuntime* runtime,
+                    facebook::hermes::debugger::Debugger& debugger) {
+  emitNewScriptsImpl(runtime, debugger);
+}
 
 #define TRACE_START(name) \
   auto _trace_##name = std::chrono::steady_clock::now()

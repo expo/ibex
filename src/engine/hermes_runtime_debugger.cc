@@ -28,11 +28,6 @@
 #include "hermes_runtime_internal.h"
 #include "hermes_runtime_templates.inl"
 
-// Forward declarations for functions defined in hermes_runtime.cc
-bool runtimeIsAlive(ExactHermesRuntime* runtime);
-void emitNewScripts(ExactHermesRuntime* runtime,
-                    facebook::hermes::debugger::Debugger& debugger);
-
 // ---------------------------------------------------------------------------
 // Debugger API
 // ---------------------------------------------------------------------------

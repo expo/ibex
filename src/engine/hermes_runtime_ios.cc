@@ -25,9 +25,6 @@
 
 #include "hermes_runtime_internal.h"
 
-// Forward declarations for functions defined in hermes_runtime.cc
-bool runtimeIsAlive(ExactHermesRuntime* runtime);
-
 // Kernel FFI functions (implemented in Rust kernel crate)
 extern "C" int32_t exact_get_state_mirror_buffer(
     void* handle, uint8_t** out_ptr, size_t* out_size);

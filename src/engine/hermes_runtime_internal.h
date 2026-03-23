@@ -242,6 +242,9 @@ std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
 void clearDebugger(ExactHermesRuntime* runtime);
 void disableDebugger(ExactHermesRuntime* runtime);
 std::string buildPausedEvent(facebook::hermes::debugger::Debugger& debugger);
+bool runtimeIsAlive(ExactHermesRuntime* runtime);
+void emitNewScripts(ExactHermesRuntime* runtime,
+                    facebook::hermes::debugger::Debugger& debugger);
 
 void pushRuntimeCallback(ExactHermesRuntime* runtime,
                          std::function<void(facebook::jsi::Runtime&)> fn);

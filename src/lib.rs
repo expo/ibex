@@ -11,11 +11,13 @@
 //! The CLI wraps these in async Rust (via tokio). The iOS app calls the C API
 //! directly from Swift via the bridging header.
 
+#[cfg(not(feature = "cli-notify"))]
+mod cdp;
 pub mod engine;
 pub mod host;
 pub mod module_loader;
 #[cfg(not(feature = "cli-notify"))]
-mod cdp;
+mod sync;
 
 use anyhow::Result;
 use std::path::PathBuf;
