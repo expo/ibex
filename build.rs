@@ -120,6 +120,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_net.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_http.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_sqlite.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_debugger.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_templates.inl");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/host/mod.rs");
     println!("cargo:rerun-if-changed=src/sync.rs");
@@ -543,6 +545,7 @@ fn main() {
         .file("src/engine/hermes_runtime_net.cc")
         .file("src/engine/hermes_runtime_http.cc")
         .file("src/engine/hermes_runtime_sqlite.cc")
+        .file("src/engine/hermes_runtime_debugger.cc")
         .include(&hermes_include_dir)
         .include(&out_dir) // For bootstrap_bytecode.h
         .flag_if_supported("-std=c++17")

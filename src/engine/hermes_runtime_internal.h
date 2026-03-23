@@ -228,6 +228,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle);
 void installHttpHostFunctions(ExactHermesRuntime* handle);
 void installSqliteHostFunctions(ExactHermesRuntime* handle);
 
+extern "C" void ex_host_console_log(int32_t level, const char* message);
+
 std::string escapeJson(const std::string& input);
 bool appendEscapedJsonText(std::string& out, const uint8_t* bytes, size_t len);
 std::string jsonString(const std::string& value);
