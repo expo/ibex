@@ -122,6 +122,13 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_sqlite.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_debugger.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_ios.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_console.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_timers.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_osinfo.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_process_setup.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_websocket.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fetch.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_ipc.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_templates.inl");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/host/mod.rs");
@@ -383,6 +390,7 @@ fn main() {
         ("web-streams-polyfill.js", "WEB_STREAMS_POLYFILL"),
         ("exact-global.js", "EXACT_GLOBAL"),
         ("process-compat-fix.js", "PROCESS_COMPAT_FIX"),
+        ("ipc-listener.js", "IPC_LISTENER"),
     ];
 
     for (js_file, _) in &bootstrap_files {
@@ -562,6 +570,13 @@ fn main() {
         .file("src/engine/hermes_runtime_sqlite.cc")
         .file("src/engine/hermes_runtime_debugger.cc")
         .file("src/engine/hermes_runtime_ios.cc")
+        .file("src/engine/hermes_runtime_console.cc")
+        .file("src/engine/hermes_runtime_timers.cc")
+        .file("src/engine/hermes_runtime_osinfo.cc")
+        .file("src/engine/hermes_runtime_process_setup.cc")
+        .file("src/engine/hermes_runtime_websocket.cc")
+        .file("src/engine/hermes_runtime_fetch.cc")
+        .file("src/engine/hermes_runtime_ipc.cc")
         .include(&hermes_include_dir)
         .include(&out_dir) // For bootstrap_bytecode.h
         .flag_if_supported("-std=c++17")

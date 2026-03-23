@@ -1,0 +1,281 @@
+#include "hermes_runtime_internal.h"
+
+#include <cstring>
+#include <memory>
+#include <string>
+#include <vector>
+
+typedef void (*NativeWsOpenCallback)(
+    uint32_t ws_id, const char* protocol, const char* extensions, void* context);
+typedef void (*NativeWsMessageCallback)(
+    uint32_t ws_id, const uint8_t* data, size_t length, int is_text, void* context);
+typedef void (*NativeWsCloseCallback)(
+    uint32_t ws_id, uint16_t code, const char* reason, int was_clean, void* context);
+typedef void (*NativeWsErrorCallback)(uint32_t ws_id, const char* message, void* context);
+typedef void (*NativeWsBytesSentCallback)(uint32_t ws_id, size_t bytes_sent, void* context);
+extern "C" uint32_t native_ws_connect(const char* url,
+                                      const char* protocols,
+                                      NativeWsOpenCallback open_cb,
+                                      NativeWsMessageCallback message_cb,
+                                      NativeWsCloseCallback close_cb,
+                                      NativeWsErrorCallback error_cb,
+                                      NativeWsBytesSentCallback bytes_sent_cb,
+                                      void* context);
+extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t length, int is_text);
+extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reason);
+extern "C" void native_ws_pause(uint32_t ws_id);
+extern "C" void native_ws_resume(uint32_t ws_id);
+extern "C" void native_ws_set_flow_controlled(uint32_t ws_id, int enabled);
+
+void installWebSocketGlobals(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+
+  auto wsConnectFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsConnect"),
+      3,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[0].isString()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactWsConnect: url, protocols, wsInstance required");
+        }
+        auto url = args[0].toString(runtime).utf8(runtime);
+        auto protocols =
+            args[1].isString() ? args[1].toString(runtime).utf8(runtime) : std::string("");
+        auto wsInstance = std::make_shared<facebook::jsi::Object>(args[2].asObject(runtime));
+        auto* callbackContext = new NativeWebSocketCallbackContext{handle, wsInstance, 1};
+
+        auto wsId = native_ws_connect(
+            url.c_str(),
+            protocols.empty() ? nullptr : protocols.c_str(),
+            [](uint32_t, const char* protocol, const char* extensions, void* ctx) {
+              auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+              if (!context || !context->runtime || !context->ws_instance) {
+                return;
+              }
+              auto runtime = context->runtime;
+              auto wsObj = context->ws_instance;
+              auto protoCopy = std::string(protocol ? protocol : "");
+              auto extCopy = std::string(extensions ? extensions : "");
+              native_ws_retain_context(context);
+              auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+
+              pushRuntimeCallback(
+                  runtime,
+                  [wsObj,
+                   protoCopy,
+                   extCopy,
+                   context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                    auto fn = wsObj->getPropertyAsFunction(rt, "_handleOpen");
+                    fn.call(rt,
+                            facebook::jsi::String::createFromUtf8(rt, protoCopy),
+                            facebook::jsi::String::createFromUtf8(rt, extCopy));
+                  });
+            },
+            [](uint32_t, const uint8_t* data, size_t length, int is_text, void* ctx) {
+              auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+              if (!context || !context->runtime || !context->ws_instance) {
+                return;
+              }
+              auto runtime = context->runtime;
+              auto wsObj = context->ws_instance;
+              native_ws_retain_context(context);
+              auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+              if (is_text) {
+                auto textCopy = std::string(reinterpret_cast<const char*>(data), length);
+                pushRuntimeCallback(
+                    runtime,
+                    [wsObj,
+                     textCopy,
+                     context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                      auto fn = wsObj->getPropertyAsFunction(rt, "_handleMessage");
+                      fn.call(rt, facebook::jsi::String::createFromUtf8(rt, textCopy));
+                    });
+              } else {
+                auto dataCopy = std::make_shared<std::vector<uint8_t>>(data, data + length);
+                pushRuntimeCallback(
+                    runtime,
+                    [wsObj,
+                     dataCopy,
+                     context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                      auto ab = rt.global()
+                                    .getPropertyAsFunction(rt, "ArrayBuffer")
+                                    .callAsConstructor(rt, static_cast<int>(dataCopy->size()))
+                                    .asObject(rt)
+                                    .getArrayBuffer(rt);
+                      memcpy(ab.data(rt), dataCopy->data(), dataCopy->size());
+                      auto fn = wsObj->getPropertyAsFunction(rt, "_handleMessage");
+                      fn.call(rt, std::move(ab));
+                    });
+              }
+            },
+            [](uint32_t, uint16_t code, const char* reason, int was_clean, void* ctx) {
+              auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+              if (!context || !context->runtime || !context->ws_instance) {
+                return;
+              }
+              auto runtime = context->runtime;
+              auto wsObj = context->ws_instance;
+              auto reasonCopy = std::string(reason ? reason : "");
+              auto codeCopy = code;
+              auto cleanCopy = was_clean;
+              native_ws_retain_context(context);
+              auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+              pushRuntimeCallback(
+                  runtime,
+                  [wsObj,
+                   codeCopy,
+                   reasonCopy,
+                   cleanCopy,
+                   context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                    auto fn = wsObj->getPropertyAsFunction(rt, "_handleClose");
+                    fn.call(rt,
+                            facebook::jsi::Value(static_cast<int>(codeCopy)),
+                            facebook::jsi::String::createFromUtf8(rt, reasonCopy),
+                            facebook::jsi::Value(cleanCopy != 0));
+                  });
+            },
+            [](uint32_t, const char* message, void* ctx) {
+              auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+              if (!context || !context->runtime || !context->ws_instance) {
+                return;
+              }
+              auto runtime = context->runtime;
+              auto wsObj = context->ws_instance;
+              auto msgCopy = std::string(message ? message : "Unknown error");
+              native_ws_retain_context(context);
+              auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+              pushRuntimeCallback(
+                  runtime,
+                  [wsObj,
+                   msgCopy,
+                   context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                    auto fn = wsObj->getPropertyAsFunction(rt, "_handleError");
+                    fn.call(rt, facebook::jsi::String::createFromUtf8(rt, msgCopy));
+                  });
+            },
+            [](uint32_t, size_t bytes_sent, void* ctx) {
+              auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
+              if (!context || !context->runtime || !context->ws_instance) {
+                return;
+              }
+              auto runtime = context->runtime;
+              auto wsObj = context->ws_instance;
+              auto sentCopy = bytes_sent;
+              native_ws_retain_context(context);
+              auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+              pushRuntimeCallback(
+                  runtime,
+                  [wsObj,
+                   sentCopy,
+                   context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                    auto fn = wsObj->getPropertyAsFunction(rt, "_handleBytesSent");
+                    fn.call(rt, facebook::jsi::Value(static_cast<int>(sentCopy)));
+                  });
+            },
+            callbackContext);
+        if (wsId == 0) {
+          native_ws_release_context(callbackContext);
+          return facebook::jsi::Value::undefined();
+        }
+        return facebook::jsi::Value(static_cast<int>(wsId));
+      });
+  rt.global().setProperty(rt, "__exactWsConnect", std::move(wsConnectFn));
+
+  auto wsSendFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsSend"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
+        uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        if (args[1].isString()) {
+          auto text = args[1].toString(runtime).utf8(runtime);
+          native_ws_send(
+              ws_id, reinterpret_cast<const uint8_t*>(text.c_str()), text.size(), 1);
+        } else if (args[1].isObject()) {
+          auto obj = args[1].asObject(runtime);
+          if (obj.isArrayBuffer(runtime)) {
+            auto ab = obj.getArrayBuffer(runtime);
+            native_ws_send(ws_id, ab.data(runtime), ab.size(runtime), 0);
+          } else {
+            auto val = facebook::jsi::Value(runtime, std::move(obj));
+            auto bytes = extractBytes(runtime, val);
+            if (!bytes.empty()) native_ws_send(ws_id, bytes.data(), bytes.size(), 0);
+          }
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWsSend", std::move(wsSendFn));
+
+  auto wsCloseFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsClose"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
+        uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        uint16_t code =
+            count > 1 && args[1].isNumber() ? static_cast<uint16_t>(args[1].asNumber()) : 1005;
+        std::string reason =
+            count > 2 && args[2].isString() ? args[2].toString(runtime).utf8(runtime) : "";
+        native_ws_close(ws_id, code, reason.c_str());
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWsClose", std::move(wsCloseFn));
+
+  auto wsPauseFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsPause"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
+        uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        native_ws_pause(ws_id);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWsPause", std::move(wsPauseFn));
+
+  auto wsResumeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsResume"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
+        uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        native_ws_resume(ws_id);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWsResume", std::move(wsResumeFn));
+
+  auto wsSetFlowControlledFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactWsSetFlowControlled"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
+        uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        int enabled = args[1].isBool() ? (args[1].getBool() ? 1 : 0) : 0;
+        native_ws_set_flow_controlled(ws_id, enabled);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactWsSetFlowControlled", std::move(wsSetFlowControlledFn));
+}

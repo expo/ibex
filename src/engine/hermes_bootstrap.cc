@@ -73,6 +73,16 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
     return false;
   }
 
+  if (env_flag_enabled("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE")) {
+    if (startup_trace_enabled()) {
+      fprintf(
+          stderr,
+          "[startup]   shared_runtime_bundle skipped (set "
+          "EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE=0 to re-enable)\n");
+    }
+    return false;
+  }
+
   auto& rt = *handle->runtime;
   try {
     rt.global().setProperty(rt, "__exactSuppressRuntimeBanner", true);

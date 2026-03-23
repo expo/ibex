@@ -105,6 +105,12 @@ struct ExactHermesRuntime {
   char* (*host_call_fn)(const char* op, const char* args_json) = nullptr;
 };
 
+struct NativeWebSocketCallbackContext {
+  ExactHermesRuntime* runtime;
+  std::shared_ptr<facebook::jsi::Object> ws_instance;
+  std::atomic<uint32_t> ref_count{1};
+};
+
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" void ex_host_log_event(const char* event_type,
@@ -200,6 +206,11 @@ inline std::vector<uint8_t> extractBytes(
 
 bool startup_trace_enabled();
 bool env_flag_enabled(const char* env_name);
+std::string valueToString(facebook::jsi::Runtime& rt, const facebook::jsi::Value& value);
+uint64_t nowMs();
+double processUptimeSeconds();
+facebook::jsi::Function makeHardExitFn(facebook::jsi::Runtime& rt);
+void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 
 bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            const char* source,
@@ -227,8 +238,17 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle);
 void installNetHostFunctions(ExactHermesRuntime* handle);
 void installHttpHostFunctions(ExactHermesRuntime* handle);
 void installSqliteHostFunctions(ExactHermesRuntime* handle);
+void installConsoleGlobals(ExactHermesRuntime* handle);
+void installTimerGlobals(ExactHermesRuntime* handle);
+void installOsInfoGlobals(ExactHermesRuntime* handle);
+void installProcessSetup(ExactHermesRuntime* handle);
+void installWebSocketGlobals(ExactHermesRuntime* handle);
+void installFetchGlobals(ExactHermesRuntime* handle);
+void installIpcListenerPatch(ExactHermesRuntime* handle);
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
+extern "C" void native_ws_retain_context(void* context);
+extern "C" void native_ws_release_context(void* context);
 
 std::string escapeJson(const std::string& input);
 bool appendEscapedJsonText(std::string& out, const uint8_t* bytes, size_t len);
