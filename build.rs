@@ -145,6 +145,18 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
+        repo_root.join("modules.ts").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        repo_root
+            .join("js")
+            .join("scripts")
+            .join("generate-module-manifest.ts")
+            .display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
         repo_root
             .join("js")
             .join("scripts")
@@ -197,6 +209,8 @@ fn main() {
             .as_deref(),
         Some("1") | Some("true") | Some("yes") | Some("on")
     );
+
+    generate_builtin_manifest_or_panic(repo_root, &out_dir);
 
     // --- Build builtin JS modules via rolldown ---
     // Compiles src/builtins/*.js through the shared Hermes transforms and
@@ -804,6 +818,59 @@ fn which_js_runner() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn bun_runner() -> Option<PathBuf> {
+    for candidate in js_runner_candidates("bun") {
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn generate_builtin_manifest_or_panic(repo_root: &Path, out_dir: &Path) {
+    let script = repo_root
+        .join("js")
+        .join("scripts")
+        .join("generate-module-manifest.ts");
+    if !script.exists() {
+        panic!(
+            "Module manifest generator not found at {}",
+            script.display()
+        );
+    }
+
+    let Some(bun) = bun_runner() else {
+        panic!(
+            "bun is required to generate builtin module manifests from {}",
+            script.display()
+        );
+    };
+
+    let output = std::process::Command::new(&bun)
+        .current_dir(repo_root)
+        .arg(&script)
+        .arg("--skip-js")
+        .arg("--rust-out-dir")
+        .arg(out_dir)
+        .output()
+        .unwrap_or_else(|error| {
+            panic!(
+                "Failed to run {} with {}: {error}",
+                script.display(),
+                bun.display()
+            )
+        });
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!(
+            "Module manifest generator failed with status {}.\nstdout:\n{}\nstderr:\n{}",
+            output.status, stdout, stderr
+        );
+    }
 }
 
 fn js_runner_candidates(name: &str) -> Vec<PathBuf> {
