@@ -217,7 +217,12 @@
     }
     wrapCtor('DataView');
   }
-  _patchBrokenSharedArrayBufferViews();
+  // Skip SharedArrayBuffer patching when the shared runtime bundle will
+  // handle it.  The patch wraps 9+ TypedArray constructors eagerly —
+  // expensive and rarely needed.
+  if (!globalThis.__exactHasSharedRuntimeBundle) {
+    _patchBrokenSharedArrayBufferViews();
+  }
 
   function _patchBase64DomExceptions() {
     var nativeBtoa = typeof globalThis.btoa === 'function' ? globalThis.btoa : null;
@@ -4065,30 +4070,36 @@
     }
   }
 
-  __exactInstallGlobalBuffer();
-
-  try {
-    if (
-      typeof globalThis.process === 'object' &&
-      globalThis.process !== null &&
-      globalThis.process.versions &&
-      typeof globalThis.process.versions.node === 'string'
-    ) {
-      var nodeTimers = load('timers', '');
-      if (nodeTimers && typeof nodeTimers.setTimeout === 'function') {
-        globalThis.setTimeout = nodeTimers.setTimeout;
+  // When a shared runtime bundle will be loaded after the module loader,
+  // skip eager Buffer installation and timer replacement here — the shared
+  // bundle handles both via its own lazy getter system.  This avoids two
+  // expensive require() calls during module-loader evaluation.
+  // The env var is set by the C++ layer when a shared bundle is compiled in.
+  if (!globalThis.__exactHasSharedRuntimeBundle) {
+    __exactInstallGlobalBuffer();
+    try {
+      if (
+        typeof globalThis.process === 'object' &&
+        globalThis.process !== null &&
+        globalThis.process.versions &&
+        typeof globalThis.process.versions.node === 'string'
+      ) {
+        var nodeTimers = load('timers', '');
+        if (nodeTimers && typeof nodeTimers.setTimeout === 'function') {
+          globalThis.setTimeout = nodeTimers.setTimeout;
+        }
+        if (nodeTimers && typeof nodeTimers.clearTimeout === 'function') {
+          globalThis.clearTimeout = nodeTimers.clearTimeout;
+        }
+        if (nodeTimers && typeof nodeTimers.setInterval === 'function') {
+          globalThis.setInterval = nodeTimers.setInterval;
+        }
+        if (nodeTimers && typeof nodeTimers.clearInterval === 'function') {
+          globalThis.clearInterval = nodeTimers.clearInterval;
+        }
       }
-      if (nodeTimers && typeof nodeTimers.clearTimeout === 'function') {
-        globalThis.clearTimeout = nodeTimers.clearTimeout;
-      }
-      if (nodeTimers && typeof nodeTimers.setInterval === 'function') {
-        globalThis.setInterval = nodeTimers.setInterval;
-      }
-      if (nodeTimers && typeof nodeTimers.clearInterval === 'function') {
-        globalThis.clearInterval = nodeTimers.clearInterval;
-      }
-    }
-  } catch (_timerInstallErr) {}
+    } catch (_timerInstallErr) {}
+  }
 
   try {
     if (

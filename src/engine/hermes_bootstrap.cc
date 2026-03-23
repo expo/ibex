@@ -157,6 +157,17 @@ bool installModuleLoader(ExactHermesRuntime* handle) {
 
   static const char* loader = MODULE_LOADER_SRC;
 
+  // Signal to the module loader that a shared runtime bundle will be loaded
+  // after it, so it can skip eager Buffer/timer installation.
+#ifdef HAS_SHARED_RUNTIME_BUNDLE
+  if (!env_flag_enabled("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE")) {
+    try {
+      handle->runtime->global().setProperty(
+          *handle->runtime, "__exactHasSharedRuntimeBundle", true);
+    } catch (...) {}
+  }
+#endif
+
   auto t0 = std::chrono::steady_clock::now();
   if (skip_module_loader_script) {
     if (startup_trace_enabled()) {
@@ -203,7 +214,19 @@ bool installModuleLoader(ExactHermesRuntime* handle) {
             elapsed / 1000.0);
   }
 
+  auto t_srb = std::chrono::steady_clock::now();
   bool sharedRuntimeInstalled = installSharedRuntimeBundle(handle);
+  if (startup_trace_enabled()) {
+    auto srb_elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() -
+                                                              t_srb)
+            .count();
+    fprintf(stderr,
+            "[startup]   %-28s %6lld us (%5.1f ms)\n",
+            "shared_runtime_bundle",
+            static_cast<long long>(srb_elapsed),
+            srb_elapsed / 1000.0);
+  }
   if (sharedRuntimeInstalled) {
     if (startup_trace_enabled()) {
       fprintf(stderr,
