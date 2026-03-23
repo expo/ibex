@@ -226,6 +226,14 @@ extern "C" int32_t exact_get_layout(
     float* out_y,
     float* out_width,
     float* out_height);
+extern "C" int32_t exact_get_absolute_layout(
+    void* handle,
+    uint32_t view_id,
+    float* out_x,
+    float* out_y,
+    float* out_width,
+    float* out_height);
+extern "C" uint32_t exact_get_layout_generation(void* handle);
 extern "C" int32_t exact_hit_test(void* handle, float x, float y);
 extern "C" int32_t exact_node_exists(void* handle, uint32_t view_id);
 extern "C" int32_t exact_get_root_view_id(void* handle, uint32_t root_id);

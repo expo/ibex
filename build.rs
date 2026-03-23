@@ -836,12 +836,9 @@ fn which_js_runner() -> Option<PathBuf> {
 }
 
 fn bun_runner() -> Option<PathBuf> {
-    for candidate in js_runner_candidates("bun") {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    js_runner_candidates("bun")
+        .into_iter()
+        .find(|candidate| candidate.exists())
 }
 
 fn generate_builtin_manifest_or_panic(repo_root: &Path, out_dir: &Path) {
