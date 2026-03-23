@@ -67,27 +67,35 @@ void installProcessSetup(ExactHermesRuntime* handle) {
       });
   processObj.setProperty(rt, "nextTick", std::move(nextTickFn));
 
+  // When the shared runtime bundle is compiled in, skip eager env var
+  // copying.  The shared bundle creates a Proxy-based process.env that
+  // lazily reads from the native __exactGetEnv/__exactGetAllEnv host
+  // functions, making this eager copy (~0.6ms for ~40 env vars) wasted.
   {
-    facebook::jsi::Object envObj(rt);
+    auto hasShared = rt.global().getProperty(rt, "__exactHasSharedRuntimeBundle");
+    bool skipEnvCopy = hasShared.isBool() && hasShared.getBool();
+    if (!skipEnvCopy) {
+      facebook::jsi::Object envObj(rt);
 #if defined(__APPLE__)
-    char** envp = *_NSGetEnviron();
+      char** envp = *_NSGetEnviron();
 #else
-    char** envp = ::environ;
+      char** envp = ::environ;
 #endif
-    if (envp) {
-      for (char** ep = envp; *ep; ++ep) {
-        std::string entry(*ep);
-        auto eq = entry.find('=');
-        if (eq != std::string::npos) {
-          auto key = entry.substr(0, eq);
-          auto val = entry.substr(eq + 1);
-          envObj.setProperty(rt,
-                             facebook::jsi::PropNameID::forUtf8(rt, key),
-                             facebook::jsi::String::createFromUtf8(rt, val));
+      if (envp) {
+        for (char** ep = envp; *ep; ++ep) {
+          std::string entry(*ep);
+          auto eq = entry.find('=');
+          if (eq != std::string::npos) {
+            auto key = entry.substr(0, eq);
+            auto val = entry.substr(eq + 1);
+            envObj.setProperty(rt,
+                               facebook::jsi::PropNameID::forUtf8(rt, key),
+                               facebook::jsi::String::createFromUtf8(rt, val));
+          }
         }
       }
+      processObj.setProperty(rt, "env", std::move(envObj));
     }
-    processObj.setProperty(rt, "env", std::move(envObj));
   }
 
   std::string exact_platform = "unknown";
@@ -118,20 +126,8 @@ void installProcessSetup(ExactHermesRuntime* handle) {
       rt, "__exactPlatform", facebook::jsi::String::createFromUtf8(rt, exact_platform));
   rt.global().setProperty(rt, "__exactArch", facebook::jsi::String::createFromUtf8(rt, exact_arch));
 
-  processObj.setProperty(rt, "version", facebook::jsi::String::createFromUtf8(rt, "v24.13.1"));
-  {
-    auto versionsObj = facebook::jsi::Object(rt);
-    versionsObj.setProperty(rt, "node", facebook::jsi::String::createFromUtf8(rt, "24.13.1"));
-    versionsObj.setProperty(rt, "exact", facebook::jsi::String::createFromUtf8(rt, "0.1.0"));
-    versionsObj.setProperty(rt, "openssl", facebook::jsi::String::createFromUtf8(rt, "3.0.0"));
-    versionsObj.setProperty(rt, "v8", facebook::jsi::String::createFromUtf8(rt, "0.0.0"));
-    versionsObj.setProperty(rt, "uv", facebook::jsi::String::createFromUtf8(rt, "0.0.0"));
-    versionsObj.setProperty(rt, "zlib", facebook::jsi::String::createFromUtf8(rt, "1.3.1"));
-    versionsObj.setProperty(rt, "modules", facebook::jsi::String::createFromUtf8(rt, "127"));
-    versionsObj.setProperty(rt, "napi", facebook::jsi::String::createFromUtf8(rt, "9"));
-    versionsObj.setProperty(rt, "hermes", facebook::jsi::String::createFromUtf8(rt, "0.12.0"));
-    processObj.setProperty(rt, "versions", std::move(versionsObj));
-  }
+  // process.version and process.versions are set by runFinalProcessVersionsFix()
+  // after all globals are installed.  Skip the redundant setup here.
 
   {
     auto configId = facebook::jsi::PropNameID::forAscii(rt, "config");
