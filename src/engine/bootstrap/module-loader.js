@@ -2995,7 +2995,8 @@
       .replace(/import\.meta\.dirname/g, "__dirname")
       .replace(/import\.meta\.dir(?!name)/g, "__dirname")
       .replace(/import\.meta\.main/g, "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))")
-      .replace(/import\.meta\.require/g, "require");
+      .replace(/import\.meta\.require/g, "require")
+      .replace(/import\.meta\b/g, "globalThis.__exactImportMeta");
   }
   function transformDynamicImport(source) {
     if (!source || source.indexOf("import(") === -1) {
@@ -3759,6 +3760,7 @@
         return split.prologue + evalShimPreamble + split.body;
       };
       const evalShimPreamble =
+        "globalThis.__exactImportMeta = globalThis.__exactImportMeta || {};\n" +
         "if (typeof globalThis.__exactCompatEval !== 'function') {\n" +
         "  (function() {\n" +
         "    var __exactNativeEval = globalThis.eval;\n" +
