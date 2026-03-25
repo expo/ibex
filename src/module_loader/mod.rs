@@ -815,13 +815,20 @@ fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     hash_cache_input_file(
         &mut hasher,
         &root
-            .join("js")
+            .join("packages")
+            .join("exact-devtools")
+            .join("src")
             .join("scripts")
             .join("transpile-typescript.mjs"),
     )?;
     hash_cache_input_file(
         &mut hasher,
-        &root.join("js").join("scripts").join("transforms.mjs"),
+        &root
+            .join("packages")
+            .join("exact-devtools")
+            .join("src")
+            .join("scripts")
+            .join("transforms.mjs"),
     )?;
     Ok(format!("{:x}", hasher.finish()))
 }
@@ -931,7 +938,9 @@ fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()
 fn transpile_script_path() -> Result<PathBuf> {
     let root = repo_root()?;
     let script = root
-        .join("js")
+        .join("packages")
+        .join("exact-devtools")
+        .join("src")
         .join("scripts")
         .join("transpile-typescript.mjs");
     if !script.exists() {

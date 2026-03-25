@@ -144,11 +144,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/builtins");
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root
-            .join("js")
-            .join("scripts")
-            .join("build-builtins.mjs")
-            .display()
+        exact_devtools_script(repo_root, "build-builtins.mjs").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
@@ -156,31 +152,19 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root
-            .join("js")
-            .join("scripts")
-            .join("generate-module-manifest.ts")
-            .display()
+        exact_devtools_script(repo_root, "generate-module-manifest.ts").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root
-            .join("js")
-            .join("scripts")
-            .join("transforms.mjs")
-            .display()
+        exact_devtools_script(repo_root, "transforms.mjs").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root.join("js").join("src").join("runtime").display()
+        exact_runtime_js_dir(repo_root).join("src").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root
-            .join("js")
-            .join("scripts")
-            .join("rolldown-bundle.mjs")
-            .display()
+        exact_devtools_script(repo_root, "rolldown-bundle.mjs").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
@@ -191,7 +175,13 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root.join("js").join("package.json").display()
+        exact_runtime_js_dir(repo_root)
+            .join("package.json")
+            .display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        exact_devtools_dir(repo_root).join("package.json").display()
     );
     println!("cargo:rerun-if-env-changed=HERMES_ENABLE_DEBUGGER");
     println!("cargo:rerun-if-env-changed=HERMES_INCLUDE_DIR");
@@ -225,10 +215,7 @@ fn main() {
     let builtins_src = manifest_dir.join("src").join("builtins");
     let builtins_out = out_dir.join("builtins");
     if builtins_src.exists() {
-        let build_script = repo_root
-            .join("js")
-            .join("scripts")
-            .join("build-builtins.mjs");
+        let build_script = exact_devtools_script(repo_root, "build-builtins.mjs");
         if build_script.exists() {
             // Prefer bun when available, otherwise use node.
             let runner = which_js_runner();
@@ -843,7 +830,9 @@ fn bun_runner() -> Option<PathBuf> {
 
 fn generate_builtin_manifest_or_panic(repo_root: &Path, out_dir: &Path) {
     let script = repo_root
-        .join("js")
+        .join("packages")
+        .join("exact-devtools")
+        .join("src")
         .join("scripts")
         .join("generate-module-manifest.ts");
     if !script.exists() {
@@ -961,14 +950,29 @@ fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     unique
 }
 
+fn exact_devtools_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("packages").join("exact-devtools")
+}
+
+fn exact_devtools_script(repo_root: &Path, script_name: &str) -> PathBuf {
+    exact_devtools_dir(repo_root)
+        .join("src")
+        .join("scripts")
+        .join(script_name)
+}
+
+fn exact_runtime_js_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("packages").join("exact-runtime-js")
+}
+
 fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow_fallback: bool) {
-    let js_dir = repo_root.join("js");
+    let devtools_dir = exact_devtools_dir(repo_root);
     let runtime_entry = repo_root
         .join("packages")
         .join("exact-runtime-js")
         .join("src")
         .join("runtime-entry.ts");
-    let build_script = js_dir.join("scripts").join("rolldown-bundle.mjs");
+    let build_script = exact_devtools_script(repo_root, "rolldown-bundle.mjs");
     let bundled_runtime = out_dir.join("embedded_runtime_bundle.js");
     let header_path = out_dir.join("runtime_bundle_source.h");
     let bytecode_header_path = out_dir.join("runtime_bundle_bytecode.h");
@@ -989,7 +993,7 @@ fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow
         return;
     }
 
-    if !build_runtime_bundle_source(repo_root, &js_dir, &runtime_entry, &bundled_runtime) {
+    if !build_runtime_bundle_source(repo_root, &devtools_dir, &runtime_entry, &bundled_runtime) {
         let missing_js_deps_hint = missing_js_build_deps_hint(repo_root);
         if !allow_fallback {
             panic!(
@@ -1050,11 +1054,14 @@ fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow
 
 fn build_runtime_bundle_source(
     repo_root: &Path,
-    js_dir: &Path,
+    devtools_dir: &Path,
     runtime_entry: &Path,
     bundled_runtime: &Path,
 ) -> bool {
-    let build_script = js_dir.join("scripts").join("rolldown-bundle.mjs");
+    let build_script = devtools_dir
+        .join("src")
+        .join("scripts")
+        .join("rolldown-bundle.mjs");
     let Some(parent) = bundled_runtime.parent() else {
         return false;
     };
@@ -1069,7 +1076,7 @@ fn build_runtime_bundle_source(
             .arg(bundled_runtime)
             .arg("--format")
             .arg("iife")
-            .current_dir(js_dir)
+            .current_dir(devtools_dir)
             .status();
 
         if matches!(status, Ok(result) if result.success()) {
@@ -1194,9 +1201,12 @@ fn try_build_builtins_via_primary_checkout(
         return false;
     }
 
-    let primary_js_dir = primary_root.join("js");
-    let primary_script = primary_js_dir.join("scripts").join("build-builtins.mjs");
-    let primary_node_modules = primary_js_dir.join("node_modules");
+    let primary_devtools_dir = exact_devtools_dir(&primary_root);
+    let primary_script = primary_devtools_dir
+        .join("src")
+        .join("scripts")
+        .join("build-builtins.mjs");
+    let primary_node_modules = primary_devtools_dir.join("node_modules");
 
     if !primary_script.exists() || !primary_node_modules.exists() || !builtins_src.exists() {
         return false;
@@ -1209,7 +1219,7 @@ fn try_build_builtins_via_primary_checkout(
         .arg(builtins_src)
         .arg("--out-dir")
         .arg(builtins_out)
-        .current_dir(&primary_js_dir)
+        .current_dir(&primary_devtools_dir)
         .status();
 
     matches!(status, Ok(result) if result.success())
@@ -1227,9 +1237,12 @@ fn try_build_runtime_bundle_via_primary_checkout(
         return false;
     }
 
-    let primary_js_dir = primary_root.join("js");
-    let primary_script = primary_js_dir.join("scripts").join("rolldown-bundle.mjs");
-    let primary_node_modules = primary_js_dir.join("node_modules");
+    let primary_devtools_dir = exact_devtools_dir(&primary_root);
+    let primary_script = primary_devtools_dir
+        .join("src")
+        .join("scripts")
+        .join("rolldown-bundle.mjs");
+    let primary_node_modules = primary_devtools_dir.join("node_modules");
 
     if !primary_script.exists() || !primary_node_modules.exists() || !runtime_entry.exists() {
         return false;
@@ -1247,7 +1260,7 @@ fn try_build_runtime_bundle_via_primary_checkout(
         .arg(bundled_runtime)
         .arg("--format")
         .arg("iife")
-        .current_dir(&primary_js_dir)
+        .current_dir(&primary_devtools_dir)
         .status();
 
     matches!(status, Ok(result) if result.success())
@@ -1279,8 +1292,8 @@ fn resolve_git_path(base: &Path, candidate: &Path) -> PathBuf {
 }
 
 fn missing_js_build_deps_hint(repo_root: &Path) -> String {
-    let js_dir = repo_root.join("js");
-    let node_modules_dir = js_dir.join("node_modules");
+    let devtools_dir = exact_devtools_dir(repo_root);
+    let node_modules_dir = devtools_dir.join("node_modules");
     let rolldown_dir = node_modules_dir.join("rolldown");
     let acorn_dir = node_modules_dir.join("acorn");
 
@@ -1288,9 +1301,9 @@ fn missing_js_build_deps_hint(repo_root: &Path) -> String {
         String::new()
     } else {
         format!(
-            "\nJS build dependencies look missing under {}.\nRun `cd {} && bun install` and retry.",
+            "\nJS build dependencies look missing under {}.\nRun `bun install` from {} and retry.",
             node_modules_dir.display(),
-            js_dir.display()
+            repo_root.display()
         )
     }
 }
