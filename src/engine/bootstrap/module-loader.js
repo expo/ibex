@@ -18,6 +18,16 @@
     }
     return out;
   }
+  function stripViteImportQuery(specifier) {
+    if (typeof specifier !== 'string') {
+      return specifier;
+    }
+    // Vite encodes JSON modules as `/path/file.json?import`. Native resolution
+    // needs the underlying file path so the Rust resolver can classify the
+    // module as JSON and read it from disk instead of treating the query string
+    // as part of the filename.
+    return specifier.replace(/\?import(?:&.*)?$/, '');
+  }
   function formatTime(ms) {
     var t = typeof ms === 'number' ? ms : Number(ms);
     if (!isFinite(t) || t < 0) {
@@ -3041,12 +3051,140 @@
     if (!source) {
       return "";
     }
-    var lines = String(source).split("\n");
+    var splitInlineModuleStatements = function(text) {
+      var sourceText = String(text || "");
+      var result = "";
+      var inSingle = false;
+      var inDouble = false;
+      var inTemplate = false;
+      var inLineComment = false;
+      var inBlockComment = false;
+      for (var cursor = 0; cursor < sourceText.length; cursor++) {
+        var ch = sourceText.charAt(cursor);
+        var next = sourceText.charAt(cursor + 1);
+        if (inLineComment) {
+          result += ch;
+          if (ch === "\n") {
+            inLineComment = false;
+          }
+          continue;
+        }
+        if (inBlockComment) {
+          result += ch;
+          if (ch === "*" && next === "/") {
+            result += next;
+            cursor++;
+            inBlockComment = false;
+          }
+          continue;
+        }
+        if (inSingle) {
+          result += ch;
+          if (ch === "\\") {
+            result += next;
+            cursor++;
+            continue;
+          }
+          if (ch === "'") {
+            inSingle = false;
+          }
+          continue;
+        }
+        if (inDouble) {
+          result += ch;
+          if (ch === "\\") {
+            result += next;
+            cursor++;
+            continue;
+          }
+          if (ch === '"') {
+            inDouble = false;
+          }
+          continue;
+        }
+        if (inTemplate) {
+          result += ch;
+          if (ch === "\\") {
+            result += next;
+            cursor++;
+            continue;
+          }
+          if (ch === "`") {
+            inTemplate = false;
+          }
+          continue;
+        }
+        if (ch === "/" && next === "/") {
+          result += ch + next;
+          cursor++;
+          inLineComment = true;
+          continue;
+        }
+        if (ch === "/" && next === "*") {
+          result += ch + next;
+          cursor++;
+          inBlockComment = true;
+          continue;
+        }
+        if (ch === "'") {
+          result += ch;
+          inSingle = true;
+          continue;
+        }
+        if (ch === '"') {
+          result += ch;
+          inDouble = true;
+          continue;
+        }
+        if (ch === "`") {
+          result += ch;
+          inTemplate = true;
+          continue;
+        }
+        if (ch === ";") {
+          var lookahead = cursor + 1;
+          while (lookahead < sourceText.length) {
+            var lookaheadCh = sourceText.charAt(lookahead);
+            if (lookaheadCh === " " || lookaheadCh === "\t" || lookaheadCh === "\r") {
+              lookahead++;
+              continue;
+            }
+            break;
+          }
+          if (
+            sourceText.slice(lookahead, lookahead + 6) === "import" ||
+            sourceText.slice(lookahead, lookahead + 6) === "export"
+          ) {
+            result += ";\n";
+            cursor = lookahead - 1;
+            continue;
+          }
+        }
+        result += ch;
+      }
+      return result;
+    };
+    var lines = splitInlineModuleStatements(String(source)).split("\n");
     var out = [];
     var importCounter = 0;
     var pendingVarExport = null;
     var pendingDefaultExport = null;
     var isIdent = /^[A-Za-z_$][\w$]*$/;
+    var looksLikeCompleteModuleStatement = function(text) {
+      var trimmedText = String(text || "").trim();
+      return (
+        /^\s*import\s+(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*export\s+\*\s+from\s+(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
+        /^\s*export\s+\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*export\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*export\s+\{([^}]*)\}\s*;?\s*$/.test(trimmedText)
+      );
+    };
     var isExportName = function(value) {
       return value === "default" || isIdent.test(value);
     };
@@ -3154,16 +3292,29 @@
         !/^\s*export\s+default\s+(?:async\s+)?(?:function|class)\b/.test(trimmed);
       if (
         /^\s*(import|export)\b/.test(trimmed) &&
-        trimmed.indexOf(";") === -1 &&
         !isBlockExportDeclaration &&
         !isVarExportDeclaration &&
-        !isDefaultExportExpression
+        !isDefaultExportExpression &&
+        !looksLikeCompleteModuleStatement(statement)
       ) {
-        for (var j = i + 1; j < lines.length; j++) {
-          statement = statement + "\n" + lines[j];
-          if (statement.indexOf(";") !== -1) {
-            i = j;
-            break;
+        var firstSemicolon = statement.indexOf(";");
+        if (firstSemicolon !== -1) {
+          var trailingStatement = statement.slice(firstSemicolon + 1);
+          statement = statement.slice(0, firstSemicolon + 1);
+          if (trailingStatement.trim()) {
+            // Vite commonly folds import declarations and follow-up interop
+            // assignments onto the same physical line. Split the line here so
+            // the import/export rewriter can normalize just the module syntax
+            // and then feed the remaining JS back through the loop unchanged.
+            lines.splice(i + 1, 0, trailingStatement);
+          }
+        } else {
+          for (var j = i + 1; j < lines.length; j++) {
+            statement = statement + "\n" + lines[j];
+            if (statement.indexOf(";") !== -1) {
+              i = j;
+              break;
+            }
           }
         }
       }
@@ -3502,7 +3653,8 @@
         __exactEnsureSqlite();
       }
     }
-    var normalized = normalizeSpecifier(specifier);
+    var resolvedSpecifier = stripViteImportQuery(specifier);
+    var normalized = normalizeSpecifier(resolvedSpecifier);
     if (normalized === 'fs/promises') {
       if (cache[normalized] && cache[normalized].loaded) {
         return cache[normalized].exports;
@@ -3537,14 +3689,14 @@
         __exactEnsureHttp();
       }
     }
-    normalized = normalizeSpecifier(specifier);
+    normalized = normalizeSpecifier(resolvedSpecifier);
     if (internalModules.hasOwnProperty(normalized)) {
       if (!cache[normalized]) {
         cache[normalized] = { exports: internalModules[normalized], loaded: true };
       }
       return cache[normalized].exports;
     }
-    const json = __exactModuleResolve(specifier, referrer || "");
+    const json = __exactModuleResolve(resolvedSpecifier, referrer || "");
     if (!json) {
       throw new Error("Module not found: " + specifier);
     }
@@ -3557,7 +3709,7 @@
     if (record.error) {
       throw new Error(record.error);
     }
-    const id = record.id || specifier;
+    const id = record.id || resolvedSpecifier;
     var moduleId = idToModuleId(id);
     if (cache[id]) {
       return cache[id].exports;
@@ -3616,8 +3768,31 @@
     const looksLikeModuleSyntax = function(text) {
       return /\n?\s*(?:import|export)\b/m.test(text || "");
     };
-    const looksLikeTopLevelAwait = function(text) {
-      return /(^|[^\w$])await(?:\s|\()/.test(text || "");
+    const isAwaitSyntaxFailure = function(err) {
+      if (!err || (err.name !== "SyntaxError" && err.name !== "ReferenceError")) {
+        return false;
+      }
+      var message = String(err.message || "");
+      // Hermes reports top-level await failures in a couple of different ways
+      // depending on which parser path we hit. Treat them all as the same
+      // recoverable signal instead of trying to predict top-level await from
+      // the raw source text with a regex.
+      if (message.indexOf("Property 'await'") !== -1) {
+        return true;
+      }
+      if (message.indexOf("await is not defined") !== -1) {
+        return true;
+      }
+      if (message.indexOf("await") === -1) {
+        return false;
+      }
+      return (
+        message.indexOf("async functions") !== -1 ||
+        message.indexOf("top level bodies of modules") !== -1 ||
+        message.indexOf("Unexpected reserved word") !== -1 ||
+        message.indexOf("Unexpected identifier 'await'") !== -1 ||
+        message.indexOf("Cannot use keyword 'await'") !== -1
+      );
     };
     const wrapAsyncModule = function(text) {
       return "(async function() {\n" + String(text || "") + "\n})();";
@@ -3821,11 +3996,7 @@
         );
         directFn(localRequire, module, module.exports, filename, dir);
       } catch (err) {
-        const needsAsyncFallback = looksLikeTopLevelAwait(directSource);
-        const isAwaitReferenceError = needsAsyncFallback &&
-          err &&
-          err.name === "ReferenceError" &&
-          String(err.message || "").indexOf("Property 'await'") !== -1;
+        const needsAsyncFallback = isAwaitSyntaxFailure(err);
         const shouldFallback = (
           kind === "esm" ||
           looksLikeModuleSyntax(directSource) ||
@@ -3834,7 +4005,7 @@
         );
         const canFallback = shouldFallback &&
           err &&
-          (err.name === "SyntaxError" || isAwaitReferenceError) &&
+          (err.name === "SyntaxError" || needsAsyncFallback) &&
           directSource.length > 0;
         if (!canFallback) {
           throw err;
@@ -3849,24 +4020,45 @@
         );
         runtimeSource = injectEvalShimPreamble(runtimeSource) +
           "\n//# sourceURL=" + filename;
-        if (needsAsyncFallback) {
+        let wrappedRuntimeForAwait = false;
+        const runFallbackSource = function(sourceText) {
+          const fallbackFn = new Function(
+            "require",
+            "module",
+            "exports",
+            "__filename",
+            "__dirname",
+            sourceText
+          );
+          g.__filename = filename;
+          g.__dirname = dir;
+          fallbackFn(localRequire, module, module.exports, filename, dir);
+        };
+        try {
+          // Always try the transformed fallback without an async wrapper first.
+          // The direct-source syntax error is often just `import`/`export`.
+          // Wrapping every module that mentions `await` breaks ordinary async
+          // functions on native because the bundle starts looking "async" even
+          // when it has no real top-level await.
+          runFallbackSource(runtimeSource);
+        } catch (fallbackErr) {
+          if (!isAwaitSyntaxFailure(fallbackErr)) {
+            throw fallbackErr;
+          }
           runtimeSource = wrapAsyncModule(runtimeSource);
+          wrappedRuntimeForAwait = true;
+          runFallbackSource(runtimeSource);
         }
         if (Array.isArray(g.__exactDebugModuleSources)) {
-          g.__exactDebugModuleSources.push({ id: id, filename: filename, source: runtimeSource.slice(0, 2000), fallback: true });
+          g.__exactDebugModuleSources.push({
+            id: id,
+            filename: filename,
+            source: runtimeSource.slice(0, 2000),
+            fallback: true,
+            asyncWrapped: wrappedRuntimeForAwait
+          });
         }
         g.__exactDebugModuleSource = runtimeSource;
-        const fallbackFn = new Function(
-          "require",
-          "module",
-          "exports",
-          "__filename",
-          "__dirname",
-          runtimeSource
-        );
-        g.__filename = filename;
-        g.__dirname = dir;
-        fallbackFn(localRequire, module, module.exports, filename, dir);
         if (module.exports && typeof module.exports === "object") {
           module.exports.__esModule = true;
           Object.defineProperty(module.exports, '__esmShimmed', { value: true });
