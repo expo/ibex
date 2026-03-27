@@ -497,11 +497,11 @@ extern "C" void ex_hermes_set_kernel_handle(
   rt.global().setProperty(rt, "exact", std::move(exactObj));
 }
 
-// Emit a module event to JS (for native -> JS events)
-extern "C" int ex_hermes_emit_module_event(
+static int emit_module_event_impl(
     ExactHermesRuntime* runtime,
     const char* module_name,
     const char* event_name,
+    const uint32_t* node_id,
     const uint8_t* payload,
     size_t payload_len) {
   if (!runtime || !runtime->runtime) return -1;
@@ -518,6 +518,9 @@ extern "C" int ex_hermes_emit_module_event(
 
     auto moduleStr = facebook::jsi::String::createFromUtf8(rt, module_name);
     auto eventStr = facebook::jsi::String::createFromUtf8(rt, event_name);
+    facebook::jsi::Value nodeIdValue = node_id
+        ? facebook::jsi::Value(static_cast<double>(*node_id))
+        : facebook::jsi::Value::undefined();
 
     // Create Uint8Array for payload
     if (payload && payload_len > 0) {
@@ -530,9 +533,26 @@ extern "C" int ex_hermes_emit_module_event(
       auto uint8ArrayCtor = rt.global().getPropertyAsFunction(rt, "Uint8Array");
       auto payloadArray = uint8ArrayCtor.callAsConstructor(
           rt, std::move(ab));
-      handler.call(rt, std::move(moduleStr), std::move(eventStr), std::move(payloadArray));
+      if (node_id) {
+        handler.call(
+            rt,
+            std::move(moduleStr),
+            std::move(eventStr),
+            std::move(nodeIdValue),
+            std::move(payloadArray));
+      } else {
+        handler.call(rt, std::move(moduleStr), std::move(eventStr), std::move(payloadArray));
+      }
     } else {
-      handler.call(rt, std::move(moduleStr), std::move(eventStr));
+      if (node_id) {
+        handler.call(
+            rt,
+            std::move(moduleStr),
+            std::move(eventStr),
+            std::move(nodeIdValue));
+      } else {
+        handler.call(rt, std::move(moduleStr), std::move(eventStr));
+      }
     }
     return 0;
   } catch (const facebook::jsi::JSError& err) {
@@ -541,6 +561,38 @@ extern "C" int ex_hermes_emit_module_event(
   } catch (...) {
     return -1;
   }
+}
+
+// Emit a module event to JS (for native -> JS events)
+extern "C" int ex_hermes_emit_module_event(
+    ExactHermesRuntime* runtime,
+    const char* module_name,
+    const char* event_name,
+    const uint8_t* payload,
+    size_t payload_len) {
+  return emit_module_event_impl(
+      runtime,
+      module_name,
+      event_name,
+      nullptr,
+      payload,
+      payload_len);
+}
+
+extern "C" int ex_hermes_emit_module_view_event(
+    ExactHermesRuntime* runtime,
+    const char* module_name,
+    const char* event_name,
+    uint32_t node_id,
+    const uint8_t* payload,
+    size_t payload_len) {
+  return emit_module_event_impl(
+      runtime,
+      module_name,
+      event_name,
+      &node_id,
+      payload,
+      payload_len);
 }
 
 // =============================================================================

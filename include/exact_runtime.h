@@ -163,6 +163,16 @@ int ex_hermes_emit_module_event(
     const uint8_t* payload,
     size_t payload_len);
 
+/// Emit a native-view instance event from native code to JavaScript.
+/// Calls globalThis.__exactModuleEvent(moduleName, eventName, nodeId, payload).
+int ex_hermes_emit_module_view_event(
+    ExactHermesRuntime* runtime,
+    const char* module_name,
+    const char* event_name,
+    uint32_t node_id,
+    const uint8_t* payload,
+    size_t payload_len);
+
 // =============================================================================
 // Host ABI (called from Rust, used by hermes_runtime.cc)
 // =============================================================================

@@ -3344,6 +3344,14 @@
         continue;
       }
 
+      // Type-only imports/exports are erased at runtime in normal TS builds.
+      // When the native fallback sees raw source that still contains them,
+      // treat them as no-ops instead of handing unsupported syntax to Hermes.
+      m = trimmed.match(/^\s*import\s+type\s+[\s\S]+?\s+from\s+(["'])([^'"]+)\1\s*;?\s*$/);
+      if (m) {
+        continue;
+      }
+
       m = trimmed.match(/^\s*import\s+(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         out.push("require(" + quote(m[2]) + ");");
@@ -3433,6 +3441,11 @@
         out.push("    module.exports[__exk] = " + exportFrom + "[__exk];");
         out.push("  }");
         out.push("}");
+        continue;
+      }
+
+      m = trimmed.match(/^\s*export\s+type\s+\{[\s\S]*?\}\s+from\s+(["'])([^'"]+)\1\s*;?\s*$/);
+      if (m) {
         continue;
       }
 
@@ -3592,6 +3605,11 @@
             depth: declarationDepth
           };
         }
+        continue;
+      }
+
+      m = trimmed.match(/^\s*export\s+type\s+\{[^}]*\}\s*;?\s*$/);
+      if (m) {
         continue;
       }
 
@@ -4035,6 +4053,7 @@
           fallbackFn(localRequire, module, module.exports, filename, dir);
         };
         try {
+          g.__exactDebugModuleSource = runtimeSource;
           // Always try the transformed fallback without an async wrapper first.
           // The direct-source syntax error is often just `import`/`export`.
           // Wrapping every module that mentions `await` breaks ordinary async
@@ -4047,6 +4066,7 @@
           }
           runtimeSource = wrapAsyncModule(runtimeSource);
           wrappedRuntimeForAwait = true;
+          g.__exactDebugModuleSource = runtimeSource;
           runFallbackSource(runtimeSource);
         }
         if (Array.isArray(g.__exactDebugModuleSources)) {
