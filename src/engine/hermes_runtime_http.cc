@@ -136,8 +136,10 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactHttpDrain", std::move(httpDrainFn));
 
   // __exactHttpWait(serverId, timeoutMs) -> Promise(JSON string | null)
-  // Item 5: Uses a persistent waiter thread pool instead of spawning a
-  // detached thread per call. Tasks are submitted to a shared pool.
+  // Waits can stay parked for a long time, so a fixed-size worker pool is
+  // incorrect here: one native server can legitimately keep multiple waits
+  // outstanding, which can starve unrelated waits forever. Keep an adaptive
+  // reusable pool instead so each concurrent wait gets a worker.
   auto httpWaitFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactHttpWait"),
@@ -187,9 +189,6 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
               auto reject = std::make_shared<facebook::jsi::Function>(
                   args[1].asObject(runtime).asFunction(runtime));
 
-              // Item 5: Use persistent waiter thread pool.
-              // We use a static thread pool with a work queue instead of
-              // creating/destroying a thread per wait call.
               struct WaitTask {
                 ExactHermesRuntime* handle;
                 uint32_t server_id;
@@ -198,65 +197,77 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 std::shared_ptr<facebook::jsi::Function> reject;
               };
 
-              static std::mutex poolMutex;
-              static std::condition_variable poolCv;
-              static std::deque<WaitTask> poolQueue;
-              static bool poolInitialized = false;
-              static constexpr int POOL_SIZE = 4;
+              struct WaitWorkerPool {
+                std::mutex mutex;
+                std::condition_variable cv;
+                std::deque<WaitTask> queue;
+                size_t idle_workers{0};
+
+                void spawnWorkerIfNeededLocked() {
+                  if (idle_workers > 0) {
+                    return;
+                  }
+
+                  std::thread([this]() {
+                    while (true) {
+                      WaitTask t;
+                      {
+                        std::unique_lock<std::mutex> lock(mutex);
+                        idle_workers += 1;
+                        cv.wait(lock, [this] { return !queue.empty(); });
+                        idle_workers -= 1;
+                        t = std::move(queue.front());
+                        queue.pop_front();
+                      }
+
+                      char* json = ex_host_http_wait(t.server_id, t.timeout_ms);
+                      std::string payload;
+                      bool has_payload = false;
+                      if (json) {
+                        payload = json;
+                        has_payload = true;
+                        ex_host_free_string(json);
+                      }
+
+                      pushRuntimeCallback(
+                          t.handle,
+                          [resolve = t.resolve, reject = t.reject,
+                           has_payload, payload = std::move(payload)](
+                              facebook::jsi::Runtime& rt) {
+                            try {
+                              if (has_payload) {
+                                resolve->call(rt,
+                                    facebook::jsi::String::createFromUtf8(rt, payload));
+                              } else {
+                                resolve->call(rt, facebook::jsi::Value::null());
+                              }
+                            } catch (const facebook::jsi::JSError& err) {
+                              reject->call(rt,
+                                  facebook::jsi::JSError(rt, err.getMessage().c_str()).value());
+                            } catch (...) {
+                              reject->call(rt,
+                                  facebook::jsi::JSError(rt,
+                                      "Failed to complete __exactHttpWait").value());
+                            }
+                          });
+                    }
+                  }).detach();
+                }
+
+                void enqueue(WaitTask task) {
+                  {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    spawnWorkerIfNeededLocked();
+                    queue.push_back(std::move(task));
+                  }
+                  cv.notify_one();
+                }
+              };
+
+              static WaitWorkerPool workerPool;
 
               auto task = WaitTask{handle, server_id, timeout_ms, resolve, reject};
-
-              {
-                std::lock_guard<std::mutex> lock(poolMutex);
-                if (!poolInitialized) {
-                  poolInitialized = true;
-                  for (int i = 0; i < POOL_SIZE; i++) {
-                    std::thread([]() {
-                      while (true) {
-                        WaitTask t;
-                        {
-                          std::unique_lock<std::mutex> lock(poolMutex);
-                          poolCv.wait(lock, []{ return !poolQueue.empty(); });
-                          t = std::move(poolQueue.front());
-                          poolQueue.pop_front();
-                        }
-
-                        char* json = ex_host_http_wait(t.server_id, t.timeout_ms);
-                        std::string payload;
-                        bool has_payload = false;
-                        if (json) {
-                          payload = json;
-                          has_payload = true;
-                          ex_host_free_string(json);
-                        }
-
-                        pushRuntimeCallback(t.handle,
-                            [resolve = t.resolve, reject = t.reject,
-                             has_payload, payload = std::move(payload)](
-                                facebook::jsi::Runtime& rt) {
-                              try {
-                                if (has_payload) {
-                                  resolve->call(rt,
-                                      facebook::jsi::String::createFromUtf8(rt, payload));
-                                } else {
-                                  resolve->call(rt, facebook::jsi::Value::null());
-                                }
-                              } catch (const facebook::jsi::JSError& err) {
-                                reject->call(rt,
-                                    facebook::jsi::JSError(rt, err.getMessage().c_str()).value());
-                              } catch (...) {
-                                reject->call(rt,
-                                    facebook::jsi::JSError(rt,
-                                        "Failed to complete __exactHttpWait").value());
-                              }
-                            });
-                      }
-                    }).detach();
-                  }
-                }
-                poolQueue.push_back(std::move(task));
-              }
-              poolCv.notify_one();
+              workerPool.enqueue(std::move(task));
 
               return facebook::jsi::Value::undefined();
             });
