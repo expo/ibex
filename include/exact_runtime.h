@@ -111,6 +111,19 @@ void ex_hermes_set_dispatch_callback(
     void (*callback)(const uint8_t* data, size_t length, void* context),
     void* context);
 
+/// Set callback for exact.dispatchWithDebugContext(Uint8Array, string|object).
+/// This installs exact.dispatchWithDebugContext() in JavaScript.
+/// @param runtime The runtime handle
+/// @param callback Function called with binary buffer data plus debug context JSON
+/// @param context User context passed to callback
+void ex_hermes_set_dispatch_with_debug_context_callback(
+    ExactHermesRuntime* runtime,
+    void (*callback)(const uint8_t* data,
+                     size_t length,
+                     const char* debug_context_json,
+                     void* context),
+    void* context);
+
 /// Set callback for exact.dispatchModule(Uint8Array) - async native module calls.
 /// This installs exact.dispatchModule() in JavaScript.
 /// @param runtime The runtime handle
@@ -233,6 +246,14 @@ char* ex_hermes_debugger_eval(ExactHermesRuntime* runtime, const char* expressio
 
 /// Request garbage collection
 void ex_hermes_gc(ExactHermesRuntime* runtime);
+
+/// Get the current Hermes heap info as a JSON object string.
+/// Returns malloc'd string or NULL on failure. Free with ex_hermes_free_string().
+char* ex_hermes_get_heap_info(ExactHermesRuntime* runtime, int include_expensive);
+
+/// Get cumulative Hermes GC stats as a JSON string.
+/// Returns malloc'd string or NULL on failure. Free with ex_hermes_free_string().
+char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime);
 
 #ifdef __cplusplus
 }

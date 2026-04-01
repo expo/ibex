@@ -104,6 +104,66 @@ extern "C" void ex_hermes_set_dispatch_callback(
   rt.global().setProperty(rt, "exact", std::move(exactObj));
 }
 
+extern "C" void ex_hermes_set_dispatch_with_debug_context_callback(
+    ExactHermesRuntime* runtime,
+    void (*callback)(
+        const uint8_t* data,
+        size_t length,
+        const char* debug_context_json,
+        void* context),
+    void* context) {
+  if (!runtime) return;
+  runtime->ios_dispatch_with_debug_context_callback = callback;
+  runtime->ios_dispatch_context = context;
+
+  auto& rt = *runtime->runtime;
+
+  facebook::jsi::Value exactVal = rt.global().getProperty(rt, "exact");
+  facebook::jsi::Object exactObj = exactVal.isObject()
+      ? exactVal.getObject(rt)
+      : facebook::jsi::Object(rt);
+
+  auto dispatchWithDebugContextFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "dispatchWithDebugContext"),
+      2,
+      [runtime](facebook::jsi::Runtime& rt,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !runtime->ios_dispatch_with_debug_context_callback) {
+          return facebook::jsi::Value::undefined();
+        }
+
+        auto bytes = extractBytes(rt, args[0]);
+        if (bytes.empty()) {
+          return facebook::jsi::Value::undefined();
+        }
+
+        std::string contextJson;
+        if (args[1].isString()) {
+          contextJson = args[1].asString(rt).utf8(rt);
+        } else if (!args[1].isNull() && !args[1].isUndefined()) {
+          auto jsonGlobal = rt.global().getPropertyAsObject(rt, "JSON");
+          auto stringifyFn = jsonGlobal.getPropertyAsFunction(rt, "stringify");
+          auto stringified = stringifyFn.call(rt, args[1]);
+          if (stringified.isString()) {
+            contextJson = stringified.asString(rt).utf8(rt);
+          }
+        }
+
+        runtime->ios_dispatch_with_debug_context_callback(
+            bytes.data(),
+            bytes.size(),
+            contextJson.empty() ? nullptr : contextJson.c_str(),
+            runtime->ios_dispatch_context);
+        return facebook::jsi::Value::undefined();
+      });
+
+  exactObj.setProperty(rt, "dispatchWithDebugContext", std::move(dispatchWithDebugContextFn));
+  rt.global().setProperty(rt, "exact", std::move(exactObj));
+}
+
 extern "C" void ex_hermes_set_module_dispatch_callback(
     ExactHermesRuntime* runtime,
     void (*callback)(const uint8_t* data, size_t length, void* context),

@@ -10,6 +10,7 @@
 #include <hermes/AsyncDebuggerAPI.h>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
+#include <jsi/instrumentation.h>
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
@@ -22,6 +23,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -79,6 +81,11 @@ struct ExactHermesRuntime {
 
   void (*ios_dispatch_callback)(const uint8_t* data, size_t length, void* context) = nullptr;
   void* ios_dispatch_context = nullptr;
+  void (*ios_dispatch_with_debug_context_callback)(
+      const uint8_t* data,
+      size_t length,
+      const char* debug_context_json,
+      void* context) = nullptr;
   void (*ios_module_dispatch_callback)(const uint8_t* data, size_t length, void* context) =
       nullptr;
   void* ios_module_dispatch_context = nullptr;
@@ -256,6 +263,19 @@ std::string jsonString(const std::string& value);
 std::string makeRemoteObject(facebook::jsi::Runtime& rt, const facebook::jsi::Value& value);
 std::string stringifyValue(facebook::jsi::Runtime& runtime, const facebook::jsi::Value& value);
 facebook::jsi::Value parseJsonValue(facebook::jsi::Runtime& runtime, const char* json);
+std::unordered_map<std::string, int64_t> captureHeapInfo(
+    ExactHermesRuntime* runtime,
+    bool includeExpensive);
+int64_t lookupHeapInfoValue(
+    const std::unordered_map<std::string, int64_t>& heapInfo,
+    std::initializer_list<const char*> keys,
+    int64_t fallbackValue = 0);
+facebook::jsi::Object makeHeapInfoObject(
+    facebook::jsi::Runtime& runtime,
+    const std::unordered_map<std::string, int64_t>& heapInfo);
+std::string stringifyHeapInfo(
+    const std::unordered_map<std::string, int64_t>& heapInfo);
+char* copyMallocString(const std::string& value);
 void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event);
 std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
     ExactHermesRuntime* runtime);
