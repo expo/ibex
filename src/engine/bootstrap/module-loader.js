@@ -5,6 +5,25 @@
   var g = globalThis;
   const cache = Object.create(null);
   var mainModule = null;
+  function getDebugModuleSourceLimit() {
+    var configured = g.__exactDebugModuleSourceLimit;
+    var limit = typeof configured === 'number' ? configured : Number(configured);
+    if (!isFinite(limit) || limit <= 0) {
+      return 256;
+    }
+    return Math.floor(limit);
+  }
+  function pushDebugModuleSource(entry) {
+    g.__exactDebugModuleSources = g.__exactDebugModuleSources || [];
+    if (!Array.isArray(g.__exactDebugModuleSources)) {
+      return;
+    }
+    g.__exactDebugModuleSources.push(entry);
+    var limit = getDebugModuleSourceLimit();
+    if (g.__exactDebugModuleSources.length > limit) {
+      g.__exactDebugModuleSources.splice(0, g.__exactDebugModuleSources.length - limit);
+    }
+  }
   function normalizeSpecifier(specifier) {
     if (typeof specifier !== 'string') {
       return String(specifier || '');
@@ -3996,10 +4015,7 @@
       const directSource =
         injectEvalShimPreamble(transformedSource) +
         "\n//# sourceURL=" + filename;
-      g.__exactDebugModuleSources = (g.__exactDebugModuleSources || []);
-      if (Array.isArray(g.__exactDebugModuleSources)) {
-        g.__exactDebugModuleSources.push({ id: id, filename: filename, source: directSource.slice(0, 2000) });
-      }
+      pushDebugModuleSource({ id: id, filename: filename, source: directSource.slice(0, 2000) });
       g.__exactDebugModuleSource = directSource;
       try {
         g.__filename = filename;
@@ -4069,15 +4085,13 @@
           g.__exactDebugModuleSource = runtimeSource;
           runFallbackSource(runtimeSource);
         }
-        if (Array.isArray(g.__exactDebugModuleSources)) {
-          g.__exactDebugModuleSources.push({
-            id: id,
-            filename: filename,
-            source: runtimeSource.slice(0, 2000),
-            fallback: true,
-            asyncWrapped: wrappedRuntimeForAwait
-          });
-        }
+        pushDebugModuleSource({
+          id: id,
+          filename: filename,
+          source: runtimeSource.slice(0, 2000),
+          fallback: true,
+          asyncWrapped: wrappedRuntimeForAwait
+        });
         g.__exactDebugModuleSource = runtimeSource;
         if (module.exports && typeof module.exports === "object") {
           module.exports.__esModule = true;
@@ -4086,7 +4100,18 @@
       }
     } catch (err) {
       delete cache[id];
-      throw err;
+      var moduleErrorMessage = '';
+      if (err && typeof err === 'object') {
+        if (typeof err.stack === 'string' && err.stack) {
+          moduleErrorMessage = err.stack;
+        } else if (typeof err.message === 'string' && err.message) {
+          moduleErrorMessage = err.message;
+        }
+      }
+      if (!moduleErrorMessage) {
+        moduleErrorMessage = String(err);
+      }
+      throw new Error('While evaluating module "' + id + '": ' + moduleErrorMessage);
     } finally {
       if (typeof previousNodeFilename === "undefined") {
         delete g.__filename;

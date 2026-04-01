@@ -8352,26 +8352,47 @@ Server.prototype.listen = function(port, hostname, callback) {
 Server.prototype._pollLoop = function() {
   if (this._closing || !this._listening || !this._useNative) return;
   var self = this;
+  // Keep a periodic sync poll alive even while one native wait is pending.
+  // If __exactHttpWait() wedges, request dequeue still makes forward progress.
+  var waitInFlight = false;
+  var pollScheduled = false;
+
+  function schedulePoll(delay) {
+    if (self._closing || !self._listening || pollScheduled) return;
+    pollScheduled = true;
+    setTimeout(function() {
+      pollScheduled = false;
+      poll();
+    }, delay);
+  }
 
   function poll() {
     if (self._closing || !self._listening) return;
-    var json = null;
+    var handledRequest = false;
     if (typeof __exactHttpPoll === 'function') {
-      json = __exactHttpPoll(self._serverId);
+      while (true) {
+        var json = __exactHttpPoll(self._serverId);
+        if (!json) {
+          break;
+        }
+        handledRequest = true;
+        self._handleNativeRequest(json);
+      }
     }
-    if (json) {
-      self._handleNativeRequest(json);
-      setTimeout(poll, 0);
-    } else if (typeof __exactHttpWait === 'function') {
+    if (!waitInFlight && typeof __exactHttpWait === 'function') {
+      waitInFlight = true;
       __exactHttpWait(self._serverId, 1000).then(function(waitJson) {
-        if (waitJson) self._handleNativeRequest(waitJson);
-        setTimeout(poll, 0);
+        waitInFlight = false;
+        if (waitJson) {
+          self._handleNativeRequest(waitJson);
+          schedulePoll(0);
+        }
       }).catch(function() {
-        setTimeout(poll, 50);
+        waitInFlight = false;
+        schedulePoll(50);
       });
-    } else {
-      setTimeout(poll, 50);
     }
+    schedulePoll(handledRequest ? 0 : 50);
   }
   poll();
 };

@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <cstring>
+#include <cstdlib>
 #include <iomanip>
 #include <sstream>
 
@@ -161,6 +164,85 @@ facebook::jsi::Value parseJsonValue(
   auto jsonObj = runtime.global().getPropertyAsObject(runtime, "JSON");
   auto parse = jsonObj.getPropertyAsFunction(runtime, "parse");
   return parse.call(runtime, facebook::jsi::String::createFromUtf8(runtime, json));
+}
+
+std::unordered_map<std::string, int64_t> captureHeapInfo(
+    ExactHermesRuntime* runtime,
+    bool includeExpensive) {
+  if (!runtime || !runtime->runtime) {
+    return {};
+  }
+
+  try {
+    return runtime->runtime->instrumentation().getHeapInfo(includeExpensive);
+  } catch (...) {
+    return {};
+  }
+}
+
+int64_t lookupHeapInfoValue(
+    const std::unordered_map<std::string, int64_t>& heapInfo,
+    std::initializer_list<const char*> keys,
+    int64_t fallbackValue) {
+  for (const char* key : keys) {
+    if (!key) {
+      continue;
+    }
+    auto it = heapInfo.find(key);
+    if (it != heapInfo.end()) {
+      return it->second;
+    }
+  }
+  return fallbackValue;
+}
+
+facebook::jsi::Object makeHeapInfoObject(
+    facebook::jsi::Runtime& runtime,
+    const std::unordered_map<std::string, int64_t>& heapInfo) {
+  facebook::jsi::Object result(runtime);
+  std::vector<std::pair<std::string, int64_t>> entries(heapInfo.begin(), heapInfo.end());
+  std::sort(
+      entries.begin(),
+      entries.end(),
+      [](const auto& left, const auto& right) { return left.first < right.first; });
+
+  for (const auto& entry : entries) {
+    result.setProperty(
+        runtime,
+        entry.first.c_str(),
+        facebook::jsi::Value(static_cast<double>(entry.second)));
+  }
+  return result;
+}
+
+std::string stringifyHeapInfo(
+    const std::unordered_map<std::string, int64_t>& heapInfo) {
+  std::vector<std::pair<std::string, int64_t>> entries(heapInfo.begin(), heapInfo.end());
+  std::sort(
+      entries.begin(),
+      entries.end(),
+      [](const auto& left, const auto& right) { return left.first < right.first; });
+
+  std::ostringstream out;
+  out << "{";
+  for (size_t i = 0; i < entries.size(); ++i) {
+    if (i > 0) {
+      out << ",";
+    }
+    out << jsonString(entries[i].first) << ":" << entries[i].second;
+  }
+  out << "}";
+  return out.str();
+}
+
+char* copyMallocString(const std::string& value) {
+  char* heap = static_cast<char*>(std::malloc(value.size() + 1));
+  if (!heap) {
+    return nullptr;
+  }
+  std::memcpy(heap, value.data(), value.size());
+  heap[value.size()] = '\0';
+  return heap;
 }
 
 void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event) {

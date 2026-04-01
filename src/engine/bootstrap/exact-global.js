@@ -1921,14 +1921,49 @@
 
     function pollLoop() {
       if (closing) return;
+      // Keep a periodic sync poll alive even while one native wait is pending.
+      // If __exactHttpWait() wedges, request dequeue still makes forward progress.
+      var waitInFlight = false;
+      var pollScheduled = false;
+
+      function schedulePoll(delay) {
+        if (closing || pollScheduled) {
+          return;
+        }
+        pollScheduled = true;
+        setTimeout(function() {
+          pollScheduled = false;
+          poll();
+        }, delay);
+      }
+
       function poll() {
         if (closing) return;
-        var json = typeof __exactHttpPoll === 'function' ? __exactHttpPoll(serverId) : null;
-        if (json) { handleRequest(json); setTimeout(poll, 0); }
-        else if (typeof __exactHttpWait === 'function') {
-          __exactHttpWait(serverId, 1000).then(function(wj) { if (wj) handleRequest(wj); setTimeout(poll, 0); })
-            .catch(function() { setTimeout(poll, 50); });
-        } else { setTimeout(poll, 50); }
+        var handledRequest = false;
+        if (typeof __exactHttpPoll === 'function') {
+          while (true) {
+            var json = __exactHttpPoll(serverId);
+            if (!json) {
+              break;
+            }
+            handledRequest = true;
+            handleRequest(json);
+          }
+        }
+        if (!waitInFlight && typeof __exactHttpWait === 'function') {
+          waitInFlight = true;
+          __exactHttpWait(serverId, 1000).then(function(wj) {
+            waitInFlight = false;
+            if (wj) {
+              handleRequest(wj);
+              schedulePoll(0);
+            }
+          }).catch(function() {
+            waitInFlight = false;
+            schedulePoll(50);
+          });
+        }
+        schedulePoll(handledRequest ? 0 : 50);
       }
       poll();
     }
@@ -2341,6 +2376,352 @@
     }
     return true;
   };
+
+  function exactFormatBytes(bytes) {
+    var value = typeof bytes === 'number' ? bytes : Number(bytes);
+    if (!isFinite(value) || value <= 0) {
+      return '0B';
+    }
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    var fixed = value >= 100 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1);
+    return fixed.replace(/\.0$/, '') + units[unitIndex];
+  }
+
+  function exactEstimateStringBytes(value) {
+    if (typeof value !== 'string' || value.length === 0) {
+      return 0;
+    }
+    if (typeof TextEncoder === 'function') {
+      try {
+        return new TextEncoder().encode(value).length;
+      } catch (_err) {}
+    }
+    return value.length * 2;
+  }
+
+  function exactGetRequireCacheCount() {
+    try {
+      var loader = typeof g.__exactRequire === 'function' ? g.__exactRequire : g.require;
+      var cache = loader && loader.cache;
+      return cache && typeof cache === 'object' ? Object.keys(cache).length : 0;
+    } catch (_err) {
+      return 0;
+    }
+  }
+
+  function exactGetDebugModuleSourcesSummary() {
+    var entries = Array.isArray(g.__exactDebugModuleSources) ? g.__exactDebugModuleSources : [];
+    var totalBytes = 0;
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i];
+      if (entry && typeof entry.source === 'string') {
+        totalBytes += exactEstimateStringBytes(entry.source);
+      }
+    }
+    return {
+      count: entries.length,
+      totalBytes: totalBytes,
+      currentSourceBytes: exactEstimateStringBytes(
+        typeof g.__exactDebugModuleSource === 'string' ? g.__exactDebugModuleSource : ''
+      ),
+      limit: (function() {
+        var configured = g.__exactDebugModuleSourceLimit;
+        var limit = typeof configured === 'number' ? configured : Number(configured);
+        if (!isFinite(limit) || limit <= 0) {
+          return 256;
+        }
+        return Math.floor(limit);
+      })()
+    };
+  }
+
+  function exactGetPerformanceTimelineSummary() {
+    var performanceObject = typeof g.performance === 'object' && g.performance !== null
+      ? g.performance
+      : null;
+    if (!performanceObject) {
+      return {
+        entries: 0,
+        markNames: 0,
+        measureNames: 0
+      };
+    }
+    return {
+      entries: Array.isArray(performanceObject._entries) ? performanceObject._entries.length : 0,
+      markNames: performanceObject._marks && typeof performanceObject._marks.size === 'number'
+        ? performanceObject._marks.size
+        : 0,
+      measureNames: performanceObject._measures && typeof performanceObject._measures.size === 'number'
+        ? performanceObject._measures.size
+        : 0
+    };
+  }
+
+  function exactParseGcStats(rawStats) {
+    if (typeof rawStats !== 'string' || rawStats.length === 0) {
+      return null;
+    }
+    try {
+      return JSON.parse(rawStats);
+    } catch (_err) {
+      return { raw: rawStats };
+    }
+  }
+
+  function exactNormalizeMemoryOptions(input) {
+    if (input && typeof input === 'object') {
+      return {
+        includeExpensive: input.includeExpensive === true,
+        includeGCStats: input.includeGCStats === true
+      };
+    }
+    return {
+      includeExpensive: input === true,
+      includeGCStats: false
+    };
+  }
+
+  function exactMemorySnapshot(input) {
+    var options = exactNormalizeMemoryOptions(input);
+    var usage = null;
+    if (typeof process === 'object' && process !== null && typeof process.memoryUsage === 'function') {
+      try {
+        usage = process.memoryUsage();
+      } catch (_err) {}
+    }
+
+    var heapInfo = null;
+    if (typeof g.__exactGetHeapInfo === 'function') {
+      try {
+        heapInfo = g.__exactGetHeapInfo(options.includeExpensive === true);
+      } catch (_err) {}
+    }
+
+    var gcStats = null;
+    if (options.includeGCStats === true && typeof g.__exactGetGCStats === 'function') {
+      try {
+        gcStats = exactParseGcStats(g.__exactGetGCStats());
+      } catch (_err) {}
+    }
+
+    var sourceCache = null;
+    if (typeof g.__exactGetSourceCacheStats === 'function') {
+      try {
+        sourceCache = g.__exactGetSourceCacheStats();
+      } catch (_err) {}
+    }
+
+    return {
+      timestamp: Date.now(),
+      usage: usage,
+      heapInfo: heapInfo,
+      gcStats: gcStats,
+      sourceCache: sourceCache,
+      performanceTimeline: exactGetPerformanceTimelineSummary(),
+      requireCacheCount: exactGetRequireCacheCount(),
+      debugModuleSources: exactGetDebugModuleSourcesSummary()
+    };
+  }
+
+  function exactMemorySampleSummary(sample) {
+    var usage = sample && sample.usage && typeof sample.usage === 'object' ? sample.usage : {};
+    var sourceCache = sample && sample.sourceCache && typeof sample.sourceCache === 'object'
+      ? sample.sourceCache
+      : {};
+    var performanceTimeline = sample && sample.performanceTimeline && typeof sample.performanceTimeline === 'object'
+      ? sample.performanceTimeline
+      : {};
+    var debugModuleSources = sample && sample.debugModuleSources && typeof sample.debugModuleSources === 'object'
+      ? sample.debugModuleSources
+      : {};
+    var heapInfo = sample && sample.heapInfo && typeof sample.heapInfo === 'object'
+      ? sample.heapInfo
+      : {};
+    var heapUsed = typeof usage.heapUsed === 'number'
+      ? usage.heapUsed
+      : typeof heapInfo.hermes_allocatedBytes === 'number'
+        ? heapInfo.hermes_allocatedBytes
+        : 0;
+    var heapTotal = typeof usage.heapTotal === 'number'
+      ? usage.heapTotal
+      : typeof heapInfo.hermes_heapSize === 'number'
+        ? heapInfo.hermes_heapSize
+        : 0;
+    var rss = typeof usage.rss === 'number' ? usage.rss : 0;
+    return {
+      timestamp: sample && sample.timestamp || Date.now(),
+      heapUsed: heapUsed,
+      heapTotal: heapTotal,
+      rss: rss,
+      external: typeof usage.external === 'number'
+        ? usage.external
+        : typeof heapInfo.hermes_externalBytes === 'number'
+          ? heapInfo.hermes_externalBytes
+          : 0,
+      requireCacheCount: sample && typeof sample.requireCacheCount === 'number'
+        ? sample.requireCacheCount
+        : 0,
+      performanceEntriesCount: typeof performanceTimeline.entries === 'number'
+        ? performanceTimeline.entries
+        : 0,
+      debugModuleSourcesCount: typeof debugModuleSources.count === 'number'
+        ? debugModuleSources.count
+        : 0,
+      debugModuleSourcesBytes: typeof debugModuleSources.totalBytes === 'number'
+        ? debugModuleSources.totalBytes
+        : 0,
+      sourceCacheCount: typeof sourceCache.count === 'number' ? sourceCache.count : 0,
+      sourceCacheBytes: typeof sourceCache.totalBytes === 'number' ? sourceCache.totalBytes : 0,
+      numCollections: typeof heapInfo.hermes_numCollections === 'number'
+        ? heapInfo.hermes_numCollections
+        : typeof heapInfo.numCollections === 'number'
+          ? heapInfo.numCollections
+          : 0
+    };
+  }
+
+  function exactLogMemorySample(sample) {
+    var summary = exactMemorySampleSummary(sample);
+    var line =
+      '[exact:memory] ' +
+      'heap=' + exactFormatBytes(summary.heapUsed) + '/' + exactFormatBytes(summary.heapTotal) +
+      ' rss=' + exactFormatBytes(summary.rss) +
+      ' external=' + exactFormatBytes(summary.external) +
+      ' require=' + summary.requireCacheCount +
+      ' perf=' + summary.performanceEntriesCount +
+      ' debugSources=' + summary.debugModuleSourcesCount + '/' + exactFormatBytes(summary.debugModuleSourcesBytes) +
+      ' sourceCache=' + summary.sourceCacheCount + '/' + exactFormatBytes(summary.sourceCacheBytes) +
+      ' gc=' + summary.numCollections;
+    if (typeof console === 'object' && console && typeof console.info === 'function') {
+      console.info(line);
+    }
+  }
+
+  (function installExactMemoryDebug() {
+    if (g.__exactMemoryDebug && typeof g.__exactMemoryDebug.snapshot === 'function') {
+      return;
+    }
+    var state = g.__exactMemoryDebugState;
+    if (!state || typeof state !== 'object') {
+      state = {
+        timer: null,
+        samples: [],
+        nextSampleId: 0,
+        options: null,
+        sampleCount: 0,
+        lastLoggedHeapUsed: 0
+      };
+      g.__exactMemoryDebugState = state;
+    }
+
+    function pushSample(sample, maxSamples) {
+      state.nextSampleId += 1;
+      sample.sampleId = state.nextSampleId;
+      state.samples.push(sample);
+      if (state.samples.length > maxSamples) {
+        state.samples.splice(0, state.samples.length - maxSamples);
+      }
+      state.sampleCount += 1;
+      return sample;
+    }
+
+    function takeSample(options) {
+      var sample = pushSample(
+        exactMemorySnapshot({
+          includeExpensive: options.includeExpensive === true,
+          includeGCStats: options.includeGCStats === true
+        }),
+        options.maxSamples
+      );
+      var summary = exactMemorySampleSummary(sample);
+      var shouldLog = false;
+      if (state.sampleCount === 1) {
+        shouldLog = true;
+      } else if (options.logEvery > 0 && state.sampleCount % options.logEvery === 0) {
+        shouldLog = true;
+      } else if (
+        options.logOnGrowthBytes > 0 &&
+        summary.heapUsed - state.lastLoggedHeapUsed >= options.logOnGrowthBytes
+      ) {
+        shouldLog = true;
+      }
+      if (shouldLog) {
+        state.lastLoggedHeapUsed = summary.heapUsed;
+        exactLogMemorySample(sample);
+      }
+      return sample;
+    }
+
+    function stopSampler() {
+      if (state.timer != null) {
+        clearInterval(state.timer);
+        state.timer = null;
+      }
+      return state.samples.slice();
+    }
+
+    g.__exactMemoryDebug = {
+      snapshot: function(options) {
+        return exactMemorySnapshot(options);
+      },
+      summary: function(options) {
+        return exactMemorySampleSummary(exactMemorySnapshot(options));
+      },
+      samples: function() {
+        return state.samples.slice();
+      },
+      state: function() {
+        return {
+          running: state.timer != null,
+          options: state.options,
+          sampleCount: state.sampleCount,
+          retainedSamples: state.samples.length
+        };
+      },
+      clearModuleDebugSources: function() {
+        if (Array.isArray(g.__exactDebugModuleSources)) {
+          g.__exactDebugModuleSources.length = 0;
+        }
+        g.__exactDebugModuleSource = undefined;
+        return exactGetDebugModuleSourcesSummary();
+      },
+      stop: function() {
+        return stopSampler();
+      },
+      start: function(options) {
+        stopSampler();
+        options = options && typeof options === 'object' ? options : {};
+        state.samples = [];
+        state.sampleCount = 0;
+        state.lastLoggedHeapUsed = 0;
+        state.options = {
+          intervalMs: Math.max(200, Number(options.intervalMs) || 1000),
+          maxSamples: Math.max(10, Number(options.maxSamples) || 240),
+          logEvery: Math.max(0, Math.floor(Number(options.logEvery) || 0)),
+          logOnGrowthBytes: Math.max(
+            0,
+            Math.floor(Number(options.logOnGrowthBytes) || (32 * 1024 * 1024))
+          ),
+          includeExpensive: options.includeExpensive === true,
+          includeGCStats: options.includeGCStats === true
+        };
+        var first = takeSample(state.options);
+        state.timer = setInterval(function() {
+          takeSample(state.options);
+        }, state.options.intervalMs);
+        if (state.timer && typeof state.timer.unref === 'function') {
+          state.timer.unref();
+        }
+        return first;
+      },
+      formatBytes: exactFormatBytes
+    };
+  })();
 
   g.Exact = E;
   g.Bun = E;
