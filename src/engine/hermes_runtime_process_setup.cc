@@ -399,21 +399,134 @@ void installProcessSetup(ExactHermesRuntime* handle) {
     return rss;
   };
 
+  auto heapInfoFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactGetHeapInfo"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        bool includeExpensive = false;
+        if (count > 0) {
+          if (args[0].isBool()) {
+            includeExpensive = args[0].getBool();
+          } else if (args[0].isNumber()) {
+            includeExpensive = args[0].asNumber() != 0;
+          }
+        }
+
+        auto heapInfo = captureHeapInfo(handle, includeExpensive);
+        return makeHeapInfoObject(runtime, heapInfo);
+      });
+  rt.global().setProperty(rt, "__exactGetHeapInfo", std::move(heapInfoFn));
+
+  auto gcStatsFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactGetGCStats"),
+      0,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
+        if (!handle || !handle->runtime) {
+          return facebook::jsi::Value::null();
+        }
+
+        try {
+          auto stats = handle->runtime->instrumentation().getRecordedGCStats();
+          return facebook::jsi::String::createFromUtf8(runtime, stats);
+        } catch (...) {
+          return facebook::jsi::Value::null();
+        }
+      });
+  rt.global().setProperty(rt, "__exactGetGCStats", std::move(gcStatsFn));
+
+  auto sourceCacheStatsFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactGetSourceCacheStats"),
+      0,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
+        facebook::jsi::Object result(runtime);
+        if (!handle) {
+          result.setProperty(runtime, "count", facebook::jsi::Value(0));
+          result.setProperty(runtime, "totalBytes", facebook::jsi::Value(0));
+          result.setProperty(runtime, "largestBytes", facebook::jsi::Value(0));
+          return result;
+        }
+
+        size_t totalBytes = 0;
+        size_t largestBytes = 0;
+        std::string largestName;
+        for (const auto& entry : handle->sources_by_name) {
+          totalBytes += entry.second.size();
+          if (entry.second.size() > largestBytes) {
+            largestBytes = entry.second.size();
+            largestName = entry.first;
+          }
+        }
+
+        result.setProperty(
+            runtime, "count", facebook::jsi::Value(static_cast<double>(handle->sources_by_name.size())));
+        result.setProperty(
+            runtime, "totalBytes", facebook::jsi::Value(static_cast<double>(totalBytes)));
+        result.setProperty(
+            runtime, "largestBytes", facebook::jsi::Value(static_cast<double>(largestBytes)));
+        if (!largestName.empty()) {
+          result.setProperty(
+              runtime,
+              "largestName",
+              facebook::jsi::String::createFromUtf8(runtime, largestName));
+        }
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactGetSourceCacheStats", std::move(sourceCacheStatsFn));
+
+  auto rssFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactGetProcessRSS"),
+      0,
+      [getResidentSetSize](facebook::jsi::Runtime&,
+                           const facebook::jsi::Value&,
+                           const facebook::jsi::Value*,
+                           size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(static_cast<double>(getResidentSetSize()));
+      });
+  rt.global().setProperty(rt, "__exactGetProcessRSS", std::move(rssFn));
+
   auto memoryUsageFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "memoryUsage"),
       0,
-      [getResidentSetSize](facebook::jsi::Runtime& runtime,
-                           const facebook::jsi::Value&,
-                           const facebook::jsi::Value*,
-                           size_t) -> facebook::jsi::Value {
+      [handle, getResidentSetSize](facebook::jsi::Runtime& runtime,
+                                   const facebook::jsi::Value&,
+                                   const facebook::jsi::Value*,
+                                   size_t) -> facebook::jsi::Value {
+        auto heapInfo = captureHeapInfo(handle, false);
+        int64_t heapTotal =
+            lookupHeapInfoValue(heapInfo, {"hermes_heapSize", "heapSize"}, 0);
+        int64_t heapUsed = lookupHeapInfoValue(
+            heapInfo, {"hermes_allocatedBytes", "allocatedBytes"}, 0);
+        int64_t external = lookupHeapInfoValue(
+            heapInfo, {"hermes_externalBytes", "externalBytes"}, 0);
+        int64_t arrayBuffers = lookupHeapInfoValue(
+            heapInfo,
+            {"hermes_arrayBufferBytes", "arrayBufferBytes", "hermes_arrayBuffers", "arrayBuffers"},
+            0);
+
         facebook::jsi::Object result(runtime);
         size_t rss = getResidentSetSize();
         result.setProperty(runtime, "rss", facebook::jsi::Value(static_cast<double>(rss)));
-        result.setProperty(runtime, "heapTotal", facebook::jsi::Value(0.0));
-        result.setProperty(runtime, "heapUsed", facebook::jsi::Value(0.0));
-        result.setProperty(runtime, "external", facebook::jsi::Value(0.0));
-        result.setProperty(runtime, "arrayBuffers", facebook::jsi::Value(0.0));
+        result.setProperty(runtime, "heapTotal", facebook::jsi::Value(static_cast<double>(heapTotal)));
+        result.setProperty(runtime, "heapUsed", facebook::jsi::Value(static_cast<double>(heapUsed)));
+        result.setProperty(runtime, "external", facebook::jsi::Value(static_cast<double>(external)));
+        result.setProperty(
+            runtime,
+            "arrayBuffers",
+            facebook::jsi::Value(static_cast<double>(arrayBuffers)));
         return result;
       });
   auto memoryUsageRssFn = facebook::jsi::Function::createFromHostFunction(
