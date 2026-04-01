@@ -1268,7 +1268,12 @@ void emitNewScripts(ExactHermesRuntime* runtime,
 extern "C" ExactHermesRuntime* ex_hermes_create() {
   TRACE_START(total);
   TRACE_START(hermes_config);
+  auto gcConfig = ::hermes::vm::GCConfig::Builder()
+                      .withShouldRecordStats(true)
+                      .withName("exact-runtime")
+                      .build();
   auto config = ::hermes::vm::RuntimeConfig::Builder()
+                    .withGCConfig(gcConfig)
                     .withMicrotaskQueue(true)
                     .withEnableEval(true)
                     .build();
@@ -1343,7 +1348,27 @@ extern "C" int ex_hermes_eval(
     const char* source_url,
     int is_bytecode,
     char** out_value) {
+  auto writeOutError = [&](const std::string& text) -> bool {
+    if (!out_value) {
+      return true;
+    }
+
+    char* heap = static_cast<char*>(malloc(text.size() + 1));
+    if (!heap) {
+      return false;
+    }
+    memcpy(heap, text.data(), text.size());
+    heap[text.size()] = '\0';
+    *out_value = heap;
+    return true;
+  };
+
+  if (out_value) {
+    *out_value = nullptr;
+  }
+
   if (!runtime || !data || len == 0) {
+    writeOutError("Hermes eval received invalid input");
     return 1;
   }
 
@@ -1565,6 +1590,12 @@ extern "C" int ex_hermes_eval(
       memcpy(heap, message.data(), size);
       heap[size] = '\0';
       *out_value = heap;
+    }
+    return 1;
+  } catch (...) {
+    std::string source_label = source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
+    if (!writeOutError("Unknown non-std exception while evaluating " + source_label)) {
+      return 1;
     }
     return 1;
   }
@@ -1836,6 +1867,30 @@ extern "C" void ex_hermes_schedule_watchdog_heartbeat(
 extern "C" void ex_hermes_gc(ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime) return;
   runtime->runtime->instrumentation().collectGarbage("ex_hermes_gc");
+}
+
+extern "C" char* ex_hermes_get_heap_info(
+    ExactHermesRuntime* runtime,
+    int include_expensive) {
+  if (!runtime || !runtime->runtime) {
+    return nullptr;
+  }
+
+  auto heapInfo = captureHeapInfo(runtime, include_expensive != 0);
+  return copyMallocString(stringifyHeapInfo(heapInfo));
+}
+
+extern "C" char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) {
+    return nullptr;
+  }
+
+  try {
+    auto stats = runtime->runtime->instrumentation().getRecordedGCStats();
+    return copyMallocString(stats);
+  } catch (...) {
+    return nullptr;
+  }
 }
 
 // =============================================================================
