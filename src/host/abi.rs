@@ -442,6 +442,21 @@ fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value
     let ctime_ns = unix_time_nanos(ctime);
     let birthtime_ns = unix_time_nanos(birthtime);
     let file_type = meta.file_type();
+    let (is_char_device, is_block_device, is_fifo, is_socket) = {
+        #[cfg(unix)]
+        {
+            (
+                file_type.is_char_device(),
+                file_type.is_block_device(),
+                file_type.is_fifo(),
+                file_type.is_socket(),
+            )
+        }
+        #[cfg(not(unix))]
+        {
+            (false, false, false, false)
+        }
+    };
 
     Some(json!({
         "size": meta.len(),
@@ -457,10 +472,10 @@ fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value
         "is_dir": file_type.is_dir(),
         "is_file": file_type.is_file(),
         "is_symlink": file_type.is_symlink(),
-        "is_char_device": file_type.is_char_device(),
-        "is_block_device": file_type.is_block_device(),
-        "is_fifo": file_type.is_fifo(),
-        "is_socket": file_type.is_socket(),
+        "is_char_device": is_char_device,
+        "is_block_device": is_block_device,
+        "is_fifo": is_fifo,
+        "is_socket": is_socket,
         "atime_ms": atime_ms,
         "mtime_ms": mtime_ms,
         "ctime_ms": ctime_ms,

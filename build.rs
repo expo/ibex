@@ -9,6 +9,40 @@ fn env_path(var: &str) -> PathBuf {
     }
 }
 
+fn target_arch_to_hermes_dir(arch: &str) -> String {
+    match arch {
+        "x86_64" => "x64".to_string(),
+        "aarch64" => "arm64".to_string(),
+        "x86" | "i686" => "x86".to_string(),
+        _ => arch.to_string(),
+    }
+}
+
+fn windows_hermes_root(repo_root: &Path, arch: &str) -> PathBuf {
+    repo_root
+        .join("tools")
+        .join("hermes")
+        .join(format!("windows-{}", target_arch_to_hermes_dir(arch)))
+}
+
+fn hermesc_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf {
+    if target_os == "windows" {
+        return windows_hermes_root(repo_root, target_arch)
+            .join("bin")
+            .join("hermesc.exe");
+    }
+    repo_root.join("tools").join("hermes").join("hermesc")
+}
+
+fn hermes_cli_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf {
+    if target_os == "windows" {
+        return windows_hermes_root(repo_root, target_arch)
+            .join("bin")
+            .join("hermes.exe");
+    }
+    repo_root.join("tools").join("hermes").join("hermes")
+}
+
 fn read_bytes_or_panic(path: &Path, context: &str) -> Vec<u8> {
     std::fs::read(path)
         .unwrap_or_else(|error| panic!("Failed to read {context} at {}: {error}", path.display()))
@@ -57,30 +91,33 @@ fn main() {
     let out_dir = env_path("OUT_DIR");
 
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let default_ios_headers = repo_root
         .join("ios")
         .join("Frameworks")
         .join("hermes-headers");
     let default_linux_headers = repo_root.join("linux").join("hermes-headers");
+    let default_windows_root = repo_root.join("tools").join("hermes").join(format!(
+        "windows-{}",
+        target_arch_to_hermes_dir(&target_arch)
+    ));
+    let default_windows_headers = default_windows_root.join("include");
     let hermes_include_dir = std::env::var("HERMES_INCLUDE_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            if target_os == "linux" {
-                default_linux_headers.clone()
-            } else {
-                default_ios_headers.clone()
-            }
+        .unwrap_or_else(|_| match target_os.as_str() {
+            "linux" => default_linux_headers.clone(),
+            "windows" => default_windows_headers.clone(),
+            _ => default_ios_headers.clone(),
         });
     let default_ios_lib = repo_root.join("ios").join("Frameworks");
     let default_linux_lib = repo_root.join("linux").join("lib");
+    let default_windows_lib = default_windows_root.join("lib");
     let hermes_lib_dir = std::env::var("HERMES_LIB_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            if target_os == "linux" {
-                default_linux_lib.clone()
-            } else {
-                default_ios_lib.clone()
-            }
+        .unwrap_or_else(|_| match target_os.as_str() {
+            "linux" => default_linux_lib.clone(),
+            "windows" => default_windows_lib.clone(),
+            _ => default_ios_lib.clone(),
         });
     let hermes_framework_dir = if target_os == "macos" {
         let xcframework_macos = hermes_lib_dir
@@ -109,13 +146,29 @@ fn main() {
             );
         }
     }
+    if target_os == "windows" {
+        if !hermes_include_dir.exists() {
+            panic!(
+                "Windows Hermes headers not found at {}. Run ./scripts/install-windows-hermes.ps1 or set HERMES_INCLUDE_DIR.",
+                hermes_include_dir.display()
+            );
+        }
+        if !hermes_lib_dir.exists() {
+            panic!(
+                "Windows Hermes library dir not found at {}. Run ./scripts/install-windows-hermes.ps1 or set HERMES_LIB_DIR.",
+                hermes_lib_dir.display()
+            );
+        }
+    }
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_bootstrap.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_utils.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_dns.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_crypto.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_crypto_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fs.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fs_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_process.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_net.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_http.cc");
@@ -126,6 +179,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_timers.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_osinfo.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_process_setup.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_platform_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_websocket.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fetch.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_ipc.cc");
@@ -140,6 +194,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_linux.cc");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_linux.cc");
+    println!("cargo:rerun-if-changed=src/engine/native_fetch_windows.cc");
+    println!("cargo:rerun-if-changed=src/engine/native_websocket_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/bootstrap");
     println!("cargo:rerun-if-changed=src/builtins");
     println!(
@@ -189,6 +245,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
     let cli_notify_enabled = std::env::var_os("CARGO_FEATURE_CLI_NOTIFY").is_some();
+    let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
+    let openssl_crypto_enabled = std::env::var_os("CARGO_FEATURE_OPENSSL_CRYPTO").is_some();
     let hermes_macos_binary = if target_os == "macos" {
         let binary = find_macos_hermes_binary(&hermes_framework_dir)
             .or_else(|| find_macos_hermes_binary(&hermes_lib_dir));
@@ -304,8 +362,8 @@ fn main() {
     // If hermesc is available and compatible, compile each bootstrap .js file to .hbc and
     // generate a C++ header (bootstrap_bytecode.h) with static byte arrays.
     // This makes JS startup faster by loading bytecode directly from static storage.
-    let hermesc = repo_root.join("tools").join("hermes").join("hermesc");
-    let hermes_binary = repo_root.join("tools").join("hermes").join("hermes");
+    let hermesc = hermesc_path(repo_root, &target_os, &target_arch);
+    let hermes_binary = hermes_cli_path(repo_root, &target_os, &target_arch);
     let bootstrap_dir = manifest_dir.join("src").join("engine").join("bootstrap");
     println!("cargo:rerun-if-changed={}", hermesc.display());
     if hermes_binary.exists() {
@@ -497,6 +555,9 @@ fn main() {
             eprintln!("cargo:warning=HBC precompilation failed, falling back to source parsing");
         }
     }
+    if !bootstrap_hbc_header.exists() {
+        write_empty_bootstrap_hbc_header(&bootstrap_hbc_header, &bootstrap_files);
+    }
 
     // --- Generate bootstrap_source.h with JS source as C++ string literals ---
     // This keeps fallback loading aligned with the same bootstrap files used for HBC.
@@ -525,10 +586,7 @@ fn main() {
             }
 
             let source = read_text_or_panic(&js_path, "bootstrap source");
-            src_header.push_str(&format!(
-                "static const char* {}_SRC = R\"JSSRC(\n{})JSSRC\";\n\n",
-                const_name, source
-            ));
+            push_cpp_raw_string_literal(&mut src_header, &format!("{}_SRC", const_name), &source);
         }
 
         if all_ok {
@@ -541,34 +599,73 @@ fn main() {
         }
     }
 
-    // Compile hermes_runtime.cc
+    // Compile Hermes runtime adapter sources.
     let mut build = cc::Build::new();
     build
         .cpp(true)
         .file("src/engine/hermes_runtime.cc")
         .file("src/engine/hermes_bootstrap.cc")
         .file("src/engine/hermes_runtime_utils.cc")
-        .file("src/engine/hermes_runtime_dns.cc")
-        .file("src/engine/hermes_runtime_crypto.cc")
-        .file("src/engine/hermes_runtime_fs.cc")
-        .file("src/engine/hermes_runtime_process.cc")
-        .file("src/engine/hermes_runtime_net.cc")
-        .file("src/engine/hermes_runtime_http.cc")
         .file("src/engine/hermes_runtime_sqlite.cc")
-        .file("src/engine/hermes_runtime_debugger.cc")
-        .file("src/engine/hermes_runtime_ios.cc")
         .file("src/engine/hermes_runtime_console.cc")
         .file("src/engine/hermes_runtime_timers.cc")
-        .file("src/engine/hermes_runtime_osinfo.cc")
-        .file("src/engine/hermes_runtime_process_setup.cc")
         .file("src/engine/hermes_runtime_websocket.cc")
         .file("src/engine/hermes_runtime_fetch.cc")
         .file("src/engine/hermes_runtime_ipc.cc")
         .include(&hermes_include_dir)
-        .include(&out_dir) // For bootstrap_bytecode.h
-        .flag_if_supported("-std=c++17")
-        .flag_if_supported("-stdlib=libc++")
-        .flag_if_supported("-fPIC");
+        .include(&out_dir); // For bootstrap_bytecode.h
+
+    build.std("c++17");
+
+    if target_os == "windows" {
+        let hermes_jsi_cpp = hermes_include_dir.join("jsi").join("jsi.cpp");
+        let hermes_jsilib_windows_cpp = hermes_include_dir.join("jsi").join("jsilib-windows.cpp");
+        let hermes_rtti_cpp = hermes_include_dir
+            .join("hermes")
+            .join("Public")
+            .join("rtti.cpp");
+
+        if !hermes_jsi_cpp.exists() {
+            panic!(
+                "Windows Hermes package is missing {}; run scripts/install-windows-hermes.ps1",
+                hermes_jsi_cpp.display()
+            );
+        }
+        if !hermes_rtti_cpp.exists() {
+            panic!(
+                "Windows Hermes package is missing {}; run scripts/install-windows-hermes.ps1",
+                hermes_rtti_cpp.display()
+            );
+        }
+
+        build.file("src/engine/hermes_runtime_fs_windows.cc");
+        build.file("src/engine/hermes_runtime_crypto_windows.cc");
+        build.file("src/engine/hermes_runtime_platform_windows.cc");
+        build.file(&hermes_jsi_cpp);
+        if hermes_jsilib_windows_cpp.exists() {
+            build.file(&hermes_jsilib_windows_cpp);
+        }
+        build.file(&hermes_rtti_cpp);
+        build.define("EXACT_PLATFORM_WINDOWS", None);
+        build.define("EXACT_NO_OPENSSL", None);
+        build.define("_WINDOWS", None);
+        build.flag("/EHsc");
+        build.flag("/Zc:__cplusplus");
+    } else {
+        build
+            .file("src/engine/hermes_runtime_crypto.cc")
+            .file("src/engine/hermes_runtime_dns.cc")
+            .file("src/engine/hermes_runtime_fs.cc")
+            .file("src/engine/hermes_runtime_process.cc")
+            .file("src/engine/hermes_runtime_net.cc")
+            .file("src/engine/hermes_runtime_http.cc")
+            .file("src/engine/hermes_runtime_debugger.cc")
+            .file("src/engine/hermes_runtime_ios.cc")
+            .file("src/engine/hermes_runtime_osinfo.cc")
+            .file("src/engine/hermes_runtime_process_setup.cc")
+            .flag_if_supported("-stdlib=libc++")
+            .flag_if_supported("-fPIC");
+    }
 
     // Set minimum deployment targets to match Xcode project settings.
     // This avoids "was built for newer version" linker warnings for our C++ files.
@@ -588,11 +685,19 @@ fn main() {
     match target_os.as_str() {
         "macos" => {
             // OpenSSL include path from vendored openssl-sys crate
-            if let Ok(openssl_include) = std::env::var("DEP_OPENSSL_INCLUDE") {
-                build.include(&openssl_include);
+            if openssl_crypto_enabled {
+                if let Ok(openssl_include) = std::env::var("DEP_OPENSSL_INCLUDE") {
+                    build.include(&openssl_include);
+                }
+            } else {
+                build.define("EXACT_NO_OPENSSL", None);
             }
 
             // Brotli include path from vendored source
+            let brotli_include = manifest_dir.join("vendor").join("brotli").join("include");
+            build.include(&brotli_include);
+        }
+        "windows" => {
             let brotli_include = manifest_dir.join("vendor").join("brotli").join("include");
             build.include(&brotli_include);
         }
@@ -604,8 +709,12 @@ fn main() {
             build.define("EXACT_PLATFORM_IOS", None);
         }
         "linux" => {
-            if let Ok(openssl_include) = std::env::var("DEP_OPENSSL_INCLUDE") {
-                build.include(&openssl_include);
+            if openssl_crypto_enabled {
+                if let Ok(openssl_include) = std::env::var("DEP_OPENSSL_INCLUDE") {
+                    build.include(&openssl_include);
+                }
+            } else {
+                build.define("EXACT_NO_OPENSSL", None);
             }
             let brotli_include = manifest_dir.join("vendor").join("brotli").join("include");
             build.include(&brotli_include);
@@ -613,15 +722,21 @@ fn main() {
         _ => {}
     }
 
+    // App-host profile uses the same reduced crypto shape as Windows for now.
+    if app_host_enabled {
+        build.define("EXACT_NO_OPENSSL", None);
+    }
+
     // Debugger support is auto-detected on macOS so we do not compile against
     // debugger APIs that are missing from the checked-in Hermes framework.
-    let enable_debugger = should_enable_hermes_debugger(&target_os, hermes_macos_binary.as_deref());
+    let enable_debugger = target_os != "windows"
+        && should_enable_hermes_debugger(&target_os, hermes_macos_binary.as_deref());
 
     if enable_debugger {
         build.define("HERMES_ENABLE_DEBUGGER", None);
         println!("cargo:rustc-cfg=hermes_debugger");
     }
-    if cli_notify_enabled {
+    if cli_notify_enabled && target_os != "windows" {
         build.define("EXACT_RUNTIME_USE_HTTP_STUBS", None);
     }
 
@@ -683,8 +798,10 @@ fn main() {
             if let Ok(lib_dir) = std::env::var("DEP_OPENSSL_LIB_DIR") {
                 println!("cargo:rustc-link-search=native={}", lib_dir);
             }
-            println!("cargo:rustc-link-lib=static=ssl");
-            println!("cargo:rustc-link-lib=static=crypto");
+            if openssl_crypto_enabled {
+                println!("cargo:rustc-link-lib=static=ssl");
+                println!("cargo:rustc-link-lib=static=crypto");
+            }
             // Link libresolv for DNS res_query()
             println!("cargo:rustc-link-lib=resolv");
 
@@ -711,6 +828,43 @@ fn main() {
             // Link libresolv for DNS on iOS too
             println!("cargo:rustc-link-lib=resolv");
         }
+    }
+
+    if target_os == "windows" {
+        let mut fetch_build = cc::Build::new();
+        fetch_build
+            .cpp(true)
+            .file("src/engine/native_fetch_windows.cc")
+            .include(&hermes_include_dir)
+            .include(&out_dir)
+            .std("c++17")
+            .flag("/EHsc")
+            .flag("/Zc:__cplusplus");
+        fetch_build.compile("exact_native_fetch");
+
+        let mut ws_build = cc::Build::new();
+        ws_build
+            .cpp(true)
+            .file("src/engine/native_websocket_windows.cc")
+            .include(&hermes_include_dir)
+            .include(&out_dir)
+            .std("c++17")
+            .flag("/EHsc")
+            .flag("/Zc:__cplusplus");
+        ws_build.compile("exact_native_websocket");
+
+        println!(
+            "cargo:rustc-link-search=native={}",
+            hermes_lib_dir.display()
+        );
+        let hermes_lib_name =
+            std::env::var("HERMES_LIB_NAME").unwrap_or_else(|_| "hermes".to_string());
+        println!("cargo:rustc-link-lib=dylib={hermes_lib_name}");
+        println!("cargo:rustc-link-lib=winhttp");
+        println!("cargo:rustc-link-lib=bcrypt");
+        println!("cargo:rustc-link-lib=ncrypt");
+        println!("cargo:rustc-link-lib=crypt32");
+        println!("cargo:rustc-link-lib=ws2_32");
     }
 
     if target_os == "linux" {
@@ -780,11 +934,13 @@ fn main() {
             );
         }
 
-        if let Ok(lib_dir) = std::env::var("DEP_OPENSSL_LIB_DIR") {
-            println!("cargo:rustc-link-search=native={}", lib_dir);
+        if openssl_crypto_enabled {
+            if let Ok(lib_dir) = std::env::var("DEP_OPENSSL_LIB_DIR") {
+                println!("cargo:rustc-link-search=native={}", lib_dir);
+            }
+            println!("cargo:rustc-link-lib=static=ssl");
+            println!("cargo:rustc-link-lib=static=crypto");
         }
-        println!("cargo:rustc-link-lib=static=ssl");
-        println!("cargo:rustc-link-lib=static=crypto");
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=z");
         if has_minimum_libcurl {
@@ -880,7 +1036,7 @@ fn js_runner_candidates(name: &str) -> Vec<PathBuf> {
     for env_var in js_runner_env_vars(name) {
         if let Ok(value) = std::env::var(env_var) {
             if !value.trim().is_empty() {
-                candidates.push(PathBuf::from(value));
+                push_js_runner_candidate(&mut candidates, PathBuf::from(value));
             }
         }
     }
@@ -895,11 +1051,21 @@ fn js_runner_candidates(name: &str) -> Vec<PathBuf> {
         if dir.is_empty() {
             continue;
         }
-        candidates.push(PathBuf::from(dir).join(name));
+        push_js_runner_candidate(&mut candidates, PathBuf::from(dir).join(name));
     }
 
     candidates.extend(common_js_runner_locations(name));
     dedupe_paths(candidates)
+}
+
+fn push_js_runner_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    candidates.push(path.clone());
+
+    if cfg!(target_os = "windows") && path.extension().is_none() {
+        for extension in ["exe", "cmd", "bat"] {
+            candidates.push(path.with_extension(extension));
+        }
+    }
 }
 
 fn js_runner_env_vars(name: &str) -> &'static [&'static str] {
@@ -915,25 +1081,31 @@ fn common_js_runner_locations(name: &str) -> Vec<PathBuf> {
 
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
-        candidates.push(home.join(".bun").join("bin").join(name));
-        candidates.push(home.join(".volta").join("bin").join(name));
-        candidates.push(home.join(".asdf").join("shims").join(name));
+        push_js_runner_candidate(&mut candidates, home.join(".bun").join("bin").join(name));
+        push_js_runner_candidate(&mut candidates, home.join(".volta").join("bin").join(name));
+        push_js_runner_candidate(&mut candidates, home.join(".asdf").join("shims").join(name));
 
         if let Ok(nvm_bin) = std::env::var("NVM_BIN") {
             if !nvm_bin.trim().is_empty() {
-                candidates.push(PathBuf::from(nvm_bin).join(name));
+                push_js_runner_candidate(&mut candidates, PathBuf::from(nvm_bin).join(name));
             }
         }
 
         if let Ok(asdf_dir) = std::env::var("ASDF_DIR") {
             if !asdf_dir.trim().is_empty() {
-                candidates.push(PathBuf::from(asdf_dir).join("shims").join(name));
+                push_js_runner_candidate(
+                    &mut candidates,
+                    PathBuf::from(asdf_dir).join("shims").join(name),
+                );
             }
         }
     }
 
-    candidates.push(PathBuf::from("/opt/homebrew/bin").join(name));
-    candidates.push(PathBuf::from("/usr/local/bin").join(name));
+    push_js_runner_candidate(
+        &mut candidates,
+        PathBuf::from("/opt/homebrew/bin").join(name),
+    );
+    push_js_runner_candidate(&mut candidates, PathBuf::from("/usr/local/bin").join(name));
 
     candidates
 }
@@ -1039,13 +1211,11 @@ fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow
         return;
     }
 
-    let runtime_bundle_literal = format!("{source:?}");
-    let header = format!(
+    let mut header = String::from(
         "// Generated by build.rs from packages/exact-runtime-js/src/runtime-entry.ts\n\
-         // Do not edit by hand.\n\
-         static const char* SHARED_RUNTIME_BUNDLE_SRC = {};\n",
-        runtime_bundle_literal
+         // Do not edit by hand.\n",
     );
+    push_cpp_raw_string_literal(&mut header, "SHARED_RUNTIME_BUNDLE_SRC", &source);
     write_file_or_panic(&header_path, header, "runtime_bundle_source.h");
     eprintln!("cargo:warning=Generated runtime_bundle_source.h from shared runtime bundle");
 
@@ -1087,13 +1257,59 @@ fn build_runtime_bundle_source(
     try_build_runtime_bundle_via_primary_checkout(repo_root, runtime_entry, bundled_runtime)
 }
 
+fn push_cpp_raw_string_literal(out: &mut String, const_name: &str, source: &str) {
+    const CHUNK_SIZE: usize = 16 * 1024;
+    out.push_str(&format!("static const char* {const_name} =\n"));
+
+    if source.is_empty() {
+        out.push_str("R\"JSSRC()JSSRC\"");
+    } else {
+        let mut start = 0;
+        while start < source.len() {
+            let mut end = (start + CHUNK_SIZE).min(source.len());
+            while end > start && !source.is_char_boundary(end) {
+                end -= 1;
+            }
+            if end == start {
+                end = source.len();
+            }
+            out.push_str("R\"JSSRC(");
+            out.push_str(&source[start..end]);
+            out.push_str(")JSSRC\"");
+            if end < source.len() {
+                out.push('\n');
+            }
+            start = end;
+        }
+    }
+
+    out.push_str(";\n\n");
+}
+
+fn write_empty_bootstrap_hbc_header(path: &Path, bootstrap_files: &[(&str, &str)]) {
+    let mut header = String::from(
+        "// Auto-generated by build.rs — empty fallback bytecode placeholders\n\
+         #pragma once\n\n",
+    );
+    for (_, array_name) in bootstrap_files {
+        header.push_str(&format!(
+            "alignas(8) static const uint8_t {}_HBC[] = {{0}};\n\
+             static const size_t {}_HBC_LEN = 0;\n\n",
+            array_name, array_name
+        ));
+    }
+    write_file_or_panic(path, header, "empty bootstrap_bytecode.h");
+}
+
 fn generate_runtime_bundle_bytecode_header(
     repo_root: &Path,
     out_dir: &Path,
     bundled_runtime: &Path,
 ) {
-    let hermesc = repo_root.join("tools").join("hermes").join("hermesc");
-    let hermes_binary = repo_root.join("tools").join("hermes").join("hermes");
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let hermesc = hermesc_path(repo_root, &target_os, &target_arch);
+    let hermes_binary = hermes_cli_path(repo_root, &target_os, &target_arch);
     let bundled_runtime_hbc = out_dir.join("embedded_runtime_bundle.hbc");
     let header_path = out_dir.join("runtime_bundle_bytecode.h");
 

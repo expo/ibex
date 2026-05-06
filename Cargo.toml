@@ -59,12 +59,15 @@ libc = "0.2"
 
 [features]
 default = []
+app-host = []
+cli-server = []
+openssl-crypto = ["dep:openssl-sys"]
 # When enabled, skips the default ex_hermes_notify_callback implementation.
 # The CLI provides its own tokio-based version.
 cli-notify = []
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
-openssl-sys = { version = "0.9", features = ["vendored"] }
+openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
 
 [build-dependencies]
 cc = "1.0"

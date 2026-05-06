@@ -7,7 +7,18 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #endif
+#if defined(__has_include)
+#if __has_include(<hermes/AsyncDebuggerAPI.h>)
+#define EXACT_HAS_HERMES_ASYNC_DEBUGGER 1
+#endif
+#endif
+#if !defined(EXACT_HAS_HERMES_ASYNC_DEBUGGER)
+#define EXACT_HAS_HERMES_ASYNC_DEBUGGER 0
+#endif
+
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 #include <hermes/AsyncDebuggerAPI.h>
+#endif
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 #include <jsi/instrumentation.h>
@@ -57,7 +68,9 @@ struct FetchCallbackEntry {
 
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
   std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debugger;
+#endif
   bool debugger_callback_set{false};
   std::atomic<bool> debugger_attached{false};
   std::atomic<bool> debugger_available{true};
@@ -277,14 +290,20 @@ std::string stringifyHeapInfo(
     const std::unordered_map<std::string, int64_t>& heapInfo);
 char* copyMallocString(const std::string& value);
 void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event);
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
     ExactHermesRuntime* runtime);
+#endif
 void clearDebugger(ExactHermesRuntime* runtime);
 void disableDebugger(ExactHermesRuntime* runtime);
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 std::string buildPausedEvent(facebook::hermes::debugger::Debugger& debugger);
+#endif
 bool runtimeIsAlive(ExactHermesRuntime* runtime);
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 void emitNewScripts(ExactHermesRuntime* runtime,
                     facebook::hermes::debugger::Debugger& debugger);
+#endif
 
 void pushRuntimeCallback(ExactHermesRuntime* runtime,
                          std::function<void(facebook::jsi::Runtime&)> fn);

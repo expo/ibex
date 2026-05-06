@@ -6,7 +6,11 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #endif
+#if defined(__has_include)
+#if __has_include(<hermes/AsyncDebuggerAPI.h>)
 #include <hermes/AsyncDebuggerAPI.h>
+#endif
+#endif
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 #include <jsi/instrumentation.h>
@@ -41,6 +45,14 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <direct.h>
+#include <malloc.h>
+#include <windows.h>
+#else
 #include <sys/poll.h>
 #include <unistd.h>
 #include <sys/resource.h>
@@ -70,6 +82,7 @@
 #include <netinet/tcp.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#endif
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #include <mach/mach_host.h>
@@ -116,7 +129,7 @@ extern "C" {
 #include <openssl/param_build.h>
 #include <openssl/core_names.h>
 #endif // !EXACT_NO_OPENSSL
-#else
+#elif !defined(_WIN32)
 #include <sys/sysinfo.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -134,7 +147,7 @@ extern "C" {
 #include <arpa/nameser.h>
 #endif
 
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) && !defined(_WIN32)
 extern "C" char **environ;
 #endif
 
@@ -367,16 +380,27 @@ class AlignedBytecodeBuffer : public facebook::jsi::Buffer {
     }
     const size_t alignment = alignof(std::max_align_t);
     size_t padded = (len + alignment - 1) & ~(alignment - 1);
+#if defined(_WIN32)
+    data_ = static_cast<uint8_t*>(_aligned_malloc(padded, alignment));
+    if (!data_) {
+      throw std::bad_alloc();
+    }
+#else
     if (posix_memalign(reinterpret_cast<void**>(&data_), alignment, padded) != 0) {
       data_ = nullptr;
       throw std::bad_alloc();
     }
+#endif
     memcpy(data_, data, len);
   }
 
   ~AlignedBytecodeBuffer() {
     if (data_) {
+#if defined(_WIN32)
+      _aligned_free(data_);
+#else
       free(data_);
+#endif
     }
   }
 
@@ -662,6 +686,7 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
     return count;
 }
 
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 void emitScriptParsed(ExactHermesRuntime* runtime,
                       const facebook::hermes::debugger::SourceLocation& loc) {
   using facebook::hermes::debugger::kInvalidLocation;
@@ -697,6 +722,7 @@ void emitNewScriptsImpl(ExactHermesRuntime* runtime,
 // Template functions moved to hermes_runtime_templates.inl
 // (shared with hermes_runtime_debugger.cc)
 #include "hermes_runtime_templates.inl"
+#endif
 
 std::string getEnvValue(const std::string& key) {
   char buffer[4096];
@@ -850,7 +876,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (!checkCapability("env:read:*")) {
           return env;
         }
-#if defined(__APPLE__)
+#if defined(_WIN32)
+        char **envp = nullptr;
+#elif defined(__APPLE__)
         char **envp = *_NSGetEnviron();
 #else
         char **envp = ::environ;
@@ -900,7 +928,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
         char buffer[4096];
+#if defined(_WIN32)
+        if (_getcwd(buffer, sizeof(buffer)) == nullptr) {
+#else
         if (getcwd(buffer, sizeof(buffer)) == nullptr) {
+#endif
           return facebook::jsi::Value::undefined();
         }
         return facebook::jsi::Value(
@@ -922,7 +954,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               "process.chdir() expected path string");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+#if defined(_WIN32)
+        if (_chdir(path.c_str()) != 0) {
+#else
         if (chdir(path.c_str()) != 0) {
+#endif
           throw facebook::jsi::JSError(
               runtime,
               "Failed to change directory: " + std::string(strerror(errno)));
@@ -1251,10 +1287,12 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
 
 } // namespace
 
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 void emitNewScripts(ExactHermesRuntime* runtime,
                     facebook::hermes::debugger::Debugger& debugger) {
   emitNewScriptsImpl(runtime, debugger);
 }
+#endif
 
 #define TRACE_START(name) \
   auto _trace_##name = std::chrono::steady_clock::now()
@@ -1293,7 +1331,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   TRACE_END(handle_alloc);
 
   TRACE_START(debugger_init);
-#if defined(HERMES_ENABLE_DEBUGGER)
+#if defined(HERMES_ENABLE_DEBUGGER) && EXACT_HAS_HERMES_ASYNC_DEBUGGER
   try {
     handle->debugger =
         std::make_shared<facebook::hermes::debugger::AsyncDebuggerAPI>(*handle->runtime);
@@ -1399,6 +1437,7 @@ extern "C" int ex_hermes_eval(
     if (is_bytecode) {
       source_buffer = std::make_shared<AlignedBytecodeBuffer>(data, len);
       auto aligned_data = source_buffer->data();
+#if !defined(_WIN32)
       const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
       auto* hermes = facebook::jsi::castInterface<::facebook::hermes::IHermes>(runtime->runtime.get());
       auto* hermes_root = hermes ? facebook::jsi::castInterface<::facebook::hermes::IHermesRootAPI>(
@@ -1418,6 +1457,9 @@ extern "C" int ex_hermes_eval(
           return 1;
         }
       }
+#else
+      (void)aligned_data;
+#endif
       result = runtime->runtime->evaluateJavaScript(source_buffer, source);
     } else {
       source_buffer = std::make_shared<MemoryBuffer>(data, len);
@@ -1425,9 +1467,11 @@ extern "C" int ex_hermes_eval(
     }
     runNextTickQueue(runtime);
     drainMicrotasks(*runtime->runtime);
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
     if (runtime->debugger_attached.load()) {
       emitNewScripts(runtime, runtime->runtime->getDebugger());
     }
+#endif
 
     // If the result is a thenable/Promise, resolve it before returning.
     // This makes top-level await work in the REPL and eval contexts.

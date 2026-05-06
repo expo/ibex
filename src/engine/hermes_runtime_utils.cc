@@ -253,6 +253,7 @@ void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event) {
   runtime->debug_events.push_back(event);
 }
 
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
     ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->debugger_available.load()) {
@@ -265,6 +266,7 @@ std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
   }
   return runtime->debugger;
 }
+#endif
 
 void clearDebugger(ExactHermesRuntime* runtime) {
   if (!runtime) {
@@ -272,7 +274,9 @@ void clearDebugger(ExactHermesRuntime* runtime) {
   }
 
   std::lock_guard<std::mutex> lock(runtime->debug_mutex);
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
   runtime->debugger.reset();
+#endif
   runtime->debugger_callback_set = false;
 }
 
@@ -286,6 +290,7 @@ void disableDebugger(ExactHermesRuntime* runtime) {
   clearDebugger(runtime);
 }
 
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 static std::string pauseReasonToString(facebook::hermes::debugger::PauseReason reason) {
   using facebook::hermes::debugger::PauseReason;
   switch (reason) {
@@ -352,3 +357,4 @@ std::string buildPausedEvent(facebook::hermes::debugger::Debugger& debugger) {
   out << "}}";
   return out.str();
 }
+#endif
