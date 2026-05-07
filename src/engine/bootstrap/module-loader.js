@@ -3450,7 +3450,8 @@
         var continued = line.indexOf("import.meta") !== -1 ? transformImportMeta(line) : line;
         out.push(continued);
         pendingVarExport.depth += countDelimiters(continued);
-        if (pendingVarExport.depth <= 0 && /;\s*$/.test(trimmed)) {
+        var closesExportedIife = pendingVarExport.iife && /^\s*\}\s*\([^)]*\)\s*;\s*$/.test(trimmed);
+        if ((pendingVarExport.depth <= 0 && /;\s*$/.test(trimmed)) || closesExportedIife) {
           out.push("module.exports." + pendingVarExport.name + " = " + pendingVarExport.name + ";");
           pendingVarExport = null;
         }
@@ -3775,7 +3776,8 @@
         } else {
           pendingVarExport = {
             name: m[3],
-            depth: declarationDepth
+            depth: declarationDepth,
+            iife: new RegExp("^\\s*(?:var|let|const)\\s+" + m[3] + "\\s*=\\s*function\\b").test(declaration)
           };
         }
         continue;

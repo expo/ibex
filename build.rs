@@ -641,6 +641,9 @@ fn main() {
         build.file("src/engine/hermes_runtime_fs_windows.cc");
         build.file("src/engine/hermes_runtime_crypto_windows.cc");
         build.file("src/engine/hermes_runtime_http.cc");
+        // Despite the historical filename, this file owns the platform-neutral
+        // exact.dispatch/module/kernel C ABI that native hosts install.
+        build.file("src/engine/hermes_runtime_ios.cc");
         build.file("src/engine/hermes_runtime_platform_windows.cc");
         build.file(&hermes_jsi_cpp);
         if hermes_jsilib_windows_cpp.exists() {
