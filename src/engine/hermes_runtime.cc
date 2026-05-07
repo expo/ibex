@@ -363,12 +363,15 @@ extern "C" void native_fetch_cancel(uint32_t request_id);
 
 class MemoryBuffer : public facebook::jsi::Buffer {
  public:
-  MemoryBuffer(const uint8_t* data, size_t len) : data_(data, data + len) {}
+  MemoryBuffer(const uint8_t* data, size_t len) : size_(len), data_(data, data + len) {
+    data_.push_back(0);
+  }
 
-  size_t size() const override { return data_.size(); }
+  size_t size() const override { return size_; }
   const uint8_t* data() const override { return data_.data(); }
 
  private:
+  size_t size_;
   std::vector<uint8_t> data_;
 };
 
@@ -491,6 +494,14 @@ double processUptimeSeconds() {
   return elapsed.count();
 }
 
+[[noreturn]] void exactHostExit(int code) {
+#if defined(_WIN32)
+  ExitProcess(static_cast<UINT>(code));
+#else
+  std::exit(code);
+#endif
+}
+
 facebook::jsi::Function makeHardExitFn(facebook::jsi::Runtime& rt) {
   auto fn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -515,15 +526,13 @@ facebook::jsi::Function makeHardExitFn(facebook::jsi::Runtime& rt) {
         try {
           auto processObj = runtime.global().getProperty(runtime, "process");
           if (!processObj.isObject()) {
-            std::exit(code);
-            return facebook::jsi::Value::undefined();
+            exactHostExit(code);
           }
           auto process = processObj.asObject(runtime);
           process.setProperty(runtime, "exitCode", facebook::jsi::Value(code));
         } catch (...) {
         }
-        std::exit(code);
-        return facebook::jsi::Value::undefined();
+        exactHostExit(code);
       });
   try {
     fn.setProperty(rt, "__exactHostExit", facebook::jsi::Value(true));
@@ -533,7 +542,11 @@ facebook::jsi::Function makeHardExitFn(facebook::jsi::Runtime& rt) {
 }
 
 void drainMicrotasks(facebook::jsi::Runtime& rt) {
+#if defined(_WIN32)
+  rt.drainMicrotasks(1024);
+#else
   rt.drainMicrotasks(-1);
+#endif
 }
 
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
@@ -988,14 +1001,19 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             }
           }
         }
-        std::exit(code);
-        return facebook::jsi::Value::undefined();
+        exactHostExit(code);
       });
   rt.global().setProperty(rt, "__exactExit", std::move(exactExitFn));
 
   installOsInfoGlobals(handle);
 
   installCryptoHostFunctions(handle);
+#if defined(_WIN32)
+  if (!handle->fs_functions_loaded) {
+    handle->fs_functions_loaded = true;
+    installFsHostFunctions(handle);
+  }
+#endif
   auto ensureFsFn = facebook::jsi::Function::createFromHostFunction(
       rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureFs"), 0,
       [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
@@ -1150,6 +1168,18 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactEnsureSqlite", std::move(ensureSqliteFn));
 
+  // Deferred: DNS host functions (registered lazily on first use)
+  auto ensureDnsFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactEnsureDns"), 0,
+      [handle](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+               const facebook::jsi::Value*, size_t) -> facebook::jsi::Value {
+        if (!handle->dns_functions_loaded) {
+          handle->dns_functions_loaded = true;
+          installDnsHostFunctions(handle);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactEnsureDns", std::move(ensureDnsFn));
 
 
 
@@ -1412,6 +1442,7 @@ extern "C" int ex_hermes_eval(
   }
 
   std::string source = source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
+  bool traceEval = startup_trace_enabled();
   if (!is_bytecode) {
     runtime->sources_by_name[source] = std::string(reinterpret_cast<const char*>(data), len);
   }
@@ -1463,10 +1494,26 @@ extern "C" int ex_hermes_eval(
       result = runtime->runtime->evaluateJavaScript(source_buffer, source);
     } else {
       source_buffer = std::make_shared<MemoryBuffer>(data, len);
+      if (traceEval) {
+        fprintf(stderr, "[eval] evaluate_start %s len=%zu\n", source.c_str(), len);
+      }
       result = runtime->runtime->evaluateJavaScript(source_buffer, source);
     }
+    if (traceEval) {
+      fprintf(stderr, "[eval] evaluate_end %s\n", source.c_str());
+    }
+    if (traceEval) {
+      fprintf(stderr, "[eval] next_tick_start %s\n", source.c_str());
+    }
     runNextTickQueue(runtime);
+    if (traceEval) {
+      fprintf(stderr, "[eval] next_tick_end %s\n", source.c_str());
+      fprintf(stderr, "[eval] microtasks_start %s\n", source.c_str());
+    }
     drainMicrotasks(*runtime->runtime);
+    if (traceEval) {
+      fprintf(stderr, "[eval] microtasks_end %s\n", source.c_str());
+    }
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
     if (runtime->debugger_attached.load()) {
       emitNewScripts(runtime, runtime->runtime->getDebugger());
@@ -1475,6 +1522,10 @@ extern "C" int ex_hermes_eval(
 
     // If the result is a thenable/Promise, resolve it before returning.
     // This makes top-level await work in the REPL and eval contexts.
+    // Windows Hermes currently does not support async function syntax in this
+    // eval path, and the CLI already drives the event loop after file/eval
+    // execution, so skip the JS unwrap shim there.
+#if !defined(_WIN32)
     if (result.isObject()) {
       auto& rt = *runtime->runtime;
       // Stash the result as a temp global so JS can inspect it
@@ -1565,6 +1616,7 @@ extern "C" int ex_hermes_eval(
         }
       }
     }
+#endif
 
     if (out_value) {
       if (result.isUndefined()) {

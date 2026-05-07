@@ -1,6 +1,7 @@
 #include "hermes_runtime_internal.h"
 
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -29,6 +30,18 @@ extern "C" void native_fetch_cancel(uint32_t request_id);
 namespace {
 
 constexpr uint32_t EXACT_FETCH_TIMEOUT_MS = 30000;
+
+#if defined(_WIN32)
+struct SyncFetchResult {
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool done = false;
+  int status = 0;
+  std::string statusText;
+  std::string headers;
+  std::vector<uint8_t> body;
+};
+#endif
 
 } // namespace
 
@@ -330,4 +343,192 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         return promise;
       });
   rt.global().setProperty(rt, "__nativeFetch", std::move(nativeFetchFn));
+
+#if defined(_WIN32)
+  auto nativeFetchSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__nativeFetchSync"),
+      3,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__nativeFetchSync: url and init required");
+        }
+        if (!checkCapability("network:fetch")) {
+          throw facebook::jsi::JSError(
+              runtime, "Permission denied: network:fetch capability required");
+        }
+
+        std::string url = args[0].toString(runtime).utf8(runtime);
+        auto init = args[1].asObject(runtime);
+        std::string method = "GET";
+        if (init.hasProperty(runtime, "method")) {
+          auto methodVal = init.getProperty(runtime, "method");
+          if (methodVal.isString()) {
+            method = methodVal.toString(runtime).utf8(runtime);
+          }
+        }
+
+        std::string headers;
+        bool decompress = true;
+        if (init.hasProperty(runtime, "headers")) {
+          auto headersVal = init.getProperty(runtime, "headers");
+          if (headersVal.isObject()) {
+            auto headersObj = headersVal.asObject(runtime);
+            if (headersObj.isArray(runtime)) {
+              auto headersArray = headersObj.getArray(runtime);
+              for (size_t i = 0; i < headersArray.size(runtime); i++) {
+                auto tuple = headersArray.getValueAtIndex(runtime, i);
+                if (tuple.isObject() && tuple.asObject(runtime).isArray(runtime)) {
+                  auto pair = tuple.asObject(runtime).getArray(runtime);
+                  if (pair.size(runtime) >= 2) {
+                    auto name = pair.getValueAtIndex(runtime, 0).toString(runtime).utf8(runtime);
+                    auto value = pair.getValueAtIndex(runtime, 1).toString(runtime).utf8(runtime);
+                    headers += name + ": " + value + "\r\n";
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (init.hasProperty(runtime, "decompress")) {
+          auto decompressVal = init.getProperty(runtime, "decompress");
+          if (decompressVal.isBool()) {
+            decompress = decompressVal.getBool();
+          }
+        }
+
+        uint32_t timeout_ms = EXACT_FETCH_TIMEOUT_MS;
+        if (init.hasProperty(runtime, "timeout")) {
+          auto timeoutVal = init.getProperty(runtime, "timeout");
+          if (timeoutVal.isNumber()) {
+            auto timeoutNumber = timeoutVal.asNumber();
+            if (timeoutNumber > 0 && timeoutNumber <= 4294967295.0) {
+              timeout_ms = static_cast<uint32_t>(timeoutNumber);
+            }
+          }
+        }
+
+        std::vector<uint8_t> body;
+        if (count > 2 && !args[2].isNull() && !args[2].isUndefined() && args[2].isObject()) {
+          auto bodyObj = args[2].asObject(runtime);
+          if (bodyObj.hasProperty(runtime, "buffer")) {
+            auto bufVal = bodyObj.getProperty(runtime, "buffer");
+            if (bufVal.isObject()) {
+              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
+              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
+                  : 0;
+              auto length = bodyObj.hasProperty(runtime, "byteLength")
+                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
+                  : buf.size(runtime) - offset;
+              body.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
+            }
+          }
+        }
+
+        uint32_t requestId;
+        {
+          std::lock_guard<std::mutex> lock(handle->fetchMutex);
+          requestId = handle->nextFetchId++;
+        }
+
+        SyncFetchResult result;
+        native_fetch_perform(
+            requestId,
+            method.c_str(),
+            url.c_str(),
+            headers.empty() ? nullptr : headers.c_str(),
+            decompress ? 1 : 0,
+            body.empty() ? nullptr : body.data(),
+            body.size(),
+            [](uint32_t,
+               int status,
+               const char* status_text,
+               const char* resp_headers,
+               const uint8_t* resp_body,
+               size_t resp_body_length,
+               void* ctx) {
+              auto* result = static_cast<SyncFetchResult*>(ctx);
+              {
+                std::lock_guard<std::mutex> lock(result->mutex);
+                result->status = status;
+                result->statusText = status_text ? status_text : "";
+                result->headers = resp_headers ? resp_headers : "";
+                if (resp_body && resp_body_length > 0) {
+                  result->body.assign(resp_body, resp_body + resp_body_length);
+                }
+                result->done = true;
+              }
+              result->cv.notify_one();
+            },
+            &result);
+
+        {
+          std::unique_lock<std::mutex> lock(result.mutex);
+          if (!result.cv.wait_for(
+                  lock, std::chrono::milliseconds(timeout_ms), [&result] { return result.done; })) {
+            native_fetch_cancel(requestId);
+            throw facebook::jsi::JSError(runtime, "Fetch timed out");
+          }
+        }
+
+        if (result.status == 0) {
+          throw facebook::jsi::JSError(
+              runtime, result.statusText.empty() ? "Network error" : result.statusText);
+        }
+
+        facebook::jsi::Object response(runtime);
+        response.setProperty(runtime, "status", facebook::jsi::Value(result.status));
+        response.setProperty(
+            runtime,
+            "statusText",
+            facebook::jsi::String::createFromUtf8(runtime, result.statusText));
+        response.setProperty(runtime, "url", facebook::jsi::String::createFromUtf8(runtime, url));
+        response.setProperty(runtime, "redirected", facebook::jsi::Value(false));
+
+        std::vector<std::pair<std::string, std::string>> headerPairs;
+        size_t pos = 0;
+        while (pos < result.headers.size()) {
+          size_t lineEnd = result.headers.find("\r\n", pos);
+          if (lineEnd == std::string::npos) lineEnd = result.headers.size();
+          std::string line = result.headers.substr(pos, lineEnd - pos);
+          size_t colonPos = line.find(':');
+          if (colonPos != std::string::npos) {
+            std::string key = line.substr(0, colonPos);
+            std::string value = line.substr(colonPos + 1);
+            while (!value.empty() && value[0] == ' ') value.erase(0, 1);
+            headerPairs.push_back({key, value});
+          }
+          pos = lineEnd + 2;
+        }
+        facebook::jsi::Array headersArray(runtime, headerPairs.size());
+        for (size_t i = 0; i < headerPairs.size(); i++) {
+          facebook::jsi::Array tuple(runtime, 2);
+          tuple.setValueAtIndex(
+              runtime, 0, facebook::jsi::String::createFromUtf8(runtime, headerPairs[i].first));
+          tuple.setValueAtIndex(
+              runtime, 1, facebook::jsi::String::createFromUtf8(runtime, headerPairs[i].second));
+          headersArray.setValueAtIndex(runtime, i, tuple);
+        }
+        response.setProperty(runtime, "headers", headersArray);
+
+        if (!result.body.empty()) {
+          auto arrayBufferCtor = runtime.global().getPropertyAsFunction(runtime, "ArrayBuffer");
+          auto arrayBuffer =
+              arrayBufferCtor.callAsConstructor(runtime, static_cast<double>(result.body.size()))
+                  .getObject(runtime);
+          auto ab = arrayBuffer.getArrayBuffer(runtime);
+          memcpy(ab.data(runtime), result.body.data(), result.body.size());
+          response.setProperty(runtime, "body", arrayBuffer);
+        } else {
+          response.setProperty(runtime, "body", facebook::jsi::Value::null());
+        }
+
+        return response;
+      });
+  rt.global().setProperty(rt, "__nativeFetchSync", std::move(nativeFetchSyncFn));
+#endif
 }

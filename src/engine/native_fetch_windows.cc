@@ -133,6 +133,10 @@ bool parseUrl(
   return !host.empty();
 }
 
+bool isLoopbackHost(const std::wstring& host) {
+  return host == L"localhost" || host == L"127.0.0.1" || host == L"::1" || host == L"[::1]";
+}
+
 std::string queryHeaders(HINTERNET request, DWORD query) {
   DWORD size = 0;
   WinHttpQueryHeaders(request, query, WINHTTP_HEADER_NAME_BY_INDEX, nullptr, &size, WINHTTP_NO_HEADER_INDEX);
@@ -178,9 +182,11 @@ void performFetch(
     return;
   }
 
+  DWORD access_type =
+      isLoopbackHost(host) ? WINHTTP_ACCESS_TYPE_NO_PROXY : WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY;
   state->session = WinHttpOpen(
       L"Exact/0.1",
-      WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+      access_type,
       WINHTTP_NO_PROXY_NAME,
       WINHTTP_NO_PROXY_BYPASS,
       0);
@@ -191,7 +197,11 @@ void performFetch(
   }
   WinHttpSetTimeouts(state->session, 30000, 30000, 30000, 300000);
 
-  state->connect = WinHttpConnect(state->session, host.c_str(), port, 0);
+  // WinHTTP is unstable in this embedding when connecting directly to the
+  // numeric IPv4 loopback host. `localhost` exercises the same local path and
+  // avoids a process crash observed with 127.0.0.1 on Windows 11.
+  std::wstring connect_host = host == L"127.0.0.1" ? L"localhost" : host;
+  state->connect = WinHttpConnect(state->session, connect_host.c_str(), port, 0);
   if (!state->connect) {
     sendError(state, lastErrorString("WinHttpConnect"), callback, context);
     finish();
@@ -222,12 +232,14 @@ void performFetch(
       sizeof(disabled_features));
 
 #if defined(WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL) && defined(WINHTTP_PROTOCOL_FLAG_HTTP2)
-  DWORD protocols = WINHTTP_PROTOCOL_FLAG_HTTP2;
-  WinHttpSetOption(
-      state->request,
-      WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL,
-      &protocols,
-      sizeof(protocols));
+  if (GetEnvironmentVariableW(L"EXACT_WINHTTP_ENABLE_HTTP2", nullptr, 0) > 0) {
+    DWORD protocols = WINHTTP_PROTOCOL_FLAG_HTTP2;
+    WinHttpSetOption(
+        state->request,
+        WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL,
+        &protocols,
+        sizeof(protocols));
+  }
 #endif
 
   std::wstring wide_headers = utf8ToWide(headers);

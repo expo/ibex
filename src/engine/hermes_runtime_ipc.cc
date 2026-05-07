@@ -17,6 +17,13 @@ void installIpcListenerPatch(ExactHermesRuntime* handle) {
     return;
   }
 
+#if defined(_WIN32)
+  if (startup_trace_enabled()) {
+    fprintf(stderr, "[startup]   ipc_listener skipped on Windows\n");
+  }
+  return;
+#endif
+
   bool sourceIpcListener = env_flag_enabled("EX_IPC_LISTENER_SOURCE");
   bool ipcListenerHbc = env_flag_enabled("EX_IPC_LISTENER_HBC") || !sourceIpcListener;
 

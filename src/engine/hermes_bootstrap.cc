@@ -74,6 +74,15 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
     return false;
   }
 
+#if defined(_WIN32)
+  if (startup_trace_enabled()) {
+    fprintf(stderr,
+            "[startup]   shared_runtime_bundle skipped on Windows "
+            "(disk runtime loads after native startup)\n");
+  }
+  return false;
+#endif
+
   if (env_flag_enabled("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE")) {
     if (startup_trace_enabled()) {
       fprintf(
@@ -237,11 +246,21 @@ bool installModuleLoader(ExactHermesRuntime* handle) {
   }
 
   t0 = std::chrono::steady_clock::now();
-  if (env_flag_enabled("EX_SKIP_STARTUP_BOOTSTRAP_GLOBALS")) {
+  bool skip_bootstrap_globals = env_flag_enabled("EX_SKIP_STARTUP_BOOTSTRAP_GLOBALS");
+#if defined(_WIN32)
+  skip_bootstrap_globals = true;
+#endif
+  if (skip_bootstrap_globals) {
     if (startup_trace_enabled()) {
+#if defined(_WIN32)
+      fprintf(stderr,
+              "[startup]   bootstrap_globals skipped on Windows "
+              "(disk runtime bootstrap owns globals)\n");
+#else
       fprintf(stderr,
               "[startup]   bootstrap_globals skipped (set "
               "EX_SKIP_STARTUP_BOOTSTRAP_GLOBALS=0 to re-enable)\n");
+#endif
     }
   } else {
     bool source_bootstrap_globals = env_flag_enabled("EX_BOOTSTRAP_GLOBALS_SOURCE");
@@ -404,6 +423,12 @@ void installLegacyLazyBootstrapGetters(ExactHermesRuntime* handle, bool sharedRu
     }
     return;
   }
+#if defined(_WIN32)
+  if (tracing) {
+    fprintf(stderr, "[startup]   lazy_getters skipped on Windows\n");
+  }
+  return;
+#endif
   if (env_flag_enabled("EX_SKIP_STARTUP_LAZY_GETTERS")) {
     if (tracing) {
       fprintf(stderr,
@@ -482,6 +507,13 @@ void runLegacyProcessCompatFix(ExactHermesRuntime* handle, bool sharedRuntimeIns
     return;
   }
 
+#if defined(_WIN32)
+  if (startup_trace_enabled()) {
+    fprintf(stderr, "[startup]   process_compat_fix skipped on Windows\n");
+  }
+  return;
+#endif
+
   if (sharedRuntimeInstalled) {
     if (startup_trace_enabled()) {
       fprintf(stderr, "[startup]   process_compat_fix skipped (shared runtime bundle)\n");
@@ -523,6 +555,12 @@ void runLegacyCompatPolyfills(ExactHermesRuntime* handle, bool sharedRuntimeInst
     }
     return;
   }
+#if defined(_WIN32)
+  if (tracing) {
+    fprintf(stderr, "[startup]   compat_polyfills skipped on Windows\n");
+  }
+  return;
+#endif
   if (env_flag_enabled("EX_SKIP_STARTUP_COMPAT_POLYFILLS")) {
     if (tracing) {
       fprintf(stderr,
@@ -576,6 +614,13 @@ void runLegacyExactGlobal(ExactHermesRuntime* handle, bool sharedRuntimeInstalle
   }
 
   bool tracing = startup_trace_enabled();
+#if defined(_WIN32)
+  if (tracing) {
+    fprintf(stderr, "[startup]   exact_global skipped on Windows\n");
+  }
+  return;
+#endif
+
   if (sharedRuntimeInstalled) {
     if (tracing) {
       fprintf(stderr, "[startup]   exact_global skipped (shared runtime bundle)\n");

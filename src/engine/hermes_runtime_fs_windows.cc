@@ -32,6 +32,7 @@ int g_next_fd = 3;
 extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
 extern "C" int32_t ex_host_fs_write(void* file, const uint8_t* buf, uint32_t len);
+extern "C" int32_t ex_host_fs_seek(void* file, uint64_t position);
 extern "C" void ex_host_fs_close(void* file);
 extern "C" uint8_t* ex_host_fs_read_file(const char* path, uint32_t* out_len, int32_t* out_errno);
 extern "C" void ex_host_free_buffer(uint8_t* buf, uint32_t len);
@@ -54,8 +55,36 @@ std::string pathArg(facebook::jsi::Runtime& runtime, const facebook::jsi::Value&
   return value.toString(runtime).utf8(runtime);
 }
 
+std::string fsErrorMessage(const std::string& syscall, const std::string& path) {
+  if (!path.empty() && ex_host_fs_access(path.c_str(), 0) != 0) {
+    return "ENOENT: no such file or directory, " + syscall + " '" + path + "'";
+  }
+  return syscall + " failed" + (path.empty() ? "" : ": " + path);
+}
+
 void throwFs(facebook::jsi::Runtime& runtime, const std::string& syscall, const std::string& path) {
-  throw facebook::jsi::JSError(runtime, syscall + " failed" + (path.empty() ? "" : ": " + path));
+  throw facebook::jsi::JSError(runtime, fsErrorMessage(syscall, path));
+}
+
+void requireCapability(
+    facebook::jsi::Runtime& runtime,
+    const char* capability,
+    const std::string& path) {
+  if (isAllowAll()) {
+    return;
+  }
+  std::string cap = std::string(capability) + ":" + path;
+  if (!checkCapability(cap)) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+}
+
+void requireReadCapability(facebook::jsi::Runtime& runtime, const std::string& path) {
+  requireCapability(runtime, "fs:read", path);
+}
+
+void requireWriteCapability(facebook::jsi::Runtime& runtime, const std::string& path) {
+  requireCapability(runtime, "fs:write", path);
 }
 
 uint32_t hostFlagsFromNodeFlags(int flags) {
@@ -123,6 +152,7 @@ facebook::jsi::Function unaryPathJsonFunction(
           throw facebook::jsi::JSError(runtime, std::string(name) + ": path required");
         }
         auto path = pathArg(runtime, args[0]);
+        requireReadCapability(runtime, path);
         return jsonStringResult(runtime, host_fn(path.c_str()), syscall, path);
       });
 }
@@ -144,6 +174,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactReadFile: path required");
         }
         auto path = pathArg(runtime, args[0]);
+        requireReadCapability(runtime, path);
         uint32_t len = 0;
         int32_t read_errno = 0;
         uint8_t* data = ex_host_fs_read_file(path.c_str(), &len, &read_errno);
@@ -169,6 +200,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactWriteFile: path and data required");
         }
         auto path = pathArg(runtime, args[0]);
+        requireWriteCapability(runtime, path);
         auto bytes = extractBytes(runtime, args[1]);
         void* file = ex_host_fs_open(
             path.c_str(), EXACT_FS_WRITE | EXACT_FS_CREATE | EXACT_FS_TRUNCATE);
@@ -201,7 +233,14 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isNumber()) {
           flags = static_cast<int>(args[1].asNumber());
         }
-        void* file = ex_host_fs_open(path.c_str(), hostFlagsFromNodeFlags(flags));
+        auto host_flags = hostFlagsFromNodeFlags(flags);
+        if ((host_flags & EXACT_FS_READ) == EXACT_FS_READ) {
+          requireReadCapability(runtime, path);
+        }
+        if ((host_flags & EXACT_FS_WRITE) == EXACT_FS_WRITE) {
+          requireWriteCapability(runtime, path);
+        }
+        void* file = ex_host_fs_open(path.c_str(), host_flags);
         if (!file) {
           throwFs(runtime, "open", path);
         }
@@ -253,12 +292,15 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsRead: fd and length required");
         }
         auto fd = fdFromValue(runtime, args[0]);
-        if (count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
-          throw facebook::jsi::JSError(runtime, "positioned reads are not available on Windows yet");
-        }
         auto length = static_cast<uint32_t>(args[1].asNumber());
         std::vector<uint8_t> bytes(length);
         auto entry = getFileEntry(runtime, fd);
+        if (count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
+          auto position = static_cast<uint64_t>(args[2].asNumber());
+          if (ex_host_fs_seek(entry.handle, position) != 0) {
+            throwFs(runtime, "read", entry.path);
+          }
+        }
         auto nread = ex_host_fs_read(entry.handle, bytes.data(), length);
         if (nread < 0) {
           throwFs(runtime, "read", entry.path);
@@ -280,13 +322,16 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
         }
         auto fd = fdFromValue(runtime, args[0]);
-        if (count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
-          throw facebook::jsi::JSError(runtime, "positioned writes are not available on Windows yet");
-        }
         auto entry = getFileEntry(runtime, fd);
         auto bytes = extractBytes(runtime, args[1]);
         if (bytes.empty()) {
           return facebook::jsi::Value(0.0);
+        }
+        if (!entry.append && count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
+          auto position = static_cast<uint64_t>(args[2].asNumber());
+          if (ex_host_fs_seek(entry.handle, position) != 0) {
+            throwFs(runtime, "write", entry.path);
+          }
         }
         auto written = entry.append
             ? ex_host_fs_append(entry.path.c_str(), bytes.data(), static_cast<uint32_t>(bytes.size()))
@@ -310,6 +355,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFstatSync: fd required");
         }
         auto entry = getFileEntry(runtime, fdFromValue(runtime, args[0]));
+        requireReadCapability(runtime, entry.path);
         return jsonStringResult(runtime, ex_host_fs_stat(entry.path.c_str()), "fstat", entry.path);
       });
   rt.global().setProperty(rt, "__exactFsFstatSync", std::move(fsFstatFn));
@@ -333,6 +379,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         auto path = count > 0 ? pathArg(runtime, args[0]) : std::string();
         int32_t recursive = count > 1 && args[1].isBool() && args[1].getBool() ? 1 : 0;
+        requireWriteCapability(runtime, path);
         if (path.empty() || ex_host_fs_mkdir(path.c_str(), recursive) != 0) {
           throwFs(runtime, "mkdir", path);
         }
@@ -351,6 +398,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             const facebook::jsi::Value* args,
             size_t count) -> facebook::jsi::Value {
           auto path = count > 0 ? pathArg(runtime, args[0]) : std::string();
+          requireWriteCapability(runtime, path);
           if (path.empty() || host_fn(path.c_str()) != 0) {
             throwFs(runtime, syscall, path);
           }
@@ -373,6 +421,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto from = pathArg(runtime, args[0]);
         auto to = pathArg(runtime, args[1]);
+        requireWriteCapability(runtime, from);
+        requireWriteCapability(runtime, to);
         if (ex_host_fs_rename(from.c_str(), to.c_str()) != 0) {
           throwFs(runtime, "rename", from);
         }
@@ -393,6 +443,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto from = pathArg(runtime, args[0]);
         auto to = pathArg(runtime, args[1]);
+        requireReadCapability(runtime, from);
+        requireWriteCapability(runtime, to);
         if (ex_host_fs_copy(from.c_str(), to.c_str()) != 0) {
           throwFs(runtime, "copyfile", from);
         }
@@ -415,6 +467,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         auto path = count > 0 ? pathArg(runtime, args[0]) : std::string();
         int32_t mode = count > 1 && args[1].isNumber() ? static_cast<int32_t>(args[1].asNumber()) : 0;
+        if ((mode & 2) == 2) {
+          requireWriteCapability(runtime, path);
+        } else {
+          requireReadCapability(runtime, path);
+        }
         if (path.empty() || ex_host_fs_access(path.c_str(), mode) != 0) {
           throwFs(runtime, "access", path);
         }
@@ -432,6 +489,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         auto path = count > 0 ? pathArg(runtime, args[0]) : std::string();
         auto mode = count > 1 && args[1].isNumber() ? static_cast<uint32_t>(args[1].asNumber()) : 0;
+        requireWriteCapability(runtime, path);
         if (path.empty() || ex_host_fs_chmod(path.c_str(), mode) != 0) {
           throwFs(runtime, "chmod", path);
         }
@@ -448,6 +506,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         auto prefix = count > 0 ? pathArg(runtime, args[0]) : std::string("tmp");
+        requireWriteCapability(runtime, prefix);
         return jsonStringResult(runtime, ex_host_fs_mkdtemp(prefix.c_str()), "mkdtemp", prefix);
       });
   rt.global().setProperty(rt, "__exactMkdtemp", std::move(mkdtempFn));

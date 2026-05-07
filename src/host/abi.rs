@@ -17,7 +17,9 @@ use std::collections::HashMap;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 use std::sync::{Mutex, OnceLock, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(unix)]
+use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(all(
     unix,
@@ -767,6 +769,21 @@ pub extern "C" fn ex_host_fs_write(file: *mut ExactFileHandle, buf: *const u8, l
 }
 
 #[no_mangle]
+pub extern "C" fn ex_host_fs_seek(file: *mut ExactFileHandle, position: u64) -> i32 {
+    if file.is_null() {
+        return -1;
+    }
+    let handle = unsafe { &mut *file };
+    match std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(position)) {
+        Ok(_) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn ex_host_fs_close(file: *mut ExactFileHandle) {
     if file.is_null() {
         return;
@@ -1017,13 +1034,38 @@ pub extern "C" fn ex_host_fs_access(path: *const c_char, mode: i32) -> i32 {
     }
     #[cfg(not(unix))]
     {
-        let _ = path;
-        let _ = mode;
+        let path = unsafe { CStr::from_ptr(path) }
+            .to_string_lossy()
+            .to_string();
         if mode == 0 {
-            0
-        } else {
-            return -1;
+            return match std::fs::metadata(&path) {
+                Ok(_) => 0,
+                Err(err) => {
+                    set_errno_from_io_error(&err);
+                    -1
+                }
+            };
         }
+
+        if mode & 4 != 0 {
+            if let Err(err) = std::fs::File::open(&path) {
+                set_errno_from_io_error(&err);
+                return -1;
+            }
+        }
+        if mode & 2 != 0 {
+            if let Err(err) = std::fs::OpenOptions::new().write(true).open(&path) {
+                set_errno_from_io_error(&err);
+                return -1;
+            }
+        }
+        if mode & 1 != 0 {
+            if let Err(err) = std::fs::metadata(&path) {
+                set_errno_from_io_error(&err);
+                return -1;
+            }
+        }
+        0
     }
 }
 

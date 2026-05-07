@@ -152,11 +152,15 @@ class VectorBuffer : public facebook::jsi::MutableBuffer {
 };
 
 inline bool isAllowAll() {
+#ifdef _WIN32
+  return ex_host_is_allow_all() != 0;
+#else
   static int cached = -1;
   if (cached < 0) {
     cached = ex_host_is_allow_all();
   }
   return cached != 0;
+#endif
 }
 
 inline bool checkCapability(const std::string& capability) {

@@ -640,6 +640,7 @@ fn main() {
 
         build.file("src/engine/hermes_runtime_fs_windows.cc");
         build.file("src/engine/hermes_runtime_crypto_windows.cc");
+        build.file("src/engine/hermes_runtime_http.cc");
         build.file("src/engine/hermes_runtime_platform_windows.cc");
         build.file(&hermes_jsi_cpp);
         if hermes_jsilib_windows_cpp.exists() {
@@ -968,7 +969,12 @@ fn main() {
 }
 
 fn which_js_runner() -> Option<PathBuf> {
-    for name in &["bun", "node"] {
+    let names: &[&str] = if cfg!(target_os = "windows") {
+        &["node", "bun"]
+    } else {
+        &["bun", "node"]
+    };
+    for name in names {
         for candidate in js_runner_candidates(name) {
             if candidate.exists() {
                 return Some(candidate);
