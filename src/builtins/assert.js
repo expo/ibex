@@ -857,49 +857,56 @@ function _buildDeepEqualMessage(actual, expected, strict) {
   return message + '\n\n';
 }
 
-class AssertionError extends Error {
-  constructor(opts) {
-    if (!opts || _typeof(opts) !== 'object') {
-      var typeErr = new TypeError('The "options" argument must be of type object.' +
-          ' Received type "' + _typeof(opts) + '"');
-      typeErr.code = 'ERR_INVALID_ARG_TYPE';
-      throw typeErr;
-    }
+function AssertionError(opts) {
+  if (!(this instanceof AssertionError)) {
+    return new AssertionError(opts);
+  }
+  if (!opts || _typeof(opts) !== 'object') {
+    var typeErr = new TypeError('The "options" argument must be of type object.' +
+        ' Received type "' + _typeof(opts) + '"');
+    typeErr.code = 'ERR_INVALID_ARG_TYPE';
+    throw typeErr;
+  }
 
-    var msg = opts.message || ('Expected values to be ' + (opts.operator || 'truthy'));
-    super(msg);
-    this.name = 'AssertionError';
-    this.actual = opts.actual;
-    this.expected = opts.expected;
-    this.operator = opts.operator;
-    this.code = 'ERR_ASSERTION';
-    this.generatedMessage = opts.generatedMessage !== undefined ? opts.generatedMessage : (opts.message ? false : true);
-    if (Error.captureStackTrace) {
-      var stackStart = opts.stackStartFn || opts.stackStartFunction;
-      Error.captureStackTrace(this, stackStart || AssertionError);
-      if (typeof this.stack === 'string') {
-        var lines = this.stack.split('\n');
-        var firstStackLine = 1;
-        while (firstStackLine < lines.length) {
-          var frame = lines[firstStackLine];
-          if (frame === '    at apply (native)' || frame === '    at call (native)') {
-            firstStackLine++;
-            continue;
-          }
-          if (frame.indexOf('(events') !== -1 || frame.indexOf('(node:events') !== -1) {
-            firstStackLine++;
-            continue;
-          }
-          break;
+  var msg = opts.message || ('Expected values to be ' + (opts.operator || 'truthy'));
+  this.message = msg;
+  this.name = 'AssertionError';
+  this.actual = opts.actual;
+  this.expected = opts.expected;
+  this.operator = opts.operator;
+  this.code = 'ERR_ASSERTION';
+  this.generatedMessage = opts.generatedMessage !== undefined ? opts.generatedMessage : (opts.message ? false : true);
+  if (Error.captureStackTrace) {
+    var stackStart = opts.stackStartFn || opts.stackStartFunction;
+    Error.captureStackTrace(this, stackStart || AssertionError);
+    if (typeof this.stack === 'string') {
+      var lines = this.stack.split('\n');
+      var firstStackLine = 1;
+      while (firstStackLine < lines.length) {
+        var frame = lines[firstStackLine];
+        if (frame === '    at apply (native)' || frame === '    at call (native)') {
+          firstStackLine++;
+          continue;
         }
-        if (firstStackLine > 1) {
-          lines.splice(1, firstStackLine - 1);
-          this.stack = lines.join('\n');
+        if (frame.indexOf('(events') !== -1 || frame.indexOf('(node:events') !== -1) {
+          firstStackLine++;
+          continue;
         }
+        break;
+      }
+      if (firstStackLine > 1) {
+        lines.splice(1, firstStackLine - 1);
+        this.stack = lines.join('\n');
       }
     }
+  } else {
+    try {
+      this.stack = (new Error(msg)).stack;
+    } catch (_) {}
   }
 }
+AssertionError.prototype = Object.create(Error.prototype);
+AssertionError.prototype.constructor = AssertionError;
 
 function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
   // Identical values
