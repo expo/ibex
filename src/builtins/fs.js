@@ -584,15 +584,30 @@ function _resolvePathFromCwd(path) {
   if (!_isAbsolutePath(path)) {
     var cwd = _currentProcessCwd();
     if (!cwd) cwd = "/";
-    var separator = '/';
-    var cwdParts = cwd.replace(/\\\\/g, separator).split(separator);
-    var pathParts = path.replace(/\\\\/g, separator).split(separator);
-    if (cwd === separator && cwdParts.length === 1) {
+    var isWindows = typeof process === 'object' && process !== null && process.platform === 'win32';
+    var separator = isWindows ? '\\' : '/';
+    var normalizedCwd = cwd.replace(/[\\/]+/g, separator);
+    var normalizedPath = path.replace(/[\\/]+/g, separator);
+    var root = isWindows && normalizedCwd.charAt(1) === ':'
+      ? normalizedCwd.slice(0, 2)
+      : separator;
+    var cwdRemainder = isWindows && root !== separator
+      ? normalizedCwd.slice(2)
+      : normalizedCwd;
+    if (cwdRemainder.charAt(0) === separator) {
+      cwdRemainder = cwdRemainder.slice(1);
+    }
+    var cwdParts = cwdRemainder.split(separator);
+    var pathParts = normalizedPath.split(separator);
+    if (root === separator && cwdRemainder === separator && cwdParts.length === 1) {
       cwdParts = [];
     }
     var combined = _normalizePathSegments(cwdParts.concat(pathParts));
     if (path === '.' && combined.length === 0) {
-      return separator;
+      return root === separator ? separator : root + separator;
+    }
+    if (isWindows && root !== separator) {
+      return root + separator + combined.join(separator);
     }
     return separator + combined.join(separator);
   }
