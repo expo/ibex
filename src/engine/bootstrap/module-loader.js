@@ -47,6 +47,12 @@
     // as part of the filename.
     return specifier.replace(/\?import(?:&.*)?$/, '');
   }
+  function isWindowsRuntime() {
+    return (
+      g.__exactPlatform === 'win32' ||
+      (g.process && g.process.platform === 'win32')
+    );
+  }
   function formatTime(ms) {
     var t = typeof ms === 'number' ? ms : Number(ms);
     if (!isFinite(t) || t < 0) {
@@ -1042,6 +1048,151 @@
     }
     return width;
   }
+  function makeWindowsCryptoModule() {
+    function toBytes(value, encoding) {
+      if (value == null) return new Uint8Array(0);
+      if (typeof value === 'string') {
+        if (encoding === 'hex') {
+          var hexLen = value.length - (value.length % 2);
+          var hexOut = new Uint8Array(hexLen / 2);
+          for (var hi = 0; hi < hexOut.length; hi++) {
+            hexOut[hi] = parseInt(value.substr(hi * 2, 2), 16) || 0;
+          }
+          return hexOut;
+        }
+        return new TextEncoder().encode(value);
+      }
+      if (value instanceof ArrayBuffer) return new Uint8Array(value);
+      if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+      if (Array.isArray(value)) return new Uint8Array(value);
+      return new TextEncoder().encode(String(value));
+    }
+    function concatChunks(chunks) {
+      var total = 0;
+      for (var i = 0; i < chunks.length; i++) total += chunks[i].length;
+      var out = new Uint8Array(total);
+      var offset = 0;
+      for (var j = 0; j < chunks.length; j++) {
+        out.set(chunks[j], offset);
+        offset += chunks[j].length;
+      }
+      return out;
+    }
+    function bufferFromBytes(bytes) {
+      if (typeof Buffer === 'function' && typeof Buffer.from === 'function') return Buffer.from(bytes);
+      return bytes;
+    }
+    function hexToBytes(hex) {
+      var clean = String(hex || '');
+      var out = new Uint8Array(clean.length / 2);
+      for (var i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16) || 0;
+      return out;
+    }
+    function encodeDigest(bytes, encoding) {
+      if (!encoding || encoding === 'buffer') return bufferFromBytes(bytes);
+      if (encoding === 'hex') {
+        var hex = '';
+        var digits = '0123456789abcdef';
+        for (var i = 0; i < bytes.length; i++) hex += digits[(bytes[i] >> 4) & 15] + digits[bytes[i] & 15];
+        return hex;
+      }
+      var buf = bufferFromBytes(bytes);
+      if (buf && typeof buf.toString === 'function') return buf.toString(encoding);
+      return String(bytes);
+    }
+    function randomBytes(size, callback) {
+      var len = Number(size) || 0;
+      if (len < 0) len = 0;
+      var bytes = typeof __exactRandomBytes === 'function' ? __exactRandomBytes(len) : new Uint8Array(len);
+      var out = bufferFromBytes(bytes);
+      if (typeof callback === 'function') setTimeout(function() { callback(null, out); }, 0);
+      return out;
+    }
+    function randomFillSync(buffer, offset, size) {
+      var view = toBytes(buffer);
+      var off = offset == null ? 0 : Number(offset) || 0;
+      var len = size == null ? (view.length - off) : Number(size) || 0;
+      var bytes = randomBytes(len);
+      for (var i = 0; i < len; i++) view[off + i] = bytes[i] || 0;
+      return buffer;
+    }
+    function randomUUID() {
+      var b = randomBytes(16);
+      b[6] = (b[6] & 15) | 64;
+      b[8] = (b[8] & 63) | 128;
+      return encodeDigest(b, 'hex').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+    }
+    function Hash(algorithm) {
+      if (!(this instanceof Hash)) return new Hash(algorithm);
+      this._algorithm = String(algorithm || 'sha256').toLowerCase().replace(/-/g, '');
+      this._chunks = [];
+    }
+    Hash.prototype.update = function(data, encoding) {
+      this._chunks.push(toBytes(data, encoding));
+      return this;
+    };
+    Hash.prototype.digest = function(encoding) {
+      var data = concatChunks(this._chunks);
+      if (typeof __exactHashRaw === 'function') return encodeDigest(__exactHashRaw(this._algorithm, data), encoding);
+      if (typeof __exactHashSync === 'function') return encodeDigest(hexToBytes(__exactHashSync(this._algorithm, data)), encoding || 'hex');
+      throw new Error('crypto hashing is unavailable');
+    };
+    Hash.prototype.copy = function() {
+      var copy = new Hash(this._algorithm);
+      copy._chunks = this._chunks.slice();
+      return copy;
+    };
+    function Hmac(algorithm, key) {
+      if (!(this instanceof Hmac)) return new Hmac(algorithm, key);
+      this._algorithm = String(algorithm || 'sha256').toLowerCase().replace(/-/g, '');
+      this._key = toBytes(key);
+      this._chunks = [];
+    }
+    Hmac.prototype.update = function(data, encoding) {
+      this._chunks.push(toBytes(data, encoding));
+      return this;
+    };
+    Hmac.prototype.digest = function(encoding) {
+      if (typeof __exactHmacSync !== 'function') throw new Error('crypto HMAC is unavailable');
+      return encodeDigest(hexToBytes(__exactHmacSync(this._algorithm, this._key, concatChunks(this._chunks))), encoding || 'hex');
+    };
+    var mod = {
+      createHash: function(algorithm) { return new Hash(algorithm); },
+      Hash: Hash,
+      createHmac: function(algorithm, key) { return new Hmac(algorithm, key); },
+      Hmac: Hmac,
+      hash: function(algorithm, data, outputEncoding) {
+        return new Hash(algorithm).update(data).digest(outputEncoding || 'hex');
+      },
+      randomBytes: randomBytes,
+      randomFillSync: randomFillSync,
+      randomFill: function(buffer, offset, size, callback) {
+        if (typeof offset === 'function') { callback = offset; offset = 0; size = undefined; }
+        if (typeof size === 'function') { callback = size; size = undefined; }
+        try {
+          var result = randomFillSync(buffer, offset, size);
+          setTimeout(function() { callback(null, result); }, 0);
+        } catch (err) {
+          setTimeout(function() { callback(err); }, 0);
+        }
+      },
+      randomUUID: randomUUID,
+      getRandomValues: function(arr) { return globalThis.crypto.getRandomValues(arr); },
+      webcrypto: globalThis.crypto,
+      subtle: globalThis.crypto && globalThis.crypto.subtle,
+      getHashes: function() { return ['sha1', 'sha256', 'sha384', 'sha512']; },
+      timingSafeEqual: function(a, b) {
+        var av = toBytes(a);
+        var bv = toBytes(b);
+        if (av.length !== bv.length) throw new RangeError('Input buffers must have the same byte length');
+        var diff = 0;
+        for (var i = 0; i < av.length; i++) diff |= av[i] ^ bv[i];
+        return diff === 0;
+      }
+    };
+    mod.default = mod;
+    return mod;
+  }
   var internalModules = {
     'internal/util/debuglog': {
       formatTime: formatTime,
@@ -1756,6 +1907,9 @@
       },
     }
   };
+  if (isWindowsRuntime()) {
+    internalModules.crypto = makeWindowsCryptoModule();
+  }
   var streamBuiltinsCache = null;
   var streamInternalModuleCache = null;
   var eventTargetModuleCache = null;
@@ -3653,7 +3807,7 @@
         __exactEnsureStreamEnhance();
       }
     }
-    if (typeof __exactEnsureWebCrypto === 'function') {
+    if (typeof __exactEnsureWebCrypto === 'function' && !isWindowsRuntime()) {
       if (specifier === 'crypto' || specifier === 'node:crypto') {
         __exactEnsureWebCrypto();
       }
@@ -3686,7 +3840,9 @@
       }
     }
     if (typeof __exactEnsureSqlite === 'function') {
-      if (specifier === 'bun:sqlite' || specifier === 'better-sqlite3') {
+      if (specifier === 'exact:sqlite' || specifier === 'bun:sqlite' ||
+          specifier === 'node:sqlite' || specifier === 'sqlite' ||
+          specifier === 'better-sqlite3') {
         __exactEnsureSqlite();
       }
     }

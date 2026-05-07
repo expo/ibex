@@ -796,6 +796,7 @@ var promises = {
     return new Promise(function(resolve, reject) {
       lookup(hostname, options || {}, function(err, address, family) {
         if (err) reject(err);
+        else if (options && options.all) resolve(address || []);
         else resolve({ address: address, family: family });
       });
     });

@@ -2333,10 +2333,13 @@ function ChildProcess(handle, pid, stdioModes) {
   this.stdio = [this.stdin, this.stdout, this.stderr];
 
   // Populate raw fd on each stream so they can be passed as stdio to other processes
-  if (typeof globalThis.__exactSpawnGetFd === 'function' && this._handle != null) {
-    if (this.stdin) this.stdin._fd = globalThis.__exactSpawnGetFd(this._handle, 0);
-    if (this.stdout) this.stdout._fd = globalThis.__exactSpawnGetFd(this._handle, 1);
-    if (this.stderr) this.stderr._fd = globalThis.__exactSpawnGetFd(this._handle, 2);
+  if (typeof globalThis.__exactSpawnGetFd === 'function' &&
+      this._handle !== null && this._handle !== undefined && this._handle >= 0) {
+    try {
+      if (this.stdin) this.stdin._fd = globalThis.__exactSpawnGetFd(this._handle, 0);
+      if (this.stdout) this.stdout._fd = globalThis.__exactSpawnGetFd(this._handle, 1);
+      if (this.stderr) this.stderr._fd = globalThis.__exactSpawnGetFd(this._handle, 2);
+    } catch (e) {}
   }
 
   if (modes.relayReadablePipes && modes.relayReadablePipes[0]) {
@@ -2680,6 +2683,11 @@ ChildProcess.prototype.spawn = function(options) {
   opts.windowsHide = normalizedOptions.windowsHide;
   opts.stdio = normalizedOptions.stdio;
 
+  if (typeof process !== 'undefined' && process.platform === 'win32' &&
+      typeof globalThis.__exactSpawnSync === 'function') {
+    return _spawnSyncBackedChildProcess(command, args, options, normalizedOptions);
+  }
+
   var argsJson = JSON.stringify(args);
   var optsJson = JSON.stringify(opts);
   var result;
@@ -2987,6 +2995,59 @@ ChildProcess.prototype.spawn = function(options) {
 };
 
 var _childProcessPrototypeSpawnImpl = ChildProcess.prototype.spawn;
+
+function _spawnSyncBackedChildProcess(command, args, options, normalizedOptions) {
+  var stdioCfg = {
+    stdin: normalizedOptions.stdio[0],
+    stdout: normalizedOptions.stdio[1],
+    stderr: normalizedOptions.stdio[2],
+    ipc: normalizedOptions.stdio[3],
+    extra: normalizedOptions.stdio.slice(4),
+    relayReadablePipes: normalizedOptions.relayReadablePipes || null
+  };
+  var child = new ChildProcess(-1, undefined, stdioCfg);
+  child.spawnfile = command;
+  child.spawnargs = [command].concat(args || []);
+  child._spawnEmitted = true;
+  child._serialization = normalizedOptions.serialization || 'json';
+  var result;
+  try {
+    result = cp.spawnSync(command, args || [], options || {});
+  } catch (err) {
+    setTimeout(function() {
+      child._exited = true;
+      child.exitCode = -1;
+      child.emit('error', err);
+      child.emit('close', null, null);
+    }, 0);
+    return child;
+  }
+  child.pid = result.pid;
+  var BufferCtor = _childProcessBufferCtor();
+  function pushReadable(stream, value) {
+    if (!stream || typeof stream.push !== 'function') return;
+    if (value !== undefined && value !== null && value !== '') {
+      var chunk = value;
+      if (BufferCtor && !(BufferCtor.isBuffer && BufferCtor.isBuffer(value))) {
+        chunk = BufferCtor.from(String(value));
+      }
+      stream.push(chunk);
+    }
+    stream.push(null);
+  }
+  setTimeout(function() {
+    child.emit('spawn');
+    pushReadable(child.stdout, result.stdout);
+    pushReadable(child.stderr, result.stderr);
+    child._exited = true;
+    child.exitCode = result.status == null ? -1 : result.status;
+    child.signalCode = result.signal || null;
+    if (result.error) child.emit('error', result.error);
+    child.emit('exit', child.exitCode, child.signalCode);
+    child.emit('close', child.exitCode, child.signalCode);
+  }, 0);
+  return child;
+}
 
 ChildProcess.prototype.kill = function(signal) {
   if (this._exited) return false;
@@ -3391,6 +3452,11 @@ cp.spawn = function spawn(command, args, options) {
   if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
   opts.windowsHide = normalizedOptions.windowsHide;
   opts.stdio = normalizedOptions.stdio;
+
+  if (typeof process !== 'undefined' && process.platform === 'win32' &&
+      typeof globalThis.__exactSpawnSync === 'function') {
+    return _spawnSyncBackedChildProcess(command, args, options, normalizedOptions);
+  }
 
   var argsJson = JSON.stringify(args);
   var optsJson = JSON.stringify(opts);

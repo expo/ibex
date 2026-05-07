@@ -1,5 +1,7 @@
 var http = require('node:http');
 var tls = require('node:tls');
+var EventEmitter = require('node:events');
+var Buffer = require('node:buffer').Buffer;
 
 function _copyOwnProperties(source) {
   var out = {};
@@ -96,6 +98,180 @@ Agent.prototype.createConnection = function(options, callback) {
 
 var globalAgent = new Agent();
 
+function _isWindowsRuntime() {
+  return typeof process !== 'undefined' && process && process.platform === 'win32';
+}
+
+function _canUseNativeFetchTransport(options) {
+  return _isWindowsRuntime() &&
+    typeof fetch === 'function' &&
+    (!_requiresSocketTransport(options) || options.agent === globalAgent);
+}
+
+function _headersToObject(headers) {
+  var out = {};
+  if (!headers || typeof headers !== 'object') return out;
+  for (var key in headers) {
+    if (Object.prototype.hasOwnProperty.call(headers, key) && headers[key] !== undefined) {
+      out[key] = headers[key];
+    }
+  }
+  return out;
+}
+
+function _requestUrlFromInput(input, options) {
+  var url;
+  if (typeof input === 'string' || (typeof URL !== 'undefined' && input instanceof URL)) {
+    url = new URL(String(input));
+  } else {
+    url = new URL('https://localhost/');
+  }
+  options = options || {};
+  var host = options.hostname || options.host;
+  if (host) {
+    host = String(host);
+    var colon = host.lastIndexOf(':');
+    if (colon > -1 && host.indexOf(']') === -1) {
+      url.hostname = host.slice(0, colon);
+      if (options.port === undefined) url.port = host.slice(colon + 1);
+    } else {
+      url.hostname = host;
+    }
+  }
+  if (options.port !== undefined && options.port !== null) {
+    url.port = String(options.port);
+  }
+  if (options.path !== undefined) {
+    var path = String(options.path || '/');
+    if (path.charAt(0) !== '/') path = '/' + path;
+    url.pathname = path.split('?')[0] || '/';
+    var query = path.indexOf('?');
+    url.search = query >= 0 ? path.slice(query) : '';
+  } else if (options.pathname !== undefined) {
+    url.pathname = String(options.pathname || '/');
+    if (options.search !== undefined) url.search = String(options.search || '');
+  }
+  url.protocol = 'https:';
+  return url.toString();
+}
+
+function _nativeFetchRequest(input, options, callback) {
+  var req = new EventEmitter();
+  var chunks = [];
+  var ended = false;
+  var destroyed = false;
+  var timeoutHandle = null;
+  var method = (options && options.method) || 'GET';
+
+  req.writable = true;
+  req.destroyed = false;
+
+  req.write = function(chunk, encoding, cb) {
+    if (typeof encoding === 'function') {
+      cb = encoding;
+      encoding = undefined;
+    }
+    if (chunk !== undefined && chunk !== null) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), encoding));
+    }
+    if (typeof cb === 'function') setTimeout(cb, 0);
+    return true;
+  };
+
+  req.end = function(chunk, encoding, cb) {
+    if (typeof chunk === 'function') {
+      cb = chunk;
+      chunk = undefined;
+      encoding = undefined;
+    } else if (typeof encoding === 'function') {
+      cb = encoding;
+      encoding = undefined;
+    }
+    if (chunk !== undefined && chunk !== null) req.write(chunk, encoding);
+    if (ended) return req;
+    ended = true;
+    if (typeof cb === 'function') setTimeout(cb, 0);
+    var body = chunks.length ? Buffer.concat(chunks) : undefined;
+    var init = {
+      method: method,
+      headers: _headersToObject(options && options.headers),
+      body: body
+    };
+    if (!body || method === 'GET' || method === 'HEAD') delete init.body;
+    fetch(_requestUrlFromInput(input, options), init).then(function(response) {
+      if (destroyed) return;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      var res = new EventEmitter();
+      res.statusCode = response.status;
+      res.statusMessage = response.statusText || '';
+      res.headers = {};
+      if (response.headers && typeof response.headers.forEach === 'function') {
+        response.headers.forEach(function(value, key) {
+          res.headers[String(key).toLowerCase()] = value;
+        });
+      }
+      res.setEncoding = function() { return res; };
+      if (typeof callback === 'function') callback(res);
+      req.emit('response', res);
+      return response.arrayBuffer().then(function(buffer) {
+        if (destroyed) return;
+        var data = Buffer.from(new Uint8Array(buffer));
+        if (data.length) res.emit('data', data);
+        res.emit('end');
+        req.emit('close');
+      });
+    }).catch(function(error) {
+      if (destroyed) return;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      req.emit('error', error);
+      req.emit('close');
+    });
+    return req;
+  };
+
+  req.setTimeout = function(ms, cb) {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (typeof cb === 'function') req.once('timeout', cb);
+    if (ms > 0) {
+      timeoutHandle = setTimeout(function() {
+        req.emit('timeout');
+      }, ms);
+    }
+    return req;
+  };
+  req.destroy = function(error) {
+    destroyed = true;
+    req.destroyed = true;
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (error) req.emit('error', error);
+    req.emit('close');
+    return req;
+  };
+  req.abort = req.destroy;
+  req.flushHeaders = function() {};
+  req.setHeader = function(name, value) {
+    options.headers = options.headers || {};
+    options.headers[name] = value;
+  };
+  req.getHeader = function(name) {
+    var headers = options.headers || {};
+    return headers[name] || headers[String(name).toLowerCase()];
+  };
+  req.removeHeader = function(name) {
+    if (options.headers) {
+      delete options.headers[name];
+      delete options.headers[String(name).toLowerCase()];
+    }
+  };
+  return req;
+}
+
 function _normalizeRequestArgs(input, options, callback) {
   if (
     typeof input === 'string' ||
@@ -155,13 +331,21 @@ function _prepareRequestOptions(options) {
 function request(input, options, callback) {
   var normalized = _normalizeRequestArgs(input, options, callback);
   if (normalized.options) {
+    var preparedOptions = _prepareRequestOptions(normalized.options);
+    if (_canUseNativeFetchTransport(preparedOptions)) {
+      return _nativeFetchRequest(normalized.input, preparedOptions, normalized.callback);
+    }
     return http.request(
       normalized.input,
-      _prepareRequestOptions(normalized.options),
+      preparedOptions,
       normalized.callback
     );
   }
-  return http.request(_prepareRequestOptions(normalized.input), normalized.callback);
+  var preparedInput = _prepareRequestOptions(normalized.input);
+  if (_canUseNativeFetchTransport(preparedInput)) {
+    return _nativeFetchRequest(preparedInput, preparedInput, normalized.callback);
+  }
+  return http.request(preparedInput, normalized.callback);
 }
 
 function get(input, options, callback) {

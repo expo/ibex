@@ -1,13 +1,4 @@
 var g = globalThis;
-var _nativeFs = (function() {
-  try {
-    return require('fs');
-  } catch (e) {
-    return null;
-  }
-})();
-var _nativeFsOpen = _nativeFs ? _nativeFs.open : null;
-var _nativeFsClose = _nativeFs ? _nativeFs.close : null;
 var _exactFsInitialized = false;
 var _streamModule = null;
 var _readdirSyncBurstCount = 0;
@@ -348,7 +339,7 @@ function _emitFsDeprecation(code, message) {
 
 function _isBufferLike(value) {
   if (!value) return false;
-  if (Buffer.isBuffer(value)) return true;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return true;
   if (typeof ArrayBuffer !== 'undefined' && typeof ArrayBuffer.isView === 'function') {
     if (ArrayBuffer.isView(value)) return true;
   }
@@ -663,6 +654,10 @@ function _dirnamePath(value) {
   if (sepIndex === -1) return '.';
   if (sepIndex === 0) return '/';
   return value.slice(0, sepIndex);
+}
+
+function _nativeMkdirPath(value) {
+  return value;
 }
 
 function _fsInvalidArgTypeProperty(propName, expected, actual) {
@@ -1356,9 +1351,12 @@ function _encodeFsPathResult(value, options) {
     return value;
   }
   if (encoding === 'buffer') {
-    return Buffer.from(value);
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+      return Buffer.from(value);
+    }
+    return toUint8Array(value);
   }
-  return decodeBytes(Buffer.from(value), encoding);
+  return decodeBytes(toUint8Array(value), encoding);
 }
 
 function _throwIfReadFileTooLarge(stat) {
@@ -1788,7 +1786,10 @@ Dirent.prototype.isSocket = function() { return this._stat ? this._stat.isSocket
 
 function _normalizeDirEntryName(name, encoding) {
   if (encoding === 'buffer') {
-    return Buffer.isBuffer(name) ? name : Buffer.from(name);
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+      return Buffer.isBuffer(name) ? name : Buffer.from(name);
+    }
+    return toUint8Array(name);
   }
   return name;
 }
@@ -2050,10 +2051,10 @@ function readdirSync(path, options) {
     var rawEntries = JSON.parse(g.__exactReaddir(p)).sort();
     var entries = rawEntries;
     if (encoding === 'buffer') {
-      entries = rawEntries.map(function(e) { return Buffer.from(e); });
+      entries = rawEntries.map(function(e) { return toUint8Array(e); });
     } else if (typeof encoding === 'string' && encoding !== 'utf8' && encoding !== 'utf-8') {
       entries = rawEntries.map(function(e) {
-        return decodeBytes(Buffer.from(e), encoding);
+        return decodeBytes(toUint8Array(e), encoding);
       });
     }
     if (!withFileTypes && !recursive) {
@@ -2394,7 +2395,7 @@ function mkdirSync(path, options) {
         }
       }
     }
-    g.__exactMkdir(p, recursive);
+    g.__exactMkdir(_nativeMkdirPath(p), recursive);
     if (mode !== undefined) {
       try {
         chmodSync(p, mode);
@@ -2610,7 +2611,7 @@ function existsSync(path) {
   try {
     if (
       typeof path !== 'string' &&
-      !Buffer.isBuffer(path) &&
+      !(typeof Buffer !== 'undefined' && Buffer.isBuffer(path)) &&
       !(path && typeof path === 'object' && path.href !== undefined && path.protocol !== undefined)
     ) {
       _emitFsDeprecation('DEP0187', 'Passing invalid argument types to fs.existsSync is deprecated');
@@ -2882,7 +2883,7 @@ function readSync(fd, buffer, offset, length, position) {
   try {
     var data = g.__exactFsRead(fd, readArgs.length, readArgs.position);
     if (buffer && data.length > 0) {
-      if (typeof targetBuffer.set === 'function') {
+      if (!targetBuffer.__isExactBuffer && typeof targetBuffer.set === 'function') {
         targetBuffer.set(data, off);
       } else {
         for (var i = 0; i < data.length; i++) {
@@ -3039,7 +3040,7 @@ function readvSync(fd, buffers, position) {
   var bytesRead = 0;
   for (var i = 0; i < buffers.length; i++) {
     var buffer = buffers[i];
-    if (!Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) {
+    if (!((typeof Buffer !== 'undefined' && Buffer.isBuffer(buffer)) || buffer instanceof Uint8Array)) {
       throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffer);
     }
     var currentPos = (pos === -1) ? -1 : (pos + bytesRead);
@@ -3076,7 +3077,7 @@ function writevSync(fd, buffers, position) {
   var bytesWritten = 0;
   for (var i = 0; i < buffers.length; i++) {
     var buffer = buffers[i];
-    if (!Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) {
+    if (!((typeof Buffer !== 'undefined' && Buffer.isBuffer(buffer)) || buffer instanceof Uint8Array)) {
       throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffer);
     }
     var currentPos = (pos === -1) ? -1 : (pos + bytesWritten);
@@ -3257,7 +3258,7 @@ function fsRead(fd, buffer, offset, length, position, cb) {
   try {
     var data = g.__exactFsRead(fd, readArgs.length, readArgs.position);
     if (data.length > 0) {
-      if (typeof readArgs.targetBuffer.set === 'function') {
+      if (!readArgs.targetBuffer.__isExactBuffer && typeof readArgs.targetBuffer.set === 'function') {
         readArgs.targetBuffer.set(data, readArgs.offset);
       } else {
         for (var i = 0; i < data.length; i++) {
@@ -3315,7 +3316,7 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
   }
 
   // Validate buffer/string argument
-  if (typeof bufferOrString !== 'string' && !Buffer.isBuffer(bufferOrString) && !(bufferOrString instanceof Uint8Array) && !ArrayBuffer.isView(bufferOrString)) {
+  if (typeof bufferOrString !== 'string' && !(typeof Buffer !== 'undefined' && Buffer.isBuffer(bufferOrString)) && !(bufferOrString instanceof Uint8Array) && !ArrayBuffer.isView(bufferOrString)) {
     throw _fsInvalidArgType('buffer', 'string or an instance of Buffer or Uint8Array', bufferOrString);
   }
   _validateCallback(cb);
