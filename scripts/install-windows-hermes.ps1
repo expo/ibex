@@ -26,6 +26,7 @@ $runtimeDlls = @(
 function Test-HermesInstallComplete {
   if (-not (Test-Path $includeDir)) { return $false }
   if (-not (Test-Path (Join-Path $libDir "hermes.lib"))) { return $false }
+  if (-not (Test-Path (Join-Path $binDir "hermesc.exe"))) { return $false }
   foreach ($dll in $runtimeDlls) {
     if (-not (Test-Path (Join-Path $binDir $dll))) { return $false }
   }
@@ -100,6 +101,29 @@ function Copy-AppRuntimeDll {
   Copy-Item -LiteralPath $source -Destination (Join-Path $binDir $Name) -Force
 }
 
+function Copy-HermesCompiler {
+  param([string]$ExtractDir)
+
+  # ReactNative.Hermes.Windows 0.71.x ships a Hermes CLI only in the x86 tools
+  # folder. Hermes bytecode is architecture-independent, so this is still the
+  # right compiler for the x64/arm64 runtimes as long as its HBC version matches
+  # the runtime headers.
+  $candidates = @(
+    (Join-Path $ExtractDir "tools\native\release\$Arch\hermes.exe"),
+    (Join-Path $ExtractDir "tools\native\debug\$Arch\hermes.exe"),
+    (Join-Path $ExtractDir "tools\native\release\x86\hermes.exe"),
+    (Join-Path $ExtractDir "tools\native\debug\x86\hermes.exe")
+  )
+  $compiler = Find-FirstExistingFile $candidates
+  if (-not $compiler) {
+    Write-Warning "Hermes compiler not found in ReactNative.Hermes.Windows $Version. Native HBC startup will remain disabled."
+    return
+  }
+
+  Copy-Item -LiteralPath $compiler -Destination (Join-Path $binDir "hermesc.exe") -Force
+  Copy-Item -LiteralPath $compiler -Destination (Join-Path $binDir "hermes.exe") -Force
+}
+
 if ((Test-HermesInstallComplete) -and -not $Force) {
   Write-Host "Windows Hermes already installed at $targetRoot"
   exit 0
@@ -143,6 +167,7 @@ try {
   if (Test-Path (Join-Path $nativeDir "hermes.pdb")) {
     Copy-Item -Path (Join-Path $nativeDir "hermes.pdb") -Destination $binDir -Force
   }
+  Copy-HermesCompiler $extractDir
 
   Copy-AppRuntimeDll "icuuc.dll"
   Copy-AppRuntimeDll "icuin.dll"
@@ -151,7 +176,7 @@ try {
   Copy-AppRuntimeDll "VCRUNTIME140_1_APP.dll"
 
   Write-Host "Installed Windows Hermes headers/libs at $targetRoot"
-  Write-Host "Build with EXACT_ALLOW_FALLBACK=1 unless a matching hermesc.exe is installed in $binDir."
+  Write-Host "Installed Hermes compiler at $(Join-Path $binDir "hermesc.exe") when available."
 }
 finally {
   Remove-Item -Recurse -Force $tempRoot -ErrorAction SilentlyContinue
