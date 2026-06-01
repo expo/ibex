@@ -3346,16 +3346,16 @@
     var looksLikeCompleteModuleStatement = function(text) {
       var trimmedText = String(text || "").trim();
       return (
-        /^\s*import\s+(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s+\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
-        /^\s*export\s+\*\s+from\s+(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
-        /^\s*export\s+\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
-        /^\s*export\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
-        /^\s*export\s+\{([^}]*)\}\s*;?\s*$/.test(trimmedText)
+        /^\s*import\s*(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*export\s*\*\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
+        /^\s*export\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*export\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*export\s*\{([^}]*)\}\s*;?\s*$/.test(trimmedText)
       );
     };
     var isExportName = function(value) {
@@ -3521,25 +3521,25 @@
       // Type-only imports/exports are erased at runtime in normal TS builds.
       // When the native fallback sees raw source that still contains them,
       // treat them as no-ops instead of handing unsupported syntax to Hermes.
-      m = trimmed.match(/^\s*import\s+type\s+[\s\S]+?\s+from\s+(["'])([^'"]+)\1\s*;?\s*$/);
+      m = trimmed.match(/^\s*import\s+type\s+[\s\S]+?\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         continue;
       }
 
-      m = trimmed.match(/^\s*import\s+(["'])([^'"]+)\1\s*;?\s*$/);
+      m = trimmed.match(/^\s*import\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         out.push("require(" + quote(m[2]) + ");");
         continue;
       }
 
-      m = trimmed.match(/^\s*import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/);
+      m = trimmed.match(/^\s*import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         out.push("var " + m[1] + " = require(" + quote(m[3]) + ");");
         continue;
       }
 
       m = trimmed.match(
-        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\3\s*;?\s*$/
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\3\s*;?\s*$/
       );
       if (m) {
         var namedImport = "__exmod" + (importCounter++);
@@ -3562,7 +3562,7 @@
       }
 
       m = trimmed.match(
-        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\3\s*;?\s*$/
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\3\s*;?\s*$/
       );
       if (m) {
         var nsImport = "__exmod" + (importCounter++);
@@ -3584,7 +3584,7 @@
         continue;
       }
 
-      m = trimmed.match(/^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/);
+      m = trimmed.match(/^\s*import\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         out.push(
           "var " +
@@ -3598,7 +3598,7 @@
         continue;
       }
 
-      m = trimmed.match(/^\s*import\s+\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/);
+      m = trimmed.match(/^\s*import\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         var named = "__exmod" + (importCounter++);
         out.push("var " + named + " = require(" + quote(m[3]) + ");");
@@ -3606,7 +3606,7 @@
         continue;
       }
 
-      m = trimmed.match(/^\s*export\s+\*\s+from\s+(["'])([^'"]+)\1\s*;?\s*$/);
+      m = trimmed.match(/^\s*export\s*\*\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         var exportFrom = "__exmod" + (importCounter++);
         out.push("var " + exportFrom + " = require(" + quote(m[2]) + ");");
@@ -3618,12 +3618,12 @@
         continue;
       }
 
-      m = trimmed.match(/^\s*export\s+type\s+\{[\s\S]*?\}\s+from\s+(["'])([^'"]+)\1\s*;?\s*$/);
+      m = trimmed.match(/^\s*export\s+type\s*\{[\s\S]*?\}\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         continue;
       }
 
-      m = trimmed.match(/^\s*export\s+\{([\s\S]*?)\}\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/);
+      m = trimmed.match(/^\s*export\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         var exportFrom = "__exmod" + (importCounter++);
         out.push("var " + exportFrom + " = require(" + quote(m[3]) + ");");
@@ -3632,7 +3632,7 @@
       }
 
       m = trimmed.match(
-        /^\s*export\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^'"]+)\2\s*;?\s*$/
+        /^\s*export\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/
       );
       if (m) {
         var nsExport = "__exmod" + (importCounter++);
@@ -3783,12 +3783,12 @@
         continue;
       }
 
-      m = trimmed.match(/^\s*export\s+type\s+\{[^}]*\}\s*;?\s*$/);
+      m = trimmed.match(/^\s*export\s+type\s*\{[^}]*\}\s*;?\s*$/);
       if (m) {
         continue;
       }
 
-      m = trimmed.match(/^\s*export\s+\{([^}]*)\}\s*;?\s*$/);
+      m = trimmed.match(/^\s*export\s*\{([^}]*)\}\s*;?\s*$/);
       if (m) {
         emitExportBindings(m[1], null, false, true);
         continue;

@@ -655,4 +655,35 @@ extern "C" int ex_hermes_emit_module_view_event(
       payload_len);
 }
 
+extern "C" int ex_hermes_dispatch_event(
+    ExactHermesRuntime* runtime,
+    uint32_t handler_id,
+    const char* payload_json) {
+  if (!runtime || !runtime->runtime) return -1;
+
+  auto& rt = *runtime->runtime;
+
+  try {
+    auto handlerVal = rt.global().getProperty(rt, "__exactDispatchEvent");
+    if (!handlerVal.isObject() || !handlerVal.getObject(rt).isFunction(rt)) {
+      return -1;
+    }
+
+    auto handler = handlerVal.getObject(rt).asFunction(rt);
+    auto payload = payload_json && payload_json[0] != '\0'
+        ? parseJsonValue(rt, payload_json)
+        : facebook::jsi::Value::undefined();
+    handler.call(
+        rt,
+        facebook::jsi::Value(static_cast<double>(handler_id)),
+        std::move(payload));
+    return 0;
+  } catch (const facebook::jsi::JSError& err) {
+    ex_host_console_log(1, err.getMessage().c_str());
+    return -1;
+  } catch (...) {
+    return -1;
+  }
+}
+
 // =============================================================================

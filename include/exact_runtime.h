@@ -186,6 +186,14 @@ int ex_hermes_emit_module_view_event(
     const uint8_t* payload,
     size_t payload_len);
 
+/// Dispatch a renderer event from native code to JavaScript.
+/// Calls globalThis.__exactDispatchEvent(handlerId, payload).
+/// payload_json must be valid JSON for the event payload.
+int ex_hermes_dispatch_event(
+    ExactHermesRuntime* runtime,
+    uint32_t handler_id,
+    const char* payload_json);
+
 // =============================================================================
 // Host ABI (called from Rust, used by hermes_runtime.cc)
 // =============================================================================
