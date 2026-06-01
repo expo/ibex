@@ -3314,7 +3314,7 @@
           inTemplate = true;
           continue;
         }
-        if (ch === ";") {
+        if (ch === ";" || ch === "}") {
           var lookahead = cursor + 1;
           while (lookahead < sourceText.length) {
             var lookaheadCh = sourceText.charAt(lookahead);
@@ -3324,11 +3324,19 @@
             }
             break;
           }
+          // Isolate a minified module statement onto its own line so the
+          // line-based rewriter below can normalize it. esbuild folds the
+          // keyword onto the previous statement as `}}export{...}` (no `;`)
+          // or `0;import"x"`. Dynamic `import(...)` / `import.meta` were
+          // already rewritten before this pass, and the trailing
+          // non-identifier guard keeps `}exports`, `;exporter`, etc. from
+          // matching (a stray hit would only add a harmless newline anyway).
+          var lookaheadKeyword = sourceText.slice(lookahead, lookahead + 6);
           if (
-            sourceText.slice(lookahead, lookahead + 6) === "import" ||
-            sourceText.slice(lookahead, lookahead + 6) === "export"
+            (lookaheadKeyword === "import" || lookaheadKeyword === "export") &&
+            !/[A-Za-z0-9_$]/.test(sourceText.charAt(lookahead + 6))
           ) {
-            result += ";\n";
+            result += ch + "\n";
             cursor = lookahead - 1;
             continue;
           }
