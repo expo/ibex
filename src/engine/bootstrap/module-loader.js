@@ -4181,35 +4181,7 @@
       const directSource =
         injectEvalShimPreamble(transformedSource) +
         "\n//# sourceURL=" + filename;
-      pushDebugModuleSource({ id: id, filename: filename, source: directSource.slice(0, 2000) });
-      g.__exactDebugModuleSource = directSource;
-      try {
-        g.__filename = filename;
-        g.__dirname = dir;
-        const directFn = new Function(
-          "require",
-          "module",
-          "exports",
-          "__filename",
-          "__dirname",
-          directSource
-        );
-        directFn(localRequire, module, module.exports, filename, dir);
-      } catch (err) {
-        const needsAsyncFallback = isAwaitSyntaxFailure(err);
-        const shouldFallback = (
-          kind === "esm" ||
-          looksLikeModuleSyntax(directSource) ||
-          directSource.indexOf('await globalThis["import"](') !== -1 ||
-          needsAsyncFallback
-        );
-        const canFallback = shouldFallback &&
-          err &&
-          (err.name === "SyntaxError" || needsAsyncFallback) &&
-          directSource.length > 0;
-        if (!canFallback) {
-          throw err;
-        }
+      const runFallbackModule = function(reason) {
         let runtimeSource = transformDynamicImport(
           transformImportMeta(
             applyRolldownCjsDirnameBindings(
@@ -4256,12 +4228,48 @@
           filename: filename,
           source: runtimeSource.slice(0, 2000),
           fallback: true,
+          fallbackReason: reason,
           asyncWrapped: wrappedRuntimeForAwait
         });
         g.__exactDebugModuleSource = runtimeSource;
         if (module.exports && typeof module.exports === "object") {
           module.exports.__esModule = true;
           Object.defineProperty(module.exports, '__esmShimmed', { value: true });
+        }
+      };
+      if (kind === "esm" && looksLikeModuleSyntax(transformedSource)) {
+        runFallbackModule("esm-syntax");
+      } else {
+        pushDebugModuleSource({ id: id, filename: filename, source: directSource.slice(0, 2000) });
+        g.__exactDebugModuleSource = directSource;
+        try {
+          g.__filename = filename;
+          g.__dirname = dir;
+          const directFn = new Function(
+            "require",
+            "module",
+            "exports",
+            "__filename",
+            "__dirname",
+            directSource
+          );
+          directFn(localRequire, module, module.exports, filename, dir);
+        } catch (err) {
+          const needsAsyncFallback = isAwaitSyntaxFailure(err);
+          const shouldFallback = (
+            kind === "esm" ||
+            looksLikeModuleSyntax(directSource) ||
+            directSource.indexOf('await globalThis["import"](') !== -1 ||
+            needsAsyncFallback
+          );
+          const canFallback = shouldFallback &&
+            err &&
+            (err.name === "SyntaxError" || needsAsyncFallback) &&
+            directSource.length > 0;
+          if (!canFallback) {
+            throw err;
+          }
+          runFallbackModule(needsAsyncFallback ? "await-syntax" : "direct-syntax-error");
         }
       }
     } catch (err) {
