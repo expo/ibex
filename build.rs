@@ -189,7 +189,6 @@ fn main() {
     println!("cargo:rerun-if-changed=src/sync.rs");
     println!("cargo:rerun-if-changed=src/cdp/mod.rs");
     println!("cargo:rerun-if-changed=src/cdp/network.rs");
-    println!("cargo:rerun-if-changed=../exact-cli/src/host/http_server.rs");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_linux.cc");
@@ -244,7 +243,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
-    let cli_notify_enabled = std::env::var_os("CARGO_FEATURE_CLI_NOTIFY").is_some();
+    let host_http_server_enabled = std::env::var_os("CARGO_FEATURE_HOST_HTTP_SERVER").is_some();
     let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
     let openssl_crypto_enabled = std::env::var_os("CARGO_FEATURE_OPENSSL_CRYPTO").is_some();
     let hermes_macos_binary = if target_os == "macos" {
@@ -740,7 +739,15 @@ fn main() {
         build.define("HERMES_ENABLE_DEBUGGER", None);
         println!("cargo:rustc-cfg=hermes_debugger");
     }
-    if cli_notify_enabled && target_os != "windows" {
+    // Weak no-op `ex_host_http_*` stubs are compiled exactly when no real
+    // implementation is linked, i.e. when the `host-http-server` feature is
+    // off. Weak linkage keeps an externally provided strong implementation
+    // authoritative if a host supplies one. Windows is excluded because MSVC
+    // has no `__attribute__((weak))`; Windows builds must enable
+    // `host-http-server`. @tactical @ref LLP 0159 P0-B (gate was inverted:
+    // it previously keyed on cli-notify, so stub presence depended on cargo
+    // feature unification).
+    if !host_http_server_enabled && target_os != "windows" {
         build.define("EXACT_RUNTIME_USE_HTTP_STUBS", None);
     }
 

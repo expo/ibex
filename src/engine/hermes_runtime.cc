@@ -1991,14 +1991,15 @@ extern "C" char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime) {
 }
 
 // =============================================================================
-// HTTP server stubs (iOS / standalone builds)
-// The CLI provides real implementations via tokio; on iOS these are no-ops.
+// HTTP server stubs (deliberate no-host builds only)
 // =============================================================================
 
-// Weak stubs for HTTP server functions. The CLI provides real implementations
-// via tokio (http_server.rs). In standalone/Xcode builds (iOS, macOS app),
-// these no-op stubs are used instead. The __attribute__((weak)) ensures the
-// CLI's strong symbols override these when both are linked.
+// Weak no-op stubs for the HTTP server functions. The real implementation is
+// the Rust host/http_server.rs in this crate, compiled when the
+// `host-http-server` cargo feature is enabled (build.rs then omits these
+// stubs). They exist so builds that deliberately exclude the server still
+// link; __attribute__((weak)) keeps any strong implementation authoritative
+// if a host links one alongside. @ref LLP 0159 P0-B.
 #if defined(EXACT_RUNTIME_USE_HTTP_STUBS)
 #define WEAK_STUB __attribute__((weak))
 

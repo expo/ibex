@@ -1636,8 +1636,10 @@ pub extern "C" fn ex_host_http_has_pending_requests() -> i32 {
     0
 }
 
-#[cfg(test)]
-pub(crate) fn is_server_listening(server_id: u32) -> bool {
+/// Whether a server has reached the LISTENING state. Used by this crate's
+/// tests and by exact-cli's bridge round-trip tests (cfg(test) would be
+/// compiled out of the dependency build, so this stays a plain pub fn).
+pub fn is_server_listening(server_id: u32) -> bool {
     let servers = lock_or_recover(servers());
     servers
         .get(&server_id)
