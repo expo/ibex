@@ -9,19 +9,10 @@ function ensureExactNet() {
 }
 ensureExactNet();
 
-var EventEmitter;
-try { EventEmitter = require('events'); } catch(e) {
-  EventEmitter = function() { this._events = {}; };
-  EventEmitter.prototype.on = function(e, fn) { if (!this._events) this._events = {}; if (!this._events[e]) this._events[e] = []; this._events[e].push(fn); return this; };
-  EventEmitter.prototype.emit = function(e) { if (!this._events) this._events = {}; var a = [].slice.call(arguments, 1); var l = this._events[e] || []; for (var i = 0; i < l.length; i++) l[i].apply(this, a); return l.length > 0; };
-  EventEmitter.prototype.once = function(e, fn) { var self = this; function w() { self.removeListener(e, w); fn.apply(this, arguments); } w.listener = fn; this.on(e, w); return this; };
-  EventEmitter.prototype.removeListener = function(e, fn) { if (!this._events) this._events = {}; var l = this._events[e]; if (l) { var n = []; for (var i = 0; i < l.length; i++) { if (l[i] !== fn && l[i].listener !== fn) n.push(l[i]); } this._events[e] = n; } return this; };
-  EventEmitter.prototype.removeAllListeners = function(e) { if (!this._events) this._events = {}; if (e) delete this._events[e]; else this._events = {}; return this; };
-  EventEmitter.prototype.addListener = EventEmitter.prototype.on;
-  EventEmitter.prototype.off = EventEmitter.prototype.removeListener;
-  EventEmitter.prototype.listeners = function(e) { if (!this._events) this._events = {}; return (this._events[e] || []).slice(); };
-  EventEmitter.prototype.listenerCount = function(e) { if (!this._events) this._events = {}; return (this._events[e] || []).length; };
-}
+// The real events builtin is always loadable here (stream.js/http.js require
+// it unguarded at lines 1); the old inline fallback duplicated it.
+// @tactical @ref LLP 0159 R11
+var EventEmitter = require('events');
 
 function _hasTcpSupport() {
   return typeof __exactTcpListen === 'function' &&

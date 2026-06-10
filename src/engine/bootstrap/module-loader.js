@@ -4274,18 +4274,24 @@
       }
     } catch (err) {
       delete cache[id];
-      var moduleErrorMessage = '';
-      if (err && typeof err === 'object') {
-        if (typeof err.stack === 'string' && err.stack) {
-          moduleErrorMessage = err.stack;
-        } else if (typeof err.message === 'string' && err.message) {
-          moduleErrorMessage = err.message;
+      var moduleErrorPrefix = 'While evaluating module "' + id + '": ';
+      if (err && (typeof err === 'object' || typeof err === 'function')) {
+        // Annotate and rethrow the original error so its stack, cause, and
+        // custom properties survive; rebuilding a bare Error here flattened
+        // every module failure. @tactical @ref LLP 0159 R6
+        try {
+          if (typeof err.message === 'string') {
+            err.message = moduleErrorPrefix + err.message;
+          }
+          if (typeof err.stack === 'string' && err.stack) {
+            err.stack = moduleErrorPrefix + err.stack;
+          }
+        } catch (_annotationFailure) {
+          // Frozen/sealed error: rethrow unannotated rather than flatten.
         }
+        throw err;
       }
-      if (!moduleErrorMessage) {
-        moduleErrorMessage = String(err);
-      }
-      throw new Error('While evaluating module "' + id + '": ' + moduleErrorMessage);
+      throw new Error(moduleErrorPrefix + String(err));
     } finally {
       if (typeof previousNodeFilename === "undefined") {
         delete g.__filename;

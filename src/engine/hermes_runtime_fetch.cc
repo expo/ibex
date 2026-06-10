@@ -29,7 +29,11 @@ extern "C" void native_fetch_cancel(uint32_t request_id);
 
 namespace {
 
-constexpr uint32_t EXACT_FETCH_TIMEOUT_MS = 30000;
+// Web fetch has no default timeout: when JS passes no `timeout` (or 0), the
+// request runs until the network layer resolves it or JS aborts it via
+// `__exactCancel`. JS-side timeouts arrive through `init.timeout`.
+// @tactical @ref LLP 0159 R2
+constexpr uint32_t EXACT_FETCH_NO_TIMEOUT_MS = 0;
 
 #if defined(_WIN32)
 struct SyncFetchResult {
@@ -103,7 +107,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           }
         }
 
-        uint32_t timeout_ms = EXACT_FETCH_TIMEOUT_MS;
+        uint32_t timeout_ms = EXACT_FETCH_NO_TIMEOUT_MS;
         if (init.hasProperty(runtime, "timeout")) {
           auto timeoutVal = init.getProperty(runtime, "timeout");
           if (timeoutVal.isNumber()) {
@@ -168,8 +172,9 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                 auto reject =
                     std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
 
-                auto deadline =
-                    std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutCopy);
+                auto deadline = timeoutCopy == 0
+                    ? std::chrono::steady_clock::time_point::max()
+                    : std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutCopy);
 
                 cleanupFetchCallbacks(handle);
                 {
@@ -400,7 +405,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           }
         }
 
-        uint32_t timeout_ms = EXACT_FETCH_TIMEOUT_MS;
+        uint32_t timeout_ms = EXACT_FETCH_NO_TIMEOUT_MS;
         if (init.hasProperty(runtime, "timeout")) {
           auto timeoutVal = init.getProperty(runtime, "timeout");
           if (timeoutVal.isNumber()) {
@@ -468,7 +473,11 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
 
         {
           std::unique_lock<std::mutex> lock(result.mutex);
-          if (!result.cv.wait_for(
+          if (timeout_ms == 0) {
+            // 0 = no timeout (web semantics); block until the network layer
+            // resolves or fails the request. @tactical @ref LLP 0159 R2
+            result.cv.wait(lock, [&result] { return result.done; });
+          } else if (!result.cv.wait_for(
                   lock, std::chrono::milliseconds(timeout_ms), [&result] { return result.done; })) {
             native_fetch_cancel(requestId);
             throw facebook::jsi::JSError(runtime, "Fetch timed out");

@@ -83,6 +83,17 @@ impl ModuleLoader {
                 "import".into(),
                 "default".into(),
             ],
+            // TS NodeNext convention: `./x.js` in TS sources refers to `./x.ts`
+            // on disk. Real `.js` files keep priority, mirroring Vite's
+            // resolution on the web side. @tactical @ref LLP 0159 R8b
+            extension_alias: vec![
+                (
+                    ".js".into(),
+                    vec![".js".into(), ".ts".into(), ".tsx".into()],
+                ),
+                (".mjs".into(), vec![".mjs".into(), ".mts".into()]),
+                (".cjs".into(), vec![".cjs".into(), ".cts".into()]),
+            ],
             ..ResolveOptions::default()
         };
 
@@ -646,10 +657,29 @@ impl ModuleLoader {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
 
-        let resolution = self
-            .resolver
-            .resolve(&base_dir, specifier)
-            .with_context(|| format!("Failed to resolve module {}", specifier))?;
+        let resolution = match self.resolver.resolve(&base_dir, specifier) {
+            Ok(resolution) => resolution,
+            Err(err) => {
+                // Native hosts pass referrer-relative entry paths without a
+                // leading "./" (e.g. "packages/exact-runtime-js/src/native"),
+                // which Node-style resolution treats as bare package
+                // specifiers. If the path exists on disk relative to the
+                // referrer, retry as an explicit relative specifier so
+                // directory imports still land on index.*.
+                // @tactical @ref LLP 0159 R8a
+                let path_like = !specifier.starts_with('.')
+                    && !Path::new(specifier).is_absolute()
+                    && base_dir.join(specifier).exists();
+                if path_like {
+                    self.resolver
+                        .resolve(&base_dir, &format!("./{specifier}"))
+                        .with_context(|| format!("Failed to resolve module {}", specifier))?
+                } else {
+                    return Err(err)
+                        .with_context(|| format!("Failed to resolve module {}", specifier));
+                }
+            }
+        };
 
         let mut kind = match resolution.module_type() {
             Some(ModuleType::Module) => ModuleKind::Esm,
@@ -811,26 +841,37 @@ fn module_cache_key(path: &Path, target: &str) -> Result<String> {
             }
         }
     }
-    let root = repo_root()?;
-    hash_cache_input_file(
-        &mut hasher,
-        &root
-            .join("packages")
-            .join("exact-devtools")
-            .join("src")
-            .join("scripts")
-            .join("transpile-typescript.mjs"),
-    )?;
-    hash_cache_input_file(
-        &mut hasher,
-        &root
-            .join("packages")
-            .join("exact-devtools")
-            .join("src")
-            .join("scripts")
-            .join("transforms.mjs"),
-    )?;
+    transpile_tooling_hash()?.hash(&mut hasher);
     Ok(format!("{:x}", hasher.finish()))
+}
+
+/// Hash of the transpile tooling scripts, computed once per process.
+/// The scripts don't change underneath a running loader, and re-reading
+/// both files for every module load showed up in the LLP 0159 perf audit.
+/// @tactical @ref LLP 0159 R9
+fn transpile_tooling_hash() -> Result<u64> {
+    static TOOLING_HASH: std::sync::OnceLock<std::result::Result<u64, String>> =
+        std::sync::OnceLock::new();
+    TOOLING_HASH
+        .get_or_init(|| {
+            let mut hasher = DefaultHasher::new();
+            let script = match transpile_script_path() {
+                Ok(script) => script,
+                Err(err) => return Err(err.to_string()),
+            };
+            if let Err(err) = hash_cache_input_file(&mut hasher, &script) {
+                return Err(err.to_string());
+            }
+            let transforms = script.with_file_name("transforms.mjs");
+            if transforms.exists() {
+                if let Err(err) = hash_cache_input_file(&mut hasher, &transforms) {
+                    return Err(err.to_string());
+                }
+            }
+            Ok(hasher.finish())
+        })
+        .clone()
+        .map_err(|err| anyhow!(err))
 }
 
 fn transpile_cache_dir() -> Result<PathBuf> {
@@ -936,6 +977,19 @@ fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()
 }
 
 fn transpile_script_path() -> Result<PathBuf> {
+    // Runtime override so TS loading works off the build machine instead of
+    // depending on the CARGO_MANIFEST_DIR baked in at compile time.
+    // @tactical @ref LLP 0159 R9
+    if let Ok(script) = std::env::var("EXACT_TRANSPILE_SCRIPT") {
+        let script = PathBuf::from(script);
+        if script.exists() {
+            return Ok(script);
+        }
+        anyhow::bail!(
+            "EXACT_TRANSPILE_SCRIPT points to missing file {}",
+            script.display()
+        );
+    }
     let root = repo_root()?;
     let script = root
         .join("packages")
@@ -960,6 +1014,14 @@ fn find_js_runner() -> Result<(PathBuf, &'static str)> {
 }
 
 fn repo_root() -> Result<PathBuf> {
+    // Runtime override (same convention as exact-cli) with the compile-time
+    // path as a dev-machine fallback. @tactical @ref LLP 0159 R9
+    if let Ok(root) = std::env::var("EXACT_REPO_ROOT") {
+        let root = PathBuf::from(root);
+        if root.exists() {
+            return Ok(root);
+        }
+    }
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
         .parent()
@@ -1576,6 +1638,78 @@ for (let i = 0; i < 3; i++) {
         let builtins = build_builtin_registry(&registrations);
         assert!(builtins.contains_key("node:process"));
         assert!(!builtins.contains_key("node:broken"));
+    }
+
+    #[test]
+    fn resolves_directory_import_to_index_ts() {
+        // @ref LLP 0159 R8a
+        let dir = tempdir().unwrap();
+        let native = dir.path().join("native");
+        std::fs::create_dir_all(&native).unwrap();
+        std::fs::write(native.join("index.ts"), "export const ok = 1;").unwrap();
+
+        let loader = test_loader();
+        let resolved = loader
+            .resolve_meta("./native", Some(&dir.path().join("entry.ts")))
+            .unwrap();
+        assert!(resolved.path.unwrap().ends_with("native/index.ts"));
+
+        let abs = native.to_string_lossy().to_string();
+        let resolved_abs = loader.resolve_meta(&abs, None).unwrap();
+        assert!(resolved_abs.path.unwrap().ends_with("native/index.ts"));
+    }
+
+    #[test]
+    fn resolves_referrer_relative_path_without_dot_prefix() {
+        // Native hosts pass entry paths like "packages/exact-runtime-js/src/native"
+        // without a leading "./". @ref LLP 0159 R8a
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("packages").join("demo").join("src").join("native");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("index.ts"), "export const ok = 1;").unwrap();
+
+        let loader = test_loader();
+        let resolved = loader
+            .resolve_meta("packages/demo/src/native", Some(dir.path()))
+            .unwrap();
+        assert!(resolved
+            .path
+            .unwrap()
+            .ends_with("packages/demo/src/native/index.ts"));
+
+        // A genuinely-bare specifier still reports the original failure.
+        let err = loader
+            .resolve_meta("definitely-not-a-package", Some(dir.path()))
+            .unwrap_err();
+        assert!(err.to_string().contains("definitely-not-a-package"));
+    }
+
+    #[test]
+    fn resolves_ts_style_js_specifier_to_ts_source() {
+        // TS NodeNext convention: "../x.js" written in TS resolves to ../x.ts.
+        // @ref LLP 0159 R8b
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("bootstrap.ts"), "export const b = 1;").unwrap();
+
+        let loader = test_loader();
+        let resolved = loader
+            .resolve_meta("./bootstrap.js", Some(&dir.path().join("entry.ts")))
+            .unwrap();
+        assert!(resolved.path.unwrap().ends_with("bootstrap.ts"));
+    }
+
+    #[test]
+    fn extension_alias_prefers_real_js_over_ts() {
+        // @ref LLP 0159 R8b
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("both.js"), "module.exports = 1;").unwrap();
+        std::fs::write(dir.path().join("both.ts"), "export const b = 1;").unwrap();
+
+        let loader = test_loader();
+        let resolved = loader
+            .resolve_meta("./both.js", Some(&dir.path().join("entry.ts")))
+            .unwrap();
+        assert!(resolved.path.unwrap().ends_with("both.js"));
     }
 
     #[test]

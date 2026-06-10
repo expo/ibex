@@ -25,7 +25,6 @@ extern "C" void native_ws_release_context(void* context);
 
 struct WebSocketEntry {
     NSURLSessionWebSocketTask* task;
-    NSURLSession* session;
     uint32_t ws_id;
     NativeWsOpenCallback open_cb;
     NativeWsMessageCallback message_cb;
@@ -50,7 +49,6 @@ struct WebSocketEntry {
 
     WebSocketEntry(
         NSURLSessionWebSocketTask* task,
-        NSURLSession* session,
         uint32_t ws_id,
         NativeWsOpenCallback open_cb,
         NativeWsMessageCallback message_cb,
@@ -60,7 +58,6 @@ struct WebSocketEntry {
         void* context,
         bool closed)
         : task(task),
-          session(session),
           ws_id(ws_id),
           open_cb(open_cb),
           message_cb(message_cb),
@@ -86,7 +83,19 @@ struct WebSocketEntry {
 
 static std::mutex wsMutex;
 static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> wsConnections;
+// Routes shared-session delegate callbacks back to the owning socket.
+// Guarded by wsMutex. @tactical @ref LLP 0159 R7
+static std::unordered_map<void*, uint32_t> wsTaskToId;
 static uint32_t nextWsId = 1;
+
+static uint32_t wsIdForTask(NSURLSessionTask* task) {
+    if (!task) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(wsMutex);
+    auto it = wsTaskToId.find((__bridge void*)task);
+    return it == wsTaskToId.end() ? 0 : it->second;
+}
 
 static double monotonicSeconds() {
     return [[NSProcessInfo processInfo] systemUptime];
@@ -101,6 +110,18 @@ static int64_t clientCloseHandshakeGracePeriodNanos() {
 
 static bool shouldTrustLoopbackTls() {
     const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
+    if (!value || !*value) {
+        return false;
+    }
+    return std::string(value) != "0";
+}
+
+static bool wptFixtureCloseSemanticsEnabled() {
+    // WPT close-timing fixtures are selected by magic URL substrings
+    // ("/delayed-passive-close", "/passive-close-abort"). Production must not
+    // change close semantics based on URL contents, so the sniffing only
+    // applies when the compat runner opts in. @tactical @ref LLP 0159 R5
+    const char* value = std::getenv("EXACT_WPT_FIXTURE_CLOSE_SEMANTICS");
     if (!value || !*value) {
         return false;
     }
@@ -148,6 +169,9 @@ static void destroy_entry(uint32_t ws_id) {
         }
         entry = it->second;
         wsConnections.erase(it);
+        if (entry && entry->task) {
+            wsTaskToId.erase((__bridge void*)entry->task);
+        }
     }
 
     if (!entry) {
@@ -155,8 +179,10 @@ static void destroy_entry(uint32_t ws_id) {
     }
 
     entry->closed = true;
-    if (entry->session) {
-        [entry->session invalidateAndCancel];
+    // The session is shared across sockets (LLP 0159 R7): cancel only this
+    // socket's task instead of invalidating the whole session.
+    if (entry->task) {
+        [entry->task cancel];
     }
 
     if (entry->context) {
@@ -169,17 +195,18 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry);
 static void scheduleClientCloseCompletion(uint32_t ws_id, int64_t delay_nanos);
 
 @interface WebSocketDelegate : NSObject <NSURLSessionWebSocketDelegate>
-@property (nonatomic, assign) uint32_t wsId;
 @end
 
 @implementation WebSocketDelegate
 
 - (void)URLSession:(NSURLSession *)session webSocketTask:(NSURLSessionWebSocketTask *)webSocketTask
     didOpenWithProtocol:(NSString *)protocol {
+    uint32_t wsId = wsIdForTask(webSocketTask);
+    if (!wsId) return;
     std::shared_ptr<WebSocketEntry> entry;
     {
         std::lock_guard<std::mutex> lock(wsMutex);
-        auto it = wsConnections.find(self.wsId);
+        auto it = wsConnections.find(wsId);
         if (it == wsConnections.end() || it->second->closed) return;
         entry = it->second;
     }
@@ -207,12 +234,14 @@ static void scheduleClientCloseCompletion(uint32_t ws_id, int64_t delay_nanos);
 
 - (void)URLSession:(NSURLSession *)session webSocketTask:(NSURLSessionWebSocketTask *)webSocketTask
     didCloseWithCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(NSData *)reason {
+    uint32_t wsId = wsIdForTask(webSocketTask);
+    if (!wsId) return;
     std::shared_ptr<WebSocketEntry> entry;
     NSString* reasonStr = reason ? [[NSString alloc] initWithData:reason encoding:NSUTF8StringEncoding] : @"";
     std::string observedReason = reasonStr ? std::string([reasonStr UTF8String]) : std::string();
     {
         std::lock_guard<std::mutex> lock(wsMutex);
-        auto it = wsConnections.find(self.wsId);
+        auto it = wsConnections.find(wsId);
         if (it == wsConnections.end() || it->second->closed) return;
         entry = it->second;
         entry->has_observed_close = true;
@@ -227,10 +256,12 @@ static void scheduleClientCloseCompletion(uint32_t ws_id, int64_t delay_nanos);
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
 didCompleteWithError:(NSError *)error {
     if (!error) return; // Normal completion, not an error
+    uint32_t wsId = wsIdForTask(task);
+    if (!wsId) return;
     std::shared_ptr<WebSocketEntry> entry;
     {
         std::lock_guard<std::mutex> lock(wsMutex);
-        auto it = wsConnections.find(self.wsId);
+        auto it = wsConnections.find(wsId);
         if (it == wsConnections.end() || it->second->closed) return;
         entry = it->second;
         entry->closed = true;
@@ -251,7 +282,7 @@ didCompleteWithError:(NSError *)error {
         }
     }
 
-    destroy_entry(self.wsId);
+    destroy_entry(wsId);
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -280,8 +311,15 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
 // this per RFC 6455 section 5.5.2/5.5.3.
 
 static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
-    if (entry->closed || entry->receive_paused || entry->receive_in_flight) return;
-    entry->receive_in_flight = true;
+    if (!entry) return;
+    {
+        // Entry flags are written from delegate/dispatch threads under
+        // wsMutex; check and claim the in-flight slot under the same lock.
+        // @tactical @ref LLP 0159 R4
+        std::lock_guard<std::mutex> lock(wsMutex);
+        if (entry->closed || entry->receive_paused || entry->receive_in_flight) return;
+        entry->receive_in_flight = true;
+    }
     auto message_cb = entry->message_cb;
     auto close_cb = entry->close_cb;
     auto error_cb = entry->error_cb;
@@ -296,14 +334,6 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
         (void)context_guard;
         if (error) {
             std::shared_ptr<WebSocketEntry> activeEntry;
-            {
-                std::lock_guard<std::mutex> lock(wsMutex);
-                auto it = wsConnections.find(ws_id);
-                if (it == wsConnections.end() || it->second->closed) return;
-                activeEntry = it->second;
-                activeEntry->receive_in_flight = false;
-            }
-
             NSURLSessionWebSocketCloseCode closeCode = NSURLSessionWebSocketCloseCodeInvalid;
             NSData* closeReasonData = nil;
             bool hasObservedClose = false;
@@ -315,18 +345,28 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             uint16_t observedCloseCode = 1005;
             std::string observedCloseReason;
             bool observedCloseWasClean = false;
-            if (activeEntry && activeEntry->task) {
-                closeCode = activeEntry->task.closeCode;
-                closeReasonData = activeEntry->task.closeReason;
-                hasObservedClose = activeEntry->has_observed_close;
-                closeRequestedByClient = activeEntry->close_requested_by_client;
-                closeRequestedAtSeconds = activeEntry->close_requested_at_seconds;
-                closeGraceNanos = activeEntry->close_grace_nanos;
-                forceCloseHandshakeGrace = activeEntry->force_close_handshake_grace;
-                forceUncleanClientClose = activeEntry->force_unclean_client_close;
-                observedCloseCode = activeEntry->observed_close_code;
-                observedCloseReason = activeEntry->observed_close_reason;
-                observedCloseWasClean = activeEntry->observed_close_was_clean;
+            {
+                // Snapshot entry state under wsMutex; these fields are
+                // written by delegate callbacks on other threads.
+                // @tactical @ref LLP 0159 R4
+                std::lock_guard<std::mutex> lock(wsMutex);
+                auto it = wsConnections.find(ws_id);
+                if (it == wsConnections.end() || it->second->closed) return;
+                activeEntry = it->second;
+                activeEntry->receive_in_flight = false;
+                if (activeEntry->task) {
+                    closeCode = activeEntry->task.closeCode;
+                    closeReasonData = activeEntry->task.closeReason;
+                    hasObservedClose = activeEntry->has_observed_close;
+                    closeRequestedByClient = activeEntry->close_requested_by_client;
+                    closeRequestedAtSeconds = activeEntry->close_requested_at_seconds;
+                    closeGraceNanos = activeEntry->close_grace_nanos;
+                    forceCloseHandshakeGrace = activeEntry->force_close_handshake_grace;
+                    forceUncleanClientClose = activeEntry->force_unclean_client_close;
+                    observedCloseCode = activeEntry->observed_close_code;
+                    observedCloseReason = activeEntry->observed_close_reason;
+                    observedCloseWasClean = activeEntry->observed_close_was_clean;
+                }
             }
 
             if (closeRequestedByClient) {
@@ -379,8 +419,15 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
                     reportedCloseCode = observedCloseCode;
                     reportedWasClean = observedCloseWasClean;
                 }
-                if (activeEntry && close_cb && context && !activeEntry->closed) {
-                    activeEntry->closed = true;
+                bool shouldReportClose = false;
+                {
+                    std::lock_guard<std::mutex> lock(wsMutex);
+                    if (activeEntry && !activeEntry->closed) {
+                        activeEntry->closed = true;
+                        shouldReportClose = true;
+                    }
+                }
+                if (shouldReportClose && close_cb && context) {
                     close_cb(ws_id, reportedCloseCode, [closeReason UTF8String], reportedWasClean ? 1 : 0, context);
                 }
                 destroy_entry(ws_id);
@@ -391,8 +438,15 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
                 error_cb(ws_id, [[error localizedDescription] UTF8String], context);
             }
 
-            if (activeEntry && close_cb && context && !activeEntry->closed) {
-                activeEntry->closed = true;
+            bool shouldReportClose = false;
+            {
+                std::lock_guard<std::mutex> lock(wsMutex);
+                if (activeEntry && !activeEntry->closed) {
+                    activeEntry->closed = true;
+                    shouldReportClose = true;
+                }
+            }
+            if (shouldReportClose && close_cb && context) {
                 close_cb(ws_id, 1006, "Connection error", 0, context);
             }
             destroy_entry(ws_id);
@@ -539,13 +593,18 @@ extern "C" uint32_t native_ws_connect(
             wsId = nextWsId++;
         }
 
-        WebSocketDelegate* delegate = [[WebSocketDelegate alloc] init];
-        delegate.wsId = wsId;
-
-        NSURLSessionConfiguration* config = [NSURLSessionConfiguration defaultSessionConfiguration];
-        NSURLSession* session = [NSURLSession sessionWithConfiguration:config
-                                                              delegate:delegate
-                                                         delegateQueue:nil];
+        // One session shared by all sockets; delegate callbacks route back to
+        // the owning entry via wsTaskToId. @tactical @ref LLP 0159 R7
+        static NSURLSession* sharedSession = nil;
+        static dispatch_once_t sharedSessionOnce;
+        dispatch_once(&sharedSessionOnce, ^{
+            WebSocketDelegate* delegate = [[WebSocketDelegate alloc] init];
+            NSURLSessionConfiguration* config = [NSURLSessionConfiguration defaultSessionConfiguration];
+            sharedSession = [NSURLSession sessionWithConfiguration:config
+                                                          delegate:delegate
+                                                     delegateQueue:nil];
+        });
+        NSURLSession* session = sharedSession;
 
         NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:nsUrl];
 
@@ -567,11 +626,11 @@ extern "C" uint32_t native_ws_connect(
         NSURLSessionWebSocketTask* task = [session webSocketTaskWithRequest:request];
 
         auto entry = std::make_shared<WebSocketEntry>(
-            task, session, wsId,
+            task, wsId,
             open_cb, message_cb, close_cb, error_cb, bytes_sent_cb,
             context, false
         );
-        if (urlString) {
+        if (urlString && wptFixtureCloseSemanticsEnabled()) {
             if ([urlString rangeOfString:@"/delayed-passive-close"].location != NSNotFound) {
                 entry->close_grace_nanos = clientCloseHandshakeGracePeriodNanos();
                 entry->force_close_handshake_grace = true;
@@ -584,6 +643,7 @@ extern "C" uint32_t native_ws_connect(
         {
             std::lock_guard<std::mutex> lock(wsMutex);
             wsConnections[wsId] = entry;
+            wsTaskToId[(__bridge void*)task] = wsId;
         }
 
         [task resume];
@@ -598,13 +658,9 @@ extern "C" void native_ws_send(
     size_t length,
     int is_text
 ) {
-    std::lock_guard<std::mutex> lock(wsMutex);
-    auto it = wsConnections.find(ws_id);
-    if (it == wsConnections.end() || it->second->closed) return;
-
-    auto entry = it->second;
-    size_t bytesSent = length;
-
+    // Build the NSString/NSData payload before taking the global lock so
+    // large payload conversion doesn't serialize every socket.
+    // @tactical @ref LLP 0159 R7
     NSURLSessionWebSocketMessage* message;
     if (is_text) {
         NSString* str = [[NSString alloc] initWithBytes:data length:length encoding:NSUTF8StringEncoding];
@@ -613,6 +669,15 @@ extern "C" void native_ws_send(
         NSData* nsData = [NSData dataWithBytes:data length:length];
         message = [[NSURLSessionWebSocketMessage alloc] initWithData:nsData];
     }
+
+    std::shared_ptr<WebSocketEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(wsMutex);
+        auto it = wsConnections.find(ws_id);
+        if (it == wsConnections.end() || it->second->closed) return;
+        entry = it->second;
+    }
+    size_t bytesSent = length;
 
     // Capture bytes_sent_cb and ws_id for completion handler
     auto bytes_sent_cb = entry->bytes_sent_cb;
@@ -685,6 +750,10 @@ extern "C" void native_ws_pause(uint32_t ws_id) {
 extern "C" void native_ws_resume(uint32_t ws_id) {
     std::shared_ptr<WebSocketEntry> entry;
     NSURLSessionWebSocketTask* task = nil;
+    bool deliverDeferredClose = false;
+    uint16_t deferredCloseCode = 1005;
+    std::string deferredCloseReason;
+    bool deferredCloseWasClean = false;
     {
         std::lock_guard<std::mutex> lock(wsMutex);
         auto it = wsConnections.find(ws_id);
@@ -701,6 +770,29 @@ extern "C" void native_ws_resume(uint32_t ws_id) {
             return;
         }
         entry = it->second;
+        // A server close that arrived while flow-paused was recorded by the
+        // delegate but never delivered; report it now instead of restarting
+        // the receive loop on a finished task. @tactical @ref LLP 0159 R4
+        if (entry->has_observed_close) {
+            entry->closed = true;
+            deliverDeferredClose = true;
+            deferredCloseCode = entry->observed_close_code;
+            deferredCloseReason = entry->observed_close_reason;
+            deferredCloseWasClean = entry->observed_close_was_clean;
+        }
+    }
+
+    if (deliverDeferredClose) {
+        if (entry->close_cb && entry->context) {
+            entry->close_cb(
+                ws_id,
+                deferredCloseCode,
+                deferredCloseReason.c_str(),
+                deferredCloseWasClean ? 1 : 0,
+                entry->context);
+        }
+        destroy_entry(ws_id);
+        return;
     }
 
     if (task) {

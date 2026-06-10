@@ -591,7 +591,7 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
   }
 
   auto now = std::chrono::steady_clock::now();
-  std::vector<std::pair<std::shared_ptr<facebook::jsi::Function>, std::string>> expired;
+  std::vector<std::tuple<uint32_t, std::shared_ptr<facebook::jsi::Function>, std::string>> expired;
 
   {
     std::lock_guard<std::mutex> lock(runtime->fetchMutex);
@@ -599,6 +599,7 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
          it != runtime->fetchCallbacks.end();) {
       if (it->second.deadline <= now) {
         expired.push_back({
+            it->first,
             std::move(it->second.reject),
             std::move(it->second.url),
         });
@@ -610,8 +611,12 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
   }
 
   for (auto& entry : expired) {
-    auto& reject = entry.first;
-    auto& url = entry.second;
+    auto request_id = std::get<0>(entry);
+    auto& reject = std::get<1>(entry);
+    auto& url = std::get<2>(entry);
+    // Expiry must also cancel the in-flight native task (NSURLSession et al.),
+    // not just reject the JS promise. @tactical @ref LLP 0159 R2
+    native_fetch_cancel(request_id);
     if (!reject) {
       continue;
     }
@@ -639,7 +644,23 @@ extern "C" void native_ws_release_context(void* context) {
     return;
   }
   if (ctx->ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    delete ctx;
+    // The final release can land on an NSURLSession/dispatch thread, but
+    // deleting ctx destroys a jsi::Object, which is only safe on the JS
+    // thread while the runtime is alive. Marshal the delete there; if the
+    // runtime is already gone, intentionally leak the context rather than
+    // destroy a JSI handle after runtime teardown (UB).
+    // @tactical @ref LLP 0159 R3
+    auto* runtime = ctx->runtime;
+    if (!runtime || !runtimeIsAlive(runtime)) {
+      return;  // leak-on-dead-runtime fallback
+    }
+    if (std::this_thread::get_id() == runtime->runtime_thread) {
+      delete ctx;
+      return;
+    }
+    // If the runtime dies before the callback runs, the queued lambda is
+    // destroyed without running and ctx leaks (same documented fallback).
+    pushRuntimeCallback(runtime, [ctx](facebook::jsi::Runtime&) { delete ctx; });
   }
 }
 
@@ -691,7 +712,26 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
             fn(*runtime->runtime);
             count++;
         } catch (const facebook::jsi::JSError& err) {
-            ex_host_console_log(1, err.getMessage().c_str());
+            // Route the original thrown value through the uncaughtException
+            // handler so stack/custom props survive, instead of flattening to
+            // a console message. @tactical @ref LLP 0159 R6
+            bool handled = false;
+            try {
+                auto& rt = *runtime->runtime;
+                auto handler =
+                    rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
+                if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
+                    auto errVal = facebook::jsi::Value(rt, err.value());
+                    auto result =
+                        handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
+                    if (result.isBool() && result.getBool()) handled = true;
+                }
+            } catch (...) {}
+            if (!handled) {
+                ex_host_console_log(1, err.getMessage().c_str());
+            }
+        } catch (const std::exception& err) {
+            ex_host_console_log(1, err.what());
         } catch (...) {
             ex_host_console_log(1, "Callback execution failed");
         }
@@ -1298,11 +1338,10 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
       try {
         auto handler = rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
         if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
-          // Create a new Error object from the message (can't copy jsi::Value)
-          auto errObj = rt.global()
-              .getPropertyAsFunction(rt, "Error")
-              .callAsConstructor(rt, facebook::jsi::String::createFromUtf8(rt, err.getMessage()));
-          auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errObj));
+          // Pass the original thrown value through (stack/custom props intact),
+          // mirroring the timer error path. @tactical @ref LLP 0159 R6
+          auto errVal = facebook::jsi::Value(rt, err.value());
+          auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
           if (result.isBool() && result.getBool()) handled = true;
         }
       } catch (...) {}
@@ -1839,6 +1878,19 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
     if (it == runtime->timers.end()) {
       continue;
     }
+    // Retire or reschedule the fired timer. Must run before any error return
+    // below: otherwise a throwing one-shot timer stays due and refires on
+    // every subsequent poll. @tactical @ref LLP 0159 R1
+    auto retireTimer = [runtime, now_ms, id]() {
+      auto after = runtime->timers.find(id);
+      if (after != runtime->timers.end()) {
+        if (after->second.repeat) {
+          after->second.due_ms = now_ms + after->second.interval_ms;
+        } else {
+          runtime->timers.erase(after);
+        }
+      }
+    };
     try {
       if (it->second.args.empty()) {
         it->second.callback.call(*runtime->runtime);
@@ -1865,6 +1917,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
         }
       } catch (...) {}
       if (!handled) {
+        retireTimer();
         ex_host_console_log(1, err.getMessage().c_str());
         return -1;
       }
@@ -1872,18 +1925,12 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       runNextTickQueue(runtime);
       drainMicrotasks(*runtime->runtime);
     } catch (const std::exception& err) {
+      retireTimer();
       ex_host_console_log(1, err.what());
       return -1;
     }
 
-    auto after = runtime->timers.find(id);
-    if (after != runtime->timers.end()) {
-      if (after->second.repeat) {
-        after->second.due_ms = now_ms + after->second.interval_ms;
-      } else {
-        runtime->timers.erase(after);
-      }
-    }
+    retireTimer();
   }
 
   return executed;
