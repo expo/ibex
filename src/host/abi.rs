@@ -154,6 +154,76 @@ fn write_stderr_line(msg: &str) {
     let _ = write_stdio_line(&mut stderr, msg);
 }
 
+// @tactical @ref LLP 0178: console output is mirrored to stdio from the JS
+// thread, which is the app host's main thread. stdout there is a PTY or pipe
+// drained by a console UI (Xcode) or a script wrapper; when the consumer
+// stalls, a direct write blocks the main thread ("Application Not
+// Responding"), and a vanished consumer used to abort the process through the
+// `println!` panic path. Stdio mirroring is best-effort diagnostics, so it
+// goes through a bounded queue to a writer thread and drops lines under
+// backpressure instead of ever blocking or failing the caller.
+const CONSOLE_QUEUE_CAPACITY: usize = 2048;
+
+enum ConsoleLine {
+    Out(String),
+    Err(String),
+}
+
+struct ConsoleQueue {
+    tx: std::sync::mpsc::SyncSender<ConsoleLine>,
+    dropped: std::sync::atomic::AtomicU64,
+}
+
+impl ConsoleQueue {
+    fn enqueue(&self, line: ConsoleLine) {
+        use std::sync::atomic::Ordering;
+
+        let dropped = self.dropped.swap(0, Ordering::Relaxed);
+        if dropped > 0 {
+            let notice = ConsoleLine::Err(format!(
+                "[exact-console] dropped {dropped} line(s) under stdio backpressure"
+            ));
+            if self.tx.try_send(notice).is_err() {
+                self.dropped.fetch_add(dropped, Ordering::Relaxed);
+            }
+        }
+        if self.tx.try_send(line).is_err() {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+fn console_queue() -> &'static ConsoleQueue {
+    static QUEUE: OnceLock<ConsoleQueue> = OnceLock::new();
+    QUEUE.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<ConsoleLine>(CONSOLE_QUEUE_CAPACITY);
+        // If the spawn fails the receiver is dropped and enqueue() degrades to
+        // counting drops; console mirroring is lost but the app keeps running.
+        let _ = std::thread::Builder::new()
+            .name("exact-console".to_string())
+            .spawn(move || {
+                while let Ok(line) = rx.recv() {
+                    match line {
+                        ConsoleLine::Out(msg) => write_stdout_line(&msg),
+                        ConsoleLine::Err(msg) => write_stderr_line(&msg),
+                    }
+                }
+            });
+        ConsoleQueue {
+            tx,
+            dropped: std::sync::atomic::AtomicU64::new(0),
+        }
+    })
+}
+
+fn enqueue_stdout_line(msg: String) {
+    console_queue().enqueue(ConsoleLine::Out(msg));
+}
+
+fn enqueue_stderr_line(msg: String) {
+    console_queue().enqueue(ConsoleLine::Err(msg));
+}
+
 const SQLITE_OPEN_READONLY: u64 = 0x00000001;
 const SQLITE_OPEN_READWRITE: u64 = 0x00000002;
 const SQLITE_OPEN_CREATE: u64 = 0x00000004;
@@ -653,7 +723,7 @@ pub extern "C" fn ex_host_log_event(
         "result": result,
         "allowed": result != 0
     });
-    write_stderr_line(&payload.to_string());
+    enqueue_stderr_line(payload.to_string());
 }
 
 #[no_mangle]
@@ -1675,9 +1745,8 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
         .to_string_lossy()
         .to_string();
     match level {
-        0 => write_stdout_line(&msg),
-        1 => write_stderr_line(&msg),
-        _ => write_stdout_line(&msg),
+        1 => enqueue_stderr_line(msg),
+        _ => enqueue_stdout_line(msg),
     }
 }
 
@@ -1715,6 +1784,49 @@ mod tests {
         let result = write_stdio_line(&mut writer, "hello");
 
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn console_queue_drops_under_backpressure_then_reports() {
+        use std::sync::atomic::Ordering;
+
+        let (tx, rx) = std::sync::mpsc::sync_channel::<ConsoleLine>(2);
+        let queue = ConsoleQueue {
+            tx,
+            dropped: std::sync::atomic::AtomicU64::new(0),
+        };
+
+        queue.enqueue(ConsoleLine::Out("first".to_string()));
+        queue.enqueue(ConsoleLine::Out("second".to_string()));
+        queue.enqueue(ConsoleLine::Out("third".to_string()));
+        assert_eq!(queue.dropped.load(Ordering::Relaxed), 1);
+
+        assert!(matches!(rx.recv().unwrap(), ConsoleLine::Out(ref m) if m == "first"));
+        assert!(matches!(rx.recv().unwrap(), ConsoleLine::Out(ref m) if m == "second"));
+
+        queue.enqueue(ConsoleLine::Out("fourth".to_string()));
+        assert_eq!(queue.dropped.load(Ordering::Relaxed), 0);
+        match rx.recv().unwrap() {
+            ConsoleLine::Err(m) => assert!(m.contains("dropped 1 line(s)")),
+            ConsoleLine::Out(m) => panic!("expected drop notice before line, got {m}"),
+        }
+        assert!(matches!(rx.recv().unwrap(), ConsoleLine::Out(ref m) if m == "fourth"));
+    }
+
+    #[test]
+    fn console_queue_survives_missing_receiver() {
+        use std::sync::atomic::Ordering;
+
+        let (tx, rx) = std::sync::mpsc::sync_channel::<ConsoleLine>(4);
+        drop(rx);
+        let queue = ConsoleQueue {
+            tx,
+            dropped: std::sync::atomic::AtomicU64::new(0),
+        };
+
+        queue.enqueue(ConsoleLine::Out("lost".to_string()));
+
+        assert_eq!(queue.dropped.load(Ordering::Relaxed), 1);
     }
 
     #[test]
