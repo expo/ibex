@@ -22,7 +22,15 @@ static CALLBACK_PENDING: AtomicBool = AtomicBool::new(false);
 /// The CLI provides its own implementation in hermes.rs that uses
 /// tokio::sync::Notify for more efficient wakeup. When building the CLI,
 /// set EXACT_CLI_NOTIFY=1 to skip this default implementation.
-#[cfg(not(feature = "cli-notify"))]
+///
+/// The `test` arm keeps the symbol defined for this crate's own lib test:
+/// under `cargo test --workspace`, feature unification turns on `cli-notify`
+/// (via exact-cli) for every exact-runtime target, but the CLI's replacement
+/// is not part of the lib-test link unit, which otherwise fails with an
+/// undefined `_ex_hermes_notify_callback`. `cfg(test)` is never set when
+/// other crates link this one, so the CLI build still gets exactly one
+/// definition.
+#[cfg(any(not(feature = "cli-notify"), test))]
 #[no_mangle]
 pub extern "C" fn ex_hermes_notify_callback() {
     CALLBACK_PENDING.store(true, Ordering::Release);
