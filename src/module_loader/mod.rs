@@ -821,17 +821,10 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
     }
 }
 
-fn hash_cache_input_file<H: Hasher>(hasher: &mut H, path: &Path) -> Result<()> {
-    path.hash(hasher);
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("Failed to read transpile cache input {}", path.display()))?;
-    bytes.hash(hasher);
-    Ok(())
-}
 
 fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v11-explicit-iterator-for-of".hash(&mut hasher);
+    "loader-transpile-v12-swc-explicit-iterator-for-of".hash(&mut hasher);
     target.hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
@@ -852,28 +845,19 @@ fn module_cache_key(path: &Path, target: &str) -> Result<String> {
 /// both files for every module load showed up in the LLP 0159 perf audit.
 /// @tactical @ref LLP 0159 R9
 fn transpile_tooling_hash() -> Result<u64> {
-    static TOOLING_HASH: std::sync::OnceLock<std::result::Result<u64, String>> =
-        std::sync::OnceLock::new();
-    TOOLING_HASH
-        .get_or_init(|| {
-            let mut hasher = DefaultHasher::new();
-            let script = match transpile_script_path() {
-                Ok(script) => script,
-                Err(err) => return Err(err.to_string()),
-            };
-            if let Err(err) = hash_cache_input_file(&mut hasher, &script) {
-                return Err(err.to_string());
-            }
-            let transforms = script.with_file_name("transforms.mjs");
-            if transforms.exists() {
-                if let Err(err) = hash_cache_input_file(&mut hasher, &transforms) {
-                    return Err(err.to_string());
-                }
-            }
-            Ok(hasher.finish())
-        })
-        .clone()
-        .map_err(|err| anyhow!(err))
+    // The in-process swc pipeline is the default (LLP 0175 §9.2): its
+    // behavior is keyed by a version tag, not a repo file, so module loading
+    // works with no checkout (review B1). Only the explicit subprocess
+    // override hashes its script.
+    if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
+        let script = transpile_script_path()?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&std::fs::read(&script).unwrap_or_default(), &mut hasher);
+        return Ok(std::hash::Hasher::finish(&hasher));
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hash::hash("in-process-swc-v1", &mut hasher);
+    Ok(std::hash::Hasher::finish(&hasher))
 }
 
 fn transpile_cache_dir() -> Result<PathBuf> {
