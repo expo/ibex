@@ -300,13 +300,13 @@ void installProcessSetup(ExactHermesRuntime* handle) {
     }
 #endif
     if (execPathStr.empty()) {
-      execPathStr = "ex";
+      execPathStr = "ibex";
     }
     processObj.setProperty(
         rt, "execPath", facebook::jsi::String::createFromUtf8(rt, execPathStr));
   }
 
-  processObj.setProperty(rt, "title", facebook::jsi::String::createFromUtf8(rt, "ex"));
+  processObj.setProperty(rt, "title", facebook::jsi::String::createFromUtf8(rt, "ibex"));
 
   auto uptimeFn = facebook::jsi::Function::createFromHostFunction(
       rt,
