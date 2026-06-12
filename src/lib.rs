@@ -13,6 +13,7 @@
 
 #[cfg(feature = "host-http-server")]
 pub mod cdp;
+pub mod identity_generated;
 pub mod engine;
 pub mod host;
 pub mod module_loader;

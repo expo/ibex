@@ -4,6 +4,8 @@
 //! Node-style package resolution and full ESM/CJS interop are implemented
 //! incrementally (see TODOs).
 
+pub mod transpile;
+
 use anyhow::{anyhow, Context, Result};
 use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
 use serde_json::Value;
@@ -819,17 +821,10 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
     }
 }
 
-fn hash_cache_input_file<H: Hasher>(hasher: &mut H, path: &Path) -> Result<()> {
-    path.hash(hasher);
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("Failed to read transpile cache input {}", path.display()))?;
-    bytes.hash(hasher);
-    Ok(())
-}
 
 fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v11-explicit-iterator-for-of".hash(&mut hasher);
+    "loader-transpile-v12-swc-explicit-iterator-for-of".hash(&mut hasher);
     target.hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
@@ -850,28 +845,19 @@ fn module_cache_key(path: &Path, target: &str) -> Result<String> {
 /// both files for every module load showed up in the LLP 0159 perf audit.
 /// @tactical @ref LLP 0159 R9
 fn transpile_tooling_hash() -> Result<u64> {
-    static TOOLING_HASH: std::sync::OnceLock<std::result::Result<u64, String>> =
-        std::sync::OnceLock::new();
-    TOOLING_HASH
-        .get_or_init(|| {
-            let mut hasher = DefaultHasher::new();
-            let script = match transpile_script_path() {
-                Ok(script) => script,
-                Err(err) => return Err(err.to_string()),
-            };
-            if let Err(err) = hash_cache_input_file(&mut hasher, &script) {
-                return Err(err.to_string());
-            }
-            let transforms = script.with_file_name("transforms.mjs");
-            if transforms.exists() {
-                if let Err(err) = hash_cache_input_file(&mut hasher, &transforms) {
-                    return Err(err.to_string());
-                }
-            }
-            Ok(hasher.finish())
-        })
-        .clone()
-        .map_err(|err| anyhow!(err))
+    // The in-process swc pipeline is the default (LLP 0175 §9.2): its
+    // behavior is keyed by a version tag, not a repo file, so module loading
+    // works with no checkout (review B1). Only the explicit subprocess
+    // override hashes its script.
+    if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
+        let script = transpile_script_path()?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&std::fs::read(&script).unwrap_or_default(), &mut hasher);
+        return Ok(std::hash::Hasher::finish(&hasher));
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hash::hash("in-process-swc-v1", &mut hasher);
+    Ok(std::hash::Hasher::finish(&hasher))
 }
 
 fn transpile_cache_dir() -> Result<PathBuf> {
@@ -944,6 +930,30 @@ fn should_rebuild_output(path: &Path, output: &Path) -> Result<bool> {
 }
 
 fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()> {
+    // Explicit override keeps the LLP 0159 R9 escape hatch (a custom
+    // transpiler script); everything else is in-process (LLP 0175 §9.2 — no
+    // bun/node subprocess, so TypeScript works standalone).
+    if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
+        return run_transpile_subprocess(entry, output, target);
+    }
+
+    let source = std::fs::read_to_string(entry)
+        .with_context(|| format!("Failed to read {}", entry.display()))?;
+    let code = transpile::transpile_to_cjs(&source, entry)?;
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create {}", parent.display()))?;
+    }
+    // tmp + rename so a concurrent reader never sees a half-written module.
+    let tmp = output.with_extension("tmp");
+    std::fs::write(&tmp, code).with_context(|| format!("Failed to write {}", tmp.display()))?;
+    std::fs::rename(&tmp, output)
+        .with_context(|| format!("Failed to publish {}", output.display()))?;
+    Ok(())
+}
+
+fn run_transpile_subprocess(entry: &Path, output: &Path, target: &str) -> Result<()> {
     let (runner, runner_name) = find_js_runner()?;
     let script = transpile_script_path()?;
 
@@ -1513,15 +1523,23 @@ export const value = <span />;
             .unwrap();
         let source = resolved.source.unwrap();
         assert_eq!(resolved.kind, ModuleKind::CommonJs);
-        assert!(source.contains("exports.value ="));
-        assert!(!source.contains(": number"));
+        assert!(
+            !source.contains("export const"),
+            "esm exports lowered: {source}"
+        );
+        assert!(source.contains("value"), "export wiring present: {source}");
+        assert!(!source.contains(": number"), "types stripped: {source}");
 
         let resolved_tsx = loader
             .resolve("./mod.tsx", Some(&dir.path().join("entry.ts")))
             .unwrap();
         let tsx_source = resolved_tsx.source.unwrap();
         assert_eq!(resolved_tsx.kind, ModuleKind::CommonJs);
-        assert!(tsx_source.contains("exports.value ="));
+        assert!(
+            !tsx_source.contains("export const"),
+            "esm exports lowered: {tsx_source}"
+        );
+        assert!(tsx_source.contains("value"), "export wiring present: {tsx_source}");
         assert!(!tsx_source.contains(": number"));
 
         let resolved_jsx = loader
@@ -1529,7 +1547,11 @@ export const value = <span />;
             .unwrap();
         let jsx_source = resolved_jsx.source.unwrap();
         assert_eq!(resolved_jsx.kind, ModuleKind::CommonJs);
-        assert!(jsx_source.contains("exports.value"));
+        assert!(
+            !jsx_source.contains("export const"),
+            "esm exports lowered: {jsx_source}"
+        );
+        assert!(jsx_source.contains("value"), "export wiring present: {jsx_source}");
         assert!(jsx_source.contains("createElement"));
         assert!(!jsx_source.contains("<span"));
     }
