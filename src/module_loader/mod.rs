@@ -4,6 +4,8 @@
 //! Node-style package resolution and full ESM/CJS interop are implemented
 //! incrementally (see TODOs).
 
+pub mod transpile;
+
 use anyhow::{anyhow, Context, Result};
 use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
 use serde_json::Value;
@@ -944,6 +946,30 @@ fn should_rebuild_output(path: &Path, output: &Path) -> Result<bool> {
 }
 
 fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()> {
+    // Explicit override keeps the LLP 0159 R9 escape hatch (a custom
+    // transpiler script); everything else is in-process (LLP 0175 §9.2 — no
+    // bun/node subprocess, so TypeScript works standalone).
+    if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
+        return run_transpile_subprocess(entry, output, target);
+    }
+
+    let source = std::fs::read_to_string(entry)
+        .with_context(|| format!("Failed to read {}", entry.display()))?;
+    let code = transpile::transpile_to_cjs(&source, entry)?;
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create {}", parent.display()))?;
+    }
+    // tmp + rename so a concurrent reader never sees a half-written module.
+    let tmp = output.with_extension("tmp");
+    std::fs::write(&tmp, code).with_context(|| format!("Failed to write {}", tmp.display()))?;
+    std::fs::rename(&tmp, output)
+        .with_context(|| format!("Failed to publish {}", output.display()))?;
+    Ok(())
+}
+
+fn run_transpile_subprocess(entry: &Path, output: &Path, target: &str) -> Result<()> {
     let (runner, runner_name) = find_js_runner()?;
     let script = transpile_script_path()?;
 
@@ -1513,15 +1539,23 @@ export const value = <span />;
             .unwrap();
         let source = resolved.source.unwrap();
         assert_eq!(resolved.kind, ModuleKind::CommonJs);
-        assert!(source.contains("exports.value ="));
-        assert!(!source.contains(": number"));
+        assert!(
+            !source.contains("export const"),
+            "esm exports lowered: {source}"
+        );
+        assert!(source.contains("value"), "export wiring present: {source}");
+        assert!(!source.contains(": number"), "types stripped: {source}");
 
         let resolved_tsx = loader
             .resolve("./mod.tsx", Some(&dir.path().join("entry.ts")))
             .unwrap();
         let tsx_source = resolved_tsx.source.unwrap();
         assert_eq!(resolved_tsx.kind, ModuleKind::CommonJs);
-        assert!(tsx_source.contains("exports.value ="));
+        assert!(
+            !tsx_source.contains("export const"),
+            "esm exports lowered: {tsx_source}"
+        );
+        assert!(tsx_source.contains("value"), "export wiring present: {tsx_source}");
         assert!(!tsx_source.contains(": number"));
 
         let resolved_jsx = loader
@@ -1529,7 +1563,11 @@ export const value = <span />;
             .unwrap();
         let jsx_source = resolved_jsx.source.unwrap();
         assert_eq!(resolved_jsx.kind, ModuleKind::CommonJs);
-        assert!(jsx_source.contains("exports.value"));
+        assert!(
+            !jsx_source.contains("export const"),
+            "esm exports lowered: {jsx_source}"
+        );
+        assert!(jsx_source.contains("value"), "export wiring present: {jsx_source}");
         assert!(jsx_source.contains("createElement"));
         assert!(!jsx_source.contains("<span"));
     }
