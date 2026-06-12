@@ -1178,7 +1178,14 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         ex_host_free_string(json);
         return result;
       });
-  rt.global().setProperty(rt, "__exactModuleResolve", std::move(resolveModuleFn));
+  // Registered under TWO names: the canonical one (which the dev-server
+  // hot-reload bootstrap REPLACES with a module-table override) and a
+  // stable alias the override falls back to at CALL time. Capture-once
+  // fallbacks proved injection-order-fragile — see LLP 0176 (native agent
+  // boot: Module not found for runtime-js directory imports).
+  auto resolveModuleValue = facebook::jsi::Value(rt, resolveModuleFn);
+  rt.global().setProperty(rt, "__exactModuleResolve", resolveModuleValue);
+  rt.global().setProperty(rt, "__exactNativeModuleResolve", resolveModuleValue);
   installFetchGlobals(handle);
 
   // Deferred: Http host functions (registered lazily on first use)
