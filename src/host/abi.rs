@@ -15,6 +15,7 @@ use rusqlite::{params_from_iter, types::ValueRef, Connection, OpenFlags, ToSql};
 use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr, CString};
+use std::io::{self, Write};
 use std::ptr;
 use std::sync::{Mutex, OnceLock, RwLock};
 #[cfg(unix)]
@@ -136,6 +137,21 @@ fn security_log_enabled() -> bool {
             .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
             .unwrap_or(true)
     })
+}
+
+fn write_stdio_line(writer: &mut impl Write, msg: &str) -> io::Result<()> {
+    writer.write_all(msg.as_bytes())?;
+    writer.write_all(b"\n")
+}
+
+fn write_stdout_line(msg: &str) {
+    let mut stdout = io::stdout().lock();
+    let _ = write_stdio_line(&mut stdout, msg);
+}
+
+fn write_stderr_line(msg: &str) {
+    let mut stderr = io::stderr().lock();
+    let _ = write_stdio_line(&mut stderr, msg);
 }
 
 const SQLITE_OPEN_READONLY: u64 = 0x00000001;
@@ -637,7 +653,7 @@ pub extern "C" fn ex_host_log_event(
         "result": result,
         "allowed": result != 0
     });
-    eprintln!("{}", payload);
+    write_stderr_line(&payload.to_string());
 }
 
 #[no_mangle]
@@ -1659,9 +1675,9 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
         .to_string_lossy()
         .to_string();
     match level {
-        0 => println!("{}", msg),
-        1 => eprintln!("{}", msg),
-        _ => println!("{}", msg),
+        0 => write_stdout_line(&msg),
+        1 => write_stderr_line(&msg),
+        _ => write_stdout_line(&msg),
     }
 }
 
@@ -1669,6 +1685,37 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
 mod tests {
     use super::*;
     use crate::host::{Host, HostConfig, SecurityMode};
+    use std::io::{self, Write};
+
+    struct FailingWriter;
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn stdio_line_writer_appends_newline() {
+        let mut output = Vec::new();
+
+        write_stdio_line(&mut output, "hello").unwrap();
+
+        assert_eq!(output, b"hello\n");
+    }
+
+    #[test]
+    fn stdio_line_writer_returns_broken_pipe_without_panicking() {
+        let mut writer = FailingWriter;
+
+        let result = write_stdio_line(&mut writer, "hello");
+
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+    }
 
     #[test]
     fn named_sqlite_bindings_are_bound_by_name() {
