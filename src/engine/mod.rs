@@ -62,7 +62,14 @@ mod tests {
         let url = std::ffi::CString::new("r1-test.js").expect("source url");
         let mut out: *mut c_char = std::ptr::null_mut();
         let status = unsafe {
-            ex_hermes_eval(runtime, source.as_ptr(), source.len(), url.as_ptr(), 0, &mut out)
+            ex_hermes_eval(
+                runtime,
+                source.as_ptr(),
+                source.len(),
+                url.as_ptr(),
+                0,
+                &mut out,
+            )
         };
         let value = if out.is_null() {
             None
