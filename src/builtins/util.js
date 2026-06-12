@@ -77,7 +77,8 @@ function format(value) {
   if (typeof value !== "string") {
     var parts = [];
     for (var i = 0; i < arguments.length; i++) {
-      parts.push(inspect(arguments[i]));
+      var part = arguments[i];
+      parts.push(typeof part === 'string' ? part : inspect(part));
     }
     return parts.join(' ');
   }
@@ -95,7 +96,7 @@ function format(value) {
     return match;
   });
   while (i < args.length) {
-    result += ' ' + inspect(args[i]);
+    result += ' ' + (typeof args[i] === 'string' ? args[i] : inspect(args[i]));
     i++;
   }
   return result;
@@ -107,7 +108,8 @@ function formatWithOptions(inspectOptions) {
   if (typeof value !== "string") {
     var parts = [];
     for (var i = 1; i < arguments.length; i++) {
-      parts.push(inspect(arguments[i], inspectOptions));
+      var part = arguments[i];
+      parts.push(typeof part === 'string' ? part : inspect(part, inspectOptions));
     }
     return parts.join(' ');
   }
@@ -126,7 +128,7 @@ function formatWithOptions(inspectOptions) {
     return match;
   });
   while (i < args.length) {
-    result += ' ' + inspect(args[i], opts);
+    result += ' ' + (typeof args[i] === 'string' ? args[i] : inspect(args[i], opts));
     i++;
   }
   return result;
