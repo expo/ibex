@@ -1686,7 +1686,12 @@ for (let i = 0; i < 3; i++) {
         // Native hosts pass entry paths like "packages/exact-runtime-js/src/native"
         // without a leading "./". @ref LLP 0159 R8a
         let dir = tempdir().unwrap();
-        let nested = dir.path().join("packages").join("demo").join("src").join("native");
+        let nested = dir
+            .path()
+            .join("packages")
+            .join("demo")
+            .join("src")
+            .join("native");
         std::fs::create_dir_all(&nested).unwrap();
         std::fs::write(nested.join("index.ts"), "export const ok = 1;").unwrap();
 
