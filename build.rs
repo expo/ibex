@@ -9,6 +9,11 @@ fn env_path(var: &str) -> PathBuf {
     }
 }
 
+fn optional_env_path(vars: &[&str]) -> Option<PathBuf> {
+    vars.iter()
+        .find_map(|var| std::env::var_os(var).map(PathBuf::from))
+}
+
 fn target_arch_to_hermes_dir(arch: &str) -> String {
     match arch {
         "x86_64" => "x64".to_string(),
@@ -26,6 +31,9 @@ fn windows_hermes_root(repo_root: &Path, arch: &str) -> PathBuf {
 }
 
 fn hermesc_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf {
+    if let Some(path) = optional_env_path(&["HERMESC", "HERMES_COMPILER"]) {
+        return path;
+    }
     if target_os == "windows" {
         return windows_hermes_root(repo_root, target_arch)
             .join("bin")
@@ -47,6 +55,9 @@ fn hermesc_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf
 }
 
 fn hermes_cli_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf {
+    if let Some(path) = optional_env_path(&["HERMES_CLI", "HERMES_BINARY"]) {
+        return path;
+    }
     if target_os == "windows" {
         return windows_hermes_root(repo_root, target_arch)
             .join("bin")
@@ -276,6 +287,10 @@ fn main() {
         exact_devtools_dir(repo_root).join("package.json").display()
     );
     println!("cargo:rerun-if-env-changed=HERMES_ENABLE_DEBUGGER");
+    println!("cargo:rerun-if-env-changed=HERMESC");
+    println!("cargo:rerun-if-env-changed=HERMES_COMPILER");
+    println!("cargo:rerun-if-env-changed=HERMES_CLI");
+    println!("cargo:rerun-if-env-changed=HERMES_BINARY");
     println!("cargo:rerun-if-env-changed=HERMES_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
