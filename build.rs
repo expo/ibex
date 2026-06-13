@@ -31,7 +31,19 @@ fn hermesc_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf
             .join("bin")
             .join("hermesc.exe");
     }
-    repo_root.join("tools").join("hermes").join("hermesc")
+    let hermes_dir = repo_root.join("tools").join("hermes");
+    // The standalone Ibex repo ships a platform-suffixed compiler
+    // (e.g. hermesc-linux-x64); the monorepo layout uses the bare name.
+    let suffixed = hermes_dir.join(format!(
+        "hermesc-{}-{}",
+        target_os,
+        target_arch_to_hermes_dir(target_arch)
+    ));
+    let bare = hermes_dir.join("hermesc");
+    if !bare.exists() && suffixed.exists() {
+        return suffixed;
+    }
+    bare
 }
 
 fn hermes_cli_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf {
@@ -40,7 +52,17 @@ fn hermes_cli_path(repo_root: &Path, target_os: &str, target_arch: &str) -> Path
             .join("bin")
             .join("hermes.exe");
     }
-    repo_root.join("tools").join("hermes").join("hermes")
+    let hermes_dir = repo_root.join("tools").join("hermes");
+    let suffixed = hermes_dir.join(format!(
+        "hermes-{}-{}",
+        target_os,
+        target_arch_to_hermes_dir(target_arch)
+    ));
+    let bare = hermes_dir.join("hermes");
+    if !bare.exists() && suffixed.exists() {
+        return suffixed;
+    }
+    bare
 }
 
 fn read_bytes_or_panic(path: &Path, context: &str) -> Vec<u8> {
@@ -279,14 +301,41 @@ fn main() {
         Some("1") | Some("true") | Some("yes") | Some("on")
     );
 
-    generate_builtin_manifest_or_panic(repo_root, &out_dir);
+    // Standalone (Ibex) layout: the monorepo JS generator scripts under
+    // packages/exact-devtools are absent, but committed pre-generated artifacts
+    // live under vendored-generated/. In that case build.rs copies the vendored
+    // artifacts into OUT_DIR instead of running (missing) generators or
+    // panicking. When the monorepo IS present we regenerate everything as before
+    // so exact's own build never regresses. @ref LLP 0180 §1.4 option a.
+    let vendored_generated_dir = manifest_dir.join("vendored-generated");
+    let monorepo_manifest_generator =
+        exact_devtools_script(repo_root, "generate-module-manifest.ts");
+    let standalone = !monorepo_manifest_generator.exists() && vendored_generated_dir.exists();
+    if standalone {
+        eprintln!(
+            "cargo:warning=Standalone Ibex build: using vendored generated artifacts from {}",
+            vendored_generated_dir.display()
+        );
+        println!("cargo:rerun-if-changed={}", vendored_generated_dir.display());
+    }
+
+    generate_builtin_manifest(repo_root, &out_dir, standalone, &vendored_generated_dir);
 
     // --- Build builtin JS modules via rolldown ---
     // Compiles src/builtins/*.js through the shared Hermes transforms and
     // writes the output to $OUT_DIR/builtins/ for include_str!() in mod.rs.
     let builtins_src = manifest_dir.join("src").join("builtins");
     let builtins_out = out_dir.join("builtins");
-    if builtins_src.exists() {
+    if standalone {
+        // Copy the vendored (already-transformed) builtin modules into OUT_DIR
+        // so the manifest's include_str!(OUT_DIR/builtins/*.js) calls resolve.
+        let vendored_builtins = vendored_generated_dir.join("builtins");
+        copy_dir_files(&vendored_builtins, &builtins_out, &["js"]);
+        eprintln!(
+            "cargo:warning=Copied vendored builtin modules → {}",
+            builtins_out.display()
+        );
+    } else if builtins_src.exists() {
         let build_script = exact_devtools_script(repo_root, "build-builtins.mjs");
         if build_script.exists() {
             // Prefer bun when available, otherwise use node.
@@ -370,7 +419,13 @@ fn main() {
         }
     }
 
-    generate_runtime_bundle_source_header(repo_root, &out_dir, allow_fallback);
+    generate_runtime_bundle_source_header(
+        repo_root,
+        &out_dir,
+        allow_fallback,
+        standalone,
+        &vendored_generated_dir,
+    );
 
     // --- Precompile bootstrap JS to Hermes bytecode (HBC) ---
     // If hermesc is available and compatible, compile each bootstrap .js file to .hbc and
@@ -1015,13 +1070,31 @@ fn bun_runner() -> Option<PathBuf> {
         .find(|candidate| candidate.exists())
 }
 
-fn generate_builtin_manifest_or_panic(repo_root: &Path, out_dir: &Path) {
+fn generate_builtin_manifest(
+    repo_root: &Path,
+    out_dir: &Path,
+    standalone: bool,
+    vendored_generated_dir: &Path,
+) {
     let script = repo_root
         .join("packages")
         .join("exact-devtools")
         .join("src")
         .join("scripts")
         .join("generate-module-manifest.ts");
+    if standalone {
+        // Copy the vendored, pre-generated manifest into OUT_DIR so the
+        // include!(OUT_DIR/builtin_manifest.generated.rs) in module_loader works.
+        let vendored_manifest = vendored_generated_dir.join("builtin_manifest.generated.rs");
+        let dest = out_dir.join("builtin_manifest.generated.rs");
+        let contents = read_text_or_panic(&vendored_manifest, "vendored builtin manifest");
+        write_file_or_panic(&dest, &contents, "builtin_manifest.generated.rs");
+        eprintln!(
+            "cargo:warning=Copied vendored builtin manifest → {}",
+            dest.display()
+        );
+        return;
+    }
     if !script.exists() {
         panic!(
             "Module manifest generator not found at {}",
@@ -1168,7 +1241,13 @@ fn exact_runtime_js_dir(repo_root: &Path) -> PathBuf {
     repo_root.join("packages").join("exact-runtime-js")
 }
 
-fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow_fallback: bool) {
+fn generate_runtime_bundle_source_header(
+    repo_root: &Path,
+    out_dir: &Path,
+    allow_fallback: bool,
+    standalone: bool,
+    vendored_generated_dir: &Path,
+) {
     let devtools_dir = exact_devtools_dir(repo_root);
     let runtime_entry = repo_root
         .join("packages")
@@ -1181,6 +1260,32 @@ fn generate_runtime_bundle_source_header(repo_root: &Path, out_dir: &Path, allow
     let bytecode_header_path = out_dir.join("runtime_bundle_bytecode.h");
     safe_remove_file(&header_path);
     safe_remove_file(&bytecode_header_path);
+
+    // Standalone: the monorepo runtime entry/bundler are absent. Use the
+    // vendored pre-bundled runtime, emit the source header from it, and compile
+    // bytecode via the present hermesc (same as the monorepo path's tail).
+    if standalone {
+        let vendored_bundle = vendored_generated_dir.join("embedded_runtime_bundle.js");
+        let source = read_text_or_panic(&vendored_bundle, "vendored embedded_runtime_bundle.js");
+        if !source.contains("ExactBundle") || !source.contains("__exactRuntimeLoaded") {
+            panic!(
+                "Vendored runtime bundle at {} does not look like an Exact runtime bundle",
+                vendored_bundle.display()
+            );
+        }
+        write_file_or_panic(&bundled_runtime, &source, "embedded_runtime_bundle.js");
+        let mut header = String::from(
+            "// Generated by build.rs from vendored-generated/embedded_runtime_bundle.js\n\
+             // Do not edit by hand.\n",
+        );
+        push_cpp_raw_string_literal(&mut header, "SHARED_RUNTIME_BUNDLE_SRC", &source);
+        write_file_or_panic(&header_path, header, "runtime_bundle_source.h");
+        eprintln!(
+            "cargo:warning=Generated runtime_bundle_source.h from vendored runtime bundle"
+        );
+        generate_runtime_bundle_bytecode_header(repo_root, out_dir, &bundled_runtime);
+        return;
+    }
 
     if !runtime_entry.exists() || !build_script.exists() {
         if !allow_fallback {
@@ -1571,6 +1676,38 @@ fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
                 let dest = dst.join(file_name);
                 let _ = std::fs::copy(&path, &dest);
             }
+        }
+    }
+}
+
+/// Copy every file in `src` whose extension is in `extensions` into `dst`,
+/// creating `dst` if needed. Used to stage vendored generated artifacts into
+/// OUT_DIR for the standalone Ibex build.
+fn copy_dir_files(src: &Path, dst: &Path, extensions: &[&str]) {
+    if let Err(error) = std::fs::create_dir_all(dst) {
+        panic!(
+            "Failed to create OUT_DIR subdir {}: {error}",
+            dst.display()
+        );
+    }
+    for path in read_dir_paths_or_panic(src, "vendored artifact copy") {
+        let matches_ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| extensions.contains(&e));
+        if !matches_ext {
+            continue;
+        }
+        let Some(file_name) = path.file_name() else {
+            continue;
+        };
+        let dest = dst.join(file_name);
+        if let Err(error) = std::fs::copy(&path, &dest) {
+            panic!(
+                "Failed to copy vendored artifact {} -> {}: {error}",
+                path.display(),
+                dest.display()
+            );
         }
     }
 }
