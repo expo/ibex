@@ -106,10 +106,10 @@ fn main() {
     // Resolve the root that holds Hermes build inputs (linux/, tools/hermes/,
     // scripts/). Two supported layouts:
     //   - standalone ibex repo: the crate is the repo root.
-    //   - exact monorepo: the crate is at packages/exact-runtime, so the root
-    //     is two levels up.
+    //   - legacy exact monorepo path: the crate is at packages/exact-runtime,
+    //     so the root is two levels up.
     // Detect standalone by the presence of the Hermes build scripts at the
-    // crate root; otherwise fall back to the monorepo layout.
+    // crate root; otherwise fall back to the legacy monorepo layout.
     let repo_root: PathBuf = if manifest_dir.join("scripts/build-hermes-linux.sh").exists()
         || manifest_dir.join("scripts/download-hermes.sh").exists()
     {
@@ -279,6 +279,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
+    println!("cargo:rerun-if-env-changed=IBEX_REGENERATE_RUNTIME");
+    println!("cargo:rerun-if-env-changed=IBEX_UPDATE_VENDORED_GENERATED");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
     let host_http_server_enabled = std::env::var_os("CARGO_FEATURE_HOST_HTTP_SERVER").is_some();
     let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
@@ -301,22 +303,25 @@ fn main() {
         Some("1") | Some("true") | Some("yes") | Some("on")
     );
 
-    // Standalone (Ibex) layout: the monorepo JS generator scripts under
-    // packages/exact-devtools are absent, but committed pre-generated artifacts
-    // live under vendored-generated/. In that case build.rs copies the vendored
-    // artifacts into OUT_DIR instead of running (missing) generators or
-    // panicking. When the monorepo IS present we regenerate everything as before
-    // so exact's own build never regresses. @ref LLP 0180 §1.4 option a.
+    // Ibex keeps the default build hermetic: ordinary cargo builds copy the
+    // committed generated JS artifacts from vendored-generated/. Native
+    // regeneration is an explicit dev path, gated by IBEX_REGENERATE_RUNTIME=1.
     let vendored_generated_dir = manifest_dir.join("vendored-generated");
-    let monorepo_manifest_generator =
-        exact_devtools_script(repo_root, "generate-module-manifest.ts");
-    let standalone = !monorepo_manifest_generator.exists() && vendored_generated_dir.exists();
+    let manifest_generator = exact_devtools_script(repo_root, "generate-module-manifest.ts");
+    let regenerate_runtime = env_truthy("IBEX_REGENERATE_RUNTIME");
+    let update_vendored_generated = env_truthy("IBEX_UPDATE_VENDORED_GENERATED");
+    let standalone = !regenerate_runtime && vendored_generated_dir.exists();
     if standalone {
         eprintln!(
-            "cargo:warning=Standalone Ibex build: using vendored generated artifacts from {}",
+            "cargo:warning=Ibex build: using vendored generated artifacts from {}",
             vendored_generated_dir.display()
         );
         println!("cargo:rerun-if-changed={}", vendored_generated_dir.display());
+    } else if !manifest_generator.exists() {
+        panic!(
+            "IBEX_REGENERATE_RUNTIME=1 requested, but the module manifest generator was not found at {}",
+            manifest_generator.display()
+        );
     }
 
     generate_builtin_manifest(repo_root, &out_dir, standalone, &vendored_generated_dir);
@@ -326,6 +331,7 @@ fn main() {
     // writes the output to $OUT_DIR/builtins/ for include_str!() in mod.rs.
     let builtins_src = manifest_dir.join("src").join("builtins");
     let builtins_out = out_dir.join("builtins");
+    clear_dir_if_exists(&builtins_out, "generated builtins output");
     if standalone {
         // Copy the vendored (already-transformed) builtin modules into OUT_DIR
         // so the manifest's include_str!(OUT_DIR/builtins/*.js) calls resolve.
@@ -426,6 +432,14 @@ fn main() {
         standalone,
         &vendored_generated_dir,
     );
+    if update_vendored_generated {
+        if standalone {
+            panic!(
+                "IBEX_UPDATE_VENDORED_GENERATED=1 requires IBEX_REGENERATE_RUNTIME=1 so vendored artifacts come from a real regeneration"
+            );
+        }
+        refresh_vendored_generated(&out_dir, &vendored_generated_dir);
+    }
 
     // --- Precompile bootstrap JS to Hermes bytecode (HBC) ---
     // If hermesc is available and compatible, compile each bootstrap .js file to .hbc and
@@ -1070,18 +1084,23 @@ fn bun_runner() -> Option<PathBuf> {
         .find(|candidate| candidate.exists())
 }
 
+fn env_truthy(name: &str) -> bool {
+    matches!(
+        std::env::var(name)
+            .ok()
+            .map(|v| v.to_ascii_lowercase())
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
+}
+
 fn generate_builtin_manifest(
     repo_root: &Path,
     out_dir: &Path,
     standalone: bool,
     vendored_generated_dir: &Path,
 ) {
-    let script = repo_root
-        .join("packages")
-        .join("exact-devtools")
-        .join("src")
-        .join("scripts")
-        .join("generate-module-manifest.ts");
+    let script = exact_devtools_script(repo_root, "generate-module-manifest.ts");
     if standalone {
         // Copy the vendored, pre-generated manifest into OUT_DIR so the
         // include!(OUT_DIR/builtin_manifest.generated.rs) in module_loader works.
@@ -1112,7 +1131,6 @@ fn generate_builtin_manifest(
     let output = std::process::Command::new(&bun)
         .current_dir(repo_root)
         .arg(&script)
-        .arg("--skip-js")
         .arg("--rust-out-dir")
         .arg(out_dir)
         .output()
@@ -1227,7 +1245,7 @@ fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 fn exact_devtools_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("packages").join("exact-devtools")
+    repo_root.join("packages").join("ibex-devtools")
 }
 
 fn exact_devtools_script(repo_root: &Path, script_name: &str) -> PathBuf {
@@ -1238,7 +1256,7 @@ fn exact_devtools_script(repo_root: &Path, script_name: &str) -> PathBuf {
 }
 
 fn exact_runtime_js_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("packages").join("exact-runtime-js")
+    repo_root.join("packages").join("ibex-runtime-js")
 }
 
 fn generate_runtime_bundle_source_header(
@@ -1249,9 +1267,7 @@ fn generate_runtime_bundle_source_header(
     vendored_generated_dir: &Path,
 ) {
     let devtools_dir = exact_devtools_dir(repo_root);
-    let runtime_entry = repo_root
-        .join("packages")
-        .join("exact-runtime-js")
+    let runtime_entry = exact_runtime_js_dir(repo_root)
         .join("src")
         .join("runtime-entry.ts");
     let build_script = exact_devtools_script(repo_root, "rolldown-bundle.mjs");
@@ -1348,7 +1364,7 @@ fn generate_runtime_bundle_source_header(
     }
 
     let mut header = String::from(
-        "// Generated by build.rs from packages/exact-runtime-js/src/runtime-entry.ts\n\
+        "// Generated by build.rs from packages/ibex-runtime-js/src/runtime-entry.ts\n\
          // Do not edit by hand.\n",
     );
     push_cpp_raw_string_literal(&mut header, "SHARED_RUNTIME_BUNDLE_SRC", &source);
@@ -1519,7 +1535,7 @@ fn generate_runtime_bundle_bytecode_header(
 
     let bytes = read_bytes_or_panic(&bundled_runtime_hbc, "shared runtime bundle HBC");
     let mut header = String::from(
-        "// Generated by build.rs from packages/exact-runtime-js/src/runtime-entry.ts\n\
+        "// Generated by build.rs from packages/ibex-runtime-js/src/runtime-entry.ts\n\
          // Do not edit by hand.\n\
          #pragma once\n\n\
          alignas(8) static const uint8_t SHARED_RUNTIME_BUNDLE_HBC[] = {\n",
@@ -1710,6 +1726,50 @@ fn copy_dir_files(src: &Path, dst: &Path, extensions: &[&str]) {
             );
         }
     }
+}
+
+fn clear_dir_if_exists(path: &Path, context: &str) {
+    if !path.exists() {
+        return;
+    }
+    std::fs::remove_dir_all(path).unwrap_or_else(|error| {
+        panic!(
+            "Failed to clear {context} directory {}: {error}",
+            path.display()
+        )
+    });
+}
+
+fn refresh_vendored_generated(out_dir: &Path, vendored_generated_dir: &Path) {
+    if let Err(error) = std::fs::create_dir_all(vendored_generated_dir) {
+        panic!(
+            "Failed to create vendored generated dir {}: {error}",
+            vendored_generated_dir.display()
+        );
+    }
+
+    for file_name in [
+        "builtin_manifest.generated.rs",
+        "embedded_runtime_bundle.js",
+    ] {
+        let src = out_dir.join(file_name);
+        let dst = vendored_generated_dir.join(file_name);
+        let contents = read_bytes_or_panic(&src, file_name);
+        write_file_or_panic(&dst, contents, file_name);
+        eprintln!(
+            "cargo:warning=Refreshed vendored artifact {}",
+            dst.display()
+        );
+    }
+
+    let src_builtins = out_dir.join("builtins");
+    let dst_builtins = vendored_generated_dir.join("builtins");
+    clear_dir_if_exists(&dst_builtins, "vendored builtins");
+    copy_dir_files(&src_builtins, &dst_builtins, &["js"]);
+    eprintln!(
+        "cargo:warning=Refreshed vendored builtin modules in {}",
+        dst_builtins.display()
+    );
 }
 
 fn safe_remove_file(path: &Path) {

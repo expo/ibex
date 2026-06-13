@@ -1,4 +1,6 @@
 /target
+/node_modules
+/packages/*/node_modules
 /linux
 /tools/hermes
 *.o

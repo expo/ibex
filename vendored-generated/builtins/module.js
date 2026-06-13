@@ -165,10 +165,6 @@ var runtimeModuleManifest = (/* @__PURE__ */ __commonJSMin(((exports, module) =>
 			"nodeOnly": false
 		},
 		{
-			"name": "test",
-			"nodeOnly": true
-		},
-		{
 			"name": "timers",
 			"nodeOnly": false
 		},
@@ -257,48 +253,6 @@ var runtimeModuleManifest = (/* @__PURE__ */ __commonJSMin(((exports, module) =>
 			"specifier": "bun:sqlite",
 			"sourceKey": "exact_sqlite",
 			"moduleBuiltin": false,
-			"bundleExternal": true
-		},
-		{
-			"specifier": "bun",
-			"sourceKey": "bun",
-			"moduleBuiltin": false,
-			"bundleExternal": false
-		},
-		{
-			"specifier": "bun:test",
-			"sourceKey": "bun_test",
-			"moduleBuiltin": false,
-			"bundleExternal": false
-		},
-		{
-			"specifier": "harness",
-			"sourceKey": "bun_harness",
-			"moduleBuiltin": false,
-			"bundleExternal": false
-		},
-		{
-			"specifier": "node-harness",
-			"sourceKey": "node_harness",
-			"moduleBuiltin": false,
-			"bundleExternal": false
-		},
-		{
-			"specifier": "bun:jsc",
-			"sourceKey": "bun_jsc",
-			"moduleBuiltin": false,
-			"bundleExternal": false
-		},
-		{
-			"specifier": "bun:internal-for-testing",
-			"sourceKey": "bun_internal_for_testing",
-			"moduleBuiltin": false,
-			"bundleExternal": false
-		},
-		{
-			"specifier": "node:test",
-			"sourceKey": "node_test_alias",
-			"moduleBuiltin": true,
 			"bundleExternal": true
 		},
 		{
@@ -1043,7 +997,6 @@ var runtimeModuleManifest = (/* @__PURE__ */ __commonJSMin(((exports, module) =>
 		"internal/crypto/x509",
 		"internal/url",
 		"internal/fs/utils",
-		"internal/test/binding",
 		"internal/child_process"
 	]);
 	const nodeBuiltins = Object.freeze(publicBuiltins.map((entry) => entry.name));

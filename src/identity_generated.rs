@@ -1,6 +1,6 @@
 // GENERATED FILE - DO NOT EDIT.
-// Source authority: packages/exact-runtime/runtime-identity.json (LLP 0175 §7.4)
-// Generator: bun packages/exact-devtools/src/scripts/generate-runtime-identity.ts
+// Source authority: runtime-identity.json (LLP 0175 §7.4)
+// Generator: bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts
 
 /// Runtime identity constants (LLP 0175 §7.4).
 pub const RUNTIME_NAME: &str = "ibex";

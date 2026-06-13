@@ -1,4 +1,4 @@
-(function(_exact_core_protocol_opcodes, _exact_core, _exact_core_agent) {
+(function() {
 	//#region \0rolldown/runtime.js
 	var __defProp = Object.defineProperty;
 	var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -26,7 +26,7 @@
 	};
 	var __toCommonJS = (mod) => __hasOwnProp.call(mod, "module.exports") ? mod["module.exports"] : __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 	//#endregion
-	//#region ../exact-runtime-js/src/native/NativeModules.ts
+	//#region ../ibex-runtime-js/src/native/NativeModules.ts
 	let _timerModule = null;
 	let _performanceModule = null;
 	let _cryptoModule = null;
@@ -124,7 +124,7 @@
 		init_toPropertyKey();
 	}));
 	//#endregion
-	//#region ../exact-runtime-js/src/events/DOMException.ts
+	//#region ../ibex-runtime-js/src/events/DOMException.ts
 	init_defineProperty();
 	/**
 	* DOMException - Web Standard DOMException Implementation
@@ -430,7 +430,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/security/capability-bits.generated.ts
+	//#region ../ibex-runtime-js/src/security/capability-bits.generated.ts
 	const CapabilityBit = {
 		"network:fetch": 0,
 		"network:connect": 1,
@@ -698,782 +698,8 @@
 		TIME_HIGHRES: "time:highres",
 		IPC_CHANNEL: "ipc:channel"
 	};
-	var init_msgpack = __esmMin((() => {}));
 	//#endregion
-	//#region ../exact-modules/src/state-mirror.ts
-	/**
-	* Get the latest state-mirror snapshot from the runtime.
-	* Returns null if not available (e.g., the runtime is not attached to a kernel).
-	*/
-	function getStateMirrorBuffer() {
-		if (typeof exact !== "undefined" && typeof exact.getStateMirror === "function") return exact.getStateMirror();
-		return null;
-	}
-	/**
-	* Read a value from the state mirror using the seqlock protocol
-	* Automatically retries if a write is in progress or data changed during read.
-	*
-	* @param buffer - The state mirror ArrayBuffer
-	* @param offset - Byte offset into the buffer (module's state region)
-	* @param readFn - Function to read the actual data given a DataView at the offset
-	* @returns The read value, or null if read failed after max retries
-	*/
-	function readWithSeqlock(buffer, offset, readFn) {
-		const view = new DataView(buffer, offset);
-		for (let retry = 0; retry < MAX_SEQLOCK_RETRIES; retry++) {
-			const seq1 = view.getUint32(0, true);
-			if (seq1 & 1) continue;
-			const value = readFn(view);
-			if (seq1 === view.getUint32(0, true)) return value;
-		}
-		console.warn("[state-mirror] readWithSeqlock failed after max retries");
-		return null;
-	}
-	/**
-	* Create a typed state reader for a module
-	*
-	* @param moduleOffset - Byte offset to the module's state region in the buffer
-	* @param fields - Field definitions describing the state layout
-	* @returns StateReader that can read all fields atomically
-	*/
-	function createStateReader(moduleOffset, fields) {
-		const initialBuffer = getStateMirrorBuffer();
-		if (!initialBuffer) return null;
-		if (moduleOffset >= initialBuffer.byteLength) {
-			console.warn(`[state-mirror] moduleOffset ${moduleOffset} exceeds buffer size ${initialBuffer.byteLength}`);
-			return null;
-		}
-		const reader = {
-			buffer: initialBuffer,
-			baseOffset: moduleOffset,
-			read() {
-				const nextBuffer = getStateMirrorBuffer();
-				if (!nextBuffer) return null;
-				if (moduleOffset >= nextBuffer.byteLength) {
-					console.warn(`[state-mirror] moduleOffset ${moduleOffset} exceeds buffer size ${nextBuffer.byteLength}`);
-					return null;
-				}
-				reader.buffer = nextBuffer;
-				return readWithSeqlock(nextBuffer, moduleOffset, (view) => {
-					const result = {};
-					for (const field of fields) switch (field.type) {
-						case "boolean":
-							result[field.name] = view.getUint8(field.offset) !== 0;
-							break;
-						case "uint8":
-							result[field.name] = view.getUint8(field.offset);
-							break;
-						case "int32":
-							result[field.name] = view.getInt32(field.offset, true);
-							break;
-						case "uint32":
-							result[field.name] = view.getUint32(field.offset, true);
-							break;
-						case "float32":
-							result[field.name] = view.getFloat32(field.offset, true);
-							break;
-						case "float64":
-							result[field.name] = view.getFloat64(field.offset, true);
-							break;
-					}
-					return result;
-				});
-			}
-		};
-		return reader;
-	}
-	var MAX_SEQLOCK_RETRIES;
-	var init_state_mirror = __esmMin((() => {
-		MAX_SEQLOCK_RETRIES = 100;
-	}));
-	/**
-	* Dispatch a module action (async, fire-and-forget)
-	*/
-	function dispatchModuleAction(moduleName, actionName, payload = new Uint8Array(0)) {
-		const module = ModuleRegistry.getModule(moduleName);
-		if (!module) {
-			console.error(`[exact-modules] Module not registered: ${moduleName}`);
-			return false;
-		}
-		const actionId = module.actionIds.get(actionName);
-		if (actionId === void 0) {
-			console.error(`[exact-modules] Unknown action: ${moduleName}.${actionName}`);
-			return false;
-		}
-		const correlationId = ModuleRegistry.getNextCorrelationId();
-		const bytes = encoder.encodeModuleAction(module.moduleId, actionId, correlationId, payload);
-		if (typeof exact !== "undefined" && exact.dispatchModule) {
-			exact.dispatchModule(bytes);
-			return true;
-		}
-		return false;
-	}
-	/**
-	* Call a sync module method
-	*/
-	function callModuleSync(moduleName, methodName, payload = new Uint8Array(0)) {
-		const module = ModuleRegistry.getModule(moduleName);
-		if (!module) {
-			console.error(`[exact-modules] Module not registered: ${moduleName}`);
-			return null;
-		}
-		const methodId = module.syncMethodIds.get(methodName);
-		if (methodId === void 0) {
-			console.error(`[exact-modules] Unknown sync method: ${moduleName}.${methodName}`);
-			return null;
-		}
-		const bytes = encoder.encodeModuleSync(module.moduleId, methodId, payload);
-		if (typeof exact !== "undefined" && exact.callModuleSync) return exact.callModuleSync(bytes);
-		return null;
-	}
-	var MODULE_OPCODES, ModuleRegistryImpl, ModuleRegistry, ModuleEncoder, PayloadCodec, encoder;
-	var init_src = __esmMin((() => {
-		init_msgpack();
-		init_state_mirror();
-		MODULE_OPCODES = {
-			ModuleRegister: _exact_core_protocol_opcodes.OpCode.ModuleRegister,
-			ModuleAction: _exact_core_protocol_opcodes.OpCode.ModuleAction,
-			ModuleSync: _exact_core_protocol_opcodes.OpCode.ModuleSync,
-			ModuleActionResult: _exact_core_protocol_opcodes.OpCode.ModuleActionResult,
-			ModuleEvent: _exact_core_protocol_opcodes.OpCode.ModuleEvent
-		};
-		ModuleRegistryImpl = class {
-			constructor() {
-				this.modules = /* @__PURE__ */ new Map();
-				this.modulesById = /* @__PURE__ */ new Map();
-				this.nextCorrelationId = 1;
-				this.pendingCallbacks = /* @__PURE__ */ new Map();
-			}
-			alignStateSize(size) {
-				return size + 7 & -8;
-			}
-			/**
-			* Register a module with the native side.
-			* When the runtime exposes authoritative module metadata, use that.
-			* Otherwise, fall back to deterministic alphabetical ordering.
-			*/
-			registerModule(descriptor) {
-				if (this.modules.has(descriptor.name)) return this.getModule(descriptor.name) ?? null;
-				const actionIds = /* @__PURE__ */ new Map();
-				descriptor.actionNames.forEach((name, index) => {
-					actionIds.set(name, index);
-				});
-				const syncMethodIds = /* @__PURE__ */ new Map();
-				descriptor.syncMethodNames.forEach((name, index) => {
-					syncMethodIds.set(name, index);
-				});
-				const hostMetadata = this.getHostModuleMetadata(descriptor.name);
-				const registered = {
-					moduleId: hostMetadata?.moduleId ?? 0,
-					name: descriptor.name,
-					version: descriptor.version,
-					actionIds,
-					syncMethodIds,
-					syncMethodReturnTypes: descriptor.syncMethodReturnTypes,
-					stateSize: hostMetadata?.stateSize ?? descriptor.stateSize ?? 0,
-					stateOffset: hostMetadata?.stateOffset ?? null,
-					stateFields: descriptor.stateFields
-				};
-				this.modules.set(descriptor.name, registered);
-				if (hostMetadata) this.applyHostModuleMetadata(registered, hostMetadata);
-				else if (!this.hasHostModuleMetadataProvider()) this.reassignModuleIds();
-				return this.getModule(descriptor.name) ?? null;
-			}
-			/**
-			* Reassign module IDs based on alphabetical order of module names.
-			* This MUST match the ordering used by the native ModuleRegistry.
-			*/
-			reassignModuleIds() {
-				this.modulesById.clear();
-				const sortedNames = Array.from(this.modules.keys()).sort();
-				let nextStateOffset = 0;
-				sortedNames.forEach((name, index) => {
-					const module = this.modules.get(name);
-					module.moduleId = index + 1;
-					if (module.stateSize > 0) {
-						module.stateOffset = nextStateOffset;
-						nextStateOffset += this.alignStateSize(module.stateSize);
-					} else module.stateOffset = null;
-					this.modulesById.set(module.moduleId, module);
-				});
-			}
-			hasHostModuleMetadataProvider() {
-				return typeof exact !== "undefined" && typeof exact.getModuleMetadata === "function";
-			}
-			getHostModuleMetadata(name) {
-				if (!this.hasHostModuleMetadataProvider()) return null;
-				const metadata = exact.getModuleMetadata?.(name);
-				if (!metadata) return null;
-				if (!Number.isInteger(metadata.moduleId) || metadata.moduleId <= 0) return null;
-				if (metadata.stateOffset !== null && (!Number.isInteger(metadata.stateOffset) || metadata.stateOffset < 0)) return null;
-				if (!Number.isInteger(metadata.stateSize) || metadata.stateSize < 0) return null;
-				return metadata;
-			}
-			applyHostModuleMetadata(module, metadata) {
-				if (module.moduleId !== 0) this.modulesById.delete(module.moduleId);
-				module.moduleId = metadata.moduleId;
-				module.stateSize = metadata.stateSize;
-				module.stateOffset = metadata.stateOffset;
-				this.modulesById.set(module.moduleId, module);
-			}
-			refreshRuntimeMetadata(module) {
-				const metadata = this.getHostModuleMetadata(module.name);
-				if (metadata) {
-					this.applyHostModuleMetadata(module, metadata);
-					return;
-				}
-				if (this.hasHostModuleMetadataProvider()) return;
-				if (module.stateSize === 0) {
-					module.stateOffset = null;
-					return;
-				}
-				const reportedOffset = this.getKernelStateOffset(module.moduleId);
-				if (reportedOffset != null) module.stateOffset = reportedOffset;
-			}
-			getKernelStateOffset(moduleId) {
-				if (typeof exact === "undefined" || typeof exact.getModuleStateOffset !== "function") return null;
-				const offset = exact.getModuleStateOffset(moduleId);
-				if (typeof offset === "number" && Number.isInteger(offset) && offset >= 0) return offset;
-				return null;
-			}
-			/**
-			* Get a registered module by name
-			*/
-			getModule(name) {
-				const module = this.modules.get(name);
-				if (!module) return;
-				this.refreshRuntimeMetadata(module);
-				return module;
-			}
-			/**
-			* Get a registered module by ID
-			*/
-			getModuleById(id) {
-				const module = this.modulesById.get(id);
-				if (!module) return;
-				this.refreshRuntimeMetadata(module);
-				return module;
-			}
-			/**
-			* Get next correlation ID for async operations
-			*/
-			getNextCorrelationId() {
-				return this.nextCorrelationId++;
-			}
-			/**
-			* Register a callback for an async operation
-			*/
-			registerCallback(correlationId, callback) {
-				this.pendingCallbacks.set(correlationId, callback);
-			}
-			/**
-			* Resolve a pending callback
-			*/
-			resolveCallback(correlationId, result) {
-				const callback = this.pendingCallbacks.get(correlationId);
-				if (callback) {
-					this.pendingCallbacks.delete(correlationId);
-					callback(result);
-				}
-			}
-		};
-		ModuleRegistry = new ModuleRegistryImpl();
-		ModuleEncoder = class {
-			constructor(capacity = 4096) {
-				this.offset = 0;
-				this.buffer = new ArrayBuffer(capacity);
-				this.view = new DataView(this.buffer);
-				this.uint8 = new Uint8Array(this.buffer);
-			}
-			/**
-			* Reset the encoder for a new operation
-			*/
-			reset() {
-				this.offset = 0;
-			}
-			/**
-			* Get the encoded bytes
-			*/
-			getBytes() {
-				return this.uint8.subarray(0, this.offset);
-			}
-			/**
-			* Encode a module action dispatch
-			*/
-			encodeModuleAction(moduleId, actionId, correlationId, payload) {
-				this.reset();
-				this.view.setUint8(this.offset++, MODULE_OPCODES.ModuleAction);
-				this.view.setUint16(this.offset, moduleId, true);
-				this.offset += 2;
-				this.view.setUint16(this.offset, actionId, true);
-				this.offset += 2;
-				this.view.setUint32(this.offset, correlationId, true);
-				this.offset += 4;
-				this.view.setUint32(this.offset, payload.length, true);
-				this.offset += 4;
-				this.uint8.set(payload, this.offset);
-				this.offset += payload.length;
-				return this.getBytes();
-			}
-			/**
-			* Encode a module sync call
-			*/
-			encodeModuleSync(moduleId, methodId, payload) {
-				this.reset();
-				this.view.setUint8(this.offset++, MODULE_OPCODES.ModuleSync);
-				this.view.setUint16(this.offset, moduleId, true);
-				this.offset += 2;
-				this.view.setUint16(this.offset, methodId, true);
-				this.offset += 2;
-				this.view.setUint32(this.offset, payload.length, true);
-				this.offset += 4;
-				this.uint8.set(payload, this.offset);
-				this.offset += payload.length;
-				return this.getBytes();
-			}
-		};
-		PayloadCodec = {
-			/**
-			* Encode a string to UTF-8 bytes
-			*/
-			encodeString(value) {
-				return new TextEncoder().encode(value);
-			},
-			/**
-			* Encode an enum value as a single uint8 byte
-			* Per NATIVE_MODULES_SPEC.md: literal unions encoded as uint8
-			*/
-			encodeEnum(value, mapping) {
-				const index = mapping.indexOf(value);
-				if (index === -1) throw new Error(`Invalid enum value: ${value}`);
-				return new Uint8Array([index]);
-			},
-			/**
-			* Decode a uint8 byte to an enum value
-			*/
-			decodeEnum(bytes, mapping) {
-				const index = bytes[0];
-				if (index >= mapping.length) throw new Error(`Invalid enum index: ${index}`);
-				return mapping[index];
-			},
-			/**
-			* Decode UTF-8 bytes to a string
-			*/
-			decodeString(bytes) {
-				return new TextDecoder().decode(bytes);
-			},
-			/**
-			* Encode a boolean as a single byte
-			*/
-			encodeBoolean(value) {
-				return new Uint8Array([value ? 1 : 0]);
-			},
-			/**
-			* Decode a boolean from a single byte
-			*/
-			decodeBoolean(bytes) {
-				return bytes[0] === 1;
-			},
-			/**
-			* Encode a single uint8 byte.
-			*/
-			encodeUint8(value) {
-				return new Uint8Array([value & 255]);
-			},
-			/**
-			* Decode a single uint8 byte.
-			*/
-			decodeUint8(bytes) {
-				return bytes[0] ?? 0;
-			},
-			/**
-			* Encode a number as a float32
-			*/
-			encodeFloat32(value) {
-				const buffer = /* @__PURE__ */ new ArrayBuffer(4);
-				new DataView(buffer).setFloat32(0, value, true);
-				return new Uint8Array(buffer);
-			},
-			/**
-			* Encode a number as a float64
-			*/
-			encodeFloat64(value) {
-				const buffer = /* @__PURE__ */ new ArrayBuffer(8);
-				new DataView(buffer).setFloat64(0, value, true);
-				return new Uint8Array(buffer);
-			},
-			/**
-			* Decode a float32 from bytes
-			*/
-			decodeFloat32(bytes) {
-				return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat32(0, true);
-			},
-			/**
-			* Decode a float64 from bytes
-			*/
-			decodeFloat64(bytes) {
-				return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat64(0, true);
-			},
-			/**
-			* Encode a number as an int32
-			*/
-			encodeInt32(value) {
-				const buffer = /* @__PURE__ */ new ArrayBuffer(4);
-				new DataView(buffer).setInt32(0, value, true);
-				return new Uint8Array(buffer);
-			},
-			/**
-			* Encode a number as a uint32
-			*/
-			encodeUint32(value) {
-				const buffer = /* @__PURE__ */ new ArrayBuffer(4);
-				new DataView(buffer).setUint32(0, value, true);
-				return new Uint8Array(buffer);
-			},
-			/**
-			* Decode an int32 from bytes
-			*/
-			decodeInt32(bytes) {
-				return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(0, true);
-			},
-			/**
-			* Decode a uint32 from bytes
-			*/
-			decodeUint32(bytes) {
-				return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
-			},
-			/**
-			* Encode an object as JSON bytes
-			*/
-			encodeJSON(value) {
-				return new TextEncoder().encode(JSON.stringify(value));
-			},
-			/**
-			* Decode JSON bytes to an object
-			*/
-			decodeJSON(bytes) {
-				return JSON.parse(new TextDecoder().decode(bytes));
-			}
-		};
-		encoder = new ModuleEncoder();
-	}));
-	//#endregion
-	//#region ../exact-location/src/api.ts
-	var api_exports = /* @__PURE__ */ __exportAll({
-		Location: () => Location$1,
-		default: () => Location$1
-	});
-	/**
-	* Decode a LocationResult from binary payload
-	* Layout: [lat:f64][lon:f64][alt:f64][hAcc:f32][vAcc:f32][timestamp:f64]
-	* Total: 8 + 8 + 8 + 4 + 4 + 8 = 40 bytes
-	*/
-	function decodeLocationResult(data) {
-		const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-		return {
-			latitude: view.getFloat64(0, true),
-			longitude: view.getFloat64(8, true),
-			altitude: view.getFloat64(16, true),
-			horizontalAccuracy: view.getFloat32(24, true),
-			verticalAccuracy: view.getFloat32(28, true),
-			timestamp: view.getFloat64(32, true)
-		};
-	}
-	/**
-	* Encode startUpdates args to binary
-	* Layout: [accuracy:u8][distanceFilter:f32]
-	* Total: 5 bytes
-	*/
-	function encodeStartUpdatesArgs(accuracy, distanceFilter) {
-		const buffer = /* @__PURE__ */ new ArrayBuffer(5);
-		const view = new DataView(buffer);
-		view.setUint8(0, LOCATION_ACCURACY.indexOf(accuracy));
-		view.setFloat32(1, distanceFilter, true);
-		return new Uint8Array(buffer);
-	}
-	/**
-	* Dispatch an action that returns a result (async)
-	*/
-	function dispatchAsyncAction(actionName, payload, timeout, parseResult) {
-		return new Promise((resolve, reject) => {
-			const module = ModuleRegistry.getModule(MODULE_NAME);
-			if (!module) {
-				reject(/* @__PURE__ */ new Error(`Module not registered: ${MODULE_NAME}`));
-				return;
-			}
-			if (module.actionIds.get(actionName) === void 0) {
-				reject(/* @__PURE__ */ new Error(`Unknown action: ${actionName}`));
-				return;
-			}
-			const correlationId = nextCorrelationId++;
-			const timeoutId = setTimeout(() => {
-				const pending = pendingOperations.get(correlationId);
-				if (pending) {
-					pendingOperations.delete(correlationId);
-					pending.reject(/* @__PURE__ */ new Error(`Action timed out: ${actionName}`));
-				}
-			}, timeout);
-			pendingOperations.set(correlationId, {
-				resolve: (rawResult) => {
-					try {
-						resolve(parseResult(rawResult));
-					} catch (e) {
-						reject(e);
-					}
-				},
-				reject,
-				timeoutId
-			});
-			const fullPayload = new Uint8Array(4 + payload.length);
-			new DataView(fullPayload.buffer).setUint32(0, correlationId, true);
-			fullPayload.set(payload, 4);
-			dispatchModuleAction(MODULE_NAME, actionName, fullPayload);
-		});
-	}
-	var MODULE_NAME, MODULE_VERSION, ACTION_NAMES, SYNC_METHOD_NAMES, PERMISSION_STATUS, PERMISSION_LEVEL, LOCATION_ACCURACY, STATE_SIZE, STATE_FIELDS, pendingOperations, nextCorrelationId, locationUpdateListeners, permissionChangeListeners, errorListeners, Location$1;
-	var init_api = __esmMin((() => {
-		init_src();
-		MODULE_NAME = "com.exact.location";
-		MODULE_VERSION = "0.1.0";
-		ACTION_NAMES = [
-			"requestPermission",
-			"getCurrentLocation",
-			"startUpdates",
-			"stopUpdates"
-		];
-		SYNC_METHOD_NAMES = ["getPermissionStatus", "isLocationServicesEnabled"];
-		PERMISSION_STATUS = [
-			"notDetermined",
-			"denied",
-			"authorizedWhenInUse",
-			"authorizedAlways",
-			"restricted"
-		];
-		PERMISSION_LEVEL = ["whenInUse", "always"];
-		LOCATION_ACCURACY = [
-			"best",
-			"nearestTenMeters",
-			"hundredMeters",
-			"kilometer",
-			"threeKilometers"
-		];
-		STATE_SIZE = 8;
-		STATE_FIELDS = [{
-			name: "permissionStatus",
-			type: "uint8",
-			offset: 4
-		}, {
-			name: "isUpdating",
-			type: "boolean",
-			offset: 5
-		}];
-		ModuleRegistry.registerModule({
-			name: MODULE_NAME,
-			version: MODULE_VERSION,
-			actionNames: ACTION_NAMES,
-			syncMethodNames: SYNC_METHOD_NAMES,
-			stateSize: STATE_SIZE,
-			stateFields: STATE_FIELDS
-		});
-		pendingOperations = /* @__PURE__ */ new Map();
-		nextCorrelationId = 1;
-		locationUpdateListeners = /* @__PURE__ */ new Set();
-		permissionChangeListeners = /* @__PURE__ */ new Set();
-		errorListeners = /* @__PURE__ */ new Set();
-		if (typeof globalThis.__exactModuleEventHandlers === "undefined") {
-			globalThis.__exactModuleEventHandlers = /* @__PURE__ */ new Map();
-			globalThis.__exactModuleEvent = (module, event, payload) => {
-				const handler = globalThis.__exactModuleEventHandlers?.get(module);
-				if (handler) handler(event, payload);
-			};
-		}
-		if (typeof globalThis.__exactModuleActionResult === "undefined") globalThis.__exactModuleActionResult = (module, correlationId, success, payload) => {
-			const pending = pendingOperations.get(correlationId);
-			if (pending) {
-				pendingOperations.delete(correlationId);
-				if (pending.timeoutId) clearTimeout(pending.timeoutId);
-				if (success) pending.resolve(payload);
-				else {
-					const error = payload;
-					pending.reject(/* @__PURE__ */ new Error(`${error.code}: ${error.message}`));
-				}
-			}
-		};
-		globalThis.__exactModuleEventHandlers?.set(MODULE_NAME, (event, payload) => {
-			const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(0);
-			switch (event) {
-				case "onLocationUpdate":
-					if (bytes.length >= 40) {
-						const location = decodeLocationResult(bytes);
-						locationUpdateListeners.forEach((listener) => {
-							try {
-								listener(location);
-							} catch (e) {
-								console.error("[Location] Listener threw error:", e);
-							}
-						});
-					}
-					break;
-				case "onPermissionChange":
-					if (bytes.length >= 1) {
-						const statusIndex = bytes[0];
-						const status = PERMISSION_STATUS[statusIndex] || "notDetermined";
-						permissionChangeListeners.forEach((listener) => {
-							try {
-								listener(status);
-							} catch (e) {
-								console.error("[Location] Listener threw error:", e);
-							}
-						});
-					}
-					break;
-				case "onError":
-					try {
-						const error = PayloadCodec.decodeJSON(bytes);
-						errorListeners.forEach((listener) => {
-							try {
-								listener(error);
-							} catch (e) {
-								console.error("[Location] Listener threw error:", e);
-							}
-						});
-					} catch {
-						console.error("[Location] Failed to decode error payload");
-					}
-					break;
-				case "actionResult":
-					if (bytes.length >= 5) {
-						const correlationId = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
-						const success = bytes[4] !== 0;
-						const resultPayload = bytes.slice(5);
-						const pending = pendingOperations.get(correlationId);
-						if (pending) {
-							pendingOperations.delete(correlationId);
-							if (pending.timeoutId) clearTimeout(pending.timeoutId);
-							if (success) pending.resolve(resultPayload);
-							else try {
-								const error = PayloadCodec.decodeJSON(resultPayload);
-								pending.reject(/* @__PURE__ */ new Error(`${error.code}: ${error.message}`));
-							} catch {
-								pending.reject(/* @__PURE__ */ new Error("Unknown error"));
-							}
-						}
-					}
-					break;
-			}
-		});
-		Location$1 = {
-			/**
-			* Request location permission from the user.
-			* @param level - 'whenInUse' or 'always'
-			* @returns Promise resolving to the permission status
-			*/
-			async requestPermission(level) {
-				return await dispatchAsyncAction("requestPermission", PayloadCodec.encodeEnum(level, PERMISSION_LEVEL), 6e4, (data) => {
-					const statusIndex = data[0];
-					return { status: PERMISSION_STATUS[statusIndex] || "notDetermined" };
-				});
-			},
-			/**
-			* Get the current location once.
-			* @param accuracy - Desired location accuracy
-			* @returns Promise resolving to the location
-			*/
-			async getCurrentLocation(accuracy) {
-				return await dispatchAsyncAction("getCurrentLocation", PayloadCodec.encodeEnum(accuracy, LOCATION_ACCURACY), 3e4, decodeLocationResult);
-			},
-			/**
-			* Start continuous location updates.
-			* Updates are delivered via onLocationUpdate events.
-			* @param accuracy - Desired location accuracy
-			* @param distanceFilter - Minimum distance (meters) between updates (default: 10)
-			*/
-			startUpdates(accuracy, distanceFilter = 10) {
-				const payload = encodeStartUpdatesArgs(accuracy, distanceFilter);
-				dispatchModuleAction(MODULE_NAME, "startUpdates", payload);
-			},
-			/**
-			* Stop continuous location updates.
-			*/
-			stopUpdates() {
-				dispatchModuleAction(MODULE_NAME, "stopUpdates", new Uint8Array(0));
-			},
-			/**
-			* Get the current permission status synchronously.
-			*/
-			getPermissionStatus() {
-				const result = callModuleSync(MODULE_NAME, "getPermissionStatus");
-				if (result && result.length >= 1) {
-					const statusIndex = result[0];
-					return PERMISSION_STATUS[statusIndex] || "notDetermined";
-				}
-				return "notDetermined";
-			},
-			/**
-			* Check if location services are enabled on the device.
-			*/
-			isLocationServicesEnabled() {
-				const result = callModuleSync(MODULE_NAME, "isLocationServicesEnabled");
-				if (result && result.length >= 1) return PayloadCodec.decodeBoolean(result);
-				return false;
-			},
-			/**
-			* Subscribe to location updates.
-			* @param callback - Function called with each new location
-			* @returns Unsubscribe function
-			*/
-			onLocationUpdate(callback) {
-				locationUpdateListeners.add(callback);
-				return () => {
-					locationUpdateListeners.delete(callback);
-				};
-			},
-			/**
-			* Subscribe to permission status changes.
-			* @param callback - Function called when permission status changes
-			* @returns Unsubscribe function
-			*/
-			onPermissionChange(callback) {
-				permissionChangeListeners.add(callback);
-				return () => {
-					permissionChangeListeners.delete(callback);
-				};
-			},
-			/**
-			* Subscribe to location errors.
-			* @param callback - Function called when an error occurs
-			* @returns Unsubscribe function
-			*/
-			onError(callback) {
-				errorListeners.add(callback);
-				return () => {
-					errorListeners.delete(callback);
-				};
-			},
-			/**
-			* State mirror for instant reads.
-			* Provides permission status and update state from the latest kernel snapshot
-			* without an extra native round-trip when snapshots are available.
-			*/
-			get state() {
-				const module = ModuleRegistry.getModule(MODULE_NAME);
-				if (module?.stateOffset != null) {
-					const snapshot = createStateReader(module.stateOffset, STATE_FIELDS)?.read();
-					if (snapshot) return snapshot;
-				}
-				return {
-					get permissionStatus() {
-						return Location$1.getPermissionStatus();
-					},
-					get isUpdating() {
-						return false;
-					}
-				};
-			}
-		};
-	}));
-	//#endregion
-	//#region ../exact-runtime-js/src/location/index.ts
+	//#region ../ibex-runtime-js/src/location/index.ts
 	init_defineProperty();
 	const FOREGROUND_PERMISSION = "device:location:whenInUse";
 	const LOCATION_PERMISSIONS = Object.freeze({
@@ -1628,11 +854,11 @@
 			if (!this.unsubscribeLocationUpdates) this.unsubscribeLocationUpdates = module.onLocationUpdate((location) => {
 				const position = toGeolocationPosition(location);
 				{
-					const __exactForOfIterator6 = this.watchers.values()[Symbol.iterator]();
+					const __exactForOfIterator2 = this.watchers.values()[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep6 = __exactForOfIterator6.next();
-						if (__exactForOfStep6.done) break;
-						__exactForOfStep6.value.success(position);
+						const __exactForOfStep2 = __exactForOfIterator2.next();
+						if (__exactForOfStep2.done) break;
+						__exactForOfStep2.value.success(position);
 					}
 				}
 			});
@@ -1640,11 +866,11 @@
 				const positionError = nativeErrorToPositionError(nativeError);
 				const shouldTerminate = positionError.code === ExactGeolocationPositionError.PERMISSION_DENIED;
 				{
-					const __exactForOfIterator7 = this.watchers.values()[Symbol.iterator]();
+					const __exactForOfIterator3 = this.watchers.values()[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep7 = __exactForOfIterator7.next();
-						if (__exactForOfStep7.done) break;
-						__exactForOfStep7.value.error?.(positionError);
+						const __exactForOfStep3 = __exactForOfIterator3.next();
+						if (__exactForOfStep3.done) break;
+						__exactForOfStep3.value.error?.(positionError);
 					}
 				}
 				if (shouldTerminate) {
@@ -1788,11 +1014,11 @@
 	function computeDistanceFilter(watchers) {
 		let desired = 10;
 		{
-			const __exactForOfIterator8 = watchers[Symbol.iterator]();
+			const __exactForOfIterator4 = watchers[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep8 = __exactForOfIterator8.next();
-				if (__exactForOfStep8.done) break;
-				const watcher = __exactForOfStep8.value;
+				const __exactForOfStep4 = __exactForOfIterator4.next();
+				if (__exactForOfStep4.done) break;
+				const watcher = __exactForOfStep4.value;
 				if (typeof watcher.options?.maximumAge === "number" && watcher.options.maximumAge <= 1e3) desired = Math.min(desired, 1);
 			}
 		}
@@ -1811,15 +1037,11 @@
 		return hostNavigator.geolocation;
 	}
 	function hasNativeLocationBridge() {
-		const exactObject = globalThis.exact;
-		return typeof exactObject?.dispatchModule === "function" && typeof exactObject?.callModuleSync === "function";
+		return false;
 	}
 	let legacyLocationModulePromise = null;
 	function loadLegacyLocationModule() {
-		if (!legacyLocationModulePromise) legacyLocationModulePromise = Promise.resolve().then(() => (init_api(), api_exports)).then((module) => module.Location).catch((error) => {
-			legacyLocationModulePromise = null;
-			throw error;
-		});
+		legacyLocationModulePromise ?? (legacyLocationModulePromise = Promise.reject(new ExactGeolocationPositionError(ExactGeolocationPositionError.POSITION_UNAVAILABLE, UNSUPPORTED_MESSAGE)));
 		return legacyLocationModulePromise;
 	}
 	const unsupportedBackend = new UnsupportedLocationBackend();
@@ -1890,7 +1112,7 @@
 	}
 	new ExactLocationModule();
 	//#endregion
-	//#region ../exact-runtime-js/src/camera/index.ts
+	//#region ../ibex-runtime-js/src/camera/index.ts
 	/**
 	* Exact camera runtime core.
 	*
@@ -2128,11 +1350,11 @@
 	function getVirtualCameraIds() {
 		const ids = new Set(["virtual-back", "virtual-front"]);
 		{
-			const __exactForOfIterator13 = virtualCameraConfigs.keys()[Symbol.iterator]();
+			const __exactForOfIterator9 = virtualCameraConfigs.keys()[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep13 = __exactForOfIterator13.next();
-				if (__exactForOfStep13.done) break;
-				const id = __exactForOfStep13.value;
+				const __exactForOfStep9 = __exactForOfIterator9.next();
+				if (__exactForOfStep9.done) break;
+				const id = __exactForOfStep9.value;
 				ids.add(id);
 			}
 		}
@@ -2188,11 +1410,11 @@
 				cachedDevices = [];
 			}
 			{
-				const __exactForOfIterator14 = deviceSubscribers[Symbol.iterator]();
+				const __exactForOfIterator10 = deviceSubscribers[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep14 = __exactForOfIterator14.next();
-					if (__exactForOfStep14.done) break;
-					const subscriber = __exactForOfStep14.value;
+					const __exactForOfStep10 = __exactForOfIterator10.next();
+					if (__exactForOfStep10.done) break;
+					const subscriber = __exactForOfStep10.value;
 					subscriber();
 				}
 			}
@@ -2211,21 +1433,21 @@
 				}
 			} catch {}
 			{
-				const __exactForOfIterator15 = getVirtualCameraIds()[Symbol.iterator]();
+				const __exactForOfIterator11 = getVirtualCameraIds()[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep15 = __exactForOfIterator15.next();
-					if (__exactForOfStep15.done) break;
-					const virtualId = __exactForOfStep15.value;
+					const __exactForOfStep11 = __exactForOfIterator11.next();
+					if (__exactForOfStep11.done) break;
+					const virtualId = __exactForOfStep11.value;
 					devices.push(makeVirtualDevice(virtualId));
 				}
 			}
 			cachedDevices = devices;
 			{
-				const __exactForOfIterator16 = deviceSubscribers[Symbol.iterator]();
+				const __exactForOfIterator12 = deviceSubscribers[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep16 = __exactForOfIterator16.next();
-					if (__exactForOfStep16.done) break;
-					const subscriber = __exactForOfStep16.value;
+					const __exactForOfStep12 = __exactForOfIterator12.next();
+					if (__exactForOfStep12.done) break;
+					const subscriber = __exactForOfStep12.value;
 					subscriber();
 				}
 			}
@@ -2239,7 +1461,7 @@
 		return listCameraDevices();
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/fetch/Headers.ts
+	//#region ../ibex-runtime-js/src/fetch/Headers.ts
 	init_defineProperty();
 	let _Symbol$iterator$3, _Symbol$for$1;
 	/**
@@ -2510,11 +1732,11 @@
 			const headers = ensureHeadersBrand(this, "count");
 			let total = 0;
 			{
-				const __exactForOfIterator33 = headers._map.values()[Symbol.iterator]();
+				const __exactForOfIterator29 = headers._map.values()[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep33 = __exactForOfIterator33.next();
-					if (__exactForOfStep33.done) break;
-					const values = __exactForOfStep33.value;
+					const __exactForOfStep29 = __exactForOfIterator29.next();
+					if (__exactForOfStep29.done) break;
+					const values = __exactForOfStep29.value;
 					total += values.length;
 				}
 			}
@@ -2594,11 +1816,11 @@
 			const headers = ensureHeadersBrand(this, "toJSON");
 			const result = {};
 			{
-				const __exactForOfIterator34 = headers._sortedEntries()[Symbol.iterator]();
+				const __exactForOfIterator30 = headers._sortedEntries()[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep34 = __exactForOfIterator34.next();
-					if (__exactForOfStep34.done) break;
-					const [name, values] = __exactForOfStep34.value;
+					const __exactForOfStep30 = __exactForOfIterator30.next();
+					if (__exactForOfStep30.done) break;
+					const [name, values] = __exactForOfStep30.value;
 					if (name === "set-cookie" && isBunCompatEnv$1()) result[name] = [...values];
 					else result[name] = values.join(", ");
 				}
@@ -2663,11 +1885,11 @@
 		_flatSortedEntries() {
 			const result = [];
 			{
-				const __exactForOfIterator35 = this._sortedEntries()[Symbol.iterator]();
+				const __exactForOfIterator31 = this._sortedEntries()[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep35 = __exactForOfIterator35.next();
-					if (__exactForOfStep35.done) break;
-					const [name, values] = __exactForOfStep35.value;
+					const __exactForOfStep31 = __exactForOfIterator31.next();
+					if (__exactForOfStep31.done) break;
+					const [name, values] = __exactForOfStep31.value;
 					if (name === "set-cookie") for (const v of values) result.push([name, v]);
 					else result.push([name, values.join(", ")]);
 				}
@@ -2681,11 +1903,11 @@
 			const headers = ensureHeadersBrand(this, "toTupleArray");
 			const result = [];
 			{
-				const __exactForOfIterator36 = headers._map[Symbol.iterator]();
+				const __exactForOfIterator32 = headers._map[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep36 = __exactForOfIterator36.next();
-					if (__exactForOfStep36.done) break;
-					const [name, values] = __exactForOfStep36.value;
+					const __exactForOfStep32 = __exactForOfIterator32.next();
+					if (__exactForOfStep32.done) break;
+					const [name, values] = __exactForOfStep32.value;
 					if (name === "set-cookie") for (const value of values) result.push([name, value]);
 					else result.push([name, values.join(", ")]);
 				}
@@ -2701,11 +1923,11 @@
 		static fromTupleArray(tuples) {
 			const headers = new Headers();
 			{
-				const __exactForOfIterator37 = tuples[Symbol.iterator]();
+				const __exactForOfIterator33 = tuples[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep37 = __exactForOfIterator37.next();
-					if (__exactForOfStep37.done) break;
-					const [name, value] = __exactForOfStep37.value;
+					const __exactForOfStep33 = __exactForOfIterator33.next();
+					if (__exactForOfStep33.done) break;
+					const [name, value] = __exactForOfStep33.value;
 					headers.append(name, value);
 				}
 			}
@@ -2721,7 +1943,7 @@
 		configurable: true
 	});
 	//#endregion
-	//#region ../exact-runtime-js/src/fetch/errors.ts
+	//#region ../ibex-runtime-js/src/fetch/errors.ts
 	init_defineProperty();
 	/**
 	* Fetch API Errors
@@ -2811,7 +2033,7 @@
 	Object.setPrototypeOf(BodyConsumedError.prototype, TypeError.prototype);
 	Object.setPrototypeOf(BodyConsumedError, TypeError);
 	//#endregion
-	//#region ../exact-runtime-js/src/streams/WritableStream.ts
+	//#region ../ibex-runtime-js/src/streams/WritableStream.ts
 	init_defineProperty();
 	let _Symbol$toStringTag$35, _Symbol$toStringTag2$3, _Symbol$toStringTag3$1;
 	/**
@@ -3515,7 +2737,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/events/Event.ts
+	//#region ../ibex-runtime-js/src/events/Event.ts
 	init_defineProperty();
 	const _isTrustedGetter = function() {
 		return false;
@@ -3616,7 +2838,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/events/EventTarget.ts
+	//#region ../ibex-runtime-js/src/events/EventTarget.ts
 	/**
 	* EventTarget - Web Standard EventTarget Implementation
 	*
@@ -3733,7 +2955,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/events/MessageEvent.ts
+	//#region ../ibex-runtime-js/src/events/MessageEvent.ts
 	/**
 	* MessageEvent - Event for messaging APIs
 	* 
@@ -3767,7 +2989,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/events/CloseEvent.ts
+	//#region ../ibex-runtime-js/src/events/CloseEvent.ts
 	/**
 	* CloseEvent - Event for WebSocket close events
 	* 
@@ -3842,7 +3064,7 @@
 	Object.setPrototypeOf(CloseEvent.prototype, Event.prototype);
 	Object.setPrototypeOf(CloseEvent, Event);
 	//#endregion
-	//#region ../exact-runtime-js/src/events/ErrorEvent.ts
+	//#region ../ibex-runtime-js/src/events/ErrorEvent.ts
 	/**
 	* ErrorEvent - Event for runtime errors
 	* 
@@ -3871,7 +3093,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/events/ProgressEvent.ts
+	//#region ../ibex-runtime-js/src/events/ProgressEvent.ts
 	/**
 	* ProgressEvent - Event for tracking progress of operations
 	* 
@@ -3896,7 +3118,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/events/KeyboardEvent.ts
+	//#region ../ibex-runtime-js/src/events/KeyboardEvent.ts
 	/**
 	* KeyboardEvent - Minimal DOM-compatible keyboard event implementation.
 	*
@@ -3930,7 +3152,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/events/FocusEvent.ts
+	//#region ../ibex-runtime-js/src/events/FocusEvent.ts
 	/**
 	* FocusEvent - Minimal DOM-compatible focus event implementation.
 	*
@@ -3951,7 +3173,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/events/PromiseRejectionEvent.ts
+	//#region ../ibex-runtime-js/src/events/PromiseRejectionEvent.ts
 	/**
 	* PromiseRejectionEvent - Event for unhandled promise rejections
 	*
@@ -3975,7 +3197,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/abort/AbortSignal.ts
+	//#region ../ibex-runtime-js/src/abort/AbortSignal.ts
 	/**
 	* AbortSignal - Web Standard AbortSignal Implementation
 	*
@@ -4055,11 +3277,11 @@
 			const listeners = /* @__PURE__ */ new Map();
 			const cleanup = () => {
 				{
-					const __exactForOfIterator38 = listeners[Symbol.iterator]();
+					const __exactForOfIterator34 = listeners[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep38 = __exactForOfIterator38.next();
-						if (__exactForOfStep38.done) break;
-						const [source, listener] = __exactForOfStep38.value;
+						const __exactForOfStep34 = __exactForOfIterator34.next();
+						if (__exactForOfStep34.done) break;
+						const [source, listener] = __exactForOfStep34.value;
 						source.removeEventListener("abort", listener);
 					}
 				}
@@ -4073,11 +3295,11 @@
 				}
 			};
 			{
-				const __exactForOfIterator39 = signals[Symbol.iterator]();
+				const __exactForOfIterator35 = signals[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep39 = __exactForOfIterator39.next();
-					if (__exactForOfStep39.done) break;
-					const s = __exactForOfStep39.value;
+					const __exactForOfStep35 = __exactForOfIterator35.next();
+					if (__exactForOfStep35.done) break;
+					const s = __exactForOfStep35.value;
 					listeners.set(s, onAbort);
 					s.addEventListener("abort", onAbort, { once: true });
 				}
@@ -4086,7 +3308,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/arraybuffer-detach.ts
+	//#region ../ibex-runtime-js/src/arraybuffer-detach.ts
 	const DETACHED_ARRAY_BUFFERS = Symbol.for("exact.detachedArrayBuffers");
 	const NON_TRANSFERABLE_ARRAY_BUFFERS = Symbol.for("exact.nonTransferableArrayBuffers");
 	const PATCHED_ARRAY_BUFFER_BYTE_LENGTH = Symbol.for("exact.patchedArrayBufferByteLength");
@@ -4188,7 +3410,7 @@
 		return s.get(_assertClassBrand(s, a));
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/blob/Blob.ts
+	//#region ../ibex-runtime-js/src/blob/Blob.ts
 	/**
 	* Blob implementation for Exact runtime
 	* 
@@ -4332,11 +3554,11 @@
 		const result = new Uint8Array(_classPrivateFieldGet2(_size, this));
 		let offset = 0;
 		{
-			const __exactForOfIterator40 = _classPrivateFieldGet2(_parts, this)[Symbol.iterator]();
+			const __exactForOfIterator36 = _classPrivateFieldGet2(_parts, this)[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep40 = __exactForOfIterator40.next();
-				if (__exactForOfStep40.done) break;
-				const part = __exactForOfStep40.value;
+				const __exactForOfStep36 = __exactForOfIterator36.next();
+				if (__exactForOfStep36.done) break;
+				const part = __exactForOfStep36.value;
 				result.set(part, offset);
 				offset += part.byteLength;
 			}
@@ -4371,7 +3593,7 @@
 		throw new TypeError("Invalid blob part type");
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/blob/File.ts
+	//#region ../ibex-runtime-js/src/blob/File.ts
 	/**
 	* File implementation for Exact runtime
 	* 
@@ -4418,11 +3640,11 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/clone/transferableSymbols.ts
+	//#region ../ibex-runtime-js/src/clone/transferableSymbols.ts
 	const structuredCloneTransferSymbol = Symbol.for("exact.structuredClone.transfer");
 	const structuredCloneCloneSymbol = Symbol.for("exact.structuredClone.clone");
 	//#endregion
-	//#region ../exact-runtime-js/src/clone/structuredClone.ts
+	//#region ../ibex-runtime-js/src/clone/structuredClone.ts
 	/**
 	* structuredClone implementation for Exact runtime
 	* 
@@ -4471,11 +3693,11 @@
 		const transfer = options?.transfer ?? [];
 		const transferSet = /* @__PURE__ */ new Set();
 		{
-			const __exactForOfIterator41 = transfer[Symbol.iterator]();
+			const __exactForOfIterator37 = transfer[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep41 = __exactForOfIterator41.next();
-				if (__exactForOfStep41.done) break;
-				const transferable = __exactForOfStep41.value;
+				const __exactForOfStep37 = __exactForOfIterator37.next();
+				if (__exactForOfStep37.done) break;
+				const transferable = __exactForOfStep37.value;
 				if (!(transferable instanceof ArrayBuffer) && !(transferable && typeof transferable === "object" && structuredCloneTransferSymbol in transferable)) throw createDataCloneError("The object could not be cloned.");
 				if (transferable && typeof transferable === "object") {
 					if (transferSet.has(transferable)) throw createDataCloneError("The object could not be cloned.");
@@ -4485,11 +3707,11 @@
 		}
 		const cloned = cloneInternal(value, /* @__PURE__ */ new Map(), transferSet);
 		{
-			const __exactForOfIterator42 = transfer[Symbol.iterator]();
+			const __exactForOfIterator38 = transfer[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep42 = __exactForOfIterator42.next();
-				if (__exactForOfStep42.done) break;
-				const transferable = __exactForOfStep42.value;
+				const __exactForOfStep38 = __exactForOfIterator38.next();
+				if (__exactForOfStep38.done) break;
+				const transferable = __exactForOfStep38.value;
 				if (transferable instanceof ArrayBuffer) markDetachedArrayBuffer(transferable);
 			}
 		}
@@ -4596,11 +3818,11 @@
 			const clone = /* @__PURE__ */ new Map();
 			cloneMap.set(obj, clone);
 			{
-				const __exactForOfIterator43 = obj[Symbol.iterator]();
+				const __exactForOfIterator39 = obj[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep43 = __exactForOfIterator43.next();
-					if (__exactForOfStep43.done) break;
-					const [key, val] = __exactForOfStep43.value;
+					const __exactForOfStep39 = __exactForOfIterator39.next();
+					if (__exactForOfStep39.done) break;
+					const [key, val] = __exactForOfStep39.value;
 					const clonedKey = cloneInternal(key, cloneMap, transferSet);
 					const clonedVal = cloneInternal(val, cloneMap, transferSet);
 					clone.set(clonedKey, clonedVal);
@@ -4612,11 +3834,11 @@
 			const clone = /* @__PURE__ */ new Set();
 			cloneMap.set(obj, clone);
 			{
-				const __exactForOfIterator44 = obj[Symbol.iterator]();
+				const __exactForOfIterator40 = obj[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep44 = __exactForOfIterator44.next();
-					if (__exactForOfStep44.done) break;
-					const item = __exactForOfStep44.value;
+					const __exactForOfStep40 = __exactForOfIterator40.next();
+					if (__exactForOfStep40.done) break;
+					const item = __exactForOfStep40.value;
 					clone.add(cloneInternal(item, cloneMap, transferSet));
 				}
 			}
@@ -4647,11 +3869,11 @@
 			const clone = {};
 			cloneMap.set(obj, clone);
 			{
-				const __exactForOfIterator45 = Object.keys(obj)[Symbol.iterator]();
+				const __exactForOfIterator41 = Object.keys(obj)[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep45 = __exactForOfIterator45.next();
-					if (__exactForOfStep45.done) break;
-					const key = __exactForOfStep45.value;
+					const __exactForOfStep41 = __exactForOfIterator41.next();
+					if (__exactForOfStep41.done) break;
+					const key = __exactForOfStep41.value;
 					clone[key] = cloneInternal(obj[key], cloneMap, transferSet);
 				}
 			}
@@ -4661,11 +3883,11 @@
 			const clone = {};
 			cloneMap.set(obj, clone);
 			{
-				const __exactForOfIterator46 = Object.keys(obj)[Symbol.iterator]();
+				const __exactForOfIterator42 = Object.keys(obj)[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep46 = __exactForOfIterator46.next();
-					if (__exactForOfStep46.done) break;
-					const key = __exactForOfStep46.value;
+					const __exactForOfStep42 = __exactForOfIterator42.next();
+					if (__exactForOfStep42.done) break;
+					const key = __exactForOfStep42.value;
 					clone[key] = cloneInternal(obj[key], cloneMap, transferSet);
 				}
 			}
@@ -4674,7 +3896,7 @@
 		throw createDataCloneError(`Object of type ${obj.constructor?.name ?? "unknown"} cannot be cloned`);
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/promise-rejection-tracking.ts
+	//#region ../ibex-runtime-js/src/promise-rejection-tracking.ts
 	/**
 	* Promise Rejection Tracking
 	*
@@ -4931,7 +4153,7 @@
 		g.__OriginalPromise = OriginalPromise;
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/streams/ReadableStream.ts
+	//#region ../ibex-runtime-js/src/streams/ReadableStream.ts
 	/**
 	* ReadableStream - WHATWG Streams API Implementation
 	*
@@ -5340,11 +4562,11 @@
 	function detachPendingPullIntoRequests(controller, requests) {
 		if (requests.length === 0) return;
 		{
-			const __exactForOfIterator47 = controller._pendingPullIntos[Symbol.iterator]();
+			const __exactForOfIterator43 = controller._pendingPullIntos[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep47 = __exactForOfIterator47.next();
-				if (__exactForOfStep47.done) break;
-				const descriptor = __exactForOfStep47.value;
+				const __exactForOfStep43 = __exactForOfIterator43.next();
+				if (__exactForOfStep43.done) break;
+				const descriptor = __exactForOfStep43.value;
 				if (descriptor.pendingRequest !== null && requests.includes(descriptor.pendingRequest)) descriptor.pendingRequest = null;
 			}
 		}
@@ -5360,11 +4582,11 @@
 		controller._pendingPullIntos = [];
 		invalidateReadableByteStreamByobRequest(controller);
 		{
-			const __exactForOfIterator48 = descriptors[Symbol.iterator]();
+			const __exactForOfIterator44 = descriptors[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep48 = __exactForOfIterator48.next();
-				if (__exactForOfStep48.done) break;
-				const descriptor = __exactForOfStep48.value;
+				const __exactForOfStep44 = __exactForOfIterator44.next();
+				if (__exactForOfStep44.done) break;
+				const descriptor = __exactForOfStep44.value;
 				resolvePullIntoDescriptor(controller, descriptor, true);
 			}
 		}
@@ -6468,11 +5690,11 @@
 			const reader = this._stream._reader;
 			if (reader && reader instanceof ReadableStreamBYOBReader) {
 				{
-					const __exactForOfIterator49 = reader._readIntoRequests[Symbol.iterator]();
+					const __exactForOfIterator45 = reader._readIntoRequests[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep49 = __exactForOfIterator49.next();
-						if (__exactForOfStep49.done) break;
-						__exactForOfStep49.value.reject(e);
+						const __exactForOfStep45 = __exactForOfIterator45.next();
+						if (__exactForOfStep45.done) break;
+						__exactForOfStep45.value.reject(e);
 					}
 				}
 				reader._readIntoRequests = [];
@@ -6669,11 +5891,11 @@
 				const requests = this._readRequests.slice();
 				if (controller instanceof ReadableByteStreamController) detachPendingPullIntoRequests(controller, requests);
 				{
-					const __exactForOfIterator50 = this._readRequests[Symbol.iterator]();
+					const __exactForOfIterator46 = this._readRequests[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep50 = __exactForOfIterator50.next();
-						if (__exactForOfStep50.done) break;
-						__exactForOfStep50.value.reject(releaseError);
+						const __exactForOfStep46 = __exactForOfIterator46.next();
+						if (__exactForOfStep46.done) break;
+						__exactForOfStep46.value.reject(releaseError);
 					}
 				}
 				this._readRequests = [];
@@ -6801,11 +6023,11 @@
 				const requests = this._readIntoRequests.slice();
 				if (controller instanceof ReadableByteStreamController) detachPendingPullIntoRequests(controller, requests);
 				{
-					const __exactForOfIterator51 = this._readIntoRequests[Symbol.iterator]();
+					const __exactForOfIterator47 = this._readIntoRequests[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep51 = __exactForOfIterator51.next();
-						if (__exactForOfStep51.done) break;
-						__exactForOfStep51.value.reject(releaseError);
+						const __exactForOfStep47 = __exactForOfIterator47.next();
+						if (__exactForOfStep47.done) break;
+						__exactForOfStep47.value.reject(releaseError);
 					}
 				}
 				this._readIntoRequests = [];
@@ -7457,11 +6679,11 @@
 			const merged = new Uint8Array(totalLen);
 			let offset = 0;
 			{
-				const __exactForOfIterator52 = chunks[Symbol.iterator]();
+				const __exactForOfIterator48 = chunks[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep52 = __exactForOfIterator52.next();
-					if (__exactForOfStep52.done) break;
-					const chunk = __exactForOfStep52.value;
+					const __exactForOfStep48 = __exactForOfIterator48.next();
+					if (__exactForOfStep48.done) break;
+					const chunk = __exactForOfStep48.value;
 					merged.set(chunk, offset);
 					offset += chunk.byteLength;
 				}
@@ -7484,11 +6706,11 @@
 			const merged = new Uint8Array(totalLen);
 			let offset = 0;
 			{
-				const __exactForOfIterator53 = chunks[Symbol.iterator]();
+				const __exactForOfIterator49 = chunks[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep53 = __exactForOfIterator53.next();
-					if (__exactForOfStep53.done) break;
-					const chunk = __exactForOfStep53.value;
+					const __exactForOfStep49 = __exactForOfIterator49.next();
+					if (__exactForOfStep49.done) break;
+					const chunk = __exactForOfStep49.value;
 					merged.set(chunk, offset);
 					offset += chunk.byteLength;
 				}
@@ -7519,11 +6741,11 @@
 				if (reader instanceof ReadableStreamDefaultReader) reader._processReadRequests();
 				else if (reader instanceof ReadableStreamBYOBReader && !(this._controller instanceof ReadableByteStreamController)) {
 					{
-						const __exactForOfIterator54 = reader._readIntoRequests[Symbol.iterator]();
+						const __exactForOfIterator50 = reader._readIntoRequests[Symbol.iterator]();
 						for (;;) {
-							const __exactForOfStep54 = __exactForOfIterator54.next();
-							if (__exactForOfStep54.done) break;
-							__exactForOfStep54.value.resolve(createReadResult(true, new Uint8Array(0)));
+							const __exactForOfStep50 = __exactForOfIterator50.next();
+							if (__exactForOfStep50.done) break;
+							__exactForOfStep50.value.resolve(createReadResult(true, new Uint8Array(0)));
 						}
 					}
 					reader._readIntoRequests = [];
@@ -7664,7 +6886,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/streams/TransformStream.ts
+	//#region ../ibex-runtime-js/src/streams/TransformStream.ts
 	/**
 	* TransformStream - WHATWG Streams API Implementation
 	*
@@ -7924,7 +7146,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/fetch/body.ts
+	//#region ../ibex-runtime-js/src/fetch/body.ts
 	init_defineProperty();
 	/**
 	* Text encoder/decoder - lazy initialization with fallbacks for Hermes.
@@ -8280,11 +7502,11 @@
 		const result = new Uint8Array(totalLength);
 		let offset = 0;
 		{
-			const __exactForOfIterator55 = arrays[Symbol.iterator]();
+			const __exactForOfIterator51 = arrays[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep55 = __exactForOfIterator55.next();
-				if (__exactForOfStep55.done) break;
-				const arr = __exactForOfStep55.value;
+				const __exactForOfStep51 = __exactForOfIterator51.next();
+				if (__exactForOfStep51.done) break;
+				const arr = __exactForOfStep51.value;
 				result.set(arr, offset);
 				offset += arr.length;
 			}
@@ -8330,11 +7552,11 @@
 		const boundary = generateBoundary$1();
 		const parts = [];
 		{
-			const __exactForOfIterator56 = body.entries()[Symbol.iterator]();
+			const __exactForOfIterator52 = body.entries()[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep56 = __exactForOfIterator56.next();
-				if (__exactForOfStep56.done) break;
-				const [name, value] = __exactForOfStep56.value;
+				const __exactForOfStep52 = __exactForOfIterator52.next();
+				if (__exactForOfStep52.done) break;
+				const [name, value] = __exactForOfStep52.value;
 				if (typeof value === "string") parts.push(getTextEncoder().encode(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
 				else if (isBlob(value)) {
 					const fileBytes = value._getBytes?.() ?? new Uint8Array(0);
@@ -8707,7 +7929,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/fetch/Request.ts
+	//#region ../ibex-runtime-js/src/fetch/Request.ts
 	/**
 	* Request API Implementation
 	*
@@ -9275,7 +8497,7 @@
 		configurable: true
 	});
 	//#endregion
-	//#region ../exact-runtime-js/src/fetch/Response.ts
+	//#region ../ibex-runtime-js/src/fetch/Response.ts
 	/**
 	* Response API Implementation
 	*
@@ -9637,7 +8859,7 @@
 		configurable: true
 	});
 	//#endregion
-	//#region ../exact-runtime-js/src/fetch/cookie-jar.ts
+	//#region ../ibex-runtime-js/src/fetch/cookie-jar.ts
 	init_defineProperty();
 	const MAX_COOKIES_PER_DOMAIN = 300;
 	const MAX_COOKIES_TOTAL = 3e3;
@@ -9919,11 +9141,11 @@
 		pruneExpired() {
 			const now = Date.now();
 			{
-				const __exactForOfIterator57 = this._store[Symbol.iterator]();
+				const __exactForOfIterator53 = this._store[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep57 = __exactForOfIterator57.next();
-					if (__exactForOfStep57.done) break;
-					const [domain, cookies] = __exactForOfStep57.value;
+					const __exactForOfStep53 = __exactForOfIterator53.next();
+					if (__exactForOfStep53.done) break;
+					const [domain, cookies] = __exactForOfStep53.value;
 					const filtered = cookies.filter((c) => c.expires === null || c.expires > now);
 					const removed = cookies.length - filtered.length;
 					if (removed > 0) {
@@ -9961,11 +9183,11 @@
 			let oldestDomain = "";
 			let oldestIdx = -1;
 			{
-				const __exactForOfIterator58 = this._store[Symbol.iterator]();
+				const __exactForOfIterator54 = this._store[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep58 = __exactForOfIterator58.next();
-					if (__exactForOfStep58.done) break;
-					const [domain, cookies] = __exactForOfStep58.value;
+					const __exactForOfStep54 = __exactForOfIterator54.next();
+					if (__exactForOfStep54.done) break;
+					const [domain, cookies] = __exactForOfStep54.value;
 					for (let i = 0; i < cookies.length; i++) if (cookies[i].lastAccessTime < oldestTime) {
 						oldestTime = cookies[i].lastAccessTime;
 						oldestDomain = domain;
@@ -9984,7 +9206,7 @@
 	/** Global cookie jar instance shared by the fetch pipeline */
 	const cookieJar = new CookieJar();
 	//#endregion
-	//#region ../exact-runtime-js/src/fetch/fetch.ts
+	//#region ../ibex-runtime-js/src/fetch/fetch.ts
 	/**
 	* Fetch API Implementation
 	*
@@ -10556,11 +9778,11 @@
 		try {
 			const responseUrl = new URL(url);
 			{
-				const __exactForOfIterator59 = headers[Symbol.iterator]();
+				const __exactForOfIterator55 = headers[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep59 = __exactForOfIterator59.next();
-					if (__exactForOfStep59.done) break;
-					const [name, value] = __exactForOfStep59.value;
+					const __exactForOfStep55 = __exactForOfIterator55.next();
+					if (__exactForOfStep55.done) break;
+					const [name, value] = __exactForOfStep55.value;
 					if (name.toLowerCase() === "set-cookie") cookieJar.setCookie(value, responseUrl);
 				}
 			}
@@ -10673,11 +9895,11 @@
 		const merged = new Uint8Array(totalLength);
 		let offset = 0;
 		{
-			const __exactForOfIterator60 = chunks[Symbol.iterator]();
+			const __exactForOfIterator56 = chunks[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep60 = __exactForOfIterator60.next();
-				if (__exactForOfStep60.done) break;
-				const chunk = __exactForOfStep60.value;
+				const __exactForOfStep56 = __exactForOfIterator56.next();
+				if (__exactForOfStep56.done) break;
+				const chunk = __exactForOfStep56.value;
 				merged.set(chunk, offset);
 				offset += chunk.byteLength;
 			}
@@ -10828,11 +10050,11 @@
 				if (body !== null && !hasHeader(effectiveHeaders, "content-length") && !hasHeader(effectiveHeaders, "transfer-encoding")) effectiveHeaders.push(["content-length", String(body.byteLength)]);
 				const requestHeaders = {};
 				{
-					const __exactForOfIterator61 = effectiveHeaders[Symbol.iterator]();
+					const __exactForOfIterator57 = effectiveHeaders[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep61 = __exactForOfIterator61.next();
-						if (__exactForOfStep61.done) break;
-						const [name, value] = __exactForOfStep61.value;
+						const __exactForOfStep57 = __exactForOfIterator57.next();
+						if (__exactForOfStep57.done) break;
+						const [name, value] = __exactForOfStep57.value;
 						const existing = requestHeaders[name];
 						if (existing === void 0) requestHeaders[name] = value;
 						else if (Array.isArray(existing)) existing.push(value);
@@ -11191,11 +10413,11 @@
 				const headerLines = xhr.getAllResponseHeaders().trim().split(/[\r\n]+/);
 				const headers = [];
 				{
-					const __exactForOfIterator62 = headerLines[Symbol.iterator]();
+					const __exactForOfIterator58 = headerLines[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep62 = __exactForOfIterator62.next();
-						if (__exactForOfStep62.done) break;
-						const parts = __exactForOfStep62.value.split(": ");
+						const __exactForOfStep58 = __exactForOfIterator58.next();
+						if (__exactForOfStep58.done) break;
+						const parts = __exactForOfStep58.value.split(": ");
 						const name = parts.shift();
 						const value = parts.join(": ");
 						if (name) headers.push([name, value]);
@@ -11223,11 +10445,11 @@
 			xhr.open(request.method, request.url, true);
 			const nativeHeaders = buildNativeHeaders(request, isRequestInput ? "request-object" : "input", decompress);
 			{
-				const __exactForOfIterator63 = nativeHeaders[Symbol.iterator]();
+				const __exactForOfIterator59 = nativeHeaders[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep63 = __exactForOfIterator63.next();
-					if (__exactForOfStep63.done) break;
-					const [name, value] = __exactForOfStep63.value;
+					const __exactForOfStep59 = __exactForOfIterator59.next();
+					if (__exactForOfStep59.done) break;
+					const [name, value] = __exactForOfStep59.value;
 					try {
 						xhr.setRequestHeader(name, value);
 					} catch {}
@@ -11279,7 +10501,7 @@
 		});
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/fetch/native-bridge.ts
+	//#region ../ibex-runtime-js/src/fetch/native-bridge.ts
 	/**
 	* Check if the native fetch bridge is available
 	*/
@@ -11311,7 +10533,7 @@
 		return false;
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/inspect/inspect.ts
+	//#region ../ibex-runtime-js/src/inspect/inspect.ts
 	const DEFAULT_OPTIONS = {
 		colors: true,
 		depth: 4,
@@ -11372,11 +10594,11 @@
 		try {
 			const groups = [];
 			{
-				const __exactForOfIterator64 = value.entries()[Symbol.iterator]();
+				const __exactForOfIterator60 = value.entries()[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep64 = __exactForOfIterator64.next();
-					if (__exactForOfStep64.done) break;
-					const entry = __exactForOfStep64.value;
+					const __exactForOfStep60 = __exactForOfIterator60.next();
+					if (__exactForOfStep60.done) break;
+					const entry = __exactForOfStep60.value;
 					const key = String(entry[0]);
 					const entryValue = String(entry[1]);
 					const group = groups.find((item) => item.key === key);
@@ -11541,7 +10763,7 @@
 		} catch {}
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/crypto/Crypto.ts
+	//#region ../ibex-runtime-js/src/crypto/Crypto.ts
 	/**
 	* Crypto - Web Crypto API Implementation
 	*
@@ -11980,11 +11202,11 @@
 					const length = algorithm.length;
 					if (length !== 128 && length !== 160 && length !== 256) throw new DOMException$5("Invalid key length", "DataError");
 					{
-						const __exactForOfIterator65 = keyUsages[Symbol.iterator]();
+						const __exactForOfIterator61 = keyUsages[Symbol.iterator]();
 						for (;;) {
-							const __exactForOfStep65 = __exactForOfIterator65.next();
-							if (__exactForOfStep65.done) break;
-							const usage = __exactForOfStep65.value;
+							const __exactForOfStep61 = __exactForOfIterator61.next();
+							if (__exactForOfStep61.done) break;
+							const usage = __exactForOfStep61.value;
 							if (usage !== "sign" && usage !== "verify") throw new DOMException$5(`Invalid key usage '${usage}' for ${algName}`, "SyntaxError");
 						}
 					}
@@ -13196,22 +12418,22 @@
 	function concatUint8Arrays(arrays) {
 		let totalLen = 0;
 		{
-			const __exactForOfIterator66 = arrays[Symbol.iterator]();
+			const __exactForOfIterator62 = arrays[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep66 = __exactForOfIterator66.next();
-				if (__exactForOfStep66.done) break;
-				const arr = __exactForOfStep66.value;
+				const __exactForOfStep62 = __exactForOfIterator62.next();
+				if (__exactForOfStep62.done) break;
+				const arr = __exactForOfStep62.value;
 				totalLen += arr.length;
 			}
 		}
 		const result = new Uint8Array(totalLen);
 		let offset = 0;
 		{
-			const __exactForOfIterator67 = arrays[Symbol.iterator]();
+			const __exactForOfIterator63 = arrays[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep67 = __exactForOfIterator67.next();
-				if (__exactForOfStep67.done) break;
-				const arr = __exactForOfStep67.value;
+				const __exactForOfStep63 = __exactForOfIterator63.next();
+				if (__exactForOfStep63.done) break;
+				const arr = __exactForOfStep63.value;
 				result.set(arr, offset);
 				offset += arr.length;
 			}
@@ -13244,7 +12466,7 @@
 	}
 	const crypto$1 = new Crypto();
 	//#endregion
-	//#region ../exact-runtime-js/src/blob/FormData.ts
+	//#region ../ibex-runtime-js/src/blob/FormData.ts
 	let _Symbol$iterator$2, _Symbol$toStringTag$22;
 	var _entries = /* @__PURE__ */ new WeakMap();
 	_Symbol$iterator$2 = Symbol.iterator;
@@ -13285,11 +12507,11 @@
 			const normalizedName = String(name);
 			const result = [];
 			{
-				const __exactForOfIterator68 = _classPrivateFieldGet2(_entries, this)[Symbol.iterator]();
+				const __exactForOfIterator64 = _classPrivateFieldGet2(_entries, this)[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep68 = __exactForOfIterator68.next();
-					if (__exactForOfStep68.done) break;
-					const [entryName, value] = __exactForOfStep68.value;
+					const __exactForOfStep64 = __exactForOfIterator64.next();
+					if (__exactForOfStep64.done) break;
+					const [entryName, value] = __exactForOfStep64.value;
 					if (entryName === normalizedName) result.push(value);
 				}
 			}
@@ -13374,11 +12596,11 @@
 			const parts = [];
 			const CRLF = "\r\n";
 			{
-				const __exactForOfIterator69 = _classPrivateFieldGet2(_entries, this)[Symbol.iterator]();
+				const __exactForOfIterator65 = _classPrivateFieldGet2(_entries, this)[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep69 = __exactForOfIterator69.next();
-					if (__exactForOfStep69.done) break;
-					const [name, value] = __exactForOfStep69.value;
+					const __exactForOfStep65 = __exactForOfIterator65.next();
+					if (__exactForOfStep65.done) break;
+					const [name, value] = __exactForOfStep65.value;
 					parts.push(encoder.encode(`--${boundary}${CRLF}`));
 					if (typeof value === "string") parts.push(encoder.encode(`Content-Disposition: form-data; name="${escapeQuotes(name)}"${CRLF}${CRLF}${value}${CRLF}`));
 					else {
@@ -13395,11 +12617,11 @@
 			const body = new Uint8Array(totalLength);
 			let offset = 0;
 			{
-				const __exactForOfIterator70 = parts[Symbol.iterator]();
+				const __exactForOfIterator66 = parts[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep70 = __exactForOfIterator70.next();
-					if (__exactForOfStep70.done) break;
-					const part = __exactForOfStep70.value;
+					const __exactForOfStep66 = __exactForOfIterator66.next();
+					if (__exactForOfStep66.done) break;
+					const part = __exactForOfStep66.value;
 					body.set(part, offset);
 					offset += part.byteLength;
 				}
@@ -13442,7 +12664,7 @@
 		return new File$1([value._getBytes()], name, options);
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/abort/AbortController.ts
+	//#region ../ibex-runtime-js/src/abort/AbortController.ts
 	/**
 	* AbortController - Web Standard AbortController Implementation
 	*
@@ -13462,7 +12684,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/encoding/TextEncoder.ts
+	//#region ../ibex-runtime-js/src/encoding/TextEncoder.ts
 	/**
 	* TextEncoder - Web Standard TextEncoder Implementation
 	*
@@ -13569,7 +12791,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/encoding/TextDecoder.ts
+	//#region ../ibex-runtime-js/src/encoding/TextDecoder.ts
 	/**
 	* TextDecoder - Web Standard TextDecoder Implementation
 	*
@@ -17524,7 +16746,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/encoding/TextEncoderStream.ts
+	//#region ../ibex-runtime-js/src/encoding/TextEncoderStream.ts
 	/**
 	* TextEncoderStream - Web Standard TextEncoderStream Implementation
 	*
@@ -17554,7 +16776,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/encoding/TextDecoderStream.ts
+	//#region ../ibex-runtime-js/src/encoding/TextDecoderStream.ts
 	/**
 	* TextDecoderStream - Web Standard TextDecoderStream Implementation
 	*
@@ -17596,7 +16818,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/url/URLSearchParams.ts
+	//#region ../ibex-runtime-js/src/url/URLSearchParams.ts
 	init_defineProperty();
 	let _Symbol$iterator$1;
 	_Symbol$iterator$1 = Symbol.iterator;
@@ -17748,11 +16970,11 @@
 		}
 	};
 	{
-		const __exactForOfIterator71 = ["size", "length"][Symbol.iterator]();
+		const __exactForOfIterator67 = ["size", "length"][Symbol.iterator]();
 		for (;;) {
-			const __exactForOfStep71 = __exactForOfIterator71.next();
-			if (__exactForOfStep71.done) break;
-			const key = __exactForOfStep71.value;
+			const __exactForOfStep67 = __exactForOfIterator67.next();
+			if (__exactForOfStep67.done) break;
+			const key = __exactForOfStep67.value;
 			const descriptor = Object.getOwnPropertyDescriptor(URLSearchParams$1.prototype, key);
 			if (descriptor) Object.defineProperty(URLSearchParams$1.prototype, key, {
 				...descriptor,
@@ -17761,7 +16983,7 @@
 		}
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/url/URL.ts
+	//#region ../ibex-runtime-js/src/url/URL.ts
 	/**
 	* URL - WHATWG URL Standard Implementation
 	*
@@ -18193,7 +17415,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/url/URLPattern.ts
+	//#region ../ibex-runtime-js/src/url/URLPattern.ts
 	init_defineProperty();
 	/** The set of URL component names we track. */
 	const COMPONENTS = [
@@ -18283,11 +17505,11 @@
 					i = closeBrace + 1;
 				}
 				{
-					const __exactForOfIterator72 = inner.groupNames[Symbol.iterator]();
+					const __exactForOfIterator68 = inner.groupNames[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep72 = __exactForOfIterator72.next();
-						if (__exactForOfStep72.done) break;
-						const name = __exactForOfStep72.value;
+						const __exactForOfStep68 = __exactForOfIterator68.next();
+						if (__exactForOfStep68.done) break;
+						const name = __exactForOfStep68.value;
 						groupNames.push(name);
 					}
 				}
@@ -18399,21 +17621,21 @@
 			if (input.baseURL) {
 				const base = parseURLString(input.baseURL);
 				{
-					const __exactForOfIterator73 = COMPONENTS[Symbol.iterator]();
+					const __exactForOfIterator69 = COMPONENTS[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep73 = __exactForOfIterator73.next();
-						if (__exactForOfStep73.done) break;
-						const comp = __exactForOfStep73.value;
+						const __exactForOfStep69 = __exactForOfIterator69.next();
+						if (__exactForOfStep69.done) break;
+						const comp = __exactForOfStep69.value;
 						result[comp] = base[comp];
 					}
 				}
 			}
 			{
-				const __exactForOfIterator74 = COMPONENTS[Symbol.iterator]();
+				const __exactForOfIterator70 = COMPONENTS[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep74 = __exactForOfIterator74.next();
-					if (__exactForOfStep74.done) break;
-					const comp = __exactForOfStep74.value;
+					const __exactForOfStep70 = __exactForOfIterator70.next();
+					if (__exactForOfStep70.done) break;
+					const comp = __exactForOfStep70.value;
 					if (input[comp] !== void 0) result[comp] = input[comp];
 				}
 			}
@@ -18634,11 +17856,11 @@
 				const inputParts = parsePatternString(input);
 				patterns = { ...baseParts };
 				{
-					const __exactForOfIterator75 = COMPONENTS[Symbol.iterator]();
+					const __exactForOfIterator71 = COMPONENTS[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep75 = __exactForOfIterator75.next();
-						if (__exactForOfStep75.done) break;
-						const comp = __exactForOfStep75.value;
+						const __exactForOfStep71 = __exactForOfIterator71.next();
+						if (__exactForOfStep71.done) break;
+						const comp = __exactForOfStep71.value;
 						if (inputParts[comp] !== "*" || comp === "pathname") patterns[comp] = inputParts[comp];
 					}
 				}
@@ -18754,7 +17976,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/messaging.ts
+	//#region ../ibex-runtime-js/src/messaging.ts
 	/**
 	* MessagePort and MessageChannel - Web Standard Messaging API
 	*
@@ -18847,11 +18069,11 @@
 			if (_classPrivateFieldGet2(_queue, this).length > 0) {
 				const pending = _classPrivateFieldGet2(_queue, this).splice(0);
 				{
-					const __exactForOfIterator76 = pending[Symbol.iterator]();
+					const __exactForOfIterator72 = pending[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep76 = __exactForOfIterator76.next();
-						if (__exactForOfStep76.done) break;
-						const data = __exactForOfStep76.value;
+						const __exactForOfStep72 = __exactForOfIterator72.next();
+						if (__exactForOfStep72.done) break;
+						const data = __exactForOfStep72.value;
 						queueMicrotask(() => {
 							if (!_classPrivateFieldGet2(_closed$1, this)) _assertClassBrand(_MessagePort_brand, this, _dispatchMessage).call(this, data);
 						});
@@ -18932,7 +18154,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/media/VideoFrame.ts
+	//#region ../ibex-runtime-js/src/media/VideoFrame.ts
 	init_defineProperty();
 	let _Symbol$toStringTag$18;
 	_Symbol$toStringTag$18 = Symbol.toStringTag;
@@ -18973,7 +18195,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/broadcast/BroadcastChannel.ts
+	//#region ../ibex-runtime-js/src/broadcast/BroadcastChannel.ts
 	/**
 	* BroadcastChannel - Cross-context messaging API
 	* 
@@ -19051,11 +18273,11 @@
 			}
 			const channels = channelRegistry.get(this.name);
 			if (channels) {
-				const __exactForOfIterator77 = channels[Symbol.iterator]();
+				const __exactForOfIterator73 = channels[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep77 = __exactForOfIterator77.next();
-					if (__exactForOfStep77.done) break;
-					const channel = __exactForOfStep77.value;
+					const __exactForOfStep73 = __exactForOfIterator73.next();
+					if (__exactForOfStep73.done) break;
+					const channel = __exactForOfStep73.value;
 					if (channel !== this && !_classPrivateFieldGet2(_closed, channel)) queueMicrotask(() => {
 						if (!_classPrivateFieldGet2(_closed, channel)) _assertClassBrand(_BroadcastChannel_brand, channel, _receiveMessage).call(channel, clonedMessage);
 					});
@@ -19085,11 +18307,11 @@
 		static _deliverMessage(channelName, data) {
 			const channels = channelRegistry.get(channelName);
 			if (channels) {
-				const __exactForOfIterator78 = channels[Symbol.iterator]();
+				const __exactForOfIterator74 = channels[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep78 = __exactForOfIterator78.next();
-					if (__exactForOfStep78.done) break;
-					const channel = __exactForOfStep78.value;
+					const __exactForOfStep74 = __exactForOfIterator74.next();
+					if (__exactForOfStep74.done) break;
+					const channel = __exactForOfStep74.value;
 					if (!_classPrivateFieldGet2(_closed, channel)) queueMicrotask(() => {
 						if (!_classPrivateFieldGet2(_closed, channel)) _assertClassBrand(_BroadcastChannel_brand, channel, _receiveMessage).call(channel, data);
 					});
@@ -19137,11 +18359,11 @@
 	function _dispatchMessageError(error) {
 		const channels = channelRegistry.get(this.name);
 		if (channels) {
-			const __exactForOfIterator79 = channels[Symbol.iterator]();
+			const __exactForOfIterator75 = channels[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep79 = __exactForOfIterator79.next();
-				if (__exactForOfStep79.done) break;
-				const channel = __exactForOfStep79.value;
+				const __exactForOfStep75 = __exactForOfIterator75.next();
+				if (__exactForOfStep75.done) break;
+				const channel = __exactForOfStep75.value;
 				if (channel !== this && !_classPrivateFieldGet2(_closed, channel)) queueMicrotask(() => {
 					if (!_classPrivateFieldGet2(_closed, channel)) {
 						const event = new MessageEvent$1("messageerror", { data: error });
@@ -19157,7 +18379,7 @@
 		}
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/websocket/WebSocket.ts
+	//#region ../ibex-runtime-js/src/websocket/WebSocket.ts
 	/**
 	* WebSocket implementation for Exact runtime
 	*
@@ -19235,11 +18457,11 @@
 			const protocolList = protocols !== void 0 ? Array.isArray(protocols) ? protocols : [protocols] : [];
 			const seen = /* @__PURE__ */ new Set();
 			{
-				const __exactForOfIterator80 = protocolList[Symbol.iterator]();
+				const __exactForOfIterator76 = protocolList[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep80 = __exactForOfIterator80.next();
-					if (__exactForOfStep80.done) break;
-					const protocol = __exactForOfStep80.value;
+					const __exactForOfStep76 = __exactForOfIterator76.next();
+					if (__exactForOfStep76.done) break;
+					const protocol = __exactForOfStep76.value;
 					if (protocol === "") throw new DOMException("Invalid protocol: empty string", "SyntaxError");
 					const normalizedProtocol = String(protocol);
 					const seenKey = normalizedProtocol.toLowerCase();
@@ -19721,7 +18943,7 @@
 	Object.setPrototypeOf(WebSocket.prototype, EventTarget.prototype);
 	Object.setPrototypeOf(WebSocket, EventTarget);
 	//#endregion
-	//#region ../exact-runtime-js/src/websocket/WebSocketError.ts
+	//#region ../ibex-runtime-js/src/websocket/WebSocketError.ts
 	init_defineProperty();
 	let _Symbol$toStringTag$15;
 	function isValidCloseCode(code) {
@@ -19753,7 +18975,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/websocket/WebSocketStream.ts
+	//#region ../ibex-runtime-js/src/websocket/WebSocketStream.ts
 	init_defineProperty();
 	let _Symbol$toStringTag$14;
 	const STREAM_WRITE_IMMEDIATE_WINDOW_BYTES = 256 * 1024;
@@ -20182,7 +19404,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/eventsource/EventSource.ts
+	//#region ../ibex-runtime-js/src/eventsource/EventSource.ts
 	/**
 	* EventSource implementation for Exact runtime
 	*
@@ -20411,7 +19633,7 @@
 	_defineProperty(EventSource, "OPEN", OPEN);
 	_defineProperty(EventSource, "CLOSED", CLOSED);
 	//#endregion
-	//#region ../exact-runtime-js/src/filereader/FileReader.ts
+	//#region ../ibex-runtime-js/src/filereader/FileReader.ts
 	/**
 	* FileReader implementation for Exact runtime (Legacy API)
 	* 
@@ -20601,7 +19823,7 @@
 	];
 	const BUN_COMPAT_VERSION = "1.2.0";
 	//#endregion
-	//#region ../exact-runtime-js/src/locks/LockManager.ts
+	//#region ../ibex-runtime-js/src/locks/LockManager.ts
 	init_defineProperty();
 	let _Symbol$toStringTag$11;
 	var _held = /* @__PURE__ */ new WeakMap();
@@ -20651,11 +19873,11 @@
 			const held = [];
 			const pending = [];
 			{
-				const __exactForOfIterator81 = _classPrivateFieldGet2(_held, this)[Symbol.iterator]();
+				const __exactForOfIterator77 = _classPrivateFieldGet2(_held, this)[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep81 = __exactForOfIterator81.next();
-					if (__exactForOfStep81.done) break;
-					const [, locks] = __exactForOfStep81.value;
+					const __exactForOfStep77 = __exactForOfIterator77.next();
+					if (__exactForOfStep77.done) break;
+					const [, locks] = __exactForOfStep77.value;
 					for (const entry of locks) held.push({
 						name: entry.name,
 						mode: entry.mode
@@ -20663,11 +19885,11 @@
 				}
 			}
 			{
-				const __exactForOfIterator82 = _classPrivateFieldGet2(_pending, this)[Symbol.iterator]();
+				const __exactForOfIterator78 = _classPrivateFieldGet2(_pending, this)[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep82 = __exactForOfIterator82.next();
-					if (__exactForOfStep82.done) break;
-					const [, requests] = __exactForOfStep82.value;
+					const __exactForOfStep78 = __exactForOfIterator78.next();
+					if (__exactForOfStep78.done) break;
+					const [, requests] = __exactForOfStep78.value;
 					for (const req of requests) pending.push({
 						name: req.name,
 						mode: req.mode
@@ -20691,11 +19913,11 @@
 		const existingPending = _classPrivateFieldGet2(_pending, this).get(name);
 		if (existingPending) {
 			{
-				const __exactForOfIterator83 = existingPending[Symbol.iterator]();
+				const __exactForOfIterator79 = existingPending[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep83 = __exactForOfIterator83.next();
-					if (__exactForOfStep83.done) break;
-					const req = __exactForOfStep83.value;
+					const __exactForOfStep79 = __exactForOfIterator79.next();
+					if (__exactForOfStep79.done) break;
+					const req = __exactForOfStep79.value;
 					_assertClassBrand(_LockManager_brand, this, _cleanupAbortHandler).call(this, req);
 					req.reject(new DOMException$4("Lock broken by steal request", "AbortError"));
 				}
@@ -20860,7 +20082,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/clipboard/ClipboardItem.ts
+	//#region ../ibex-runtime-js/src/clipboard/ClipboardItem.ts
 	init_defineProperty();
 	let _Symbol$toStringTag$10;
 	var _items$1 = /* @__PURE__ */ new WeakMap();
@@ -20933,7 +20155,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/clipboard/Clipboard.ts
+	//#region ../ibex-runtime-js/src/clipboard/Clipboard.ts
 	/**
 	* Clipboard - Web Clipboard API implementation for Exact runtime
 	*
@@ -21034,7 +20256,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/storage/StorageManager.ts
+	//#region ../ibex-runtime-js/src/storage/StorageManager.ts
 	/**
 	* StorageManager - navigator.storage API
 	*
@@ -21099,7 +20321,247 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/navigator/Navigator.ts
+	//#region ../ibex-runtime-js/src/core/i18n-helpers.ts
+	const RTL_SCRIPT_SUBTAGS = new Set([
+		"adlm",
+		"arab",
+		"hebr",
+		"mand",
+		"nkoo",
+		"rohg",
+		"samr",
+		"syrc",
+		"thaa"
+	]);
+	const RTL_LANGUAGE_SUBTAGS = new Set([
+		"ae",
+		"aeb",
+		"ar",
+		"arc",
+		"arq",
+		"ars",
+		"ary",
+		"arz",
+		"azb",
+		"bal",
+		"bcc",
+		"bqi",
+		"ckb",
+		"dv",
+		"fa",
+		"glk",
+		"he",
+		"iw",
+		"ks",
+		"khw",
+		"lrc",
+		"mzn",
+		"nqo",
+		"pnb",
+		"ps",
+		"sd",
+		"syr",
+		"ug",
+		"ur",
+		"yi"
+	]);
+	function canonicalizeLocaleTag(tag) {
+		const input = tag.trim();
+		if (input.length === 0) return input;
+		if (typeof Intl === "object" && Intl && typeof Intl.getCanonicalLocales === "function") try {
+			const [canonical] = Intl.getCanonicalLocales(input);
+			if (typeof canonical === "string" && canonical.length > 0) return canonical;
+		} catch {}
+		const parts = input.split("-");
+		if (parts.length > 0) parts[0] = parts[0].toLowerCase();
+		for (let index = 1; index < parts.length; index += 1) {
+			const part = parts[index];
+			if (!part) continue;
+			if (part.length === 4) {
+				parts[index] = part[0].toUpperCase() + part.slice(1).toLowerCase();
+				continue;
+			}
+			if (part.length === 2 || part.length === 3 && /^[0-9A-Za-z]{3}$/.test(part)) {
+				parts[index] = part.toUpperCase();
+				continue;
+			}
+			parts[index] = part.toLowerCase();
+		}
+		return parts.join("-");
+	}
+	function parseLocaleTag(tag) {
+		const parts = canonicalizeLocaleTag(tag).split("-").filter(Boolean);
+		const parsed = { language: parts[0]?.toLowerCase() || "en" };
+		for (const part of parts.slice(1)) {
+			if (part.length === 4 && parsed.script === void 0) {
+				parsed.script = part;
+				continue;
+			}
+			if ((part.length === 2 || part.length === 3) && parsed.region === void 0) {
+				parsed.region = part;
+				continue;
+			}
+			if (part.length === 1) break;
+		}
+		return parsed;
+	}
+	function directionForLocaleTag(tag) {
+		const parsed = parseLocaleTag(tag);
+		if (parsed.script && RTL_SCRIPT_SUBTAGS.has(parsed.script.toLowerCase())) return "rtl";
+		return RTL_LANGUAGE_SUBTAGS.has(parsed.language) ? "rtl" : "ltr";
+	}
+	//#endregion
+	//#region ../ibex-runtime-js/src/core/locale-state.ts
+	function freezeSnapshot$1(snapshot) {
+		return Object.freeze({
+			...snapshot,
+			tags: Object.freeze([...snapshot.tags])
+		});
+	}
+	function readNativeLocaleSnapshot() {
+		const nativeSnapshot = globalThis.__exactLocaleSnapshot;
+		if (nativeSnapshot && typeof nativeSnapshot === "object") return nativeSnapshot;
+		const g = globalThis;
+		const hostNavigator = g.__exactHostNavigator && typeof g.__exactHostNavigator === "object" ? g.__exactHostNavigator : void 0;
+		const hostLanguages = Array.isArray(hostNavigator?.languages) ? hostNavigator.languages.filter((entry) => typeof entry === "string" && entry.length > 0) : [];
+		const hostLanguage = typeof hostNavigator?.language === "string" && hostNavigator.language.length > 0 ? hostNavigator.language : void 0;
+		const fallbackTag = typeof g.__exactLocale === "string" && g.__exactLocale.length > 0 ? g.__exactLocale : typeof g.__exactLanguage === "string" && g.__exactLanguage.length > 0 ? g.__exactLanguage : hostLanguage;
+		if (!fallbackTag && hostLanguages.length === 0) return null;
+		return {
+			tag: fallbackTag,
+			tags: hostLanguages
+		};
+	}
+	function detectUses24Hour(localeTag) {
+		if (typeof Intl !== "object" || !Intl || typeof Intl.DateTimeFormat !== "function") return false;
+		try {
+			const resolved = new Intl.DateTimeFormat(localeTag, { hour: "numeric" }).resolvedOptions();
+			if (typeof resolved.hour12 === "boolean") return resolved.hour12 === false;
+			if (typeof resolved.hourCycle === "string") return resolved.hourCycle === "h23" || resolved.hourCycle === "h24";
+		} catch {}
+		return false;
+	}
+	function buildLocaleSnapshot(nativeSnapshot, override) {
+		const rawTags = Array.isArray(nativeSnapshot?.tags) ? nativeSnapshot.tags.filter((entry) => typeof entry === "string" && entry.length > 0) : [];
+		const primaryTag = canonicalizeLocaleTag(override?.locale ?? nativeSnapshot?.tag ?? rawTags[0] ?? "en-US");
+		const tags = override?.locale != null ? [primaryTag] : rawTags.length > 0 ? rawTags.map((tag) => canonicalizeLocaleTag(tag)) : [primaryTag];
+		const parsed = parseLocaleTag(primaryTag);
+		const region = parsed.region ?? "";
+		const uses24Hour = typeof nativeSnapshot?.uses24Hour === "boolean" ? nativeSnapshot.uses24Hour : detectUses24Hour(primaryTag);
+		return freezeSnapshot$1({
+			language: parsed.language,
+			region,
+			tag: primaryTag,
+			tags: Object.freeze(tags),
+			direction: override?.direction ?? directionForLocaleTag(primaryTag),
+			uses24Hour
+		});
+	}
+	function createDefaultState$1() {
+		return {
+			snapshot: buildLocaleSnapshot(readNativeLocaleSnapshot(), null),
+			override: null,
+			listeners: /* @__PURE__ */ new Set(),
+			changeTimer: null
+		};
+	}
+	function getLocaleState() {
+		if (!globalThis.__exactLocaleState) globalThis.__exactLocaleState = createDefaultState$1();
+		return globalThis.__exactLocaleState;
+	}
+	function dispatchLocaleChange(state) {
+		const snapshot = state.snapshot;
+		{
+			const __exactForOfIterator80 = state.listeners[Symbol.iterator]();
+			for (;;) {
+				const __exactForOfStep80 = __exactForOfIterator80.next();
+				if (__exactForOfStep80.done) break;
+				const listener = __exactForOfStep80.value;
+				try {
+					listener(snapshot);
+				} catch {}
+			}
+		}
+	}
+	function scheduleLocaleChange(state) {
+		if (state.changeTimer != null) clearTimeout(state.changeTimer);
+		state.changeTimer = setTimeout(() => {
+			state.changeTimer = null;
+			dispatchLocaleChange(state);
+		}, 100);
+	}
+	function updateLocaleSnapshot(nativeSnapshot, override, notify) {
+		const state = getLocaleState();
+		const nextSnapshot = buildLocaleSnapshot(nativeSnapshot, override);
+		const prevSnapshot = state.snapshot;
+		state.snapshot = nextSnapshot;
+		state.override = override;
+		const changed = prevSnapshot.tag !== nextSnapshot.tag || prevSnapshot.direction !== nextSnapshot.direction || prevSnapshot.uses24Hour !== nextSnapshot.uses24Hour || prevSnapshot.tags.length !== nextSnapshot.tags.length || prevSnapshot.tags.some((tag, index) => tag !== nextSnapshot.tags[index]);
+		if (notify && changed) scheduleLocaleChange(state);
+		return nextSnapshot;
+	}
+	function subscribeExactLocaleChanges(listener) {
+		const state = getLocaleState();
+		state.listeners.add(listener);
+		return () => {
+			state.listeners.delete(listener);
+		};
+	}
+	function getExactLocaleSnapshot() {
+		return getLocaleState().snapshot;
+	}
+	function getExactLocaleOverride() {
+		return getLocaleState().override;
+	}
+	//#endregion
+	//#region ../ibex-runtime-js/src/core/locale.ts
+	function createLocaleNamespace() {
+		return {
+			get language() {
+				return getExactLocaleSnapshot().language;
+			},
+			get region() {
+				return getExactLocaleSnapshot().region;
+			},
+			get tag() {
+				return getExactLocaleSnapshot().tag;
+			},
+			get tags() {
+				return getExactLocaleSnapshot().tags;
+			},
+			get direction() {
+				return getExactLocaleSnapshot().direction;
+			},
+			get uses24Hour() {
+				return getExactLocaleSnapshot().uses24Hour;
+			},
+			addListener(_event, listener) {
+				return subscribeExactLocaleChanges(listener);
+			}
+		};
+	}
+	function installExactLocaleGlobal() {
+		const g = globalThis;
+		if (typeof g.Exact !== "object" || g.Exact === null) g.Exact = {};
+		const exact = g.Exact;
+		const existing = exact.locale;
+		if (existing && typeof existing === "object" && typeof existing.addListener === "function") return existing;
+		updateLocaleSnapshot(readNativeLocaleSnapshot(), getExactLocaleOverride(), false);
+		const locale = createLocaleNamespace();
+		Object.defineProperty(exact, "locale", {
+			value: locale,
+			writable: true,
+			configurable: true,
+			enumerable: true
+		});
+		globalThis.__exactLocaleChanged = (snapshot) => {
+			if (snapshot && typeof snapshot === "object") globalThis.__exactLocaleSnapshot = snapshot;
+			updateLocaleSnapshot(snapshot ?? readNativeLocaleSnapshot(), getExactLocaleOverride(), true);
+		};
+		return locale;
+	}
+	//#endregion
+	//#region ../ibex-runtime-js/src/navigator/Navigator.ts
 	/**
 	* Navigator implementation for Exact runtime
 	* 
@@ -21191,7 +20653,7 @@
 		* Returns the device's preferred language via native bridge if available.
 		*/
 		get language() {
-			const exactLocale = (0, _exact_core.getExactLocaleSnapshot)();
+			const exactLocale = getExactLocaleSnapshot();
 			if (exactLocale.tag.length > 0) return exactLocale.tag;
 			const g = globalThis;
 			if (typeof g.__exactLocale === "string" && g.__exactLocale) return g.__exactLocale;
@@ -21202,7 +20664,7 @@
 		* Array of preferred languages.
 		*/
 		get languages() {
-			const exactLocale = (0, _exact_core.getExactLocaleSnapshot)();
+			const exactLocale = getExactLocaleSnapshot();
 			if (exactLocale.tags.length > 0) return exactLocale.tags;
 			const lang = this.language;
 			const base = lang.includes("-") ? lang.split("-")[0] : lang;
@@ -21302,7 +20764,7 @@
 	}
 	const navigator$1 = getNavigator();
 	//#endregion
-	//#region ../exact-runtime-js/src/storage/Storage.ts
+	//#region ../ibex-runtime-js/src/storage/Storage.ts
 	/**
 	* Storage implementation for Exact runtime (localStorage/sessionStorage)
 	* 
@@ -21428,11 +20890,11 @@
 	function _calculateSize() {
 		let size = 0;
 		{
-			const __exactForOfIterator84 = _classPrivateFieldGet2(_data, this)[Symbol.iterator]();
+			const __exactForOfIterator81 = _classPrivateFieldGet2(_data, this)[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep84 = __exactForOfIterator84.next();
-				if (__exactForOfStep84.done) break;
-				const [key, value] = __exactForOfStep84.value;
+				const __exactForOfStep81 = __exactForOfIterator81.next();
+				if (__exactForOfStep81.done) break;
+				const [key, value] = __exactForOfStep81.value;
 				size += key.length + value.length;
 			}
 		}
@@ -21536,7 +20998,7 @@
 	const localStorage = createLazyStorageProxy(getLocalStorage);
 	const sessionStorage = createLazyStorageProxy(getSessionStorage);
 	//#endregion
-	//#region ../exact-runtime-js/src/cache/Cache.ts
+	//#region ../ibex-runtime-js/src/cache/Cache.ts
 	/**
 	* Cache API Implementation (In-Memory)
 	*
@@ -21636,11 +21098,11 @@
 			if (!options?.ignoreMethod && req.method !== "GET") return [];
 			const results = [];
 			{
-				const __exactForOfIterator85 = this._entries[Symbol.iterator]();
+				const __exactForOfIterator82 = this._entries[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep85 = __exactForOfIterator85.next();
-					if (__exactForOfStep85.done) break;
-					const entry = __exactForOfStep85.value;
+					const __exactForOfStep82 = __exactForOfIterator82.next();
+					if (__exactForOfStep82.done) break;
+					const entry = __exactForOfStep82.value;
 					if (this._requestMatches(entry.request, req, options)) results.push(entry.response.clone());
 				}
 			}
@@ -21664,11 +21126,11 @@
 		async addAll(requests) {
 			const reqs = requests.map((r) => toRequest(r));
 			{
-				const __exactForOfIterator86 = reqs[Symbol.iterator]();
+				const __exactForOfIterator83 = reqs[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep86 = __exactForOfIterator86.next();
-					if (__exactForOfStep86.done) break;
-					if (__exactForOfStep86.value.method !== "GET") throw new TypeError("Request method must be GET for Cache.add/addAll");
+					const __exactForOfStep83 = __exactForOfIterator83.next();
+					if (__exactForOfStep83.done) break;
+					if (__exactForOfStep83.value.method !== "GET") throw new TypeError("Request method must be GET for Cache.add/addAll");
 				}
 			}
 			const fetchFn = typeof globalThis.fetch === "function" ? globalThis.fetch : null;
@@ -21738,11 +21200,11 @@
 			const req = toRequest(request);
 			const results = [];
 			{
-				const __exactForOfIterator87 = this._entries[Symbol.iterator]();
+				const __exactForOfIterator84 = this._entries[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep87 = __exactForOfIterator87.next();
-					if (__exactForOfStep87.done) break;
-					const entry = __exactForOfStep87.value;
+					const __exactForOfStep84 = __exactForOfIterator84.next();
+					if (__exactForOfStep84.done) break;
+					const entry = __exactForOfStep84.value;
 					if (this._requestMatches(entry.request, req, options)) results.push(entry.request.clone());
 				}
 			}
@@ -21753,7 +21215,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/cache/CacheStorage.ts
+	//#region ../ibex-runtime-js/src/cache/CacheStorage.ts
 	/**
 	* CacheStorage API Implementation (In-Memory)
 	*
@@ -21832,7 +21294,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/performance/Performance.ts
+	//#region ../ibex-runtime-js/src/performance/Performance.ts
 	/**
 	* Performance - Web Standard Performance API Implementation
 	*
@@ -22137,11 +21599,11 @@
 	*/
 	function notifyObservers(entry) {
 		{
-			const __exactForOfIterator88 = observers[Symbol.iterator]();
+			const __exactForOfIterator85 = observers[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep88 = __exactForOfIterator88.next();
-				if (__exactForOfStep88.done) break;
-				__exactForOfStep88.value._notify(entry);
+				const __exactForOfStep85 = __exactForOfIterator85.next();
+				if (__exactForOfStep85.done) break;
+				__exactForOfStep85.value._notify(entry);
 			}
 		}
 	}
@@ -22158,7 +21620,7 @@
 		return measure;
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/base64/base64.ts
+	//#region ../ibex-runtime-js/src/base64/base64.ts
 	init_defineProperty();
 	/**
 	* Base64 Encoding - atob/btoa
@@ -22251,7 +21713,29 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/scheduling/AnimationFrame.ts
+	//#region ../ibex-runtime-js/src/core/agent-state.ts
+	const activeAnimationFrames = /* @__PURE__ */ new Set();
+	function trackAnimationFrameRequested(id) {
+		activeAnimationFrames.add(id);
+	}
+	function trackAnimationFrameCancelled(id) {
+		if (activeAnimationFrames.delete(id));
+	}
+	function trackAnimationFrameExecuted(ids) {
+		let changed = false;
+		{
+			const __exactForOfIterator86 = ids[Symbol.iterator]();
+			for (;;) {
+				const __exactForOfStep86 = __exactForOfIterator86.next();
+				if (__exactForOfStep86.done) break;
+				const id = __exactForOfStep86.value;
+				changed = activeAnimationFrames.delete(id) || changed;
+			}
+		}
+		if (changed);
+	}
+	//#endregion
+	//#region ../ibex-runtime-js/src/scheduling/AnimationFrame.ts
 	/**
 	* requestAnimationFrame / cancelAnimationFrame implementation for Exact runtime
 	* 
@@ -22270,7 +21754,7 @@
 		if (typeof callback !== "function") throw new TypeError("Failed to execute 'requestAnimationFrame': parameter 1 is not of type 'Function'.");
 		const id = nextId$2++;
 		callbacks$1.set(id, callback);
-		(0, _exact_core_agent.trackAnimationFrameRequested)(id);
+		trackAnimationFrameRequested(id);
 		const nativeScheduling = getNativeModule("scheduling");
 		if (nativeScheduling?.requestAnimationFrame) {
 			nativeScheduling.requestAnimationFrame(() => {
@@ -22291,7 +21775,7 @@
 	* Cancels a previously scheduled animation frame request.
 	*/
 	function cancelAnimationFrame$1(id) {
-		if (callbacks$1.delete(id)) (0, _exact_core_agent.trackAnimationFrameCancelled)(id);
+		if (callbacks$1.delete(id)) trackAnimationFrameCancelled(id);
 	}
 	/**
 	* Run all pending callbacks with the current timestamp.
@@ -22300,13 +21784,13 @@
 		const timestamp = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
 		const pending = new Map(callbacks$1);
 		callbacks$1.clear();
-		(0, _exact_core_agent.trackAnimationFrameExecuted)(Array.from(pending.keys()));
+		trackAnimationFrameExecuted(Array.from(pending.keys()));
 		{
-			const __exactForOfIterator89 = pending[Symbol.iterator]();
+			const __exactForOfIterator87 = pending[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep89 = __exactForOfIterator89.next();
-				if (__exactForOfStep89.done) break;
-				const [, callback] = __exactForOfStep89.value;
+				const __exactForOfStep87 = __exactForOfIterator87.next();
+				if (__exactForOfStep87.done) break;
+				const [, callback] = __exactForOfStep87.value;
 				try {
 					callback(timestamp);
 				} catch (error) {
@@ -22319,7 +21803,7 @@
 		return globalThis.__exactDisplayLinkedEventLoop === true ? 0 : FRAME_TIME;
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/scheduling/IdleCallback.ts
+	//#region ../ibex-runtime-js/src/scheduling/IdleCallback.ts
 	/**
 	* requestIdleCallback / cancelIdleCallback implementation for Exact runtime
 	* 
@@ -22418,7 +21902,7 @@
 		};
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/compression/CompressionStream.ts
+	//#region ../ibex-runtime-js/src/compression/CompressionStream.ts
 	init_defineProperty();
 	/**
 	* CompressionStream - Web Compression API
@@ -22515,7 +21999,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/compression/DecompressionStream.ts
+	//#region ../ibex-runtime-js/src/compression/DecompressionStream.ts
 	init_defineProperty();
 	/**
 	* DecompressionStream - Web Compression API
@@ -22729,7 +22213,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/utils.ts
+	//#region ../ibex-runtime-js/src/indexeddb/utils.ts
 	init_defineProperty();
 	/**
 	* Shared utilities for the IndexedDB implementation.
@@ -22776,7 +22260,7 @@
 		return name.replace(/[^a-zA-Z0-9_]/g, "_");
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/IDBTransaction.ts
+	//#region ../ibex-runtime-js/src/indexeddb/IDBTransaction.ts
 	init_defineProperty();
 	var IDBTransaction = class {
 		constructor(db, storeNames, mode) {
@@ -22827,11 +22311,11 @@
 		_fireListeners(type, event) {
 			const list = this._listeners[type];
 			if (list) {
-				const __exactForOfIterator90 = list[Symbol.iterator]();
+				const __exactForOfIterator88 = list[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep90 = __exactForOfIterator90.next();
-					if (__exactForOfStep90.done) break;
-					const fn = __exactForOfStep90.value;
+					const __exactForOfStep88 = __exactForOfIterator88.next();
+					if (__exactForOfStep88.done) break;
+					const fn = __exactForOfStep88.value;
 					try {
 						fn(event);
 					} catch (_) {}
@@ -22929,7 +22413,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/IDBRequest.ts
+	//#region ../ibex-runtime-js/src/indexeddb/IDBRequest.ts
 	/**
 	* IDBRequest - IndexedDB Request
 	*
@@ -22985,11 +22469,11 @@
 		_fireListeners(type, event) {
 			const list = this._listeners[type];
 			if (list) {
-				const __exactForOfIterator91 = list[Symbol.iterator]();
+				const __exactForOfIterator89 = list[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep91 = __exactForOfIterator91.next();
-					if (__exactForOfStep91.done) break;
-					const fn = __exactForOfStep91.value;
+					const __exactForOfStep89 = __exactForOfIterator89.next();
+					if (__exactForOfStep89.done) break;
+					const fn = __exactForOfStep89.value;
 					try {
 						fn(event);
 					} catch (e) {
@@ -23064,7 +22548,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/IDBKeyRange.ts
+	//#region ../ibex-runtime-js/src/indexeddb/IDBKeyRange.ts
 	/**
 	* IDBKeyRange - IndexedDB Key Range
 	*
@@ -23154,7 +22638,7 @@
 		return 0;
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/IDBCursor.ts
+	//#region ../ibex-runtime-js/src/indexeddb/IDBCursor.ts
 	/**
 	* IDBCursor - IndexedDB Cursor
 	*
@@ -23295,7 +22779,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/IDBIndex.ts
+	//#region ../ibex-runtime-js/src/indexeddb/IDBIndex.ts
 	/**
 	* IDBIndex - IndexedDB Index
 	*
@@ -23453,7 +22937,7 @@
 		return current;
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/IDBObjectStore.ts
+	//#region ../ibex-runtime-js/src/indexeddb/IDBObjectStore.ts
 	/**
 	* IDBObjectStore - IndexedDB Object Store
 	*
@@ -23635,11 +23119,11 @@
 				if (query instanceof IDBKeyRange) {
 					const records = this._getAllRecords();
 					{
-						const __exactForOfIterator92 = records[Symbol.iterator]();
+						const __exactForOfIterator90 = records[Symbol.iterator]();
 						for (;;) {
-							const __exactForOfStep92 = __exactForOfIterator92.next();
-							if (__exactForOfStep92.done) break;
-							const r = __exactForOfStep92.value;
+							const __exactForOfStep90 = __exactForOfIterator90.next();
+							if (__exactForOfStep90.done) break;
+							const r = __exactForOfStep90.value;
 							if (query.includes(r.key)) this._deleteRecord(r.key);
 						}
 					}
@@ -23751,11 +23235,11 @@
 				const rows = this._db._all(`SELECT key FROM "${this._tableName}"`);
 				let maxKey = 0;
 				{
-					const __exactForOfIterator93 = rows[Symbol.iterator]();
+					const __exactForOfIterator91 = rows[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep93 = __exactForOfIterator93.next();
-						if (__exactForOfStep93.done) break;
-						const row = __exactForOfStep93.value;
+						const __exactForOfStep91 = __exactForOfIterator91.next();
+						if (__exactForOfStep91.done) break;
+						const row = __exactForOfStep91.value;
 						try {
 							const parsed = JSON.parse(row.key);
 							if (typeof parsed === "number" && !isNaN(parsed) && parsed > maxKey) maxKey = parsed;
@@ -23832,7 +23316,7 @@
 		current[parts[parts.length - 1]] = value;
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/IDBDatabase.ts
+	//#region ../ibex-runtime-js/src/indexeddb/IDBDatabase.ts
 	/**
 	* IDBDatabase - IndexedDB Database
 	*
@@ -23920,11 +23404,11 @@
 			this._checkClosed();
 			const names = Array.isArray(storeNames) ? storeNames : [storeNames];
 			{
-				const __exactForOfIterator94 = names[Symbol.iterator]();
+				const __exactForOfIterator92 = names[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep94 = __exactForOfIterator94.next();
-					if (__exactForOfStep94.done) break;
-					const name = __exactForOfStep94.value;
+					const __exactForOfStep92 = __exactForOfIterator92.next();
+					if (__exactForOfStep92.done) break;
+					const name = __exactForOfStep92.value;
 					if (!this._objectStores.has(name)) throw new DOMException$1(`Object store "${name}" does not exist`, "NotFoundError");
 				}
 			}
@@ -23981,11 +23465,11 @@
 		_loadStoreDefinitions() {
 			const stores = this._all("SELECT store_name, key_path, auto_increment FROM _idb_stores");
 			{
-				const __exactForOfIterator95 = stores[Symbol.iterator]();
+				const __exactForOfIterator93 = stores[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep95 = __exactForOfIterator95.next();
-					if (__exactForOfStep95.done) break;
-					const row = __exactForOfStep95.value;
+					const __exactForOfStep93 = __exactForOfIterator93.next();
+					if (__exactForOfStep93.done) break;
+					const row = __exactForOfStep93.value;
 					const opts = {
 						keyPath: row.key_path ? JSON.parse(row.key_path) : null,
 						autoIncrement: !!row.auto_increment
@@ -24040,11 +23524,11 @@
 			if (!storeInfo) return null;
 			const store = new IDBObjectStore(name, storeInfo.options, transaction, this);
 			{
-				const __exactForOfIterator96 = storeInfo.indexes[Symbol.iterator]();
+				const __exactForOfIterator94 = storeInfo.indexes[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep96 = __exactForOfIterator96.next();
-					if (__exactForOfStep96.done) break;
-					const [indexName, indexDef] = __exactForOfStep96.value;
+					const __exactForOfStep94 = __exactForOfIterator94.next();
+					if (__exactForOfStep94.done) break;
+					const [indexName, indexDef] = __exactForOfStep94.value;
 					const idx = new IDBIndex(indexName, indexDef.keyPath, indexDef, store);
 					store._indexes.set(indexName, idx);
 				}
@@ -24088,7 +23572,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/sqlite/Statement.ts
+	//#region ../ibex-runtime-js/src/sqlite/Statement.ts
 	var _Symbol$dispose$1, g$2, Statement;
 	var init_Statement = __esmMin((() => {
 		init_defineProperty();
@@ -24281,7 +23765,7 @@
 		};
 	}));
 	//#endregion
-	//#region ../exact-runtime-js/src/sqlite/Database.ts
+	//#region ../ibex-runtime-js/src/sqlite/Database.ts
 	var _Symbol$dispose, _Symbol$toStringTag$3, g$1, Database;
 	var init_Database = __esmMin((() => {
 		init_Statement();
@@ -24457,11 +23941,11 @@
 				} catch {}
 				this._closed = true;
 				{
-					const __exactForOfIterator97 = this._queryCache.values()[Symbol.iterator]();
+					const __exactForOfIterator95 = this._queryCache.values()[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep97 = __exactForOfIterator97.next();
-						if (__exactForOfStep97.done) break;
-						__exactForOfStep97.value.finalize();
+						const __exactForOfStep95 = __exactForOfIterator95.next();
+						if (__exactForOfStep95.done) break;
+						__exactForOfStep95.value.finalize();
 					}
 				}
 				this._queryCache.clear();
@@ -24571,11 +24055,11 @@
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 				const applyAll = this.transaction((changes) => {
 					{
-						const __exactForOfIterator98 = changes[Symbol.iterator]();
+						const __exactForOfIterator96 = changes[Symbol.iterator]();
 						for (;;) {
-							const __exactForOfStep98 = __exactForOfIterator98.next();
-							if (__exactForOfStep98.done) break;
-							const change = __exactForOfStep98.value;
+							const __exactForOfStep96 = __exactForOfIterator96.next();
+							if (__exactForOfStep96.done) break;
+							const change = __exactForOfStep96.value;
 							insert.run(change.table, change.pk, change.cid, change.val, change.col_version, change.db_version, change.site_id, change.cl, change.seq);
 						}
 					}
@@ -24625,7 +24109,7 @@
 		};
 	}));
 	//#endregion
-	//#region ../exact-runtime-js/src/sqlite/constants.ts
+	//#region ../ibex-runtime-js/src/sqlite/constants.ts
 	var constants;
 	var init_constants = __esmMin((() => {
 		constants = {
@@ -24696,7 +24180,7 @@
 		};
 	}));
 	//#endregion
-	//#region ../exact-runtime-js/src/sqlite/errors.ts
+	//#region ../ibex-runtime-js/src/sqlite/errors.ts
 	var SQLiteError;
 	var init_errors = __esmMin((() => {
 		init_defineProperty();
@@ -24719,7 +24203,7 @@
 		Object.setPrototypeOf(SQLiteError, Error);
 	}));
 	//#endregion
-	//#region ../exact-runtime-js/src/sqlite/index.ts
+	//#region ../ibex-runtime-js/src/sqlite/index.ts
 	var sqlite_exports = /* @__PURE__ */ __exportAll({
 		Database: () => Database,
 		SQLiteError: () => SQLiteError,
@@ -24734,7 +24218,7 @@
 		init_errors();
 	}));
 	//#endregion
-	//#region ../exact-runtime-js/src/indexeddb/IDBFactory.ts
+	//#region ../ibex-runtime-js/src/indexeddb/IDBFactory.ts
 	/**
 	* IDBFactory - IndexedDB Factory
 	*
@@ -24848,7 +24332,7 @@
 		}
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/array.ts
+	//#region ../ibex-runtime-js/src/polyfills/array.ts
 	/**
 	* ES2023+ Array polyfills for Hermes engine
 	*
@@ -24974,7 +24458,7 @@
 		});
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/groupby.ts
+	//#region ../ibex-runtime-js/src/polyfills/groupby.ts
 	/**
 	* ES2024 Object.groupBy and Map.groupBy polyfills for Hermes engine
 	*
@@ -24989,11 +24473,11 @@
 				const result = Object.create(null);
 				let index = 0;
 				{
-					const __exactForOfIterator99 = items[Symbol.iterator]();
+					const __exactForOfIterator97 = items[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep99 = __exactForOfIterator99.next();
-						if (__exactForOfStep99.done) break;
-						const item = __exactForOfStep99.value;
+						const __exactForOfStep97 = __exactForOfIterator97.next();
+						if (__exactForOfStep97.done) break;
+						const item = __exactForOfStep97.value;
 						const key = callbackFn(item, index++);
 						if (key in result) result[key].push(item);
 						else result[key] = [item];
@@ -25012,11 +24496,11 @@
 				const result = /* @__PURE__ */ new Map();
 				let index = 0;
 				{
-					const __exactForOfIterator100 = items[Symbol.iterator]();
+					const __exactForOfIterator98 = items[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep100 = __exactForOfIterator100.next();
-						if (__exactForOfStep100.done) break;
-						const item = __exactForOfStep100.value;
+						const __exactForOfStep98 = __exactForOfIterator98.next();
+						if (__exactForOfStep98.done) break;
+						const item = __exactForOfStep98.value;
 						const key = callbackFn(item, index++);
 						const group = result.get(key);
 						if (group !== void 0) group.push(item);
@@ -25031,7 +24515,7 @@
 		});
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/set.ts
+	//#region ../ibex-runtime-js/src/polyfills/set.ts
 	/**
 	* ES2025 Set methods polyfills for Hermes engine
 	*
@@ -25064,11 +24548,11 @@
 				requireSetLike(other);
 				const result = new Set(this);
 				if (typeof other[Symbol.iterator] === "function") {
-					const __exactForOfIterator101 = other[Symbol.iterator]();
+					const __exactForOfIterator99 = other[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep101 = __exactForOfIterator101.next();
-						if (__exactForOfStep101.done) break;
-						const value = __exactForOfStep101.value;
+						const __exactForOfStep99 = __exactForOfIterator99.next();
+						if (__exactForOfStep99.done) break;
+						const value = __exactForOfStep99.value;
 						result.add(value);
 					}
 				} else if (typeof other.forEach === "function") other.forEach((value) => result.add(value));
@@ -25085,19 +24569,19 @@
 				const result = /* @__PURE__ */ new Set();
 				const otherSize = getSetLikeSize(other);
 				if (this.size <= otherSize) {
-					const __exactForOfIterator102 = this[Symbol.iterator]();
+					const __exactForOfIterator100 = this[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep102 = __exactForOfIterator102.next();
-						if (__exactForOfStep102.done) break;
-						const value = __exactForOfStep102.value;
+						const __exactForOfStep100 = __exactForOfIterator100.next();
+						if (__exactForOfStep100.done) break;
+						const value = __exactForOfStep100.value;
 						if (other.has(value)) result.add(value);
 					}
 				} else if (typeof other[Symbol.iterator] === "function") {
-					const __exactForOfIterator103 = other[Symbol.iterator]();
+					const __exactForOfIterator101 = other[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep103 = __exactForOfIterator103.next();
-						if (__exactForOfStep103.done) break;
-						const value = __exactForOfStep103.value;
+						const __exactForOfStep101 = __exactForOfIterator101.next();
+						if (__exactForOfStep101.done) break;
+						const value = __exactForOfStep101.value;
 						if (this.has(value)) result.add(value);
 					}
 				} else if (typeof other.forEach === "function") other.forEach((value) => {
@@ -25114,11 +24598,11 @@
 				requireSetLike(other);
 				const result = /* @__PURE__ */ new Set();
 				{
-					const __exactForOfIterator104 = this[Symbol.iterator]();
+					const __exactForOfIterator102 = this[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep104 = __exactForOfIterator104.next();
-						if (__exactForOfStep104.done) break;
-						const value = __exactForOfStep104.value;
+						const __exactForOfStep102 = __exactForOfIterator102.next();
+						if (__exactForOfStep102.done) break;
+						const value = __exactForOfStep102.value;
 						if (!other.has(value)) result.add(value);
 					}
 				}
@@ -25133,11 +24617,11 @@
 				requireSetLike(other);
 				const result = new Set(this);
 				if (typeof other[Symbol.iterator] === "function") {
-					const __exactForOfIterator105 = other[Symbol.iterator]();
+					const __exactForOfIterator103 = other[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep105 = __exactForOfIterator105.next();
-						if (__exactForOfStep105.done) break;
-						const value = __exactForOfStep105.value;
+						const __exactForOfStep103 = __exactForOfIterator103.next();
+						if (__exactForOfStep103.done) break;
+						const value = __exactForOfStep103.value;
 						if (result.has(value)) result.delete(value);
 						else result.add(value);
 					}
@@ -25206,7 +24690,7 @@
 		});
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/promise.ts
+	//#region ../ibex-runtime-js/src/polyfills/promise.ts
 	/**
 	* ES2024 Promise.withResolvers polyfill for Hermes engine
 	*
@@ -25232,7 +24716,7 @@
 		});
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/string.ts
+	//#region ../ibex-runtime-js/src/polyfills/string.ts
 	/**
 	* ES2024 String well-formed polyfills for Hermes engine
 	*
@@ -25282,7 +24766,7 @@
 		});
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/arraybuffer.ts
+	//#region ../ibex-runtime-js/src/polyfills/arraybuffer.ts
 	/**
 	* ES2024 ArrayBuffer transfer polyfills for Hermes engine
 	*
@@ -25380,7 +24864,7 @@
 		});
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/typedarray.ts
+	//#region ../ibex-runtime-js/src/polyfills/typedarray.ts
 	function normalizeTypedArrayIndex(index, length) {
 		if (index === void 0) return 0;
 		let value = Number(index);
@@ -25439,7 +24923,7 @@
 		}
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/iterator.ts
+	//#region ../ibex-runtime-js/src/polyfills/iterator.ts
 	/**
 	* ES2025 Iterator Helpers polyfills for Hermes engine
 	*
@@ -25771,7 +25255,7 @@
 		});
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/intl.ts
+	//#region ../ibex-runtime-js/src/polyfills/intl.ts
 	/**
 	* Intl polyfills for Hermes engine
 	*
@@ -25832,9 +25316,9 @@
 					_defineProperty(this, "_baseName", void 0);
 					_defineProperty(this, "_parsed", void 0);
 					if (typeof tag !== "string" || tag.trim().length === 0) throw new TypeError("Intl.Locale requires a non-empty locale tag");
-					this._tag = (0, _exact_core.canonicalizeLocaleTag)(tag);
+					this._tag = canonicalizeLocaleTag(tag);
 					this._baseName = this._tag.split("-u-")[0] ?? this._tag;
-					this._parsed = (0, _exact_core.parseLocaleTag)(this._tag);
+					this._parsed = parseLocaleTag(this._tag);
 				}
 				get baseName() {
 					return this._baseName;
@@ -25855,7 +25339,7 @@
 					return parseUnicodeExtensionKeyword(this._tag, "nu");
 				}
 				get textInfo() {
-					return { direction: (0, _exact_core.directionForLocaleTag)(this._tag) };
+					return { direction: directionForLocaleTag(this._tag) };
 				}
 				maximize() {
 					console.warn("Intl.Locale.prototype.maximize() is not implemented in Exact core.");
@@ -25880,7 +25364,7 @@
 			});
 		} else if (Intl.Locale?.prototype && !("textInfo" in Intl.Locale.prototype)) Object.defineProperty(Intl.Locale.prototype, "textInfo", {
 			get() {
-				return { direction: (0, _exact_core.directionForLocaleTag)(String(this)) };
+				return { direction: directionForLocaleTag(String(this)) };
 			},
 			enumerable: false,
 			configurable: true
@@ -25931,11 +25415,11 @@
 						const assigned = new Array(formatted.length).fill(false);
 						const charType = new Array(formatted.length).fill("");
 						{
-							const __exactForOfIterator106 = components[Symbol.iterator]();
+							const __exactForOfIterator104 = components[Symbol.iterator]();
 							for (;;) {
-								const __exactForOfStep106 = __exactForOfIterator106.next();
-								if (__exactForOfStep106.done) break;
-								const comp = __exactForOfStep106.value;
+								const __exactForOfStep104 = __exactForOfIterator104.next();
+								if (__exactForOfStep104.done) break;
+								const comp = __exactForOfStep104.value;
 								const idx = findUnassigned(formatted, comp.value, assigned);
 								if (idx >= 0) for (let ci = idx; ci < idx + comp.value.length; ci++) {
 									assigned[ci] = true;
@@ -27515,7 +26999,7 @@
 		}
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/polyfills/index.ts
+	//#region ../ibex-runtime-js/src/polyfills/index.ts
 	/**
 	* ES2023+ Polyfills for Hermes Engine
 	*
@@ -27569,7 +27053,7 @@
 		} else installIntlPolyfills();
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/fs/ExactFile.ts
+	//#region ../ibex-runtime-js/src/fs/ExactFile.ts
 	init_defineProperty();
 	const MIME_TYPES = {
 		".txt": "text/plain;charset=utf-8",
@@ -27876,7 +27360,231 @@
 		};
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/timers/Timers.ts
+	//#region ../ibex-runtime-js/src/core/host-call-bridge.ts
+	/**
+	* Shared helper for looking up the host bridge function exposed on
+	* `globalThis.__hostCall`.
+	*/
+	function hostCallBridge() {
+		const hostCall = globalThis.__hostCall;
+		return typeof hostCall === "function" ? hostCall : null;
+	}
+	//#endregion
+	//#region ../ibex-runtime-js/src/core/accessibility-state.ts
+	function freezeSnapshot(snapshot) {
+		return Object.freeze({ ...snapshot });
+	}
+	function normalizeFontScale(value) {
+		return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 1;
+	}
+	function readNativeAccessibilitySnapshot() {
+		const nativeSnapshot = globalThis.__exactAccessibilitySnapshot;
+		if (nativeSnapshot && typeof nativeSnapshot === "object") return nativeSnapshot;
+		const appearanceState = globalThis.__exactAppearanceState;
+		if (appearanceState && typeof appearanceState === "object") return {
+			colorScheme: appearanceState.colorScheme === "dark" ? "dark" : "light",
+			prefersReducedMotion: appearanceState.reducedMotion === true
+		};
+		return null;
+	}
+	function buildAccessibilitySnapshot(value) {
+		return freezeSnapshot({
+			prefersReducedMotion: value?.prefersReducedMotion === true,
+			isBoldTextEnabled: value?.isBoldTextEnabled === true,
+			prefersHighContrast: value?.prefersHighContrast === true,
+			prefersReducedTransparency: value?.prefersReducedTransparency === true,
+			fontScale: normalizeFontScale(value?.fontScale),
+			isScreenReaderEnabled: value?.isScreenReaderEnabled === true,
+			colorScheme: value?.colorScheme === "dark" ? "dark" : "light",
+			isInvertColorsEnabled: value?.isInvertColorsEnabled === true,
+			isGrayscaleEnabled: value?.isGrayscaleEnabled === true,
+			dynamicTypeSize: typeof value?.dynamicTypeSize === "string" && value.dynamicTypeSize.length > 0 ? value.dynamicTypeSize : null
+		});
+	}
+	function createDefaultState() {
+		return {
+			snapshot: buildAccessibilitySnapshot(readNativeAccessibilitySnapshot()),
+			listeners: /* @__PURE__ */ new Set(),
+			eventListeners: /* @__PURE__ */ new Map(),
+			changeTimer: null
+		};
+	}
+	function getAccessibilityState() {
+		if (!globalThis.__exactAccessibilityState) globalThis.__exactAccessibilityState = createDefaultState();
+		return globalThis.__exactAccessibilityState;
+	}
+	function dispatchAccessibilityChange(state) {
+		const snapshot = state.snapshot;
+		{
+			const __exactForOfIterator105 = state.listeners[Symbol.iterator]();
+			for (;;) {
+				const __exactForOfStep105 = __exactForOfIterator105.next();
+				if (__exactForOfStep105.done) break;
+				const listener = __exactForOfStep105.value;
+				try {
+					listener(snapshot);
+				} catch {}
+			}
+		}
+	}
+	function emitNamedEvent(state, event, value) {
+		const listeners = state.eventListeners.get(event);
+		if (!listeners) return;
+		{
+			const __exactForOfIterator106 = listeners[Symbol.iterator]();
+			for (;;) {
+				const __exactForOfStep106 = __exactForOfIterator106.next();
+				if (__exactForOfStep106.done) break;
+				const listener = __exactForOfStep106.value;
+				try {
+					listener(value);
+				} catch {}
+			}
+		}
+	}
+	function scheduleAccessibilityChange(state) {
+		if (state.changeTimer != null) clearTimeout(state.changeTimer);
+		state.changeTimer = setTimeout(() => {
+			state.changeTimer = null;
+			dispatchAccessibilityChange(state);
+		}, 100);
+	}
+	function updateAppearanceMirror(snapshot) {
+		globalThis.__exactAppearanceState = {
+			colorScheme: snapshot.colorScheme,
+			reducedMotion: snapshot.prefersReducedMotion
+		};
+		globalThis.__exactWindowNotifyMediaChange?.({
+			colorScheme: snapshot.colorScheme,
+			reducedMotion: snapshot.prefersReducedMotion
+		});
+	}
+	function updateAccessibilitySnapshot(value, notify) {
+		const state = getAccessibilityState();
+		const previous = state.snapshot;
+		const next = buildAccessibilitySnapshot(value);
+		state.snapshot = next;
+		updateAppearanceMirror(next);
+		const changedEntries = [
+			["prefersReducedMotion", "reduceMotionChanged"],
+			["isBoldTextEnabled", "boldTextChanged"],
+			["prefersHighContrast", "highContrastChanged"],
+			["prefersReducedTransparency", "reducedTransparencyChanged"],
+			["fontScale", "fontScaleChanged"],
+			["isScreenReaderEnabled", "screenReaderChanged"],
+			["colorScheme", "colorSchemeChanged"],
+			["isInvertColorsEnabled", "invertColorsChanged"],
+			["isGrayscaleEnabled", "grayscaleChanged"],
+			["dynamicTypeSize", "dynamicTypeSizeChanged"]
+		].filter(([key]) => previous[key] !== next[key]);
+		if (notify && changedEntries.length > 0) {
+			scheduleAccessibilityChange(state);
+			{
+				const __exactForOfIterator107 = changedEntries[Symbol.iterator]();
+				for (;;) {
+					const __exactForOfStep107 = __exactForOfIterator107.next();
+					if (__exactForOfStep107.done) break;
+					const [key, event] = __exactForOfStep107.value;
+					emitNamedEvent(state, event, next[key]);
+				}
+			}
+			emitNamedEvent(state, "change", next);
+		}
+		return next;
+	}
+	function addExactAccessibilityEventListener(event, listener) {
+		const state = getAccessibilityState();
+		const listeners = state.eventListeners.get(event) ?? /* @__PURE__ */ new Set();
+		listeners.add(listener);
+		state.eventListeners.set(event, listeners);
+		return () => {
+			listeners.delete(listener);
+			if (listeners.size === 0) state.eventListeners.delete(event);
+		};
+	}
+	function getExactAccessibilitySnapshot() {
+		return getAccessibilityState().snapshot;
+	}
+	//#endregion
+	//#region ../ibex-runtime-js/src/core/accessibility.ts
+	function createAccessibilityNamespace() {
+		return {
+			get prefersReducedMotion() {
+				return getExactAccessibilitySnapshot().prefersReducedMotion;
+			},
+			get isBoldTextEnabled() {
+				return getExactAccessibilitySnapshot().isBoldTextEnabled;
+			},
+			get prefersHighContrast() {
+				return getExactAccessibilitySnapshot().prefersHighContrast;
+			},
+			get prefersReducedTransparency() {
+				return getExactAccessibilitySnapshot().prefersReducedTransparency;
+			},
+			get fontScale() {
+				return getExactAccessibilitySnapshot().fontScale;
+			},
+			get isScreenReaderEnabled() {
+				return getExactAccessibilitySnapshot().isScreenReaderEnabled;
+			},
+			get colorScheme() {
+				return getExactAccessibilitySnapshot().colorScheme;
+			},
+			get isInvertColorsEnabled() {
+				return getExactAccessibilitySnapshot().isInvertColorsEnabled;
+			},
+			get isGrayscaleEnabled() {
+				return getExactAccessibilitySnapshot().isGrayscaleEnabled;
+			},
+			get dynamicTypeSize() {
+				return getExactAccessibilitySnapshot().dynamicTypeSize;
+			},
+			get(key) {
+				return getExactAccessibilitySnapshot()[key];
+			},
+			addEventListener(event, listener) {
+				return addExactAccessibilityEventListener(event, listener);
+			},
+			announce(message, options) {
+				return announceForAccessibility(message, options);
+			}
+		};
+	}
+	function installExactAccessibilityGlobal() {
+		const g = globalThis;
+		if (typeof g.Exact !== "object" || g.Exact === null) g.Exact = {};
+		const exact = g.Exact;
+		const existing = exact.accessibility;
+		if (existing && typeof existing === "object" && typeof existing.addEventListener === "function") return existing;
+		updateAccessibilitySnapshot(readNativeAccessibilitySnapshot(), false);
+		const accessibility = createAccessibilityNamespace();
+		Object.defineProperty(exact, "accessibility", {
+			value: accessibility,
+			writable: true,
+			configurable: true,
+			enumerable: true
+		});
+		globalThis.__exactAccessibilityChanged = (snapshot) => {
+			if (snapshot && typeof snapshot === "object") globalThis.__exactAccessibilitySnapshot = snapshot;
+			updateAccessibilitySnapshot(snapshot ?? readNativeAccessibilitySnapshot(), true);
+		};
+		return accessibility;
+	}
+	function announceForAccessibility(message, options = {}) {
+		if (typeof message !== "string" || message.trim().length === 0) return false;
+		const hostCall = hostCallBridge();
+		if (!hostCall) return false;
+		try {
+			return hostCall("accessibility.announce", JSON.stringify({
+				message,
+				queue: options.queue !== false
+			})) !== false;
+		} catch {
+			return false;
+		}
+	}
+	//#endregion
+	//#region ../ibex-runtime-js/src/timers/Timers.ts
 	init_defineProperty();
 	let _Symbol$toPrimitive;
 	const symbolDispose = typeof Symbol === "function" ? Symbol.dispose ?? (typeof Symbol.for === "function" ? Symbol.for("nodejs.dispose") : void 0) : void 0;
@@ -28037,7 +27745,7 @@
 		clearTimeout$1(id);
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/node/Buffer.ts
+	//#region ../ibex-runtime-js/src/node/Buffer.ts
 	init_defineProperty();
 	let _Symbol$iterator, _Symbol$for, _Symbol$toStringTag$2;
 	_Symbol$iterator = Symbol.iterator;
@@ -29148,7 +28856,7 @@
 	Buffer$1.allocUnsafeSlow.bind(Buffer$1);
 	const bufferPrototype = Buffer$1.prototype;
 	{
-		const __exactForOfIterator107 = [
+		const __exactForOfIterator108 = [
 			["readUint8", "readUInt8"],
 			["readUint16LE", "readUInt16LE"],
 			["readUint16BE", "readUInt16BE"],
@@ -29169,9 +28877,9 @@
 			["writeBigUint64BE", "writeBigUInt64BE"]
 		][Symbol.iterator]();
 		for (;;) {
-			const __exactForOfStep107 = __exactForOfIterator107.next();
-			if (__exactForOfStep107.done) break;
-			const [alias, original] = __exactForOfStep107.value;
+			const __exactForOfStep108 = __exactForOfIterator108.next();
+			if (__exactForOfStep108.done) break;
+			const [alias, original] = __exactForOfStep108.value;
 			Object.defineProperty(bufferPrototype, alias, {
 				value: bufferPrototype[original],
 				writable: true,
@@ -29180,7 +28888,7 @@
 		}
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/window/index.ts
+	//#region ../ibex-runtime-js/src/window/index.ts
 	/**
 	* Window API Implementation for Exact Runtime
 	*
@@ -29325,11 +29033,11 @@
 		appearanceState = normalizeAppearanceState(next);
 		globalThis.__exactAppearanceState = { ...appearanceState };
 		{
-			const __exactForOfIterator108 = mediaQueryLists[Symbol.iterator]();
+			const __exactForOfIterator109 = mediaQueryLists[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep108 = __exactForOfIterator108.next();
-				if (__exactForOfStep108.done) break;
-				__exactForOfStep108.value._syncFromAppearance();
+				const __exactForOfStep109 = __exactForOfIterator109.next();
+				if (__exactForOfStep109.done) break;
+				__exactForOfStep109.value._syncFromAppearance();
 			}
 		}
 	}
@@ -29675,7 +29383,7 @@
 		updateAppearanceState(next);
 	};
 	//#endregion
-	//#region ../exact-runtime-js/src/node/process.ts
+	//#region ../ibex-runtime-js/src/node/process.ts
 	/**
 	* process object implementation for Exact runtime (Node.js compatibility)
 	* 
@@ -29873,11 +29581,11 @@
 		while (_nextTickQueue.length > 0) {
 			const batch = _nextTickQueue.splice(0, _nextTickQueue.length);
 			{
-				const __exactForOfIterator109 = batch[Symbol.iterator]();
+				const __exactForOfIterator110 = batch[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep109 = __exactForOfIterator109.next();
-					if (__exactForOfStep109.done) break;
-					const entry = __exactForOfStep109.value;
+					const __exactForOfStep110 = __exactForOfIterator110.next();
+					if (__exactForOfStep110.done) break;
+					const entry = __exactForOfStep110.value;
 					entry.callback(...entry.args);
 				}
 			}
@@ -29990,11 +29698,11 @@
 		if (!value || typeof value !== "object" && typeof value !== "function" || Object.isFrozen(value)) return value;
 		Object.freeze(value);
 		{
-			const __exactForOfIterator110 = Object.getOwnPropertyNames(value)[Symbol.iterator]();
+			const __exactForOfIterator111 = Object.getOwnPropertyNames(value)[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep110 = __exactForOfIterator110.next();
-				if (__exactForOfStep110.done) break;
-				const key = __exactForOfStep110.value;
+				const __exactForOfStep111 = __exactForOfIterator111.next();
+				if (__exactForOfStep111.done) break;
+				const key = __exactForOfStep111.value;
 				_deepFreeze(value[key]);
 			}
 		}
@@ -30153,11 +29861,11 @@
 		if (isCompatModeEnabled("bun")) entries.push(["bun", BUN_COMPAT_VERSION]);
 		if (isCompatFixtureMode()) entries.push(["acorn", "8.15.0"], ["ada", "2.9.2"], ["ares", "1.34.4"], ["brotli", "1.1.0"], ["cjs_module_lexer", "2.1.0"], ["cldr", "46.0"], ["icu", "76.1"], ["llhttp", "9.3.0"], ["modules", "131"], ["napi", "9"], ["nbytes", "0.1.1"], ["ncrypto", "0.0.1"], ["nghttp2", "1.64.0"], ["nghttp3", "1.6.0"], ["ngtcp2", "1.9.1"], ["openssl", "3.4.1"], ["simdjson", "3.13.0"], ["simdutf", "6.4.2"], ["tz", "2025a"], ["unicode", "16.0"], ["uv", "1.50.0"], ["uvwasi", "0.0.21"], ["v8", "13.6.233.8-node.26"], ["zlib", "1.3.1.1-motley-82a5fec"], ["zstd", "1.5.7"]);
 		{
-			const __exactForOfIterator111 = entries[Symbol.iterator]();
+			const __exactForOfIterator112 = entries[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep111 = __exactForOfIterator111.next();
-				if (__exactForOfStep111.done) break;
-				const [key, value] = __exactForOfStep111.value;
+				const __exactForOfStep112 = __exactForOfIterator112.next();
+				if (__exactForOfStep112.done) break;
+				const [key, value] = __exactForOfStep112.value;
 				Object.defineProperty(versions, key, {
 					value,
 					writable: false,
@@ -30787,7 +30495,7 @@
 				const types = globalThis.require?.("util")?.types ?? {};
 				const binding = {};
 				{
-					const __exactForOfIterator112 = [
+					const __exactForOfIterator113 = [
 						"isAnyArrayBuffer",
 						"isArrayBuffer",
 						"isArrayBufferView",
@@ -30806,9 +30514,9 @@
 						"isUint8Array"
 					][Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep112 = __exactForOfIterator112.next();
-						if (__exactForOfStep112.done) break;
-						const key = __exactForOfStep112.value;
+						const __exactForOfStep113 = __exactForOfIterator113.next();
+						if (__exactForOfStep113.done) break;
+						const key = __exactForOfStep113.value;
 						binding[key] = types[key];
 					}
 				}
@@ -31232,11 +30940,11 @@
 			try {
 				const listeners = [...this._events.get("exit") || []];
 				{
-					const __exactForOfIterator113 = listeners[Symbol.iterator]();
+					const __exactForOfIterator114 = listeners[Symbol.iterator]();
 					for (;;) {
-						const __exactForOfStep113 = __exactForOfIterator113.next();
-						if (__exactForOfStep113.done) break;
-						const entry = __exactForOfStep113.value;
+						const __exactForOfStep114 = __exactForOfIterator114.next();
+						if (__exactForOfStep114.done) break;
+						const entry = __exactForOfStep114.value;
 						try {
 							entry.fn(requestedExitCode);
 						} catch (_e) {}
@@ -31565,11 +31273,11 @@
 			if (!listeners || listeners.length === 0) return false;
 			const remaining = [];
 			{
-				const __exactForOfIterator114 = listeners[Symbol.iterator]();
+				const __exactForOfIterator115 = listeners[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep114 = __exactForOfIterator114.next();
-					if (__exactForOfStep114.done) break;
-					const entry = __exactForOfStep114.value;
+					const __exactForOfStep115 = __exactForOfIterator115.next();
+					if (__exactForOfStep115.done) break;
+					const entry = __exactForOfStep115.value;
 					entry.fn(...args);
 					if (!entry.once) remaining.push(entry);
 				}
@@ -31770,11 +31478,11 @@
 		}
 		const entries = Object.keys(envObj);
 		{
-			const __exactForOfIterator115 = entries[Symbol.iterator]();
+			const __exactForOfIterator116 = entries[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep115 = __exactForOfIterator115.next();
-				if (__exactForOfStep115.done) break;
-				const value = envObj[__exactForOfStep115.value];
+				const __exactForOfStep116 = __exactForOfIterator116.next();
+				if (__exactForOfStep116.done) break;
+				const value = envObj[__exactForOfStep116.value];
 				if (typeof value !== "string" || value.includes("\0")) {
 					const pairs = entries.map((entryKey) => `${entryKey}: ${inspectExecveValue(envObj[entryKey])}`);
 					const err = /* @__PURE__ */ new TypeError(`The argument 'env' must be an object with string keys and values without null bytes. Received { ${pairs.join(", ")} }`);
@@ -31798,7 +31506,7 @@
 		return permissionMode && !allowChildProcess;
 	}
 	//#endregion
-	//#region ../exact-runtime-js/src/bootstrap.ts
+	//#region ../ibex-runtime-js/src/bootstrap.ts
 	/**
 	* Exact Runtime Bootstrap
 	*
@@ -31895,24 +31603,24 @@
 		const g = globalThis;
 		if (g.__exactLoadTimings) g.__exactLoadTimings.installGlobalsStart = Date.now();
 		if (typeof g.__exactHostNavigator === "undefined" && typeof g.navigator === "object" && g.navigator) g.__exactHostNavigator = g.navigator;
-		(0, _exact_core.installExactLocaleGlobal)();
-		(0, _exact_core.installExactAccessibilityGlobal)();
+		installExactLocaleGlobal();
+		installExactAccessibilityGlobal();
 		g.__exactRuntimeLoaded = true;
 		const _prevEnv = {};
 		const _oldProcess = g.process;
 		if (g.__exactRuntimeContext !== "shell" && g.process?.env && typeof g.process.env === "object") {
 			const hostEnv = g.process.env;
 			{
-				const __exactForOfIterator116 = [
+				const __exactForOfIterator117 = [
 					"NODE_ENV",
 					"EXACT_ALLOW_INSECURE_CRYPTO",
 					"CI",
 					"TEST"
 				][Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep116 = __exactForOfIterator116.next();
-					if (__exactForOfStep116.done) break;
-					const key = __exactForOfStep116.value;
+					const __exactForOfStep117 = __exactForOfIterator117.next();
+					if (__exactForOfStep117.done) break;
+					const key = __exactForOfStep117.value;
 					const val = hostEnv[key];
 					if (typeof val === "string") _prevEnv[key] = val;
 				}
@@ -31951,11 +31659,11 @@
 				"_events"
 			]);
 			{
-				const __exactForOfIterator117 = Object.getOwnPropertyNames(_oldProcess)[Symbol.iterator]();
+				const __exactForOfIterator118 = Object.getOwnPropertyNames(_oldProcess)[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep117 = __exactForOfIterator117.next();
-					if (__exactForOfStep117.done) break;
-					const key = __exactForOfStep117.value;
+					const __exactForOfStep118 = __exactForOfIterator118.next();
+					if (__exactForOfStep118.done) break;
+					const key = __exactForOfStep118.value;
 					if (!skip.has(key) && process$1[key] === void 0) try {
 						process$1[key] = _oldProcess[key];
 					} catch (_e) {}
@@ -31963,11 +31671,11 @@
 			}
 			const proto = Object.getPrototypeOf(_oldProcess);
 			if (proto && proto !== Object.prototype) {
-				const __exactForOfIterator118 = Object.getOwnPropertyNames(proto)[Symbol.iterator]();
+				const __exactForOfIterator119 = Object.getOwnPropertyNames(proto)[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep118 = __exactForOfIterator118.next();
-					if (__exactForOfStep118.done) break;
-					const key = __exactForOfStep118.value;
+					const __exactForOfStep119 = __exactForOfIterator119.next();
+					if (__exactForOfStep119.done) break;
+					const key = __exactForOfStep119.value;
 					if (!skip.has(key) && process$1[key] === void 0) try {
 						process$1[key] = proto[key];
 					} catch (_e) {}
@@ -31975,11 +31683,11 @@
 			}
 		}
 		{
-			const __exactForOfIterator119 = Object.entries(_prevEnv)[Symbol.iterator]();
+			const __exactForOfIterator120 = Object.entries(_prevEnv)[Symbol.iterator]();
 			for (;;) {
-				const __exactForOfStep119 = __exactForOfIterator119.next();
-				if (__exactForOfStep119.done) break;
-				const [key, val] = __exactForOfStep119.value;
+				const __exactForOfStep120 = __exactForOfIterator120.next();
+				if (__exactForOfStep120.done) break;
+				const [key, val] = __exactForOfStep120.value;
 				if (process$1.env[key] === void 0 || process$1.env[key] === "development") process$1.env[key] = val;
 			}
 		}
@@ -32044,11 +31752,11 @@
 			const entries = Array.isArray(g.__exactDebugModuleSources) ? g.__exactDebugModuleSources : [];
 			let totalBytes = 0;
 			{
-				const __exactForOfIterator120 = entries[Symbol.iterator]();
+				const __exactForOfIterator121 = entries[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep120 = __exactForOfIterator120.next();
-					if (__exactForOfStep120.done) break;
-					const entry = __exactForOfStep120.value;
+					const __exactForOfStep121 = __exactForOfIterator121.next();
+					if (__exactForOfStep121.done) break;
+					const entry = __exactForOfStep121.value;
 					if (entry && typeof entry.source === "string") totalBytes += exactEstimateStringBytes(entry.source);
 				}
 			}
@@ -32804,11 +32512,11 @@
 			if (typeof g.BigInt64Array === "function") typedArrayNames.push("BigInt64Array");
 			if (typeof g.BigUint64Array === "function") typedArrayNames.push("BigUint64Array");
 			{
-				const __exactForOfIterator121 = typedArrayNames[Symbol.iterator]();
+				const __exactForOfIterator122 = typedArrayNames[Symbol.iterator]();
 				for (;;) {
-					const __exactForOfStep121 = __exactForOfIterator121.next();
-					if (__exactForOfStep121.done) break;
-					const name = __exactForOfStep121.value;
+					const __exactForOfStep122 = __exactForOfIterator122.next();
+					if (__exactForOfStep122.done) break;
+					const name = __exactForOfStep122.value;
 					wrapSharedArrayBufferViewCtor(name);
 				}
 			}
@@ -33000,7 +32708,7 @@
 	globalThis.ExactBundle = globalThis.ExactBundle || runtimeBundle;
 	if (globalThis.ExactBundle && globalThis.ExactBundle !== runtimeBundle) Object.assign(globalThis.ExactBundle, runtimeBundle);
 	//#endregion
-	//#region ../exact-runtime-js/src/runtime-entry.ts
+	//#region ../ibex-runtime-js/src/runtime-entry.ts
 	/**
 	* Exact Runtime Entry Point
 	*
@@ -33031,4 +32739,4 @@
 		if (!globalThis.__exactSuppressRuntimeBanner) console.log(`[Exact Runtime v${getRuntimeVersion()}] Installed (${detectEngine()})`);
 	} catch {}
 	//#endregion
-})(_exact_core_protocol_opcodes, _exact_core, _exact_core_agent);
+})();

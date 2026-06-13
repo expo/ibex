@@ -1,0 +1,30 @@
+{
+  "name": "@ibex/devtools",
+  "version": "0.1.0",
+  "description": "Build scripts for the Ibex runtime JavaScript layer",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./scripts/build-builtins": {
+      "import": "./src/scripts/build-builtins.mjs"
+    },
+    "./scripts/builtin-manifest": {
+      "import": "./src/scripts/builtin-manifest.mjs"
+    },
+    "./scripts/generate-capability-bits": {
+      "import": "./src/scripts/generate-capability-bits.mjs"
+    },
+    "./scripts/generate-module-manifest": {
+      "import": "./src/scripts/generate-module-manifest.ts"
+    },
+    "./scripts/generate-runtime-identity": {
+      "import": "./src/scripts/generate-runtime-identity.ts"
+    },
+    "./scripts/rolldown-bundle": {
+      "import": "./src/scripts/rolldown-bundle.mjs"
+    },
+    "./scripts/transforms": {
+      "import": "./src/scripts/transforms.mjs"
+    }
+  }
+}

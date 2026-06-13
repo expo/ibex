@@ -1,0 +1,656 @@
+/**
+ * URL - WHATWG URL Standard Implementation
+ *
+ * @see https://url.spec.whatwg.org/
+ */
+
+import { URLSearchParams } from "./URLSearchParams";
+
+// Special schemes that have default ports
+const DEFAULT_PORTS: Record<string, string> = {
+  ftp: "21",
+  http: "80",
+  https: "443",
+  ws: "80",
+  wss: "443",
+};
+
+// Special schemes (cannot have opaque path)
+const SPECIAL_SCHEMES = new Set(["ftp", "file", "http", "https", "ws", "wss"]);
+const OBJECT_URL_PREFIX = "blob:exact:";
+const objectURLRegistry = new Map<string, unknown>();
+let objectURLCounter = 0;
+
+function makeMissingArgsError(argumentName: string): TypeError {
+  const error = new TypeError(`The "${argumentName}" argument must be specified`);
+  (error as any).code = "ERR_MISSING_ARGS";
+  return error;
+}
+
+function makeInvalidBlobError(object: unknown): TypeError {
+  let received = `type ${typeof object}`;
+  if (object === null) {
+    received = "null";
+  } else if (object !== undefined && typeof object === "object") {
+    const ctorName = (object as { constructor?: { name?: string } }).constructor?.name;
+    received = ctorName ? `an instance of ${ctorName}` : "an instance of Object";
+  }
+  const error = new TypeError(
+    `The "obj" argument must be an instance of Blob. Received ${received}`,
+  );
+  (error as any).code = "ERR_INVALID_ARG_TYPE";
+  return error;
+}
+
+function resolveHostURLConstructor(): typeof globalThis.URL | undefined {
+  const globalURL = globalThis.URL;
+  if (typeof globalURL === "function" && globalURL !== (URL as any)) {
+    return globalURL;
+  }
+
+  const globalRef = globalThis as any;
+  for (const loaderName of ["__exactRequire", "require"]) {
+    const loader = globalRef[loaderName];
+    if (typeof loader !== "function") {
+      continue;
+    }
+
+    try {
+      const urlModule = loader("url");
+      const moduleURL = urlModule?.URL;
+      if (typeof moduleURL === "function" && moduleURL !== (URL as any)) {
+        return moduleURL;
+      }
+    } catch {
+      // Fall through to the custom parser if no host URL implementation exists.
+    }
+  }
+
+  return undefined;
+}
+
+function canonicalizeSpecialHost(value: string): string {
+  const hostURL = resolveHostURLConstructor();
+  if (typeof hostURL !== "function") {
+    return value;
+  }
+  const parsed = new hostURL(`https://${value}`);
+  return parsed.hostname;
+}
+
+function toHex(code: number): string {
+  const hex = code.toString(16).toUpperCase();
+  return hex.length === 1 ? `0${hex}` : hex;
+}
+
+function canonicalizeHost(value: string, protocol: string): string {
+  const isSpecial = protocol && SPECIAL_SCHEMES.has(protocol.slice(0, -1));
+  if (isSpecial) {
+    try {
+      return canonicalizeSpecialHost(value);
+    } catch {
+      return value.toLowerCase();
+    }
+  }
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const char = value.charAt(i);
+    if (char.charCodeAt(0) >= 128) {
+      out += encodeURIComponent(char);
+      continue;
+    }
+    if (
+      char === "%" &&
+      i + 2 < value.length &&
+      /[0-9A-Fa-f]/.test(value.charAt(i + 1)) &&
+      /[0-9A-Fa-f]/.test(value.charAt(i + 2))
+    ) {
+      out += `%${value.charAt(i + 1).toUpperCase()}${value.charAt(i + 2).toUpperCase()}`;
+      i += 2;
+      continue;
+    }
+    out += char.toLowerCase();
+  }
+  return out;
+}
+
+function normalizePort(value: string): string {
+  if (!value) {
+    return "";
+  }
+  const match = value.match(/^[0-9]+/);
+  if (!match) {
+    return "";
+  }
+  value = match[0];
+  return value.replace(/^0+(?=\d)/, "");
+}
+
+function sanitizeUserinfo(value: string): string {
+  value = String(value);
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charAt(i);
+    if (
+      c === "%" &&
+      __needsHexDigit(value.charAt(i + 1)) &&
+      __needsHexDigit(value.charAt(i + 2))
+    ) {
+      out += value.slice(i, i + 3);
+      i += 2;
+      continue;
+    }
+
+    if (__isUserinfoUnescaped(c)) {
+      out += c;
+      continue;
+    }
+
+    out += encodeURIComponent(c);
+  }
+  return out;
+}
+
+function __needsHexDigit(char: string): boolean {
+  return !!char && /^[0-9A-Fa-f]$/.test(char);
+}
+
+function __isUserinfoUnescaped(c: string): boolean {
+  const code = c.charCodeAt(0);
+  if (code >= 0x30 && code <= 0x39) return true;
+  if (code >= 0x41 && code <= 0x5A) return true;
+  if (code >= 0x61 && code <= 0x7A) return true;
+  return (
+    code === 0x21 ||
+    code === 0x24 ||
+    code === 0x26 ||
+    code === 0x27 ||
+    code === 0x28 ||
+    code === 0x29 ||
+    code === 0x2A ||
+    code === 0x2B ||
+    code === 0x2C ||
+    code === 0x2D ||
+    code === 0x2E ||
+    code === 0x25
+  );
+}
+
+function sanitizeHost(value: string, protocol: string): string | null {
+  value = String(value);
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code === 0) {
+      return null;
+    }
+    if (protocol === "https:" && code === 0x1f) {
+      return null;
+    }
+    if (code >= 0 && code < 0x20) {
+      if (code === 0x09 || code === 0x0a || code === 0x0d) {
+        continue;
+      }
+      out += `%${toHex(code)}`;
+      continue;
+    }
+    out += value.charAt(i);
+  }
+  return out;
+}
+
+function parseHostInput(value: string, isSpecial: boolean = false): string {
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i);
+    if (c === 47 || c === 63 || c === 35 || (isSpecial && c === 92)) {
+      return value.slice(0, i);
+    }
+  }
+  return value;
+}
+
+function stripProtocolControlChars(value: string): string {
+  value = String(value);
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code === 0x09 || code === 0x0a || code === 0x0d) {
+      continue;
+    }
+    out += value.charAt(i);
+  }
+  return out;
+}
+
+/**
+ * Create a TypeError matching the WHATWG URL spec error format.
+ * Redacts base URLs that contain passwords.
+ */
+function _makeURLError(input: string, baseInput?: string): TypeError {
+  let msg: string;
+  if (baseInput !== undefined) {
+    // Redact base if it contains credentials (password portion)
+    const hasCredentials = /:[^/].*@/.test(baseInput);
+    const displayBase = hasCredentials ? "<redacted>" : JSON.stringify(baseInput);
+    msg = `${JSON.stringify(input)} cannot be parsed as a URL against ${displayBase}`;
+  } else {
+    msg = `${JSON.stringify(input)} cannot be parsed as a URL`;
+  }
+  const err = new TypeError(msg);
+  (err as any).code = "ERR_INVALID_URL";
+  return err;
+}
+
+export class URL {
+  private _protocol: string = "";
+  private _username: string = "";
+  private _password: string = "";
+  private _hostname: string = "";
+  private _port: string = "";
+  private _pathname: string = "";
+  private _search: string = "";
+  private _hash: string = "";
+  private _searchParams: URLSearchParams;
+
+  constructor(url: string, base?: string | URL) {
+    if (arguments.length === 0) {
+      const error = new TypeError('The "url" argument must be specified');
+      (error as any).code = "ERR_MISSING_ARGS";
+      throw error;
+    }
+
+    // Per WHATWG URL spec: convert url and base to USVString
+    const urlStr = String(url);
+
+    // Parse base URL if provided
+    let baseURL: URL | null = null;
+    const baseStr = base !== undefined ? (base instanceof URL ? base.href : String(base)) : undefined;
+    if (base !== undefined) {
+      if (base instanceof URL) {
+        baseURL = base;
+      } else {
+        try {
+          baseURL = new URL(String(base));
+        } catch {
+          throw _makeURLError(urlStr, baseStr);
+        }
+      }
+    }
+
+    // Parse the URL
+    this._parse(urlStr, baseURL, baseStr);
+
+    // Initialize search params
+    this._searchParams = new URLSearchParams(this._search);
+    this._searchParams._setURL(this);
+  }
+
+  private _parse(input: string, base: URL | null, baseStr?: string): void {
+    const hostURL = resolveHostURLConstructor();
+    if (typeof hostURL !== "function") {
+      throw _makeURLError(input, baseStr);
+    }
+
+    try {
+      const parsed = base ? new hostURL(input, base.href) : new hostURL(input);
+      this._protocol = parsed.protocol;
+      this._username = parsed.username;
+      this._password = parsed.password;
+      this._hostname = parsed.hostname;
+      this._port = parsed.port;
+      this._pathname = parsed.pathname;
+      this._search = parsed.search;
+      this._hash = parsed.hash;
+    } catch {
+      throw _makeURLError(input, baseStr);
+    }
+  }
+
+  private _normalizePath(path: string): string {
+    if (!path) return "/";
+
+    const segments = path.split("/");
+    const normalized: string[] = [];
+
+    for (const segment of segments) {
+      if (segment === ".") {
+        continue;
+      } else if (segment === "..") {
+        normalized.pop();
+      } else {
+        normalized.push(segment);
+      }
+    }
+
+    let result = normalized.join("/");
+    if (!result.startsWith("/")) {
+      result = "/" + result;
+    }
+
+    return result;
+  }
+
+  // Getters and setters
+  get href(): string {
+    let result = this._protocol;
+
+    if (this._hostname) {
+      result += "//";
+
+      if (this._username) {
+        result += this._username;
+        if (this._password) {
+          result += ":" + this._password;
+        }
+        result += "@";
+      }
+
+      result += this._hostname;
+
+      if (this._port) {
+        result += ":" + this._port;
+      }
+    }
+
+    result += this._pathname;
+    result += this._search;
+    result += this._hash;
+
+    return result;
+  }
+
+  set href(value: string) {
+    const newURL = new URL(value);
+    this._protocol = newURL._protocol;
+    this._username = newURL._username;
+    this._password = newURL._password;
+    this._hostname = newURL._hostname;
+    this._port = newURL._port;
+    this._pathname = newURL._pathname;
+    this._search = newURL._search;
+    this._hash = newURL._hash;
+    this._searchParams = new URLSearchParams(this._search);
+    this._searchParams._setURL(this);
+  }
+
+  get origin(): string {
+    const scheme = this._protocol.slice(0, -1);
+
+    // blob: URLs derive origin from their inner URL
+    if (scheme === "blob") {
+      try {
+        let innerHref = this._pathname + this._search + this._hash;
+        if (
+          innerHref.startsWith("/") &&
+          /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(innerHref.slice(1))
+        ) {
+          innerHref = innerHref.slice(1);
+        }
+        const innerURL = new URL(innerHref);
+        if (innerURL.protocol === "file:") {
+          return innerURL.host ? `file://${innerURL.host}` : "file://";
+        }
+        return innerURL.origin;
+      } catch {
+        return "null";
+      }
+    }
+
+    // file: always has null origin per the URL spec
+    if (scheme === "file") {
+      return "null";
+    }
+
+    // Only http, https, ftp, ws, wss have a meaningful origin
+    if (scheme === "http" || scheme === "https" || scheme === "ftp" || scheme === "ws" || scheme === "wss") {
+      return `${this._protocol}//${this.host}`;
+    }
+
+    return "null";
+  }
+
+  get protocol(): string {
+    return this._protocol;
+  }
+
+  set protocol(value: string) {
+    let proto = stripProtocolControlChars(String(value)).toLowerCase();
+    if (!proto.endsWith(":")) {
+      proto += ":";
+    }
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:$/.test(proto)) {
+      return;
+    }
+    if (proto === "file:" && (this._username || this._password || this._port)) {
+      return;
+    }
+    this._protocol = proto;
+  }
+
+  get username(): string {
+    return this._username;
+  }
+
+  set username(value: string) {
+    if (this._protocol === "file:" || this._protocol === "unix:") {
+      return;
+    }
+    this._username = sanitizeUserinfo(String(value));
+  }
+
+  get password(): string {
+    return this._password;
+  }
+
+  set password(value: string) {
+    if (this._protocol === "file:" || this._protocol === "unix:") {
+      return;
+    }
+    this._password = sanitizeUserinfo(String(value));
+  }
+
+  get host(): string {
+    if (this._port) {
+      return `${this._hostname}:${this._port}`;
+    }
+    return this._hostname;
+  }
+
+  set host(value: string) {
+    const input = sanitizeHost(value, this._protocol);
+    if (input === null) {
+      return;
+    }
+    const isSpecial = SPECIAL_SCHEMES.has(this._protocol.slice(0, -1));
+    if (!this._hostname && !isSpecial) {
+      return;
+    }
+    const hostInput = parseHostInput(input, isSpecial);
+    if (hostInput === "") {
+      if (!isSpecial && this._hostname) {
+        this._hostname = "";
+        this._port = "";
+      }
+      return;
+    }
+    if (hostInput.indexOf(" ") !== -1) {
+      return;
+    }
+    if (hostInput.indexOf("@") !== -1) {
+      return;
+    }
+    if (hostInput.indexOf("\\") !== -1 && !isSpecial) {
+      return;
+    }
+
+    const colonIndex = hostInput.lastIndexOf(":");
+    if (colonIndex !== -1 && !input.includes("[")) {
+      this._hostname = canonicalizeHost(hostInput.slice(0, colonIndex), this._protocol);
+      if (colonIndex < hostInput.length - 1) {
+        const port = hostInput.slice(colonIndex + 1);
+        const parsedPort = normalizePort(port);
+        if (parsedPort) {
+          const portNumber = Number(parsedPort);
+          if (!Number.isNaN(portNumber) && portNumber <= 65535) {
+            this._port = parsedPort;
+          }
+        } else if (port === "") {
+          this._port = "";
+        }
+        if (this._port && this._protocol.slice(0, -1) && this._port === DEFAULT_PORTS[this._protocol.slice(0, -1)]) {
+          this._port = "";
+        }
+      }
+    } else if (hostInput !== "") {
+        this._hostname = canonicalizeHost(hostInput, this._protocol);
+    } else {
+      this._hostname = "";
+      this._port = "";
+    }
+  }
+
+  get hostname(): string {
+    return this._hostname;
+  }
+
+  set hostname(value: string) {
+    const input = sanitizeHost(value, this._protocol);
+    if (input === null) {
+      return;
+    }
+    const isSpecial = SPECIAL_SCHEMES.has(this._protocol.slice(0, -1));
+    if (!this._hostname && !isSpecial) {
+      return;
+    }
+    const hostInput = parseHostInput(input, isSpecial);
+    if (hostInput === "" || hostInput.indexOf(" ") !== -1) {
+      return;
+    }
+    if (hostInput.indexOf("@") !== -1) {
+      return;
+    }
+    if (hostInput.indexOf("\\") !== -1 && !isSpecial) {
+      return;
+    }
+    this._hostname = canonicalizeHost(hostInput, this._protocol);
+  }
+
+  get port(): string {
+    return this._port;
+  }
+
+  set port(value: string) {
+    const port = String(value);
+    if (port === "" || port === DEFAULT_PORTS[this._protocol.slice(0, -1)]) {
+      this._port = "";
+    } else {
+      this._port = port;
+    }
+  }
+
+  get pathname(): string {
+    return this._pathname;
+  }
+
+  set pathname(value: string) {
+    this._pathname = this._normalizePath(String(value));
+  }
+
+  get search(): string {
+    return this._search;
+  }
+
+  set search(value: string) {
+    let search = String(value);
+    if (search && !search.startsWith("?")) {
+      search = "?" + search;
+    }
+    this._search = search;
+    this._searchParams = new URLSearchParams(search);
+    this._searchParams._setURL(this);
+  }
+
+  get searchParams(): URLSearchParams {
+    return this._searchParams;
+  }
+
+  get hash(): string {
+    return this._hash;
+  }
+
+  set hash(value: string) {
+    let hash = String(value);
+    if (hash && !hash.startsWith("#")) {
+      hash = "#" + hash;
+    }
+    this._hash = hash;
+  }
+
+  toString(): string {
+    return this.href;
+  }
+
+  toJSON(): string {
+    return this.href;
+  }
+
+  /**
+   * Update search string from URLSearchParams
+   * @internal
+   */
+  _updateSearch(search: string): void {
+    this._search = search ? "?" + search : "";
+  }
+
+  /**
+   * Check if a string can be parsed as a URL
+   *
+   * Per Node.js spec, throws ERR_MISSING_ARGS if called with no arguments.
+   */
+  static canParse(url: string, base?: string): boolean {
+    // @ts-ignore - check at runtime since TypeScript doesn't track arguments.length
+    if (arguments.length === 0) {
+      throw makeMissingArgsError("url");
+    }
+    try {
+      new URL(url, base);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Parse a URL string, returning null instead of throwing on invalid input.
+   *
+   * @see https://url.spec.whatwg.org/#dom-url-parse
+   */
+  static parse(url: string, base?: string | URL): URL | null {
+    try {
+      return new URL(url, base);
+    } catch {
+      return null;
+    }
+  }
+
+  static createObjectURL(object: unknown): string {
+    // @ts-ignore - runtime arity check
+    if (arguments.length === 0) {
+      throw makeMissingArgsError("obj");
+    }
+    if (typeof Blob !== "function" || !(object instanceof Blob)) {
+      throw makeInvalidBlobError(object);
+    }
+    const url = `${OBJECT_URL_PREFIX}${++objectURLCounter}`;
+    objectURLRegistry.set(url, object);
+    return url;
+  }
+
+  static revokeObjectURL(url: unknown): void {
+    // @ts-ignore - runtime arity check
+    if (arguments.length === 0) {
+      throw makeMissingArgsError("url");
+    }
+    objectURLRegistry.delete(String(url));
+  }
+}

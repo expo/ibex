@@ -1,0 +1,63 @@
+{
+  "name": "@ibex/runtime-js",
+  "version": "0.1.0",
+  "description": "JavaScript runtime and polyfill layer for Ibex",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    },
+    "./bootstrap": {
+      "import": "./src/bootstrap.ts",
+      "types": "./src/bootstrap.ts"
+    },
+    "./camera": {
+      "import": "./src/camera/index.ts",
+      "types": "./src/camera/index.ts"
+    },
+    "./events": {
+      "import": "./src/events/index.ts",
+      "types": "./src/events/index.ts"
+    },
+    "./fetch": {
+      "import": "./src/fetch/index.ts",
+      "types": "./src/fetch/index.ts"
+    },
+    "./fetch/native-bridge": {
+      "import": "./src/fetch/native-bridge.ts",
+      "types": "./src/fetch/native-bridge.ts"
+    },
+    "./http-server": {
+      "import": "./src/http-server/index.js",
+      "types": "./src/http-server/index.ts"
+    },
+    "./internal/detect": {
+      "import": "./src/internal/detect.ts",
+      "types": "./src/internal/detect.ts"
+    },
+    "./location": {
+      "import": "./src/location/index.ts",
+      "types": "./src/location/index.ts"
+    },
+    "./react-native": {
+      "import": "./src/react-native/index.ts",
+      "types": "./src/react-native/index.ts"
+    },
+    "./runtime-entry": {
+      "import": "./src/runtime-entry.ts",
+      "types": "./src/runtime-entry.ts"
+    },
+    "./security": {
+      "import": "./src/security/index.ts",
+      "types": "./src/security/index.ts"
+    },
+    "./security/Permissions": {
+      "import": "./src/security/Permissions.ts",
+      "types": "./src/security/Permissions.ts"
+    }
+  },
+  "dependencies": {}
+}
