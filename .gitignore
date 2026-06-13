@@ -1,0 +1,5 @@
+/target
+/linux
+/tools/hermes
+*.o
+*.a.tmp

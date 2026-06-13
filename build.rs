@@ -81,12 +81,27 @@ fn read_dir_paths_or_panic(path: &Path, context: &str) -> Vec<PathBuf> {
 
 fn main() {
     let manifest_dir = env_path("CARGO_MANIFEST_DIR");
-    let Some(repo_root) = manifest_dir.parent().and_then(|p| p.parent()) else {
-        panic!(
-            "Failed to resolve repo root from CARGO_MANIFEST_DIR={}",
-            manifest_dir.display()
-        );
+    // Resolve the root that holds Hermes build inputs (linux/, tools/hermes/,
+    // scripts/). Two supported layouts:
+    //   - standalone ibex repo: the crate is the repo root.
+    //   - exact monorepo: the crate is at packages/exact-runtime, so the root
+    //     is two levels up.
+    // Detect standalone by the presence of the Hermes build scripts at the
+    // crate root; otherwise fall back to the monorepo layout.
+    let repo_root: PathBuf = if manifest_dir.join("scripts/build-hermes-linux.sh").exists()
+        || manifest_dir.join("scripts/download-hermes.sh").exists()
+    {
+        manifest_dir.clone()
+    } else {
+        match manifest_dir.parent().and_then(|p| p.parent()) {
+            Some(root) => root.to_path_buf(),
+            None => panic!(
+                "Failed to resolve repo root from CARGO_MANIFEST_DIR={}",
+                manifest_dir.display()
+            ),
+        }
     };
+    let repo_root = repo_root.as_path();
 
     let out_dir = env_path("OUT_DIR");
 
