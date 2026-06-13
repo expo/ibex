@@ -164,6 +164,11 @@ extern "C" char **environ;
 
 #include "hermes_runtime_internal.h"
 
+// PATH_MAX / realpath live in <limits.h> on Linux; macOS pulls them in
+// transitively. Spell it out so the realpath() path-resolution helpers build
+// on Linux. @ref LLP 0177
+#include <limits.h>
+
 thread_local uint64_t g_active_module_id = 0;
 
 // Concrete Buffer for static HBC byte arrays (used by precompiled bootstrap)

@@ -12,6 +12,14 @@
 #include <string>
 #include <vector>
 
+#if !defined(_WIN32)
+// fcntl/F_GETFL/F_SETFL/O_NONBLOCK for the stdin entropy fallback. On Apple
+// these arrive transitively through the Security framework headers; Linux needs
+// them spelled out. (This file is not compiled on Windows — see build.rs.)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 #if defined(__APPLE__)
 #include <CommonCrypto/CommonCryptor.h>
 #include <CommonCrypto/CommonDigest.h>
@@ -1681,7 +1689,8 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
 #endif // !EXACT_PLATFORM_IOS
       });
   rt.global().setProperty(rt, "__exactGenerateKeyPairSync", std::move(generateKeyPairSyncFn));
-#else
+#else  // !defined(__APPLE__)
+#if !defined(EXACT_NO_OPENSSL)
   auto signFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSignSync"),
@@ -1983,6 +1992,38 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         return serializeKeyPairToPem(pkey);
       });
   rt.global().setProperty(rt, "__exactGenerateKeyPairSync", std::move(generateKeyPairSyncFn));
+#else  // EXACT_NO_OPENSSL: reduced crypto profile (no asymmetric sign/verify)
+  // Register the same JS surface as throwing stubs so callers get a clear
+  // runtime error instead of a missing-global ReferenceError. Real asymmetric
+  // crypto requires building exact-runtime with the `openssl-crypto` feature.
+  // @ref LLP 0159 -- reduced crypto shape mirrors the Windows/app-host profile.
+  auto makeUnavailableAsymCryptoFn =
+      [](facebook::jsi::Runtime& rtRef, const char* name) {
+        std::string fnName(name);
+        return facebook::jsi::Function::createFromHostFunction(
+            rtRef,
+            facebook::jsi::PropNameID::forAscii(rtRef, name),
+            0,
+            [fnName](facebook::jsi::Runtime& runtime,
+                     const facebook::jsi::Value&,
+                     const facebook::jsi::Value*,
+                     size_t) -> facebook::jsi::Value {
+              throw facebook::jsi::JSError(
+                  runtime,
+                  fnName +
+                      ": asymmetric crypto is unavailable in this build "
+                      "(rebuild exact-runtime with the openssl-crypto feature)");
+            });
+      };
+  rt.global().setProperty(
+      rt, "__exactSignSync", makeUnavailableAsymCryptoFn(rt, "__exactSignSync"));
+  rt.global().setProperty(
+      rt, "__exactVerifySync", makeUnavailableAsymCryptoFn(rt, "__exactVerifySync"));
+  rt.global().setProperty(
+      rt,
+      "__exactGenerateKeyPairSync",
+      makeUnavailableAsymCryptoFn(rt, "__exactGenerateKeyPairSync"));
+#endif  // !EXACT_NO_OPENSSL
 #endif
 
 #if !defined(EXACT_NO_OPENSSL)
