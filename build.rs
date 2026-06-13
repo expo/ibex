@@ -332,6 +332,17 @@ fn main() {
             vendored_generated_dir.display()
         );
         println!("cargo:rerun-if-changed={}", vendored_generated_dir.display());
+    } else if !regenerate_runtime {
+        // The default ibex build is hermetic: it expects the committed
+        // vendored-generated/ artifacts. If they are missing, fail loudly
+        // rather than silently shelling out to the bun/node generators (which
+        // now live in this repo, so `manifest_generator.exists()` would be true
+        // and the build would quietly become non-hermetic). @ref LLP 0086 review F7
+        panic!(
+            "Ibex default build is hermetic but vendored generated artifacts are missing at {}. \
+             Restore the committed artifacts, or set IBEX_REGENERATE_RUNTIME=1 to regenerate from JS sources (requires bun).",
+            vendored_generated_dir.display()
+        );
     } else if !manifest_generator.exists() {
         panic!(
             "IBEX_REGENERATE_RUNTIME=1 requested, but the module manifest generator was not found at {}",
