@@ -9,13 +9,16 @@
 
 ## Summary
 
-Ibex must build and run on **macOS, iOS, tvOS, Android, Linux, and Windows**.
-Today nothing in CI compiles ibex across these platforms — which is exactly how
-a Linux build regression shipped undetected and kicked off the whole extraction
-effort (exact LLP 0180 §1.2). This RFC defines the target-platform set, the
-axes that matter beyond the OS name (architecture and crypto profile), and a
-concrete CI build matrix — including which targets build today versus need
-`build.rs` work.
+The intended product target set is **macOS, iOS, tvOS, Android, Linux, and
+Windows** `[inferred: this is the platform ambition carried by the retrofit
+draft and exact LLP 0180, not something the current checkout can prove by
+itself]`. The current `build.rs` only has first-class target branches for
+macOS, iOS, Linux, and Windows `[observed]` (`build.rs:787-835, 868-1073`).
+
+This RFC records the target set, the build axes that matter beyond OS name
+(architecture and crypto profile), and the CI matrix needed to make platform
+support observable. Where a row is not wired in code yet, this document marks it
+as proposed/known-red rather than claiming it builds.
 
 ## 1. Target platforms
 
@@ -23,13 +26,15 @@ concrete CI build matrix — including which targets build today versus need
 
 Not everything that "runs ibex" is a separate build:
 
-- **Apple family** (share the CommonCrypto/Security crypto path, no OpenSSL):
-  **macOS**, **iOS**, **tvOS** are distinct OS targets. iPadOS is covered by
-  iOS; watchOS and visionOS are deferred until there's a concrete need.
+- **Apple family**: macOS and iOS are wired in `build.rs`; tvOS is an intended
+  Apple-family target but has no `target_os = "tvos"` branch today `[observed]`
+  (`build.rs:787-835, 868-927`). iPadOS is covered by iOS `[inferred]`;
+  watchOS and visionOS are deferred until there is a concrete need `[inferred]`.
 - **Android**: **Android** is a distinct target (NDK cross-compile, Hermes-for-
-  Android). **Android TV is NOT a separate build** — it's Android (same OS,
-  same ABIs); the Android jobs cover it. Same for Wear OS / Chromebooks.
-- **Linux** and **Windows** are distinct targets.
+  Android) `[inferred]`. **Android TV is not a separate build** — it is Android
+  with the same OS/ABI rows `[inferred]`. Same for Wear OS / Chromebooks.
+- **Linux** and **Windows** are distinct targets and are explicitly handled by
+  `build.rs` `[observed]` (`build.rs:824-831, 954-1073`).
 
 So the canonical target set is six OSes — macOS, iOS, tvOS, Android, Linux,
 Windows — and "also runs on Android TV / iPadOS" is a coverage note, not a
@@ -39,17 +44,18 @@ matrix row.
 
 | OS | build.rs arm | Crypto backend | Status |
 |---|---|---|---|
-| macOS | yes | CommonCrypto/Security | builds today |
-| iOS | yes | CommonCrypto/Security (`EXACT_PLATFORM_IOS`) | builds today |
-| Linux | yes | OpenSSL (`openssl-crypto`) | builds today |
-| Windows | yes | `crypto_windows.cc`, `EXACT_NO_OPENSSL` | builds today |
-| **Android** | **no** | needs OpenSSL (no platform backend) | **needs work** |
-| **tvOS** | **no** | CommonCrypto (reuses iOS-family config) | **needs work** |
+| macOS | yes | CommonCrypto/Security; optional OpenSSL feature for some non-iOS paths | wired in `build.rs` |
+| iOS | yes | CommonCrypto/Security with `EXACT_PLATFORM_IOS`, `EXACT_NO_OPENSSL`, `EXACT_NO_BROTLI` | wired in `build.rs` |
+| Linux | yes | default defines `EXACT_NO_OPENSSL`; `openssl-crypto` enables OpenSSL linking | wired in `build.rs` |
+| Windows | yes | `hermes_runtime_crypto_windows.cc`, `EXACT_NO_OPENSSL`, WinHTTP/Bcrypt/Ncrypt/Crypt32 | wired in `build.rs` |
+| **Android** | **no** | no Android backend/NDK artifact path in `build.rs` | **needs work** |
+| **tvOS** | **no** | no tvOS branch in `build.rs` | **needs work** |
 
-Android and tvOS have no `build.rs` target arm and no Hermes-for-platform
-artifact path yet. The matrix should include them as **known-red** entries so
-CI drives their support to green, rather than omitting them and pretending the
-platform set is smaller than the product goal.
+The table is grounded in the target selection and compile/link branches in
+`build.rs` `[observed]` (`build.rs:787-835, 868-1073`). Android and tvOS have
+no target arm and no Hermes-for-platform artifact path there. The matrix should
+include them as **known-red** rows `[inferred: this keeps the product target set
+visible while implementation catches up]`.
 
 ## 2. The axes that matter beyond OS
 
@@ -60,17 +66,32 @@ risk:
 
 Ibex's crypto is platform-dependent and is the single most fragile build axis:
 
-- **Apple (macOS/iOS/tvOS):** CommonCrypto/Security — no OpenSSL.
-- **Windows:** `crypto_windows.cc` + `EXACT_NO_OPENSSL`.
-- **Linux / Android:** **no platform backend** → the `openssl-crypto` feature is
-  **required** for real hashing/HMAC/sign. The default (no-OpenSSL) profile on
-  Linux compiles but only registers asymmetric crypto as throwing stubs, and
-  full hashing/HMAC is unavailable.
+- **Apple:** the non-Windows crypto file includes CommonCrypto/Security
+  `[observed]` (`src/engine/hermes_runtime_crypto.cc:23-44`). iOS always defines
+  `EXACT_PLATFORM_IOS` and `EXACT_NO_OPENSSL` `[observed]` (`build.rs:817-823`).
+  macOS can opt into OpenSSL headers/linking with `openssl-crypto` `[observed]`
+  (`build.rs:799-807`).
+- **Windows:** `build.rs` compiles `hermes_runtime_crypto_windows.cc`, defines
+  `EXACT_NO_OPENSSL`, and links Windows crypto/network libraries `[observed]`
+  (`build.rs:729-765, 954-989`). That Windows crypto shim registers hash,
+  hashRaw, and HMAC host functions, not the non-Windows asymmetric throwing
+  stubs `[observed]` (`src/engine/hermes_runtime_crypto_windows.cc:141-221`).
+- **Linux:** `build.rs` defines `EXACT_NO_OPENSSL` unless the
+  `openssl-crypto` feature is enabled and links OpenSSL only in that feature
+  profile `[observed]` (`build.rs:824-831, 1066-1073`). However, the non-Apple
+  crypto source still includes and calls OpenSSL for hash/HMAC outside that
+  Cargo feature gate `[observed]`
+  (`src/engine/hermes_runtime_crypto.cc:61-73, 441-458, 519-532, 611-629`).
+  The reduced non-OpenSSL path only provides explicit throwing stubs for
+  asymmetric sign/verify/key generation `[observed]`
+  (`src/engine/hermes_runtime_crypto.cc:1995-2026`).
+- **Android:** no Android branch exists, so its intended crypto profile is a
+  design question until the NDK/Hermes wiring lands `[inferred]`.
 
 The matrix MUST therefore build **Linux in both profiles** (openssl-crypto and
 the reduced no-OpenSSL default), because the no-OpenSSL reduced build is
-literally what shipped broken — exercising only the openssl profile would miss
-that class of regression again.
+the profile most likely to reveal feature-gating drift. Exercising only the
+openssl profile would miss that class of regression `[inferred]`.
 
 ### 2.2 Architecture
 
@@ -100,20 +121,24 @@ and the platform's native profile otherwise:
 | Windows | x86_64 | crypto_windows / NO_OPENSSL | windows | |
 | Android | arm64-v8a | openssl-crypto | ubuntu + NDK | **known-red** until build.rs support lands |
 
-Known-red rows are kept in the matrix (not `continue-on-error`-hidden) but their
-failure is allowed to be tracked separately so the green rows still gate merges.
-As Android/tvOS support lands, flip them to required.
+Known-red rows should stay visible but non-gating until their `build.rs` support
+lands `[inferred]`. As Android/tvOS support lands, flip them to required.
 
 ## 4. What CI must handle per cell
 
-- **Hermes artifacts.** Each platform needs its prebuilt Hermes
-  (headers + lib). CI must run the appropriate `scripts/build-hermes-*.sh` (or
-  fetch a cached/release artifact) before `cargo build`; these are not committed.
-- **Hermes compiler (`hermesc`).** The default hermetic build needs `hermesc`
-  for bootstrap bytecode; ensure it's present/fetched per runner.
-- **Hermetic default.** Cells build the default (vendored) path; at least one
-  cell should also run `IBEX_REGENERATE_RUNTIME=1` (with `bun`) to keep the
-  regeneration path honest, but that is the non-default dev path.
+- **Hermes artifacts.** Each platform needs Hermes headers and libraries at the
+  paths `build.rs` expects, or via `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`
+  overrides `[observed]` (`build.rs:143-169, 183-210, 289-296`). Linux/Windows
+  fail early when their default Hermes dirs are absent `[observed]`
+  (`build.rs:183-210`).
+- **Hermes compiler (`hermesc`).** Bootstrap HBC generation checks for a
+  compatible `hermesc`; missing/mismatched `hermesc` panics unless
+  `EXACT_ALLOW_FALLBACK` is set `[observed]` (`build.rs:33-55, 487-527`).
+- **Hermetic default.** Cells build the default vendored-generated path; at
+  least one cell should also run `IBEX_REGENERATE_RUNTIME=1` with the JS
+  toolchain to keep the regeneration path honest `[inferred]`. The standalone
+  path copies committed generated artifacts and panics if they are missing
+  `[observed]` (`build.rs:321-351`).
 - **Caching.** Cargo + Hermes-artifact caching per (OS, arch) to keep wall-clock
   sane.
 

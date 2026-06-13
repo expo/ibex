@@ -22,30 +22,31 @@ it does not restate the embedding ABI ([LLP 0002](./0002-host-embedding-abi.spec
 
 1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue and `eval`
    enabled, then `facebook::hermes::makeHermesRuntime(config)`
-   (`hermes_runtime.cc:1391-1403`).
+   (`src/engine/hermes_runtime.cc:1391-1403`).
 2. Wraps it in an `ExactHermesRuntime` handle, records the owning thread
-   (`hermes_runtime.cc:1409-1411`).
+   (`src/engine/hermes_runtime.cc:1409-1411`).
 3. Optionally constructs the async debugger if the Hermes build supports it
-   (`hermes_runtime.cc:1415-1432`).
+   (`src/engine/hermes_runtime.cc:1415-1432`).
 4. Calls `installGlobals(handle)` — which installs the native host functions and
    runs the bootstrap scripts — then registers the runtime
-   (`hermes_runtime.cc:1436, 1449`).
+   (`src/engine/hermes_runtime.cc:1436, 1449`).
 
-`ex_hermes_eval()` (`hermes_runtime.cc:1464`) evaluates UTF-8 source or Hermes
-bytecode (`is_bytecode` flag) and returns a result string `[observed]`.
+`ex_hermes_eval()` evaluates UTF-8 source or Hermes bytecode (`is_bytecode`
+flag) and returns a result string `[observed]`
+(`src/engine/hermes_runtime.cc:1464`).
 
-The engine uses Hermes through **JSI** (`<jsi/jsi.h>`, `hermes_runtime.cc:15`):
-native functions are registered with `jsi::Function::createFromHostFunction` and
-set as properties on `rt.global()` `[observed]` (e.g. the `__hostCall`,
-`__StringBuffer`, `__exactModuleResolve`, and `__exactEnsure*` installers,
-`hermes_runtime.cc:1191-1267`).
+The engine uses Hermes through **JSI** (`<jsi/jsi.h>`) `[observed]`
+(`src/engine/hermes_runtime.cc:14-15`). Native functions are registered with
+`jsi::Function::createFromHostFunction` and set as properties on `rt.global()`
+`[observed]` (e.g. `__exactModuleResolve`, `__exactEnsure*`, and `__hostCall`,
+`src/engine/hermes_runtime.cc:1160-1283, 1754-1806`).
 
 ### The `__hostCall` bridge
 
 `ex_hermes_set_host_call` installs the generic `__hostCall(op, argsJson)` JSI
-host function `[observed]` (`hermes_runtime.cc:1754-1806`). The protocol — a `+`
-(JSON success) / `-` (error) status sigil on the returned C string, freed by the
-C++ side and `JSON.parse`d — is documented in
+host function `[observed]` (`src/engine/hermes_runtime.cc:1754-1806`). The
+protocol — a `+` (JSON success) / `-` (error) status sigil on the returned C
+string, freed by the C++ side and `JSON.parse`d — is documented in
 [LLP 0002 §The `__hostCall` bridge](./0002-host-embedding-abi.spec.md#the-hostcall-bridge--the-generic-host-channel).
 It is the catch-all native channel; higher-traffic subsystems get dedicated
 host functions instead `[inferred: dedicated functions avoid per-call JSON
@@ -53,30 +54,32 @@ encode/parse overhead and string-typed dispatch]`.
 
 ### Lazy installation of host functions
 
-Several subsystems are installed lazily on first use through `__exactEnsure*`
-shims — HTTP, SQLite, DNS, and child-process host functions are each registered
-only when JS first calls the corresponding `__exactEnsure*()` `[observed]`
-(`hermes_runtime.cc:1197-1249`). `[inferred: this trims startup cost for
-runtimes that never touch those subsystems.]`
+Several subsystem functions are installed lazily on first use through
+`__exactEnsure*` shims. Filesystem functions are behind `__exactEnsureFs` on
+non-Windows platforms, while Windows installs them eagerly because the Windows
+FS implementation is a separate file compiled only for that target `[observed]`
+(`src/engine/hermes_runtime.cc:1056-1072`). HTTP, SQLite, DNS, child-process,
+and Net are also registered on demand `[observed]`
+(`src/engine/hermes_runtime.cc:1197-1283`). `[inferred: this trims startup cost
+for runtimes that never touch those subsystems.]`
 
 ### The bootstrap sequence
 
-`hermes_bootstrap.cc` runs a fixed sequence of bootstrap JS scripts after the
-runtime is created `[observed]` (`src/engine/hermes_bootstrap.cc`). Each script
-is run via `eval_bootstrap_script`, which prefers precompiled Hermes bytecode
-(`bootstrap_bytecode.h`) when available and falls back to source
-(`bootstrap_source.h`) `[observed]` (`hermes_bootstrap.cc:44-69`). Two layers
-exist:
+`hermes_bootstrap.cc` runs bootstrap JS after the runtime is created
+`[observed]`. `eval_bootstrap_script` prefers precompiled Hermes bytecode when
+available and falls back to the generated source header `[observed]`
+(`src/engine/hermes_bootstrap.cc:19-69`). Two layers exist:
 
-- The per-file **bootstrap scripts** under `src/engine/bootstrap/*.js`
-  (module-loader, bootstrap-globals, compat-polyfills, exact-global,
-  web-crypto, web-storage, stream-enhance, etc.) `[observed]` (directory listing;
-  bootstrap order `hermes_bootstrap.cc:193-650`).
 - The **shared runtime bundle** (`embedded_runtime_bundle.js`, the rolldown
-  output of `packages/ibex-runtime-js`) installed via
-  `installSharedRuntimeBundle` `[observed]` (`hermes_bootstrap.cc:19-27, 71-110`).
-  When the bundle is present it supplies the globals and the legacy
-  `bootstrap_globals` step is skipped `[observed]` (`hermes_bootstrap.cc:240-253`).
+  output of `packages/ibex-runtime-js`) is installed via
+  `installSharedRuntimeBundle` `[observed]`
+  (`src/engine/hermes_bootstrap.cc:71-154`).
+- The per-file **bootstrap scripts** under `src/engine/bootstrap/*.js` install
+  the module loader, compatibility globals, process/exact globals, and legacy
+  lazy getters `[observed]` (`src/engine/hermes_bootstrap.cc:156-302, 413-797`).
+  When the shared runtime bundle is successfully installed, the legacy
+  `bootstrap_globals` step is skipped `[observed]`
+  (`src/engine/hermes_bootstrap.cc:240-246`).
 
 The HBC-vs-source selection and how these headers are produced is the build
 pipeline's concern — see [LLP 0005](./0005-build-pipeline-and-hermetic-default.explainer.md).
@@ -84,21 +87,22 @@ pipeline's concern — see [LLP 0005](./0005-build-pipeline-and-hermetic-default
 ## The event loop
 
 The host pumps the loop by calling `ex_hermes_poll(runtime, now_ms)`
-repeatedly `[observed]` (`hermes_runtime.cc:1815`). Each poll: cleans up fetch
-callbacks, drains the cross-thread callback queue (HTTP responses etc.), runs
-queued cross-thread tasks on the runtime thread, runs the `nextTick` queue, and
-drains microtasks `[observed]` (`hermes_runtime.cc:1820-1849`). Background
-threads signal readiness via `ex_hermes_notify_callback`, whose default
-implementation sets an atomic flag polled by the host `[observed]`
-(`src/engine/mod.rs:33-43`); the CLI replaces it with a tokio `Notify`-based
-version under the `cli-notify` feature `[observed]` (`src/engine/mod.rs:18-32`,
-`Cargo.toml` `cli-notify`).
+repeatedly `[observed]` (`src/engine/hermes_runtime.cc:1815`). Each poll:
+cleans up fetch callbacks, drains the cross-thread callback queue (HTTP
+responses etc.), runs queued cross-thread tasks on the runtime thread, runs the
+`nextTick` queue, and drains microtasks `[observed]`
+(`src/engine/hermes_runtime.cc:1820-1849`). Background threads signal readiness
+via `ex_hermes_notify_callback`, whose default implementation sets an atomic
+flag polled by the host `[observed]` (`src/engine/mod.rs:33-43`); the
+`cli-notify` feature replaces it with a tokio `Notify`-based version
+`[observed]` (`src/engine/mod.rs:18-32`; `Cargo.toml:66-80`).
 
 ## The platform shims (map)
 
 Each `src/engine/hermes_runtime_*.cc` file installs a family of native host
 functions / globals for one subsystem and carries per-OS implementations behind
-`#if` guards `[observed]` (file listing; defines set in `build.rs`):
+`#if` guards. `build.rs` lists the C++ sources and target-specific defines
+`[observed]` (`build.rs:711-781, 787-1073`):
 
 | Subsystem | Files | Notes |
 |---|---|---|
@@ -114,28 +118,43 @@ functions / globals for one subsystem and carries per-OS implementations behind
 | OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc` | |
 | Debugger | `hermes_runtime_debugger.cc` | gated on `HERMES_ENABLE_DEBUGGER` |
 
-The `native_fetch_*` / `native_websocket_*` files are per-OS (linux/macos/
-windows) `[observed]` (file listing); on Linux/Windows they build against curl
-(`EXACT_HAS_CURL`) `[observed]` (`build.rs:1017, 1037`).
+The `native_fetch_*` / `native_websocket_*` files are per-OS. macOS/iOS use
+Foundation/NSURLSession implementations `[observed]`
+(`src/engine/native_fetch_macos.mm:1-14`;
+`src/engine/native_websocket_macos.mm:1-9`). Windows uses WinHTTP
+implementations `[observed]` (`src/engine/native_fetch_windows.cc:1-5`;
+`src/engine/native_websocket_windows.cc:1-5`; `build.rs:954-989`). Linux uses
+libcurl only when `build.rs` detects curl >= 7.86 and defines `EXACT_HAS_CURL`;
+otherwise the Linux native files compile stub/fallback code `[observed]`
+(`build.rs:991-1039`; `src/engine/native_fetch_linux.cc:1-24`;
+`src/engine/native_websocket_linux.cc:1-28`).
 
 ### Crypto is platform-dependent (the fragile axis)
 
-`hermes_runtime_crypto.cc` selects its backend with `EXACT_NO_OPENSSL` and
-`__APPLE__` `[observed]`:
+Crypto is split between the non-Windows crypto shim and a Windows-specific file:
 
-- **Apple** (`__APPLE__`): CommonCrypto/Security headers, no OpenSSL
-  `[observed]` (`hermes_runtime.cc:91-96`, `crypto.cc:24-27`).
-- **OpenSSL profile** (`!EXACT_NO_OPENSSL`): the full asymmetric sign/verify and
-  key-generation paths compile `[observed]` (`crypto.cc:35-43`, and the many
-  `#if !defined(EXACT_NO_OPENSSL)` guards).
-- **Windows**: `hermes_runtime_crypto_windows.cc` (BCrypt) with
-  `EXACT_NO_OPENSSL` `[observed]` (`build.rs:751-763`).
-- **Reduced / no-OpenSSL profile** (e.g. Linux default, iOS for asymmetric):
-  the same JS surface is registered as **throwing stubs** so callers get a clear
-  runtime error ("rebuild ... with the openssl-crypto feature") rather than a
-  missing global `[observed]` (`crypto.cc:1995-2026`). On iOS, asymmetric key
-  generation throws "requires OpenSSL (not available on iOS)" `[observed]`
-  (`crypto.cc:1535`).
+- **Apple / non-Windows file:** `hermes_runtime_crypto.cc` includes
+  CommonCrypto/Security on Apple platforms `[observed]`
+  (`src/engine/hermes_runtime_crypto.cc:23-44`). macOS sign/verify use Security
+  APIs when not building iOS `[observed]`
+  (`src/engine/hermes_runtime_crypto.cc:1335-1443`). Apple key generation is
+  registered, but some iOS paths throw because OpenSSL/PEM export are not
+  available `[observed]` (`src/engine/hermes_runtime_crypto.cc:1445-1691`).
+- **OpenSSL profile:** when `EXACT_NO_OPENSSL` is not defined, the non-Windows
+  file compiles OpenSSL-backed asymmetric sign/verify/key-generation paths
+  `[observed]` (`src/engine/hermes_runtime_crypto.cc:1693-1993`).
+- **Non-Windows reduced profile:** when `EXACT_NO_OPENSSL` is defined outside
+  Apple-specific branches, the non-Windows file registers throwing stubs for
+  sign/verify/key generation `[observed]`
+  (`src/engine/hermes_runtime_crypto.cc:1995-2026`). The same file still
+  includes and calls OpenSSL for hash/HMAC/hashRaw on non-Apple platforms
+  outside that guard `[observed]`
+  (`src/engine/hermes_runtime_crypto.cc:61-73, 441-458, 519-532, 611-629`).
+- **Windows:** `build.rs` compiles `hermes_runtime_crypto_windows.cc` and
+  defines `EXACT_NO_OPENSSL` `[observed]` (`build.rs:729-765`). That file
+  registers Windows BCrypt-backed hash/hashRaw/HMAC functions plus stdin/signal
+  noops; it does not register the non-Windows asymmetric throwing stubs
+  `[observed]` (`src/engine/hermes_runtime_crypto_windows.cc:1-8, 141-221`).
 
 The crypto profile axis and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md); this section only maps
@@ -143,11 +162,13 @@ where the selection happens in the engine.
 
 ## Boundaries
 
-- This crate compiles the C++ via `build.rs` (`cc`); the engine links a prebuilt
-  Hermes per platform (see [LLP 0005](./0005-build-pipeline-and-hermetic-default.explainer.md)).
+- This crate compiles the C++ via `build.rs` (`cc`); the engine links Hermes
+  from platform-specific paths or `HERMES_*` overrides (see
+  [LLP 0005](./0005-build-pipeline-and-hermetic-default.explainer.md)).
 - The Rust-side `ex_host_*` implementations the shims call into live in
   `src/host` ([LLP 0002](./0002-host-embedding-abi.spec.md)); the engine declares
-  them as `extern "C"` (`hermes_runtime.cc:203-213`).
-- Hermes is the only engine today, but the C ABI + JSI seam is deliberately
-  engine-agnostic in shape `[inferred]` — see
-  [LLP 0006](./0006-design-principles.principles.md).
+  them as `extern "C"` `[observed]` (`src/engine/hermes_runtime.cc:203-235`).
+- Hermes is the only engine today, and the public C symbols still name Hermes
+  (`ex_hermes_*`) `[observed]` (`include/exact_runtime.h:34-65, 151-156`).
+  Any future engine-agnostic seam is a design posture, not an implemented
+  abstraction `[inferred]` — see [LLP 0006](./0006-design-principles.principles.md).
