@@ -1,6 +1,7 @@
 #include "hermes_runtime_internal.h"
 
 #include <arpa/inet.h>
+#include <cstdio>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -15,7 +16,11 @@
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #include <mach/mach_host.h>
+#include <net/if_dl.h>
 #include <sys/sysctl.h>
+#elif defined(__linux__)
+#include <netpacket/packet.h>
+#include <sys/sysinfo.h>
 #else
 #include <sys/sysinfo.h>
 #endif
@@ -218,7 +223,9 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
         double loadavgArr[3] = {0.0, 0.0, 0.0};
+#if !defined(EXACT_PLATFORM_ANDROID)
         getloadavg(loadavgArr, 3);
+#endif
         auto arr = facebook::jsi::Array(runtime, 3);
         arr.setValueAtIndex(runtime, 0, facebook::jsi::Value(loadavgArr[0]));
         arr.setValueAtIndex(runtime, 1, facebook::jsi::Value(loadavgArr[1]));
@@ -240,10 +247,50 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
         if (getifaddrs(&ifaddr) == -1) {
           return result;
         }
+        auto formatMac = [](const unsigned char* bytes, size_t length) -> std::string {
+          if (!bytes || length < 6) {
+            return "00:00:00:00:00:00";
+          }
+          char mac[18];
+          std::snprintf(mac,
+                        sizeof(mac),
+                        "%02x:%02x:%02x:%02x:%02x:%02x",
+                        bytes[0],
+                        bytes[1],
+                        bytes[2],
+                        bytes[3],
+                        bytes[4],
+                        bytes[5]);
+          return mac;
+        };
+        std::unordered_map<std::string, std::string> macByName;
         std::unordered_map<std::string, std::vector<struct ifaddrs*>> ifmap;
         for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
           if (ifa->ifa_addr == nullptr) continue;
           int family = ifa->ifa_addr->sa_family;
+#if defined(__linux__)
+          // @ref LLP 0008#os-info — Linux exposes interface MAC addresses via AF_PACKET entries from getifaddrs().
+          if (family == AF_PACKET) {
+            auto* link = reinterpret_cast<struct sockaddr_ll*>(ifa->ifa_addr);
+            if (ifa->ifa_name && link->sll_halen >= 6) {
+              macByName[ifa->ifa_name] =
+                  formatMac(reinterpret_cast<const unsigned char*>(link->sll_addr),
+                            static_cast<size_t>(link->sll_halen));
+            }
+            continue;
+          }
+#elif defined(__APPLE__)
+          // @ref LLP 0008#os-info — Apple exposes interface MAC addresses via AF_LINK entries from getifaddrs().
+          if (family == AF_LINK) {
+            auto* link = reinterpret_cast<struct sockaddr_dl*>(ifa->ifa_addr);
+            if (ifa->ifa_name && link->sdl_alen >= 6) {
+              macByName[ifa->ifa_name] =
+                  formatMac(reinterpret_cast<const unsigned char*>(LLADDR(link)),
+                            static_cast<size_t>(link->sdl_alen));
+            }
+            continue;
+          }
+#endif
           if (family != AF_INET && family != AF_INET6) continue;
           ifmap[ifa->ifa_name].push_back(ifa);
         }
@@ -298,10 +345,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
                 runtime, "netmask", facebook::jsi::String::createFromAscii(runtime, maskBuf));
             bool isInternal = (ifa->ifa_flags & IFF_LOOPBACK) != 0;
             entry.setProperty(runtime, "internal", facebook::jsi::Value(isInternal));
+            auto macIt = macByName.find(name);
+            const char* mac = macIt == macByName.end() ? "00:00:00:00:00:00" : macIt->second.c_str();
             entry.setProperty(
                 runtime,
                 "mac",
-                facebook::jsi::String::createFromAscii(runtime, "00:00:00:00:00:00"));
+                facebook::jsi::String::createFromAscii(runtime, mac));
             std::string cidr = std::string(addrBuf) + "/" + std::to_string(prefixLen);
             entry.setProperty(
                 runtime, "cidr", facebook::jsi::String::createFromAscii(runtime, cidr));

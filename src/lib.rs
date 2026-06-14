@@ -11,11 +11,14 @@
 //! The CLI wraps these in async Rust (via tokio). The iOS app calls the C API
 //! directly from Swift via the bridging header.
 
+#[cfg(target_os = "android")]
+use curl_sys as _;
+
 #[cfg(feature = "host-http-server")]
 pub mod cdp;
-pub mod identity_generated;
 pub mod engine;
 pub mod host;
+pub mod identity_generated;
 pub mod module_loader;
 #[cfg(feature = "host-http-server")]
 mod sync;
@@ -26,7 +29,7 @@ use std::path::PathBuf;
 /// Determine runtime cache directory.
 /// - macOS: ~/Library/Caches/Exact
 /// - iOS: app's Caches directory
-/// - Linux: ~/.cache/exact
+/// - Linux/Android: platform cache directory, falling back to ~/.cache/exact
 pub fn runtime_cache_dir() -> Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -43,7 +46,7 @@ pub fn runtime_cache_dir() -> Result<PathBuf> {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         if let Some(dir) = dirs::cache_dir() {
             return Ok(dir.join("exact"));
@@ -53,7 +56,12 @@ pub fn runtime_cache_dir() -> Result<PathBuf> {
         }
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "android"
+    )))]
     {
         if let Some(dir) = dirs::cache_dir() {
             return Ok(dir.join("exact"));

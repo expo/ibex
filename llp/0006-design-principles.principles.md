@@ -70,9 +70,11 @@ Linux defines `EXACT_NO_OPENSSL` unless `openssl-crypto` is enabled
 OpenSSL-free and provides portable MD5/SHA-1/SHA-2 hash/HMAC, PBKDF2, scrypt,
 and HKDF while keeping AES and asymmetric/key import-export on the
 `openssl-crypto` profile `[observed]`
-(`src/engine/hermes_runtime_crypto.cc`). The Windows file still has its own
-reduced surface and does not register those asymmetric throwing stubs
-`[observed]` (`src/engine/hermes_runtime_crypto_windows.cc:141-221`).
+(`src/engine/hermes_runtime_crypto.cc`). Android requires `openssl-crypto` and
+defines `EXACT_PLATFORM_ANDROID` while using vendored OpenSSL `[observed]`
+(`build.rs:933-949`). The Windows file still has its own reduced surface and
+does not register those asymmetric throwing stubs `[observed]`
+(`src/engine/hermes_runtime_crypto_windows.cc:141-221`).
 
 **Inferred:** `[inferred: preferring the OS-native crypto avoids shipping and
 trusting a bundled crypto library on platforms that already provide a vetted

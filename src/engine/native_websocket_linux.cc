@@ -3,9 +3,9 @@
  *
  * Linux WebSocket implementation.
  *
- * If libcurl headers are available (EXACT_HAS_CURL), this uses libcurl's
- * websocket API. Otherwise it falls back to stubs so non-network flows still
- * compile/run.
+ * The supported Linux networking profile uses libcurl's websocket API. A
+ * degraded fetch-only fallback can be enabled from build.rs for constrained
+ * local builds; WebSocket remains unavailable in that profile.
  */
 
 #include <cstddef>
@@ -66,6 +66,13 @@ struct WebSocketEntry {
 static std::mutex g_ws_mutex;
 static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> g_ws_connections;
 static std::atomic<uint32_t> g_next_ws_id{1};
+static std::once_flag g_curl_global_init_once;
+
+static void ensure_curl_global_init() {
+    std::call_once(g_curl_global_init_once, []() {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+    });
+}
 
 static bool should_trust_loopback_tls() {
     const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
@@ -302,6 +309,8 @@ extern "C" uint32_t native_ws_connect(
         return 0;
     }
 
+    ensure_curl_global_init();
+
     CURL* curl = curl_easy_init();
     if (!curl) {
         if (error_cb && context) {
@@ -375,7 +384,7 @@ extern "C" uint32_t native_ws_connect(
     (void)close_cb;
     (void)bytes_sent_cb;
     if (error_cb) {
-        error_cb(0, "native_ws_connect is not implemented on Linux yet (libcurl not available)", context);
+        error_cb(0, "native WebSocket requires Linux native networking with libcurl >= 7.86", context);
     }
     return 0;
 #endif

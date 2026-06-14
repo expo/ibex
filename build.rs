@@ -23,6 +23,30 @@ fn target_arch_to_hermes_dir(arch: &str) -> String {
     }
 }
 
+fn target_arch_to_android_abi(arch: &str) -> &'static str {
+    match arch {
+        "aarch64" => "arm64-v8a",
+        "arm" => "armeabi-v7a",
+        "x86" | "i686" => "x86",
+        "x86_64" => "x86_64",
+        _ => panic!("Unsupported Android target architecture: {arch}"),
+    }
+}
+
+fn android_prefab_module_root(root: &Path, module: &str) -> PathBuf {
+    root.join("prefab").join("modules").join(module)
+}
+
+fn android_prefab_include_dir(root: &Path, module: &str) -> PathBuf {
+    android_prefab_module_root(root, module).join("include")
+}
+
+fn android_prefab_lib_dir(root: &Path, module: &str, arch: &str) -> PathBuf {
+    android_prefab_module_root(root, module)
+        .join("libs")
+        .join(format!("android.{}", target_arch_to_android_abi(arch)))
+}
+
 fn windows_hermes_root(repo_root: &Path, arch: &str) -> PathBuf {
     repo_root
         .join("tools")
@@ -145,6 +169,20 @@ fn main() {
         .join("Frameworks")
         .join("hermes-headers");
     let default_linux_headers = repo_root.join("linux").join("hermes-headers");
+    let default_android_hermes_root =
+        optional_env_path(&["HERMES_ANDROID_DIR", "HERMES_ANDROID_ROOT"])
+            .unwrap_or_else(|| repo_root.join("android").join("hermes-android"));
+    let default_android_react_root =
+        optional_env_path(&["REACT_ANDROID_DIR", "REACT_ANDROID_ROOT"])
+            .unwrap_or_else(|| repo_root.join("android").join("react-android"));
+    let default_android_hermes_headers =
+        android_prefab_include_dir(&default_android_hermes_root, "hermesvm");
+    let default_android_hermes_lib =
+        android_prefab_lib_dir(&default_android_hermes_root, "hermesvm", &target_arch);
+    let default_android_jsi_headers =
+        android_prefab_include_dir(&default_android_react_root, "jsi");
+    let default_android_jsi_lib =
+        android_prefab_lib_dir(&default_android_react_root, "jsi", &target_arch);
     let default_windows_root = repo_root.join("tools").join("hermes").join(format!(
         "windows-{}",
         target_arch_to_hermes_dir(&target_arch)
@@ -154,8 +192,18 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| match target_os.as_str() {
             "linux" => default_linux_headers.clone(),
+            "android" => default_android_hermes_headers.clone(),
             "windows" => default_windows_headers.clone(),
             _ => default_ios_headers.clone(),
+        });
+    let jsi_include_dir = std::env::var("JSI_INCLUDE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            if target_os == "android" {
+                default_android_jsi_headers.clone()
+            } else {
+                hermes_include_dir.clone()
+            }
         });
     let default_ios_lib = repo_root.join("ios").join("Frameworks");
     let default_linux_lib = repo_root.join("linux").join("lib");
@@ -164,8 +212,18 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| match target_os.as_str() {
             "linux" => default_linux_lib.clone(),
+            "android" => default_android_hermes_lib.clone(),
             "windows" => default_windows_lib.clone(),
             _ => default_ios_lib.clone(),
+        });
+    let jsi_lib_dir = std::env::var("JSI_LIB_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            if target_os == "android" {
+                default_android_jsi_lib.clone()
+            } else {
+                hermes_lib_dir.clone()
+            }
         });
     let hermes_framework_dir = if target_os == "macos" {
         let xcframework_macos = hermes_lib_dir
@@ -191,6 +249,32 @@ fn main() {
             panic!(
                 "Linux Hermes library dir not found at {}. Run ./scripts/build-hermes-linux.sh or set HERMES_LIB_DIR.",
                 hermes_lib_dir.display()
+            );
+        }
+    }
+    if target_os == "android" {
+        if !hermes_include_dir.join("hermes").join("hermes.h").exists() {
+            panic!(
+                "Android Hermes headers not found at {}. Run ./scripts/install-android-hermes.sh or set HERMES_INCLUDE_DIR.",
+                hermes_include_dir.display()
+            );
+        }
+        if !hermes_lib_dir.join("libhermesvm.so").exists() {
+            panic!(
+                "Android Hermes library not found at {}. Run ./scripts/install-android-hermes.sh or set HERMES_LIB_DIR.",
+                hermes_lib_dir.display()
+            );
+        }
+        if !jsi_include_dir.join("jsi").join("jsi.h").exists() {
+            panic!(
+                "Android JSI headers not found at {}. Run ./scripts/install-android-hermes.sh or set JSI_INCLUDE_DIR.",
+                jsi_include_dir.display()
+            );
+        }
+        if !jsi_lib_dir.join("libjsi.so").exists() {
+            panic!(
+                "Android JSI library not found at {}. Run ./scripts/install-android-hermes.sh or set JSI_LIB_DIR.",
+                jsi_lib_dir.display()
             );
         }
     }
@@ -291,11 +375,18 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_COMPILER");
     println!("cargo:rerun-if-env-changed=HERMES_CLI");
     println!("cargo:rerun-if-env-changed=HERMES_BINARY");
+    println!("cargo:rerun-if-env-changed=HERMES_ANDROID_DIR");
+    println!("cargo:rerun-if-env-changed=HERMES_ANDROID_ROOT");
     println!("cargo:rerun-if-env-changed=HERMES_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
+    println!("cargo:rerun-if-env-changed=REACT_ANDROID_DIR");
+    println!("cargo:rerun-if-env-changed=REACT_ANDROID_ROOT");
+    println!("cargo:rerun-if-env-changed=JSI_INCLUDE_DIR");
+    println!("cargo:rerun-if-env-changed=JSI_LIB_DIR");
     println!("cargo:rerun-if-env-changed=IBEX_REGENERATE_RUNTIME");
     println!("cargo:rerun-if-env-changed=IBEX_UPDATE_VENDORED_GENERATED");
+    println!("cargo:rerun-if-env-changed=IBEX_ALLOW_CURL_CLI_FALLBACK");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
     let host_http_server_enabled = std::env::var_os("CARGO_FEATURE_HOST_HTTP_SERVER").is_some();
     let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
@@ -331,7 +422,10 @@ fn main() {
             "cargo:warning=Ibex build: using vendored generated artifacts from {}",
             vendored_generated_dir.display()
         );
-        println!("cargo:rerun-if-changed={}", vendored_generated_dir.display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            vendored_generated_dir.display()
+        );
     } else if !regenerate_runtime {
         // The default ibex build is hermetic: it expects the committed
         // vendored-generated/ artifacts. If they are missing, fail loudly
@@ -722,6 +816,7 @@ fn main() {
         .file("src/engine/hermes_runtime_fetch.cc")
         .file("src/engine/hermes_runtime_ipc.cc")
         .include(&hermes_include_dir)
+        .include(&jsi_include_dir)
         .include(&out_dir); // For bootstrap_bytecode.h
 
     build.std("c++17");
@@ -791,6 +886,10 @@ fn main() {
         "ios" => {
             build.flag("-mios-version-min=17.0");
         }
+        "android" => {
+            build.flag_if_supported("-fexceptions");
+            build.flag_if_supported("-frtti");
+        }
         _ => {}
     }
 
@@ -832,11 +931,28 @@ fn main() {
             let brotli_include = manifest_dir.join("vendor").join("brotli").join("include");
             build.include(&brotli_include);
         }
+        "android" => {
+            // @ref LLP 0001#2-the-axes-that-matter-beyond-os — Android's first
+            // supported crypto profile is vendored OpenSSL until a native
+            // Android backend exists.
+            if !openssl_crypto_enabled {
+                panic!(
+                    "Android builds require --features openssl-crypto until Ibex has an Android-native crypto backend."
+                );
+            }
+            let openssl_include = std::env::var("DEP_OPENSSL_INCLUDE").unwrap_or_else(|_| {
+                panic!("Android openssl-crypto is enabled, but DEP_OPENSSL_INCLUDE was not set")
+            });
+            build.include(openssl_include);
+            build.define("EXACT_PLATFORM_ANDROID", None);
+            let brotli_include = manifest_dir.join("vendor").join("brotli").join("include");
+            build.include(&brotli_include);
+        }
         _ => {}
     }
 
     // App-host profile uses the same reduced crypto shape as Windows for now.
-    if app_host_enabled {
+    if app_host_enabled && target_os != "android" {
         build.define("EXACT_NO_OPENSSL", None);
     }
 
@@ -988,8 +1104,80 @@ fn main() {
         println!("cargo:rustc-link-lib=ws2_32");
     }
 
+    if target_os == "android" {
+        let curl_include = std::env::var("DEP_CURL_INCLUDE").unwrap_or_else(|_| {
+            panic!(
+                "Android native networking requires curl-sys metadata, but DEP_CURL_INCLUDE was not set"
+            )
+        });
+
+        let mut fetch_build = cc::Build::new();
+        fetch_build
+            .cpp(true)
+            .file("src/engine/native_fetch_linux.cc")
+            .include(&curl_include)
+            .define("EXACT_HAS_CURL", None)
+            .define("CURL_STATICLIB", None)
+            .std("c++17")
+            .flag_if_supported("-fPIC")
+            .flag_if_supported("-fexceptions")
+            .flag_if_supported("-frtti");
+        fetch_build.compile("exact_native_fetch");
+
+        let mut ws_build = cc::Build::new();
+        ws_build
+            .cpp(true)
+            .file("src/engine/native_websocket_linux.cc")
+            .include(&curl_include)
+            .define("EXACT_HAS_CURL", None)
+            .define("CURL_STATICLIB", None)
+            .std("c++17")
+            .flag_if_supported("-fPIC")
+            .flag_if_supported("-fexceptions")
+            .flag_if_supported("-frtti");
+        ws_build.compile("exact_native_websocket");
+
+        println!(
+            "cargo:rustc-link-search=native={}",
+            hermes_lib_dir.display()
+        );
+        println!("cargo:rustc-link-lib=dylib=hermesvm");
+        println!("cargo:rustc-link-search=native={}", jsi_lib_dir.display());
+        println!("cargo:rustc-link-lib=dylib=jsi");
+        if let Ok(lib_dir) = std::env::var("DEP_OPENSSL_LIB_DIR") {
+            println!("cargo:rustc-link-search=native={}", lib_dir);
+        }
+        println!("cargo:rustc-link-lib=static=ssl");
+        println!("cargo:rustc-link-lib=static=crypto");
+        println!("cargo:rustc-link-lib=c++_shared");
+        println!("cargo:rustc-link-lib=z");
+        println!("cargo:rustc-link-lib=log");
+        println!("cargo:rustc-link-lib=android");
+        println!("cargo:rustc-link-lib=dl");
+        println!("cargo:rustc-link-lib=m");
+
+        let brotli_dir = manifest_dir.join("vendor").join("brotli");
+        let mut brotli_build = cc::Build::new();
+        brotli_build
+            .include(brotli_dir.join("include"))
+            .flag_if_supported("-fPIC");
+        for subdir in &["common", "dec", "enc"] {
+            let dir = brotli_dir.join(subdir);
+            for path in read_dir_paths_or_panic(&dir, "vendored Brotli source discovery") {
+                if path.extension().is_some_and(|e| e == "c") {
+                    brotli_build.file(&path);
+                }
+            }
+        }
+        brotli_build.compile("brotli");
+    }
+
     if target_os == "linux" {
         const MIN_LIBCURL_VERSION: &str = "7.86.0";
+        // @ref LLP 0008#linux-networking — libcurl is the supported Linux Fetch/WebSocket backend; the CLI fallback is explicit and degraded.
+        let allow_curl_cli_fallback = std::env::var("IBEX_ALLOW_CURL_CLI_FALLBACK")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
         let detected_libcurl_version = std::process::Command::new("pkg-config")
             .args(["--modversion", "libcurl"])
             .output()
@@ -1015,13 +1203,22 @@ fn main() {
             .flag_if_supported("-fPIC");
         if has_minimum_libcurl {
             fetch_build.define("EXACT_HAS_CURL", Some("1"));
-        } else {
+        } else if allow_curl_cli_fallback {
             match detected_libcurl_version.as_deref() {
                 Some(version) => println!(
-                    "cargo:warning=libcurl {version} detected, but >= {MIN_LIBCURL_VERSION} is required for native Linux networking; fetch will use curl CLI fallback and native websocket support is disabled"
+                    "cargo:warning=libcurl {version} detected, but >= {MIN_LIBCURL_VERSION} is required for native Linux networking; using degraded curl CLI fetch fallback and disabling native websocket support because IBEX_ALLOW_CURL_CLI_FALLBACK=1"
                 ),
                 None => println!(
-                    "cargo:warning=libcurl dev package not detected; native Linux fetch will use curl CLI fallback and native websocket support is disabled"
+                    "cargo:warning=libcurl dev package not detected; using degraded curl CLI fetch fallback and disabling native websocket support because IBEX_ALLOW_CURL_CLI_FALLBACK=1"
+                ),
+            }
+        } else {
+            match detected_libcurl_version.as_deref() {
+                Some(version) => panic!(
+                    "Linux native networking requires libcurl >= {MIN_LIBCURL_VERSION}; detected {version}. Install a newer libcurl development package or set IBEX_ALLOW_CURL_CLI_FALLBACK=1 for a degraded fetch-only fallback."
+                ),
+                None => panic!(
+                    "Linux native networking requires pkg-config and libcurl >= {MIN_LIBCURL_VERSION}. Install the libcurl development package (for example libcurl4-openssl-dev on Debian/Ubuntu) or set IBEX_ALLOW_CURL_CLI_FALLBACK=1 for a degraded fetch-only fallback."
                 ),
             }
         }
@@ -1322,9 +1519,7 @@ fn generate_runtime_bundle_source_header(
         );
         push_cpp_raw_string_literal(&mut header, "SHARED_RUNTIME_BUNDLE_SRC", &source);
         write_file_or_panic(&header_path, header, "runtime_bundle_source.h");
-        eprintln!(
-            "cargo:warning=Generated runtime_bundle_source.h from vendored runtime bundle"
-        );
+        eprintln!("cargo:warning=Generated runtime_bundle_source.h from vendored runtime bundle");
         generate_runtime_bundle_bytecode_header(repo_root, out_dir, &bundled_runtime);
         return;
     }
@@ -1727,10 +1922,7 @@ fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
 /// OUT_DIR for the standalone Ibex build.
 fn copy_dir_files(src: &Path, dst: &Path, extensions: &[&str]) {
     if let Err(error) = std::fs::create_dir_all(dst) {
-        panic!(
-            "Failed to create OUT_DIR subdir {}: {error}",
-            dst.display()
-        );
+        panic!("Failed to create OUT_DIR subdir {}: {error}", dst.display());
     }
     for path in read_dir_paths_or_panic(src, "vendored artifact copy") {
         let matches_ext = path
@@ -1936,7 +2128,7 @@ fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&P
             true
         }
         None => match target_os {
-            "ios" => false,
+            "ios" | "android" => false,
             "macos" => match hermes_macos_binary {
                 Some(binary_path) if macos_hermes_has_debugger_symbols(binary_path) => true,
                 Some(binary_path) => {
