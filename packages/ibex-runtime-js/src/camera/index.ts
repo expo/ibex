@@ -778,6 +778,44 @@ interface RollingChunk {
   includesAudio: boolean;
 }
 
+interface NativeCameraHostSessionResponse {
+  sessionId?: string;
+  snapshot?: Partial<CameraSessionSnapshot>;
+  diagnostics?: Partial<CameraSessionDiagnostics>;
+  processorState?: CameraProcessorStateSnapshot | null;
+}
+
+interface NativeCameraHostProviderResponse {
+  backend?: string;
+  metadata?: boolean;
+  sessionProviderInstalled?: boolean;
+  preview?: boolean;
+  photo?: boolean;
+  snapshot?: boolean;
+  video?: boolean;
+  frameCapture?: boolean;
+  scene?: boolean;
+  replay?: boolean;
+}
+
+interface NativeCameraHostCaptureFrameResponse {
+  uri?: string;
+  mimeType?: string;
+  dataBase64?: string;
+}
+
+interface NativeCameraHostSceneResponse {
+  scene?: CameraSceneSnapshot;
+}
+
+interface NativeCameraHostAnalysisResponse {
+  analysis?: CameraAnalysisSnapshot | null;
+}
+
+interface NativeCameraHostRecordingStopResponse {
+  video?: CameraVideoResult;
+}
+
 const CAMERA_OPERATION_PERMISSIONS = Object.freeze({
   takePhoto: Object.freeze(["device:camera:back", "device:camera:front"]),
   takeBurst: Object.freeze(["device:camera:back", "device:camera:front"]),
@@ -931,6 +969,7 @@ let defaultVirtualCameraConfig: VirtualCameraConfig = { ...DEFAULT_VIRTUAL_CONFI
 let cachedDevices: CameraDevice[] = [];
 let devicesRefreshPromise: Promise<CameraDevice[]> | null = null;
 let mediaDeviceListenersInstalled = false;
+let cachedNativeCameraProviderInfo: NativeCameraHostProviderResponse | null | undefined;
 
 function supportsBrowserCameraApis(): boolean {
   return typeof navigator !== "undefined" && !!navigator.mediaDevices;
@@ -1063,6 +1102,30 @@ export function invokeNativeCameraHostCall<T>(
   ) as T;
 }
 
+function getNativeCameraProviderInfo(): NativeCameraHostProviderResponse | null {
+  if (!hasNativeCameraHost()) {
+    return null;
+  }
+  if (typeof cachedNativeCameraProviderInfo !== "undefined") {
+    return cachedNativeCameraProviderInfo;
+  }
+
+  try {
+    cachedNativeCameraProviderInfo =
+      invokeNativeCameraHostCall<NativeCameraHostProviderResponse>(
+        "camera.provider.get",
+      ) ?? null;
+  } catch {
+    cachedNativeCameraProviderInfo = null;
+  }
+
+  return cachedNativeCameraProviderInfo;
+}
+
+export function hasNativeCameraSessionProvider(): boolean {
+  return getNativeCameraProviderInfo()?.sessionProviderInstalled === true;
+}
+
 function normalizeNativePermissionResponse(
   response: NativeCameraHostPermissionResponse | null | undefined,
   fallbackSettingsUrl: string,
@@ -1137,6 +1200,18 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(byte);
   }
   return btoa(binary);
+}
+
+function base64ToBlob(dataBase64: string, mimeType: string): Blob {
+  if (typeof atob !== "function") {
+    throw new Error("Native camera frame data requires base64 decoding support.");
+  }
+  const binary = atob(dataBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mimeType });
 }
 
 function normalizeFacingFromLabel(label: string): CameraPosition {
@@ -3528,6 +3603,591 @@ interface CameraStateSubscriber {
   (): void;
 }
 
+function makeDefaultCameraSessionDiagnostics(): CameraSessionDiagnostics {
+  return {
+    framesReceived: 0,
+    framesProcessed: 0,
+    framesDropped: 0,
+    processorFps: 0,
+    pathBActivations: 0,
+    lastFrameTimestamp: null,
+    lastProcessorTimestamp: null,
+    recordingBytesWritten: 0,
+    recordingChunks: 0,
+    barcodeDetectorAvailable: false,
+    workerActive: false,
+    virtualSourceType: null,
+  };
+}
+
+function normalizeCameraSessionOptions(
+  options: CameraSessionOptions = {},
+): CameraSessionOptions {
+  return {
+    position: "back",
+    active: true,
+    intent: undefined,
+    photo: true,
+    video: false,
+    previewMode: "native",
+    zoom: 1,
+    mirror: false,
+    resizeMode: "cover",
+    flash: "auto",
+    torch: false,
+    autoFocus: true,
+    autoExposure: true,
+    autoWhiteBalance: true,
+    processing: "auto",
+    retroactiveBuffer: 0,
+    ...options,
+  };
+}
+
+function serializeCameraSessionOptions(
+  options: CameraSessionOptions,
+): Record<string, unknown> {
+  const {
+    onInitialized: _onInitialized,
+    onError: _onError,
+    onStatusChange: _onStatusChange,
+    onShutter: _onShutter,
+    codeScanner,
+    frameProcessor,
+    ...serializable
+  } = options;
+
+  return {
+    ...serializable,
+    codeScanner: codeScanner
+      ? {
+          types: [...codeScanner.types],
+          fps: codeScanner.fps,
+        }
+      : null,
+    frameProcessor: isCameraFrameProcessor(frameProcessor)
+      ? {
+          kind: frameProcessor.kind,
+          source: frameProcessor.source,
+          fps: frameProcessor.fps,
+        }
+      : null,
+  };
+}
+
+function makeSessionSnapshot(input: {
+  id: string;
+  options: CameraSessionOptions;
+  initialized: boolean;
+  nativeSnapshot?: Partial<CameraSessionSnapshot> | null;
+  lastError?: CameraError | null;
+  recordingState?: CameraSessionSnapshot["recordingState"];
+}): CameraSessionSnapshot {
+  const device = input.options.device ?? null;
+  const format = input.options.format ?? device?.formats[0] ?? null;
+  const base: CameraSessionSnapshot = {
+    id: input.id,
+    deviceId: device?.id ?? null,
+    deviceName: device?.name ?? null,
+    position: device?.position ?? input.options.position ?? "back",
+    intent: input.options.intent ?? null,
+    active: input.options.active !== false,
+    initialized: input.initialized,
+    previewMode: input.options.previewMode ?? "native",
+    photo: input.options.photo !== false,
+    video: input.options.video === true,
+    pathBActive: false,
+    frameProcessorActive: isCameraFrameProcessor(input.options.frameProcessor),
+    codeScannerActive: !!input.options.codeScanner,
+    usingVirtualCamera: device?.isVirtual === true,
+    recordingState: input.recordingState ?? "inactive",
+    mirror: input.options.mirror === true,
+    resizeMode: input.options.resizeMode ?? "cover",
+    zoom: input.options.zoom ?? 1,
+    thermalState: "nominal",
+    lastFrameId: null,
+    renderSize: format
+      ? {
+          width: format.videoWidth,
+          height: format.videoHeight,
+        }
+      : null,
+    streamSize: format
+      ? {
+          width: format.videoWidth,
+          height: format.videoHeight,
+        }
+      : null,
+    lastError: input.lastError ?? null,
+  };
+
+  return {
+    ...base,
+    ...(input.nativeSnapshot ?? {}),
+    id: input.id,
+    lastError: input.nativeSnapshot?.lastError ?? input.lastError ?? null,
+  };
+}
+
+function makeNativeCameraError(
+  operation: string,
+  error: unknown,
+  code: CameraError["code"] = "device/configuration-failed",
+): CameraError {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    "message" in error &&
+    "recoverable" in error
+  ) {
+    return error as CameraError;
+  }
+
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : `Native camera operation failed: ${operation}.`;
+  return makeCameraError(code, message, true, error instanceof Error ? error : undefined);
+}
+
+function throwInvalidNativeCameraResult(operation: string): never {
+  throw makeCameraError(
+    "capture/failed",
+    `Native camera operation returned an invalid result: ${operation}.`,
+    true,
+  );
+}
+
+function readNativeResult<T>(
+  response: unknown,
+  key: string,
+  operation: string,
+): T {
+  const record =
+    typeof response === "object" && response !== null
+      ? (response as Record<string, unknown>)
+      : null;
+  const result = record && key in record ? record[key] : response;
+  if (typeof result !== "object" || result === null) {
+    throwInvalidNativeCameraResult(operation);
+  }
+  return result as T;
+}
+
+function extractNativeSessionResponse(
+  response: unknown,
+): NativeCameraHostSessionResponse | null {
+  if (typeof response !== "object" || response === null) {
+    return null;
+  }
+  const record = response as NativeCameraHostSessionResponse;
+  if (
+    typeof record.sessionId !== "undefined" ||
+    typeof record.snapshot !== "undefined" ||
+    typeof record.diagnostics !== "undefined" ||
+    typeof record.processorState !== "undefined"
+  ) {
+    return record;
+  }
+  return null;
+}
+
+// @ref LLP 0008#android-backend-matrix — Android camera sessions route through
+// an app-installed native provider so CameraX can own preview/capture lifecycle.
+export class NativeCameraSessionController implements CameraAgentSessionHandle {
+  readonly id: string;
+
+  private options: CameraSessionOptions;
+  private nativeSessionId: string;
+  private initialized = false;
+  private lastSnapshot: Partial<CameraSessionSnapshot> | null = null;
+  private diagnostics: CameraSessionDiagnostics = makeDefaultCameraSessionDiagnostics();
+  private lastProcessorState: CameraProcessorStateSnapshot | null = null;
+  private readonly subscribers = new Set<CameraStateSubscriber>();
+  private recordingState: CameraSessionSnapshot["recordingState"] = "inactive";
+  private currentRecordingOptions: CameraRecordingOptions | null = null;
+  private lastError: CameraError | null = null;
+
+  constructor(options: CameraSessionOptions = {}) {
+    if (!hasNativeCameraSessionProvider()) {
+      throw new Error(
+        "Android camera sessions require an installed native camera session provider.",
+      );
+    }
+
+    this.id = options.id ?? createSessionId();
+    this.nativeSessionId = this.id;
+    this.options = normalizeCameraSessionOptions(options);
+
+    try {
+      const response = this.callNative<NativeCameraHostSessionResponse>(
+        "camera.session.create",
+        {
+          options: serializeCameraSessionOptions(this.options),
+        },
+      );
+      this.applySessionResponse(response);
+      this.initialized = true;
+      registerCameraAgentSession(this);
+      this.options.onInitialized?.();
+    } catch (error) {
+      const cameraError = makeNativeCameraError("camera.session.create", error);
+      this.lastError = cameraError;
+      this.options.onError?.(cameraError);
+      throw error instanceof Error ? error : new Error(cameraError.message);
+    }
+  }
+
+  getSnapshot(): CameraSessionSnapshot {
+    return makeSessionSnapshot({
+      id: this.id,
+      options: this.options,
+      initialized: this.initialized,
+      nativeSnapshot: this.lastSnapshot,
+      lastError: this.lastError,
+      recordingState: this.recordingState,
+    });
+  }
+
+  getDiagnostics(): CameraSessionDiagnostics {
+    return { ...this.diagnostics };
+  }
+
+  getPlanContext(): Pick<
+    CameraSessionOptions,
+    "format" | "processing" | "photo" | "previewMode"
+  > {
+    return {
+      format: this.options.format ?? null,
+      processing: this.options.processing ?? "auto",
+      photo: this.options.photo !== false,
+      previewMode: this.options.previewMode ?? "native",
+    };
+  }
+
+  getProcessorState(): CameraProcessorStateSnapshot {
+    return this.lastProcessorState
+      ? { ...this.lastProcessorState }
+      : {
+          frameId: this.getSnapshot().lastFrameId,
+          timestamp: null,
+          result: null,
+        };
+  }
+
+  subscribe(listener: CameraStateSubscriber): () => void {
+    this.subscribers.add(listener);
+    return () => {
+      this.subscribers.delete(listener);
+    };
+  }
+
+  updateOptions(nextOptions: CameraSessionOptions): void {
+    this.options = normalizeCameraSessionOptions({
+      ...this.options,
+      ...nextOptions,
+    });
+    const response = this.callNative<NativeCameraHostSessionResponse>(
+      "camera.session.update",
+      {
+        options: serializeCameraSessionOptions(this.options),
+      },
+    );
+    this.applySessionResponse(response);
+    this.notify();
+  }
+
+  async destroy(): Promise<void> {
+    try {
+      this.callNative<NativeCameraHostSessionResponse>("camera.session.destroy");
+    } finally {
+      unregisterCameraAgentSession(this.id);
+      this.subscribers.clear();
+      this.initialized = false;
+    }
+  }
+
+  async captureFrame(
+    options: CameraAgentFrameCaptureOptions = {},
+  ): Promise<Blob> {
+    const response = this.callNative<NativeCameraHostCaptureFrameResponse>(
+      "camera.frame.capture",
+      {
+        options,
+      },
+      "capture/failed",
+    );
+    this.applySessionResponse(extractNativeSessionResponse(response));
+
+    if (response?.dataBase64) {
+      return base64ToBlob(response.dataBase64, response.mimeType ?? "image/png");
+    }
+
+    if (response?.uri && typeof fetch === "function") {
+      const fetched = await fetch(response.uri);
+      return fetched.blob();
+    }
+
+    throwInvalidNativeCameraResult("camera.frame.capture");
+  }
+
+  async takePhoto(options: CameraPhotoOptions = {}): Promise<CameraPhotoResult> {
+    this.options.onShutter?.();
+    const response = this.callNative<unknown>(
+      "camera.photo.take",
+      {
+        options,
+      },
+      "capture/failed",
+    );
+    this.applySessionResponse(extractNativeSessionResponse(response));
+    const result = readNativeResult<CameraPhotoResult>(
+      response,
+      "photo",
+      "camera.photo.take",
+    );
+    recordCameraSessionCapture(this.id, result);
+    return result;
+  }
+
+  async takeSnapshot(
+    options: CameraSnapshotOptions = {},
+  ): Promise<CameraSnapshotResult> {
+    const response = this.callNative<unknown>(
+      "camera.snapshot.take",
+      {
+        options,
+      },
+      "capture/failed",
+    );
+    this.applySessionResponse(extractNativeSessionResponse(response));
+    const result = readNativeResult<CameraSnapshotResult>(
+      response,
+      "snapshot",
+      "camera.snapshot.take",
+    );
+    recordCameraSessionCapture(this.id, result);
+    return result;
+  }
+
+  async startRecording(options: CameraRecordingOptions = {}): Promise<void> {
+    const response = this.callNative<NativeCameraHostSessionResponse>(
+      "camera.recording.start",
+      {
+        options: {
+          codec: options.codec,
+          maxDuration: options.maxDuration,
+          audio: options.audio,
+          location: options.location,
+          includeRetroactive: options.includeRetroactive,
+          recordingFps: options.recordingFps,
+        },
+      },
+      "capture/failed",
+    );
+    this.currentRecordingOptions = options;
+    this.recordingState = "recording";
+    this.applySessionResponse(response);
+    this.notify();
+  }
+
+  async stopRecording(): Promise<void> {
+    const response = this.callNative<NativeCameraHostRecordingStopResponse>(
+      "camera.recording.stop",
+      undefined,
+      "capture/failed",
+    );
+    this.recordingState = "inactive";
+    this.applySessionResponse(extractNativeSessionResponse(response));
+    if (response?.video) {
+      this.currentRecordingOptions?.onFinished?.(response.video);
+    }
+    this.currentRecordingOptions = null;
+    this.notify();
+  }
+
+  async pauseRecording(): Promise<void> {
+    const response = this.callNative<NativeCameraHostSessionResponse>(
+      "camera.recording.pause",
+      undefined,
+      "capture/failed",
+    );
+    this.recordingState = "paused";
+    this.applySessionResponse(response);
+    this.notify();
+  }
+
+  async resumeRecording(): Promise<void> {
+    const response = this.callNative<NativeCameraHostSessionResponse>(
+      "camera.recording.resume",
+      undefined,
+      "capture/failed",
+    );
+    this.recordingState = "recording";
+    this.applySessionResponse(response);
+    this.notify();
+  }
+
+  async cancelRecording(): Promise<void> {
+    const response = this.callNative<NativeCameraHostSessionResponse>(
+      "camera.recording.cancel",
+      undefined,
+      "capture/failed",
+    );
+    this.recordingState = "inactive";
+    this.currentRecordingOptions = null;
+    this.applySessionResponse(response);
+    this.notify();
+  }
+
+  async focus(point: CameraPoint): Promise<void> {
+    const response = this.callNative<NativeCameraHostSessionResponse>(
+      "camera.focus.set",
+      {
+        point,
+      },
+    );
+    this.applySessionResponse(response);
+    this.notify();
+  }
+
+  async setExposurePoint(point: CameraPoint): Promise<void> {
+    const response = this.callNative<NativeCameraHostSessionResponse>(
+      "camera.exposurePoint.set",
+      {
+        point,
+      },
+    );
+    this.applySessionResponse(response);
+    this.notify();
+  }
+
+  computeAnalysis(options: CameraAnalysisOptions): CameraAnalysisSnapshot | null {
+    try {
+      const response = this.callNative<NativeCameraHostAnalysisResponse>(
+        "camera.analysis.get",
+        {
+          options,
+        },
+        "processor/failed",
+      );
+      this.applySessionResponse(extractNativeSessionResponse(response));
+      return response?.analysis ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getScene(options: {
+    features?: CameraSceneFeature[];
+  } = {}): Promise<CameraSceneSnapshot> {
+    try {
+      const response = this.callNative<NativeCameraHostSceneResponse>(
+        "camera.scene.get",
+        {
+          options,
+        },
+        "processor/failed",
+      );
+      this.applySessionResponse(extractNativeSessionResponse(response));
+      if (response?.scene) {
+        return response.scene;
+      }
+    } catch {
+      // Fall through to analysis-derived scene data below.
+    }
+
+    const snapshot = this.getSnapshot();
+    const requestedFeatures = options.features ?? getCameraSceneFeatures();
+    return deriveSceneFromAnalysis(
+      this.computeAnalysis({
+        histogram: requestedFeatures.includes("brightness"),
+        clipping: requestedFeatures.includes("blur"),
+        fps: 0,
+      }),
+      snapshot.lastFrameId,
+      requestedFeatures,
+    );
+  }
+
+  async exportReplay(options: {
+    seconds: number;
+  }): Promise<CameraReplayExport> {
+    const response = this.callNative<unknown>(
+      "camera.replay.export",
+      {
+        options,
+      },
+      "capture/no-buffer-data",
+    );
+    this.applySessionResponse(extractNativeSessionResponse(response));
+    return readNativeResult<CameraReplayExport>(
+      response,
+      "replay",
+      "camera.replay.export",
+    );
+  }
+
+  private callNative<T>(
+    operation: string,
+    payload?: Record<string, unknown>,
+    errorCode?: CameraError["code"],
+  ): T {
+    try {
+      return invokeNativeCameraHostCall<T>(operation, {
+        sessionId: this.nativeSessionId,
+        ...(payload ?? {}),
+      }) as T;
+    } catch (error) {
+      const cameraError = makeNativeCameraError(operation, error, errorCode);
+      this.lastError = cameraError;
+      this.options.onError?.(cameraError);
+      this.currentRecordingOptions?.onError?.(cameraError);
+      throw error instanceof Error ? error : new Error(cameraError.message);
+    }
+  }
+
+  private applySessionResponse(
+    response: NativeCameraHostSessionResponse | null | undefined,
+  ): void {
+    if (!response) {
+      return;
+    }
+
+    if (typeof response.sessionId === "string" && response.sessionId.length > 0) {
+      this.nativeSessionId = response.sessionId;
+    }
+    if (response.snapshot) {
+      this.lastSnapshot = {
+        ...(this.lastSnapshot ?? {}),
+        ...response.snapshot,
+      };
+      if (response.snapshot.recordingState) {
+        this.recordingState = response.snapshot.recordingState;
+      }
+      if (typeof response.snapshot.initialized === "boolean") {
+        this.initialized = response.snapshot.initialized;
+      }
+    }
+    if (response.diagnostics) {
+      this.diagnostics = {
+        ...this.diagnostics,
+        ...response.diagnostics,
+      };
+    }
+    if (typeof response.processorState !== "undefined") {
+      this.lastProcessorState = response.processorState;
+    }
+  }
+
+  private notify(): void {
+    for (const subscriber of this.subscribers) {
+      subscriber();
+    }
+  }
+}
+
 export class WebCameraSessionController implements CameraAgentSessionHandle {
   readonly id: string;
 
@@ -5434,6 +6094,26 @@ export function createWebCameraSession(
   options: CameraSessionOptions = {},
 ): WebCameraSessionController {
   return new WebCameraSessionController(options);
+}
+
+export function createNativeCameraSession(
+  options: CameraSessionOptions = {},
+): NativeCameraSessionController {
+  return new NativeCameraSessionController(options);
+}
+
+export function createCameraSession(
+  options: CameraSessionOptions = {},
+): CameraAgentSessionHandle {
+  if (hasNativeCameraSessionProvider()) {
+    return createNativeCameraSession(options);
+  }
+  if (globalThis.__exactPlatform === "android" && hasNativeCameraHost()) {
+    throw new Error(
+      "Android camera sessions require an installed native camera session provider.",
+    );
+  }
+  return createWebCameraSession(options);
 }
 
 export function chooseCameraDevice(

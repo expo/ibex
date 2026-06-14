@@ -479,7 +479,7 @@ void installAndroidLocationBridge(facebook::jsi::Runtime& rt) {
 
 void installAndroidCameraBridge(facebook::jsi::Runtime& rt) {
   facebook::jsi::Object metadata(rt);
-  metadata.setProperty(rt, "version", facebook::jsi::String::createFromUtf8(rt, "0.2.0"));
+  metadata.setProperty(rt, "version", facebook::jsi::String::createFromUtf8(rt, "0.3.0"));
   metadata.setProperty(rt, "moduleId", facebook::jsi::Value::null());
   metadata.setProperty(rt, "stateOffset", facebook::jsi::Value::null());
   metadata.setProperty(rt, "stateSize", facebook::jsi::Value(0));

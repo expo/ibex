@@ -32,10 +32,39 @@ and `notifyNewIntent()` so `AppState`, `Linking`, `Dimensions`, and window
 events reflect the foreground app.
 
 The built-in camera host bridge exposes synchronous Android camera permission,
-device inventory, and session-capability metadata through CameraManager. App
-preview and capture should be implemented with CameraX above that bridge; the
-runtime does not yet ship a complete CameraX preview/photo/video session
-provider.
+device inventory, and session-capability metadata through CameraManager. Apps
+that want native preview and capture should install a CameraX-backed session
+provider before creating the Ibex runtime:
+
+```java
+IbexNetworking.setCameraHostProvider(new IbexNetworking.CameraHostProvider() {
+  @Override
+  public String cameraHostCall(String operation, String payloadJson) throws Exception {
+    if ("camera.provider.get".equals(operation)) {
+      return "{\"backend\":\"app-camerax\",\"metadata\":true,"
+          + "\"sessionProviderInstalled\":true,\"preview\":true,"
+          + "\"photo\":true,\"snapshot\":true,\"video\":true,"
+          + "\"frameCapture\":true,\"scene\":true,\"replay\":false}";
+    }
+    if (operation.startsWith("camera.session.")
+        || operation.startsWith("camera.photo.")
+        || operation.startsWith("camera.snapshot.")
+        || operation.startsWith("camera.recording.")
+        || operation.startsWith("camera.focus.")
+        || operation.startsWith("camera.analysis.")
+        || operation.startsWith("camera.scene.")
+        || operation.startsWith("camera.replay.")) {
+      // Route to the app's CameraX controller and return JSON shaped like the
+      // ibex camera session/capture result types.
+      return cameraXHostCall(operation, payloadJson);
+    }
+    return null; // fall back to built-in permission/device metadata.
+  }
+});
+```
+
+Without a provider, Android camera sessions report an explicit unsupported
+operation instead of falling back to the DOM camera controller.
 
 The bridge configures OkHttp with redirects disabled because Ibex's JS fetch
 layer implements Fetch redirect policy itself.

@@ -64,7 +64,7 @@ better app-runtime integration point. The June 2026 Android backend target is:
 | OS info / process metadata | Bionic/sysconf/sysinfo/getifaddrs plus Android-specific values where exposed by the host. | POSIX plus Android Java/JNI globals for SDK version, locale tags, 24-hour preference, screen metrics, font scale, appearance, and accessibility snapshot. | Verify `os`, `process`, `navigator`, `Dimensions`, `Appearance`, locale, and accessibility values on Android. |
 | Clipboard | Android `ClipboardManager` through an app/Java host bridge. | Android installs `__exactClipboardRead/Write` backed by the initialized app context's `ClipboardManager`; `exact:clipboard` and `navigator.clipboard` use those hooks. | Verify read/write text and permission/foreground restrictions. |
 | Location | Android framework `LocationManager` as the platform baseline; apps may adapt Google Play services above this runtime if desired. | Java/JNI bridge exposes permission status, location-services state, and current fixes through `__exactAndroidLocation`; JS `NativeLocationBackend` now uses it for `getCurrentPosition()` and a polling `watchPosition()` implementation. | Verify foreground app permissions, one-shot current fixes, permission-denied errors, timeout/errors, and watch behavior; replace polling with provider update callbacks if app-process testing shows polling is not sufficient. |
-| Camera | CameraX for app-facing camera capture; Camera2/CameraManager for framework enumeration and lower-level specialized needs. | Android installs `__exactAndroidCameraHostCall` plus module metadata so the camera JS uses native permission, device inventory, and session-capability data from the Java/JNI bridge. The Java helper currently uses framework `CameraManager` for metadata; CameraX preview/session/photo/video capture provider wiring is still absent. | Add/verify a CameraX app/Java session provider for preview lifecycle, photo capture, video capture, errors, and permission callbacks; keep the current CameraManager inventory smoke as a lower-level metadata check. |
+| Camera | CameraX for app-facing camera capture; Camera2/CameraManager for framework enumeration and lower-level specialized needs. | Android installs `__exactAndroidCameraHostCall` plus module metadata so the camera JS uses native permission, device inventory, and session-capability data from the Java/JNI bridge. The JS camera factory can now create an Android native session controller when `camera.provider.get` reports an app-installed session provider, and `IbexNetworking.setCameraHostProvider()` lets an app delegate those session/capture operations to a CameraX implementation. The built-in Java helper remains metadata-only without that provider. | Add/verify a production CameraX provider for preview lifecycle, photo capture, video capture, errors, and permission callbacks; keep the current CameraManager inventory smoke as a lower-level metadata check. |
 | Window / navigator / React Native device APIs | App host bridge to Android resources, display metrics, locale, app state, deep links, and appearance. | Initial locale/screen/appearance/accessibility/platform-version values come from Android Resources, DateFormat, and AccessibilityManager through the Java/JNI bridge; Java `ComponentCallbacks` and `Application.ActivityLifecycleCallbacks` enqueue configuration, memory-warning, and app-state events, with public host hooks for Activity/intents/deep links. JS dispatch updates locale/accessibility/media queries, window resize/orientation events, and React Native `Dimensions`, `Appearance`, `AppState`, and `Linking` notifiers. | Verify initial values and foreground app-process change events for configuration, app state, memory warning, and deep links. |
 | Inspector / workers / WASI / HTTP2 | Deliberate compatibility stubs unless a real Android-capable backend is designed. | Stubs/unsupported surfaces. | Keep explicit unsupported errors until an LLP defines support; tests should assert honest failure, not pretend success. |
 
@@ -150,12 +150,13 @@ or Windows process/socket primitives provided by the platform files.
 - Android app/device APIs that need Java/Kotlin host participation remain
   incomplete for full CameraX preview/capture. Initial window/navigator locale,
   screen, appearance/accessibility, platform version, clipboard, location,
-  camera permission/device metadata, app-state, deep-link, and configuration
-  data/events now use the Android Java/JNI bridge. The environment, location
-  permission, queued platform-event, and camera metadata probes were
-  smoke-tested on an emulator through `app_process`; foreground app-process
-  verification is still required for clipboard, granted-location fixes, real
-  Activity/configuration/deep-link event delivery, and CameraX preview/capture.
+  camera permission/device metadata, camera session-provider dispatch,
+  app-state, deep-link, and configuration data/events now use the Android
+  Java/JNI bridge. The environment, location permission, queued platform-event,
+  and camera metadata probes were smoke-tested on an emulator through
+  `app_process`; foreground app-process verification is still required for
+  clipboard, granted-location fixes, real Activity/configuration/deep-link
+  event delivery, and CameraX preview/capture.
 - Android crypto still uses vendored OpenSSL. That is acceptable for today's
   broad WebCrypto/Node crypto algorithm surface, but it is not a Keystore-backed
   non-extractable key backend.
@@ -215,10 +216,11 @@ must run on an Android runtime or emulator and exercise:
   through `notifyDeepLink()`, `notifyActivityStarted()`, `notifyActivityStopped()`,
   and `drainPlatformEvents()` in the Java helper. Foreground Activity delivery
   through a real app process is still required.
-- A later emulator smoke verified the Android Java camera host call returns
+- Later emulator smokes verified the Android Java camera host call returns
   native camera and microphone permission JSON, visible camera device IDs from
-  CameraManager, and session-capability JSON through `cameraHostCall()`. Full
-  CameraX preview/session/photo/video capture still requires foreground app
+  CameraManager, session-capability JSON, metadata-only provider status, and an
+  app-installed provider dispatch path through `cameraHostCall()`. Full CameraX
+  preview/session/photo/video capture still requires foreground app
   verification.
 - The emulator smoke also exposed two shell-harness limits: direct Java
   `DnsResolver.rawQuery()` timed out under `app_process`, so the C++ DNS path
