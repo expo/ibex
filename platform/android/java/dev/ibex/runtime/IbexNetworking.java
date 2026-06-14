@@ -1,13 +1,20 @@
 package dev.ibex.runtime;
 
+import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.net.DnsResolver;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.os.HandlerThread;
 import android.os.LocaleList;
 import android.provider.Settings;
 import android.text.format.DateFormat;
@@ -25,6 +32,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.Headers;
@@ -163,6 +171,76 @@ public final class IbexNetworking {
       0,
       0
     };
+  }
+
+  public static String locationPermissionStatus() {
+    Context context = applicationContext;
+    if (context == null) {
+      return "denied";
+    }
+    boolean hasFine = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION);
+    boolean hasCoarse = hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
+    if (!hasFine && !hasCoarse) {
+      return "denied";
+    }
+    if (Build.VERSION.SDK_INT >= 29
+        && hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
+      return "authorizedAlways";
+    }
+    return "authorizedWhenInUse";
+  }
+
+  public static boolean isLocationServicesEnabled() {
+    LocationManager locationManager = locationManager();
+    if (locationManager == null) {
+      return false;
+    }
+    try {
+      if (Build.VERSION.SDK_INT >= 28) {
+        return locationManager.isLocationEnabled();
+      }
+      return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+          || locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+    } catch (RuntimeException ignored) {
+      return false;
+    }
+  }
+
+  public static double[] getCurrentLocation(String accuracy, int timeoutMs) throws Exception {
+    if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+        && !hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+      throw new SecurityException("PERMISSION_DENIED: Android location permission denied");
+    }
+
+    LocationManager locationManager = locationManager();
+    if (locationManager == null) {
+      throw new IllegalStateException("POSITION_UNAVAILABLE: Android LocationManager is unavailable");
+    }
+    if (!isLocationServicesEnabled()) {
+      throw new IllegalStateException("POSITION_UNAVAILABLE: Android location services are disabled");
+    }
+
+    String provider = chooseLocationProvider(locationManager, accuracy);
+    if (provider == null) {
+      Location lastKnown = bestLastKnownLocation(locationManager);
+      if (lastKnown != null) {
+        return locationToArray(lastKnown);
+      }
+      throw new IllegalStateException("POSITION_UNAVAILABLE: No enabled Android location provider");
+    }
+
+    int timeout = timeoutMs > 0 ? timeoutMs : 10000;
+    Location current =
+        Build.VERSION.SDK_INT >= 30
+            ? getCurrentLocationApi30(locationManager, provider, timeout)
+            : requestSingleLocation(locationManager, provider, timeout);
+    if (current == null) {
+      current = bestLastKnownLocation(locationManager);
+    }
+    if (current == null) {
+      throw new IOException("POSITION_UNAVAILABLE: Android location provider returned no fix");
+    }
+    return locationToArray(current);
   }
 
   public static void fetch(
@@ -502,6 +580,158 @@ public final class IbexNetworking {
     }
   }
 
+  private static boolean hasPermission(String permission) {
+    Context context = applicationContext;
+    if (context == null) {
+      return false;
+    }
+    try {
+      if (context.getApplicationInfo() == null
+          || context.getApplicationInfo().uid != android.os.Process.myUid()) {
+        return false;
+      }
+    } catch (RuntimeException ignored) {
+      return false;
+    }
+    return context != null
+        && context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+  }
+
+  private static LocationManager locationManager() {
+    Context context = applicationContext;
+    return context == null
+        ? null
+        : (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+  }
+
+  private static String chooseLocationProvider(LocationManager locationManager, String accuracy) {
+    boolean highAccuracy = "best".equals(accuracy) || "nearestTenMeters".equals(accuracy);
+    String first = highAccuracy ? LocationManager.GPS_PROVIDER : LocationManager.NETWORK_PROVIDER;
+    String second = highAccuracy ? LocationManager.NETWORK_PROVIDER : LocationManager.GPS_PROVIDER;
+    if (isProviderEnabled(locationManager, first)) {
+      return first;
+    }
+    if (isProviderEnabled(locationManager, second)) {
+      return second;
+    }
+    if (isProviderEnabled(locationManager, LocationManager.PASSIVE_PROVIDER)) {
+      return LocationManager.PASSIVE_PROVIDER;
+    }
+    return null;
+  }
+
+  private static boolean isProviderEnabled(LocationManager locationManager, String provider) {
+    try {
+      return locationManager.isProviderEnabled(provider);
+    } catch (RuntimeException ignored) {
+      return false;
+    }
+  }
+
+  private static Location getCurrentLocationApi30(
+      LocationManager locationManager,
+      String provider,
+      int timeoutMs) throws Exception {
+    final CountDownLatch latch = new CountDownLatch(1);
+    final LocationResult result = new LocationResult();
+    CancellationSignal cancellationSignal = new CancellationSignal();
+    locationManager.getCurrentLocation(
+        provider,
+        cancellationSignal,
+        DIRECT_EXECUTOR,
+        new Consumer<Location>() {
+          @Override
+          public void accept(Location location) {
+            result.location = location;
+            latch.countDown();
+          }
+        });
+    if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+      cancellationSignal.cancel();
+      throw new TimeoutException("TIMEOUT: Android current location request timed out");
+    }
+    return result.location;
+  }
+
+  private static Location requestSingleLocation(
+      LocationManager locationManager,
+      String provider,
+      int timeoutMs) throws Exception {
+    final CountDownLatch latch = new CountDownLatch(1);
+    final LocationResult result = new LocationResult();
+    final HandlerThread thread = new HandlerThread("IbexLocation");
+    thread.start();
+    LocationListener listener = new LocationListener() {
+      @Override
+      public void onLocationChanged(Location location) {
+        result.location = location;
+        latch.countDown();
+      }
+
+      @Override
+      public void onStatusChanged(String provider, int status, Bundle extras) {}
+
+      @Override
+      public void onProviderEnabled(String provider) {}
+
+      @Override
+      public void onProviderDisabled(String provider) {
+        latch.countDown();
+      }
+    };
+    try {
+      locationManager.requestSingleUpdate(provider, listener, thread.getLooper());
+      if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+        throw new TimeoutException("TIMEOUT: Android single location request timed out");
+      }
+      return result.location;
+    } finally {
+      locationManager.removeUpdates(listener);
+      if (Build.VERSION.SDK_INT >= 18) {
+        thread.quitSafely();
+      } else {
+        thread.quit();
+      }
+    }
+  }
+
+  private static Location bestLastKnownLocation(LocationManager locationManager) {
+    Location best = null;
+    String[] providers = new String[] {
+      LocationManager.GPS_PROVIDER,
+      LocationManager.NETWORK_PROVIDER,
+      LocationManager.PASSIVE_PROVIDER
+    };
+    for (String provider : providers) {
+      try {
+        Location candidate = locationManager.getLastKnownLocation(provider);
+        if (candidate != null
+            && (best == null || candidate.getTime() > best.getTime())) {
+          best = candidate;
+        }
+      } catch (RuntimeException ignored) {
+        // Try the next provider.
+      }
+    }
+    return best;
+  }
+
+  private static double[] locationToArray(Location location) {
+    double altitude = location.hasAltitude() ? location.getAltitude() : Double.NaN;
+    double verticalAccuracy = Double.NaN;
+    if (Build.VERSION.SDK_INT >= 26 && location.hasVerticalAccuracy()) {
+      verticalAccuracy = location.getVerticalAccuracyMeters();
+    }
+    return new double[] {
+      location.getLatitude(),
+      location.getLongitude(),
+      altitude,
+      location.hasAccuracy() ? location.getAccuracy() : Double.NaN,
+      verticalAccuracy,
+      location.getTime()
+    };
+  }
+
   private static Headers parseHeaders(String headersText) {
     Headers.Builder builder = new Headers.Builder();
     if (headersText == null || headersText.isEmpty()) {
@@ -632,6 +862,10 @@ public final class IbexNetworking {
     byte[] answer;
     int rcode;
     Exception error;
+  }
+
+  private static final class LocationResult {
+    Location location;
   }
 
   private static native void nativeFetchDidComplete(

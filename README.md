@@ -66,7 +66,7 @@ ANDROID_TARGET=aarch64-linux-android ./scripts/cargo-android.sh
 Android currently requires `--features openssl-crypto`; the wrapper includes it
 by default. Native Android fetch/WebSocket use OkHttp through the Android
 Java/JNI bridge in `platform/android/java/dev/ibex/runtime/IbexNetworking.java`.
-The same bridge provides Android clipboard, raw DNS, locale, screen,
+The same bridge provides Android clipboard, raw DNS, location, locale, screen,
 appearance/accessibility, and platform-version data to the JS runtime.
 Embedding apps must include that Java source, add OkHttp to the Android
 classpath (for example `implementation("com.squareup.okhttp3:okhttp:5.4.0")`),

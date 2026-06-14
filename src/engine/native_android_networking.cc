@@ -62,6 +62,15 @@ struct AndroidAccessibilityFlags {
   int is_grayscale_enabled = 0;
 };
 
+struct AndroidLocationResult {
+  double latitude = 0.0;
+  double longitude = 0.0;
+  double altitude = 0.0;
+  double horizontal_accuracy = 0.0;
+  double vertical_accuracy = 0.0;
+  double timestamp = 0.0;
+};
+
 namespace {
 
 constexpr const char* kLogTag = "IbexNetworking";
@@ -104,6 +113,9 @@ struct AndroidNetworkingMethods {
   jmethodID uses_24_hour_clock = nullptr;
   jmethodID screen_info = nullptr;
   jmethodID accessibility_flags = nullptr;
+  jmethodID location_permission_status = nullptr;
+  jmethodID location_services_enabled = nullptr;
+  jmethodID current_location = nullptr;
 };
 
 std::mutex g_jni_mutex;
@@ -127,6 +139,9 @@ jmethodID g_locale_tags = nullptr;
 jmethodID g_uses_24_hour_clock = nullptr;
 jmethodID g_screen_info = nullptr;
 jmethodID g_accessibility_flags = nullptr;
+jmethodID g_location_permission_status = nullptr;
+jmethodID g_location_services_enabled = nullptr;
+jmethodID g_current_location = nullptr;
 
 std::mutex g_fetch_mutex;
 std::unordered_map<uint32_t, AndroidFetchRequest> g_fetch_requests;
@@ -611,6 +626,12 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
       env->GetStaticMethodID(cls, "screenInfo", "()[F");
   g_accessibility_flags =
       env->GetStaticMethodID(cls, "accessibilityFlags", "()[I");
+  g_location_permission_status =
+      env->GetStaticMethodID(cls, "locationPermissionStatus", "()Ljava/lang/String;");
+  g_location_services_enabled =
+      env->GetStaticMethodID(cls, "isLocationServicesEnabled", "()Z");
+  g_current_location =
+      env->GetStaticMethodID(cls, "getCurrentLocation", "(Ljava/lang/String;I)[D");
 
   if (clear_pending_exception(env, "cache IbexNetworking methods") ||
       !g_initialize ||
@@ -629,7 +650,10 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
       !g_locale_tags ||
       !g_uses_24_hour_clock ||
       !g_screen_info ||
-      !g_accessibility_flags) {
+      !g_accessibility_flags ||
+      !g_location_permission_status ||
+      !g_location_services_enabled ||
+      !g_current_location) {
     __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Missing IbexNetworking Java method");
     return false;
   }
@@ -661,6 +685,9 @@ bool get_networking_methods(JNIEnv* env, AndroidNetworkingMethods* out) {
   out->uses_24_hour_clock = g_uses_24_hour_clock;
   out->screen_info = g_screen_info;
   out->accessibility_flags = g_accessibility_flags;
+  out->location_permission_status = g_location_permission_status;
+  out->location_services_enabled = g_location_services_enabled;
+  out->current_location = g_current_location;
   return out->cls != nullptr;
 }
 
@@ -1160,6 +1187,181 @@ extern "C" int android_get_accessibility_flags(
   out_flags->color_scheme_dark = values[5] != 0 ? 1 : 0;
   out_flags->is_invert_colors_enabled = values[6] != 0 ? 1 : 0;
   out_flags->is_grayscale_enabled = values[7] != 0 ? 1 : 0;
+  return 1;
+}
+
+extern "C" int android_location_permission_status(
+    char** out_status,
+    char* error,
+    size_t error_capacity) {
+  if (out_status) {
+    *out_status = nullptr;
+  }
+  if (!out_status) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* message) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = message ? message : "Android location permission query failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods)) {
+    write_error("Android runtime bridge is not initialized");
+    return -1;
+  }
+
+  auto result = static_cast<jstring>(
+      env->CallStaticObjectMethod(methods.cls, methods.location_permission_status));
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android location permission query failed");
+    return -1;
+  }
+  env->DeleteLocalRef(methods.cls);
+
+  std::string status = jstring_to_string(env, result);
+  if (result) {
+    env->DeleteLocalRef(result);
+  }
+  if (status.empty()) {
+    status = "denied";
+  }
+  auto* copy = malloc_string_copy(status);
+  if (!copy) {
+    write_error("Failed to allocate Android location permission status");
+    return -1;
+  }
+  *out_status = copy;
+  return 1;
+}
+
+extern "C" int android_location_services_enabled(
+    int* out_enabled,
+    char* error,
+    size_t error_capacity) {
+  if (out_enabled) {
+    *out_enabled = 0;
+  }
+  if (!out_enabled) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* message) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = message ? message : "Android location services query failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods)) {
+    write_error("Android runtime bridge is not initialized");
+    return -1;
+  }
+
+  jboolean enabled =
+      env->CallStaticBooleanMethod(methods.cls, methods.location_services_enabled);
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android location services query failed");
+    return -1;
+  }
+  env->DeleteLocalRef(methods.cls);
+  *out_enabled = enabled == JNI_TRUE ? 1 : 0;
+  return 1;
+}
+
+extern "C" int android_location_get_current(
+    const char* accuracy,
+    int timeout_ms,
+    AndroidLocationResult* out_location,
+    char* error,
+    size_t error_capacity) {
+  if (out_location) {
+    *out_location = AndroidLocationResult{};
+  }
+  if (!out_location) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* message) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = message ? message : "Android current location query failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods)) {
+    write_error("Android runtime bridge is not initialized");
+    return -1;
+  }
+
+  jstring j_accuracy = string_to_jstring(env, accuracy ? accuracy : "hundredMeters");
+  if (!j_accuracy) {
+    env->DeleteLocalRef(methods.cls);
+    write_error("Failed to allocate Android location accuracy");
+    return -1;
+  }
+
+  auto result = static_cast<jdoubleArray>(env->CallStaticObjectMethod(
+      methods.cls,
+      methods.current_location,
+      j_accuracy,
+      static_cast<jint>(timeout_ms)));
+  env->DeleteLocalRef(j_accuracy);
+
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android LocationManager current location failed");
+    return -1;
+  }
+  env->DeleteLocalRef(methods.cls);
+
+  if (!result || env->GetArrayLength(result) < 6) {
+    if (result) {
+      env->DeleteLocalRef(result);
+    }
+    write_error("Android current location response was incomplete");
+    return -1;
+  }
+
+  jdouble values[6] = {};
+  env->GetDoubleArrayRegion(result, 0, 6, values);
+  env->DeleteLocalRef(result);
+  if (clear_pending_exception(env, "GetDoubleArrayRegion currentLocation")) {
+    write_error("Failed to copy Android current location");
+    return -1;
+  }
+
+  out_location->latitude = values[0];
+  out_location->longitude = values[1];
+  out_location->altitude = values[2];
+  out_location->horizontal_accuracy = values[3];
+  out_location->vertical_accuracy = values[4];
+  out_location->timestamp = values[5];
   return 1;
 }
 
