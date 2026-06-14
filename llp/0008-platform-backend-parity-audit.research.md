@@ -60,7 +60,7 @@ better app-runtime integration point. The June 2026 Android backend target is:
 | Console | Android logcat through NDK logging for native runtime console output, while retaining host console callbacks for embedders. | `ex_host_console_log` mirrors Android console lines to `__android_log_print` and keeps the host/stdout queue. | Verify by logcat or an injectable test sink. |
 | Timers / event loop | Runtime timer queue driven by the host event loop; Android hosts should wake/poll from their Looper/Choreographer integration. | Engine-host facility. | Keep runtime timers; verify timeout/interval/immediate, cancellation, ref/unref, and host wake callback on Android. |
 | HTTP server | Rust/hyper localhost server behind `host-http-server`; Android can run loopback servers when the embedding app opts in. | Feature-gated host backend or stubs. | Keep opt-in host server; verify listen, request body, response streaming, close, and Android app-network policy interactions. |
-| Child process / IPC / signals | Android app sandboxes do not provide desktop Node child-process semantics. Best behavior is capability-gated POSIX where available and explicit unsupported errors where Android forbids it. | POSIX process/IPC code is compiled. | Audit on-device behavior; do not fabricate success. Verify allowed spawn paths, denied paths, IPC fds, and signal stubs/errors. |
+| Child process / IPC / signals | Android app sandboxes do not provide desktop Node child-process semantics. Best behavior is capability-gated POSIX where available and explicit unsupported errors where Android forbids it. | Android now installs child-process host functions that report `ERR_FEATURE_UNAVAILABLE_ON_PLATFORM` for spawn/exec/IPC instead of attempting desktop POSIX `fork`/`exec`/`popen` semantics in app sandboxes. POSIX process code remains for non-Android Unix targets. | Verify Android child-process, IPC, and signal surfaces produce honest unsupported or permission-denied behavior without fabricating process success. |
 | OS info / process metadata | Bionic/sysconf/sysinfo/getifaddrs plus Android-specific values where exposed by the host. | POSIX plus Android Java/JNI globals for SDK version, locale tags, 24-hour preference, screen metrics, font scale, appearance, and accessibility snapshot. | Verify `os`, `process`, `navigator`, `Dimensions`, `Appearance`, locale, and accessibility values on Android. |
 | Clipboard | Android `ClipboardManager` through an app/Java host bridge. | Android installs `__exactClipboardRead/Write` backed by the initialized app context's `ClipboardManager`; `exact:clipboard` and `navigator.clipboard` use those hooks. | Verify read/write text and permission/foreground restrictions. |
 | Location | Android framework `LocationManager` as the platform baseline; apps may adapt Google Play services above this runtime if desired. | Java/JNI bridge exposes permission status, location-services state, and current fixes through `__exactAndroidLocation`; JS `NativeLocationBackend` now uses it for `getCurrentPosition()` and a polling `watchPosition()` implementation. | Verify foreground app permissions, one-shot current fixes, permission-denied errors, timeout/errors, and watch behavior; replace polling with provider update callbacks if app-process testing shows polling is not sufficient. |
@@ -160,6 +160,10 @@ or Windows process/socket primitives provided by the platform files.
 - Android crypto still uses vendored OpenSSL. That is acceptable for today's
   broad WebCrypto/Node crypto algorithm surface, but it is not a Keystore-backed
   non-extractable key backend.
+- Android child-process host functions now return explicit
+  `ERR_FEATURE_UNAVAILABLE_ON_PLATFORM` results for spawn/exec/IPC instead of
+  running POSIX child-process code in app sandboxes; JS mapping still needs a
+  runtime smoke on Android.
 - Linux full AES/asymmetric crypto still requires `openssl-crypto`; the default
   profile is intentionally reduced.
 - The degraded Linux curl CLI fallback is not a production networking backend.
@@ -225,6 +229,9 @@ must run on an Android runtime or emulator and exercise:
 - A later Java/JNI storage smoke verified Android `Context` storage roots are
   exposed through `IbexNetworking.storagePaths()`, cached by the JNI bridge,
   and used to seed app `HOME`/cwd and cache-backed `TMPDIR`/`TMP`/`TEMP`.
+- A later Android cross-build verified the child-process host functions compile
+  to explicit Android unsupported results; full JS-level Android runtime smoke
+  remains required.
 - The emulator smoke also exposed two shell-harness limits: direct Java
   `DnsResolver.rawQuery()` timed out under `app_process`, so the C++ DNS path
   now falls back to POSIX resolver on Android resolver failure; clipboard was

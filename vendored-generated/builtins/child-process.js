@@ -944,8 +944,8 @@ cp.spawnSync = function spawnSync(command, args, options) {
 		var isShellSuccess = shellValue && typeof result.status === "number" && result.status >= 0;
 		var isTimeoutError = typeof result.error === "string" && (result.error.indexOf("timed out") !== -1 || result.error.indexOf("Timed out") !== -1);
 		if (!isShellSuccess || isTimeoutError) {
-			var spawnErr = _makeSpawnError(command, "ENOENT", -2, "spawnSync " + command);
-			if (result.error.indexOf("not found") !== -1 || result.error.indexOf("No such file") !== -1) {
+			var spawnErr = _makeNativeSpawnError(command, result, "spawnSync " + command, args);
+			if (result.code) {} else if (result.error.indexOf("not found") !== -1 || result.error.indexOf("No such file") !== -1) {
 				spawnErr.code = "ENOENT";
 				spawnErr.errno = -2;
 			} else if (result.error.indexOf("Permission denied") !== -1 || result.error.indexOf("EACCES") !== -1) {
@@ -955,7 +955,6 @@ cp.spawnSync = function spawnSync(command, args, options) {
 				spawnErr.code = "ETIMEDOUT";
 				spawnErr.errno = -60;
 			}
-			spawnErr.spawnargs = args;
 			spawnResult.error = spawnErr;
 		}
 	}
@@ -1800,6 +1799,19 @@ function _makeSpawnError(command, code, errno, syscall) {
 	err.spawnargs = [];
 	return err;
 }
+function _makeNativeSpawnError(command, result, syscall, fallbackArgs) {
+	var code = result && result.code;
+	if (!code && result && result.error === "EACCES") code = "EACCES";
+	else if (!code && result && result.error === "EPERM") code = "EPERM";
+	else if (!code) code = "ENOENT";
+	var errno = result && typeof result.errno === "number" ? result.errno : code === "EACCES" ? -13 : code === "EPERM" ? -1 : -2;
+	var err = _makeSpawnError(command, code, errno, syscall || "spawn " + command);
+	if (result && typeof result.message === "string" && result.message.length > 0) err.message = result.message;
+	else if (typeof result.error === "string" && result.error.length > 0 && result.error !== code) err.message = result.error;
+	if (fallbackArgs) err.spawnargs = fallbackArgs;
+	if (result && result.platform) err.platform = result.platform;
+	return err;
+}
 var _EventEmitter;
 try {
 	_EventEmitter = require("events");
@@ -2199,7 +2211,7 @@ ChildProcess.prototype.spawn = function(options) {
 		var self = this;
 		self.spawnfile = command;
 		self.spawnargs = [command].concat(args);
-		var spawnErr = _makeSpawnError(command, result.error === "EACCES" ? "EACCES" : result.error === "EPERM" ? "EPERM" : "ENOENT", result.errno ? -result.errno : -2, "spawn " + command);
+		var spawnErr = _makeNativeSpawnError(command, result, "spawn " + command, self.spawnargs);
 		spawnErr.spawnargs = self.spawnargs;
 		setTimeout(function() {
 			self.emit("error", spawnErr);
@@ -2843,7 +2855,7 @@ cp.spawn = function spawn(command, args, options) {
 		errChild._serialization = normalizedOptions.serialization || "json";
 		errChild.spawnfile = command;
 		errChild.spawnargs = [command].concat(args);
-		var spawnErr2 = _makeSpawnError(command, result.error === "EACCES" ? "EACCES" : result.error === "EPERM" ? "EPERM" : "ENOENT", result.errno ? -result.errno : -2, "spawn " + command);
+		var spawnErr2 = _makeNativeSpawnError(command, result, "spawn " + command, args);
 		spawnErr2.spawnargs = args;
 		_trackSharedReadablePipeConsumers(options.stdio, errChild);
 		setTimeout(function() {
