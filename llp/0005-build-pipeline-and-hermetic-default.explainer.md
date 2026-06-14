@@ -17,7 +17,7 @@ tooling (the `IBEX_REGENERATE_RUNTIME=1` dev path); (2) it emits source and
 optional Hermes bytecode headers for bootstrap/runtime JS; and (3) it compiles
 the C++ engine (`src/engine/*.cc`) with `cc` and links Hermes from
 platform-specific paths or env overrides `[observed]` (`build.rs:321-351,
-454-548, 711-781, 787-1073`). The headline invariant is narrower than "the
+454-548, 711-781, 804-1224`). The headline invariant is narrower than "the
 whole native build is self-contained": the default generated-JS path must not
 require bun or `node_modules` `[observed]` (`vendored-generated/README.md:3-9`).
 This explains the flow; it does not restate the platform/crypto matrix
@@ -130,13 +130,17 @@ IBEX_REGENERATE_RUNTIME=1 IBEX_UPDATE_VENDORED_GENERATED=1 cargo build --feature
 `build.rs` compiles `src/engine/*.cc` with the `cc` crate, setting per-platform
 defines (`EXACT_NO_OPENSSL`, `EXACT_PLATFORM_IOS`, `EXACT_PLATFORM_WINDOWS`,
 `EXACT_HAS_CURL`, `HERMES_ENABLE_DEBUGGER`, etc.) and selecting the crypto/fetch/
-websocket source files per OS `[observed]` (`build.rs:711-781, 787-1073`).
+websocket source files per OS `[observed]` (`build.rs:804-1224`).
 Crypto-backend selection and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md) and mapped in
 [LLP 0003](./0003-hermes-engine-bridge.explainer.md#crypto-is-platform-dependent-the-fragile-axis).
 Hermes headers/libs are located via `HERMES_*` env vars or platform defaults
-`[observed]` (`build.rs:143-169, 183-210, 289-296`). This is a separate concern
-from the vendored-generated JS snapshot.
+`[observed]` (`build.rs:172-227, 289-304`). Android additionally consumes React
+Native JSI headers/libs via `JSI_*` env vars or the default Android PREFAB
+extract under `android/react-android` `[observed]` (`build.rs:199-227`), and
+uses vendored `curl-sys` metadata for native fetch/WebSocket `[observed]`
+(`Cargo.toml:82-83`; `build.rs:1106-1137`). This is a separate concern from the
+vendored-generated JS snapshot.
 
 ## Boundaries
 

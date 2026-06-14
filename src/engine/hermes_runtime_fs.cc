@@ -1378,7 +1378,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         std::ostringstream oss;
         uint64_t type = 0;
-#if defined(__linux__)
+#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
         type = static_cast<uint64_t>(buf.f_type);
 #endif
         oss << "{"
@@ -1733,9 +1733,19 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           times[1].tv_sec = static_cast<time_t>(mtimeVal);
           times[1].tv_usec = static_cast<suseconds_t>((mtimeVal - times[1].tv_sec) * 1e6);
         }
+#if defined(EXACT_PLATFORM_ANDROID)
+        struct timespec ts[2] = {
+            {times[0].tv_sec, static_cast<long>(times[0].tv_usec) * 1000},
+            {times[1].tv_sec, static_cast<long>(times[1].tv_usec) * 1000},
+        };
+        if (::futimens(fd, ts) != 0) {
+          throwFsError(runtime, "futimens", "");
+        }
+#else
         if (::futimes(fd, times) != 0) {
           throwFsError(runtime, "futimes", "");
         }
+#endif
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactFsFutimesSync", std::move(futimesSyncFn));

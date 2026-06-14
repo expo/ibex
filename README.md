@@ -46,11 +46,35 @@ cargo build --features openssl-crypto
 `build.rs` auto-detects the standalone layout; `HERMES_INCLUDE_DIR` and
 `HERMES_LIB_DIR` override the Hermes locations.
 
+### Android
+
+Android builds consume the same Maven/PREFAB artifacts Android apps already use:
+`com.facebook.hermes:hermes-android` for Hermes and
+`com.facebook.react:react-android` for JSI. Install/extract them, then build
+through the NDK wrapper:
+
+```sh
+./scripts/install-android-hermes.sh
+ANDROID_TARGET=aarch64-linux-android ./scripts/cargo-android.sh
+```
+
+Android currently requires `--features openssl-crypto`; the wrapper includes it
+by default. Native Android fetch/WebSocket use the vendored `curl-sys` static
+libcurl backend. The wrapper also sets `EXACT_ALLOW_FALLBACK=1` unless already
+set, so AAR-based builds can use bootstrap JS source when no matching host
+`hermesc` is installed. `HERMES_ANDROID_VERSION`, `REACT_ANDROID_VERSION`,
+`ANDROID_HERMES_VARIANT`, and `ANDROID_API` are overrideable. The default
+Android artifact pair is `hermes-android:250829098.0.14` with
+`react-android:0.86.0-rc.3`, because that JSI PREFAB includes the
+`jsi/hermes-interfaces.h` header required by current Hermes Android headers.
+
 ## Crypto profiles
 
 - **`openssl-crypto`** — full native crypto on Linux via OpenSSL, including
   hashing/HMAC, AES, PBKDF2/scrypt/HKDF, asymmetric sign/verify/key generation,
   and key import/export. Optional on macOS.
+- **Android** — currently uses the `openssl-crypto` profile with vendored
+  OpenSSL.
 - **default (no OpenSSL)** — uses platform crypto on Apple/Windows. On Linux it
   now builds without OpenSSL and provides the reduced portable surface used by
   core runtime flows: MD5/SHA-1/SHA-2 hashing, HMAC, PBKDF2, scrypt, and HKDF.

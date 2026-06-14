@@ -102,6 +102,9 @@ void installProcessSetup(ExactHermesRuntime* handle) {
 #if defined(__APPLE__)
   exact_platform = "darwin";
   processObj.setProperty(rt, "platform", facebook::jsi::String::createFromUtf8(rt, "darwin"));
+#elif defined(EXACT_PLATFORM_ANDROID)
+  exact_platform = "android";
+  processObj.setProperty(rt, "platform", facebook::jsi::String::createFromUtf8(rt, "android"));
 #elif defined(__linux__)
   exact_platform = "linux";
   processObj.setProperty(rt, "platform", facebook::jsi::String::createFromUtf8(rt, "linux"));

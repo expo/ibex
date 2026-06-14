@@ -160,8 +160,7 @@ mod tests {
     #[test]
     fn passes_top_level_await_through_for_entry_wrapping() {
         let source = "const z = await Promise.resolve(1);\nconsole.log(z);\n";
-        let out =
-            transpile_to_cjs(source, &PathBuf::from("/tmp/spike-tla.ts")).expect("transpile");
+        let out = transpile_to_cjs(source, &PathBuf::from("/tmp/spike-tla.ts")).expect("transpile");
         assert!(out.contains("await"), "TLA passes through: {out}");
     }
 
