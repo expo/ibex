@@ -242,6 +242,14 @@ must run on an Android runtime or emulator and exercise:
 - A later Java/JNI storage smoke verified Android `Context` storage roots are
   exposed through `IbexNetworking.storagePaths()`, cached by the JNI bridge,
   and used to seed app `HOME`/cwd and cache-backed `TMPDIR`/`TMP`/`TEMP`.
+- A 2026-06-14 rerun on connected emulator `emulator-5554` verified the
+  existing dex smoke jars still execute through `app_process`. The platform
+  smoke confirmed app-specific storage roots under `/data/local/tmp`, deep-link
+  event queuing, and active/background app-state transitions. The camera smoke
+  confirmed Android permission JSON reports shell-context UID mismatch instead
+  of a false grant, CameraManager device inventory is visible, session
+  capabilities are returned, metadata-only sessions fail explicitly, and an
+  app-installed camera provider dispatch path is honored.
 - A later Android cross-build verified the child-process host functions compile
   to explicit Android unsupported results; full JS-level Android runtime smoke
   remains required.
