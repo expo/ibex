@@ -73,6 +73,17 @@ import okio.ByteString;
  * JNI startup code.
  */
 public final class IbexNetworking {
+  public interface CameraHostProvider {
+    /**
+     * Handles a camera host operation.
+     *
+     * Return a JSON string to handle the operation, or null to let the built-in
+     * framework metadata bridge handle operations such as permission and device
+     * enumeration.
+     */
+    String cameraHostCall(String operation, String payloadJson) throws Exception;
+  }
+
   private static final String TAG = "IbexNetworking";
   private static final byte[] EMPTY_BYTES = new byte[0];
   private static final int CAMERA_PERMISSION_REQUEST_CODE = 0x1b3a;
@@ -94,6 +105,7 @@ public final class IbexNetworking {
   private static int manualStartedActivityCount;
   private static volatile String currentAppState = "unknown";
   private static volatile String initialUrl;
+  private static volatile CameraHostProvider cameraHostProvider;
   private static volatile WeakReference<Activity> currentActivity =
       new WeakReference<Activity>(null);
 
@@ -127,6 +139,10 @@ public final class IbexNetworking {
         .followRedirects(false)
         .followSslRedirects(false)
         .build();
+  }
+
+  public static void setCameraHostProvider(CameraHostProvider provider) {
+    cameraHostProvider = provider;
   }
 
   public static String platformVersion() {
@@ -252,6 +268,24 @@ public final class IbexNetworking {
     // @ref LLP 0008#android-backend-matrix — CameraManager supplies Android
     // camera inventory/permission metadata while CameraX remains the target
     // provider for app-facing preview and capture sessions.
+    CameraHostProvider provider = cameraHostProvider;
+    if (provider != null) {
+      try {
+        String providerResult = provider.cameraHostCall(
+            valueOrEmpty(operation),
+            valueOrEmpty(payloadJson));
+        if (providerResult != null) {
+          return providerResult;
+        }
+      } catch (Exception exception) {
+        throw new IllegalStateException(
+            "Android camera host provider failed operation: " + valueOrEmpty(operation),
+            exception);
+      }
+    }
+    if ("camera.provider.get".equals(operation)) {
+      return cameraProviderJson(provider != null);
+    }
     if ("camera.permission.get".equals(operation)) {
       return cameraPermissionJson(cameraPermissionNameFromPayload(payloadJson), false);
     }
@@ -263,6 +297,11 @@ public final class IbexNetworking {
     }
     if ("camera.sessionCapabilities.get".equals(operation)) {
       return cameraSessionCapabilitiesJson();
+    }
+    if (operation != null && operation.startsWith("camera.")) {
+      throw new UnsupportedOperationException(
+          "Android camera operation requires an app-installed CameraX provider: "
+              + valueOrEmpty(operation));
     }
     throw new IllegalArgumentException(
         "Unsupported Android camera host operation: " + valueOrEmpty(operation));
@@ -879,6 +918,22 @@ public final class IbexNetworking {
     } catch (RuntimeException ignored) {
       return false;
     }
+  }
+
+  private static String cameraProviderJson(boolean sessionProviderInstalled) {
+    StringBuilder builder = new StringBuilder();
+    builder.append("{\"backend\":\"android-framework\"");
+    builder.append(",\"metadata\":true");
+    builder.append(",\"sessionProviderInstalled\":").append(sessionProviderInstalled);
+    builder.append(",\"preview\":").append(sessionProviderInstalled);
+    builder.append(",\"photo\":").append(sessionProviderInstalled);
+    builder.append(",\"snapshot\":").append(sessionProviderInstalled);
+    builder.append(",\"video\":").append(sessionProviderInstalled);
+    builder.append(",\"frameCapture\":").append(sessionProviderInstalled);
+    builder.append(",\"scene\":").append(sessionProviderInstalled);
+    builder.append(",\"replay\":").append(sessionProviderInstalled);
+    builder.append('}');
+    return builder.toString();
   }
 
   private static String cameraPermissionJson(String name, boolean request) {
