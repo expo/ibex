@@ -658,15 +658,15 @@ function RecordableHistogram(options, secret) {
 		if (options.figures < 1 || options.figures > 5) throw _outOfRange("The value of \"options.figures\" is out of range.");
 	}
 	this.min = 0x8000000000000000;
-	this.minBigInt = 9223372036854775807n;
+	this.minBigInt = BigInt("9223372036854775807");
 	this.max = 0;
-	this.maxBigInt = 0n;
+	this.maxBigInt = BigInt("0");
 	this.exceeds = 0;
-	this.exceedsBigInt = 0n;
+	this.exceedsBigInt = BigInt("0");
 	this.mean = NaN;
 	this.stddev = NaN;
 	this.count = 0;
-	this.countBigInt = 0n;
+	this.countBigInt = BigInt("0");
 	this._samples = [];
 	this._sum = 0;
 	this._sumSquares = 0;
@@ -693,7 +693,7 @@ function _validateRecordValue(value) {
 		};
 	}
 	if (typeof value === "bigint") {
-		if (value <= 0n) throw _outOfRange("The \"value\" argument must be a bigint > 0.");
+		if (value <= BigInt("0")) throw _outOfRange("The \"value\" argument must be a bigint > 0.");
 		return {
 			value: Number(value),
 			valueBig: value
@@ -740,7 +740,7 @@ RecordableHistogram.prototype.percentile = function(percentileValue) {
 RecordableHistogram.prototype.percentileBigInt = function(percentileValue) {
 	if (typeof percentileValue !== "number") throw _invalidArgType("The \"percentile\" argument must be a number.");
 	if (percentileValue < 0 || percentileValue > 100) throw _outOfRange("The \"percentile\" value must be between 0 and 100.");
-	if (this.count === 0) return 0n;
+	if (this.count === 0) return BigInt("0");
 	var value = this.percentile(percentileValue);
 	return BigInt(Math.floor(value));
 };

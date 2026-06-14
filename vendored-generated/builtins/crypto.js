@@ -2841,10 +2841,10 @@ function _bytesToBigInt(bytes) {
 		var b = typeof bytes[i] === "number" ? bytes[i] : bytes.charCodeAt ? bytes.charCodeAt(i) : 0;
 		hex += (b < 16 ? "0" : "") + b.toString(16);
 	}
-	return hex.length === 2 ? 0n : BigInt(hex);
+	return hex.length === 2 ? BigInt("0") : BigInt(hex);
 }
 function _bigIntToBytes(n, length) {
-	if (n === 0n) return _bytesToBufferLike(new Array(length || 1).fill(0));
+	if (n === BigInt("0")) return _bytesToBufferLike(new Array(length || 1).fill(0));
 	var hex = n.toString(16);
 	if (hex.length % 2 !== 0) hex = "0" + hex;
 	var byteLen = hex.length / 2;
@@ -2855,12 +2855,12 @@ function _bigIntToBytes(n, length) {
 	return _bytesToBufferLike(result);
 }
 function _modPow(base, exp, mod) {
-	if (mod === 1n) return 0n;
-	var result = 1n;
+	if (mod === BigInt("1")) return BigInt("0");
+	var result = BigInt("1");
 	base = base % mod;
-	while (exp > 0n) {
-		if (exp % 2n === 1n) result = result * base % mod;
-		exp = exp >> 1n;
+	while (exp > BigInt("0")) {
+		if (exp % BigInt("2") === BigInt("1")) result = result * base % mod;
+		exp = exp >> BigInt("1");
 		base = base * base % mod;
 	}
 	return result;
@@ -2880,22 +2880,22 @@ function _generateProbablePrime(bits) {
 	return _bytesToBigInt(fallbackBytes);
 }
 function _millerRabinTest(n, k) {
-	if (n < 2n) return false;
-	if (n === 2n || n === 3n) return true;
-	if (n % 2n === 0n) return false;
-	var d = n - 1n;
+	if (n < BigInt("2")) return false;
+	if (n === BigInt("2") || n === BigInt("3")) return true;
+	if (n % BigInt("2") === BigInt("0")) return false;
+	var d = n - BigInt("1");
 	var r = 0;
-	while (d % 2n === 0n) {
-		d /= 2n;
+	while (d % BigInt("2") === BigInt("0")) {
+		d /= BigInt("2");
 		r++;
 	}
 	for (var i = 0; i < k; i++) {
-		var x = _modPow(_bytesToBigInt(randomBytes(Math.max(1, Math.ceil(Number(n.toString(2).length) / 8)))) % (n - 3n) + 2n, d, n);
-		if (x === 1n || x === n - 1n) continue;
+		var x = _modPow(_bytesToBigInt(randomBytes(Math.max(1, Math.ceil(Number(n.toString(2).length) / 8)))) % (n - BigInt("3")) + BigInt("2"), d, n);
+		if (x === BigInt("1") || x === n - BigInt("1")) continue;
 		var found = false;
 		for (var j = 0; j < r - 1; j++) {
-			x = _modPow(x, 2n, n);
-			if (x === n - 1n) {
+			x = _modPow(x, BigInt("2"), n);
+			if (x === n - BigInt("1")) {
 				found = true;
 				break;
 			}
@@ -2915,7 +2915,7 @@ DiffieHellman.prototype.generateKeys = function(encoding) {
 	var g = _bytesToBigInt(this._generator || new Uint8Array([2]));
 	var p = this._primeBigInt;
 	var keyLen = this._primeLength ? Math.ceil(this._primeLength / 8) : Math.ceil(Number(p.toString(2).length) / 8);
-	var privKey = _bytesToBigInt(randomBytes(keyLen)) % (p - 2n) + 1n;
+	var privKey = _bytesToBigInt(randomBytes(keyLen)) % (p - BigInt("2")) + BigInt("1");
 	this._privateKeyBigInt = privKey;
 	this._privateKey = _bigIntToBytes(privKey, keyLen);
 	var pubKey = _modPow(g, privKey, p);
@@ -3297,14 +3297,14 @@ function generatePrimeSync(size, options) {
 		if (options.safe !== void 0 && typeof options.safe !== "boolean") throw _errInvalidArgType("options.safe", "of type boolean", options.safe);
 		if (options.add !== void 0 && !_isStringOrBuffer(options.add) && typeof options.add !== "bigint") throw _errInvalidArgType("options.add", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", options.add);
 		if (options.rem !== void 0 && !_isStringOrBuffer(options.rem) && typeof options.rem !== "bigint") throw _errInvalidArgType("options.rem", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", options.rem);
-		if (typeof options.add === "bigint" && options.add < 0n) throw _errOutOfRange("options.add", ">= 0", options.add + "n");
-		if (typeof options.rem === "bigint" && options.rem < 0n) throw _errOutOfRange("options.rem", ">= 0", options.rem + "n");
-		if (typeof options.add === "bigint" && options.add >= 1n << BigInt(size)) throw _errOutOfRange("options.add", "invalid options.add", "invalid options.add");
+		if (typeof options.add === "bigint" && options.add < BigInt("0")) throw _errOutOfRange("options.add", ">= 0", options.add + "n");
+		if (typeof options.rem === "bigint" && options.rem < BigInt("0")) throw _errOutOfRange("options.rem", ">= 0", options.rem + "n");
+		if (typeof options.add === "bigint" && options.add >= BigInt("1") << BigInt(size)) throw _errOutOfRange("options.add", "invalid options.add", "invalid options.add");
 		if (typeof options.add === "bigint" && typeof options.rem === "bigint" && options.rem >= options.add) throw _errOutOfRange("options.rem", "invalid options.rem", "invalid options.rem");
 		if (typeof options.add === "bigint" && typeof options.rem === "bigint") {
-			var maxPrime = (1n << BigInt(size)) - 1n;
+			var maxPrime = (BigInt("1") << BigInt(size)) - BigInt("1");
 			if (options.rem <= maxPrime && maxPrime - options.rem < options.add && options.rem === options.rem) {
-				if (options.rem < 2n) throw _errOutOfRange("options.rem", "invalid options", "invalid options");
+				if (options.rem < BigInt("2")) throw _errOutOfRange("options.rem", "invalid options", "invalid options");
 			}
 		}
 	}
@@ -3335,8 +3335,8 @@ function generatePrime(size, options, callback) {
 		if (options.safe !== void 0 && typeof options.safe !== "boolean") throw _errInvalidArgType("options.safe", "of type boolean", options.safe);
 		if (options.add !== void 0 && !_isStringOrBuffer(options.add) && typeof options.add !== "bigint") throw _errInvalidArgType("options.add", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", options.add);
 		if (options.rem !== void 0 && !_isStringOrBuffer(options.rem) && typeof options.rem !== "bigint") throw _errInvalidArgType("options.rem", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", options.rem);
-		if (typeof options.add === "bigint" && options.add < 0n) throw _errOutOfRange("options.add", ">= 0", options.add + "n");
-		if (typeof options.rem === "bigint" && options.rem < 0n) throw _errOutOfRange("options.rem", ">= 0", options.rem + "n");
+		if (typeof options.add === "bigint" && options.add < BigInt("0")) throw _errOutOfRange("options.add", ">= 0", options.add + "n");
+		if (typeof options.rem === "bigint" && options.rem < BigInt("0")) throw _errOutOfRange("options.rem", ">= 0", options.rem + "n");
 	}
 	if (typeof callback !== "function") throw _errInvalidArgType("callback", "of type function", callback);
 	try {
@@ -3353,7 +3353,7 @@ function generatePrime(size, options, callback) {
 function checkPrimeSync(candidate, options) {
 	if (typeof candidate === "number") throw _errInvalidArgType("candidate", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", candidate);
 	if (!_isStringOrBuffer(candidate) && typeof candidate !== "bigint") throw _errInvalidArgType("candidate", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", candidate);
-	if (typeof candidate === "bigint" && candidate < 0n) throw _errOutOfRange("candidate", ">= 0", candidate + "n");
+	if (typeof candidate === "bigint" && candidate < BigInt("0")) throw _errOutOfRange("candidate", ">= 0", candidate + "n");
 	if (options !== void 0 && (typeof options !== "object" || options === null)) throw _errInvalidArgType("options", "of type object", options);
 	if (options && options.checks !== void 0) {
 		if (typeof options.checks !== "number") throw _errInvalidArgType("options.checks", "of type number", options.checks);
@@ -3368,10 +3368,10 @@ function checkPrimeSync(candidate, options) {
 	}
 	var val;
 	if (typeof candidate === "bigint") {
-		if (candidate < 2n) return false;
-		if (candidate === 2n || candidate === 3n) return true;
-		if (candidate % 2n === 0n) return false;
-		for (var td = 3n; td * td <= candidate && td < 1000n; td += 2n) if (candidate % td === 0n) return false;
+		if (candidate < BigInt("2")) return false;
+		if (candidate === BigInt("2") || candidate === BigInt("3")) return true;
+		if (candidate % BigInt("2") === BigInt("0")) return false;
+		for (var td = BigInt("3"); td * td <= candidate && td < BigInt("1000"); td += BigInt("2")) if (candidate % td === BigInt("0")) return false;
 		return true;
 	}
 	var bytes = _toBytes(candidate);
@@ -3395,7 +3395,7 @@ function checkPrime(candidate, options, callback) {
 	}
 	if (typeof candidate === "number") throw _errInvalidArgType("candidate", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", candidate);
 	if (!_isStringOrBuffer(candidate) && typeof candidate !== "bigint") throw _errInvalidArgType("candidate", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", candidate);
-	if (typeof candidate === "bigint" && candidate < 0n) throw _errOutOfRange("candidate", ">= 0", candidate + "n");
+	if (typeof candidate === "bigint" && candidate < BigInt("0")) throw _errOutOfRange("candidate", ">= 0", candidate + "n");
 	if (options !== void 0 && options !== null && typeof options !== "object") throw _errInvalidArgType("options", "of type object", options);
 	if (options && options.checks !== void 0) {
 		if (typeof options.checks !== "number") throw _errInvalidArgType("options.checks", "of type number", options.checks);

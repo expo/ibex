@@ -40,6 +40,14 @@ const _nativeProcessNextTick:
   typeof (globalThis as any).process?.nextTick === 'function'
     ? (globalThis as any).process.nextTick.bind((globalThis as any).process)
     : undefined;
+const _nativeProcessHrtime: ((time?: [number, number]) => [number, number]) | undefined =
+  typeof (globalThis as any).process?.hrtime === 'function'
+    ? (globalThis as any).process.hrtime.bind((globalThis as any).process)
+    : undefined;
+const _nativeProcessHrtimeBigint: (() => bigint) | undefined =
+  typeof (globalThis as any).process?.hrtime?.bigint === 'function'
+    ? (globalThis as any).process.hrtime.bigint.bind((globalThis as any).process.hrtime)
+    : undefined;
 const _nativeProcessKill:
   | ((pid: number, signal?: string | number) => true)
   | undefined =
@@ -69,6 +77,7 @@ const _nativeGetegid: (() => number) | undefined =
 const _nativePromiseThen = Promise.prototype.then;
 const _nativeQueueMicrotask =
   typeof queueMicrotask === 'function' ? queueMicrotask.bind(globalThis) : undefined;
+const _nativeBigInt = typeof BigInt === 'function' ? BigInt : undefined;
 
 const SIGNAL_NAME_TO_NUMBER: Record<string, number> = {
   SIGHUP: 1,
@@ -357,15 +366,42 @@ function _scheduleNextTickDrain(): void {
 }
 
 function _monotonicTimeNs(): bigint {
+  if (!_nativeBigInt) {
+    throw new TypeError('BigInt is not supported by this JavaScript engine');
+  }
   const perf = (globalThis as any).performance;
   if (perf && typeof perf.now === 'function') {
     const originMs =
       typeof perf.timeOrigin === 'number' && Number.isFinite(perf.timeOrigin)
         ? perf.timeOrigin
         : Date.now();
-    return BigInt(Math.floor((originMs + perf.now()) * 1e6));
+    return _nativeBigInt(Math.floor((originMs + perf.now()) * 1e6));
   }
-  return BigInt(Date.now()) * 1_000_000n;
+  return _nativeBigInt(Date.now()) * _nativeBigInt(1000000);
+}
+
+function _monotonicHrtimeTuple(): [number, number] {
+  if (_nativeProcessHrtime) {
+    const nativeNow = _nativeProcessHrtime();
+    if (
+      Array.isArray(nativeNow) &&
+      typeof nativeNow[0] === 'number' &&
+      typeof nativeNow[1] === 'number'
+    ) {
+      return [nativeNow[0], nativeNow[1]];
+    }
+  }
+
+  const perf = (globalThis as any).performance;
+  const nowMs =
+    perf && typeof perf.now === 'function'
+      ? (typeof perf.timeOrigin === 'number' && Number.isFinite(perf.timeOrigin)
+          ? perf.timeOrigin
+          : Date.now()) + perf.now()
+      : Date.now();
+  const seconds = Math.floor(nowMs / 1000);
+  const nanoseconds = Math.floor((nowMs - seconds * 1000) * 1e6);
+  return [seconds, nanoseconds];
 }
 
 function _stringifyPathPart(path: any): string {
@@ -1006,7 +1042,7 @@ export interface ProcessRelease {
 
 export interface HrtimeFunction {
   (time?: [number, number]): [number, number];
-  bigint(): bigint;
+  bigint?: () => bigint;
 }
 
 /**
@@ -1721,10 +1757,10 @@ class Process {
   /**
    * High-resolution time.
    * Returns [seconds, nanoseconds] tuple.
-   * Also has hrtime.bigint() method.
+   * Also has hrtime.bigint() when the engine supports BigInt.
    */
-  hrtime: HrtimeFunction = Object.assign(
-    (time?: [number, number]): [number, number] => {
+  hrtime: HrtimeFunction = (() => {
+    const hrtime = (time?: [number, number]): [number, number] => {
       if (time !== undefined) {
         if (!Array.isArray(time)) {
           const e: any = new TypeError(`The "time" argument must be an instance of Array. Received type ${typeof time} (${String(time)})`);
@@ -1737,9 +1773,7 @@ class Process {
           throw e;
         }
       }
-      const nowNs = _monotonicTimeNs();
-      const seconds = Number(nowNs / 1_000_000_000n);
-      const nanoseconds = Number(nowNs % 1_000_000_000n);
+      const [seconds, nanoseconds] = _monotonicHrtimeTuple();
 
       if (time) {
         let diffSeconds = seconds - time[0];
@@ -1752,11 +1786,15 @@ class Process {
       }
 
       return [seconds, nanoseconds];
-    },
-    {
-      bigint: (): bigint => _monotonicTimeNs()
+    };
+
+    if (_nativeBigInt) {
+      hrtime.bigint = (): bigint =>
+        _nativeProcessHrtimeBigint ? _nativeProcessHrtimeBigint() : _monotonicTimeNs();
     }
-  );
+
+    return hrtime;
+  })();
 
   /**
    * Memory usage (approximate, not accurate on mobile).

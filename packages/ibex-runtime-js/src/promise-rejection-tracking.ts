@@ -418,15 +418,20 @@ export function installPromiseRejectionTracking(): void {
   } as any;
 
   // Copy static methods and properties
-  ExactPromise.resolve = OriginalPromise.resolve.bind(OriginalPromise);
+  const bindStatic = (name: string): void => {
+    const value = (OriginalPromise as any)[name];
+    if (typeof value === 'function') {
+      ExactPromise[name] = value.bind(OriginalPromise);
+    }
+  };
+
+  bindStatic('resolve');
   ExactPromise.reject = OriginalPromise.reject; // Already wrapped above
-  ExactPromise.all = OriginalPromise.all.bind(OriginalPromise);
-  ExactPromise.allSettled = OriginalPromise.allSettled.bind(OriginalPromise);
-  ExactPromise.race = OriginalPromise.race.bind(OriginalPromise);
-  ExactPromise.any = OriginalPromise.any.bind(OriginalPromise);
-  if (OriginalPromise.withResolvers) {
-    ExactPromise.withResolvers = OriginalPromise.withResolvers.bind(OriginalPromise);
-  }
+  bindStatic('all');
+  bindStatic('allSettled');
+  bindStatic('race');
+  bindStatic('any');
+  bindStatic('withResolvers');
   ExactPromise.prototype = OriginalPromise.prototype;
   ExactPromise[Symbol.species] = OriginalPromise;
 

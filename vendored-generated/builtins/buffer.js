@@ -283,7 +283,7 @@ function fromArrayBuffer(value, byteOffset, length) {
 	return makeBuffer(new Uint8Array(backing, offset, viewLength));
 }
 function formatBigIntWithSeparators(value) {
-	var negative = value < 0n;
+	var negative = value < BigInt("0");
 	var digits = (negative ? -value : value).toString();
 	var formatted = "";
 	var prefixLength = digits.length % 3;
@@ -352,7 +352,7 @@ function validateBigIntWrite(value, signed) {
 		typeErr.code = "ERR_INVALID_ARG_TYPE";
 		throw typeErr;
 	}
-	if (value < (signed ? -(1n << 63n) : 0n) || value > (signed ? (1n << 63n) - 1n : (1n << 64n) - 1n)) {
+	if (value < (signed ? -(BigInt("1") << BigInt("63")) : BigInt("0")) || value > (signed ? (BigInt("1") << BigInt("63")) - BigInt("1") : (BigInt("1") << BigInt("64")) - BigInt("1"))) {
 		var rangeErr = /* @__PURE__ */ new RangeError("The value of \"value\" is out of range. It must be " + (signed ? ">= -(2n ** 63n) and < 2n ** 63n" : ">= 0n and < 2n ** 64n") + ". Received " + formatBigIntWithSeparators(value));
 		rangeErr.code = "ERR_OUT_OF_RANGE";
 		throw rangeErr;
@@ -1232,22 +1232,22 @@ BufferProto.readBigUInt64LE = function(offset) {
 	offset = offset || 0;
 	validateOffset(offset, 8, this.length);
 	var lo = BigInt(this.readUInt32LE(offset));
-	return BigInt(this.readUInt32LE(offset + 4)) << 32n | lo;
+	return BigInt(this.readUInt32LE(offset + 4)) << BigInt("32") | lo;
 };
 BufferProto.readBigUInt64BE = function(offset) {
 	offset = offset || 0;
 	validateOffset(offset, 8, this.length);
 	var hi = BigInt(this.readUInt32BE(offset));
 	var lo = BigInt(this.readUInt32BE(offset + 4));
-	return hi << 32n | lo;
+	return hi << BigInt("32") | lo;
 };
 BufferProto.readBigInt64LE = function(offset) {
 	var value = this.readBigUInt64LE(offset);
-	return value >= 1n << 63n ? value - (1n << 64n) : value;
+	return value >= BigInt("1") << BigInt("63") ? value - (BigInt("1") << BigInt("64")) : value;
 };
 BufferProto.readBigInt64BE = function(offset) {
 	var value = this.readBigUInt64BE(offset);
-	return value >= 1n << 63n ? value - (1n << 64n) : value;
+	return value >= BigInt("1") << BigInt("63") ? value - (BigInt("1") << BigInt("64")) : value;
 };
 BufferProto.writeUInt8 = function(value, offset) {
 	validateWriteValue(value, 0, 255, 8, false);
@@ -1373,34 +1373,34 @@ BufferProto.writeBigInt64LE = function(value, offset) {
 	offset = offset || 0;
 	validateOffset(offset, 8, this.length);
 	validateBigIntWrite(value, true);
-	var unsignedValue = value < 0n ? value + (1n << 64n) : value;
-	this.writeUInt32LE(Number(unsignedValue & 4294967295n), offset);
-	this.writeUInt32LE(Number(unsignedValue >> 32n & 4294967295n), offset + 4);
+	var unsignedValue = value < BigInt("0") ? value + (BigInt("1") << BigInt("64")) : value;
+	this.writeUInt32LE(Number(unsignedValue & BigInt("4294967295")), offset);
+	this.writeUInt32LE(Number(unsignedValue >> BigInt("32") & BigInt("4294967295")), offset + 4);
 	return offset + 8;
 };
 BufferProto.writeBigInt64BE = function(value, offset) {
 	offset = offset || 0;
 	validateOffset(offset, 8, this.length);
 	validateBigIntWrite(value, true);
-	var unsignedValue = value < 0n ? value + (1n << 64n) : value;
-	this.writeUInt32BE(Number(unsignedValue >> 32n & 4294967295n), offset);
-	this.writeUInt32BE(Number(unsignedValue & 4294967295n), offset + 4);
+	var unsignedValue = value < BigInt("0") ? value + (BigInt("1") << BigInt("64")) : value;
+	this.writeUInt32BE(Number(unsignedValue >> BigInt("32") & BigInt("4294967295")), offset);
+	this.writeUInt32BE(Number(unsignedValue & BigInt("4294967295")), offset + 4);
 	return offset + 8;
 };
 BufferProto.writeBigUInt64LE = function(value, offset) {
 	offset = offset || 0;
 	validateOffset(offset, 8, this.length);
 	validateBigIntWrite(value, false);
-	this.writeUInt32LE(Number(value & 4294967295n), offset);
-	this.writeUInt32LE(Number(value >> 32n & 4294967295n), offset + 4);
+	this.writeUInt32LE(Number(value & BigInt("4294967295")), offset);
+	this.writeUInt32LE(Number(value >> BigInt("32") & BigInt("4294967295")), offset + 4);
 	return offset + 8;
 };
 BufferProto.writeBigUInt64BE = function(value, offset) {
 	offset = offset || 0;
 	validateOffset(offset, 8, this.length);
 	validateBigIntWrite(value, false);
-	this.writeUInt32BE(Number(value >> 32n & 4294967295n), offset);
-	this.writeUInt32BE(Number(value & 4294967295n), offset + 4);
+	this.writeUInt32BE(Number(value >> BigInt("32") & BigInt("4294967295")), offset);
+	this.writeUInt32BE(Number(value & BigInt("4294967295")), offset + 4);
 	return offset + 8;
 };
 BufferProto.swap16 = function() {

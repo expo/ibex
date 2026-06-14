@@ -385,6 +385,71 @@ export function restoreExponentiation(source) {
   return applySourceReplacements(source, replacements);
 }
 
+function renderBigIntConstructor(raw) {
+  if (!raw || raw[raw.length - 1] !== 'n') {
+    return null;
+  }
+
+  const literal = raw.slice(0, -1).replace(/_/g, '');
+  if (!literal) {
+    return null;
+  }
+
+  return `BigInt("${literal}")`;
+}
+
+export function transformBigIntLiterals(source) {
+  if (!source || source.indexOf('n') === -1) {
+    return source;
+  }
+
+  const ast = parseModuleOrScript(source);
+  if (!ast) {
+    return source;
+  }
+
+  const replacements = [];
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') {
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        walk(child);
+      }
+      return;
+    }
+
+    if (
+      node.type === 'Literal' &&
+      Object.prototype.hasOwnProperty.call(node, 'bigint') &&
+      node.start != null &&
+      node.end != null
+    ) {
+      const replacement = renderBigIntConstructor(source.slice(node.start, node.end));
+      if (replacement) {
+        replacements.push({ start: node.start, end: node.end, text: replacement });
+      }
+      return;
+    }
+
+    for (const key of Object.keys(node)) {
+      if (key === 'start' || key === 'end' || key === 'type' || key === 'name' || key === 'range') {
+        continue;
+      }
+      const value = node[key];
+      if (value && typeof value === 'object') {
+        walk(value);
+      }
+    }
+  };
+
+  walk(ast);
+
+  return applySourceReplacements(source, replacements);
+}
+
 /**
  * Transform async generator functions (async function*) into regular functions
  * returning async iterables. Hermes does not support async generators natively.
@@ -777,7 +842,8 @@ export function replaceModuleDirnameBindings(source, id) {
 }
 
 export function applyHermesTransforms(source) {
-  return transformAsyncGenerators(fixForOfScoping(source));
+  // @ref LLP 0005#bytecode-precompilation-hermesc — Hermes accepts BigInt(...) but rejects BigInt literal source.
+  return transformBigIntLiterals(transformAsyncGenerators(fixForOfScoping(source)));
 }
 
 export function createDirnameBindingsPlugin({ name = 'inject-dirname' } = {}) {

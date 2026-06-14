@@ -311,7 +311,7 @@ function _normalizeTruncateLen(len) {
 function _validateReadWritePosition(name, position) {
 	if (position === void 0 || position === null) return -1;
 	if (typeof position === "bigint") {
-		if (position < -1n || position > BigInt(Number.MAX_SAFE_INTEGER)) throw _fsOutOfRange(name, position, -1, Number.MAX_SAFE_INTEGER);
+		if (position < -BigInt("1") || position > BigInt(Number.MAX_SAFE_INTEGER)) throw _fsOutOfRange(name, position, -1, Number.MAX_SAFE_INTEGER);
 		return Number(position);
 	}
 	if (typeof position !== "number") throw _fsInvalidArgType(name, "bigint or integer", position);
@@ -1176,18 +1176,18 @@ function _getInternalBigIntStats() {
 function _coerceToBigInt(raw) {
 	if (typeof raw === "bigint") return raw;
 	if (typeof raw === "number" && !isNaN(raw)) return BigInt(raw);
-	return 0n;
+	return BigInt("0");
 }
 function _coerceStatsMillisecondsToBigInt(msValue, nsValue) {
-	if (typeof nsValue === "bigint") return nsValue / 1000000n;
+	if (typeof nsValue === "bigint") return nsValue / BigInt("1000000");
 	if (typeof nsValue === "number" && !isNaN(nsValue)) return BigInt(Math.floor(nsValue / 1e6));
 	if (typeof msValue === "bigint") return msValue;
 	if (typeof msValue === "number" && !isNaN(msValue)) return BigInt(Math.floor(msValue));
-	return 0n;
+	return BigInt("0");
 }
 function _coerceStatsMilliseconds(msValue, nsValue, useBigInt) {
 	if (useBigInt) return _coerceStatsMillisecondsToBigInt(msValue, nsValue);
-	if (typeof nsValue === "bigint") return Number(nsValue / 1000000n);
+	if (typeof nsValue === "bigint") return Number(nsValue / BigInt("1000000"));
 	if (typeof nsValue === "number" && !isNaN(nsValue)) return Math.floor(nsValue / 1e6);
 	if (typeof msValue === "number" && !isNaN(msValue)) return Math.floor(msValue);
 	return msValue || 0;
