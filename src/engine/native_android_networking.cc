@@ -132,6 +132,7 @@ struct AndroidNetworkingMethods {
   jmethodID storage_paths = nullptr;
   jmethodID drain_platform_events = nullptr;
   jmethodID camera_host_call = nullptr;
+  jmethodID dialog = nullptr;
 };
 
 std::mutex g_jni_mutex;
@@ -163,6 +164,7 @@ jmethodID g_initial_url = nullptr;
 jmethodID g_storage_paths = nullptr;
 jmethodID g_drain_platform_events = nullptr;
 jmethodID g_camera_host_call = nullptr;
+jmethodID g_dialog = nullptr;
 
 std::mutex g_fetch_mutex;
 std::unordered_map<uint32_t, AndroidFetchRequest> g_fetch_requests;
@@ -753,6 +755,15 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
           cls,
           "cameraHostCall",
           "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+  g_dialog =
+      env->GetStaticMethodID(
+          cls,
+          "dialog",
+          "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+    g_dialog = nullptr;
+  }
 
   if (clear_pending_exception(env, "cache IbexNetworking methods") ||
       !g_initialize ||
@@ -819,6 +830,7 @@ bool get_networking_methods(JNIEnv* env, AndroidNetworkingMethods* out) {
   out->storage_paths = g_storage_paths;
   out->drain_platform_events = g_drain_platform_events;
   out->camera_host_call = g_camera_host_call;
+  out->dialog = g_dialog;
   return out->cls != nullptr;
 }
 
@@ -1965,6 +1977,86 @@ extern "C" int android_clipboard_write_text(
     return -1;
   }
   env->DeleteLocalRef(methods.cls);
+  return 1;
+}
+
+extern "C" int android_dialog_show(
+    const char* type,
+    const char* message,
+    const char* default_value,
+    char** out_result,
+    int* out_is_null,
+    char* error,
+    size_t error_capacity) {
+  if (out_result) {
+    *out_result = nullptr;
+  }
+  if (out_is_null) {
+    *out_is_null = 0;
+  }
+  if (!out_result || !out_is_null) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* value) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = value ? value : "Android dialog failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods) || !methods.dialog) {
+    if (env && methods.cls) {
+      env->DeleteLocalRef(methods.cls);
+    }
+    write_error("Android dialog bridge is not initialized");
+    return -1;
+  }
+
+  jstring j_type = string_to_jstring(env, type ? type : "");
+  jstring j_message = string_to_jstring(env, message ? message : "");
+  jstring j_default_value = string_to_jstring(env, default_value ? default_value : "");
+  if (!j_type || !j_message || !j_default_value) {
+    if (j_type) env->DeleteLocalRef(j_type);
+    if (j_message) env->DeleteLocalRef(j_message);
+    if (j_default_value) env->DeleteLocalRef(j_default_value);
+    env->DeleteLocalRef(methods.cls);
+    write_error("Failed to allocate Android dialog arguments");
+    return -1;
+  }
+
+  auto result = static_cast<jstring>(
+      env->CallStaticObjectMethod(methods.cls, methods.dialog, j_type, j_message, j_default_value));
+  env->DeleteLocalRef(j_type);
+  env->DeleteLocalRef(j_message);
+  env->DeleteLocalRef(j_default_value);
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android dialog host failed");
+    return -1;
+  }
+  env->DeleteLocalRef(methods.cls);
+
+  if (!result) {
+    *out_is_null = 1;
+    return 1;
+  }
+
+  std::string text = jstring_to_string(env, result);
+  env->DeleteLocalRef(result);
+  char* copy = malloc_string_copy(text);
+  if (!copy) {
+    write_error("Failed to allocate Android dialog result");
+    return -1;
+  }
+  *out_result = copy;
   return 1;
 }
 

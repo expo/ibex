@@ -9,6 +9,14 @@
 #if defined(EXACT_PLATFORM_ANDROID)
 extern "C" int android_clipboard_read_text(char** out_text, char* error, size_t error_capacity);
 extern "C" int android_clipboard_write_text(const char* text, char* error, size_t error_capacity);
+extern "C" int android_dialog_show(
+    const char* type,
+    const char* message,
+    const char* default_value,
+    char** out_result,
+    int* out_is_null,
+    char* error,
+    size_t error_capacity);
 
 struct AndroidScreenInfo {
   double width = 0.0;
@@ -747,6 +755,46 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactClipboardWrite", std::move(clipboardWriteFn));
+
+  auto nativeDialogFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactNativeDialog"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        std::string type = count > 0 ? valueToString(runtime, args[0]) : std::string("");
+        std::string message = count > 1 ? valueToString(runtime, args[1]) : std::string("");
+        std::string default_value =
+            count > 2 ? valueToString(runtime, args[2]) : std::string("");
+        char* result = nullptr;
+        int is_null = 0;
+        char error[256] = {};
+        // @ref LLP 0008#android-backend-matrix - Android window dialogs use
+        // the current Activity's native AlertDialog through the Java bridge.
+        int rc = android_dialog_show(
+            type.c_str(),
+            message.c_str(),
+            default_value.c_str(),
+            &result,
+            &is_null,
+            error,
+            sizeof(error));
+        if (rc < 0) {
+          throw facebook::jsi::JSError(
+              runtime, error[0] ? error : "Android native dialog failed");
+        }
+        if (is_null) {
+          return facebook::jsi::Value::null();
+        }
+        std::string copy = result ? result : "";
+        if (result) {
+          std::free(result);
+        }
+        return facebook::jsi::String::createFromUtf8(runtime, copy);
+      });
+  rt.global().setProperty(rt, "__exactNativeDialog", std::move(nativeDialogFn));
 #else
   (void)handle;
 #endif
