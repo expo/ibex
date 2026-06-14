@@ -34,6 +34,11 @@ extern "C" char** environ;
 
 void installProcessSetup(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
+  const auto performanceStart = std::chrono::steady_clock::now();
+  const double performanceTimeOriginMs =
+      std::chrono::duration<double, std::milli>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
 
   facebook::jsi::Object processObj(rt);
   if (rt.global().hasProperty(rt, "process")) {
@@ -128,6 +133,33 @@ void installProcessSetup(ExactHermesRuntime* handle) {
   rt.global().setProperty(
       rt, "__exactPlatform", facebook::jsi::String::createFromUtf8(rt, exact_platform));
   rt.global().setProperty(rt, "__exactArch", facebook::jsi::String::createFromUtf8(rt, exact_arch));
+
+  auto performanceNowFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPerformanceNow"),
+      0,
+      [performanceStart](facebook::jsi::Runtime&,
+                         const facebook::jsi::Value&,
+                         const facebook::jsi::Value*,
+                         size_t) -> facebook::jsi::Value {
+        auto elapsed = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - performanceStart);
+        return facebook::jsi::Value(elapsed.count());
+      });
+  rt.global().setProperty(rt, "__exactPerformanceNow", std::move(performanceNowFn));
+
+  auto performanceTimeOriginFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPerformanceTimeOrigin"),
+      0,
+      [performanceTimeOriginMs](facebook::jsi::Runtime&,
+                                const facebook::jsi::Value&,
+                                const facebook::jsi::Value*,
+                                size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(performanceTimeOriginMs);
+      });
+  rt.global().setProperty(
+      rt, "__exactPerformanceTimeOrigin", std::move(performanceTimeOriginFn));
 
   // process.version and process.versions are set by runFinalProcessVersionsFix()
   // after all globals are installed.  Skip the redundant setup here.
