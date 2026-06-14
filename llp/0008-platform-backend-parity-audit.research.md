@@ -33,9 +33,59 @@ are observed by `CURLOPT_XFERINFOFUNCTION` and suppress the response callback;
 in the degraded CLI fallback, abort suppresses callbacks but cannot kill the
 already-running child `curl` process.
 
-Android reuses the Linux native fetch/WebSocket files, but `build.rs` supplies
-libcurl through the target-specific vendored `curl-sys` dependency and always
-defines `EXACT_HAS_CURL` for that target.
+Android uses a Java/JNI OkHttp bridge for fetch and WebSocket. The C++ runtime
+keeps the same `native_fetch_*` and `native_ws_*` symbols, while
+`platform/android/java/dev/ibex/runtime/IbexNetworking.java` owns the Android
+HTTP/WebSocket stack. The same app-context bridge supplies Android framework
+data for raw DNS, clipboard, locale, screen metrics, appearance/accessibility,
+and platform version. Apps initialize it with `ex_android_initialize()`.
+
+## Android Backend Matrix
+
+The Android target should not be treated as "small Linux" when Android offers a
+better app-runtime integration point. The June 2026 Android backend target is:
+
+| Surface | Best Android backend | Current state | Completion rule |
+| --- | --- | --- | --- |
+| Fetch / `http` client / `https` client | OkHttp for HTTP(S), redirects, TLS, compression, connection pooling, and cancellation; app Network Security Config remains authoritative for cleartext, pins, and trust anchors. | C++/JNI bridge to `IbexNetworking.fetch()`; OkHttp redirects are disabled because JS implements Fetch redirect policy. | Verify HTTP, HTTPS, headers, POST body, redirect behavior, gzip/decompression, abort, and network errors on an Android runtime. |
+| WebSocket / `ws` client | OkHttp `WebSocket`, using the same client/trust configuration as fetch. | C++/JNI bridge to `IbexNetworking.connectWebSocket()`. | Verify open, text/binary messages, close codes/reasons, errors, pause/resume semantics, and flow-control callbacks on Android. |
+| DNS | Android `DnsResolver` where available for raw DNS record queries; fallback to Bionic/POSIX resolver for older API levels, unsupported record types, or resolver failure. | `resolve*` raw record queries call Android `DnsResolver` on API 29+ and fall back to `res_query`; `lookup` and reverse lookup still use Bionic/POSIX resolver APIs. | Verify `lookup`, `resolve*`, reverse lookup, and the Android API-level/failure fallback boundary. |
+| TCP / UDP sockets | Bionic/POSIX sockets. These are Android's NDK-native socket APIs and preserve Node-compatible stream semantics better than Java sockets. | Uses POSIX socket code. | Keep POSIX backend; verify TCP connect/listen, UDP bind/send/recv, and Unix socket behavior expected by Android API levels. |
+| Filesystem | Bionic/POSIX file APIs inside app-specific internal/cache directories supplied by the embedding host; Storage Access Framework belongs in app-level file pickers, not Node-compatible `fs`. | Uses POSIX plus host ABI. | Keep POSIX backend; add Android host path setters if app-specific roots are not already provided; verify file, dir, stat, statfs, symlink/link unsupported cases, and temp/cache paths. |
+| SQLite / IndexedDB / Web Storage | Bundled SQLite via `rusqlite` for deterministic runtime semantics; Android `SQLiteDatabase` is not a better fit for Bun/Node-style SQLite or IndexedDB compatibility. | Uses `rusqlite` and bundled SQLite. | Keep bundled SQLite; verify `exact:sqlite`, IndexedDB smoke, and web storage persistence on Android app storage. |
+| Crypto / WebCrypto / Node `crypto` | Broad algorithmic crypto stays in the runtime crypto backend because WebCrypto and Node crypto need extractable keys and exact algorithm behavior. Android Keystore is the right backend only for future non-extractable, hardware-backed key storage APIs. | Requires vendored OpenSSL for full crypto. | Keep OpenSSL until an Android crypto provider covers the same algorithm matrix; separately add Keystore-backed non-extractable keys only when the JS surface can expose that distinction. Verify random, hash, HMAC, AES, PBKDF2/scrypt/HKDF, sign/verify, key generation/import/export, ECDH/X25519/Ed25519, RSA-OAEP. |
+| Compression / zlib / Brotli | Vendored zlib/Brotli-compatible native code for deterministic JS semantics. | Vendored native code. | Keep; verify zlib and Brotli round trips. |
+| Console | Android logcat through NDK logging for native runtime console output, while retaining host console callbacks for embedders. | `ex_host_console_log` mirrors Android console lines to `__android_log_print` and keeps the host/stdout queue. | Verify by logcat or an injectable test sink. |
+| Timers / event loop | Runtime timer queue driven by the host event loop; Android hosts should wake/poll from their Looper/Choreographer integration. | Engine-host facility. | Keep runtime timers; verify timeout/interval/immediate, cancellation, ref/unref, and host wake callback on Android. |
+| HTTP server | Rust/hyper localhost server behind `host-http-server`; Android can run loopback servers when the embedding app opts in. | Feature-gated host backend or stubs. | Keep opt-in host server; verify listen, request body, response streaming, close, and Android app-network policy interactions. |
+| Child process / IPC / signals | Android app sandboxes do not provide desktop Node child-process semantics. Best behavior is capability-gated POSIX where available and explicit unsupported errors where Android forbids it. | POSIX process/IPC code is compiled. | Audit on-device behavior; do not fabricate success. Verify allowed spawn paths, denied paths, IPC fds, and signal stubs/errors. |
+| OS info / process metadata | Bionic/sysconf/sysinfo/getifaddrs plus Android-specific values where exposed by the host. | POSIX plus Android Java/JNI globals for SDK version, locale tags, 24-hour preference, screen metrics, font scale, appearance, and accessibility snapshot. | Verify `os`, `process`, `navigator`, `Dimensions`, `Appearance`, locale, and accessibility values on Android. |
+| Clipboard | Android `ClipboardManager` through an app/Java host bridge. | Android installs `__exactClipboardRead/Write` backed by the initialized app context's `ClipboardManager`; `exact:clipboard` and `navigator.clipboard` use those hooks. | Verify read/write text and permission/foreground restrictions. |
+| Location | Android framework `LocationManager` as the platform baseline; apps may adapt Google Play services above this runtime if desired. | JS `UnsupportedLocationBackend`. | Add app/Java host bridge with permission-aware errors; verify one-shot and watch flows. |
+| Camera | CameraX for app-facing camera capture; Camera2 only for lower-level specialized needs. | DOM/virtual-camera oriented JS, no Android bridge. | Add app/Java host bridge; verify device enumeration, preview/session lifecycle, photo capture, errors, and permission handling. |
+| Window / navigator / React Native device APIs | App host bridge to Android resources, display metrics, locale, app state, deep links, and appearance. | Initial locale/screen/appearance/accessibility/platform-version values come from Android Resources, DateFormat, and AccessibilityManager through the Java/JNI bridge; app-state, deep-link, and configuration-change event sources are still absent. | Verify initial values and add/verify change events for configuration, app state, and deep links. |
+| Inspector / workers / WASI / HTTP2 | Deliberate compatibility stubs unless a real Android-capable backend is designed. | Stubs/unsupported surfaces. | Keep explicit unsupported errors until an LLP defines support; tests should assert honest failure, not pretend success. |
+
+The primary Android networking answer is therefore: use OkHttp. It is the
+Android app stack with HTTP/2, pooling, transparent gzip, response caching, and
+WebSocket support, and it naturally participates in Android's platform TLS and
+Network Security Config behavior. The runtime should expose this through a
+small Java/JNI bridge rather than linking libcurl into Android apps.
+
+Reference points used for this matrix: OkHttp overview
+<https://square.github.io/okhttp/>, Android Network Security Config
+<https://developer.android.com/privacy-and-security/security-config>, Android
+`DnsResolver` <https://developer.android.com/reference/android/net/DnsResolver>,
+Android Keystore
+<https://developer.android.com/privacy-and-security/keystore>, Android app data
+storage <https://developer.android.com/training/data-storage>, CameraX
+<https://developer.android.com/media/camera/camerax>, Android NDK logging
+<https://developer.android.com/ndk/reference/group/logging>, Android
+`Configuration` <https://developer.android.com/reference/android/content/res/Configuration>,
+Android `DateFormat.is24HourFormat()`
+<https://developer.android.com/reference/kotlin/android/text/format/DateFormat#is24HourFormat(android.content.Context)>,
+and Android `AccessibilityManager`
+<https://developer.android.com/reference/android/view/accessibility/AccessibilityManager>.
 
 ## Filesystem
 
@@ -87,24 +137,66 @@ or Windows process/socket primitives provided by the platform files.
 ## Current Residual Gaps
 
 - tvOS still has no first-class `build.rs` target arm; see LLP 0001.
-- Android is compile-wired with vendored curl/OpenSSL, but does not yet have an
-  Android-native crypto backend.
+- Android fetch/WebSocket now use the OkHttp bridge but still need emulator or
+  device runtime verification.
+- Android raw DNS record queries use `DnsResolver` on API 29+ with POSIX
+  fallback, while lookup and reverse lookup remain on Bionic/POSIX resolver
+  APIs; all DNS paths still need app-process verification.
+- Android console output is routed to logcat but still needs device/emulator
+  verification.
+- Android app/device APIs that need Java/Kotlin host participation remain
+  incomplete: location, camera, app-state/deep-link event sources, and
+  configuration-change notifications. Initial window/navigator locale, screen,
+  appearance/accessibility, platform version, and clipboard data now use the
+  Android Java/JNI bridge. The environment probes were smoke-tested on an
+  emulator through `app_process`; foreground app-process verification is still
+  required for clipboard and change/event sources.
+- Android crypto still uses vendored OpenSSL. That is acceptable for today's
+  broad WebCrypto/Node crypto algorithm surface, but it is not a Keystore-backed
+  non-extractable key backend.
 - Linux full AES/asymmetric crypto still requires `openssl-crypto`; the default
   profile is intentionally reduced.
 - The degraded Linux curl CLI fallback is not a production networking backend.
 - Local macOS Cargo test builds are blocked by the currently installed Hermes
   headers not matching the C++ runtime API used by this checkout.
 
+## Android Verification Required
+
+Android completion requires more than cross-compilation. The verification pass
+must run on an Android runtime or emulator and exercise:
+
+- Fetch and WebSocket against local HTTP/HTTPS/WS/WSS fixtures, including
+  cancellation and error paths.
+- DNS lookup/resolve/reverse, including the Android API-level fallback branch.
+- TCP, UDP, filesystem, SQLite, Web Storage, IndexedDB, crypto, compression,
+  timers, console/logcat, OS/process metadata, and HTTP server smoke tests.
+- Honest unsupported behavior for child-process restrictions, inspector,
+  workers, WASI, HTTP2, and any mobile API whose host bridge is not installed.
+- App-bridge APIs once added: clipboard, location, camera, window/navigator,
+  React Native device/app-state/deep-link data, and accessibility changes.
+
 ## Verification From This Pass
 
+- `bun run build:builtins` regenerated the clipboard builtin after adding
+  `__exactClipboardRead/Write` hooks.
+- `cargo fmt --check` passed.
 - `git diff --check` passed.
-- `native_fetch_linux.cc` passed direct C++ syntax checks in both fallback and
-  `EXACT_HAS_CURL` profiles.
-- `native_websocket_linux.cc` passed direct C++ syntax checks in both fallback
-  and `EXACT_HAS_CURL` profiles.
+- The Android Java helper compiled with Android API 36 plus OkHttp 5.4.0,
+  Okio 3.17.0, and Kotlin stdlib 2.1.21.
+- `ANDROID_TARGET=aarch64-linux-android ./scripts/cargo-android.sh` passed,
+  linking the Android Hermes/JSI, vendored OpenSSL, Android log, and JNI bridge
+  path. The only warnings were the pre-existing OpenSSL RSA deprecation and
+  `hermes_runtime_fs.cc` unused `mode` warning.
+- `cargo metadata --format-version 1 --no-deps` plus `rg` found no remaining
+  `curl-sys` or `libz-sys` dependency entries after removing Android libcurl.
+- Emulator smoke on `sdk_gphone64_arm64` API 36 through `app_process` verified
+  the Java bridge can initialize with an Android context and read SDK version
+  `36`, locale `[en-US]`, 24-hour preference fallback, screen metrics, and
+  accessibility flags. The same smoke confirmed OkHttp reached
+  `https://example.com/` with status `200` over `h2`.
+- The emulator smoke also exposed two shell-harness limits: direct Java
+  `DnsResolver.rawQuery()` timed out under `app_process`, so the C++ DNS path
+  now falls back to POSIX resolver on Android resolver failure; clipboard was
+  denied because shell UID 2000 is not a foreground app package.
 - `ref-check` was attempted and still fails only on inherited exact/snapback
   `@ref` comments documented as known debt in `AGENTS.md`.
-- `cargo test --no-run --tests` was attempted. Without
-  `EXACT_ALLOW_FALLBACK=1`, hermesc rejected the minified Web Streams bootstrap
-  artifact. With `EXACT_ALLOW_FALLBACK=1`, the build reached the pre-existing
-  Hermes header/API mismatch described above.

@@ -9,6 +9,17 @@
 
 #include "hermes_runtime_internal.h"
 
+#if defined(EXACT_PLATFORM_ANDROID)
+extern "C" int android_dns_query(
+    const char* hostname,
+    int qtype,
+    uint8_t* answer,
+    size_t answer_capacity,
+    size_t* answer_length,
+    char* error,
+    size_t error_capacity);
+#endif
+
 void installDnsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   // --- DNS lookup ---
@@ -119,7 +130,28 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, ("unsupported record type: " + rrtype).c_str());
         }
         unsigned char answer[4096];
-        int len = res_query(hostname.c_str(), ns_c_in, qtype, answer, sizeof(answer));
+        int len = -1;
+#if defined(EXACT_PLATFORM_ANDROID)
+        // @ref LLP 0008#android-backend-matrix — Android raw DNS record
+        // queries use DnsResolver when available, with the POSIX resolver as
+        // the API-level fallback.
+        size_t androidAnswerLength = 0;
+        char androidDnsError[256] = {};
+        int androidDnsResult = android_dns_query(
+            hostname.c_str(),
+            qtype,
+            answer,
+            sizeof(answer),
+            &androidAnswerLength,
+            androidDnsError,
+            sizeof(androidDnsError));
+        if (androidDnsResult > 0) {
+          len = static_cast<int>(androidAnswerLength);
+        }
+#endif
+        if (len < 0) {
+          len = res_query(hostname.c_str(), ns_c_in, qtype, answer, sizeof(answer));
+        }
         if (len < 0) {
           throw facebook::jsi::JSError(
               runtime,

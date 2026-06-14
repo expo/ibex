@@ -137,10 +137,15 @@ Crypto-backend selection and the platform matrix are owned by
 Hermes headers/libs are located via `HERMES_*` env vars or platform defaults
 `[observed]` (`build.rs:172-227, 289-304`). Android additionally consumes React
 Native JSI headers/libs via `JSI_*` env vars or the default Android PREFAB
-extract under `android/react-android` `[observed]` (`build.rs:199-227`), and
-uses vendored `curl-sys` metadata for native fetch/WebSocket `[observed]`
-(`Cargo.toml:82-83`; `build.rs:1106-1137`). This is a separate concern from the
-vendored-generated JS snapshot.
+extract under `android/react-android` `[observed]` (`build.rs:199-227`).
+Android native fetch/WebSocket are compiled from `native_android_networking.cc`
+and delegate to the Java OkHttp bridge shipped under `platform/android/java`.
+That bridge also supplies Android clipboard, raw DNS, locale/screen/appearance,
+accessibility, and platform-version data to Hermes host globals
+`[observed]` (`src/engine/native_android_networking.cc`;
+`src/engine/hermes_runtime_android.cc`;
+`platform/android/java/dev/ibex/runtime/IbexNetworking.java`; `build.rs`). This
+is a separate concern from the vendored-generated JS snapshot.
 
 ## Boundaries
 

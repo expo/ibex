@@ -11,9 +11,6 @@
 //! The CLI wraps these in async Rust (via tokio). The iOS app calls the C API
 //! directly from Swift via the bridging header.
 
-#[cfg(target_os = "android")]
-use curl_sys as _;
-
 #[cfg(feature = "host-http-server")]
 pub mod cdp;
 pub mod engine;

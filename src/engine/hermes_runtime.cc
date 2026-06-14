@@ -880,6 +880,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   } else {
   IG_TRACE_START(host_functions);
   installTimerGlobals(handle);
+  installAndroidHostFunctions(handle);
 
   auto capabilityCheckFn = facebook::jsi::Function::createFromHostFunction(
       rt,

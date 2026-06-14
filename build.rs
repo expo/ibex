@@ -315,6 +315,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_websocket.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fetch.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_ipc.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_android.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_templates.inl");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/host/mod.rs");
@@ -325,6 +326,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_linux.cc");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_linux.cc");
+    println!("cargo:rerun-if-changed=src/engine/native_android_networking.cc");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/bootstrap");
@@ -869,6 +871,7 @@ fn main() {
             .file("src/engine/hermes_runtime_http.cc")
             .file("src/engine/hermes_runtime_debugger.cc")
             .file("src/engine/hermes_runtime_ios.cc")
+            .file("src/engine/hermes_runtime_android.cc")
             .file("src/engine/hermes_runtime_osinfo.cc")
             .file("src/engine/hermes_runtime_process_setup.cc")
             .flag_if_supported("-stdlib=libc++")
@@ -1105,37 +1108,17 @@ fn main() {
     }
 
     if target_os == "android" {
-        let curl_include = std::env::var("DEP_CURL_INCLUDE").unwrap_or_else(|_| {
-            panic!(
-                "Android native networking requires curl-sys metadata, but DEP_CURL_INCLUDE was not set"
-            )
-        });
-
-        let mut fetch_build = cc::Build::new();
-        fetch_build
+        // @ref LLP 0008#android-backend-matrix — Android Fetch/WebSocket use
+        // OkHttp through JNI, not vendored libcurl.
+        let mut networking_build = cc::Build::new();
+        networking_build
             .cpp(true)
-            .file("src/engine/native_fetch_linux.cc")
-            .include(&curl_include)
-            .define("EXACT_HAS_CURL", None)
-            .define("CURL_STATICLIB", None)
+            .file("src/engine/native_android_networking.cc")
             .std("c++17")
             .flag_if_supported("-fPIC")
             .flag_if_supported("-fexceptions")
             .flag_if_supported("-frtti");
-        fetch_build.compile("exact_native_fetch");
-
-        let mut ws_build = cc::Build::new();
-        ws_build
-            .cpp(true)
-            .file("src/engine/native_websocket_linux.cc")
-            .include(&curl_include)
-            .define("EXACT_HAS_CURL", None)
-            .define("CURL_STATICLIB", None)
-            .std("c++17")
-            .flag_if_supported("-fPIC")
-            .flag_if_supported("-fexceptions")
-            .flag_if_supported("-frtti");
-        ws_build.compile("exact_native_websocket");
+        networking_build.compile("exact_native_android_networking");
 
         println!(
             "cargo:rustc-link-search=native={}",

@@ -51,7 +51,7 @@ matrix row.
 | iOS | yes | CommonCrypto/Security with `EXACT_PLATFORM_IOS`, `EXACT_NO_OPENSSL`, `EXACT_NO_BROTLI` | wired in `build.rs` |
 | Linux | yes | default defines `EXACT_NO_OPENSSL`; `openssl-crypto` enables OpenSSL linking; native networking requires libcurl >= 7.86 | wired in `build.rs` |
 | Windows | yes | `hermes_runtime_crypto_windows.cc`, `EXACT_NO_OPENSSL`, WinHTTP/Bcrypt/Ncrypt/Crypt32 | wired in `build.rs` |
-| **Android** | yes | `openssl-crypto` with vendored OpenSSL; Hermes/JSI from Android PREFAB; vendored curl/libz for native networking | wired for cross-compile |
+| **Android** | yes | `openssl-crypto` with vendored OpenSSL; Hermes/JSI from Android PREFAB; Java/JNI bridge for OkHttp fetch/WebSocket and Android platform data | wired for cross-compile |
 | **tvOS** | **no** | no tvOS branch in `build.rs` | **needs work** |
 
 The table is grounded in the target selection and compile/link branches in
@@ -59,9 +59,14 @@ The table is grounded in the target selection and compile/link branches in
 no Hermes-for-platform artifact path there. The matrix should include tvOS as a
 **known-red** row `[inferred: this keeps the product target set visible while
 implementation catches up]`. Android is no longer known-red for compile or for
-the default native fetch/WebSocket surface because it compiles the curl-backed
-networking files with vendored `curl-sys` `[observed]` (`Cargo.toml:82-83`;
-`build.rs:1106-1137`).
+the default native fetch/WebSocket surface because it compiles
+`native_android_networking.cc` and delegates HTTP/WebSocket work to the Android
+OkHttp bridge; the same Android Java/JNI bridge now initializes clipboard,
+raw DNS, locale, screen, appearance/accessibility, and platform-version globals
+for the JS runtime `[observed]` (`build.rs`;
+`src/engine/native_android_networking.cc`;
+`src/engine/hermes_runtime_android.cc`;
+`platform/android/java/dev/ibex/runtime/IbexNetworking.java`).
 
 ## 2. The axes that matter beyond OS
 

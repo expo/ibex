@@ -14,6 +14,8 @@ use getrandom::getrandom;
 use rusqlite::{params_from_iter, types::ValueRef, Connection, OpenFlags, ToSql};
 use serde_json::json;
 use std::collections::HashMap;
+#[cfg(target_os = "android")]
+use std::ffi::c_int;
 use std::ffi::{c_char, CStr, CString};
 use std::io::{self, Write};
 use std::ptr;
@@ -232,6 +234,46 @@ fn enqueue_stdout_line(msg: String) {
 
 fn enqueue_stderr_line(msg: String) {
     console_queue().enqueue(ConsoleLine::Err(msg));
+}
+
+#[cfg(target_os = "android")]
+unsafe extern "C" {
+    fn __android_log_print(prio: c_int, tag: *const c_char, fmt: *const c_char, ...) -> c_int;
+}
+
+#[cfg(target_os = "android")]
+fn write_android_logcat(level: i32, msg: &str) {
+    const ANDROID_LOG_INFO: c_int = 4;
+    const ANDROID_LOG_ERROR: c_int = 6;
+    static TAG: &[u8] = b"Ibex\0";
+    static FORMAT: &[u8] = b"%s\0";
+
+    let sanitized;
+    let c_msg = match CString::new(msg) {
+        Ok(value) => value,
+        Err(_) => {
+            sanitized = msg.replace('\0', "\\0");
+            match CString::new(sanitized.as_str()) {
+                Ok(value) => value,
+                Err(_) => return,
+            }
+        }
+    };
+    let priority = if level == 1 {
+        ANDROID_LOG_ERROR
+    } else {
+        ANDROID_LOG_INFO
+    };
+    unsafe {
+        // @ref LLP 0008#android-backend-matrix — Android console output is
+        // mirrored to logcat while retaining the host/stdout queue.
+        __android_log_print(
+            priority,
+            TAG.as_ptr() as *const c_char,
+            FORMAT.as_ptr() as *const c_char,
+            c_msg.as_ptr(),
+        );
+    }
 }
 
 const SQLITE_OPEN_READONLY: u64 = 0x00000001;
@@ -1754,6 +1796,8 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
     let msg = unsafe { CStr::from_ptr(message) }
         .to_string_lossy()
         .to_string();
+    #[cfg(target_os = "android")]
+    write_android_logcat(level, &msg);
     match level {
         1 => enqueue_stderr_line(msg),
         _ => enqueue_stdout_line(msg),
