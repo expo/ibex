@@ -3356,7 +3356,30 @@
       }
       return result;
     };
-    var lines = splitInlineModuleStatements(String(source)).split("\n");
+    var isCompleteStaticImportStatement = function(text) {
+      var trimmedText = String(text || "").trim();
+      return (
+        /^\s*import\s+type\s+[\s\S]+?\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s*(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        /^\s*import\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText)
+      );
+    };
+    var splitLines = splitInlineModuleStatements(String(source)).split("\n");
+    var importLines = [];
+    var bodyLines = [];
+    for (var lineIndex = 0; lineIndex < splitLines.length; lineIndex++) {
+      var splitLine = splitLines[lineIndex];
+      if (isCompleteStaticImportStatement(splitLine)) {
+        importLines.push(splitLine);
+      } else {
+        bodyLines.push(splitLine);
+      }
+    }
+    var lines = importLines.concat(bodyLines);
     var out = [];
     var importCounter = 0;
     var pendingVarExport = null;
@@ -3365,12 +3388,7 @@
     var looksLikeCompleteModuleStatement = function(text) {
       var trimmedText = String(text || "").trim();
       return (
-        /^\s*import\s*(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\3\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
-        /^\s*import\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
+        isCompleteStaticImportStatement(trimmedText) ||
         /^\s*export\s*\*\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/.test(trimmedText) ||
         /^\s*export\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
         /^\s*export\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/.test(trimmedText) ||
