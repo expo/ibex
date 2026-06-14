@@ -1,7 +1,9 @@
 #include "hermes_runtime_internal.h"
 
 #include <cstdlib>
+#include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #if defined(EXACT_PLATFORM_ANDROID)
@@ -57,8 +59,17 @@ extern "C" int android_location_get_current(
     AndroidLocationResult* out_location,
     char* error,
     size_t error_capacity);
+extern "C" int android_get_app_state(
+    char** out_state, char* error, size_t error_capacity);
+extern "C" int android_get_initial_url(
+    char** out_url, char* error, size_t error_capacity);
+extern "C" int android_drain_platform_events(
+    char** out_events, char* error, size_t error_capacity);
 
 namespace {
+
+std::mutex g_android_runtime_mutex;
+std::unordered_set<ExactHermesRuntime*> g_android_runtimes;
 
 std::vector<std::string> splitLocaleTags(const char* value) {
   std::vector<std::string> tags;
@@ -80,6 +91,33 @@ std::vector<std::string> splitLocaleTags(const char* value) {
   return tags;
 }
 
+std::vector<std::string> splitLines(const std::string& value) {
+  std::vector<std::string> lines;
+  size_t start = 0;
+  while (start < value.size()) {
+    size_t end = value.find('\n', start);
+    if (end == std::string::npos) {
+      end = value.size();
+    }
+    if (end > start) {
+      lines.emplace_back(value.substr(start, end - start));
+    }
+    start = end + 1;
+  }
+  return lines;
+}
+
+facebook::jsi::Array makeStringArray(
+    facebook::jsi::Runtime& runtime,
+    const std::vector<std::string>& values) {
+  facebook::jsi::Array array(runtime, values.size());
+  for (size_t i = 0; i < values.size(); ++i) {
+    array.setValueAtIndex(
+        runtime, i, facebook::jsi::String::createFromUtf8(runtime, values[i]));
+  }
+  return array;
+}
+
 facebook::jsi::Object makeScreenInfoObject(
     facebook::jsi::Runtime& runtime,
     const AndroidScreenInfo& info) {
@@ -89,6 +127,128 @@ facebook::jsi::Object makeScreenInfoObject(
   result.setProperty(runtime, "scale", facebook::jsi::Value(info.scale));
   result.setProperty(runtime, "fontScale", facebook::jsi::Value(info.font_scale));
   return result;
+}
+
+facebook::jsi::Object makeDimensionsObject(
+    facebook::jsi::Runtime& runtime,
+    const AndroidScreenInfo& info) {
+  facebook::jsi::Object dimensions(runtime);
+  auto window = makeScreenInfoObject(runtime, info);
+  auto screen = makeScreenInfoObject(runtime, info);
+  dimensions.setProperty(runtime, "window", std::move(window));
+  dimensions.setProperty(runtime, "screen", std::move(screen));
+  return dimensions;
+}
+
+facebook::jsi::Object makeAccessibilityObject(
+    facebook::jsi::Runtime& runtime,
+    const AndroidAccessibilityFlags& flags,
+    double font_scale) {
+  const char* color_scheme = flags.color_scheme_dark ? "dark" : "light";
+  facebook::jsi::Object accessibility(runtime);
+  accessibility.setProperty(
+      runtime, "prefersReducedMotion", flags.prefers_reduced_motion != 0);
+  accessibility.setProperty(
+      runtime, "isBoldTextEnabled", flags.is_bold_text_enabled != 0);
+  accessibility.setProperty(
+      runtime, "prefersHighContrast", flags.prefers_high_contrast != 0);
+  accessibility.setProperty(
+      runtime,
+      "prefersReducedTransparency",
+      flags.prefers_reduced_transparency != 0);
+  accessibility.setProperty(runtime, "fontScale", facebook::jsi::Value(font_scale));
+  accessibility.setProperty(
+      runtime, "isScreenReaderEnabled", flags.is_screen_reader_enabled != 0);
+  accessibility.setProperty(
+      runtime, "colorScheme", facebook::jsi::String::createFromUtf8(runtime, color_scheme));
+  accessibility.setProperty(
+      runtime, "isInvertColorsEnabled", flags.is_invert_colors_enabled != 0);
+  accessibility.setProperty(
+      runtime, "isGrayscaleEnabled", flags.is_grayscale_enabled != 0);
+  accessibility.setProperty(runtime, "dynamicTypeSize", facebook::jsi::Value::null());
+  return accessibility;
+}
+
+facebook::jsi::Object makeAppearanceObject(
+    facebook::jsi::Runtime& runtime,
+    const AndroidAccessibilityFlags& flags) {
+  facebook::jsi::Object appearance(runtime);
+  appearance.setProperty(
+      runtime,
+      "colorScheme",
+      facebook::jsi::String::createFromUtf8(runtime, flags.color_scheme_dark ? "dark" : "light"));
+  appearance.setProperty(runtime, "reducedMotion", flags.prefers_reduced_motion != 0);
+  return appearance;
+}
+
+facebook::jsi::Object makeAndroidPlatformState(facebook::jsi::Runtime& runtime) {
+  char error[256] = {};
+  facebook::jsi::Object state(runtime);
+
+  char* app_state = nullptr;
+  if (android_get_app_state(&app_state, error, sizeof(error)) > 0 && app_state) {
+    state.setProperty(
+        runtime, "appState", facebook::jsi::String::createFromUtf8(runtime, app_state));
+  } else {
+    state.setProperty(
+        runtime, "appState", facebook::jsi::String::createFromUtf8(runtime, "unknown"));
+  }
+  std::free(app_state);
+
+  char* initial_url = nullptr;
+  if (android_get_initial_url(&initial_url, error, sizeof(error)) > 0 && initial_url && *initial_url) {
+    state.setProperty(
+        runtime, "initialURL", facebook::jsi::String::createFromUtf8(runtime, initial_url));
+  } else {
+    state.setProperty(runtime, "initialURL", facebook::jsi::Value::null());
+  }
+  std::free(initial_url);
+
+  char* primary_tag = nullptr;
+  char* joined_tags = nullptr;
+  int uses_24_hour_clock = 0;
+  if (android_get_locale_snapshot(
+          &primary_tag,
+          &joined_tags,
+          &uses_24_hour_clock,
+          error,
+          sizeof(error)) > 0 &&
+      primary_tag &&
+      joined_tags) {
+    std::vector<std::string> tags = splitLocaleTags(joined_tags);
+    if (tags.empty()) {
+      tags.emplace_back(primary_tag);
+    }
+    facebook::jsi::Object locale(runtime);
+    locale.setProperty(
+        runtime, "tag", facebook::jsi::String::createFromUtf8(runtime, primary_tag));
+    auto tags_array = makeStringArray(runtime, tags);
+    locale.setProperty(runtime, "tags", std::move(tags_array));
+    locale.setProperty(runtime, "uses24Hour", uses_24_hour_clock != 0);
+    state.setProperty(runtime, "locale", std::move(locale));
+  }
+  std::free(primary_tag);
+  std::free(joined_tags);
+
+  AndroidScreenInfo screen_info;
+  bool has_screen_info = android_get_screen_info(&screen_info, error, sizeof(error)) > 0;
+  if (has_screen_info) {
+    auto screen = makeScreenInfoObject(runtime, screen_info);
+    auto dimensions = makeDimensionsObject(runtime, screen_info);
+    state.setProperty(runtime, "screen", std::move(screen));
+    state.setProperty(runtime, "dimensions", std::move(dimensions));
+  }
+
+  AndroidAccessibilityFlags flags;
+  if (android_get_accessibility_flags(&flags, error, sizeof(error)) > 0) {
+    auto appearance = makeAppearanceObject(runtime, flags);
+    auto accessibility =
+        makeAccessibilityObject(runtime, flags, has_screen_info ? screen_info.font_scale : 1.0);
+    state.setProperty(runtime, "appearance", std::move(appearance));
+    state.setProperty(runtime, "accessibility", std::move(accessibility));
+  }
+
+  return state;
 }
 
 void installAndroidEnvironmentGlobals(facebook::jsi::Runtime& rt) {
@@ -139,6 +299,22 @@ void installAndroidEnvironmentGlobals(facebook::jsi::Runtime& rt) {
   }
   std::free(primary_tag);
   std::free(joined_tags);
+
+  char* app_state = nullptr;
+  if (android_get_app_state(&app_state, error, sizeof(error)) > 0 && app_state) {
+    rt.global().setProperty(
+        rt, "__exactAppState", facebook::jsi::String::createFromUtf8(rt, app_state));
+  }
+  std::free(app_state);
+
+  char* initial_url = nullptr;
+  if (android_get_initial_url(&initial_url, error, sizeof(error)) > 0 && initial_url && *initial_url) {
+    rt.global().setProperty(
+        rt, "__exactInitialURL", facebook::jsi::String::createFromUtf8(rt, initial_url));
+  } else {
+    rt.global().setProperty(rt, "__exactInitialURL", facebook::jsi::Value::null());
+  }
+  std::free(initial_url);
 
   AndroidScreenInfo initial_screen_info;
   bool has_screen_info =
@@ -295,14 +471,88 @@ void installAndroidLocationBridge(facebook::jsi::Runtime& rt) {
   rt.global().setProperty(rt, "__exactAndroidLocation", std::move(location));
 }
 
+bool dispatchAndroidPlatformEvents(ExactHermesRuntime* handle) {
+  if (!handle || !handle->runtime) {
+    return false;
+  }
+  auto& rt = *handle->runtime;
+  auto handler_value = rt.global().getProperty(rt, "__exactAndroidDispatchPlatformEvent");
+  if (!handler_value.isObject()) {
+    return false;
+  }
+  auto handler_object = handler_value.asObject(rt);
+  if (!handler_object.isFunction(rt)) {
+    return false;
+  }
+
+  char* joined_events = nullptr;
+  char error[256] = {};
+  if (android_drain_platform_events(&joined_events, error, sizeof(error)) <= 0) {
+    return false;
+  }
+  std::string events = joined_events ? joined_events : "";
+  std::free(joined_events);
+  if (events.empty()) {
+    return true;
+  }
+
+  auto handler = handler_object.asFunction(rt);
+  for (const auto& event_json : splitLines(events)) {
+    auto state = makeAndroidPlatformState(rt);
+    handler.call(
+        rt,
+        facebook::jsi::String::createFromUtf8(rt, event_json),
+        std::move(state));
+  }
+  return true;
+}
+
+void registerAndroidRuntime(ExactHermesRuntime* handle) {
+  if (!handle) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_android_runtime_mutex);
+  g_android_runtimes.insert(handle);
+}
+
 } // namespace
 #endif
 
 void installAndroidHostFunctions(ExactHermesRuntime* handle) {
 #if defined(EXACT_PLATFORM_ANDROID)
+  registerAndroidRuntime(handle);
+
   auto& rt = *handle->runtime;
   installAndroidEnvironmentGlobals(rt);
   installAndroidLocationBridge(rt);
+
+  auto getPlatformStateFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAndroidGetPlatformState"),
+      0,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return makeAndroidPlatformState(runtime);
+      });
+  rt.global().setProperty(
+      rt, "__exactAndroidGetPlatformState", std::move(getPlatformStateFn));
+
+  auto drainPlatformEventsFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAndroidDrainPlatformEvents"),
+      0,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
+        (void)runtime;
+        dispatchAndroidPlatformEvents(handle);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactAndroidDrainPlatformEvents", std::move(drainPlatformEventsFn));
 
   auto clipboardReadFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -350,5 +600,32 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactClipboardWrite", std::move(clipboardWriteFn));
 #else
   (void)handle;
+#endif
+}
+
+void unregisterAndroidHostFunctions(ExactHermesRuntime* handle) {
+#if defined(EXACT_PLATFORM_ANDROID)
+  std::lock_guard<std::mutex> lock(g_android_runtime_mutex);
+  g_android_runtimes.erase(handle);
+#else
+  (void)handle;
+#endif
+}
+
+extern "C" void android_platform_event_available(void) {
+#if defined(EXACT_PLATFORM_ANDROID)
+  std::vector<ExactHermesRuntime*> runtimes;
+  {
+    std::lock_guard<std::mutex> lock(g_android_runtime_mutex);
+    runtimes.assign(g_android_runtimes.begin(), g_android_runtimes.end());
+  }
+  for (auto* runtime : runtimes) {
+    if (!runtimeIsAlive(runtime)) {
+      continue;
+    }
+    pushRuntimeCallback(runtime, [runtime](facebook::jsi::Runtime&) {
+      dispatchAndroidPlatformEvents(runtime);
+    });
+  }
 #endif
 }

@@ -43,6 +43,7 @@ typedef void (*NativeWsBytesSentCallback)(uint32_t ws_id, size_t bytes_sent, voi
 
 extern "C" void native_ws_retain_context(void* context);
 extern "C" void native_ws_release_context(void* context);
+extern "C" void android_platform_event_available(void);
 
 struct AndroidScreenInfo {
   double width = 0.0;
@@ -116,6 +117,9 @@ struct AndroidNetworkingMethods {
   jmethodID location_permission_status = nullptr;
   jmethodID location_services_enabled = nullptr;
   jmethodID current_location = nullptr;
+  jmethodID app_state = nullptr;
+  jmethodID initial_url = nullptr;
+  jmethodID drain_platform_events = nullptr;
 };
 
 std::mutex g_jni_mutex;
@@ -142,6 +146,9 @@ jmethodID g_accessibility_flags = nullptr;
 jmethodID g_location_permission_status = nullptr;
 jmethodID g_location_services_enabled = nullptr;
 jmethodID g_current_location = nullptr;
+jmethodID g_app_state = nullptr;
+jmethodID g_initial_url = nullptr;
+jmethodID g_drain_platform_events = nullptr;
 
 std::mutex g_fetch_mutex;
 std::unordered_map<uint32_t, AndroidFetchRequest> g_fetch_requests;
@@ -564,6 +571,10 @@ void JNICALL android_ws_did_send_bytes(JNIEnv*, jclass, jint ws_id, jlong bytes_
   call_ws_bytes_sent(entry, static_cast<size_t>(bytes_sent));
 }
 
+void JNICALL android_platform_event_available_jni(JNIEnv*, jclass) {
+  android_platform_event_available();
+}
+
 bool register_native_callbacks(JNIEnv* env, jclass cls) {
   JNINativeMethod methods[] = {
       {const_cast<char*>("nativeFetchDidComplete"),
@@ -584,6 +595,9 @@ bool register_native_callbacks(JNIEnv* env, jclass cls) {
       {const_cast<char*>("nativeWebSocketDidBytesSent"),
        const_cast<char*>("(IJ)V"),
        reinterpret_cast<void*>(android_ws_did_send_bytes)},
+      {const_cast<char*>("nativePlatformEventAvailable"),
+       const_cast<char*>("()V"),
+       reinterpret_cast<void*>(android_platform_event_available_jni)},
   };
   const jint rc = env->RegisterNatives(cls, methods, sizeof(methods) / sizeof(methods[0]));
   if (rc != JNI_OK || clear_pending_exception(env, "RegisterNatives IbexNetworking")) {
@@ -632,6 +646,12 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
       env->GetStaticMethodID(cls, "isLocationServicesEnabled", "()Z");
   g_current_location =
       env->GetStaticMethodID(cls, "getCurrentLocation", "(Ljava/lang/String;I)[D");
+  g_app_state =
+      env->GetStaticMethodID(cls, "appState", "()Ljava/lang/String;");
+  g_initial_url =
+      env->GetStaticMethodID(cls, "initialURL", "()Ljava/lang/String;");
+  g_drain_platform_events =
+      env->GetStaticMethodID(cls, "drainPlatformEvents", "()Ljava/lang/String;");
 
   if (clear_pending_exception(env, "cache IbexNetworking methods") ||
       !g_initialize ||
@@ -653,7 +673,10 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
       !g_accessibility_flags ||
       !g_location_permission_status ||
       !g_location_services_enabled ||
-      !g_current_location) {
+      !g_current_location ||
+      !g_app_state ||
+      !g_initial_url ||
+      !g_drain_platform_events) {
     __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Missing IbexNetworking Java method");
     return false;
   }
@@ -688,6 +711,9 @@ bool get_networking_methods(JNIEnv* env, AndroidNetworkingMethods* out) {
   out->location_permission_status = g_location_permission_status;
   out->location_services_enabled = g_location_services_enabled;
   out->current_location = g_current_location;
+  out->app_state = g_app_state;
+  out->initial_url = g_initial_url;
+  out->drain_platform_events = g_drain_platform_events;
   return out->cls != nullptr;
 }
 
@@ -1362,6 +1388,165 @@ extern "C" int android_location_get_current(
   out_location->horizontal_accuracy = values[3];
   out_location->vertical_accuracy = values[4];
   out_location->timestamp = values[5];
+  return 1;
+}
+
+extern "C" int android_get_app_state(
+    char** out_state,
+    char* error,
+    size_t error_capacity) {
+  if (out_state) {
+    *out_state = nullptr;
+  }
+  if (!out_state) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* message) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = message ? message : "Android app state query failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods)) {
+    write_error("Android runtime bridge is not initialized");
+    return -1;
+  }
+
+  auto result = static_cast<jstring>(
+      env->CallStaticObjectMethod(methods.cls, methods.app_state));
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android app state query failed");
+    return -1;
+  }
+  env->DeleteLocalRef(methods.cls);
+
+  std::string state = jstring_to_string(env, result);
+  if (result) {
+    env->DeleteLocalRef(result);
+  }
+  if (state.empty()) {
+    state = "unknown";
+  }
+  auto* copy = malloc_string_copy(state);
+  if (!copy) {
+    write_error("Failed to allocate Android app state");
+    return -1;
+  }
+  *out_state = copy;
+  return 1;
+}
+
+extern "C" int android_get_initial_url(
+    char** out_url,
+    char* error,
+    size_t error_capacity) {
+  if (out_url) {
+    *out_url = nullptr;
+  }
+  if (!out_url) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* message) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = message ? message : "Android initial URL query failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods)) {
+    write_error("Android runtime bridge is not initialized");
+    return -1;
+  }
+
+  auto result = static_cast<jstring>(
+      env->CallStaticObjectMethod(methods.cls, methods.initial_url));
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android initial URL query failed");
+    return -1;
+  }
+  env->DeleteLocalRef(methods.cls);
+
+  std::string url = jstring_to_string(env, result);
+  if (result) {
+    env->DeleteLocalRef(result);
+  }
+  auto* copy = malloc_string_copy(url);
+  if (!copy) {
+    write_error("Failed to allocate Android initial URL");
+    return -1;
+  }
+  *out_url = copy;
+  return 1;
+}
+
+extern "C" int android_drain_platform_events(
+    char** out_events,
+    char* error,
+    size_t error_capacity) {
+  if (out_events) {
+    *out_events = nullptr;
+  }
+  if (!out_events) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* message) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = message ? message : "Android platform event drain failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods)) {
+    write_error("Android runtime bridge is not initialized");
+    return -1;
+  }
+
+  auto result = static_cast<jstring>(
+      env->CallStaticObjectMethod(methods.cls, methods.drain_platform_events));
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android platform event drain failed");
+    return -1;
+  }
+  env->DeleteLocalRef(methods.cls);
+
+  std::string events = jstring_to_string(env, result);
+  if (result) {
+    env->DeleteLocalRef(result);
+  }
+  auto* copy = malloc_string_copy(events);
+  if (!copy) {
+    write_error("Failed to allocate Android platform event buffer");
+    return -1;
+  }
+  *out_events = copy;
   return 1;
 }
 
