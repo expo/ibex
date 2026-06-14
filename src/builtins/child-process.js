@@ -1140,8 +1140,15 @@ function _validateSpawnSyncOptions(options) {
     var isTimeoutError = (typeof result.error === 'string' &&
       (result.error.indexOf('timed out') !== -1 || result.error.indexOf('Timed out') !== -1));
     if (!isShellSuccess || isTimeoutError) {
-      var spawnErr = _makeSpawnError(command, 'ENOENT', -2, 'spawnSync ' + command);
-      if (result.error.indexOf('not found') !== -1 || result.error.indexOf('No such file') !== -1) {
+      var spawnErr = _makeNativeSpawnError(
+        command,
+        result,
+        'spawnSync ' + command,
+        args
+      );
+      if (result.code) {
+        // Native layer supplied a precise platform/capability error.
+      } else if (result.error.indexOf('not found') !== -1 || result.error.indexOf('No such file') !== -1) {
         spawnErr.code = 'ENOENT';
         spawnErr.errno = -2;
       } else if (result.error.indexOf('Permission denied') !== -1 || result.error.indexOf('EACCES') !== -1) {
@@ -1151,7 +1158,6 @@ function _validateSpawnSyncOptions(options) {
         spawnErr.code = 'ETIMEDOUT';
         spawnErr.errno = -60;
       }
-      spawnErr.spawnargs = args;
       spawnResult.error = spawnErr;
     }
   }
@@ -2220,6 +2226,37 @@ function _makeSpawnError(command, code, errno, syscall) {
   return err;
 }
 
+function _makeNativeSpawnError(command, result, syscall, fallbackArgs) {
+  var code = result && result.code;
+  if (!code && result && result.error === 'EACCES') {
+    code = 'EACCES';
+  } else if (!code && result && result.error === 'EPERM') {
+    code = 'EPERM';
+  } else if (!code) {
+    code = 'ENOENT';
+  }
+  var errno = result && typeof result.errno === 'number'
+    ? result.errno
+    : code === 'EACCES'
+      ? -13
+      : code === 'EPERM'
+        ? -1
+        : -2;
+  var err = _makeSpawnError(command, code, errno, syscall || ('spawn ' + command));
+  if (result && typeof result.message === 'string' && result.message.length > 0) {
+    err.message = result.message;
+  } else if (typeof result.error === 'string' && result.error.length > 0 && result.error !== code) {
+    err.message = result.error;
+  }
+  if (fallbackArgs) {
+    err.spawnargs = fallbackArgs;
+  }
+  if (result && result.platform) {
+    err.platform = result.platform;
+  }
+  return err;
+}
+
 // ChildProcess constructor (extends EventEmitter)
 var _EventEmitter;
 try { _EventEmitter = require('events'); } catch(e) {
@@ -2702,9 +2739,12 @@ ChildProcess.prototype.spawn = function(options) {
     var self = this;
     self.spawnfile = command;
     self.spawnargs = [command].concat(args);
-    var spawnErrCode = result.error === 'EACCES' ? 'EACCES' : result.error === 'EPERM' ? 'EPERM' : 'ENOENT';
-    var spawnErrErrno = result.errno ? -result.errno : -2;
-    var spawnErr = _makeSpawnError(command, spawnErrCode, spawnErrErrno, 'spawn ' + command);
+    var spawnErr = _makeNativeSpawnError(
+      command,
+      result,
+      'spawn ' + command,
+      self.spawnargs
+    );
     spawnErr.spawnargs = self.spawnargs;
     setTimeout(function() {
       self.emit('error', spawnErr);
@@ -3484,9 +3524,12 @@ cp.spawn = function spawn(command, args, options) {
     errChild._serialization = normalizedOptions.serialization || 'json';
     errChild.spawnfile = command;
     errChild.spawnargs = [command].concat(args);
-    var errCode = result.error === 'EACCES' ? 'EACCES' : result.error === 'EPERM' ? 'EPERM' : 'ENOENT';
-    var errErrno = result.errno ? -result.errno : -2;
-    var spawnErr2 = _makeSpawnError(command, errCode, errErrno, 'spawn ' + command);
+    var spawnErr2 = _makeNativeSpawnError(
+      command,
+      result,
+      'spawn ' + command,
+      args
+    );
     spawnErr2.spawnargs = args;
     _trackSharedReadablePipeConsumers(options.stdio, errChild);
     setTimeout(function() {

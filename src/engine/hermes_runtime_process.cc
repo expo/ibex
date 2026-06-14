@@ -77,6 +77,152 @@ static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) 
 
 void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
+
+#if defined(EXACT_PLATFORM_ANDROID)
+  const char* unavailableMessage =
+      "child_process is not available in Android app sandboxes";
+  const char* spawnSyncUnavailableJson =
+      "{\"stdout\":\"\",\"stderr\":\"\",\"status\":null,\"pid\":0,"
+      "\"error\":\"child_process is not available in Android app sandboxes\","
+      "\"code\":\"ERR_FEATURE_UNAVAILABLE_ON_PLATFORM\",\"errno\":0,"
+      "\"message\":\"child_process is not available in Android app sandboxes\","
+      "\"platform\":\"android\"}";
+  const char* spawnUnavailableJson =
+      "{\"error\":\"child_process is not available in Android app sandboxes\","
+      "\"code\":\"ERR_FEATURE_UNAVAILABLE_ON_PLATFORM\",\"errno\":0,"
+      "\"message\":\"child_process is not available in Android app sandboxes\","
+      "\"platform\":\"android\"}";
+
+  auto installUnsupportedJsonFn = [&rt](const char* name, const char* json) {
+    auto fn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, name),
+        3,
+        [json](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
+          if (!checkCapability("child_process")) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "Permission denied: child_process capability required");
+          }
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, json));
+        });
+    rt.global().setProperty(rt, name, std::move(fn));
+  };
+
+  // @ref LLP 0008#android-backend-matrix — Android app sandboxes do not offer
+  // desktop Node child_process semantics, so fail explicitly instead of
+  // attempting POSIX fork/exec/popen in app code.
+  installUnsupportedJsonFn("__exactExecSync", spawnSyncUnavailableJson);
+  installUnsupportedJsonFn("__exactSpawnSync", spawnSyncUnavailableJson);
+  installUnsupportedJsonFn("__exactSpawn", spawnUnavailableJson);
+
+  auto emptyReadFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRead"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::String::createFromUtf8(runtime, "");
+      });
+  rt.global().setProperty(rt, "__exactSpawnRead", std::move(emptyReadFn));
+
+  auto falseFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnWrite"),
+      3,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(false);
+      });
+  rt.global().setProperty(rt, "__exactSpawnWrite", std::move(falseFn));
+
+  auto killFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnKill"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(false);
+      });
+  rt.global().setProperty(rt, "__exactSpawnKill", std::move(killFn));
+
+  auto closeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnCloseStdin"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactSpawnCloseStdin", std::move(closeFn));
+
+  auto pollFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnPoll"),
+      1,
+      [unavailableMessage](facebook::jsi::Runtime& runtime,
+                           const facebook::jsi::Value&,
+                           const facebook::jsi::Value*,
+                           size_t) -> facebook::jsi::Value {
+        std::string json =
+            std::string("{\"exited\":true,\"status\":null,\"signal\":null,\"error\":\"")
+            + unavailableMessage + "\"}";
+        return facebook::jsi::Value(
+            facebook::jsi::String::createFromUtf8(runtime, json));
+      });
+  rt.global().setProperty(rt, "__exactSpawnPoll", std::move(pollFn));
+
+  auto getFdFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnGetFd"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(-1);
+      });
+  rt.global().setProperty(rt, "__exactSpawnGetFd", std::move(getFdFn));
+
+  auto sendMsgFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSendMsg"),
+      3,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(false);
+      });
+  rt.global().setProperty(rt, "__exactSpawnSendMsg", std::move(sendMsgFn));
+
+  auto recvMsgFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRecvMsg"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(
+            facebook::jsi::String::createFromUtf8(runtime, "{\"messages\":[]}"));
+      });
+  rt.global().setProperty(rt, "__exactSpawnRecvMsg", std::move(recvMsgFn));
+  return;
+#endif
+
   // __exactExecSync(command, optionsJSON) -> JSON string { stdout, stderr, status, error }
   // Executes a shell command synchronously using popen and returns result.
   auto execSyncFn = facebook::jsi::Function::createFromHostFunction(
