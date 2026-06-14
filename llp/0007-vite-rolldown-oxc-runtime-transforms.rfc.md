@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-13
 **Revised:** 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision)
-**Related:** LLP 0000; LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0006 (design principles)
+**Related:** LLP 0000; LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0006 (design principles); LLP 0009
 
 ## Summary
 

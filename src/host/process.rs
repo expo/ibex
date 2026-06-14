@@ -85,6 +85,8 @@ pub fn pid() -> u32 {
 pub fn platform() -> &'static str {
     #[cfg(target_os = "macos")]
     return "darwin";
+    #[cfg(target_os = "android")]
+    return "android";
     #[cfg(target_os = "linux")]
     return "linux";
     #[cfg(target_os = "windows")]
@@ -95,6 +97,7 @@ pub fn platform() -> &'static str {
         target_os = "macos",
         target_os = "ios",
         target_os = "linux",
+        target_os = "android",
         target_os = "windows"
     )))]
     return "unknown";

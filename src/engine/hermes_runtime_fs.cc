@@ -18,6 +18,9 @@
 #include <sys/poll.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
+#include <sys/statfs.h>
+#endif
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/time.h>
@@ -1372,15 +1375,21 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactStatfs: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
+        // @ref LLP 0008#filesystem — Linux statfs(2) exposes f_type; statvfs(3) does not.
+        struct statfs buf;
+        if (::statfs(path.c_str(), &buf) != 0) {
+          throwFsError(runtime, "statfs", path);
+        }
+        uint64_t type = static_cast<uint64_t>(buf.f_type);
+#else
         struct statvfs buf;
         if (::statvfs(path.c_str(), &buf) != 0) {
           throwFsError(runtime, "statfs", path);
         }
-        std::ostringstream oss;
         uint64_t type = 0;
-#if defined(__linux__)
-        type = static_cast<uint64_t>(buf.f_type);
 #endif
+        std::ostringstream oss;
         oss << "{"
             << "\"type\":" << type << ","
             << "\"bsize\":" << buf.f_bsize << ","
@@ -1733,9 +1742,19 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           times[1].tv_sec = static_cast<time_t>(mtimeVal);
           times[1].tv_usec = static_cast<suseconds_t>((mtimeVal - times[1].tv_sec) * 1e6);
         }
+#if defined(EXACT_PLATFORM_ANDROID)
+        struct timespec ts[2] = {
+            {times[0].tv_sec, static_cast<long>(times[0].tv_usec) * 1000},
+            {times[1].tv_sec, static_cast<long>(times[1].tv_usec) * 1000},
+        };
+        if (::futimens(fd, ts) != 0) {
+          throwFsError(runtime, "futimens", "");
+        }
+#else
         if (::futimes(fd, times) != 0) {
           throwFsError(runtime, "futimes", "");
         }
+#endif
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactFsFutimesSync", std::move(futimesSyncFn));

@@ -30,6 +30,14 @@ rusqlite = { version = "0.31", features = ["bundled", "column_decltype"] }
 
 # Module resolution (Node/ESM)
 oxc_resolver = "11.17.0"
+oxc_ast = "=0.121.0"
+oxc_ast_visit = "=0.121.0"
+oxc_allocator = "=0.121.0"
+oxc_codegen = "=0.121.0"
+oxc_parser = "=0.121.0"
+oxc_semantic = "=0.121.0"
+oxc_span = "=0.121.0"
+oxc_transformer = "=0.121.0"
 
 # Async trait support
 async-trait = "0.1"
@@ -77,6 +85,9 @@ cli-notify = []
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+curl-sys = { version = "0.4.89", default-features = false, features = ["ssl", "static-curl"] }
 
 [build-dependencies]
 cc = "1.0"

@@ -821,10 +821,9 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
     }
 }
 
-
 fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
-    "loader-transpile-v12-swc-explicit-iterator-for-of".hash(&mut hasher);
+    "loader-transpile-v13-engine-tagged-runtime-transform".hash(&mut hasher);
     target.hash(&mut hasher);
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     cache_path.hash(&mut hasher);
@@ -845,10 +844,9 @@ fn module_cache_key(path: &Path, target: &str) -> Result<String> {
 /// both files for every module load showed up in the LLP 0159 perf audit.
 /// @tactical @ref LLP 0159 R9
 fn transpile_tooling_hash() -> Result<u64> {
-    // The in-process swc pipeline is the default (LLP 0175 §9.2): its
-    // behavior is keyed by a version tag, not a repo file, so module loading
-    // works with no checkout (review B1). Only the explicit subprocess
-    // override hashes its script.
+    // @ref LLP 0007#proposal - the in-process engine is part of the cache key
+    // so the SWC fallback and Oxc candidate never share output.
+    // Only the explicit subprocess override hashes a repo script.
     if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
         let script = transpile_script_path()?;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -856,7 +854,7 @@ fn transpile_tooling_hash() -> Result<u64> {
         return Ok(std::hash::Hasher::finish(&hasher));
     }
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    std::hash::Hash::hash("in-process-swc-v1", &mut hasher);
+    std::hash::Hash::hash(transpile::selected_engine_cache_tag()?, &mut hasher);
     Ok(std::hash::Hasher::finish(&hasher))
 }
 
@@ -931,15 +929,13 @@ fn should_rebuild_output(path: &Path, output: &Path) -> Result<bool> {
 
 fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()> {
     // Explicit override keeps the LLP 0159 R9 escape hatch (a custom
-    // transpiler script); everything else is in-process (LLP 0175 §9.2 — no
-    // bun/node subprocess, so TypeScript works standalone).
+    // transpiler script); everything else is in-process per LLP 0007, so
+    // TypeScript works standalone without a Bun/Node subprocess.
     if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
         return run_transpile_subprocess(entry, output, target);
     }
 
-    let source = std::fs::read_to_string(entry)
-        .with_context(|| format!("Failed to read {}", entry.display()))?;
-    let code = transpile::transpile_to_cjs(&source, entry)?;
+    let code = transpile::transpile_file_to_cjs(entry, target)?;
 
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)
@@ -1539,7 +1535,10 @@ export const value = <span />;
             !tsx_source.contains("export const"),
             "esm exports lowered: {tsx_source}"
         );
-        assert!(tsx_source.contains("value"), "export wiring present: {tsx_source}");
+        assert!(
+            tsx_source.contains("value"),
+            "export wiring present: {tsx_source}"
+        );
         assert!(!tsx_source.contains(": number"));
 
         let resolved_jsx = loader
@@ -1551,7 +1550,10 @@ export const value = <span />;
             !jsx_source.contains("export const"),
             "esm exports lowered: {jsx_source}"
         );
-        assert!(jsx_source.contains("value"), "export wiring present: {jsx_source}");
+        assert!(
+            jsx_source.contains("value"),
+            "export wiring present: {jsx_source}"
+        );
         assert!(jsx_source.contains("createElement"));
         assert!(!jsx_source.contains("<span"));
     }

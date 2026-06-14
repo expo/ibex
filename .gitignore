@@ -2,6 +2,7 @@
 /node_modules
 /packages/*/node_modules
 /ios/Frameworks
+/android
 /linux
 /tools/hermes
 *.o

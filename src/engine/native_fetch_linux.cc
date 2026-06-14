@@ -3,18 +3,22 @@
  *
  * Linux fetch implementation.
  *
- * If libcurl headers are available (EXACT_HAS_CURL), this uses libcurl.
- * Otherwise it falls back to a stub so non-network flows still compile/run.
+ * The supported Linux networking profile uses libcurl. A degraded curl CLI
+ * fallback can be enabled from build.rs for constrained local builds.
  */
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 #include <unistd.h>
 
@@ -33,8 +37,58 @@ typedef void (*NativeFetchResponseCallback)(
     void* context
 );
 
+namespace {
+
+struct LinuxFetchRequest {
+    std::atomic<bool> cancelled{false};
+};
+
+std::mutex g_fetch_requests_mutex;
+std::unordered_map<uint32_t, std::shared_ptr<LinuxFetchRequest>> g_fetch_requests;
+
+void register_fetch_request(
+    uint32_t request_id,
+    const std::shared_ptr<LinuxFetchRequest>& request
+) {
+    std::lock_guard<std::mutex> lock(g_fetch_requests_mutex);
+    g_fetch_requests[request_id] = request;
+}
+
+void remove_fetch_request(uint32_t request_id) {
+    std::lock_guard<std::mutex> lock(g_fetch_requests_mutex);
+    g_fetch_requests.erase(request_id);
+}
+
+bool request_cancelled(const std::shared_ptr<LinuxFetchRequest>& request) {
+    return request && request->cancelled.load(std::memory_order_relaxed);
+}
+
+#ifdef EXACT_HAS_CURL
+std::once_flag g_curl_global_init_once;
+
+void ensure_curl_global_init() {
+    std::call_once(g_curl_global_init_once, []() {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+    });
+}
+
+int linux_fetch_progress_callback(
+    void* clientp,
+    curl_off_t,
+    curl_off_t,
+    curl_off_t,
+    curl_off_t
+) {
+    auto* request = static_cast<LinuxFetchRequest*>(clientp);
+    return request && request->cancelled.load(std::memory_order_relaxed) ? 1 : 0;
+}
+#endif
+
+} // namespace
+
 static void native_fetch_perform_async(
     uint32_t request_id,
+    std::shared_ptr<LinuxFetchRequest> request_state,
     std::string method,
     std::string url,
     std::string headers,
@@ -45,8 +99,15 @@ static void native_fetch_perform_async(
 ) {
 #ifdef EXACT_HAS_CURL
     if (method.empty() || url.empty() || !response_callback) {
+        remove_fetch_request(request_id);
         return;
     }
+    if (request_cancelled(request_state)) {
+        remove_fetch_request(request_id);
+        return;
+    }
+
+    ensure_curl_global_init();
 
     struct FetchResult {
         long status = 0;
@@ -71,7 +132,10 @@ static void native_fetch_perform_async(
 
     CURL* curl = curl_easy_init();
     if (!curl) {
-        response_callback(request_id, 0, "Failed to initialize libcurl", nullptr, nullptr, 0, context);
+        remove_fetch_request(request_id);
+        if (!request_cancelled(request_state)) {
+            response_callback(request_id, 0, "Failed to initialize libcurl", nullptr, nullptr, 0, context);
+        }
         return;
     }
 
@@ -91,6 +155,10 @@ static void native_fetch_perform_async(
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, &result.response_headers);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, linux_fetch_progress_callback);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, request_state.get());
 
     if (!body.empty()) {
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
@@ -130,13 +198,17 @@ static void native_fetch_perform_async(
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
 
     const CURLcode rc = curl_easy_perform(curl);
+    const bool cancelled = request_cancelled(request_state);
     if (rc != CURLE_OK) {
         const char* msg = error_buffer[0] != '\0' ? error_buffer : curl_easy_strerror(rc);
-        response_callback(request_id, 0, msg, nullptr, nullptr, 0, context);
         if (curl_headers) {
             curl_slist_free_all(curl_headers);
         }
         curl_easy_cleanup(curl);
+        remove_fetch_request(request_id);
+        if (!cancelled && !request_cancelled(request_state) && rc != CURLE_ABORTED_BY_CALLBACK) {
+            response_callback(request_id, 0, msg, nullptr, nullptr, 0, context);
+        }
         return;
     }
 
@@ -147,7 +219,11 @@ static void native_fetch_perform_async(
         curl_slist_free_all(curl_headers);
     }
     curl_easy_cleanup(curl);
+    remove_fetch_request(request_id);
 
+    if (cancelled || request_cancelled(request_state)) {
+        return;
+    }
     const char* status_text = result.status_text.empty() ? "OK" : result.status_text.c_str();
     const char* response_headers = result.response_headers.empty() ? nullptr : result.response_headers.c_str();
     const uint8_t* body_ptr = result.response_body.empty() ? nullptr : result.response_body.data();
@@ -162,10 +238,16 @@ static void native_fetch_perform_async(
     );
 #else
     if (!response_callback) {
+        remove_fetch_request(request_id);
         return;
     }
     if (method.empty() || url.empty()) {
+        remove_fetch_request(request_id);
         response_callback(request_id, 0, "Invalid request", nullptr, nullptr, 0, context);
+        return;
+    }
+    if (request_cancelled(request_state)) {
+        remove_fetch_request(request_id);
         return;
     }
 
@@ -243,12 +325,16 @@ static void native_fetch_perform_async(
     cmd << shell_quote(url) << " > " << shell_quote(code_path) << " 2>/dev/null";
 
     const int rc = std::system(cmd.str().c_str());
+    const bool cancelled = request_cancelled(request_state);
     if (rc != 0) {
         if (!header_path.empty()) std::remove(header_path.c_str());
         if (!body_path.empty()) std::remove(body_path.c_str());
         if (!code_path.empty()) std::remove(code_path.c_str());
         if (!req_body_path.empty()) std::remove(req_body_path.c_str());
-        response_callback(request_id, 0, "curl command failed", nullptr, nullptr, 0, context);
+        remove_fetch_request(request_id);
+        if (!cancelled && !request_cancelled(request_state)) {
+            response_callback(request_id, 0, "curl command failed", nullptr, nullptr, 0, context);
+        }
         return;
     }
 
@@ -277,7 +363,11 @@ static void native_fetch_perform_async(
     if (!body_path.empty()) std::remove(body_path.c_str());
     if (!code_path.empty()) std::remove(code_path.c_str());
     if (!req_body_path.empty()) std::remove(req_body_path.c_str());
+    remove_fetch_request(request_id);
 
+    if (cancelled || request_cancelled(request_state)) {
+        return;
+    }
     const char* headers_ptr = response_headers.empty() ? nullptr : response_headers.c_str();
     const uint8_t* body_ptr = response_body.empty() ? nullptr : response_body.data();
     response_callback(
@@ -319,8 +409,12 @@ extern "C" void native_fetch_perform(
         body_copy.assign(body, body + body_length);
     }
 
+    auto request_state = std::make_shared<LinuxFetchRequest>();
+    register_fetch_request(request_id, request_state);
+
     std::thread(
         [request_id,
+         request_state,
          method_copy = std::move(method_copy),
          url_copy = std::move(url_copy),
          headers_copy = std::move(headers_copy),
@@ -330,6 +424,7 @@ extern "C" void native_fetch_perform(
          context]() mutable {
             native_fetch_perform_async(
                 request_id,
+                request_state,
                 std::move(method_copy),
                 std::move(url_copy),
                 std::move(headers_copy),
@@ -343,5 +438,17 @@ extern "C" void native_fetch_perform(
 }
 
 extern "C" void native_fetch_cancel(uint32_t request_id) {
-    (void)request_id;
+    std::shared_ptr<LinuxFetchRequest> request;
+    {
+        std::lock_guard<std::mutex> lock(g_fetch_requests_mutex);
+        auto it = g_fetch_requests.find(request_id);
+        if (it == g_fetch_requests.end()) {
+            return;
+        }
+        request = it->second;
+        g_fetch_requests.erase(it);
+    }
+    if (request) {
+        request->cancelled.store(true, std::memory_order_relaxed);
+    }
 }

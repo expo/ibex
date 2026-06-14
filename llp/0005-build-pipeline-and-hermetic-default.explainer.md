@@ -17,7 +17,7 @@ tooling (the `IBEX_REGENERATE_RUNTIME=1` dev path); (2) it emits source and
 optional Hermes bytecode headers for bootstrap/runtime JS; and (3) it compiles
 the C++ engine (`src/engine/*.cc`) with `cc` and links Hermes from
 platform-specific paths or env overrides `[observed]` (`build.rs:321-351,
-454-548, 711-781, 787-1073`). The headline invariant is narrower than "the
+454-548, 711-781, 804-1224`). The headline invariant is narrower than "the
 whole native build is self-contained": the default generated-JS path must not
 require bun or `node_modules` `[observed]` (`vendored-generated/README.md:3-9`).
 This explains the flow; it does not restate the platform/crypto matrix
@@ -156,13 +156,17 @@ IBEX_REGENERATE_RUNTIME=1 IBEX_UPDATE_VENDORED_GENERATED=1 cargo build --feature
 `build.rs` compiles `src/engine/*.cc` with the `cc` crate, setting per-platform
 defines (`EXACT_NO_OPENSSL`, `EXACT_PLATFORM_IOS`, `EXACT_PLATFORM_WINDOWS`,
 `EXACT_HAS_CURL`, `HERMES_ENABLE_DEBUGGER`, etc.) and selecting the crypto/fetch/
-websocket source files per OS `[observed]` (`build.rs:782-833, 849-1086`).
+websocket source files per OS `[observed]` (`build.rs:804-1255`).
 Crypto-backend selection and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md) and mapped in
 [LLP 0003](./0003-hermes-engine-bridge.explainer.md#crypto-is-platform-dependent-the-fragile-axis).
 Hermes headers/libs are located via `HERMES_*` env vars or platform defaults
-`[observed]` (`build.rs:154-188, 204-242, 323-330`). This is a separate concern
-from the vendored-generated JS snapshot.
+`[observed]` (`build.rs:180-260, 262-335`). Android additionally consumes React
+Native JSI headers/libs via `JSI_*` env vars or the default Android PREFAB
+extract under `android/react-android` `[observed]` (`build.rs:185-198,
+212-247, 276-314`), and uses vendored `curl-sys` metadata for native
+fetch/WebSocket `[observed]` (`Cargo.toml:82-83`; `build.rs:1202-1241`). This
+is a separate concern from the vendored-generated JS snapshot.
 
 The upstream Hermes 0.11 Darwin runtime archive provides iOS and Mac Catalyst
 slices, but not a pure macOS framework. Cargo builds target
@@ -175,7 +179,8 @@ helper uses CMake 3.x, installing a temporary CMake 3.27 wheel when the system
 `scripts/build-hermes-macos.sh:43-63, 82-96`). `build.rs` resolves either
 `hermesvm.framework` or `hermes.framework` from a macOS framework parent and
 links the detected framework name; it intentionally does not treat the Catalyst
-slice as a macOS runtime `[observed]` (`build.rs:190-202, 2079-2116`).
+slice as a macOS runtime `[observed]` (`build.rs:248-260, 1095-1104,
+2271-2300`).
 
 Hermes C++/JSI headers are not identical across the supported SDKs. The macOS
 Hermes 0.11 headers do not expose native `MutableBuffer` ArrayBuffer creation,
@@ -184,10 +189,10 @@ Hermes 0.11 headers do not expose native `MutableBuffer` ArrayBuffer creation,
 `EXACT_HAVE_JSI_MUTABLE_BUFFER`, `EXACT_HAVE_JSI_QUEUE_MICROTASK`, and
 `EXACT_HAVE_HERMES_MICROTASK_CONFIG` only when those SDK APIs exist, so the C++
 adapter can keep one source tree without binding feature availability to an OS
-name `[observed]` (`build.rs:910-925`;
+name `[observed]` (`build.rs:1035-1041`;
 `src/engine/hermes_runtime_internal.h:143-197`;
-`src/engine/hermes_runtime_timers.cc:127-133`;
-`src/engine/hermes_runtime.cc:1395-1401`).
+`src/engine/hermes_runtime_timers.cc:128-134`;
+`src/engine/hermes_runtime.cc:1396-1402`).
 
 On Windows, the Hermes NuGet package separates import libraries under `lib/`
 from runtime DLLs under `bin/`. `build.rs` therefore resolves a Windows
@@ -195,13 +200,13 @@ from runtime DLLs under `bin/`. `build.rs` therefore resolves a Windows
 an additional native link-search path, and stages its DLLs into Cargo's profile
 directory plus `deps/` so `cargo test` and `cargo run` binaries can load
 `hermes.dll` and its companion DLLs at process start `[observed]`
-(`build.rs:173-188, 218-236, 1060-1078, 1587-1667`).
+(`build.rs:199-260, 302-320, 1153-1199, 1796-1858`).
 
 The `host-http-server` feature controls whether the real Rust
 `ex_host_http_*` implementation is linked. When the feature is off, `build.rs`
 defines `EXACT_RUNTIME_USE_HTTP_STUBS` so the C++ adapter supplies no-op stubs
-and the default build remains linkable `[observed]` (`build.rs:937-945`;
-`src/engine/hermes_runtime.cc:2053-2086`). Non-MSVC builds mark those stubs weak
+and the default build remains linkable `[observed]` (`build.rs:1059-1060`;
+`src/engine/hermes_runtime.cc:2059-2086`). Non-MSVC builds mark those stubs weak
 so an external strong implementation can override them; MSVC has no weak
 symbols, so Windows gets strong stubs only in the feature-off build and omits
 them when `host-http-server` is enabled `[observed]`

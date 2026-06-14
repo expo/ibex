@@ -412,32 +412,45 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (gai_err != 0) {
             throw facebook::jsi::JSError(runtime, ("getaddrinfo failed: " + std::string(gai_strerror(gai_err))).c_str());
           }
-          int fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-          if (fd == -1) {
-            freeaddrinfo(result);
-            throw facebook::jsi::JSError(runtime, ("socket() failed: " + std::string(strerror(errno))).c_str());
-          }
-          if (hints.ai_family == AF_INET6 && ipv6Only) {
-            int flag = 1;
-            setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag));
-          }
-          int reuse = 1;
-          setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-          if (reusePort) {
+          // @ref LLP 0008#sockets-dns-and-process — try every POSIX addrinfo candidate for robust dual-stack listen setup.
+          int fd = -1;
+          int saved_errno = 0;
+          for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+            fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+            if (fd == -1) {
+              saved_errno = errno;
+              continue;
+            }
+            if (rp->ai_family == AF_INET6 && ipv6Only) {
+              int flag = 1;
+              setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag));
+            }
+            int reuse = 1;
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+            if (reusePort) {
 #ifdef SO_REUSEPORT
-            int rp = 1;
-            setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &rp, sizeof(rp));
+              int rp_flag = 1;
+              setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &rp_flag, sizeof(rp_flag));
 #endif
-          }
-          if (::bind(fd, result->ai_addr, result->ai_addrlen) == -1) {
-            freeaddrinfo(result);
-            ::close(fd);
-            throw facebook::jsi::JSError(runtime, ("bind() failed: " + std::string(strerror(errno))).c_str());
+            }
+            if (::bind(fd, rp->ai_addr, rp->ai_addrlen) == -1) {
+              saved_errno = errno;
+              ::close(fd);
+              fd = -1;
+              continue;
+            }
+            if (::listen(fd, backlog) == -1) {
+              saved_errno = errno;
+              ::close(fd);
+              fd = -1;
+              continue;
+            }
+            break;
           }
           freeaddrinfo(result);
-          if (::listen(fd, backlog) == -1) {
-            ::close(fd);
-            throw facebook::jsi::JSError(runtime, ("listen() failed: " + std::string(strerror(errno))).c_str());
+          if (fd == -1) {
+            if (saved_errno == 0) saved_errno = errno;
+            throw facebook::jsi::JSError(runtime, ("listen setup failed: " + std::string(strerror(saved_errno))).c_str());
           }
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);

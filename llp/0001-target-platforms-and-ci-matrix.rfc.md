@@ -12,8 +12,8 @@
 The intended product target set is **macOS, iOS, tvOS, Android, Linux, and
 Windows** `[inferred: this is the platform ambition carried by the retrofit
 draft and exact LLP 0180, not something the current checkout can prove by
-itself]`. The current `build.rs` only has first-class target branches for
-macOS, iOS, Linux, and Windows `[observed]` (`build.rs:787-835, 868-1073`).
+itself]`. The current `build.rs` has first-class target branches for macOS,
+iOS, Android, Linux, and Windows `[observed]` (`build.rs:804-1224`).
 
 This RFC records the target set, the build axes that matter beyond OS name
 (architecture and crypto profile), and the CI matrix needed to make platform
@@ -30,9 +30,12 @@ Not everything that "runs ibex" is a separate build:
   Apple-family target but has no `target_os = "tvos"` branch today `[observed]`
   (`build.rs:787-835, 868-927`). iPadOS is covered by iOS `[inferred]`;
   watchOS and visionOS are deferred until there is a concrete need `[inferred]`.
-- **Android**: **Android** is a distinct target (NDK cross-compile, Hermes-for-
-  Android) `[inferred]`. **Android TV is not a separate build** — it is Android
-  with the same OS/ABI rows `[inferred]`. Same for Wear OS / Chromebooks.
+- **Android**: **Android** is a distinct target (NDK cross-compile,
+  Hermes/JSI from Android Maven/PREFAB artifacts) `[observed]`
+  (`build.rs:26-47, 172-227, 933-949, 1106-1172`;
+  `scripts/install-android-hermes.sh`). **Android TV is not a separate build**
+  — it is Android with the same OS/ABI rows `[inferred]`. Same for Wear OS /
+  Chromebooks.
 - **Linux** and **Windows** are distinct targets and are explicitly handled by
   `build.rs` `[observed]` (`build.rs:824-831, 954-1073`).
 
@@ -46,20 +49,23 @@ matrix row.
 |---|---|---|---|
 | macOS | yes | CommonCrypto/Security; optional OpenSSL feature for some non-iOS paths | wired in `build.rs` |
 | iOS | yes | CommonCrypto/Security with `EXACT_PLATFORM_IOS`, `EXACT_NO_OPENSSL`, `EXACT_NO_BROTLI` | wired in `build.rs` |
-| Linux | yes | default defines `EXACT_NO_OPENSSL`; `openssl-crypto` enables OpenSSL linking | wired in `build.rs` |
+| Linux | yes | default defines `EXACT_NO_OPENSSL`; `openssl-crypto` enables OpenSSL linking; native networking requires libcurl >= 7.86 | wired in `build.rs` |
 | Windows | yes | `hermes_runtime_crypto_windows.cc`, `EXACT_NO_OPENSSL`, WinHTTP/Bcrypt/Ncrypt/Crypt32 | wired in `build.rs` |
-| **Android** | **no** | no Android backend/NDK artifact path in `build.rs` | **needs work** |
+| **Android** | yes | `openssl-crypto` with vendored OpenSSL; Hermes/JSI from Android PREFAB; vendored curl/libz for native networking | wired for cross-compile |
 | **tvOS** | **no** | no tvOS branch in `build.rs` | **needs work** |
 
 The table is grounded in the target selection and compile/link branches in
-`build.rs` `[observed]` (`build.rs:787-835, 868-1073`). Android and tvOS have
-no target arm and no Hermes-for-platform artifact path there. The matrix should
-include them as **known-red** rows `[inferred: this keeps the product target set
-visible while implementation catches up]`.
+`build.rs` `[observed]` (`build.rs:804-1224`). tvOS still has no target arm and
+no Hermes-for-platform artifact path there. The matrix should include tvOS as a
+**known-red** row `[inferred: this keeps the product target set visible while
+implementation catches up]`. Android is no longer known-red for compile or for
+the default native fetch/WebSocket surface because it compiles the curl-backed
+networking files with vendored `curl-sys` `[observed]` (`Cargo.toml:82-83`;
+`build.rs:1106-1137`).
 
 ## 2. The axes that matter beyond OS
 
-A platform name alone under-specifies the build. Two more axes carry real bug
+A platform name alone under-specifies the build. Three more axes carry real bug
 risk:
 
 ### 2.1 Crypto profile (the axis that caused the original break)
@@ -86,15 +92,28 @@ Ibex's crypto is platform-dependent and is the single most fragile build axis:
   full Linux native crypto profile, adding OpenSSL-backed AES, asymmetric
   crypto, ECDH/X25519/Ed25519 helpers, RSA-OAEP, and key import/export
   `[observed]` (`src/engine/hermes_runtime_crypto.cc`).
-- **Android:** no Android branch exists, so its intended crypto profile is a
-  design question until the NDK/Hermes wiring lands `[inferred]`.
+- **Android:** Android now requires the `openssl-crypto` profile and uses
+  vendored OpenSSL until an Android-native crypto backend exists `[observed]`
+  (`build.rs:933-949`; `README.md:48-68`). This matches the proposed v1 matrix's
+  OpenSSL Android profile while keeping the no-OpenSSL Android shape out of the
+  supported set `[inferred]`.
 
 The matrix MUST therefore build **Linux in both profiles** (openssl-crypto and
 the reduced no-OpenSSL default), because the no-OpenSSL reduced build is
 the profile most likely to reveal feature-gating drift. Exercising only the
 openssl profile would miss that class of regression `[inferred]`.
 
-### 2.2 Architecture
+### 2.2 Linux networking profile
+
+Linux Fetch and WebSocket use libcurl as the supported native backend. The CI
+matrix MUST install `pkg-config` and libcurl >= 7.86 for Linux rows so
+`EXACT_HAS_CURL` is enabled `[observed]` (`build.rs:1175-1236`). The
+`IBEX_ALLOW_CURL_CLI_FALLBACK=1` profile is a degraded local-build escape hatch,
+not a CI or release profile, because it shells fetch through `curl` and leaves
+native WebSocket unavailable `[observed]` (`src/engine/native_fetch_linux.cc`;
+`src/engine/native_websocket_linux.cc`).
+
+### 2.3 Architecture
 
 - macOS, Windows, Linux: **arm64 + x86_64** (Linux also `aarch64` on native
   runners where available).
@@ -112,24 +131,26 @@ and the platform's native profile otherwise:
 
 | OS | Arch | Crypto profile | Runner | Notes |
 |---|---|---|---|---|
-| Linux | x86_64 | openssl-crypto | ubuntu | primary |
-| Linux | x86_64 | default (no-OpenSSL) | ubuntu | exercises the reduced build that shipped broken |
-| Linux | aarch64 | openssl-crypto | ubuntu-arm (or cross) | |
+| Linux | x86_64 | openssl-crypto | ubuntu | primary; install libcurl >= 7.86 |
+| Linux | x86_64 | default (no-OpenSSL) | ubuntu | reduced crypto profile; install libcurl >= 7.86 |
+| Linux | aarch64 | openssl-crypto | ubuntu-arm (or cross) | install libcurl >= 7.86 |
 | macOS | arm64 | CommonCrypto (default) | macos | tier-1 |
 | macOS | x86_64 | CommonCrypto | macos | |
 | iOS | arm64 (sim) | CommonCrypto | macos | cross-compile + simulator boot |
 | tvOS | arm64 (sim) | CommonCrypto | macos | **known-red** until build.rs support lands |
 | Windows | x86_64 | crypto_windows / NO_OPENSSL | windows | |
-| Android | arm64-v8a | openssl-crypto | ubuntu + NDK | **known-red** until build.rs support lands |
+| Android | arm64-v8a | openssl-crypto | ubuntu + NDK | cross-compile required; cache Hermes/React PREFAB artifacts |
 
 Known-red rows should stay visible but non-gating until their `build.rs` support
-lands `[inferred]`. As Android/tvOS support lands, flip them to required.
+lands `[inferred]`. As tvOS support lands, flip it to required. Android should
+be gating for cross-compile once CI has cached Hermes/React Android artifacts
+and an NDK toolchain.
 
 ## 4. What CI must handle per cell
 
 - **Hermes artifacts.** Each platform needs Hermes headers and libraries at the
   paths `build.rs` expects, or via `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`
-  overrides `[observed]` (`build.rs:143-169, 183-210, 289-296`). Linux/Windows
+  overrides `[observed]` (`build.rs:172-227, 289-304`). Linux/Windows
   fail early when their default Hermes dirs are absent `[observed]`
   (`build.rs:183-210`).
 - **Hermes compiler (`hermesc`).** Bootstrap HBC generation checks for a
@@ -145,11 +166,13 @@ lands `[inferred]`. As Android/tvOS support lands, flip them to required.
 
 ## 5. Sequencing
 
-1. Land the matrix for the four targets that build today (macOS, iOS, Linux,
-   Windows) + the Linux dual-profile row — immediate regression protection.
+1. Land the matrix for the five targets that build today (macOS, iOS, Android,
+   Linux, Windows) + the Linux dual-profile row — immediate regression
+   protection.
 2. Add tvOS (Apple-family `build.rs` arm; small) and flip from known-red.
-3. Add Android (`build.rs` target arm + Hermes-for-Android artifacts + NDK
-   toolchain in CI) — the largest gap.
+3. Add Android (`build.rs` target arm + Hermes/JSI Android artifacts + NDK
+   toolchain in CI) — initial compile support and native networking have landed;
+   CI/emulator smoke remains.
 4. Add arm64 rows as native runners allow.
 
 ## Open questions
