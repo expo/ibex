@@ -2,11 +2,13 @@ package dev.ibex.runtime;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Application;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentCallbacks;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
@@ -25,6 +27,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.LocaleList;
 import android.provider.Settings;
 import android.text.format.DateFormat;
@@ -33,6 +36,7 @@ import android.util.Range;
 import android.util.Size;
 import android.util.Log;
 import android.view.accessibility.AccessibilityManager;
+import android.widget.EditText;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -85,6 +89,17 @@ public final class IbexNetworking {
     String cameraHostCall(String operation, String payloadJson) throws Exception;
   }
 
+  public interface DialogHostProvider {
+    /**
+     * Handles a synchronous window dialog operation.
+     *
+     * Type is one of "alert", "confirm", or "prompt". Return "true" or
+     * "false" for confirm, a string or null for prompt, and any string for
+     * alert.
+     */
+    String dialog(String type, String message, String defaultValue) throws Exception;
+  }
+
   private static final String TAG = "IbexNetworking";
   private static final byte[] EMPTY_BYTES = new byte[0];
   private static final int CAMERA_PERMISSION_REQUEST_CODE = 0x1b3a;
@@ -107,6 +122,7 @@ public final class IbexNetworking {
   private static volatile String currentAppState = "unknown";
   private static volatile String initialUrl;
   private static volatile CameraHostProvider cameraHostProvider;
+  private static volatile DialogHostProvider dialogHostProvider;
   private static volatile WeakReference<Activity> currentActivity =
       new WeakReference<Activity>(null);
 
@@ -144,6 +160,10 @@ public final class IbexNetworking {
 
   public static void setCameraHostProvider(CameraHostProvider provider) {
     cameraHostProvider = provider;
+  }
+
+  public static void setDialogHostProvider(DialogHostProvider provider) {
+    dialogHostProvider = provider;
   }
 
   public static String platformVersion() {
@@ -373,6 +393,71 @@ public final class IbexNetworking {
     }
     throw new IllegalArgumentException(
         "Unsupported Android camera host operation: " + valueOrEmpty(operation));
+  }
+
+  public static String dialog(String type, String message, String defaultValue) throws Exception {
+    String normalizedType = valueOrEmpty(type).toLowerCase(Locale.US);
+    String normalizedMessage = valueOrEmpty(message);
+    String normalizedDefaultValue = valueOrEmpty(defaultValue);
+
+    DialogHostProvider provider = dialogHostProvider;
+    if (provider != null) {
+      return provider.dialog(normalizedType, normalizedMessage, normalizedDefaultValue);
+    }
+
+    Activity activity = currentActivity.get();
+    if (activity == null) {
+      throw new IllegalStateException("Android dialog requires a resumed Activity");
+    }
+    if (activity.isFinishing() ||
+        (Build.VERSION.SDK_INT >= 17 && activity.isDestroyed())) {
+      throw new IllegalStateException("Android dialog Activity is not usable");
+    }
+    if (!"alert".equals(normalizedType) &&
+        !"confirm".equals(normalizedType) &&
+        !"prompt".equals(normalizedType)) {
+      throw new IllegalArgumentException("Unsupported Android dialog type: " + normalizedType);
+    }
+
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      if ("alert".equals(normalizedType)) {
+        showDialog(activity, normalizedType, normalizedMessage, normalizedDefaultValue, null);
+        return "";
+      }
+      throw new IllegalStateException(
+          "Synchronous Android " + normalizedType + " dialog cannot block the main thread");
+    }
+
+    final CountDownLatch latch = new CountDownLatch(1);
+    final String[] result = new String[] {null};
+    final RuntimeException[] failure = new RuntimeException[] {null};
+    activity.runOnUiThread(new Runnable() {
+      @Override
+      public void run() {
+        try {
+          showDialog(
+              activity,
+              normalizedType,
+              normalizedMessage,
+              normalizedDefaultValue,
+              new DialogResult() {
+                @Override
+                public void complete(String value) {
+                  result[0] = value;
+                  latch.countDown();
+                }
+              });
+        } catch (RuntimeException exception) {
+          failure[0] = exception;
+          latch.countDown();
+        }
+      }
+    });
+    latch.await();
+    if (failure[0] != null) {
+      throw failure[0];
+    }
+    return result[0];
   }
 
   public static String[] localeTags() {
@@ -1002,6 +1087,93 @@ public final class IbexNetworking {
     builder.append(",\"replay\":").append(sessionProviderInstalled);
     builder.append('}');
     return builder.toString();
+  }
+
+  private interface DialogResult {
+    void complete(String value);
+  }
+
+  private static void showDialog(
+      Activity activity,
+      String type,
+      String message,
+      String defaultValue,
+      final DialogResult result) {
+    AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+    if (message != null && !message.isEmpty()) {
+      builder.setMessage(message);
+    }
+
+    if ("prompt".equals(type)) {
+      final EditText input = new EditText(activity);
+      input.setSingleLine(true);
+      input.setText(valueOrEmpty(defaultValue));
+      input.setSelectAllOnFocus(true);
+      builder.setView(input);
+      builder.setPositiveButton(
+          android.R.string.ok,
+          new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+              if (result != null) {
+                result.complete(input.getText() == null ? "" : input.getText().toString());
+              }
+            }
+          });
+      builder.setNegativeButton(
+          android.R.string.cancel,
+          new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+              if (result != null) {
+                result.complete(null);
+              }
+            }
+          });
+    } else if ("confirm".equals(type)) {
+      builder.setPositiveButton(
+          android.R.string.ok,
+          new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+              if (result != null) {
+                result.complete("true");
+              }
+            }
+          });
+      builder.setNegativeButton(
+          android.R.string.cancel,
+          new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+              if (result != null) {
+                result.complete("false");
+              }
+            }
+          });
+    } else {
+      builder.setPositiveButton(
+          android.R.string.ok,
+          new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+              if (result != null) {
+                result.complete("");
+              }
+            }
+          });
+    }
+
+    AlertDialog dialog = builder.create();
+    dialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
+      @Override
+      public void onCancel(DialogInterface dialogInterface) {
+        if (result != null) {
+          result.complete("confirm".equals(type) ? "false" : null);
+        }
+      }
+    });
+    dialog.show();
   }
 
   private static String cameraPermissionJson(String name, boolean request) {

@@ -51,6 +51,9 @@ declare global {
     | undefined;
   var __exactReactNativeNotifyMemoryWarning: (() => void) | undefined;
   var __exactReactNativeNotifyURL: ((url: string) => void) | undefined;
+  var __exactNativeDialog:
+    | ((type: 'alert' | 'confirm' | 'prompt', message: string, defaultValue?: string) => string | null)
+    | undefined;
 }
 
 type AndroidAppState = 'active' | 'background' | 'inactive' | 'unknown';
@@ -371,6 +374,23 @@ function applyAndroidPlatformState(
   }
 }
 
+function callNativeDialog(
+  type: 'alert' | 'confirm' | 'prompt',
+  message: string,
+  defaultValue = '',
+): string | null | undefined {
+  if (typeof globalThis.__exactNativeDialog !== 'function') {
+    return undefined;
+  }
+  try {
+    return globalThis.__exactNativeDialog(type, message, defaultValue);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(`${type}() native dialog failed: ${detail}`);
+    return undefined;
+  }
+}
+
 /**
  * MediaQueryList for matchMedia support
  */
@@ -653,26 +673,39 @@ class Window extends EventTarget {
 
   /**
    * Alert dialog
-   * TODO: Implement native alert
    */
   alert(message?: any): void {
+    const nativeResult = callNativeDialog('alert', String(message ?? ''));
+    if (nativeResult !== undefined) {
+      return;
+    }
     console.log('[Alert]', String(message ?? ''));
   }
 
   /**
    * Confirm dialog
-   * TODO: Implement native confirm - for now always returns false
    */
-  confirm(_message?: string): boolean {
+  confirm(message?: string): boolean {
+    const nativeResult = callNativeDialog('confirm', String(message ?? ''));
+    if (nativeResult !== undefined) {
+      return nativeResult === 'true';
+    }
     console.warn('confirm() is not fully supported in Exact runtime');
     return false;
   }
 
   /**
    * Prompt dialog
-   * TODO: Implement native prompt - for now always returns null
    */
-  prompt(_message?: string, _defaultValue?: string): string | null {
+  prompt(message?: string, defaultValue?: string): string | null {
+    const nativeResult = callNativeDialog(
+      'prompt',
+      String(message ?? ''),
+      String(defaultValue ?? ''),
+    );
+    if (nativeResult !== undefined) {
+      return nativeResult;
+    }
     console.warn('prompt() is not fully supported in Exact runtime');
     return null;
   }

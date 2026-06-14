@@ -74,5 +74,25 @@ IbexNetworking.setCameraHostProvider(new IbexNetworking.CameraHostProvider() {
 Without a provider, Android camera sessions report an explicit unsupported
 operation instead of falling back to the DOM camera controller.
 
+Window `alert()`, `confirm()`, and `prompt()` use the current resumed Activity's
+native `AlertDialog` when available. Apps that need custom UI policy can install
+a dialog provider before creating the Ibex runtime:
+
+```java
+IbexNetworking.setDialogHostProvider(new IbexNetworking.DialogHostProvider() {
+  @Override
+  public String dialog(String type, String message, String defaultValue) throws Exception {
+    if ("confirm".equals(type)) {
+      return showAppConfirmDialog(message) ? "true" : "false";
+    }
+    if ("prompt".equals(type)) {
+      return showAppPromptDialog(message, defaultValue); // null means cancelled.
+    }
+    showAppAlertDialog(message);
+    return "";
+  }
+});
+```
+
 The bridge configures OkHttp with redirects disabled because Ibex's JS fetch
 layer implements Fetch redirect policy itself.
