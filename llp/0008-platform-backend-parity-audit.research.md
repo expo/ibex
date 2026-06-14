@@ -37,8 +37,9 @@ Android uses a Java/JNI OkHttp bridge for fetch and WebSocket. The C++ runtime
 keeps the same `native_fetch_*` and `native_ws_*` symbols, while
 `platform/android/java/dev/ibex/runtime/IbexNetworking.java` owns the Android
 HTTP/WebSocket stack. The same app-context bridge supplies Android framework
-data for raw DNS, clipboard, locale, screen metrics, appearance/accessibility,
-and platform version. Apps initialize it with `ex_android_initialize()`.
+data for raw DNS, clipboard, location, locale, screen metrics,
+appearance/accessibility, and platform version. Apps initialize it with
+`ex_android_initialize()`.
 
 ## Android Backend Matrix
 
@@ -61,7 +62,7 @@ better app-runtime integration point. The June 2026 Android backend target is:
 | Child process / IPC / signals | Android app sandboxes do not provide desktop Node child-process semantics. Best behavior is capability-gated POSIX where available and explicit unsupported errors where Android forbids it. | POSIX process/IPC code is compiled. | Audit on-device behavior; do not fabricate success. Verify allowed spawn paths, denied paths, IPC fds, and signal stubs/errors. |
 | OS info / process metadata | Bionic/sysconf/sysinfo/getifaddrs plus Android-specific values where exposed by the host. | POSIX plus Android Java/JNI globals for SDK version, locale tags, 24-hour preference, screen metrics, font scale, appearance, and accessibility snapshot. | Verify `os`, `process`, `navigator`, `Dimensions`, `Appearance`, locale, and accessibility values on Android. |
 | Clipboard | Android `ClipboardManager` through an app/Java host bridge. | Android installs `__exactClipboardRead/Write` backed by the initialized app context's `ClipboardManager`; `exact:clipboard` and `navigator.clipboard` use those hooks. | Verify read/write text and permission/foreground restrictions. |
-| Location | Android framework `LocationManager` as the platform baseline; apps may adapt Google Play services above this runtime if desired. | JS `UnsupportedLocationBackend`. | Add app/Java host bridge with permission-aware errors; verify one-shot and watch flows. |
+| Location | Android framework `LocationManager` as the platform baseline; apps may adapt Google Play services above this runtime if desired. | Java/JNI bridge exposes permission status, location-services state, and current fixes through `__exactAndroidLocation`; JS `NativeLocationBackend` now uses it for `getCurrentPosition()` and a polling `watchPosition()` implementation. | Verify foreground app permissions, one-shot current fixes, permission-denied errors, timeout/errors, and watch behavior; replace polling with provider update callbacks if app-process testing shows polling is not sufficient. |
 | Camera | CameraX for app-facing camera capture; Camera2 only for lower-level specialized needs. | DOM/virtual-camera oriented JS, no Android bridge. | Add app/Java host bridge; verify device enumeration, preview/session lifecycle, photo capture, errors, and permission handling. |
 | Window / navigator / React Native device APIs | App host bridge to Android resources, display metrics, locale, app state, deep links, and appearance. | Initial locale/screen/appearance/accessibility/platform-version values come from Android Resources, DateFormat, and AccessibilityManager through the Java/JNI bridge; app-state, deep-link, and configuration-change event sources are still absent. | Verify initial values and add/verify change events for configuration, app state, and deep links. |
 | Inspector / workers / WASI / HTTP2 | Deliberate compatibility stubs unless a real Android-capable backend is designed. | Stubs/unsupported surfaces. | Keep explicit unsupported errors until an LLP defines support; tests should assert honest failure, not pretend success. |
@@ -137,20 +138,22 @@ or Windows process/socket primitives provided by the platform files.
 ## Current Residual Gaps
 
 - tvOS still has no first-class `build.rs` target arm; see LLP 0001.
-- Android fetch/WebSocket now use the OkHttp bridge but still need emulator or
-  device runtime verification.
+- Android fetch/WebSocket now use the OkHttp bridge and have an emulator
+  OkHttp smoke, but still need full fixture verification for redirects,
+  request/response bodies, aborts, WebSocket frames, close, and error paths.
 - Android raw DNS record queries use `DnsResolver` on API 29+ with POSIX
   fallback, while lookup and reverse lookup remain on Bionic/POSIX resolver
   APIs; all DNS paths still need app-process verification.
 - Android console output is routed to logcat but still needs device/emulator
   verification.
 - Android app/device APIs that need Java/Kotlin host participation remain
-  incomplete: location, camera, app-state/deep-link event sources, and
+  incomplete: camera, app-state/deep-link event sources, and
   configuration-change notifications. Initial window/navigator locale, screen,
-  appearance/accessibility, platform version, and clipboard data now use the
-  Android Java/JNI bridge. The environment probes were smoke-tested on an
-  emulator through `app_process`; foreground app-process verification is still
-  required for clipboard and change/event sources.
+  appearance/accessibility, platform version, clipboard, and location data now
+  use the Android Java/JNI bridge. The environment and location permission
+  probes were smoke-tested on an emulator through `app_process`; foreground
+  app-process verification is still required for clipboard, granted-location
+  fixes, and change/event sources.
 - Android crypto still uses vendored OpenSSL. That is acceptable for today's
   broad WebCrypto/Node crypto algorithm surface, but it is not a Keystore-backed
   non-extractable key backend.
@@ -172,13 +175,16 @@ must run on an Android runtime or emulator and exercise:
   timers, console/logcat, OS/process metadata, and HTTP server smoke tests.
 - Honest unsupported behavior for child-process restrictions, inspector,
   workers, WASI, HTTP2, and any mobile API whose host bridge is not installed.
-- App-bridge APIs once added: clipboard, location, camera, window/navigator,
-  React Native device/app-state/deep-link data, and accessibility changes.
+- App-bridge APIs: clipboard, location, camera, window/navigator, React Native
+  device/app-state/deep-link data, and accessibility changes.
 
 ## Verification From This Pass
 
 - `bun run build:builtins` regenerated the clipboard builtin after adding
   `__exactClipboardRead/Write` hooks.
+- `bun run build:runtime` regenerated `vendored-generated/embedded_runtime_bundle.js`
+  after wiring `packages/ibex-runtime-js/src/location/index.ts` to the Android
+  location bridge.
 - `cargo fmt --check` passed.
 - `git diff --check` passed.
 - The Android Java helper compiled with Android API 36 plus OkHttp 5.4.0,
@@ -194,6 +200,9 @@ must run on an Android runtime or emulator and exercise:
   `36`, locale `[en-US]`, 24-hour preference fallback, screen metrics, and
   accessibility flags. The same smoke confirmed OkHttp reached
   `https://example.com/` with status `200` over `h2`.
+- The same emulator smoke verified the UID-aware Android location permission
+  guard returns `denied` under shell/system context and `getCurrentLocation()`
+  reports `PERMISSION_DENIED` instead of crashing or fabricating a fix.
 - The emulator smoke also exposed two shell-harness limits: direct Java
   `DnsResolver.rawQuery()` timed out under `app_process`, so the C++ DNS path
   now falls back to POSIX resolver on Android resolver failure; clipboard was

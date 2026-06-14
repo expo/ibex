@@ -26,6 +26,15 @@ struct AndroidAccessibilityFlags {
   int is_grayscale_enabled = 0;
 };
 
+struct AndroidLocationResult {
+  double latitude = 0.0;
+  double longitude = 0.0;
+  double altitude = 0.0;
+  double horizontal_accuracy = 0.0;
+  double vertical_accuracy = 0.0;
+  double timestamp = 0.0;
+};
+
 extern "C" int android_get_platform_version(
     char** out_version, char* error, size_t error_capacity);
 extern "C" int android_get_locale_snapshot(
@@ -38,6 +47,16 @@ extern "C" int android_get_screen_info(
     AndroidScreenInfo* out_info, char* error, size_t error_capacity);
 extern "C" int android_get_accessibility_flags(
     AndroidAccessibilityFlags* out_flags, char* error, size_t error_capacity);
+extern "C" int android_location_permission_status(
+    char** out_status, char* error, size_t error_capacity);
+extern "C" int android_location_services_enabled(
+    int* out_enabled, char* error, size_t error_capacity);
+extern "C" int android_location_get_current(
+    const char* accuracy,
+    int timeout_ms,
+    AndroidLocationResult* out_location,
+    char* error,
+    size_t error_capacity);
 
 namespace {
 
@@ -186,6 +205,96 @@ void installAndroidEnvironmentGlobals(facebook::jsi::Runtime& rt) {
   }
 }
 
+void installAndroidLocationBridge(facebook::jsi::Runtime& rt) {
+  facebook::jsi::Object location(rt);
+
+  auto permissionStatusFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "getPermissionStatus"),
+      0,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        char* status = nullptr;
+        char error[256] = {};
+        int rc = android_location_permission_status(&status, error, sizeof(error));
+        if (rc < 0) {
+          throw facebook::jsi::JSError(
+              runtime, error[0] ? error : "Android location permission query failed");
+        }
+        std::string copy = status ? status : "denied";
+        if (status) {
+          std::free(status);
+        }
+        return facebook::jsi::String::createFromUtf8(runtime, copy);
+      });
+  location.setProperty(rt, "getPermissionStatus", std::move(permissionStatusFn));
+
+  auto servicesEnabledFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "isLocationServicesEnabled"),
+      0,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        int enabled = 0;
+        char error[256] = {};
+        int rc = android_location_services_enabled(&enabled, error, sizeof(error));
+        if (rc < 0) {
+          throw facebook::jsi::JSError(
+              runtime, error[0] ? error : "Android location services query failed");
+        }
+        return facebook::jsi::Value(enabled != 0);
+      });
+  location.setProperty(rt, "isLocationServicesEnabled", std::move(servicesEnabledFn));
+
+  auto currentLocationFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "getCurrentLocation"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        std::string accuracy =
+            count > 0 ? valueToString(runtime, args[0]) : std::string("hundredMeters");
+        int timeout_ms = 10000;
+        if (count > 1 && args[1].isNumber()) {
+          timeout_ms = static_cast<int>(args[1].asNumber());
+        }
+        AndroidLocationResult result;
+        char error[256] = {};
+        int rc = android_location_get_current(
+            accuracy.c_str(), timeout_ms, &result, error, sizeof(error));
+        if (rc < 0) {
+          throw facebook::jsi::JSError(
+              runtime, error[0] ? error : "Android current location query failed");
+        }
+
+        facebook::jsi::Object out(runtime);
+        out.setProperty(runtime, "latitude", facebook::jsi::Value(result.latitude));
+        out.setProperty(runtime, "longitude", facebook::jsi::Value(result.longitude));
+        out.setProperty(runtime, "altitude", facebook::jsi::Value(result.altitude));
+        out.setProperty(
+            runtime,
+            "horizontalAccuracy",
+            facebook::jsi::Value(result.horizontal_accuracy));
+        out.setProperty(
+            runtime,
+            "verticalAccuracy",
+            facebook::jsi::Value(result.vertical_accuracy));
+        out.setProperty(runtime, "timestamp", facebook::jsi::Value(result.timestamp));
+        return out;
+      });
+  location.setProperty(rt, "getCurrentLocation", std::move(currentLocationFn));
+
+  // @ref LLP 0008#android-backend-matrix — Android geolocation uses the
+  // platform LocationManager through the initialized app Context.
+  rt.global().setProperty(rt, "__exactAndroidLocation", std::move(location));
+}
+
 } // namespace
 #endif
 
@@ -193,6 +302,7 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
 #if defined(EXACT_PLATFORM_ANDROID)
   auto& rt = *handle->runtime;
   installAndroidEnvironmentGlobals(rt);
+  installAndroidLocationBridge(rt);
 
   auto clipboardReadFn = facebook::jsi::Function::createFromHostFunction(
       rt,

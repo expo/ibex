@@ -47,7 +47,10 @@ interface LegacyLocationResult {
 
 interface LegacyLocationModule {
   requestPermission(level: 'whenInUse' | 'always'): Promise<{ status: LegacyPermissionStatus }>;
-  getCurrentLocation(accuracy: LegacyLocationAccuracy): Promise<LegacyLocationResult>;
+  getCurrentLocation(
+    accuracy: LegacyLocationAccuracy,
+    timeoutMs?: number,
+  ): Promise<LegacyLocationResult>;
   startUpdates(accuracy: LegacyLocationAccuracy, distanceFilter?: number): void;
   stopUpdates(): void;
   getPermissionStatus(): LegacyPermissionStatus;
@@ -96,6 +99,16 @@ interface LocationBackend {
 
 declare global {
   var __exactHostNavigator: HostNavigatorLike | undefined;
+  var __exactAndroidLocation:
+    | {
+        getPermissionStatus?: () => LegacyPermissionStatus;
+        getCurrentLocation?: (
+          accuracy: LegacyLocationAccuracy,
+          timeoutMs?: number,
+        ) => LegacyLocationResult;
+        isLocationServicesEnabled?: () => boolean;
+      }
+    | undefined;
 }
 
 export type LocationPermissionState = 'granted' | 'denied' | 'prompt' | 'unavailable';
@@ -248,7 +261,7 @@ class NativeLocationBackend implements LocationBackend {
 
     try {
       const location = await withTimeout(
-        module.getCurrentLocation(mapAccuracy(options)),
+        module.getCurrentLocation(mapAccuracy(options), options?.timeout),
         options?.timeout,
         () =>
           new ExactGeolocationPositionError(
@@ -668,18 +681,150 @@ function getHostPermissionsQuery():
 }
 
 function hasNativeLocationBridge(): boolean {
-  return false;
+  const bridge = globalThis.__exactAndroidLocation;
+  return !!(
+    bridge &&
+    typeof bridge.getPermissionStatus === 'function' &&
+    typeof bridge.getCurrentLocation === 'function'
+  );
 }
 
 let legacyLocationModulePromise: Promise<LegacyLocationModule> | null = null;
 
+function normalizeLegacyPermissionStatus(value: unknown): LegacyPermissionStatus {
+  switch (value) {
+    case 'authorizedWhenInUse':
+    case 'authorizedAlways':
+    case 'denied':
+    case 'restricted':
+    case 'notDetermined':
+      return value;
+    default:
+      return 'denied';
+  }
+}
+
+function androidLocationError(error: unknown): { code: string; message: string } {
+  const message = error instanceof Error ? error.message : String(error ?? 'Android location failed');
+  const upper = message.toUpperCase();
+  if (upper.includes('PERMISSION_DENIED')) {
+    return { code: 'PERMISSION_DENIED', message };
+  }
+  if (upper.includes('TIMEOUT') || upper.includes('TIMED OUT')) {
+    return { code: 'TIMEOUT', message };
+  }
+  return { code: 'POSITION_UNAVAILABLE', message };
+}
+
+class AndroidLocationModule implements LegacyLocationModule {
+  private locationListeners = new Set<(location: LegacyLocationResult) => void>();
+  private errorListeners = new Set<(error: { code: string; message: string }) => void>();
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private pollInFlight = false;
+  private pollAccuracy: LegacyLocationAccuracy = 'hundredMeters';
+  private pollTimeoutMs = 10000;
+
+  async requestPermission(_level: 'whenInUse' | 'always'): Promise<{ status: LegacyPermissionStatus }> {
+    return { status: this.getPermissionStatus() };
+  }
+
+  async getCurrentLocation(
+    accuracy: LegacyLocationAccuracy,
+    timeoutMs?: number,
+  ): Promise<LegacyLocationResult> {
+    const bridge = globalThis.__exactAndroidLocation;
+    if (!bridge || typeof bridge.getCurrentLocation !== 'function') {
+      throw new ExactGeolocationPositionError(
+        ExactGeolocationPositionError.POSITION_UNAVAILABLE,
+        UNSUPPORTED_MESSAGE,
+      );
+    }
+    return bridge.getCurrentLocation(
+      accuracy,
+      typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? timeoutMs
+        : 10000,
+    );
+  }
+
+  startUpdates(accuracy: LegacyLocationAccuracy, distanceFilter?: number): void {
+    this.stopUpdates();
+    this.pollAccuracy = accuracy;
+    this.pollTimeoutMs = 10000;
+    const intervalMs =
+      typeof distanceFilter === 'number' && Number.isFinite(distanceFilter) && distanceFilter <= 1
+        ? 1000
+        : 5000;
+
+    const poll = () => {
+      if (this.pollInFlight || this.locationListeners.size === 0) {
+        return;
+      }
+      this.pollInFlight = true;
+      void this.getCurrentLocation(this.pollAccuracy, this.pollTimeoutMs)
+        .then((location) => {
+          for (const listener of [...this.locationListeners]) {
+            listener(location);
+          }
+        })
+        .catch((error) => {
+          const nativeError = androidLocationError(error);
+          for (const listener of [...this.errorListeners]) {
+            listener(nativeError);
+          }
+        })
+        .finally(() => {
+          this.pollInFlight = false;
+        });
+    };
+
+    poll();
+    this.pollTimer = setInterval(poll, intervalMs);
+  }
+
+  stopUpdates(): void {
+    if (this.pollTimer != null) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.pollInFlight = false;
+  }
+
+  getPermissionStatus(): LegacyPermissionStatus {
+    return normalizeLegacyPermissionStatus(globalThis.__exactAndroidLocation?.getPermissionStatus?.());
+  }
+
+  isLocationServicesEnabled(): boolean {
+    const bridge = globalThis.__exactAndroidLocation;
+    return typeof bridge?.isLocationServicesEnabled === 'function'
+      ? bridge.isLocationServicesEnabled()
+      : true;
+  }
+
+  onLocationUpdate(callback: (location: LegacyLocationResult) => void): () => void {
+    this.locationListeners.add(callback);
+    return () => {
+      this.locationListeners.delete(callback);
+    };
+  }
+
+  onError(callback: (error: { code: string; message: string }) => void): () => void {
+    this.errorListeners.add(callback);
+    return () => {
+      this.errorListeners.delete(callback);
+    };
+  }
+}
+
 function loadLegacyLocationModule(): Promise<LegacyLocationModule> {
-  legacyLocationModulePromise ??= Promise.reject(
-    new ExactGeolocationPositionError(
-      ExactGeolocationPositionError.POSITION_UNAVAILABLE,
-      UNSUPPORTED_MESSAGE,
-    ),
-  );
+  legacyLocationModulePromise ??= hasNativeLocationBridge()
+    ? Promise.resolve(new AndroidLocationModule())
+    : Promise.reject(
+        new ExactGeolocationPositionError(
+          ExactGeolocationPositionError.POSITION_UNAVAILABLE,
+          UNSUPPORTED_MESSAGE,
+        ),
+      );
 
   return legacyLocationModulePromise;
 }
