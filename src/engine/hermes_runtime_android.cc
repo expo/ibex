@@ -240,6 +240,17 @@ facebook::jsi::Object makeAndroidPlatformState(facebook::jsi::Runtime& runtime) 
   char error[256] = {};
   facebook::jsi::Object state(runtime);
 
+  // @ref LLP 0008#os-info - Android OS metadata uses the Java host SDK version, not Linux kernel identity.
+  char* platform_version = nullptr;
+  if (android_get_platform_version(&platform_version, error, sizeof(error)) > 0 &&
+      platform_version) {
+    state.setProperty(
+        runtime,
+        "platformVersion",
+        facebook::jsi::String::createFromUtf8(runtime, platform_version));
+  }
+  std::free(platform_version);
+
   char* app_state = nullptr;
   if (android_get_app_state(&app_state, error, sizeof(error)) > 0 && app_state) {
     state.setProperty(
@@ -319,10 +330,24 @@ void installAndroidEnvironmentGlobals(facebook::jsi::Runtime& rt) {
   char* platform_version = nullptr;
   if (android_get_platform_version(&platform_version, error, sizeof(error)) > 0 &&
       platform_version) {
+    // @ref LLP 0008#os-info - Android OS metadata uses the Java host SDK version, not Linux kernel identity.
+    std::string android_os_version = std::string("Android ") + platform_version;
     rt.global().setProperty(
         rt,
         "__exactPlatformVersion",
         facebook::jsi::String::createFromUtf8(rt, platform_version));
+    auto process_value = rt.global().getProperty(rt, "process");
+    if (process_value.isObject()) {
+      auto process = process_value.asObject(rt);
+      process.setProperty(
+          rt,
+          "__exactOSRelease",
+          facebook::jsi::String::createFromUtf8(rt, platform_version));
+      process.setProperty(
+          rt,
+          "__exactOSVersion",
+          facebook::jsi::String::createFromUtf8(rt, android_os_version));
+    }
     std::free(platform_version);
   }
 

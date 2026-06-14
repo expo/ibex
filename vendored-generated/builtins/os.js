@@ -26,6 +26,12 @@ function legacyNumberValue(getter) {
 	};
 	return fn;
 }
+function androidPlatformVersion() {
+	if (_platform !== "android" || typeof globalThis === "undefined") return null;
+	if (typeof globalThis.__exactPlatformVersion === "string" && globalThis.__exactPlatformVersion.length > 0) return globalThis.__exactPlatformVersion;
+	if (globalThis.process && typeof globalThis.process.__exactOSRelease === "string" && globalThis.process.__exactOSRelease.length > 0) return globalThis.process.__exactOSRelease;
+	return null;
+}
 function platform() {
 	return _platform;
 }
@@ -33,12 +39,15 @@ function arch() {
 	return _arch;
 }
 function type() {
+	if (_platform === "android") return "Android";
 	if (_platform === "darwin") return "Darwin";
 	if (_platform === "linux") return "Linux";
 	if (_platform === "win32") return "Windows_NT";
 	return "Unknown";
 }
 function release() {
+	var androidVersion = androidPlatformVersion();
+	if (androidVersion) return androidVersion;
 	if (typeof globalThis !== "undefined" && globalThis.process) {
 		if (globalThis.process.__exactOSRelease) return globalThis.process.__exactOSRelease;
 	}
@@ -61,6 +70,8 @@ function hostname() {
 	return "localhost";
 }
 function version() {
+	var androidVersion = androidPlatformVersion();
+	if (androidVersion) return "Android " + androidVersion;
 	if (typeof __exactGetOsVersion === "function") return __exactGetOsVersion();
 	if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.__exactOSVersion) return globalThis.process.__exactOSVersion;
 	return release();
