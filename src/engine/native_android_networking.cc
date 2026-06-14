@@ -12,6 +12,7 @@
 
 #include <android/log.h>
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +23,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <unistd.h>
 
 typedef void (*NativeFetchResponseCallback)(
     uint32_t request_id,
@@ -72,6 +74,14 @@ struct AndroidLocationResult {
   double timestamp = 0.0;
 };
 
+struct AndroidStoragePaths {
+  char* files_dir = nullptr;
+  char* cache_dir = nullptr;
+  char* no_backup_files_dir = nullptr;
+  char* code_cache_dir = nullptr;
+  char* external_files_dir = nullptr;
+};
+
 namespace {
 
 constexpr const char* kLogTag = "IbexNetworking";
@@ -119,6 +129,7 @@ struct AndroidNetworkingMethods {
   jmethodID current_location = nullptr;
   jmethodID app_state = nullptr;
   jmethodID initial_url = nullptr;
+  jmethodID storage_paths = nullptr;
   jmethodID drain_platform_events = nullptr;
   jmethodID camera_host_call = nullptr;
 };
@@ -149,6 +160,7 @@ jmethodID g_location_services_enabled = nullptr;
 jmethodID g_current_location = nullptr;
 jmethodID g_app_state = nullptr;
 jmethodID g_initial_url = nullptr;
+jmethodID g_storage_paths = nullptr;
 jmethodID g_drain_platform_events = nullptr;
 jmethodID g_camera_host_call = nullptr;
 
@@ -241,6 +253,86 @@ jstring string_to_jstring(JNIEnv* env, const char* value) {
   auto result = env->NewStringUTF(value ? value : "");
   clear_pending_exception(env, "NewStringUTF");
   return result;
+}
+
+using AndroidStoragePathArray = std::array<std::string, 5>;
+
+bool read_storage_paths_from_java(
+    JNIEnv* env,
+    jclass cls,
+    jmethodID method,
+    AndroidStoragePathArray& out) {
+  out = {};
+  if (!env || !cls || !method) {
+    return false;
+  }
+  auto result = static_cast<jobjectArray>(env->CallStaticObjectMethod(cls, method));
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    return false;
+  }
+  if (!result) {
+    return false;
+  }
+
+  const jsize length = env->GetArrayLength(result);
+  for (jsize i = 0; i < length && i < static_cast<jsize>(out.size()); ++i) {
+    auto entry = static_cast<jstring>(env->GetObjectArrayElement(result, i));
+    if (env->ExceptionCheck()) {
+      env->ExceptionDescribe();
+      env->ExceptionClear();
+      if (entry) {
+        env->DeleteLocalRef(entry);
+      }
+      env->DeleteLocalRef(result);
+      out = {};
+      return false;
+    }
+    out[static_cast<size_t>(i)] = jstring_to_string(env, entry);
+    if (entry) {
+      env->DeleteLocalRef(entry);
+    }
+  }
+  env->DeleteLocalRef(result);
+  return true;
+}
+
+void apply_android_storage_environment(const AndroidStoragePathArray& paths) {
+  const std::string& files_dir = paths[0];
+  const std::string& cache_dir = paths[1];
+  const std::string& no_backup_dir = paths[2];
+  const std::string& code_cache_dir = paths[3];
+  const std::string& external_files_dir = paths[4];
+
+  if (!files_dir.empty()) {
+    setenv("HOME", files_dir.c_str(), 1);
+    setenv("EXACT_ANDROID_FILES_DIR", files_dir.c_str(), 1);
+    // @ref LLP 0008#android-backend-matrix — Android filesystem paths are
+    // anchored in app-specific Context directories, not the process root.
+    if (chdir(files_dir.c_str()) != 0) {
+      __android_log_print(
+          ANDROID_LOG_WARN,
+          kLogTag,
+          "Failed to chdir to Android filesDir: %s",
+          files_dir.c_str());
+    }
+  }
+  if (!cache_dir.empty()) {
+    setenv("TMPDIR", cache_dir.c_str(), 1);
+    setenv("TEMP", cache_dir.c_str(), 1);
+    setenv("TMP", cache_dir.c_str(), 1);
+    setenv("EXACT_ANDROID_CACHE_DIR", cache_dir.c_str(), 1);
+  }
+  if (!no_backup_dir.empty()) {
+    setenv("EXACT_ANDROID_NO_BACKUP_FILES_DIR", no_backup_dir.c_str(), 1);
+  }
+  if (!code_cache_dir.empty()) {
+    setenv("EXACT_ANDROID_CODE_CACHE_DIR", code_cache_dir.c_str(), 1);
+  }
+  if (!external_files_dir.empty()) {
+    setenv("EXACT_ANDROID_EXTERNAL_FILES_DIR", external_files_dir.c_str(), 1);
+  }
 }
 
 jbyteArray bytes_to_jarray(JNIEnv* env, const uint8_t* data, size_t length) {
@@ -652,6 +744,8 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
       env->GetStaticMethodID(cls, "appState", "()Ljava/lang/String;");
   g_initial_url =
       env->GetStaticMethodID(cls, "initialURL", "()Ljava/lang/String;");
+  g_storage_paths =
+      env->GetStaticMethodID(cls, "storagePaths", "()[Ljava/lang/String;");
   g_drain_platform_events =
       env->GetStaticMethodID(cls, "drainPlatformEvents", "()Ljava/lang/String;");
   g_camera_host_call =
@@ -683,6 +777,7 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
       !g_current_location ||
       !g_app_state ||
       !g_initial_url ||
+      !g_storage_paths ||
       !g_drain_platform_events ||
       !g_camera_host_call) {
     __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Missing IbexNetworking Java method");
@@ -721,6 +816,7 @@ bool get_networking_methods(JNIEnv* env, AndroidNetworkingMethods* out) {
   out->current_location = g_current_location;
   out->app_state = g_app_state;
   out->initial_url = g_initial_url;
+  out->storage_paths = g_storage_paths;
   out->drain_platform_events = g_drain_platform_events;
   out->camera_host_call = g_camera_host_call;
   return out->cls != nullptr;
@@ -936,6 +1032,17 @@ extern "C" int ex_android_initialize(void* java_vm, void* application_context) {
   env->CallStaticVoidMethod(g_networking_class, g_initialize, g_application_context);
   if (clear_pending_exception(env, "IbexNetworking.initialize")) {
     return -5;
+  }
+
+  AndroidStoragePathArray storage_paths;
+  if (read_storage_paths_from_java(
+          env, g_networking_class, g_storage_paths, storage_paths)) {
+    apply_android_storage_environment(storage_paths);
+  } else {
+    __android_log_print(
+        ANDROID_LOG_WARN,
+        kLogTag,
+        "Android storage paths unavailable during initialization");
   }
   return 0;
 }
@@ -1504,6 +1611,67 @@ extern "C" int android_get_initial_url(
     return -1;
   }
   *out_url = copy;
+  return 1;
+}
+
+extern "C" int android_get_storage_paths(
+    AndroidStoragePaths* out_paths,
+    char* error,
+    size_t error_capacity) {
+  if (out_paths) {
+    *out_paths = AndroidStoragePaths{};
+  }
+  if (!out_paths) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* message) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = message ? message : "Android storage path query failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods)) {
+    write_error("Android runtime bridge is not initialized");
+    return -1;
+  }
+
+  AndroidStoragePathArray paths;
+  bool ok = read_storage_paths_from_java(
+      env, methods.cls, methods.storage_paths, paths);
+  env->DeleteLocalRef(methods.cls);
+  if (!ok) {
+    write_error("Android storage paths unavailable");
+    return -1;
+  }
+
+  apply_android_storage_environment(paths);
+
+  out_paths->files_dir = malloc_string_copy(paths[0]);
+  out_paths->cache_dir = malloc_string_copy(paths[1]);
+  out_paths->no_backup_files_dir = malloc_string_copy(paths[2]);
+  out_paths->code_cache_dir = malloc_string_copy(paths[3]);
+  out_paths->external_files_dir = malloc_string_copy(paths[4]);
+  if (!out_paths->files_dir ||
+      !out_paths->cache_dir ||
+      !out_paths->no_backup_files_dir ||
+      !out_paths->code_cache_dir ||
+      !out_paths->external_files_dir) {
+    std::free(out_paths->files_dir);
+    std::free(out_paths->cache_dir);
+    std::free(out_paths->no_backup_files_dir);
+    std::free(out_paths->code_cache_dir);
+    std::free(out_paths->external_files_dir);
+    *out_paths = AndroidStoragePaths{};
+    write_error("Failed to allocate Android storage path response");
+    return -1;
+  }
   return 1;
 }
 

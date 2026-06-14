@@ -31,6 +31,14 @@ Activity state and deep links through `IbexNetworking.notifyActivityStarted()`,
 and `notifyNewIntent()` so `AppState`, `Linking`, `Dimensions`, and window
 events reflect the foreground app.
 
+Initialization also exports Android app storage roots from the `Context`.
+`filesDir` seeds `HOME`, `process.cwd()`, and relative filesystem operations;
+`cacheDir` seeds `TMPDIR`, `TMP`, `TEMP`, and `os.tmpdir()`. The explicit
+`EXACT_ANDROID_FILES_DIR`, `EXACT_ANDROID_CACHE_DIR`,
+`EXACT_ANDROID_NO_BACKUP_FILES_DIR`, `EXACT_ANDROID_CODE_CACHE_DIR`, and
+`EXACT_ANDROID_EXTERNAL_FILES_DIR` environment variables are available for
+code that needs a named Android storage class.
+
 The built-in camera host bridge exposes synchronous Android camera permission,
 device inventory, and session-capability metadata through CameraManager. Apps
 that want native preview and capture should install a CameraX-backed session

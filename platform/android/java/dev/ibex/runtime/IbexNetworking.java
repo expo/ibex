@@ -33,6 +33,7 @@ import android.util.Range;
 import android.util.Size;
 import android.util.Log;
 import android.view.accessibility.AccessibilityManager;
+import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
@@ -157,6 +158,29 @@ public final class IbexNetworking {
     return initialUrl == null ? "" : initialUrl;
   }
 
+  public static String[] storagePaths() {
+    Context context = applicationContext;
+    if (context == null) {
+      return new String[] {"", "", "", "", ""};
+    }
+    File filesDir = safeFilesDir(context);
+    File cacheDir = safeCacheDir(context);
+    File noBackupDir = Build.VERSION.SDK_INT >= 21
+        ? safeNoBackupFilesDir(context)
+        : filesDir;
+    File codeCacheDir = Build.VERSION.SDK_INT >= 21
+        ? safeCodeCacheDir(context)
+        : cacheDir;
+    File externalFilesDir = safeExternalFilesDir(context);
+    return new String[] {
+      filePath(filesDir),
+      filePath(cacheDir),
+      filePath(noBackupDir),
+      filePath(codeCacheDir),
+      filePath(externalFilesDir)
+    };
+  }
+
   public static String drainPlatformEvents() {
     StringBuilder builder = new StringBuilder();
     synchronized (platformEvents) {
@@ -231,6 +255,50 @@ public final class IbexNetworking {
       }
     }
     updateAppState("background");
+  }
+
+  private static String filePath(File file) {
+    return file == null ? "" : file.getAbsolutePath();
+  }
+
+  private static File safeFilesDir(Context context) {
+    try {
+      return context.getFilesDir();
+    } catch (RuntimeException ignored) {
+      return null;
+    }
+  }
+
+  private static File safeCacheDir(Context context) {
+    try {
+      return context.getCacheDir();
+    } catch (RuntimeException ignored) {
+      return null;
+    }
+  }
+
+  private static File safeNoBackupFilesDir(Context context) {
+    try {
+      return context.getNoBackupFilesDir();
+    } catch (RuntimeException ignored) {
+      return null;
+    }
+  }
+
+  private static File safeCodeCacheDir(Context context) {
+    try {
+      return context.getCodeCacheDir();
+    } catch (RuntimeException ignored) {
+      return null;
+    }
+  }
+
+  private static File safeExternalFilesDir(Context context) {
+    try {
+      return context.getExternalFilesDir(null);
+    } catch (RuntimeException ignored) {
+      return null;
+    }
   }
 
   private static void notifyActivityDestroyed(Activity activity) {

@@ -45,6 +45,12 @@ pub fn runtime_cache_dir() -> Result<PathBuf> {
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
+        #[cfg(target_os = "android")]
+        if let Ok(dir) = std::env::var("EXACT_ANDROID_CACHE_DIR") {
+            if !dir.is_empty() {
+                return Ok(PathBuf::from(dir).join("exact"));
+            }
+        }
         if let Some(dir) = dirs::cache_dir() {
             return Ok(dir.join("exact"));
         }
