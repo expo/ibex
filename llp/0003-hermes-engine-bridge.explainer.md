@@ -123,14 +123,17 @@ Foundation/NSURLSession implementations `[observed]`
 (`src/engine/native_fetch_macos.mm:1-14`;
 `src/engine/native_websocket_macos.mm:1-9`). Windows uses WinHTTP
 implementations `[observed]` (`src/engine/native_fetch_windows.cc:1-5`;
-`src/engine/native_websocket_windows.cc:1-5`; `build.rs:1072-1104`). Linux uses
-libcurl only when `build.rs` detects curl >= 7.86 and defines `EXACT_HAS_CURL`;
-otherwise the Linux native files compile stub/fallback code `[observed]`
-(`build.rs:1174-1224`; `src/engine/native_fetch_linux.cc:1-24`;
-`src/engine/native_websocket_linux.cc:1-28`). Android uses the same curl-backed
-native files, but supplies libcurl through the target-specific vendored
-`curl-sys` dependency and always defines `EXACT_HAS_CURL` for that branch
-`[observed]` (`Cargo.toml:82-83`; `build.rs:1106-1137`).
+`src/engine/native_websocket_windows.cc:1-5`; `build.rs:1072-1104`). Android
+uses the same curl-backed native files, but supplies libcurl through the
+target-specific vendored `curl-sys` dependency and always defines
+`EXACT_HAS_CURL` for that branch `[observed]` (`Cargo.toml:82-83`;
+`build.rs:1106-1137`). Linux uses system libcurl as the supported native
+networking backend: `build.rs` requires `pkg-config` and libcurl >= 7.86 so
+fetch and WebSocket both compile with `EXACT_HAS_CURL` `[observed]`
+(`build.rs:1175-1236`). A degraded fetch-only curl CLI fallback exists only
+when `IBEX_ALLOW_CURL_CLI_FALLBACK=1`; WebSocket remains unavailable in that
+profile `[observed]` (`src/engine/native_fetch_linux.cc`;
+`src/engine/native_websocket_linux.cc`).
 
 ### Crypto is platform-dependent (the fragile axis)
 

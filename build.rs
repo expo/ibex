@@ -386,6 +386,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=JSI_LIB_DIR");
     println!("cargo:rerun-if-env-changed=IBEX_REGENERATE_RUNTIME");
     println!("cargo:rerun-if-env-changed=IBEX_UPDATE_VENDORED_GENERATED");
+    println!("cargo:rerun-if-env-changed=IBEX_ALLOW_CURL_CLI_FALLBACK");
     println!("cargo:rustc-check-cfg=cfg(hermes_debugger)");
     let host_http_server_enabled = std::env::var_os("CARGO_FEATURE_HOST_HTTP_SERVER").is_some();
     let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
@@ -1173,6 +1174,10 @@ fn main() {
 
     if target_os == "linux" {
         const MIN_LIBCURL_VERSION: &str = "7.86.0";
+        // @ref LLP 0008#linux-networking — libcurl is the supported Linux Fetch/WebSocket backend; the CLI fallback is explicit and degraded.
+        let allow_curl_cli_fallback = std::env::var("IBEX_ALLOW_CURL_CLI_FALLBACK")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
         let detected_libcurl_version = std::process::Command::new("pkg-config")
             .args(["--modversion", "libcurl"])
             .output()
@@ -1198,13 +1203,22 @@ fn main() {
             .flag_if_supported("-fPIC");
         if has_minimum_libcurl {
             fetch_build.define("EXACT_HAS_CURL", Some("1"));
-        } else {
+        } else if allow_curl_cli_fallback {
             match detected_libcurl_version.as_deref() {
                 Some(version) => println!(
-                    "cargo:warning=libcurl {version} detected, but >= {MIN_LIBCURL_VERSION} is required for native Linux networking; fetch will use curl CLI fallback and native websocket support is disabled"
+                    "cargo:warning=libcurl {version} detected, but >= {MIN_LIBCURL_VERSION} is required for native Linux networking; using degraded curl CLI fetch fallback and disabling native websocket support because IBEX_ALLOW_CURL_CLI_FALLBACK=1"
                 ),
                 None => println!(
-                    "cargo:warning=libcurl dev package not detected; native Linux fetch will use curl CLI fallback and native websocket support is disabled"
+                    "cargo:warning=libcurl dev package not detected; using degraded curl CLI fetch fallback and disabling native websocket support because IBEX_ALLOW_CURL_CLI_FALLBACK=1"
+                ),
+            }
+        } else {
+            match detected_libcurl_version.as_deref() {
+                Some(version) => panic!(
+                    "Linux native networking requires libcurl >= {MIN_LIBCURL_VERSION}; detected {version}. Install a newer libcurl development package or set IBEX_ALLOW_CURL_CLI_FALLBACK=1 for a degraded fetch-only fallback."
+                ),
+                None => panic!(
+                    "Linux native networking requires pkg-config and libcurl >= {MIN_LIBCURL_VERSION}. Install the libcurl development package (for example libcurl4-openssl-dev on Debian/Ubuntu) or set IBEX_ALLOW_CURL_CLI_FALLBACK=1 for a degraded fetch-only fallback."
                 ),
             }
         }

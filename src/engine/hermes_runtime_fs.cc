@@ -18,6 +18,9 @@
 #include <sys/poll.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
+#include <sys/statfs.h>
+#endif
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/time.h>
@@ -1372,15 +1375,21 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactStatfs: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
+        // @ref LLP 0008#filesystem — Linux statfs(2) exposes f_type; statvfs(3) does not.
+        struct statfs buf;
+        if (::statfs(path.c_str(), &buf) != 0) {
+          throwFsError(runtime, "statfs", path);
+        }
+        uint64_t type = static_cast<uint64_t>(buf.f_type);
+#else
         struct statvfs buf;
         if (::statvfs(path.c_str(), &buf) != 0) {
           throwFsError(runtime, "statfs", path);
         }
-        std::ostringstream oss;
         uint64_t type = 0;
-#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
-        type = static_cast<uint64_t>(buf.f_type);
 #endif
+        std::ostringstream oss;
         oss << "{"
             << "\"type\":" << type << ","
             << "\"bsize\":" << buf.f_bsize << ","

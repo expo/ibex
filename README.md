@@ -46,6 +46,11 @@ cargo build --features openssl-crypto
 `build.rs` auto-detects the standalone layout; `HERMES_INCLUDE_DIR` and
 `HERMES_LIB_DIR` override the Hermes locations.
 
+Linux native networking requires `pkg-config` and libcurl >= 7.86 so Fetch and
+WebSocket use libcurl. For constrained local builds only,
+`IBEX_ALLOW_CURL_CLI_FALLBACK=1` enables a degraded fetch-only fallback that
+shells out to `curl`; WebSocket remains unavailable in that fallback profile.
+
 ### Android
 
 Android builds consume the same Maven/PREFAB artifacts Android apps already use:

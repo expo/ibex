@@ -49,7 +49,7 @@ matrix row.
 |---|---|---|---|
 | macOS | yes | CommonCrypto/Security; optional OpenSSL feature for some non-iOS paths | wired in `build.rs` |
 | iOS | yes | CommonCrypto/Security with `EXACT_PLATFORM_IOS`, `EXACT_NO_OPENSSL`, `EXACT_NO_BROTLI` | wired in `build.rs` |
-| Linux | yes | default defines `EXACT_NO_OPENSSL`; `openssl-crypto` enables OpenSSL linking | wired in `build.rs` |
+| Linux | yes | default defines `EXACT_NO_OPENSSL`; `openssl-crypto` enables OpenSSL linking; native networking requires libcurl >= 7.86 | wired in `build.rs` |
 | Windows | yes | `hermes_runtime_crypto_windows.cc`, `EXACT_NO_OPENSSL`, WinHTTP/Bcrypt/Ncrypt/Crypt32 | wired in `build.rs` |
 | **Android** | yes | `openssl-crypto` with vendored OpenSSL; Hermes/JSI from Android PREFAB; vendored curl/libz for native networking | wired for cross-compile |
 | **tvOS** | **no** | no tvOS branch in `build.rs` | **needs work** |
@@ -65,7 +65,7 @@ networking files with vendored `curl-sys` `[observed]` (`Cargo.toml:82-83`;
 
 ## 2. The axes that matter beyond OS
 
-A platform name alone under-specifies the build. Two more axes carry real bug
+A platform name alone under-specifies the build. Three more axes carry real bug
 risk:
 
 ### 2.1 Crypto profile (the axis that caused the original break)
@@ -103,7 +103,17 @@ the reduced no-OpenSSL default), because the no-OpenSSL reduced build is
 the profile most likely to reveal feature-gating drift. Exercising only the
 openssl profile would miss that class of regression `[inferred]`.
 
-### 2.2 Architecture
+### 2.2 Linux networking profile
+
+Linux Fetch and WebSocket use libcurl as the supported native backend. The CI
+matrix MUST install `pkg-config` and libcurl >= 7.86 for Linux rows so
+`EXACT_HAS_CURL` is enabled `[observed]` (`build.rs:1175-1236`). The
+`IBEX_ALLOW_CURL_CLI_FALLBACK=1` profile is a degraded local-build escape hatch,
+not a CI or release profile, because it shells fetch through `curl` and leaves
+native WebSocket unavailable `[observed]` (`src/engine/native_fetch_linux.cc`;
+`src/engine/native_websocket_linux.cc`).
+
+### 2.3 Architecture
 
 - macOS, Windows, Linux: **arm64 + x86_64** (Linux also `aarch64` on native
   runners where available).
@@ -121,9 +131,9 @@ and the platform's native profile otherwise:
 
 | OS | Arch | Crypto profile | Runner | Notes |
 |---|---|---|---|---|
-| Linux | x86_64 | openssl-crypto | ubuntu | primary |
-| Linux | x86_64 | default (no-OpenSSL) | ubuntu | exercises the reduced build that shipped broken |
-| Linux | aarch64 | openssl-crypto | ubuntu-arm (or cross) | |
+| Linux | x86_64 | openssl-crypto | ubuntu | primary; install libcurl >= 7.86 |
+| Linux | x86_64 | default (no-OpenSSL) | ubuntu | reduced crypto profile; install libcurl >= 7.86 |
+| Linux | aarch64 | openssl-crypto | ubuntu-arm (or cross) | install libcurl >= 7.86 |
 | macOS | arm64 | CommonCrypto (default) | macos | tier-1 |
 | macOS | x86_64 | CommonCrypto | macos | |
 | iOS | arm64 (sim) | CommonCrypto | macos | cross-compile + simulator boot |
