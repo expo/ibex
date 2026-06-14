@@ -61,7 +61,7 @@ import { navigator } from "./navigator";
 import { localStorage, sessionStorage } from "./storage";
 import { CacheStorage } from "./cache";
 import { ClipboardItem } from "./clipboard";
-import { performance as perfInstance, PerformanceObserver, PerformanceEntry, PerformanceMark, PerformanceMeasure } from "./performance";
+import { performance as perfInstance, PerformanceObserver, PerformanceEntry, PerformanceMark, PerformanceMeasure, setNativePerformanceModule } from "./performance";
 import { structuredClone as structuredCloneFn } from "./clone";
 import { atob as atobFn, btoa as btoaFn } from "./base64";
 import {
@@ -1104,6 +1104,22 @@ export function installGlobals(): void {
   // Always override: the C++ bootstrap installs a stub with no-op mark/measure
   // that blocks the real implementation via defineLazyGlobal.
   // ========================================
+  if (typeof g.__exactPerformanceNow === 'function') {
+    try {
+      const nativeTimeOrigin =
+        typeof g.__exactPerformanceTimeOrigin === 'function'
+          ? Number(g.__exactPerformanceTimeOrigin())
+          : Date.now();
+      const timeOrigin = Number.isFinite(nativeTimeOrigin) ? nativeTimeOrigin : Date.now();
+      setNativePerformanceModule({
+        now: () => {
+          const value = Number(g.__exactPerformanceNow());
+          return Number.isFinite(value) ? value : Date.now() - timeOrigin;
+        },
+        timeOrigin,
+      });
+    } catch (_) {}
+  }
   Object.defineProperty(g, 'performance', {
     value: perfInstance,
     writable: true,
