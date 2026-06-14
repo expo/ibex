@@ -64,10 +64,17 @@ ANDROID_TARGET=aarch64-linux-android ./scripts/cargo-android.sh
 ```
 
 Android currently requires `--features openssl-crypto`; the wrapper includes it
-by default. Native Android fetch/WebSocket use the vendored `curl-sys` static
-libcurl backend. The wrapper also sets `EXACT_ALLOW_FALLBACK=1` unless already
-set, so AAR-based builds can use bootstrap JS source when no matching host
-`hermesc` is installed. `HERMES_ANDROID_VERSION`, `REACT_ANDROID_VERSION`,
+by default. Native Android fetch/WebSocket use OkHttp through the Android
+Java/JNI bridge in `platform/android/java/dev/ibex/runtime/IbexNetworking.java`.
+The same bridge provides Android clipboard, raw DNS, locale, screen,
+appearance/accessibility, and platform-version data to the JS runtime.
+Embedding apps must include that Java source, add OkHttp to the Android
+classpath (for example `implementation("com.squareup.okhttp3:okhttp:5.4.0")`),
+and call `ex_android_initialize(JavaVM*, Context)` before creating a runtime
+that should observe Android platform data or use networking APIs. The wrapper
+also sets `EXACT_ALLOW_FALLBACK=1` unless already set, so
+AAR-based builds can use bootstrap JS source when no matching host `hermesc` is
+installed. `HERMES_ANDROID_VERSION`, `REACT_ANDROID_VERSION`,
 `ANDROID_HERMES_VARIANT`, and `ANDROID_API` are overrideable. The default
 Android artifact pair is `hermes-android:250829098.0.14` with
 `react-android:0.86.0-rc.3`, because that JSI PREFAB includes the

@@ -880,6 +880,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   } else {
   IG_TRACE_START(host_functions);
   installTimerGlobals(handle);
+  installAndroidHostFunctions(handle);
 
   auto capabilityCheckFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1519,7 +1520,7 @@ extern "C" int ex_hermes_eval(
     if (is_bytecode) {
       source_buffer = std::make_shared<AlignedBytecodeBuffer>(data, len);
       auto aligned_data = source_buffer->data();
-#if !defined(_WIN32)
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
       const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
       if (!disable_check) {
         std::string reason;

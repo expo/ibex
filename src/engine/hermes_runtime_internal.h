@@ -279,6 +279,7 @@ void installOsInfoGlobals(ExactHermesRuntime* handle);
 void installProcessSetup(ExactHermesRuntime* handle);
 void installWebSocketGlobals(ExactHermesRuntime* handle);
 void installFetchGlobals(ExactHermesRuntime* handle);
+void installAndroidHostFunctions(ExactHermesRuntime* handle);
 void installIpcListenerPatch(ExactHermesRuntime* handle);
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);

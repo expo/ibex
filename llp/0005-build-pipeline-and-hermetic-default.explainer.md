@@ -164,8 +164,13 @@ Hermes headers/libs are located via `HERMES_*` env vars or platform defaults
 `[observed]` (`build.rs:180-260, 262-335`). Android additionally consumes React
 Native JSI headers/libs via `JSI_*` env vars or the default Android PREFAB
 extract under `android/react-android` `[observed]` (`build.rs:185-198,
-212-247, 276-314`), and uses vendored `curl-sys` metadata for native
-fetch/WebSocket `[observed]` (`Cargo.toml:82-83`; `build.rs:1202-1241`). This
+212-247, 276-314`). Android native fetch/WebSocket are compiled from
+`native_android_networking.cc` and delegate to the Java OkHttp bridge shipped
+under `platform/android/java`. That bridge also supplies Android clipboard, raw
+DNS, locale/screen/appearance, accessibility, and platform-version data to
+Hermes host globals `[observed]` (`src/engine/native_android_networking.cc`;
+`src/engine/hermes_runtime_android.cc`;
+`platform/android/java/dev/ibex/runtime/IbexNetworking.java`; `build.rs`). This
 is a separate concern from the vendored-generated JS snapshot.
 
 The upstream Hermes 0.11 Darwin runtime archive provides iOS and Mac Catalyst
@@ -187,12 +192,15 @@ Hermes 0.11 headers do not expose native `MutableBuffer` ArrayBuffer creation,
 `Runtime::queueMicrotask`, or `RuntimeConfig::MicrotaskQueue`; newer SDKs may.
 `build.rs` probes the checked-in header text and defines
 `EXACT_HAVE_JSI_MUTABLE_BUFFER`, `EXACT_HAVE_JSI_QUEUE_MICROTASK`, and
-`EXACT_HAVE_HERMES_MICROTASK_CONFIG` only when those SDK APIs exist, so the C++
-adapter can keep one source tree without binding feature availability to an OS
-name `[observed]` (`build.rs:1035-1041`;
+`EXACT_HAVE_HERMES_MICROTASK_CONFIG` only when those SDK APIs exist. It also
+probes whether `HermesRuntime::hermesBytecodeSanityCheck` exists as a static
+method before compiling the bytecode sanity-check call, because Android Hermes
+exposes a similarly named interface method but not the static runtime method.
+The C++ adapter can therefore keep one source tree without binding feature
+availability to an OS name `[observed]` (`build.rs:1035-1048`;
 `src/engine/hermes_runtime_internal.h:143-197`;
 `src/engine/hermes_runtime_timers.cc:128-134`;
-`src/engine/hermes_runtime.cc:1396-1402`).
+`src/engine/hermes_runtime.cc:1396-1402, 1520-1542`).
 
 On Windows, the Hermes NuGet package separates import libraries under `lib/`
 from runtime DLLs under `bin/`. `build.rs` therefore resolves a Windows

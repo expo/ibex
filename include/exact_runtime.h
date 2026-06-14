@@ -161,6 +161,22 @@ void ex_hermes_set_kernel_handle(
     ExactHermesRuntime* runtime,
     void* kernel_handle);
 
+// =============================================================================
+// Android Host Integration
+// =============================================================================
+
+/// Install Android process state used by Android-native platform bridges.
+/// Pass the process JavaVM* and an android.content.Context jobject as opaque
+/// pointers from JNI. The context may be an Activity or Application; Ibex keeps
+/// its application context.
+///
+/// Android networking requires the Java helper class
+/// dev.ibex.runtime.IbexNetworking and OkHttp on the app classpath.
+/// @return 0 on success, negative on setup failure.
+#ifdef __ANDROID__
+int ex_android_initialize(void* java_vm, void* application_context);
+#endif
+
 /// Emit a module event from native code to JavaScript.
 /// Calls globalThis.__exactModuleEvent(moduleName, eventName, payload).
 /// @param runtime The runtime handle

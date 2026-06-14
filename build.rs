@@ -348,6 +348,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_websocket.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fetch.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_ipc.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_android.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_templates.inl");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/host/mod.rs");
@@ -358,6 +359,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/native_websocket_macos.mm");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_linux.cc");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_linux.cc");
+    println!("cargo:rerun-if-changed=src/engine/native_android_networking.cc");
     println!("cargo:rerun-if-changed=src/engine/native_fetch_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/native_websocket_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/bootstrap");
@@ -936,6 +938,7 @@ fn main() {
             .file("src/engine/hermes_runtime_http.cc")
             .file("src/engine/hermes_runtime_debugger.cc")
             .file("src/engine/hermes_runtime_ios.cc")
+            .file("src/engine/hermes_runtime_android.cc")
             .file("src/engine/hermes_runtime_osinfo.cc")
             .file("src/engine/hermes_runtime_process_setup.cc")
             .flag_if_supported("-stdlib=libc++")
@@ -1024,6 +1027,7 @@ fn main() {
     }
 
     let jsi_header = hermes_include_dir.join("jsi").join("jsi.h");
+    let hermes_header = hermes_include_dir.join("hermes").join("hermes.h");
     let runtime_config_header = hermes_include_dir
         .join("hermes")
         .join("Public")
@@ -1039,6 +1043,9 @@ fn main() {
     }
     if file_contains_all(&runtime_config_header, &["MicrotaskQueue"]) {
         build.define("EXACT_HAVE_HERMES_MICROTASK_CONFIG", None);
+    }
+    if file_contains_all(&hermes_header, &["static bool hermesBytecodeSanityCheck"]) {
+        build.define("EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK", None);
     }
 
     // Debugger support is auto-detected on macOS so we do not compile against
@@ -1200,37 +1207,17 @@ fn main() {
     }
 
     if target_os == "android" {
-        let curl_include = std::env::var("DEP_CURL_INCLUDE").unwrap_or_else(|_| {
-            panic!(
-                "Android native networking requires curl-sys metadata, but DEP_CURL_INCLUDE was not set"
-            )
-        });
-
-        let mut fetch_build = cc::Build::new();
-        fetch_build
+        // @ref LLP 0008#android-backend-matrix — Android Fetch/WebSocket use
+        // OkHttp through JNI, not vendored libcurl.
+        let mut networking_build = cc::Build::new();
+        networking_build
             .cpp(true)
-            .file("src/engine/native_fetch_linux.cc")
-            .include(&curl_include)
-            .define("EXACT_HAS_CURL", None)
-            .define("CURL_STATICLIB", None)
+            .file("src/engine/native_android_networking.cc")
             .std("c++17")
             .flag_if_supported("-fPIC")
             .flag_if_supported("-fexceptions")
             .flag_if_supported("-frtti");
-        fetch_build.compile("exact_native_fetch");
-
-        let mut ws_build = cc::Build::new();
-        ws_build
-            .cpp(true)
-            .file("src/engine/native_websocket_linux.cc")
-            .include(&curl_include)
-            .define("EXACT_HAS_CURL", None)
-            .define("CURL_STATICLIB", None)
-            .std("c++17")
-            .flag_if_supported("-fPIC")
-            .flag_if_supported("-fexceptions")
-            .flag_if_supported("-frtti");
-        ws_build.compile("exact_native_websocket");
+        networking_build.compile("exact_native_android_networking");
 
         println!(
             "cargo:rustc-link-search=native={}",
