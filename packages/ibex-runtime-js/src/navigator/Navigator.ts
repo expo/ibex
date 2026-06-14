@@ -71,6 +71,48 @@ function approximateDeviceMemory(totalBytes: number | null): number {
   return selected;
 }
 
+function readOnlineStatus(): boolean {
+  const g = globalThis as any;
+  if (typeof g.__exactGetOnlineStatus === 'function') {
+    try {
+      return g.__exactGetOnlineStatus() !== false;
+    } catch {
+      return true;
+    }
+  }
+  if (typeof g.__exactGetNetworkInterfaces !== 'function') {
+    return true;
+  }
+  try {
+    const interfaces = g.__exactGetNetworkInterfaces();
+    if (!interfaces || typeof interfaces !== 'object') {
+      return true;
+    }
+    for (const entries of Object.values(interfaces)) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        if (hasUsableNetworkAddress(entry)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function hasUsableNetworkAddress(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object') return false;
+  const record = entry as { address?: unknown; internal?: unknown };
+  if (record.internal === true || typeof record.address !== 'string') {
+    return false;
+  }
+  return record.address.length > 0 &&
+    record.address !== '0.0.0.0' &&
+    record.address !== '::';
+}
+
 /**
  * Navigator provides information about the runtime environment.
  */
@@ -185,11 +227,10 @@ export class Navigator {
 
   /**
    * Whether the device is online.
-   * Note: Requires native bridge for accurate status.
    */
   get onLine(): boolean {
-    // Default to true - native bridge should update this
-    return true;
+    // @ref LLP 0008#os-info - Android navigator online status uses native network interface data.
+    return readOnlineStatus();
   }
 
   /**
