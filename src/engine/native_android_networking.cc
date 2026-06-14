@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -46,6 +47,7 @@ typedef void (*NativeWsBytesSentCallback)(uint32_t ws_id, size_t bytes_sent, voi
 extern "C" void native_ws_retain_context(void* context);
 extern "C" void native_ws_release_context(void* context);
 extern "C" void android_platform_event_available(void);
+extern "C" void android_animation_frame_callback(uint64_t token, int64_t frame_time_nanos);
 
 struct AndroidScreenInfo {
   double width = 0.0;
@@ -133,6 +135,7 @@ struct AndroidNetworkingMethods {
   jmethodID drain_platform_events = nullptr;
   jmethodID camera_host_call = nullptr;
   jmethodID dialog = nullptr;
+  jmethodID post_animation_frame = nullptr;
 };
 
 std::mutex g_jni_mutex;
@@ -165,6 +168,7 @@ jmethodID g_storage_paths = nullptr;
 jmethodID g_drain_platform_events = nullptr;
 jmethodID g_camera_host_call = nullptr;
 jmethodID g_dialog = nullptr;
+jmethodID g_post_animation_frame = nullptr;
 
 std::mutex g_fetch_mutex;
 std::unordered_map<uint32_t, AndroidFetchRequest> g_fetch_requests;
@@ -764,6 +768,12 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
     env->ExceptionClear();
     g_dialog = nullptr;
   }
+  g_post_animation_frame =
+      env->GetStaticMethodID(cls, "postAnimationFrame", "(J)Z");
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+    g_post_animation_frame = nullptr;
+  }
 
   if (clear_pending_exception(env, "cache IbexNetworking methods") ||
       !g_initialize ||
@@ -831,6 +841,7 @@ bool get_networking_methods(JNIEnv* env, AndroidNetworkingMethods* out) {
   out->drain_platform_events = g_drain_platform_events;
   out->camera_host_call = g_camera_host_call;
   out->dialog = g_dialog;
+  out->post_animation_frame = g_post_animation_frame;
   return out->cls != nullptr;
 }
 
@@ -997,6 +1008,13 @@ void call_android_ws_flow_control(uint32_t ws_id, bool enabled) {
 }
 
 } // namespace
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_ibex_runtime_IbexNetworking_nativeAnimationFrame(
+    JNIEnv*, jclass, jlong token, jlong frame_time_nanos) {
+  android_animation_frame_callback(
+      static_cast<uint64_t>(token), static_cast<int64_t>(frame_time_nanos));
+}
 
 extern "C" int ex_android_initialize(void* java_vm, void* application_context) {
   if (!java_vm) {
@@ -2058,6 +2076,39 @@ extern "C" int android_dialog_show(
   }
   *out_result = copy;
   return 1;
+}
+
+extern "C" int android_post_animation_frame(
+    uint64_t token, char* error, size_t error_capacity) {
+  auto write_error = [&](const char* message) {
+    if (error && error_capacity > 0) {
+      const char* text = message ? message : "Android animation frame bridge failed";
+      std::snprintf(error, error_capacity, "%s", text);
+    }
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods) || !methods.post_animation_frame) {
+    if (env && methods.cls) {
+      env->DeleteLocalRef(methods.cls);
+    }
+    write_error("Android animation frame bridge is not initialized");
+    return 0;
+  }
+
+  jboolean posted = env->CallStaticBooleanMethod(
+      methods.cls, methods.post_animation_frame, static_cast<jlong>(token));
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android animation frame host failed");
+    return 0;
+  }
+  env->DeleteLocalRef(methods.cls);
+  return posted == JNI_TRUE ? 1 : 0;
 }
 
 extern "C" void native_fetch_perform(

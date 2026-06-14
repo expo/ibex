@@ -9,7 +9,7 @@
  */
 
 // ---- Essential imports (always needed at startup) ----
-import { setNativeCryptoModule, setNativeFileSystemModule, setNativeStorageModule, setNativeWebSocketModule } from "./native";
+import { setNativeCryptoModule, setNativeFileSystemModule, setNativeSchedulingModule, setNativeStorageModule, setNativeWebSocketModule } from "./native";
 import { setNativeCapabilityModule, enableStrictMode } from "./security";
 
 // ---- Lazy-loaded module imports ----
@@ -1252,6 +1252,23 @@ export function installGlobals(): void {
   } else {
     defineLazyGlobal(g, 'localStorage', () => localStorage);
     defineLazyGlobal(g, 'sessionStorage', () => sessionStorage);
+  }
+
+  // ========================================
+  // Scheduling bridge
+  // ========================================
+  if (typeof g.__exactRequestAnimationFrame === 'function') {
+    setNativeSchedulingModule({
+      requestAnimationFrame(callback: () => void): void {
+        try {
+          const scheduled = g.__exactRequestAnimationFrame(callback);
+          if (scheduled !== false) {
+            return;
+          }
+        } catch (_) {}
+        setTimeout(callback, 16);
+      },
+    });
   }
 
   // ========================================

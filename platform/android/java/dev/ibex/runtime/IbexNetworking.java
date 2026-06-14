@@ -26,6 +26,7 @@ import android.net.DnsResolver;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.LocaleList;
@@ -35,6 +36,7 @@ import android.util.DisplayMetrics;
 import android.util.Range;
 import android.util.Size;
 import android.util.Log;
+import android.view.Choreographer;
 import android.view.accessibility.AccessibilityManager;
 import android.widget.EditText;
 import java.io.File;
@@ -199,6 +201,36 @@ public final class IbexNetworking {
       filePath(codeCacheDir),
       filePath(externalFilesDir)
     };
+  }
+
+  public static boolean postAnimationFrame(final long token) {
+    try {
+      Looper mainLooper = Looper.getMainLooper();
+      if (mainLooper == null) {
+        return false;
+      }
+      Runnable postFrame = new Runnable() {
+        @Override
+        public void run() {
+          Choreographer.getInstance().postFrameCallback(
+              new Choreographer.FrameCallback() {
+                @Override
+                public void doFrame(long frameTimeNanos) {
+                  nativeAnimationFrame(token, frameTimeNanos);
+                }
+              });
+        }
+      };
+      if (Looper.myLooper() == mainLooper) {
+        postFrame.run();
+      } else {
+        new Handler(mainLooper).post(postFrame);
+      }
+      return true;
+    } catch (Throwable t) {
+      Log.w(TAG, "Failed to post animation frame", t);
+      return false;
+    }
   }
 
   public static String drainPlatformEvents() {
@@ -2014,4 +2046,6 @@ public final class IbexNetworking {
   private static native void nativeWebSocketDidBytesSent(int wsId, long bytesSent);
 
   private static native void nativePlatformEventAvailable();
+
+  private static native void nativeAnimationFrame(long token, long frameTimeNanos);
 }
