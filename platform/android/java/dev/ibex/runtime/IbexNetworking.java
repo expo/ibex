@@ -11,6 +11,12 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.ImageFormat;
+import android.graphics.SurfaceTexture;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -23,13 +29,18 @@ import android.os.LocaleList;
 import android.provider.Settings;
 import android.text.format.DateFormat;
 import android.util.DisplayMetrics;
+import android.util.Range;
+import android.util.Size;
 import android.util.Log;
 import android.view.accessibility.AccessibilityManager;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -64,6 +75,8 @@ import okio.ByteString;
 public final class IbexNetworking {
   private static final String TAG = "IbexNetworking";
   private static final byte[] EMPTY_BYTES = new byte[0];
+  private static final int CAMERA_PERMISSION_REQUEST_CODE = 0x1b3a;
+  private static final int MICROPHONE_PERMISSION_REQUEST_CODE = 0x1b3b;
   private static final Executor DIRECT_EXECUTOR = new Executor() {
     @Override
     public void execute(Runnable command) {
@@ -81,6 +94,8 @@ public final class IbexNetworking {
   private static int manualStartedActivityCount;
   private static volatile String currentAppState = "unknown";
   private static volatile String initialUrl;
+  private static volatile WeakReference<Activity> currentActivity =
+      new WeakReference<Activity>(null);
 
   private static final Map<Integer, Call> calls = new ConcurrentHashMap<>();
   private static final Map<Integer, WsEntry> webSockets = new ConcurrentHashMap<>();
@@ -171,6 +186,7 @@ public final class IbexNetworking {
     synchronized (IbexNetworking.class) {
       if (activity != null) {
         startedActivities.add(activity);
+        currentActivity = new WeakReference<Activity>(activity);
       } else if (startedActivityCountLocked() <= 0) {
         manualStartedActivityCount = 1;
       }
@@ -179,6 +195,10 @@ public final class IbexNetworking {
   }
 
   public static void notifyActivityPaused(Activity activity) {
+    Activity current = currentActivity.get();
+    if (activity != null && current == activity) {
+      currentActivity = new WeakReference<Activity>(null);
+    }
     if (activity == null) {
       updateBackgroundIfIdle();
     }
@@ -204,6 +224,10 @@ public final class IbexNetworking {
     boolean removed;
     synchronized (IbexNetworking.class) {
       removed = startedActivities.remove(activity);
+      Activity current = currentActivity.get();
+      if (current == activity) {
+        currentActivity = new WeakReference<Activity>(null);
+      }
     }
     if (removed) {
       updateBackgroundIfIdle();
@@ -222,6 +246,26 @@ public final class IbexNetworking {
       initialUrl = url;
     }
     enqueuePlatformEvent("{\"type\":\"url\",\"url\":" + jsonString(url) + "}");
+  }
+
+  public static String cameraHostCall(String operation, String payloadJson) {
+    // @ref LLP 0008#android-backend-matrix — CameraManager supplies Android
+    // camera inventory/permission metadata while CameraX remains the target
+    // provider for app-facing preview and capture sessions.
+    if ("camera.permission.get".equals(operation)) {
+      return cameraPermissionJson(cameraPermissionNameFromPayload(payloadJson), false);
+    }
+    if ("camera.permission.request".equals(operation)) {
+      return cameraPermissionJson(cameraPermissionNameFromPayload(payloadJson), true);
+    }
+    if ("camera.devices.list".equals(operation)) {
+      return cameraDevicesJson();
+    }
+    if ("camera.sessionCapabilities.get".equals(operation)) {
+      return cameraSessionCapabilitiesJson();
+    }
+    throw new IllegalArgumentException(
+        "Unsupported Android camera host operation: " + valueOrEmpty(operation));
   }
 
   public static String[] localeTags() {
@@ -785,6 +829,500 @@ public final class IbexNetworking {
     } catch (UnsatisfiedLinkError ignored) {
       // Java-only test harnesses can still drain the queued events directly.
     }
+  }
+
+  private static String cameraPermissionNameFromPayload(String payloadJson) {
+    String payload = payloadJson == null ? "" : payloadJson.toLowerCase(Locale.US);
+    return payload.contains("microphone") ? "microphone" : "camera";
+  }
+
+  private static String androidPermissionForCameraName(String name) {
+    return "microphone".equals(name) ? Manifest.permission.RECORD_AUDIO : Manifest.permission.CAMERA;
+  }
+
+  private static boolean contextUidMatches(Context context) {
+    if (context == null) {
+      return false;
+    }
+    try {
+      return context.getApplicationInfo() != null
+          && context.getApplicationInfo().uid == android.os.Process.myUid();
+    } catch (RuntimeException ignored) {
+      return false;
+    }
+  }
+
+  private static boolean hasSystemFeature(String feature) {
+    Context context = applicationContext;
+    return context != null
+        && context.getPackageManager() != null
+        && context.getPackageManager().hasSystemFeature(feature);
+  }
+
+  private static boolean requestAndroidPermission(String permission, int requestCode) {
+    final Activity activity = currentActivity.get();
+    if (activity == null) {
+      return false;
+    }
+    try {
+      activity.runOnUiThread(new Runnable() {
+        @Override
+        public void run() {
+          try {
+            activity.requestPermissions(new String[] { permission }, requestCode);
+          } catch (RuntimeException ignored) {
+            // The synchronous host-call result still reports prompt/denied.
+          }
+        }
+      });
+      return true;
+    } catch (RuntimeException ignored) {
+      return false;
+    }
+  }
+
+  private static String cameraPermissionJson(String name, boolean request) {
+    String normalizedName = "microphone".equals(name) ? "microphone" : "camera";
+    String permission = androidPermissionForCameraName(normalizedName);
+    String settingsUrl = "app-settings:" + normalizedName;
+    Context context = applicationContext;
+    String state = "unavailable";
+    boolean canRequestAgain = false;
+    String reason = null;
+    boolean requested = false;
+
+    if (context == null) {
+      reason = "context_unavailable";
+    } else if (!contextUidMatches(context)) {
+      state = "denied";
+      reason = "context_uid_mismatch";
+    } else if ("camera".equals(normalizedName)
+        && !hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+      reason = "camera_unavailable";
+    } else if ("microphone".equals(normalizedName)
+        && !hasSystemFeature(PackageManager.FEATURE_MICROPHONE)) {
+      reason = "microphone_unavailable";
+    } else if (context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+      state = "granted";
+    } else {
+      state = "prompt";
+      canRequestAgain = true;
+      if (request) {
+        requested = requestAndroidPermission(
+            permission,
+            "microphone".equals(normalizedName)
+                ? MICROPHONE_PERMISSION_REQUEST_CODE
+                : CAMERA_PERMISSION_REQUEST_CODE);
+        if (!requested && currentActivity.get() == null) {
+          reason = "activity_required_to_request";
+        }
+      }
+    }
+
+    StringBuilder builder = new StringBuilder();
+    builder.append("{\"state\":").append(jsonString(state));
+    builder.append(",\"canRequestAgain\":").append(canRequestAgain);
+    builder.append(",\"settingsUrl\":").append(jsonString(settingsUrl));
+    builder.append(",\"platformDetail\":{");
+    builder.append("\"backend\":\"android-framework\"");
+    builder.append(",\"permission\":").append(jsonString(permission));
+    builder.append(",\"requestAttempted\":").append(request);
+    builder.append(",\"requestDispatched\":").append(requested);
+    if (reason != null) {
+      builder.append(",\"reason\":").append(jsonString(reason));
+    }
+    builder.append("}}");
+    return builder.toString();
+  }
+
+  private static CameraManager cameraManager() {
+    Context context = applicationContext;
+    return context == null
+        ? null
+        : (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+  }
+
+  private static String cameraDevicesJson() {
+    CameraManager manager = cameraManager();
+    if (manager == null) {
+      return "{\"devices\":[]}";
+    }
+    StringBuilder builder = new StringBuilder();
+    builder.append("{\"devices\":[");
+    try {
+      String[] ids = manager.getCameraIdList();
+      for (int i = 0; i < ids.length; i++) {
+        if (i > 0) {
+          builder.append(',');
+        }
+        try {
+          CameraCharacteristics characteristics = manager.getCameraCharacteristics(ids[i]);
+          appendCameraDeviceJson(builder, ids[i], characteristics);
+        } catch (CameraAccessException | RuntimeException ignored) {
+          appendFallbackCameraDeviceJson(builder, ids[i]);
+        }
+      }
+    } catch (CameraAccessException | RuntimeException ignored) {
+      return "{\"devices\":[]}";
+    }
+    builder.append("]}");
+    return builder.toString();
+  }
+
+  private static void appendFallbackCameraDeviceJson(StringBuilder builder, String id) {
+    builder.append('{');
+    builder.append("\"id\":").append(jsonString(id));
+    builder.append(",\"position\":\"external\"");
+    builder.append(",\"name\":").append(jsonString("Camera " + id));
+    builder.append(",\"isVirtual\":false");
+    builder.append(",\"lenses\":[]");
+    builder.append(",\"minZoom\":1");
+    builder.append(",\"maxZoom\":1");
+    builder.append(",\"formats\":[]");
+    builder.append(",\"capabilities\":{");
+    builder.append("\"flash\":false");
+    builder.append(",\"torch\":false");
+    builder.append(",\"depth\":false");
+    builder.append(",\"lidar\":false");
+    builder.append(",\"hdr\":false");
+    builder.append(",\"lowLight\":false");
+    builder.append(",\"manualFocus\":false");
+    builder.append(",\"manualExposure\":false");
+    builder.append(",\"manualWhiteBalance\":false");
+    builder.append(",\"rawCapture\":false");
+    builder.append(",\"processingControl\":false");
+    builder.append(",\"multiCamera\":false");
+    builder.append(",\"retroactiveRecording\":false");
+    builder.append("}}");
+  }
+
+  private static void appendCameraDeviceJson(
+      StringBuilder builder,
+      String id,
+      CameraCharacteristics characteristics) {
+    String position = cameraPosition(characteristics);
+    boolean flash = cameraFlashAvailable(characteristics);
+    boolean raw = hasCameraCapability(
+        characteristics,
+        CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW);
+    boolean depth = hasCameraCapability(
+        characteristics,
+        CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT);
+    boolean manualSensor = hasCameraCapability(
+        characteristics,
+        CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR);
+    boolean logicalMultiCamera = Build.VERSION.SDK_INT >= 28
+        && hasCameraCapability(
+            characteristics,
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA);
+
+    builder.append('{');
+    builder.append("\"id\":").append(jsonString(id));
+    builder.append(",\"position\":").append(jsonString(position));
+    builder.append(",\"name\":").append(jsonString(cameraDisplayName(position, id)));
+    builder.append(",\"isVirtual\":false");
+    builder.append(",\"lenses\":");
+    appendCameraLensesJson(builder, characteristics);
+    builder.append(",\"minZoom\":1");
+    builder.append(",\"maxZoom\":").append(cameraMaxZoom(characteristics));
+    builder.append(",\"formats\":");
+    appendCameraFormatsJson(builder, characteristics);
+    builder.append(",\"capabilities\":{");
+    builder.append("\"flash\":").append(flash);
+    builder.append(",\"torch\":").append(flash);
+    builder.append(",\"depth\":").append(depth);
+    builder.append(",\"lidar\":false");
+    builder.append(",\"hdr\":").append(cameraSupportsHdr(characteristics));
+    builder.append(",\"lowLight\":").append(cameraSupportsLowLight(characteristics));
+    builder.append(",\"manualFocus\":").append(cameraSupportsManualFocus(characteristics));
+    builder.append(",\"manualExposure\":").append(manualSensor);
+    builder.append(",\"manualWhiteBalance\":").append(cameraSupportsManualWhiteBalance(characteristics));
+    builder.append(",\"rawCapture\":").append(raw);
+    builder.append(",\"processingControl\":").append(manualSensor);
+    builder.append(",\"multiCamera\":").append(logicalMultiCamera);
+    builder.append(",\"retroactiveRecording\":false");
+    builder.append("}}");
+  }
+
+  private static String cameraPosition(CameraCharacteristics characteristics) {
+    Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+    if (facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT) {
+      return "front";
+    }
+    if (facing != null && facing == CameraCharacteristics.LENS_FACING_BACK) {
+      return "back";
+    }
+    return "external";
+  }
+
+  private static String cameraDisplayName(String position, String id) {
+    if ("front".equals(position)) {
+      return "Front Camera " + id;
+    }
+    if ("back".equals(position)) {
+      return "Back Camera " + id;
+    }
+    return "External Camera " + id;
+  }
+
+  private static boolean hasCameraCapability(
+      CameraCharacteristics characteristics,
+      int capability) {
+    int[] capabilities =
+        characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+    if (capabilities == null) {
+      return false;
+    }
+    for (int candidate : capabilities) {
+      if (candidate == capability) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean cameraFlashAvailable(CameraCharacteristics characteristics) {
+    Boolean flash = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+    return flash != null && flash.booleanValue();
+  }
+
+  private static float cameraMaxZoom(CameraCharacteristics characteristics) {
+    Float zoom = characteristics.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM);
+    return zoom == null || zoom.floatValue() < 1.0f ? 1.0f : zoom.floatValue();
+  }
+
+  private static void appendCameraLensesJson(
+      StringBuilder builder,
+      CameraCharacteristics characteristics) {
+    float[] focalLengths = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+    float[] apertures = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES);
+    Float minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+    builder.append('[');
+    if (focalLengths != null) {
+      for (int i = 0; i < focalLengths.length; i++) {
+        if (i > 0) {
+          builder.append(',');
+        }
+        float focalLength = focalLengths[i];
+        float aperture = apertures != null && apertures.length > i ? apertures[i] : 0.0f;
+        builder.append('{');
+        builder.append("\"type\":").append(jsonString(lensType(focalLength)));
+        builder.append(",\"focalLength\":").append(focalLength);
+        builder.append(",\"aperture\":").append(aperture);
+        builder.append(",\"minFocusDistance\":")
+            .append(minFocusDistance == null ? 0.0f : minFocusDistance.floatValue());
+        builder.append('}');
+      }
+    }
+    builder.append(']');
+  }
+
+  private static String lensType(float focalLength) {
+    if (focalLength > 5.0f) {
+      return "telephoto";
+    }
+    if (focalLength > 0.0f && focalLength < 2.5f) {
+      return "ultrawide";
+    }
+    return "wide";
+  }
+
+  private static void appendCameraFormatsJson(
+      StringBuilder builder,
+      CameraCharacteristics characteristics) {
+    StreamConfigurationMap map =
+        characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+    if (map == null) {
+      builder.append("[]");
+      return;
+    }
+    Size[] photoSizes = sortedSizes(map.getOutputSizes(ImageFormat.JPEG));
+    Size[] videoSizes = sortedSizes(map.getOutputSizes(SurfaceTexture.class));
+    int count = Math.min(8, Math.max(photoSizes.length, videoSizes.length));
+    builder.append('[');
+    for (int i = 0; i < count; i++) {
+      Size photo = photoSizes.length > 0 ? photoSizes[Math.min(i, photoSizes.length - 1)] : null;
+      Size video = videoSizes.length > 0
+          ? (photo == null ? videoSizes[Math.min(i, videoSizes.length - 1)] : closestSize(videoSizes, photo))
+          : photo;
+      if (photo == null && video == null) {
+        continue;
+      }
+      if (i > 0) {
+        builder.append(',');
+      }
+      Size resolvedPhoto = photo == null ? video : photo;
+      Size resolvedVideo = video == null ? resolvedPhoto : video;
+      Range<Integer> fps = bestFpsRange(characteristics);
+      builder.append('{');
+      builder.append("\"photoWidth\":").append(resolvedPhoto.getWidth());
+      builder.append(",\"photoHeight\":").append(resolvedPhoto.getHeight());
+      builder.append(",\"videoWidth\":").append(resolvedVideo.getWidth());
+      builder.append(",\"videoHeight\":").append(resolvedVideo.getHeight());
+      builder.append(",\"minFps\":").append(fps == null ? 15 : fps.getLower().intValue());
+      builder.append(",\"maxFps\":").append(fps == null ? 30 : fps.getUpper().intValue());
+      builder.append(",\"supportsHdr\":").append(cameraSupportsHdr(characteristics));
+      builder.append(",\"supportsDepth\":").append(hasCameraCapability(
+          characteristics,
+          CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT));
+      builder.append(",\"pixelFormat\":\"yuv420\"");
+      builder.append(",\"videoStabilization\":");
+      appendVideoStabilizationJson(builder, characteristics);
+      builder.append('}');
+    }
+    builder.append(']');
+  }
+
+  private static Size[] sortedSizes(Size[] sizes) {
+    if (sizes == null || sizes.length == 0) {
+      return new Size[0];
+    }
+    Size[] copy = sizes.clone();
+    Arrays.sort(copy, new Comparator<Size>() {
+      @Override
+      public int compare(Size left, Size right) {
+        long leftArea = (long) left.getWidth() * (long) left.getHeight();
+        long rightArea = (long) right.getWidth() * (long) right.getHeight();
+        return Long.compare(rightArea, leftArea);
+      }
+    });
+    return copy;
+  }
+
+  private static Size closestSize(Size[] sizes, Size target) {
+    Size best = sizes[0];
+    long bestScore = Long.MAX_VALUE;
+    long targetArea = (long) target.getWidth() * (long) target.getHeight();
+    for (Size size : sizes) {
+      long area = (long) size.getWidth() * (long) size.getHeight();
+      long score = Math.abs(area - targetArea);
+      if (score < bestScore) {
+        bestScore = score;
+        best = size;
+      }
+    }
+    return best;
+  }
+
+  private static Range<Integer> bestFpsRange(CameraCharacteristics characteristics) {
+    Range<Integer>[] ranges =
+        characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+    if (ranges == null || ranges.length == 0) {
+      return null;
+    }
+    Range<Integer> best = ranges[0];
+    for (Range<Integer> range : ranges) {
+      if (range.getUpper().intValue() > best.getUpper().intValue()) {
+        best = range;
+      }
+    }
+    return best;
+  }
+
+  private static boolean cameraSupportsHdr(CameraCharacteristics characteristics) {
+    int[] sceneModes = characteristics.get(CameraCharacteristics.CONTROL_AVAILABLE_SCENE_MODES);
+    if (sceneModes == null) {
+      return false;
+    }
+    for (int mode : sceneModes) {
+      if (mode == CameraCharacteristics.CONTROL_SCENE_MODE_HDR) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean cameraSupportsLowLight(CameraCharacteristics characteristics) {
+    int[] sceneModes = characteristics.get(CameraCharacteristics.CONTROL_AVAILABLE_SCENE_MODES);
+    if (sceneModes == null) {
+      return false;
+    }
+    for (int mode : sceneModes) {
+      if (mode == CameraCharacteristics.CONTROL_SCENE_MODE_NIGHT) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean cameraSupportsManualFocus(CameraCharacteristics characteristics) {
+    Float minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+    return minFocusDistance != null && minFocusDistance.floatValue() > 0.0f;
+  }
+
+  private static boolean cameraSupportsManualWhiteBalance(CameraCharacteristics characteristics) {
+    int[] modes = characteristics.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES);
+    return modes != null && modes.length > 1;
+  }
+
+  private static void appendVideoStabilizationJson(
+      StringBuilder builder,
+      CameraCharacteristics characteristics) {
+    builder.append("[\"off\"");
+    int[] modes = characteristics.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES);
+    if (modes != null) {
+      for (int mode : modes) {
+        if (mode == CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON) {
+          builder.append(",\"standard\"");
+          break;
+        }
+      }
+    }
+    builder.append(",\"auto\"]");
+  }
+
+  private static String cameraSessionCapabilitiesJson() {
+    CameraManager manager = cameraManager();
+    if (manager == null) {
+      return "{\"maxSimultaneousSessions\":1,\"simultaneousDevices\":[],"
+          + "\"estimatedMemoryBudgetMB\":256,\"capture\":{\"photo\":false,"
+          + "\"snapshot\":false,\"video\":false}}";
+    }
+    StringBuilder builder = new StringBuilder();
+    int cameraCount = 0;
+    try {
+      cameraCount = manager.getCameraIdList().length;
+    } catch (CameraAccessException | RuntimeException ignored) {
+      cameraCount = 0;
+    }
+
+    StringBuilder concurrentGroups = new StringBuilder();
+    boolean hasConcurrentGroup = false;
+    if (Build.VERSION.SDK_INT >= 30) {
+      try {
+        int index = 0;
+        for (Set<String> group : manager.getConcurrentCameraIds()) {
+          if (group.size() < 2) {
+            continue;
+          }
+          hasConcurrentGroup = true;
+          if (index++ > 0) {
+            concurrentGroups.append(',');
+          }
+          concurrentGroups.append("{\"deviceIds\":[");
+          int idIndex = 0;
+          for (String id : group) {
+            if (idIndex++ > 0) {
+              concurrentGroups.append(',');
+            }
+            concurrentGroups.append(jsonString(id));
+          }
+          concurrentGroups.append("],\"perDeviceConstraints\":null}");
+        }
+      } catch (CameraAccessException | RuntimeException ignored) {
+        // Concurrent-camera metadata is optional; single-session still works.
+      }
+    }
+    builder.append("{\"maxSimultaneousSessions\":");
+    builder.append(hasConcurrentGroup ? 2 : 1);
+    builder.append(",\"simultaneousDevices\":[");
+    builder.append(concurrentGroups);
+    builder.append("],\"estimatedMemoryBudgetMB\":256,\"capture\":{");
+    builder.append("\"photo\":").append(cameraCount > 0);
+    builder.append(",\"snapshot\":").append(cameraCount > 0);
+    builder.append(",\"video\":").append(cameraCount > 0);
+    builder.append("}}");
+    return builder.toString();
   }
 
   private static Resources currentResources() {
