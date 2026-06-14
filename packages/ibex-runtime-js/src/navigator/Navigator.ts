@@ -12,6 +12,65 @@ import { StorageManager } from '../storage/StorageManager';
 import { getGeolocation } from '../location';
 import { getExactLocaleSnapshot } from '../locale';
 
+function runtimePlatform(): string {
+  const g = globalThis as any;
+  if (typeof g.__exactPlatform === 'string' && g.__exactPlatform.length > 0) {
+    return g.__exactPlatform.toLowerCase();
+  }
+  if (
+    g.process &&
+    typeof g.process.platform === 'string' &&
+    g.process.platform.length > 0
+  ) {
+    return g.process.platform.toLowerCase();
+  }
+  return 'ios';
+}
+
+function platformLabelForNavigator(): string {
+  const p = runtimePlatform();
+  if (p === 'android') return 'Android';
+  if (p === 'web' || p === 'browser') return 'MacIntel';
+  if (p === 'macos' || p === 'mac' || p === 'darwin') return 'MacIntel';
+  if (p === 'windows' || p === 'win32') return 'Win32';
+  if (p === 'linux') return 'Linux x86_64';
+  return 'iPhone';
+}
+
+function platformLabelForAppVersion(): string {
+  const p = runtimePlatform();
+  if (p === 'android') return 'Android';
+  if (p === 'web' || p === 'browser') return 'Macintosh';
+  if (p === 'macos' || p === 'mac' || p === 'darwin') return 'Macintosh';
+  if (p === 'windows' || p === 'win32') return 'Windows';
+  if (p === 'linux') return 'Linux';
+  return 'iOS';
+}
+
+function callNumericHostFunction(name: string): number | null {
+  const fn = (globalThis as any)[name];
+  if (typeof fn !== 'function') return null;
+  try {
+    const value = Number(fn());
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function approximateDeviceMemory(totalBytes: number | null): number {
+  if (totalBytes == null) return 4;
+  const gib = totalBytes / (1024 * 1024 * 1024);
+  const buckets = [0.25, 0.5, 1, 2, 4, 8];
+  let selected = buckets[0];
+  for (const bucket of buckets) {
+    if (gib >= bucket) {
+      selected = bucket;
+    }
+  }
+  return selected;
+}
+
 /**
  * Navigator provides information about the runtime environment.
  */
@@ -76,7 +135,7 @@ export class Navigator {
    * App version string.
    */
   get appVersion(): string {
-    return `5.0 (iOS)`;
+    return `5.0 (${platformLabelForAppVersion()})`;
   }
 
   /**
@@ -84,18 +143,7 @@ export class Navigator {
    * Returns "iPhone", "Android", "MacIntel", etc. depending on the runtime platform.
    */
   get platform(): string {
-    const g = globalThis as any;
-    if (typeof g.__exactPlatform === 'string') {
-      const p = g.__exactPlatform.toLowerCase();
-      if (p === 'android') return 'Android';
-      if (p === 'web' || p === 'browser') return 'MacIntel';
-      if (p === 'macos' || p === 'mac') return 'MacIntel';
-      if (p === 'windows' || p === 'win32') return 'Win32';
-      if (p === 'linux') return 'Linux x86_64';
-      // iOS devices
-      return 'iPhone';
-    }
-    return 'iPhone';
+    return platformLabelForNavigator();
   }
 
   /**
@@ -148,9 +196,9 @@ export class Navigator {
    * Number of logical processors available.
    */
   get hardwareConcurrency(): number {
-    // Mobile devices typically have 4-8 cores
-    // Could be enhanced with native bridge for actual value
-    return 4;
+    // @ref LLP 0008#os-info - Android navigator device hints use native sysconf/sysinfo values.
+    const nativeCount = callNumericHostFunction('__exactGetCpuCount');
+    return nativeCount == null ? 4 : Math.max(1, Math.floor(nativeCount));
   }
 
   /**
@@ -181,8 +229,8 @@ export class Navigator {
    * Note: This is a hint, not exact value.
    */
   get deviceMemory(): number {
-    // Conservative estimate for mobile devices
-    return 4;
+    // @ref LLP 0008#os-info - Android navigator device hints use native sysconf/sysinfo values.
+    return approximateDeviceMemory(callNumericHostFunction('__exactGetTotalMem'));
   }
 
   /**
