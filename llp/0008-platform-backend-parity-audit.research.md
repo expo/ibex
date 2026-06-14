@@ -61,7 +61,7 @@ better app-runtime integration point. The June 2026 Android backend target is:
 | Timers / event loop | Runtime timer queue driven by the host event loop; Android hosts should wake/poll from their Looper/Choreographer integration. | Engine-host facility. | Keep runtime timers; verify timeout/interval/immediate, cancellation, ref/unref, and host wake callback on Android. |
 | HTTP server | Rust/hyper localhost server behind `host-http-server`; Android can run loopback servers when the embedding app opts in. | Feature-gated host backend or stubs. | Keep opt-in host server; verify listen, request body, response streaming, close, and Android app-network policy interactions. |
 | Child process / IPC / signals | Android app sandboxes do not provide desktop Node child-process semantics. Best behavior is capability-gated POSIX where available and explicit unsupported errors where Android forbids it. | Android now installs child-process host functions that report `ERR_FEATURE_UNAVAILABLE_ON_PLATFORM` for spawn/exec/IPC instead of attempting desktop POSIX `fork`/`exec`/`popen` semantics in app sandboxes. POSIX process code remains for non-Android Unix targets. | Verify Android child-process, IPC, and signal surfaces produce honest unsupported or permission-denied behavior without fabricating process success. |
-| OS info / process metadata | Bionic/sysconf/sysinfo/getifaddrs plus Android-specific values where exposed by the host. | POSIX plus Android Java/JNI globals for SDK version, locale tags, 24-hour preference, screen metrics, font scale, appearance, and accessibility snapshot. `os.type()` now reports Android, and `os.release()`/`os.version()` use the Java host SDK version when present. | Verify `os`, `process`, `navigator`, `Dimensions`, `Appearance`, locale, and accessibility values on Android. |
+| OS info / process metadata | Bionic/sysconf/sysinfo/getifaddrs plus Android-specific values where exposed by the host. | POSIX plus Android Java/JNI globals for SDK version, locale tags, 24-hour preference, screen metrics, font scale, appearance, and accessibility snapshot. `os.type()` now reports Android, `os.release()`/`os.version()` use the Java host SDK version when present, and capability/permission diagnostics consume the same Android platform hints. | Verify `os`, `process`, `navigator`, `Dimensions`, `Appearance`, locale, and accessibility values on Android. |
 | Clipboard | Android `ClipboardManager` through an app/Java host bridge. | Android installs `__exactClipboardRead/Write` backed by the initialized app context's `ClipboardManager`; `exact:clipboard` and `navigator.clipboard` use those hooks. | Verify read/write text and permission/foreground restrictions. |
 | Location | Android framework `LocationManager` as the platform baseline; apps may adapt Google Play services above this runtime if desired. | Java/JNI bridge exposes permission status, location-services state, and current fixes through `__exactAndroidLocation`; JS `NativeLocationBackend` now uses it for `getCurrentPosition()` and a polling `watchPosition()` implementation. | Verify foreground app permissions, one-shot current fixes, permission-denied errors, timeout/errors, and watch behavior; replace polling with provider update callbacks if app-process testing shows polling is not sufficient. |
 | Camera | CameraX for app-facing camera capture; Camera2/CameraManager for framework enumeration and lower-level specialized needs. | Android installs `__exactAndroidCameraHostCall` plus module metadata so the camera JS uses native permission, device inventory, and session-capability data from the Java/JNI bridge. The JS camera factory can now create an Android native session controller when `camera.provider.get` reports an app-installed session provider, and `IbexNetworking.setCameraHostProvider()` lets an app delegate those session/capture operations to a CameraX implementation. The built-in Java helper remains metadata-only without that provider. | Add/verify a production CameraX provider for preview lifecycle, photo capture, video capture, errors, and permission callbacks; keep the current CameraManager inventory smoke as a lower-level metadata check. |
@@ -166,8 +166,10 @@ or Windows process/socket primitives provided by the platform files.
   runtime smoke on Android.
 - Android OS metadata now maps the Java host SDK version into
   `__exactPlatformVersion`, platform state, and `process.__exactOS*`, and the
-  JS `os` builtin reports Android-specific type/release/version values; this
-  still needs an Android runtime smoke.
+  JS `os` builtin reports Android-specific type/release/version values.
+  Capability/permission diagnostics now use those same hints when no native
+  capability module supplies system info; this still needs an Android runtime
+  smoke.
 - Linux full AES/asymmetric crypto still requires `openssl-crypto`; the default
   profile is intentionally reduced.
 - The degraded Linux curl CLI fallback is not a production networking backend.
@@ -205,6 +207,10 @@ must run on an Android runtime or emulator and exercise:
 - A later `bun run build:builtins` regenerated the OS builtin after mapping
   Android `os.type()`, `os.release()`, and `os.version()` to platform-native
   metadata.
+- A later Bun source smoke verified capability/permission diagnostics report
+  Android OS name and SDK version from platform-native metadata. `bun run
+  build:runtime` was run afterward and produced no generated bundle diff for
+  this exported diagnostics-only path.
 - `cargo fmt --check` passed.
 - `git diff --check` passed.
 - The Android Java helper compiled with Android API 36 plus OkHttp 5.4.0,

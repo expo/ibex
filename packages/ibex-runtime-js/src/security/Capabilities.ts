@@ -678,15 +678,67 @@ export function getCapabilitySystemInfo(): CapabilitySystemInfo {
   if (module?.getSystemInfo) {
     return module.getSystemInfo();
   }
-  
+
+  const fallback = getFallbackCapabilitySystemInfo();
+
   // Fallback for testing
   return {
     apiVersion: CAPABILITY_API_VERSION,
     knownCapabilities: Object.values(Capabilities),
-    osName: 'unknown',
-    osVersion: 'unknown',
-    runtimeVersion: 'development',
+    osName: fallback.osName,
+    osVersion: fallback.osVersion,
+    runtimeVersion: fallback.runtimeVersion,
   };
+}
+
+function getFallbackCapabilitySystemInfo(): Pick<
+  CapabilitySystemInfo,
+  'osName' | 'osVersion' | 'runtimeVersion'
+> {
+  const globalHints = globalThis as {
+    __exactPlatform?: unknown;
+    __exactPlatformVersion?: unknown;
+    process?: {
+      platform?: unknown;
+      version?: unknown;
+      __exactOSRelease?: unknown;
+      __exactOSVersion?: unknown;
+    };
+  };
+  const processHints =
+    globalHints.process && typeof globalHints.process === 'object'
+      ? globalHints.process
+      : undefined;
+  const platform = readNonEmptyString(globalHints.__exactPlatform) ??
+    readNonEmptyString(processHints?.platform);
+  const osName = normalizeCapabilityOSName(platform);
+
+  // @ref LLP 0008#os-info - Android permission diagnostics use the Java host SDK version.
+  const osVersion = osName === 'android'
+    ? readNonEmptyString(globalHints.__exactPlatformVersion) ??
+      readNonEmptyString(processHints?.__exactOSRelease) ??
+      stripAndroidVersionPrefix(readNonEmptyString(processHints?.__exactOSVersion)) ??
+      'unknown'
+    : 'unknown';
+
+  return {
+    osName,
+    osVersion,
+    runtimeVersion: readNonEmptyString(processHints?.version) ?? 'development',
+  };
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function stripAndroidVersionPrefix(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.replace(/^Android\s+/, '');
+}
+
+function normalizeCapabilityOSName(platform: string | undefined): CapabilitySystemInfo['osName'] {
+  return platform === 'android' ? 'android' : 'unknown';
 }
 
 /**
