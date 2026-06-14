@@ -66,12 +66,13 @@ crypto file `[observed]` (`src/engine/hermes_runtime_crypto.cc:23-44`); Windows
 compiles a separate BCrypt-backed file `[observed]`
 (`build.rs:729-765`; `src/engine/hermes_runtime_crypto_windows.cc:141-221`);
 Linux defines `EXACT_NO_OPENSSL` unless `openssl-crypto` is enabled
-`[observed]` (`build.rs:824-831`). The non-Windows no-OpenSSL path registers
-throwing stubs for asymmetric sign/verify/key generation `[observed]`
-(`src/engine/hermes_runtime_crypto.cc:1995-2026`), while the Windows file does
-not register those asymmetric stubs and the non-Apple hash/HMAC code still
-contains OpenSSL references outside the feature gate `[observed]`
-(`src/engine/hermes_runtime_crypto.cc:61-73, 441-458, 519-532`).
+`[observed]` (`build.rs:824-831`). The Linux default profile now stays
+OpenSSL-free and provides portable MD5/SHA-1/SHA-2 hash/HMAC, PBKDF2, scrypt,
+and HKDF while keeping AES and asymmetric/key import-export on the
+`openssl-crypto` profile `[observed]`
+(`src/engine/hermes_runtime_crypto.cc`). The Windows file still has its own
+reduced surface and does not register those asymmetric throwing stubs
+`[observed]` (`src/engine/hermes_runtime_crypto_windows.cc:141-221`).
 
 **Inferred:** `[inferred: preferring the OS-native crypto avoids shipping and
 trusting a bundled crypto library on platforms that already provide a vetted

@@ -39,7 +39,7 @@ Ibex needs Hermes headers + a prebuilt `libhermesvm`. Build them with
 # default profile
 cargo build
 
-# with real crypto (required on Linux — no platform crypto backend there)
+# full native crypto on Linux
 cargo build --features openssl-crypto
 ```
 
@@ -48,7 +48,10 @@ cargo build --features openssl-crypto
 
 ## Crypto profiles
 
-- **`openssl-crypto`** — real hashing/HMAC/sign via OpenSSL. Required on Linux.
-- **default (no OpenSSL)** — uses platform crypto on macOS/Windows; on Linux it
-  has no backend and asymmetric sign/verify register as throwing stubs (see
-  Exact LLP 0180 §5.4).
+- **`openssl-crypto`** — full native crypto on Linux via OpenSSL, including
+  hashing/HMAC, AES, PBKDF2/scrypt/HKDF, asymmetric sign/verify/key generation,
+  and key import/export. Optional on macOS.
+- **default (no OpenSSL)** — uses platform crypto on Apple/Windows. On Linux it
+  now builds without OpenSSL and provides the reduced portable surface used by
+  core runtime flows: MD5/SHA-1/SHA-2 hashing, HMAC, PBKDF2, scrypt, and HKDF.
+  Linux AES and asymmetric crypto still require `openssl-crypto`.

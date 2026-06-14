@@ -1,6 +1,7 @@
 /target
 /node_modules
 /packages/*/node_modules
+/ios/Frameworks
 /linux
 /tools/hermes
 *.o

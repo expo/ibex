@@ -141,15 +141,15 @@ Crypto is split between the non-Windows crypto shim and a Windows-specific file:
   registered, but some iOS paths throw because OpenSSL/PEM export are not
   available `[observed]` (`src/engine/hermes_runtime_crypto.cc:1445-1691`).
 - **OpenSSL profile:** when `EXACT_NO_OPENSSL` is not defined, the non-Windows
-  file compiles OpenSSL-backed asymmetric sign/verify/key-generation paths
-  `[observed]` (`src/engine/hermes_runtime_crypto.cc:1693-1993`).
+  file compiles OpenSSL-backed AES, PBKDF2/scrypt/HKDF, asymmetric
+  sign/verify/key-generation, ECDH/X25519/Ed25519, RSA-OAEP, and key
+  import/export paths `[observed]` (`src/engine/hermes_runtime_crypto.cc`).
 - **Non-Windows reduced profile:** when `EXACT_NO_OPENSSL` is defined outside
-  Apple-specific branches, the non-Windows file registers throwing stubs for
-  sign/verify/key generation `[observed]`
-  (`src/engine/hermes_runtime_crypto.cc:1995-2026`). The same file still
-  includes and calls OpenSSL for hash/HMAC/hashRaw on non-Apple platforms
-  outside that guard `[observed]`
-  (`src/engine/hermes_runtime_crypto.cc:61-73, 441-458, 519-532, 611-629`).
+  Apple-specific branches, Linux compiles without OpenSSL and keeps a reduced
+  runtime surface: portable MD5/SHA-1/SHA-2 hash/HMAC/hashRaw, PBKDF2, scrypt,
+  and HKDF, plus throwing stubs for asymmetric sign/verify/key generation
+  `[observed]` (`src/engine/hermes_runtime_crypto.cc`). AES and asymmetric key
+  import/export remain outside the reduced profile.
 - **Windows:** `build.rs` compiles `hermes_runtime_crypto_windows.cc` and
   defines `EXACT_NO_OPENSSL` `[observed]` (`build.rs:729-765`). That file
   registers Windows BCrypt-backed hash/hashRaw/HMAC functions plus stdin/signal

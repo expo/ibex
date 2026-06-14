@@ -100,7 +100,7 @@ fi
 # Download Hermes Headers (from source)
 # -----------------------------------------------------------------------------
 
-if [ -d "$FRAMEWORKS_DIR/hermes-headers/hermes" ] && [ -d "$FRAMEWORKS_DIR/hermes-headers/jsi" ]; then
+if [ -f "$FRAMEWORKS_DIR/hermes-headers/hermes/hermes.h" ] && [ -f "$FRAMEWORKS_DIR/hermes-headers/jsi/jsi.h" ]; then
     echo "[✓] hermes-headers already exists"
 else
     echo "[↓] Downloading Hermes headers..."
@@ -108,11 +108,12 @@ else
     HEADERS_DIR="$TEMP_DIR/hermes-src"
     git clone --depth 1 --branch "v${HERMES_VERSION}" https://github.com/facebook/hermes.git "$HEADERS_DIR" 2>/dev/null
 
-    mkdir -p "$FRAMEWORKS_DIR/hermes-headers"
+    rm -rf "$FRAMEWORKS_DIR/hermes-headers"
+    mkdir -p "$FRAMEWORKS_DIR/hermes-headers/jsi" "$FRAMEWORKS_DIR/hermes-headers/hermes"
 
     # Copy API headers (jsi and hermes)
-    cp -R "$HEADERS_DIR/API/jsi" "$FRAMEWORKS_DIR/hermes-headers/"
-    cp -R "$HEADERS_DIR/API/hermes" "$FRAMEWORKS_DIR/hermes-headers/"
+    cp -R "$HEADERS_DIR/API/jsi/jsi/"* "$FRAMEWORKS_DIR/hermes-headers/jsi/"
+    cp -R "$HEADERS_DIR/API/hermes/"* "$FRAMEWORKS_DIR/hermes-headers/hermes/"
 
     # Copy public headers
     cp -R "$HEADERS_DIR/public/hermes/Public" "$FRAMEWORKS_DIR/hermes-headers/hermes/"

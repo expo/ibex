@@ -59,6 +59,7 @@ extern "C" {
       const void* tagIn, size_t tagLength);
 }
 #else
+#if !defined(EXACT_NO_OPENSSL)
 #include <openssl/bn.h>
 #include <openssl/core_names.h>
 #include <openssl/ec.h>
@@ -68,6 +69,7 @@ extern "C" {
 #include <openssl/param_build.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
+#endif
 #include <zlib.h>
 #include <brotli/decode.h>
 #include <brotli/encode.h>
@@ -159,9 +161,82 @@ static std::string dataToString(CFDataRef data) {
 }
 #endif // defined(__APPLE__) && !defined(EXACT_PLATFORM_IOS)
 
-#if defined(__APPLE__) && defined(EXACT_NO_OPENSSL)
+// @ref LLP 0001#21-crypto-profile-the-axis-that-caused-the-original-break — Linux has both a reduced no-OpenSSL profile and a full OpenSSL profile.
+#if defined(EXACT_NO_OPENSSL)
 static uint32_t rotateLeft32(uint32_t value, uint32_t shift) {
   return (value << shift) | (value >> (32 - shift));
+}
+
+static uint32_t rotateRight32(uint32_t value, uint32_t shift) {
+  return (value >> shift) | (value << (32 - shift));
+}
+
+static uint64_t rotateRight64(uint64_t value, uint64_t shift) {
+  return (value >> shift) | (value << (64 - shift));
+}
+
+static std::string normalizeDigestName(std::string algorithm) {
+  std::string normalized;
+  normalized.reserve(algorithm.size());
+  for (char ch : algorithm) {
+    if (ch != '-' && ch != '_') {
+      normalized.push_back(static_cast<char>(
+          std::tolower(static_cast<unsigned char>(ch))));
+    }
+  }
+  return normalized;
+}
+
+enum class PortableDigestKind {
+  Md5,
+  Sha1,
+  Sha224,
+  Sha256,
+  Sha384,
+  Sha512,
+};
+
+struct PortableDigestSpec {
+  PortableDigestKind kind;
+  size_t block_size;
+  size_t output_size;
+};
+
+static std::optional<PortableDigestSpec> portableDigestSpecForAlgorithm(
+    const std::string& algorithm) {
+  const auto normalized = normalizeDigestName(algorithm);
+  if (normalized == "md5") {
+    return PortableDigestSpec{PortableDigestKind::Md5, 64, 16};
+  }
+  if (normalized == "sha1") {
+    return PortableDigestSpec{PortableDigestKind::Sha1, 64, 20};
+  }
+  if (normalized == "sha224") {
+    return PortableDigestSpec{PortableDigestKind::Sha224, 64, 28};
+  }
+  if (normalized == "sha256") {
+    return PortableDigestSpec{PortableDigestKind::Sha256, 64, 32};
+  }
+  if (normalized == "sha384") {
+    return PortableDigestSpec{PortableDigestKind::Sha384, 128, 48};
+  }
+  if (normalized == "sha512") {
+    return PortableDigestSpec{PortableDigestKind::Sha512, 128, 64};
+  }
+  return std::nullopt;
+}
+
+static void appendBigEndian32(std::vector<uint8_t>& out, uint32_t value) {
+  out.push_back(static_cast<uint8_t>((value >> 24) & 0xff));
+  out.push_back(static_cast<uint8_t>((value >> 16) & 0xff));
+  out.push_back(static_cast<uint8_t>((value >> 8) & 0xff));
+  out.push_back(static_cast<uint8_t>(value & 0xff));
+}
+
+static void appendBigEndian64(std::vector<uint8_t>& out, uint64_t value) {
+  for (int shift = 56; shift >= 0; shift -= 8) {
+    out.push_back(static_cast<uint8_t>((value >> shift) & 0xff));
+  }
 }
 
 static std::vector<uint8_t> md5Digest(const std::vector<uint8_t>& input) {
@@ -250,7 +325,7 @@ static std::vector<uint8_t> md5Digest(const std::vector<uint8_t>& input) {
     d0 += d;
   }
 
-  std::vector<uint8_t> digest(CC_MD5_DIGEST_LENGTH);
+  std::vector<uint8_t> digest(16);
   const uint32_t state[4] = {a0, b0, c0, d0};
   for (size_t i = 0; i < 4; ++i) {
     digest[i * 4] = static_cast<uint8_t>(state[i] & 0xff);
@@ -259,6 +334,466 @@ static std::vector<uint8_t> md5Digest(const std::vector<uint8_t>& input) {
     digest[i * 4 + 3] = static_cast<uint8_t>((state[i] >> 24) & 0xff);
   }
   return digest;
+}
+
+static std::vector<uint8_t> sha1Digest(const std::vector<uint8_t>& input) {
+  uint32_t h0 = 0x67452301;
+  uint32_t h1 = 0xefcdab89;
+  uint32_t h2 = 0x98badcfe;
+  uint32_t h3 = 0x10325476;
+  uint32_t h4 = 0xc3d2e1f0;
+
+  std::vector<uint8_t> message(input);
+  const uint64_t bitLength = static_cast<uint64_t>(message.size()) * 8;
+  message.push_back(0x80);
+  while ((message.size() % 64) != 56) {
+    message.push_back(0);
+  }
+  appendBigEndian64(message, bitLength);
+
+  for (size_t offset = 0; offset < message.size(); offset += 64) {
+    uint32_t w[80] = {};
+    for (size_t i = 0; i < 16; ++i) {
+      const size_t wordOffset = offset + i * 4;
+      w[i] = (static_cast<uint32_t>(message[wordOffset]) << 24) |
+          (static_cast<uint32_t>(message[wordOffset + 1]) << 16) |
+          (static_cast<uint32_t>(message[wordOffset + 2]) << 8) |
+          static_cast<uint32_t>(message[wordOffset + 3]);
+    }
+    for (size_t i = 16; i < 80; ++i) {
+      w[i] = rotateLeft32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+
+    uint32_t a = h0;
+    uint32_t b = h1;
+    uint32_t c = h2;
+    uint32_t d = h3;
+    uint32_t e = h4;
+
+    for (uint32_t i = 0; i < 80; ++i) {
+      uint32_t f;
+      uint32_t k;
+      if (i < 20) {
+        f = (b & c) | ((~b) & d);
+        k = 0x5a827999;
+      } else if (i < 40) {
+        f = b ^ c ^ d;
+        k = 0x6ed9eba1;
+      } else if (i < 60) {
+        f = (b & c) | (b & d) | (c & d);
+        k = 0x8f1bbcdc;
+      } else {
+        f = b ^ c ^ d;
+        k = 0xca62c1d6;
+      }
+
+      const uint32_t temp = rotateLeft32(a, 5) + f + e + k + w[i];
+      e = d;
+      d = c;
+      c = rotateLeft32(b, 30);
+      b = a;
+      a = temp;
+    }
+
+    h0 += a;
+    h1 += b;
+    h2 += c;
+    h3 += d;
+    h4 += e;
+  }
+
+  std::vector<uint8_t> digest;
+  digest.reserve(20);
+  appendBigEndian32(digest, h0);
+  appendBigEndian32(digest, h1);
+  appendBigEndian32(digest, h2);
+  appendBigEndian32(digest, h3);
+  appendBigEndian32(digest, h4);
+  return digest;
+}
+
+static std::vector<uint8_t> sha256FamilyDigest(
+    const std::vector<uint8_t>& input,
+    bool sha224) {
+  static constexpr uint32_t k[64] = {
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+      0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+      0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+      0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+      0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+      0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+      0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+      0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+      0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  };
+
+  uint32_t h[8] = {};
+  if (sha224) {
+    h[0] = 0xc1059ed8;
+    h[1] = 0x367cd507;
+    h[2] = 0x3070dd17;
+    h[3] = 0xf70e5939;
+    h[4] = 0xffc00b31;
+    h[5] = 0x68581511;
+    h[6] = 0x64f98fa7;
+    h[7] = 0xbefa4fa4;
+  } else {
+    h[0] = 0x6a09e667;
+    h[1] = 0xbb67ae85;
+    h[2] = 0x3c6ef372;
+    h[3] = 0xa54ff53a;
+    h[4] = 0x510e527f;
+    h[5] = 0x9b05688c;
+    h[6] = 0x1f83d9ab;
+    h[7] = 0x5be0cd19;
+  }
+
+  std::vector<uint8_t> message(input);
+  const uint64_t bitLength = static_cast<uint64_t>(message.size()) * 8;
+  message.push_back(0x80);
+  while ((message.size() % 64) != 56) {
+    message.push_back(0);
+  }
+  appendBigEndian64(message, bitLength);
+
+  for (size_t offset = 0; offset < message.size(); offset += 64) {
+    uint32_t w[64] = {};
+    for (size_t i = 0; i < 16; ++i) {
+      const size_t wordOffset = offset + i * 4;
+      w[i] = (static_cast<uint32_t>(message[wordOffset]) << 24) |
+          (static_cast<uint32_t>(message[wordOffset + 1]) << 16) |
+          (static_cast<uint32_t>(message[wordOffset + 2]) << 8) |
+          static_cast<uint32_t>(message[wordOffset + 3]);
+    }
+    for (size_t i = 16; i < 64; ++i) {
+      const uint32_t s0 = rotateRight32(w[i - 15], 7) ^
+          rotateRight32(w[i - 15], 18) ^ (w[i - 15] >> 3);
+      const uint32_t s1 = rotateRight32(w[i - 2], 17) ^
+          rotateRight32(w[i - 2], 19) ^ (w[i - 2] >> 10);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+
+    uint32_t a = h[0];
+    uint32_t b = h[1];
+    uint32_t c = h[2];
+    uint32_t d = h[3];
+    uint32_t e = h[4];
+    uint32_t f = h[5];
+    uint32_t g = h[6];
+    uint32_t hh = h[7];
+
+    for (size_t i = 0; i < 64; ++i) {
+      const uint32_t s1 = rotateRight32(e, 6) ^
+          rotateRight32(e, 11) ^ rotateRight32(e, 25);
+      const uint32_t ch = (e & f) ^ ((~e) & g);
+      const uint32_t temp1 = hh + s1 + ch + k[i] + w[i];
+      const uint32_t s0 = rotateRight32(a, 2) ^
+          rotateRight32(a, 13) ^ rotateRight32(a, 22);
+      const uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+      const uint32_t temp2 = s0 + maj;
+
+      hh = g;
+      g = f;
+      f = e;
+      e = d + temp1;
+      d = c;
+      c = b;
+      b = a;
+      a = temp1 + temp2;
+    }
+
+    h[0] += a;
+    h[1] += b;
+    h[2] += c;
+    h[3] += d;
+    h[4] += e;
+    h[5] += f;
+    h[6] += g;
+    h[7] += hh;
+  }
+
+  std::vector<uint8_t> digest;
+  digest.reserve(sha224 ? 28 : 32);
+  for (size_t i = 0; i < (sha224 ? 7 : 8); ++i) {
+    appendBigEndian32(digest, h[i]);
+  }
+  return digest;
+}
+
+static std::vector<uint8_t> sha512FamilyDigest(
+    const std::vector<uint8_t>& input,
+    bool sha384) {
+  static constexpr uint64_t k[80] = {
+      UINT64_C(0x428a2f98d728ae22), UINT64_C(0x7137449123ef65cd),
+      UINT64_C(0xb5c0fbcfec4d3b2f), UINT64_C(0xe9b5dba58189dbbc),
+      UINT64_C(0x3956c25bf348b538), UINT64_C(0x59f111f1b605d019),
+      UINT64_C(0x923f82a4af194f9b), UINT64_C(0xab1c5ed5da6d8118),
+      UINT64_C(0xd807aa98a3030242), UINT64_C(0x12835b0145706fbe),
+      UINT64_C(0x243185be4ee4b28c), UINT64_C(0x550c7dc3d5ffb4e2),
+      UINT64_C(0x72be5d74f27b896f), UINT64_C(0x80deb1fe3b1696b1),
+      UINT64_C(0x9bdc06a725c71235), UINT64_C(0xc19bf174cf692694),
+      UINT64_C(0xe49b69c19ef14ad2), UINT64_C(0xefbe4786384f25e3),
+      UINT64_C(0x0fc19dc68b8cd5b5), UINT64_C(0x240ca1cc77ac9c65),
+      UINT64_C(0x2de92c6f592b0275), UINT64_C(0x4a7484aa6ea6e483),
+      UINT64_C(0x5cb0a9dcbd41fbd4), UINT64_C(0x76f988da831153b5),
+      UINT64_C(0x983e5152ee66dfab), UINT64_C(0xa831c66d2db43210),
+      UINT64_C(0xb00327c898fb213f), UINT64_C(0xbf597fc7beef0ee4),
+      UINT64_C(0xc6e00bf33da88fc2), UINT64_C(0xd5a79147930aa725),
+      UINT64_C(0x06ca6351e003826f), UINT64_C(0x142929670a0e6e70),
+      UINT64_C(0x27b70a8546d22ffc), UINT64_C(0x2e1b21385c26c926),
+      UINT64_C(0x4d2c6dfc5ac42aed), UINT64_C(0x53380d139d95b3df),
+      UINT64_C(0x650a73548baf63de), UINT64_C(0x766a0abb3c77b2a8),
+      UINT64_C(0x81c2c92e47edaee6), UINT64_C(0x92722c851482353b),
+      UINT64_C(0xa2bfe8a14cf10364), UINT64_C(0xa81a664bbc423001),
+      UINT64_C(0xc24b8b70d0f89791), UINT64_C(0xc76c51a30654be30),
+      UINT64_C(0xd192e819d6ef5218), UINT64_C(0xd69906245565a910),
+      UINT64_C(0xf40e35855771202a), UINT64_C(0x106aa07032bbd1b8),
+      UINT64_C(0x19a4c116b8d2d0c8), UINT64_C(0x1e376c085141ab53),
+      UINT64_C(0x2748774cdf8eeb99), UINT64_C(0x34b0bcb5e19b48a8),
+      UINT64_C(0x391c0cb3c5c95a63), UINT64_C(0x4ed8aa4ae3418acb),
+      UINT64_C(0x5b9cca4f7763e373), UINT64_C(0x682e6ff3d6b2b8a3),
+      UINT64_C(0x748f82ee5defb2fc), UINT64_C(0x78a5636f43172f60),
+      UINT64_C(0x84c87814a1f0ab72), UINT64_C(0x8cc702081a6439ec),
+      UINT64_C(0x90befffa23631e28), UINT64_C(0xa4506cebde82bde9),
+      UINT64_C(0xbef9a3f7b2c67915), UINT64_C(0xc67178f2e372532b),
+      UINT64_C(0xca273eceea26619c), UINT64_C(0xd186b8c721c0c207),
+      UINT64_C(0xeada7dd6cde0eb1e), UINT64_C(0xf57d4f7fee6ed178),
+      UINT64_C(0x06f067aa72176fba), UINT64_C(0x0a637dc5a2c898a6),
+      UINT64_C(0x113f9804bef90dae), UINT64_C(0x1b710b35131c471b),
+      UINT64_C(0x28db77f523047d84), UINT64_C(0x32caab7b40c72493),
+      UINT64_C(0x3c9ebe0a15c9bebc), UINT64_C(0x431d67c49c100d4c),
+      UINT64_C(0x4cc5d4becb3e42b6), UINT64_C(0x597f299cfc657e2a),
+      UINT64_C(0x5fcb6fab3ad6faec), UINT64_C(0x6c44198c4a475817),
+  };
+
+  uint64_t h[8] = {};
+  if (sha384) {
+    h[0] = UINT64_C(0xcbbb9d5dc1059ed8);
+    h[1] = UINT64_C(0x629a292a367cd507);
+    h[2] = UINT64_C(0x9159015a3070dd17);
+    h[3] = UINT64_C(0x152fecd8f70e5939);
+    h[4] = UINT64_C(0x67332667ffc00b31);
+    h[5] = UINT64_C(0x8eb44a8768581511);
+    h[6] = UINT64_C(0xdb0c2e0d64f98fa7);
+    h[7] = UINT64_C(0x47b5481dbefa4fa4);
+  } else {
+    h[0] = UINT64_C(0x6a09e667f3bcc908);
+    h[1] = UINT64_C(0xbb67ae8584caa73b);
+    h[2] = UINT64_C(0x3c6ef372fe94f82b);
+    h[3] = UINT64_C(0xa54ff53a5f1d36f1);
+    h[4] = UINT64_C(0x510e527fade682d1);
+    h[5] = UINT64_C(0x9b05688c2b3e6c1f);
+    h[6] = UINT64_C(0x1f83d9abfb41bd6b);
+    h[7] = UINT64_C(0x5be0cd19137e2179);
+  }
+
+  std::vector<uint8_t> message(input);
+  const uint64_t bitLengthHigh = static_cast<uint64_t>(message.size() >> 61);
+  const uint64_t bitLengthLow = static_cast<uint64_t>(message.size()) * 8;
+  message.push_back(0x80);
+  while ((message.size() % 128) != 112) {
+    message.push_back(0);
+  }
+  appendBigEndian64(message, bitLengthHigh);
+  appendBigEndian64(message, bitLengthLow);
+
+  for (size_t offset = 0; offset < message.size(); offset += 128) {
+    uint64_t w[80] = {};
+    for (size_t i = 0; i < 16; ++i) {
+      const size_t wordOffset = offset + i * 8;
+      w[i] = (static_cast<uint64_t>(message[wordOffset]) << 56) |
+          (static_cast<uint64_t>(message[wordOffset + 1]) << 48) |
+          (static_cast<uint64_t>(message[wordOffset + 2]) << 40) |
+          (static_cast<uint64_t>(message[wordOffset + 3]) << 32) |
+          (static_cast<uint64_t>(message[wordOffset + 4]) << 24) |
+          (static_cast<uint64_t>(message[wordOffset + 5]) << 16) |
+          (static_cast<uint64_t>(message[wordOffset + 6]) << 8) |
+          static_cast<uint64_t>(message[wordOffset + 7]);
+    }
+    for (size_t i = 16; i < 80; ++i) {
+      const uint64_t s0 = rotateRight64(w[i - 15], 1) ^
+          rotateRight64(w[i - 15], 8) ^ (w[i - 15] >> 7);
+      const uint64_t s1 = rotateRight64(w[i - 2], 19) ^
+          rotateRight64(w[i - 2], 61) ^ (w[i - 2] >> 6);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+
+    uint64_t a = h[0];
+    uint64_t b = h[1];
+    uint64_t c = h[2];
+    uint64_t d = h[3];
+    uint64_t e = h[4];
+    uint64_t f = h[5];
+    uint64_t g = h[6];
+    uint64_t hh = h[7];
+
+    for (size_t i = 0; i < 80; ++i) {
+      const uint64_t s1 = rotateRight64(e, 14) ^
+          rotateRight64(e, 18) ^ rotateRight64(e, 41);
+      const uint64_t ch = (e & f) ^ ((~e) & g);
+      const uint64_t temp1 = hh + s1 + ch + k[i] + w[i];
+      const uint64_t s0 = rotateRight64(a, 28) ^
+          rotateRight64(a, 34) ^ rotateRight64(a, 39);
+      const uint64_t maj = (a & b) ^ (a & c) ^ (b & c);
+      const uint64_t temp2 = s0 + maj;
+
+      hh = g;
+      g = f;
+      f = e;
+      e = d + temp1;
+      d = c;
+      c = b;
+      b = a;
+      a = temp1 + temp2;
+    }
+
+    h[0] += a;
+    h[1] += b;
+    h[2] += c;
+    h[3] += d;
+    h[4] += e;
+    h[5] += f;
+    h[6] += g;
+    h[7] += hh;
+  }
+
+  std::vector<uint8_t> digest;
+  digest.reserve(sha384 ? 48 : 64);
+  for (size_t i = 0; i < (sha384 ? 6 : 8); ++i) {
+    appendBigEndian64(digest, h[i]);
+  }
+  return digest;
+}
+
+static std::vector<uint8_t> portableDigestBySpec(
+    const PortableDigestSpec& spec,
+    const std::vector<uint8_t>& input) {
+  switch (spec.kind) {
+    case PortableDigestKind::Md5:
+      return md5Digest(input);
+    case PortableDigestKind::Sha1:
+      return sha1Digest(input);
+    case PortableDigestKind::Sha224:
+      return sha256FamilyDigest(input, true);
+    case PortableDigestKind::Sha256:
+      return sha256FamilyDigest(input, false);
+    case PortableDigestKind::Sha384:
+      return sha512FamilyDigest(input, true);
+    case PortableDigestKind::Sha512:
+      return sha512FamilyDigest(input, false);
+  }
+  return {};
+}
+
+static std::vector<uint8_t> portableHmac(
+    const PortableDigestSpec& spec,
+    std::vector<uint8_t> key,
+    const std::vector<uint8_t>& data) {
+  if (key.size() > spec.block_size) {
+    key = portableDigestBySpec(spec, key);
+  }
+  key.resize(spec.block_size, 0);
+
+  std::vector<uint8_t> inner;
+  inner.reserve(spec.block_size + data.size());
+  std::vector<uint8_t> outer;
+  outer.reserve(spec.block_size + spec.output_size);
+  for (uint8_t byte : key) {
+    inner.push_back(static_cast<uint8_t>(byte ^ 0x36));
+    outer.push_back(static_cast<uint8_t>(byte ^ 0x5c));
+  }
+  inner.insert(inner.end(), data.begin(), data.end());
+  auto innerDigest = portableDigestBySpec(spec, inner);
+  outer.insert(outer.end(), innerDigest.begin(), innerDigest.end());
+  return portableDigestBySpec(spec, outer);
+}
+
+static std::vector<uint8_t> portablePbkdf2(
+    const std::vector<uint8_t>& password,
+    const std::vector<uint8_t>& salt,
+    uint32_t iterations,
+    size_t keyLength,
+    const PortableDigestSpec& spec) {
+  std::vector<uint8_t> derived;
+  if (keyLength == 0) {
+    return derived;
+  }
+  const size_t blockCount = (keyLength + spec.output_size - 1) / spec.output_size;
+  derived.reserve(blockCount * spec.output_size);
+
+  for (uint32_t blockIndex = 1; blockIndex <= blockCount; ++blockIndex) {
+    std::vector<uint8_t> saltBlock(salt);
+    appendBigEndian32(saltBlock, blockIndex);
+    auto u = portableHmac(spec, password, saltBlock);
+    auto t = u;
+    for (uint32_t iter = 1; iter < iterations; ++iter) {
+      u = portableHmac(spec, password, u);
+      for (size_t i = 0; i < t.size(); ++i) {
+        t[i] ^= u[i];
+      }
+    }
+    derived.insert(derived.end(), t.begin(), t.end());
+  }
+
+  derived.resize(keyLength);
+  return derived;
+}
+#endif
+
+#if !defined(EXACT_NO_OPENSSL)
+static std::string normalizeDigestName(std::string algorithm) {
+  std::string normalized;
+  normalized.reserve(algorithm.size());
+  for (char ch : algorithm) {
+    if (ch != '-' && ch != '_') {
+      normalized.push_back(static_cast<char>(
+          std::tolower(static_cast<unsigned char>(ch))));
+    }
+  }
+  return normalized;
+}
+
+static const EVP_MD* openSslDigestForAlgorithm(const std::string& algorithm) {
+  const auto normalized = normalizeDigestName(algorithm);
+  if (normalized == "sha1") return EVP_sha1();
+  if (normalized == "sha224") return EVP_sha224();
+  if (normalized == "sha256") return EVP_sha256();
+  if (normalized == "sha384") return EVP_sha384();
+  if (normalized == "sha512") return EVP_sha512();
+  if (normalized == "sha3224") return EVP_sha3_224();
+  if (normalized == "sha3256") return EVP_sha3_256();
+  if (normalized == "sha3384") return EVP_sha3_384();
+  if (normalized == "sha3512") return EVP_sha3_512();
+  if (normalized == "md5") return EVP_md5();
+  return nullptr;
+}
+
+static const EVP_CIPHER* openSslAesCbcCipher(size_t keyLength) {
+  if (keyLength == 16) return EVP_aes_128_cbc();
+  if (keyLength == 24) return EVP_aes_192_cbc();
+  if (keyLength == 32) return EVP_aes_256_cbc();
+  return nullptr;
+}
+
+static const EVP_CIPHER* openSslAesCtrCipher(size_t keyLength) {
+  if (keyLength == 16) return EVP_aes_128_ctr();
+  if (keyLength == 24) return EVP_aes_192_ctr();
+  if (keyLength == 32) return EVP_aes_256_ctr();
+  return nullptr;
+}
+
+static const EVP_CIPHER* openSslAesGcmCipher(size_t keyLength) {
+  if (keyLength == 16) return EVP_aes_128_gcm();
+  if (keyLength == 24) return EVP_aes_192_gcm();
+  if (keyLength == 32) return EVP_aes_256_gcm();
+  return nullptr;
 }
 #endif
 
@@ -337,12 +872,7 @@ static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType it
 // On Apple, sign/verify uses Security.framework directly.
 #if !defined(__APPLE__) && !defined(EXACT_NO_OPENSSL)
 static const EVP_MD* selectDigestForCryptoAlgo(const std::string& algorithm) {
-  if (algorithm == "sha1" || algorithm == "sha-1") return EVP_sha1();
-  if (algorithm == "sha256" || algorithm == "sha-256") return EVP_sha256();
-  if (algorithm == "sha384" || algorithm == "sha-384") return EVP_sha384();
-  if (algorithm == "sha512" || algorithm == "sha-512") return EVP_sha512();
-  if (algorithm == "md5" || algorithm == "md5") return EVP_md5();
-  return nullptr;
+  return openSslDigestForAlgorithm(algorithm);
 }
 
 static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
@@ -438,24 +968,21 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         } else {
           throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
         }
-#else
-        const EVP_MD* md = nullptr;
-        if (algo == "sha256" || algo == "sha-256") md = EVP_sha256();
-        else if (algo == "sha1" || algo == "sha-1") md = EVP_sha1();
-        else if (algo == "sha224" || algo == "sha-224") md = EVP_sha224();
-        else if (algo == "sha384" || algo == "sha-384") md = EVP_sha384();
-        else if (algo == "sha512" || algo == "sha-512") md = EVP_sha512();
-        else if (algo == "sha3224" || algo == "sha3-224") md = EVP_sha3_224();
-        else if (algo == "sha3256" || algo == "sha3-256") md = EVP_sha3_256();
-        else if (algo == "sha3384" || algo == "sha3-384") md = EVP_sha3_384();
-        else if (algo == "sha3512" || algo == "sha3-512") md = EVP_sha3_512();
-        else if (algo == "md5") md = EVP_md5();
-        else throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
-
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_MD* md = openSslDigestForAlgorithm(algo);
+        if (!md) {
+          throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
+        }
         unsigned int digestLen = 0;
         digest.resize(EVP_MAX_MD_SIZE);
         EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, md, nullptr);
         digest.resize(digestLen);
+#else
+        auto spec = portableDigestSpecForAlgorithm(algo);
+        if (!spec) {
+          throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
+        }
+        digest = portableDigestBySpec(*spec, inputBytes);
 #endif
 
         // Convert to hex string
@@ -516,20 +1043,22 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         mac.resize(macLen);
         CCHmac(ccAlgo, keyBytes.data(), keyBytes.size(),
                dataBytes.data(), dataBytes.size(), mac.data());
-#else
-        const EVP_MD* md = nullptr;
-        if (algo == "sha256" || algo == "sha-256") md = EVP_sha256();
-        else if (algo == "sha1" || algo == "sha-1") md = EVP_sha1();
-        else if (algo == "sha384" || algo == "sha-384") md = EVP_sha384();
-        else if (algo == "sha512" || algo == "sha-512") md = EVP_sha512();
-        else if (algo == "md5") md = EVP_md5();
-        else throw facebook::jsi::JSError(runtime, "Unsupported HMAC algorithm: " + algo);
-
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_MD* md = openSslDigestForAlgorithm(algo);
+        if (!md) {
+          throw facebook::jsi::JSError(runtime, "Unsupported HMAC algorithm: " + algo);
+        }
         unsigned int macLen = 0;
         mac.resize(EVP_MAX_MD_SIZE);
         HMAC(md, keyBytes.data(), keyBytes.size(),
              dataBytes.data(), dataBytes.size(), mac.data(), &macLen);
         mac.resize(macLen);
+#else
+        auto spec = portableDigestSpecForAlgorithm(algo);
+        if (!spec) {
+          throw facebook::jsi::JSError(runtime, "Unsupported HMAC algorithm: " + algo);
+        }
+        mac = portableHmac(*spec, keyBytes, dataBytes);
 #endif
 
         std::ostringstream hex;
@@ -608,24 +1137,21 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         } else {
           throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
         }
-#else
-        const EVP_MD* md = nullptr;
-        if (algo == "sha256" || algo == "sha-256") md = EVP_sha256();
-        else if (algo == "sha1" || algo == "sha-1") md = EVP_sha1();
-        else if (algo == "sha224" || algo == "sha-224") md = EVP_sha224();
-        else if (algo == "sha384" || algo == "sha-384") md = EVP_sha384();
-        else if (algo == "sha512" || algo == "sha-512") md = EVP_sha512();
-        else if (algo == "sha3224" || algo == "sha3-224") md = EVP_sha3_224();
-        else if (algo == "sha3256" || algo == "sha3-256") md = EVP_sha3_256();
-        else if (algo == "sha3384" || algo == "sha3-384") md = EVP_sha3_384();
-        else if (algo == "sha3512" || algo == "sha3-512") md = EVP_sha3_512();
-        else if (algo == "md5") md = EVP_md5();
-        else throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
-
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_MD* md = openSslDigestForAlgorithm(algo);
+        if (!md) {
+          throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
+        }
         unsigned int digestLen = 0;
         digest.resize(EVP_MAX_MD_SIZE);
         EVP_Digest(inputBytes.data(), inputBytes.size(), digest.data(), &digestLen, md, nullptr);
         digest.resize(digestLen);
+#else
+        auto spec = portableDigestSpecForAlgorithm(algo);
+        if (!spec) {
+          throw facebook::jsi::JSError(runtime, "Unsupported hash algorithm: " + algo);
+        }
+        digest = portableDigestBySpec(*spec, inputBytes);
 #endif
         return makeUint8Array(runtime, std::move(digest));
       });
@@ -665,8 +1191,29 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
         out.resize(outLen);
         return makeUint8Array(runtime, std::move(out));
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_CIPHER* cipher = openSslAesCbcCipher(keyBytes.size());
+        if (!cipher) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC unsupported key length");
+        }
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC encryption init failed");
+        }
+        std::vector<uint8_t> out(data.size() + EVP_CIPHER_block_size(cipher));
+        int outLen = 0;
+        int finalLen = 0;
+        if (EVP_EncryptInit_ex(ctx, cipher, nullptr, keyBytes.data(), ivBytes.data()) != 1 ||
+            EVP_EncryptUpdate(ctx, out.data(), &outLen, data.data(), static_cast<int>(data.size())) != 1 ||
+            EVP_EncryptFinal_ex(ctx, out.data() + outLen, &finalLen) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-CBC encryption failed");
+        }
+        EVP_CIPHER_CTX_free(ctx);
+        out.resize(static_cast<size_t>(outLen + finalLen));
+        return makeUint8Array(runtime, std::move(out));
 #else
-        throw facebook::jsi::JSError(runtime, "AES-CBC not yet supported on this platform");
+        throw facebook::jsi::JSError(runtime, "AES-CBC requires the openssl-crypto feature on this platform");
 #endif
       });
   rt.global().setProperty(rt, "__exactAesCbcEncrypt", std::move(aesCbcEncFn));
@@ -698,8 +1245,32 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
         out.resize(outLen);
         return makeUint8Array(runtime, std::move(out));
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_CIPHER* cipher = openSslAesCbcCipher(keyBytes.size());
+        if (!cipher) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC unsupported key length");
+        }
+        if (ivBytes.size() != 16) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC IV must be 16 bytes");
+        }
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC decryption init failed");
+        }
+        std::vector<uint8_t> out(data.size() + EVP_CIPHER_block_size(cipher));
+        int outLen = 0;
+        int finalLen = 0;
+        if (EVP_DecryptInit_ex(ctx, cipher, nullptr, keyBytes.data(), ivBytes.data()) != 1 ||
+            EVP_DecryptUpdate(ctx, out.data(), &outLen, data.data(), static_cast<int>(data.size())) != 1 ||
+            EVP_DecryptFinal_ex(ctx, out.data() + outLen, &finalLen) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-CBC decryption failed");
+        }
+        EVP_CIPHER_CTX_free(ctx);
+        out.resize(static_cast<size_t>(outLen + finalLen));
+        return makeUint8Array(runtime, std::move(out));
 #else
-        throw facebook::jsi::JSError(runtime, "AES-CBC not yet supported on this platform");
+        throw facebook::jsi::JSError(runtime, "AES-CBC requires the openssl-crypto feature on this platform");
 #endif
       });
   rt.global().setProperty(rt, "__exactAesCbcDecrypt", std::move(aesCbcDecFn));
@@ -739,8 +1310,29 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
         out.resize(outLen);
         return makeUint8Array(runtime, std::move(out));
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_CIPHER* cipher = openSslAesCtrCipher(keyBytes.size());
+        if (!cipher) {
+          throw facebook::jsi::JSError(runtime, "AES-CTR unsupported key length");
+        }
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) {
+          throw facebook::jsi::JSError(runtime, "AES-CTR init failed");
+        }
+        std::vector<uint8_t> out(data.size() + EVP_CIPHER_block_size(cipher));
+        int outLen = 0;
+        int finalLen = 0;
+        if (EVP_EncryptInit_ex(ctx, cipher, nullptr, keyBytes.data(), ctrBytes.data()) != 1 ||
+            EVP_EncryptUpdate(ctx, out.data(), &outLen, data.data(), static_cast<int>(data.size())) != 1 ||
+            EVP_EncryptFinal_ex(ctx, out.data() + outLen, &finalLen) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-CTR encryption failed");
+        }
+        EVP_CIPHER_CTX_free(ctx);
+        out.resize(static_cast<size_t>(outLen + finalLen));
+        return makeUint8Array(runtime, std::move(out));
 #else
-        throw facebook::jsi::JSError(runtime, "AES-CTR not yet supported on this platform");
+        throw facebook::jsi::JSError(runtime, "AES-CTR requires the openssl-crypto feature on this platform");
 #endif
       });
   rt.global().setProperty(rt, "__exactAesCtrEncrypt", std::move(aesCtrEncFn));
@@ -783,8 +1375,52 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         // Append tag to ciphertext
         out.insert(out.end(), tag.begin(), tag.end());
         return makeUint8Array(runtime, std::move(out));
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_CIPHER* cipher = openSslAesGcmCipher(keyBytes.size());
+        if (!cipher) {
+          throw facebook::jsi::JSError(runtime, "AES-GCM unsupported key length");
+        }
+        if (tagLen < 1 || tagLen > 16) {
+          throw facebook::jsi::JSError(runtime, "AES-GCM tag length must be between 8 and 128 bits");
+        }
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) {
+          throw facebook::jsi::JSError(runtime, "AES-GCM init failed");
+        }
+        std::vector<uint8_t> out(data.size() + tagLen);
+        int outLen = 0;
+        int totalLen = 0;
+        if (EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) != 1 ||
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(ivBytes.size()), nullptr) != 1 ||
+            EVP_EncryptInit_ex(ctx, nullptr, nullptr, keyBytes.data(), ivBytes.data()) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM init failed");
+        }
+        if (!aad.empty() &&
+            EVP_EncryptUpdate(ctx, nullptr, &outLen, aad.data(), static_cast<int>(aad.size())) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM aad update failed");
+        }
+        if (!data.empty() &&
+            EVP_EncryptUpdate(ctx, out.data(), &outLen, data.data(), static_cast<int>(data.size())) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM encryption failed");
+        }
+        totalLen = outLen;
+        if (EVP_EncryptFinal_ex(ctx, out.data() + totalLen, &outLen) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM final failed");
+        }
+        totalLen += outLen;
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, static_cast<int>(tagLen), out.data() + totalLen) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM tag generation failed");
+        }
+        EVP_CIPHER_CTX_free(ctx);
+        out.resize(static_cast<size_t>(totalLen) + tagLen);
+        return makeUint8Array(runtime, std::move(out));
 #else
-        throw facebook::jsi::JSError(runtime, "AES-GCM not yet supported on this platform");
+        throw facebook::jsi::JSError(runtime, "AES-GCM requires the openssl-crypto feature on this platform");
 #endif
       });
   rt.global().setProperty(rt, "__exactAesGcmEncrypt", std::move(aesGcmEncFn));
@@ -829,8 +1465,52 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "AES-GCM decryption failed (auth tag mismatch or invalid data)");
         }
         return makeUint8Array(runtime, std::move(out));
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_CIPHER* cipher = openSslAesGcmCipher(keyBytes.size());
+        if (!cipher) {
+          throw facebook::jsi::JSError(runtime, "AES-GCM unsupported key length");
+        }
+        if (tagLen < 1 || tagLen > 16) {
+          throw facebook::jsi::JSError(runtime, "AES-GCM tag length must be between 8 and 128 bits");
+        }
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx) {
+          throw facebook::jsi::JSError(runtime, "AES-GCM init failed");
+        }
+        std::vector<uint8_t> out(cipherLen);
+        int outLen = 0;
+        int totalLen = 0;
+        if (EVP_DecryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) != 1 ||
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(ivBytes.size()), nullptr) != 1 ||
+            EVP_DecryptInit_ex(ctx, nullptr, nullptr, keyBytes.data(), ivBytes.data()) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM init failed");
+        }
+        if (!aad.empty() &&
+            EVP_DecryptUpdate(ctx, nullptr, &outLen, aad.data(), static_cast<int>(aad.size())) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM aad update failed");
+        }
+        if (cipherLen > 0 &&
+            EVP_DecryptUpdate(ctx, out.data(), &outLen, dataWithTag.data(), static_cast<int>(cipherLen)) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM decryption failed");
+        }
+        totalLen = outLen;
+        if (EVP_CIPHER_CTX_ctrl(
+                ctx,
+                EVP_CTRL_GCM_SET_TAG,
+                static_cast<int>(tagLen),
+                const_cast<uint8_t*>(dataWithTag.data() + cipherLen)) != 1 ||
+            EVP_DecryptFinal_ex(ctx, out.data() + totalLen, &outLen) != 1) {
+          EVP_CIPHER_CTX_free(ctx);
+          throw facebook::jsi::JSError(runtime, "AES-GCM decryption failed (auth tag mismatch or invalid data)");
+        }
+        EVP_CIPHER_CTX_free(ctx);
+        out.resize(static_cast<size_t>(totalLen + outLen));
+        return makeUint8Array(runtime, std::move(out));
 #else
-        throw facebook::jsi::JSError(runtime, "AES-GCM not yet supported on this platform");
+        throw facebook::jsi::JSError(runtime, "AES-GCM requires the openssl-crypto feature on this platform");
 #endif
       });
   rt.global().setProperty(rt, "__exactAesGcmDecrypt", std::move(aesGcmDecFn));
@@ -1103,8 +1783,37 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "PBKDF2 derivation failed");
         }
         return makeUint8Array(runtime, std::move(derivedKey));
+#elif !defined(EXACT_NO_OPENSSL)
+        const EVP_MD* md = openSslDigestForAlgorithm(hash);
+        if (!md) {
+          throw facebook::jsi::JSError(runtime, "Unsupported PBKDF2 hash: " + hash);
+        }
+        if (iterations == 0) {
+          throw facebook::jsi::JSError(runtime, "PBKDF2 iterations must be greater than zero");
+        }
+        std::vector<uint8_t> derivedKey(keyLength);
+        if (PKCS5_PBKDF2_HMAC(
+                reinterpret_cast<const char*>(password.data()),
+                static_cast<int>(password.size()),
+                salt.data(),
+                static_cast<int>(salt.size()),
+                static_cast<int>(iterations),
+                md,
+                static_cast<int>(keyLength),
+                derivedKey.data()) != 1) {
+          throw facebook::jsi::JSError(runtime, "PBKDF2 derivation failed");
+        }
+        return makeUint8Array(runtime, std::move(derivedKey));
 #else
-        throw facebook::jsi::JSError(runtime, "PBKDF2 not yet supported on this platform");
+        auto spec = portableDigestSpecForAlgorithm(hash);
+        if (!spec || spec->kind == PortableDigestKind::Md5) {
+          throw facebook::jsi::JSError(runtime, "Unsupported PBKDF2 hash: " + hash);
+        }
+        if (iterations == 0) {
+          throw facebook::jsi::JSError(runtime, "PBKDF2 iterations must be greater than zero");
+        }
+        auto derivedKey = portablePbkdf2(password, salt, iterations, keyLength, *spec);
+        return makeUint8Array(runtime, std::move(derivedKey));
 #endif
       });
   rt.global().setProperty(rt, "__exactPbkdf2", std::move(pbkdf2Fn));
@@ -1326,8 +2035,129 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
                       1, derivedKey.data(), keylen);
 
         return makeUint8Array(runtime, std::move(derivedKey));
+#elif !defined(EXACT_NO_OPENSSL)
+        std::vector<uint8_t> derivedKey(keylen);
+        constexpr uint64_t kMaxScryptMemory = 1073741824ULL;
+        if (EVP_PBE_scrypt(
+                reinterpret_cast<const char*>(password.data()),
+                password.size(),
+                salt.data(),
+                salt.size(),
+                N,
+                r,
+                p,
+                kMaxScryptMemory,
+                derivedKey.data(),
+                derivedKey.size()) != 1) {
+          throw facebook::jsi::JSError(runtime, "scrypt derivation failed");
+        }
+        return makeUint8Array(runtime, std::move(derivedKey));
 #else
-        throw facebook::jsi::JSError(runtime, "scrypt not yet supported on this platform");
+        auto sha256Spec = portableDigestSpecForAlgorithm("sha256");
+        if (!sha256Spec) {
+          throw facebook::jsi::JSError(runtime, "scrypt: SHA-256 unavailable");
+        }
+
+        auto salsa20_8 = [](uint32_t B[16]) {
+          uint32_t x[16];
+          std::memcpy(x, B, 64);
+
+          #define ROTL32(v, n) (((v) << (n)) | ((v) >> (32 - (n))))
+          for (int i = 0; i < 8; i += 2) {
+            x[ 4] ^= ROTL32(x[ 0] + x[12],  7);
+            x[ 8] ^= ROTL32(x[ 4] + x[ 0],  9);
+            x[12] ^= ROTL32(x[ 8] + x[ 4], 13);
+            x[ 0] ^= ROTL32(x[12] + x[ 8], 18);
+            x[ 9] ^= ROTL32(x[ 5] + x[ 1],  7);
+            x[13] ^= ROTL32(x[ 9] + x[ 5],  9);
+            x[ 1] ^= ROTL32(x[13] + x[ 9], 13);
+            x[ 5] ^= ROTL32(x[ 1] + x[13], 18);
+            x[14] ^= ROTL32(x[10] + x[ 6],  7);
+            x[ 2] ^= ROTL32(x[14] + x[10],  9);
+            x[ 6] ^= ROTL32(x[ 2] + x[14], 13);
+            x[10] ^= ROTL32(x[ 6] + x[ 2], 18);
+            x[ 3] ^= ROTL32(x[15] + x[11],  7);
+            x[ 7] ^= ROTL32(x[ 3] + x[15],  9);
+            x[11] ^= ROTL32(x[ 7] + x[ 3], 13);
+            x[15] ^= ROTL32(x[11] + x[ 7], 18);
+            x[ 1] ^= ROTL32(x[ 0] + x[ 3],  7);
+            x[ 2] ^= ROTL32(x[ 1] + x[ 0],  9);
+            x[ 3] ^= ROTL32(x[ 2] + x[ 1], 13);
+            x[ 0] ^= ROTL32(x[ 3] + x[ 2], 18);
+            x[ 6] ^= ROTL32(x[ 5] + x[ 4],  7);
+            x[ 7] ^= ROTL32(x[ 6] + x[ 5],  9);
+            x[ 4] ^= ROTL32(x[ 7] + x[ 6], 13);
+            x[ 5] ^= ROTL32(x[ 4] + x[ 7], 18);
+            x[11] ^= ROTL32(x[10] + x[ 9],  7);
+            x[ 8] ^= ROTL32(x[11] + x[10],  9);
+            x[ 9] ^= ROTL32(x[ 8] + x[11], 13);
+            x[10] ^= ROTL32(x[ 9] + x[ 8], 18);
+            x[12] ^= ROTL32(x[15] + x[14],  7);
+            x[13] ^= ROTL32(x[12] + x[15],  9);
+            x[14] ^= ROTL32(x[13] + x[12], 13);
+            x[15] ^= ROTL32(x[14] + x[13], 18);
+          }
+          #undef ROTL32
+
+          for (int i = 0; i < 16; i++) {
+            B[i] += x[i];
+          }
+        };
+
+        auto blockMix = [&salsa20_8](uint32_t* B, uint32_t* Y, uint32_t r) {
+          uint32_t blockCount = 2 * r;
+          uint32_t X[16];
+          std::memcpy(X, &B[(blockCount - 1) * 16], 64);
+          for (uint32_t i = 0; i < blockCount; i++) {
+            for (int k = 0; k < 16; k++) {
+              X[k] ^= B[i * 16 + k];
+            }
+            salsa20_8(X);
+            std::memcpy(&Y[i * 16], X, 64);
+          }
+          std::vector<uint32_t> tmp(blockCount * 16);
+          uint32_t half = 0;
+          for (uint32_t i = 0; i < blockCount; i += 2) {
+            std::memcpy(&tmp[half * 16], &Y[i * 16], 64);
+            half++;
+          }
+          for (uint32_t i = 1; i < blockCount; i += 2) {
+            std::memcpy(&tmp[half * 16], &Y[i * 16], 64);
+            half++;
+          }
+          std::memcpy(Y, tmp.data(), blockCount * 64);
+        };
+
+        auto roMix = [&blockMix](uint32_t* B, uint64_t N, uint32_t r) {
+          size_t blockWords = 2 * static_cast<size_t>(r) * 16;
+          size_t blockBytes = blockWords * 4;
+          std::vector<uint32_t> V(N * blockWords);
+          std::vector<uint32_t> Y(blockWords);
+          for (uint64_t i = 0; i < N; i++) {
+            std::memcpy(&V[i * blockWords], B, blockBytes);
+            blockMix(B, Y.data(), r);
+            std::memcpy(B, Y.data(), blockBytes);
+          }
+          for (uint64_t i = 0; i < N; i++) {
+            uint32_t lastBlockStart = (2 * r - 1) * 16;
+            uint64_t j = B[lastBlockStart] % N;
+            for (size_t k = 0; k < blockWords; k++) {
+              B[k] ^= V[j * blockWords + k];
+            }
+            blockMix(B, Y.data(), r);
+            std::memcpy(B, Y.data(), blockBytes);
+          }
+        };
+
+        size_t BLen = static_cast<size_t>(128) * r * p;
+        auto B = portablePbkdf2(password, salt, 1, BLen, *sha256Spec);
+        for (uint32_t i = 0; i < p; i++) {
+          uint32_t* block = reinterpret_cast<uint32_t*>(&B[static_cast<size_t>(i) * 128 * r]);
+          roMix(block, N, r);
+        }
+
+        auto derivedKey = portablePbkdf2(password, B, 1, keylen, *sha256Spec);
+        return makeUint8Array(runtime, std::move(derivedKey));
 #endif
       });
   rt.global().setProperty(rt, "__exactScryptSync", std::move(scryptFn));
@@ -2798,14 +3628,12 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
         okm.resize(length);
         return makeUint8Array(runtime, std::move(okm));
-#else
+#elif !defined(EXACT_NO_OPENSSL)
         // OpenSSL path
-        const EVP_MD* md = nullptr;
-        if (hashAlgo == "SHA-256" || hashAlgo == "sha256" || hashAlgo == "sha-256") md = EVP_sha256();
-        else if (hashAlgo == "SHA-1" || hashAlgo == "sha1" || hashAlgo == "sha-1") md = EVP_sha1();
-        else if (hashAlgo == "SHA-384" || hashAlgo == "sha384" || hashAlgo == "sha-384") md = EVP_sha384();
-        else if (hashAlgo == "SHA-512" || hashAlgo == "sha512" || hashAlgo == "sha-512") md = EVP_sha512();
-        else throw facebook::jsi::JSError(runtime, "__exactHkdf: unsupported hash algorithm: " + hashAlgo);
+        const EVP_MD* md = openSslDigestForAlgorithm(hashAlgo);
+        if (!md || normalizeDigestName(hashAlgo) == "md5") {
+          throw facebook::jsi::JSError(runtime, "__exactHkdf: unsupported hash algorithm: " + hashAlgo);
+        }
 
         size_t hashLen = static_cast<size_t>(EVP_MD_size(md));
 
@@ -2840,6 +3668,36 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           HMAC(md, prk.data(), prk.size(),
                input.data(), input.size(), prev.data(), &tLen);
           prev.resize(tLen);
+          okm.insert(okm.end(), prev.begin(), prev.end());
+        }
+        okm.resize(length);
+        return makeUint8Array(runtime, std::move(okm));
+#else
+        auto spec = portableDigestSpecForAlgorithm(hashAlgo);
+        if (!spec || spec->kind == PortableDigestKind::Md5) {
+          throw facebook::jsi::JSError(runtime, "__exactHkdf: unsupported hash algorithm: " + hashAlgo);
+        }
+        const size_t hashLen = spec->output_size;
+
+        std::vector<uint8_t> actualSalt;
+        if (salt.empty()) {
+          actualSalt.resize(hashLen, 0);
+        } else {
+          actualSalt = std::move(salt);
+        }
+
+        auto prk = portableHmac(*spec, actualSalt, ikm);
+        size_t n = (length + hashLen - 1) / hashLen;
+        std::vector<uint8_t> okm;
+        okm.reserve(n * hashLen);
+        std::vector<uint8_t> prev;
+
+        for (size_t i = 1; i <= n; i++) {
+          std::vector<uint8_t> input;
+          input.insert(input.end(), prev.begin(), prev.end());
+          input.insert(input.end(), info.begin(), info.end());
+          input.push_back(static_cast<uint8_t>(i));
+          prev = portableHmac(*spec, prk, input);
           okm.insert(okm.end(), prev.begin(), prev.end());
         }
         okm.resize(length);

@@ -78,13 +78,14 @@ Ibex's crypto is platform-dependent and is the single most fragile build axis:
   stubs `[observed]` (`src/engine/hermes_runtime_crypto_windows.cc:141-221`).
 - **Linux:** `build.rs` defines `EXACT_NO_OPENSSL` unless the
   `openssl-crypto` feature is enabled and links OpenSSL only in that feature
-  profile `[observed]` (`build.rs:824-831, 1066-1073`). However, the non-Apple
-  crypto source still includes and calls OpenSSL for hash/HMAC outside that
-  Cargo feature gate `[observed]`
-  (`src/engine/hermes_runtime_crypto.cc:61-73, 441-458, 519-532, 611-629`).
-  The reduced non-OpenSSL path only provides explicit throwing stubs for
-  asymmetric sign/verify/key generation `[observed]`
-  (`src/engine/hermes_runtime_crypto.cc:1995-2026`).
+  profile `[observed]` (`build.rs:824-831, 1066-1073`). The reduced default
+  profile no longer includes or calls OpenSSL: it provides portable
+  MD5/SHA-1/SHA-2 hashing, HMAC, PBKDF2, scrypt, and HKDF, plus clear throwing
+  stubs for asymmetric/key-generation functions `[observed]`
+  (`src/engine/hermes_runtime_crypto.cc`). The `openssl-crypto` profile is the
+  full Linux native crypto profile, adding OpenSSL-backed AES, asymmetric
+  crypto, ECDH/X25519/Ed25519 helpers, RSA-OAEP, and key import/export
+  `[observed]` (`src/engine/hermes_runtime_crypto.cc`).
 - **Android:** no Android branch exists, so its intended crypto profile is a
   design question until the NDK/Hermes wiring lands `[inferred]`.
 
