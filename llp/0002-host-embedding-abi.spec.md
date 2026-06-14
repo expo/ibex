@@ -103,7 +103,7 @@ process-global `Host` singleton.
   ("legacy"/allow-all) host `[observed]` (`src/host/abi.rs:586-592`). The source
   comment says the iOS/Swift path calls this, while the CLI calls
   `install_host` with a configured `Host` `[observed]`
-  (`src/host/abi.rs:586-588`).
+  (`src/host/abi.rs:586-588`; `src/bin/ibex/runtime.rs`).
 - `EXACT_HOST_ABI_VERSION` is `1`, returned by `ex_host_version()` `[observed]`
   (`src/host/abi.rs:62, 579-581`).
 
@@ -149,11 +149,13 @@ Strings returned to C are malloc'd via `CString::into_raw` and freed by
 ## Lifecycle (observed)
 
 1. Host installs itself first: a Rust embedder can call
-   `install_host(Host::new(...))`; the C entry point `ex_host_install()` installs
-   the legacy permissive host `[observed]`
+   `install_host(Host::new(...))`; the local `ibex` binary does this from CLI
+   security flags, while the C entry point `ex_host_install()` installs the
+   legacy permissive host `[observed]`
    (`src/host/abi.rs:107-121, 586-592`). The CLI/iOS split is recorded in a
-   source comment, not independently traced here `[observed]`
-   (`src/host/abi.rs:586-588`).
+   source comment and now in the local binary implementation `[observed]`
+   (`src/host/abi.rs:586-588`; `src/bin/ibex/runtime.rs`;
+   [LLP 0010](./0010-ibex-binary-ownership.decision.md)).
 2. `ex_hermes_create()` builds the Hermes runtime, installs globals and runs
    bootstrap (see [LLP 0003](./0003-hermes-engine-bridge.explainer.md)).
 3. `ex_hermes_set_host_call()` wires `__hostCall` so JS can reach the host.

@@ -1,14 +1,14 @@
-//! Exact Shared Runtime
+//! Ibex shared runtime
 //!
-//! This crate contains the shared runtime components used by both the CLI (`ex`)
-//! and the iOS app. It provides:
+//! This crate contains the shared runtime components used by both the `ibex`
+//! binary and embedding apps. It provides:
 //!
 //! - **Module Loader**: Node.js-compatible `require()` with 30+ builtin modules
 //! - **Host ABI**: C-level functions for filesystem, SQLite, crypto, etc.
 //! - **Hermes C++ adapter**: The `hermes_runtime.cc` compiled into this library
 //!   provides `ex_hermes_create()`, `ex_hermes_eval()`, `ex_hermes_poll()`, etc.
 //!
-//! The CLI wraps these in async Rust (via tokio). The iOS app calls the C API
+//! The `ibex` binary wraps these in async Rust (via tokio). The iOS app calls the C API
 //! directly from Swift via the bridging header.
 
 #[cfg(feature = "host-http-server")]

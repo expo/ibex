@@ -14,11 +14,14 @@ builtin manifest, the transformed builtin modules, and the bundled shared
 runtime — either by copying committed `vendored-generated/` artifacts (the
 default, hermetic path) or by regenerating them from JS sources with bun/the JS
 tooling (the `IBEX_REGENERATE_RUNTIME=1` dev path); (2) it emits source and
-optional Hermes bytecode headers for bootstrap/runtime JS; and (3) it compiles
+optional Hermes bytecode headers for bootstrap/runtime JS plus the Rust
+`embedded_runtime.rs` module consumed by the `ibex` binary; and (3) it compiles
 the C++ engine (`src/engine/*.cc`) with `cc` and links Hermes from
 platform-specific paths or env overrides `[observed]` (`build.rs:321-351,
-454-548, 711-781, 804-1224`). The headline invariant is narrower than "the
-whole native build is self-contained": the default generated-JS path must not
+454-548, 711-781, 804-1224`). The binary ownership boundary is recorded in
+[LLP 0010](./0010-ibex-binary-ownership.decision.md).
+The headline invariant is narrower than "the whole native build is
+self-contained": the default generated-JS path must not
 require bun or `node_modules` `[observed]` (`vendored-generated/README.md:3-9`).
 This explains the flow; it does not restate the platform/crypto matrix
 ([LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md)).
@@ -75,12 +78,13 @@ generator `[observed]` (`build.rs:1123-1179`). The Rust loader `include!`s it
 
 ### 3. The shared runtime bundle
 
-`generate_runtime_bundle_source_header` (`build.rs:454-459, 1288-1400`) wraps
+`generate_runtime_bundle_source_header` (`build.rs`) wraps
 `embedded_runtime_bundle.js` into a C++ raw-string header
-(`runtime_bundle_source.h`, symbol `SHARED_RUNTIME_BUNDLE_SRC`) `[observed]`. In
-standalone mode the source is the vendored bundle (`build.rs:1310-1326`);
+(`runtime_bundle_source.h`, symbol `SHARED_RUNTIME_BUNDLE_SRC`) and writes the
+Rust `embedded_runtime.rs` module used by `src/bin/ibex/engine/hermes.rs`
+`[observed]`. In standalone mode the source is the vendored bundle;
 otherwise it is rebuilt by `rolldown-bundle.mjs` from
-`packages/ibex-runtime-js/src/runtime-entry.ts` (`build.rs:1300, 1346`;
+`packages/ibex-runtime-js/src/runtime-entry.ts` (`build.rs`;
 `vendored-generated/README.md:23-27`). The engine installs this bundle at startup
 ([LLP 0003 §The bootstrap sequence](./0003-hermes-engine-bridge.explainer.md#the-bootstrap-sequence)).
 
@@ -124,6 +128,10 @@ too: it rejects BigInt literal syntax in bootstrap files while accepting
 `BigInt(...)` constructor calls. Bootstrap code that must be precompiled on
 macOS therefore avoids `123n` / `0x...n` literals even when the value is
 semantically a BigInt `[observed]` (`src/engine/bootstrap/module-loader.js:1405-1446`).
+The generated-artifact path handles the same parser limitation centrally:
+`transforms.mjs` rewrites BigInt literals to `BigInt("...")` in bundled runtime
+and builtin outputs before they are vendored or embedded `[observed]`
+(`packages/ibex-devtools/src/scripts/transforms.mjs`).
 
 These bytecode headers are **not vendored** — they are regenerated each build
 from committed JS or replaced by fallback headers, because they are tied to the
@@ -212,7 +220,10 @@ directory plus `deps/` so `cargo test` and `cargo run` binaries can load
 (`build.rs:199-260, 302-320, 1153-1199, 1796-1858`).
 
 The `host-http-server` feature controls whether the real Rust
-`ex_host_http_*` implementation is linked. When the feature is off, `build.rs`
+`ex_host_http_*` implementation is linked. The `ibex` binary can compile
+without that feature by using no-op Rust-side bridge shims, and should enable
+it for the full runtime CLI profile ([LLP 0010](./0010-ibex-binary-ownership.decision.md)).
+When the feature is off, `build.rs`
 defines `EXACT_RUNTIME_USE_HTTP_STUBS` so the C++ adapter supplies no-op stubs
 and the default build remains linkable `[observed]` (`build.rs:1059-1060`;
 `src/engine/hermes_runtime.cc:2059-2086`). Non-MSVC builds mark those stubs weak

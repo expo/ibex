@@ -10,10 +10,18 @@ license = "MIT"
 name = "exact_runtime"
 crate-type = ["staticlib", "rlib"]
 
+[[bin]]
+name = "ibex"
+path = "src/bin/ibex/main.rs"
+
 [dependencies]
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
+
+# CLI argument parsing and shell completions for the `ibex` binary.
+clap = { version = "4.4", features = ["derive"] }
+clap_complete = "4.4"
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
@@ -52,6 +60,12 @@ h2 = "0.4"
 http-body-util = "0.1"
 futures-util = "0.3"
 socket2 = "0.6.2"
+tokio-tungstenite = "0.21"
+
+# File watching and REPL support for the `ibex` binary.
+notify = "6.1"
+rustyline = "14.0"
+colored = "2.1"
 
 # Path handling
 dirs = "5.0"
@@ -75,12 +89,13 @@ swc_ecma_transforms_react = "49.0.0"
 default = []
 app-host = []
 # Compiles the hyper-based localhost HTTP server backing `exact:http` and the
-# agent endpoints (the `ex_host_http_*` C symbols). App hosts and the CLI enable
-# this; without it build.rs compiles no-op stubs instead. @ref LLP 0005#c-compilation
+# agent endpoints (the `ex_host_http_*` C symbols). App hosts and the full
+# `ibex` CLI profile enable this; without it build.rs compiles no-op stubs
+# instead. @ref LLP 0005#c-compilation
 host-http-server = []
 openssl-crypto = ["dep:openssl-sys"]
 # When enabled, skips the default ex_hermes_notify_callback implementation.
-# The CLI provides its own tokio-based version.
+# The `ibex` binary provides its own tokio-based version.
 cli-notify = []
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]

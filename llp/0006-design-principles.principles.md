@@ -18,15 +18,16 @@ than confirmed by a named author, this document stays `Draft`.
 ## A runtime, not a framework
 
 **Observed:** The repo is the JS/TS runtime (Hermes engine, module loader, host
-ABI, embedded JS layer) and explicitly *not* the app/CLI layer; the README says
-it is "not a full application framework" `[observed]` (`README.md:3-10`). The
-crate is a `staticlib`+`rlib` meant to be linked, not run as a product
-`[observed]` (`Cargo.toml:1-11`).
+ABI, embedded JS layer, and `ibex` runtime binary) and explicitly *not* the
+Exact app/project CLI layer; the README says it is "not an app framework"
+`[observed]` (`README.md:3-17`; [LLP 0010](./0010-ibex-binary-ownership.decision.md)).
+The crate still builds a `staticlib`+`rlib` for embedders and now also declares
+the `ibex` binary target `[observed]` (`Cargo.toml:1-15`).
 
-**Inferred:** `[inferred: keeping the runtime free of app concerns is what lets
-two unrelated consumers (Exact, Snapback) depend on it without each vendoring a
-monorepo — the same reason it was extracted (LLP 0000 §Overview, exact LLP
-0180).]`
+**Inferred:** `[inferred: keeping runtime commands separate from app/project
+commands is what lets two unrelated consumers (Exact, Snapback) depend on Ibex
+without inheriting Exact-specific scaffolding or verification workflows — the
+same reason it was extracted (LLP 0000 §Overview, exact LLP 0180).]`
 
 ## A narrow, stable embedding contract
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # build-hermes-linux.sh
-# Builds Hermes from source for Linux and installs artifacts for Exact CLI.
+# Builds Hermes from source for Linux and installs artifacts for Ibex.
 #
 # Usage:
 #   ./scripts/build-hermes-linux.sh

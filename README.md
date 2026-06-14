@@ -6,8 +6,8 @@ a small, stable host ABI so native hosts can create runtimes, evaluate JS/HBC,
 and install host calls.
 
 Analogous in spirit to `node`, `bun`, or `deno` — a runtime, not an app
-framework. The Exact project CLI and app framework live in the `exact` repo;
-this repo is just the runtime.
+framework. The `ibex` runtime binary lives in this repo. The Exact project CLI
+and app framework live in the `exact` repo.
 
 > **Status: extracted "for now."** This repository was split out of the Exact
 > monorepo per **LLP 0180** (history-preserving). It will be re-homed under the
@@ -19,6 +19,8 @@ this repo is just the runtime.
 
 - The `exact-runtime` Rust crate (Hermes bindings in `src/engine/*.cc`, the
   host ABI in `src/host`, the module loader, vendored Brotli).
+- The `ibex` runtime binary (`src/bin/ibex`) for running JavaScript and
+  TypeScript files.
 - The Hermes build scripts (`scripts/build-hermes-*.sh`, `download-hermes.sh`).
 
 ## The contract
@@ -39,8 +41,20 @@ Ibex needs Hermes headers + a prebuilt `libhermesvm`. Build them with
 # default profile
 cargo build
 
+# runtime binary
+cargo build --bin ibex
+
+# full runtime CLI profile
+cargo build --bin ibex --features host-http-server,cli-notify
+
 # full native crypto on Linux
 cargo build --features openssl-crypto
+```
+
+Run the local binary with:
+
+```sh
+cargo run --bin ibex -- --version
 ```
 
 `build.rs` auto-detects the standalone layout; `HERMES_INCLUDE_DIR` and
