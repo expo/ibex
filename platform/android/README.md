@@ -9,8 +9,8 @@ Ibex Android platform integration is split between native C++ and Android Java:
   environment data.
 - `src/engine/hermes_runtime_android.cc` installs the Android-only Hermes
   globals consumed by clipboard, location, camera, locale, screen,
-  appearance/accessibility, app state/linking/dimensions, and React Native
-  compatibility shims.
+  appearance/accessibility, app state/linking/dimensions, display-linked
+  animation frames, and React Native compatibility shims.
 - `java/dev/ibex/runtime/IbexNetworking.java` owns the Android app integration.
   It uses OkHttp for HTTP/WebSocket and Android framework services for the
   other platform data.
@@ -93,6 +93,10 @@ IbexNetworking.setDialogHostProvider(new IbexNetworking.DialogHostProvider() {
   }
 });
 ```
+
+`requestAnimationFrame()` uses Android `Choreographer` through the Java bridge
+when the helper is present. If the helper is older or frame posting fails, the
+runtime falls back to its timer-based animation frame scheduler.
 
 The bridge configures OkHttp with redirects disabled because Ibex's JS fetch
 layer implements Fetch redirect policy itself.

@@ -285,7 +285,7 @@ export function getMissingNativeModules(): string[] {
 // =============================================================================
 export interface NativeSchedulingModule {
   requestAnimationFrame(callback: () => void): void;
-  requestIdleCallback(callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout?: number }): void;
+  requestIdleCallback?(callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout?: number }): void;
 }
 
 let _schedulingModule: NativeSchedulingModule | null = null;

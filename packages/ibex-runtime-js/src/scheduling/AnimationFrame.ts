@@ -40,9 +40,13 @@ export function requestAnimationFrame(callback: FrameRequestCallback): number {
   const nativeScheduling = getNativeModule('scheduling');
   if (nativeScheduling?.requestAnimationFrame) {
     // Use native RAF which is tied to the display refresh rate
-    nativeScheduling.requestAnimationFrame(() => {
-      runCallbacks();
-    });
+    if (!isScheduled) {
+      isScheduled = true;
+      nativeScheduling.requestAnimationFrame(() => {
+        isScheduled = false;
+        runCallbacks();
+      });
+    }
     return id;
   }
 
