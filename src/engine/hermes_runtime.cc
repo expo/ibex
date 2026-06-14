@@ -1458,6 +1458,7 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
     return;
   }
   disableDebugger(runtime);
+  unregisterAndroidHostFunctions(runtime);
   unregisterRuntime(runtime);
   delete runtime;
 }

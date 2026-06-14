@@ -10,7 +10,7 @@
  * commonly-used window properties that make sense in a native app context.
  */
 
-import { Event, EventTarget } from "../events";
+import { CustomEvent, Event, EventTarget } from "../events";
 
 // Type declarations for native bridge
 declare global {
@@ -29,6 +29,67 @@ declare global {
   var __exactWindowNotifyMediaChange:
     | ((next: { colorScheme?: 'light' | 'dark'; reducedMotion?: boolean }) => void)
     | undefined;
+  var __exactWindowNotifyResize: (() => void) | undefined;
+  var __exactAndroidDispatchPlatformEvent:
+    | ((event: string | AndroidPlatformEvent, state?: AndroidPlatformState | null) => void)
+    | undefined;
+  var __exactAndroidDrainPlatformEvents: (() => void) | undefined;
+  var __exactAndroidGetPlatformState: (() => AndroidPlatformState) | undefined;
+  var __exactAppState: AndroidAppState | undefined;
+  var __exactInitialURL: string | null | undefined;
+  var __exactLocaleChanged:
+    | ((snapshot?: { tag?: string; tags?: readonly string[]; uses24Hour?: boolean } | null) => void)
+    | undefined;
+  var __exactAccessibilityChanged:
+    | ((snapshot?: Record<string, unknown> | null) => void)
+    | undefined;
+  var __exactReactNativeNotifyDimensionsChange:
+    | ((next?: AndroidPlatformState['dimensions']) => void)
+    | undefined;
+  var __exactReactNativeNotifyAppState:
+    | ((state: AndroidAppState) => void)
+    | undefined;
+  var __exactReactNativeNotifyMemoryWarning: (() => void) | undefined;
+  var __exactReactNativeNotifyURL: ((url: string) => void) | undefined;
+}
+
+type AndroidAppState = 'active' | 'background' | 'inactive' | 'unknown';
+
+interface AndroidPlatformEvent {
+  type?: string;
+  state?: AndroidAppState;
+  url?: string;
+}
+
+interface AndroidPlatformState {
+  appState?: AndroidAppState;
+  initialURL?: string | null;
+  locale?: { tag?: string; tags?: readonly string[]; uses24Hour?: boolean };
+  screen?: {
+    width?: number;
+    height?: number;
+    scale?: number;
+    fontScale?: number;
+  };
+  dimensions?: {
+    window?: {
+      width?: number;
+      height?: number;
+      scale?: number;
+      fontScale?: number;
+    };
+    screen?: {
+      width?: number;
+      height?: number;
+      scale?: number;
+      fontScale?: number;
+    };
+  };
+  appearance?: {
+    colorScheme?: 'light' | 'dark';
+    reducedMotion?: boolean;
+  };
+  accessibility?: Record<string, unknown>;
 }
 
 /**
@@ -76,17 +137,27 @@ export interface LocationInfo {
 /**
  * Get screen dimensions from native or use defaults
  */
-function getScreenDimensions(): { width: number; height: number; scale: number } {
+function getScreenDimensions(): { width: number; height: number; scale: number; fontScale: number } {
   if (typeof __exactGetScreenInfo === 'function') {
     const info = __exactGetScreenInfo();
     return {
       width: info.width,
       height: info.height,
       scale: info.scale,
+      fontScale: info.fontScale,
     };
   }
   // Default fallback (iPhone 14 Pro dimensions)
-  return { width: 393, height: 852, scale: 3 };
+  return { width: 393, height: 852, scale: 3, fontScale: 1 };
+}
+
+function getScreenOrientation(): ScreenInfo['orientation'] {
+  const dims = getScreenDimensions();
+  const landscape = dims.width > dims.height;
+  return {
+    type: landscape ? 'landscape-primary' : 'portrait-primary',
+    angle: landscape ? 90 : 0,
+  };
 }
 
 /**
@@ -112,8 +183,12 @@ function createScreen(): ScreenInfo {
     colorDepth: 24,
     pixelDepth: 24,
     orientation: {
-      type: 'portrait-primary',
-      angle: 0,
+      get type() {
+        return getScreenOrientation().type;
+      },
+      get angle() {
+        return getScreenOrientation().angle;
+      },
     },
   };
 }
@@ -207,6 +282,92 @@ function updateAppearanceState(next: unknown): void {
   globalThis.__exactAppearanceState = { ...appearanceState };
   for (const mediaQueryList of mediaQueryLists) {
     mediaQueryList._syncFromAppearance();
+  }
+}
+
+function syncMediaQueries(): void {
+  for (const mediaQueryList of mediaQueryLists) {
+    mediaQueryList._syncFromAppearance();
+  }
+}
+
+function dispatchWindowEvent(event: Event): void {
+  try {
+    window.dispatchEvent(event);
+  } catch {
+    // Ignore app listener failures.
+  }
+  const globalDispatch = (globalThis as typeof globalThis & {
+    dispatchEvent?: (event: Event) => boolean;
+  }).dispatchEvent;
+  if (typeof globalDispatch === 'function' && globalThis !== window) {
+    try {
+      globalDispatch.call(globalThis, event);
+    } catch {
+      // Ignore app listener failures.
+    }
+  }
+}
+
+function normalizeAndroidPlatformEvent(event: string | AndroidPlatformEvent): AndroidPlatformEvent {
+  if (typeof event === 'string') {
+    try {
+      const parsed = JSON.parse(event);
+      return parsed && typeof parsed === 'object' ? parsed : { type: event };
+    } catch {
+      return { type: event };
+    }
+  }
+  return event && typeof event === 'object' ? event : {};
+}
+
+function applyAndroidPlatformState(
+  event: AndroidPlatformEvent,
+  state?: AndroidPlatformState | null,
+): void {
+  if (state?.locale) {
+    globalThis.__exactLocaleSnapshot = state.locale;
+    globalThis.__exactLocaleChanged?.(state.locale);
+  }
+
+  if (state?.accessibility) {
+    globalThis.__exactAccessibilitySnapshot = state.accessibility;
+    globalThis.__exactAccessibilityChanged?.(state.accessibility);
+  } else if (state?.appearance) {
+    updateAppearanceState(state.appearance);
+  }
+
+  if (state?.initialURL !== undefined) {
+    globalThis.__exactInitialURL = state.initialURL ?? null;
+  }
+
+  const nextState = event.state ?? state?.appState;
+  if (nextState) {
+    const previous = globalThis.__exactAppState;
+    globalThis.__exactAppState = nextState;
+    globalThis.__exactReactNativeNotifyAppState?.(nextState);
+    if (previous !== nextState) {
+      dispatchWindowEvent(new CustomEvent('appstatechange', { detail: { state: nextState } }));
+    }
+  }
+
+  if (state?.dimensions) {
+    globalThis.__exactReactNativeNotifyDimensionsChange?.(state.dimensions);
+  }
+
+  if (event.type === 'configuration') {
+    syncMediaQueries();
+    dispatchWindowEvent(new Event('resize'));
+    dispatchWindowEvent(new Event('orientationchange'));
+  } else if (event.type === 'memoryWarning') {
+    globalThis.__exactReactNativeNotifyMemoryWarning?.();
+    dispatchWindowEvent(new Event('memorywarning'));
+  }
+
+  if (event.type === 'url' && typeof event.url === 'string' && event.url.length > 0) {
+    globalThis.__exactInitialURL ??= event.url;
+    globalThis.__exactReactNativeNotifyURL?.(event.url);
+    dispatchWindowEvent(new CustomEvent('url', { detail: { url: event.url } }));
   }
 }
 
@@ -654,6 +815,23 @@ export const window = new Window();
 globalThis.__exactWindowNotifyMediaChange = (next) => {
   updateAppearanceState(next);
 };
+
+globalThis.__exactWindowNotifyResize = () => {
+  syncMediaQueries();
+  dispatchWindowEvent(new Event('resize'));
+  dispatchWindowEvent(new Event('orientationchange'));
+};
+
+globalThis.__exactAndroidDispatchPlatformEvent = (event, state) => {
+  applyAndroidPlatformState(normalizeAndroidPlatformEvent(event), state);
+};
+
+if (typeof globalThis.__exactAndroidGetPlatformState === 'function') {
+  applyAndroidPlatformState({ type: 'initial' }, globalThis.__exactAndroidGetPlatformState());
+}
+if (typeof globalThis.__exactAndroidDrainPlatformEvents === 'function') {
+  globalThis.__exactAndroidDrainPlatformEvents();
+}
 
 // Also export the class for type checking
 export { Window };

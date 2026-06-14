@@ -1,9 +1,13 @@
 package dev.ibex.runtime;
 
 import android.Manifest;
+import android.app.Activity;
+import android.app.Application;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ComponentCallbacks;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -25,8 +29,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -69,14 +76,28 @@ public final class IbexNetworking {
       .followRedirects(false)
       .followSslRedirects(false)
       .build();
+  private static volatile boolean componentCallbacksRegistered;
+  private static volatile boolean lifecycleCallbacksRegistered;
+  private static int manualStartedActivityCount;
+  private static volatile String currentAppState = "unknown";
+  private static volatile String initialUrl;
 
   private static final Map<Integer, Call> calls = new ConcurrentHashMap<>();
   private static final Map<Integer, WsEntry> webSockets = new ConcurrentHashMap<>();
+  private static final ArrayDeque<String> platformEvents = new ArrayDeque<>();
+  private static final Set<Activity> startedActivities =
+      Collections.newSetFromMap(new WeakHashMap<Activity, Boolean>());
 
   private IbexNetworking() {}
 
   public static void initialize(Context context) {
-    applicationContext = context == null ? null : context.getApplicationContext();
+    Context appContext = context == null ? null : context.getApplicationContext();
+    applicationContext = appContext;
+    captureInitialIntent(context);
+    registerPlatformCallbacks(appContext);
+    if (context instanceof Activity) {
+      notifyActivityResumed((Activity) context);
+    }
   }
 
   public static Context getApplicationContext() {
@@ -95,6 +116,112 @@ public final class IbexNetworking {
 
   public static String platformVersion() {
     return String.valueOf(Build.VERSION.SDK_INT);
+  }
+
+  public static String appState() {
+    return currentAppState;
+  }
+
+  public static String initialURL() {
+    return initialUrl == null ? "" : initialUrl;
+  }
+
+  public static String drainPlatformEvents() {
+    StringBuilder builder = new StringBuilder();
+    synchronized (platformEvents) {
+      while (!platformEvents.isEmpty()) {
+        if (builder.length() > 0) {
+          builder.append('\n');
+        }
+        builder.append(platformEvents.removeFirst());
+      }
+    }
+    return builder.toString();
+  }
+
+  public static void notifyActivityStarted(Activity activity) {
+    captureInitialIntent(activity);
+    int next;
+    synchronized (IbexNetworking.class) {
+      if (activity != null) {
+        startedActivities.add(activity);
+      } else {
+        manualStartedActivityCount++;
+      }
+      next = startedActivityCountLocked();
+    }
+    if (next > 0) {
+      updateAppState("active");
+    }
+  }
+
+  public static void notifyActivityStopped(Activity activity) {
+    synchronized (IbexNetworking.class) {
+      if (activity != null) {
+        startedActivities.remove(activity);
+      } else {
+        manualStartedActivityCount = Math.max(0, manualStartedActivityCount - 1);
+      }
+    }
+    updateBackgroundIfIdle();
+  }
+
+  public static void notifyActivityResumed(Activity activity) {
+    captureInitialIntent(activity);
+    synchronized (IbexNetworking.class) {
+      if (activity != null) {
+        startedActivities.add(activity);
+      } else if (startedActivityCountLocked() <= 0) {
+        manualStartedActivityCount = 1;
+      }
+    }
+    updateAppState("active");
+  }
+
+  public static void notifyActivityPaused(Activity activity) {
+    if (activity == null) {
+      updateBackgroundIfIdle();
+    }
+  }
+
+  private static int startedActivityCountLocked() {
+    return manualStartedActivityCount + startedActivities.size();
+  }
+
+  private static void updateBackgroundIfIdle() {
+    synchronized (IbexNetworking.class) {
+      if (startedActivityCountLocked() > 0) {
+        return;
+      }
+    }
+    updateAppState("background");
+  }
+
+  private static void notifyActivityDestroyed(Activity activity) {
+    if (activity == null) {
+      return;
+    }
+    boolean removed;
+    synchronized (IbexNetworking.class) {
+      removed = startedActivities.remove(activity);
+    }
+    if (removed) {
+      updateBackgroundIfIdle();
+    }
+  }
+
+  public static void notifyNewIntent(Intent intent) {
+    recordIntent(intent, false);
+  }
+
+  public static void notifyDeepLink(String url) {
+    if (url == null || url.isEmpty()) {
+      return;
+    }
+    if (initialUrl == null) {
+      initialUrl = url;
+    }
+    enqueuePlatformEvent("{\"type\":\"url\",\"url\":" + jsonString(url) + "}");
   }
 
   public static String[] localeTags() {
@@ -542,6 +669,124 @@ public final class IbexNetworking {
     clipboard.setPrimaryClip(ClipData.newPlainText("Ibex", valueOrEmpty(text)));
   }
 
+  private static void registerPlatformCallbacks(Context context) {
+    if (context == null) {
+      return;
+    }
+    // @ref LLP 0008#android-backend-matrix — Android window/navigator and
+    // React Native compatibility state comes from platform lifecycle and
+    // configuration callbacks instead of JS-side guesses.
+    if (!componentCallbacksRegistered) {
+      try {
+        context.registerComponentCallbacks(new ComponentCallbacks() {
+          @Override
+          public void onConfigurationChanged(Configuration newConfig) {
+            enqueuePlatformEvent("{\"type\":\"configuration\"}");
+          }
+
+          @Override
+          public void onLowMemory() {
+            enqueuePlatformEvent("{\"type\":\"memoryWarning\"}");
+          }
+        });
+        componentCallbacksRegistered = true;
+      } catch (RuntimeException ignored) {
+        // Embedders can still call the public notify* hooks.
+      }
+    }
+
+    if (!lifecycleCallbacksRegistered && context instanceof Application) {
+      try {
+        ((Application) context).registerActivityLifecycleCallbacks(
+            new Application.ActivityLifecycleCallbacks() {
+              @Override
+              public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
+                captureInitialIntent(activity);
+              }
+
+              @Override
+              public void onActivityStarted(Activity activity) {
+                notifyActivityStarted(activity);
+              }
+
+              @Override
+              public void onActivityResumed(Activity activity) {
+                notifyActivityResumed(activity);
+              }
+
+              @Override
+              public void onActivityPaused(Activity activity) {
+                notifyActivityPaused(activity);
+              }
+
+              @Override
+              public void onActivityStopped(Activity activity) {
+                notifyActivityStopped(activity);
+              }
+
+              @Override
+              public void onActivitySaveInstanceState(Activity activity, Bundle outState) {}
+
+              @Override
+              public void onActivityDestroyed(Activity activity) {
+                notifyActivityDestroyed(activity);
+              }
+            });
+        lifecycleCallbacksRegistered = true;
+      } catch (RuntimeException ignored) {
+        // Embedders can still call the public notify* hooks.
+      }
+    }
+  }
+
+  private static void captureInitialIntent(Context context) {
+    if (context instanceof Activity) {
+      recordIntent(((Activity) context).getIntent(), true);
+    }
+  }
+
+  private static void recordIntent(Intent intent, boolean initialOnly) {
+    if (intent == null) {
+      return;
+    }
+    String url = null;
+    try {
+      if (intent.getDataString() != null && !intent.getDataString().isEmpty()) {
+        url = intent.getDataString();
+      }
+    } catch (RuntimeException ignored) {
+      url = null;
+    }
+    if (url == null || url.isEmpty()) {
+      return;
+    }
+    if (initialUrl == null) {
+      initialUrl = url;
+    }
+    if (!initialOnly) {
+      enqueuePlatformEvent("{\"type\":\"url\",\"url\":" + jsonString(url) + "}");
+    }
+  }
+
+  private static void updateAppState(String state) {
+    if (state == null || state.isEmpty() || state.equals(currentAppState)) {
+      return;
+    }
+    currentAppState = state;
+    enqueuePlatformEvent("{\"type\":\"appState\",\"state\":" + jsonString(state) + "}");
+  }
+
+  private static void enqueuePlatformEvent(String eventJson) {
+    synchronized (platformEvents) {
+      platformEvents.addLast(eventJson);
+    }
+    try {
+      nativePlatformEventAvailable();
+    } catch (UnsatisfiedLinkError ignored) {
+      // Java-only test harnesses can still drain the queued events directly.
+    }
+  }
+
   private static Resources currentResources() {
     Context context = applicationContext;
     return context == null ? Resources.getSystem() : context.getResources();
@@ -796,6 +1041,46 @@ public final class IbexNetworking {
     return value == null ? "" : value;
   }
 
+  private static String jsonString(String value) {
+    String text = value == null ? "" : value;
+    StringBuilder builder = new StringBuilder(text.length() + 2);
+    builder.append('"');
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      switch (c) {
+        case '"':
+          builder.append("\\\"");
+          break;
+        case '\\':
+          builder.append("\\\\");
+          break;
+        case '\b':
+          builder.append("\\b");
+          break;
+        case '\f':
+          builder.append("\\f");
+          break;
+        case '\n':
+          builder.append("\\n");
+          break;
+        case '\r':
+          builder.append("\\r");
+          break;
+        case '\t':
+          builder.append("\\t");
+          break;
+        default:
+          if (c < 0x20) {
+            builder.append(String.format(Locale.US, "\\u%04x", (int) c));
+          } else {
+            builder.append(c);
+          }
+      }
+    }
+    builder.append('"');
+    return builder.toString();
+  }
+
   private static void deliverOrQueue(WsEntry entry, WsMessage message) {
     synchronized (entry) {
       if (entry.paused) {
@@ -894,4 +1179,6 @@ public final class IbexNetworking {
   private static native void nativeWebSocketDidError(int wsId, String message);
 
   private static native void nativeWebSocketDidBytesSent(int wsId, long bytesSent);
+
+  private static native void nativePlatformEventAvailable();
 }

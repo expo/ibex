@@ -167,7 +167,8 @@ extract under `android/react-android` `[observed]` (`build.rs:185-198,
 212-247, 276-314`). Android native fetch/WebSocket are compiled from
 `native_android_networking.cc` and delegate to the Java OkHttp bridge shipped
 under `platform/android/java`. That bridge also supplies Android clipboard, raw
-DNS, location, locale/screen/appearance, accessibility, and platform-version data to
+DNS, location, locale/screen/appearance, accessibility,
+app-state/deep-link/configuration events, and platform-version data to
 Hermes host globals `[observed]` (`src/engine/native_android_networking.cc`;
 `src/engine/hermes_runtime_android.cc`;
 `platform/android/java/dev/ibex/runtime/IbexNetworking.java`; `build.rs`). This

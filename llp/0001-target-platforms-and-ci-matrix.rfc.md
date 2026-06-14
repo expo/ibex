@@ -62,7 +62,8 @@ implementation catches up]`. Android is no longer known-red for compile or for
 the default native fetch/WebSocket surface because it compiles
 `native_android_networking.cc` and delegates HTTP/WebSocket work to the Android
 OkHttp bridge; the same Android Java/JNI bridge now initializes clipboard,
-raw DNS, location, locale, screen, appearance/accessibility, and platform-version globals
+raw DNS, location, locale, screen, appearance/accessibility,
+app-state/deep-link/configuration events, and platform-version globals
 for the JS runtime `[observed]` (`build.rs`;
 `src/engine/native_android_networking.cc`;
 `src/engine/hermes_runtime_android.cc`;

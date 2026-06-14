@@ -68,9 +68,13 @@ declare global {
   var __exactReactNativeNotifyAppState:
     | ((state: AppStateStatus) => void)
     | undefined;
+  var __exactReactNativeNotifyMemoryWarning:
+    | (() => void)
+    | undefined;
   var __exactReactNativeNotifyDimensionsChange:
     | ((next?: Partial<DimensionsValue>) => void)
     | undefined;
+  var __exactAppState: AppStateStatus | undefined;
 }
 
 function normalizePlatform(value: string): PlatformOS {
@@ -250,23 +254,33 @@ const appStateChangeListeners = new Set<AppStateChangeHandler>();
 const appStateFocusListeners = new Set<AppStateEventHandler>();
 const appStateBlurListeners = new Set<AppStateEventHandler>();
 const appStateMemoryWarningListeners = new Set<AppStateEventHandler>();
-let currentAppState: AppStateStatus = 'active';
+
+function normalizeAppState(state: unknown): AppStateStatus {
+  return state === 'active' || state === 'background' || state === 'inactive'
+    ? state
+    : 'unknown';
+}
+
+let currentAppState: AppStateStatus = normalizeAppState(globalThis.__exactAppState) === 'unknown'
+  ? 'active'
+  : normalizeAppState(globalThis.__exactAppState);
 
 function notifyAppState(state: AppStateStatus): void {
   const previous = currentAppState;
-  currentAppState = state;
+  currentAppState = normalizeAppState(state);
+  globalThis.__exactAppState = currentAppState;
 
-  if (previous !== state) {
+  if (previous !== currentAppState) {
     for (const listener of [...appStateChangeListeners]) {
-      listener(state);
+      listener(currentAppState);
     }
   }
-  if (state === 'active' && previous !== 'active') {
+  if (currentAppState === 'active' && previous !== 'active') {
     for (const listener of [...appStateFocusListeners]) {
       listener();
     }
   }
-  if (state !== 'active' && previous === 'active') {
+  if (currentAppState !== 'active' && previous === 'active') {
     for (const listener of [...appStateBlurListeners]) {
       listener();
     }
@@ -274,6 +288,11 @@ function notifyAppState(state: AppStateStatus): void {
 }
 
 globalThis.__exactReactNativeNotifyAppState = notifyAppState;
+globalThis.__exactReactNativeNotifyMemoryWarning = () => {
+  for (const listener of [...appStateMemoryWarningListeners]) {
+    listener();
+  }
+};
 
 export const AppState = {
   get currentState(): AppStateStatus {
