@@ -2,6 +2,13 @@ use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::Path;
 use std::path::PathBuf;
 
+#[derive(Clone)]
+struct AppleFramework {
+    search_dir: PathBuf,
+    framework_name: String,
+    binary_path: PathBuf,
+}
+
 fn env_path(var: &str) -> PathBuf {
     match std::env::var(var) {
         Ok(value) => PathBuf::from(value),
@@ -86,6 +93,12 @@ fn read_text_or_panic(path: &Path, context: &str) -> String {
         .unwrap_or_else(|error| panic!("Failed to read {context} at {}: {error}", path.display()))
 }
 
+fn file_contains_all(path: &Path, needles: &[&str]) -> bool {
+    std::fs::read_to_string(path)
+        .map(|text| needles.iter().all(|needle| text.contains(needle)))
+        .unwrap_or(false)
+}
+
 fn write_file_or_panic(path: &Path, contents: impl AsRef<[u8]>, context: &str) {
     if let Err(error) = std::fs::write(path, contents) {
         panic!("Failed to write {context} at {}: {error}", path.display());
@@ -160,6 +173,7 @@ fn main() {
     let default_ios_lib = repo_root.join("ios").join("Frameworks");
     let default_linux_lib = repo_root.join("linux").join("lib");
     let default_windows_lib = default_windows_root.join("lib");
+    let default_windows_bin = default_windows_root.join("bin");
     let hermes_lib_dir = std::env::var("HERMES_LIB_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| match target_os.as_str() {
@@ -167,18 +181,25 @@ fn main() {
             "windows" => default_windows_lib.clone(),
             _ => default_ios_lib.clone(),
         });
-    let hermes_framework_dir = if target_os == "macos" {
-        let xcframework_macos = hermes_lib_dir
-            .join("hermes.xcframework")
-            .join("macos-arm64_x86_64");
-        if xcframework_macos.exists() {
-            xcframework_macos
-        } else {
-            hermes_lib_dir.clone()
-        }
+    let hermes_bin_dir = std::env::var("HERMES_BIN_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| match target_os.as_str() {
+            "windows" => default_windows_bin.clone(),
+            _ => hermes_lib_dir.clone(),
+        });
+    let macos_hermes_framework = if target_os == "macos" {
+        resolve_macos_hermes_framework(&hermes_lib_dir)
     } else {
-        hermes_lib_dir.clone()
+        None
     };
+    let hermes_framework_dir = macos_hermes_framework
+        .as_ref()
+        .map(|framework| framework.search_dir.clone())
+        .unwrap_or_else(|| hermes_lib_dir.clone());
+    let hermes_framework_name = macos_hermes_framework
+        .as_ref()
+        .map(|framework| framework.framework_name.clone())
+        .unwrap_or_else(|| "hermesvm".to_string());
 
     if target_os == "linux" {
         if !hermes_include_dir.exists() {
@@ -207,6 +228,18 @@ fn main() {
                 hermes_lib_dir.display()
             );
         }
+        if !hermes_bin_dir.exists() {
+            panic!(
+                "Windows Hermes binary dir not found at {}. Run ./scripts/install-windows-hermes.ps1 or set HERMES_BIN_DIR.",
+                hermes_bin_dir.display()
+            );
+        }
+    }
+    if target_os == "macos" && macos_hermes_framework.is_none() {
+        panic!(
+            "macOS Hermes framework not found under {}. The release xcframework only contains iOS/Catalyst slices; build or install a macOS hermes.framework under ios/Frameworks/macosx or set HERMES_LIB_DIR to its parent directory.",
+            hermes_lib_dir.display()
+        );
     }
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
@@ -293,6 +326,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_BINARY");
     println!("cargo:rerun-if-env-changed=HERMES_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=HERMES_BIN_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
     println!("cargo:rerun-if-env-changed=IBEX_REGENERATE_RUNTIME");
     println!("cargo:rerun-if-env-changed=IBEX_UPDATE_VENDORED_GENERATED");
@@ -301,8 +335,9 @@ fn main() {
     let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
     let openssl_crypto_enabled = std::env::var_os("CARGO_FEATURE_OPENSSL_CRYPTO").is_some();
     let hermes_macos_binary = if target_os == "macos" {
-        let binary = find_macos_hermes_binary(&hermes_framework_dir)
-            .or_else(|| find_macos_hermes_binary(&hermes_lib_dir));
+        let binary = macos_hermes_framework
+            .as_ref()
+            .map(|framework| framework.binary_path.clone());
         if let Some(path) = binary.as_ref() {
             println!("cargo:rerun-if-changed={}", path.display());
         }
@@ -331,7 +366,10 @@ fn main() {
             "cargo:warning=Ibex build: using vendored generated artifacts from {}",
             vendored_generated_dir.display()
         );
-        println!("cargo:rerun-if-changed={}", vendored_generated_dir.display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            vendored_generated_dir.display()
+        );
     } else if !regenerate_runtime {
         // The default ibex build is hermetic: it expects the committed
         // vendored-generated/ artifacts. If they are missing, fail loudly
@@ -490,9 +528,16 @@ fn main() {
     } else {
         None
     };
-    let mut precompile_bootstrap_hbc = true;
+    // @ref LLP 0005#bytecode-precompilation-hermesc — ReactNative.Hermes.Windows
+    // hermesc rejects modern optional bootstrap syntax; Windows uses source
+    // headers as the supported startup artifact.
+    let mut precompile_bootstrap_hbc = target_os != "windows";
 
-    if !hermesc.exists() {
+    if target_os == "windows" {
+        eprintln!(
+            "cargo:warning=Skipping bootstrap HBC precompilation on Windows; using generated source headers"
+        );
+    } else if !hermesc.exists() {
         precompile_bootstrap_hbc = false;
         if !allow_fallback {
             panic!(
@@ -567,6 +612,7 @@ fn main() {
         for (js_file, array_name) in &bootstrap_files {
             let js_path = bootstrap_dir.join(js_file);
             let hbc_path = out_dir.join(js_file.replace(".js", ".hbc"));
+            let optional_source_fallback = bootstrap_hbc_source_fallback_allowed(js_file);
 
             if !js_path.exists() {
                 if !allow_fallback {
@@ -596,6 +642,14 @@ fn main() {
                     match bytecode_file_version(&hermesc, &hbc_path) {
                         Some(actual_version) if actual_version == expected_version => {}
                         Some(actual_version) => {
+                            if optional_source_fallback {
+                                eprintln!(
+                                    "cargo:warning=Bootstrap HBC version mismatch for optional {}: compiled {} expected {}; using source fallback for this file",
+                                    js_file, actual_version, expected_version
+                                );
+                                push_empty_bootstrap_hbc_entry(&mut header, array_name);
+                                continue;
+                            }
                             if !allow_fallback {
                                 panic!(
                                     "Bootstrap hbc version mismatch for {}: compiled {} expected {}",
@@ -610,6 +664,14 @@ fn main() {
                             break;
                         }
                         None => {
+                            if optional_source_fallback {
+                                eprintln!(
+                                    "cargo:warning=Cannot read HBC version for optional {}; using source fallback for this file",
+                                    js_file
+                                );
+                                push_empty_bootstrap_hbc_entry(&mut header, array_name);
+                                continue;
+                            }
                             if !allow_fallback {
                                 panic!(
                                     "Failed to read hbc version for {} and EXACT_ALLOW_FALLBACK is not set",
@@ -642,6 +704,14 @@ fn main() {
                     ));
                 }
                 _ => {
+                    if optional_source_fallback {
+                        eprintln!(
+                            "cargo:warning=hermesc failed for optional {}; using source fallback for this file",
+                            js_file
+                        );
+                        push_empty_bootstrap_hbc_entry(&mut header, array_name);
+                        continue;
+                    }
                     if !allow_fallback {
                         panic!(
                             "hermesc failed for {} and EXACT_ALLOW_FALLBACK is not set",
@@ -840,6 +910,24 @@ fn main() {
         build.define("EXACT_NO_OPENSSL", None);
     }
 
+    let jsi_header = hermes_include_dir.join("jsi").join("jsi.h");
+    let runtime_config_header = hermes_include_dir
+        .join("hermes")
+        .join("Public")
+        .join("RuntimeConfig.h");
+    // @ref LLP 0005#c-compilation — Ibex supports both Hermes 0.11 headers
+    // and newer ReactNative.Hermes.Windows headers; probe the vendored SDK
+    // surface instead of keying these C++ code paths on target OS.
+    if file_contains_all(&jsi_header, &["MutableBuffer", "createArrayBuffer"]) {
+        build.define("EXACT_HAVE_JSI_MUTABLE_BUFFER", None);
+    }
+    if file_contains_all(&jsi_header, &["queueMicrotask("]) {
+        build.define("EXACT_HAVE_JSI_QUEUE_MICROTASK", None);
+    }
+    if file_contains_all(&runtime_config_header, &["MicrotaskQueue"]) {
+        build.define("EXACT_HAVE_HERMES_MICROTASK_CONFIG", None);
+    }
+
     // Debugger support is auto-detected on macOS so we do not compile against
     // debugger APIs that are missing from the checked-in Hermes framework.
     let enable_debugger = target_os != "windows"
@@ -849,15 +937,13 @@ fn main() {
         build.define("HERMES_ENABLE_DEBUGGER", None);
         println!("cargo:rustc-cfg=hermes_debugger");
     }
-    // Weak no-op `ex_host_http_*` stubs are compiled exactly when no real
+    // No-op `ex_host_http_*` stubs are compiled exactly when no real
     // implementation is linked, i.e. when the `host-http-server` feature is
-    // off. Weak linkage keeps an externally provided strong implementation
-    // authoritative if a host supplies one. Windows is excluded because MSVC
-    // has no `__attribute__((weak))`; Windows builds must enable
-    // `host-http-server`. @tactical @ref LLP 0159 P0-B (gate was inverted:
-    // it previously keyed on cli-notify, so stub presence depended on cargo
-    // feature unification).
-    if !host_http_server_enabled && target_os != "windows" {
+    // off. Non-MSVC builds mark them weak so an external strong implementation
+    // can override them; MSVC gets strong stubs only in this feature-off build.
+    // @ref LLP 0005#c-compilation — keep the default build linkable while the
+    // real HTTP server remains feature-gated.
+    if !host_http_server_enabled {
         build.define("EXACT_RUNTIME_USE_HTTP_STUBS", None);
     }
 
@@ -898,7 +984,7 @@ fn main() {
                 "cargo:rustc-link-search=framework={}",
                 hermes_framework_dir.display()
             );
-            println!("cargo:rustc-link-lib=framework=hermesvm");
+            println!("cargo:rustc-link-lib=framework={}", hermes_framework_name);
             println!(
                 "cargo:rustc-link-arg=-Wl,-rpath,{}",
                 hermes_framework_dir.display()
@@ -974,9 +1060,21 @@ fn main() {
             .flag("/Zc:__cplusplus");
         ws_build.compile("exact_native_websocket");
 
+        // @ref LLP 0005#c-compilation — Windows test/run binaries need the
+        // Hermes runtime DLLs beside the executable; link-search paths alone do
+        // not make Cargo-launched tests find the NuGet bin directory.
+        stage_windows_runtime_dlls(&out_dir, &hermes_bin_dir);
+
         println!(
             "cargo:rustc-link-search=native={}",
             hermes_lib_dir.display()
+        );
+        // @ref LLP 0005#c-compilation — Cargo adds native link-search paths to
+        // the DLL search path for `cargo test`, so include the Hermes runtime
+        // DLL directory as well as the import-library directory.
+        println!(
+            "cargo:rustc-link-search=native={}",
+            hermes_bin_dir.display()
         );
         let hermes_lib_name =
             std::env::var("HERMES_LIB_NAME").unwrap_or_else(|_| "hermes".to_string());
@@ -1322,9 +1420,7 @@ fn generate_runtime_bundle_source_header(
         );
         push_cpp_raw_string_literal(&mut header, "SHARED_RUNTIME_BUNDLE_SRC", &source);
         write_file_or_panic(&header_path, header, "runtime_bundle_source.h");
-        eprintln!(
-            "cargo:warning=Generated runtime_bundle_source.h from vendored runtime bundle"
-        );
+        eprintln!("cargo:warning=Generated runtime_bundle_source.h from vendored runtime bundle");
         generate_runtime_bundle_bytecode_header(repo_root, out_dir, &bundled_runtime);
         return;
     }
@@ -1470,13 +1566,112 @@ fn write_empty_bootstrap_hbc_header(path: &Path, bootstrap_files: &[(&str, &str)
          #pragma once\n\n",
     );
     for (_, array_name) in bootstrap_files {
-        header.push_str(&format!(
-            "alignas(8) static const uint8_t {}_HBC[] = {{0}};\n\
-             static const size_t {}_HBC_LEN = 0;\n\n",
-            array_name, array_name
-        ));
+        push_empty_bootstrap_hbc_entry(&mut header, array_name);
     }
     write_file_or_panic(path, header, "empty bootstrap_bytecode.h");
+}
+
+fn push_empty_bootstrap_hbc_entry(header: &mut String, array_name: &str) {
+    header.push_str(&format!(
+        "alignas(8) static const uint8_t {}_HBC[] = {{0}};\n\
+         static const size_t {}_HBC_LEN = 0;\n\n",
+        array_name, array_name
+    ));
+}
+
+fn bootstrap_hbc_source_fallback_allowed(js_file: &str) -> bool {
+    // @ref LLP 0005#bytecode-precompilation-hermesc — The web streams polyfill
+    // is opt-in bootstrap code, and older hermesc builds reject its syntax.
+    js_file == "web-streams-polyfill.js"
+}
+
+fn profile_dir_from_out_dir(out_dir: &Path) -> PathBuf {
+    out_dir
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| {
+            panic!(
+                "Could not derive Cargo profile directory from OUT_DIR={}",
+                out_dir.display()
+            )
+        })
+}
+
+fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
+    let profile_dir = profile_dir_from_out_dir(out_dir);
+    let destinations = [profile_dir.clone(), profile_dir.join("deps")];
+    for destination in &destinations {
+        std::fs::create_dir_all(destination).unwrap_or_else(|error| {
+            panic!(
+                "Failed to create Windows runtime DLL destination {}: {error}",
+                destination.display()
+            )
+        });
+    }
+
+    let mut copied = 0usize;
+    for path in read_dir_paths_or_panic(hermes_bin_dir, "Windows Hermes runtime DLL staging") {
+        if !path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
+        {
+            continue;
+        }
+        println!("cargo:rerun-if-changed={}", path.display());
+        let file_name = path.file_name().unwrap_or_else(|| {
+            panic!(
+                "Windows runtime DLL path has no file name: {}",
+                path.display()
+            )
+        });
+        for destination in &destinations {
+            let staged_path = destination.join(file_name);
+            if same_file_len(&path, &staged_path) {
+                continue;
+            }
+            match std::fs::copy(&path, &staged_path) {
+                Ok(_) => {}
+                Err(error) if is_existing_permission_denied(&error, &staged_path) => {
+                    eprintln!(
+                        "cargo:warning=Could not overwrite staged Windows runtime DLL {}; using existing file: {error}",
+                        staged_path.display()
+                    );
+                }
+                Err(error) => {
+                    panic!(
+                        "Failed to stage Windows runtime DLL {} into {}: {error}",
+                        path.display(),
+                        destination.display()
+                    )
+                }
+            }
+        }
+        copied += 1;
+    }
+
+    if copied == 0 {
+        panic!(
+            "No Windows runtime DLLs found in {}. Run scripts/install-windows-hermes.ps1 or set HERMES_BIN_DIR.",
+            hermes_bin_dir.display()
+        );
+    }
+    eprintln!(
+        "cargo:warning=Staged {copied} Windows runtime DLLs from {}",
+        hermes_bin_dir.display()
+    );
+}
+
+fn is_existing_permission_denied(error: &std::io::Error, path: &Path) -> bool {
+    error.kind() == ErrorKind::PermissionDenied && path.exists()
+}
+
+fn same_file_len(source: &Path, destination: &Path) -> bool {
+    match (std::fs::metadata(source), std::fs::metadata(destination)) {
+        (Ok(source_meta), Ok(destination_meta)) => source_meta.len() == destination_meta.len(),
+        _ => false,
+    }
 }
 
 fn generate_runtime_bundle_bytecode_header(
@@ -1493,6 +1688,14 @@ fn generate_runtime_bundle_bytecode_header(
 
     safe_remove_file(&bundled_runtime_hbc);
     safe_remove_file(&header_path);
+
+    // @ref LLP 0005#bytecode-precompilation-hermesc — Windows startup does not
+    // install the shared runtime bundle, and the Windows Hermes compiler rejects
+    // modern bundle syntax, so HBC generation is intentionally skipped.
+    if target_os == "windows" {
+        eprintln!("cargo:warning=Skipping shared runtime bundle HBC generation on Windows");
+        return;
+    }
 
     if !hermesc.exists() {
         eprintln!(
@@ -1727,10 +1930,7 @@ fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
 /// OUT_DIR for the standalone Ibex build.
 fn copy_dir_files(src: &Path, dst: &Path, extensions: &[&str]) {
     if let Err(error) = std::fs::create_dir_all(dst) {
-        panic!(
-            "Failed to create OUT_DIR subdir {}: {error}",
-            dst.display()
-        );
+        panic!("Failed to create OUT_DIR subdir {}: {error}", dst.display());
     }
     for path in read_dir_paths_or_panic(src, "vendored artifact copy") {
         let matches_ext = path
@@ -1874,20 +2074,47 @@ fn parse_env_flag(name: &str) -> Option<bool> {
     })
 }
 
-fn find_macos_hermes_binary(search_root: &Path) -> Option<PathBuf> {
+fn resolve_macos_hermes_framework(lib_root: &Path) -> Option<AppleFramework> {
+    let search_dirs = [
+        lib_root.to_path_buf(),
+        lib_root.join("macosx"),
+        lib_root
+            .join("hermes.xcframework")
+            .join("macos-arm64_x86_64"),
+        lib_root.join("hermes.xcframework").join("macos-arm64"),
+    ];
+
+    for search_dir in search_dirs {
+        for framework_name in ["hermesvm", "hermes"] {
+            let framework_dir = search_dir.join(format!("{framework_name}.framework"));
+            if let Some(binary_path) = find_framework_binary(&framework_dir, framework_name) {
+                return Some(AppleFramework {
+                    search_dir,
+                    framework_name: framework_name.to_string(),
+                    binary_path,
+                });
+            }
+        }
+    }
+
+    None
+}
+
+fn find_framework_binary(framework_dir: &Path, framework_name: &str) -> Option<PathBuf> {
     let candidates = [
-        search_root
-            .join("hermesvm.framework")
+        framework_dir
             .join("Versions")
             .join("Current")
-            .join("hermesvm"),
-        search_root
-            .join("hermesvm.framework")
+            .join(framework_name),
+        framework_dir
             .join("Versions")
             .join("1")
-            .join("hermesvm"),
-        search_root.join("hermesvm.framework").join("hermesvm"),
-        search_root.join("hermesvm"),
+            .join(framework_name),
+        framework_dir
+            .join("Versions")
+            .join("0")
+            .join(framework_name),
+        framework_dir.join(framework_name),
     ];
 
     candidates.into_iter().find(|path| path.exists())

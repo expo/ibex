@@ -155,6 +155,20 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# Build macOS Hermes Runtime
+# -----------------------------------------------------------------------------
+
+MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/macosx/hermes.framework"
+if [[ "$PLATFORM" == "darwin" && "${IBEX_SKIP_MACOS_HERMES_BUILD:-0}" != "1" ]]; then
+    if [ -d "$MACOS_FRAMEWORK_DEST" ]; then
+        echo "[✓] macOS hermes.framework already exists"
+    else
+        echo "[i] Building macOS hermes.framework for Cargo tests..."
+        "$SCRIPT_DIR/build-hermes-macos.sh"
+    fi
+fi
+
+# -----------------------------------------------------------------------------
 # Verify Installation
 # -----------------------------------------------------------------------------
 
@@ -180,6 +194,15 @@ if [ -f "$HERMESC_DEST" ]; then
     echo "[✓] hermesc: $VERSION"
 else
     echo "[✗] hermesc: MISSING"
+fi
+
+if [[ "$PLATFORM" == "darwin" ]]; then
+    if [ -d "$MACOS_FRAMEWORK_DEST" ]; then
+        SIZE=$(du -sh "$MACOS_FRAMEWORK_DEST" | cut -f1)
+        echo "[✓] macOS hermes.framework: $SIZE"
+    else
+        echo "[✗] macOS hermes.framework: MISSING"
+    fi
 fi
 
 echo ""

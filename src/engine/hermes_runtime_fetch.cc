@@ -539,5 +539,136 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         return response;
       });
   rt.global().setProperty(rt, "__nativeFetchSync", std::move(nativeFetchSyncFn));
+
+  // @ref LLP 0003#windows-native-smoke-coverage — Windows skips the shared
+  // runtime bundle, so expose a small public fetch surface over the WinHTTP
+  // native bridge here instead of loading the full TypeScript fetch layer.
+  static const char* windowsFetchShim = R"JS(
+(function(g) {
+  if (typeof g.fetch === 'function' || typeof g.__nativeFetch !== 'function') return;
+
+  function HeaderList(init) {
+    this._pairs = [];
+    if (!init) return;
+    if (init instanceof HeaderList) {
+      this._pairs = init._pairs.slice(0);
+      return;
+    }
+    if (Array.isArray(init)) {
+      for (var i = 0; i < init.length; i++) {
+        if (init[i] && init[i].length >= 2) {
+          this.append(init[i][0], init[i][1]);
+        }
+      }
+      return;
+    }
+    if (typeof init === 'object') {
+      for (var key in init) {
+        if (Object.prototype.hasOwnProperty.call(init, key)) {
+          this.append(key, init[key]);
+        }
+      }
+    }
+  }
+  HeaderList.prototype.append = function(name, value) {
+    this._pairs.push([String(name).toLowerCase(), String(value)]);
+  };
+  HeaderList.prototype.get = function(name) {
+    var wanted = String(name).toLowerCase();
+    for (var i = 0; i < this._pairs.length; i++) {
+      if (this._pairs[i][0].toLowerCase() === wanted) return this._pairs[i][1];
+    }
+    return null;
+  };
+  HeaderList.prototype.forEach = function(callback, thisArg) {
+    for (var i = 0; i < this._pairs.length; i++) {
+      callback.call(thisArg, this._pairs[i][1], this._pairs[i][0], this);
+    }
+  };
+
+  function bytesFromBody(body) {
+    if (!body) return new Uint8Array(0);
+    if (body instanceof ArrayBuffer) return new Uint8Array(body);
+    if (ArrayBuffer.isView && ArrayBuffer.isView(body)) {
+      return new Uint8Array(body.buffer, body.byteOffset || 0, body.byteLength);
+    }
+    return new Uint8Array(0);
+  }
+  function textFromBody(body) {
+    var bytes = bytesFromBody(body);
+    var text = '';
+    for (var i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
+    return text;
+  }
+  function emptyArrayBuffer() {
+    return new ArrayBuffer(0);
+  }
+
+  function FetchResponse(nativeResponse) {
+    nativeResponse = nativeResponse || {};
+    this.status = Number(nativeResponse.status) || 0;
+    this.statusText = nativeResponse.statusText || '';
+    this.url = nativeResponse.url || '';
+    this.redirected = !!nativeResponse.redirected;
+    this.ok = this.status >= 200 && this.status < 300;
+    this.headers = new HeaderList(nativeResponse.headers || []);
+    this._body = nativeResponse.body || emptyArrayBuffer();
+  }
+  FetchResponse.prototype.arrayBuffer = function() {
+    return Promise.resolve(this._body || emptyArrayBuffer());
+  };
+  FetchResponse.prototype.text = function() {
+    return Promise.resolve(textFromBody(this._body));
+  };
+
+  function initForNative(init) {
+    init = init || {};
+    var headers = init.headers instanceof HeaderList
+      ? init.headers._pairs
+      : new HeaderList(init.headers)._pairs;
+    return {
+      method: init.method || 'GET',
+      headers: headers,
+      decompress: init.decompress !== false,
+      timeout: init.timeout || 0
+    };
+  }
+
+  function fetch(input, init) {
+    try {
+      var url = input && input.url ? input.url : String(input);
+      return g.__nativeFetch(url, initForNative(init)).then(function(nativeResponse) {
+        return new FetchResponse(nativeResponse);
+      });
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  Object.defineProperty(g, 'Headers', {
+    value: HeaderList,
+    writable: true,
+    configurable: true
+  });
+  Object.defineProperty(g, 'Response', {
+    value: FetchResponse,
+    writable: true,
+    configurable: true
+  });
+  Object.defineProperty(g, 'fetch', {
+    value: fetch,
+    writable: true,
+    configurable: true
+  });
+})(globalThis);
+)JS";
+  try {
+    auto buffer = std::make_shared<facebook::jsi::StringBuffer>(windowsFetchShim);
+    rt.evaluateJavaScript(buffer, "<windows-fetch-shim>");
+  } catch (const facebook::jsi::JSError& err) {
+    ex_host_console_log(1, err.getMessage().c_str());
+  } catch (const std::exception& err) {
+    ex_host_console_log(1, err.what());
+  }
 #endif
 }

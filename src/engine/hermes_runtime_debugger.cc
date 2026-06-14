@@ -3,22 +3,6 @@
 // Extracted from hermes_runtime.cc: CDP debugger API functions.
 // Provides enable/disable, breakpoints, pause/resume, eval, and event polling.
 
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#endif
-#include <hermes/AsyncDebuggerAPI.h>
-#include <hermes/hermes.h>
-#include <jsi/jsi.h>
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
-
 #include <cstring>
 #include <future>
 #include <mutex>
@@ -26,14 +10,20 @@
 #include <string>
 
 #include "hermes_runtime_internal.h"
+
+#if defined(HERMES_ENABLE_DEBUGGER) && EXACT_HAS_HERMES_ASYNC_DEBUGGER
+#define EXACT_COMPILE_HERMES_DEBUGGER 1
 #include "hermes_runtime_templates.inl"
+#else
+#define EXACT_COMPILE_HERMES_DEBUGGER 0
+#endif
 
 // ---------------------------------------------------------------------------
 // Debugger API
 // ---------------------------------------------------------------------------
 
 extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   return 0;
 #else
@@ -83,7 +73,7 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
 }
 
 extern "C" char* ex_hermes_debugger_get_scripts(ExactHermesRuntime* runtime) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   return nullptr;
 #else
@@ -123,7 +113,7 @@ extern "C" char* ex_hermes_debugger_get_scripts(ExactHermesRuntime* runtime) {
 extern "C" char* ex_hermes_debugger_get_script_source(
     ExactHermesRuntime* runtime,
     uint32_t script_id) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   (void)script_id;
   return nullptr;
@@ -169,7 +159,7 @@ extern "C" char* ex_hermes_debugger_set_breakpoint(
     uint32_t line_number,
     uint32_t column_number,
     const char* condition) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   (void)script_id;
   (void)line_number;
@@ -227,7 +217,7 @@ extern "C" char* ex_hermes_debugger_set_breakpoint(
 extern "C" void ex_hermes_debugger_remove_breakpoint(
     ExactHermesRuntime* runtime,
     uint64_t breakpoint_id) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   (void)breakpoint_id;
   return;
@@ -242,7 +232,7 @@ extern "C" void ex_hermes_debugger_remove_breakpoint(
 }
 
 extern "C" void ex_hermes_debugger_pause(ExactHermesRuntime* runtime) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   return;
 #else
@@ -260,7 +250,7 @@ extern "C" void ex_hermes_debugger_pause(ExactHermesRuntime* runtime) {
 }
 
 extern "C" void ex_hermes_debugger_resume(ExactHermesRuntime* runtime, int command) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   (void)command;
   return;
@@ -302,7 +292,7 @@ extern "C" void ex_hermes_debugger_resume(ExactHermesRuntime* runtime, int comma
 }
 
 extern "C" char* ex_hermes_debugger_next_event(ExactHermesRuntime* runtime) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   return nullptr;
 #else
@@ -332,7 +322,7 @@ extern "C" char* ex_hermes_debugger_eval(
     ExactHermesRuntime* runtime,
     const char* expression,
     uint32_t frame_index) {
-#if !defined(HERMES_ENABLE_DEBUGGER)
+#if !EXACT_COMPILE_HERMES_DEBUGGER
   (void)runtime;
   (void)expression;
   (void)frame_index;

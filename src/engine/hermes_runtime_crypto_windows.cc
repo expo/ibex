@@ -3,6 +3,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+// @ref LLP 0001#21-crypto-profile-the-axis-that-caused-the-original-break —
+// Windows is a no-OpenSSL crypto profile backed by CNG/BCrypt.
 #include <windows.h>
 #include <bcrypt.h>
 

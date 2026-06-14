@@ -1392,11 +1392,11 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
                       .withShouldRecordStats(true)
                       .withName("exact-runtime")
                       .build();
-  auto config = ::hermes::vm::RuntimeConfig::Builder()
-                    .withGCConfig(gcConfig)
-                    .withMicrotaskQueue(true)
-                    .withEnableEval(true)
-                    .build();
+  auto configBuilder = ::hermes::vm::RuntimeConfig::Builder().withGCConfig(gcConfig);
+#if defined(EXACT_HAVE_HERMES_MICROTASK_CONFIG)
+  configBuilder.withMicrotaskQueue(true);
+#endif
+  auto config = configBuilder.withEnableEval(true).build();
   TRACE_END(hermes_config);
 
   TRACE_START(hermes_init);
@@ -1521,13 +1521,10 @@ extern "C" int ex_hermes_eval(
       auto aligned_data = source_buffer->data();
 #if !defined(_WIN32)
       const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
-      auto* hermes = facebook::jsi::castInterface<::facebook::hermes::IHermes>(runtime->runtime.get());
-      auto* hermes_root = hermes ? facebook::jsi::castInterface<::facebook::hermes::IHermesRootAPI>(
-                                       hermes->getHermesRootAPI())
-                                 : nullptr;
-      if (!disable_check && hermes_root) {
+      if (!disable_check) {
         std::string reason;
-        if (!hermes_root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
+        if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+                aligned_data, len, &reason)) {
           if (out_value) {
             char* heap = static_cast<char*>(malloc(reason.size() + 1));
             if (heap) {
@@ -2053,14 +2050,18 @@ extern "C" char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime) {
 // HTTP server stubs (deliberate no-host builds only)
 // =============================================================================
 
-// Weak no-op stubs for the HTTP server functions. The real implementation is
-// the Rust host/http_server.rs in this crate, compiled when the
-// `host-http-server` cargo feature is enabled (build.rs then omits these
-// stubs). They exist so builds that deliberately exclude the server still
-// link; __attribute__((weak)) keeps any strong implementation authoritative
-// if a host links one alongside. @ref LLP 0159 P0-B.
+// No-op stubs for the HTTP server functions. The real implementation is the
+// Rust host/http_server.rs in this crate, compiled when the `host-http-server`
+// cargo feature is enabled (build.rs then omits these stubs). They exist so
+// builds that deliberately exclude the server still link. Non-MSVC builds mark
+// them weak so an external strong implementation can override them; MSVC gets
+// strong stubs only in the feature-off build. @ref LLP 0005#c-compilation
 #if defined(EXACT_RUNTIME_USE_HTTP_STUBS)
+#if defined(_MSC_VER)
+#define WEAK_STUB
+#else
 #define WEAK_STUB __attribute__((weak))
+#endif
 
 extern "C" WEAK_STUB char* ex_host_http_serve(uint16_t, const char*) { return nullptr; }
 extern "C" WEAK_STUB char* ex_host_http_wait(uint32_t, uint32_t) { return nullptr; }

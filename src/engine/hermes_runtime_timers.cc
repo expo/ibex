@@ -125,11 +125,11 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         auto callback = args[0].asObject(runtime).asFunction(runtime);
-#if defined(_WIN32)
-        handle->next_tick.push_back(NextTickEntry{std::move(callback), {}});
-#else
+#if defined(EXACT_HAVE_JSI_QUEUE_MICROTASK)
         (void)handle;
         runtime.queueMicrotask(callback);
+#else
+        handle->next_tick.push_back(NextTickEntry{std::move(callback), {}});
 #endif
         return facebook::jsi::Value::undefined();
       });

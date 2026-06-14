@@ -1,6 +1,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+// @ref LLP 0003#the-platform-shims-map — Windows fetch uses WinHTTP, not a
+// cross-platform HTTP client, so it follows the OS proxy/TLS stack.
 #include <windows.h>
 #include <winhttp.h>
 

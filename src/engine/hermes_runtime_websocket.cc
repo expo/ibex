@@ -278,4 +278,128 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactWsSetFlowControlled", std::move(wsSetFlowControlledFn));
+
+#if defined(_WIN32)
+  // @ref LLP 0003#windows-native-smoke-coverage — Windows skips the shared
+  // runtime bundle, so expose a small public WebSocket constructor over the
+  // WinHTTP native bridge here.
+  static const char* windowsWebSocketShim = R"JS(
+(function(g) {
+  if (typeof g.WebSocket === 'function' || typeof g.__exactWsConnect !== 'function') return;
+
+  function makeEvent(type, props) {
+    var event = { type: type };
+    props = props || {};
+    for (var key in props) {
+      if (Object.prototype.hasOwnProperty.call(props, key)) event[key] = props[key];
+    }
+    return event;
+  }
+
+  function WebSocket(url, protocols) {
+    if (!(this instanceof WebSocket)) {
+      throw new TypeError("Failed to construct 'WebSocket': constructor requires 'new'");
+    }
+    this.url = String(url);
+    this.protocol = '';
+    this.extensions = '';
+    this.readyState = WebSocket.CONNECTING;
+    this.bufferedAmount = 0;
+    this.binaryType = 'arraybuffer';
+    this.onopen = null;
+    this.onmessage = null;
+    this.onerror = null;
+    this.onclose = null;
+    var self = this;
+    this._handleOpen = function(protocol, extensions) {
+      WebSocket.prototype._handleOpen.call(self, protocol, extensions);
+    };
+    this._handleMessage = function(data) {
+      WebSocket.prototype._handleMessage.call(self, data);
+    };
+    this._handleClose = function(code, reason, wasClean) {
+      WebSocket.prototype._handleClose.call(self, code, reason, wasClean);
+    };
+    this._handleError = function(message) {
+      WebSocket.prototype._handleError.call(self, message);
+    };
+    this._handleBytesSent = function(bytesSent) {
+      WebSocket.prototype._handleBytesSent.call(self, bytesSent);
+    };
+    var protocolList = Array.isArray(protocols) ? protocols.join(',') : (protocols || '');
+    var id = g.__exactWsConnect(this.url, String(protocolList), this);
+    this._socketId = typeof id === 'number' ? id : -1;
+    if (this._socketId < 0) {
+      this.readyState = WebSocket.CLOSED;
+    }
+  }
+
+  WebSocket.CONNECTING = 0;
+  WebSocket.OPEN = 1;
+  WebSocket.CLOSING = 2;
+  WebSocket.CLOSED = 3;
+  WebSocket.prototype.CONNECTING = 0;
+  WebSocket.prototype.OPEN = 1;
+  WebSocket.prototype.CLOSING = 2;
+  WebSocket.prototype.CLOSED = 3;
+
+  WebSocket.prototype._handleOpen = function(protocol, extensions) {
+    this.readyState = WebSocket.OPEN;
+    this.protocol = protocol || '';
+    this.extensions = extensions || '';
+    if (typeof this.onopen === 'function') this.onopen(makeEvent('open'));
+  };
+  WebSocket.prototype._handleMessage = function(data) {
+    if (typeof this.onmessage === 'function') {
+      this.onmessage(makeEvent('message', { data: data }));
+    }
+  };
+  WebSocket.prototype._handleClose = function(code, reason, wasClean) {
+    this.readyState = WebSocket.CLOSED;
+    if (typeof this.onclose === 'function') {
+      this.onclose(makeEvent('close', {
+        code: code || 1005,
+        reason: reason || '',
+        wasClean: !!wasClean
+      }));
+    }
+  };
+  WebSocket.prototype._handleError = function(message) {
+    if (typeof this.onerror === 'function') {
+      this.onerror(makeEvent('error', { message: message || 'WebSocket error' }));
+    }
+  };
+  WebSocket.prototype._handleBytesSent = function(bytesSent) {
+    this.bufferedAmount = Math.max(0, this.bufferedAmount - (bytesSent || 0));
+  };
+  WebSocket.prototype.send = function(data) {
+    if (this.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket is not open');
+    }
+    if (typeof data === 'string') this.bufferedAmount += data.length;
+    else if (data && typeof data.byteLength === 'number') this.bufferedAmount += data.byteLength;
+    g.__exactWsSend(this._socketId, data);
+  };
+  WebSocket.prototype.close = function(code, reason) {
+    if (this.readyState === WebSocket.CLOSED || this.readyState === WebSocket.CLOSING) return;
+    this.readyState = WebSocket.CLOSING;
+    g.__exactWsClose(this._socketId, code || 1005, reason || '');
+  };
+
+  Object.defineProperty(g, 'WebSocket', {
+    value: WebSocket,
+    writable: true,
+    configurable: true
+  });
+})(globalThis);
+)JS";
+  try {
+    auto buffer = std::make_shared<facebook::jsi::StringBuffer>(windowsWebSocketShim);
+    rt.evaluateJavaScript(buffer, "<windows-websocket-shim>");
+  } catch (const facebook::jsi::JSError& err) {
+    ex_host_console_log(1, err.getMessage().c_str());
+  } catch (const std::exception& err) {
+    ex_host_console_log(1, err.what());
+  }
+#endif
 }

@@ -64,6 +64,15 @@ pub const EXACT_HOST_ABI_VERSION: u32 = 1;
 static HOST: OnceLock<RwLock<Host>> = OnceLock::new();
 static SECURITY_LOG_ENABLED: OnceLock<bool> = OnceLock::new();
 
+#[cfg(test)]
+pub(crate) fn host_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    match LOCK.get_or_init(|| Mutex::new(())).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 struct SqliteConnectionRecord {
     db: Connection,
 }
@@ -1856,6 +1865,8 @@ mod tests {
 
     #[test]
     fn install_host_replaces_existing_host() {
+        let _guard = host_test_lock();
+
         install_host(Host::default_legacy());
         assert!(with_host(|host| host.is_allow_all(), false));
 

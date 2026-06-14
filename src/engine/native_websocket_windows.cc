@@ -1,6 +1,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+// @ref LLP 0003#the-platform-shims-map — Windows WebSocket uses WinHTTP's
+// native HTTP upgrade/WebSocket API.
 #include <windows.h>
 #include <winhttp.h>
 

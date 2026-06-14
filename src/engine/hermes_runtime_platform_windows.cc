@@ -3,6 +3,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+// @ref LLP 0003#the-platform-shims-map — Windows platform shims call Win32 and
+// Winsock directly for process, DNS, TCP, and OS information.
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>

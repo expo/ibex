@@ -160,6 +160,17 @@ The crypto profile axis and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md); this section only maps
 where the selection happens in the engine.
 
+### Windows native smoke coverage
+
+The Windows native backend contract is covered by the
+`windows_runtime_uses_native_platform_backends` lib test in `src/engine/mod.rs`.
+It exercises the public JS APIs against local test services so the C++ shims are
+reached through the same bootstrap/builtin path embedders use: `fetch` and
+`WebSocket` through WinHTTP, `crypto` hash/HMAC through BCrypt, `fs` through the
+host filesystem ABI, `child_process.spawnSync` through `CreateProcessW`, and
+DNS/TCP through Winsock. This is intentionally an end-to-end smoke, not a unit
+test of individual C symbols.
+
 ## Boundaries
 
 - This crate compiles the C++ via `build.rs` (`cc`); the engine links Hermes

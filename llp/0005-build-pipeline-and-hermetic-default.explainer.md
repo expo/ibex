@@ -87,17 +87,43 @@ otherwise it is rebuilt by `rolldown-bundle.mjs` from
 ## Bytecode precompilation (hermesc)
 
 `build.rs` always emits bootstrap source headers from the JS files `[observed]`
-(`build.rs:671-709`). For bootstrap bytecode, it checks the HBC version of
+(`build.rs:738-770`). For bootstrap bytecode, it checks the HBC version of
 `hermesc` against linked Hermes. Missing or mismatched `hermesc` **panics**
 unless `EXACT_ALLOW_FALLBACK` is set; with fallback allowed it emits an empty
-bytecode header and the engine uses source `[observed]` (`build.rs:487-527,
-555-669`). The runtime bundle source header is generated separately
+bytecode header and the engine uses source `[observed]` (`build.rs:522-574,
+576-735`). The runtime bundle source header is generated separately
 `[observed]` (`build.rs:1288-1400`). Runtime-bundle bytecode generation also
 checks `hermesc`, but skips with warnings on unavailable/mismatched compilers
-instead of using the bootstrap panic path `[observed]` (`build.rs:1482-1583`).
+instead of using the bootstrap panic path `[observed]` (`build.rs:1676-1735`).
 The engine prefers bytecode and falls back to source at startup
 ([LLP 0003](./0003-hermes-engine-bridge.explainer.md),
 `src/engine/hermes_bootstrap.cc:44-69`).
+
+The per-file exception is `web-streams-polyfill.js`: it is optional startup
+code, installed only when `EX_WEB_STREAMS_POLYFILL=1`, and Hermes 0.11-era
+compilers reject its modern syntax. If `hermesc` fails only for this file,
+`build.rs` emits an empty `WEB_STREAMS_POLYFILL_HBC` slot while preserving
+precompiled HBC for the required bootstrap files `[observed]`
+(`build.rs:609-722, 1562-1585`). If the polyfill is enabled at runtime, the
+engine falls through to the source header and logs evaluation failures rather
+than making the default runtime startup depend on the optional polyfill
+`[observed]` (`src/engine/hermes_bootstrap.cc:768-796`;
+`src/engine/hermes_runtime.cc:1442-1448`).
+
+Windows is the exception to the strict bootstrap-HBC path: the
+`ReactNative.Hermes.Windows` 0.71.x compiler can report a matching HBC version
+while still rejecting modern optional bootstrap/runtime syntax such as async
+functions and classes. `build.rs` therefore skips bootstrap HBC precompilation
+on Windows and emits source headers as the supported startup artifact
+`[observed]` (`build.rs:528-536`). It also skips shared-runtime-bundle HBC on
+Windows because Windows startup does not install that bundle `[observed]`
+(`src/engine/hermes_bootstrap.cc:81-91`; `build.rs:1691-1697`).
+
+The macOS Hermes 0.11 compiler is stricter than the runtime authoring surface
+too: it rejects BigInt literal syntax in bootstrap files while accepting
+`BigInt(...)` constructor calls. Bootstrap code that must be precompiled on
+macOS therefore avoids `123n` / `0x...n` literals even when the value is
+semantically a BigInt `[observed]` (`src/engine/bootstrap/module-loader.js:1405-1446`).
 
 These bytecode headers are **not vendored** — they are regenerated each build
 from committed JS or replaced by fallback headers, because they are tied to the
@@ -130,13 +156,56 @@ IBEX_REGENERATE_RUNTIME=1 IBEX_UPDATE_VENDORED_GENERATED=1 cargo build --feature
 `build.rs` compiles `src/engine/*.cc` with the `cc` crate, setting per-platform
 defines (`EXACT_NO_OPENSSL`, `EXACT_PLATFORM_IOS`, `EXACT_PLATFORM_WINDOWS`,
 `EXACT_HAS_CURL`, `HERMES_ENABLE_DEBUGGER`, etc.) and selecting the crypto/fetch/
-websocket source files per OS `[observed]` (`build.rs:711-781, 787-1073`).
+websocket source files per OS `[observed]` (`build.rs:782-833, 849-1086`).
 Crypto-backend selection and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md) and mapped in
 [LLP 0003](./0003-hermes-engine-bridge.explainer.md#crypto-is-platform-dependent-the-fragile-axis).
 Hermes headers/libs are located via `HERMES_*` env vars or platform defaults
-`[observed]` (`build.rs:143-169, 183-210, 289-296`). This is a separate concern
+`[observed]` (`build.rs:154-188, 204-242, 323-330`). This is a separate concern
 from the vendored-generated JS snapshot.
+
+The upstream Hermes 0.11 Darwin runtime archive provides iOS and Mac Catalyst
+slices, but not a pure macOS framework. Cargo builds target
+`*-apple-macosx`, so `scripts/download-hermes.sh` invokes
+`scripts/build-hermes-macos.sh` on Darwin to build an ignored
+`ios/Frameworks/macosx/hermes.framework` from the matching Hermes tag. The
+helper uses CMake 3.x, installing a temporary CMake 3.27 wheel when the system
+`cmake` is CMake 4, because Hermes 0.11 sets removed CMake policies
+`[observed]` (`scripts/download-hermes.sh:157-169`;
+`scripts/build-hermes-macos.sh:43-63, 82-96`). `build.rs` resolves either
+`hermesvm.framework` or `hermes.framework` from a macOS framework parent and
+links the detected framework name; it intentionally does not treat the Catalyst
+slice as a macOS runtime `[observed]` (`build.rs:190-202, 2079-2116`).
+
+Hermes C++/JSI headers are not identical across the supported SDKs. The macOS
+Hermes 0.11 headers do not expose native `MutableBuffer` ArrayBuffer creation,
+`Runtime::queueMicrotask`, or `RuntimeConfig::MicrotaskQueue`; newer SDKs may.
+`build.rs` probes the checked-in header text and defines
+`EXACT_HAVE_JSI_MUTABLE_BUFFER`, `EXACT_HAVE_JSI_QUEUE_MICROTASK`, and
+`EXACT_HAVE_HERMES_MICROTASK_CONFIG` only when those SDK APIs exist, so the C++
+adapter can keep one source tree without binding feature availability to an OS
+name `[observed]` (`build.rs:910-925`;
+`src/engine/hermes_runtime_internal.h:143-197`;
+`src/engine/hermes_runtime_timers.cc:127-133`;
+`src/engine/hermes_runtime.cc:1395-1401`).
+
+On Windows, the Hermes NuGet package separates import libraries under `lib/`
+from runtime DLLs under `bin/`. `build.rs` therefore resolves a Windows
+`HERMES_BIN_DIR` (defaulting to `tools/hermes/windows-$arch/bin`), emits it as
+an additional native link-search path, and stages its DLLs into Cargo's profile
+directory plus `deps/` so `cargo test` and `cargo run` binaries can load
+`hermes.dll` and its companion DLLs at process start `[observed]`
+(`build.rs:173-188, 218-236, 1060-1078, 1587-1667`).
+
+The `host-http-server` feature controls whether the real Rust
+`ex_host_http_*` implementation is linked. When the feature is off, `build.rs`
+defines `EXACT_RUNTIME_USE_HTTP_STUBS` so the C++ adapter supplies no-op stubs
+and the default build remains linkable `[observed]` (`build.rs:937-945`;
+`src/engine/hermes_runtime.cc:2053-2086`). Non-MSVC builds mark those stubs weak
+so an external strong implementation can override them; MSVC has no weak
+symbols, so Windows gets strong stubs only in the feature-off build and omits
+them when `host-http-server` is enabled `[observed]`
+(`src/engine/hermes_runtime.cc:2060-2064`).
 
 ## Boundaries
 

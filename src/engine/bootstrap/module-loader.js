@@ -1402,8 +1402,19 @@
           if (typeof value === 'bigint') return Number(value);
           return typeof value === 'number' ? value : 0;
         }
+        // @ref LLP 0005#bytecode-precompilation-hermesc — Hermes 0.11 parses
+        // BigInt(...) calls but rejects BigInt literal syntax during bootstrap
+        // HBC generation.
+        var S_IFMT = BigInt(0xF000);
+        var S_IFREG = BigInt(0x8000);
+        var S_IFDIR = BigInt(0x4000);
+        var S_IFLNK = BigInt(0xA000);
+        var S_IFBLK = BigInt(0x6000);
+        var S_IFCHR = BigInt(0x2000);
+        var S_IFIFO = BigInt(0x1000);
+        var S_IFSOCK = BigInt(0xC000);
         var modeBigint = coerceBigInt(mode);
-        var modeType = modeBigint & 0xF000n;
+        var modeType = modeBigint & S_IFMT;
         this.dev = coerceBigInt(dev);
         this.ino = coerceBigInt(ino);
         this.mode = coerceBigInt(mode);
@@ -1426,13 +1437,13 @@
         this.mtime = new Date(coerceNumber(this.mtimeMs));
         this.ctime = new Date(coerceNumber(this.ctimeMs));
         this.birthtime = new Date(coerceNumber(this.birthtimeMs));
-        this._isFile = modeType === 0x8000n;
-        this._isDir = modeType === 0x4000n;
-        this._isSymlink = modeType === 0xA000n;
-        this._isBlkDev = modeType === 0x6000n;
-        this._isChrDev = modeType === 0x2000n;
-        this._isFifo = modeType === 0x1000n;
-        this._isSock = modeType === 0xC000n;
+        this._isFile = modeType === S_IFREG;
+        this._isDir = modeType === S_IFDIR;
+        this._isSymlink = modeType === S_IFLNK;
+        this._isBlkDev = modeType === S_IFBLK;
+        this._isChrDev = modeType === S_IFCHR;
+        this._isFifo = modeType === S_IFIFO;
+        this._isSock = modeType === S_IFSOCK;
       },
       getDirents: function(path, entries, callback) {
         if (callback === undefined || callback === null) {

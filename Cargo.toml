@@ -67,9 +67,8 @@ swc_ecma_transforms_react = "49.0.0"
 default = []
 app-host = []
 # Compiles the hyper-based localhost HTTP server backing `exact:http` and the
-# agent endpoints (the `ex_host_http_*` C symbols). App hosts and the CLI must
-# enable this; without it build.rs compiles weak no-op stubs instead
-# (non-Windows only — MSVC has no weak symbols). @ref LLP 0159 P0-B.
+# agent endpoints (the `ex_host_http_*` C symbols). App hosts and the CLI enable
+# this; without it build.rs compiles no-op stubs instead. @ref LLP 0005#c-compilation
 host-http-server = []
 openssl-crypto = ["dep:openssl-sys"]
 # When enabled, skips the default ex_hermes_notify_callback implementation.
@@ -83,4 +82,5 @@ openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
 cc = "1.0"
 
 [dev-dependencies]
+sha1 = "0.10"
 tempfile = "3"

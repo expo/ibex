@@ -14,9 +14,8 @@
 pub mod abi;
 pub mod capability;
 pub mod capability_bits;
-// @tactical @ref LLP 0159 P0-B: the hyper-based `ex_host_http_*` server lives
-// here (moved from exact-cli) so app hosts can link the real implementation.
-// Without this feature the C++ adapter falls back to weak no-op stubs.
+// @ref LLP 0005#c-compilation — the hyper-based `ex_host_http_*` server is
+// feature-gated; without it the C++ adapter links no-op stubs.
 #[cfg(feature = "host-http-server")]
 pub mod http_server;
 pub mod policy;

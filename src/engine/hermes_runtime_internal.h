@@ -140,6 +140,7 @@ extern "C" void ex_host_log_event(const char* event_type,
 
 extern thread_local uint64_t g_active_module_id;
 
+#if defined(EXACT_HAVE_JSI_MUTABLE_BUFFER)
 class VectorBuffer : public facebook::jsi::MutableBuffer {
  public:
   explicit VectorBuffer(std::vector<uint8_t> data) : data_(std::move(data)) {}
@@ -150,6 +151,7 @@ class VectorBuffer : public facebook::jsi::MutableBuffer {
  private:
   std::vector<uint8_t> data_;
 };
+#endif
 
 inline bool isAllowAll() {
 #ifdef _WIN32
@@ -179,10 +181,19 @@ inline bool checkCapability(const std::string& capability) {
 inline facebook::jsi::Value makeUint8Array(
     facebook::jsi::Runtime& runtime,
     std::vector<uint8_t> data) {
+#if defined(EXACT_HAVE_JSI_MUTABLE_BUFFER)
   auto buffer = std::make_shared<VectorBuffer>(std::move(data));
   facebook::jsi::ArrayBuffer arrayBuffer(runtime, buffer);
   auto ctor = runtime.global().getPropertyAsFunction(runtime, "Uint8Array");
   auto typed = ctor.callAsConstructor(runtime, arrayBuffer).getObject(runtime);
+#else
+  auto ctor = runtime.global().getPropertyAsFunction(runtime, "Uint8Array");
+  auto typed =
+      ctor.callAsConstructor(runtime, static_cast<int>(data.size())).getObject(runtime);
+  for (size_t i = 0; i < data.size(); i++) {
+    typed.setProperty(runtime, std::to_string(i).c_str(), static_cast<int>(data[i]));
+  }
+#endif
   return facebook::jsi::Value(std::move(typed));
 }
 
