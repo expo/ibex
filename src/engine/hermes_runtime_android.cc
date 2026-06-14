@@ -37,6 +37,14 @@ struct AndroidLocationResult {
   double timestamp = 0.0;
 };
 
+struct AndroidStoragePaths {
+  char* files_dir = nullptr;
+  char* cache_dir = nullptr;
+  char* no_backup_files_dir = nullptr;
+  char* code_cache_dir = nullptr;
+  char* external_files_dir = nullptr;
+};
+
 extern "C" int android_get_platform_version(
     char** out_version, char* error, size_t error_capacity);
 extern "C" int android_get_locale_snapshot(
@@ -63,6 +71,8 @@ extern "C" int android_get_app_state(
     char** out_state, char* error, size_t error_capacity);
 extern "C" int android_get_initial_url(
     char** out_url, char* error, size_t error_capacity);
+extern "C" int android_get_storage_paths(
+    AndroidStoragePaths* out_paths, char* error, size_t error_capacity);
 extern "C" int android_drain_platform_events(
     char** out_events, char* error, size_t error_capacity);
 extern "C" int android_camera_host_call(
@@ -187,6 +197,45 @@ facebook::jsi::Object makeAppearanceObject(
   return appearance;
 }
 
+void freeAndroidStoragePaths(AndroidStoragePaths& paths) {
+  std::free(paths.files_dir);
+  std::free(paths.cache_dir);
+  std::free(paths.no_backup_files_dir);
+  std::free(paths.code_cache_dir);
+  std::free(paths.external_files_dir);
+  paths = AndroidStoragePaths{};
+}
+
+facebook::jsi::Object makeStoragePathsObject(
+    facebook::jsi::Runtime& runtime,
+    const AndroidStoragePaths& paths) {
+  facebook::jsi::Object storage(runtime);
+  storage.setProperty(
+      runtime,
+      "filesDir",
+      facebook::jsi::String::createFromUtf8(runtime, paths.files_dir ? paths.files_dir : ""));
+  storage.setProperty(
+      runtime,
+      "cacheDir",
+      facebook::jsi::String::createFromUtf8(runtime, paths.cache_dir ? paths.cache_dir : ""));
+  storage.setProperty(
+      runtime,
+      "noBackupFilesDir",
+      facebook::jsi::String::createFromUtf8(
+          runtime, paths.no_backup_files_dir ? paths.no_backup_files_dir : ""));
+  storage.setProperty(
+      runtime,
+      "codeCacheDir",
+      facebook::jsi::String::createFromUtf8(
+          runtime, paths.code_cache_dir ? paths.code_cache_dir : ""));
+  storage.setProperty(
+      runtime,
+      "externalFilesDir",
+      facebook::jsi::String::createFromUtf8(
+          runtime, paths.external_files_dir ? paths.external_files_dir : ""));
+  return storage;
+}
+
 facebook::jsi::Object makeAndroidPlatformState(facebook::jsi::Runtime& runtime) {
   char error[256] = {};
   facebook::jsi::Object state(runtime);
@@ -252,6 +301,13 @@ facebook::jsi::Object makeAndroidPlatformState(facebook::jsi::Runtime& runtime) 
         makeAccessibilityObject(runtime, flags, has_screen_info ? screen_info.font_scale : 1.0);
     state.setProperty(runtime, "appearance", std::move(appearance));
     state.setProperty(runtime, "accessibility", std::move(accessibility));
+  }
+
+  AndroidStoragePaths storage_paths;
+  if (android_get_storage_paths(&storage_paths, error, sizeof(error)) > 0) {
+    auto storage = makeStoragePathsObject(runtime, storage_paths);
+    state.setProperty(runtime, "storage", std::move(storage));
+    freeAndroidStoragePaths(storage_paths);
   }
 
   return state;
@@ -321,6 +377,15 @@ void installAndroidEnvironmentGlobals(facebook::jsi::Runtime& rt) {
     rt.global().setProperty(rt, "__exactInitialURL", facebook::jsi::Value::null());
   }
   std::free(initial_url);
+
+  AndroidStoragePaths storage_paths;
+  if (android_get_storage_paths(&storage_paths, error, sizeof(error)) > 0) {
+    // @ref LLP 0008#android-backend-matrix — Android app storage roots come
+    // from Context directories and seed HOME/TMPDIR/cwd through the JNI bridge.
+    auto storage = makeStoragePathsObject(rt, storage_paths);
+    rt.global().setProperty(rt, "__exactAndroidStoragePaths", std::move(storage));
+    freeAndroidStoragePaths(storage_paths);
+  }
 
   AndroidScreenInfo initial_screen_info;
   bool has_screen_info =

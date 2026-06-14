@@ -53,7 +53,7 @@ better app-runtime integration point. The June 2026 Android backend target is:
 | WebSocket / `ws` client | OkHttp `WebSocket`, using the same client/trust configuration as fetch. | C++/JNI bridge to `IbexNetworking.connectWebSocket()`. | Verify open, text/binary messages, close codes/reasons, errors, pause/resume semantics, and flow-control callbacks on Android. |
 | DNS | Android `DnsResolver` where available for raw DNS record queries; fallback to Bionic/POSIX resolver for older API levels, unsupported record types, or resolver failure. | `resolve*` raw record queries call Android `DnsResolver` on API 29+ and fall back to `res_query`; `lookup` and reverse lookup still use Bionic/POSIX resolver APIs. | Verify `lookup`, `resolve*`, reverse lookup, and the Android API-level/failure fallback boundary. |
 | TCP / UDP sockets | Bionic/POSIX sockets. These are Android's NDK-native socket APIs and preserve Node-compatible stream semantics better than Java sockets. | Uses POSIX socket code. | Keep POSIX backend; verify TCP connect/listen, UDP bind/send/recv, and Unix socket behavior expected by Android API levels. |
-| Filesystem | Bionic/POSIX file APIs inside app-specific internal/cache directories supplied by the embedding host; Storage Access Framework belongs in app-level file pickers, not Node-compatible `fs`. | Uses POSIX plus host ABI. | Keep POSIX backend; add Android host path setters if app-specific roots are not already provided; verify file, dir, stat, statfs, symlink/link unsupported cases, and temp/cache paths. |
+| Filesystem | Bionic/POSIX file APIs inside app-specific internal/cache directories supplied by the embedding host; Storage Access Framework belongs in app-level file pickers, not Node-compatible `fs`. | Uses POSIX plus host ABI. Android initialization now reads `Context` storage roots and seeds cwd/`HOME` from `filesDir`, temp env from `cacheDir`, explicit `EXACT_ANDROID_*` storage env vars, `__exactAndroidStoragePaths`, and the Rust runtime cache helper's Android cache root. | Keep POSIX backend; verify file, dir, stat, statfs, symlink/link unsupported cases, relative paths under `filesDir`, and temp/cache paths under `cacheDir`. |
 | SQLite / IndexedDB / Web Storage | Bundled SQLite via `rusqlite` for deterministic runtime semantics; Android `SQLiteDatabase` is not a better fit for Bun/Node-style SQLite or IndexedDB compatibility. | Uses `rusqlite` and bundled SQLite. | Keep bundled SQLite; verify `exact:sqlite`, IndexedDB smoke, and web storage persistence on Android app storage. |
 | Crypto / WebCrypto / Node `crypto` | Broad algorithmic crypto stays in the runtime crypto backend because WebCrypto and Node crypto need extractable keys and exact algorithm behavior. Android Keystore is the right backend only for future non-extractable, hardware-backed key storage APIs. | Requires vendored OpenSSL for full crypto. | Keep OpenSSL until an Android crypto provider covers the same algorithm matrix; separately add Keystore-backed non-extractable keys only when the JS surface can expose that distinction. Verify random, hash, HMAC, AES, PBKDF2/scrypt/HKDF, sign/verify, key generation/import/export, ECDH/X25519/Ed25519, RSA-OAEP. |
 | Compression / zlib / Brotli | Vendored zlib/Brotli-compatible native code for deterministic JS semantics. | Vendored native code. | Keep; verify zlib and Brotli round trips. |
@@ -149,13 +149,13 @@ or Windows process/socket primitives provided by the platform files.
   verification.
 - Android app/device APIs that need Java/Kotlin host participation remain
   incomplete for full CameraX preview/capture. Initial window/navigator locale,
-  screen, appearance/accessibility, platform version, clipboard, location,
-  camera permission/device metadata, camera session-provider dispatch,
-  app-state, deep-link, and configuration data/events now use the Android
+  screen, appearance/accessibility, platform version, app storage roots,
+  clipboard, location, camera permission/device metadata,
+  camera session-provider dispatch, app-state, deep-link, and configuration data/events now use the Android
   Java/JNI bridge. The environment, location permission, queued platform-event,
-  and camera metadata probes were smoke-tested on an emulator through
-  `app_process`; foreground app-process verification is still required for
-  clipboard, granted-location fixes, real Activity/configuration/deep-link
+  app storage root, and camera metadata probes were smoke-tested on an emulator
+  through `app_process`; foreground app-process verification is still required
+  for clipboard, granted-location fixes, real Activity/configuration/deep-link
   event delivery, and CameraX preview/capture.
 - Android crypto still uses vendored OpenSSL. That is acceptable for today's
   broad WebCrypto/Node crypto algorithm surface, but it is not a Keystore-backed
@@ -222,6 +222,9 @@ must run on an Android runtime or emulator and exercise:
   app-installed provider dispatch path through `cameraHostCall()`. Full CameraX
   preview/session/photo/video capture still requires foreground app
   verification.
+- A later Java/JNI storage smoke verified Android `Context` storage roots are
+  exposed through `IbexNetworking.storagePaths()`, cached by the JNI bridge,
+  and used to seed app `HOME`/cwd and cache-backed `TMPDIR`/`TMP`/`TEMP`.
 - The emulator smoke also exposed two shell-harness limits: direct Java
   `DnsResolver.rawQuery()` timed out under `app_process`, so the C++ DNS path
   now falls back to POSIX resolver on Android resolver failure; clipboard was
