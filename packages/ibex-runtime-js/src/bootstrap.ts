@@ -9,7 +9,7 @@
  */
 
 // ---- Essential imports (always needed at startup) ----
-import { setNativeCryptoModule, setNativeFileSystemModule, setNativeWebSocketModule } from "./native";
+import { setNativeCryptoModule, setNativeFileSystemModule, setNativeStorageModule, setNativeWebSocketModule } from "./native";
 import { setNativeCapabilityModule, enableStrictMode } from "./security";
 
 // ---- Lazy-loaded module imports ----
@@ -70,6 +70,7 @@ import {
 } from "./scheduling";
 import { CompressionStream, DecompressionStream } from "./compression";
 import { IDBFactory, IDBKeyRange, IDBDatabase, IDBObjectStore, IDBTransaction, IDBRequest, IDBOpenDBRequest, IDBCursor, IDBCursorWithValue, IDBIndex } from "./indexeddb";
+import { Database } from "./sqlite";
 import { installPolyfills } from "./polyfills";
 import { installPromiseRejectionTracking } from "./promise-rejection-tracking";
 import { installExactGlobal } from "./fs/ExactFile";
@@ -152,6 +153,144 @@ let _fetchInitialized = false;
 
 // Track whether filesystem module has been lazily initialized
 let _fsModuleInitialized = false;
+
+const WEB_STORAGE_QUOTA_BYTES = 10 * 1024 * 1024;
+
+function trimTrailingSlash(path: string): string {
+  return path.replace(/\/+$/, '') || '/';
+}
+
+function getNativeStorageRoot(g: any): string {
+  const androidFilesDir = g.__exactAndroidStoragePaths?.filesDir;
+  if (typeof androidFilesDir === 'string' && androidFilesDir.length > 0) {
+    return trimTrailingSlash(androidFilesDir);
+  }
+
+  const env = g.process?.env;
+  const envFilesDir = env?.EXACT_ANDROID_FILES_DIR ?? env?.HOME;
+  if (typeof envFilesDir === 'string' && envFilesDir.length > 0) {
+    return trimTrailingSlash(envFilesDir);
+  }
+
+  return '/tmp';
+}
+
+function ensureStorageDirectory(g: any, directory: string): void {
+  try {
+    if (typeof g.__exactMkdir !== 'function' && typeof g.__exactEnsureFs === 'function') {
+      g.__exactEnsureFs();
+    }
+    if (typeof g.__exactMkdir === 'function') {
+      g.__exactMkdir(directory, true);
+    }
+  } catch (_) {}
+}
+
+function installSQLiteStorageModule(g: any): boolean {
+  if (
+    typeof g.__exactSqliteOpen !== 'function' &&
+    typeof g.__exactEnsureSqlite !== 'function'
+  ) {
+    return false;
+  }
+
+  let db: Database | null = null;
+
+  const ensureDb = (): Database => {
+    if (db) return db;
+    if (typeof g.__exactSqliteOpen !== 'function' && typeof g.__exactEnsureSqlite === 'function') {
+      g.__exactEnsureSqlite();
+    }
+    if (typeof g.__exactSqliteOpen !== 'function') {
+      throw new Error('SQLite native bridge is not available for Web Storage');
+    }
+
+    // @ref LLP 0008#android-backend-matrix — Android localStorage persists under app filesDir.
+    const directory = `${getNativeStorageRoot(g)}/.ibex`;
+    ensureStorageDirectory(g, directory);
+    db = new Database(`${directory}/web-storage.sqlite`, {
+      create: true,
+      readwrite: true,
+    });
+    db.run(
+      'CREATE TABLE IF NOT EXISTS exact_web_storage (' +
+        'storage_key TEXT PRIMARY KEY NOT NULL, ' +
+        'storage_value TEXT NOT NULL' +
+      ')',
+    );
+    return db;
+  };
+
+  const storageUsage = (): number => {
+    const row = ensureDb()
+      .query<{ usage: number | bigint }>('SELECT COALESCE(SUM(length(storage_key) + length(storage_value)), 0) AS usage FROM exact_web_storage')
+      .get();
+    return Number(row?.usage ?? 0);
+  };
+
+  const quotaExceeded = (): never => {
+    throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
+  };
+
+  setNativeStorageModule({
+    getItem(key: string): string | null {
+      const row = ensureDb()
+        .query<{ storage_value: string }, [string]>('SELECT storage_value FROM exact_web_storage WHERE storage_key = ?')
+        .get(String(key));
+      return typeof row?.storage_value === 'string' ? row.storage_value : null;
+    },
+    setItem(key: string, value: string): void {
+      const keyStr = String(key);
+      const valueStr = String(value);
+      const oldValue = this.getItem(keyStr);
+      const oldSize = oldValue === null ? 0 : keyStr.length + oldValue.length;
+      const nextSize = storageUsage() - oldSize + keyStr.length + valueStr.length;
+      if (nextSize > WEB_STORAGE_QUOTA_BYTES) {
+        quotaExceeded();
+      }
+      ensureDb().run(
+        'INSERT INTO exact_web_storage(storage_key, storage_value) VALUES (?, ?) ' +
+          'ON CONFLICT(storage_key) DO UPDATE SET storage_value = excluded.storage_value',
+        keyStr,
+        valueStr,
+      );
+    },
+    removeItem(key: string): void {
+      ensureDb().run('DELETE FROM exact_web_storage WHERE storage_key = ?', String(key));
+    },
+    clear(): void {
+      ensureDb().run('DELETE FROM exact_web_storage');
+    },
+    key(index: number): string | null {
+      const offset = Math.trunc(Number(index));
+      if (!Number.isFinite(offset) || offset < 0) return null;
+      const row = ensureDb()
+        .query<{ storage_key: string }, [number]>('SELECT storage_key FROM exact_web_storage ORDER BY rowid LIMIT 1 OFFSET ?')
+        .get(offset);
+      return typeof row?.storage_key === 'string' ? row.storage_key : null;
+    },
+    length(): number {
+      const row = ensureDb()
+        .query<{ count: number | bigint }>('SELECT COUNT(*) AS count FROM exact_web_storage')
+        .get();
+      return Number(row?.count ?? 0);
+    },
+    estimate() {
+      return {
+        usage: storageUsage(),
+        quota: WEB_STORAGE_QUOTA_BYTES,
+      };
+    },
+    persist() {
+      return true;
+    },
+    persisted() {
+      return true;
+    },
+  });
+
+  return true;
+}
 
 /**
  * Ensure fetch globals are initialized (called lazily on first access)
@@ -1096,8 +1235,24 @@ export function installGlobals(): void {
   // ========================================
   // LAZY: localStorage, sessionStorage
   // ========================================
-  defineLazyGlobal(g, 'localStorage', () => localStorage);
-  defineLazyGlobal(g, 'sessionStorage', () => sessionStorage);
+  const hasNativeStorage = installSQLiteStorageModule(g);
+  if (hasNativeStorage) {
+    Object.defineProperty(g, 'localStorage', {
+      value: localStorage,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+    Object.defineProperty(g, 'sessionStorage', {
+      value: sessionStorage,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+  } else {
+    defineLazyGlobal(g, 'localStorage', () => localStorage);
+    defineLazyGlobal(g, 'sessionStorage', () => sessionStorage);
+  }
 
   // ========================================
   // performance, PerformanceObserver

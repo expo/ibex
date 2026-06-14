@@ -12,6 +12,7 @@ import { IDBDatabase } from './IDBDatabase';
 import { IDBOpenDBRequest } from './IDBRequest';
 import { IDBTransaction } from './IDBTransaction';
 import { compareKeys } from './IDBKeyRange';
+import { DOMException } from './utils';
 
 /**
  * Interface for creating SQLite database instances.
@@ -20,6 +21,7 @@ import { compareKeys } from './IDBKeyRange';
  */
 export interface SQLiteDatabaseProvider {
   create(name: string): any;
+  delete?(name: string): void;
 }
 
 /**
@@ -28,16 +30,97 @@ export interface SQLiteDatabaseProvider {
 class DefaultSQLiteProvider implements SQLiteDatabaseProvider {
   create(name: string): any {
     const g = globalThis as any;
-    // Try to use the exact:sqlite Database
+    if (typeof g.__exactSqliteOpen !== 'function' && typeof g.__exactEnsureSqlite === 'function') {
+      g.__exactEnsureSqlite();
+    }
     if (g.__exactSqliteOpen) {
       // Import is done lazily to avoid circular dependencies
       const { Database } = require('../sqlite');
-      return new Database(`:memory:`);
+      return new Database(indexedDbPath(name));
     }
     throw new Error(
       'IndexedDB requires SQLite support. The exact:sqlite native bridge is not available.'
     );
   }
+
+  delete(name: string): void {
+    const g = globalThis as any;
+    if (typeof g.__exactUnlink !== 'function' && typeof g.__exactEnsureFs === 'function') {
+      g.__exactEnsureFs();
+    }
+    if (typeof g.__exactUnlink !== 'function') return;
+    for (const path of [indexedDbPath(name), `${indexedDbPath(name)}-wal`, `${indexedDbPath(name)}-shm`]) {
+      try {
+        g.__exactUnlink(path);
+      } catch (_) {}
+    }
+  }
+}
+
+function trimTrailingSlash(path: string): string {
+  return path.replace(/\/+$/, '') || '/';
+}
+
+function indexedDbRoot(): string {
+  const g = globalThis as any;
+  const androidFilesDir = g.__exactAndroidStoragePaths?.filesDir;
+  if (typeof androidFilesDir === 'string' && androidFilesDir.length > 0) {
+    return trimTrailingSlash(androidFilesDir);
+  }
+
+  const env = g.process?.env;
+  const envFilesDir = env?.EXACT_ANDROID_FILES_DIR ?? env?.HOME;
+  if (typeof envFilesDir === 'string' && envFilesDir.length > 0) {
+    return trimTrailingSlash(envFilesDir);
+  }
+
+  return '/tmp';
+}
+
+function ensureIndexedDbDirectory(directory: string): void {
+  const g = globalThis as any;
+  try {
+    if (typeof g.__exactMkdir !== 'function' && typeof g.__exactEnsureFs === 'function') {
+      g.__exactEnsureFs();
+    }
+    if (typeof g.__exactMkdir === 'function') {
+      g.__exactMkdir(directory, true);
+    }
+  } catch (_) {}
+}
+
+function indexedDbPath(name: string): string {
+  // @ref LLP 0008#android-backend-matrix — IndexedDB persists under Android app filesDir.
+  const directory = `${indexedDbRoot()}/.ibex/indexeddb`;
+  ensureIndexedDbDirectory(directory);
+  const encodedName = encodeURIComponent(String(name)) || 'default';
+  return `${directory}/${encodedName}.sqlite`;
+}
+
+function readStoredVersion(sqliteDb: any): number {
+  try {
+    const row = sqliteDb.query('SELECT value FROM _idb_meta WHERE key = ?').get('version');
+    const version = Number(row?.value);
+    return Number.isFinite(version) && version > 0 ? Math.floor(version) : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function writeStoredVersion(sqliteDb: any, version: number): void {
+  try {
+    sqliteDb.run(`
+      CREATE TABLE IF NOT EXISTS _idb_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `);
+    sqliteDb.run(
+      'INSERT INTO _idb_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      'version',
+      String(version),
+    );
+  } catch (_) {}
 }
 
 export class IDBFactory {
@@ -58,9 +141,11 @@ export class IDBFactory {
    */
   open(name: string, version?: number): IDBOpenDBRequest<IDBDatabase> {
     const request = new IDBOpenDBRequest<IDBDatabase>();
-    const resolvedVersion = version ?? 1;
 
-    if (resolvedVersion <= 0 || !Number.isFinite(resolvedVersion) || Math.floor(resolvedVersion) !== resolvedVersion) {
+    if (
+      version !== undefined &&
+      (version <= 0 || !Number.isFinite(version) || Math.floor(version) !== version)
+    ) {
       queueMicrotask(() => {
         request._reject(new TypeError(
           `The version provided (${version}) is not a valid positive integer.`
@@ -73,13 +158,22 @@ export class IDBFactory {
     queueMicrotask(() => {
       try {
         const existing = this._databases.get(name);
-        const oldVersion = existing ? existing.version : 0;
 
         let sqliteDb: any;
+        let oldVersion = 0;
         if (existing) {
           sqliteDb = existing.sqliteDb;
+          oldVersion = existing.version;
         } else {
           sqliteDb = this._sqliteProvider.create(name);
+          oldVersion = readStoredVersion(sqliteDb);
+        }
+        const resolvedVersion = version ?? (oldVersion > 0 ? oldVersion : 1);
+        if (oldVersion > 0 && resolvedVersion < oldVersion) {
+          throw new DOMException(
+            `The requested version (${resolvedVersion}) is less than the existing version (${oldVersion}).`,
+            'VersionError',
+          );
         }
 
         const db = new IDBDatabase(name, resolvedVersion, sqliteDb);
@@ -116,6 +210,7 @@ export class IDBFactory {
 
         // Store the database reference
         this._databases.set(name, { version: resolvedVersion, sqliteDb });
+        writeStoredVersion(sqliteDb, resolvedVersion);
 
         // Fire onsuccess
         request._resolveSync(db);
@@ -143,6 +238,7 @@ export class IDBFactory {
           }
           this._databases.delete(name);
         }
+        this._sqliteProvider.delete?.(name);
         request._resolveSync(undefined);
       } catch (e: any) {
         request._reject(e);
