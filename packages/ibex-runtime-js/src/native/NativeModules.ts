@@ -117,6 +117,9 @@ export interface NativeStorageModule {
   clear(): void;
   key(index: number): string | null;
   length(): number;
+  estimate?(): { usage: number; quota: number } | Promise<{ usage: number; quota: number }>;
+  persist?(): boolean | Promise<boolean>;
+  persisted?(): boolean | Promise<boolean>;
 }
 
 // =============================================================================
