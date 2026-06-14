@@ -23,10 +23,21 @@ declare global {
     | ((operation: string, argsJson: string) => unknown)
     | undefined;
   var __exactPlatform: string | undefined;
+  var __exactAndroidCameraHostCall:
+    | ((operation: string, argsJson: string) => unknown)
+    | undefined;
+  var __exactAndroidCameraMetadata:
+    | {
+        moduleId?: number | null;
+        version?: string;
+        stateOffset?: number | null;
+        stateSize?: number;
+      }
+    | undefined;
 }
 
 interface ExactRuntimeModuleMetadata {
-  moduleId?: number;
+  moduleId?: number | null;
   version?: string;
   stateOffset?: number | null;
   stateSize?: number;
@@ -933,18 +944,29 @@ function getNavigator(): CameraPermissionNavigator | null {
 }
 
 function isNativeCameraHostEnvironment(): boolean {
-  // Native Exact runtimes expose a synchronous bridge through `__hostCall`.
-  // Browsers never set `__exactPlatform`, so this is the clean runtime split
-  // between the web camera backend and the Apple host-backed one.
-  return (
-    typeof globalThis.__hostCall === "function" &&
-    typeof globalThis.__exactPlatform === "string" &&
-    globalThis.__exactPlatform.length > 0 &&
-    globalThis.__exactPlatform !== "web"
-  );
+  const platform =
+    typeof globalThis.__exactPlatform === "string"
+      ? globalThis.__exactPlatform
+      : "";
+  if (!platform || platform === "web") {
+    return false;
+  }
+  if (platform === "android" && typeof globalThis.__exactAndroidCameraHostCall === "function") {
+    return true;
+  }
+  // Other native Exact runtimes expose a synchronous bridge through `__hostCall`.
+  return typeof globalThis.__hostCall === "function";
 }
 
 function readNativeCameraModuleMetadata(): ExactRuntimeModuleMetadata | null {
+  if (
+    globalThis.__exactPlatform === "android" &&
+    globalThis.__exactAndroidCameraMetadata &&
+    typeof globalThis.__exactAndroidCameraMetadata === "object"
+  ) {
+    return globalThis.__exactAndroidCameraMetadata;
+  }
+
   const exact = (globalThis as typeof globalThis & {
     exact?: ExactRuntimeModuleMetadataBridge;
   }).exact;
@@ -1020,6 +1042,16 @@ export function invokeNativeCameraHostCall<T>(
   operation: string,
   payload?: unknown,
 ): T | undefined {
+  if (
+    globalThis.__exactPlatform === "android" &&
+    typeof globalThis.__exactAndroidCameraHostCall === "function"
+  ) {
+    return globalThis.__exactAndroidCameraHostCall(
+      operation,
+      typeof payload === "undefined" ? "{}" : JSON.stringify(payload),
+    ) as T;
+  }
+
   const hostCall = globalThis.__hostCall;
   if (typeof hostCall !== "function") {
     return undefined;

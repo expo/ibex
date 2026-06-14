@@ -65,6 +65,12 @@ extern "C" int android_get_initial_url(
     char** out_url, char* error, size_t error_capacity);
 extern "C" int android_drain_platform_events(
     char** out_events, char* error, size_t error_capacity);
+extern "C" int android_camera_host_call(
+    const char* operation,
+    const char* payload_json,
+    char** out_json,
+    char* error,
+    size_t error_capacity);
 
 namespace {
 
@@ -471,6 +477,58 @@ void installAndroidLocationBridge(facebook::jsi::Runtime& rt) {
   rt.global().setProperty(rt, "__exactAndroidLocation", std::move(location));
 }
 
+void installAndroidCameraBridge(facebook::jsi::Runtime& rt) {
+  facebook::jsi::Object metadata(rt);
+  metadata.setProperty(rt, "version", facebook::jsi::String::createFromUtf8(rt, "0.2.0"));
+  metadata.setProperty(rt, "moduleId", facebook::jsi::Value::null());
+  metadata.setProperty(rt, "stateOffset", facebook::jsi::Value::null());
+  metadata.setProperty(rt, "stateSize", facebook::jsi::Value(0));
+  metadata.setProperty(
+      rt,
+      "backend",
+      facebook::jsi::String::createFromUtf8(rt, "android-framework"));
+  rt.global().setProperty(rt, "__exactAndroidCameraMetadata", std::move(metadata));
+
+  auto cameraHostCallFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAndroidCameraHostCall"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        std::string operation = count > 0 ? valueToString(runtime, args[0]) : std::string("");
+        std::string payload = count > 1 ? valueToString(runtime, args[1]) : std::string("{}");
+        char* json = nullptr;
+        char error[256] = {};
+        int rc = android_camera_host_call(
+            operation.c_str(), payload.c_str(), &json, error, sizeof(error));
+        if (rc < 0) {
+          throw facebook::jsi::JSError(
+              runtime, error[0] ? error : "Android camera host call failed");
+        }
+
+        std::string json_copy = json ? json : "";
+        if (json) {
+          std::free(json);
+        }
+        if (json_copy.empty() || json_copy == "null" || json_copy == "undefined") {
+          return facebook::jsi::Value::null();
+        }
+
+        auto jsonGlobal = runtime.global().getPropertyAsObject(runtime, "JSON");
+        auto parseFn = jsonGlobal.getPropertyAsFunction(runtime, "parse");
+        return parseFn.call(
+            runtime, facebook::jsi::String::createFromUtf8(runtime, json_copy));
+      });
+
+  // @ref LLP 0008#android-backend-matrix — Android camera inventory and
+  // permission state come from framework camera services instead of web
+  // getUserMedia/virtual-camera fallbacks.
+  rt.global().setProperty(
+      rt, "__exactAndroidCameraHostCall", std::move(cameraHostCallFn));
+}
+
 bool dispatchAndroidPlatformEvents(ExactHermesRuntime* handle) {
   if (!handle || !handle->runtime) {
     return false;
@@ -525,6 +583,7 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   installAndroidEnvironmentGlobals(rt);
   installAndroidLocationBridge(rt);
+  installAndroidCameraBridge(rt);
 
   auto getPlatformStateFn = facebook::jsi::Function::createFromHostFunction(
       rt,

@@ -126,9 +126,10 @@ implementations `[observed]` (`src/engine/native_fetch_windows.cc:1-5`;
 `src/engine/native_websocket_windows.cc:1-5`; `build.rs:1072-1104`). Android
 uses `native_android_networking.cc`, which preserves the same C++ fetch and
 WebSocket ABI while delegating HTTP/WebSocket work to the Java OkHttp bridge
-`IbexNetworking`; Android clipboard, raw DNS, location, locale/screen/appearance
-globals, app-state/deep-link/configuration events, and platform-version data
-are also fed through that app-context bridge
+`IbexNetworking`; Android clipboard, raw DNS, location, camera
+permission/device metadata, locale/screen/appearance globals,
+app-state/deep-link/configuration events, and platform-version data are also
+fed through that app-context bridge
 `[observed]` (`src/engine/native_android_networking.cc`;
 `src/engine/hermes_runtime_android.cc`;
 `platform/android/java/dev/ibex/runtime/IbexNetworking.java`; `build.rs`).

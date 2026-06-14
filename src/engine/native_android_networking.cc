@@ -120,6 +120,7 @@ struct AndroidNetworkingMethods {
   jmethodID app_state = nullptr;
   jmethodID initial_url = nullptr;
   jmethodID drain_platform_events = nullptr;
+  jmethodID camera_host_call = nullptr;
 };
 
 std::mutex g_jni_mutex;
@@ -149,6 +150,7 @@ jmethodID g_current_location = nullptr;
 jmethodID g_app_state = nullptr;
 jmethodID g_initial_url = nullptr;
 jmethodID g_drain_platform_events = nullptr;
+jmethodID g_camera_host_call = nullptr;
 
 std::mutex g_fetch_mutex;
 std::unordered_map<uint32_t, AndroidFetchRequest> g_fetch_requests;
@@ -652,6 +654,11 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
       env->GetStaticMethodID(cls, "initialURL", "()Ljava/lang/String;");
   g_drain_platform_events =
       env->GetStaticMethodID(cls, "drainPlatformEvents", "()Ljava/lang/String;");
+  g_camera_host_call =
+      env->GetStaticMethodID(
+          cls,
+          "cameraHostCall",
+          "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
 
   if (clear_pending_exception(env, "cache IbexNetworking methods") ||
       !g_initialize ||
@@ -676,7 +683,8 @@ bool cache_networking_methods(JNIEnv* env, jclass cls) {
       !g_current_location ||
       !g_app_state ||
       !g_initial_url ||
-      !g_drain_platform_events) {
+      !g_drain_platform_events ||
+      !g_camera_host_call) {
     __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Missing IbexNetworking Java method");
     return false;
   }
@@ -714,6 +722,7 @@ bool get_networking_methods(JNIEnv* env, AndroidNetworkingMethods* out) {
   out->app_state = g_app_state;
   out->initial_url = g_initial_url;
   out->drain_platform_events = g_drain_platform_events;
+  out->camera_host_call = g_camera_host_call;
   return out->cls != nullptr;
 }
 
@@ -1547,6 +1556,76 @@ extern "C" int android_drain_platform_events(
     return -1;
   }
   *out_events = copy;
+  return 1;
+}
+
+extern "C" int android_camera_host_call(
+    const char* operation,
+    const char* payload_json,
+    char** out_json,
+    char* error,
+    size_t error_capacity) {
+  if (out_json) {
+    *out_json = nullptr;
+  }
+  if (!out_json || !operation) {
+    return -1;
+  }
+
+  auto write_error = [error, error_capacity](const char* message) {
+    if (!error || error_capacity == 0) {
+      return;
+    }
+    const char* text = message ? message : "Android camera host call failed";
+    std::strncpy(error, text, error_capacity - 1);
+    error[error_capacity - 1] = '\0';
+  };
+
+  JniEnvScope scope;
+  JNIEnv* env = scope.env();
+  AndroidNetworkingMethods methods;
+  if (!env || !get_networking_methods(env, &methods)) {
+    write_error("Android runtime bridge is not initialized");
+    return -1;
+  }
+
+  jstring op = string_to_jstring(env, operation);
+  jstring payload = string_to_jstring(env, payload_json ? payload_json : "{}");
+  if (!op || !payload) {
+    if (op) {
+      env->DeleteLocalRef(op);
+    }
+    if (payload) {
+      env->DeleteLocalRef(payload);
+    }
+    env->DeleteLocalRef(methods.cls);
+    write_error("Failed to allocate Android camera host call arguments");
+    return -1;
+  }
+
+  auto result = static_cast<jstring>(
+      env->CallStaticObjectMethod(methods.cls, methods.camera_host_call, op, payload));
+  env->DeleteLocalRef(op);
+  env->DeleteLocalRef(payload);
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(methods.cls);
+    write_error("Android camera host call failed");
+    return -1;
+  }
+  env->DeleteLocalRef(methods.cls);
+
+  std::string json = jstring_to_string(env, result);
+  if (result) {
+    env->DeleteLocalRef(result);
+  }
+  auto* copy = malloc_string_copy(json);
+  if (!copy) {
+    write_error("Failed to allocate Android camera host call response");
+    return -1;
+  }
+  *out_json = copy;
   return 1;
 }
 

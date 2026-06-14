@@ -4,10 +4,11 @@ Ibex Android platform integration is split between native C++ and Android Java:
 
 - `src/engine/native_android_networking.cc` implements the existing native
   `native_fetch_*` and `native_ws_*` symbols used by the Hermes runtime, plus
-  JNI calls for raw DNS, clipboard, location, app lifecycle/configuration
-  events, deep links, and platform environment data.
+  JNI calls for raw DNS, clipboard, location, camera permission/device
+  metadata, app lifecycle/configuration events, deep links, and platform
+  environment data.
 - `src/engine/hermes_runtime_android.cc` installs the Android-only Hermes
-  globals consumed by clipboard, location, locale, screen,
+  globals consumed by clipboard, location, camera, locale, screen,
   appearance/accessibility, app state/linking/dimensions, and React Native
   compatibility shims.
 - `java/dev/ibex/runtime/IbexNetworking.java` owns the Android app integration.
@@ -29,6 +30,12 @@ Activity state and deep links through `IbexNetworking.notifyActivityStarted()`,
 `notifyActivityStopped()`, `notifyActivityResumed()`, `notifyActivityPaused()`,
 and `notifyNewIntent()` so `AppState`, `Linking`, `Dimensions`, and window
 events reflect the foreground app.
+
+The built-in camera host bridge exposes synchronous Android camera permission,
+device inventory, and session-capability metadata through CameraManager. App
+preview and capture should be implemented with CameraX above that bridge; the
+runtime does not yet ship a complete CameraX preview/photo/video session
+provider.
 
 The bridge configures OkHttp with redirects disabled because Ibex's JS fetch
 layer implements Fetch redirect policy itself.
