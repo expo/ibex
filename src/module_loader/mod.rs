@@ -821,7 +821,6 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
     }
 }
 
-
 fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     let mut hasher = DefaultHasher::new();
     "loader-transpile-v12-swc-explicit-iterator-for-of".hash(&mut hasher);
@@ -1539,7 +1538,10 @@ export const value = <span />;
             !tsx_source.contains("export const"),
             "esm exports lowered: {tsx_source}"
         );
-        assert!(tsx_source.contains("value"), "export wiring present: {tsx_source}");
+        assert!(
+            tsx_source.contains("value"),
+            "export wiring present: {tsx_source}"
+        );
         assert!(!tsx_source.contains(": number"));
 
         let resolved_jsx = loader
@@ -1551,7 +1553,10 @@ export const value = <span />;
             !jsx_source.contains("export const"),
             "esm exports lowered: {jsx_source}"
         );
-        assert!(jsx_source.contains("value"), "export wiring present: {jsx_source}");
+        assert!(
+            jsx_source.contains("value"),
+            "export wiring present: {jsx_source}"
+        );
         assert!(jsx_source.contains("createElement"));
         assert!(!jsx_source.contains("<span"));
     }

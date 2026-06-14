@@ -24,6 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(all(
     unix,
+    not(target_os = "android"),
     not(target_os = "macos"),
     not(target_os = "ios"),
     not(target_os = "tvos"),
@@ -34,6 +35,15 @@ fn set_errno_from_io_error(err: &std::io::Error) {
     let code = err.raw_os_error().unwrap_or(libc::EIO);
     unsafe {
         *libc::__errno_location() = code;
+    }
+}
+
+#[cfg(target_os = "android")]
+#[inline]
+fn set_errno_from_io_error(err: &std::io::Error) {
+    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    unsafe {
+        *libc::__errno() = code;
     }
 }
 

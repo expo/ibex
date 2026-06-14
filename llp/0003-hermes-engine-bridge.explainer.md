@@ -102,7 +102,7 @@ flag polled by the host `[observed]` (`src/engine/mod.rs:33-43`); the
 Each `src/engine/hermes_runtime_*.cc` file installs a family of native host
 functions / globals for one subsystem and carries per-OS implementations behind
 `#if` guards. `build.rs` lists the C++ sources and target-specific defines
-`[observed]` (`build.rs:711-781, 787-1073`):
+`[observed]` (`build.rs:804-1224`):
 
 | Subsystem | Files | Notes |
 |---|---|---|
@@ -123,11 +123,14 @@ Foundation/NSURLSession implementations `[observed]`
 (`src/engine/native_fetch_macos.mm:1-14`;
 `src/engine/native_websocket_macos.mm:1-9`). Windows uses WinHTTP
 implementations `[observed]` (`src/engine/native_fetch_windows.cc:1-5`;
-`src/engine/native_websocket_windows.cc:1-5`; `build.rs:954-989`). Linux uses
+`src/engine/native_websocket_windows.cc:1-5`; `build.rs:1072-1104`). Linux uses
 libcurl only when `build.rs` detects curl >= 7.86 and defines `EXACT_HAS_CURL`;
 otherwise the Linux native files compile stub/fallback code `[observed]`
-(`build.rs:991-1039`; `src/engine/native_fetch_linux.cc:1-24`;
-`src/engine/native_websocket_linux.cc:1-28`).
+(`build.rs:1174-1224`; `src/engine/native_fetch_linux.cc:1-24`;
+`src/engine/native_websocket_linux.cc:1-28`). Android uses the same curl-backed
+native files, but supplies libcurl through the target-specific vendored
+`curl-sys` dependency and always defines `EXACT_HAS_CURL` for that branch
+`[observed]` (`Cargo.toml:82-83`; `build.rs:1106-1137`).
 
 ### Crypto is platform-dependent (the fragile axis)
 
@@ -143,6 +146,9 @@ Crypto is split between the non-Windows crypto shim and a Windows-specific file:
 - **OpenSSL profile:** when `EXACT_NO_OPENSSL` is not defined, the non-Windows
   file compiles OpenSSL-backed asymmetric sign/verify/key-generation paths
   `[observed]` (`src/engine/hermes_runtime_crypto.cc:1693-1993`).
+- **Android:** `build.rs` defines `EXACT_PLATFORM_ANDROID` and requires the
+  `openssl-crypto` profile, using vendored OpenSSL until an Android-native
+  crypto backend exists `[observed]` (`build.rs:933-949`).
 - **Non-Windows reduced profile:** when `EXACT_NO_OPENSSL` is defined outside
   Apple-specific branches, the non-Windows file registers throwing stubs for
   sign/verify/key generation `[observed]`

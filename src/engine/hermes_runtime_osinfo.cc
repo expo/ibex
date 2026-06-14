@@ -218,7 +218,9 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
         double loadavgArr[3] = {0.0, 0.0, 0.0};
+#if !defined(EXACT_PLATFORM_ANDROID)
         getloadavg(loadavgArr, 3);
+#endif
         auto arr = facebook::jsi::Array(runtime, 3);
         arr.setValueAtIndex(runtime, 0, facebook::jsi::Value(loadavgArr[0]));
         arr.setValueAtIndex(runtime, 1, facebook::jsi::Value(loadavgArr[1]));

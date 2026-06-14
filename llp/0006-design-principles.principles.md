@@ -66,7 +66,9 @@ crypto file `[observed]` (`src/engine/hermes_runtime_crypto.cc:23-44`); Windows
 compiles a separate BCrypt-backed file `[observed]`
 (`build.rs:729-765`; `src/engine/hermes_runtime_crypto_windows.cc:141-221`);
 Linux defines `EXACT_NO_OPENSSL` unless `openssl-crypto` is enabled
-`[observed]` (`build.rs:824-831`). The non-Windows no-OpenSSL path registers
+`[observed]` (`build.rs:824-831`). Android requires `openssl-crypto` and defines
+`EXACT_PLATFORM_ANDROID` while using vendored OpenSSL `[observed]`
+(`build.rs:933-949`). The non-Windows no-OpenSSL path registers
 throwing stubs for asymmetric sign/verify/key generation `[observed]`
 (`src/engine/hermes_runtime_crypto.cc:1995-2026`), while the Windows file does
 not register those asymmetric stubs and the non-Apple hash/HMAC code still
