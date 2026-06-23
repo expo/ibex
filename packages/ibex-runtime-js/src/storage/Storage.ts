@@ -1,5 +1,5 @@
 /**
- * Storage implementation for Exact runtime (localStorage/sessionStorage)
+ * Storage implementation for Ibex runtime (localStorage/sessionStorage)
  * 
  * Implements the Web Storage API.
  * @see https://html.spec.whatwg.org/multipage/webstorage.html

@@ -1,7 +1,7 @@
 // tty module — provides tty.ReadStream, tty.WriteStream, and tty.isatty
 // compatible with Node.js tty API surface.
 //
-// In the Exact runtime environment (mobile/embedded), actual TTY support is
+// In the Ibex runtime environment (mobile/embedded), actual TTY support is
 // not available. The implementation provides the correct API surface so that
 // code checking for TTY capabilities (e.g. chalk, ora, ink) doesn't crash,
 // while correctly reporting that streams are not TTYs.
@@ -14,7 +14,7 @@ try { EventEmitter = require('events'); } catch (e) { EventEmitter = null; }
 
 // ─── isatty ──────────────────────────────────────────────────────
 // Returns true if the given fd refers to a TTY.
-// In the Exact runtime, this always returns false unless globalThis.process
+// In the Ibex runtime, this always returns false unless globalThis.process
 // streams explicitly report isTTY.
 function isatty(fd) {
   // Match Node.js behavior: non-number or missing fd returns false
@@ -108,7 +108,7 @@ if (net && net.Socket && net.Socket.prototype) {
 WriteStream.prototype.constructor = WriteStream;
 
 // isTTY is set on the prototype (Node.js does this too, but instances
-// may override). For Exact runtime, streams are not actual TTYs.
+// may override). For Ibex runtime, streams are not actual TTYs.
 // Note: This matches behavior where non-tty WriteStreams still have
 // the property but set to false-y. We set it as an instance property
 // in the constructor flow rather than on prototype, but we define it

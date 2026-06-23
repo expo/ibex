@@ -1505,10 +1505,10 @@ export function installGlobals(): void {
   // Bun.password - argon2/bcrypt (stub - rejects since we lack native support)
   if (g.Exact && !g.Exact.password) {
     g.Exact.password = {
-      hash: () => Promise.reject(new Error('Bun.password not available in Exact runtime')),
-      verify: () => Promise.reject(new Error('Bun.password not available in Exact runtime')),
-      hashSync: () => { throw new Error('Bun.password not available in Exact runtime'); },
-      verifySync: () => { throw new Error('Bun.password not available in Exact runtime'); },
+      hash: () => Promise.reject(new Error('Bun.password not available in Ibex runtime')),
+      verify: () => Promise.reject(new Error('Bun.password not available in Ibex runtime')),
+      hashSync: () => { throw new Error('Bun.password not available in Ibex runtime'); },
+      verifySync: () => { throw new Error('Bun.password not available in Ibex runtime'); },
     };
   }
   // Bun.semver - semver comparison utilities

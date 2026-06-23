@@ -6,7 +6,7 @@
 // The HTTP server lives in the library so app hosts and the binary link the
 // same implementation. @ref LLP 0010#binary-implementation
 #[cfg(feature = "host-http-server")]
-pub use exact_runtime::host::http_server;
+pub use ibex_runtime::host::http_server;
 
 #[cfg(not(feature = "host-http-server"))]
 pub mod http_server {
@@ -37,4 +37,4 @@ pub mod http_server {
 
 // Re-export everything from the shared runtime
 #[allow(unused_imports)]
-pub use exact_runtime::host::{abi, capability, policy, process, Host, HostConfig, SecurityMode};
+pub use ibex_runtime::host::{abi, capability, policy, process, Host, HostConfig, SecurityMode};

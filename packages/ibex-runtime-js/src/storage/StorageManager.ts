@@ -44,7 +44,7 @@ export class StorageManager {
   /**
    * Requests permission to use persistent storage.
    *
-   * In the Exact runtime, persistent storage is granted based on the
+   * In the Ibex runtime, persistent storage is granted based on the
    * STORAGE_PERSIST capability.
    *
    * @returns A promise that resolves to true if persistent storage is granted.

@@ -25,7 +25,7 @@ static CALLBACK_PENDING: AtomicBool = AtomicBool::new(false);
 ///
 /// The `test` arm keeps the symbol defined for this crate's own lib test:
 /// under `cargo test --workspace`, feature unification turns on `cli-notify`
-/// for every exact-runtime target, but the CLI's replacement
+/// for every ibex-runtime target, but the CLI's replacement
 /// is not part of the lib-test link unit, which otherwise fails with an
 /// undefined `_ex_hermes_notify_callback`. `cfg(test)` is never set when
 /// other crates link this one, so the CLI build still gets exactly one

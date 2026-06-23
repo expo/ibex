@@ -2825,7 +2825,7 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
 #else  // EXACT_NO_OPENSSL: reduced crypto profile (no asymmetric sign/verify)
   // Register the same JS surface as throwing stubs so callers get a clear
   // runtime error instead of a missing-global ReferenceError. Real asymmetric
-  // crypto requires building exact-runtime with the `openssl-crypto` feature.
+  // crypto requires building ibex-runtime with the `openssl-crypto` feature.
   // @ref LLP 0159 -- reduced crypto shape mirrors the Windows/app-host profile.
   auto makeUnavailableAsymCryptoFn =
       [](facebook::jsi::Runtime& rtRef, const char* name) {
@@ -2842,7 +2842,7 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
                   runtime,
                   fnName +
                       ": asymmetric crypto is unavailable in this build "
-                      "(rebuild exact-runtime with the openssl-crypto feature)");
+                      "(rebuild ibex-runtime with the openssl-crypto feature)");
             });
       };
   rt.global().setProperty(

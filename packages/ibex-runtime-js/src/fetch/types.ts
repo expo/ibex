@@ -1,7 +1,7 @@
 /**
  * Fetch API Type Definitions
  *
- * Based on the WHATWG Fetch Standard with extensions for Exact runtime.
+ * Based on the WHATWG Fetch Standard with extensions for Ibex runtime.
  * @see https://fetch.spec.whatwg.org/
  */
 

@@ -1,5 +1,5 @@
 /**
- * SQLite Database for the Exact runtime.
+ * SQLite Database for the Ibex runtime.
  *
  * API matches bun:sqlite's Database class with cr-sqlite extension support.
  *
@@ -58,7 +58,7 @@ export class Database {
     if (!g.__exactSqliteOpen) {
       throw new Error(
         'exact:sqlite native bridge not available. ' +
-        'The exact:sqlite module requires the Exact runtime with SQLite support.'
+        'The exact:sqlite module requires the Ibex runtime with SQLite support.'
       );
     }
 
@@ -295,7 +295,7 @@ export class Database {
     } else {
       throw new Error(
         'cr-sqlite extension not available. ' +
-        'The Exact runtime must be built with cr-sqlite support.'
+        'The Ibex runtime must be built with cr-sqlite support.'
       );
     }
     this._crSqliteLoaded = true;

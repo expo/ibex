@@ -1,7 +1,7 @@
 /**
  * CacheStorage API Implementation (In-Memory)
  *
- * Implements the WHATWG CacheStorage interface for the Exact runtime.
+ * Implements the WHATWG CacheStorage interface for the Ibex runtime.
  * Manages multiple named Cache instances, all purely in-memory.
  *
  * @see https://w3c.github.io/ServiceWorker/#cachestorage-interface

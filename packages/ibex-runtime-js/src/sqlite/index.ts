@@ -1,7 +1,7 @@
 /**
  * exact:sqlite module
  *
- * SQLite database module for the Exact runtime.
+ * SQLite database module for the Ibex runtime.
  * API compatible with bun:sqlite, with built-in cr-sqlite CRDT support.
  *
  * @example

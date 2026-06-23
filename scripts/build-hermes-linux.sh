@@ -132,7 +132,7 @@ else
     exit 1
 fi
 
-# Public headers used by exact-runtime build.rs.
+# Public headers used by ibex-runtime build.rs.
 # Preserve include shapes expected by Hermes headers:
 #   <jsi/...> and <hermes/...>
 mkdir -p "$INSTALL_DIR/include/jsi" "$INSTALL_DIR/include/hermes"

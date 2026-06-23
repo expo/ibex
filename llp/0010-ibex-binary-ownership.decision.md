@@ -34,9 +34,9 @@ execute a file named `test`.
 ## Binary Implementation
 
 The binary target lives in this package as `[[bin]] name = "ibex"` and links
-against the local `exact_runtime` library crate. The library crate name,
-`ex_` C ABI symbols, and `__exact*` JavaScript internals are transitional
-extraction debt and are not renamed by this decision.
+against the local `ibex_runtime` library crate. The `ex_` C ABI symbols and
+`__exact*` JavaScript internals are compatibility surfaces and are not renamed
+by this decision.
 
 The binary reuses the same host ABI, Hermes bridge, module loader, generated
 runtime bundle, and optional HTTP server implementation as embedders. This

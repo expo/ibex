@@ -7,7 +7,7 @@
 // shared HTTP server that feeds it; re-export so both sides share one state.
 // @ref LLP 0010#binary-implementation — the binary reuses the local runtime crate.
 #[cfg(feature = "host-http-server")]
-pub use exact_runtime::cdp::network;
+pub use ibex_runtime::cdp::network;
 
 #[cfg(not(feature = "host-http-server"))]
 mod network {

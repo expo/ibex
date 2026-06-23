@@ -3,7 +3,7 @@
 /**
  * Exact Runtime
  *
- * Web-standard APIs for the Exact runtime environment.
+ * Web-standard APIs for the Ibex runtime environment.
  * These APIs are implemented to match browser standards while
  * running on top of native platform code.
  */

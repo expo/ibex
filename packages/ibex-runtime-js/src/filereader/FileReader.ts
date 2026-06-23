@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * FileReader implementation for Exact runtime (Legacy API)
+ * FileReader implementation for Ibex runtime (Legacy API)
  * 
  * @see https://w3c.github.io/FileAPI/#dfn-filereader
  * 

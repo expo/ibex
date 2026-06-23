@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * WebSocket implementation for Exact runtime
+ * WebSocket implementation for Ibex runtime
  *
  * Implements the WHATWG WebSocket API.
  * @see https://websockets.spec.whatwg.org/

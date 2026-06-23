@@ -207,7 +207,7 @@ function Database(filename, options) {
   }
 
   if (!g.__exactSqliteOpen) {
-    throw new Error('exact:sqlite native bridge not available. The exact:sqlite module requires the Exact runtime with SQLite support.');
+    throw new Error('exact:sqlite native bridge not available. The exact:sqlite module requires the Ibex runtime with SQLite support.');
   }
 
   var flags = typeof options === 'number' ? options : undefined;
@@ -354,7 +354,7 @@ Database.prototype.enableCrSqlite = function() {
   } else if (g.__exactSqliteLoadCrSqlite) {
     g.__exactSqliteLoadCrSqlite(this._handle);
   } else {
-    throw new Error('cr-sqlite extension not available. The Exact runtime must be built with cr-sqlite support.');
+    throw new Error('cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.');
   }
   this._crSqliteLoaded = true;
 };

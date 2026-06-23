@@ -1,5 +1,5 @@
 /**
- * requestAnimationFrame / cancelAnimationFrame implementation for Exact runtime
+ * requestAnimationFrame / cancelAnimationFrame implementation for Ibex runtime
  * 
  * Schedules callbacks to run before the next repaint.
  * @see https://html.spec.whatwg.org/multipage/imagebitmap-and-animations.html#dom-animationframeprovider-requestanimationframe

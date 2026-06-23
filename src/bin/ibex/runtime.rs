@@ -1219,7 +1219,7 @@ impl Runtime {
                     globalThis.process.version = 'v' + __exactIdentityVersions.node;
                 }}
             }}"#,
-            versions = exact_runtime::identity_generated::VERSIONS_JS_OBJECT,
+            versions = ibex_runtime::identity_generated::VERSIONS_JS_OBJECT,
         );
         let process_versions_code = process_versions_code.as_str();
         let compat_reapply_code = if std::env::var_os("EXACT_COMPAT_TEST").is_some() {
@@ -1425,7 +1425,7 @@ impl Runtime {
                 )
             });
         let source = if needs_lowering {
-            exact_runtime::module_loader::transpile::transpile_to_cjs(&source, entry_path)?
+            ibex_runtime::module_loader::transpile::transpile_to_cjs(&source, entry_path)?
         } else {
             source
         };

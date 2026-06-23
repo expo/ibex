@@ -1391,7 +1391,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   TRACE_START(hermes_config);
   auto gcConfig = ::hermes::vm::GCConfig::Builder()
                       .withShouldRecordStats(true)
-                      .withName("exact-runtime")
+                      .withName("ibex-runtime")
                       .build();
   auto configBuilder = ::hermes::vm::RuntimeConfig::Builder().withGCConfig(gcConfig);
 #if defined(EXACT_HAVE_HERMES_MICROTASK_CONFIG)

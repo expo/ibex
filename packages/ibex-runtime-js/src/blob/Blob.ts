@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * Blob implementation for Exact runtime
+ * Blob implementation for Ibex runtime
  * 
  * Implements the WHATWG Blob API for handling binary data.
  * https://w3c.github.io/FileAPI/#blob-section

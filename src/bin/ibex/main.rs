@@ -13,7 +13,7 @@ mod runtime;
 mod subprocess;
 
 // Re-export module_loader from the shared runtime crate
-pub use exact_runtime::module_loader;
+pub use ibex_runtime::module_loader;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -1352,7 +1352,7 @@ mod tests {
         let source = origin_source("src/host/abi.rs");
         assert!(
             source.contains(r#"anyhow!("Host not initialized")"#),
-            "with_host() defaults in exact-runtime/src/host/abi.rs no longer use \
+            "with_host() defaults in ibex-runtime/src/host/abi.rs no longer use \
              \"Host not initialized\""
         );
     }
@@ -1362,7 +1362,7 @@ mod tests {
         let source = origin_source("src/host/mod.rs");
         assert!(
             source.contains(r#""Permission denied for {}""#),
-            "Host::resolve_module in exact-runtime/src/host/mod.rs no longer uses \
+            "Host::resolve_module in ibex-runtime/src/host/mod.rs no longer uses \
              \"Permission denied for {{}}\""
         );
     }
@@ -1372,14 +1372,14 @@ mod tests {
         let cc_source = origin_source("src/engine/hermes_runtime_http.cc");
         assert!(
             cc_source.contains(r#""Failed to start HTTP server""#),
-            "__exactHttpServe in exact-runtime/src/engine/hermes_runtime_http.cc no longer \
+            "__exactHttpServe in ibex-runtime/src/engine/hermes_runtime_http.cc no longer \
              uses \"Failed to start HTTP server\""
         );
 
         let js_source = origin_source("src/engine/bootstrap/exact-global.js");
         assert!(
             js_source.contains("'Failed to start HTTP server'"),
-            "the exact:http bootstrap in exact-runtime/src/engine/bootstrap/exact-global.js \
+            "the exact:http bootstrap in ibex-runtime/src/engine/bootstrap/exact-global.js \
              no longer uses 'Failed to start HTTP server'"
         );
     }

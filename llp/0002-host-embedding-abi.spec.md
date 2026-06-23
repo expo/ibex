@@ -168,8 +168,8 @@ Strings returned to C are malloc'd via `CString::into_raw` and freed by
 
 ## Notes / boundaries
 
-- The crate is still named `exact-runtime` and many symbols/defines are
-  `ex_`/`EXACT_`-prefixed during the rename to ibex `[observed]`
+- The Rust crate is named `ibex-runtime`. Many C ABI symbols and JavaScript
+  internals remain `ex_`/`EXACT_`-prefixed for compatibility `[observed]`
   (`Cargo.toml:2`; LLP 0000 §Architecture).
 - This is a Spec of the *observed* contract surface; the normative
   "what may break under semver" lives in exact LLP 0038 and should be linked,

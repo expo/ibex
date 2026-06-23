@@ -1,5 +1,5 @@
 /**
- * Clipboard - Web Clipboard API implementation for Exact runtime
+ * Clipboard - Web Clipboard API implementation for Ibex runtime
  *
  * Provides async read/write access to the system clipboard.
  * By default, stores data in memory. When native bridge functions

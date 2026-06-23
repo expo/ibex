@@ -1,5 +1,5 @@
 /**
- * FormData implementation for Exact runtime
+ * FormData implementation for Ibex runtime
  * 
  * Implements the WHATWG FormData API with multipart/form-data encoding.
  * https://xhr.spec.whatwg.org/#interface-formdata
@@ -38,7 +38,7 @@ export class FormData {
 
   constructor(form?: unknown) {
     // Note: In a browser, this would accept an HTMLFormElement.
-    // In Exact runtime, we only support creating empty FormData.
+    // In Ibex runtime, we only support creating empty FormData.
     if (form !== undefined && form !== null) {
       throw new TypeError('FormData constructor with form element is not supported');
     }

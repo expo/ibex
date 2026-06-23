@@ -1,7 +1,7 @@
 /**
  * Cookie Jar Implementation (RFC 6265)
  *
- * A self-contained, spec-aligned cookie store for the Exact runtime.
+ * A self-contained, spec-aligned cookie store for the Ibex runtime.
  * Cookies are managed entirely in the JS fetch layer — the native HTTP
  * backends are stateless pipes with no implicit cookie handling.
  *

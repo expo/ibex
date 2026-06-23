@@ -28,7 +28,7 @@ fn contains_any_marker(bytes: &[u8], markers: &[&[u8]]) -> bool {
         .any(|marker| bytes.windows(marker.len()).any(|window| window == *marker))
 }
 
-fn looks_like_exact_runtime_bundle(bytes: &[u8]) -> bool {
+fn looks_like_ibex_runtime_bundle(bytes: &[u8]) -> bool {
     contains_any_marker(bytes, REQUIRED_RUNTIME_MARKERS)
 }
 
@@ -1048,7 +1048,7 @@ impl HermesEngine {
                             format!("Failed to read runtime bundle {}", runtime_path.display())
                         })?;
                         if runtime_path.extension().and_then(|s| s.to_str()) == Some("js")
-                            && !looks_like_exact_runtime_bundle(&bytes)
+                            && !looks_like_ibex_runtime_bundle(&bytes)
                         {
                             anyhow::bail!(
                                 "runtime.js at {} is not an Ibex runtime bundle",

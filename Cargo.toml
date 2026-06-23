@@ -1,5 +1,5 @@
 [package]
-name = "exact-runtime"
+name = "ibex-runtime"
 version = "0.1.0"
 edition = "2021"
 description = "Exact shared runtime - Hermes JS engine, module loader, and host ABI"
@@ -7,7 +7,7 @@ authors = ["Exact Team"]
 license = "MIT"
 
 [lib]
-name = "exact_runtime"
+name = "ibex_runtime"
 crate-type = ["staticlib", "rlib"]
 
 [[bin]]

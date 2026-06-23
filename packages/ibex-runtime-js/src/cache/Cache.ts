@@ -1,7 +1,7 @@
 /**
  * Cache API Implementation (In-Memory)
  *
- * Implements the WHATWG Cache API interface for the Exact runtime.
+ * Implements the WHATWG Cache API interface for the Ibex runtime.
  * This is a purely in-memory cache with no persistence.
  *
  * @see https://w3c.github.io/ServiceWorker/#cache-interface

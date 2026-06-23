@@ -1,7 +1,7 @@
 /**
  * Security module exports
  * 
- * Provides capability-based security for the Exact runtime.
+ * Provides capability-based security for the Ibex runtime.
  * @see JS_RUNTIME_SECURITY.md
  */
 

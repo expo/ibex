@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * EventSource implementation for Exact runtime
+ * EventSource implementation for Ibex runtime
  *
  * Implements the WHATWG EventSource (Server-Sent Events) API.
  * @see https://html.spec.whatwg.org/multipage/server-sent-events.html

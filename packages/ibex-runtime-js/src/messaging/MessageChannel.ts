@@ -1,5 +1,5 @@
 /**
- * MessageChannel implementation for Exact runtime
+ * MessageChannel implementation for Ibex runtime
  * 
  * Creates a pair of connected MessagePorts for two-way communication.
  * @see https://html.spec.whatwg.org/multipage/web-messaging.html#message-channels

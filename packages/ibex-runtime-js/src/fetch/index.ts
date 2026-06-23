@@ -1,7 +1,7 @@
 /**
  * Fetch API
  *
- * Web-standard Fetch API implementation for the Exact runtime.
+ * Web-standard Fetch API implementation for the Ibex runtime.
  * Follows the WHATWG Fetch Standard with native platform integration.
  *
  * @see https://fetch.spec.whatwg.org/

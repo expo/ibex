@@ -154,7 +154,7 @@ fn main() {
     // Resolve the root that holds Hermes build inputs (linux/, tools/hermes/,
     // scripts/). Two supported layouts:
     //   - standalone ibex repo: the crate is the repo root.
-    //   - legacy exact monorepo path: the crate is at packages/exact-runtime,
+    //   - legacy exact monorepo path: the crate was at packages/exact-runtime,
     //     so the root is two levels up.
     // Detect standalone by the presence of the Hermes build scripts at the
     // crate root; otherwise fall back to the legacy monorepo layout.
@@ -382,7 +382,7 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        exact_runtime_js_dir(repo_root).join("src").display()
+        ibex_runtime_js_dir(repo_root).join("src").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
@@ -397,7 +397,7 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        exact_runtime_js_dir(repo_root)
+        ibex_runtime_js_dir(repo_root)
             .join("package.json")
             .display()
     );
@@ -1560,7 +1560,7 @@ fn exact_devtools_script(repo_root: &Path, script_name: &str) -> PathBuf {
         .join(script_name)
 }
 
-fn exact_runtime_js_dir(repo_root: &Path) -> PathBuf {
+fn ibex_runtime_js_dir(repo_root: &Path) -> PathBuf {
     repo_root.join("packages").join("ibex-runtime-js")
 }
 
@@ -1572,7 +1572,7 @@ fn generate_runtime_bundle_source_header(
     vendored_generated_dir: &Path,
 ) {
     let devtools_dir = exact_devtools_dir(repo_root);
-    let runtime_entry = exact_runtime_js_dir(repo_root)
+    let runtime_entry = ibex_runtime_js_dir(repo_root)
         .join("src")
         .join("runtime-entry.ts");
     let build_script = exact_devtools_script(repo_root, "rolldown-bundle.mjs");

@@ -1,5 +1,5 @@
 /**
- * SQLite error class for the Exact runtime.
+ * SQLite error class for the Ibex runtime.
  * Matches bun:sqlite's SQLiteError.
  */
 

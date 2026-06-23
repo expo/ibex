@@ -1,5 +1,5 @@
 /**
- * File implementation for Exact runtime
+ * File implementation for Ibex runtime
  * 
  * Implements the WHATWG File API.
  * https://w3c.github.io/FileAPI/#file-section

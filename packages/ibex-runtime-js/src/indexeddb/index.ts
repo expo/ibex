@@ -1,10 +1,10 @@
 // @ts-nocheck
 /**
- * IndexedDB implementation for the Exact runtime
+ * IndexedDB implementation for the Ibex runtime
  *
  * Provides a server-side IndexedDB API backed by exact:sqlite.
  * Many npm packages use IndexedDB for caching/storage, and this
- * implementation enables those packages to work in the Exact runtime.
+ * implementation enables those packages to work in the Ibex runtime.
  *
  * @example
  * ```typescript

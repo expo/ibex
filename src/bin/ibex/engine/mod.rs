@@ -7,7 +7,7 @@
 //! @ref LLP 0010#runtime-command-surface — public engine choices must be true.
 
 pub mod hermes;
-pub use exact_runtime::engine::sourcemap;
+pub use ibex_runtime::engine::sourcemap;
 
 use anyhow::Result;
 use std::sync::Arc;

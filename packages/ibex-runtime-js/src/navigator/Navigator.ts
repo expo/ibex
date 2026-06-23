@@ -1,5 +1,5 @@
 /**
- * Navigator implementation for Exact runtime
+ * Navigator implementation for Ibex runtime
  * 
  * Provides browser-like navigator object with device/platform info.
  * @see https://html.spec.whatwg.org/multipage/system-state.html#the-navigator-object

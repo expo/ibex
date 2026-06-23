@@ -602,7 +602,7 @@ export interface CapabilitySystemInfo {
   /** Operating system version */
   osVersion: string;
   
-  /** Exact runtime version */
+  /** Ibex runtime version */
   runtimeVersion: string;
 }
 

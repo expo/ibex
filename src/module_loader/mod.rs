@@ -663,7 +663,7 @@ impl ModuleLoader {
             Ok(resolution) => resolution,
             Err(err) => {
                 // Native hosts pass referrer-relative entry paths without a
-                // leading "./" (e.g. "packages/exact-runtime-js/src/native"),
+                // leading "./" (e.g. "packages/ibex-runtime-js/src/native"),
                 // which Node-style resolution treats as bare package
                 // specifiers. If the path exists on disk relative to the
                 // referrer, retry as an explicit relative specifier so
@@ -1685,7 +1685,7 @@ for (let i = 0; i < 3; i++) {
 
     #[test]
     fn resolves_referrer_relative_path_without_dot_prefix() {
-        // Native hosts pass entry paths like "packages/exact-runtime-js/src/native"
+        // Native hosts pass entry paths like "packages/ibex-runtime-js/src/native"
         // without a leading "./". @ref LLP 0159 R8a
         let dir = tempdir().unwrap();
         let nested = dir

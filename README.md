@@ -11,13 +11,11 @@ and app framework live in the `exact` repo.
 
 > **Status: extracted "for now."** This repository was split out of the Exact
 > monorepo per **LLP 0180** (history-preserving). It will be re-homed under the
-> `expo` org later. The Rust crate is still named `exact-runtime` during the
-> transition to avoid churning downstream consumers; renaming to `ibex` is a
-> follow-up.
+> `expo` org later.
 
 ## What's here
 
-- The `exact-runtime` Rust crate (Hermes bindings in `src/engine/*.cc`, the
+- The `ibex-runtime` Rust crate (Hermes bindings in `src/engine/*.cc`, the
   host ABI in `src/host`, the module loader, vendored Brotli).
 - The `ibex` runtime binary (`src/bin/ibex`) for running JavaScript and
   TypeScript files.
@@ -29,7 +27,7 @@ Consumers depend on a deliberately narrow surface (see Exact LLP 0038):
 
 - Five C ABI functions: `ex_hermes_create`, `ex_hermes_destroy`,
   `ex_hermes_eval`, `ex_hermes_free_string`, `ex_hermes_set_host_call`.
-- The Rust host ABI: `exact_runtime::host::{install_host, Host}`.
+- The Rust host ABI: `ibex_runtime::host::{install_host, Host}`.
 
 ## Building
 

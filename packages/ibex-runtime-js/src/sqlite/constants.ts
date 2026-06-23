@@ -1,5 +1,5 @@
 /**
- * SQLite constants for the Exact runtime.
+ * SQLite constants for the Ibex runtime.
  *
  * Matches the constants exported by bun:sqlite.
  */

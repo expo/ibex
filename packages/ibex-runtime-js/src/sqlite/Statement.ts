@@ -1,5 +1,5 @@
 /**
- * SQLite Statement for the Exact runtime.
+ * SQLite Statement for the Ibex runtime.
  *
  * Prepared statement wrapping native SQLite3 operations.
  * API matches bun:sqlite's Statement class.
@@ -73,7 +73,7 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
     if (!g.__exactSqlitePrepare) {
       throw new Error(
         'exact:sqlite native bridge not available. ' +
-        'The exact:sqlite module requires the Exact runtime with SQLite support.'
+        'The exact:sqlite module requires the Ibex runtime with SQLite support.'
       );
     }
 

@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * process object implementation for Exact runtime (Node.js compatibility)
+ * process object implementation for Ibex runtime (Node.js compatibility)
  * 
  * Provides a subset of Node.js process API for compatibility with
  * libraries that check for Node.js environment.
@@ -1408,7 +1408,7 @@ class Process {
   }
 
   /**
-   * IPC channel (not available in Exact runtime).
+   * IPC channel (not available in Ibex runtime).
    */
   get channel(): undefined {
     return undefined;
@@ -1734,7 +1734,7 @@ class Process {
    * Abort the process.
    */
   abort(): never {
-    throw new Error('process.abort() is not supported in Exact runtime');
+    throw new Error('process.abort() is not supported in Ibex runtime');
   }
 
   /**

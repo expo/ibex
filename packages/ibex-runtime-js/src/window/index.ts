@@ -246,7 +246,7 @@ function createLocation(): LocationInfo {
     toString() { return parseUrl(currentHref).href; },
     reload: () => {
       // No-op in native - could trigger app refresh
-      console.warn('location.reload() is not supported in Exact runtime');
+      console.warn('location.reload() is not supported in Ibex runtime');
     },
     replace: (url: string) => {
       currentHref = url;
@@ -603,7 +603,7 @@ class Window extends EventTarget {
    * Get computed style (stub - no DOM)
    */
   getComputedStyle(_element: unknown, _pseudoElt?: string | null): Record<string, string> {
-    console.warn('getComputedStyle() is not supported in Exact runtime (no DOM)');
+    console.warn('getComputedStyle() is not supported in Ibex runtime (no DOM)');
     return new Proxy({}, {
       get: () => '',
     });
@@ -646,7 +646,7 @@ class Window extends EventTarget {
    * Print (not supported)
    */
   print(): void {
-    console.warn('print() is not supported in Exact runtime');
+    console.warn('print() is not supported in Ibex runtime');
   }
 
   /**
@@ -660,7 +660,7 @@ class Window extends EventTarget {
    * Open (not supported - no popup windows)
    */
   open(_url?: string, _target?: string, _features?: string): null {
-    console.warn('window.open() is not supported in Exact runtime');
+    console.warn('window.open() is not supported in Ibex runtime');
     return null;
   }
 
@@ -668,7 +668,7 @@ class Window extends EventTarget {
    * Close (not supported)
    */
   close(): void {
-    console.warn('window.close() is not supported in Exact runtime');
+    console.warn('window.close() is not supported in Ibex runtime');
   }
 
   /**
@@ -690,7 +690,7 @@ class Window extends EventTarget {
     if (nativeResult !== undefined) {
       return nativeResult === 'true';
     }
-    console.warn('confirm() is not fully supported in Exact runtime');
+    console.warn('confirm() is not fully supported in Ibex runtime');
     return false;
   }
 
@@ -706,7 +706,7 @@ class Window extends EventTarget {
     if (nativeResult !== undefined) {
       return nativeResult;
     }
-    console.warn('prompt() is not fully supported in Exact runtime');
+    console.warn('prompt() is not fully supported in Ibex runtime');
     return null;
   }
 
@@ -790,7 +790,7 @@ class Window extends EventTarget {
    * Create image bitmap (not supported - no DOM)
    */
   createImageBitmap(..._args: any[]): Promise<never> {
-    return Promise.reject(new Error('createImageBitmap() is not supported in Exact runtime'));
+    return Promise.reject(new Error('createImageBitmap() is not supported in Ibex runtime'));
   }
 
   /**

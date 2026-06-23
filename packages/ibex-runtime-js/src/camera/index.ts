@@ -993,7 +993,7 @@ function isNativeCameraHostEnvironment(): boolean {
   if (platform === "android" && typeof globalThis.__exactAndroidCameraHostCall === "function") {
     return true;
   }
-  // Other native Exact runtimes expose a synchronous bridge through `__hostCall`.
+  // Other native Ibex runtimes expose a synchronous bridge through `__hostCall`.
   return typeof globalThis.__hostCall === "function";
 }
 

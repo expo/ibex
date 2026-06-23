@@ -1,5 +1,5 @@
 /**
- * requestIdleCallback / cancelIdleCallback implementation for Exact runtime
+ * requestIdleCallback / cancelIdleCallback implementation for Ibex runtime
  * 
  * Schedules callbacks to run during idle periods.
  * @see https://w3c.github.io/requestidlecallback/

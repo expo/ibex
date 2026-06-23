@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * structuredClone implementation for Exact runtime
+ * structuredClone implementation for Ibex runtime
  * 
  * Implements the HTML structured clone algorithm.
  * @see https://html.spec.whatwg.org/multipage/structured-data.html#structuredclone

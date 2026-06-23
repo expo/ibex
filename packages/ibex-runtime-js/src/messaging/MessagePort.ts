@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * MessagePort implementation for Exact runtime
+ * MessagePort implementation for Ibex runtime
  * 
  * Implements the HTML MessagePort API for two-way communication.
  * @see https://html.spec.whatwg.org/multipage/web-messaging.html#message-ports

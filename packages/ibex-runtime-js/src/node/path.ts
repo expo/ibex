@@ -1,5 +1,5 @@
 /**
- * path module implementation for Exact runtime (Node.js compatibility)
+ * path module implementation for Ibex runtime (Node.js compatibility)
  *
  * Provides path manipulation utilities compatible with Node.js path module.
  * Since mobile apps run on Unix-like systems (iOS/Android), we only implement

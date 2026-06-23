@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * Buffer implementation for Exact runtime (Node.js compatibility)
+ * Buffer implementation for Ibex runtime (Node.js compatibility)
  * 
  * Buffer is a Uint8Array subclass that provides additional methods
  * for working with binary data.
