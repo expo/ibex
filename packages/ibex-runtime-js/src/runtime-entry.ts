@@ -1,5 +1,5 @@
 /**
- * Exact Runtime Entry Point
+ * Ibex Runtime Entry Point
  *
  * This file is the entry point for building the standalone runtime bundle.
  * It installs all web-standard globals and exposes runtime utilities.
@@ -48,7 +48,7 @@ g.exact.runtime = {
 // Using try-catch in case console isn't ready yet
 try {
   if (!(globalThis as any).__exactSuppressRuntimeBanner) {
-    console.log(`[Exact Runtime v${getRuntimeVersion()}] Installed (${detectEngine()})`);
+    console.log(`[Ibex Runtime v${getRuntimeVersion()}] Installed (${detectEngine()})`);
   }
 } catch {
   // Console not ready yet, that's fine

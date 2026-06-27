@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * Exact Runtime Bootstrap
+ * Ibex Runtime Bootstrap
  *
  * Installs web-standard globals on demand using lazy loading.
  * Essential APIs (console, timers, process, Buffer, require) load eagerly.
@@ -1428,7 +1428,7 @@ export function installGlobals(): void {
   }
   // The Bun-shaped facade is opt-in (`ibex --compat=bun` or
   // EXACT_COMPAT_BUN=1): an ambient 16-key Bun global made `typeof Bun`
-  // detection lie to ecosystem packages (LLP 0175 §7.3). Implementations
+  // detection lie to ecosystem packages (LLP 0012#decision). Implementations
   // stay reachable under `Exact`.
   const compatModes = (g as any).__exactCompatModes;
   const bunCompatEnabled =

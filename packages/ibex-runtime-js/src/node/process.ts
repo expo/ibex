@@ -718,7 +718,7 @@ const PROCESS_RELEASE = createProcessRelease(
 
 function createProcessVersions(): ProcessVersions {
   const versions: ProcessVersions = {};
-  // Node-primary identity (LLP 0175 §7.2): only truthful keys ship ambient —
+  // Node-primary identity (LLP 0012#decision): only truthful keys ship ambient —
   // the runtime, the engine, and the Node release the vendored compat corpus
   // tracks. The old v8/uv/openssl/modules masquerade is gone from default
   // execution; compat fixtures that hard-require those keys get them through
@@ -727,14 +727,14 @@ function createProcessVersions(): ProcessVersions {
 
   if (isCompatModeEnabled('bun')) {
     // Opt-in Bun compat keeps detection coherent: when the Bun global
-    // exists, process.versions.bun exists too (LLP 0175 §7.3).
+    // exists, process.versions.bun exists too (LLP 0012#decision).
     entries.push(['bun', BUN_COMPAT_VERSION]);
   }
 
   if (isCompatFixtureMode()) {
     // Fixture-fidelity keys for the compat harness (EXACT_COMPAT_TEST):
     // vendored Node/WPT tests read these. They describe what the fixtures
-    // expect, not what this runtime links (LLP 0175 §7.2 escape hatch).
+    // expect, not what this runtime links (LLP 0012#decision escape hatch).
     entries.push(
       ['acorn', '8.15.0'],
       ['ada', '2.9.2'],

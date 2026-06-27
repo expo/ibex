@@ -1,7 +1,7 @@
 // @ts-nocheck
 // @system @ref LLP 0003#the-bootstrap-sequence — Web-standard runtime globals on Ibex.
 /**
- * Exact Runtime
+ * Ibex Runtime
  *
  * Web-standard APIs for the Ibex runtime environment.
  * These APIs are implemented to match browser standards while

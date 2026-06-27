@@ -1,5 +1,5 @@
 // GENERATED FILE - DO NOT EDIT.
-// Source authority: runtime-identity.json (LLP 0175 §7.4)
+// Source authority: runtime-identity.json (LLP 0012)
 // Generator: bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts
 
 export const RUNTIME_NAME = "ibex";

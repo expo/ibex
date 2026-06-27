@@ -1,5 +1,5 @@
 {
-  "$comment": "Runtime identity authority (LLP 0175 §7.4): every claim the Ibex runtime makes about what it is derives from this file. Consumers span TS, Rust, and C++ across two load stages, so the authority is language-neutral JSON with generated bindings (identity.generated.ts, identity_generated.rs) produced by `bun packages/exact-devtools/src/scripts/generate-runtime-identity.ts`. Policy (LLP 0175 §7.2): Node-primary — versions.node is pinned to the Node release the vendored compat corpus tracks; every other key must be truthful (no v8/uv/openssl/modules masquerade; the compat harness injects fixture-fidelity keys per test, they never ship ambient). The Bun-shaped surface is opt-in via --compat=bun, which also sets versions.bun so detection stays coherent in both states.",
+  "$comment": "Runtime identity authority (LLP 0012): every claim the Ibex runtime makes about what it is derives from this file. Consumers span TS, Rust, and C++ across two load stages, so the authority is language-neutral JSON with generated bindings (identity.generated.ts, identity_generated.rs) produced by `bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts`. Policy (LLP 0012#decision): Node-primary — versions.node is pinned to the Node release the vendored compat corpus tracks; every other ambient key must be truthful (no v8/uv/openssl/modules masquerade; the compat harness injects fixture-fidelity keys per test, they never ship ambient). The Bun-shaped surface is opt-in via --compat=bun, which also sets versions.bun so detection stays coherent in both states.",
   "version": 1,
   "name": "ibex",
   "processTitle": "ibex",
@@ -13,5 +13,5 @@
   "compat": {
     "bun": { "versionWhenEnabled": "1.2.0" }
   },
-  "llp": "0175"
+  "llp": "0012"
 }

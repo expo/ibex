@@ -1,5 +1,5 @@
 /**
- * Capability Security System for Exact Runtime
+ * Capability Security System for Ibex Runtime
  * 
  * Implements the capability-based security model as defined in JS_RUNTIME_SECURITY.md.
  * 

@@ -1,5 +1,5 @@
 // Generate language bindings from the runtime identity authority
-// (runtime-identity.json — LLP 0175 §7.4).
+// (runtime-identity.json — LLP 0012).
 //
 // Usage: bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts [--check]
 //
@@ -34,7 +34,7 @@ const identity: Identity = JSON.parse(fs.readFileSync(authorityPath, 'utf8'));
 
 const provenance = (comment: string) =>
   `${comment} GENERATED FILE - DO NOT EDIT.\n` +
-  `${comment} Source authority: runtime-identity.json (LLP 0175 §7.4)\n` +
+  `${comment} Source authority: runtime-identity.json (LLP 0012)\n` +
   `${comment} Generator: bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts\n`;
 
 const versionEntries = Object.entries(identity.versions);
@@ -55,7 +55,7 @@ const versionsJsObject =
 
 const rsOut =
   provenance('//') +
-  `\n/// Runtime identity constants (LLP 0175 §7.4).\n` +
+  `\n/// Runtime identity constants (LLP 0012).\n` +
   `pub const RUNTIME_NAME: &str = ${JSON.stringify(identity.name)};\n` +
   `pub const PROCESS_TITLE: &str = ${JSON.stringify(identity.processTitle)};\n` +
   `pub const USER_AGENT: &str = ${JSON.stringify(identity.userAgent)};\n` +

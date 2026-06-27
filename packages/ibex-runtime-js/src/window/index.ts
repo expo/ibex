@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * Window API Implementation for Exact Runtime
+ * Window API Implementation for Ibex Runtime
  *
  * Provides browser-compatible window object for library compatibility.
  * Many npm packages check for `typeof window !== 'undefined'` to detect

@@ -1,8 +1,8 @@
 // GENERATED FILE - DO NOT EDIT.
-// Source authority: runtime-identity.json (LLP 0175 §7.4)
+// Source authority: runtime-identity.json (LLP 0012)
 // Generator: bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts
 
-/// Runtime identity constants (LLP 0175 §7.4).
+/// Runtime identity constants (LLP 0012).
 pub const RUNTIME_NAME: &str = "ibex";
 pub const PROCESS_TITLE: &str = "ibex";
 pub const USER_AGENT: &str = "Ibex/0.1.0 (Hermes)";
