@@ -10,7 +10,7 @@ framework. The `ibex` runtime binary lives in this repo. The Exact project CLI
 and app framework live in the `exact` repo.
 
 > **Status: extracted "for now."** This repository was split out of the Exact
-> monorepo per **LLP 0180** (history-preserving). It will be re-homed under the
+> monorepo as a history-preserving extraction. It will be re-homed under the
 > `expo` org later.
 
 ## What's here
@@ -23,7 +23,7 @@ and app framework live in the `exact` repo.
 
 ## The contract
 
-Consumers depend on a deliberately narrow surface (see Exact LLP 0038):
+Consumers depend on a deliberately narrow surface (see [LLP 0002](./llp/0002-host-embedding-abi.spec.md)):
 
 - Five C ABI functions: `ex_hermes_create`, `ex_hermes_destroy`,
   `ex_hermes_eval`, `ex_hermes_free_string`, `ex_hermes_set_host_call`.

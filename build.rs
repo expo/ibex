@@ -468,7 +468,7 @@ fn main() {
         // vendored-generated/ artifacts. If they are missing, fail loudly
         // rather than silently shelling out to the bun/node generators (which
         // now live in this repo, so `manifest_generator.exists()` would be true
-        // and the build would quietly become non-hermetic). @ref LLP 0086 review F7
+        // and the build would quietly become non-hermetic). @ref LLP 0005#the-hermetic-default-invariant
         panic!(
             "Ibex default build is hermetic but vendored generated artifacts are missing at {}. \
              Restore the committed artifacts, or set IBEX_REGENERATE_RUNTIME=1 to regenerate from JS sources (requires bun).",

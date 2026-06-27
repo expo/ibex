@@ -87,7 +87,7 @@ impl ModuleLoader {
             ],
             // TS NodeNext convention: `./x.js` in TS sources refers to `./x.ts`
             // on disk. Real `.js` files keep priority, mirroring Vite's
-            // resolution on the web side. @tactical @ref LLP 0159 R8b
+            // resolution on the web side. @ref LLP 0004#the-oxc_resolver-configuration
             extension_alias: vec![
                 (
                     ".js".into(),
@@ -668,7 +668,7 @@ impl ModuleLoader {
                 // specifiers. If the path exists on disk relative to the
                 // referrer, retry as an explicit relative specifier so
                 // directory imports still land on index.*.
-                // @tactical @ref LLP 0159 R8a
+                // @ref LLP 0004#resolution-order
                 let path_like = !specifier.starts_with('.')
                     && !Path::new(specifier).is_absolute()
                     && base_dir.join(specifier).exists();
@@ -841,8 +841,8 @@ fn module_cache_key(path: &Path, target: &str) -> Result<String> {
 
 /// Hash of the transpile tooling scripts, computed once per process.
 /// The scripts don't change underneath a running loader, and re-reading
-/// both files for every module load showed up in the LLP 0159 perf audit.
-/// @tactical @ref LLP 0159 R9
+/// both files for every module load showed up in runtime-loader profiling.
+/// @ref LLP 0007#runtime-module-loading
 fn transpile_tooling_hash() -> Result<u64> {
     // @ref LLP 0007#proposal - the in-process engine is part of the cache key
     // so the SWC fallback and Oxc candidate never share output.
@@ -928,9 +928,9 @@ fn should_rebuild_output(path: &Path, output: &Path) -> Result<bool> {
 }
 
 fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()> {
-    // Explicit override keeps the LLP 0159 R9 escape hatch (a custom
-    // transpiler script); everything else is in-process per LLP 0007, so
-    // TypeScript works standalone without a Bun/Node subprocess.
+    // Explicit override keeps a custom transpiler-script escape hatch;
+    // everything else is in-process per LLP 0007, so TypeScript works
+    // standalone without a Bun/Node subprocess.
     if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
         return run_transpile_subprocess(entry, output, target);
     }
@@ -985,7 +985,7 @@ fn run_transpile_subprocess(entry: &Path, output: &Path, target: &str) -> Result
 fn transpile_script_path() -> Result<PathBuf> {
     // Runtime override so TS loading works off the build machine instead of
     // depending on the CARGO_MANIFEST_DIR baked in at compile time.
-    // @tactical @ref LLP 0159 R9
+    // @ref LLP 0007#runtime-module-loading
     if let Ok(script) = std::env::var("EXACT_TRANSPILE_SCRIPT") {
         let script = PathBuf::from(script);
         if script.exists() {
@@ -1021,7 +1021,7 @@ fn find_js_runner() -> Result<(PathBuf, &'static str)> {
 
 fn repo_root() -> Result<PathBuf> {
     // Runtime override (same convention as exact-cli) with the compile-time
-    // path as a dev-machine fallback. @tactical @ref LLP 0159 R9
+    // path as a dev-machine fallback. @ref LLP 0007#runtime-module-loading
     if let Ok(root) = std::env::var("EXACT_REPO_ROOT") {
         let root = PathBuf::from(root);
         if root.exists() {
@@ -1666,7 +1666,7 @@ for (let i = 0; i < 3; i++) {
 
     #[test]
     fn resolves_directory_import_to_index_ts() {
-        // @ref LLP 0159 R8a
+        // @ref LLP 0004#resolution-order
         let dir = tempdir().unwrap();
         let native = dir.path().join("native");
         std::fs::create_dir_all(&native).unwrap();
@@ -1686,7 +1686,7 @@ for (let i = 0; i < 3; i++) {
     #[test]
     fn resolves_referrer_relative_path_without_dot_prefix() {
         // Native hosts pass entry paths like "packages/ibex-runtime-js/src/native"
-        // without a leading "./". @ref LLP 0159 R8a
+        // without a leading "./". @ref LLP 0004#resolution-order
         let dir = tempdir().unwrap();
         let nested = dir
             .path()
@@ -1716,7 +1716,7 @@ for (let i = 0; i < 3; i++) {
     #[test]
     fn resolves_ts_style_js_specifier_to_ts_source() {
         // TS NodeNext convention: "../x.js" written in TS resolves to ../x.ts.
-        // @ref LLP 0159 R8b
+        // @ref LLP 0004#the-oxc_resolver-configuration
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("bootstrap.ts"), "export const b = 1;").unwrap();
 
@@ -1729,7 +1729,7 @@ for (let i = 0; i < 3; i++) {
 
     #[test]
     fn extension_alias_prefers_real_js_over_ts() {
-        // @ref LLP 0159 R8b
+        // @ref LLP 0004#the-oxc_resolver-configuration
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("both.js"), "module.exports = 1;").unwrap();
         std::fs::write(dir.path().join("both.ts"), "export const b = 1;").unwrap();

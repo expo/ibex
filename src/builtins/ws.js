@@ -11,7 +11,7 @@ ensureExactNet();
 
 // The real events builtin is always loadable here (stream.js/http.js require
 // it unguarded at lines 1); the old inline fallback duplicated it.
-// @tactical @ref LLP 0159 R11
+// @ref LLP 0004#the-builtin-module-surface
 var EventEmitter = require('events');
 
 function _hasTcpSupport() {

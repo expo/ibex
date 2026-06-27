@@ -5,13 +5,13 @@
 **Systems:** Build, Engine, Crypto, CI
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Related:** LLP 0000; exact LLP 0180 (Extract Ibex), exact LLP 0038 (Runtime Dependency Contract)
+**Related:** LLP 0000; LLP 0002
 
 ## Summary
 
 The intended product target set is **macOS, iOS, tvOS, Android, Linux, and
 Windows** `[inferred: this is the platform ambition carried by the retrofit
-draft and exact LLP 0180, not something the current checkout can prove by
+draft and extraction history, not something the current checkout can prove by
 itself]`. The current `build.rs` has first-class target branches for macOS,
 iOS, Android, Linux, and Windows `[observed]` (`build.rs:804-1224`).
 

@@ -95,7 +95,7 @@ mod tests {
 
     /// A one-shot timer whose callback throws must be retired before the
     /// error propagates out of `ex_hermes_poll`; before the fix it stayed
-    /// due and refired on every subsequent poll. @ref LLP 0159 R1
+    /// due and refired on every subsequent poll. @ref LLP 0006#degrade-diagnostics-never-the-caller
     #[test]
     fn throwing_one_shot_timer_does_not_refire() {
         unsafe {

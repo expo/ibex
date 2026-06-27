@@ -48,8 +48,7 @@ The resolver is configured (`src/module_loader/mod.rs:67-105`) with
 - Extensions `.js .cjs .mjs .ts .tsx .jsx .mts .cts .json`.
 - Condition names `node, require, import, default`.
 - TS `extension_alias` so `./x.js` in TS sources resolves to `./x.ts` on disk
-  (`src/module_loader/mod.rs:88-98`), matching the TS NodeNext / Vite convention
-  (annotated `@tactical @ref LLP 0159 R8b` — an inherited cross-repo ref).
+  (`src/module_loader/mod.rs:88-98`), matching the TS NodeNext / Vite convention.
 
 ### Loading and on-the-fly transpilation
 

@@ -27,7 +27,7 @@ the `ibex` binary target `[observed]` (`Cargo.toml:1-15`).
 **Inferred:** `[inferred: keeping runtime commands separate from app/project
 commands is what lets two unrelated consumers (Exact, Snapback) depend on Ibex
 without inheriting Exact-specific scaffolding or verification workflows — the
-same reason it was extracted (LLP 0000 §Overview, exact LLP 0180).]`
+same reason it was extracted (LLP 0000 §Overview).]`
 
 ## A narrow, stable embedding contract
 
@@ -42,8 +42,8 @@ explicit ABI version constant (`EXACT_HOST_ABI_VERSION = 1`) `[observed]`
 **Inferred:** `[inferred: a deliberately narrow contract is what makes a shared
 runtime safe to version and depend on — the broad poll/debugger/render surface
 is convenience that can evolve, while the five-function core is the part
-consumers pin against. The semver-major framing is inherited from exact LLP
-0038 rather than proven by code in this checkout.]`
+consumers pin against. The semver-major framing is reconstructed from local
+docs and inherited history rather than proven by code in this checkout.]`
 
 ## Hermetic by default, regeneration by opt-in
 
@@ -54,10 +54,10 @@ the build loudly rather than silently regenerating `[observed]`
 (`build.rs:321-345`; [LLP 0005](./0005-build-pipeline-and-hermetic-default.explainer.md)).
 
 **Inferred:** `[inferred: failing closed is a direct response to the
-silent-Linux-regression that triggered the extraction (LLP 0001, exact LLP
-0180) — a hermetic default makes builds reproducible for consumers who don't
-have the JS toolchain, and the loud failure keeps "is this build still
-hermetic?" an observable property rather than a latent surprise.]`
+silent-Linux-regression class of extraction bug (LLP 0001) — a hermetic default
+makes builds reproducible for consumers who don't have the JS toolchain, and the
+loud failure keeps "is this build still hermetic?" an observable property rather
+than a latent surprise.]`
 
 ## Platform-native crypto, with honest reduced profiles
 
@@ -145,8 +145,7 @@ host — diagnostics are sacrificed before liveness.]`
 
 ## Notes
 
-Several of these are reconstructed from code structure and in-code `@tactical`/
-`@system` annotations that point at exact/snapback LLPs (0038, 0086, 0159, 0176,
-0177, 0178) not present in this repo. Where this document marks rationale
-`[inferred]`, a maintainer with that history can confirm or correct it; until
-then it stays `Draft`.
+Several of these are reconstructed from code structure and earlier inherited
+exact/snapback annotations. Where this document marks rationale `[inferred]`, a
+maintainer with that history can confirm or correct it; until then it stays
+`Draft`.

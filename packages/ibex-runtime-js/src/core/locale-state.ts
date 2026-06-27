@@ -1,4 +1,4 @@
-// @system @ref LLP 0141 — Renderer startup imports only locale state.
+// @system @ref LLP 0011#state-modules — startup imports only locale state.
 import {
   canonicalizeLocaleTag,
   directionForLocaleTag,

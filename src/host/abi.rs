@@ -175,7 +175,7 @@ fn write_stderr_line(msg: &str) {
     let _ = write_stdio_line(&mut stderr, msg);
 }
 
-// @tactical @ref LLP 0178: console output is mirrored to stdio from the JS
+// @ref LLP 0006#degrade-diagnostics-never-the-caller: console output is mirrored to stdio from the JS
 // thread, which is the app host's main thread. stdout there is a PTY or pipe
 // drained by a console UI (Xcode) or a script wrapper; when the consumer
 // stalls, a direct write blocks the main thread ("Application Not

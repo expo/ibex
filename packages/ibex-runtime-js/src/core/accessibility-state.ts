@@ -1,4 +1,4 @@
-// @system @ref LLP 0141 — Renderer startup imports only accessibility state.
+// @system @ref LLP 0011#state-modules — startup imports only accessibility state.
 export interface ExactAccessibilitySnapshot {
   readonly prefersReducedMotion: boolean;
   readonly isBoldTextEnabled: boolean;

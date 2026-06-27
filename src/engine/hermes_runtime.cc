@@ -1,4 +1,4 @@
-// @system @ref LLP 0003 — Hermes runtime bridge for Exact's server-connected runtime
+// @system @ref LLP 0003#summary — Hermes runtime bridge for Ibex.
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -166,7 +166,7 @@ extern "C" char **environ;
 
 // PATH_MAX / realpath live in <limits.h> on Linux; macOS pulls them in
 // transitively. Spell it out so the realpath() path-resolution helpers build
-// on Linux. @ref LLP 0177
+// on Linux. @ref LLP 0008#filesystem
 #include <limits.h>
 
 thread_local uint64_t g_active_module_id = 0;
@@ -620,7 +620,7 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
     auto& reject = std::get<1>(entry);
     auto& url = std::get<2>(entry);
     // Expiry must also cancel the in-flight native task (NSURLSession et al.),
-    // not just reject the JS promise. @tactical @ref LLP 0159 R2
+    // not just reject the JS promise. @ref LLP 0008#linux-networking
     native_fetch_cancel(request_id);
     if (!reject) {
       continue;
@@ -654,7 +654,7 @@ extern "C" void native_ws_release_context(void* context) {
     // thread while the runtime is alive. Marshal the delete there; if the
     // runtime is already gone, intentionally leak the context rather than
     // destroy a JSI handle after runtime teardown (UB).
-    // @tactical @ref LLP 0159 R3
+    // @ref LLP 0003#the-event-loop
     auto* runtime = ctx->runtime;
     if (!runtime || !runtimeIsAlive(runtime)) {
       return;  // leak-on-dead-runtime fallback
@@ -719,7 +719,7 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
         } catch (const facebook::jsi::JSError& err) {
             // Route the original thrown value through the uncaughtException
             // handler so stack/custom props survive, instead of flattening to
-            // a console message. @tactical @ref LLP 0159 R6
+            // a console message. @ref LLP 0006#degrade-diagnostics-never-the-caller
             bool handled = false;
             try {
                 auto& rt = *runtime->runtime;
@@ -1352,7 +1352,7 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
         auto handler = rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
         if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
           // Pass the original thrown value through (stack/custom props intact),
-          // mirroring the timer error path. @tactical @ref LLP 0159 R6
+          // mirroring the timer error path. @ref LLP 0006#degrade-diagnostics-never-the-caller
           auto errVal = facebook::jsi::Value(rt, err.value());
           auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
           if (result.isBool() && result.getBool()) handled = true;
@@ -1891,7 +1891,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
     }
     // Retire or reschedule the fired timer. Must run before any error return
     // below: otherwise a throwing one-shot timer stays due and refires on
-    // every subsequent poll. @tactical @ref LLP 0159 R1
+    // every subsequent poll. @ref LLP 0006#degrade-diagnostics-never-the-caller
     auto retireTimer = [runtime, now_ms, id]() {
       auto after = runtime->timers.find(id);
       if (after != runtime->timers.end()) {

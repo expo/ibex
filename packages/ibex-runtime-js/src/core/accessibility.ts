@@ -1,4 +1,4 @@
-// @system @ref LLP 0074 — Accessibility preferences in shared runtime state
+// @system @ref LLP 0011#state-modules — accessibility preferences in shared runtime state.
 import { hostCallBridge } from "./host-call-bridge.js";
 import {
   addExactAccessibilityEventListener,

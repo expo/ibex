@@ -84,7 +84,7 @@ struct WebSocketEntry {
 static std::mutex wsMutex;
 static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> wsConnections;
 // Routes shared-session delegate callbacks back to the owning socket.
-// Guarded by wsMutex. @tactical @ref LLP 0159 R7
+// Guarded by wsMutex. @ref LLP 0003#the-platform-shims-map
 static std::unordered_map<void*, uint32_t> wsTaskToId;
 static uint32_t nextWsId = 1;
 
@@ -120,7 +120,7 @@ static bool wptFixtureCloseSemanticsEnabled() {
     // WPT close-timing fixtures are selected by magic URL substrings
     // ("/delayed-passive-close", "/passive-close-abort"). Production must not
     // change close semantics based on URL contents, so the sniffing only
-    // applies when the compat runner opts in. @tactical @ref LLP 0159 R5
+    // applies when the compat runner opts in. @ref LLP 0003#the-platform-shims-map
     const char* value = std::getenv("EXACT_WPT_FIXTURE_CLOSE_SEMANTICS");
     if (!value || !*value) {
         return false;
@@ -179,8 +179,8 @@ static void destroy_entry(uint32_t ws_id) {
     }
 
     entry->closed = true;
-    // The session is shared across sockets (LLP 0159 R7): cancel only this
-    // socket's task instead of invalidating the whole session.
+    // The session is shared across sockets: cancel only this socket's task
+    // instead of invalidating the whole session. @ref LLP 0003#the-platform-shims-map
     if (entry->task) {
         [entry->task cancel];
     }
@@ -315,7 +315,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
     {
         // Entry flags are written from delegate/dispatch threads under
         // wsMutex; check and claim the in-flight slot under the same lock.
-        // @tactical @ref LLP 0159 R4
+        // @ref LLP 0003#the-platform-shims-map
         std::lock_guard<std::mutex> lock(wsMutex);
         if (entry->closed || entry->receive_paused || entry->receive_in_flight) return;
         entry->receive_in_flight = true;
@@ -348,7 +348,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             {
                 // Snapshot entry state under wsMutex; these fields are
                 // written by delegate callbacks on other threads.
-                // @tactical @ref LLP 0159 R4
+                // @ref LLP 0003#the-platform-shims-map
                 std::lock_guard<std::mutex> lock(wsMutex);
                 auto it = wsConnections.find(ws_id);
                 if (it == wsConnections.end() || it->second->closed) return;
@@ -594,7 +594,7 @@ extern "C" uint32_t native_ws_connect(
         }
 
         // One session shared by all sockets; delegate callbacks route back to
-        // the owning entry via wsTaskToId. @tactical @ref LLP 0159 R7
+        // the owning entry via wsTaskToId. @ref LLP 0003#the-platform-shims-map
         static NSURLSession* sharedSession = nil;
         static dispatch_once_t sharedSessionOnce;
         dispatch_once(&sharedSessionOnce, ^{
@@ -660,7 +660,7 @@ extern "C" void native_ws_send(
 ) {
     // Build the NSString/NSData payload before taking the global lock so
     // large payload conversion doesn't serialize every socket.
-    // @tactical @ref LLP 0159 R7
+    // @ref LLP 0003#the-platform-shims-map
     NSURLSessionWebSocketMessage* message;
     if (is_text) {
         NSString* str = [[NSString alloc] initWithBytes:data length:length encoding:NSUTF8StringEncoding];
@@ -772,7 +772,7 @@ extern "C" void native_ws_resume(uint32_t ws_id) {
         entry = it->second;
         // A server close that arrived while flow-paused was recorded by the
         // delegate but never delivered; report it now instead of restarting
-        // the receive loop on a finished task. @tactical @ref LLP 0159 R4
+        // the receive loop on a finished task. @ref LLP 0003#the-platform-shims-map
         if (entry->has_observed_close) {
             entry->closed = true;
             deliverDeferredClose = true;

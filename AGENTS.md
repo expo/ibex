@@ -17,13 +17,11 @@ This project uses **Linked Literate Programming (LLP)** as defined in [LLP 0000]
 - Don't annotate mechanically — a reference should tell you something you wouldn't know from the code and filename alone.
 - `./ref-check` validates references + metadata deterministically.
 
-> **Inherited cross-repo refs (known debt).** Ibex was extracted from the
-> `exact` monorepo (LLP 0180 there), so its code still carries `@ref LLP NNNN`
-> comments pointing at **exact/snapback** LLP numbers (0003, 0006, 0074, 0086,
-> 0141, 0159, 0177, 0178) that do **not** exist under this repo's `llp/`. Until
-> those are converted to URL refs (e.g. `@ref https://github.com/ccheever/exact/blob/main/llp/0159-…`),
-> `./ref-check` will report them as broken and CI does **not** yet gate on it
-> (LLP 0001-adopting Phase 4). Reconciling them is a tracked follow-up.
+> **Inherited cross-repo refs.** Ibex was extracted from the `exact` monorepo.
+> Its code annotations have been retargeted to local Ibex LLPs where the
+> rationale now exists in this corpus. New annotations should point to Ibex LLPs
+> or stable URL refs; do not add bare `@ref LLP NNNN` comments for Exact/Snapback
+> documents that are not present under this repo's `llp/`.
 
 ## Agent skills
 

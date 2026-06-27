@@ -41,14 +41,14 @@ with a three-way branch
   `panic!`s loudly rather than silently shelling out to the bun/node generators
   (`build.rs:335-345`). The in-code comment is explicit: because the generators
   now live in this repo, a missing-artifacts fallback "would quietly become
-  non-hermetic" (`build.rs:336-340`, annotated `@ref LLP 0086 review F7`).
+  non-hermetic" (`build.rs:336-340`).
 - If `IBEX_REGENERATE_RUNTIME=1` but the manifest generator is missing, it
   `panic!`s too (`build.rs:346-351`).
 
-`[inferred: the loud-failure choice is deliberate — the regression that started
-the whole extraction (a Linux build that shipped broken, LLP 0001 / exact LLP
-0180) is the class of bug a silent fallback hides; failing closed makes
-"is this build hermetic?" observable at build time rather than at runtime.]`
+`[inferred: the loud-failure choice is deliberate — the extraction history
+records a Linux build regression, which is exactly the class of bug a silent
+fallback hides; failing closed makes "is this build hermetic?" observable at
+build time rather than at runtime.]`
 
 ## The generated JS layer
 
@@ -244,5 +244,4 @@ them when `host-http-server` is enabled `[observed]`
 - The JS authoring lives in `modules.ts`, `src/builtins/`, `src/engine/bootstrap/`,
   and `packages/ibex-runtime-js`; generators are in `packages/ibex-devtools`.
 - Decision rationale for *why* extraction chose "vendor generated artifacts"
-  (option a) over alternatives is exact LLP 0180 §1.4 (referenced by the
-  commit `Vendor generated runtime artifacts...`); not re-derived here.
+  over alternatives is inherited extraction history; not re-derived here.

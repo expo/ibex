@@ -2,7 +2,7 @@
 
 // PATH_MAX / realpath live in <limits.h> on Linux; macOS pulls them in
 // transitively. Spell it out so the realpath() path-resolution helpers build
-// on Linux. @ref LLP 0177
+// on Linux. @ref LLP 0008#filesystem
 #include <limits.h>
 
 #include <algorithm>

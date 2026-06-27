@@ -4307,7 +4307,7 @@
       if (err && (typeof err === 'object' || typeof err === 'function')) {
         // Annotate and rethrow the original error so its stack, cause, and
         // custom properties survive; rebuilding a bare Error here flattened
-        // every module failure. @tactical @ref LLP 0159 R6
+        // every module failure. @ref LLP 0006#degrade-diagnostics-never-the-caller
         try {
           if (typeof err.message === 'string') {
             err.message = moduleErrorPrefix + err.message;

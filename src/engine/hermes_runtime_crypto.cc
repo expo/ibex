@@ -2826,7 +2826,7 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   // Register the same JS surface as throwing stubs so callers get a clear
   // runtime error instead of a missing-global ReferenceError. Real asymmetric
   // crypto requires building ibex-runtime with the `openssl-crypto` feature.
-  // @ref LLP 0159 -- reduced crypto shape mirrors the Windows/app-host profile.
+  // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles — reduced crypto profiles expose clear throwing stubs.
   auto makeUnavailableAsymCryptoFn =
       [](facebook::jsi::Runtime& rtRef, const char* name) {
         std::string fnName(name);

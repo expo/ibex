@@ -1,5 +1,5 @@
 // @ts-nocheck
-// @system @ref LLP 0003 — Web-standard runtime globals on Exact
+// @system @ref LLP 0003#the-bootstrap-sequence — Web-standard runtime globals on Ibex.
 /**
  * Exact Runtime
  *

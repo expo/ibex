@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Related:** LLP 0000; LLP 0003 (Hermes engine bridge); exact LLP 0038 (Runtime Dependency Contract)
+**Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
 
@@ -19,13 +19,13 @@ treated as semver-major: the lifecycle/eval functions plus the host-call bridge
 installer. The full `ex_host_*` callback surface is broader but is an
 implementation detail of how the engine reaches native services.
 
-The narrow consumer contract this extends is exact's LLP 0038 (Runtime
-Dependency Contract); this doc records what is observable in the extracted repo.
+This doc records what is observable in the extracted repo and owns the local
+Ibex embedding contract map.
 
 ## The narrow consumer contract (semver-major)
 
 The root document (LLP 0000 §Key invariants) names five C functions as the
-stable contract per exact LLP 0038. All five are declared in
+stable contract. All five are declared in
 `include/exact_runtime.h` and defined in `src/engine/hermes_runtime.cc`:
 
 - `ExactHermesRuntime* ex_hermes_create(void)` `[observed]`
@@ -46,11 +46,11 @@ stable contract per exact LLP 0038. All five are declared in
   (`include/exact_runtime.h:154`; `src/engine/hermes_runtime.cc:1754`) — installs the
   generic `__hostCall(op, argsJson)` JS function backed by the host callback.
 
-Treating these as the semver-major contract is asserted in LLP 0000 and exact
-LLP 0038; this doc does not re-derive the rationale `[inferred: the five are
-singled out because they are the minimum surface a host must call to stand up
-and drive a runtime — everything else is either a richer convenience (poll,
-timers, debugger) or a callback the engine makes, not one the host makes]`.
+Treating these as the semver-major contract is asserted in LLP 0000; this doc
+does not re-derive the inherited rationale `[inferred: the five are singled out
+because they are the minimum surface a host must call to stand up and drive a
+runtime — everything else is either a richer convenience (poll, timers,
+debugger) or a callback the engine makes, not one the host makes]`.
 
 ## What actually crosses the boundary
 
@@ -171,6 +171,5 @@ Strings returned to C are malloc'd via `CString::into_raw` and freed by
 - The Rust crate is named `ibex-runtime`. Many C ABI symbols and JavaScript
   internals remain `ex_`/`EXACT_`-prefixed for compatibility `[observed]`
   (`Cargo.toml:2`; LLP 0000 §Architecture).
-- This is a Spec of the *observed* contract surface; the normative
-  "what may break under semver" lives in exact LLP 0038 and should be linked,
-  not re-litigated here.
+- This is a Spec of the *observed* contract surface; changes to the narrow
+  consumer contract should update this document and LLP 0000 together.

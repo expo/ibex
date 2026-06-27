@@ -32,7 +32,7 @@ namespace {
 // Web fetch has no default timeout: when JS passes no `timeout` (or 0), the
 // request runs until the network layer resolves it or JS aborts it via
 // `__exactCancel`. JS-side timeouts arrive through `init.timeout`.
-// @tactical @ref LLP 0159 R2
+  // @ref LLP 0008#linux-networking
 constexpr uint32_t EXACT_FETCH_NO_TIMEOUT_MS = 0;
 
 #if defined(_WIN32)
@@ -475,7 +475,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           std::unique_lock<std::mutex> lock(result.mutex);
           if (timeout_ms == 0) {
             // 0 = no timeout (web semantics); block until the network layer
-            // resolves or fails the request. @tactical @ref LLP 0159 R2
+            // resolves or fails the request. @ref LLP 0008#linux-networking
             result.cv.wait(lock, [&result] { return result.done; });
           } else if (!result.cv.wait_for(
                   lock, std::chrono::milliseconds(timeout_ms), [&result] { return result.done; })) {

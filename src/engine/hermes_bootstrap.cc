@@ -1,4 +1,4 @@
-// @system @ref LLP 0006 — Runtime globals bootstrap
+// @system @ref LLP 0003#the-bootstrap-sequence — Runtime globals bootstrap.
 #include "hermes_runtime_internal.h"
 
 #include <chrono>
