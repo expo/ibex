@@ -1265,7 +1265,7 @@
       });
     }
     Object.defineProperty(compatibilityVersions, 'hermes', {
-      value: '0.12.0',
+      value: '1.0.0',
       writable: true,
       enumerable: false,
       configurable: true

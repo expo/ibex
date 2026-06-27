@@ -8,9 +8,11 @@
 
 set -euo pipefail
 
-HERMES_VERSION="${HERMES_VERSION:-0.11.0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/hermes-version.sh"
+
+HERMES_VERSION="${HERMES_VERSION:-$IBEX_HERMES_SOURCE_REF}"
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
 DEST_FRAMEWORK="$FRAMEWORKS_DIR/macosx/hermes.framework"
 TEMP_DIR="$(mktemp -d)"
@@ -74,8 +76,13 @@ esac
 CMAKE_BIN="$(resolve_cmake)"
 export PATH="$(dirname "$CMAKE_BIN"):$PATH"
 
-echo "[i] Cloning Hermes v$HERMES_VERSION"
-git clone --depth 1 --branch "v$HERMES_VERSION" https://github.com/facebook/hermes.git "$TEMP_DIR/hermes" 2>/dev/null
+HERMES_REF="$HERMES_VERSION"
+if [[ "$HERMES_REF" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    HERMES_REF="v$HERMES_REF"
+fi
+
+echo "[i] Cloning Hermes $HERMES_REF"
+git clone --depth 1 --branch "$HERMES_REF" https://github.com/facebook/hermes.git "$TEMP_DIR/hermes" 2>/dev/null
 
 cd "$TEMP_DIR/hermes"
 

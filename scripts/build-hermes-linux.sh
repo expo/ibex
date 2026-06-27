@@ -13,13 +13,14 @@
 
 set -euo pipefail
 
-HERMES_VERSION="static_h"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/hermes-version.sh"
+
+HERMES_VERSION="${HERMES_VERSION:-$IBEX_HERMES_SOURCE_REF}"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
 HERMES_INTL="${HERMES_ENABLE_INTL:-false}"
 CLEAN_CACHE=false
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/exact/hermes-linux"
 LINUX_DIR="$PROJECT_ROOT/linux"
 LINUX_LIB_DIR="$LINUX_DIR/lib"
@@ -86,8 +87,10 @@ cd "$SRC_DIR"
 git fetch --all --tags
 if [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
     git checkout origin/static_h
+elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
+    git checkout "origin/$HERMES_VERSION"
 else
-    git checkout "$HERMES_VERSION" 2>/dev/null || git checkout "origin/$HERMES_VERSION"
+    git checkout "$HERMES_VERSION"
 fi
 
 ACTUAL_COMMIT="$(git rev-parse HEAD | cut -c1-12)"

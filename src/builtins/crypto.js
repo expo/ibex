@@ -43,7 +43,7 @@ if (typeof process !== 'undefined') {
         });
       }
       Object.defineProperty(_newVersions, 'hermes', {
-        value: '0.12.0',
+        value: '1.0.0',
         writable: true,
         configurable: true,
         enumerable: false,

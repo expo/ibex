@@ -135,7 +135,7 @@
       });
     }
     Object.defineProperty(versions, 'hermes', {
-      value: current.hermes || '0.12.0',
+      value: current.hermes || '1.0.0',
       writable: true,
       enumerable: false,
       configurable: true

@@ -4,8 +4,9 @@
 # Builds Hermes from source for iOS using their native build scripts
 #
 # Usage:
-#   ./scripts/build-hermes.sh                      # Build pinned latest tested static_h commit
+#   ./scripts/build-hermes.sh                      # Build pinned stable Hermes release
 #   ./scripts/build-hermes.sh --latest             # Build latest static_h head
+#   ./scripts/build-hermes.sh 260318099.0.0-stable # Build specific branch
 #   ./scripts/build-hermes.sh v0.13.0              # Build specific tag
 #   ./scripts/build-hermes.sh <commit>             # Build specific commit
 #   ./scripts/build-hermes.sh --release            # Build without debugger
@@ -21,15 +22,16 @@
 
 set -e
 
-# Configuration
-# Hermes uses "static_h" as its primary development branch. Default to the
-# latest tested commit so builds remain reproducible; use --latest to follow
-# the moving branch head.
-DEFAULT_HERMES_REF="62422870a5ed864f6daeafe3428f327bc9eb10f3"
-HERMES_VERSION="$DEFAULT_HERMES_REF"
-CACHE_DIR="$HOME/.cache/exact/hermes"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/hermes-version.sh"
+
+# Configuration
+# Default to the newest stable Hermes source branch. Use --latest only when you
+# explicitly want the moving static_h development head.
+DEFAULT_HERMES_REF="$IBEX_HERMES_SOURCE_REF"
+HERMES_VERSION="${HERMES_VERSION:-$DEFAULT_HERMES_REF}"
+CACHE_DIR="$HOME/.cache/exact/hermes"
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
 CLEAN_CACHE=false
@@ -112,11 +114,17 @@ fi
 # Resolve version to a cache key
 resolve_version() {
     local version="$1"
+    local ref="$version"
     if [[ "$version" == "static_h" || "$version" == "main" ]]; then
-        # Get latest commit from static_h branch (first 12 chars)
-        curl -s "https://api.github.com/repos/facebook/hermes/commits/static_h" | grep '"sha"' | head -1 | cut -d'"' -f4 | cut -c1-12
+        ref="static_h"
+    fi
+    local remote_sha
+    remote_sha="$(git ls-remote https://github.com/facebook/hermes.git \
+        "refs/heads/$ref" "refs/tags/$ref" "refs/tags/v$ref" 2>/dev/null \
+        | awk 'NR == 1 { print substr($1, 1, 12); exit }')"
+    if [[ -n "$remote_sha" ]]; then
+        echo "$remote_sha"
     else
-        # Use version as-is (tag or commit)
         echo "$version"
     fi
 }
@@ -208,11 +216,13 @@ fi
 cd "$HERMES_SRC"
 
 echo "Checking out $HERMES_VERSION..."
-git fetch origin
+git fetch origin --tags
 if [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
     git checkout origin/static_h
+elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
+    git checkout "origin/$HERMES_VERSION"
 else
-    git checkout "$HERMES_VERSION" 2>/dev/null || git checkout "origin/$HERMES_VERSION"
+    git checkout "$HERMES_VERSION"
 fi
 
 ACTUAL_COMMIT=$(git rev-parse HEAD | cut -c1-12)

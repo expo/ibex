@@ -182,19 +182,26 @@ data to Hermes host globals `[observed]` (`src/engine/native_android_networking.
 `platform/android/java/dev/ibex/runtime/IbexNetworking.java`; `build.rs`). This
 is a separate concern from the vendored-generated JS snapshot.
 
-The upstream Hermes 0.11 Darwin runtime archive provides iOS and Mac Catalyst
-slices, but not a pure macOS framework. Cargo builds target
-`*-apple-macosx`, so `scripts/download-hermes.sh` invokes
-`scripts/build-hermes-macos.sh` on Darwin to build an ignored
-`ios/Frameworks/macosx/hermes.framework` from the matching Hermes tag. The
-helper uses CMake 3.x, installing a temporary CMake 3.27 wheel when the system
-`cmake` is CMake 4, because Hermes 0.11 sets removed CMake policies
-`[observed]` (`scripts/download-hermes.sh:157-169`;
-`scripts/build-hermes-macos.sh:43-63, 82-96`). `build.rs` resolves either
-`hermesvm.framework` or `hermes.framework` from a macOS framework parent and
-links the detected framework name; it intentionally does not treat the Catalyst
-slice as a macOS runtime `[observed]` (`build.rs:248-260, 1095-1104,
-2271-2300`).
+The default Hermes source ref is centralized in `scripts/hermes-version.sh`.
+For Hermes `260318099.0.0`, upstream exposes the stable release as the
+`260318099.0.0-stable` source branch rather than as a GitHub release tag with
+Darwin runtime/CLI tarballs `[observed]`. `scripts/download-hermes.sh` is now an
+installer wrapper: on Darwin it delegates to `scripts/build-hermes.sh`, which
+builds host `hermesc`, iOS device/simulator frameworks, a macOS
+`hermesvm.framework`, headers, and CLI tools from the source ref; on Linux it
+delegates to `scripts/build-hermes-linux.sh` `[observed]`
+(`scripts/hermes-version.sh`; `scripts/download-hermes.sh`;
+`scripts/build-hermes.sh`; `scripts/build-hermes-linux.sh`). `build.rs`
+resolves either `hermesvm.framework` or `hermes.framework` from a macOS
+framework parent and links the detected framework name; it intentionally does
+not treat a Catalyst slice as a macOS runtime `[observed]` (`build.rs`).
+
+Android remains a separate artifact channel. It consumes Maven/PREFAB artifacts
+through `scripts/install-android-hermes.sh`; Maven Central does not yet publish
+`com.facebook.hermes:hermes-android:260318099.0.0`, so the default Android
+Hermes artifact remains `250829098.0.14` while React Android moves to the
+published `0.86.0` JSI artifact `[observed]`
+(`scripts/hermes-version.sh`; `scripts/install-android-hermes.sh`).
 
 Hermes C++/JSI headers are not identical across the supported SDKs. The macOS
 Hermes 0.11 headers do not expose native `MutableBuffer` ArrayBuffer creation,

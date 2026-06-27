@@ -728,7 +728,7 @@ void runFinalProcessVersionsFix(ExactHermesRuntime* handle) {
     setVersionProp(rt, versions, "v8", "13.6.233.8-node.26");
     setVersionProp(rt, versions, "zlib", "1.3.1.1-motley-82a5fec");
     setVersionProp(rt, versions, "zstd", "1.5.7");
-    setVersionProp(rt, versions, "hermes", "0.12.0");
+    setVersionProp(rt, versions, "hermes", "1.0.0");
     setVersionProp(rt, versions, "exact", "0.1.0");
 
     processObj.setProperty(rt, "versions", std::move(versions));

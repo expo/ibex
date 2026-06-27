@@ -31,9 +31,12 @@ Consumers depend on a deliberately narrow surface (see Exact LLP 0038):
 
 ## Building
 
-Ibex needs Hermes headers + a prebuilt `libhermesvm`. Build them with
-`./scripts/build-hermes-linux.sh` (Linux) or `./scripts/download-hermes.sh`
-(macOS), which install into `linux/` and `tools/hermes/`. Then:
+Ibex needs Hermes headers + a prebuilt `libhermesvm`. Install/build them with
+`./scripts/download-hermes.sh`, which delegates to the platform source builder
+and defaults to Hermes `260318099.0.0-stable`. The platform-specific entry
+points are `./scripts/build-hermes-linux.sh` on Linux and
+`./scripts/build-hermes.sh` on macOS/iOS. They install ignored native artifacts
+into `linux/`, `ios/Frameworks/`, and `tools/hermes/`. Then:
 
 ```sh
 # default profile
@@ -56,7 +59,9 @@ cargo run --bin ibex -- --version
 ```
 
 `build.rs` auto-detects the standalone layout; `HERMES_INCLUDE_DIR` and
-`HERMES_LIB_DIR` override the Hermes locations.
+`HERMES_LIB_DIR` override the Hermes locations. `HERMES_VERSION` can override
+the source ref passed to the build scripts; `scripts/hermes-version.sh` holds
+the repo default.
 
 Linux native networking requires `pkg-config` and libcurl >= 7.86 so Fetch and
 WebSocket use libcurl. For constrained local builds only,
@@ -91,8 +96,9 @@ AAR-based builds can use bootstrap JS source when no matching host `hermesc` is
 installed. `HERMES_ANDROID_VERSION`, `REACT_ANDROID_VERSION`,
 `ANDROID_HERMES_VARIANT`, and `ANDROID_API` are overrideable. The default
 Android artifact pair is `hermes-android:250829098.0.14` with
-`react-android:0.86.0-rc.3`, because that JSI PREFAB includes the
-`jsi/hermes-interfaces.h` header required by current Hermes Android headers.
+`react-android:0.86.0`, because Maven Central does not yet publish
+`hermes-android:260318099.0.0` and the JSI PREFAB must include
+`jsi/hermes-interfaces.h`.
 
 ## Crypto profiles
 
