@@ -5,5 +5,7 @@
 /android
 /linux
 /tools/hermes
+.agent-skill-sources/
+.agent-skill-backups/
 *.o
 *.a.tmp

@@ -1,0 +1,14 @@
+#!/bin/sh
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+
+if [ "${IBEX_SKIP_AGENT_SKILLS_SYNC:-0}" = "1" ]; then
+  exit 0
+fi
+
+if [ -x "$repo_root/scripts/sync-agent-skills.sh" ]; then
+  "$repo_root/scripts/sync-agent-skills.sh" --quiet || {
+    echo "warning: agent skill sync failed; run scripts/sync-agent-skills.sh" >&2
+  }
+fi
+
+exit 0

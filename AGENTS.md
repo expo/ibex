@@ -27,7 +27,21 @@ This project uses **Linked Literate Programming (LLP)** as defined in [LLP 0000]
 
 ## Agent skills
 
-This repo ships the LLP workflow skills under `skills/` (from ccheever/llp). Install by copying into your agent's skills dir (e.g. `cp -r skills/* ~/.claude/skills/`).
+This repo installs agent skills through Git-backed symlinks instead of copied
+snapshots. Run `scripts/install-agent-skills.sh` to clone/update the upstream
+skill sources, rebuild `skills/`, and link the skills into Claude, Codex,
+Cursor Agent, Pi Agent, and OpenCode-compatible locations.
+
+The managed upstream sources are:
+
+- `ccheever/llp` — LLP workflow skills under its `skills/` directory.
+- `ccheever/skills` — additional top-level skills such as `cdc-linear-do`.
+
+Do not edit generated files under `skills/` directly; update the upstream repo,
+then run `scripts/sync-agent-skills.sh` or let the installed Git hooks refresh
+them after pulls/checkouts/rebases in this repo.
+If a `git pull` reports that this repo is already up to date, Git may not run a
+hook; run `scripts/sync-agent-skills.sh` to force-check upstream skill repos.
 
 <!-- BEGIN LLP SKILLS MANAGED BLOCK -->
 Before editing a subsystem with documented design, orient first: read its
