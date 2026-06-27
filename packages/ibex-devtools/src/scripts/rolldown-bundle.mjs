@@ -7,7 +7,7 @@ let rolldown;
 try {
   ({ rolldown } = await import('rolldown'));
 } catch (err) {
-  console.error('Failed to load rolldown. Run `cd js && bun install` to install repo JS dependencies.');
+  console.error('Failed to load rolldown. Run `bun install` at the repo root to install JS dependencies.');
   console.error(err?.message || err);
   process.exit(1);
 }
@@ -66,7 +66,7 @@ if (typeof bundle.close === 'function') {
 
 // Emit a dependency manifest next to the output so the runtime's bundle
 // cache can invalidate when any module in the graph changes, not just the
-// entry file (LLP 0175 §9.2 / ledger item 2). Real file paths only —
+// entry file. Real file paths only —
 // virtual modules (\0-prefixed) and externals are skipped.
 try {
   const moduleIds = new Set([entry]);

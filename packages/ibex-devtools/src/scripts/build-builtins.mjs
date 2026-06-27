@@ -17,7 +17,7 @@ let rolldown;
 try {
   ({ rolldown } = await import('rolldown'));
 } catch (err) {
-  console.error('Failed to load rolldown. Run `cd js && bun install` to install repo JS dependencies.');
+  console.error('Failed to load rolldown. Run `bun install` at the repo root to install JS dependencies.');
   console.error(err?.message || err);
   process.exit(1);
 }

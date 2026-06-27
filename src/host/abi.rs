@@ -156,8 +156,14 @@ fn security_log_enabled() -> bool {
     *SECURITY_LOG_ENABLED.get_or_init(|| {
         std::env::var("EXACT_SECURITY_LOG")
             .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
-            .unwrap_or(true)
+            .unwrap_or(false)
     })
+}
+
+fn console_mirror_enabled() -> bool {
+    std::env::var("IBEX_SUPPRESS_CONSOLE_MIRROR")
+        .map(|v| matches!(v.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
+        .unwrap_or(true)
 }
 
 fn write_stdio_line(writer: &mut impl Write, msg: &str) -> io::Result<()> {
@@ -202,7 +208,7 @@ impl ConsoleQueue {
         let dropped = self.dropped.swap(0, Ordering::Relaxed);
         if dropped > 0 {
             let notice = ConsoleLine::Err(format!(
-                "[exact-console] dropped {dropped} line(s) under stdio backpressure"
+                "[ibex-console] dropped {dropped} line(s) under stdio backpressure"
             ));
             if self.tx.try_send(notice).is_err() {
                 self.dropped.fetch_add(dropped, Ordering::Relaxed);
@@ -221,7 +227,7 @@ fn console_queue() -> &'static ConsoleQueue {
         // If the spawn fails the receiver is dropped and enqueue() degrades to
         // counting drops; console mirroring is lost but the app keeps running.
         let _ = std::thread::Builder::new()
-            .name("exact-console".to_string())
+            .name("ibex-console".to_string())
             .spawn(move || {
                 while let Ok(line) = rx.recv() {
                     match line {
@@ -1807,6 +1813,9 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
         .to_string();
     #[cfg(target_os = "android")]
     write_android_logcat(level, &msg);
+    if !console_mirror_enabled() {
+        return;
+    }
     match level {
         1 => enqueue_stderr_line(msg),
         _ => enqueue_stdout_line(msg),

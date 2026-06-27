@@ -11,7 +11,7 @@ use std::path::PathBuf;
 /// Ibex CLI - A JavaScript/TypeScript runtime with web APIs
 #[derive(Parser, Debug, Clone)]
 #[command(name = "ibex")]
-#[command(author = "Exact Team")]
+#[command(author = "Ibex Runtime Team")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Run JavaScript/TypeScript with web-standard APIs", long_about = None)]
 #[command(propagate_version = true)]

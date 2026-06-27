@@ -32,6 +32,9 @@ snapshot from the generated `OUT_DIR` artifacts.
   Generated from `src/engine/bootstrap/*.js`.
 - `runtime_bundle_bytecode.h`
   Compiled from `embedded_runtime_bundle.js` via `hermesc`.
+- `*.deps.json`
+  Build-local dependency manifests from the runtime bundler. They contain
+  absolute checkout paths and are not part of the hermetic vendored snapshot.
 - `*.o`, `*.a` (Hermes/Brotli object and archive files) — platform build products.
 
 ## Regenerating

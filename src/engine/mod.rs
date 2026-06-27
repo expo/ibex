@@ -99,6 +99,7 @@ mod tests {
     #[test]
     fn throwing_one_shot_timer_does_not_refire() {
         unsafe {
+            std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
             let runtime = ex_hermes_create();
             assert!(!runtime.is_null());
 

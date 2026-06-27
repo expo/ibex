@@ -2,8 +2,8 @@
 name = "ibex-runtime"
 version = "0.1.0"
 edition = "2021"
-description = "Exact shared runtime - Hermes JS engine, module loader, and host ABI"
-authors = ["Exact Team"]
+description = "Ibex runtime - Hermes JS engine, module loader, and host ABI"
+authors = ["Ibex Runtime Team"]
 license = "MIT"
 
 [lib]
@@ -51,7 +51,7 @@ oxc_transformer = "=0.121.0"
 async-trait = "0.1"
 
 # Base64 for source maps
-base64 = "0.21"
+base64 = "0.22"
 
 # HTTP server host bridge
 hyper = { version = "1.1", features = ["server", "http1", "http2"] }

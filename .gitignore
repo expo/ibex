@@ -7,5 +7,6 @@
 /tools/hermes
 .agent-skill-sources/
 .agent-skill-backups/
+vendored-generated/*.deps.json
 *.o
 *.a.tmp

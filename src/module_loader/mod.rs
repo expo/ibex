@@ -986,27 +986,16 @@ fn transpile_script_path() -> Result<PathBuf> {
     // Runtime override so TS loading works off the build machine instead of
     // depending on the CARGO_MANIFEST_DIR baked in at compile time.
     // @ref LLP 0007#runtime-module-loading
-    if let Ok(script) = std::env::var("EXACT_TRANSPILE_SCRIPT") {
-        let script = PathBuf::from(script);
-        if script.exists() {
-            return Ok(script);
-        }
-        anyhow::bail!(
-            "EXACT_TRANSPILE_SCRIPT points to missing file {}",
-            script.display()
-        );
+    let script = std::env::var("EXACT_TRANSPILE_SCRIPT")
+        .context("EXACT_TRANSPILE_SCRIPT must be set for subprocess transpilation")?;
+    let script = PathBuf::from(script);
+    if script.exists() {
+        return Ok(script);
     }
-    let root = repo_root()?;
-    let script = root
-        .join("packages")
-        .join("exact-devtools")
-        .join("src")
-        .join("scripts")
-        .join("transpile-typescript.mjs");
-    if !script.exists() {
-        anyhow::bail!("Transpile script not found at {}", script.display());
-    }
-    Ok(script)
+    anyhow::bail!(
+        "EXACT_TRANSPILE_SCRIPT points to missing file {}",
+        script.display()
+    );
 }
 
 fn find_js_runner() -> Result<(PathBuf, &'static str)> {
@@ -1017,23 +1006,6 @@ fn find_js_runner() -> Result<(PathBuf, &'static str)> {
         return Ok((path, "node"));
     }
     anyhow::bail!("bun or node is required to transpile TypeScript");
-}
-
-fn repo_root() -> Result<PathBuf> {
-    // Runtime override (same convention as exact-cli) with the compile-time
-    // path as a dev-machine fallback. @ref LLP 0007#runtime-module-loading
-    if let Ok(root) = std::env::var("EXACT_REPO_ROOT") {
-        let root = PathBuf::from(root);
-        if root.exists() {
-            return Ok(root);
-        }
-    }
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|p| p.to_path_buf())
-        .ok_or_else(|| anyhow::anyhow!("Failed to resolve repo root"))
 }
 
 pub fn builtin_module_debug_entries() -> &'static [BuiltinManifestDebugEntry] {

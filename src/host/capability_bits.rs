@@ -1,7 +1,7 @@
 //! Canonical capability bit assignments shared across the runtime.
 //!
 //! JavaScript and kernel surfaces are generated from this table via
-//! `packages/exact-devtools/src/scripts/generate-capability-bits.mjs`.
+//! `packages/ibex-devtools/src/scripts/generate-capability-bits.mjs`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapabilityBitDefinition {

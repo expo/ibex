@@ -1937,7 +1937,7 @@ fn contains_await_keyword(source: &str) -> bool {
             b'a' => {
                 let is_keyword = source[i..].starts_with("await")
                     && (i == 0 || !is_ident_byte(bytes[i - 1]))
-                    && bytes.get(i + 5).map_or(true, |next| !is_ident_byte(*next));
+                    && bytes.get(i + 5).is_none_or(|next| !is_ident_byte(*next));
                 if is_keyword {
                     return true;
                 }

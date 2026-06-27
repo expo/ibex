@@ -202,7 +202,7 @@ struct PortableDigestSpec {
   size_t output_size;
 };
 
-static std::optional<PortableDigestSpec> portableDigestSpecForAlgorithm(
+[[maybe_unused]] static std::optional<PortableDigestSpec> portableDigestSpecForAlgorithm(
     const std::string& algorithm) {
   const auto normalized = normalizeDigestName(algorithm);
   if (normalized == "md5") {
@@ -715,7 +715,7 @@ static std::vector<uint8_t> portableHmac(
   return portableDigestBySpec(spec, outer);
 }
 
-static std::vector<uint8_t> portablePbkdf2(
+[[maybe_unused]] static std::vector<uint8_t> portablePbkdf2(
     const std::vector<uint8_t>& password,
     const std::vector<uint8_t>& salt,
     uint32_t iterations,
