@@ -1000,6 +1000,7 @@ const staticBootstrapInternalModules = Object.freeze([
   "internal/crypto/x509",
   "internal/url",
   "internal/fs/utils",
+  "internal/test/binding",
   "internal/child_process"
 ]);
 
