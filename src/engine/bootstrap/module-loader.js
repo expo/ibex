@@ -3053,144 +3053,174 @@
       }
       return null;
     }
-    var lines = source.split("\n");
-    // Line-start offsets into the original source, so the body brace-matcher
-    // below can walk `source` directly (no per-header slice/join copies).
-    var lineStarts = new Array(lines.length);
-    var offset = 0;
-    for (var ls = 0; ls < lines.length; ls++) {
-      lineStarts[ls] = offset;
-      offset += lines[ls].length + 1;
-    }
-    var out = [];
-    var i = 0;
-    // File-wide content state (ENG-22546): fixForOfScoping used to be purely
-    // line-based, so a line inside multi-line template-literal text that
-    // merely looked like `for (const x of y) {` was rewritten, corrupting the
-    // template content. Same approach as transformEsmToCjs's moduleScanState:
-    // every line emitted unchanged advances the state, and a rewrite is only
-    // considered when the line starts in code context.
-    var fileState = createDelimiterScanState();
-    while (i < lines.length) {
-      var line = lines[i];
-      // Match: for (const/let BINDING of EXPR) {
-      // Use precise parsing instead of regex to handle nested parens correctly
-      var trimmed = line.replace(/^\s*/, "");
-      var indent = line.slice(0, line.length - trimmed.length);
-      if (delimiterScanInContent(fileState) || !/^for\s*\(/.test(trimmed)) {
-        scanDelimiterLine(line, fileState);
-        out.push(line);
-        i++;
-        continue;
+    // Recursive chunk rewriter (ENG-22558). At the top level `source` is the
+    // whole file; on recursion it is the ORIGINAL body text of a loop that is
+    // about to be wrapped, so nested for-of loops get their own rewrite
+    // instead of being emitted raw (where the Hermes function-scoped-const
+    // closure pitfall survived one level down). Recursion always runs on the
+    // pre-wrap body, so the generated `Array.from(...).forEach(function(...) {`
+    // header is never re-scanned. `namePrefix` keeps the generated
+    // __exactForOfValue<...> temporaries unique across nesting levels: each
+    // recursion appends the enclosing header's line index, so the name
+    // encodes the loop's path ("" at top level, "5_" inside the loop at line
+    // 5, "5_2_" one level deeper, ...).
+    function rewriteForOfChunk(source, namePrefix) {
+      var lines = source.split("\n");
+      // Line-start offsets into the original source, so the body brace-matcher
+      // below can walk `source` directly (no per-header slice/join copies).
+      var lineStarts = new Array(lines.length);
+      var offset = 0;
+      for (var ls = 0; ls < lines.length; ls++) {
+        lineStarts[ls] = offset;
+        offset += lines[ls].length + 1;
       }
-      // Find the balanced closing paren for the for(...)
-      var forStart = trimmed.indexOf("(");
-      if (forStart === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
-      var parenDepth = 0;
-      var forEnd = -1;
-      var headLastCode = -1;
-      for (var fi = forStart; fi < trimmed.length; fi++) {
-        // Content-aware skip (ENG-22536): quotes inside regex literals or
-        // backticks inside template interpolations used to open a bogus
-        // string state that hid the closing paren.
-        var headContentEnd = indexAfterContentToken(trimmed, fi, headLastCode);
-        if (headContentEnd !== -1) {
-          headLastCode = headContentEnd - 1;
-          fi = headContentEnd - 1;
+      var out = [];
+      var i = 0;
+      // File-wide content state (ENG-22546): fixForOfScoping used to be purely
+      // line-based, so a line inside multi-line template-literal text that
+      // merely looked like `for (const x of y) {` was rewritten, corrupting the
+      // template content. Same approach as transformEsmToCjs's moduleScanState:
+      // every line emitted unchanged advances the state, and a rewrite is only
+      // considered when the line starts in code context.
+      var fileState = createDelimiterScanState();
+      while (i < lines.length) {
+        var line = lines[i];
+        // Match: for (const/let BINDING of EXPR) {
+        // Use precise parsing instead of regex to handle nested parens correctly
+        var trimmed = line.replace(/^\s*/, "");
+        var indent = line.slice(0, line.length - trimmed.length);
+        if (delimiterScanInContent(fileState) || !/^for\s*\(/.test(trimmed)) {
+          scanDelimiterLine(line, fileState);
+          out.push(line);
+          i++;
           continue;
         }
-        var fc = trimmed.charCodeAt(fi);
-        if (fc === 40) parenDepth++;
-        else if (fc === 41) { parenDepth--; if (parenDepth === 0) { forEnd = fi; break; } }
-        if (fc !== 32 && fc !== 9) headLastCode = fi;
-      }
-      if (forEnd === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
-      var inner = trimmed.slice(forStart + 1, forEnd).replace(/^\s+|\s+$/g, "");
-      var parts = splitForOfBinding(inner);
-      if (!parts || !parts.binding || !parts.expr) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
-      var binding = parts.binding;
-      var expr = parts.expr;
-      // Rest of line after for(...) must be just "{"
-      var afterFor = trimmed.slice(forEnd + 1).replace(/^\s+|\s+$/g, "");
-      if (afterFor !== "{") { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
-      // Find the matching closing brace with the shared content-aware walk
-      // (ENG-22546). The old per-line matcher treated backticks as flat
-      // strings with no ${...} awareness, so a backtick inside an
-      // interpolation (`${"`"}`) or braces inside interpolation code desynced
-      // the depth count, and a template spanning lines hid real braces.
-      // indexAfterContentToken skips strings, comments, regex literals, and
-      // whole template literals (interpolations and nesting included) over
-      // the original source, so multi-line content is handled by
-      // construction.
-      var bodyStart = i + 1 < lines.length ? lineStarts[i + 1] : source.length;
-      var depth = 1;
-      var closeIndex = -1;
-      var bodyLastCode = -1;
-      for (var bi = bodyStart; bi < source.length; bi++) {
-        var bodyContentEnd = indexAfterContentToken(source, bi, bodyLastCode);
-        if (bodyContentEnd !== -1) {
-          bodyLastCode = bodyContentEnd - 1;
-          bi = bodyContentEnd - 1;
+        // Find the balanced closing paren for the for(...)
+        var forStart = trimmed.indexOf("(");
+        if (forStart === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var parenDepth = 0;
+        var forEnd = -1;
+        var headLastCode = -1;
+        for (var fi = forStart; fi < trimmed.length; fi++) {
+          // Content-aware skip (ENG-22536): quotes inside regex literals or
+          // backticks inside template interpolations used to open a bogus
+          // string state that hid the closing paren.
+          var headContentEnd = indexAfterContentToken(trimmed, fi, headLastCode);
+          if (headContentEnd !== -1) {
+            headLastCode = headContentEnd - 1;
+            fi = headContentEnd - 1;
+            continue;
+          }
+          var fc = trimmed.charCodeAt(fi);
+          if (fc === 40) parenDepth++;
+          else if (fc === 41) { parenDepth--; if (parenDepth === 0) { forEnd = fi; break; } }
+          if (fc !== 32 && fc !== 9) headLastCode = fi;
+        }
+        if (forEnd === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var inner = trimmed.slice(forStart + 1, forEnd).replace(/^\s+|\s+$/g, "");
+        var parts = splitForOfBinding(inner);
+        if (!parts || !parts.binding || !parts.expr) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var binding = parts.binding;
+        var expr = parts.expr;
+        // Rest of line after for(...) must be just "{"
+        var afterFor = trimmed.slice(forEnd + 1).replace(/^\s+|\s+$/g, "");
+        if (afterFor !== "{") { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        // Find the matching closing brace with the shared content-aware walk
+        // (ENG-22546). The old per-line matcher treated backticks as flat
+        // strings with no ${...} awareness, so a backtick inside an
+        // interpolation (`${"`"}`) or braces inside interpolation code desynced
+        // the depth count, and a template spanning lines hid real braces.
+        // indexAfterContentToken skips strings, comments, regex literals, and
+        // whole template literals (interpolations and nesting included) over
+        // the original source, so multi-line content is handled by
+        // construction.
+        var bodyStart = i + 1 < lines.length ? lineStarts[i + 1] : source.length;
+        var depth = 1;
+        var closeIndex = -1;
+        var bodyLastCode = -1;
+        for (var bi = bodyStart; bi < source.length; bi++) {
+          var bodyContentEnd = indexAfterContentToken(source, bi, bodyLastCode);
+          if (bodyContentEnd !== -1) {
+            bodyLastCode = bodyContentEnd - 1;
+            bi = bodyContentEnd - 1;
+            continue;
+          }
+          var bc = source.charCodeAt(bi);
+          if (bc === 123) depth++;
+          else if (bc === 125) {
+            depth--;
+            if (depth === 0) { closeIndex = bi; break; }
+          }
+          if (bc !== 32 && bc !== 9 && bc !== 10 && bc !== 13) bodyLastCode = bi;
+        }
+        if (closeIndex === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var closeLine = i + 1;
+        while (closeLine + 1 < lines.length && lineStarts[closeLine + 1] <= closeIndex) {
+          closeLine++;
+        }
+        // Only rewrite when the closing line is a bare "}". The old matcher
+        // replaced the whole closing line with "}, this);", silently dropping
+        // any other code sharing that line; bail conservatively instead.
+        if (lines[closeLine].replace(/^\s+|\s+$/g, "") !== "}") {
+          scanDelimiterLine(line, fileState);
+          out.push(line);
+          i++;
           continue;
         }
-        var bc = source.charCodeAt(bi);
-        if (bc === 123) depth++;
-        else if (bc === 125) {
-          depth--;
-          if (depth === 0) { closeIndex = bi; break; }
+        var bodyLines = lines.slice(i + 1, closeLine);
+        // The return/continue/break/yield/await bail is load-bearing: rewriting
+        // to forEach would change control flow (and escaping closures capture
+        // the last item by design — a documented tradeoff). Semantics
+        // deliberately unchanged by ENG-22546.
+        var hasBreakContinue = false;
+        for (var b = 0; b < bodyLines.length; b++) {
+          var bl = bodyLines[b];
+          if (/\b(break|continue)\s*[;\n}]/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) {
+            hasBreakContinue = true;
+            break;
+          }
         }
-        if (bc !== 32 && bc !== 9 && bc !== 10 && bc !== 13) bodyLastCode = bi;
-      }
-      if (closeIndex === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
-      var closeLine = i + 1;
-      while (closeLine + 1 < lines.length && lineStarts[closeLine + 1] <= closeIndex) {
-        closeLine++;
-      }
-      // Only rewrite when the closing line is a bare "}". The old matcher
-      // replaced the whole closing line with "}, this);", silently dropping
-      // any other code sharing that line; bail conservatively instead.
-      if (lines[closeLine].replace(/^\s+|\s+$/g, "") !== "}") {
-        scanDelimiterLine(line, fileState);
-        out.push(line);
-        i++;
-        continue;
-      }
-      var bodyLines = lines.slice(i + 1, closeLine);
-      // The return/continue/break/yield/await bail is load-bearing: rewriting
-      // to forEach would change control flow (and escaping closures capture
-      // the last item by design — a documented tradeoff). Semantics
-      // deliberately unchanged by ENG-22546.
-      var hasBreakContinue = false;
-      for (var b = 0; b < bodyLines.length; b++) {
-        var bl = bodyLines[b];
-        if (/\b(break|continue)\s*[;\n}]/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) {
-          hasBreakContinue = true;
-          break;
+        if (hasBreakContinue) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var callbackParam = binding;
+        var bindingPreamble = "";
+        if (!isSimpleBinding.test(binding)) {
+          callbackParam = "__exactForOfValue" + namePrefix + i;
+          bindingPreamble = indent + "  var " + binding + " = " + callbackParam + ";";
         }
+        // Rewrite nested for-of loops inside the body before wrapping it
+        // (ENG-22558). This only ADDS inner rewrites where the outer already
+        // rewrites: the bail scan above ran over every raw body line — a
+        // superset of any inner loop's body lines — so with identical per-line
+        // regexes an inner rewrite can never hit a bail keyword the outer scan
+        // did not already bail on, and the outer's bail decision is untouched.
+        var emitBodyLines = bodyLines;
+        if (bodyLines.length > 0) {
+          var bodyText = bodyLines.join("\n");
+          if (/\bfor\s*\(\s*(?:const|let)\b/.test(bodyText) && /\bof\b/.test(bodyText)) {
+            var rewrittenBody = rewriteForOfChunk(bodyText, namePrefix + i + "_");
+            if (rewrittenBody !== bodyText) {
+              emitBodyLines = rewrittenBody.split("\n");
+            }
+          }
+        }
+        out.push(indent + "Array.from(" + expr + ").forEach(function(" + callbackParam + ") {");
+        if (bindingPreamble) {
+          out.push(bindingPreamble);
+        }
+        for (var b2 = 0; b2 < emitBodyLines.length; b2++) {
+          out.push(emitBodyLines[b2]);
+        }
+        out.push(indent + "}, this);");
+        // Advance the file-wide state over the consumed original lines so the
+        // lines after the loop are classified against the true source state.
+        for (var s = i; s <= closeLine; s++) {
+          scanDelimiterLine(lines[s], fileState);
+        }
+        i = closeLine + 1;
       }
-      if (hasBreakContinue) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
-      var callbackParam = binding;
-      var bindingPreamble = "";
-      if (!isSimpleBinding.test(binding)) {
-        callbackParam = "__exactForOfValue" + i;
-        bindingPreamble = indent + "  var " + binding + " = " + callbackParam + ";";
-      }
-      out.push(indent + "Array.from(" + expr + ").forEach(function(" + callbackParam + ") {");
-      if (bindingPreamble) {
-        out.push(bindingPreamble);
-      }
-      for (var b2 = 0; b2 < bodyLines.length; b2++) {
-        out.push(bodyLines[b2]);
-      }
-      out.push(indent + "}, this);");
-      // Advance the file-wide state over the consumed original lines so the
-      // lines after the loop are classified against the true source state.
-      for (var s = i; s <= closeLine; s++) {
-        scanDelimiterLine(lines[s], fileState);
-      }
-      i = closeLine + 1;
+      return out.join("\n");
     }
-    return out.join("\n");
+    return rewriteForOfChunk(source, "");
   }
   function aliasNodePathGlobals(source) {
     if (!source || (source.indexOf("__dirname") === -1 && source.indexOf("__filename") === -1)) {
