@@ -3016,26 +3016,19 @@
       var depthParen = 0;
       var depthBrace = 0;
       var depthBracket = 0;
-      var inStr = false;
-      var strCh = 0;
+      var lastCode = -1;
       for (var index = 0; index < text.length; index++) {
+        // Skip strings, templates (with ${...} interpolations), regex
+        // literals, and comments whole (ENG-22536): a quote inside a regex
+        // (/['"]/) or a backtick inside an interpolation (`${"`"}`) used to
+        // flip the flat string skip and mis-split the binding.
+        var contentEnd = indexAfterContentToken(text, index, lastCode);
+        if (contentEnd !== -1) {
+          lastCode = contentEnd - 1;
+          index = contentEnd - 1;
+          continue;
+        }
         var ch = text.charCodeAt(index);
-        if (inStr) {
-          if (ch === 92) {
-            index++;
-            continue;
-          }
-          if (ch === strCh) {
-            inStr = false;
-            strCh = 0;
-          }
-          continue;
-        }
-        if (ch === 34 || ch === 39 || ch === 96) {
-          inStr = true;
-          strCh = ch;
-          continue;
-        }
         if (ch === 40) depthParen++;
         else if (ch === 41) depthParen--;
         else if (ch === 123) depthBrace++;
@@ -3047,6 +3040,9 @@
             binding: text.slice(0, index).replace(/^\s+|\s+$/g, ""),
             expr: text.slice(index + 4).replace(/^\s+|\s+$/g, "")
           };
+        }
+        if (ch !== 32 && ch !== 9) {
+          lastCode = index;
         }
       }
       return null;
@@ -3070,17 +3066,21 @@
       if (forStart === -1) { out.push(line); i++; continue; }
       var parenDepth = 0;
       var forEnd = -1;
-      var inStr2 = false;
-      var strCh2 = 0;
+      var headLastCode = -1;
       for (var fi = forStart; fi < trimmed.length; fi++) {
-        var fc = trimmed.charCodeAt(fi);
-        if (inStr2) {
-          if (fc === strCh2 && (fi === 0 || trimmed.charCodeAt(fi-1) !== 92)) inStr2 = false;
-        } else {
-          if (fc === 34 || fc === 39 || fc === 96) { inStr2 = true; strCh2 = fc; }
-          else if (fc === 40) parenDepth++;
-          else if (fc === 41) { parenDepth--; if (parenDepth === 0) { forEnd = fi; break; } }
+        // Content-aware skip (ENG-22536): quotes inside regex literals or
+        // backticks inside template interpolations used to open a bogus
+        // string state that hid the closing paren.
+        var headContentEnd = indexAfterContentToken(trimmed, fi, headLastCode);
+        if (headContentEnd !== -1) {
+          headLastCode = headContentEnd - 1;
+          fi = headContentEnd - 1;
+          continue;
         }
+        var fc = trimmed.charCodeAt(fi);
+        if (fc === 40) parenDepth++;
+        else if (fc === 41) { parenDepth--; if (parenDepth === 0) { forEnd = fi; break; } }
+        if (fc !== 32 && fc !== 9) headLastCode = fi;
       }
       if (forEnd === -1) { out.push(line); i++; continue; }
       var inner = trimmed.slice(forStart + 1, forEnd).replace(/^\s+|\s+$/g, "");
@@ -3177,20 +3177,155 @@
     }
     return source.replace(/\b__dirname\b/g, "globalThis.__dirname").replace(/\b__filename\b/g, "globalThis.__filename");
   }
+  // Replacements for well-known `import.meta.<prop>` properties. Any other
+  // property (and bare `import.meta`) falls back to globalThis.__exactImportMeta.
+  var importMetaPropertyReplacements = {
+    url: '("file://" + __filename)',
+    path: "__filename",
+    filename: "__filename",
+    file: "(typeof __filename !== 'undefined' ? __filename.split('/').pop() : '')",
+    dirname: "__dirname",
+    dir: "__dirname",
+    main: "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))",
+    require: "require"
+  };
   function transformImportMeta(source) {
     if (!source || source.indexOf("import.meta") === -1) {
       return source;
     }
-    return source
-      .replace(/import\.meta\.url/g, '("file://" + __filename)')
-      .replace(/import\.meta\.path/g, "__filename")
-      .replace(/import\.meta\.filename/g, "__filename")
-      .replace(/import\.meta\.file(?!name)/g, "(typeof __filename !== 'undefined' ? __filename.split('/').pop() : '')")
-      .replace(/import\.meta\.dirname/g, "__dirname")
-      .replace(/import\.meta\.dir(?!name)/g, "__dirname")
-      .replace(/import\.meta\.main/g, "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))")
-      .replace(/import\.meta\.require/g, "require")
-      .replace(/import\.meta\b/g, "globalThis.__exactImportMeta");
+    // Rewrite import.meta only in code context (ENG-22536). The old
+    // context-free regex replaces rewrote occurrences inside string literals
+    // and comments too — a log line quoting "import.meta.url" became
+    // ("file://" + __filename). Same walk as transformDynamicImport: skip
+    // strings, comments, and regex literals; template-literal text is skipped
+    // via the template-context stack while ${...} interpolation code keeps
+    // being scanned and rewritten.
+    var result = "";
+    var i = 0;
+    var len = source.length;
+    var templateStack = [];
+    var lastCode = -1;
+    while (i < len) {
+      var ch = source[i];
+      var top = templateStack.length ? templateStack[templateStack.length - 1] : null;
+      if (top === -1) {
+        // Inside template-literal text.
+        if (ch === '\\') {
+          result += source.slice(i, i + 2);
+          i += 2;
+          continue;
+        }
+        if (ch === '`') {
+          result += ch;
+          templateStack.pop();
+          lastCode = i;
+          i++;
+          continue;
+        }
+        if (ch === '$' && source[i + 1] === '{') {
+          result += '${';
+          templateStack.push(0);
+          lastCode = -1;
+          i += 2;
+          continue;
+        }
+        result += ch;
+        i++;
+        continue;
+      }
+      if (ch === '/' && source[i + 1] === '/') {
+        var lineEnd = source.indexOf('\n', i);
+        if (lineEnd === -1) { lineEnd = len; }
+        result += source.slice(i, lineEnd);
+        i = lineEnd;
+        continue;
+      }
+      if (ch === '/' && source[i + 1] === '*') {
+        var blockEnd = source.indexOf('*/', i + 2);
+        blockEnd = blockEnd === -1 ? len : blockEnd + 2;
+        result += source.slice(i, blockEnd);
+        i = blockEnd;
+        continue;
+      }
+      if (ch === '/') {
+        var regexEnd = indexAfterRegexLiteral(source, i, lastCode);
+        if (regexEnd !== -1) {
+          result += source.slice(i, regexEnd);
+          lastCode = regexEnd - 1;
+          i = regexEnd;
+          continue;
+        }
+      }
+      if (ch === '"' || ch === "'") {
+        var quote = ch;
+        var j = i + 1;
+        while (j < len) {
+          if (source[j] === '\\') { j += 2; continue; }
+          if (source[j] === quote) { j++; break; }
+          j++;
+        }
+        result += source.slice(i, j);
+        lastCode = j - 1;
+        i = j;
+        continue;
+      }
+      if (ch === '`') {
+        result += ch;
+        templateStack.push(-1);
+        i++;
+        continue;
+      }
+      if (top !== null) {
+        // Inside ${...} interpolation code: balance braces so the closing
+        // `}` returns to template text instead of being treated as code.
+        if (ch === '{') {
+          templateStack[templateStack.length - 1] = top + 1;
+        } else if (ch === '}') {
+          if (top === 0) {
+            templateStack.pop();
+            result += ch;
+            i++;
+            continue;
+          }
+          templateStack[templateStack.length - 1] = top - 1;
+        }
+      }
+      if (
+        ch === 'i' &&
+        source.slice(i, i + 11) === 'import.meta' &&
+        (i === 0 || !/[A-Za-z0-9_$.]/.test(source[i - 1])) &&
+        !/[A-Za-z0-9_$]/.test(source[i + 11] || '')
+      ) {
+        var matchEnd = i + 11;
+        var replacement = null;
+        if (source[matchEnd] === '.') {
+          var propEnd = matchEnd + 1;
+          while (propEnd < len && /[A-Za-z0-9_$]/.test(source[propEnd])) {
+            propEnd++;
+          }
+          var prop = source.slice(matchEnd + 1, propEnd);
+          if (Object.prototype.hasOwnProperty.call(importMetaPropertyReplacements, prop)) {
+            replacement = importMetaPropertyReplacements[prop];
+            matchEnd = propEnd;
+          }
+        }
+        if (replacement === null) {
+          // Bare import.meta (or an unknown property, left as a property
+          // access on the polyfill object).
+          replacement = 'globalThis.__exactImportMeta';
+        }
+        result += replacement;
+        lastCode = matchEnd - 1;
+        i = matchEnd;
+        continue;
+      }
+      if (ch !== ' ' && ch !== '\t' && ch !== '\r' && ch !== '\n') {
+        lastCode = i;
+      }
+      result += ch;
+      i++;
+    }
+    return result;
   }
   // --- Shared lexical-scanner helpers (ENG-22528) ---------------------------
   // transformDynamicImport and the transformEsmToCjs statement scanners below
@@ -3365,6 +3500,48 @@
       i++;
     }
     return len;
+  }
+  // If the character at `index` opens string/template/regex/comment content,
+  // return the index just past that content; otherwise return -1 and the
+  // caller treats the character as plain code (ENG-22536). `lastCodeIndex` is
+  // the prior-token context for the regex-vs-division decision. Template
+  // literals are skipped whole (their ${...} interpolations included), which
+  // is correct for balance/split scans: a terminated template contributes no
+  // code-context delimiters, and an unterminated one runs the skip to the end
+  // of the input so callers bail conservatively.
+  function indexAfterContentToken(source, index, lastCodeIndex) {
+    var ch = source.charAt(index);
+    if (ch === '"' || ch === "'") {
+      var len = source.length;
+      var j = index + 1;
+      while (j < len) {
+        if (source.charAt(j) === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source.charAt(j) === ch) {
+          return j + 1;
+        }
+        j++;
+      }
+      return len;
+    }
+    if (ch === "`") {
+      return indexAfterTemplateLiteral(source, index);
+    }
+    if (ch === "/") {
+      var next = source.charAt(index + 1);
+      if (next === "/") {
+        var lineEnd = source.indexOf("\n", index);
+        return lineEnd === -1 ? source.length : lineEnd;
+      }
+      if (next === "*") {
+        var blockEnd = source.indexOf("*/", index + 2);
+        return blockEnd === -1 ? source.length : blockEnd + 2;
+      }
+      return indexAfterRegexLiteral(source, index, lastCodeIndex);
+    }
+    return -1;
   }
   function transformDynamicImport(source) {
     if (!source || source.indexOf("import(") === -1) {
@@ -3864,18 +4041,138 @@
     var quote = function(value) {
       return JSON.stringify(value);
     };
-    var countDelimiters = function(value) {
+    // Content-aware delimiter tracking for the line loop below (ENG-22536).
+    // The old countDelimiters counted every {}()[] byte, so a bracket
+    // character inside a string (export const x = { s: "(" }) kept the
+    // pending export open forever and the module.exports emission was
+    // dropped or mis-placed. One scan state (moduleScanState) persists across
+    // the whole file: block comments and template literals may span lines, a
+    // `;` at the end of a line that is really template text must not close a
+    // pending export, and a line that merely LOOKS like a module statement
+    // while inside multi-line template text must not be rewritten at all.
+    // templateStack entries are -1 while inside template-literal text, or the
+    // unmatched-`{` depth while inside a ${...} interpolation (same
+    // convention as transformDynamicImport).
+    var createDelimiterScanState = function() {
+      return { balance: 0, templateStack: [], inBlockComment: false };
+    };
+    var delimiterScanInContent = function(state) {
+      return state.inBlockComment || state.templateStack.length > 0;
+    };
+    var scanDelimiterLine = function(value, state) {
       var text = String(value || "");
-      var balance = 0;
-      for (var index = 0; index < text.length; index++) {
-        var ch = text.charCodeAt(index);
-        if (123 === ch || 40 === ch || 91 === ch) {
-          balance++;
-        } else if (125 === ch || 41 === ch || 93 === ch) {
-          balance--;
+      var len = text.length;
+      var i = 0;
+      var lastCode = -1;
+      while (i < len) {
+        var ch = text.charAt(i);
+        if (state.inBlockComment) {
+          var blockEnd = text.indexOf("*/", i);
+          if (blockEnd === -1) {
+            return;
+          }
+          state.inBlockComment = false;
+          i = blockEnd + 2;
+          continue;
         }
+        var top = state.templateStack.length
+          ? state.templateStack[state.templateStack.length - 1]
+          : null;
+        if (top === -1) {
+          // Inside template-literal text.
+          if (ch === "\\") {
+            i += 2;
+            continue;
+          }
+          if (ch === "`") {
+            state.templateStack.pop();
+            lastCode = i;
+            i++;
+            continue;
+          }
+          if (ch === "$" && text.charAt(i + 1) === "{") {
+            state.templateStack.push(0);
+            lastCode = -1;
+            i += 2;
+            continue;
+          }
+          i++;
+          continue;
+        }
+        var next = text.charAt(i + 1);
+        if (ch === "/" && next === "/") {
+          var lineEnd = text.indexOf("\n", i);
+          if (lineEnd === -1) {
+            return;
+          }
+          i = lineEnd + 1;
+          continue;
+        }
+        if (ch === "/" && next === "*") {
+          state.inBlockComment = true;
+          i += 2;
+          continue;
+        }
+        if (ch === "/") {
+          var regexEnd = indexAfterRegexLiteral(text, i, lastCode);
+          if (regexEnd !== -1) {
+            lastCode = regexEnd - 1;
+            i = regexEnd;
+            continue;
+          }
+        }
+        if (ch === '"' || ch === "'") {
+          var j = i + 1;
+          while (j < len) {
+            if (text.charAt(j) === "\\") {
+              j += 2;
+              continue;
+            }
+            if (text.charAt(j) === ch) {
+              j++;
+              break;
+            }
+            j++;
+          }
+          lastCode = j - 1;
+          i = j;
+          continue;
+        }
+        if (ch === "`") {
+          state.templateStack.push(-1);
+          i++;
+          continue;
+        }
+        if (top !== null) {
+          // Inside ${...} interpolation code: braces there balance the
+          // interpolation itself, not the surrounding statement.
+          if (ch === "{") {
+            state.templateStack[state.templateStack.length - 1] = top + 1;
+            lastCode = i;
+            i++;
+            continue;
+          }
+          if (ch === "}") {
+            if (top === 0) {
+              state.templateStack.pop();
+            } else {
+              state.templateStack[state.templateStack.length - 1] = top - 1;
+            }
+            lastCode = i;
+            i++;
+            continue;
+          }
+        }
+        if (ch === "{" || ch === "(" || ch === "[") {
+          state.balance++;
+        } else if (ch === "}" || ch === ")" || ch === "]") {
+          state.balance--;
+        }
+        if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+          lastCode = i;
+        }
+        i++;
       }
-      return balance;
     };
     var emitNamedBindings = function(spec, modName) {
       var parts = spec ? spec.split(",") : [];
@@ -3934,27 +4231,57 @@
         }
       }
     };
+    var moduleScanState = createDelimiterScanState();
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       var trimmed = line.trim();
       if (pendingDefaultExport) {
-        var continuedDefault = line.indexOf("import.meta") !== -1 ? transformImportMeta(line) : line;
+        // When the continuation line starts inside template text or a block
+        // comment, leave it verbatim: the whole-source transformImportMeta
+        // pass that follows transformEsmToCjs rewrites any code-context
+        // occurrences with full lexical context (ENG-22536).
+        var continuedDefault =
+          line.indexOf("import.meta") !== -1 && !delimiterScanInContent(moduleScanState)
+            ? transformImportMeta(line)
+            : line;
         out.push(continuedDefault);
-        pendingDefaultExport.depth += countDelimiters(continuedDefault);
-        if (pendingDefaultExport.depth <= 0 && /;\s*$/.test(trimmed)) {
+        scanDelimiterLine(continuedDefault, moduleScanState);
+        if (
+          moduleScanState.balance <= pendingDefaultExport.baseline &&
+          !delimiterScanInContent(moduleScanState) &&
+          /;\s*$/.test(trimmed)
+        ) {
           pendingDefaultExport = null;
         }
         continue;
       }
       if (pendingVarExport) {
-        var continued = line.indexOf("import.meta") !== -1 ? transformImportMeta(line) : line;
+        var continued =
+          line.indexOf("import.meta") !== -1 && !delimiterScanInContent(moduleScanState)
+            ? transformImportMeta(line)
+            : line;
         out.push(continued);
-        pendingVarExport.depth += countDelimiters(continued);
+        scanDelimiterLine(continued, moduleScanState);
         var closesExportedIife = pendingVarExport.iife && /^\s*\}\s*\([^)]*\)\s*;\s*$/.test(trimmed);
-        if ((pendingVarExport.depth <= 0 && /;\s*$/.test(trimmed)) || closesExportedIife) {
+        if (
+          (moduleScanState.balance <= pendingVarExport.baseline &&
+            !delimiterScanInContent(moduleScanState) &&
+            /;\s*$/.test(trimmed)) ||
+          closesExportedIife
+        ) {
           out.push("module.exports." + pendingVarExport.name + " = " + pendingVarExport.name + ";");
           pendingVarExport = null;
         }
+        continue;
+      }
+      if (delimiterScanInContent(moduleScanState)) {
+        // This line starts inside multi-line template text or a block
+        // comment that opened on an earlier line (ENG-22536). It is content,
+        // not code — a line here that happens to look like an import/export
+        // statement (e.g. a codegen template that renders module source)
+        // must be emitted verbatim, not rewritten.
+        scanDelimiterLine(line, moduleScanState);
+        out.push(line);
         continue;
       }
       var statement = line;
@@ -4003,6 +4330,12 @@
       }
       var transformed = statement;
       trimmed = transformed.trim();
+      // Advance the shared lexical scan over this statement (ENG-22536). The
+      // rewrites the branches below apply are balance- and content-neutral
+      // (keyword stripping, require()/module.exports emission), so scanning
+      // the pre-rewrite statement keeps the state aligned with the output.
+      var balanceBeforeStatement = moduleScanState.balance;
+      scanDelimiterLine(transformed, moduleScanState);
       var m;
 
       if (!trimmed) {
@@ -4212,10 +4545,13 @@
       if (m) {
         var defaultDeclaration = m[1] + "module.exports.default = " + m[2];
         out.push(defaultDeclaration);
-        var defaultDepth = countDelimiters(defaultDeclaration);
-        if (!/;\s*$/.test(trimmed) || defaultDepth > 0) {
+        if (
+          !/;\s*$/.test(trimmed) ||
+          moduleScanState.balance > balanceBeforeStatement ||
+          delimiterScanInContent(moduleScanState)
+        ) {
           pendingDefaultExport = {
-            depth: defaultDepth
+            baseline: balanceBeforeStatement
           };
         }
         continue;
@@ -4276,13 +4612,16 @@
       if (m) {
         var declaration = transformed.replace(/\bexport\s+/, "");
         out.push(declaration);
-        var declarationDepth = countDelimiters(declaration);
-        if (/;\s*$/.test(trimmed) && declarationDepth <= 0) {
+        if (
+          /;\s*$/.test(trimmed) &&
+          moduleScanState.balance <= balanceBeforeStatement &&
+          !delimiterScanInContent(moduleScanState)
+        ) {
           out.push("module.exports." + m[3] + " = " + m[3] + ";");
         } else {
           pendingVarExport = {
             name: m[3],
-            depth: declarationDepth,
+            baseline: balanceBeforeStatement,
             iife: new RegExp("^\\s*(?:var|let|const)\\s+" + m[3] + "\\s*=\\s*function\\b").test(declaration)
           };
         }
