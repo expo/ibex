@@ -3192,6 +3192,180 @@
       .replace(/import\.meta\.require/g, "require")
       .replace(/import\.meta\b/g, "globalThis.__exactImportMeta");
   }
+  // --- Shared lexical-scanner helpers (ENG-22528) ---------------------------
+  // transformDynamicImport and the transformEsmToCjs statement scanners below
+  // all walk raw module source character by character. They must agree on
+  // what is code and what is string/comment/regex content, or an apostrophe
+  // inside a regex literal (/['"]/) or a backtick inside a template
+  // interpolation (`${"`"}`) opens a bogus skip that swallows real code —
+  // the same failure class ENG-22514/ENG-22520 fixed for comments.
+  //
+  // Keywords after which a `/` begins a regex literal rather than division
+  // (the usual prior-token list from minimal ES scanners).
+  var regexPrecedingKeywords = [
+    "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+    "throw", "case", "do", "else", "yield", "await"
+  ];
+  // Given the index of the previous significant (non-whitespace, non-comment)
+  // code character — or -1 when there is none — decide whether a `/` here can
+  // begin a regex literal. Errs toward division (the scanners' old behavior)
+  // whenever the prior token plausibly ends an expression.
+  function isRegexAllowedAfter(source, lastCodeIndex) {
+    if (lastCodeIndex < 0) {
+      return true;
+    }
+    var ch = source.charAt(lastCodeIndex);
+    if (ch === ")" || ch === "]" || ch === "'" || ch === '"' || ch === "`" || ch === ".") {
+      return false;
+    }
+    if (/[A-Za-z0-9_$]/.test(ch)) {
+      var wordStart = lastCodeIndex;
+      while (wordStart > 0 && /[A-Za-z0-9_$]/.test(source.charAt(wordStart - 1))) {
+        wordStart--;
+      }
+      if (wordStart > 0 && source.charAt(wordStart - 1) === ".") {
+        // Property access (`foo.in`) — never a regex position.
+        return false;
+      }
+      var word = source.slice(wordStart, lastCodeIndex + 1);
+      if (/^[0-9]/.test(word)) {
+        return false;
+      }
+      return regexPrecedingKeywords.indexOf(word) !== -1;
+    }
+    if ((ch === "+" || ch === "-") && source.charAt(lastCodeIndex - 1) === ch) {
+      // Postfix `++`/`--`: `n++ / 2` is division; `++/re/` cannot parse.
+      return false;
+    }
+    return true;
+  }
+  // If the `/` at slashIndex (already known not to start a comment) begins a
+  // regex literal, return the index just past the literal including flags;
+  // otherwise return -1 and the caller treats it as plain code (division).
+  // Conservative by construction: regex literals cannot contain unescaped
+  // line terminators, so when no closing `/` exists on the same line this
+  // falls back to -1 — i.e. to the scanners' old behavior.
+  function indexAfterRegexLiteral(source, slashIndex, lastCodeIndex) {
+    if (!isRegexAllowedAfter(source, lastCodeIndex)) {
+      return -1;
+    }
+    var len = source.length;
+    var i = slashIndex + 1;
+    var inClass = false;
+    while (i < len) {
+      var ch = source.charAt(i);
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (ch === "\n" || ch === "\r") {
+        return -1;
+      }
+      if (ch === "[") {
+        inClass = true;
+      } else if (ch === "]") {
+        inClass = false;
+      } else if (ch === "/" && !inClass) {
+        i++;
+        while (i < len && /[A-Za-z]/.test(source.charAt(i))) {
+          i++;
+        }
+        return i;
+      }
+      i++;
+    }
+    return -1;
+  }
+  // Return the index just past the template literal whose opening backtick is
+  // at backtickIndex. Handles escapes and ${...} interpolations — which are
+  // real code context and may nest strings, comments, regexes, and further
+  // template literals. Returns source.length for unterminated input.
+  function indexAfterTemplateLiteral(source, backtickIndex) {
+    var len = source.length;
+    var i = backtickIndex + 1;
+    while (i < len) {
+      var ch = source.charAt(i);
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (ch === "`") {
+        return i + 1;
+      }
+      if (ch === "$" && source.charAt(i + 1) === "{") {
+        i = indexAfterTemplateInterpolation(source, i + 2);
+        continue;
+      }
+      i++;
+    }
+    return len;
+  }
+  // Return the index just past the `}` that closes the ${...} interpolation
+  // whose code starts at codeStart. Skips nested strings, comments, template
+  // literals, regexes, and balanced braces.
+  function indexAfterTemplateInterpolation(source, codeStart) {
+    var len = source.length;
+    var depth = 0;
+    var lastCode = -1;
+    var i = codeStart;
+    while (i < len) {
+      var ch = source.charAt(i);
+      var next = source.charAt(i + 1);
+      if (ch === "/" && next === "/") {
+        var lineEnd = source.indexOf("\n", i);
+        i = lineEnd === -1 ? len : lineEnd;
+        continue;
+      }
+      if (ch === "/" && next === "*") {
+        var blockEnd = source.indexOf("*/", i + 2);
+        i = blockEnd === -1 ? len : blockEnd + 2;
+        continue;
+      }
+      if (ch === "/") {
+        var regexEnd = indexAfterRegexLiteral(source, i, lastCode);
+        if (regexEnd !== -1) {
+          lastCode = regexEnd - 1;
+          i = regexEnd;
+          continue;
+        }
+      }
+      if (ch === "'" || ch === '"') {
+        var j = i + 1;
+        while (j < len) {
+          if (source.charAt(j) === "\\") {
+            j += 2;
+            continue;
+          }
+          if (source.charAt(j) === ch) {
+            j++;
+            break;
+          }
+          j++;
+        }
+        lastCode = j - 1;
+        i = j;
+        continue;
+      }
+      if (ch === "`") {
+        i = indexAfterTemplateLiteral(source, i);
+        lastCode = i - 1;
+        continue;
+      }
+      if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        if (depth === 0) {
+          return i + 1;
+        }
+        depth--;
+      }
+      if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+        lastCode = i;
+      }
+      i++;
+    }
+    return len;
+  }
   function transformDynamicImport(source) {
     if (!source || source.indexOf("import(") === -1) {
       return source;
@@ -3201,8 +3375,43 @@
     var result = "";
     var i = 0;
     var len = source.length;
+    // Template-context stack (ENG-22528): each entry is -1 while inside the
+    // literal text of a template, or the current unmatched-`{` depth while
+    // inside a ${...} interpolation. Interpolation code is real code context:
+    // an import() there must be rewritten, and a quote or backtick inside it
+    // must not terminate the outer template scan.
+    var templateStack = [];
+    // Index of the last significant (non-whitespace, non-comment) code
+    // character — the prior-token context for regex-vs-division decisions.
+    var lastCode = -1;
     while (i < len) {
       var ch = source[i];
+      var top = templateStack.length ? templateStack[templateStack.length - 1] : null;
+      if (top === -1) {
+        // Inside template-literal text.
+        if (ch === '\\') {
+          result += source.slice(i, i + 2);
+          i += 2;
+          continue;
+        }
+        if (ch === '`') {
+          result += ch;
+          templateStack.pop();
+          lastCode = i;
+          i++;
+          continue;
+        }
+        if (ch === '$' && source[i + 1] === '{') {
+          result += '${';
+          templateStack.push(0);
+          lastCode = -1;
+          i += 2;
+          continue;
+        }
+        result += ch;
+        i++;
+        continue;
+      }
       // Skip comments verbatim. Without this, an apostrophe inside a comment
       // (e.g. "the gateway's auto tier") opens a bogus string skip that can
       // swallow kilobytes of code — leaving later import() calls unrewritten,
@@ -3222,8 +3431,19 @@
         i = blockEnd;
         continue;
       }
+      // Skip regex literals verbatim (ENG-22528). A quote inside a regex
+      // such as /['"]/ must not open a bogus string skip.
+      if (ch === '/') {
+        var regexEnd = indexAfterRegexLiteral(source, i, lastCode);
+        if (regexEnd !== -1) {
+          result += source.slice(i, regexEnd);
+          lastCode = regexEnd - 1;
+          i = regexEnd;
+          continue;
+        }
+      }
       // Skip string literals
-      if (ch === '"' || ch === "'" || ch === '`') {
+      if (ch === '"' || ch === "'") {
         var quote = ch;
         var j = i + 1;
         while (j < len) {
@@ -3232,8 +3452,32 @@
           j++;
         }
         result += source.slice(i, j);
+        lastCode = j - 1;
         i = j;
         continue;
+      }
+      // Enter template literals via the template-context stack so that
+      // ${...} interpolation code keeps being scanned and rewritten.
+      if (ch === '`') {
+        result += ch;
+        templateStack.push(-1);
+        i++;
+        continue;
+      }
+      if (top !== null) {
+        // Inside ${...} interpolation code: balance braces so the closing
+        // `}` returns to template text instead of being treated as code.
+        if (ch === '{') {
+          templateStack[templateStack.length - 1] = top + 1;
+        } else if (ch === '}') {
+          if (top === 0) {
+            templateStack.pop();
+            result += ch;
+            i++;
+            continue;
+          }
+          templateStack[templateStack.length - 1] = top - 1;
+        }
       }
       // Check for import( pattern
       if (source.slice(i, i + 7) === 'import(' || source.slice(i, i + 7) === 'import ') {
@@ -3242,8 +3486,12 @@
         if (m) {
           result += 'globalThis["import"](';
           i += m[0].length;
+          lastCode = i - 1;
           continue;
         }
+      }
+      if (ch !== ' ' && ch !== '\t' && ch !== '\r' && ch !== '\n') {
+        lastCode = i;
       }
       result += ch;
       i++;
@@ -3259,9 +3507,10 @@
       var result = "";
       var inSingle = false;
       var inDouble = false;
-      var inTemplate = false;
       var inLineComment = false;
       var inBlockComment = false;
+      // Prior-token index for regex-vs-division decisions (ENG-22528).
+      var lastCodeIndex = -1;
       for (var cursor = 0; cursor < sourceText.length; cursor++) {
         var ch = sourceText.charAt(cursor);
         var next = sourceText.charAt(cursor + 1);
@@ -3290,6 +3539,7 @@
           }
           if (ch === "'") {
             inSingle = false;
+            lastCodeIndex = cursor;
           }
           continue;
         }
@@ -3302,18 +3552,7 @@
           }
           if (ch === '"') {
             inDouble = false;
-          }
-          continue;
-        }
-        if (inTemplate) {
-          result += ch;
-          if (ch === "\\") {
-            result += next;
-            cursor++;
-            continue;
-          }
-          if (ch === "`") {
-            inTemplate = false;
+            lastCodeIndex = cursor;
           }
           continue;
         }
@@ -3329,6 +3568,18 @@
           inBlockComment = true;
           continue;
         }
+        // Skip regex literals verbatim (ENG-22528): a quote inside /['"]/
+        // must not open a bogus string state that swallows a later
+        // `;import`/`;export` boundary.
+        if (ch === "/") {
+          var regexEnd = indexAfterRegexLiteral(sourceText, cursor, lastCodeIndex);
+          if (regexEnd !== -1) {
+            result += sourceText.slice(cursor, regexEnd);
+            lastCodeIndex = regexEnd - 1;
+            cursor = regexEnd - 1;
+            continue;
+          }
+        }
         if (ch === "'") {
           result += ch;
           inSingle = true;
@@ -3339,12 +3590,18 @@
           inDouble = true;
           continue;
         }
+        // Skip whole template literals, including ${...} interpolations
+        // (ENG-22528): a backtick or quote inside an interpolation must not
+        // flip the scanner's idea of what is string and what is code.
         if (ch === "`") {
-          result += ch;
-          inTemplate = true;
+          var templateEnd = indexAfterTemplateLiteral(sourceText, cursor);
+          result += sourceText.slice(cursor, templateEnd);
+          lastCodeIndex = templateEnd - 1;
+          cursor = templateEnd - 1;
           continue;
         }
         if (ch === ";" || ch === "}") {
+          lastCodeIndex = cursor;
           var lookahead = cursor + 1;
           while (lookahead < sourceText.length) {
             var lookaheadCh = sourceText.charAt(lookahead);
@@ -3371,6 +3628,9 @@
             continue;
           }
         }
+        if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+          lastCodeIndex = cursor;
+        }
         result += ch;
       }
       return result;
@@ -3386,9 +3646,10 @@
       var sourceText = String(text || "");
       var inSingle = false;
       var inDouble = false;
-      var inTemplate = false;
       var inLineComment = false;
       var inBlockComment = false;
+      // Prior-token index for regex-vs-division decisions (ENG-22528).
+      var lastCodeIndex = -1;
       for (var cursor = 0; cursor < sourceText.length; cursor++) {
         var ch = sourceText.charAt(cursor);
         var next = sourceText.charAt(cursor + 1);
@@ -3405,17 +3666,17 @@
           }
           continue;
         }
-        if (inSingle || inDouble || inTemplate) {
+        if (inSingle || inDouble) {
           if (ch === "\\") {
             cursor++;
             continue;
           }
           if (inSingle && ch === "'") {
             inSingle = false;
+            lastCodeIndex = cursor;
           } else if (inDouble && ch === '"') {
             inDouble = false;
-          } else if (inTemplate && ch === "`") {
-            inTemplate = false;
+            lastCodeIndex = cursor;
           }
           continue;
         }
@@ -3429,6 +3690,17 @@
           inBlockComment = true;
           continue;
         }
+        // Skip regex literals (ENG-22528): a `;` never terminates a
+        // statement from inside /['";]/, and a quote in a regex must not
+        // open a bogus string state.
+        if (ch === "/") {
+          var regexEnd = indexAfterRegexLiteral(sourceText, cursor, lastCodeIndex);
+          if (regexEnd !== -1) {
+            lastCodeIndex = regexEnd - 1;
+            cursor = regexEnd - 1;
+            continue;
+          }
+        }
         if (ch === "'") {
           inSingle = true;
           continue;
@@ -3437,12 +3709,20 @@
           inDouble = true;
           continue;
         }
+        // Skip whole template literals, including ${...} interpolations
+        // (ENG-22528): a `;` inside an interpolation (e.g. an arrow body)
+        // is not a statement terminator.
         if (ch === "`") {
-          inTemplate = true;
+          var templateEnd = indexAfterTemplateLiteral(sourceText, cursor);
+          lastCodeIndex = templateEnd - 1;
+          cursor = templateEnd - 1;
           continue;
         }
         if (ch === ";") {
           return cursor;
+        }
+        if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+          lastCodeIndex = cursor;
         }
       }
       return -1;
@@ -3458,9 +3738,10 @@
       var result = "";
       var inSingle = false;
       var inDouble = false;
-      var inTemplate = false;
       var inLineComment = false;
       var inBlockComment = false;
+      // Prior-token index for regex-vs-division decisions (ENG-22528).
+      var lastCodeIndex = -1;
       for (var cursor = 0; cursor < sourceText.length; cursor++) {
         var ch = sourceText.charAt(cursor);
         var next = sourceText.charAt(cursor + 1);
@@ -3478,7 +3759,7 @@
           }
           continue;
         }
-        if (inSingle || inDouble || inTemplate) {
+        if (inSingle || inDouble) {
           result += ch;
           if (ch === "\\") {
             result += next;
@@ -3487,10 +3768,10 @@
           }
           if (inSingle && ch === "'") {
             inSingle = false;
+            lastCodeIndex = cursor;
           } else if (inDouble && ch === '"') {
             inDouble = false;
-          } else if (inTemplate && ch === "`") {
-            inTemplate = false;
+            lastCodeIndex = cursor;
           }
           continue;
         }
@@ -3505,12 +3786,34 @@
           result += " ";
           continue;
         }
+        // Preserve regex literals verbatim (ENG-22528): `//` inside a
+        // character class (/[//]/) is not a comment, and a quote inside a
+        // regex must not open a bogus string state.
+        if (ch === "/") {
+          var regexEnd = indexAfterRegexLiteral(sourceText, cursor, lastCodeIndex);
+          if (regexEnd !== -1) {
+            result += sourceText.slice(cursor, regexEnd);
+            lastCodeIndex = regexEnd - 1;
+            cursor = regexEnd - 1;
+            continue;
+          }
+        }
+        // Preserve whole template literals, including ${...} interpolations
+        // (ENG-22528), so a backtick inside an interpolation cannot flip
+        // the scanner's string/code state.
+        if (ch === "`") {
+          var templateEnd = indexAfterTemplateLiteral(sourceText, cursor);
+          result += sourceText.slice(cursor, templateEnd);
+          lastCodeIndex = templateEnd - 1;
+          cursor = templateEnd - 1;
+          continue;
+        }
         if (ch === "'") {
           inSingle = true;
         } else if (ch === '"') {
           inDouble = true;
-        } else if (ch === "`") {
-          inTemplate = true;
+        } else if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+          lastCodeIndex = cursor;
         }
         result += ch;
       }
