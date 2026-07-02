@@ -9,10 +9,9 @@ A first-party app (`app.js`) depends on a compromised package
     #   evil-pkg result:        STOLEN:hunter2
 
     # With lockdown — the dependency is contained, the app is unaffected:
-    rm -rf ~/Library/Caches/Ibex      # bundle cache is keyed by entry path
     SECRET_TOKEN=hunter2 ibex --lockdown run app.js
     #   app sees SECRET_TOKEN:  string
     #   evil-pkg result:        CONTAINED:TypeError
 
-The cache clear matters only when toggling `--lockdown` on the *same* file: the
-compartmentalized and plain bundles are cached under the same entry-path key.
+The compartmentalized and plain bundles are cached under distinct keys, so you
+can toggle `--lockdown` on the same file freely without clearing the cache.

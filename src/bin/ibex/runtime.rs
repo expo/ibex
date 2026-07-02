@@ -1995,8 +1995,17 @@ fn bundler_cache_input_paths() -> Vec<PathBuf> {
 
 fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "bundle-cache-v5-deps-manifest".hash(&mut hasher);
+    "bundle-cache-v6-deps-manifest".hash(&mut hasher);
     bundle_format.as_str().hash(&mut hasher);
+    // @ref LLP 0013#mechanism-2 — a compartmentalized bundle references the
+    // `__compartments` registry, which only exists under lockdown/compartments.
+    // It MUST NOT be reused for a non-compartment run (the reference would throw
+    // ReferenceError), nor vice versa. Fold the state into the cache key so the
+    // two variants are cached under distinct paths. This mirrors the same signal
+    // `run_bundler` uses to pass `--compartments`.
+    let compartments = std::env::var_os("IBEX_LOCKDOWN").is_some()
+        || std::env::var_os("IBEX_COMPARTMENTS").is_some();
+    compartments.hash(&mut hasher);
     hash_file_contents(&mut hasher, entry)?;
 
     for bundler_input in bundler_cache_input_paths() {
