@@ -1366,6 +1366,200 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
 
+  // @ref LLP 0013#mechanism-1 — Lockdown. Freezes the shared intrinsics graph
+  // and tames the intrinsic evaluators (the %Function% family + indirect eval)
+  // so no compartment can mint code against the real global via a prototype
+  // walk (`({}).constructor.constructor`). Opt-in (IBEX_LOCKDOWN=1 / the
+  // `--lockdown` CLI flag) because freezing intrinsics can break packages that
+  // mutate them — the top risk in the RFC. Composes with any --capsec mode.
+  if (env_flag_enabled("IBEX_LOCKDOWN")) {
+    static const char* kLockdownJS = R"JS((function () {
+  var g = globalThis;
+  if (g.__ibexLockedDown) return;
+  var freeze = Object.freeze;
+  var getProto = Object.getPrototypeOf;
+  var getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var getOwnPropNames = Object.getOwnPropertyNames;
+  var getOwnPropSymbols = Object.getOwnPropertySymbols;
+  var defineProp = Object.defineProperty;
+
+  // --- Evaluator taming (Mechanism 1, load-bearing) ---
+  function makeTamed(name) {
+    function tamedEvaluator() {
+      throw new TypeError(name + ' is disabled under lockdown (LLP 0013 Mechanism 1)');
+    }
+    tamedEvaluator.__ibexTamed = true;
+    return tamedEvaluator;
+  }
+  function tameCtor(proto, label) {
+    if (!proto) return null;
+    var tamed = makeTamed(label);
+    try {
+      defineProp(proto, 'constructor', {
+        value: tamed, writable: false, enumerable: false, configurable: false
+      });
+    } catch (e) {}
+    return tamed;
+  }
+  var tamedFunction = tameCtor(Function.prototype, 'Function');
+  if (tamedFunction) { try { defineProp(g, 'Function', { value: tamedFunction, writable: false, configurable: false }); } catch (e) {} }
+  try { tameCtor(getProto(function*(){}), 'GeneratorFunction'); } catch (e) {}
+  try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) {}
+  // NB: this engine (Hermes) has no native async generators, so there is no
+  // reachable %AsyncGeneratorFunction% evaluator intrinsic to tame.
+  try {
+    var tamedEval = makeTamed('eval');
+    // Mark it so the loader's eval-shim preamble does not reassign it, and pin
+    // it non-writable so package code cannot restore the native evaluator.
+    tamedEval.__exactWrappedForNativesSyntax = true;
+    defineProp(g, 'eval', { value: tamedEval, writable: false, configurable: false });
+  } catch (e) {}
+
+  // --- Freeze walk over the shared intrinsics graph ---
+  var frozen = new WeakSet();
+  function enqueueProp(obj, key, queue) {
+    var desc;
+    try { desc = getOwnPropDesc(obj, key); } catch (e) { return; }
+    if (!desc) return;
+    if ('value' in desc) queue.push(desc.value);
+    if (desc.get) queue.push(desc.get);
+    if (desc.set) queue.push(desc.set);
+  }
+  function harden(root) {
+    var queue = [root];
+    while (queue.length) {
+      var obj = queue.pop();
+      var t = obj === null ? 'null' : typeof obj;
+      if (t !== 'object' && t !== 'function') continue;
+      if (frozen.has(obj)) continue;
+      frozen.add(obj);
+      try { freeze(obj); } catch (e) {}
+      try { var p = getProto(obj); if (p) queue.push(p); } catch (e) {}
+      var names;
+      try { names = getOwnPropNames(obj); } catch (e) { names = []; }
+      for (var i = 0; i < names.length; i++) enqueueProp(obj, names[i], queue);
+      var syms;
+      try { syms = getOwnPropSymbols(obj); } catch (e) { syms = []; }
+      for (var j = 0; j < syms.length; j++) enqueueProp(obj, syms[j], queue);
+    }
+  }
+  var roots = [
+    Object, Array, String, Number, Boolean, Symbol, Math, JSON, Date, RegExp,
+    Promise, Map, Set, WeakMap, WeakSet, Reflect, ArrayBuffer, DataView,
+    Error, TypeError, RangeError, SyntaxError, ReferenceError, EvalError, URIError,
+    Object.prototype, Function.prototype, Array.prototype, String.prototype,
+    Number.prototype, Boolean.prototype
+  ];
+  if (typeof BigInt === 'function') roots.push(BigInt);
+  if (typeof Proxy === 'function') roots.push(Proxy);
+  var typedArrays = ['Int8Array','Uint8Array','Uint8ClampedArray','Int16Array',
+    'Uint16Array','Int32Array','Uint32Array','Float32Array','Float64Array',
+    'BigInt64Array','BigUint64Array'];
+  for (var k = 0; k < typedArrays.length; k++) {
+    if (typeof g[typedArrays[k]] === 'function') roots.push(g[typedArrays[k]]);
+  }
+  try { roots.push(getProto(getProto([][Symbol.iterator]()))); } catch (e) {} // %IteratorPrototype%
+  for (var r = 0; r < roots.length; r++) { if (roots[r] != null) harden(roots[r]); }
+
+  try {
+    defineProp(g, '__ibexLockedDown', { value: true, writable: false, enumerable: false, configurable: false });
+  } catch (e) {}
+})();
+)JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kLockdownJS);
+      handle->runtime->evaluateJavaScript(buffer, "<lockdown>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1, (std::string("Lockdown error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1,
+                          (std::string("Lockdown error: ") + err.what()).c_str());
+    }
+  }
+
+  // @ref LLP 0013#mechanism-2 — per-package compartment registry. Package code
+  // rewritten by the compartment transform resolves its bare globals against
+  // `__compartments[<package>]` instead of the real global. Each compartment is
+  // a Proxy that passes safe shared intrinsics through but WITHHOLDS powerful
+  // globals (process, fetch, Buffer, ...) unless the package is endowed by
+  // policy (globalThis.__ibexEndowments). Ships with lockdown (which closes the
+  // prototype-walk channel) so the two mechanisms compose.
+  if (env_flag_enabled("IBEX_LOCKDOWN") ||
+      env_flag_enabled("IBEX_COMPARTMENTS")) {
+    static const char* kCompartmentRegistryJS = R"JS((function () {
+  var g = globalThis;
+  if (g.__compartments) return;
+  var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
+    'importScripts','queueMicrotask','eval','Function'];
+  var endowMap = Object.create(null);
+  // Programmatic/policy injection: { "pkg": ["fetch", ...], ... }
+  var raw = g.__ibexEndowments;
+  if (raw && typeof raw === 'object') {
+    var keys = Object.getOwnPropertyNames(raw);
+    for (var i = 0; i < keys.length; i++) { endowMap[keys[i]] = raw[keys[i]]; }
+  }
+  // CLI/test injection via env: IBEX_ENDOW="pkg:fetch,process;other:fetch"
+  var envEndow = (g.process && g.process.env && g.process.env.IBEX_ENDOW) || '';
+  if (envEndow) {
+    var groups = String(envEndow).split(';');
+    for (var gi = 0; gi < groups.length; gi++) {
+      var colon = groups[gi].indexOf(':');
+      if (colon === -1) continue;
+      var pkgName = groups[gi].slice(0, colon).trim();
+      var caps = groups[gi].slice(colon + 1).split(',');
+      for (var ci = 0; ci < caps.length; ci++) caps[ci] = caps[ci].trim();
+      if (pkgName) endowMap[pkgName] = caps;
+    }
+  }
+  function isEndowed(pkg, name) {
+    var e = endowMap[pkg];
+    return !!e && e.indexOf(name) !== -1;
+  }
+  function makeCompartment(pkg) {
+    return new Proxy(Object.create(null), {
+      get: function (t, prop) {
+        if (typeof prop !== 'string') return g[prop];
+        if (POWERFUL.indexOf(prop) !== -1 && !isEndowed(pkg, prop)) {
+          return undefined; // withheld
+        }
+        return g[prop];
+      },
+      set: function (t, prop, value) { g[prop] = value; return true; },
+      has: function () { return true; }
+    });
+  }
+  var backing = Object.create(null);
+  var registry = new Proxy(backing, {
+    get: function (t, pkg) {
+      if (typeof pkg !== 'string') return undefined;
+      if (!t[pkg]) { t[pkg] = makeCompartment(pkg); }
+      return t[pkg];
+    }
+  });
+  try {
+    Object.defineProperty(g, '__compartments', {
+      value: registry, writable: false, enumerable: false, configurable: false
+    });
+  } catch (e) {}
+})();
+)JS";
+    try {
+      auto buffer =
+          std::make_shared<facebook::jsi::StringBuffer>(kCompartmentRegistryJS);
+      handle->runtime->evaluateJavaScript(buffer, "<compartment-registry>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1,
+          (std::string("Compartment registry error: ") + err.getMessage())
+              .c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1,
+          (std::string("Compartment registry error: ") + err.what()).c_str());
+    }
+  }
+
   IG_TRACE_END(post_host_fns);
 }
 

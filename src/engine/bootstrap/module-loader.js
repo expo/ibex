@@ -11,6 +11,11 @@
   var __privSetActiveModuleId = (typeof g.__exactSetActiveModuleId === 'function')
     ? g.__exactSetActiveModuleId
     : null;
+  // @ref LLP 0013#mechanism-1 — capture the real Function constructor before
+  // lockdown tames the intrinsic evaluators. The loader is a trusted principal
+  // and legitimately needs to compile CommonJS module bodies; package code that
+  // reaches `({}).constructor.constructor` gets the tamed (throwing) form.
+  var __privFunction = Function;
   const cache = Object.create(null);
   var mainModule = null;
   function getDebugModuleSourceLimit() {
@@ -4397,7 +4402,7 @@
           "\n//# sourceURL=" + filename;
         let wrappedRuntimeForAwait = false;
         const runFallbackSource = function(sourceText) {
-          const fallbackFn = new Function(
+          const fallbackFn = new __privFunction(
             "require",
             "module",
             "exports",
@@ -4448,7 +4453,7 @@
         try {
           g.__filename = filename;
           g.__dirname = dir;
-          const directFn = new Function(
+          const directFn = new __privFunction(
             "require",
             "module",
             "exports",

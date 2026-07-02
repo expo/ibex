@@ -250,6 +250,13 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    // @ref LLP 0013#mechanism-1 — the boot lockdown is read by the engine from
+    // the environment (std::getenv). Setting it here, before any runtime is
+    // created, lets `--lockdown` reach the in-process Hermes runtime.
+    if cli.lockdown {
+        std::env::set_var("IBEX_LOCKDOWN", "1");
+    }
+
     if cli.version {
         println!("v{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -780,6 +787,9 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
         cli::CapSecMode::Permissive => {}
         cli::CapSecMode::Audit => flags.extend(["--capsec".into(), "audit".into()]),
         cli::CapSecMode::Enforce => flags.extend(["--capsec".into(), "enforce".into()]),
+    }
+    if cli.lockdown {
+        flags.push("--lockdown".into());
     }
     if let Some(policy) = &cli.policy {
         flags.extend(["--policy".into(), policy.to_string_lossy().into_owned()]);

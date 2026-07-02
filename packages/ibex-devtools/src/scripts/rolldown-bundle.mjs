@@ -28,6 +28,9 @@ for (let i = 0; i < args.length; i++) {
     opts.name = args[++i];
   } else if (arg === '--lower-classes') {
     opts.lowerClasses = true;
+  } else if (arg === '--compartments') {
+    // @ref LLP 0013#mechanism-2 — per-package free-global rewrite.
+    opts.compartments = true;
   }
 }
 
@@ -49,6 +52,7 @@ const bundle = await rolldown(createRolldownConfig({
   // This preserves require.cache, require.resolve, __dirname/__filename semantics.
   keepRelativeCjsExternal: true,
   define: runtimeImportMetaDefine,
+  compartments: opts.compartments || false,
 }));
 
 const writeResult = await bundle.write({

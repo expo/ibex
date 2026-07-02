@@ -2401,6 +2401,14 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
         .arg(bundle_format.as_str())
         .arg("--sourcemap")
         .current_dir(&working_dir);
+    // @ref LLP 0013#mechanism-2 — when the runtime boots with lockdown, bundle
+    // package (node_modules) code through the per-package compartment rewrite so
+    // its bare globals resolve against the runtime compartment registry.
+    if std::env::var_os("IBEX_LOCKDOWN").is_some()
+        || std::env::var_os("IBEX_COMPARTMENTS").is_some()
+    {
+        command.arg("--compartments");
+    }
     let cmd_output = output_with_timeout(
         &mut command,
         timeout,

@@ -62,6 +62,13 @@ pub struct Cli {
     #[arg(long, value_enum, default_value = "permissive")]
     pub capsec: CapSecMode,
 
+    /// Harden the runtime at boot: freeze the shared intrinsics and tame the
+    /// intrinsic evaluators (SES-style lockdown). Opt-in — it can break packages
+    /// that mutate intrinsics. Composes with any `--capsec` mode.
+    /// @ref LLP 0013#mechanism-1
+    #[arg(long)]
+    pub lockdown: bool,
+
     /// Enable an opt-in compatibility surface. `bun` installs the Bun-shaped
     /// global facade and sets process.versions.bun.
     #[arg(long, value_name = "MODE", value_parser = ["bun"])]
