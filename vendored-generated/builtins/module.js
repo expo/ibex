@@ -997,6 +997,7 @@ var runtimeModuleManifest = (/* @__PURE__ */ __commonJSMin(((exports, module) =>
 		"internal/crypto/x509",
 		"internal/url",
 		"internal/fs/utils",
+		"internal/test/binding",
 		"internal/child_process"
 	]);
 	const nodeBuiltins = Object.freeze(publicBuiltins.map((entry) => entry.name));
