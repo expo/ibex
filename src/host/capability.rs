@@ -5,7 +5,7 @@
 
 use super::SecurityMode;
 use crate::host::policy::PolicyFile;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
 use std::sync::RwLock;
 
@@ -58,6 +58,9 @@ pub struct CapabilityManager {
     module_to_package: RwLock<HashMap<String, PackagePrincipal>>,
     /// Per-package import-graph policy.
     import_policy: RwLock<HashMap<String, ImportPolicy>>,
+    /// Capability classes (e.g. `fs:write`, `process:spawn`) that require
+    /// stack-intersection enforcement. Empty = off (the default).
+    deputy_classes: RwLock<HashSet<String>>,
     /// Audit log of capability checks
     audit_log: RwLock<VecDeque<AuditEntry>>,
 }
@@ -100,6 +103,7 @@ impl CapabilityManager {
             package_grants: RwLock::new(HashMap::new()),
             module_to_package: RwLock::new(HashMap::new()),
             import_policy: RwLock::new(HashMap::new()),
+            deputy_classes: RwLock::new(HashSet::new()),
             audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
         }
     }
@@ -141,6 +145,10 @@ impl CapabilityManager {
                     );
                 }
             }
+        }
+        // @ref LLP 0013#phase-5 — optional deputy hardening classes.
+        if !policy.deputy_classes.is_empty() {
+            self.set_deputy_classes(policy.deputy_classes.iter().cloned());
         }
     }
 
@@ -336,6 +344,77 @@ impl CapabilityManager {
         }
     }
 
+    /// Configure the capability classes that require stack-intersection
+    /// enforcement. `["fs:write", "process:spawn"]` is the typical set.
+    ///
+    /// @ref LLP 0013#phase-5
+    pub fn set_deputy_classes<I, S>(&self, classes: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        if let Ok(mut set) = self.deputy_classes.write() {
+            set.clear();
+            for c in classes {
+                set.insert(normalize_capability(&c.into()));
+            }
+        }
+    }
+
+    fn is_deputy_class(&self, capability: &str) -> bool {
+        let class = capability_class(capability);
+        self.deputy_classes
+            .read()
+            .map(|set| set.contains(&class) || set.contains(capability))
+            .unwrap_or(false)
+    }
+
+    /// Stack-intersection check (optional deputy hardening, Phase 5). For a
+    /// capability whose class is configured for stack intersection, the
+    /// effective permission is the AND of every principal on the call stack —
+    /// a deputy holding `fs:write` cannot be driven to write on behalf of a
+    /// caller that lacks it. For all other capabilities this defers to the
+    /// normal top-principal check.
+    ///
+    /// `stack` is ordered innermost-first (index 0 is the direct caller). It is
+    /// provided by frame-derived attribution (Phase 2/3); in Phase 1 callers
+    /// pass a single-element stack and this reduces to `check`.
+    ///
+    /// @ref LLP 0013#phase-5
+    pub fn check_stack(&self, stack: &[&str], capability_str: &str) -> bool {
+        let normalized = normalize_capability(capability_str);
+        let top = stack.first().copied().unwrap_or("");
+
+        let decision = if self.mode == SecurityMode::Permissive {
+            true
+        } else if self.is_deputy_class(&normalized) && stack.len() > 1 {
+            // Walk-and-AND: every principal on the stack must be granted.
+            stack
+                .iter()
+                .all(|principal| self.decide(principal, &normalized))
+        } else {
+            self.decide(top, &normalized)
+        };
+        let allowed = if self.mode == SecurityMode::Enforce {
+            decision
+        } else {
+            true
+        };
+
+        self.record(AuditEntry {
+            timestamp: std::time::SystemTime::now(),
+            module_id: top.to_string(),
+            package: self.principal_for(top),
+            capability: normalized,
+            constraint: None,
+            decision,
+            allowed,
+            mode: self.mode,
+        });
+
+        allowed
+    }
+
     /// Grant a capability to a module
     pub fn grant(&self, module_id: &str, capability: &str, constraint: Option<String>) {
         if let Ok(mut grants) = self.grants.write() {
@@ -411,6 +490,18 @@ impl CapabilityManager {
             out.push_str(&format!("  {principal}  needs  {capability}\n"));
         }
         out
+    }
+}
+
+/// The capability "class" — the `scope:action` prefix without the resource,
+/// e.g. `fs:write:/etc/passwd` -> `fs:write`. Used to select which capabilities
+/// are subject to stack-intersection enforcement.
+fn capability_class(capability: &str) -> String {
+    let mut parts = capability.splitn(3, ':');
+    match (parts.next(), parts.next()) {
+        (Some(scope), Some(action)) => format!("{scope}:{action}"),
+        (Some(scope), None) => scope.to_string(),
+        _ => capability.to_string(),
     }
 }
 
@@ -825,6 +916,55 @@ mod tests {
         assert!(manager.check_import("5", "node:child_process"));
         // ...but records the would-deny.
         assert!(manager.audit_report().contains("import:node:child_process"));
+    }
+
+    // @ref LLP 0013#phase-5 — stack-intersection: a deputy holding fs:write
+    // cannot be driven to write for a caller that lacks it, but only for
+    // capability classes that opted in.
+    #[test]
+    fn stack_intersection_ands_deputy_classes() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.set_deputy_classes(["fs:write", "process:spawn"]);
+        // The deputy (a library) has fs:write; the caller (an app package) does not.
+        manager.grant("deputy", "fs:write", None);
+        // Caller alone: allowed for its own top-principal checks that it holds.
+        // Stack [caller, deputy]: fs:write is deputy-class → AND → caller lacks it.
+        assert!(
+            !manager.check_stack(&["caller", "deputy"], "fs:write:/tmp/x"),
+            "caller lacking fs:write must not borrow the deputy's authority"
+        );
+        // Grant the caller too → now the AND passes.
+        manager.grant("caller", "fs:write", None);
+        assert!(manager.check_stack(&["caller", "deputy"], "fs:write:/tmp/x"));
+    }
+
+    #[test]
+    fn stack_intersection_only_applies_to_configured_classes() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.set_deputy_classes(["fs:write"]);
+        manager.grant("deputy", "network:fetch", None);
+        // network:fetch is NOT a deputy class → normal top-principal check.
+        // Top principal is the innermost caller (index 0). Grant it.
+        manager.grant("caller", "network:fetch", None);
+        assert!(manager.check_stack(&["caller", "deputy"], "network:fetch:x.example.com"));
+        // A single-element stack reduces to the normal check.
+        assert!(!manager.check_stack(&["nobody"], "fs:write:/tmp/x"));
+    }
+
+    #[test]
+    fn deputy_classes_off_by_default() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant("deputy", "fs:write", None);
+        // No deputy classes configured → stack intersection is off; the top
+        // principal's grant is what matters.
+        assert!(manager.check_stack(&["deputy", "caller"], "fs:write:/tmp/x"));
+    }
+
+    #[test]
+    fn capability_class_extracts_scope_action() {
+        assert_eq!(capability_class("fs:write:/etc/passwd"), "fs:write");
+        assert_eq!(capability_class("process:spawn"), "process:spawn");
+        assert_eq!(capability_class("crypto"), "crypto");
     }
 
     #[test]

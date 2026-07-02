@@ -25,6 +25,14 @@ pub struct PolicyFile {
     /// capabilities, endowed globals, and the import graph.
     #[serde(default)]
     pub packages: HashMap<String, PackagePolicy>,
+
+    /// Capability classes (`fs:write`, `process:spawn`, …) subject to optional
+    /// stack-intersection enforcement: the effective permission is the AND of
+    /// every principal on the call stack. Off (empty) by default.
+    ///
+    /// @ref LLP 0013#phase-5
+    #[serde(default, rename = "deputyClasses")]
+    pub deputy_classes: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
