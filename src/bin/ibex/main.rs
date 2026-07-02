@@ -324,6 +324,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Commands::Debug { command }) => match command {
             DebugCommands::Modules => run_debug_modules(),
         },
+        Some(Commands::Policy { command }) => runtime::run_policy_command(command).await,
         None => {
             // If no command but a file is provided via positional argument
             if let Some(file) = &cli.file {

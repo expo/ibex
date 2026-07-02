@@ -269,6 +269,175 @@ fn compromised_dependency_succeeds_without_lockdown() {
 }
 
 // ---------------------------------------------------------------------------
+// Import-site grants → generated policy (LLP 0014)
+// ---------------------------------------------------------------------------
+// @ref LLP 0014#conformance — end-to-end: the artifact generated from
+// root-principal import sites endows exactly the granted packages; grant
+// syntax inside node_modules confers nothing; the committed artifact is
+// drift-checked with expansions reported.
+
+fn grants_app() -> PathBuf {
+    fixtures_dir().join("grants-app")
+}
+
+fn copy_dir_recursive(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("mkdir");
+    for entry in std::fs::read_dir(from).expect("read_dir") {
+        let entry = entry.expect("dir entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("file type").is_dir() {
+            copy_dir_recursive(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).expect("copy file");
+        }
+    }
+}
+
+#[test]
+fn generated_policy_endows_granted_package_and_contains_the_rest() {
+    if !have_js_runner() {
+        eprintln!("skipping: bundler/generator (bun/node) not available");
+        return;
+    }
+    // Own copy: the bundle cache is keyed by entry path; sibling tests run the
+    // same fixture under different policies.
+    let dir = unique_dir("grants-endow");
+    copy_dir_recursive(&grants_app(), &dir);
+    let out = run_ibex(
+        &[
+            "--lockdown",
+            "--policy",
+            dir.join("ibex-policy.json").to_str().unwrap(),
+            "run",
+            dir.join("app.mjs").to_str().unwrap(),
+        ],
+        &[("SECRET_TOKEN", "hunter2")],
+        None,
+    );
+    // The package granted `process:env` at its import site works under lockdown…
+    assert!(
+        out.stdout.contains("env-reader:  OK:string"),
+        "granted package should be endowed via the generated policy:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // …the ungranted one is contained, and the secret never leaks.
+    assert!(
+        out.stdout.contains("evil-pkg:    CONTAINED"),
+        "ungranted package must be contained:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        !out.stdout.contains("STOLEN:hunter2"),
+        "secret leaked:\n{}",
+        out.stdout
+    );
+    // The self-grant inside node_modules conferred nothing; the code still runs.
+    assert!(
+        out.stdout.contains("sneaky-pkg:  requested-nothing-got-nothing"),
+        "package self-grant must be inert:\n{}",
+        out.stdout
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn without_generated_policy_no_package_is_endowed() {
+    if !have_js_runner() {
+        eprintln!("skipping: bundler (bun/node) not available");
+        return;
+    }
+    let dir = unique_dir("grants-noendow");
+    copy_dir_recursive(&grants_app(), &dir);
+    let out = run_ibex(
+        &[
+            "--lockdown",
+            "--policy",
+            fixtures_dir().join("empty-policy.json").to_str().unwrap(),
+            "run",
+            dir.join("app.mjs").to_str().unwrap(),
+        ],
+        &[("SECRET_TOKEN", "hunter2")],
+        None,
+    );
+    // Proves the endowment comes from the generated artifact, not a default:
+    // under lockdown with an empty policy even the "granted" package is blocked.
+    assert!(
+        out.stdout.contains("env-reader:  BLOCKED"),
+        "no policy → no endowment:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn committed_grants_artifact_is_in_sync() {
+    if !have_js_runner() {
+        eprintln!("skipping: generator (bun/node) not available");
+        return;
+    }
+    // The committed fixture artifact regenerates byte-identically — the
+    // reproducibility contract behind treating it like a lockfile.
+    let out = run_ibex(
+        &[
+            "policy",
+            "check",
+            "--entry",
+            grants_app().join("app.mjs").to_str().unwrap(),
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(
+        out.status, 0,
+        "committed artifact drifted from the import sites:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    // The self-grant attempt inside node_modules is surfaced as a signal.
+    assert!(
+        out.stderr.contains("not a grant channel"),
+        "package self-grant should be reported:\n{}",
+        out.stderr
+    );
+}
+
+#[test]
+fn policy_check_reports_capability_expansion_on_drift() {
+    if !have_js_runner() {
+        eprintln!("skipping: generator (bun/node) not available");
+        return;
+    }
+    let dir = unique_dir("grants-drift");
+    copy_dir_recursive(&grants_app(), &dir);
+    // Root code grows a grant the committed artifact doesn't have.
+    let app = dir.join("app.mjs");
+    let source = std::fs::read_to_string(&app).unwrap().replace(
+        "import steal from \"evil-pkg\";",
+        "import steal from \"evil-pkg\" with { grants: \"network:fetch\" };",
+    );
+    std::fs::write(&app, source).unwrap();
+    let out = run_ibex(
+        &["policy", "check", "--entry", app.to_str().unwrap()],
+        &[],
+        None,
+    );
+    assert_ne!(out.status, 0, "drift must fail the check:\n{}", out.stdout);
+    assert!(
+        out.stderr.contains("EXPANSIONS"),
+        "expansions are the review tripwire:\n{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("evil-pkg: network:fetch"),
+        "the expanded grant should be named:\n{}",
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
 // Audit / enforce modes (Phase 0/1)
 // ---------------------------------------------------------------------------
 

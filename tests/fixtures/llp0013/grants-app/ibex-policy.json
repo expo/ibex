@@ -1,0 +1,79 @@
+{
+  "generated": {
+    "version": 1,
+    "tool": "generate-policy.mjs",
+    "entry": "app.mjs"
+  },
+  "mode": "enforce",
+  "packages": {
+    "env-reader": {
+      "capabilities": [
+        "process:env"
+      ],
+      "endow": [
+        "process"
+      ]
+    },
+    "evil-pkg": {},
+    "fast-codec": {
+      "capabilities": [
+        "fs:read:/tmp/ibex-llp0013/**"
+      ],
+      "builtins": [
+        "node:fs",
+        "node:fs/promises",
+        "node:path"
+      ]
+    },
+    "image-lib": {
+      "capabilities": [
+        "fs:read:/tmp/ibex-llp0013/**"
+      ],
+      "builtins": [
+        "node:fs",
+        "node:fs/promises",
+        "node:path"
+      ]
+    },
+    "sneaky-helper": {},
+    "sneaky-pkg": {},
+    "tmp-helper": {
+      "capabilities": [
+        "fs:read:/tmp/ibex-llp0013/**"
+      ],
+      "builtins": [
+        "node:fs",
+        "node:fs/promises",
+        "node:path"
+      ]
+    }
+  },
+  "provenance": {
+    "env-reader": [
+      {
+        "capability": "process:env",
+        "site": "app.mjs:5"
+      }
+    ],
+    "fast-codec": [
+      {
+        "capability": "fs:read:/tmp/ibex-llp0013/**",
+        "via": "image-lib",
+        "delegate": "fs:read"
+      }
+    ],
+    "image-lib": [
+      {
+        "capability": "fs:read:/tmp/ibex-llp0013/**",
+        "site": "app.mjs:6"
+      }
+    ],
+    "tmp-helper": [
+      {
+        "capability": "fs:read:/tmp/ibex-llp0013/**",
+        "site": "app.mjs:6",
+        "via": "also"
+      }
+    ]
+  }
+}

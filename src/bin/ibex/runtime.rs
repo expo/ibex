@@ -1481,6 +1481,7 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     };
 
     let policy_path = resolve_policy_path(cli);
+    apply_policy_endowments(policy_path.as_deref());
 
     Ok(HostConfig {
         mode,
@@ -1490,6 +1491,55 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
         root_dir: None,
         allowed_hosts: None,
     })
+}
+
+/// Compose the compartment endowment map from the policy artifact's
+/// `packages.*.endow` lists into `IBEX_ENDOW` (`pkg:a,b;pkg2:c`) — the channel
+/// the engine's compartment registry reads at boot — so the generated policy
+/// drives Mechanism 2 end-to-end. An explicit `IBEX_ENDOW` in the environment
+/// keeps precedence: the registry's per-package parse is last-write-wins, so
+/// explicit groups are appended after the policy's. Applied once per process,
+/// before engine boot.
+/// @ref LLP 0014#runtime-and-cli
+fn apply_policy_endowments(policy_path: Option<&Path>) {
+    static APPLIED: AtomicBool = AtomicBool::new(false);
+    let Some(path) = policy_path else {
+        return;
+    };
+    if !path.exists() {
+        return;
+    }
+    let Ok(policy) = crate::host::policy::PolicyFile::load(path) else {
+        // Unreadable policy files surface as errors in host setup; endowment
+        // wiring stays silent here to avoid double-reporting.
+        return;
+    };
+    let mut groups: Vec<String> = policy
+        .packages
+        .iter()
+        .filter_map(|(pkg, package_policy)| {
+            let endow = package_policy.endow.as_ref()?;
+            if endow.is_empty() {
+                None
+            } else {
+                Some(format!("{}:{}", pkg, endow.join(",")))
+            }
+        })
+        .collect();
+    if groups.is_empty() {
+        return;
+    }
+    groups.sort();
+    if APPLIED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let mut value = groups.join(";");
+    if let Ok(existing) = std::env::var("IBEX_ENDOW") {
+        if !existing.trim().is_empty() {
+            value = format!("{};{}", value, existing);
+        }
+    }
+    std::env::set_var("IBEX_ENDOW", value);
 }
 
 fn resolve_policy_path(cli: &Cli) -> Option<PathBuf> {
@@ -1990,6 +2040,13 @@ fn bundler_cache_input_paths() -> Vec<PathBuf> {
             .join("src")
             .join("scripts")
             .join("transforms.mjs"),
+        // @ref LLP 0014#parse-and-strip — the grant-attribute strip runs in
+        // every bundle; its logic changing must invalidate cached bundles.
+        root.join("packages")
+            .join("ibex-devtools")
+            .join("src")
+            .join("scripts")
+            .join("import-grants.mjs"),
     ]
 }
 
@@ -2478,6 +2535,55 @@ fn bundler_script_path() -> Result<PathBuf> {
     Ok(script)
 }
 
+/// `ibex policy generate|check` — runs the LLP 0014 policy generator with the
+/// same JS-runner resolution as the bundler. The generator's exit code is the
+/// command's exit code (`check` uses 1 for drift, the CI-gate contract).
+/// @ref LLP 0014#runtime-and-cli
+pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<()> {
+    use crate::cli::PolicyCommands;
+
+    let root = repo_root()?;
+    let script = root
+        .join("packages")
+        .join("ibex-devtools")
+        .join("src")
+        .join("scripts")
+        .join("generate-policy.mjs");
+    if !script.exists() {
+        anyhow::bail!("Policy generator not found at {}", script.display());
+    }
+    let (runner, _runner_name) = find_js_runner()?;
+
+    let mut cmd = tokio::process::Command::new(&runner);
+    cmd.arg(&script);
+    match command {
+        PolicyCommands::Generate { entry, out, mode } => {
+            cmd.arg("--entry").arg(entry);
+            if let Some(out) = out {
+                cmd.arg("--out").arg(out);
+            }
+            if let Some(mode) = mode {
+                cmd.arg("--mode").arg(mode);
+            }
+        }
+        PolicyCommands::Check { entry, out } => {
+            cmd.arg("--entry").arg(entry).arg("--check");
+            if let Some(out) = out {
+                cmd.arg("--out").arg(out);
+            }
+        }
+    }
+    // Inherit stdio: the generator's report is the user-facing output.
+    let status = cmd
+        .status()
+        .await
+        .context("failed to spawn the policy generator")?;
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    Ok(())
+}
+
 fn bundler_working_dir() -> Result<PathBuf> {
     let root = repo_root()?;
     Ok(root.join("js"))
@@ -2687,13 +2793,16 @@ mod tests {
         // is empty by design.
         let paths = bundler_cache_input_paths();
 
-        assert_eq!(paths.len(), 2);
+        assert_eq!(paths.len(), 3);
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/rolldown-bundle.mjs")));
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/transforms.mjs")));
+        assert!(paths
+            .iter()
+            .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/import-grants.mjs")));
         assert!(paths.iter().all(|path| path.exists()));
     }
 

@@ -221,12 +221,49 @@ pub enum Commands {
         #[command(subcommand)]
         command: DebugCommands,
     },
+
+    /// Generate or check the capability policy artifact (LLP 0014)
+    Policy {
+        #[command(subcommand)]
+        command: PolicyCommands,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq)]
 pub enum DebugCommands {
     /// Print builtin module registry entries and source metadata
     Modules,
+}
+
+/// `ibex policy` — the LLP 0014 grant-authoring toolchain: the policy file is
+/// generated from root-principal import-site grant declarations, committed,
+/// and drift-checked; it is not hand-maintained.
+#[derive(Subcommand, Debug, Clone, PartialEq)]
+pub enum PolicyCommands {
+    /// Generate the policy artifact from the entry's import-site grants
+    Generate {
+        /// Entry point whose module graph scopes the policy
+        #[arg(long)]
+        entry: PathBuf,
+
+        /// Artifact path (default: <entry dir>/ibex-policy.json)
+        #[arg(long)]
+        out: Option<PathBuf>,
+
+        /// Policy mode recorded in the artifact
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// Regenerate and fail if the committed artifact drifted (CI gate)
+    Check {
+        /// Entry point whose module graph scopes the policy
+        #[arg(long)]
+        entry: PathBuf,
+
+        /// Artifact path to check (default: <entry dir>/ibex-policy.json)
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 /// Capability security enforcement mode for CLI.
@@ -426,6 +463,7 @@ mod tests {
                 "completions",
                 "debug",
                 "eval",
+                "policy",
                 "repl",
                 "run",
                 "version"

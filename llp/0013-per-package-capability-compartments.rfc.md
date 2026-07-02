@@ -5,8 +5,8 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status))
-**Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12)
+**Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
 > (`IBEX_HERMES_SOURCE_REF`, currently `260318099.0.0-stable`
@@ -178,7 +178,9 @@ exists yet (this section serves as the interim record):
   stack-intersection checking (Phase 5), not a default.
 - **Deliberate authority passing**: objects are capabilities; a package may
   hand a granted handle to another. Endowment policy plus attenuators bound
-  what exists to be passed.
+  what exists to be passed. (Stated here from the attacker's side; the same
+  channel is the *intended* delegation mechanism between cooperating
+  packages — see Design §Delegation and authority flow.)
 - **Shared mutable module exports**: CJS export objects are shared live
   values; a package that is legitimately imported can have its exports
   mutated by one importer to attack later importers (exports pollution).
@@ -295,7 +297,11 @@ The existing capability manifest (`src/host/capability_bits.rs`) plus the
 package manifest pipeline (LLP 0004; `src/module_loader`) extend to
 per-package declarations; the app's policy (existing `PolicyFile`,
 `src/host/policy.rs`) grants or attenuates them; default-deny under enforce
-mode. Policy governs **three surfaces**, not one:
+mode. The app's `PolicyFile` is a **generated artifact**, not a
+hand-maintained file: compiled from root-principal import-site grant
+declarations plus the delegation cascade, committed like a lockfile, and
+drift-checked in CI with per-entry provenance (LLP 0014). Policy governs
+**three surfaces**, not one:
 
 1. **Host capabilities** — what the package's frames may do at the host
    boundary (`network:fetch:api.example.com`).
@@ -331,6 +337,150 @@ A policy sketch, forcing the selector/principal split to be concrete:
 Both `node-fetch` versions in a graph match the `node-fetch` selector; the
 `@2` entry narrows that version; audit logs record resolved locators so the
 two principals remain distinguishable.
+
+### Delegation and authority flow
+
+Motivating case (author discussion, 2026-07-02): the app intentionally
+installs an image-processing package and grants it read/write on
+`/app/images/**`; that package legitimately needs to hand part of that
+authority to its own codec dependency. Delegation between cooperating
+packages is a requirement, not a threat.
+
+Authority reaches a package through two channels with different semantics:
+
+1. **Ambient authority** — what policy places on the package's compartment
+   global (endowments) and grants to its frames at the host boundary.
+   Scoped to the package principal; sourced from the app's policy,
+   exclusively.
+2. **Passed handles** — capability objects received as ordinary arguments,
+   return values, or fields. Scoped to whoever holds the object; sourced
+   from any holder, voluntarily.
+
+Passed handles are the **primary delegation mechanism**. The image-lib case
+needs no policy machinery at all:
+
+```js
+// inside image-lib: fsHandle is its endowed attenuator for /app/images/**
+const codec = require('fast-codec');
+codec.decode(buf, fsHandle);                  // delegate the whole grant
+codec.decode(buf, fsHandle.scoped('cache/')); // or re-attenuate first
+```
+
+`fast-codec`'s compartment global has no `fs`; it cannot reach the
+filesystem ambiently, but it can use exactly the handle it was handed.
+Authority flows along the call graph the way data does — the property
+compartments were chosen to preserve (see §Non-realm design).
+
+**Attenuators are authority-bearing (normative for Phases 2 and 4).** An
+endowed attenuator carries its grant, fixed at creation from the app's
+policy; for handle-mediated operations the host checks possession, not the
+identity of the calling frame. Frame attribution (Mechanism 3) supplies the
+audit record — the acting-principal chain ("codec wrote, via image-lib's
+grant") — and gates *ambient* operations. Keying handle-mediated checks on
+the calling frame's package would deny every legitimately passed handle:
+the Java `SecurityManager` failure mode, silently converting the delegation
+model into an identity ACL. Phase 5's `deputyClasses` is the deliberate,
+opt-in exception — for configured capability classes, stack-intersection
+reintroduces exactly that denial where deputy risk outweighs delegation.
+
+**Requests vs grants (ambient delegation).** For dependencies that need
+*ambient* authority (their own `require('node:fs')`, bare `fetch`) rather
+than accepting handles, a package may ship a capability manifest (an `ibex`
+field in its `package.json`, read by the existing manifest pipeline —
+LLP 0004): the capabilities it needs, and what it delegates to each
+dependency edge. A shipped manifest is a **request**; the app's policy is
+the only grant root. Effective ambient authority cascades by intersection
+down dependency edges:
+
+```
+effective(dep, via pkg) = delegates(pkg → dep) ∩ effective(pkg)
+```
+
+```jsonc
+// image-lib/package.json — a request, authored by the package (or inferred)
+{ "ibex": {
+    "capabilities": ["fs:read", "fs:write"],
+    "delegates": { "fast-codec": ["fs:read"] }
+} }
+```
+
+With the app policy granting `image-lib` `fs:read:/app/images/**` +
+`fs:write:/app/images/**`, `fast-codec`'s effective ambient grant is
+`fs:read:/app/images/**`. A compromised package can request and delegate
+anything; it never obtains more than the app granted its subtree. The build
+resolves the cascade and emits the full effective-policy artifact — every
+package's grants plus the delegation chain that produced each — as the
+reviewable record; per-package manifests are inputs, not the record.
+Requests are inferable by static analysis (LavaMoat `generate` precedent
+`[inferred: external]`), which turns version-over-version request growth
+into a supply-chain signal rather than paperwork.
+
+**Union across importers.** A package is one principal with one compartment;
+if several importers delegate different scopes to it, its ambient grant is
+the union of the per-edge intersections. Per-edge precision exists only on
+the passed-handle channel — the structural reason handles are the idiomatic
+delegation path and ambient delegation is the coarse fallback.
+
+Import-site declaration syntax (`import lib from "image-lib" with
+{ grants: "…" }`) is the **grant-authoring surface for root-principal code,
+and only there**: the build compiles first-party import-site declarations
+(with union across sites, scoped to the entry's module graph) together with
+the request cascade above into the effective-policy artifact the app
+commits and reviews. In package code the same syntax is never a grant — it
+is stripped, ignored, and surfaced as a supply-chain signal. Specified in
+LLP 0014, which supersedes the "requests-only sugar" lean previously
+recorded here; the pre-extraction Exact planning corpus's import-attribute
+sketch is its ancestor (see References).
+
+### Interaction with user-facing dynamic permissions
+
+(Added 2026-07-02. Embedders — Exact, Snapback — sit under OS permission
+systems that prompt the user at runtime: location, camera, contacts. The
+pre-extraction Exact planning corpus modeled this as a four-layer
+intersection, `OS ∩ App Root ∩ View Broker Grant ∩ Module Declared` — see
+References. This section records only the runtime mechanism that model
+needs from Ibex; the broker UX, per-view grants, persistence policy, and
+OS mapping tables are embedder design and belong in the embedder's corpus,
+referencing this LLP as substrate.)
+
+The layer split: a user prompt is a **dynamic mutation of the root
+principal's grant set** — the OS knows only apps, never packages. This
+LLP's policy cascade distributes from that root; it can narrow an OS grant,
+never widen it. Effective authority for a package is
+`OS-grant ∩ app-policy(package)`, evaluated at check time. Four mechanism
+requirements follow, binding Phases 2 and 4:
+
+1. **Check-time evaluation, never cached.** Grant state changes behind the
+   runtime's back (the user in Settings mid-session); device-class
+   capability checks consult current state per call — TOCTOU is the failure
+   mode. `CapabilityManager::check` already evaluates per call; this pins
+   that property for device capabilities.
+2. **Acquisition is async and lives in the attenuator; the boundary check
+   stays synchronous.** `ex_host_check_capability` cannot block on a UI
+   prompt. The endowed device attenuator runs the broker flow
+   (`await camera.capture()` suspends on the prompt, resolves or throws);
+   the synchronous boundary check only ever consults already-resolved
+   grant state. Compartments govern *reachability* (who holds a camera
+   object — static); the dynamic layer governs *exercisability* (whether
+   calls succeed right now). Grant status is therefore tri-state at the
+   host surface — granted / denied / prompt — not today's boolean.
+3. **The static policy is the ceiling; prompts move the floor.**
+   Triggering a prompt is itself gated: only a package whose manifest
+   requests the capability and whose app policy grants it may cause the
+   broker to ask. A transitive dependency the policy never named cannot
+   spend user attention. Frame attribution (Mechanism 3) identifies the
+   requesting principal to the broker for logging, rate-limiting, and
+   honest prompt copy.
+4. **Revocation cascades through delegation.** Handles are
+   authority-bearing and passable (§Delegation), so attenuators hold a
+   live link to the root grant, not a copy of its state: revoking the root
+   kills every derived attenuation, tears down live resources (watches,
+   sessions) fail-closed, and subsequent use fails with a typed error.
+
+Host-ABI surface implied: a runtime mutation entry point for the root
+principal's grant set, the tri-state status query, and a revocation signal
+handles subscribe to. When these land they are specified in LLP 0002 (host
+embedding ABI); this section is their design rationale.
 
 ### Non-realm design, stated once
 
@@ -454,6 +604,11 @@ each point; anything stronger is overclaiming (Risk 3):
 - Host-bridge globals made unreachable natively.
 - Microtask/native attribution semantics pinned down here (Open question 3),
   with red-team cases for each rule.
+- Host-boundary check semantics distinguish **ambient** operations
+  (frame-keyed) from **handle-mediated** operations (authority baked into
+  the attenuator at creation) per Design §Delegation and authority flow —
+  frame identity must not deny a legitimately passed handle. Red-team/
+  conformance cases cover delegation-through-passing explicitly.
 - Patch classes: new files + small insertion points (see Upstream tracking).
 - **Deliverable**: the first phase entitled to claim frame-accurate
   attribution — demonstrated against red-team cases covering callbacks,
@@ -478,6 +633,16 @@ each point; anything stronger is overclaiming (Risk 3):
 
 - Attenuated builtins for parameterized capabilities; policy toolchain on
   the manifest; per-app audit→enforce migration; compat triage/repairs.
+- Attenuators built authority-bearing with a re-attenuation surface
+  (`fsHandle.scoped(...)`) per Design §Delegation and authority flow.
+- Dynamic-permission mechanism (Design §Interaction with user-facing
+  dynamic permissions): tri-state grant status, root-grant runtime
+  mutation, revocation cascade into handles; ABI entry points specified in
+  LLP 0002 when they land.
+- Request-manifest cascade: per-package `ibex` manifests as intersected
+  requests down dependency edges; the build emits the resolved
+  effective-policy artifact as the reviewable record; request inference
+  tooling (Open question 11).
 - (The `child_process`→`process:spawn` and `Capability`≡`Strict` defect
   fixes moved to Phase 0 so audit data starts clean.)
 
@@ -686,12 +851,35 @@ Open questions below.
    app graphs** (audit mode first, enforce as the compat corpus allows);
    the ibex CLI serves as the demo and development harness rather than the
    adoption path.
+10. **Delegation model** (2026-07-02) — passed attenuated handles are the
+    primary delegation mechanism between packages; per-package manifests
+    are intersected **requests** cascaded down dependency edges, with the
+    app's policy as the sole grant root (Design §Delegation and authority
+    flow). Corollary, normative for Phase 2: handle-mediated host
+    operations check possession, not calling-frame identity — frame
+    attribution serves audit and ambient checks.
+11. **Grant authoring surface** (2026-07-02) — the app's policy artifact is
+    **generated** from static analysis of root-principal import-site grant
+    declarations (union across sites; entry-scoped; fail-closed on
+    anything non-static) composed with the request/delegation cascade. The
+    committed artifact with per-entry provenance is the reviewable record,
+    drift-checked in CI with capability *expansions* reported as the
+    review tripwire. Import-site syntax is a grant channel in
+    root-principal code only; in package code it is inert (stripped and
+    reported). Grants are declared, never inferred from usage — a
+    malicious update needing new ambient authority fails closed until the
+    app author edits their own import site. Runtime/dynamic grants are
+    bounded by the artifact as a ceiling. Co-located `also:` exceptions
+    cover transitive packages the cascade can't reach, with the honesty
+    rule that their edge-association is provenance, not enforcement. Full
+    specification: LLP 0014.
 
 ## Open questions
 
 *Lean* lines record the current recommendation so a future resolution can
 agree or push back against something concrete. Question 3 resolves in
-Phase 2 design review; 4, 8, and 9 wait for evidence.
+Phase 2 design review; 4, 8, and 9 wait for evidence; 12 waits on
+Phases 2 and 4.
 
 3. **Microtask/native attribution semantics**: attribute promise jobs to the
    compartment that scheduled them (recorded at schedule time) or to the
@@ -722,6 +910,20 @@ Phase 2 design review; 4, 8, and 9 wait for evidence.
    breakage in the Phase 1 compat corpus, and revisit a stronger default
    with evidence — blanket freezing breaks lazy-export and circular-require
    patterns common in real npm code.
+12. **Runtime grant surfaces** (successor to the dynamic half of resolved
+    question 11): dynamic `import(spec, { with: { permissions } })` waits
+    on Phase 2 attribution (a dynamic grant needs a soundly identified
+    grantor) and Phase 4 attenuators; effective grant is
+    caller-authority ∩ requested, bounded by the generated artifact as
+    ceiling (LLP 0014 §Dynamic grants and the static ceiling); re-import
+    with differing permissions in enforce mode should error. Post-import
+    grant to an instantiated compartment is disfavored — retroactive
+    amplification of every importer. Extent-scoped delegation (the
+    React-context/`AsyncLocalStorage` shape) is considered and deferred in
+    LLP 0014 with the confused-deputy hazard recorded; request-manifest
+    inference tooling continues as LLP 0014 Open question 3.
+    *Lean:* handles first; revisit only with a concrete case the cascade
+    and handles cannot express.
 
 ## Implementation status
 
@@ -805,6 +1007,14 @@ policy `deputyClasses`): the effective permission for a configured capability
 class is the AND of every principal on the call stack. Off by default; the full
 call stack is supplied by frame attribution (Phase 2/3).
 
+#### Policy generation
+
+The grant-authoring surface and generator are specified and tracked in
+LLP 0014: root-principal import-site grants compiled (with the request
+cascade) into a provenance-carrying generated `PolicyFile` artifact;
+`ibex policy generate|check`; boot-time endowment wiring from
+`packages.*.endow` so the artifact drives Mechanism 2 end-to-end.
+
 #### Upstream tracking
 
 The pin plus the ordered `patches/hermes/` series is the fork;
@@ -821,6 +1031,15 @@ The pin plus the ordered `patches/hermes/` series is the fork;
   `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`
   (author-side deep pass, 2026-07-02).
 - Hermes pin: `scripts/hermes-version.sh` (`260318099.0.0-stable`).
+- Inherited planning corpus (pre-extraction `exact` monorepo):
+  `docs/plans/js-capability-security-master.md` — §7: permission
+  declaration surfaces (import attributes, dynamic `import()` options bag)
+  and the importer-intersection rule adopted by Design §Delegation and
+  authority flow; §2/§13: the four-layer OS-intersection model and OS
+  alignment rules underlying Design §Interaction with user-facing dynamic
+  permissions; §10–11: revocable fail-closed handle semantics carried
+  forward. Historical ancestry, not a normative reference; its
+  `__moduleId` attribution mechanism (§9) is superseded by Mechanism 3.
 - External `[inferred]`: Agoric SES/Endo & Hardened JavaScript; MetaMask
   LavaMoat; TC39 ShadowRealm proposal (rejected here for this use);
   Node.js process-level permission model and the removal of its per-module

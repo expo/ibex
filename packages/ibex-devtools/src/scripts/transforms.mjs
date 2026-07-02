@@ -12,6 +12,7 @@ import {
   bundlerExternalModules,
   nodeBuiltins,
 } from './builtin-manifest.mjs';
+import { createImportGrantsPlugin } from './import-grants.mjs';
 
 export const rolldownConditionNames = Object.freeze([
   'node',
@@ -1289,6 +1290,11 @@ export function createSharedBundlerPlugins({
   compartments = false,
 } = {}) {
   const plugins = [];
+  // @ref LLP 0014#parse-and-strip — grant attributes are build-time inputs
+  // with no runtime representation; strip them FIRST, unconditionally, so
+  // grant-annotated source runs in every mode and no later transform (or the
+  // engine) ever sees the syntax.
+  plugins.push(createImportGrantsPlugin());
   if (injectDirnameBindings) {
     plugins.push(createDirnameBindingsPlugin());
   }
