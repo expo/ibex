@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status))
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -722,6 +722,94 @@ Phase 2 design review; 4, 8, and 9 wait for evidence.
    breakage in the Phase 1 compat corpus, and revisit a stronger default
    with evidence — blanket freezing breaks lazy-export and circular-require
    patterns common in real npm code.
+
+## Implementation status
+
+First implementation landed on branch `llp-0013-compartments` (2026-07-02).
+This section is the living record of what exists in the tree and doubles as the
+stable anchor set for `@ref LLP 0013#…` code annotations (the short slugs below).
+
+Phase 0 findings (recorded per the acceptance criteria, from the on-engine
+spike against the pinned Hermes `260318099.0.0-stable`):
+
+- **SES semantics are viable on this Hermes.** `Object.freeze` is honored:
+  after freezing a prototype, a strict-mode write throws and the original value
+  persists, while normal use (`[].map`, `instanceof`) is unaffected. Sloppy-mode
+  writes silently no-op rather than throw — the reason strict-mode emission
+  (Mechanism 2, channel #2) is load-bearing.
+- **Evaluators are reachable and must be tamed.** `({}).constructor.constructor`
+  reaches `Function`; `(function*(){}).constructor` reaches
+  `%GeneratorFunction%`; indirect `eval` works. Lockdown tames all of these.
+- **No async generators.** This Hermes rejects `async function*` source, so
+  there is no reachable `%AsyncGeneratorFunction%` intrinsic to tame (and the
+  build pipeline already lowers async generators — LLP 0007).
+- **Real-global inventory.** The ambient-authority escape hatches on the true
+  global are `__exactSetActiveModuleId` (attribution setter) and
+  `__exactGrantCapability` (self-grant); both are now captured privately by
+  trusted code and deleted at end-of-bootstrap. The lazy `__exactEnsure*`
+  installers remain (eager-install-then-seal is deferred; see Phase 1 note).
+
+Security-claim ceiling reached so far: **Phase 1** (reachability containment via
+lockdown + compartments + a closed authority-hatch inventory), plus the Phase 0
+defect fixes and the Phase 2 patch stack authored and verified apply-clean.
+Frame-accurate host-boundary enforcement (Phase 2 claim) is pending the
+Ibex-side wiring described in `patches/hermes/README.md`.
+
+#### Mechanism 1
+
+Lockdown (`--lockdown` / `IBEX_LOCKDOWN`): at end-of-bootstrap the shared
+intrinsics graph is frozen and the `%Function%` family + indirect `eval` are
+tamed (`src/engine/hermes_runtime.cc`, `<lockdown>` eval). The module loader
+captures the real `Function` privately so it can still compile CommonJS bodies.
+Verified against the named red-team cases (`tests/llp0013_compartments.rs`).
+
+#### Mechanism 2
+
+Per-package compartment globals: the build-time rewrite
+(`rewriteFreeGlobals` / `createCompartmentGlobalsPlugin` in
+`packages/ibex-devtools/src/scripts/transforms.mjs`, wired through
+`rolldown-bundle.mjs` and gated by `run_bundler`) routes each package's bare
+globals to `__compartments[<pkg>]`. The runtime registry
+(`<compartment-registry>` in `hermes_runtime.cc`) withholds powerful globals
+unless endowed (`IBEX_ENDOW` / `globalThis.__ibexEndowments`). End-to-end: a
+compromised transitive dependency cannot read `process.env` under `--lockdown`.
+
+#### Mechanism 3
+
+Frame-derived attribution: authored as a Hermes patch stack under
+`patches/hermes/` (Domain package-principal field + `getCurrentPackageId`
+frame walk), verified apply-clean against the pin. The Rust host boundary gained
+`ex_host_register_module_package` / `ex_host_check_import` and a
+module→principal keyspace; the thread-local remains until the frame walk is
+wired in (Phase 2 integration — see `patches/hermes/README.md`).
+
+#### Phase 0
+
+`SecurityMode::Capability`≡`Strict` collapsed into one `Enforce` mode (`strict`
+and `capability` kept as hidden CLI aliases); the process spawn check unified to
+the canonical `process:spawn`; the escape-hatch globals sealed.
+
+#### Phase 1
+
+Audit mode (`--capsec audit`) logs would-deny decisions and prints a would-deny
+report at shutdown while letting operations proceed; lockdown + compartments as
+above; the conformance/red-team suite (`tests/llp0013_compartments.rs` +
+`tests/fixtures/llp0013/`) is the durable asset. Deferred within Phase 1: the
+`__exactEnsure*` eager-install-then-seal (the remaining real-global inventory
+item).
+
+#### Phase 5
+
+Optional stack-intersection enforcement (`CapabilityManager::check_stack`,
+policy `deputyClasses`): the effective permission for a configured capability
+class is the AND of every principal on the call stack. Off by default; the full
+call stack is supplied by frame attribution (Phase 2/3).
+
+#### Upstream tracking
+
+The pin plus the ordered `patches/hermes/` series is the fork;
+`scripts/apply-hermes-patches.sh` applies it after clone in every
+`build-hermes*.sh` and is exercised by the `hermes-patch-canary` workflow.
 
 ## References
 
