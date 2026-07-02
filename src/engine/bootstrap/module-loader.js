@@ -3005,7 +3005,13 @@
     }
   }
   function fixForOfScoping(source) {
-    if (!source || !/\bfor\s*\(\s*(?:const|let)\b[^)]*\bof\b/.test(source)) {
+    // Fast-path gate (ENG-22546): presence checks only. The old single-regex
+    // gate matched the whole header with [^)]*, so a ")" inside a string or
+    // regex literal in the binding (for (const { label = "(none)" } of xs))
+    // hid the "of", the file was skipped entirely, and the Hermes for-of
+    // closure pitfall survived. The content-aware line parse below decides
+    // what actually rewrites; the gate only has to be cheap and never miss.
+    if (!source || !/\bfor\s*\(\s*(?:const|let)\b/.test(source) || !/\bof\b/.test(source)) {
       return source;
     }
     var isSimpleBinding = /^[A-Za-z_$][\w$]*$/;
@@ -3048,22 +3054,38 @@
       return null;
     }
     var lines = source.split("\n");
+    // Line-start offsets into the original source, so the body brace-matcher
+    // below can walk `source` directly (no per-header slice/join copies).
+    var lineStarts = new Array(lines.length);
+    var offset = 0;
+    for (var ls = 0; ls < lines.length; ls++) {
+      lineStarts[ls] = offset;
+      offset += lines[ls].length + 1;
+    }
     var out = [];
     var i = 0;
+    // File-wide content state (ENG-22546): fixForOfScoping used to be purely
+    // line-based, so a line inside multi-line template-literal text that
+    // merely looked like `for (const x of y) {` was rewritten, corrupting the
+    // template content. Same approach as transformEsmToCjs's moduleScanState:
+    // every line emitted unchanged advances the state, and a rewrite is only
+    // considered when the line starts in code context.
+    var fileState = createDelimiterScanState();
     while (i < lines.length) {
       var line = lines[i];
       // Match: for (const/let BINDING of EXPR) {
       // Use precise parsing instead of regex to handle nested parens correctly
       var trimmed = line.replace(/^\s*/, "");
       var indent = line.slice(0, line.length - trimmed.length);
-      if (!/^for\s*\(/.test(trimmed)) {
+      if (delimiterScanInContent(fileState) || !/^for\s*\(/.test(trimmed)) {
+        scanDelimiterLine(line, fileState);
         out.push(line);
         i++;
         continue;
       }
       // Find the balanced closing paren for the for(...)
       var forStart = trimmed.indexOf("(");
-      if (forStart === -1) { out.push(line); i++; continue; }
+      if (forStart === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
       var parenDepth = 0;
       var forEnd = -1;
       var headLastCode = -1;
@@ -3082,77 +3104,71 @@
         else if (fc === 41) { parenDepth--; if (parenDepth === 0) { forEnd = fi; break; } }
         if (fc !== 32 && fc !== 9) headLastCode = fi;
       }
-      if (forEnd === -1) { out.push(line); i++; continue; }
+      if (forEnd === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
       var inner = trimmed.slice(forStart + 1, forEnd).replace(/^\s+|\s+$/g, "");
       var parts = splitForOfBinding(inner);
-      if (!parts || !parts.binding || !parts.expr) { out.push(line); i++; continue; }
+      if (!parts || !parts.binding || !parts.expr) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
       var binding = parts.binding;
       var expr = parts.expr;
       // Rest of line after for(...) must be just "{"
       var afterFor = trimmed.slice(forEnd + 1).replace(/^\s+|\s+$/g, "");
-      if (afterFor !== "{") { out.push(line); i++; continue; }
-      // Now find the matching closing brace
+      if (afterFor !== "{") { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+      // Find the matching closing brace with the shared content-aware walk
+      // (ENG-22546). The old per-line matcher treated backticks as flat
+      // strings with no ${...} awareness, so a backtick inside an
+      // interpolation (`${"`"}`) or braces inside interpolation code desynced
+      // the depth count, and a template spanning lines hid real braces.
+      // indexAfterContentToken skips strings, comments, regex literals, and
+      // whole template literals (interpolations and nesting included) over
+      // the original source, so multi-line content is handled by
+      // construction.
+      var bodyStart = i + 1 < lines.length ? lineStarts[i + 1] : source.length;
       var depth = 1;
-      var bodyLines = [];
-      var j = i + 1;
-      var hasBreakContinue = false;
-      var inStr = false;
-      var strCh = 0;
-      var inBlockComment = false;
-      while (j < lines.length && depth > 0) {
-        var bl = lines[j];
-        var inLineComment = false;
-        for (var k = 0; k < bl.length; k++) {
-          var ch = bl.charCodeAt(k);
-          var next = k + 1 < bl.length ? bl.charCodeAt(k + 1) : 0;
-          if (inLineComment) break;
-          if (inBlockComment) {
-            if (ch === 42 && next === 47) {
-              inBlockComment = false;
-              k++;
-            }
-            continue;
-          }
-          if (inStr) {
-            if (ch === 92) {
-              k++;
-              continue;
-            }
-            if (ch === strCh) {
-              inStr = false;
-              strCh = 0;
-            }
-            continue;
-          }
-          if (ch === 47 && next === 47) {
-            inLineComment = true;
-            break;
-          }
-          if (ch === 47 && next === 42) {
-            inBlockComment = true;
-            k++;
-            continue;
-          }
-          if (ch === 34 || ch === 39 || ch === 96) {
-            inStr = true;
-            strCh = ch;
-            continue;
-          }
-          if (ch === 123) depth++;
-          else if (ch === 125) depth--;
-          if (depth <= 0) break;
+      var closeIndex = -1;
+      var bodyLastCode = -1;
+      for (var bi = bodyStart; bi < source.length; bi++) {
+        var bodyContentEnd = indexAfterContentToken(source, bi, bodyLastCode);
+        if (bodyContentEnd !== -1) {
+          bodyLastCode = bodyContentEnd - 1;
+          bi = bodyContentEnd - 1;
+          continue;
         }
-        if (depth > 0) {
-          bodyLines.push(bl);
-          if (/\b(break|continue)\s*[;\n}]/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) hasBreakContinue = true;
+        var bc = source.charCodeAt(bi);
+        if (bc === 123) depth++;
+        else if (bc === 125) {
+          depth--;
+          if (depth === 0) { closeIndex = bi; break; }
         }
-        j++;
+        if (bc !== 32 && bc !== 9 && bc !== 10 && bc !== 13) bodyLastCode = bi;
       }
-      if (hasBreakContinue || depth !== 0) {
+      if (closeIndex === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+      var closeLine = i + 1;
+      while (closeLine + 1 < lines.length && lineStarts[closeLine + 1] <= closeIndex) {
+        closeLine++;
+      }
+      // Only rewrite when the closing line is a bare "}". The old matcher
+      // replaced the whole closing line with "}, this);", silently dropping
+      // any other code sharing that line; bail conservatively instead.
+      if (lines[closeLine].replace(/^\s+|\s+$/g, "") !== "}") {
+        scanDelimiterLine(line, fileState);
         out.push(line);
         i++;
         continue;
       }
+      var bodyLines = lines.slice(i + 1, closeLine);
+      // The return/continue/break/yield/await bail is load-bearing: rewriting
+      // to forEach would change control flow (and escaping closures capture
+      // the last item by design — a documented tradeoff). Semantics
+      // deliberately unchanged by ENG-22546.
+      var hasBreakContinue = false;
+      for (var b = 0; b < bodyLines.length; b++) {
+        var bl = bodyLines[b];
+        if (/\b(break|continue)\s*[;\n}]/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) {
+          hasBreakContinue = true;
+          break;
+        }
+      }
+      if (hasBreakContinue) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
       var callbackParam = binding;
       var bindingPreamble = "";
       if (!isSimpleBinding.test(binding)) {
@@ -3163,11 +3179,16 @@
       if (bindingPreamble) {
         out.push(bindingPreamble);
       }
-      for (var b = 0; b < bodyLines.length; b++) {
-        out.push(bodyLines[b]);
+      for (var b2 = 0; b2 < bodyLines.length; b2++) {
+        out.push(bodyLines[b2]);
       }
       out.push(indent + "}, this);");
-      i = j;
+      // Advance the file-wide state over the consumed original lines so the
+      // lines after the loop are classified against the true source state.
+      for (var s = i; s <= closeLine; s++) {
+        scanDelimiterLine(lines[s], fileState);
+      }
+      i = closeLine + 1;
     }
     return out.join("\n");
   }
@@ -3542,6 +3563,137 @@
       return indexAfterRegexLiteral(source, index, lastCodeIndex);
     }
     return -1;
+  }
+  // Content-aware, line-at-a-time delimiter tracking (ENG-22536; hoisted here
+  // for ENG-22546). One scan state persists across a whole file: block
+  // comments and template literals may span lines, a `;` at the end of a line
+  // that is really template text must not close a pending export, and a line
+  // that merely LOOKS like a module statement (or a for-of header) while
+  // inside multi-line template text must not be rewritten at all.
+  // templateStack entries are -1 while inside template-literal text, or the
+  // unmatched-`{` depth while inside a ${...} interpolation (same convention
+  // as transformDynamicImport). Used by transformEsmToCjs (moduleScanState)
+  // and fixForOfScoping (its file-wide content gate).
+  function createDelimiterScanState() {
+    return { balance: 0, templateStack: [], inBlockComment: false };
+  }
+  function delimiterScanInContent(state) {
+    return state.inBlockComment || state.templateStack.length > 0;
+  }
+  function scanDelimiterLine(value, state) {
+    var text = String(value || "");
+    var len = text.length;
+    var i = 0;
+    var lastCode = -1;
+    while (i < len) {
+      var ch = text.charAt(i);
+      if (state.inBlockComment) {
+        var blockEnd = text.indexOf("*/", i);
+        if (blockEnd === -1) {
+          return;
+        }
+        state.inBlockComment = false;
+        i = blockEnd + 2;
+        continue;
+      }
+      var top = state.templateStack.length
+        ? state.templateStack[state.templateStack.length - 1]
+        : null;
+      if (top === -1) {
+        // Inside template-literal text.
+        if (ch === "\\") {
+          i += 2;
+          continue;
+        }
+        if (ch === "`") {
+          state.templateStack.pop();
+          lastCode = i;
+          i++;
+          continue;
+        }
+        if (ch === "$" && text.charAt(i + 1) === "{") {
+          state.templateStack.push(0);
+          lastCode = -1;
+          i += 2;
+          continue;
+        }
+        i++;
+        continue;
+      }
+      var next = text.charAt(i + 1);
+      if (ch === "/" && next === "/") {
+        var lineEnd = text.indexOf("\n", i);
+        if (lineEnd === -1) {
+          return;
+        }
+        i = lineEnd + 1;
+        continue;
+      }
+      if (ch === "/" && next === "*") {
+        state.inBlockComment = true;
+        i += 2;
+        continue;
+      }
+      if (ch === "/") {
+        var regexEnd = indexAfterRegexLiteral(text, i, lastCode);
+        if (regexEnd !== -1) {
+          lastCode = regexEnd - 1;
+          i = regexEnd;
+          continue;
+        }
+      }
+      if (ch === '"' || ch === "'") {
+        var j = i + 1;
+        while (j < len) {
+          if (text.charAt(j) === "\\") {
+            j += 2;
+            continue;
+          }
+          if (text.charAt(j) === ch) {
+            j++;
+            break;
+          }
+          j++;
+        }
+        lastCode = j - 1;
+        i = j;
+        continue;
+      }
+      if (ch === "`") {
+        state.templateStack.push(-1);
+        i++;
+        continue;
+      }
+      if (top !== null) {
+        // Inside ${...} interpolation code: braces there balance the
+        // interpolation itself, not the surrounding statement.
+        if (ch === "{") {
+          state.templateStack[state.templateStack.length - 1] = top + 1;
+          lastCode = i;
+          i++;
+          continue;
+        }
+        if (ch === "}") {
+          if (top === 0) {
+            state.templateStack.pop();
+          } else {
+            state.templateStack[state.templateStack.length - 1] = top - 1;
+          }
+          lastCode = i;
+          i++;
+          continue;
+        }
+      }
+      if (ch === "{" || ch === "(" || ch === "[") {
+        state.balance++;
+      } else if (ch === "}" || ch === ")" || ch === "]") {
+        state.balance--;
+      }
+      if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+        lastCode = i;
+      }
+      i++;
+    }
   }
   function transformDynamicImport(source) {
     if (!source || source.indexOf("import(") === -1) {
@@ -4041,139 +4193,10 @@
     var quote = function(value) {
       return JSON.stringify(value);
     };
-    // Content-aware delimiter tracking for the line loop below (ENG-22536).
-    // The old countDelimiters counted every {}()[] byte, so a bracket
-    // character inside a string (export const x = { s: "(" }) kept the
-    // pending export open forever and the module.exports emission was
-    // dropped or mis-placed. One scan state (moduleScanState) persists across
-    // the whole file: block comments and template literals may span lines, a
-    // `;` at the end of a line that is really template text must not close a
-    // pending export, and a line that merely LOOKS like a module statement
-    // while inside multi-line template text must not be rewritten at all.
-    // templateStack entries are -1 while inside template-literal text, or the
-    // unmatched-`{` depth while inside a ${...} interpolation (same
-    // convention as transformDynamicImport).
-    var createDelimiterScanState = function() {
-      return { balance: 0, templateStack: [], inBlockComment: false };
-    };
-    var delimiterScanInContent = function(state) {
-      return state.inBlockComment || state.templateStack.length > 0;
-    };
-    var scanDelimiterLine = function(value, state) {
-      var text = String(value || "");
-      var len = text.length;
-      var i = 0;
-      var lastCode = -1;
-      while (i < len) {
-        var ch = text.charAt(i);
-        if (state.inBlockComment) {
-          var blockEnd = text.indexOf("*/", i);
-          if (blockEnd === -1) {
-            return;
-          }
-          state.inBlockComment = false;
-          i = blockEnd + 2;
-          continue;
-        }
-        var top = state.templateStack.length
-          ? state.templateStack[state.templateStack.length - 1]
-          : null;
-        if (top === -1) {
-          // Inside template-literal text.
-          if (ch === "\\") {
-            i += 2;
-            continue;
-          }
-          if (ch === "`") {
-            state.templateStack.pop();
-            lastCode = i;
-            i++;
-            continue;
-          }
-          if (ch === "$" && text.charAt(i + 1) === "{") {
-            state.templateStack.push(0);
-            lastCode = -1;
-            i += 2;
-            continue;
-          }
-          i++;
-          continue;
-        }
-        var next = text.charAt(i + 1);
-        if (ch === "/" && next === "/") {
-          var lineEnd = text.indexOf("\n", i);
-          if (lineEnd === -1) {
-            return;
-          }
-          i = lineEnd + 1;
-          continue;
-        }
-        if (ch === "/" && next === "*") {
-          state.inBlockComment = true;
-          i += 2;
-          continue;
-        }
-        if (ch === "/") {
-          var regexEnd = indexAfterRegexLiteral(text, i, lastCode);
-          if (regexEnd !== -1) {
-            lastCode = regexEnd - 1;
-            i = regexEnd;
-            continue;
-          }
-        }
-        if (ch === '"' || ch === "'") {
-          var j = i + 1;
-          while (j < len) {
-            if (text.charAt(j) === "\\") {
-              j += 2;
-              continue;
-            }
-            if (text.charAt(j) === ch) {
-              j++;
-              break;
-            }
-            j++;
-          }
-          lastCode = j - 1;
-          i = j;
-          continue;
-        }
-        if (ch === "`") {
-          state.templateStack.push(-1);
-          i++;
-          continue;
-        }
-        if (top !== null) {
-          // Inside ${...} interpolation code: braces there balance the
-          // interpolation itself, not the surrounding statement.
-          if (ch === "{") {
-            state.templateStack[state.templateStack.length - 1] = top + 1;
-            lastCode = i;
-            i++;
-            continue;
-          }
-          if (ch === "}") {
-            if (top === 0) {
-              state.templateStack.pop();
-            } else {
-              state.templateStack[state.templateStack.length - 1] = top - 1;
-            }
-            lastCode = i;
-            i++;
-            continue;
-          }
-        }
-        if (ch === "{" || ch === "(" || ch === "[") {
-          state.balance++;
-        } else if (ch === "}" || ch === ")" || ch === "]") {
-          state.balance--;
-        }
-        if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
-          lastCode = i;
-        }
-        i++;
-      }
-    };
+    // Content-aware delimiter tracking for the line loop below lives in the
+    // shared scanner-helper block (createDelimiterScanState /
+    // delimiterScanInContent / scanDelimiterLine) — fixForOfScoping keeps a
+    // file-wide scan state with the same mechanism (ENG-22536, ENG-22546).
     var emitNamedBindings = function(spec, modName) {
       var parts = spec ? spec.split(",") : [];
       for (var i = 0; i < parts.length; i++) {
