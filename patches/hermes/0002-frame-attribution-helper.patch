@@ -1,0 +1,113 @@
+# LLP 0013 Hermes patch 0002 — frame-derived capability attribution
+# Class: A (two additive files) + B (one CMakeLists source line)
+# @ref LLP 0013#mechanism-3
+#
+# Adds VM::getCurrentPackageId(Runtime&), which walks the stack to the nearest
+# JS frame and returns its Domain's packageId. Native (JSI host) frames have a
+# null callee CodeBlock and are skipped — the RFC's Open-Q3 rule. This is the
+# unforgeable replacement for the g_active_module_id thread-local.
+diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h
+new file mode 100644
+index 000000000..2b1a48add
+--- /dev/null
++++ b/include/hermes/VM/CapabilityAttribution.h
+@@ -0,0 +1,37 @@
++/*
++ * Copyright (c) Meta Platforms, Inc. and affiliates.
++ *
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ */
++
++//===----------------------------------------------------------------------===//
++// @ref LLP 0013#mechanism-3 — Frame-derived capability attribution.
++//
++// Ibex patch (Class A: additive file). The host-boundary capability check must
++// identify the calling package from engine truth, not a JS-settable thread
++// local. Bytecode provenance is unforgeable: given the executing frame, we walk
++// CodeBlock -> RuntimeModule -> Domain -> packageId. Native frames (JSI host
++// functions) have a null callee CodeBlock, so we skip them and attribute to the
++// nearest JS frame — the RFC's Open-Q3 rule.
++//===----------------------------------------------------------------------===//
++
++#ifndef HERMES_VM_CAPABILITYATTRIBUTION_H
++#define HERMES_VM_CAPABILITYATTRIBUTION_H
++
++#include <cstdint>
++
++namespace hermes {
++namespace vm {
++
++class Runtime;
++
++/// \return the capability principal (package id) of the nearest JS frame on the
++/// stack, or 0 (trusted root / unassigned) when no attributable JS frame is
++/// found. Skips native frames, whose callee CodeBlock is null.
++uint32_t getCurrentPackageId(Runtime &runtime);
++
++} // namespace vm
++} // namespace hermes
++
++#endif // HERMES_VM_CAPABILITYATTRIBUTION_H
+diff --git a/lib/VM/CMakeLists.txt b/lib/VM/CMakeLists.txt
+index 663a0455e..d265d76bf 100644
+--- a/lib/VM/CMakeLists.txt
++++ b/lib/VM/CMakeLists.txt
+@@ -11,6 +11,7 @@ set(source_files
+   BuildMetadata.cpp
+   Callable.cpp
+   CellKind.cpp
++  CapabilityAttribution.cpp
+   CheckHeapWellFormedAcceptor.cpp
+   CodeBlock.cpp
+   DictPropertyMap.cpp
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+new file mode 100644
+index 000000000..2c1c0451a
+--- /dev/null
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -0,0 +1,44 @@
++/*
++ * Copyright (c) Meta Platforms, Inc. and affiliates.
++ *
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ */
++
++//===----------------------------------------------------------------------===//
++// @ref LLP 0013#mechanism-3 — Frame-derived capability attribution (Ibex patch,
++// Class A). See CapabilityAttribution.h. The frame walk mirrors the existing
++// in-tree pattern in Interpreter-slowpaths.cpp (curCodeBlock ->
++// getRuntimeModule() -> getDomain()).
++//===----------------------------------------------------------------------===//
++
++#include "hermes/VM/CapabilityAttribution.h"
++
++#include "hermes/VM/Domain.h"
++#include "hermes/VM/Runtime-inline.h"
++#include "hermes/VM/RuntimeModule-inline.h"
++#include "hermes/VM/StackFrame-inline.h"
++
++namespace hermes {
++namespace vm {
++
++uint32_t getCurrentPackageId(Runtime &runtime) {
++  // Walk from the innermost frame outward; the first frame with a non-null
++  // callee CodeBlock is the nearest JS caller (native frames return null).
++  for (StackFramePtr frame : runtime.getStackFrames()) {
++    CodeBlock *cb = frame.getCalleeCodeBlock();
++    if (!cb)
++      continue;
++    RuntimeModule *rm = cb->getRuntimeModule();
++    if (!rm)
++      continue;
++    Domain *domain = rm->getDomainUnsafe(runtime);
++    if (!domain)
++      continue;
++    return domain->getPackageId();
++  }
++  return 0;
++}
++
++} // namespace vm
++} // namespace hermes

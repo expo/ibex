@@ -93,6 +93,12 @@ else
     git checkout "$HERMES_VERSION"
 fi
 
+# @ref LLP 0013#upstream-tracking — restore pristine tree (persistent cache),
+# then apply the carried Hermes patch stack.
+git checkout -- . 2>/dev/null || true
+git clean -fdq -- include lib 2>/dev/null || true
+"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"
+
 ACTUAL_COMMIT="$(git rev-parse HEAD | cut -c1-12)"
 echo "Building Hermes for Linux from commit: $ACTUAL_COMMIT"
 echo "Debugger enabled: $HERMES_DEBUGGER"

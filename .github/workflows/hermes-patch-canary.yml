@@ -1,0 +1,83 @@
+# @ref LLP 0013#canary-ci — amortize Hermes-fork drift into small, early,
+# agent-fixable deltas instead of a cliff at pin-bump time. This canary applies
+# the carried patch stack to (a) the pinned stable branch and (b) the newest
+# upstream stable/main, and fails if a patch stops applying. A failure is the
+# signal that the pin has drifted under the patches; see the LLP 0013 pin-bump
+# runbook / patches/hermes/README.md.
+name: Hermes patch canary
+
+on:
+  schedule:
+    # Weekly, Monday 07:00 UTC.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+  pull_request:
+    # Also guard PRs that touch the fork surface.
+    paths:
+      - "patches/hermes/**"
+      - "scripts/apply-hermes-patches.sh"
+      - "scripts/hermes-version.sh"
+      - "scripts/build-hermes*.sh"
+
+jobs:
+  apply-check:
+    name: Patch stack applies
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The pinned ref must always apply. `main` is advisory (allowed to fail
+        # via continue-on-error below) — it is the early-warning signal.
+        ref: [pinned, main]
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Resolve Hermes ref
+        id: ref
+        run: |
+          source scripts/hermes-version.sh
+          if [ "${{ matrix.ref }}" = "pinned" ]; then
+            echo "hermes_ref=$IBEX_HERMES_SOURCE_REF" >> "$GITHUB_OUTPUT"
+          else
+            echo "hermes_ref=main" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Clone Hermes ${{ steps.ref.outputs.hermes_ref }}
+        run: |
+          git clone --depth 1 --branch "${{ steps.ref.outputs.hermes_ref }}" \
+            https://github.com/facebook/hermes.git /tmp/hermes-src \
+            || git clone --depth 1 https://github.com/facebook/hermes.git /tmp/hermes-src
+
+      - name: Apply carried patch stack
+        id: apply
+        continue-on-error: ${{ matrix.ref == 'main' }}
+        run: ./scripts/apply-hermes-patches.sh /tmp/hermes-src
+
+      - name: Report drift on main
+        if: ${{ matrix.ref == 'main' && steps.apply.outcome == 'failure' }}
+        run: |
+          echo "::warning::Hermes patch stack no longer applies to upstream main."
+          echo "Re-derive per patches/hermes/README.md before the next pin bump."
+
+  conformance:
+    name: Compartment conformance suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+      - name: Compartment transform unit tests
+        run: bun test packages/ibex-devtools/src/scripts/compartment-transform.test.mjs
+      # The end-to-end red-team suite needs a built ibex binary; it runs in the
+      # main CI build job. Here we keep the fast, hermetic transform tests as the
+      # canary's functional signal.
