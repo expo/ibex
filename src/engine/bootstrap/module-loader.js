@@ -3356,6 +3356,147 @@
       }
       return result;
     };
+    // Scan `text` outside strings, templates, and comments, reporting the
+    // index of the first statement-terminating `;` (or -1). The multi-line
+    // module-statement joiner below must not stop at a `;` that lives inside
+    // a comment — authored barrels legitimately contain comments like
+    // `// ... (LLP 0279 W3); removal at the ...` between export specifiers,
+    // and treating that `;` as the statement end leaves a bare `export {`
+    // in the CJS output, which Hermes rejects (ENG-22514).
+    var indexOfStatementSemicolon = function(text) {
+      var sourceText = String(text || "");
+      var inSingle = false;
+      var inDouble = false;
+      var inTemplate = false;
+      var inLineComment = false;
+      var inBlockComment = false;
+      for (var cursor = 0; cursor < sourceText.length; cursor++) {
+        var ch = sourceText.charAt(cursor);
+        var next = sourceText.charAt(cursor + 1);
+        if (inLineComment) {
+          if (ch === "\n") {
+            inLineComment = false;
+          }
+          continue;
+        }
+        if (inBlockComment) {
+          if (ch === "*" && next === "/") {
+            cursor++;
+            inBlockComment = false;
+          }
+          continue;
+        }
+        if (inSingle || inDouble || inTemplate) {
+          if (ch === "\\") {
+            cursor++;
+            continue;
+          }
+          if (inSingle && ch === "'") {
+            inSingle = false;
+          } else if (inDouble && ch === '"') {
+            inDouble = false;
+          } else if (inTemplate && ch === "`") {
+            inTemplate = false;
+          }
+          continue;
+        }
+        if (ch === "/" && next === "/") {
+          cursor++;
+          inLineComment = true;
+          continue;
+        }
+        if (ch === "/" && next === "*") {
+          cursor++;
+          inBlockComment = true;
+          continue;
+        }
+        if (ch === "'") {
+          inSingle = true;
+          continue;
+        }
+        if (ch === '"') {
+          inDouble = true;
+          continue;
+        }
+        if (ch === "`") {
+          inTemplate = true;
+          continue;
+        }
+        if (ch === ";") {
+          return cursor;
+        }
+      }
+      return -1;
+    };
+    // Remove `//` and `/* */` comments from a joined import/export statement
+    // (string-aware) so the line-based statement regexes and the specifier
+    // splitters in emitNamedBindings/emitExportBindings never see comment
+    // text. Without this, a comment between specifiers makes the following
+    // binding fail the identifier test and get silently dropped (ENG-22514:
+    // `div`, `View`, and `getTagConfig` vanished from the `exact` barrel).
+    var stripModuleStatementComments = function(text) {
+      var sourceText = String(text || "");
+      var result = "";
+      var inSingle = false;
+      var inDouble = false;
+      var inTemplate = false;
+      var inLineComment = false;
+      var inBlockComment = false;
+      for (var cursor = 0; cursor < sourceText.length; cursor++) {
+        var ch = sourceText.charAt(cursor);
+        var next = sourceText.charAt(cursor + 1);
+        if (inLineComment) {
+          if (ch === "\n") {
+            inLineComment = false;
+            result += ch;
+          }
+          continue;
+        }
+        if (inBlockComment) {
+          if (ch === "*" && next === "/") {
+            cursor++;
+            inBlockComment = false;
+          }
+          continue;
+        }
+        if (inSingle || inDouble || inTemplate) {
+          result += ch;
+          if (ch === "\\") {
+            result += next;
+            cursor++;
+            continue;
+          }
+          if (inSingle && ch === "'") {
+            inSingle = false;
+          } else if (inDouble && ch === '"') {
+            inDouble = false;
+          } else if (inTemplate && ch === "`") {
+            inTemplate = false;
+          }
+          continue;
+        }
+        if (ch === "/" && next === "/") {
+          cursor++;
+          inLineComment = true;
+          continue;
+        }
+        if (ch === "/" && next === "*") {
+          cursor++;
+          inBlockComment = true;
+          result += " ";
+          continue;
+        }
+        if (ch === "'") {
+          inSingle = true;
+        } else if (ch === '"') {
+          inDouble = true;
+        } else if (ch === "`") {
+          inTemplate = true;
+        }
+        result += ch;
+      }
+      return result;
+    };
     var isCompleteStaticImportStatement = function(text) {
       var trimmedText = String(text || "").trim();
       return (
@@ -3501,14 +3642,13 @@
       var isDefaultExportExpression =
         /^\s*export\s+default\b/.test(trimmed) &&
         !/^\s*export\s+default\s+(?:async\s+)?(?:function|class)\b/.test(trimmed);
-      if (
+      var isModuleStatementHead =
         /^\s*(import|export)\b/.test(trimmed) &&
         !isBlockExportDeclaration &&
         !isVarExportDeclaration &&
-        !isDefaultExportExpression &&
-        !looksLikeCompleteModuleStatement(statement)
-      ) {
-        var firstSemicolon = statement.indexOf(";");
+        !isDefaultExportExpression;
+      if (isModuleStatementHead && !looksLikeCompleteModuleStatement(statement)) {
+        var firstSemicolon = indexOfStatementSemicolon(statement);
         if (firstSemicolon !== -1) {
           var trailingStatement = statement.slice(firstSemicolon + 1);
           statement = statement.slice(0, firstSemicolon + 1);
@@ -3522,12 +3662,19 @@
         } else {
           for (var j = i + 1; j < lines.length; j++) {
             statement = statement + "\n" + lines[j];
-            if (statement.indexOf(";") !== -1) {
+            if (indexOfStatementSemicolon(statement) !== -1) {
               i = j;
               break;
             }
           }
         }
+      }
+      if (isModuleStatementHead) {
+        // Comments are legal anywhere inside import/export statements but the
+        // statement matchers below are line-based regexes; strip them so a
+        // comment between specifiers can neither break the match nor leak
+        // into the emitted bindings.
+        statement = stripModuleStatementComments(statement);
       }
       if (line.indexOf("import.meta") !== -1) {
         statement = transformImportMeta(statement);
