@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -13,6 +13,14 @@
 > `[observed]` (`scripts/hermes-version.sh:9-10`)), verified against the local
 > build checkout of that ref. Line numbers drift with the pin; treat them as
 > anchors, not contracts.
+>
+> Reproducibility: the Hermes source is not in this repo's committed tree.
+> `scripts/update-hermes.sh` (or any `build-hermes-*.sh`) materializes it;
+> this document's `hermes:` citations were verified against the checkout at
+> `~/.cache/exact/hermes/hermes-src`, commit
+> `ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138` (HEAD of
+> `origin/260318099.0.0-stable`). Equivalent:
+> `git clone --branch 260318099.0.0-stable https://github.com/facebook/hermes.git`.
 
 ## Summary
 
@@ -135,7 +143,8 @@ exists yet (this section serves as the interim record):
   `Capabilities.ts:405-434`).
 - **Defaults are permissive on every real entry point**: CLI `--capsec`
   defaults `permissive` `[observed]` (`src/bin/ibex/cli.rs:61-63`); the C ABI
-  installs a permissive legacy host (LLP 0006; `src/host/abi.rs:586-599`).
+  installs a permissive legacy host `[observed]` (`src/host/abi.rs:657-659`;
+  LLP 0006 §"Capability-gated host").
 - **Known defects** (tracked here; some are fixed by this RFC's phases,
   none require it): `SecurityMode::Capability` and `Strict` behave
   identically `[observed]` (`src/host/capability.rs:100-129` branches only on
@@ -170,6 +179,11 @@ exists yet (this section serves as the interim record):
 - **Deliberate authority passing**: objects are capabilities; a package may
   hand a granted handle to another. Endowment policy plus attenuators bound
   what exists to be passed.
+- **Shared mutable module exports**: CJS export objects are shared live
+  values; a package that is legitimately imported can have its exports
+  mutated by one importer to attack later importers (exports pollution).
+  Freeze-on-load is a candidate mitigation with real compat cost — see Open
+  question 9.
 - **Engine and native bugs**: memory-safety escapes bypass everything in this
   RFC. Instance/process isolation remains the containment layer for hostile
   code.
@@ -193,6 +207,15 @@ The SES shim's `lockdown()` defines the reference semantics
 `[inferred: external — Agoric Endo]`; Phase 0 measures its behavior on the
 pinned Hermes; Phase 2 makes it native (and movable to build time given the
 AOT pipeline).
+
+Lockdown includes **evaluator taming**: the intrinsic function constructors
+(`%Function%`, `%GeneratorFunction%`, `%AsyncFunction%`,
+`%AsyncGeneratorFunction%`) and indirect `eval` are replaced with
+tamed/throwing forms. This is load-bearing, not optional hardening — the
+intrinsics are reachable from any object via prototype walks
+(`({}).constructor.constructor`), so without taming every compartment can
+mint code that evaluates against the real global scope regardless of its
+endowments.
 
 ### Mechanism 2: Per-package compartment globals
 
@@ -223,10 +246,26 @@ Two implementations, one semantics:
   (`hermes:include/hermes/VM/RuntimeHermesValueFields.def`) — this is the
   structural reason compartments are cheap where realms are not.
 
-`eval` and `Function` must bind produced code to the calling package's
-compartment (the engine knows the caller's `CodeBlock`) or be tamed off per
-policy. JSI `NativeFunction`s carry a compartment slot for attribution of
-host-created callables.
+The build-time implementation must close three escape channels, not one:
+
+1. **Free identifiers** — the rewrite itself: bare `process`, `fetch`, and
+   `globalThis` resolve to the compartment global.
+2. **`this`-based escapes** — in sloppy mode, `(function(){return this})()`
+   yields the *real* global (the classic UMD idiom). Package code is
+   therefore emitted in strict mode (ESM already is; CJS wrappers add it),
+   with the sloppy-mode compat fallout (`arguments.callee`/`caller`
+   linkage, octal literals, silent-write semantics) tracked in the Phase 1
+   compat corpus and handled by per-package repairs where it bites.
+3. **Dynamic evaluators** — direct `eval` rewrites to a compartment-bound
+   evaluator (its scope semantics change from direct to indirect eval, a
+   documented compat delta); `Function` is endowed tamed or not at all; and
+   the *intrinsic* evaluators are tamed by lockdown (Mechanism 1), which is
+   what makes denial effective against prototype walks.
+
+In the engine-native implementation, `eval` and `Function` instead bind
+produced code to the calling package's compartment (the engine knows the
+caller's `CodeBlock`), and JSI `NativeFunction`s carry a compartment slot so
+host-created callables attribute correctly.
 
 ### Mechanism 3: Frame-derived attribution
 
@@ -239,15 +278,59 @@ microtask boundaries need explicit rules (see Open questions). The
 thread-local id, `__exactSetActiveModuleId`, and `__exactGrantCapability`
 are removed from the reachable global surface.
 
+Attribution granularity must align with evaluation units. A `CodeBlock` is a
+function inside one `RuntimeModule`, and a single bundled HBC file is one
+`RuntimeModule` — so `RuntimeModule → package` only works if the build emits
+**per-package module units** (Rolldown chunking; also the natural
+`Domain`-per-package structure for Phase 3), or, failing that, a build-time
+function-range → package table the host consults. Phase 2 selects one;
+per-package units are the lean. Audit entries carry both the human policy
+selector (package name) and the resolved runtime principal (name plus
+lockfile locator — Resolved questions §1), so coexisting versions stay
+distinguishable.
+
 ### Policy
 
 The existing capability manifest (`src/host/capability_bits.rs`) plus the
 package manifest pipeline (LLP 0004; `src/module_loader`) extend to
-per-package declarations: each package declares capabilities; the app's
-policy (existing `PolicyFile`, `src/host/policy.rs`) grants or attenuates
-them; default-deny under enforce mode. Parameterized capabilities
-(`fs:read:<path>`) become endowed attenuated objects rather than string
-checks where practical.
+per-package declarations; the app's policy (existing `PolicyFile`,
+`src/host/policy.rs`) grants or attenuates them; default-deny under enforce
+mode. Policy governs **three surfaces**, not one:
+
+1. **Host capabilities** — what the package's frames may do at the host
+   boundary (`network:fetch:api.example.com`).
+2. **Endowed globals** — which objects exist on the package's compartment
+   global. Parameterized capabilities (`fs:read:<path>`) become endowed
+   attenuated objects rather than string checks where practical.
+3. **The import graph** — which builtin modules (`node:fs`,
+   `node:child_process`) and which dependency packages a package may load,
+   enforced by the loader (which Ibex owns). Builtins are reachable by
+   `require`, so import policy is the *primary* gate for them: a
+   compartment with no `fs` endowment but unrestricted `require('node:fs')`
+   is not contained.
+
+Runtime-internal modules (the `packages/ibex-runtime-js` security layer and
+bootstrap internals) are their own trusted principal and are not importable
+from package compartments; development/test toggles (`enableTestMode`,
+`disableStrictMode` — `Capabilities.ts:246-333`) are compiled out or
+unreachable in production builds.
+
+A policy sketch, forcing the selector/principal split to be concrete:
+
+```json
+{
+  "packages": {
+    "left-pad":     {},
+    "node-fetch":   { "capabilities": ["network:fetch"],
+                      "builtins": ["node:http", "node:https"] },
+    "node-fetch@2": { "capabilities": ["network:fetch:internal.example.com"] }
+  }
+}
+```
+
+Both `node-fetch` versions in a graph match the `node-fetch` selector; the
+`@2` entry narrows that version; audit logs record resolved locators so the
+two principals remain distinguishable.
 
 ### Non-realm design, stated once
 
@@ -274,7 +357,8 @@ factors slower) and incoherent ownership semantics.
    ≤ ~2KB per package; lockdown cost paid once at boot or at build time.
 4. Attribution in audit logs is frame-accurate in both audit and enforce
    modes.
-5. Each phase ships value independently; the fork is opt-in after evidence.
+5. Each phase ships value independently; the Phase 0–1 kill criteria are the
+   only aborts (all phases otherwise green-lit — Resolved questions §6).
 6. Hermes pin bumps with the patch stack remain routine (target: half a day;
    see Upstream tracking).
 
@@ -294,15 +378,35 @@ factors slower) and incoherent ownership semantics.
 
 Effort figures assume one person fluent in the relevant layer, agent-assisted.
 
+Security claims by phase — the ceiling on what may honestly be stated at
+each point; anything stronger is overclaiming (Risk 3):
+
+| Phase | Claim ceiling |
+|---|---|
+| 0 | None — spike results plus standalone defect fixes. |
+| 1 | Reachability containment (lockdown + compartments + closed inventory) against ambient-authority theft; audit attribution is best-effort and forgeable; **no enforcement claims at the host boundary**. |
+| 2 | Frame-accurate attribution; enforce mode defensible at the host boundary. |
+| 3 | Engine-native compartments; dynamic code bound natively; build-time rewrite retired. |
+| 4 | Productized package containment (policy, attenuators, rollout). |
+| 5 | Optional deputy hardening for selected capability classes. |
+
 ### Phase 0 — Prove semantics on stock Hermes (days–2 weeks)
 
 - Run the SES shim's `lockdown()` in the ibex REPL against the pinned build;
   triage failures into: conformance gaps (candidate upstream/overlay
   patches), repairs-ordering issues, hard blockers.
-- Hide/remove the `__exact*` escape hatches at end-of-bootstrap. This is a
-  standalone defect fix and lands regardless of this RFC's fate.
-- Decide package identity (see Open questions) and draft the policy format
-  as an extension of the existing manifests.
+- Standalone defect fixes that land regardless of this RFC's fate:
+  hide/remove the `__exact*` escape hatches at end-of-bootstrap; unify
+  `child_process` → `process:spawn` against the canonical manifest; collapse
+  the do-nothing `Capability`≡`Strict` split into one enforced mode. (The
+  naming and mode defects would otherwise pollute Phase 1 audit data.)
+- Begin the **real-global inventory**: enumerate every property bootstrap
+  installs on the true global, including the lazy `__exactEnsure*`
+  installers `[observed]` (`src/engine/hermes_runtime.cc:1056-1074`), as
+  input to the Phase 1 classification.
+- Validate the package-identity decision (Resolved questions §1) against
+  real Exact/Snapback graphs and draft the policy format as an extension of
+  the existing manifests.
 - **Deliverable**: findings appended to this LLP; go/no-go for Phase 1.
 - **Kill criterion**: SES fundamentally cannot run and the gaps are not
   small patches → stop; instance-level isolation remains the model, and this
@@ -310,18 +414,31 @@ Effort figures assume one person fluent in the relevant layer, agent-assisted.
 
 ### Phase 1 — Userland compartments, audit mode (2–6 weeks, no fork)
 
-- Bundler-level compartmentalization: per-package free-global rewrite in the
-  Oxc/Rolldown pipeline (LLP 0007), endowments wired by the loader, SES
-  lockdown at boot.
-- Audit mode: violations logged with frame-accurate-as-available
-  attribution; nothing blocked. Runs against real Exact/Snapback app graphs
-  to build the compat corpus.
+- Bundler-level compartmentalization: per-package free-global rewrite plus
+  strict-mode emission in the Oxc/Rolldown pipeline (LLP 0007), endowments
+  wired by the loader, SES lockdown (with evaluator taming) at boot.
+- **Dynamic-code handling is a Phase 1 deliverable, not deferred**: `eval`
+  and `Function` tamed or denied by default under compartment mode;
+  indirect-eval semantics defined; the runtime compiler hook covers
+  transform-at-load and dynamic import per Resolved questions §2.
+- **Complete the real-global inventory**: every installed native global
+  classified — removed, hidden, endowed via attenuator, or retained inert —
+  and the lazy `__exactEnsure*` pattern becomes eager-install-then-seal so
+  the true global is closed before package code runs. The `__exact*` family
+  is a subset of this checklist, not the whole checklist.
+- Audit mode: **would-deny decisions are logged while the operation
+  proceeds** (the compat corpus needs the would-deny data), with best-effort
+  transform-derived attribution that is explicitly forgeable —
+  frame-accurate claims begin in Phase 2. Runs against real Exact/Snapback
+  app graphs.
 - **The conformance suite is born here** — lockdown semantics, compartment
   isolation properties, endowment behavior, capability enforcement
-  end-to-end, red-team cases (prototype patching, identity forgery, host
-  tampering). This suite is the durable asset the fork phases and every
-  future rebase are measured against.
-- **Deliverable**: `ibex run --capsec audit` (or equivalent); compat report.
+  end-to-end, and named red-team cases: *recover the real global*,
+  *dynamic-code escape*, *sloppy-`this` escape*, prototype patching,
+  identity forgery, host tampering. This suite is the durable asset the
+  fork phases and every future rebase are measured against.
+- **Deliverable**: `ibex run --capsec audit` (or equivalent); compat report
+  including the strict-mode and direct-eval semantic deltas.
 - **Kill criterion**: unmanageable breakage across top dependencies →
   remain audit-only indefinitely (still valuable: honest attribution +
   drift detection) and do not start fork phases.
@@ -329,13 +446,19 @@ Effort figures assume one person fluent in the relevant layer, agent-assisted.
 ### Phase 2 — Fork, additive patches (2–4 weeks)
 
 - Frame-provenance attribution at the host boundary (replaces the
-  thread-local in `hermes_runtime_internal.h:168-179`).
+  thread-local in `hermes_runtime_internal.h:168-179`), including the
+  evaluation-unit alignment decision from Mechanism 3 (per-package module
+  units vs a function-range table).
 - Native `lockdown()` / freeze-at-boot (build-time snapshot if the AOT
   pipeline allows).
 - Host-bridge globals made unreachable natively.
+- Microtask/native attribution semantics pinned down here (Open question 3),
+  with red-team cases for each rule.
 - Patch classes: new files + small insertion points (see Upstream tracking).
-- **Deliverable**: enforce-mode attribution that the red-team suite cannot
-  forge.
+- **Deliverable**: the first phase entitled to claim frame-accurate
+  attribution — demonstrated against red-team cases covering callbacks,
+  prototype patches, promise jobs, native frames, and host-created
+  callables.
 
 ### Phase 3 — Fork, native compartments (2–4 months)
 
@@ -355,8 +478,8 @@ Effort figures assume one person fluent in the relevant layer, agent-assisted.
 
 - Attenuated builtins for parameterized capabilities; policy toolchain on
   the manifest; per-app audit→enforce migration; compat triage/repairs.
-- Fold the `child_process`→`process:spawn` unification and the
-  `Capability`≡`Strict` mode collapse into this work.
+- (The `child_process`→`process:spawn` and `Capability`≡`Strict` defect
+  fixes moved to Phase 0 so audit data starts clean.)
 
 ### Phase 5 — Optional: stack-intersection enforcement
 
@@ -461,7 +584,9 @@ structures), but this assumption is re-validated at each pin bump.
 1. **Lockdown ecosystem breakage** (top risk). Packages that mutate
    intrinsics break. Mitigations: repairs-before-lockdown; per-package compat
    shims; audit-mode default; per-app permissive fallback; compat corpus in
-   CI from Phase 1. Kill criteria in Phases 0–1 exist because of this risk.
+   CI from Phase 1 (which also tracks the strict-mode emission and
+   direct-eval semantic deltas). Kill criteria in Phases 0–1 exist because
+   of this risk.
 2. **Fork ownership drag.** Mitigated by patch-shape discipline, canary CI,
    the runbook, and the re-derivation posture; measured by the bump-cost
    budget with an explicit fallback (drop Class C, keep A/B).
@@ -475,27 +600,43 @@ structures), but this assumption is re-validated at each pin bump.
 5. **Attribution edge cases** — native frames, microtask/promise-job
    boundaries, bound functions, JSI-created callables. Wrong answers here
    are silent policy holes. Mitigation: explicit semantics decided in
-   Phase 2 design review (see Open questions); red-team cases for each.
+   Phase 2 design review (see Open questions), including the
+   evaluation-unit ↔ package alignment from Mechanism 3; red-team cases for
+   each.
 6. **Hermes upstream direction.** Static Hermes may reshape the interpreter.
    Mitigation: minimal-surface design + canary CI + re-derivation posture.
 
 ## Acceptance criteria
 
+### For accepting this RFC
+
+- The Threat model section is normative for all user-facing descriptions,
+  and the security-claims-by-phase table is consistent with the Plan.
+- The named red-team cases are specified well enough to implement without
+  further design work.
+- Phase 0 findings are recorded in this document before Phase 1 begins
+  (post-spike revision).
+
+### Feature / phase exit criteria
+
+- The escape-hatch globals are unreachable in all modes. *(Phase 0; ships
+  first.)*
+- Audit mode running on at least one real Exact app graph and one Snapback
+  app graph (Resolved questions §7), feeding the compat corpus, with
+  would-deny logging. *(Phase 1.)*
 - A deliberately compromised transitive dependency in a demo app, in enforce
   mode, cannot read a file outside its grants, exfiltrate `process.env`, or
   call the network — demonstrated by red-team tests in CI (the same tests
   that currently succeed against the advisory model must fail against
-  enforcement).
+  enforcement). *(Phase 2+.)*
 - Attribution in the audit log is frame-accurate under the red-team suite's
-  forgery attempts.
+  forgery attempts. *(Phase 2+; Phase 1 claims best-effort only.)*
 - Perf and memory within Goals §3 budgets on the benchmark suite.
+  *(Gated from Phase 2 on.)*
 - The pin-bump runbook executed on ≥2 real upstream releases within budget.
+  *(Phase 3/4 operational readiness — not RFC acceptance.)*
 - `--capsec audit` and `--capsec enforce` (naming TBD) shipped in the CLI;
   defaults unchanged until a separate decision LLP.
-- Audit mode running on at least one real Exact app graph and one Snapback
-  app graph (Resolved questions §7), feeding the compat corpus.
-- The escape-hatch globals are unreachable in all modes (Phase 0, ships
-  first).
 - Threat model published in user-facing docs with the residual risks stated.
 
 ## Resolved questions
@@ -511,19 +652,29 @@ Open questions below.
    root principal; vendored code without a `package.json` belongs to its
    enclosing package. Accepted "ok for now": Phase 0 re-validates against
    real Exact/Snapback graphs (aliasing, pnpm layouts, workspace edges)
-   before the policy format freezes.
+   before the policy format freezes. *Refinement (2026-07-02 review):* the
+   package name is the policy **selector**; the runtime **principal** is the
+   name plus resolved locator (lockfile identity / path / integrity as
+   available). Audit logs emit both, so coexisting versions and aliased
+   packages stay distinguishable (see the policy sketch in Design §Policy).
 2. **Dynamic import and plugins** — default-deny: code outside the build
    graph runs as a no-capability quarantine principal (refused outright in
    enforce mode unless policy names it), and the runtime loader applies the
    same free-global rewrite at load time where it already transforms
    sources (LLP 0007/0009). Phase 3's engine-native model subsumes this
-   naturally.
+   naturally. *Clarification (2026-07-02 review):* in enforce mode the
+   static transform may reject packages that use dynamic code unless policy
+   opts them into the runtime compiler hook; direct `eval` under the rewrite
+   becomes compartment-bound indirect eval — a documented semantic delta.
 5. **`ses` sourcing** — Phase 0 spikes with the full Agoric `ses` shim
    (fastest conformance signal); shipping builds vendor a lockdown-only
    subset (no Compartment shim — compartments come from the bundler),
    consistent with the hermetic vendoring posture (LLP 0005). Small Hermes
    conformance fixes are upstreamed opportunistically, where MetaMask's
-   standing interest provides allies.
+   standing interest provides allies. *Clarification (2026-07-02 review):*
+   the vendored subset includes the freeze walk, the repairs, **and
+   evaluator taming** — taming is load-bearing (Mechanism 1), not optional
+   hardening.
 6. **Sequencing vs Static Hermes** — **do not wait.** All phases proceed
    now; when Static Hermes materially reshapes the interpreter, the work is
    re-derived per [Upstream tracking](#upstream-tracking-and-re-derivation)
@@ -540,7 +691,7 @@ Open questions below.
 
 *Lean* lines record the current recommendation so a future resolution can
 agree or push back against something concrete. Question 3 resolves in
-Phase 2 design review; 4 and 8 wait for evidence.
+Phase 2 design review; 4, 8, and 9 wait for evidence.
 
 3. **Microtask/native attribution semantics**: attribute promise jobs to the
    compartment that scheduled them (recorded at schedule time) or to the
@@ -550,6 +701,9 @@ Phase 2 design review; 4 and 8 wait for evidence.
    propagation) when none exists. Pin down in Phase 2 design review with
    red-team cases — attributing internal frames to a trusted "runtime"
    principal is a deputy surface and must not be the accidental default.
+   Audit entries for deputy-shaped flows should make the acting-principal
+   chain visible: at minimum the top user frame's principal plus the
+   schedule-time principal when they differ.
 4. **Granularity escape hatch**: do we ever need per-module (not package)
    compartments for specific high-risk packages?
    *Lean:* no — the compromise unit is the published package, and the tool
@@ -561,12 +715,23 @@ Phase 2 design review; 4 and 8 wait for evidence.
    real apps have run audit-clean for M consecutive weeks — so this cannot
    silently become permanently-permissive machinery (the failure mode this
    RFC exists to avoid).
+9. **Module-exports freezing**: CJS export objects are shared mutable
+   surface (see Threat model); freeze exports at load, per-package by
+   policy, or accept the channel?
+   *Lean:* offer freeze-on-load as per-package policy (default off), measure
+   breakage in the Phase 1 compat corpus, and revisit a stronger default
+   with evidence — blanket freezing breaks lazy-export and circular-require
+   patterns common in real npm code.
 
 ## References
 
 - LLP 0002 §Host ABI (capability check/grant/log surface); LLP 0004
   (module manifest and loader); LLP 0006 §"Capability-gated host"; LLP 0007
   (bundler/transform pipeline used by Phase 1).
+- Reviews: `llp/reviews/0013-per-package-capability-compartments.openai.md`
+  (independent family review, 2026-07-02, addressed by this revision);
+  `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`
+  (author-side deep pass, 2026-07-02).
 - Hermes pin: `scripts/hermes-version.sh` (`260318099.0.0-stable`).
 - External `[inferred]`: Agoric SES/Endo & Hardened JavaScript; MetaMask
   LavaMoat; TC39 ShadowRealm proposal (rejected here for this use);

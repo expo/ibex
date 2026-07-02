@@ -121,10 +121,10 @@ default, specialize under load."]`
 Strict`) and a `CapabilityManager`; module/file access is checked against
 capabilities, and the C++ bridge fast-paths allow-all mode via
 `ex_host_is_allow_all()` `[observed]` (`src/host/mod.rs:29-38, 156-174`;
-`src/host/abi.rs:597-599`). `HostConfig::default()` is strict, while
+`src/host/abi.rs:664-666`). `HostConfig::default()` is strict, while
 `Host::default_legacy()` and `ex_host_install()` install a permissive legacy
 host `[observed]` (`src/host/mod.rs:57-68, 129-143`;
-`src/host/abi.rs:586-592`).
+`src/host/abi.rs:657-659`).
 
 **Inferred:** `[inferred: the capability layer exists so an embedder can
 sandbox untrusted JS, while the legacy C entry point stays permissive so
