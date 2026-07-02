@@ -24,23 +24,69 @@ pub struct CapabilityGrant {
     pub denied: bool,
 }
 
+/// The resolved runtime principal for a module: the policy **selector**
+/// (package name) plus, when available, a **locator** (lockfile identity /
+/// resolved path) so coexisting versions stay distinguishable in the audit log.
+///
+/// @ref LLP 0013#resolved-questions — package name is the policy selector; the
+/// runtime principal is name + resolved locator.
+#[derive(Debug, Clone, Default)]
+pub struct PackagePrincipal {
+    pub name: String,
+    pub locator: Option<String>,
+}
+
+/// Per-package import-graph policy. `None` on an axis means "unrestricted";
+/// `Some(list)` means "only these are allowed" (an explicit empty list denies
+/// everything on that axis).
+///
+/// @ref LLP 0013#policy — the import graph is the primary gate for builtins.
+#[derive(Debug, Clone, Default)]
+pub struct ImportPolicy {
+    pub builtins: Option<Vec<String>>,
+    pub packages: Option<Vec<String>>,
+}
+
 /// Manages capability grants and checks
 pub struct CapabilityManager {
     mode: SecurityMode,
-    /// Grants by module ID
+    /// Grants by numeric module ID (and `*` for global grants).
     grants: RwLock<HashMap<String, Vec<CapabilityGrant>>>,
+    /// Grants keyed by package **selector** (package name).
+    package_grants: RwLock<HashMap<String, Vec<CapabilityGrant>>>,
+    /// Bridge from a numeric module principal to its resolved package principal.
+    module_to_package: RwLock<HashMap<String, PackagePrincipal>>,
+    /// Per-package import-graph policy.
+    import_policy: RwLock<HashMap<String, ImportPolicy>>,
     /// Audit log of capability checks
     audit_log: RwLock<VecDeque<AuditEntry>>,
 }
 
-/// An entry in the capability audit log
+/// An entry in the capability audit log.
+///
+/// `decision` is the real policy answer (would this be allowed?). `allowed` is
+/// what was returned to the caller — identical to `decision` except in `Audit`
+/// mode, where a would-deny (`decision == false`) still returns `allowed ==
+/// true` so the operation proceeds and the compat corpus can observe it.
 #[derive(Debug, Clone)]
 pub struct AuditEntry {
     pub timestamp: std::time::SystemTime,
     pub module_id: String,
+    /// Resolved package principal, when the module id was registered.
+    pub package: Option<PackagePrincipal>,
     pub capability: String,
     pub constraint: Option<String>,
-    pub granted: bool,
+    pub decision: bool,
+    pub allowed: bool,
+    pub mode: SecurityMode,
+}
+
+impl AuditEntry {
+    /// A decision that policy would have denied. In `Enforce` this was blocked;
+    /// in `Audit` it was allowed to proceed but recorded here.
+    pub fn is_would_deny(&self) -> bool {
+        !self.decision
+    }
 }
 
 const ALWAYS_ALLOWED: [&str; 2] = ["crypto:random", "time:now"];
@@ -51,6 +97,9 @@ impl CapabilityManager {
         Self {
             mode,
             grants: RwLock::new(HashMap::new()),
+            package_grants: RwLock::new(HashMap::new()),
+            module_to_package: RwLock::new(HashMap::new()),
+            import_policy: RwLock::new(HashMap::new()),
             audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
         }
     }
@@ -71,43 +120,132 @@ impl CapabilityManager {
                 self.deny(module_id, cap, None);
             }
         }
+        // @ref LLP 0013#policy — per-package declarations grant host
+        // capabilities and constrain the import graph, keyed by the package
+        // selector (name). Coexisting `name@version` entries are separate keys.
+        for (selector, package_policy) in &policy.packages {
+            for cap in &package_policy.capabilities {
+                self.grant_package(selector, cap);
+            }
+            for cap in &package_policy.deny {
+                self.deny_package(selector, cap);
+            }
+            if package_policy.builtins.is_some() || package_policy.packages.is_some() {
+                if let Ok(mut map) = self.import_policy.write() {
+                    map.insert(
+                        selector.clone(),
+                        ImportPolicy {
+                            builtins: package_policy.builtins.clone(),
+                            packages: package_policy.packages.clone(),
+                        },
+                    );
+                }
+            }
+        }
     }
 
-    /// Check if a capability is granted
+    /// Register the resolved package principal for a numeric module id.
+    pub fn register_module_package(&self, module_id: &str, package: &str, locator: Option<&str>) {
+        if let Ok(mut map) = self.module_to_package.write() {
+            map.insert(
+                module_id.to_string(),
+                PackagePrincipal {
+                    name: package.to_string(),
+                    locator: locator.map(|s| s.to_string()),
+                },
+            );
+        }
+    }
+
+    fn principal_for(&self, module_id: &str) -> Option<PackagePrincipal> {
+        self.module_to_package
+            .read()
+            .ok()
+            .and_then(|map| map.get(module_id).cloned())
+    }
+
+    /// Grant a capability to a package selector.
+    pub fn grant_package(&self, selector: &str, capability: &str) {
+        if let Ok(mut grants) = self.package_grants.write() {
+            grants
+                .entry(selector.to_string())
+                .or_default()
+                .push(CapabilityGrant {
+                    capability: normalize_capability(capability),
+                    module_id: selector.to_string(),
+                    constraint: None,
+                    denied: false,
+                });
+        }
+    }
+
+    /// Deny a capability to a package selector.
+    pub fn deny_package(&self, selector: &str, capability: &str) {
+        if let Ok(mut grants) = self.package_grants.write() {
+            grants
+                .entry(selector.to_string())
+                .or_default()
+                .push(CapabilityGrant {
+                    capability: normalize_capability(capability),
+                    module_id: selector.to_string(),
+                    constraint: None,
+                    denied: true,
+                });
+        }
+    }
+
+    /// Check if a capability is granted.
+    ///
+    /// @ref LLP 0013#phase-1 — computes the real policy decision, records it,
+    /// and returns whether the operation may proceed. In `Audit` mode a
+    /// would-deny is logged but still returns `true`; in `Enforce` mode the
+    /// returned value is the decision itself.
     pub fn check(&self, module_id: &str, capability_str: &str) -> bool {
         let normalized = normalize_capability(capability_str);
-        let granted = self.check_internal(module_id, &normalized);
-
-        // Log the check
-        let entry = AuditEntry {
-            timestamp: std::time::SystemTime::now(),
-            module_id: module_id.to_string(),
-            capability: normalized,
-            constraint: None,
-            granted,
+        let decision = if self.mode == SecurityMode::Permissive {
+            true
+        } else {
+            self.decide(module_id, &normalized)
+        };
+        // Permissive and Audit let everything proceed; only Enforce blocks.
+        let allowed = if self.mode == SecurityMode::Enforce {
+            decision
+        } else {
+            true
         };
 
+        self.record(AuditEntry {
+            timestamp: std::time::SystemTime::now(),
+            module_id: module_id.to_string(),
+            package: self.principal_for(module_id),
+            capability: normalized,
+            constraint: None,
+            decision,
+            allowed,
+            mode: self.mode,
+        });
+
+        allowed
+    }
+
+    fn record(&self, entry: AuditEntry) {
         if let Ok(mut log) = self.audit_log.write() {
             if log.len() == MAX_AUDIT_LOG_ENTRIES {
                 log.pop_front();
             }
             log.push_back(entry);
         }
-
-        granted
     }
 
-    fn check_internal(&self, module_id: &str, capability: &str) -> bool {
+    /// The real policy decision, independent of mode gating. Precedence:
+    /// always-allowed → module deny/allow → package deny/allow → global
+    /// deny/allow → default-deny.
+    fn decide(&self, module_id: &str, capability: &str) -> bool {
         if ALWAYS_ALLOWED.iter().any(|cap| cap == &capability) {
             return true;
         }
 
-        // In legacy mode, everything is allowed
-        if self.mode == SecurityMode::Permissive {
-            return true;
-        }
-
-        // Check grants
+        // Module-specific (numeric id) grants first.
         if let Ok(grants) = self.grants.read() {
             if matches_denials(grants.get(module_id), capability) {
                 return false;
@@ -115,7 +253,22 @@ impl CapabilityManager {
             if matches_grants(grants.get(module_id), capability) {
                 return true;
             }
+        }
 
+        // Package-selector grants next.
+        if let Some(principal) = self.principal_for(module_id) {
+            if let Ok(grants) = self.package_grants.read() {
+                if matches_denials(grants.get(&principal.name), capability) {
+                    return false;
+                }
+                if matches_grants(grants.get(&principal.name), capability) {
+                    return true;
+                }
+            }
+        }
+
+        // Global grants last.
+        if let Ok(grants) = self.grants.read() {
             if matches_denials(grants.get("*"), capability) {
                 return false;
             }
@@ -124,8 +277,63 @@ impl CapabilityManager {
             }
         }
 
-        // Default deny in strict mode
+        // Default deny in enforce/audit mode.
         false
+    }
+
+    /// Import-graph gate. Returns whether the load proceeds under the active
+    /// mode; the real decision is logged as a synthetic `import:<specifier>`
+    /// capability so audit reports surface would-deny imports.
+    ///
+    /// @ref LLP 0013#policy — builtins are reachable by `require`, so this is
+    /// the primary containment gate for them.
+    pub fn check_import(&self, module_id: &str, specifier: &str) -> bool {
+        let decision = if self.mode == SecurityMode::Permissive {
+            true
+        } else {
+            self.decide_import(module_id, specifier)
+        };
+        let allowed = if self.mode == SecurityMode::Enforce {
+            decision
+        } else {
+            true
+        };
+
+        self.record(AuditEntry {
+            timestamp: std::time::SystemTime::now(),
+            module_id: module_id.to_string(),
+            package: self.principal_for(module_id),
+            capability: format!("import:{}", specifier),
+            constraint: None,
+            decision,
+            allowed,
+            mode: self.mode,
+        });
+
+        allowed
+    }
+
+    fn decide_import(&self, module_id: &str, specifier: &str) -> bool {
+        // Unregistered principals are first-party/root (trusted): allow.
+        let Some(principal) = self.principal_for(module_id) else {
+            return true;
+        };
+        let policy = self.import_policy.read().ok();
+        let Some(policy) = policy.as_ref().and_then(|m| m.get(&principal.name)) else {
+            // Governed for capabilities but not for imports: unrestricted axis.
+            return true;
+        };
+        if is_builtin_specifier(specifier) {
+            match &policy.builtins {
+                None => true,
+                Some(list) => list.iter().any(|b| import_specifier_matches(b, specifier)),
+            }
+        } else {
+            match &policy.packages {
+                None => true,
+                Some(list) => list.iter().any(|p| p == specifier),
+            }
+        }
     }
 
     /// Grant a capability to a module
@@ -168,7 +376,90 @@ impl CapabilityManager {
             log.clear();
         }
     }
+
+    /// Summarize would-deny decisions for operator-facing audit output.
+    /// Returns an empty string when nothing was flagged.
+    ///
+    /// @ref LLP 0013#phase-1 — `ibex run --capsec audit` feeds the compat
+    /// corpus: the would-deny set is exactly the grants an app must declare
+    /// before it can move to `--capsec enforce`.
+    pub fn audit_report(&self) -> String {
+        let Ok(log) = self.audit_log.read() else {
+            return String::new();
+        };
+        // Deduplicate would-deny entries by (principal, capability).
+        let mut seen: Vec<(String, String)> = Vec::new();
+        for entry in log.iter().filter(|e| e.is_would_deny()) {
+            let principal = entry
+                .package
+                .as_ref()
+                .map(|p| match &p.locator {
+                    Some(loc) => format!("{} ({})", p.name, loc),
+                    None => p.name.clone(),
+                })
+                .unwrap_or_else(|| format!("module:{}", entry.module_id));
+            let key = (principal, entry.capability.clone());
+            if !seen.contains(&key) {
+                seen.push(key);
+            }
+        }
+        if seen.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from("capability audit — would-deny under enforce mode:\n");
+        for (principal, capability) in &seen {
+            out.push_str(&format!("  {principal}  needs  {capability}\n"));
+        }
+        out
+    }
 }
+
+/// Whether a require specifier names a builtin module (as opposed to a
+/// dependency package). `node:`-prefixed specifiers and the bare Node builtin
+/// names are builtins.
+fn is_builtin_specifier(specifier: &str) -> bool {
+    if let Some(rest) = specifier.strip_prefix("node:") {
+        let _ = rest;
+        return true;
+    }
+    NODE_BUILTINS.contains(&specifier)
+}
+
+/// Match a policy builtin entry against a require specifier, tolerating the
+/// `node:` prefix on either side (`node:fs` in policy matches `fs`, etc.).
+fn import_specifier_matches(policy_entry: &str, specifier: &str) -> bool {
+    fn strip(s: &str) -> &str {
+        s.strip_prefix("node:").unwrap_or(s)
+    }
+    strip(policy_entry) == strip(specifier)
+}
+
+/// Node builtin module names that are reachable without the `node:` prefix.
+/// Kept intentionally small — extend as import policy coverage grows.
+const NODE_BUILTINS: &[&str] = &[
+    "assert",
+    "buffer",
+    "child_process",
+    "crypto",
+    "dns",
+    "events",
+    "fs",
+    "fs/promises",
+    "http",
+    "http2",
+    "https",
+    "net",
+    "os",
+    "path",
+    "process",
+    "querystring",
+    "stream",
+    "tls",
+    "url",
+    "util",
+    "vm",
+    "zlib",
+];
 
 fn normalize_capability(capability: &str) -> String {
     let trimmed = capability.trim();
@@ -383,7 +674,7 @@ mod tests {
 
     #[test]
     fn capability_manager_matches_js_style_base_grants_and_network_aliases() {
-        let manager = CapabilityManager::new(SecurityMode::Strict);
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
 
         manager.grant("module-a", "network:fetch", None);
         manager.grant("module-b", "net:fetch", None);
@@ -395,7 +686,7 @@ mod tests {
 
     #[test]
     fn capability_audit_log_is_bounded() {
-        let manager = CapabilityManager::new(SecurityMode::Strict);
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
 
         for index in 0..(MAX_AUDIT_LOG_ENTRIES + 50) {
             let capability = format!("network:fetch:api-{index}.example.com");
@@ -414,5 +705,143 @@ mod tests {
             .expect("bounded log should keep newest entries")
             .capability
             .contains(&format!("api-{}", MAX_AUDIT_LOG_ENTRIES + 49)));
+    }
+
+    // @ref LLP 0013#phase-1 — audit vs enforce semantics for the same ungranted
+    // capability: audit proceeds (returns true) while recording a would-deny;
+    // enforce blocks (returns false).
+    #[test]
+    fn audit_mode_proceeds_but_records_would_deny() {
+        let manager = CapabilityManager::new(SecurityMode::Audit);
+        // Ungranted capability (network resource is not path-canonicalized, so
+        // the recorded string is stable across platforms).
+        assert!(
+            manager.check("module-a", "network:fetch:api.example.com"),
+            "audit mode must let the operation proceed"
+        );
+        let log = manager.audit_log();
+        let entry = log.last().expect("an entry was recorded");
+        assert!(entry.allowed, "audit returns allowed=true");
+        assert!(!entry.decision, "the real decision was deny");
+        assert!(entry.is_would_deny());
+        assert!(manager
+            .audit_report()
+            .contains("network:fetch:api.example.com"));
+    }
+
+    #[test]
+    fn enforce_mode_denies_ungranted() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        assert!(!manager.check("module-a", "fs:read:/etc/passwd"));
+        manager.grant("module-a", "fs:read:/etc/passwd", None);
+        assert!(manager.check("module-a", "fs:read:/etc/passwd"));
+    }
+
+    #[test]
+    fn permissive_allows_and_reports_nothing() {
+        let manager = CapabilityManager::new(SecurityMode::Permissive);
+        assert!(manager.check("module-a", "fs:read:/etc/passwd"));
+        assert_eq!(manager.audit_report(), "");
+    }
+
+    // @ref LLP 0013#policy — a capability granted to a package selector is
+    // available to any module resolved to that package principal.
+    #[test]
+    fn package_grant_resolves_via_principal() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant_package("node-fetch", "network:fetch");
+        manager.register_module_package("1234", "node-fetch", Some("node-fetch@3.3.2"));
+
+        // Registered module inherits the package grant.
+        assert!(manager.check("1234", "network:fetch:api.example.com"));
+        // An unregistered module does not.
+        assert!(!manager.check("9999", "network:fetch:api.example.com"));
+
+        // Audit entries carry the resolved principal + locator.
+        let log = manager.audit_log();
+        let entry = log
+            .iter()
+            .find(|e| e.module_id == "1234")
+            .expect("entry for registered module");
+        let principal = entry.package.as_ref().expect("principal resolved");
+        assert_eq!(principal.name, "node-fetch");
+        assert_eq!(principal.locator.as_deref(), Some("node-fetch@3.3.2"));
+    }
+
+    #[test]
+    fn package_deny_beats_grant() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant_package("evil", "network:fetch");
+        manager.deny_package("evil", "network:fetch:evil.example.com");
+        manager.register_module_package("7", "evil", None);
+        assert!(manager.check("7", "network:fetch:ok.example.com"));
+        assert!(!manager.check("7", "network:fetch:evil.example.com"));
+    }
+
+    // @ref LLP 0013#policy — import-graph gate. Absent axis = unrestricted;
+    // explicit list = allowlist; explicit empty list denies everything.
+    #[test]
+    fn import_policy_gates_builtins() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        let policy = PolicyFile {
+            packages: HashMap::from([(
+                "node-fetch".to_string(),
+                crate::host::policy::PackagePolicy {
+                    capabilities: vec!["network:fetch".to_string()],
+                    builtins: Some(vec!["node:http".to_string(), "node:https".to_string()]),
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+        manager.apply_policy(&policy);
+        manager.register_module_package("42", "node-fetch", None);
+
+        assert!(manager.check_import("42", "node:http"));
+        assert!(manager.check_import("42", "https")); // node: prefix tolerated
+        assert!(!manager.check_import("42", "node:fs")); // not in allowlist
+        assert!(!manager.check_import("42", "fs"));
+
+        // Unregistered principal (first-party/root) is unrestricted.
+        assert!(manager.check_import("1", "node:fs"));
+    }
+
+    #[test]
+    fn import_policy_audit_mode_proceeds() {
+        let manager = CapabilityManager::new(SecurityMode::Audit);
+        let policy = PolicyFile {
+            packages: HashMap::from([(
+                "evil".to_string(),
+                crate::host::policy::PackagePolicy {
+                    builtins: Some(vec![]), // deny all builtins
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+        manager.apply_policy(&policy);
+        manager.register_module_package("5", "evil", None);
+        // Audit proceeds...
+        assert!(manager.check_import("5", "node:child_process"));
+        // ...but records the would-deny.
+        assert!(manager.audit_report().contains("import:node:child_process"));
+    }
+
+    #[test]
+    fn security_mode_helpers() {
+        assert!(SecurityMode::Enforce.enforces());
+        assert!(!SecurityMode::Audit.enforces());
+        assert!(SecurityMode::Audit.evaluates());
+        assert!(SecurityMode::Enforce.evaluates());
+        assert!(!SecurityMode::Permissive.evaluates());
+        assert_eq!(
+            SecurityMode::from_policy_str("strict"),
+            Some(SecurityMode::Enforce)
+        );
+        assert_eq!(
+            SecurityMode::from_policy_str("audit"),
+            Some(SecurityMode::Audit)
+        );
+        assert_eq!(SecurityMode::from_policy_str("bogus"), None);
     }
 }

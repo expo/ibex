@@ -630,6 +630,12 @@ async fn run_file(
     // Run the user's file
     runtime.run_file_with_args(file, args).await?;
 
+    // @ref LLP 0013#phase-1 — surface would-deny decisions collected in audit
+    // mode so operators see exactly what to declare before enforcing.
+    if let Some(report) = crate::host::abi::current_audit_report() {
+        eprintln!("\n{report}");
+    }
+
     if options.keep_alive || cli.keep_alive {
         eprintln!("Press Ctrl+C to exit.");
         run_debug_loop().await;
@@ -772,8 +778,8 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
 
     match cli.capsec {
         cli::CapSecMode::Permissive => {}
-        cli::CapSecMode::Capability => flags.extend(["--capsec".into(), "capability".into()]),
-        cli::CapSecMode::Strict => flags.extend(["--capsec".into(), "strict".into()]),
+        cli::CapSecMode::Audit => flags.extend(["--capsec".into(), "audit".into()]),
+        cli::CapSecMode::Enforce => flags.extend(["--capsec".into(), "enforce".into()]),
     }
     if let Some(policy) = &cli.policy {
         flags.extend(["--policy".into(), policy.to_string_lossy().into_owned()]);
@@ -1251,6 +1257,8 @@ mod tests {
 
     #[test]
     fn watch_child_preserves_security_flags() {
+        // @ref LLP 0013#phase-0 — `strict` is a back-compat alias that parses to
+        // Enforce; the child receives the canonical `--capsec enforce`.
         let cli = cli::Cli::parse_from([
             "ibex",
             "--watch",
@@ -1264,13 +1272,18 @@ mod tests {
         ]);
         let flags = watch_child_args(&cli);
         let joined = flags.join(" ");
-        assert!(joined.contains("--capsec strict"), "flags: {joined}");
+        assert!(joined.contains("--capsec enforce"), "flags: {joined}");
         assert!(joined.contains("--allow fs:read:/tmp"), "flags: {joined}");
         assert!(joined.contains("--deny net"), "flags: {joined}");
         assert!(
             !joined.contains("--watch"),
             "watch must not recurse: {joined}"
         );
+
+        // Audit mode round-trips.
+        let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "audit", "app.ts"]);
+        let joined = watch_child_args(&cli).join(" ");
+        assert!(joined.contains("--capsec audit"), "flags: {joined}");
 
         // review R1: opt-in compat surfaces ride along too.
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--compat", "bun", "app.ts"]);

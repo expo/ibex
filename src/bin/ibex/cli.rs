@@ -222,15 +222,20 @@ pub enum DebugCommands {
     Modules,
 }
 
-/// Capability security enforcement mode for CLI
+/// Capability security enforcement mode for CLI.
+///
+/// @ref LLP 0013#phase-0 — the old `capability`/`strict` split was a no-op; they
+/// are kept as hidden back-compat aliases for the single `enforce` mode. `audit`
+/// (Phase 1) logs would-deny decisions but lets operations proceed.
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapSecMode {
     /// Allow all capabilities (development/legacy mode)
     Permissive,
-    /// Enforce capability declarations, wildcards allowed
-    Capability,
-    /// Enforce capability declarations, no wildcards
-    Strict,
+    /// Log would-deny decisions but let operations proceed (supply-chain audit)
+    Audit,
+    /// Enforce capability declarations; deny on a miss
+    #[value(alias = "strict", alias = "capability")]
+    Enforce,
 }
 
 /// Bundler output format for runnable files

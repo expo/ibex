@@ -1472,10 +1472,11 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     let mode = if cli.allow_all {
         SecurityMode::Permissive
     } else {
+        // @ref LLP 0013#phase-1 — Audit maps to the log-but-proceed mode.
         match cli.capsec {
             CapSecMode::Permissive => SecurityMode::Permissive,
-            CapSecMode::Capability => SecurityMode::Capability,
-            CapSecMode::Strict => SecurityMode::Strict,
+            CapSecMode::Audit => SecurityMode::Audit,
+            CapSecMode::Enforce => SecurityMode::Enforce,
         }
     };
 

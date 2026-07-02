@@ -1001,8 +1001,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (!checkCapability("child_process")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
+        if (!checkCapability("process:spawn")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
         }
         if (count == 0 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactSpawnSync: file path required");

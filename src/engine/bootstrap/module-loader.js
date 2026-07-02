@@ -3,6 +3,14 @@
     return;
   }
   var g = globalThis;
+  // @ref LLP 0013#phase-0 — capture the module-attribution setter into loader
+  // closure scope so the escape-hatch global (`__exactSetActiveModuleId`) can be
+  // deleted at end-of-bootstrap. JS control flow must not be able to impersonate
+  // another module by calling the setter; the loader is its only legitimate
+  // caller, so the private capture keeps attribution working after the seal.
+  var __privSetActiveModuleId = (typeof g.__exactSetActiveModuleId === 'function')
+    ? g.__exactSetActiveModuleId
+    : null;
   const cache = Object.create(null);
   var mainModule = null;
   function getDebugModuleSourceLimit() {
@@ -4240,12 +4248,12 @@
     localRequire.cache = cache;
     localRequire.main = mainModule;
     const restoreModuleId = function(previousId) {
-      if (typeof g.__exactSetActiveModuleId === "function") {
-        g.__exactSetActiveModuleId(previousId || 0);
+      if (__privSetActiveModuleId) {
+        __privSetActiveModuleId(previousId || 0);
       }
     };
-    const previousModuleId = typeof g.__exactSetActiveModuleId === "function"
-      ? g.__exactSetActiveModuleId(module.__exactId)
+    const previousModuleId = __privSetActiveModuleId
+      ? __privSetActiveModuleId(module.__exactId)
       : 0;
     const previousNodeFilename = g.__filename;
     const previousNodeDirname = g.__dirname;

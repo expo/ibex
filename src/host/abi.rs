@@ -152,6 +152,29 @@ fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     }
 }
 
+/// Render the would-deny audit report for the installed host, but only when it
+/// is running in `Audit` mode and something was flagged.
+///
+/// @ref LLP 0013#phase-1 — printed at process shutdown so `ibex run --capsec
+/// audit` surfaces the grants an app must declare before moving to `enforce`.
+pub fn current_audit_report() -> Option<String> {
+    with_host(
+        |host| {
+            if host.security_mode() == super::SecurityMode::Audit {
+                let report = host.audit_report();
+                if report.is_empty() {
+                    None
+                } else {
+                    Some(report)
+                }
+            } else {
+                None
+            }
+        },
+        None,
+    )
+}
+
 fn security_log_enabled() -> bool {
     *SECURITY_LOG_ENABLED.get_or_init(|| {
         std::env::var("EXACT_SECURITY_LOG")
@@ -756,6 +779,61 @@ pub extern "C" fn ex_host_grant_capability(module_id: u64, capability: *const c_
 
     let module = module_id.to_string();
     with_host(|host| host.capabilities().grant(&module, &cap, None), ());
+}
+
+/// Register the resolved package principal for a numeric module id, so
+/// per-package policy resolves at the host boundary.
+///
+/// @ref LLP 0013#mechanism-3 — Phase 1 attribution is loader-provided and thus
+/// forgeable; Phase 2 replaces it with frame-derived provenance.
+#[no_mangle]
+pub extern "C" fn ex_host_register_module_package(
+    module_id: u64,
+    package: *const c_char,
+    locator: *const c_char,
+) {
+    if package.is_null() {
+        return;
+    }
+    let package = unsafe { CStr::from_ptr(package) }
+        .to_string_lossy()
+        .to_string();
+    let locator = if locator.is_null() {
+        None
+    } else {
+        Some(
+            unsafe { CStr::from_ptr(locator) }
+                .to_string_lossy()
+                .to_string(),
+        )
+    };
+    let module = module_id.to_string();
+    with_host(
+        |host| host.register_module_package(&module, &package, locator.as_deref()),
+        (),
+    );
+}
+
+/// Import-graph gate: may `module_id` load `specifier`? Returns 1 if the load
+/// may proceed under the active mode (audit logs but permits), else 0.
+///
+/// @ref LLP 0013#policy — builtins are reachable by `require`, so import policy
+/// is the primary containment gate for them.
+#[no_mangle]
+pub extern "C" fn ex_host_check_import(module_id: u64, specifier: *const c_char) -> i32 {
+    if specifier.is_null() {
+        return 1;
+    }
+    let specifier = unsafe { CStr::from_ptr(specifier) }
+        .to_string_lossy()
+        .to_string();
+    let module = module_id.to_string();
+    let allowed = with_host(|host| host.check_import(&module, &specifier), true);
+    if allowed {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
@@ -1934,7 +2012,7 @@ mod tests {
         assert!(with_host(|host| host.is_allow_all(), false));
 
         install_host(Host::new(HostConfig {
-            mode: SecurityMode::Strict,
+            mode: SecurityMode::Enforce,
             ..Default::default()
         }));
         assert!(!with_host(|host| host.is_allow_all(), true));

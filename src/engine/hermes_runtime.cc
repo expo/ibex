@@ -1325,6 +1325,47 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   IG_TRACE_START(ipc_patch);
   installIpcListenerPatch(handle);
   IG_TRACE_END(ipc_patch);
+
+  // @ref LLP 0013#phase-0 — end-of-bootstrap capability hardening seal. The
+  // module-attribution setter (`__exactSetActiveModuleId`) and the self-grant
+  // function (`__exactGrantCapability`) are ambient-authority escape hatches:
+  // any line of package code could impersonate module 0 or grant itself a
+  // capability. The trusted loader has already captured the setter privately;
+  // here we re-bind the grant path to a captured reference and then delete both
+  // globals so no code that runs after bootstrap can reach them. Runs in all
+  // modes (acceptance criterion: escape-hatch globals unreachable in all modes).
+  {
+    static const char* kCapabilityHardeningJS = R"JS((function () {
+  var g = globalThis;
+  var grant = g.__exactGrantCapability;
+  if (grant && g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
+    g.Exact.setModuleCapabilities = function (moduleId, capabilities) {
+      if (!capabilities) return;
+      var caps = Array.isArray(capabilities) ? capabilities : [capabilities];
+      for (var i = 0; i < caps.length; i++) { grant(moduleId, caps[i]); }
+    };
+  }
+  var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability'];
+  for (var j = 0; j < hatches.length; j++) {
+    try { delete g[hatches[j]]; } catch (e) {}
+  }
+})();
+)JS";
+    try {
+      auto buffer =
+          std::make_shared<facebook::jsi::StringBuffer>(kCapabilityHardeningJS);
+      handle->runtime->evaluateJavaScript(buffer, "<capability-hardening>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1,
+          (std::string("Capability hardening error: ") + err.getMessage())
+              .c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("Capability hardening error: ") + err.what()).c_str());
+    }
+  }
+
   IG_TRACE_END(post_host_fns);
 }
 
