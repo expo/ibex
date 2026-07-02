@@ -3203,6 +3203,25 @@
     var len = source.length;
     while (i < len) {
       var ch = source[i];
+      // Skip comments verbatim. Without this, an apostrophe inside a comment
+      // (e.g. "the gateway's auto tier") opens a bogus string skip that can
+      // swallow kilobytes of code — leaving later import() calls unrewritten,
+      // which Hermes then rejects at eval time (ENG-22520, same class as the
+      // ENG-22514 transformEsmToCjs comment bugs).
+      if (ch === '/' && source[i + 1] === '/') {
+        var lineEnd = source.indexOf('\n', i);
+        if (lineEnd === -1) { lineEnd = len; }
+        result += source.slice(i, lineEnd);
+        i = lineEnd;
+        continue;
+      }
+      if (ch === '/' && source[i + 1] === '*') {
+        var blockEnd = source.indexOf('*/', i + 2);
+        blockEnd = blockEnd === -1 ? len : blockEnd + 2;
+        result += source.slice(i, blockEnd);
+        i = blockEnd;
+        continue;
+      }
       // Skip string literals
       if (ch === '"' || ch === "'" || ch === '`') {
         var quote = ch;
