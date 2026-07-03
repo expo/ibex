@@ -226,6 +226,95 @@ fn compartment_withholds_powerful_globals_and_honors_endowments() {
 }
 
 // ---------------------------------------------------------------------------
+// IBEX_ENDOW cannot widen policy endowments under enforce (ENG-22684)
+//
+// Under an enforce-mode policy the generated artifact is the sole endowment
+// source: an ambient/operator-set IBEX_ENDOW must not hand a package a powerful
+// global (`process`) the policy withholds. The `--allow-env-endowments` escape
+// hatch restores the ambient override, and permissive mode is unaffected —
+// each proven with the same fixture so the suppression is a live gate, not a
+// dead path.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn env_endowments_cannot_widen_policy_under_enforce() {
+    let dir = unique_dir("endow-precedence");
+    // A generated-shaped enforce policy that endows evil-pkg with nothing.
+    std::fs::write(
+        dir.join("policy.json"),
+        r#"{ "mode":"enforce", "packages":{ "evil-pkg":{} } }"#,
+    )
+    .unwrap();
+    let policy = dir.join("policy.json").to_string_lossy().into_owned();
+
+    // Enforce, no hatch: the ambient IBEX_ENDOW is dropped, so evil-pkg does not
+    // receive `process`, and the drop is reported on stderr.
+    let enforced = run_ibex(
+        &[
+            "--lockdown",
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy,
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[("IBEX_ENDOW", "evil-pkg:process")],
+        None,
+    );
+    assert!(
+        enforced.stdout.contains("evil.process=undefined"),
+        "IBEX_ENDOW must not widen a package's globals under enforce:\nstdout:\n{}\nstderr:\n{}",
+        enforced.stdout,
+        enforced.stderr
+    );
+    assert!(
+        enforced.stderr.contains("IBEX_ENDOW ignored"),
+        "the dropped env endowment should be reported:\nstdout:\n{}\nstderr:\n{}",
+        enforced.stdout,
+        enforced.stderr
+    );
+
+    // Escape hatch: the ambient override is honored again (proves the deny above
+    // is a live suppression).
+    let hatched = run_ibex(
+        &[
+            "--lockdown",
+            "--capsec",
+            "enforce",
+            "--allow-env-endowments",
+            "--policy",
+            &policy,
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[("IBEX_ENDOW", "evil-pkg:process")],
+        None,
+    );
+    assert!(
+        hatched.stdout.contains("evil.process=object"),
+        "--allow-env-endowments should restore the ambient override:\nstdout:\n{}\nstderr:\n{}",
+        hatched.stdout,
+        hatched.stderr
+    );
+
+    // Permissive (no policy): back-compat — IBEX_ENDOW still endows.
+    let permissive = run_ibex(
+        &["--lockdown", "run", &fixture("compartment-endowment.js")],
+        &[("IBEX_ENDOW", "evil-pkg:process")],
+        None,
+    );
+    assert!(
+        permissive.stdout.contains("evil.process=object"),
+        "permissive mode must keep honoring IBEX_ENDOW:\nstdout:\n{}\nstderr:\n{}",
+        permissive.stdout,
+        permissive.stderr
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
 // End-to-end supply-chain containment (Mechanisms 1 + 2 via the bundler)
 // ---------------------------------------------------------------------------
 
@@ -340,6 +429,15 @@ fn generated_policy_endows_granted_package_and_contains_the_rest() {
     // same fixture under different policies.
     let dir = unique_dir("grants-endow");
     copy_dir_recursive(&grants_app(), &dir);
+    // This exercises the Mechanism-2 *endowment rewrite* (env-reader reaches the
+    // endowed `process`; evil-pkg's is withheld), which is a build-time,
+    // flat-bundle mechanism. Enforce now auto-enables per-package chunking
+    // (ENG-22681), which additionally attributes env-reader's `process.env` read
+    // to its own principal and gates it on `env:read` — a capability the
+    // `process:env` import grant does not confer (that per-principal gating is
+    // covered by env_reads_are_gated_with_no_plain_snapshot_bypass and
+    // capability.rs::env_read_is_gated_per_principal). Pin the flat bundle here
+    // so this test stays about endowment reachability, not env-read gating.
     let out = run_ibex(
         &[
             "--lockdown",
@@ -348,7 +446,7 @@ fn generated_policy_endows_granted_package_and_contains_the_rest() {
             "run",
             dir.join("app.mjs").to_str().unwrap(),
         ],
-        &[("SECRET_TOKEN", "hunter2")],
+        &[("SECRET_TOKEN", "hunter2"), ("IBEX_PER_PACKAGE_CHUNKS", "0")],
         None,
     );
     // The package granted `process:env` at its import site works under lockdown…
@@ -546,6 +644,116 @@ fn policy_check_reports_capability_expansion_on_drift() {
 }
 
 // ---------------------------------------------------------------------------
+// Generated policy closes the builtins import axis by default (ENG-22683)
+//
+// A generated package entry emits an explicit `builtins` list (empty when the
+// package imports no builtin), so an omitted field can only ever come from a
+// hand-authored policy. A statically-observed builtin import is allowlisted (so
+// legit imports keep working under enforce); a builtin reached through a
+// computed specifier the generator can't see stays denied (fail closed).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generated_policy_closes_builtins_axis() {
+    if !have_js_runner() {
+        eprintln!("skipping: bundler/generator (bun/node) not available");
+        return;
+    }
+    let dir = fixtures_dir().join("generated-builtins");
+    let policy = dir.join("ibex-policy.json");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.mjs",
+        ],
+        &[],
+        Some(&dir),
+    );
+    // Observed static builtin import (`node:os`) is allowlisted → works.
+    assert!(
+        out.stdout.contains("os-user:   OK:function"),
+        "a statically-imported builtin the generator observed must stay allowed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // A builtin reached via a computed specifier is not in the allowlist → denied.
+    assert!(
+        out.stdout.contains("sneaky-os: IMPORT-DENIED"),
+        "a builtin not in the generated allowlist must be denied under enforce:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn generated_builtins_artifact_is_in_sync() {
+    if !have_js_runner() {
+        eprintln!("skipping: generator (bun/node) not available");
+        return;
+    }
+    // The committed generated-builtins artifact regenerates byte-identically,
+    // and its `os-user` entry carries the observed `node:os` allowlist while
+    // `sneaky-os` stays `[]` (deny-all).
+    let out = run_ibex(
+        &[
+            "policy",
+            "check",
+            "--entry",
+            fixtures_dir()
+                .join("generated-builtins")
+                .join("app.mjs")
+                .to_str()
+                .unwrap(),
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(
+        out.status, 0,
+        "committed generated-builtins artifact drifted:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+}
+
+#[test]
+fn policy_check_reports_builtin_expansion_on_drift() {
+    if !have_js_runner() {
+        eprintln!("skipping: generator (bun/node) not available");
+        return;
+    }
+    let dir = unique_dir("builtins-drift");
+    copy_dir_recursive(&fixtures_dir().join("generated-builtins"), &dir);
+    // os-user grows a new builtin import the committed allowlist doesn't have.
+    let os_user = dir.join("node_modules").join("os-user").join("index.js");
+    let source = std::fs::read_to_string(&os_user)
+        .unwrap()
+        .replace("var os = require(\"os\");", "var os = require(\"os\");\nvar cp = require(\"child_process\");");
+    std::fs::write(&os_user, source).unwrap();
+    let out = run_ibex(
+        &[
+            "policy",
+            "check",
+            "--entry",
+            dir.join("app.mjs").to_str().unwrap(),
+        ],
+        &[],
+        None,
+    );
+    assert_ne!(out.status, 0, "builtin drift must fail the check:\n{}", out.stdout);
+    assert!(
+        out.stderr.contains("EXPANSIONS")
+            && out.stderr.contains("os-user: import node:child_process"),
+        "a new builtin import must surface as an import-axis expansion:\nstderr:\n{}",
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
 // Audit / enforce modes (Phase 0/1)
 // ---------------------------------------------------------------------------
 
@@ -664,6 +872,95 @@ fn fs_write_requires_fs_write_capability() {
 }
 
 // ---------------------------------------------------------------------------
+// Symlink escape from a path-scoped fs:write grant (ENG-22682)
+//
+// A grant `fs:write:<base>/granted/**` must be matched against the
+// symlink-resolved path, not the supplied spelling. With `granted/link` a
+// symlink to `outside/`, a write to `granted/link/escaped.txt` (leaf missing,
+// so the old lexical fallback kept the syntactic `granted/**` prefix) must be
+// DENIED because the parent resolves outside the grant — while an ordinary
+// in-tree write still succeeds (proving the deny is the resolution, not a
+// blanket block). A `ceiling` is configured so the first-party root loses its
+// ambient trust and the path-scoped grant actually binds.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn path_scoped_write_grant_cannot_escape_through_a_symlink() {
+    let dir = unique_dir("fs-symlink-escape");
+    // Canonicalize: macOS temp lives under /var → /private/var, so the grant
+    // string must be built from the resolved base to compare with resolved
+    // check values.
+    let base = dir.canonicalize().expect("canonicalize temp base");
+    std::fs::create_dir_all(base.join("granted").join("real")).unwrap();
+    std::fs::create_dir_all(base.join("outside")).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(base.join("outside"), base.join("granted").join("link"))
+        .expect("plant escaping symlink");
+
+    let base_str = base.to_string_lossy().into_owned();
+    // Path-scoped write grant + a (harmless) ceiling so root is no longer
+    // blanket-trusted and the path scope binds. `env`/`os`/etc. keep the app
+    // runnable under enforce.
+    let policy = format!(
+        r#"{{ "mode":"enforce",
+              "allow":["fs:write:{base}/granted/**","fs:read","env","process","os","network","crypto","time","device","worker","ffi"],
+              "ceiling":["network:fetch:example.invalid"] }}"#,
+        base = base_str
+    );
+    std::fs::write(base.join("ibex-policy.json"), policy).unwrap();
+    std::fs::write(
+        base.join("app.js"),
+        r#"var fs = require("fs");
+var base = process.env.BASE;
+function probe(label, path) {
+  try { fs.writeFileSync(path, "x"); console.log(label + ": SUCCEEDED"); }
+  catch (e) {
+    var msg = (e && e.message) || "";
+    console.log(label + ": " + (msg.indexOf("Permission denied") !== -1 ? "DENIED" : "ERR"));
+  }
+}
+probe("escape", base + "/granted/link/escaped.txt");
+probe("in-tree", base + "/granted/real/escaped.txt");
+"#,
+    )
+    .unwrap();
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &base.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("BASE", &base_str), ("EXACT_COMPAT_TEST", "1")],
+        Some(&base),
+    );
+
+    // The escaping write is denied; the in-tree write succeeds (control).
+    assert!(
+        out.stdout.contains("escape: DENIED"),
+        "a write through a symlink escaping the granted tree must be denied:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("in-tree: SUCCEEDED"),
+        "an ordinary in-tree write must still succeed (grant binds):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // And nothing was created outside the grant on disk.
+    assert!(
+        !base.join("outside").join("escaped.txt").exists(),
+        "the escaping write must not have created a file outside the grant"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
 // Authority-bearing attenuator handles (Phase 4 / §Delegation)
 //
 // A package with no ambient fs uses a handle the app hands it: reads within the
@@ -770,9 +1067,14 @@ fn per_package_chunks_give_bundled_apps_frame_attribution() {
     );
     // Control: a flat bundle collapses to one Domain, so the dependency's read is
     // attributed to root and succeeds (proving the chunking is what separates it).
+    // Enforce auto-enables chunking (ENG-22681), so the flat control must opt out
+    // explicitly with IBEX_PER_PACKAGE_CHUNKS=0.
     let flat = run_ibex(
         &args,
-        &[("SECRETPATH", &secret.to_string_lossy())],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+        ],
         Some(&dir),
     );
     assert!(
@@ -781,6 +1083,189 @@ fn per_package_chunks_give_bundled_apps_frame_attribution() {
         flat.stdout,
         flat.stderr
     );
+}
+
+// ---------------------------------------------------------------------------
+// Enforce auto-enables per-package attribution for a bundled app (ENG-22681)
+//
+// `ibex run --policy <mode:enforce>` (no --capsec, no IBEX_* env) must not leave
+// a bundled dependency attributed to root: enforce implies per-package chunking,
+// so the dependency loads into its own Domain and its ungranted read is denied.
+// The explicit `IBEX_PER_PACKAGE_CHUNKS=0` opt-out restores the flat behavior
+// (proving the auto-enable is what contains it).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn policy_declared_enforce_auto_enables_bundled_attribution() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: frame attribution needs the patched Hermes engine");
+        return;
+    }
+    if !have_js_runner() {
+        eprintln!("skipping: per-package chunking needs the bundler (bun/node)");
+        return;
+    }
+    // Own copy: the bundle cache is keyed by entry path, and this run must not
+    // collide with per_package_chunks_give_bundled_apps_frame_attribution.
+    let dir = unique_dir("enforce-auto-attr");
+    copy_dir_recursive(&fixtures_dir().join("per-package-chunks"), &dir);
+    let policy = dir.join("ibex-policy.json"); // fixture policy declares mode:enforce
+    let secret = dir.join("secret.txt");
+    // No --capsec (Auto → the policy's enforce), and no IBEX_PER_PACKAGE_CHUNKS.
+    let auto = run_ibex(
+        &[
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("SECRETPATH", &secret.to_string_lossy())],
+        Some(&dir),
+    );
+    assert!(
+        auto.stdout.contains("app-deferred: READ:TOPSECRET-ppc")
+            && auto.stdout.contains("evil-deferred: CONTAINED")
+            && !auto.stdout.contains("evil-deferred: STOLEN"),
+        "a policy-declared enforce run must auto-enable per-package attribution:\nstdout:\n{}\nstderr:\n{}",
+        auto.stdout,
+        auto.stderr
+    );
+
+    // Opt out: the flat bundle collapses to root again (control for the auto-enable).
+    let opt_out = run_ibex(
+        &[
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        opt_out.stdout.contains("evil-deferred: STOLEN:TOPSECRET-ppc"),
+        "IBEX_PER_PACKAGE_CHUNKS=0 must restore the flat (root-attributed) behavior:\nstdout:\n{}\nstderr:\n{}",
+        opt_out.stdout,
+        opt_out.stderr
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
+// Version-distinguished principals and policy selectors (ENG-22621)
+//
+// Two installed versions of one package coexist (shared-pkg@2.0.0 top-level and
+// shared-pkg@1.0.0 nested under uses-old). The loader gives each its own
+// `name@version` principal, so a policy that grants the bare `shared-pkg`
+// selector fs:read but pins `shared-pkg@1.0.0` with a deny treats the two
+// versions differently — the pinned version is contained while the other reads.
+// The control (bare grant only) reads through both, proving the pin discriminates.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn coexisting_versions_get_distinct_policy_treatment() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: version-distinguished attribution needs the patched Hermes engine");
+        return;
+    }
+    let dir = fixtures_dir().join("versioned-pkgs");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // shared-pkg@2.0.0 (bare selector grant) reads; shared-pkg@1.0.0 (pinned
+    // deny) is contained — the two versions get different treatment.
+    assert!(
+        out.stdout.contains("direct-v2: READ:TOPSECRET-versioned"),
+        "the unpinned version should read via the bare `shared-pkg` grant:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("via-old-v1: DENIED"),
+        "the pinned `shared-pkg@1.0.0` version should be denied:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+
+    // Control: with only the bare `shared-pkg` grant (no version pin), the grant
+    // applies to every resolved version, so BOTH read — proving the pin above is
+    // what discriminates, not a coincidental denial.
+    let ctrl_dir = unique_dir("versioned-control");
+    std::fs::write(
+        ctrl_dir.join("policy.json"),
+        r#"{ "mode":"enforce",
+             "allow":["process","env","os","crypto","time","network","device","worker","ffi"],
+             "packages": { "shared-pkg": { "capabilities": ["fs:read"] } } }"#,
+    )
+    .unwrap();
+    let control = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &ctrl_dir.join("policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        control.stdout.contains("direct-v2: READ:TOPSECRET-versioned")
+            && control.stdout.contains("via-old-v1: READ:TOPSECRET-versioned"),
+        "the bare selector grant should apply to every version (control):\nstdout:\n{}\nstderr:\n{}",
+        control.stdout,
+        control.stderr
+    );
+    let _ = std::fs::remove_dir_all(&ctrl_dir);
+
+    // Bundled path: enforce auto-enables per-package chunking, and the bundler
+    // groups by the version identity, so the two versions land in separate
+    // chunks (`__ibexpkg__shared-pkg@1.0.0` / `@2.0.0`) → separate Domains →
+    // separate principals. The devtools chunk grouping and the runtime registry
+    // agree on the identity (criterion c). Needs the bundler.
+    if have_js_runner() {
+        let bundled = run_ibex(
+            &[
+                "--capsec",
+                "enforce",
+                "--policy",
+                &policy.to_string_lossy(),
+                "run",
+                "app.js",
+            ],
+            &[("SECRETPATH", &secret.to_string_lossy())],
+            Some(&dir),
+        );
+        assert!(
+            bundled.stdout.contains("direct-v2: READ:TOPSECRET-versioned")
+                && bundled.stdout.contains("via-old-v1: DENIED"),
+            "a bundled app must distinguish the two versions via per-version chunks:\nstdout:\n{}\nstderr:\n{}",
+            bundled.stdout,
+            bundled.stderr
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

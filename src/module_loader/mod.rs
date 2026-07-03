@@ -31,11 +31,21 @@ pub struct ResolvedModule {
     pub kind: ModuleKind,
     pub path: Option<PathBuf>,
     pub source: Option<String>,
+    /// The `version` field of the resolved module's own nearest `package.json`
+    /// when the module lives under `node_modules`, else `None`. Combined with
+    /// the path-derived package **name** by the loader into the canonical
+    /// runtime identity `name@version`, so coexisting versions of one package
+    /// get distinct principals/compartments and a `name@version` policy selector
+    /// can pin a specific version. @ref LLP 0013#resolved-questions (ENG-22621)
+    pub package_version: Option<String>,
 }
 
 pub struct ModuleLoader {
     builtins: HashMap<String, String>,
     resolver: Resolver,
+    /// Memoized `version` per package root dir (the nearest `package.json`), so
+    /// version derivation is one read per package, not per module. (ENG-22621)
+    package_versions: std::sync::RwLock<HashMap<PathBuf, Option<String>>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -102,7 +112,36 @@ impl ModuleLoader {
         Self {
             builtins,
             resolver: Resolver::new(options),
+            package_versions: std::sync::RwLock::new(HashMap::new()),
         }
+    }
+
+    /// The `version` of the package that owns `path`, when `path` is under a
+    /// `node_modules` tree — read from the nearest enclosing `package.json` and
+    /// memoized per package root. `None` for first-party/workspace code (no
+    /// `node_modules` ancestor) or a manifest with no `version`. The path (i.e.
+    /// where the package is installed) is authoritative for identity; only the
+    /// version is taken from the manifest, which a package could otherwise use
+    /// to claim a different name. @ref LLP 0013#resolved-questions (ENG-22621)
+    fn package_version_for(&self, path: &Path) -> Option<String> {
+        // Only node_modules packages carry a distinguishing version; first-party
+        // code is the root principal regardless.
+        if !path.components().any(|c| c.as_os_str() == "node_modules") {
+            return None;
+        }
+        let root = find_package_root(path)?;
+        if let Ok(memo) = self.package_versions.read() {
+            if let Some(v) = memo.get(&root) {
+                return v.clone();
+            }
+        }
+        let version = read_package_manifest(&root.join("package.json"))
+            .ok()
+            .and_then(|m| m.get("version").and_then(Value::as_str).map(str::to_string));
+        if let Ok(mut memo) = self.package_versions.write() {
+            memo.insert(root, version.clone());
+        }
+        version
     }
 
     pub fn resolve(&self, specifier: &str, referrer: Option<&Path>) -> Result<ResolvedModule> {
@@ -129,6 +168,7 @@ impl ModuleLoader {
                 kind: ModuleKind::Builtin,
                 path: None,
                 source: Some(source.clone()),
+                package_version: None,
             });
         }
 
@@ -152,11 +192,13 @@ impl ModuleLoader {
         let raw_target = resolve_package_import_target(specifier, imports)?;
         let target_path = normalize_import_target(&package_root, package_root.join(raw_target))?;
 
+        let package_version = self.package_version_for(&target_path);
         Some(ResolvedModule {
             id: target_path.to_string_lossy().to_string(),
             kind: module_kind_from_path(&target_path),
             path: Some(target_path),
             source: None,
+            package_version,
         })
     }
 
@@ -703,11 +745,13 @@ impl ModuleLoader {
         }
 
         let full_path = resolution.full_path().to_path_buf();
+        let package_version = self.package_version_for(&full_path);
         Ok(ResolvedModule {
             id: full_path.to_string_lossy().to_string(),
             kind,
             path: Some(full_path),
             source: None,
+            package_version,
         })
     }
 }

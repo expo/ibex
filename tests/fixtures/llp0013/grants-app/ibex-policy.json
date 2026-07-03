@@ -12,25 +12,35 @@
       ],
       "endow": [
         "process"
-      ]
+      ],
+      "builtins": []
     },
-    "evil-pkg": {},
+    "evil-pkg": {
+      "builtins": []
+    },
     "fast-codec": {
       "capabilities": [
         "fs:read:/tmp/ibex-llp0013/**"
-      ]
+      ],
+      "builtins": []
     },
     "image-lib": {
       "capabilities": [
         "fs:read:/tmp/ibex-llp0013/**"
-      ]
+      ],
+      "builtins": []
     },
-    "sneaky-helper": {},
-    "sneaky-pkg": {},
+    "sneaky-helper": {
+      "builtins": []
+    },
+    "sneaky-pkg": {
+      "builtins": []
+    },
     "tmp-helper": {
       "capabilities": [
         "fs:read:/tmp/ibex-llp0013/**"
-      ]
+      ],
+      "builtins": []
     }
   },
   "provenance": {

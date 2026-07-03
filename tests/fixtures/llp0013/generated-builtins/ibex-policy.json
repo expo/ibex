@@ -1,0 +1,19 @@
+{
+  "generated": {
+    "version": 1,
+    "tool": "generate-policy.mjs",
+    "entry": "app.mjs"
+  },
+  "mode": "enforce",
+  "packages": {
+    "os-user": {
+      "builtins": [
+        "node:os"
+      ]
+    },
+    "sneaky-os": {
+      "builtins": []
+    }
+  },
+  "provenance": {}
+}

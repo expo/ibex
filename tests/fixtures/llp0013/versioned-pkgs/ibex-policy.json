@@ -1,0 +1,8 @@
+{
+  "mode": "enforce",
+  "allow": ["process", "env", "os", "crypto", "time", "network", "device", "worker", "ffi"],
+  "packages": {
+    "shared-pkg": { "capabilities": ["fs:read"] },
+    "shared-pkg@1.0.0": { "deny": ["fs:read"] }
+  }
+}

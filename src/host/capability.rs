@@ -838,14 +838,123 @@ fn normalize_fs_resource(resource: &str) -> String {
         }
     }
 
+    // @ref LLP 0013#policy — path-scoped grants are matched against the
+    // symlink-RESOLVED path, not the supplied spelling. A purely lexical
+    // fallback let a write to `<granted>/link/newfile` (leaf not yet existing,
+    // `link` a symlink out of the granted tree) match the `<granted>/**` grant
+    // while the OS followed the symlink outside it. Both the checked value and
+    // the grant pattern resolve through the same walk so they stay comparable
+    // (e.g. macOS `/var` → `/private/var`). (ENG-22682)
     let has_wildcard = trimmed.contains('*');
     if !has_wildcard {
-        if let Ok(canon) = path.canonicalize() {
-            return canon.to_string_lossy().to_string();
-        }
+        return resolve_symlinks_partial(&path).to_string_lossy().to_string();
     }
 
-    normalize_path_components(&path)
+    // Wildcard pattern: resolve the fixed literal prefix (components before the
+    // first wildcard-bearing component), then re-append the pattern tail. The
+    // tail's components cannot be resolved (they are patterns, and the paths
+    // they will match resolve on the value side).
+    let mut prefix = PathBuf::new();
+    let mut tail: Vec<Component> = Vec::new();
+    let mut in_tail = false;
+    for comp in path.components() {
+        if !in_tail {
+            if comp.as_os_str().to_string_lossy().contains('*') {
+                in_tail = true;
+                tail.push(comp);
+            } else {
+                prefix.push(comp.as_os_str());
+            }
+        } else {
+            tail.push(comp);
+        }
+    }
+    let mut resolved = resolve_symlinks_partial(&prefix);
+    for comp in tail {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let _ = resolved.pop();
+            }
+            other => resolved.push(other.as_os_str()),
+        }
+    }
+    resolved.to_string_lossy().to_string()
+}
+
+/// Resolve `path` the way the kernel will when the operation executes: follow
+/// symlinks in every component that exists (including dangling links, whose
+/// targets an `O_CREAT` open would materialize), apply `.`/`..` against the
+/// already-resolved prefix, and keep the not-yet-existing remainder literal.
+/// Symlink expansion is bounded; past the bound the remaining components are
+/// appended lexically (the actual syscall will fail with ELOOP anyway).
+/// (ENG-22682)
+fn resolve_symlinks_partial(path: &Path) -> PathBuf {
+    // Fast path: the whole path exists — the kernel's own resolution.
+    if let Ok(canon) = path.canonicalize() {
+        return canon;
+    }
+
+    const MAX_LINK_EXPANSIONS: usize = 40;
+    let mut expansions = 0usize;
+    let mut out = PathBuf::new();
+    let mut pending: VecDeque<std::ffi::OsString> = VecDeque::new();
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(prefix) => out.push(prefix.as_os_str()),
+            Component::RootDir => out.push(comp.as_os_str()),
+            other => pending.push_back(other.as_os_str().to_os_string()),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        // Relative input (callers absolutize first; keep a sane fallback).
+        out = PathBuf::from(".");
+    }
+
+    while let Some(comp) = pending.pop_front() {
+        if comp == "." {
+            continue;
+        }
+        if comp == ".." {
+            // `out` is already symlink-free, so lexical pop == kernel `..`.
+            let _ = out.pop();
+            continue;
+        }
+        let candidate = out.join(&comp);
+        let is_link = std::fs::symlink_metadata(&candidate)
+            .map(|md| md.file_type().is_symlink())
+            .unwrap_or(false);
+        if is_link && expansions < MAX_LINK_EXPANSIONS {
+            if let Ok(target) = std::fs::read_link(&candidate) {
+                expansions += 1;
+                if target.is_absolute() {
+                    // Restart resolution at the target's root (prefix + root
+                    // dir on Windows, `/` elsewhere); the remaining components
+                    // join the front of the queue.
+                    let mut root = PathBuf::new();
+                    for tcomp in target.components() {
+                        match tcomp {
+                            Component::Prefix(prefix) => root.push(prefix.as_os_str()),
+                            Component::RootDir => root.push(tcomp.as_os_str()),
+                            _ => break,
+                        }
+                    }
+                    out = root;
+                }
+                let target_comps: Vec<std::ffi::OsString> = target
+                    .components()
+                    .filter(|c| !matches!(c, Component::Prefix(_) | Component::RootDir))
+                    .map(|c| c.as_os_str().to_os_string())
+                    .collect();
+                for tcomp in target_comps.into_iter().rev() {
+                    pending.push_front(tcomp);
+                }
+                continue;
+            }
+        }
+        out = candidate;
+    }
+    out
 }
 
 fn expand_tilde(path: &str) -> String {
@@ -859,22 +968,6 @@ fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
-}
-
-fn normalize_path_components(path: &Path) -> String {
-    let mut normalized = PathBuf::new();
-    for comp in path.components() {
-        match comp {
-            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-            Component::RootDir => normalized.push(comp.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                let _ = normalized.pop();
-            }
-            Component::Normal(part) => normalized.push(part),
-        }
-    }
-    normalized.to_string_lossy().to_string()
 }
 
 fn matches_grants(grants: Option<&Vec<CapabilityGrant>>, capability: &str) -> bool {
@@ -993,6 +1086,66 @@ mod tests {
         assert!(!matches_capability(&root, &child));
     }
 
+    // @ref LLP 0013#policy — a path-scoped grant is matched against the
+    // symlink-RESOLVED path, so a symlinked component cannot smuggle a write
+    // outside the granted subtree even when the leaf does not yet exist (the
+    // O_CREAT case, where the old lexical fallback kept the syntactic prefix).
+    // (ENG-22682)
+    #[test]
+    fn path_scoped_grants_resolve_symlinks_and_deny_escaping_writes() {
+        use std::process::id;
+        use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+        // A private, canonicalized scratch base (macOS `TMPDIR` is itself a
+        // symlink under /var → /private/var, so canonicalize before baking
+        // paths into grant strings).
+        let base = std::env::temp_dir().join(format!(
+            "ibex-symlink-escape-{}-{}",
+            id(),
+            COUNTER.fetch_add(1, AtomicOrdering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("granted")).unwrap();
+        std::fs::create_dir_all(base.join("granted").join("real")).unwrap();
+        std::fs::create_dir_all(base.join("outside")).unwrap();
+        let base = base.canonicalize().unwrap();
+        // granted/link -> outside (escapes the granted subtree).
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(base.join("outside"), base.join("granted").join("link"))
+            .unwrap();
+
+        let grant = normalize_capability(&format!(
+            "fs:write:{}/granted/**",
+            base.to_string_lossy()
+        ));
+
+        // Escaping write through the symlinked component: leaf does not exist,
+        // but the parent resolves outside the grant → denied.
+        let escaping = normalize_capability(&format!(
+            "fs:write:{}/granted/link/newfile",
+            base.to_string_lossy()
+        ));
+        assert!(
+            !matches_capability(&grant, &escaping),
+            "a write through a symlink escaping the granted tree must not match \
+             (grant={grant}, value={escaping})"
+        );
+
+        // Positive control: an ordinary in-tree write (no symlink) still matches.
+        let in_tree = normalize_capability(&format!(
+            "fs:write:{}/granted/real/newfile",
+            base.to_string_lossy()
+        ));
+        assert!(
+            matches_capability(&grant, &in_tree),
+            "an ordinary write inside the granted tree must still match \
+             (grant={grant}, value={in_tree})"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn capability_manager_matches_js_style_base_grants_and_network_aliases() {
         let manager = CapabilityManager::new(SecurityMode::Enforce);
@@ -1108,6 +1261,19 @@ mod tests {
         assert!(m.check("1", "network:fetch:api.example.com"));
         // The pinned version is denied — the locator selector wins over the name.
         assert!(!m.check("2", "network:fetch:api.example.com"));
+    }
+
+    // @ref LLP 0013#resolved-questions (ENG-22621) — a bare-name grant with no
+    // version pin applies to every coexisting version, since each version's
+    // selectors fall back to the bare name.
+    #[test]
+    fn bare_name_selector_matches_all_versions() {
+        let m = CapabilityManager::new(SecurityMode::Enforce);
+        m.grant_package("shared-pkg", "fs:read");
+        m.register_module_package("10", "shared-pkg", Some("shared-pkg@1.0.0"));
+        m.register_module_package("20", "shared-pkg", Some("shared-pkg@2.0.0"));
+        assert!(m.check("10", "fs:read:/tmp/x"));
+        assert!(m.check("20", "fs:read:/tmp/x"));
     }
 
     #[test]

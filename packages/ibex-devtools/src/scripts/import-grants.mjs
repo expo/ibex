@@ -8,6 +8,7 @@
  * Parsing is fail-closed: a malformed grant string is an error, not a skip.
  */
 import { parse } from 'acorn';
+import { nodeBuiltins } from './builtin-manifest.mjs';
 
 /** Attribute keys this layer owns. Anything else (e.g. `type`) passes through. */
 export const GRANT_ATTRIBUTE_KEYS = Object.freeze([
@@ -16,6 +17,86 @@ export const GRANT_ATTRIBUTE_KEYS = Object.freeze([
   'builtins',
   'also',
 ]);
+
+/** Root segments of the runtime's node builtins (e.g. `fs`, `os`, `stream`),
+ * mirroring `src/host/capability.rs`'s NODE_BUILTINS. A specifier's first path
+ * segment is matched against this so subpaths (`fs/promises`) classify too. */
+const BUILTIN_ROOTS = new Set((nodeBuiltins || []).map((b) => String(b).split('/')[0]));
+
+/**
+ * Classify a builtin import and return its normalized `node:`-prefixed form, or
+ * null when the specifier is not a builtin (relative/absolute path, or a real
+ * package). Mirrors the runtime's `is_builtin_specifier`/`import_specifier_matches`
+ * (`src/host/capability.rs`) so the build-side allowlist agrees with the gate:
+ * both classify a bare `os`/`fs` as the builtin, and both fold the `node:`
+ * prefix. Subpaths are preserved (`fs/promises` → `node:fs/promises`) since the
+ * runtime lets a root allowlist entry cover subpaths. @ref LLP 0014#surface-derivation
+ */
+export function builtinSpecifierOf(specifier) {
+  if (typeof specifier !== 'string' || specifier.length === 0) return null;
+  if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('\0')) {
+    return null;
+  }
+  const bare = specifier.startsWith('node:') ? specifier.slice(5) : specifier;
+  if (!bare || bare.startsWith('@')) return null;
+  const root = bare.split('/')[0];
+  return BUILTIN_ROOTS.has(root) ? `node:${bare}` : null;
+}
+
+/**
+ * Extract the static module specifiers a source imports: ESM `import`/
+ * `export ... from`, dynamic `import("literal")`, and CJS `require("literal")`.
+ * String literals only — a computed specifier (`require(n)`) contributes
+ * nothing (it is unresolvable statically and therefore denied at runtime, fail
+ * closed). Used by the generator to observe each package's builtin imports.
+ * @ref LLP 0014#the-generated-artifact
+ */
+export function extractImportSpecifiers(source) {
+  const ast = parseModule(source);
+  if (!ast) return [];
+  const out = [];
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    if (typeof node.type === 'string') {
+      switch (node.type) {
+        case 'ImportDeclaration':
+        case 'ExportNamedDeclaration':
+        case 'ExportAllDeclaration':
+          if (node.source && typeof node.source.value === 'string') out.push(node.source.value);
+          break;
+        case 'ImportExpression':
+          if (node.source && typeof node.source.value === 'string') out.push(node.source.value);
+          break;
+        case 'CallExpression':
+          if (
+            node.callee &&
+            node.callee.type === 'Identifier' &&
+            node.callee.name === 'require' &&
+            node.arguments &&
+            node.arguments.length &&
+            node.arguments[0].type === 'Literal' &&
+            typeof node.arguments[0].value === 'string'
+          ) {
+            out.push(node.arguments[0].value);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'start' || key === 'end' || key === 'range' || key === 'loc') continue;
+      const value = node[key];
+      if (value && typeof value === 'object') visit(value);
+    }
+  };
+  visit(ast);
+  return out;
+}
 
 function parseModule(source, { locations = false } = {}) {
   try {

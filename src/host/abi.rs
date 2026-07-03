@@ -1048,6 +1048,10 @@ pub extern "C" fn ex_host_module_resolve(
                 crate::module_loader::ModuleKind::Esm => "esm",
             },
             "path": module.path.as_ref().map(|p| p.to_string_lossy().to_string()),
+            // The resolved package's own version (node_modules packages only),
+            // so the loader can form the `name@version` runtime identity for
+            // version-distinguished principals/compartments. (ENG-22621)
+            "pkgVersion": module.package_version,
             "source": module.source.unwrap_or_default()
         }),
         Err(err) => json!({

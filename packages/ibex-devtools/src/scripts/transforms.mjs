@@ -9,6 +9,7 @@
  * - transformAsyncGenerators: rewrites async generator functions into
  *   regular functions returning async iterables (Hermes lacks native support).
  */
+import fs from 'fs';
 import path from 'path';
 import { parse } from 'acorn';
 import {
@@ -1449,12 +1450,18 @@ export function createCompartmentGlobalsPlugin({
   return {
     name,
     transform(code, id) {
-      const pkg = resolvePackage ? resolvePackage(id) : packageOfModuleId(id);
+      // Key by the version-qualified identity (`name@version`) so coexisting
+      // versions never share a mutable compartment object, matching the runtime
+      // loader's identity. Endowment lookup still falls back to the bare name in
+      // the registry (isEndowed). @ref LLP 0013#resolved-questions (ENG-22621)
+      const pkg = resolvePackage ? resolvePackage(id) : packageIdentityOfModuleId(id);
       if (!pkg) return null; // first-party / root — trusted, not compartmentalized
-      const globalNames = endowmentsFor ? endowmentsFor(pkg) : defaultCompartmentGlobals;
-      // Each package resolves globals against its own compartment in the runtime
-      // registry, so coexisting versions and distinct packages never share a
-      // mutable compartment object. @ref LLP 0013#resolved-questions
+      // Endowment names are authored against the bare package name, so resolve
+      // them by the bare selector even though the compartment key is versioned.
+      const bareName = packageOfModuleId(id);
+      const globalNames = endowmentsFor
+        ? endowmentsFor(bareName || pkg)
+        : defaultCompartmentGlobals;
       const compartmentRef = `${registry}[${JSON.stringify(pkg)}]`;
       const rewritten = rewriteFreeGlobals(code, { compartmentRef, globalNames });
       if (rewritten === code) return null;
@@ -1487,6 +1494,40 @@ export function packageOfModuleId(id) {
     return `${parts[0]}/${parts[1]}`;
   }
   return parts[0];
+}
+
+const __pkgVersionMemo = new Map();
+
+/**
+ * The canonical version-qualified identity of a module's package
+ * (`name@version`), or the bare name when no version is readable. Reads the
+ * `version` field of the package's own nearest `package.json` (memoized per
+ * package root), so coexisting versions get distinct compartment keys and chunk
+ * groups — matching the runtime loader's identity (`name@version`). Bundle-time
+ * only. @ref LLP 0013#resolved-questions (ENG-22621)
+ */
+export function packageIdentityOfModuleId(id) {
+  const name = packageOfModuleId(id);
+  if (!name) return null;
+  const nid = String(id).replace(/\\/g, '/');
+  const marker = 'node_modules/';
+  const idx = nid.lastIndexOf(marker);
+  if (idx === -1) return name;
+  const root = nid.slice(0, idx + marker.length) + name;
+  let version;
+  if (__pkgVersionMemo.has(root)) {
+    version = __pkgVersionMemo.get(root);
+  } else {
+    version = null;
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+      if (manifest && typeof manifest.version === 'string') version = manifest.version;
+    } catch {
+      // No readable manifest/version → fall back to the bare name.
+    }
+    __pkgVersionMemo.set(root, version);
+  }
+  return version ? `${name}@${version}` : name;
 }
 
 export function createDirnameBindingsPlugin({ name = 'inject-dirname' } = {}) {

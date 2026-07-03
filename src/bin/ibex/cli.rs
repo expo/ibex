@@ -96,6 +96,13 @@ pub struct Cli {
     #[arg(long)]
     pub allow_all: bool,
 
+    /// Permit `IBEX_ENDOW` to add or widen compartment endowments even under an
+    /// enforce-mode policy. Development escape hatch: by default a generated
+    /// enforce policy is the sole endowment source and an ambient `IBEX_ENDOW`
+    /// cannot broaden it. @ref LLP 0013#mechanism-2
+    #[arg(long)]
+    pub allow_env_endowments: bool,
+
     /// Watch for file changes and auto-restart
     #[arg(long)]
     pub watch: bool,

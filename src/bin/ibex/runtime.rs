@@ -1289,7 +1289,7 @@ impl Runtime {
         // dir. Tell the loader that dir so it can resolve those requires
         // absolutely, while the entry's own `__dirname`/`__filename` stay mapped
         // to the source (the loader only redirects the `__ibexpkg__` specifiers).
-        let argv_code = if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_some() {
+        let argv_code = if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
             let chunk_dir = entry_path
                 .parent()
                 .map(|p| p.to_string_lossy().into_owned())
@@ -1552,7 +1552,8 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
         }
     };
 
-    apply_policy_endowments(policy_path.as_deref());
+    enable_isolation_prerequisites(mode);
+    apply_policy_endowments(policy_path.as_deref(), mode, cli.allow_env_endowments);
 
     Ok(HostConfig {
         mode,
@@ -1564,15 +1565,78 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     })
 }
 
+/// Enable the per-package **attribution** prerequisite that enforce/audit mode
+/// implies (ENG-22681). Selecting enforce (via `--capsec enforce` or a policy
+/// artifact's `mode: "enforce"`) only changes the host-boundary *decision*
+/// logic; on its own it does not give a bundled dependency its own runtime
+/// principal. A default flat bundle collapses to one Hermes Domain, so every
+/// `node_modules` frame carries the trusted root principal and the capability
+/// gate — which only bites non-root principals — never fires for a dependency.
+/// That makes a generated enforce policy a footgun: it looks like enforcement
+/// while a dependency's `fs`/`env`/network access is attributed to root.
+///
+/// So under enforce **and** audit we turn on per-package chunking (each npm
+/// package becomes its own chunk → its own Domain → its own principal), unless
+/// the operator explicitly opted out with `IBEX_PER_PACKAGE_CHUNKS=0`. This is
+/// the attribution prerequisite the RFC's Mechanism 3 needs for a bundled app;
+/// the unbundled loader path already attributes per package, and a bundler that
+/// is unavailable degrades to that path, so this never hard-fails a run. Set as
+/// an env var (before engine boot and before bundling) so it reaches the
+/// bundler, the bundle-cache key, and any spawned children uniformly.
+///
+/// Reachability hardening (Mechanism 1 lockdown + Mechanism 2 compartment
+/// withholding) stays **opt-in** via `--lockdown`: freezing intrinsics is the
+/// RFC's documented top compat risk (Risks §1) and is orthogonal to the
+/// attribution footgun this closes — an ungranted package's dangerous op is
+/// already denied at the host boundary once it is attributed to its own
+/// principal. @ref LLP 0013#mechanism-3
+fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
+    use crate::host::SecurityMode;
+    if !matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) {
+        return;
+    }
+    // Respect an explicit operator choice either way: `=1` (already on) or `=0`
+    // (opt out). We only supply the default when the var is absent.
+    if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_none() {
+        std::env::set_var("IBEX_PER_PACKAGE_CHUNKS", "1");
+        eprintln!(
+            "note: {} enables per-package isolation so bundled dependencies get \
+             their own principal (opt out with IBEX_PER_PACKAGE_CHUNKS=0)",
+            match mode {
+                SecurityMode::Enforce => "capsec enforce",
+                _ => "capsec audit",
+            }
+        );
+    }
+}
+
 /// Compose the compartment endowment map from the policy artifact's
 /// `packages.*.endow` lists into `IBEX_ENDOW` (`pkg:a,b;pkg2:c`) — the channel
 /// the engine's compartment registry reads at boot — so the generated policy
-/// drives Mechanism 2 end-to-end. An explicit `IBEX_ENDOW` in the environment
-/// keeps precedence: the registry's per-package parse is last-write-wins, so
-/// explicit groups are appended after the policy's. Applied once per process,
-/// before engine boot.
+/// drives Mechanism 2 end-to-end. Applied once per process, before engine boot.
+///
+/// Precedence depends on the effective mode (ENG-22684). The registry's
+/// per-package parse is last-write-wins, so whichever `pkg:` group appears last
+/// in the string wins:
+///
+/// - **Enforce / Audit (fail closed):** the policy artifact is the *sole*
+///   endowment source. A pre-existing (ambient/operator/wrapper-set)
+///   `IBEX_ENDOW` is dropped — never appended — so it cannot widen a package's
+///   globals (`process`, `fetch`, `eval`, …) past what the reviewed artifact
+///   grants. A stale value is cleared even when the policy contributes no
+///   groups. The `--allow-env-endowments` development escape hatch restores the
+///   append-merge. A dropped non-empty value is reported on stderr.
+/// - **Permissive (dev/legacy):** keep the append-merge so `IBEX_ENDOW` stays a
+///   usable ambient override, mirroring how `--capsec permissive`/`--allow-all`
+///   already relax enforcement.
+///
 /// @ref LLP 0014#runtime-and-cli
-fn apply_policy_endowments(policy_path: Option<&Path>) {
+fn apply_policy_endowments(
+    policy_path: Option<&Path>,
+    mode: crate::host::SecurityMode,
+    allow_env: bool,
+) {
+    use crate::host::SecurityMode;
     static APPLIED: AtomicBool = AtomicBool::new(false);
     let Some(path) = policy_path else {
         return;
@@ -1597,19 +1661,43 @@ fn apply_policy_endowments(policy_path: Option<&Path>) {
             }
         })
         .collect();
-    if groups.is_empty() {
+    groups.sort();
+
+    // Under enforce/audit, the policy is the sole endowment source and a stale
+    // ambient IBEX_ENDOW must be cleared even when the policy has no groups —
+    // otherwise an inherited value would survive untouched. In permissive/hatch
+    // mode with no policy groups there is nothing to compose, so leave any
+    // ambient value in place.
+    let fail_closed = matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) && !allow_env;
+    if groups.is_empty() && !fail_closed {
         return;
     }
-    groups.sort();
     if APPLIED.swap(true, Ordering::SeqCst) {
         return;
     }
-    let mut value = groups.join(";");
-    if let Ok(existing) = std::env::var("IBEX_ENDOW") {
-        if !existing.trim().is_empty() {
-            value = format!("{};{}", value, existing);
+
+    let policy_value = groups.join(";");
+    let existing = std::env::var("IBEX_ENDOW")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+
+    let value = if fail_closed {
+        if let Some(env) = &existing {
+            eprintln!(
+                "warning: IBEX_ENDOW ignored under an enforce/audit policy (would widen \
+                 compartment endowments: {env}); pass --allow-env-endowments to override"
+            );
         }
-    }
+        policy_value
+    } else {
+        // Permissive, or the explicit escape hatch: the ambient value keeps
+        // precedence (appended last → wins the registry's per-package parse).
+        match existing {
+            Some(env) if policy_value.is_empty() => env,
+            Some(env) => format!("{};{}", policy_value, env),
+            None => policy_value,
+        }
+    };
     std::env::set_var("IBEX_ENDOW", value);
 }
 
@@ -1692,11 +1780,7 @@ pub async fn prepare_entry_with_format(
 
     let cache_dir = runtime_cache_dir()?;
     let cache_key = bundle_cache_key(&path, bundle_format)?;
-    let output = cache_dir.join(format!(
-        "{}.bundle.{}",
-        cache_key,
-        bundle_file_ext(bundle_format)
-    ));
+    let output = bundle_output_path(&cache_dir, &cache_key, bundle_format);
 
     if bundle_cache_is_fresh(&output, &path).await {
         // Bundle is cached. Try bytecode if not already known incompatible.
@@ -1729,11 +1813,7 @@ pub async fn prepare_entry_with_format(
     // If format changed, recompute output path
     let output = if effective_format != bundle_format {
         let new_key = bundle_cache_key(&path, effective_format)?;
-        cache_dir.join(format!(
-            "{}.bundle.{}",
-            new_key,
-            bundle_file_ext(effective_format)
-        ))
+        bundle_output_path(&cache_dir, &new_key, effective_format)
     } else {
         output
     };
@@ -1746,11 +1826,7 @@ pub async fn prepare_entry_with_format(
             // blocks that our heuristic missed), retry with ESM format.
             if effective_format == BundleFormat::Cjs && err_msg.contains("Top-level await") {
                 let esm_key = bundle_cache_key(&path, BundleFormat::Esm)?;
-                let esm_output = cache_dir.join(format!(
-                    "{}.bundle.{}",
-                    esm_key,
-                    bundle_file_ext(BundleFormat::Esm)
-                ));
+                let esm_output = bundle_output_path(&cache_dir, &esm_key, BundleFormat::Esm);
                 match run_bundler(&path, &esm_output, BundleFormat::Esm).await {
                     Ok(()) => esm_output,
                     Err(esm_err) => return Err(esm_err),
@@ -2138,10 +2214,10 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
         crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS");
     compartments.hash(&mut hasher);
     // @ref LLP 0013#mechanism-3 — per-package chunking changes the output shape
-    // (multiple chunk files), so it must key distinctly from a flat bundle.
-    std::env::var_os("IBEX_PER_PACKAGE_CHUNKS")
-        .is_some()
-        .hash(&mut hasher);
+    // (multiple chunk files), so it must key distinctly from a flat bundle. Use
+    // the same truthiness parse as the other two read sites so `=0` is a real
+    // opt-out and the cache key agrees with what the bundler actually emitted.
+    crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS").hash(&mut hasher);
     hash_file_contents(&mut hasher, entry)?;
 
     for bundler_input in bundler_cache_input_paths() {
@@ -2164,6 +2240,23 @@ fn bundle_file_ext(format: BundleFormat) -> &'static str {
     match format {
         BundleFormat::Cjs => "js",
         BundleFormat::Esm => "mjs",
+    }
+}
+
+/// Where a bundle's entry file lands in the cache. A flat bundle is a single
+/// file named by the cache key. A per-package-chunked bundle also emits sibling
+/// chunk files (`__ibexpkg__*`, and the shared `rolldown-runtime.js`) into the
+/// entry's directory with **fixed, cross-bundle names** — so it gets its own
+/// per-key subdirectory, otherwise two concurrently-bundled apps race on the
+/// shared `rolldown-runtime.js` name and corrupt each other's cache (a real
+/// hazard for concurrent `ibex run` of different apps, surfaced once enforce
+/// began auto-enabling chunking — ENG-22681). @ref LLP 0013#mechanism-3
+fn bundle_output_path(cache_dir: &Path, key: &str, format: BundleFormat) -> PathBuf {
+    let ext = bundle_file_ext(format);
+    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
+        cache_dir.join(key).join(format!("bundle.{}", ext))
+    } else {
+        cache_dir.join(format!("{}.bundle.{}", key, ext))
     }
 }
 
@@ -2535,6 +2628,12 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
     let working_dir = bundler_working_dir()?;
     let timeout = timeout_from_env("EXACT_BUNDLER_TIMEOUT_MS", DEFAULT_BUNDLER_TIMEOUT_MS);
 
+    // The output may live in a per-key subdir (per-package chunking); make sure
+    // it exists before the bundler writes the entry + sibling chunks there.
+    if let Some(parent) = output.parent() {
+        tokio::fs::create_dir_all(parent).await.ok();
+    }
+
     let mut command = tokio::process::Command::new(&runner);
     command
         .arg(&script)
@@ -2552,10 +2651,12 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
     if crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS") {
         command.arg("--compartments");
     }
-    // @ref LLP 0013#mechanism-3 — opt-in per-package chunking so a bundled app
-    // gets per-package frame attribution (each package chunk loads into its own
-    // Domain). iife can't split; the bundler ignores the flag there.
-    if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_some() {
+    // @ref LLP 0013#mechanism-3 — per-package chunking so a bundled app gets
+    // per-package frame attribution (each package chunk loads into its own
+    // Domain). Auto-enabled under enforce/audit (see enable_isolation_prereqs);
+    // `IBEX_PER_PACKAGE_CHUNKS=0` opts out. iife can't split; the bundler
+    // ignores the flag there.
+    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
         command.arg("--per-package-chunks");
     }
     let cmd_output = output_with_timeout(

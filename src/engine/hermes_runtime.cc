@@ -1972,8 +1972,21 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       if (pkgName) endowMap[pkgName] = caps;
     }
   }
+  // Strip a trailing `@version` from a version-qualified compartment key,
+  // preserving an `@scope/` prefix (the `@` at index 0 is the scope, not a
+  // version). `pkg@1.0.0` -> `pkg`, `@scope/pkg@1.0.0` -> `@scope/pkg`. (ENG-22621)
+  function bareNameOf(pkg) {
+    var at = pkg.lastIndexOf('@');
+    var slash = pkg.indexOf('/');
+    if (at > 0 && at > slash) return pkg.slice(0, at);
+    return pkg;
+  }
   function isEndowed(pkg, name) {
-    var e = endowMap[pkg];
+    // Compartments are keyed by the version-qualified identity (`name@version`),
+    // but endow entries are usually written bare (`pkg:fetch`, applying to every
+    // version). Consult the exact key first so a pinned `pkg@1.0.0:fetch` can
+    // narrow one version, then fall back to the bare name. (ENG-22621)
+    var e = endowMap[pkg] || endowMap[bareNameOf(pkg)];
     return !!e && e.indexOf(name) !== -1;
   }
   function isWithheld(pkg, name) {

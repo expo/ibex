@@ -41,6 +41,28 @@
   var __privSetCompartmentFor = (typeof g.__exactSetCompartmentFor === 'function')
     ? g.__exactSetCompartmentFor
     : null;
+  // The canonical runtime identity for a resolved module: the package name plus
+  // its resolved version (`name@version`) when the host reported one, else the
+  // bare name. Coexisting versions of one package therefore get distinct
+  // principals, compartments, and endowment buckets, while the bare name stays
+  // the policy selector that survives version bumps. @ref LLP 0013#resolved-questions
+  // (ENG-22621)
+  function packageIdentityFor(name, record) {
+    if (!name) return null;
+    var version = record && record.pkgVersion;
+    return version ? name + '@' + version : name;
+  }
+  // Strip a trailing `@version` from a version-qualified identity to recover the
+  // bare package **selector**, preserving an `@scope/` prefix (the `@` at index
+  // 0 is the scope, not a version). Kept in sync with `bareNameOf` in the
+  // compartment registry (hermes_runtime.cc). @ref LLP 0013#resolved-questions (ENG-22621)
+  function bareNameOf(identity) {
+    if (typeof identity !== 'string') return identity;
+    var at = identity.lastIndexOf('@');
+    var slash = identity.indexOf('/');
+    if (at > 0 && at > slash) return identity.slice(0, at);
+    return identity;
+  }
   // The per-package compartment global for a resolved module, or null when it
   // should resolve against the real global (root / builtins / no registry).
   function compartmentForRecord(record) {
@@ -49,7 +71,11 @@
     if (!registry) return null;
     var name = packageNameFromPath(record && (record.path || record.id));
     if (!name) return null;
-    try { return registry[name] || null; } catch (e) { return null; }
+    // Key by the version-qualified identity so two installed versions never
+    // share one mutable compartment global (ENG-22621). Name-level endowment
+    // entries still apply via the registry's bare-name fallback (isEndowed).
+    var identity = packageIdentityFor(name, record);
+    try { return registry[identity] || null; } catch (e) { return null; }
   }
   // Principal ids assigned per package name (0 = first-party / trusted root).
   var __packagePrincipals = Object.create(null);
@@ -135,13 +161,23 @@
       }
       return 0;
     }
-    var existing = __packagePrincipals[name];
+    // Key the principal by the version-qualified identity so two coexisting
+    // versions get separate principals; register the **bare** name as the policy
+    // selector and the identity as the locator, so host policy lookup consults
+    // `name@version` before `name` (selector precedence, capability.rs::selectors).
+    // `name` here is the bare package name for the unbundled path, but the
+    // decoded chunk identity (`name@version`) for the bundled per-package-chunk
+    // path — so derive both from the identity uniformly. @ref LLP 0013#resolved-questions
+    // (ENG-22621)
+    var identity = packageIdentityFor(name, record);
+    var selector = bareNameOf(identity);
+    var existing = __packagePrincipals[identity];
     if (existing) return existing;
     var id = __nextPackagePrincipal++;
-    __packagePrincipals[name] = id;
+    __packagePrincipals[identity] = id;
     if (__privRegisterPackage) {
       try {
-        __privRegisterPackage(id, name, (record && record.path) || null);
+        __privRegisterPackage(id, selector, identity);
       } catch (e) {}
     }
     return id;
@@ -4901,17 +4937,24 @@
     __exactPinProcessStreams();
 
     // @ref LLP 0013#mechanism-3 — per-package chunk requires (`__ibexpkg__*`)
-    // live in the bundle cache dir, but the entry's `__dirname` is mapped to the
-    // source dir; resolve these specifiers absolutely against the chunk dir so
-    // sibling chunks are found while the entry keeps source-relative __dirname.
+    // and the shared bundler runtime chunk (`rolldown-runtime.js`, emitted for
+    // ESM/interop apps) live in the bundle cache dir, but the entry's
+    // `__dirname` is mapped to the source dir; resolve these specifiers
+    // absolutely against the chunk dir so sibling chunks are found while the
+    // entry keeps source-relative __dirname. Without the runtime-chunk redirect,
+    // an ESM app would fail to resolve `./rolldown-runtime.js` once chunking is
+    // on (which enforce/audit now does by default — ENG-22681/ENG-22624).
     if (typeof specifier === 'string' && g.__exactChunkDir &&
-        specifier.indexOf('__ibexpkg__') !== -1) {
+        (specifier.indexOf('__ibexpkg__') !== -1 ||
+         specifier.indexOf('rolldown-runtime.js') !== -1)) {
       var __ci = specifier.lastIndexOf('/');
       var __cbase = __ci === -1 ? specifier : specifier.slice(__ci + 1);
       // Only bundler-emitted chunk basenames resolve against the cache dir. Reject
       // anything with a backslash (a Windows path separator), a `..` segment, or a
       // NUL so the basename cannot escape __exactChunkDir. @ref LLP 0013#mechanism-3
-      if (__cbase.indexOf('__ibexpkg__') === 0 &&
+      var __isChunk = __cbase.indexOf('__ibexpkg__') === 0 ||
+          __cbase === 'rolldown-runtime.js';
+      if (__isChunk &&
           __cbase.indexOf('\\') === -1 &&
           __cbase.indexOf('..') === -1 &&
           __cbase.indexOf('\0') === -1) {

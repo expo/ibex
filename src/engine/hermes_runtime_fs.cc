@@ -1260,6 +1260,23 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (!checkCapability("fs:write:" + path)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
+        // The link's TARGET is gated too: a path-scoped principal must not
+        // plant a link that points outside its write grant for other
+        // principals (or external tools) to traverse. Relative targets
+        // resolve against the link's directory, exactly as the kernel will
+        // resolve them. (ENG-22682)
+        {
+          std::string absTarget = target;
+          if (!absTarget.empty() && absTarget[0] != '/') {
+            auto slash = path.find_last_of('/');
+            std::string dir = slash == std::string::npos ? std::string(".")
+                                                         : path.substr(0, slash);
+            absTarget = dir + "/" + absTarget;
+          }
+          if (!checkCapability("fs:write:" + absTarget)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        }
         if (::symlink(target.c_str(), path.c_str()) != 0) {
           throwFsError(runtime, "symlink", target, path);
         }
@@ -1281,8 +1298,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         // fs:write at the link location AND fs:read on the source: without the
         // read check, a package could hard-link a file outside its read grant into
         // its own readable dir and read the contents through the alias. (ENG-22627,
-        // review follow-up)
+        // review follow-up) It also needs fs:write on the SOURCE: the new name
+        // aliases the inode, so a later (in-grant) write through `newp` would
+        // mutate a file the caller could only read. (ENG-22682)
         if (!checkCapability("fs:read:" + existing)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (!checkCapability("fs:write:" + existing)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (!checkCapability("fs:write:" + newp)) {
@@ -1482,6 +1504,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       throw facebook::jsi::JSError(runtime, "__exactLutimes: path, atime, mtime required");
     }
     auto path = args[0].toString(runtime).utf8(runtime);
+    // Setting a link's own atime/mtime mutates file metadata; this was the only
+    // path-based mutator besides lchmod with no gate at all. (ENG-22682)
+    if (!checkCapability("fs:write:" + path)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
     double atimeVal = args[1].asNumber();
     double mtimeVal = args[2].asNumber();
     struct timespec times[2];
@@ -1528,6 +1555,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       throw facebook::jsi::JSError(runtime, "__exactLchmod: path and mode required");
     }
     auto path = args[0].toString(runtime).utf8(runtime);
+    // Changing a link's own mode mutates file metadata; gate like chmod. (ENG-22682)
+    if (!checkCapability("fs:write:" + path)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
     mode_t mode = static_cast<mode_t>(args[1].asNumber());
 #if defined(__APPLE__)
     if (::lchmod(path.c_str(), mode) != 0) {

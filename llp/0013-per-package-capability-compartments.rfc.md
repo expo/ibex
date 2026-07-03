@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed); 2026-07-03 (adversarial review + fixes — patch 0007 fails closed on the async/deputy attribution boundary (`kNoUserPrincipal` sentinel + internal-bytecode runtime-principal stamp) so a package cannot launder a detached deputy op into trusted root; endowment config injected via `__ibexEndowRaw` not gated `process.env`; explicit `--capsec permissive` distinguished from the `Auto` default; `ceiling_configured` fails closed on lock poison; native deep-freeze per-root try/catch; chunk-basename traversal guard); 2026-07-03 (patch 0008 closes the async deputy-class laundering hole ENG-22631 — the schedule-time principal is captured at `enqueueJob` and appended to the deputy-class stack, so `Promise.resolve(x).then(deputy.method)` under `deputyClasses` is attributed to its scheduler; resolves Open question 3's schedule-time half)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed); 2026-07-03 (adversarial review + fixes — patch 0007 fails closed on the async/deputy attribution boundary (`kNoUserPrincipal` sentinel + internal-bytecode runtime-principal stamp) so a package cannot launder a detached deputy op into trusted root; endowment config injected via `__ibexEndowRaw` not gated `process.env`; explicit `--capsec permissive` distinguished from the `Auto` default; `ceiling_configured` fails closed on lock poison; native deep-freeze per-root try/catch; chunk-basename traversal guard); 2026-07-03 (patch 0008 closes the async deputy-class laundering hole ENG-22631 — the schedule-time principal is captured at `enqueueJob` and appended to the deputy-class stack, so `Promise.resolve(x).then(deputy.method)` under `deputyClasses` is attributed to its scheduler; resolves Open question 3's schedule-time half); 2026-07-03 (deep-review fixes ENG-22681/22682/22683/22684/22621: enforce/audit auto-enable per-package chunking so a bundled dependency is attributed to its own principal, not root — plus a per-key bundle-cache subdir and the shared `rolldown-runtime.js` chunk redirect that makes chunking robust for ESM apps and safe under concurrent runs; path-scoped `fs` grants resolve symlinks before matching, and `lutimes`/`lchmod`/symlink-target/hardlink-source gates close the last path-mutator holes; `IBEX_ENDOW` can no longer widen policy endowments under enforce/audit without `--allow-env-endowments`; the generated policy emits an explicit observed `builtins` allowlist so the import axis is default-deny; and package identity is now version-distinguished end-to-end — `name@version` principals/compartments/chunks with bare-name policy selectors, so coexisting versions receive distinct policy treatment)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -1007,8 +1007,26 @@ gate also treats an exotic/invalid access mode (`O_ACCMODE == 3`) as requiring a
 least `fs:read`, so flag math can only widen the requirement, never skip it
 (ENG-22639). Enforcement is not limited to the fd path: the standalone
 path-based mutators — `symlink`, `link`, `truncate`, `chown`, `lchown`, `utimes`,
-`rename` (both `from` **and** `to`) — each gate `fs:write`, and `readlink`/`statfs`
-gate `fs:read`, so no path-based `fs` mutator bypasses the gate (ENG-22627).
+`lutimes`, `lchmod`, `rename` (both `from` **and** `to`) — each gate `fs:write`,
+and `readlink`/`statfs` gate `fs:read`, so no path-based `fs` mutator bypasses the
+gate (ENG-22627; `lutimes`/`lchmod` were the last two ungated link mutators,
+closed in ENG-22682).
+
+Path-scoped grants resolve symlinks before matching (ENG-22682). A grant string
+names a path prefix (`fs:write:/app/safe/**`), and the check value is built from
+the raw path the operation targets — but the OS follows symlinks when it runs the
+syscall. So `normalize_fs_resource` (`src/host/capability.rs`) resolves the
+symlink-bearing prefix of *both* the grant pattern and the checked value to the
+path the kernel will actually reach, walking the deepest existing ancestor when
+the leaf does not yet exist (the `O_CREAT` case a purely lexical fallback missed):
+a write to `/app/safe/link/new` where `/app/safe/link → /outside` is a symlink now
+normalizes to `/outside/new` and no longer matches the `/app/safe/**` grant.
+Symlink *creation* additionally gates its resolved target, and hard-link creation
+gates `fs:write` on the source inode (not just `fs:read`), so a scoped principal
+cannot plant an escaping alias for a later in-grant traversal to follow. The
+guarantee is traversal-time denial at the normalize choke point every mutator
+shares; the residual check-vs-syscall TOCTOU (low risk under single-threaded,
+same-principal JS) is noted for a possible `openat`/`O_NOFOLLOW` follow-up.
 
 The `process.env` gap: `process.env` is a JS Proxy whose reads funnel every key
 through the capability-checked native `__exactGetEnv`/`__exactGetAllEnv`
@@ -1152,34 +1170,79 @@ thread-local, `__exactSetActiveModuleId`, and `__exactGrantCapability` are still
 sealed at end-of-bootstrap (the deletion-outright cleanup is deferred to keep the
 fallback path intact for unpatched targets). Red-team coverage:
 `tests/llp0013_compartments.rs::frame_attribution_denies_deferred_dependency_but_allows_app`
-(and its permissive-mode control). **Per-package bundled units** are landed as an
-opt-in: `IBEX_PER_PACKAGE_CHUNKS` makes the bundler emit one Rolldown chunk per
-npm package (named `__ibexpkg__<pkg>`), which the loader compiles into its own
-Domain stamped with the package principal — so a *bundled* app gets per-package
-attribution too, not just the unbundled/dynamic-require path. The default flat
-bundle still collapses to one Domain (a bundled dependency is attributed to root
-until the flag is set). In this mode the loader resolves the `__ibexpkg__<pkg>`
-sibling specifiers absolutely against the chunk cache directory
-(`globalThis.__exactChunkDir`, the entry's parent) so the split chunks find each
-other, while the entry module keeps its **source-relative** `__dirname` /
-`__filename` (the entry-path remap is unaffected — only the `__ibexpkg__`
-specifiers are redirected). Tested by
+(and its permissive-mode control). **Per-package bundled units:**
+`IBEX_PER_PACKAGE_CHUNKS` makes the bundler emit one Rolldown chunk per npm
+package (named `__ibexpkg__<pkg>`), which the loader compiles into its own Domain
+stamped with the package principal — so a *bundled* app gets per-package
+attribution too, not just the unbundled/dynamic-require path. In this mode the
+loader resolves the `__ibexpkg__<pkg>` sibling specifiers — and the shared
+`rolldown-runtime.js` interop chunk an ESM app emits — absolutely against the
+chunk cache directory (`globalThis.__exactChunkDir`, the entry's parent) so the
+split chunks find each other, while the entry module keeps its **source-relative**
+`__dirname` / `__filename` (the entry-path remap is unaffected — only the chunk
+specifiers are redirected; the runtime-chunk redirect is ENG-22681, without which
+a chunked ESM app fails to resolve `./rolldown-runtime.js`). Tested by
 `tests/llp0013_compartments.rs::per_package_chunks_give_bundled_apps_frame_attribution`
 (with a flat-bundle control). The deputy caveat above still applies.
 
-**Package identity — selector precedence (Resolved Q1).** The canonical runtime
-identity is the package **name** (the policy selector, which survives version
-bumps) plus the resolved **locator** (the runtime principal — lockfile identity /
-path / integrity as available; `PackagePrincipal { name, locator }`). Host policy
-lookup (`decide` / `decide_import`) consults the locator-qualified selector
-**before** the bare name and takes the first with a matching grant/deny, so a
-policy can pin a specific coexisting version (`node-fetch@2`) while the name entry
-remains the default — the opt-in tightening Resolved Q1 describes. Tested by
-`capability.rs::version_locator_selector_overrides_name` (ENG-22621). The
-name-keyed compartment/endowment bucket is still shared across a package's
-coexisting versions; giving each `name@version` its own compartment global, and
-matching human-friendly `name@version` selectors against a resolved version via a
-semver scheme (the locator is a path today), remain scoped follow-ups.
+**Enforce/audit auto-enable this (ENG-22681).** Selecting enforce or audit — via
+`--capsec` or a generated artifact's `mode` field — only changes the host-boundary
+*decision* logic; on its own it does not give a bundled dependency its own
+principal. A default flat bundle collapses to one Domain, so every `node_modules`
+frame carries the trusted **root** principal and the capability gate (which only
+bites non-root principals) never fires for a dependency — a `ibex run --policy
+generated.json` that *looks* like enforcement while a dependency's `fs`/`env`/
+network access is silently attributed to root. So enforce **and** audit now set
+`IBEX_PER_PACKAGE_CHUNKS` by default (`enable_isolation_prerequisites` in
+`src/bin/ibex/runtime.rs`); `IBEX_PER_PACKAGE_CHUNKS=0` is the explicit opt-out (all
+three read sites use the shared truthiness parse so `=0` is honored — ENG-22634),
+and the unbundled loader path (or an unavailable bundler) already attributes per
+package, so this never hard-fails a run. Reachability hardening (Mechanism 1
+lockdown + Mechanism 2 withholding) stays **opt-in** under `--lockdown`: freezing
+intrinsics is the RFC's documented top compat risk (Risks §1) and is orthogonal to
+the attribution footgun this closes — an ungranted dependency's dangerous op is
+already denied at the host boundary once it is attributed to its own principal.
+Tested by `tests/llp0013_compartments.rs::policy_declared_enforce_auto_enables_bundled_attribution`
+(with an `IBEX_PER_PACKAGE_CHUNKS=0` opt-out control).
+
+**Package identity — version-distinguished (Resolved Q1, ENG-22621).** The
+canonical runtime identity is `name@version`: the package **name** is the policy
+**selector** (it survives version bumps), and `name@version` is the runtime
+**locator/principal** (`PackagePrincipal { name, locator }`). The version is read
+from the resolved module's own nearest `package.json` — at resolve time in Rust
+for the unbundled/native path (`ResolvedModule::package_version` → the loader's
+`packageIdentityFor`), and at bundle time in devtools for the bundled path
+(`packageIdentityOfModuleId`). This identity is used **uniformly** across every
+boundary a package-name key used to cross:
+
+- **Principals.** The loader keys `__packagePrincipals` by `name@version`, so two
+  coexisting versions get **separate** principals (and Domains), and registers the
+  bare name as the selector plus `name@version` as the locator.
+- **Host policy lookup.** `decide` / `decide_import` consult the locator selector
+  **before** the bare name (`PackagePrincipal::selectors`), so a policy can pin a
+  specific version (`shared-pkg@1.0.0`) while the bare `shared-pkg` entry remains
+  the default that applies to every version — the opt-in tightening Resolved Q1
+  describes.
+- **Compartments.** The runtime compartment registry, the loader's compartment
+  binding (`compartmentForRecord`), and the devtools free-global rewrite
+  (`createCompartmentGlobalsPlugin`) all key by `name@version`, so coexisting
+  versions never share a mutable compartment global. Endowment lookup falls back
+  from `name@version` to the bare name (`isEndowed`, `bareNameOf`), so a
+  name-level `endow` entry applies to all versions while a pinned entry narrows.
+- **Chunks.** The bundler groups by `name@version`, so two versions become
+  separate `__ibexpkg__<name>@<version>` chunks → separate Domains → separate
+  principals in a *bundled* app too.
+
+Tested by `capability.rs::{version_locator_selector_overrides_name,
+bare_name_selector_matches_all_versions}`,
+`llp0013_compartments.rs::coexisting_versions_get_distinct_policy_treatment`
+(unbundled + bundled), and `transforms.test.mjs::packageIdentityOfModuleId`.
+Remaining scoped follow-up: matching human-friendly semver **ranges**
+(`pkg@^2`) rather than exact `name@version` pins — the exact pin satisfies the
+"version pins are opt-in tightening" language; range matching waits on a concrete
+need. The artifact `packages` keys stay name-keyed by design (LLP 0014 §Residual
+risks — "name-keyed grants survive version bumps"); a version pin is authored by
+hand.
 
 #### Import gating (Policy surface 3)
 

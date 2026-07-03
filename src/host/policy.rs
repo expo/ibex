@@ -60,7 +60,13 @@ pub struct ModulePolicy {
 /// ```
 ///
 /// `builtins`/`packages` are `Option`: absent means "unrestricted on that
-/// axis", an explicit (possibly empty) list means "only these are allowed".
+/// axis", an explicit (possibly empty) list means "only these are allowed"
+/// (`Some(vec![])` denies everything on that axis).
+///
+/// Absence is a *hand-authored* affordance only: `generate-policy.mjs` always
+/// emits an explicit `builtins` list (the builtins the package statically
+/// imports, or `[]`), so a generated `{}`-shaped entry never leaves the import
+/// axis unrestricted (ENG-22683; LLP 0014 §the-generated-artifact).
 #[derive(Debug, Deserialize, Default)]
 pub struct PackagePolicy {
     /// Host capabilities granted to this package's frames.

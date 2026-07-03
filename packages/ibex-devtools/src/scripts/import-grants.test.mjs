@@ -7,6 +7,8 @@ import {
   parseImportGrants,
   stripGrantAttributes,
   packageNameOfSpecifier,
+  builtinSpecifierOf,
+  extractImportSpecifiers,
   capabilitySubsumes,
   capabilityIntersect,
   capabilityUnion,
@@ -14,6 +16,38 @@ import {
   deriveSurfaces,
   createImportGrantsPlugin,
 } from './import-grants.mjs';
+
+// ---------------------------------------------------------------------------
+// builtinSpecifierOf / extractImportSpecifiers (ENG-22683 — builtins axis)
+// ---------------------------------------------------------------------------
+
+test('builtinSpecifierOf classifies builtins and normalizes the node: prefix', () => {
+  expect(builtinSpecifierOf('os')).toBe('node:os');
+  expect(builtinSpecifierOf('node:os')).toBe('node:os');
+  expect(builtinSpecifierOf('fs/promises')).toBe('node:fs/promises'); // subpath preserved
+  expect(builtinSpecifierOf('node:crypto')).toBe('node:crypto');
+  expect(builtinSpecifierOf('lodash')).toBeNull(); // real package
+  expect(builtinSpecifierOf('@scope/pkg')).toBeNull(); // scoped package
+  expect(builtinSpecifierOf('./local.js')).toBeNull(); // relative path
+  expect(builtinSpecifierOf('/abs/path')).toBeNull();
+});
+
+test('extractImportSpecifiers finds import/export-from/dynamic-import/require', () => {
+  const src = [
+    'import a from "os";',
+    'export { x } from "node:path";',
+    'const p = import("fs/promises");',
+    'const cp = require("child_process");',
+    'const n = "o" + "s"; const dyn = require(n);', // computed → not extractable
+  ].join('\n');
+  const specs = extractImportSpecifiers(src);
+  expect(specs).toContain('os');
+  expect(specs).toContain('node:path');
+  expect(specs).toContain('fs/promises');
+  expect(specs).toContain('child_process');
+  // The computed require contributes nothing (fail closed).
+  expect(specs).not.toContain('n');
+});
 
 // ---------------------------------------------------------------------------
 // parseImportGrants

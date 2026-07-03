@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from 'fs/promises';
 import path from 'path';
-import { createRolldownConfig, runtimeImportMetaDefine, packageOfModuleId } from './transforms.mjs';
+import { createRolldownConfig, runtimeImportMetaDefine, packageIdentityOfModuleId } from './transforms.mjs';
 
 // @ref LLP 0013#mechanism-3 — encode a package name into a chunk name reversibly
 // (filesystem-safe), so the runtime loader can recover the package a chunk
@@ -90,7 +90,11 @@ const writeResult = await bundle.write({
           groups: [
             {
               name: (id) => {
-                const pkg = packageOfModuleId(id);
+                // Group by the version-qualified identity (`name@version`) so two
+                // installed versions of one package become separate chunks (hence
+                // separate Domains/principals), matching the runtime loader's
+                // identity. @ref LLP 0013#resolved-questions (ENG-22621)
+                const pkg = packageIdentityOfModuleId(id);
                 return pkg ? encodePackageChunkName(pkg) : null;
               },
               test: /node_modules/,

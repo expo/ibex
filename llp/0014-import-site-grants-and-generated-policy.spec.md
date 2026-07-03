@@ -116,14 +116,27 @@ Rules, all normative:
 ## Declared, not inferred
 
 LavaMoat's `generate` infers policy from what package code *does*; this
-spec generates from what root code *declares*. The difference is the
-failure mode under a malicious update: usage-inference rubber-stamps new
-behavior into the regenerated policy unless a human reads the diff, whereas
-declared grants fail closed — the compromised version's new ambient reach
-is denied until the app author edits their own import site. Inference
-remains useful on the *request* side (proposing `ibex` manifests for
-unannotated packages, LLP 0013 Open/Resolved question 11); it is never a
-grant source.
+spec generates **host-capability grants** from what root code *declares*.
+The difference is the failure mode under a malicious update: usage-inference
+rubber-stamps new behavior into the regenerated policy unless a human reads
+the diff, whereas declared grants fail closed — the compromised version's
+new *ambient* reach (a granted capability) is denied until the app author
+edits their own import site. Inference remains useful on the *request* side
+(proposing `ibex` manifests for unannotated packages, LLP 0013
+Open/Resolved question 11); it is never a **grant** source.
+
+The **import fence** (`builtins`) is the one surface synthesized from the
+static module graph rather than declared (ENG-22683): the alternative —
+requiring the app author to hand-enumerate every builtin each transitive
+dependency imports — reproduces exactly the hand-maintained-hodgepodge this
+spec exists to avoid, and denies `util`/`events`/`stream` under enforce
+until annotated. This does not reopen the inference failure mode: unlike a
+capability grant, a synthesized allowlist entry only permits *loading* a
+module — the dangerous operation is still gated by the (declared)
+capability system — and a hijacked release that adds a builtin import
+surfaces as a `--check` **expansion** review tripwire, so the new reach is
+never rubber-stamped silently. Computed/obfuscated specifiers contribute
+nothing and are denied at runtime.
 
 ## Transitive grants and co-located exceptions
 
@@ -170,20 +183,28 @@ mode does not provide.
 
 Policy governs three surfaces (LLP 0013 §Policy); a grant string names a
 host capability, but a usable policy usually needs the other two surfaces
-to agree (a package granted `network:fetch` with no `fetch` endowment and
-no `node:http` import permission cannot function). The generator derives
-the obvious companions; explicit `endow:`/`builtins:` attributes extend
-the derived set:
+to agree (a package granted `network:fetch` with no `fetch` endowment
+cannot function). The generator derives the obvious **endowment** companions
+from the capability class; explicit `endow:` attributes extend the derived
+set:
 
-| Capability class | Derived endowments | Derived builtins |
-|---|---|---|
-| `network:fetch*`, `network:*` | `fetch`, `XMLHttpRequest`, `WebSocket` | — |
-| `process:*` | `process` | — |
-| `fs:*` | — | `node:fs`, `node:fs/promises`, `node:path` |
+| Capability class | Derived endowments |
+|---|---|
+| `network:fetch*`, `network:*` | `fetch`, `XMLHttpRequest`, `WebSocket` |
+| `process:*` | `process` |
+| `fs:*` | — |
 
-The table is deliberately small and lives in one place
-(`packages/ibex-devtools/src/scripts/import-grants.mjs`); anything not
-derivable is authored explicitly at the site.
+The **builtins** surface is *not* derived from the capability class (a
+partial class-derived list is enforced strictly and wrongly denies every
+other builtin a package legitimately imports — ENG-22633). Instead the
+generator **observes** each package's static builtin imports from the
+module graph and emits exactly that allowlist (LavaMoat-style), plus any
+explicit `builtins:` attributes (ENG-22683). A package that imports no
+builtin gets `builtins: []` — deny-all, the containment statement — and one
+that imports `os` gets `builtins: ["node:os"]`; a builtin reached through a
+computed specifier the generator cannot see is denied at runtime (fail
+closed). The derivation table and the builtin classifier both live in one
+place (`packages/ibex-devtools/src/scripts/import-grants.mjs`).
 
 ## The generated artifact
 
@@ -201,9 +222,10 @@ ignores:
   "mode": "enforce",
   "packages": {
     "image-lib":       { "capabilities": ["fs:read:/app/images"],
-                         "builtins": ["node:fs", "node:fs/promises", "node:path"] },
-    "tmp-file-helper": { "capabilities": ["fs:read:/app/images"] },
-    "evil-pkg":        {}      // present-but-empty: the closed inventory
+                         "builtins": ["node:fs", "node:path"] },  // observed imports
+    "tmp-file-helper": { "capabilities": ["fs:read:/app/images"],
+                         "builtins": [] },
+    "evil-pkg":        { "builtins": [] }   // closed on every surface
   },
   "provenance": {
     "image-lib": [
@@ -218,10 +240,14 @@ ignores:
 
 Normative properties:
 
-- **Every package in the analyzed graph appears**, granted or not. An
-  empty entry is the containment statement "this package holds nothing
-  ambient"; a package missing from the artifact is a generation bug, not a
-  default.
+- **Every package in the analyzed graph appears**, granted or not, and
+  every entry carries an explicit `builtins` list (`[]` when the package
+  imports no builtin). The runtime reads an *absent* `builtins` as
+  "unrestricted on the import axis", so the generator never omits it —
+  absence is reserved for hand-authored policies (ENG-22683). A
+  builtins-only entry (`{ "builtins": [] }`) is therefore the containment
+  statement "this package holds nothing ambient and may import no builtin";
+  a package missing from the artifact is a generation bug, not a default.
 - **Every granted capability carries provenance**: the root site
   (`file:line`) that issued it, or the delegation chain that cascaded it.
   Every entry answers "why is this here" by construction.
@@ -230,10 +256,12 @@ Normative properties:
 - **Committed and drift-checked.** The artifact is checked in like a
   lockfile. `generate-policy.mjs --check` regenerates and fails CI on any
   difference, reporting **expansions** (new packages with grants, new
-  capabilities) separately from shrinkage — expansion is the review
-  tripwire; shrinkage is free. This is what converts "hodgepodge nobody
-  dares touch" into a reviewable record: the aggregate diff appears in the
-  PR next to the import-site change that caused it.
+  capabilities, **and new builtin imports** — `pkg: import node:child_process`)
+  separately from shrinkage — expansion is the review tripwire; shrinkage is
+  free. A hijacked release that adds a builtin import therefore surfaces as a
+  mandatory review diff. This is what converts "hodgepodge nobody dares touch"
+  into a reviewable record: the aggregate diff appears in the PR next to the
+  import-site change that caused it.
 
 ## Dynamic grants and the static ceiling
 
@@ -361,7 +389,14 @@ dispatched to `run_policy_command` in `src/bin/ibex/runtime.rs`)
 spawns the generator with the bundler's runner-resolution plumbing. At
 boot, `packages.*.endow` from the loaded policy composes into the
 compartment registry's endowment map (`src/bin/ibex/runtime.rs`), so the
-artifact drives Mechanism 2 end-to-end. The artifact is also the security
+artifact drives Mechanism 2 end-to-end. Under enforce/audit the artifact is
+the **sole** endowment source: an ambient `IBEX_ENDOW` (operator- or
+wrapper-set) is dropped rather than merged, so it cannot widen a package's
+globals past the reviewed artifact (`--allow-env-endowments` is the
+development escape hatch; a dropped value is reported on stderr). Permissive
+keeps the ambient override for dev ergonomics. (ENG-22684 — this closes the
+prior "explicit env keeps precedence" behavior, which pre-dated the
+enforce-mode threat framing.) The artifact is also the security
 **mode** source: when no explicit `--capsec` is passed, the policy's `mode`
 field (`enforce`/`audit`/`permissive`) sets the runtime `SecurityMode`
 (`policy_declared_mode` → `build_host_config`), so a generated artifact that

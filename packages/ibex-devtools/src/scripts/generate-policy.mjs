@@ -22,6 +22,8 @@ import {
 import {
   createImportGrantsPlugin,
   packageNameOfSpecifier,
+  builtinSpecifierOf,
+  extractImportSpecifiers,
   capabilityUnion,
   resolveCascade,
   deriveSurfaces,
@@ -70,6 +72,7 @@ const ignoredPackageGrants = []; // supply-chain signal: grant syntax in node_mo
 const generationErrors = [];
 const packageDirs = new Map(); // pkg -> Set<dir>
 const edges = new Set(); // "fromPkg\0toPkg" ("" = root principal)
+const observedBuiltins = new Map(); // pkg -> Set<node:builtin> the package imports
 
 // @ref LLP 0014#the-grant-channel — grants are honored only in modules that
 // belong to the trusted root principal (no node_modules ancestor). The same
@@ -107,6 +110,21 @@ const graphPlugin = {
       const marker = 'node_modules/';
       const idx = nid.lastIndexOf(marker);
       if (idx !== -1) packageDirs.get(pkg).add(nid.slice(0, idx + marker.length) + pkg);
+
+      // @ref LLP 0014#the-generated-artifact — observe each package module's
+      // static builtin imports so the emitted `builtins` list is a true
+      // containment statement (default-deny) rather than an omitted free pass.
+      // Done here rather than in resolveId because rolldown pre-marks builtins
+      // external and skips the resolve hook for them, but transform still sees
+      // the source. A computed specifier (`require(n)`) contributes nothing and
+      // is therefore denied at runtime (fail closed).
+      for (const spec of extractImportSpecifiers(code)) {
+        const builtin = builtinSpecifierOf(spec);
+        if (builtin) {
+          if (!observedBuiltins.has(pkg)) observedBuiltins.set(pkg, new Set());
+          observedBuiltins.get(pkg).add(builtin);
+        }
+      }
     }
     return null;
   },
@@ -228,17 +246,33 @@ for (const pkg of [...universe].sort()) {
   const derived = deriveSurfaces(caps);
   const explicit = explicitSurfaces.get(pkg);
   const endow = [...new Set([...derived.endow, ...(explicit ? explicit.endow : [])])].sort();
+  const observed = observedBuiltins.get(pkg);
   const builtins = [
-    ...new Set([...derived.builtins, ...(explicit ? explicit.builtins : [])]),
+    ...new Set([
+      ...derived.builtins,
+      ...(explicit ? explicit.builtins : []),
+      ...(observed ? observed : []),
+    ]),
   ].sort();
 
   // @ref LLP 0014#the-generated-artifact — every package in the analyzed
   // graph appears, granted or not; the empty entry is the containment
   // statement, and a missing package is a generation bug.
+  //
+  // `builtins` is emitted UNCONDITIONALLY (even when empty) for every generated
+  // package entry (ENG-22683): the runtime reads an *absent* `builtins` as
+  // "unrestricted on the import axis", so an omitted field would leave `os`,
+  // `child_process`, etc. reachable by default and make the empty entry a free
+  // pass instead of a containment statement. The list is the builtins the
+  // package actually imports in this graph (statically observed) plus any
+  // authored `builtins:` — so a package that imports nothing gets `[]`
+  // (deny-all builtins) while one that imports `os` gets `["node:os"]`. Absence
+  // is reserved for hand-authored policies; the generator never omits it. `endow`
+  // stays conditional (absent endow is already closed-by-default in the runtime).
   const entryOut = {};
   if (caps.length) entryOut.capabilities = caps;
   if (endow.length) entryOut.endow = endow;
-  if (builtins.length) entryOut.builtins = builtins;
+  entryOut.builtins = builtins;
   packagesOut[pkg] = entryOut;
 
   const whys = effective.get(pkg);
@@ -287,6 +321,20 @@ function capsByPackage(artifactJson) {
   return map;
 }
 
+// @ref LLP 0014#the-generated-artifact — the import (builtins) axis drifts like
+// the capability axis: a hijacked release that adds a builtin import (e.g.
+// `node:child_process`) must surface as an EXPANSION review tripwire, not a
+// silent structural change. A *missing* builtins field reads as unrestricted, so
+// treat it as the wildcard sentinel `*` here so tightening it to a list reads as
+// shrinkage, never expansion.
+function builtinsByPackage(artifactJson) {
+  const map = new Map();
+  for (const [pkg, entryOut] of Object.entries(artifactJson.packages || {})) {
+    map.set(pkg, new Set(entryOut.builtins == null ? ['*'] : entryOut.builtins));
+  }
+  return map;
+}
+
 if (opts.check) {
   // @ref LLP 0014#the-generated-artifact — the committed artifact is
   // drift-checked; expansions are the review tripwire, shrinkage is free.
@@ -326,6 +374,18 @@ if (opts.check) {
         if (!newCaps.get(pkg)?.has(cap)) shrinkage.push(`${pkg}: ${cap}`);
       }
     }
+    const oldBuiltins = builtinsByPackage(existingJson);
+    const newBuiltins = builtinsByPackage(artifact);
+    for (const [pkg, list] of newBuiltins) {
+      for (const b of list) {
+        if (!oldBuiltins.get(pkg)?.has(b)) expansions.push(`${pkg}: import ${b}`);
+      }
+    }
+    for (const [pkg, list] of oldBuiltins) {
+      for (const b of list) {
+        if (!newBuiltins.get(pkg)?.has(b)) shrinkage.push(`${pkg}: import ${b}`);
+      }
+    }
     if (modeChanged) {
       console.error(
         `mode changed: ${oldMode} -> ${newMode} ` +
@@ -333,11 +393,11 @@ if (opts.check) {
       );
     }
     if (expansions.length) {
-      console.error('capability EXPANSIONS (review these):');
+      console.error('policy EXPANSIONS (review these):');
       for (const line of expansions) console.error(`  + ${line}`);
     }
     if (shrinkage.length) {
-      console.error('capability shrinkage:');
+      console.error('policy shrinkage:');
       for (const line of shrinkage) console.error(`  - ${line}`);
     }
     if (!expansions.length && !shrinkage.length && !modeChanged) {
