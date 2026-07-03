@@ -529,8 +529,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto from = args[0].toString(runtime).utf8(runtime);
         auto to = args[1].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + from;
-        if (!checkCapability(cap)) {
+        // Rename removes `from` and creates `to`: both are writes. Previously
+        // only `from` was checked, so a package granted fs:write on its own dir
+        // could rename a file *into* a path it was never granted. (ENG-22627)
+        if (!checkCapability("fs:write:" + from)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (!checkCapability("fs:write:" + to)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (ex_host_fs_rename(from.c_str(), to.c_str()) != 0) {
@@ -758,6 +763,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           bool needsWrite = access == O_WRONLY || access == O_RDWR ||
               (posixFlags & (O_CREAT | O_TRUNC | O_APPEND)) != 0;
           bool needsRead = access == O_RDONLY || access == O_RDWR;
+          // An exotic/invalid access mode (O_ACCMODE == 3 on Linux, where the fd
+          // still enables fstat/fchmod/existence probing) must not skip the gate.
+          // Every open requires at least fs:read, so the flag math can only
+          // *widen* the requirement, never eliminate it. (ENG-22639)
+          if (!needsWrite && !needsRead) {
+            needsRead = true;
+          }
           if (needsWrite && !checkCapability("fs:write:" + path)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
@@ -1244,6 +1256,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto target = args[0].toString(runtime).utf8(runtime);
         auto path = args[1].toString(runtime).utf8(runtime);
+        // Creating a symlink writes a new filesystem entry at `path`. (ENG-22627)
+        if (!checkCapability("fs:write:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
         if (::symlink(target.c_str(), path.c_str()) != 0) {
           throwFsError(runtime, "symlink", target, path);
         }
@@ -1261,6 +1277,17 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto existing = args[0].toString(runtime).utf8(runtime);
         auto newp = args[1].toString(runtime).utf8(runtime);
+        // A hard link creates a new name (`newp`) for the source inode. It needs
+        // fs:write at the link location AND fs:read on the source: without the
+        // read check, a package could hard-link a file outside its read grant into
+        // its own readable dir and read the contents through the alias. (ENG-22627,
+        // review follow-up)
+        if (!checkCapability("fs:read:" + existing)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (!checkCapability("fs:write:" + newp)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
         if (::link(existing.c_str(), newp.c_str()) != 0) {
           throwFsError(runtime, "link", existing, newp);
         }
@@ -1277,6 +1304,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactReadlink: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        // Reading a symlink's target is a read/metadata disclosure. (ENG-22627)
+        if (!checkCapability("fs:read:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
         char buf[PATH_MAX];
         ssize_t len = ::readlink(path.c_str(), buf, sizeof(buf) - 1);
         if (len < 0) {
@@ -1296,6 +1327,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactTruncate: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        // Truncation modifies file contents. (ENG-22627)
+        if (!checkCapability("fs:write:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
         off_t len = 0;
         if (count > 1 && args[1].isNumber()) len = static_cast<off_t>(args[1].asNumber());
         if (::truncate(path.c_str(), len) != 0) {
@@ -1314,6 +1349,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactChown: path, uid, gid required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        // Changing ownership mutates file metadata. (ENG-22627)
+        if (!checkCapability("fs:write:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
         uid_t uid = static_cast<uid_t>(args[1].asNumber());
         gid_t gid = static_cast<gid_t>(args[2].asNumber());
         if (::chown(path.c_str(), uid, gid) != 0) {
@@ -1332,6 +1371,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactLchown: path, uid, gid required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        // Changing ownership of the symlink itself mutates metadata. (ENG-22627)
+        if (!checkCapability("fs:write:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
         uid_t uid = static_cast<uid_t>(args[1].asNumber());
         gid_t gid = static_cast<gid_t>(args[2].asNumber());
         if (::lchown(path.c_str(), uid, gid) != 0) {
@@ -1350,6 +1393,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactUtimes: path, atime, mtime required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        // Setting atime/mtime mutates file metadata. (ENG-22627)
+        if (!checkCapability("fs:write:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
         double atimeVal = args[1].asNumber();
         double mtimeVal = args[2].asNumber();
         // Convert seconds or Date ms to timeval
@@ -1384,6 +1431,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactStatfs: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        // Filesystem stats are a read/metadata disclosure. (ENG-22627)
+        if (!checkCapability("fs:read:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
 #if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
         // @ref LLP 0008#filesystem — Linux statfs(2) exposes f_type; statvfs(3) does not.
         struct statfs buf;

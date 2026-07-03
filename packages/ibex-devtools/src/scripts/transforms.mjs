@@ -877,6 +877,13 @@ export function applyHermesTransforms(source) {
 export const defaultCompartmentGlobals = Object.freeze([
   'process',
   'globalThis',
+  // `global`/`self` alias the real global; if not routed through the compartment
+  // they are a one-hop leak to every withheld capability. (ENG-22625)
+  'global',
+  'self',
+  // `Ibex` exposes the dynamic-permission surface (broker/request); withhold it
+  // from package code so a dependency can't self-approve prompts. (ENG-22636)
+  'Ibex',
   'fetch',
   'Buffer',
   'eval',
@@ -953,16 +960,36 @@ function collectHoistedVars(node, out) {
   }
 }
 
-/** Collect block-lexical bindings (let/const/class/function) at one block level. */
+/** Collect block-lexical bindings (let/const/class/function) at one block level,
+ * plus ESM `import` bindings and top-level `export` declaration bindings. Missing
+ * an `import`/`export const`/`export class` binding is a real bug: a package's own
+ * reference to it whose name collides with a compartment global (e.g.
+ * `import fetch from 'cross-fetch'`) would be wrongly rewritten to the withheld
+ * global. (ENG-22638) */
 function collectBlockLexical(statements, out) {
   for (const stmt of statements || []) {
     if (!stmt) continue;
-    if (stmt.type === 'VariableDeclaration' && (stmt.kind === 'let' || stmt.kind === 'const')) {
-      for (const decl of stmt.declarations || []) collectPatternNames(decl.id, out);
-    } else if (stmt.type === 'ClassDeclaration' && stmt.id) {
-      out.add(stmt.id.name);
-    } else if (stmt.type === 'FunctionDeclaration' && stmt.id) {
-      out.add(stmt.id.name);
+    // ESM import bindings: `import fetch from 'x'`, `import { Buffer } from 'x'`,
+    // `import * as ns from 'x'` all introduce a local binding, not a free global.
+    if (stmt.type === 'ImportDeclaration') {
+      for (const spec of stmt.specifiers || []) {
+        if (spec.local && spec.local.name) out.add(spec.local.name);
+      }
+      continue;
+    }
+    // Unwrap `export const/let/class/function ...` and `export default class/function`
+    // so the exported binding name is registered.
+    const s =
+      stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration'
+        ? stmt.declaration
+        : stmt;
+    if (!s) continue;
+    if (s.type === 'VariableDeclaration' && (s.kind === 'let' || s.kind === 'const')) {
+      for (const decl of s.declarations || []) collectPatternNames(decl.id, out);
+    } else if (s.type === 'ClassDeclaration' && s.id) {
+      out.add(s.id.name);
+    } else if (s.type === 'FunctionDeclaration' && s.id) {
+      out.add(s.id.name);
     }
   }
 }
@@ -987,6 +1014,11 @@ export function rewriteFreeGlobals(source, options = {}) {
   const replacements = [];
   // Scope chain: array of Set<string>. Index 0 is the module/global scope.
   const scopes = [];
+  // Depth of enclosing `with` statements. Inside a `with (obj) { ... }` body any
+  // bare identifier may be a property of `obj` (statically unknowable), so we must
+  // not rewrite it — doing so would resolve the name against the compartment
+  // instead of the with-object. (ENG-22638)
+  let withDepth = 0;
 
   const isBound = (name) => {
     for (let i = scopes.length - 1; i >= 0; i--) {
@@ -1003,6 +1035,8 @@ export function rewriteFreeGlobals(source, options = {}) {
 
   const rewriteIdentifier = (node, isCall) => {
     const name = node.name;
+    // Inside a `with` body a bare name may be a property of the with-object.
+    if (withDepth > 0) return;
     // A binding in any enclosing scope means this is not a free global.
     if (isBound(name)) return;
     if (name === 'eval' && rewriteEval && isCall) {
@@ -1011,7 +1045,8 @@ export function rewriteFreeGlobals(source, options = {}) {
       return;
     }
     if (!names.has(name)) return;
-    if (name === 'globalThis') {
+    if (name === 'globalThis' || name === 'global' || name === 'self') {
+      // The self-referential globals resolve to the compartment itself.
       replacements.push({ start: node.start, end: node.end, text: compartmentRef });
     } else {
       replacements.push({ start: node.start, end: node.end, text: `${compartmentRef}.${name}` });
@@ -1112,6 +1147,16 @@ export function rewriteFreeGlobals(source, options = {}) {
         if (node.param) walk(node.param, node, 'param', null);
         walk(node.body, node, 'body', null);
         scopes.pop();
+        return;
+      }
+      case 'WithStatement': {
+        // The object expression is evaluated in the enclosing scope (its free
+        // references ARE rewritten), but inside the body any bare name could be a
+        // property of the object, so suppress rewriting there. (ENG-22638)
+        walk(node.object, node, 'object', null);
+        withDepth++;
+        walk(node.body, node, 'body', null);
+        withDepth--;
         return;
       }
       case 'Identifier': {
@@ -1217,6 +1262,10 @@ export function createCompartmentGlobalsPlugin({
  */
 export function packageOfModuleId(id) {
   if (typeof id !== 'string') return null;
+  // Normalize Windows separators before detecting the marker: module ids can
+  // carry backslashes on Windows, and a miss here misclassifies package code as
+  // root-principal — which would honor its import-site grants. (ENG-22619)
+  id = id.replace(/\\/g, '/');
   const marker = 'node_modules/';
   const idx = id.lastIndexOf(marker);
   if (idx === -1) return null;

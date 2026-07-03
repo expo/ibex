@@ -46,21 +46,11 @@ pub enum SecurityMode {
 }
 
 impl SecurityMode {
-    /// Whether denied operations are blocked (only `Enforce`).
-    pub fn enforces(self) -> bool {
-        matches!(self, SecurityMode::Enforce)
-    }
-
-    /// Whether checks are evaluated and logged (`Audit` or `Enforce`). In these
-    /// modes the C++ boundary must NOT short-circuit via `is_allow_all`, or the
-    /// would-deny record is never produced.
-    pub fn evaluates(self) -> bool {
-        !matches!(self, SecurityMode::Permissive)
-    }
-
-    /// Parse a policy-file `mode` string. Unknown values return `None`.
+    /// Parse a policy-file `mode` string. Surrounding whitespace is trimmed
+    /// (`"enforce "` must not silently become an unrecognized value that degrades
+    /// to permissive); unknown values return `None`.
     pub fn from_policy_str(s: &str) -> Option<SecurityMode> {
-        match s.to_ascii_lowercase().as_str() {
+        match s.trim().to_ascii_lowercase().as_str() {
             "legacy" | "permissive" => Some(SecurityMode::Permissive),
             "audit" => Some(SecurityMode::Audit),
             // `strict`/`capability` are retained as back-compat aliases for the
@@ -122,19 +112,30 @@ impl Host {
             if policy_path.exists() {
                 match policy::PolicyFile::load(policy_path) {
                     Ok(policy) => {
-                        if config.mode != SecurityMode::Permissive {
-                            if let Some(parsed) = policy
-                                .mode
-                                .as_deref()
-                                .and_then(SecurityMode::from_policy_str)
-                            {
-                                config.mode = parsed;
-                            }
-                        }
+                        // Do NOT re-apply the policy's declared `mode` here: the
+                        // caller's mode wins. On the CLI path build_host_config
+                        // already resolves the Auto default from the policy mode
+                        // upstream, and an explicit `--capsec` (enforce, audit, or
+                        // permissive) must win — the previous re-application let a
+                        // committed `{"mode":"permissive"}` silently downgrade an
+                        // explicit `--capsec enforce` (fail-open), and conversely
+                        // would have upgraded an explicit `--capsec permissive` a
+                        // policy's enforce. (ENG-22632)
                         policy_file = Some(policy);
                     }
                     Err(err) => {
-                        eprintln!("Failed to load policy {}: {}", policy_path.display(), err)
+                        // A configured policy that exists but cannot be parsed must
+                        // FAIL CLOSED: continuing unpoliced would run permissively
+                        // (silently unprotected). Escalate to enforce so a missing
+                        // grant denies rather than allows. On the CLI path
+                        // build_host_config already rejects this before we get here;
+                        // this covers the embedder/ABI path. (ENG-22620)
+                        eprintln!(
+                            "error: failed to load capability policy {}: {}; failing closed (enforce)",
+                            policy_path.display(),
+                            err
+                        );
+                        config.mode = SecurityMode::Enforce;
                     }
                 }
             }

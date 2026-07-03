@@ -263,6 +263,12 @@ pub enum PolicyCommands {
         /// Artifact path to check (default: <entry dir>/ibex-policy.json)
         #[arg(long)]
         out: Option<PathBuf>,
+
+        /// Policy mode the artifact was generated with. Must be forwarded so a
+        /// policy generated with `--mode audit` doesn't false-drift against a
+        /// regeneration that defaults to `enforce`. (ENG-22642)
+        #[arg(long)]
+        mode: Option<String>,
     },
 }
 

@@ -66,6 +66,22 @@ pub(crate) fn runtime_env(ibex_name: &str, legacy_name: &str) -> Option<String> 
     None
 }
 
+/// Shared truthiness parse for boolean `IBEX_*` env flags, mirroring the C++
+/// `env_flag_enabled` in hermes_runtime.cc so the Rust bundler driver and bundle
+/// cache key agree with the engine on whether a flag is set. A bare presence
+/// check (`var_os(..).is_some()`) disagreed with the engine's value check:
+/// `IBEX_COMPARTMENTS=true` made the bundler emit `__compartments` references the
+/// engine never installed, throwing ReferenceError (and caching the broken
+/// artifact). Accepts a leading 1/y/Y/t/T (so `1`, `yes`, `true` all enable) and
+/// rejects `0`/`false`/`no`/`off`/empty. (ENG-22634)
+pub(crate) fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.chars().next())
+        .map(|c| matches!(c, '1' | 'y' | 'Y' | 't' | 'T'))
+        .unwrap_or(false)
+}
+
 fn trace_startup() -> bool {
     runtime_env("IBEX_STARTUP_TRACE", "EX_STARTUP_TRACE")
         .map(|v| v.starts_with('1') || v.starts_with('y') || v.starts_with('Y'))

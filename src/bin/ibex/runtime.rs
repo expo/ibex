@@ -1479,26 +1479,60 @@ impl Runtime {
     }
 }
 
-/// The `SecurityMode` a policy artifact declares via its `mode` field, if any.
-/// `enforce`/`strict` → Enforce, `audit` → Audit, `permissive`/`legacy` →
-/// Permissive; unknown/absent → None (caller keeps its default).
-/// @ref LLP 0014#runtime-and-cli
-fn policy_declared_mode(path: &Path) -> Option<crate::host::SecurityMode> {
-    use crate::host::SecurityMode;
-    let policy = crate::host::policy::PolicyFile::load(path).ok()?;
-    match policy.mode.as_deref()?.trim().to_ascii_lowercase().as_str() {
-        "enforce" | "strict" | "capability" => Some(SecurityMode::Enforce),
-        "audit" => Some(SecurityMode::Audit),
-        "permissive" | "legacy" => Some(SecurityMode::Permissive),
-        _ => None,
+/// Whether the policy path was explicitly configured (via `--policy` or the
+/// `IBEX_POLICY`/`EXACT_POLICY` env), as opposed to the auto-discovered default.
+/// An explicit-but-missing policy is a hard error; a missing default is not.
+fn policy_is_explicit(cli: &Cli) -> bool {
+    if cli.policy.is_some() {
+        return true;
     }
+    crate::runtime_env("IBEX_POLICY", "EXACT_POLICY")
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
 }
 
 fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     use crate::cli::CapSecMode;
-    use crate::host::SecurityMode;
+    use crate::host::{policy::PolicyFile, SecurityMode};
 
     let policy_path = resolve_policy_path(cli);
+
+    // Load + validate the policy when its path exists. A configured policy that
+    // exists but cannot be parsed FAILS CLOSED: a malformed committed policy
+    // (which may carry `mode: "enforce"`) must not silently degrade the run to
+    // permissive. An explicitly configured policy that is missing is likewise an
+    // error; only a MISSING auto-discovered default falls back to permissive
+    // auto-mode. (ENG-22620) The declared mode reuses `SecurityMode::from_policy_str`
+    // — the single source of truth for mode-string parsing (formerly duplicated by
+    // `policy_declared_mode`). @ref LLP 0014#runtime-and-cli
+    let declared_mode = match policy_path.as_deref() {
+        Some(p) if p.exists() => {
+            let policy = PolicyFile::load(p)
+                .with_context(|| format!("failed to load capability policy {}", p.display()))?;
+            match policy.mode.as_deref() {
+                None => None,
+                Some(raw) => match SecurityMode::from_policy_str(raw) {
+                    Some(m) => Some(m),
+                    // Present but unrecognized (a typo like "enfore"): fail closed
+                    // rather than silently degrading an Auto run to permissive —
+                    // the same class ENG-22620 targets. (review follow-up)
+                    None => anyhow::bail!(
+                        "capability policy {} declares an unrecognized mode {:?} \
+                         (expected enforce | audit | permissive)",
+                        p.display(),
+                        raw
+                    ),
+                },
+            }
+        }
+        Some(p) => {
+            if policy_is_explicit(cli) {
+                anyhow::bail!("capability policy {} not found", p.display());
+            }
+            None
+        }
+        None => None,
+    };
 
     // Map CLI mode to host SecurityMode.
     // --allow-all overrides --capsec for backward compatibility.
@@ -1514,11 +1548,7 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
             // `mode` when it has one — the generated policy is the security config,
             // so `mode: "enforce"` takes effect without a redundant flag. Explicit
             // `--capsec permissive` (and `--allow-all`) still force Permissive.
-            // @ref LLP 0014#runtime-and-cli
-            CapSecMode::Auto => policy_path
-                .as_deref()
-                .and_then(policy_declared_mode)
-                .unwrap_or(SecurityMode::Permissive),
+            CapSecMode::Auto => declared_mode.unwrap_or(SecurityMode::Permissive),
         }
     };
 
@@ -2101,8 +2131,11 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
     // ReferenceError), nor vice versa. Fold the state into the cache key so the
     // two variants are cached under distinct paths. This mirrors the same signal
     // `run_bundler` uses to pass `--compartments`.
-    let compartments = std::env::var_os("IBEX_LOCKDOWN").is_some()
-        || std::env::var_os("IBEX_COMPARTMENTS").is_some();
+    // Resolve with the same truthiness parse the engine uses (ENG-22634), and
+    // key the cache on that resolved bool so a compartmentalized bundle can never
+    // be reused for a non-compartment run (or vice versa).
+    let compartments =
+        crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS");
     compartments.hash(&mut hasher);
     // @ref LLP 0013#mechanism-3 — per-package chunking changes the output shape
     // (multiple chunk files), so it must key distinctly from a flat bundle.
@@ -2516,9 +2549,7 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
     // @ref LLP 0013#mechanism-2 — when the runtime boots with lockdown, bundle
     // package (node_modules) code through the per-package compartment rewrite so
     // its bare globals resolve against the runtime compartment registry.
-    if std::env::var_os("IBEX_LOCKDOWN").is_some()
-        || std::env::var_os("IBEX_COMPARTMENTS").is_some()
-    {
+    if crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS") {
         command.arg("--compartments");
     }
     // @ref LLP 0013#mechanism-3 — opt-in per-package chunking so a bundled app
@@ -2618,10 +2649,16 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
                 cmd.arg("--mode").arg(mode);
             }
         }
-        PolicyCommands::Check { entry, out } => {
+        PolicyCommands::Check { entry, out, mode } => {
             cmd.arg("--entry").arg(entry).arg("--check");
             if let Some(out) = out {
                 cmd.arg("--out").arg(out);
+            }
+            // Forward the mode so the regenerated artifact stamps the same
+            // `mode` the committed one carries — else an audit-mode policy
+            // false-drifts against an enforce-default regeneration. (ENG-22642)
+            if let Some(mode) = mode {
+                cmd.arg("--mode").arg(mode);
             }
         }
     }

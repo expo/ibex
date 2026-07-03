@@ -206,8 +206,13 @@ bool startup_trace_enabled() {
 }
 
 bool env_flag_enabled(const char* env_name) {
+  // Shared truthiness parse: a leading 1/y/Y/t/T enables (so `1`, `yes`, `true`
+  // all work), everything else (0/false/no/off/empty/unset) disables. The Rust
+  // `env_flag_enabled` (src/bin/ibex/main.rs) mirrors this so the bundler driver
+  // and the engine never disagree about whether compartments are on. (ENG-22634)
   const char* val = std::getenv(env_name);
-  return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y');
+  return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y' ||
+                 val[0] == 't' || val[0] == 'T');
 }
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
@@ -1071,9 +1076,24 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count < 2 || !args[1].isString()) {
           return facebook::jsi::Value(true);
         }
-        auto principal = (count > 0 && args[0].isNumber())
-            ? static_cast<uint64_t>(args[0].asNumber())
-            : 0;
+        // @ref LLP 0013#mechanism-3 — re-derive the requesting principal from
+        // the executing frame; never trust the JS-passed id. Dynamic import()
+        // and globalThis.require reach this check with no module `parent`, so a
+        // JS-supplied principal is zero/forgeable. The loader and bootstrap
+        // frames carry the runtime principal and are skipped by the walk, so it
+        // lands on the true requesting package. Fall back to the JS arg only
+        // when the frame-attribution engine is unavailable. (ENG-22618/ENG-22629)
+        uint64_t principal;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+        if (g_vm_runtime != nullptr) {
+          principal = currentPrincipalId();
+        } else
+#endif
+        {
+          principal = (count > 0 && args[0].isNumber())
+              ? static_cast<uint64_t>(args[0].asNumber())
+              : 0;
+        }
         auto specifier = args[1].asString(runtime).utf8(runtime);
         return facebook::jsi::Value(
             ex_host_check_import(principal, specifier.c_str()) != 0);
@@ -1925,7 +1945,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   var g = globalThis;
   if (g.__compartments) return;
   var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
-    'importScripts','queueMicrotask','eval','Function'];
+    'importScripts','queueMicrotask','eval','Function','Ibex'];
+  var POWERFUL_SET = Object.create(null);
+  for (var pwi = 0; pwi < POWERFUL.length; pwi++) POWERFUL_SET[POWERFUL[pwi]] = true;
   var endowMap = Object.create(null);
   // Programmatic/policy injection: { "pkg": ["fetch", ...], ... }
   var raw = g.__ibexEndowments;
@@ -1954,17 +1976,44 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var e = endowMap[pkg];
     return !!e && e.indexOf(name) !== -1;
   }
+  function isWithheld(pkg, name) {
+    // Raw host primitives (__exact* / __ibex*) must never be reachable from
+    // package code, endowed or not — exposing e.g. __exactFsOpen or the
+    // __ibexEndowRaw config would defeat the whole membrane. (ENG-22625/ENG-22636)
+    if (name.indexOf('__exact') === 0 || name.indexOf('__ibex') === 0) return true;
+    return POWERFUL_SET[name] === true && !isEndowed(pkg, name);
+  }
   function makeCompartment(pkg) {
     return new Proxy(Object.create(null), {
-      get: function (t, prop) {
+      get: function (t, prop, receiver) {
         if (typeof prop !== 'string') return g[prop];
-        if (POWERFUL.indexOf(prop) !== -1 && !isEndowed(pkg, prop)) {
-          return undefined; // withheld
-        }
+        // A write the compartment made shadows the real global for this package
+        // only — the set trap writes to `t`, never to the shared global. (ENG-22626)
+        if (Object.prototype.hasOwnProperty.call(t, prop)) return t[prop];
+        // Self-referential globals resolve to the compartment itself, never the
+        // real global: otherwise `globalThis.process` (or global/self) reaches
+        // every withheld capability in one hop. (ENG-22625)
+        if (prop === 'globalThis' || prop === 'global' || prop === 'self') return receiver;
+        if (isWithheld(pkg, prop)) return undefined; // withheld
         return g[prop];
       },
-      set: function (t, prop, value) { g[prop] = value; return true; },
-      has: function () { return true; }
+      set: function (t, prop, value) {
+        // Writes land on the compartment's own backing object, never the shared
+        // real global — a package poisoning `fetch`/`process` (or defining a
+        // sloppy `foo = 1`) must not be observed by root or any other
+        // compartment. (ENG-22626/ENG-22640)
+        t[prop] = value;
+        return true;
+      },
+      has: function (t, prop) {
+        // Reflect real presence: a withheld name (present on the real global)
+        // still reads as `undefined` via the get trap, but a genuinely-absent
+        // name reports false so a typo throws ReferenceError as JS requires,
+        // rather than silently resolving to undefined. (ENG-22640)
+        if (Object.prototype.hasOwnProperty.call(t, prop)) return true;
+        if (prop === 'globalThis' || prop === 'global' || prop === 'self') return true;
+        return (prop in g);
+      }
     });
   }
   var backing = Object.create(null);

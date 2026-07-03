@@ -36,6 +36,21 @@ pub struct PackagePrincipal {
     pub locator: Option<String>,
 }
 
+impl PackagePrincipal {
+    /// Policy selectors for this principal, most-specific first: the resolved
+    /// locator (e.g. a `name@version` pin or path) when it is distinct from the
+    /// bare name, then the name itself. Callers consult them in order so a
+    /// version/locator-specific policy entry takes precedence over the name-level
+    /// default that survives version bumps (RFC Resolved Q1). (ENG-22621)
+    fn selectors(&self) -> impl Iterator<Item = &str> {
+        self.locator
+            .as_deref()
+            .filter(|loc| *loc != self.name.as_str())
+            .into_iter()
+            .chain(std::iter::once(self.name.as_str()))
+    }
+}
+
 /// Per-package import-graph policy. `None` on an axis means "unrestricted";
 /// `Some(list)` means "only these are allowed" (an explicit empty list denies
 /// everything on that axis).
@@ -300,29 +315,36 @@ impl CapabilityManager {
     /// returned value is the decision itself.
     pub fn check(&self, module_id: &str, capability_str: &str) -> bool {
         let normalized = normalize_capability(capability_str);
-        let decision = if self.mode == SecurityMode::Permissive {
-            true
-        } else {
-            self.decide(module_id, &normalized)
-        };
+        let decision = self.mode == SecurityMode::Permissive || self.decide(module_id, &normalized);
+        self.gate_and_record(module_id, normalized, decision)
+    }
+
+    /// Apply mode gating to a real policy `decision`, record it, and return
+    /// whether the operation may proceed. Extracted from `check`/`check_import`/
+    /// `check_stack`, which shared this sequence verbatim.
+    ///
+    /// Only would-deny decisions (`!decision`) are recorded. The audit report
+    /// reads only would-denies, so recording allowed ops both (a) let a burst of
+    /// allowed traffic evict earlier would-denies from the bounded FIFO log —
+    /// silently dropping a grant the operator needs when authoring a policy to
+    /// move from audit to enforce (ENG-22635) — and (b) paid a heap alloc +
+    /// write-lock + `SystemTime::now()` on every allowed syscall, the hot path
+    /// under enforce/audit (ENG-22644).
+    fn gate_and_record(&self, module_id: &str, capability: String, decision: bool) -> bool {
         // Permissive and Audit let everything proceed; only Enforce blocks.
-        let allowed = if self.mode == SecurityMode::Enforce {
-            decision
-        } else {
-            true
-        };
-
-        self.record(AuditEntry {
-            timestamp: std::time::SystemTime::now(),
-            module_id: module_id.to_string(),
-            package: self.principal_for(module_id),
-            capability: normalized,
-            constraint: None,
-            decision,
-            allowed,
-            mode: self.mode,
-        });
-
+        let allowed = self.mode != SecurityMode::Enforce || decision;
+        if !decision {
+            self.record(AuditEntry {
+                timestamp: std::time::SystemTime::now(),
+                module_id: module_id.to_string(),
+                package: self.principal_for(module_id),
+                capability,
+                constraint: None,
+                decision,
+                allowed,
+                mode: self.mode,
+            });
+        }
         allowed
     }
 
@@ -371,14 +393,19 @@ impl CapabilityManager {
             }
         }
 
-        // Package-selector grants next.
+        // Package-selector grants next. Consult the version/locator-specific
+        // selector before the bare name so a policy can pin a coexisting version
+        // (RFC Resolved Q1); the first selector with a matching deny/grant wins.
+        // (ENG-22621)
         if let Some(principal) = self.principal_for(module_id) {
             if let Ok(grants) = self.package_grants.read() {
-                if matches_denials(grants.get(&principal.name), capability) {
-                    return false;
-                }
-                if matches_grants(grants.get(&principal.name), capability) {
-                    return true;
+                for selector in principal.selectors() {
+                    if matches_denials(grants.get(selector), capability) {
+                        return false;
+                    }
+                    if matches_grants(grants.get(selector), capability) {
+                        return true;
+                    }
                 }
             }
         }
@@ -418,29 +445,9 @@ impl CapabilityManager {
     /// @ref LLP 0013#policy — builtins are reachable by `require`, so this is
     /// the primary containment gate for them.
     pub fn check_import(&self, module_id: &str, specifier: &str) -> bool {
-        let decision = if self.mode == SecurityMode::Permissive {
-            true
-        } else {
-            self.decide_import(module_id, specifier)
-        };
-        let allowed = if self.mode == SecurityMode::Enforce {
-            decision
-        } else {
-            true
-        };
-
-        self.record(AuditEntry {
-            timestamp: std::time::SystemTime::now(),
-            module_id: module_id.to_string(),
-            package: self.principal_for(module_id),
-            capability: format!("import:{}", specifier),
-            constraint: None,
-            decision,
-            allowed,
-            mode: self.mode,
-        });
-
-        allowed
+        let decision =
+            self.mode == SecurityMode::Permissive || self.decide_import(module_id, specifier);
+        self.gate_and_record(module_id, format!("import:{}", specifier), decision)
     }
 
     fn decide_import(&self, module_id: &str, specifier: &str) -> bool {
@@ -449,7 +456,12 @@ impl CapabilityManager {
             return true;
         };
         let policy = self.import_policy.read().ok();
-        let Some(policy) = policy.as_ref().and_then(|m| m.get(&principal.name)) else {
+        // Version/locator-specific import policy takes precedence over the
+        // name-level default, mirroring the capability selector precedence. (ENG-22621)
+        let Some(policy) = policy
+            .as_ref()
+            .and_then(|m| principal.selectors().find_map(|selector| m.get(selector)))
+        else {
             // Governed for capabilities but not for imports: unrestricted axis.
             return true;
         };
@@ -461,7 +473,19 @@ impl CapabilityManager {
         } else {
             match &policy.packages {
                 None => true,
-                Some(list) => list.iter().any(|p| p == specifier),
+                // Match on the package *selector*, not the raw specifier: fold a
+                // subpath/deep import to its package (`lodash/fp` -> `lodash`) so
+                // the runtime agrees with how the generator authors the list, and
+                // treat a relative/absolute specifier as an intra-package import
+                // (not a cross-package edge) so a package can load its own files.
+                // (ENG-22637)
+                Some(list) => match package_selector_of_specifier(specifier) {
+                    None => true,
+                    Some(selector) => list.iter().any(|p| {
+                        p == specifier
+                            || package_selector_of_specifier(p).as_deref() == Some(&selector)
+                    }),
+                },
             }
         }
     }
@@ -524,26 +548,22 @@ impl CapabilityManager {
                 .iter()
                 .all(|principal| self.decide(principal, &normalized))
         } else {
+            // NOTE (ENG-22631): the async-detached deputy laundering case
+            // (`Promise.resolve(x).then(deputy.method)`) collects a len==1 stack
+            // of just [deputy] — the scheduling caller's frame has already
+            // returned. It is NOT soundly closable here: a len==1 package stack is
+            // ALSO the normal shape of a granted package running its own async /
+            // timer continuation, and the two are indistinguishable from the stack
+            // alone, so a blunt deny would false-deny every legitimate async
+            // deputy-class op by a granted package. The sound fix is to capture the
+            // scheduling principal into the microtask/job (an async-context
+            // propagation extension of Hermes patch 0007, RFC Open Q3), which
+            // requires an engine change. Until then this remains a documented
+            // residual of the opt-in deputy hardening (deputy-by-design is out of
+            // scope by default; the synchronous case above is fully closed).
             self.decide(top, &normalized)
         };
-        let allowed = if self.mode == SecurityMode::Enforce {
-            decision
-        } else {
-            true
-        };
-
-        self.record(AuditEntry {
-            timestamp: std::time::SystemTime::now(),
-            module_id: top.to_string(),
-            package: self.principal_for(top),
-            capability: normalized,
-            constraint: None,
-            decision,
-            allowed,
-            mode: self.mode,
-        });
-
-        allowed
+        self.gate_and_record(top, normalized, decision)
     }
 
     /// Grant a capability to a module
@@ -637,14 +657,27 @@ fn capability_class(capability: &str) -> String {
 }
 
 /// Whether a require specifier names a builtin module (as opposed to a
-/// dependency package). `node:`-prefixed specifiers and the bare Node builtin
-/// names are builtins.
+/// dependency package). `node:`-prefixed specifiers, runtime-internal (`internal/*`)
+/// specifiers, and the bare Node builtin names (and their subpaths) are builtins.
+///
+/// Classifying is security-load-bearing: a specifier that misses this and falls
+/// to the `packages` branch defaults to *allow*, so an under-populated list is a
+/// fail-open hole (a `builtins: []` package could still `require('dgram')`).
+/// (ENG-22630)
 fn is_builtin_specifier(specifier: &str) -> bool {
-    if let Some(rest) = specifier.strip_prefix("node:") {
-        let _ = rest;
+    if specifier.starts_with("node:") {
         return true;
     }
-    NODE_BUILTINS.contains(&specifier)
+    // Runtime-internal modules are the loader's own trusted surface and must not
+    // be importable from a package compartment, so they classify on the builtins
+    // axis (a restricted package's allowlist won't include them). (ENG-22618)
+    if specifier.starts_with("internal/") {
+        return true;
+    }
+    // A builtin subpath (`fs/promises`, `stream/web`, `dns/promises`) shares the
+    // root builtin's axis, so a subpath can't dodge a `builtins: []` fence.
+    let root = specifier.split('/').next().unwrap_or(specifier);
+    NODE_BUILTINS.contains(&root)
 }
 
 /// Match a policy builtin entry against a require specifier, tolerating the
@@ -653,33 +686,93 @@ fn import_specifier_matches(policy_entry: &str, specifier: &str) -> bool {
     fn strip(s: &str) -> &str {
         s.strip_prefix("node:").unwrap_or(s)
     }
-    strip(policy_entry) == strip(specifier)
+    let entry = strip(policy_entry);
+    let spec = strip(specifier);
+    if entry == spec {
+        return true;
+    }
+    // A root builtin entry (`stream`) covers its subpaths (`stream/web`,
+    // `stream/promises`). `is_builtin_specifier` classifies subpaths onto the
+    // builtins axis by their root segment, so the allowlist match must agree —
+    // otherwise a policy that lists the root would newly *deny* a subpath that
+    // previously flowed through the unrestricted packages axis. A specific subpath
+    // entry (`stream/web`) still matches only itself. (ENG-22630 review)
+    if !entry.contains('/') {
+        return spec.split('/').next() == Some(entry);
+    }
+    false
 }
 
-/// Node builtin module names that are reachable without the `node:` prefix.
-/// Kept intentionally small — extend as import policy coverage grows.
+/// Fold a require specifier to its package selector, mirroring the build side's
+/// `packageNameOfSpecifier` so generation and enforcement agree. Returns `None`
+/// for relative/absolute specifiers (intra-package imports, not cross-package
+/// edges) so they are not gated on the `packages` axis. (ENG-22637)
+fn package_selector_of_specifier(specifier: &str) -> Option<String> {
+    if specifier.starts_with('.') || specifier.starts_with('/') {
+        return None;
+    }
+    let s = specifier.strip_prefix("node:").unwrap_or(specifier);
+    let mut parts = s.split('/');
+    let first = parts.next().filter(|p| !p.is_empty())?;
+    if let Some(stripped) = first.strip_prefix('@') {
+        let _ = stripped;
+        // Scoped: keep two segments (`@scope/name`).
+        match parts.next().filter(|p| !p.is_empty()) {
+            Some(second) => Some(format!("{first}/{second}")),
+            None => None,
+        }
+    } else {
+        Some(first.to_string())
+    }
+}
+
+/// Node builtin module names (roots) reachable without the `node:` prefix. A
+/// specifier's first path segment is matched against this, so subpaths like
+/// `fs/promises` or `stream/web` classify as builtins too. Derived from the
+/// runtime's supported builtins; keep in sync as coverage grows. (ENG-22630)
 const NODE_BUILTINS: &[&str] = &[
     "assert",
+    "async_hooks",
     "buffer",
     "child_process",
+    "cluster",
+    "console",
+    "constants",
     "crypto",
+    "dgram",
+    "diagnostics_channel",
     "dns",
+    "domain",
     "events",
     "fs",
-    "fs/promises",
     "http",
     "http2",
     "https",
+    "inspector",
+    "module",
     "net",
     "os",
     "path",
+    "perf_hooks",
     "process",
+    "punycode",
     "querystring",
+    "readline",
+    "repl",
+    "sqlite",
     "stream",
+    "string_decoder",
+    "sys",
+    "timers",
     "tls",
+    "trace_events",
+    "tty",
     "url",
     "util",
+    "v8",
     "vm",
+    "wasi",
+    "worker_threads",
     "zlib",
 ];
 
@@ -979,15 +1072,36 @@ mod tests {
         // An unregistered module does not.
         assert!(!manager.check("9999", "network:fetch:api.example.com"));
 
-        // Audit entries carry the resolved principal + locator.
+        // A would-deny for the registered module carries the resolved principal +
+        // locator (only would-denies are recorded — the granted read above is
+        // allowed and intentionally not logged).
+        assert!(!manager.check("1234", "fs:read:/secret"));
         let log = manager.audit_log();
         let entry = log
             .iter()
             .find(|e| e.module_id == "1234")
-            .expect("entry for registered module");
+            .expect("would-deny entry for registered module");
         let principal = entry.package.as_ref().expect("principal resolved");
         assert_eq!(principal.name, "node-fetch");
         assert_eq!(principal.locator.as_deref(), Some("node-fetch@3.3.2"));
+    }
+
+    // @ref LLP 0013#resolved-questions (ENG-22621) — the name selector is the
+    // default (survives version bumps); a version/locator-specific selector pins
+    // a coexisting version and takes precedence.
+    #[test]
+    fn version_locator_selector_overrides_name() {
+        let m = CapabilityManager::new(SecurityMode::Enforce);
+        // Name-level grant applies to every resolved version of the package.
+        m.grant_package("lodash", "network:fetch");
+        // A version/locator-specific deny pins one coexisting version.
+        m.deny_package("lodash@2.0.0-evil", "network:fetch");
+        m.register_module_package("1", "lodash", Some("lodash@1.0.0"));
+        m.register_module_package("2", "lodash", Some("lodash@2.0.0-evil"));
+        // The clean version inherits the name-level grant.
+        assert!(m.check("1", "network:fetch:api.example.com"));
+        // The pinned version is denied — the locator selector wins over the name.
+        assert!(!m.check("2", "network:fetch:api.example.com"));
     }
 
     #[test]
@@ -1168,12 +1282,7 @@ mod tests {
     }
 
     #[test]
-    fn security_mode_helpers() {
-        assert!(SecurityMode::Enforce.enforces());
-        assert!(!SecurityMode::Audit.enforces());
-        assert!(SecurityMode::Audit.evaluates());
-        assert!(SecurityMode::Enforce.evaluates());
-        assert!(!SecurityMode::Permissive.evaluates());
+    fn security_mode_from_policy_str() {
         assert_eq!(
             SecurityMode::from_policy_str("strict"),
             Some(SecurityMode::Enforce)
@@ -1183,5 +1292,58 @@ mod tests {
             Some(SecurityMode::Audit)
         );
         assert_eq!(SecurityMode::from_policy_str("bogus"), None);
+        // Surrounding whitespace must be trimmed — "enforce " must not become an
+        // unrecognized value that silently degrades an Auto run. (review follow-up)
+        assert_eq!(
+            SecurityMode::from_policy_str("  enforce\n"),
+            Some(SecurityMode::Enforce)
+        );
+        assert_eq!(
+            SecurityMode::from_policy_str("AUDIT "),
+            Some(SecurityMode::Audit)
+        );
+    }
+
+    // ENG-22630 review: a root builtin allowlist entry covers its subpaths, so the
+    // classification (by root segment) and the allowlist match agree.
+    #[test]
+    fn import_specifier_matches_root_covers_subpaths() {
+        assert!(import_specifier_matches("stream", "stream/web"));
+        assert!(import_specifier_matches("node:stream", "stream/promises"));
+        assert!(import_specifier_matches("fs", "node:fs/promises"));
+        assert!(import_specifier_matches("stream", "stream"));
+        // A specific subpath entry matches only itself, not the root or siblings.
+        assert!(import_specifier_matches("stream/web", "stream/web"));
+        assert!(!import_specifier_matches("stream/web", "stream"));
+        assert!(!import_specifier_matches("stream/web", "stream/promises"));
+        // Not a prefix-of-name false positive.
+        assert!(!import_specifier_matches("stream", "streamx"));
+    }
+
+    // ENG-22621: version/locator selector precedence in the import axis too.
+    #[test]
+    fn import_policy_version_locator_selector_precedence() {
+        let m = CapabilityManager::new(SecurityMode::Enforce);
+        m.register_module_package("7", "left-pad", Some("left-pad@9.9.9-evil"));
+        // A version-pinned import policy denies a builtin the name-level entry allows.
+        if let Ok(mut map) = m.import_policy.write() {
+            map.insert(
+                "left-pad".to_string(),
+                ImportPolicy {
+                    builtins: Some(vec!["node:fs".to_string()]),
+                    packages: None,
+                },
+            );
+            map.insert(
+                "left-pad@9.9.9-evil".to_string(),
+                ImportPolicy {
+                    builtins: Some(vec![]),
+                    packages: None,
+                },
+            );
+        }
+        // The pinned version's empty builtins list (more specific) wins over the
+        // name-level `node:fs` allowance.
+        assert!(!m.check_import("7", "node:fs"));
     }
 }

@@ -60,24 +60,31 @@ fn grant_covers(grant: &str, request: &str) -> bool {
 /// capability (`scope:action:res`) — accepted only if the parent covers it — or
 /// a bare sub-path appended to the parent's resource.
 fn narrow(parent_cap: &str, narrower: &str) -> Option<String> {
-    if narrower.contains(':') {
-        let candidate = normalize_capability(narrower);
-        return grant_covers(parent_cap, &candidate).then_some(candidate);
-    }
-    // Bare sub-path: append to the parent's resource.
-    let p: Vec<&str> = parent_cap.splitn(3, ':').collect();
-    if p.len() < 2 {
-        return None;
-    }
-    let base = p.get(2).copied().unwrap_or("").trim_end_matches("/**");
-    let base = base.trim_end_matches('/');
-    let sub = narrower.trim_start_matches('/');
-    let child = if base.is_empty() {
-        format!("{}:{}:{}", p[0], p[1], sub)
+    let candidate = if narrower.contains(':') {
+        // Full capability string.
+        normalize_capability(narrower)
     } else {
-        format!("{}:{}:{}/{}", p[0], p[1], base, sub)
+        // Bare sub-path: append to the parent's resource.
+        let p: Vec<&str> = parent_cap.splitn(3, ':').collect();
+        if p.len() < 2 {
+            return None;
+        }
+        let base = p.get(2).copied().unwrap_or("").trim_end_matches("/**");
+        let base = base.trim_end_matches('/');
+        let sub = narrower.trim_start_matches('/');
+        let child = if base.is_empty() {
+            format!("{}:{}:{}", p[0], p[1], sub)
+        } else {
+            format!("{}:{}:{}/{}", p[0], p[1], base, sub)
+        };
+        normalize_capability(&child)
     };
-    Some(normalize_capability(&child))
+    // Both branches converge here: a child grant is valid only if the parent
+    // still covers it. `normalize_capability` collapses `..`, so a bare sub-path
+    // like "../secret" (fs:read:/app/images -> fs:read:/app/secret) or repeated
+    // "../.." traversal normalizes to a path the parent does not cover and is
+    // rejected — attenuation can only narrow, never widen. (ENG-22617/ENG-22628)
+    grant_covers(parent_cap, &candidate).then_some(candidate)
 }
 
 impl HandleRegistry {
@@ -85,44 +92,62 @@ impl HandleRegistry {
         Self::default()
     }
 
-    fn random_id() -> u64 {
+    /// A fresh random handle id, or `None` on OS-RNG failure. Handle ids are
+    /// unforgeable possession tokens, so on RNG failure we fail closed (mint no
+    /// handle) rather than fall back to an address-derived value — a predictable
+    /// id would undermine the whole possession model; no handle is safer than a
+    /// guessable one. (ENG-22622)
+    fn random_id() -> Option<u64> {
         // Masked to 53 bits so the id round-trips exactly through a JS number
         // (which the engine passes across the boundary); still a 2^53 space, so
         // unforgeable by guessing.
         const MASK53: u64 = (1u64 << 53) - 1;
         let mut bytes = [0u8; 8];
-        let raw = if getrandom::getrandom(&mut bytes).is_err() {
-            // Fall back to an address-derived value; still not a small counter.
-            let boxed = Box::new(0u8);
-            let addr = Box::into_raw(boxed) as u64;
-            unsafe { drop(Box::from_raw(addr as *mut u8)) };
-            addr ^ 0x9E37_79B9_7F4A_7C15
-        } else {
-            u64::from_le_bytes(bytes)
-        };
-        let id = raw & MASK53;
-        if id == 0 {
-            1
-        } else {
-            id
+        getrandom::getrandom(&mut bytes).ok()?;
+        let id = u64::from_le_bytes(bytes) & MASK53;
+        Some(if id == 0 { 1 } else { id })
+    }
+
+    /// Generate a fresh id that does not collide with a live handle. Returns
+    /// `None` (fail closed — no handle minted) on RNG failure or if no free id is
+    /// found within a bounded number of attempts, so a duplicate id can never
+    /// overwrite an existing live handle's grant. (ENG-22622)
+    fn fresh_id(map: &HashMap<u64, HandleGrant>) -> Option<u64> {
+        Self::fresh_id_with(map, Self::random_id)
+    }
+
+    /// Collision/RNG-failure core of `fresh_id`, split out so the failure modes
+    /// can be exercised deterministically with an injected generator. (ENG-22622)
+    fn fresh_id_with<F: FnMut() -> Option<u64>>(
+        map: &HashMap<u64, HandleGrant>,
+        mut gen: F,
+    ) -> Option<u64> {
+        for _ in 0..8 {
+            let id = gen()?; // None (RNG failure) short-circuits → fail closed
+            if !map.contains_key(&id) {
+                return Some(id);
+            }
         }
+        None
     }
 
     /// Mint a handle carrying `capability`. The caller is responsible for having
     /// verified the frame holds `capability` first (the endowment layer).
     pub fn create(&self, capability: &str) -> u64 {
-        let id = Self::random_id();
         if let Ok(mut map) = self.handles.write() {
-            map.insert(
-                id,
-                HandleGrant {
-                    capability: normalize_capability(capability),
-                    parent: None,
-                    revoked: false,
-                },
-            );
+            if let Some(id) = Self::fresh_id(&map) {
+                map.insert(
+                    id,
+                    HandleGrant {
+                        capability: normalize_capability(capability),
+                        parent: None,
+                        revoked: false,
+                    },
+                );
+                return id;
+            }
         }
-        id
+        0 // fail closed: RNG failure or (astronomically) no free id
     }
 
     /// Re-attenuate `parent` to a narrower grant. Returns 0 on failure (parent
@@ -145,18 +170,20 @@ impl HandleRegistry {
             Some(c) => c,
             None => return 0,
         };
-        let id = Self::random_id();
         if let Ok(mut map) = self.handles.write() {
-            map.insert(
-                id,
-                HandleGrant {
-                    capability: child_cap,
-                    parent: Some(parent),
-                    revoked: false,
-                },
-            );
+            if let Some(id) = Self::fresh_id(&map) {
+                map.insert(
+                    id,
+                    HandleGrant {
+                        capability: child_cap,
+                        parent: Some(parent),
+                        revoked: false,
+                    },
+                );
+                return id;
+            }
         }
-        id
+        0 // fail closed: RNG failure or (astronomically) no free id
     }
 
     /// Is the handle (and its whole ancestor chain) live — not directly revoked
@@ -234,6 +261,57 @@ mod tests {
         assert!(!r.check(c, "fs:read:/app/images/other.png")); // narrowed out
                                                                // cannot scope wider than the parent
         assert_eq!(r.scoped(h, "fs:read:/etc"), 0);
+    }
+
+    #[test]
+    fn scoped_rejects_dotdot_traversal_outside_grant() {
+        // ENG-22617/ENG-22628: a bare sub-path with `..` must not escape the
+        // parent handle's subtree even though normalization collapses the `..`.
+        let r = HandleRegistry::new();
+        let h = r.create("fs:read:/app/images");
+        assert!(h != 0);
+        // Sibling escape: /app/images/../secret -> /app/secret (not covered).
+        assert_eq!(r.scoped(h, "../secret"), 0);
+        // Deep parent traversal to an absolute-looking target.
+        assert_eq!(r.scoped(h, "../../../../etc/passwd"), 0);
+        // Traversal buried after a legitimate-looking prefix.
+        assert_eq!(r.scoped(h, "cache/../../../etc"), 0);
+        // A genuine nested sub-path still works and stays contained.
+        let c = r.scoped(h, "cache/thumbs");
+        assert!(c != 0);
+        assert!(r.check(c, "fs:read:/app/images/cache/thumbs/x"));
+        assert!(!r.check(c, "fs:read:/app/secret"));
+    }
+
+    #[test]
+    fn fresh_id_fails_closed_on_rng_failure() {
+        // ENG-22622: an RNG failure (generator yields None) must fail closed —
+        // no id minted — rather than fall back to a weak/predictable value.
+        let map: HashMap<u64, HandleGrant> = HashMap::new();
+        assert_eq!(HandleRegistry::fresh_id_with(&map, || None), None);
+    }
+
+    #[test]
+    fn fresh_id_retries_past_collisions_then_gives_up() {
+        // ENG-22622: a duplicate id must never overwrite a live handle. The
+        // generator is forced to collide with an occupied slot before yielding a
+        // free one; a run of pure collisions fails closed instead of overwriting.
+        let mut map: HashMap<u64, HandleGrant> = HashMap::new();
+        map.insert(
+            42,
+            HandleGrant {
+                capability: "fs:read:/app".into(),
+                parent: None,
+                revoked: false,
+            },
+        );
+        // First two draws collide with the occupied id 42, third is free.
+        let seq = std::cell::RefCell::new(vec![42u64, 42u64, 99u64].into_iter());
+        let got = HandleRegistry::fresh_id_with(&map, || seq.borrow_mut().next());
+        assert_eq!(got, Some(99));
+        assert!(map.contains_key(&42)); // untouched
+                                        // A generator that only ever collides gives up (fail closed).
+        assert_eq!(HandleRegistry::fresh_id_with(&map, || Some(42)), None);
     }
 
     #[test]

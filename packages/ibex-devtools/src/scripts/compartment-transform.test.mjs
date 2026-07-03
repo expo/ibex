@@ -44,6 +44,33 @@ test('free in outer scope, bound in inner scope — only the free one rewrites',
   expect(out).toBe('__compartment.process; function f(process) { return process; }');
 });
 
+// ENG-22638 — scope analysis must model ESM import specifiers, top-level export
+// declarations, and `with`-object bindings, or a package's own reference to such
+// a name that collides with a compartment global is wrongly rewritten.
+test('ESM import binding shadowing a global is left untouched', () => {
+  const src = "import fetch from 'cross-fetch';\nexport function go(u) { return fetch(u); }";
+  expect(rw(src)).toBe(src);
+  const named = "import { Buffer } from 'safe-buffer';\nBuffer.from('x');";
+  expect(rw(named)).toBe(named);
+  const ns = "import * as process from 'node:process';\nprocess.cwd();";
+  expect(rw(ns)).toBe(ns);
+});
+
+test('top-level export declaration binding shadowing a global is left untouched', () => {
+  const c = 'export const Buffer = mk();\nBuffer.from(1);';
+  expect(rw(c)).toBe(c);
+  const cls = 'export class fetch {}\nnew fetch();';
+  expect(rw(cls)).toBe(cls);
+});
+
+test('a name bound by a with-object is not rewritten inside the with body', () => {
+  // Inside `with (o)`, `process` may be a property of `o`, so it must be left
+  // alone; a free `process` outside the with body still rewrites.
+  const src = 'process;\nwith (o) { process.x; }';
+  const out = rw(src);
+  expect(out).toBe('__compartment.process;\nwith (o) { process.x; }');
+});
+
 test('member property with the same name is not rewritten', () => {
   expect(rw('obj.process')).toBe('obj.process');
   expect(rw('a.b.fetch()')).toBe('a.b.fetch()');

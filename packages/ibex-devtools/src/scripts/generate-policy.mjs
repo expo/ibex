@@ -100,9 +100,13 @@ const graphPlugin = {
     const pkg = packageOfModuleId(id);
     if (pkg) {
       if (!packageDirs.has(pkg)) packageDirs.set(pkg, new Set());
+      // Normalize backslashes to agree with packageOfModuleId (ENG-22619): on
+      // Windows the raw id uses `\`, so an un-normalized scan misses the marker
+      // and silently drops the package's directory (hence its ibex manifest).
+      const nid = id.replace(/\\/g, '/');
       const marker = 'node_modules/';
-      const idx = id.lastIndexOf(marker);
-      if (idx !== -1) packageDirs.get(pkg).add(id.slice(0, idx + marker.length) + pkg);
+      const idx = nid.lastIndexOf(marker);
+      if (idx !== -1) packageDirs.get(pkg).add(nid.slice(0, idx + marker.length) + pkg);
     }
     return null;
   },
@@ -299,7 +303,16 @@ if (opts.check) {
   }
   console.error(`policy artifact is stale: ${path.relative(process.cwd(), out)}`);
   try {
-    const oldCaps = capsByPackage(JSON.parse(existing));
+    const existingJson = JSON.parse(existing);
+    // Diff the declared mode too: a policy generated with `--mode audit` drifts
+    // against an enforce-default regeneration on the `mode` field alone, which the
+    // capability diff below can't see — surface it explicitly so the fix (pass the
+    // matching `--mode` to `check`) is obvious rather than "structural changes
+    // only". (ENG-22642)
+    const oldMode = existingJson.mode ?? '(unset)';
+    const newMode = artifact.mode ?? '(unset)';
+    const modeChanged = oldMode !== newMode;
+    const oldCaps = capsByPackage(existingJson);
     const newCaps = capsByPackage(artifact);
     const expansions = [];
     const shrinkage = [];
@@ -313,6 +326,12 @@ if (opts.check) {
         if (!newCaps.get(pkg)?.has(cap)) shrinkage.push(`${pkg}: ${cap}`);
       }
     }
+    if (modeChanged) {
+      console.error(
+        `mode changed: ${oldMode} -> ${newMode} ` +
+          `(if intentional, run check with --mode ${oldMode})`
+      );
+    }
     if (expansions.length) {
       console.error('capability EXPANSIONS (review these):');
       for (const line of expansions) console.error(`  + ${line}`);
@@ -321,7 +340,7 @@ if (opts.check) {
       console.error('capability shrinkage:');
       for (const line of shrinkage) console.error(`  - ${line}`);
     }
-    if (!expansions.length && !shrinkage.length) {
+    if (!expansions.length && !shrinkage.length && !modeChanged) {
       console.error('(structural changes only — packages, surfaces, or provenance)');
     }
   } catch {

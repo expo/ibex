@@ -18,21 +18,11 @@
     "fast-codec": {
       "capabilities": [
         "fs:read:/tmp/ibex-llp0013/**"
-      ],
-      "builtins": [
-        "node:fs",
-        "node:fs/promises",
-        "node:path"
       ]
     },
     "image-lib": {
       "capabilities": [
         "fs:read:/tmp/ibex-llp0013/**"
-      ],
-      "builtins": [
-        "node:fs",
-        "node:fs/promises",
-        "node:path"
       ]
     },
     "sneaky-helper": {},
@@ -40,11 +30,6 @@
     "tmp-helper": {
       "capabilities": [
         "fs:read:/tmp/ibex-llp0013/**"
-      ],
-      "builtins": [
-        "node:fs",
-        "node:fs/promises",
-        "node:path"
       ]
     }
   },

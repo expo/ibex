@@ -977,7 +977,7 @@ grants), and a grant-change signal (`Ibex.permissions.onChange`) for embedder
 UIs are landed; the OS-broker UX / async-acquisition / per-view-grant layer
 remains embedder work per §Interaction with user-facing dynamic permissions. See
 [Upstream tracking](#upstream-tracking-and-re-derivation) and
-`patches/hermes/README.md` for the carried patch stack (0001–0006) and the
+`patches/hermes/README.md` for the carried patch stack (0001–0007) and the
 Ibex-side integration.
 
 Phase 2 finding (recorded per the acceptance criteria): the trusted runtime
@@ -992,8 +992,14 @@ enforcement gaps orthogonal to attribution. Both are now fixed.
 The `fs:write` gap: the fd-based `__exactFsOpen` path checks the capability
 after parsing the open flags and gates on the actual access intent
 (`O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND` → `fs:write`, read-only → `fs:read`),
-so a write through any `fs` API is attributed and enforced
-(`tests/llp0013_compartments.rs::fs_write_requires_fs_write_capability`).
+so a write through the fd path is attributed and enforced
+(`tests/llp0013_compartments.rs::fs_write_requires_fs_write_capability`). The open
+gate also treats an exotic/invalid access mode (`O_ACCMODE == 3`) as requiring at
+least `fs:read`, so flag math can only widen the requirement, never skip it
+(ENG-22639). Enforcement is not limited to the fd path: the standalone
+path-based mutators — `symlink`, `link`, `truncate`, `chown`, `lchown`, `utimes`,
+`rename` (both `from` **and** `to`) — each gate `fs:write`, and `readlink`/`statfs`
+gate `fs:read`, so no path-based `fs` mutator bypasses the gate (ENG-22627).
 
 The `process.env` gap: `process.env` is a JS Proxy whose reads funnel every key
 through the capability-checked native `__exactGetEnv`/`__exactGetAllEnv`
@@ -1128,6 +1134,20 @@ specifiers are redirected). Tested by
 `tests/llp0013_compartments.rs::per_package_chunks_give_bundled_apps_frame_attribution`
 (with a flat-bundle control). The deputy caveat above still applies.
 
+**Package identity — selector precedence (Resolved Q1).** The canonical runtime
+identity is the package **name** (the policy selector, which survives version
+bumps) plus the resolved **locator** (the runtime principal — lockfile identity /
+path / integrity as available; `PackagePrincipal { name, locator }`). Host policy
+lookup (`decide` / `decide_import`) consults the locator-qualified selector
+**before** the bare name and takes the first with a matching grant/deny, so a
+policy can pin a specific coexisting version (`node-fetch@2`) while the name entry
+remains the default — the opt-in tightening Resolved Q1 describes. Tested by
+`capability.rs::version_locator_selector_overrides_name` (ENG-22621). The
+name-keyed compartment/endowment bucket is still shared across a package's
+coexisting versions; giving each `name@version` its own compartment global, and
+matching human-friendly `name@version` selectors against a resolved version via a
+semver scheme (the locator is a path today), remain scoped follow-ups.
+
 #### Import gating (Policy surface 3)
 
 The import-graph gate is now wired end-to-end. The loader calls
@@ -1217,13 +1237,17 @@ cascade) into a provenance-carrying generated `PolicyFile` artifact;
 
 #### Upstream tracking
 
-The pin plus the ordered `patches/hermes/` series (0001 Domain principal, 0002
-frame attribution + stack collector + exported C bridge, 0003 Runtime
-pending/default id) is the fork; `scripts/apply-hermes-patches.sh` applies it
-after clone in every `build-hermes*.sh` and is exercised by the
-`hermes-patch-canary` workflow. Class breakdown: 0001/0002 are A/B (rebase
-≈free); 0003 carries the single Class C site (the `runBytecode` stamping
-insertion), within the single-digit budget.
+The pin plus the ordered `patches/hermes/` series (0001 Domain principal; 0002
+frame attribution + stack collector + exported C bridge; 0003 Runtime
+pending/default id; 0004 native compartment globals; 0005 native-compartment
+refinements; 0006 `eval`/`Function` binding + native deep-freeze; 0007
+fail-closed async/deputy attribution) is the fork; `scripts/apply-hermes-patches.sh`
+applies it after clone in every `build-hermes*.sh` and is exercised by the
+`hermes-patch-canary` workflow. Class breakdown (per `patches/hermes/README.md`):
+every patch is base A/B; the surgical Class C sites total **five** — 0003 (+1,
+the `runBytecode` stamping insertion), 0004 (+3, the interpreter
+`GetGlobalObject`/`this` cases), and 0005 (+1) — still within the single-digit
+Class C budget the patch-shape discipline gates on.
 
 ## References
 

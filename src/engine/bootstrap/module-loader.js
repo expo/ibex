@@ -58,22 +58,50 @@
   // Hermes' CapabilityAttribution.cpp): builtin modules (node:fs, node:path, …)
   // are trusted deputies whose Domains attribution sees through to the caller.
   var __runtimePrincipal = 0xFFFFFFFF;
+  var __pkgChunkPrefix = '__ibexpkg__';
+  // Whether a module path's basename claims to be a per-package bundle chunk
+  // (`__ibexpkg__*`). The claim is only *trusted* when the file also lives in
+  // the chunk output dir (see packageNameFromPath); this predicate lets
+  // packagePrincipalFor refuse root for a chunk-claiming file that does not
+  // resolve to a real package. (ENG-22624)
+  function basenameClaimsChunk(p) {
+    if (typeof p !== 'string') return false;
+    var np = p.replace(/\\/g, '/');
+    var slash = np.lastIndexOf('/');
+    var base = slash === -1 ? np : np.slice(slash + 1);
+    return base.indexOf(__pkgChunkPrefix) === 0;
+  }
   // Derive the npm package selector from a resolved module path: the segment
   // after the last `node_modules/` (two segments for an @scope). Returns null
   // for first-party / workspace code, which stays the trusted root principal.
   // @ref LLP 0013#resolved-questions (package name is the policy selector)
   function packageNameFromPath(p) {
     if (typeof p !== 'string') return null;
+    // Normalize Windows separators before any marker detection. Runtime module
+    // paths arrive from Rust PathBuf::to_string_lossy(), which emits backslashes
+    // on Windows, so `C:\app\node_modules\evil\index.js` must still classify as
+    // package code (else it gets root principal 0). (ENG-22619)
+    p = p.replace(/\\/g, '/');
     // @ref LLP 0013#mechanism-3 — per-package bundle chunks (IBEX_PER_PACKAGE_CHUNKS)
-    // are named `__ibexpkg__<encoded package>`; recover the package from the
-    // chunk basename so a bundled app gets per-package attribution too. The
-    // bundler escapes `/` (scoped names) as `__SLASH__`.
+    // are named `__ibexpkg__<encoded package>` and the chunk basename is the
+    // authoritative principal. Trust it ONLY when the file physically resides in
+    // the per-package-chunk output dir (`__exactChunkDir`): otherwise a
+    // dependency could forge any principal — even root — by shipping a file
+    // named `__ibexpkg__*` and requiring it. (ENG-22624)
     var slash = p.lastIndexOf('/');
     var base = slash === -1 ? p : p.slice(slash + 1);
-    var pkgPrefix = '__ibexpkg__';
-    if (base.indexOf(pkgPrefix) === 0) {
-      var enc = base.slice(pkgPrefix.length).replace(/\.js$/, '').replace(/\.[0-9a-f]+$/i, '');
-      return enc.split('__SLASH__').join('/');
+    var dir = slash === -1 ? '' : p.slice(0, slash);
+    if (base.indexOf(__pkgChunkPrefix) === 0 && g.__exactChunkDir) {
+      var chunkDir = String(g.__exactChunkDir).replace(/\\/g, '/').replace(/\/+$/, '');
+      if (dir.replace(/\/+$/, '') === chunkDir) {
+        // Strip only the `.js` extension the chunk template adds. There is no
+        // `[hash]` suffix in the chunk name, so do NOT strip a trailing `.<hex>`
+        // run — that corrupts legit hex-tailed names like `foo.cafe`. (ENG-22641)
+        var enc = base.slice(__pkgChunkPrefix.length).replace(/\.js$/, '');
+        if (enc) return enc.split('__SLASH__').join('/');
+        // Empty decoded name: an invalid chunk. Fall through — packagePrincipalFor
+        // refuses to hand a chunk-claiming file the root principal. (ENG-22624)
+      }
     }
     var marker = 'node_modules/';
     var idx = p.lastIndexOf(marker);
@@ -93,8 +121,20 @@
     // over the host functions); mark them so a package's host access through
     // them is attributed to the package, not laundered into root.
     if (record && record.kind === 'builtin') return __runtimePrincipal;
-    var name = packageNameFromPath(record && (record.path || record.id));
-    if (!name) return 0;
+    var raw = record && (record.path || record.id);
+    var name = packageNameFromPath(raw);
+    if (!name) {
+      // A file whose basename claims to be a per-package chunk (`__ibexpkg__*`)
+      // but did not resolve to a real package name must never be attributed to
+      // root — that is the forge ENG-22624 closes. Hand it an isolated,
+      // never-registered quarantine principal instead (the host has no grants
+      // for it, so it default-denies under enforce). Genuine chunks in the
+      // chunk dir always resolve to a name and never reach this branch.
+      if (basenameClaimsChunk(raw)) {
+        return __nextPackagePrincipal++;
+      }
+      return 0;
+    }
     var existing = __packagePrincipals[name];
     if (existing) return existing;
     var id = __nextPackagePrincipal++;
@@ -4134,6 +4174,34 @@
     }
     return out.join("\n");
   }
+  // @ref LLP 0013#policy — the import-graph gate (Policy surface 3), applied at
+  // every package-facing require entry point (localRequire, globalThis.require,
+  // dynamic import()). The native __exactCheckImport re-derives the requesting
+  // principal from the executing frame — never trusting a JS-passed id — so the
+  // gate fires even for dynamic import() and globalThis.require, which carry no
+  // module `parent`, and cannot be bypassed by a forged parent. Inert for the
+  // root and runtime principals and for packages the policy does not restrict;
+  // the host logs (audit) or denies (enforce). Placed at the entry points (not
+  // deep inside load()) so the loader's own internal fan-out — e.g. mapping
+  // 'dns/promises' to an internal load('dns') — is not re-gated under the
+  // requesting package's principal against a different specifier. (ENG-22618/ENG-22629)
+  function checkImportGate(specifier, requesterHint) {
+    if (!__privCheckImport || typeof specifier !== 'string') return;
+    // On the frame-attribution engine the native check re-derives the requesting
+    // principal from the executing frame and IGNORES this hint. On an unpatched
+    // engine (no EXACT_HAVE_FRAME_ATTRIBUTION) it falls back to the passed id, so
+    // pass the requester's package id where the call site knows it (static
+    // require has the enclosing module) — otherwise the gate would go inert on
+    // those builds and a restricted package's static require would be allowed as
+    // root. Global entry points (globalThis.require / dynamic import) have no
+    // module context and pass 0 there — but those paths were already ungated on
+    // unpatched builds, so this is no regression. (ENG-22618 review)
+    var hint = typeof requesterHint === 'number' ? requesterHint : 0;
+    if (!__privCheckImport(hint, specifier)) {
+      throw new Error(
+        "Import denied: '" + specifier + "' is not permitted for this package (LLP 0013 import policy)");
+    }
+  }
   function load(specifier, referrer, parent) {
     __exactPinProcessStreams();
 
@@ -4259,18 +4327,29 @@
     if (record.error) {
       throw new Error(record.error);
     }
-    // @ref LLP 0013#policy — import-graph gate (Policy surface 3). Ask the host
-    // whether the *requesting* package may load this specifier. Gated per
-    // require (before the cache short-circuit), inert for the root and runtime
-    // principals and for packages the policy does not restrict; the host logs
-    // (audit) or denies (enforce).
-    if (__privCheckImport) {
-      var requesterPrincipal =
-        (parent && typeof parent.__exactPackageId === 'number') ? parent.__exactPackageId : 0;
-      if (requesterPrincipal > 0 && requesterPrincipal !== __runtimePrincipal &&
-          !__privCheckImport(requesterPrincipal, specifier)) {
-        throw new Error(
-          "Import denied: '" + specifier + "' is not permitted for this package (LLP 0013 import policy)");
+    // Import policy (Policy surface 3) for BARE specifiers is enforced at the
+    // package-facing entry points via checkImportGate(), not here: load() is also
+    // the loader's own internal module-resolution primitive (alias fan-out,
+    // builtin plumbing), whose calls must not be attributed to the requesting
+    // package against a rewritten specifier. (ENG-22618/ENG-22629)
+    //
+    // Relative/absolute specifiers, however, can only be classified after
+    // resolution: `../sibling/index.js` resolves to a DIFFERENT package that the
+    // raw-specifier entry gate can't see, so a package with a restricted
+    // `packages` axis could otherwise reach a sibling package by path traversal.
+    // Gate the resolved target's package name when it differs from the requester's
+    // (intra-package relative imports are not cross-package edges and are allowed).
+    // (ENG-22637 review)
+    if (__privCheckImport && typeof specifier === 'string' &&
+        (specifier.charAt(0) === '.' || specifier.charAt(0) === '/')) {
+      var __targetPkg = packageNameFromPath(record.path || record.id);
+      if (__targetPkg) {
+        var __reqId = (parent && typeof parent.__exactPackageId === 'number')
+          ? parent.__exactPackageId : null;
+        var __tgtId = packagePrincipalFor(record);
+        if (__reqId === null || __reqId !== __tgtId) {
+          checkImportGate(__targetPkg, __reqId === null ? undefined : __reqId);
+        }
       }
     }
     const id = record.id || resolvedSpecifier;
@@ -4365,6 +4444,9 @@
       return "(async function() {\n" + String(text || "") + "\n})();";
     };
     var localRequire = function(next) {
+      // Pass the enclosing module's principal as the fallback hint so the gate
+      // still enforces on non-frame-attribution builds. (ENG-22618 review)
+      checkImportGate(next, module && module.__exactPackageId);
       var internal = loadInternal(next);
       if (internal) return internal;
       var exports = load(next, filename, module);
@@ -4692,6 +4774,9 @@
   globalThis.require = function(specifier, options) {
     // Grant capabilities if provided
     grantCapabilities(specifier, options, 0);
+    // globalThis.require carries no module parent, so package code that reaches
+    // it must still be gated by the requesting frame's principal. (ENG-22618)
+    checkImportGate(specifier);
     var internal = loadInternal(specifier);
     if (internal) return internal;
     return load(specifier, "");
@@ -4912,7 +4997,35 @@
   // import() returns a Promise that resolves to the module
   // ESM default export becomes { default: ... }, named exports are direct properties
   var importImpl = function(specifier, options) {
+    // Gate synchronously: the microtask below detaches the requesting frame, so
+    // frame-derived attribution must run now, while the package's frame is still
+    // on the stack. Surface a denial as a rejected promise per import()
+    // semantics rather than a synchronous throw. (ENG-22629)
+    var gateError = null;
+    try {
+      checkImportGate(specifier);
+      // A relative/absolute dynamic import can resolve to a DIFFERENT package
+      // (`import('../sibling')`), which the raw-specifier gate above can't see.
+      // The resolved-target gate in load() runs inside the microtask below where
+      // the frame is already detached (currentPrincipalId would report an
+      // unregistered sentinel and allow), so resolve + gate the target package's
+      // name SYNCHRONOUSLY here while the requester frame is still on the stack.
+      // (ENG-22637 review pass2)
+      if (typeof specifier === 'string' &&
+          (specifier.charAt(0) === '.' || specifier.charAt(0) === '/')) {
+        var __itp = null;
+        try {
+          var __irj = __exactModuleResolve(stripViteImportQuery(specifier), "");
+          if (__irj) {
+            var __irec = JSON.parse(__irj);
+            if (!__irec.error) __itp = packageNameFromPath(__irec.path || __irec.id);
+          }
+        } catch (e) { __itp = null; } // resolution failure: let load() surface it
+        if (__itp) checkImportGate(__itp); // denial propagates to the catch below
+      }
+    } catch (e) { gateError = e; }
     return Promise.resolve().then(function() {
+      if (gateError) throw gateError;
       // Grant capabilities if provided
       grantCapabilities(specifier, options);
 

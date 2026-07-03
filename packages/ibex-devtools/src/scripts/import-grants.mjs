@@ -334,14 +334,24 @@ export function resolveCascade({ rootGrants = new Map(), edges = [], requests = 
 // ===========================================================================
 
 /**
- * Derive companion endowments/builtins from capability grants so a usable
- * policy doesn't require authoring all three surfaces by hand. Explicit
- * `endow:`/`builtins:` attributes extend this set. Deliberately small; this
- * table is the single source. @ref LLP 0014#surface-derivation
+ * Derive companion endowments from capability grants so a usable policy doesn't
+ * require authoring the endow surface by hand. Explicit `endow:` attributes
+ * extend this set. @ref LLP 0014#surface-derivation
+ *
+ * Intentionally does NOT synthesize a `builtins` allowlist from capability
+ * classes. The runtime treats a *present* `builtins` list as a strict allowlist,
+ * so a partial list derived from a grant (e.g. `fs` → only
+ * `node:fs`/`node:fs/promises`/`node:path`) wrongly denies every other builtin
+ * the package legitimately imports (`node:os`, `util`, `events`, `stream`, …) and
+ * crashes it under enforce — and perversely, granting *more* capability would
+ * *narrow* the import axis. The builtins axis is therefore opt-in: populated only
+ * from explicit `builtins:` attributes (or a future import-graph analysis), never
+ * inferred from a grant. Capability containment is unaffected — an unrestricted
+ * import axis only allows *loading* a module; the dangerous operation is still
+ * gated by the capability system. (ENG-22633)
  */
 export function deriveSurfaces(capabilities) {
   const endow = new Set();
-  const builtins = new Set();
   for (const cap of capabilities) {
     const cls = cap.split(':')[0];
     if (cls === 'network') {
@@ -350,13 +360,9 @@ export function deriveSurfaces(capabilities) {
       endow.add('WebSocket');
     } else if (cls === 'process') {
       endow.add('process');
-    } else if (cls === 'fs') {
-      builtins.add('node:fs');
-      builtins.add('node:fs/promises');
-      builtins.add('node:path');
     }
   }
-  return { endow: [...endow].sort(), builtins: [...builtins].sort() };
+  return { endow: [...endow].sort(), builtins: [] };
 }
 
 // ===========================================================================

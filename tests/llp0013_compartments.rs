@@ -624,6 +624,13 @@ fn fs_write_requires_fs_write_capability() {
         ro.stdout,
         ro.stderr
     );
+    // ENG-22627: path-based mutators (truncate, symlink) are gated on fs:write too.
+    assert!(
+        ro.stdout.contains("truncate: DENIED") && ro.stdout.contains("symlink: DENIED"),
+        "path-based fs mutators must be denied without fs:write:\nstdout:\n{}\nstderr:\n{}",
+        ro.stdout,
+        ro.stderr
+    );
     // With fs granted, the write succeeds.
     let rw = run_ibex(
         &[
@@ -643,6 +650,14 @@ fn fs_write_requires_fs_write_capability() {
     assert!(
         rw.stdout.contains("write: SUCCEEDED"),
         "fs (read+write) must allow the write:\nstdout:\n{}\nstderr:\n{}",
+        rw.stdout,
+        rw.stderr
+    );
+    // ENG-22627: with fs:write granted, the path-based mutators succeed (the gate
+    // permits, not blocks) — proving the DENIED above is enforcement, not breakage.
+    assert!(
+        rw.stdout.contains("truncate: SUCCEEDED") && rw.stdout.contains("symlink: SUCCEEDED"),
+        "path-based fs mutators must succeed when fs:write is granted:\nstdout:\n{}\nstderr:\n{}",
         rw.stdout,
         rw.stderr
     );
@@ -1102,6 +1117,21 @@ fn import_gate_denies_restricted_package_builtin() {
         out.stdout,
         out.stderr
     );
+    // ENG-22618/ENG-22629: the alternate require surfaces (globalThis.require and
+    // dynamic import()) are gated by the requesting frame's principal too, not
+    // bypassed as root.
+    assert!(
+        out.stdout.contains("evil-global-require: IMPORT-DENIED"),
+        "globalThis.require must be gated by the package principal:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("evil-dynamic-import: IMPORT-DENIED"),
+        "dynamic import() must be gated by the package principal:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
 }
 
 #[test]
@@ -1125,6 +1155,18 @@ fn import_gate_is_inert_without_restriction() {
     assert!(
         out.stdout.contains("evil-import: IMPORTED:function"),
         "an unrestricted package should still import fs:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // ENG-22618/ENG-22629 control: the gate is inert on every surface, not just
+    // static require, when the package is unrestricted.
+    assert!(
+        out.stdout
+            .contains("evil-global-require: IMPORTED:function")
+            && out
+                .stdout
+                .contains("evil-dynamic-import: IMPORTED:function"),
+        "unrestricted package: alternate require surfaces still import:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );

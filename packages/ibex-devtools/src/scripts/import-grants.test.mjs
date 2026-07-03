@@ -221,14 +221,14 @@ test('cascade: union across importers delegating different scopes', () => {
 // Surface derivation
 // ---------------------------------------------------------------------------
 
-test('derives endowments and builtins from capability classes', () => {
+test('derives endowments from capability classes but never a builtins allowlist', () => {
   expect(deriveSurfaces(['network:fetch'])).toEqual({
     endow: ['WebSocket', 'XMLHttpRequest', 'fetch'],
     builtins: [],
   });
   expect(deriveSurfaces(['process:env'])).toEqual({ endow: ['process'], builtins: [] });
-  expect(deriveSurfaces(['fs:read:/x'])).toEqual({
-    endow: [],
-    builtins: ['node:fs', 'node:fs/promises', 'node:path'],
-  });
+  // ENG-22633: an fs grant must NOT synthesize a partial builtins allowlist — a
+  // present list is enforced strictly and would deny every other builtin the
+  // package imports. The builtins axis is opt-in via explicit `builtins:` only.
+  expect(deriveSurfaces(['fs:read:/x'])).toEqual({ endow: [], builtins: [] });
 });

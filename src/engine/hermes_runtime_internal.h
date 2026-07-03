@@ -182,6 +182,10 @@ extern void* g_vm_runtime;
 // frame attribution — the walk skips them so the nearest user frame is charged.
 // Kept in sync with kRuntimePackageId in Hermes' CapabilityAttribution.cpp.
 constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
+// Mirror of the Rust NO_USER_PRINCIPAL / engine kNoUserPrincipal: a principal
+// with no grants that fails closed. Used as a fail-closed sentinel when the
+// deputy-stack collector may have truncated (see checkCapability). (ENG-22643)
+constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
 #endif
 
 // The capability principal for the code currently executing at the host
@@ -224,6 +228,15 @@ inline bool isAllowAll() {
 #endif
 }
 
+// Whether any deputy capability classes are configured (Phase 5 opt-in). NOT
+// cached: a process-lifetime latch of the first observed answer would be a
+// footgun if a check ever ran before deputy classes were configured (it would
+// pin `false` for the whole process). The check is only reached on the opt-in
+// deputy path, and the FFI is two cheap RwLock reads, so query it live. (ENG-22644)
+inline bool hasDeputyClasses() {
+  return ex_host_has_deputy_classes() != 0;
+}
+
 inline bool checkCapability(const std::string& capability) {
   if (isAllowAll()) {
     return true;
@@ -234,13 +247,24 @@ inline bool checkCapability(const std::string& capability) {
   // policy), effective authority is the AND of every package on the call stack,
   // so a deputy holding e.g. fs:write cannot be driven to act for an ungranted
   // caller. Only collect the stack when deputy classes are actually configured.
-  if (g_vm_runtime != nullptr && ex_host_has_deputy_classes()) {
-    uint32_t ids32[64];
-    size_t n = ex_hermes_vm_collect_package_ids(g_vm_runtime, ids32, 64);
+  if (g_vm_runtime != nullptr && hasDeputyClasses()) {
+    // Collection is innermost-first, so a full buffer drops the OUTERMOST frames
+    // — exactly the low-authority callers whose absence would let the AND pass
+    // (fail open). Size the buffer generously (the collector collapses
+    // consecutive-duplicate principal runs, so this is astronomically deep) and,
+    // if it still fills, append the fail-closed sentinel so the deputy-class AND
+    // denies rather than trusting a possibly-truncated stack. The non-deputy path
+    // keys on ids64[0] (innermost, never dropped) and is unaffected. (ENG-22643)
+    constexpr size_t kMaxStack = 256;
+    uint32_t ids32[kMaxStack];
+    size_t n = ex_hermes_vm_collect_package_ids(g_vm_runtime, ids32, kMaxStack);
     if (n > 0) {
-      uint64_t ids64[64];
+      uint64_t ids64[kMaxStack + 1];
       for (size_t i = 0; i < n; i++) {
         ids64[i] = static_cast<uint64_t>(ids32[i]);
+      }
+      if (n == kMaxStack) {
+        ids64[n++] = static_cast<uint64_t>(kNoUserPrincipalId);
       }
       auto allowed = ex_host_check_capability_stack(ids64, n, capability.c_str());
       ex_host_log_event(
