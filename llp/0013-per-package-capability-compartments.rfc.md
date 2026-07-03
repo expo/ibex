@@ -266,8 +266,11 @@ The build-time implementation must close three escape channels, not one:
 
 In the engine-native implementation, `eval` and `Function` instead bind
 produced code to the calling package's compartment (the engine knows the
-caller's `CodeBlock`), and JSI `NativeFunction`s carry a compartment slot so
-host-created callables attribute correctly.
+caller's `CodeBlock`) — landed in patch 0006. A per-`NativeFunction` compartment
+slot for host-created callables is a planned refinement (Phase 3 list below), not
+yet built: today host callables attribute correctly via the reserved
+runtime-principal deputy-transparency rule (Mechanism 3), which the frame walk
+skips over to reach the true caller.
 
 ### Mechanism 3: Frame-derived attribution
 

@@ -356,7 +356,8 @@ shrinkage distinctly.
 
 #### Runtime and CLI
 
-`ibex policy generate|check` (`src/bin/ibex/cli.rs`, `policy_cmd.rs`)
+`ibex policy generate|check` (`PolicyCommands` in `src/bin/ibex/cli.rs`,
+dispatched to `run_policy_command` in `src/bin/ibex/runtime.rs`)
 spawns the generator with the bundler's runner-resolution plumbing. At
 boot, `packages.*.endow` from the loaded policy composes into the
 compartment registry's endowment map (`src/bin/ibex/runtime.rs`), so the
