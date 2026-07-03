@@ -410,6 +410,64 @@ fn without_generated_policy_no_package_is_endowed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// A package that can reach `process` but is granted no env:read must not be able
+// to exfiltrate the environment. Every real read path (`process.env.KEY`) is
+// gated by the `env:read:<key>` capability check (active under `--capsec
+// enforce`); there must also be no plain-object env snapshot on `process` that
+// launders past it. Regression for the removed `process.__exactPlainEnv`.
+// @ref LLP 0013#mechanism-3
+#[test]
+fn ungranted_package_cannot_exfiltrate_env_via_a_plain_snapshot() {
+    if !have_js_runner() {
+        eprintln!("skipping: bundler (bun/node) not available; `run` bundles the app");
+        return;
+    }
+    // Enforce mode with a global allow that omits `env`: the app boots (fs etc.
+    // granted) but no principal holds env:read, so a package's env read is denied
+    // by the capability check rather than by Mechanism-2 withholding (process is
+    // ambient here). Isolates the env gate + the absence of a snapshot bypass.
+    let dir = unique_dir("env-snapshot");
+    copy_dir_recursive(&fixtures_dir().join("env-snapshot"), &dir);
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            dir.join("ibex-policy.json").to_str().unwrap(),
+            "run",
+            dir.join("app.js").to_str().unwrap(),
+        ],
+        &[("SECRET_TOKEN", "hunter2")],
+        None,
+    );
+    // `process` is reachable (ambient in enforce-without-lockdown), so containment
+    // here is the capability gate, not Mechanism-2 withholding — not vacuous.
+    assert!(
+        out.stdout.contains("process=object"),
+        "process should be reachable so the gate is what contains it:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // The gated read is denied, the snapshot is gone, and a brute-force scan of
+    // `process` finds no object carrying the secret.
+    assert!(
+        out.stdout.contains("direct=undefined")
+            && out.stdout.contains("snapshot=undefined")
+            && out.stdout.contains("scan=none"),
+        "env must be fully gated with no plain-snapshot bypass:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // The secret never appears anywhere in the output.
+    assert!(
+        !out.stdout.contains("hunter2"),
+        "secret leaked:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn committed_grants_artifact_is_in_sync() {
     if !have_js_runner() {

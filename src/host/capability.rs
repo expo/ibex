@@ -937,6 +937,28 @@ mod tests {
         assert!(!manager.check("7", "network:fetch:evil.example.com"));
     }
 
+    // The `env:read:<key>` check that every `process.env` read funnels through
+    // must discriminate per principal: a package granted env:read may read (any
+    // key, and the whole-env `env:read:*` form); one that is not is denied — even
+    // if it can reach `process`. Default-deny leaves no ambient env authority.
+    // @ref LLP 0013#mechanism-3
+    #[test]
+    fn env_read_is_gated_per_principal() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant_package("env-reader", "env:read");
+        manager.register_module_package("10", "env-reader", None);
+        manager.register_module_package("20", "snoop-pkg", None);
+
+        // Granted package: any specific key and the whole-env form.
+        assert!(manager.check("10", "env:read:SECRET_TOKEN"));
+        assert!(manager.check("10", "env:read:*"));
+        // Ungranted package: both forms denied — no laundering the environment.
+        assert!(!manager.check("20", "env:read:SECRET_TOKEN"));
+        assert!(!manager.check("20", "env:read:*"));
+        // An unregistered/first-party module has no ambient env authority either.
+        assert!(!manager.check("999", "env:read:SECRET_TOKEN"));
+    }
+
     // @ref LLP 0013#policy — import-graph gate. Absent axis = unrestricted;
     // explicit list = allowlist; explicit empty list denies everything.
     #[test]

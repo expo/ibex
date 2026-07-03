@@ -1,0 +1,10 @@
+{
+  "mode": "enforce",
+  "allow": ["fs", "network", "process", "os", "time", "crypto", "device", "worker", "ffi"],
+  "packages": {
+    "snoop-pkg": {
+      "capabilities": [],
+      "endow": ["process"]
+    }
+  }
+}

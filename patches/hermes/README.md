@@ -72,9 +72,11 @@ uses it only when `ex_host_has_deputy_classes()` (policy `deputyClasses`). See
   `__exactSetCompartmentFor`. Demonstrated by
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`
   (bare `process` and the sloppy-`this` UMD escape both withheld, unbundled, no
-  source rewrite). Perf note: the added branch is on the hottest opcode; a
-  compartment-present fast-flag is a possible follow-up if boot/steady-state
-  profiling shows it.
+  source rewrite). Perf note: the added branch is on the hottest opcode; the
+  compartment-present fast-flag (`anyCompartmentActive_`, patch 0005) makes it a
+  single predicted-not-taken branch when no compartment is bound. Measured with
+  `benches/compartment_overhead.rs` (A/B on the guard, hot loop in root): the
+  steady-state overhead is within noise (≈0%, well under the Goal 3 ≤1% budget).
 
 Landed refinements (patch 0005): the `anyCompartmentActive_` hot-path guard and
 the native `__exactNativeFreeze` freeze primitive.

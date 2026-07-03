@@ -800,7 +800,10 @@ structures), but this assumption is re-validated at each pin bump.
 - Attribution in the audit log is frame-accurate under the red-team suite's
   forgery attempts. *(Phase 2+; Phase 1 claims best-effort only.)*
 - Perf and memory within Goals §3 budgets on the benchmark suite.
-  *(Gated from Phase 2 on.)*
+  *(Gated from Phase 2 on.)* Steady-state compartment overhead is measured by
+  `benches/compartment_overhead.rs` (A/B on the `anyCompartmentActive_` guard):
+  ≈0% on a dev machine, within the ≤1% budget. A broader workload/memory sweep
+  remains for a real-app benchmark corpus.
 - The pin-bump runbook executed on ≥2 real upstream releases within budget.
   *(Phase 3/4 operational readiness — not RFC acceptance.)*
 - `--capsec audit` and `--capsec enforce` (naming TBD) shipped in the CLI;
@@ -983,15 +986,30 @@ Phase 2 finding (recorded per the acceptance criteria): the trusted runtime
 functions; the frame walk reaches the true caller only because those deputy
 Domains carry a reserved *runtime principal* (`0xFFFFFFFF`) that the walk skips
 (Open question 3's "skip runtime-internal frames" rule, now concrete). Two
-surfaces surprised the spike: `process.env` is an eager snapshot that is never
-capability-checked, and `fs.writeFileSync` fired an `fs:read` but not an
-`fs:write` check — both enforcement gaps orthogonal to attribution. The
-`fs:write` gap is now fixed: the fd-based `__exactFsOpen` path checks the
-capability after parsing the open flags and gates on the actual access intent
+surfaces surprised the spike: `process.env` and `fs.writeFileSync` both had
+enforcement gaps orthogonal to attribution. Both are now fixed.
+
+The `fs:write` gap: the fd-based `__exactFsOpen` path checks the capability
+after parsing the open flags and gates on the actual access intent
 (`O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND` → `fs:write`, read-only → `fs:read`),
 so a write through any `fs` API is attributed and enforced
-(`tests/llp0013_compartments.rs::fs_write_requires_fs_write_capability`). The
-`process.env` snapshot remains a known gap.
+(`tests/llp0013_compartments.rs::fs_write_requires_fs_write_capability`).
+
+The `process.env` gap: `process.env` is a JS Proxy whose reads funnel every key
+through the capability-checked native `__exactGetEnv`/`__exactGetAllEnv`
+(`env:read:<key>` / `env:read:*`) — so env reads are gated per principal under
+`--capsec enforce` (`capability.rs::env_read_is_gated_per_principal`), on top of
+Mechanism-2 withholding, which contains a non-endowed package regardless of
+capsec mode. The residual was a laundering channel: a former
+`process.__exactPlainEnv` plain-object *snapshot* (a `--lockdown`-era workaround
+for a since-replaced native env HostObject) copied the whole environment ungated
+at boot, so any code reaching `process` could read it past its `env:read` grant.
+It had no readers and is removed, so env reads have exactly one gated path
+(`tests/llp0013_compartments.rs::ungranted_package_cannot_exfiltrate_env_via_a_plain_snapshot`).
+One gap orthogonal to this remains: `decide()` default-denies the first-party
+root principal (unlike `decide_import()`, which trusts it), so `--capsec enforce`
+requires the app to grant itself its own file/host access via the global `allow`
+list; making enforce mode usable without that is tracked separately.
 
 #### Mechanism 1
 
