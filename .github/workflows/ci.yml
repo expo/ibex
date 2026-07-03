@@ -39,6 +39,12 @@ jobs:
       - name: Validate Cargo metadata
         run: cargo metadata --no-deps --format-version 1 > /tmp/ibex-cargo-metadata.json
 
+      # Hermes-gated cases inside the suite skip themselves when no hermes
+      # binary is present (transforms.test.mjs probes IBEX_HERMES_BIN and the
+      # exact-monorepo tools/hermes layout).
+      - name: Run JS test suites
+        run: bun test packages
+
       - name: Check generated identity bindings
         run: bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts --check
 

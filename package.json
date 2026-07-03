@@ -11,7 +11,8 @@
     "generate:capability-bits": "bun packages/ibex-devtools/src/scripts/generate-capability-bits.mjs",
     "generate:identity": "bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts",
     "generate:modules": "bun packages/ibex-devtools/src/scripts/generate-module-manifest.ts",
-    "refresh:vendored": "IBEX_REGENERATE_RUNTIME=1 IBEX_UPDATE_VENDORED_GENERATED=1 cargo build --features openssl-crypto"
+    "refresh:vendored": "IBEX_REGENERATE_RUNTIME=1 IBEX_UPDATE_VENDORED_GENERATED=1 cargo build --features openssl-crypto",
+    "test": "bun test packages"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

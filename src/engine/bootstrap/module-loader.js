@@ -3178,7 +3178,13 @@
     }
   }
   function fixForOfScoping(source) {
-    if (!source || !/\bfor\s*\(\s*(?:const|let)\b[^)]*\bof\b/.test(source)) {
+    // Fast-path gate (ENG-22546): presence checks only. The old single-regex
+    // gate matched the whole header with [^)]*, so a ")" inside a string or
+    // regex literal in the binding (for (const { label = "(none)" } of xs))
+    // hid the "of", the file was skipped entirely, and the Hermes for-of
+    // closure pitfall survived. The content-aware line parse below decides
+    // what actually rewrites; the gate only has to be cheap and never miss.
+    if (!source || !/\bfor\s*\(\s*(?:const|let)\b/.test(source) || !/\bof\b/.test(source)) {
       return source;
     }
     var isSimpleBinding = /^[A-Za-z_$][\w$]*$/;
@@ -3189,26 +3195,19 @@
       var depthParen = 0;
       var depthBrace = 0;
       var depthBracket = 0;
-      var inStr = false;
-      var strCh = 0;
+      var lastCode = -1;
       for (var index = 0; index < text.length; index++) {
+        // Skip strings, templates (with ${...} interpolations), regex
+        // literals, and comments whole (ENG-22536): a quote inside a regex
+        // (/['"]/) or a backtick inside an interpolation (`${"`"}`) used to
+        // flip the flat string skip and mis-split the binding.
+        var contentEnd = indexAfterContentToken(text, index, lastCode);
+        if (contentEnd !== -1) {
+          lastCode = contentEnd - 1;
+          index = contentEnd - 1;
+          continue;
+        }
         var ch = text.charCodeAt(index);
-        if (inStr) {
-          if (ch === 92) {
-            index++;
-            continue;
-          }
-          if (ch === strCh) {
-            inStr = false;
-            strCh = 0;
-          }
-          continue;
-        }
-        if (ch === 34 || ch === 39 || ch === 96) {
-          inStr = true;
-          strCh = ch;
-          continue;
-        }
         if (ch === 40) depthParen++;
         else if (ch === 41) depthParen--;
         else if (ch === 123) depthBrace++;
@@ -3221,128 +3220,180 @@
             expr: text.slice(index + 4).replace(/^\s+|\s+$/g, "")
           };
         }
+        if (ch !== 32 && ch !== 9) {
+          lastCode = index;
+        }
       }
       return null;
     }
-    var lines = source.split("\n");
-    var out = [];
-    var i = 0;
-    while (i < lines.length) {
-      var line = lines[i];
-      // Match: for (const/let BINDING of EXPR) {
-      // Use precise parsing instead of regex to handle nested parens correctly
-      var trimmed = line.replace(/^\s*/, "");
-      var indent = line.slice(0, line.length - trimmed.length);
-      if (!/^for\s*\(/.test(trimmed)) {
-        out.push(line);
-        i++;
-        continue;
+    // Recursive chunk rewriter (ENG-22558). At the top level `source` is the
+    // whole file; on recursion it is the ORIGINAL body text of a loop that is
+    // about to be wrapped, so nested for-of loops get their own rewrite
+    // instead of being emitted raw (where the Hermes function-scoped-const
+    // closure pitfall survived one level down). Recursion always runs on the
+    // pre-wrap body, so the generated `Array.from(...).forEach(function(...) {`
+    // header is never re-scanned. `namePrefix` keeps the generated
+    // __exactForOfValue<...> temporaries unique across nesting levels: each
+    // recursion appends the enclosing header's line index, so the name
+    // encodes the loop's path ("" at top level, "5_" inside the loop at line
+    // 5, "5_2_" one level deeper, ...).
+    function rewriteForOfChunk(source, namePrefix) {
+      var lines = source.split("\n");
+      // Line-start offsets into the original source, so the body brace-matcher
+      // below can walk `source` directly (no per-header slice/join copies).
+      var lineStarts = new Array(lines.length);
+      var offset = 0;
+      for (var ls = 0; ls < lines.length; ls++) {
+        lineStarts[ls] = offset;
+        offset += lines[ls].length + 1;
       }
-      // Find the balanced closing paren for the for(...)
-      var forStart = trimmed.indexOf("(");
-      if (forStart === -1) { out.push(line); i++; continue; }
-      var parenDepth = 0;
-      var forEnd = -1;
-      var inStr2 = false;
-      var strCh2 = 0;
-      for (var fi = forStart; fi < trimmed.length; fi++) {
-        var fc = trimmed.charCodeAt(fi);
-        if (inStr2) {
-          if (fc === strCh2 && (fi === 0 || trimmed.charCodeAt(fi-1) !== 92)) inStr2 = false;
-        } else {
-          if (fc === 34 || fc === 39 || fc === 96) { inStr2 = true; strCh2 = fc; }
-          else if (fc === 40) parenDepth++;
-          else if (fc === 41) { parenDepth--; if (parenDepth === 0) { forEnd = fi; break; } }
+      var out = [];
+      var i = 0;
+      // File-wide content state (ENG-22546): fixForOfScoping used to be purely
+      // line-based, so a line inside multi-line template-literal text that
+      // merely looked like `for (const x of y) {` was rewritten, corrupting the
+      // template content. Same approach as transformEsmToCjs's moduleScanState:
+      // every line emitted unchanged advances the state, and a rewrite is only
+      // considered when the line starts in code context.
+      var fileState = createDelimiterScanState();
+      while (i < lines.length) {
+        var line = lines[i];
+        // Match: for (const/let BINDING of EXPR) {
+        // Use precise parsing instead of regex to handle nested parens correctly
+        var trimmed = line.replace(/^\s*/, "");
+        var indent = line.slice(0, line.length - trimmed.length);
+        if (delimiterScanInContent(fileState) || !/^for\s*\(/.test(trimmed)) {
+          scanDelimiterLine(line, fileState);
+          out.push(line);
+          i++;
+          continue;
         }
-      }
-      if (forEnd === -1) { out.push(line); i++; continue; }
-      var inner = trimmed.slice(forStart + 1, forEnd).replace(/^\s+|\s+$/g, "");
-      var parts = splitForOfBinding(inner);
-      if (!parts || !parts.binding || !parts.expr) { out.push(line); i++; continue; }
-      var binding = parts.binding;
-      var expr = parts.expr;
-      // Rest of line after for(...) must be just "{"
-      var afterFor = trimmed.slice(forEnd + 1).replace(/^\s+|\s+$/g, "");
-      if (afterFor !== "{") { out.push(line); i++; continue; }
-      // Now find the matching closing brace
-      var depth = 1;
-      var bodyLines = [];
-      var j = i + 1;
-      var hasBreakContinue = false;
-      var inStr = false;
-      var strCh = 0;
-      var inBlockComment = false;
-      while (j < lines.length && depth > 0) {
-        var bl = lines[j];
-        var inLineComment = false;
-        for (var k = 0; k < bl.length; k++) {
-          var ch = bl.charCodeAt(k);
-          var next = k + 1 < bl.length ? bl.charCodeAt(k + 1) : 0;
-          if (inLineComment) break;
-          if (inBlockComment) {
-            if (ch === 42 && next === 47) {
-              inBlockComment = false;
-              k++;
-            }
+        // Find the balanced closing paren for the for(...)
+        var forStart = trimmed.indexOf("(");
+        if (forStart === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var parenDepth = 0;
+        var forEnd = -1;
+        var headLastCode = -1;
+        for (var fi = forStart; fi < trimmed.length; fi++) {
+          // Content-aware skip (ENG-22536): quotes inside regex literals or
+          // backticks inside template interpolations used to open a bogus
+          // string state that hid the closing paren.
+          var headContentEnd = indexAfterContentToken(trimmed, fi, headLastCode);
+          if (headContentEnd !== -1) {
+            headLastCode = headContentEnd - 1;
+            fi = headContentEnd - 1;
             continue;
           }
-          if (inStr) {
-            if (ch === 92) {
-              k++;
-              continue;
-            }
-            if (ch === strCh) {
-              inStr = false;
-              strCh = 0;
-            }
+          var fc = trimmed.charCodeAt(fi);
+          if (fc === 40) parenDepth++;
+          else if (fc === 41) { parenDepth--; if (parenDepth === 0) { forEnd = fi; break; } }
+          if (fc !== 32 && fc !== 9) headLastCode = fi;
+        }
+        if (forEnd === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var inner = trimmed.slice(forStart + 1, forEnd).replace(/^\s+|\s+$/g, "");
+        var parts = splitForOfBinding(inner);
+        if (!parts || !parts.binding || !parts.expr) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var binding = parts.binding;
+        var expr = parts.expr;
+        // Rest of line after for(...) must be just "{"
+        var afterFor = trimmed.slice(forEnd + 1).replace(/^\s+|\s+$/g, "");
+        if (afterFor !== "{") { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        // Find the matching closing brace with the shared content-aware walk
+        // (ENG-22546). The old per-line matcher treated backticks as flat
+        // strings with no ${...} awareness, so a backtick inside an
+        // interpolation (`${"`"}`) or braces inside interpolation code desynced
+        // the depth count, and a template spanning lines hid real braces.
+        // indexAfterContentToken skips strings, comments, regex literals, and
+        // whole template literals (interpolations and nesting included) over
+        // the original source, so multi-line content is handled by
+        // construction.
+        var bodyStart = i + 1 < lines.length ? lineStarts[i + 1] : source.length;
+        var depth = 1;
+        var closeIndex = -1;
+        var bodyLastCode = -1;
+        for (var bi = bodyStart; bi < source.length; bi++) {
+          var bodyContentEnd = indexAfterContentToken(source, bi, bodyLastCode);
+          if (bodyContentEnd !== -1) {
+            bodyLastCode = bodyContentEnd - 1;
+            bi = bodyContentEnd - 1;
             continue;
           }
-          if (ch === 47 && next === 47) {
-            inLineComment = true;
+          var bc = source.charCodeAt(bi);
+          if (bc === 123) depth++;
+          else if (bc === 125) {
+            depth--;
+            if (depth === 0) { closeIndex = bi; break; }
+          }
+          if (bc !== 32 && bc !== 9 && bc !== 10 && bc !== 13) bodyLastCode = bi;
+        }
+        if (closeIndex === -1) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var closeLine = i + 1;
+        while (closeLine + 1 < lines.length && lineStarts[closeLine + 1] <= closeIndex) {
+          closeLine++;
+        }
+        // Only rewrite when the closing line is a bare "}". The old matcher
+        // replaced the whole closing line with "}, this);", silently dropping
+        // any other code sharing that line; bail conservatively instead.
+        if (lines[closeLine].replace(/^\s+|\s+$/g, "") !== "}") {
+          scanDelimiterLine(line, fileState);
+          out.push(line);
+          i++;
+          continue;
+        }
+        var bodyLines = lines.slice(i + 1, closeLine);
+        // The return/continue/break/yield/await bail is load-bearing: rewriting
+        // to forEach would change control flow (and escaping closures capture
+        // the last item by design — a documented tradeoff). Semantics
+        // deliberately unchanged by ENG-22546.
+        var hasBreakContinue = false;
+        for (var b = 0; b < bodyLines.length; b++) {
+          var bl = bodyLines[b];
+          if (/\b(break|continue)\s*[;\n}]/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) {
+            hasBreakContinue = true;
             break;
           }
-          if (ch === 47 && next === 42) {
-            inBlockComment = true;
-            k++;
-            continue;
-          }
-          if (ch === 34 || ch === 39 || ch === 96) {
-            inStr = true;
-            strCh = ch;
-            continue;
-          }
-          if (ch === 123) depth++;
-          else if (ch === 125) depth--;
-          if (depth <= 0) break;
         }
-        if (depth > 0) {
-          bodyLines.push(bl);
-          if (/\b(break|continue)\s*[;\n}]/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) hasBreakContinue = true;
+        if (hasBreakContinue) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
+        var callbackParam = binding;
+        var bindingPreamble = "";
+        if (!isSimpleBinding.test(binding)) {
+          callbackParam = "__exactForOfValue" + namePrefix + i;
+          bindingPreamble = indent + "  var " + binding + " = " + callbackParam + ";";
         }
-        j++;
+        // Rewrite nested for-of loops inside the body before wrapping it
+        // (ENG-22558). This only ADDS inner rewrites where the outer already
+        // rewrites: the bail scan above ran over every raw body line — a
+        // superset of any inner loop's body lines — so with identical per-line
+        // regexes an inner rewrite can never hit a bail keyword the outer scan
+        // did not already bail on, and the outer's bail decision is untouched.
+        var emitBodyLines = bodyLines;
+        if (bodyLines.length > 0) {
+          var bodyText = bodyLines.join("\n");
+          if (/\bfor\s*\(\s*(?:const|let)\b/.test(bodyText) && /\bof\b/.test(bodyText)) {
+            var rewrittenBody = rewriteForOfChunk(bodyText, namePrefix + i + "_");
+            if (rewrittenBody !== bodyText) {
+              emitBodyLines = rewrittenBody.split("\n");
+            }
+          }
+        }
+        out.push(indent + "Array.from(" + expr + ").forEach(function(" + callbackParam + ") {");
+        if (bindingPreamble) {
+          out.push(bindingPreamble);
+        }
+        for (var b2 = 0; b2 < emitBodyLines.length; b2++) {
+          out.push(emitBodyLines[b2]);
+        }
+        out.push(indent + "}, this);");
+        // Advance the file-wide state over the consumed original lines so the
+        // lines after the loop are classified against the true source state.
+        for (var s = i; s <= closeLine; s++) {
+          scanDelimiterLine(lines[s], fileState);
+        }
+        i = closeLine + 1;
       }
-      if (hasBreakContinue || depth !== 0) {
-        out.push(line);
-        i++;
-        continue;
-      }
-      var callbackParam = binding;
-      var bindingPreamble = "";
-      if (!isSimpleBinding.test(binding)) {
-        callbackParam = "__exactForOfValue" + i;
-        bindingPreamble = indent + "  var " + binding + " = " + callbackParam + ";";
-      }
-      out.push(indent + "Array.from(" + expr + ").forEach(function(" + callbackParam + ") {");
-      if (bindingPreamble) {
-        out.push(bindingPreamble);
-      }
-      for (var b = 0; b < bodyLines.length; b++) {
-        out.push(bodyLines[b]);
-      }
-      out.push(indent + "}, this);");
-      i = j;
+      return out.join("\n");
     }
-    return out.join("\n");
+    return rewriteForOfChunk(source, "");
   }
   function aliasNodePathGlobals(source) {
     if (!source || (source.indexOf("__dirname") === -1 && source.indexOf("__filename") === -1)) {
@@ -3350,20 +3401,502 @@
     }
     return source.replace(/\b__dirname\b/g, "globalThis.__dirname").replace(/\b__filename\b/g, "globalThis.__filename");
   }
+  // Replacements for well-known `import.meta.<prop>` properties. Any other
+  // property (and bare `import.meta`) falls back to globalThis.__exactImportMeta.
+  var importMetaPropertyReplacements = {
+    url: '("file://" + __filename)',
+    path: "__filename",
+    filename: "__filename",
+    file: "(typeof __filename !== 'undefined' ? __filename.split('/').pop() : '')",
+    dirname: "__dirname",
+    dir: "__dirname",
+    main: "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))",
+    require: "require"
+  };
   function transformImportMeta(source) {
     if (!source || source.indexOf("import.meta") === -1) {
       return source;
     }
-    return source
-      .replace(/import\.meta\.url/g, '("file://" + __filename)')
-      .replace(/import\.meta\.path/g, "__filename")
-      .replace(/import\.meta\.filename/g, "__filename")
-      .replace(/import\.meta\.file(?!name)/g, "(typeof __filename !== 'undefined' ? __filename.split('/').pop() : '')")
-      .replace(/import\.meta\.dirname/g, "__dirname")
-      .replace(/import\.meta\.dir(?!name)/g, "__dirname")
-      .replace(/import\.meta\.main/g, "(typeof __filename !== 'undefined' && __filename === (globalThis.process && globalThis.process.argv && globalThis.process.argv[1]))")
-      .replace(/import\.meta\.require/g, "require")
-      .replace(/import\.meta\b/g, "globalThis.__exactImportMeta");
+    // Rewrite import.meta only in code context (ENG-22536). The old
+    // context-free regex replaces rewrote occurrences inside string literals
+    // and comments too — a log line quoting "import.meta.url" became
+    // ("file://" + __filename). Same walk as transformDynamicImport: skip
+    // strings, comments, and regex literals; template-literal text is skipped
+    // via the template-context stack while ${...} interpolation code keeps
+    // being scanned and rewritten.
+    var result = "";
+    var i = 0;
+    var len = source.length;
+    var templateStack = [];
+    var lastCode = -1;
+    while (i < len) {
+      var ch = source[i];
+      var top = templateStack.length ? templateStack[templateStack.length - 1] : null;
+      if (top === -1) {
+        // Inside template-literal text.
+        if (ch === '\\') {
+          result += source.slice(i, i + 2);
+          i += 2;
+          continue;
+        }
+        if (ch === '`') {
+          result += ch;
+          templateStack.pop();
+          lastCode = i;
+          i++;
+          continue;
+        }
+        if (ch === '$' && source[i + 1] === '{') {
+          result += '${';
+          templateStack.push(0);
+          lastCode = -1;
+          i += 2;
+          continue;
+        }
+        result += ch;
+        i++;
+        continue;
+      }
+      if (ch === '/' && source[i + 1] === '/') {
+        var lineEnd = source.indexOf('\n', i);
+        if (lineEnd === -1) { lineEnd = len; }
+        result += source.slice(i, lineEnd);
+        i = lineEnd;
+        continue;
+      }
+      if (ch === '/' && source[i + 1] === '*') {
+        var blockEnd = source.indexOf('*/', i + 2);
+        blockEnd = blockEnd === -1 ? len : blockEnd + 2;
+        result += source.slice(i, blockEnd);
+        i = blockEnd;
+        continue;
+      }
+      if (ch === '/') {
+        var regexEnd = indexAfterRegexLiteral(source, i, lastCode);
+        if (regexEnd !== -1) {
+          result += source.slice(i, regexEnd);
+          lastCode = regexEnd - 1;
+          i = regexEnd;
+          continue;
+        }
+      }
+      if (ch === '"' || ch === "'") {
+        var quote = ch;
+        var j = i + 1;
+        while (j < len) {
+          if (source[j] === '\\') { j += 2; continue; }
+          if (source[j] === quote) { j++; break; }
+          j++;
+        }
+        result += source.slice(i, j);
+        lastCode = j - 1;
+        i = j;
+        continue;
+      }
+      if (ch === '`') {
+        result += ch;
+        templateStack.push(-1);
+        i++;
+        continue;
+      }
+      if (top !== null) {
+        // Inside ${...} interpolation code: balance braces so the closing
+        // `}` returns to template text instead of being treated as code.
+        if (ch === '{') {
+          templateStack[templateStack.length - 1] = top + 1;
+        } else if (ch === '}') {
+          if (top === 0) {
+            templateStack.pop();
+            result += ch;
+            i++;
+            continue;
+          }
+          templateStack[templateStack.length - 1] = top - 1;
+        }
+      }
+      if (
+        ch === 'i' &&
+        source.slice(i, i + 11) === 'import.meta' &&
+        (i === 0 || !/[A-Za-z0-9_$.]/.test(source[i - 1])) &&
+        !/[A-Za-z0-9_$]/.test(source[i + 11] || '')
+      ) {
+        var matchEnd = i + 11;
+        var replacement = null;
+        if (source[matchEnd] === '.') {
+          var propEnd = matchEnd + 1;
+          while (propEnd < len && /[A-Za-z0-9_$]/.test(source[propEnd])) {
+            propEnd++;
+          }
+          var prop = source.slice(matchEnd + 1, propEnd);
+          if (Object.prototype.hasOwnProperty.call(importMetaPropertyReplacements, prop)) {
+            replacement = importMetaPropertyReplacements[prop];
+            matchEnd = propEnd;
+          }
+        }
+        if (replacement === null) {
+          // Bare import.meta (or an unknown property, left as a property
+          // access on the polyfill object).
+          replacement = 'globalThis.__exactImportMeta';
+        }
+        result += replacement;
+        lastCode = matchEnd - 1;
+        i = matchEnd;
+        continue;
+      }
+      if (ch !== ' ' && ch !== '\t' && ch !== '\r' && ch !== '\n') {
+        lastCode = i;
+      }
+      result += ch;
+      i++;
+    }
+    return result;
+  }
+  // --- Shared lexical-scanner helpers (ENG-22528) ---------------------------
+  // transformDynamicImport and the transformEsmToCjs statement scanners below
+  // all walk raw module source character by character. They must agree on
+  // what is code and what is string/comment/regex content, or an apostrophe
+  // inside a regex literal (/['"]/) or a backtick inside a template
+  // interpolation (`${"`"}`) opens a bogus skip that swallows real code —
+  // the same failure class ENG-22514/ENG-22520 fixed for comments.
+  //
+  // Keywords after which a `/` begins a regex literal rather than division
+  // (the usual prior-token list from minimal ES scanners).
+  var regexPrecedingKeywords = [
+    "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+    "throw", "case", "do", "else", "yield", "await"
+  ];
+  // Given the index of the previous significant (non-whitespace, non-comment)
+  // code character — or -1 when there is none — decide whether a `/` here can
+  // begin a regex literal. Errs toward division (the scanners' old behavior)
+  // whenever the prior token plausibly ends an expression.
+  function isRegexAllowedAfter(source, lastCodeIndex) {
+    if (lastCodeIndex < 0) {
+      return true;
+    }
+    var ch = source.charAt(lastCodeIndex);
+    if (ch === ")" || ch === "]" || ch === "'" || ch === '"' || ch === "`" || ch === ".") {
+      return false;
+    }
+    if (/[A-Za-z0-9_$]/.test(ch)) {
+      var wordStart = lastCodeIndex;
+      while (wordStart > 0 && /[A-Za-z0-9_$]/.test(source.charAt(wordStart - 1))) {
+        wordStart--;
+      }
+      if (wordStart > 0 && source.charAt(wordStart - 1) === ".") {
+        // Property access (`foo.in`) — never a regex position.
+        return false;
+      }
+      var word = source.slice(wordStart, lastCodeIndex + 1);
+      if (/^[0-9]/.test(word)) {
+        return false;
+      }
+      return regexPrecedingKeywords.indexOf(word) !== -1;
+    }
+    if ((ch === "+" || ch === "-") && source.charAt(lastCodeIndex - 1) === ch) {
+      // Postfix `++`/`--`: `n++ / 2` is division; `++/re/` cannot parse.
+      return false;
+    }
+    return true;
+  }
+  // If the `/` at slashIndex (already known not to start a comment) begins a
+  // regex literal, return the index just past the literal including flags;
+  // otherwise return -1 and the caller treats it as plain code (division).
+  // Conservative by construction: regex literals cannot contain unescaped
+  // line terminators, so when no closing `/` exists on the same line this
+  // falls back to -1 — i.e. to the scanners' old behavior.
+  function indexAfterRegexLiteral(source, slashIndex, lastCodeIndex) {
+    if (!isRegexAllowedAfter(source, lastCodeIndex)) {
+      return -1;
+    }
+    var len = source.length;
+    var i = slashIndex + 1;
+    var inClass = false;
+    while (i < len) {
+      var ch = source.charAt(i);
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (ch === "\n" || ch === "\r") {
+        return -1;
+      }
+      if (ch === "[") {
+        inClass = true;
+      } else if (ch === "]") {
+        inClass = false;
+      } else if (ch === "/" && !inClass) {
+        i++;
+        while (i < len && /[A-Za-z]/.test(source.charAt(i))) {
+          i++;
+        }
+        return i;
+      }
+      i++;
+    }
+    return -1;
+  }
+  // Return the index just past the template literal whose opening backtick is
+  // at backtickIndex. Handles escapes and ${...} interpolations — which are
+  // real code context and may nest strings, comments, regexes, and further
+  // template literals. Returns source.length for unterminated input.
+  function indexAfterTemplateLiteral(source, backtickIndex) {
+    var len = source.length;
+    var i = backtickIndex + 1;
+    while (i < len) {
+      var ch = source.charAt(i);
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (ch === "`") {
+        return i + 1;
+      }
+      if (ch === "$" && source.charAt(i + 1) === "{") {
+        i = indexAfterTemplateInterpolation(source, i + 2);
+        continue;
+      }
+      i++;
+    }
+    return len;
+  }
+  // Return the index just past the `}` that closes the ${...} interpolation
+  // whose code starts at codeStart. Skips nested strings, comments, template
+  // literals, regexes, and balanced braces.
+  function indexAfterTemplateInterpolation(source, codeStart) {
+    var len = source.length;
+    var depth = 0;
+    var lastCode = -1;
+    var i = codeStart;
+    while (i < len) {
+      var ch = source.charAt(i);
+      var next = source.charAt(i + 1);
+      if (ch === "/" && next === "/") {
+        var lineEnd = source.indexOf("\n", i);
+        i = lineEnd === -1 ? len : lineEnd;
+        continue;
+      }
+      if (ch === "/" && next === "*") {
+        var blockEnd = source.indexOf("*/", i + 2);
+        i = blockEnd === -1 ? len : blockEnd + 2;
+        continue;
+      }
+      if (ch === "/") {
+        var regexEnd = indexAfterRegexLiteral(source, i, lastCode);
+        if (regexEnd !== -1) {
+          lastCode = regexEnd - 1;
+          i = regexEnd;
+          continue;
+        }
+      }
+      if (ch === "'" || ch === '"') {
+        var j = i + 1;
+        while (j < len) {
+          if (source.charAt(j) === "\\") {
+            j += 2;
+            continue;
+          }
+          if (source.charAt(j) === ch) {
+            j++;
+            break;
+          }
+          j++;
+        }
+        lastCode = j - 1;
+        i = j;
+        continue;
+      }
+      if (ch === "`") {
+        i = indexAfterTemplateLiteral(source, i);
+        lastCode = i - 1;
+        continue;
+      }
+      if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        if (depth === 0) {
+          return i + 1;
+        }
+        depth--;
+      }
+      if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+        lastCode = i;
+      }
+      i++;
+    }
+    return len;
+  }
+  // If the character at `index` opens string/template/regex/comment content,
+  // return the index just past that content; otherwise return -1 and the
+  // caller treats the character as plain code (ENG-22536). `lastCodeIndex` is
+  // the prior-token context for the regex-vs-division decision. Template
+  // literals are skipped whole (their ${...} interpolations included), which
+  // is correct for balance/split scans: a terminated template contributes no
+  // code-context delimiters, and an unterminated one runs the skip to the end
+  // of the input so callers bail conservatively.
+  function indexAfterContentToken(source, index, lastCodeIndex) {
+    var ch = source.charAt(index);
+    if (ch === '"' || ch === "'") {
+      var len = source.length;
+      var j = index + 1;
+      while (j < len) {
+        if (source.charAt(j) === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source.charAt(j) === ch) {
+          return j + 1;
+        }
+        j++;
+      }
+      return len;
+    }
+    if (ch === "`") {
+      return indexAfterTemplateLiteral(source, index);
+    }
+    if (ch === "/") {
+      var next = source.charAt(index + 1);
+      if (next === "/") {
+        var lineEnd = source.indexOf("\n", index);
+        return lineEnd === -1 ? source.length : lineEnd;
+      }
+      if (next === "*") {
+        var blockEnd = source.indexOf("*/", index + 2);
+        return blockEnd === -1 ? source.length : blockEnd + 2;
+      }
+      return indexAfterRegexLiteral(source, index, lastCodeIndex);
+    }
+    return -1;
+  }
+  // Content-aware, line-at-a-time delimiter tracking (ENG-22536; hoisted here
+  // for ENG-22546). One scan state persists across a whole file: block
+  // comments and template literals may span lines, a `;` at the end of a line
+  // that is really template text must not close a pending export, and a line
+  // that merely LOOKS like a module statement (or a for-of header) while
+  // inside multi-line template text must not be rewritten at all.
+  // templateStack entries are -1 while inside template-literal text, or the
+  // unmatched-`{` depth while inside a ${...} interpolation (same convention
+  // as transformDynamicImport). Used by transformEsmToCjs (moduleScanState)
+  // and fixForOfScoping (its file-wide content gate).
+  function createDelimiterScanState() {
+    return { balance: 0, templateStack: [], inBlockComment: false };
+  }
+  function delimiterScanInContent(state) {
+    return state.inBlockComment || state.templateStack.length > 0;
+  }
+  function scanDelimiterLine(value, state) {
+    var text = String(value || "");
+    var len = text.length;
+    var i = 0;
+    var lastCode = -1;
+    while (i < len) {
+      var ch = text.charAt(i);
+      if (state.inBlockComment) {
+        var blockEnd = text.indexOf("*/", i);
+        if (blockEnd === -1) {
+          return;
+        }
+        state.inBlockComment = false;
+        i = blockEnd + 2;
+        continue;
+      }
+      var top = state.templateStack.length
+        ? state.templateStack[state.templateStack.length - 1]
+        : null;
+      if (top === -1) {
+        // Inside template-literal text.
+        if (ch === "\\") {
+          i += 2;
+          continue;
+        }
+        if (ch === "`") {
+          state.templateStack.pop();
+          lastCode = i;
+          i++;
+          continue;
+        }
+        if (ch === "$" && text.charAt(i + 1) === "{") {
+          state.templateStack.push(0);
+          lastCode = -1;
+          i += 2;
+          continue;
+        }
+        i++;
+        continue;
+      }
+      var next = text.charAt(i + 1);
+      if (ch === "/" && next === "/") {
+        var lineEnd = text.indexOf("\n", i);
+        if (lineEnd === -1) {
+          return;
+        }
+        i = lineEnd + 1;
+        continue;
+      }
+      if (ch === "/" && next === "*") {
+        state.inBlockComment = true;
+        i += 2;
+        continue;
+      }
+      if (ch === "/") {
+        var regexEnd = indexAfterRegexLiteral(text, i, lastCode);
+        if (regexEnd !== -1) {
+          lastCode = regexEnd - 1;
+          i = regexEnd;
+          continue;
+        }
+      }
+      if (ch === '"' || ch === "'") {
+        var j = i + 1;
+        while (j < len) {
+          if (text.charAt(j) === "\\") {
+            j += 2;
+            continue;
+          }
+          if (text.charAt(j) === ch) {
+            j++;
+            break;
+          }
+          j++;
+        }
+        lastCode = j - 1;
+        i = j;
+        continue;
+      }
+      if (ch === "`") {
+        state.templateStack.push(-1);
+        i++;
+        continue;
+      }
+      if (top !== null) {
+        // Inside ${...} interpolation code: braces there balance the
+        // interpolation itself, not the surrounding statement.
+        if (ch === "{") {
+          state.templateStack[state.templateStack.length - 1] = top + 1;
+          lastCode = i;
+          i++;
+          continue;
+        }
+        if (ch === "}") {
+          if (top === 0) {
+            state.templateStack.pop();
+          } else {
+            state.templateStack[state.templateStack.length - 1] = top - 1;
+          }
+          lastCode = i;
+          i++;
+          continue;
+        }
+      }
+      if (ch === "{" || ch === "(" || ch === "[") {
+        state.balance++;
+      } else if (ch === "}" || ch === ")" || ch === "]") {
+        state.balance--;
+      }
+      if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+        lastCode = i;
+      }
+      i++;
+    }
   }
   function transformDynamicImport(source) {
     if (!source || source.indexOf("import(") === -1) {
@@ -3374,8 +3907,43 @@
     var result = "";
     var i = 0;
     var len = source.length;
+    // Template-context stack (ENG-22528): each entry is -1 while inside the
+    // literal text of a template, or the current unmatched-`{` depth while
+    // inside a ${...} interpolation. Interpolation code is real code context:
+    // an import() there must be rewritten, and a quote or backtick inside it
+    // must not terminate the outer template scan.
+    var templateStack = [];
+    // Index of the last significant (non-whitespace, non-comment) code
+    // character — the prior-token context for regex-vs-division decisions.
+    var lastCode = -1;
     while (i < len) {
       var ch = source[i];
+      var top = templateStack.length ? templateStack[templateStack.length - 1] : null;
+      if (top === -1) {
+        // Inside template-literal text.
+        if (ch === '\\') {
+          result += source.slice(i, i + 2);
+          i += 2;
+          continue;
+        }
+        if (ch === '`') {
+          result += ch;
+          templateStack.pop();
+          lastCode = i;
+          i++;
+          continue;
+        }
+        if (ch === '$' && source[i + 1] === '{') {
+          result += '${';
+          templateStack.push(0);
+          lastCode = -1;
+          i += 2;
+          continue;
+        }
+        result += ch;
+        i++;
+        continue;
+      }
       // Skip comments verbatim. Without this, an apostrophe inside a comment
       // (e.g. "the gateway's auto tier") opens a bogus string skip that can
       // swallow kilobytes of code — leaving later import() calls unrewritten,
@@ -3395,8 +3963,19 @@
         i = blockEnd;
         continue;
       }
+      // Skip regex literals verbatim (ENG-22528). A quote inside a regex
+      // such as /['"]/ must not open a bogus string skip.
+      if (ch === '/') {
+        var regexEnd = indexAfterRegexLiteral(source, i, lastCode);
+        if (regexEnd !== -1) {
+          result += source.slice(i, regexEnd);
+          lastCode = regexEnd - 1;
+          i = regexEnd;
+          continue;
+        }
+      }
       // Skip string literals
-      if (ch === '"' || ch === "'" || ch === '`') {
+      if (ch === '"' || ch === "'") {
         var quote = ch;
         var j = i + 1;
         while (j < len) {
@@ -3405,8 +3984,32 @@
           j++;
         }
         result += source.slice(i, j);
+        lastCode = j - 1;
         i = j;
         continue;
+      }
+      // Enter template literals via the template-context stack so that
+      // ${...} interpolation code keeps being scanned and rewritten.
+      if (ch === '`') {
+        result += ch;
+        templateStack.push(-1);
+        i++;
+        continue;
+      }
+      if (top !== null) {
+        // Inside ${...} interpolation code: balance braces so the closing
+        // `}` returns to template text instead of being treated as code.
+        if (ch === '{') {
+          templateStack[templateStack.length - 1] = top + 1;
+        } else if (ch === '}') {
+          if (top === 0) {
+            templateStack.pop();
+            result += ch;
+            i++;
+            continue;
+          }
+          templateStack[templateStack.length - 1] = top - 1;
+        }
       }
       // Check for import( pattern
       if (source.slice(i, i + 7) === 'import(' || source.slice(i, i + 7) === 'import ') {
@@ -3415,8 +4018,12 @@
         if (m) {
           result += 'globalThis["import"](';
           i += m[0].length;
+          lastCode = i - 1;
           continue;
         }
+      }
+      if (ch !== ' ' && ch !== '\t' && ch !== '\r' && ch !== '\n') {
+        lastCode = i;
       }
       result += ch;
       i++;
@@ -3432,9 +4039,10 @@
       var result = "";
       var inSingle = false;
       var inDouble = false;
-      var inTemplate = false;
       var inLineComment = false;
       var inBlockComment = false;
+      // Prior-token index for regex-vs-division decisions (ENG-22528).
+      var lastCodeIndex = -1;
       for (var cursor = 0; cursor < sourceText.length; cursor++) {
         var ch = sourceText.charAt(cursor);
         var next = sourceText.charAt(cursor + 1);
@@ -3463,6 +4071,7 @@
           }
           if (ch === "'") {
             inSingle = false;
+            lastCodeIndex = cursor;
           }
           continue;
         }
@@ -3475,18 +4084,7 @@
           }
           if (ch === '"') {
             inDouble = false;
-          }
-          continue;
-        }
-        if (inTemplate) {
-          result += ch;
-          if (ch === "\\") {
-            result += next;
-            cursor++;
-            continue;
-          }
-          if (ch === "`") {
-            inTemplate = false;
+            lastCodeIndex = cursor;
           }
           continue;
         }
@@ -3502,6 +4100,18 @@
           inBlockComment = true;
           continue;
         }
+        // Skip regex literals verbatim (ENG-22528): a quote inside /['"]/
+        // must not open a bogus string state that swallows a later
+        // `;import`/`;export` boundary.
+        if (ch === "/") {
+          var regexEnd = indexAfterRegexLiteral(sourceText, cursor, lastCodeIndex);
+          if (regexEnd !== -1) {
+            result += sourceText.slice(cursor, regexEnd);
+            lastCodeIndex = regexEnd - 1;
+            cursor = regexEnd - 1;
+            continue;
+          }
+        }
         if (ch === "'") {
           result += ch;
           inSingle = true;
@@ -3512,12 +4122,18 @@
           inDouble = true;
           continue;
         }
+        // Skip whole template literals, including ${...} interpolations
+        // (ENG-22528): a backtick or quote inside an interpolation must not
+        // flip the scanner's idea of what is string and what is code.
         if (ch === "`") {
-          result += ch;
-          inTemplate = true;
+          var templateEnd = indexAfterTemplateLiteral(sourceText, cursor);
+          result += sourceText.slice(cursor, templateEnd);
+          lastCodeIndex = templateEnd - 1;
+          cursor = templateEnd - 1;
           continue;
         }
         if (ch === ";" || ch === "}") {
+          lastCodeIndex = cursor;
           var lookahead = cursor + 1;
           while (lookahead < sourceText.length) {
             var lookaheadCh = sourceText.charAt(lookahead);
@@ -3544,6 +4160,9 @@
             continue;
           }
         }
+        if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+          lastCodeIndex = cursor;
+        }
         result += ch;
       }
       return result;
@@ -3559,9 +4178,10 @@
       var sourceText = String(text || "");
       var inSingle = false;
       var inDouble = false;
-      var inTemplate = false;
       var inLineComment = false;
       var inBlockComment = false;
+      // Prior-token index for regex-vs-division decisions (ENG-22528).
+      var lastCodeIndex = -1;
       for (var cursor = 0; cursor < sourceText.length; cursor++) {
         var ch = sourceText.charAt(cursor);
         var next = sourceText.charAt(cursor + 1);
@@ -3578,17 +4198,17 @@
           }
           continue;
         }
-        if (inSingle || inDouble || inTemplate) {
+        if (inSingle || inDouble) {
           if (ch === "\\") {
             cursor++;
             continue;
           }
           if (inSingle && ch === "'") {
             inSingle = false;
+            lastCodeIndex = cursor;
           } else if (inDouble && ch === '"') {
             inDouble = false;
-          } else if (inTemplate && ch === "`") {
-            inTemplate = false;
+            lastCodeIndex = cursor;
           }
           continue;
         }
@@ -3602,6 +4222,17 @@
           inBlockComment = true;
           continue;
         }
+        // Skip regex literals (ENG-22528): a `;` never terminates a
+        // statement from inside /['";]/, and a quote in a regex must not
+        // open a bogus string state.
+        if (ch === "/") {
+          var regexEnd = indexAfterRegexLiteral(sourceText, cursor, lastCodeIndex);
+          if (regexEnd !== -1) {
+            lastCodeIndex = regexEnd - 1;
+            cursor = regexEnd - 1;
+            continue;
+          }
+        }
         if (ch === "'") {
           inSingle = true;
           continue;
@@ -3610,12 +4241,20 @@
           inDouble = true;
           continue;
         }
+        // Skip whole template literals, including ${...} interpolations
+        // (ENG-22528): a `;` inside an interpolation (e.g. an arrow body)
+        // is not a statement terminator.
         if (ch === "`") {
-          inTemplate = true;
+          var templateEnd = indexAfterTemplateLiteral(sourceText, cursor);
+          lastCodeIndex = templateEnd - 1;
+          cursor = templateEnd - 1;
           continue;
         }
         if (ch === ";") {
           return cursor;
+        }
+        if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+          lastCodeIndex = cursor;
         }
       }
       return -1;
@@ -3631,9 +4270,10 @@
       var result = "";
       var inSingle = false;
       var inDouble = false;
-      var inTemplate = false;
       var inLineComment = false;
       var inBlockComment = false;
+      // Prior-token index for regex-vs-division decisions (ENG-22528).
+      var lastCodeIndex = -1;
       for (var cursor = 0; cursor < sourceText.length; cursor++) {
         var ch = sourceText.charAt(cursor);
         var next = sourceText.charAt(cursor + 1);
@@ -3651,7 +4291,7 @@
           }
           continue;
         }
-        if (inSingle || inDouble || inTemplate) {
+        if (inSingle || inDouble) {
           result += ch;
           if (ch === "\\") {
             result += next;
@@ -3660,10 +4300,10 @@
           }
           if (inSingle && ch === "'") {
             inSingle = false;
+            lastCodeIndex = cursor;
           } else if (inDouble && ch === '"') {
             inDouble = false;
-          } else if (inTemplate && ch === "`") {
-            inTemplate = false;
+            lastCodeIndex = cursor;
           }
           continue;
         }
@@ -3678,12 +4318,34 @@
           result += " ";
           continue;
         }
+        // Preserve regex literals verbatim (ENG-22528): `//` inside a
+        // character class (/[//]/) is not a comment, and a quote inside a
+        // regex must not open a bogus string state.
+        if (ch === "/") {
+          var regexEnd = indexAfterRegexLiteral(sourceText, cursor, lastCodeIndex);
+          if (regexEnd !== -1) {
+            result += sourceText.slice(cursor, regexEnd);
+            lastCodeIndex = regexEnd - 1;
+            cursor = regexEnd - 1;
+            continue;
+          }
+        }
+        // Preserve whole template literals, including ${...} interpolations
+        // (ENG-22528), so a backtick inside an interpolation cannot flip
+        // the scanner's string/code state.
+        if (ch === "`") {
+          var templateEnd = indexAfterTemplateLiteral(sourceText, cursor);
+          result += sourceText.slice(cursor, templateEnd);
+          lastCodeIndex = templateEnd - 1;
+          cursor = templateEnd - 1;
+          continue;
+        }
         if (ch === "'") {
           inSingle = true;
         } else if (ch === '"') {
           inDouble = true;
-        } else if (ch === "`") {
-          inTemplate = true;
+        } else if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+          lastCodeIndex = cursor;
         }
         result += ch;
       }
@@ -3734,19 +4396,10 @@
     var quote = function(value) {
       return JSON.stringify(value);
     };
-    var countDelimiters = function(value) {
-      var text = String(value || "");
-      var balance = 0;
-      for (var index = 0; index < text.length; index++) {
-        var ch = text.charCodeAt(index);
-        if (123 === ch || 40 === ch || 91 === ch) {
-          balance++;
-        } else if (125 === ch || 41 === ch || 93 === ch) {
-          balance--;
-        }
-      }
-      return balance;
-    };
+    // Content-aware delimiter tracking for the line loop below lives in the
+    // shared scanner-helper block (createDelimiterScanState /
+    // delimiterScanInContent / scanDelimiterLine) — fixForOfScoping keeps a
+    // file-wide scan state with the same mechanism (ENG-22536, ENG-22546).
     var emitNamedBindings = function(spec, modName) {
       var parts = spec ? spec.split(",") : [];
       for (var i = 0; i < parts.length; i++) {
@@ -3804,27 +4457,57 @@
         }
       }
     };
+    var moduleScanState = createDelimiterScanState();
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       var trimmed = line.trim();
       if (pendingDefaultExport) {
-        var continuedDefault = line.indexOf("import.meta") !== -1 ? transformImportMeta(line) : line;
+        // When the continuation line starts inside template text or a block
+        // comment, leave it verbatim: the whole-source transformImportMeta
+        // pass that follows transformEsmToCjs rewrites any code-context
+        // occurrences with full lexical context (ENG-22536).
+        var continuedDefault =
+          line.indexOf("import.meta") !== -1 && !delimiterScanInContent(moduleScanState)
+            ? transformImportMeta(line)
+            : line;
         out.push(continuedDefault);
-        pendingDefaultExport.depth += countDelimiters(continuedDefault);
-        if (pendingDefaultExport.depth <= 0 && /;\s*$/.test(trimmed)) {
+        scanDelimiterLine(continuedDefault, moduleScanState);
+        if (
+          moduleScanState.balance <= pendingDefaultExport.baseline &&
+          !delimiterScanInContent(moduleScanState) &&
+          /;\s*$/.test(trimmed)
+        ) {
           pendingDefaultExport = null;
         }
         continue;
       }
       if (pendingVarExport) {
-        var continued = line.indexOf("import.meta") !== -1 ? transformImportMeta(line) : line;
+        var continued =
+          line.indexOf("import.meta") !== -1 && !delimiterScanInContent(moduleScanState)
+            ? transformImportMeta(line)
+            : line;
         out.push(continued);
-        pendingVarExport.depth += countDelimiters(continued);
+        scanDelimiterLine(continued, moduleScanState);
         var closesExportedIife = pendingVarExport.iife && /^\s*\}\s*\([^)]*\)\s*;\s*$/.test(trimmed);
-        if ((pendingVarExport.depth <= 0 && /;\s*$/.test(trimmed)) || closesExportedIife) {
+        if (
+          (moduleScanState.balance <= pendingVarExport.baseline &&
+            !delimiterScanInContent(moduleScanState) &&
+            /;\s*$/.test(trimmed)) ||
+          closesExportedIife
+        ) {
           out.push("module.exports." + pendingVarExport.name + " = " + pendingVarExport.name + ";");
           pendingVarExport = null;
         }
+        continue;
+      }
+      if (delimiterScanInContent(moduleScanState)) {
+        // This line starts inside multi-line template text or a block
+        // comment that opened on an earlier line (ENG-22536). It is content,
+        // not code — a line here that happens to look like an import/export
+        // statement (e.g. a codegen template that renders module source)
+        // must be emitted verbatim, not rewritten.
+        scanDelimiterLine(line, moduleScanState);
+        out.push(line);
         continue;
       }
       var statement = line;
@@ -3873,6 +4556,12 @@
       }
       var transformed = statement;
       trimmed = transformed.trim();
+      // Advance the shared lexical scan over this statement (ENG-22536). The
+      // rewrites the branches below apply are balance- and content-neutral
+      // (keyword stripping, require()/module.exports emission), so scanning
+      // the pre-rewrite statement keeps the state aligned with the output.
+      var balanceBeforeStatement = moduleScanState.balance;
+      scanDelimiterLine(transformed, moduleScanState);
       var m;
 
       if (!trimmed) {
@@ -4082,10 +4771,13 @@
       if (m) {
         var defaultDeclaration = m[1] + "module.exports.default = " + m[2];
         out.push(defaultDeclaration);
-        var defaultDepth = countDelimiters(defaultDeclaration);
-        if (!/;\s*$/.test(trimmed) || defaultDepth > 0) {
+        if (
+          !/;\s*$/.test(trimmed) ||
+          moduleScanState.balance > balanceBeforeStatement ||
+          delimiterScanInContent(moduleScanState)
+        ) {
           pendingDefaultExport = {
-            depth: defaultDepth
+            baseline: balanceBeforeStatement
           };
         }
         continue;
@@ -4146,13 +4838,16 @@
       if (m) {
         var declaration = transformed.replace(/\bexport\s+/, "");
         out.push(declaration);
-        var declarationDepth = countDelimiters(declaration);
-        if (/;\s*$/.test(trimmed) && declarationDepth <= 0) {
+        if (
+          /;\s*$/.test(trimmed) &&
+          moduleScanState.balance <= balanceBeforeStatement &&
+          !delimiterScanInContent(moduleScanState)
+        ) {
           out.push("module.exports." + m[3] + " = " + m[3] + ";");
         } else {
           pendingVarExport = {
             name: m[3],
-            depth: declarationDepth,
+            baseline: balanceBeforeStatement,
             iife: new RegExp("^\\s*(?:var|let|const)\\s+" + m[3] + "\\s*=\\s*function\\b").test(declaration)
           };
         }
