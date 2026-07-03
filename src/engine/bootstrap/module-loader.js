@@ -33,6 +33,24 @@
   var __privCheckImport = (typeof g.__exactCheckImport === 'function')
     ? g.__exactCheckImport
     : null;
+  // @ref LLP 0013#mechanism-2 (Phase 3) — native compartment binder. Sets a
+  // compiled function's Domain compartment global so bare-global references in a
+  // package resolve natively through its compartment (no build-time rewrite).
+  // Powerful (setting a Domain's compartment could escape it), so captured
+  // privately and deleted at the seal; the loader is its only caller.
+  var __privSetCompartmentFor = (typeof g.__exactSetCompartmentFor === 'function')
+    ? g.__exactSetCompartmentFor
+    : null;
+  // The per-package compartment global for a resolved module, or null when it
+  // should resolve against the real global (root / builtins / no registry).
+  function compartmentForRecord(record) {
+    if (!__privSetCompartmentFor) return null;
+    var registry = g.__compartments;
+    if (!registry) return null;
+    var name = packageNameFromPath(record && (record.path || record.id));
+    if (!name) return null;
+    try { return registry[name] || null; } catch (e) { return null; }
+  }
   // Principal ids assigned per package name (0 = first-party / trusted root).
   var __packagePrincipals = Object.create(null);
   var __nextPackagePrincipal = 1;
@@ -82,18 +100,26 @@
   // for callbacks that run long after evaluation returns. One-shot: the pending
   // id is consumed by the engine when it creates the Domain.
   // @ref LLP 0013#mechanism-3
-  function compileModuleBody(packagePrincipal, source) {
+  function compileModuleBody(packagePrincipal, compartment, source) {
     if (__privSetPendingPackageId) {
       __privSetPendingPackageId(packagePrincipal || 0);
     }
+    var fn;
     try {
-      return new __privFunction(
+      fn = new __privFunction(
         "require", "module", "exports", "__filename", "__dirname", source);
     } finally {
       if (__privSetPendingPackageId) {
         __privSetPendingPackageId(0);
       }
     }
+    // @ref LLP 0013#mechanism-2 (Phase 3) — bind this package's compartment to
+    // the fresh Domain the compile created, so its bare-global references
+    // resolve natively through the compartment. No-op for root/builtins.
+    if (__privSetCompartmentFor && compartment) {
+      try { __privSetCompartmentFor(fn, compartment); } catch (e) {}
+    }
+    return fn;
   }
   const cache = Object.create(null);
   var mainModule = null;
@@ -4240,6 +4266,7 @@
       id: id,
       __exactId: moduleId,
       __exactPackageId: packagePrincipalFor(record),
+      __exactCompartment: compartmentForRecord(record),
       filename: filename,
       path: modulePath,
       exports: {},
@@ -4496,7 +4523,7 @@
           "\n//# sourceURL=" + filename;
         let wrappedRuntimeForAwait = false;
         const runFallbackSource = function(sourceText) {
-          const fallbackFn = compileModuleBody(module.__exactPackageId, sourceText);
+          const fallbackFn = compileModuleBody(module.__exactPackageId, module.__exactCompartment, sourceText);
           g.__filename = filename;
           g.__dirname = dir;
           fallbackFn(localRequire, module, module.exports, filename, dir);
@@ -4540,7 +4567,7 @@
         try {
           g.__filename = filename;
           g.__dirname = dir;
-          const directFn = compileModuleBody(module.__exactPackageId, directSource);
+          const directFn = compileModuleBody(module.__exactPackageId, module.__exactCompartment, directSource);
           directFn(localRequire, module, module.exports, filename, dir);
         } catch (err) {
           const needsAsyncFallback = isAwaitSyntaxFailure(err);

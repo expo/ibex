@@ -152,6 +152,43 @@ fn lockdown_conformance_keeps_runtime_usable() {
 }
 
 #[test]
+fn lockdown_seals_lazy_installers_and_self_grant_channel() {
+    // @ref LLP 0013#phase-1 — under lockdown the lazy `__exactEnsure*` installers
+    // are eager-installed then deleted, and the `Exact.setModuleCapabilities`
+    // self-grant channel is removed; fs still works (installed before the seal).
+    let out = run_ibex(
+        &["--lockdown", "run", &fixture("phase1-seal.js")],
+        &[],
+        None,
+    );
+    for expected in [
+        "installers-sealed: true",
+        "self-grant-sealed: true",
+        "fs-usable: true",
+    ] {
+        assert!(
+            out.stdout.contains(expected),
+            "expected {expected} under lockdown:\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    }
+}
+
+#[test]
+fn lazy_installers_present_without_lockdown() {
+    // Off the lockdown path the installers stay lazy (startup cost) and the
+    // legacy self-grant path is retained for back-compat.
+    let out = run_ibex(&["run", &fixture("phase1-seal.js")], &[], None);
+    assert!(
+        out.stdout.contains("installers-sealed: false"),
+        "installers should stay lazy without lockdown:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
 fn lockdown_is_off_by_default() {
     let out = run_ibex(&["run", &fixture("lockdown-conformance.js")], &[], None);
     assert!(
@@ -471,6 +508,64 @@ fn audit_mode_reports_would_deny_but_proceeds() {
     assert_eq!(
         out.status, 0,
         "audit run should exit 0; stderr:\n{}",
+        out.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Native compartments (Mechanism 2, Phase 3)
+//
+// With the carried Hermes patch stack, the interpreter resolves bare-global
+// references and sloppy-mode `this` through the executing frame's Domain
+// compartment global — a per-package object that withholds powerful globals —
+// with NO build-time source rewrite. The package here runs unbundled, so any
+// containment is the native engine path, not a transform.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn native_compartment_withholds_globals_without_rewrite() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: native compartments need the patched Hermes engine");
+        return;
+    }
+    let dir = fixtures_dir().join("native-compartment");
+    let out = run_ibex(
+        &["--lockdown", "run", "app.js"],
+        &[("IBEX_COMPARTMENTS", "1"), ("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    // The app (root) keeps the real global.
+    assert!(
+        out.stdout.contains("app-process: object"),
+        "root should retain process:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // evil-pkg's bare `process` AND its sloppy-`this` UMD escape both resolve
+    // through its compartment natively — both withheld, no source rewrite.
+    assert!(
+        out.stdout
+            .contains("evil: bare-process=undefined this-process=undefined"),
+        "native compartment should withhold process via both bare-global and sloppy-this:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn native_compartment_control_no_containment_without_compartments() {
+    // Same unbundled package, no compartments: it reaches process both ways.
+    let dir = fixtures_dir().join("native-compartment");
+    let out = run_ibex(
+        &["run", "app.js"],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout
+            .contains("evil: bare-process=object this-process=object"),
+        "without compartments the unbundled package reaches process (control):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
         out.stderr
     );
 }

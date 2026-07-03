@@ -23,6 +23,7 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0001 | `0001-domain-package-principal.patch` | B | Adds `Domain::packageId_` (a POD `uint32_t`; no metadata-builder change) + `get/setPackageId()`. The capability principal that owns a Domain's code. |
 | 0002 | `0002-frame-attribution-helper.patch` | A (+1 B CMake line) | Adds `VM::getCurrentPackageId(Runtime&)` (nearest *user* frame's `packageId`, skipping native frames and runtime-internal deputy frames — principal `0xFFFFFFFF`), `VM::collectStackPackageIds` (the distinct user principals on the stack, innermost-first — the Phase 5 substrate), and the exported `extern "C"` bridge (`ex_hermes_vm_current_package_id` / `collect_package_ids` / `set_pending_package_id` / `set_default_package_id`) reachable through `IHermes::getVMRuntimeUnsafe()`. |
 | 0003 | `0003-capability-bridge-exports.patch` | B (+1 C site) | Adds `Runtime::{setPendingPackageId,setDefaultPackageId,consumePendingPackageId}` + backing fields, and the single semantic insertion in `runBytecode` that stamps each fresh `Domain` with the pending-or-default principal. |
+| 0004 | `0004-native-compartment-globals.patch` | B (+3 C sites) | Native per-package compartment globals (Phase 3). Adds `Domain::compartmentGlobal_` (GC-traced, with metadata field) + accessors, the native `__exactSetCompartmentFor(fn, obj)` in `initGlobalObject`, and re-points the interpreter's `GetGlobalObject`/`CoerceThisNS`/`LoadThisNS` through `globalForFrame(runtime, curCodeBlock)`. Bare globals and sloppy-`this` resolve through the frame's compartment when set — no build-time source rewrite. |
 
 All three apply clean from pristine (`scripts/apply-hermes-patches.sh`) and
 compile into a working `hermesvm.framework` exporting the four `ex_hermes_vm_*`
@@ -59,18 +60,22 @@ symbols, verified against the pinned checkout
 uses it only when `ex_host_has_deputy_classes()` (policy `deputyClasses`). See
 `tests/llp0013_compartments.rs::stack_intersection_*`.
 
-## Specified but not yet authored (Phase 3 — Class C, native compartments)
+## Phase 3 — native compartments
 
-Exact anchors against the pinned checkout, so re-derivation is cheap (the spec,
-not the diff, is the carried asset):
+- **`GetGlobalObject` per-frame resolution — DONE (patch 0004).** The three
+  interpreter sites resolve through `globalForFrame(runtime, curCodeBlock)`;
+  `Domain::compartmentGlobal_` + accessors + metadata field land in the same
+  patch, and the loader binds each package's Domain via the native
+  `__exactSetCompartmentFor`. Demonstrated by
+  `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`
+  (bare `process` and the sloppy-`this` UMD escape both withheld, unbundled, no
+  source rewrite). Perf note: the added branch is on the hottest opcode; a
+  compartment-present fast-flag is a possible follow-up if boot/steady-state
+  profiling shows it.
 
-- **`GetGlobalObject` per-frame resolution.** `lib/VM/Interpreter.cpp:1842-1844`
-  (`CASE(GetGlobalObject)` → `runtime.getGlobal()`), plus the sloppy-`this`
-  UMD escapes `CASE(CoerceThisNS)` at `:1128` and `CASE(LoadThisNS)` at `:1143`.
-  Replace `runtime.getGlobal()` with the executing frame's
-  `CodeBlock→RuntimeModule→Domain→compartmentGlobal`. Companion **Class B**:
-  add a `GCPointer<JSObject> compartmentGlobal_` field to `Domain` + its
-  `DomainBuildMeta`. Budget: 3 interpreter sites.
+Remaining Phase 3 refinements (both low-priority — lockdown already tames
+`eval`/`Function`, and the userland freeze works):
+
 - **`eval`/`Function` compartment binding.** `lib/VM/JSLib/Eval.cpp:157`
   (`getGlobal()` scope arg) and the two `codeBlock=nullptr` sites at
   `Eval.cpp:171-172` and `Interpreter-slowpaths.cpp:203-208`; the constructor

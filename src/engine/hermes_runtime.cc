@@ -1443,7 +1443,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   }
   var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
                  '__exactSetPendingPackageId', '__exactRegisterPackage',
-                 '__exactCheckImport'];
+                 '__exactCheckImport', '__exactSetCompartmentFor'];
   for (var j = 0; j < hatches.length; j++) {
     try { delete g[hatches[j]]; } catch (e) {}
   }
@@ -1461,6 +1461,56 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     } catch (const std::exception& err) {
       ex_host_console_log(
           1, (std::string("Capability hardening error: ") + err.what()).c_str());
+    }
+  }
+
+  // @ref LLP 0013#phase-1 — eager-install-then-seal the lazy `__exactEnsure*`
+  // installers. They install native host surfaces (fs, http, dns, child_process,
+  // net, web-crypto, …) on first use; left lazy, a package could trigger one
+  // *after* lockdown has frozen the global, adding surface the compartment
+  // inventory never accounted for. Under lockdown/compartment mode we run every
+  // installer once (they are idempotent) so the true global is closed before any
+  // package runs, then delete the installer globals themselves. Off the
+  // lockdown/compartment path the installers stay lazy for startup cost.
+  if (env_flag_enabled("IBEX_LOCKDOWN") ||
+      env_flag_enabled("IBEX_COMPARTMENTS")) {
+    static const char* kEagerInstallSealJS = R"JS((function () {
+  var g = globalThis;
+  var ensures = ['__exactEnsureFs', '__exactEnsureHttp', '__exactEnsureSqlite',
+    '__exactEnsureDns', '__exactEnsureChildProcess', '__exactEnsureNet',
+    '__exactEnsureStreamEnhance', '__exactEnsureWebCrypto',
+    '__exactEnsureWebStorage', '__exactEnsureFormData'];
+  for (var i = 0; i < ensures.length; i++) {
+    var fn = g[ensures[i]];
+    if (typeof fn === 'function') { try { fn(); } catch (e) {} }
+    try { delete g[ensures[i]]; } catch (e) {}
+  }
+  // @ref LLP 0013#phase-1 — close the ambient self-grant channel. The
+  // end-of-bootstrap seal deletes __exactGrantCapability but rebinds
+  // Exact.setModuleCapabilities onto the captured grant for the legacy
+  // require(spec, {needs}) path. Under enforce/lockdown, grants come from the
+  // generated policy artifact (LLP 0014), not runtime self-declaration, so we
+  // remove the self-grant surface entirely; the loader's grantCapabilities
+  // already no-ops when the function is absent.
+  try {
+    if (g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
+      delete g.Exact.setModuleCapabilities;
+    }
+  } catch (e) {}
+})();
+)JS";
+    try {
+      auto buffer =
+          std::make_shared<facebook::jsi::StringBuffer>(kEagerInstallSealJS);
+      handle->runtime->evaluateJavaScript(buffer, "<eager-install-seal>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1,
+          (std::string("Eager-install seal error: ") + err.getMessage())
+              .c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("Eager-install seal error: ") + err.what()).c_str());
     }
   }
 

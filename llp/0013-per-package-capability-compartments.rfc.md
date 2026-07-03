@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -956,11 +956,13 @@ host-boundary attribution is wired end-to-end against the built patched engine
 and demonstrated by the conformance suite (a compromised dependency's *deferred*
 host access, through the same async path and the same trusted deputy as the
 app's own, is attributed to the dependency and denied). Phase 1 (reachability
-containment) and the Phase 0 defect fixes remain in force. **Phase 5** (opt-in
-stack-intersection) is also wired to real frame stacks. Phase 3 (native
-compartments) is unstarted; the Phase 4 attenuator/tri-state/revocation surface
-is not yet built (the frame-attribution and stack-collection primitives it needs
-now exist). See [Upstream tracking](#upstream-tracking-and-re-derivation) and
+containment, real-global inventory closed) and the Phase 0 defect fixes remain in
+force. **Phase 3** native compartment globals are landed (patch 0004): the
+interpreter resolves bare globals and sloppy-`this` through the per-package
+Domain compartment with no source rewrite. **Phase 5** (opt-in stack-intersection)
+is wired to real frame stacks. The Phase 4 attenuator/tri-state/revocation
+surface is the main remaining work (the frame-attribution, stack-collection, and
+native-compartment primitives it needs now exist). See [Upstream tracking](#upstream-tracking-and-re-derivation) and
 `patches/hermes/README.md` for the carried patch stack (0001–0003) and the
 Ibex-side integration.
 
@@ -985,14 +987,30 @@ Verified against the named red-team cases (`tests/llp0013_compartments.rs`).
 
 #### Mechanism 2
 
-Per-package compartment globals: the build-time rewrite
-(`rewriteFreeGlobals` / `createCompartmentGlobalsPlugin` in
-`packages/ibex-devtools/src/scripts/transforms.mjs`, wired through
-`rolldown-bundle.mjs` and gated by `run_bundler`) routes each package's bare
-globals to `__compartments[<pkg>]`. The runtime registry
-(`<compartment-registry>` in `hermes_runtime.cc`) withholds powerful globals
-unless endowed (`IBEX_ENDOW` / `globalThis.__ibexEndowments`). End-to-end: a
-compromised transitive dependency cannot read `process.env` under `--lockdown`.
+Per-package compartment globals, two implementations of one semantics:
+
+- **Build-time (Phase 1)**: the rewrite (`rewriteFreeGlobals` /
+  `createCompartmentGlobalsPlugin` in
+  `packages/ibex-devtools/src/scripts/transforms.mjs`, wired through
+  `rolldown-bundle.mjs` and gated by `run_bundler`) routes each package's bare
+  globals to `__compartments[<pkg>]`. The runtime registry
+  (`<compartment-registry>` in `hermes_runtime.cc`) withholds powerful globals
+  unless endowed (`IBEX_ENDOW` / `globalThis.__ibexEndowments`). End-to-end: a
+  compromised transitive dependency cannot read `process.env` under `--lockdown`.
+- **Engine-native (Phase 3) — landed (patch 0004).** The interpreter resolves
+  `GetGlobalObject` and sloppy-`this` (`CoerceThisNS`/`LoadThisNS`) through the
+  executing frame's `Domain` compartment global (`globalForFrame`), so a
+  package's bare globals and its `(function(){return this})()` UMD escape both
+  resolve through its compartment **with no build-time rewrite**. The loader sets
+  each package's Domain compartment via the native `__exactSetCompartmentFor`
+  (captured privately, sealed at end-of-bootstrap). This closes channel #2
+  (sloppy-`this`) natively and works for unbundled/dynamically-required code the
+  rewrite never touches. Tested by
+  `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.
+  Remaining Phase 3 refinements: binding `eval`/`Function`-produced code to the
+  caller's compartment, and a native lockdown freeze primitive (both
+  low-priority — lockdown already tames the evaluators and the userland freeze
+  works); and a perf pass on the added hot-path branch.
 
 #### Mechanism 3
 
@@ -1039,9 +1057,13 @@ the canonical `process:spawn`; the escape-hatch globals sealed.
 Audit mode (`--capsec audit`) logs would-deny decisions and prints a would-deny
 report at shutdown while letting operations proceed; lockdown + compartments as
 above; the conformance/red-team suite (`tests/llp0013_compartments.rs` +
-`tests/fixtures/llp0013/`) is the durable asset. Deferred within Phase 1: the
-`__exactEnsure*` eager-install-then-seal (the remaining real-global inventory
-item).
+`tests/fixtures/llp0013/`) is the durable asset. **Real-global inventory closed:**
+under lockdown/compartment mode the lazy `__exactEnsure*` installers are
+eager-run then deleted before the intrinsics freeze (so no host surface can
+appear on a frozen global mid-run), and the ambient self-grant channel
+(`Exact.setModuleCapabilities`) is removed — grants come from the generated
+policy artifact, not runtime self-declaration
+(`tests/llp0013_compartments.rs::lockdown_seals_lazy_installers_and_self_grant_channel`).
 
 #### Phase 5
 
