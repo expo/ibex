@@ -475,6 +475,73 @@ fn audit_mode_reports_would_deny_but_proceeds() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Import-graph gate (Policy surface 3)
+//
+// Builtins are reachable by `require`, so withholding the `fs` endowment is not
+// containment if a package can still `require('fs')`. Import policy is the
+// primary gate. This uses the loader's package registration + the check_import
+// ABI, so it holds on patched and unpatched engines alike.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn import_gate_denies_restricted_package_builtin() {
+    let dir = fixtures_dir().join("import-gate");
+    let policy = dir.join("ibex-policy.json");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    // The app (root) may import fs.
+    assert!(
+        out.stdout.contains("app-fs: function"),
+        "the root app should be able to import fs:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // evil-pkg has `builtins: []` — its require('fs') is denied by import policy.
+    assert!(
+        out.stdout.contains("evil-import: IMPORT-DENIED"),
+        "evil-pkg's forbidden builtin import should be denied:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn import_gate_is_inert_without_restriction() {
+    // Same graph, but evil-pkg has no import policy: the gate is inert and the
+    // import proceeds (import policy only bites what the app restricts).
+    let dir = fixtures_dir().join("import-gate");
+    let policy = dir.join("ibex-policy-open.json");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("evil-import: IMPORTED:function"),
+        "an unrestricted package should still import fs:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
 #[test]
 fn capsec_aliases_parse() {
     // `strict` and `capability` are back-compat aliases for `enforce`.
@@ -504,6 +571,183 @@ fn capsec_aliases_parse() {
     assert!(
         out.stderr.contains("invalid value"),
         "unknown --capsec should be rejected:\n{}",
+        out.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Frame-derived attribution (Mechanism 3 / Phase 2)
+//
+// These require the carried Hermes patch stack (patches/hermes/0001-0003): the
+// engine must attribute a host-boundary capability check to the executing
+// frame's package, not a thread-local. build.rs sets `exact_frame_attribution`
+// when the linked framework exports the bridge; without it the runtime falls
+// back to the forgeable thread-local id and these properties do not hold, so the
+// tests skip rather than fail on an unpatched engine.
+// ---------------------------------------------------------------------------
+
+/// The malicious dependency and the app both defer an ordinary `fs.readFileSync`
+/// into a Promise microtask that runs after their modules finish evaluating —
+/// the exact point where the legacy thread-local attribution has reverted to the
+/// caller. The read flows through the trusted `fs` runtime module (a deputy).
+/// With frame attribution the app's callback (root Domain) reads the secret
+/// while the dependency's callback (its own Domain) is denied. Same API, same
+/// async mechanism, same deputy, different principal, different outcome: that is
+/// frame accuracy.
+#[test]
+fn frame_attribution_denies_deferred_dependency_but_allows_app() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: engine built without frame attribution (unpatched Hermes framework)");
+        return;
+    }
+    let dir = fixtures_dir().join("frame-attribution");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // The app is the root principal and is granted fs — its deferred read
+    // succeeds.
+    assert!(
+        out.stdout.contains("app-deferred: READ:TOPSECRET-llp0013"),
+        "the app's own deferred read should be allowed (root principal):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // evil-pkg is granted nothing — its deferred read through the same async
+    // path and the same fs deputy is attributed to evil-pkg and denied.
+    assert!(
+        !out.stdout.contains("STOLEN:"),
+        "the compromised dependency exfiltrated the secret — frame attribution failed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("evil-deferred: CONTAINED"),
+        "the dependency's deferred read should be contained:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+/// Control: in permissive mode nothing is enforced, so the same deferred read
+/// exfiltrates the secret. This proves the containment above is the capability
+/// system working, not a broken fs path or a dead code path.
+#[test]
+fn frame_attribution_control_permissive_leaks() {
+    let dir = fixtures_dir().join("frame-attribution");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &["--capsec", "permissive", "run", "app.js"],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("STOLEN:TOPSECRET-llp0013"),
+        "permissive mode should let the dependency read the file (control):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Stack-intersection / deputy hardening (Phase 5)
+//
+// deputy-pkg is granted fs:read and reads whatever path a caller hands it. With
+// `deputyClasses: ["fs:read"]` the effective grant for an fs:read is the AND of
+// every principal on the call stack, so the deputy may read for the app (root,
+// granted) but not for evil-pkg (ungranted) — closing the confused-deputy hole
+// that default per-package attribution intentionally leaves open. Needs the
+// real principal stack, so it requires frame attribution.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn stack_intersection_denies_deputy_driven_by_ungranted_caller() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: stack intersection needs frame attribution");
+        return;
+    }
+    let dir = fixtures_dir().join("deputy");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // The deputy reads for the app (both principals on the stack are granted).
+    assert!(
+        out.stdout
+            .contains("app-via-deputy: READ:DEPUTY-SECRET-llp0013"),
+        "the deputy should read for the granted app:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // The same deputy is denied when driven by the ungranted package.
+    assert!(
+        out.stdout.contains("evil-via-deputy: CONTAINED")
+            && !out.stdout.contains("evil-via-deputy: STOLEN"),
+        "stack intersection should deny the deputy acting for evil-pkg:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn stack_intersection_is_off_by_default() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: stack intersection needs frame attribution");
+        return;
+    }
+    // Same graph, same grants, but no deputyClasses: the deputy acts with its
+    // own authority for anyone (deputy-by-design is out of scope by default).
+    let dir = fixtures_dir().join("deputy");
+    let policy = dir.join("ibex-policy-nodeputy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("evil-via-deputy: STOLEN:DEPUTY-SECRET-llp0013"),
+        "without deputyClasses the deputy should act for anyone (proves Phase 5 is opt-in):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
         out.stderr
     );
 }

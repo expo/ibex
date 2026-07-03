@@ -200,12 +200,26 @@ impl Host {
         self.capability_manager.check(module_id, capability)
     }
 
+    /// Stack-intersection check for deputy-sensitive capability classes: the
+    /// effective grant is the AND of every principal on the call stack
+    /// (innermost-first). @ref LLP 0013#phase-5
+    pub fn check_capability_stack(&self, stack: &[&str], capability: &str) -> bool {
+        self.capability_manager.check_stack(stack, capability)
+    }
+
+    /// Whether any deputy capability classes are configured. When none are, the
+    /// engine skips the (slightly more expensive) stack collection and uses the
+    /// single-frame check. @ref LLP 0013#phase-5
+    pub fn has_deputy_classes(&self) -> bool {
+        self.capability_manager.has_deputy_classes()
+    }
+
     /// Bridge the numeric module principal to a package selector so per-package
     /// policy can be resolved at the host boundary.
     ///
-    /// @ref LLP 0013#mechanism-3 — Phase 1 attribution is best-effort: the loader
-    /// registers the mapping, which JS could forge. Phase 2 replaces this with
-    /// frame-derived attribution that JS cannot influence.
+    /// @ref LLP 0013#mechanism-3 — the loader registers this mapping; with the
+    /// carried Hermes patch stack the principal it keys on is the executing
+    /// frame's Domain packageId (engine truth, not a forgeable thread-local).
     pub fn register_module_package(&self, module_id: &str, package: &str, locator: Option<&str>) {
         self.capability_manager
             .register_module_package(module_id, package, locator);

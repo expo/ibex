@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -951,11 +951,29 @@ spike against the pinned Hermes `260318099.0.0-stable`):
   trusted code and deleted at end-of-bootstrap. The lazy `__exactEnsure*`
   installers remain (eager-install-then-seal is deferred; see Phase 1 note).
 
-Security-claim ceiling reached so far: **Phase 1** (reachability containment via
-lockdown + compartments + a closed authority-hatch inventory), plus the Phase 0
-defect fixes and the Phase 2 patch stack authored and verified apply-clean.
-Frame-accurate host-boundary enforcement (Phase 2 claim) is pending the
-Ibex-side wiring described in `patches/hermes/README.md`.
+Security-claim ceiling reached so far: **Phase 2** on macOS — frame-accurate
+host-boundary attribution is wired end-to-end against the built patched engine
+and demonstrated by the conformance suite (a compromised dependency's *deferred*
+host access, through the same async path and the same trusted deputy as the
+app's own, is attributed to the dependency and denied). Phase 1 (reachability
+containment) and the Phase 0 defect fixes remain in force. **Phase 5** (opt-in
+stack-intersection) is also wired to real frame stacks. Phase 3 (native
+compartments) is unstarted; the Phase 4 attenuator/tri-state/revocation surface
+is not yet built (the frame-attribution and stack-collection primitives it needs
+now exist). See [Upstream tracking](#upstream-tracking-and-re-derivation) and
+`patches/hermes/README.md` for the carried patch stack (0001–0003) and the
+Ibex-side integration.
+
+Phase 2 finding (recorded per the acceptance criteria): the trusted runtime
+**deputies** must be transparent to attribution. Ibex's high-level host surfaces
+(`fs`, `process`, `fetch`) are JS modules layered over the native `__exact*`
+functions; the frame walk reaches the true caller only because those deputy
+Domains carry a reserved *runtime principal* (`0xFFFFFFFF`) that the walk skips
+(Open question 3's "skip runtime-internal frames" rule, now concrete). Two
+surfaces surprised the spike: `process.env` is an eager snapshot that is never
+capability-checked, and `fs.writeFileSync` fires an `fs:read` but not an
+`fs:write` check in the current runtime — both are enforcement gaps orthogonal
+to attribution, noted for Phase 4.
 
 #### Mechanism 1
 
@@ -978,12 +996,37 @@ compromised transitive dependency cannot read `process.env` under `--lockdown`.
 
 #### Mechanism 3
 
-Frame-derived attribution: authored as a Hermes patch stack under
-`patches/hermes/` (Domain package-principal field + `getCurrentPackageId`
-frame walk), verified apply-clean against the pin. The Rust host boundary gained
-`ex_host_register_module_package` / `ex_host_check_import` and a
-module→principal keyspace; the thread-local remains until the frame walk is
-wired in (Phase 2 integration — see `patches/hermes/README.md`).
+Frame-derived attribution: **wired end-to-end and tested** (macOS). The carried
+Hermes patch stack (`patches/hermes/0001-0003`) adds `Domain::packageId_`, a
+pending/default package id on `Runtime` consumed in `runBytecode`,
+`getCurrentPackageId` (nearest non-runtime user frame), `collectStackPackageIds`
+(Phase 5), and exported `ex_hermes_vm_*` C bridges reachable via
+`IHermes::getVMRuntimeUnsafe()`. The module loader assigns and registers a
+principal per package and stamps each module's Domain (builtins get the runtime
+principal `0xFFFFFFFF`, transparent to the walk); `checkCapability` reads the
+frame principal via `currentPrincipalId()` behind the `EXACT_HAVE_FRAME_ATTRIBUTION`
+build probe (unpatched engines fall back to the thread-local). The
+thread-local, `__exactSetActiveModuleId`, and `__exactGrantCapability` are still
+sealed at end-of-bootstrap (the deletion-outright cleanup is deferred to keep the
+fallback path intact for unpatched targets). Red-team coverage:
+`tests/llp0013_compartments.rs::frame_attribution_denies_deferred_dependency_but_allows_app`
+(and its permissive-mode control). Remaining: per-package **bundled** units
+(the bundler still emits one flat chunk, so a bundled app collapses to one
+Domain — frame attribution distinguishes packages on the unbundled/dynamic-require
+path today; per-package Rolldown chunking is the follow-up), and the deputy
+caveat above.
+
+#### Import gating (Policy surface 3)
+
+The import-graph gate is now wired end-to-end. The loader calls
+`__exactCheckImport(requesterPrincipal, specifier)` → `ex_host_check_import`
+before every `require`/import (before the module cache short-circuit), keyed on
+the *requesting* package's principal; the host logs (audit) or denies (enforce)
+per the requesting package's `builtins`/`packages` allowlists. Inert for the
+root and runtime principals and for packages the policy does not restrict.
+Closes the "no `fs` endowment but unrestricted `require('node:fs')`" hole. Tested
+by `tests/llp0013_compartments.rs::import_gate_denies_restricted_package_builtin`
+and `import_gate_is_inert_without_restriction`.
 
 #### Phase 0
 
@@ -1004,8 +1047,13 @@ item).
 
 Optional stack-intersection enforcement (`CapabilityManager::check_stack`,
 policy `deputyClasses`): the effective permission for a configured capability
-class is the AND of every principal on the call stack. Off by default; the full
-call stack is supplied by frame attribution (Phase 2/3).
+class is the AND of every principal on the call stack. **Wired to real frame
+stacks:** `collectStackPackageIds` (Hermes patch 0002) →
+`ex_host_check_capability_stack`; `checkCapability` takes the stack path only
+when `ex_host_has_deputy_classes()`. Off by default. Tested by
+`tests/llp0013_compartments.rs::stack_intersection_denies_deputy_driven_by_ungranted_caller`
+and `stack_intersection_is_off_by_default` (a granted deputy reads for the app
+but is denied when driven by an ungranted package, only under `deputyClasses`).
 
 #### Policy generation
 
@@ -1017,9 +1065,13 @@ cascade) into a provenance-carrying generated `PolicyFile` artifact;
 
 #### Upstream tracking
 
-The pin plus the ordered `patches/hermes/` series is the fork;
-`scripts/apply-hermes-patches.sh` applies it after clone in every
-`build-hermes*.sh` and is exercised by the `hermes-patch-canary` workflow.
+The pin plus the ordered `patches/hermes/` series (0001 Domain principal, 0002
+frame attribution + stack collector + exported C bridge, 0003 Runtime
+pending/default id) is the fork; `scripts/apply-hermes-patches.sh` applies it
+after clone in every `build-hermes*.sh` and is exercised by the
+`hermes-patch-canary` workflow. Class breakdown: 0001/0002 are A/B (rebase
+≈free); 0003 carries the single Class C site (the `runBytecode` stamping
+insertion), within the single-digit budget.
 
 ## References
 

@@ -16,29 +16,48 @@ Each patch is classified in its header:
 A cross-cutting rewrite (realm-shaped) is prohibited by this discipline — that
 is the line between "carrying patches" and "maintaining a divergent engine."
 
-## Applied patches (Phase 2 — additive)
+## Applied patches (Phase 2 + Phase 5 — additive)
 
 | # | File | Class | What |
 |---|---|---|---|
 | 0001 | `0001-domain-package-principal.patch` | B | Adds `Domain::packageId_` (a POD `uint32_t`; no metadata-builder change) + `get/setPackageId()`. The capability principal that owns a Domain's code. |
-| 0002 | `0002-frame-attribution-helper.patch` | A (+1 B CMake line) | Adds `VM::getCurrentPackageId(Runtime&)`, which walks the stack to the nearest JS frame (skipping native frames, whose callee CodeBlock is null) and returns its Domain's `packageId`. The unforgeable replacement for the `g_active_module_id` thread-local. |
+| 0002 | `0002-frame-attribution-helper.patch` | A (+1 B CMake line) | Adds `VM::getCurrentPackageId(Runtime&)` (nearest *user* frame's `packageId`, skipping native frames and runtime-internal deputy frames — principal `0xFFFFFFFF`), `VM::collectStackPackageIds` (the distinct user principals on the stack, innermost-first — the Phase 5 substrate), and the exported `extern "C"` bridge (`ex_hermes_vm_current_package_id` / `collect_package_ids` / `set_pending_package_id` / `set_default_package_id`) reachable through `IHermes::getVMRuntimeUnsafe()`. |
+| 0003 | `0003-capability-bridge-exports.patch` | B (+1 C site) | Adds `Runtime::{setPendingPackageId,setDefaultPackageId,consumePendingPackageId}` + backing fields, and the single semantic insertion in `runBytecode` that stamps each fresh `Domain` with the pending-or-default principal. |
 
-Both verified with `git apply --check` against the pinned checkout
+All three apply clean from pristine (`scripts/apply-hermes-patches.sh`) and
+compile into a working `hermesvm.framework` exporting the four `ex_hermes_vm_*`
+symbols, verified against the pinned checkout
 (`ac8c6e6c80ec…`, HEAD of `origin/260318099.0.0-stable`).
 
-### Remaining Phase 2 integration (not a Hermes patch)
+### Phase 2 integration — DONE (Ibex-side, no Hermes patch)
 
-The patches expose the primitive; wiring it to enforcement is Ibex-side:
+1. **Set the principal.** The module loader (`src/engine/bootstrap/module-loader.js`)
+   assigns each package a principal id (`packagePrincipalFor`), registers id→name
+   via `__exactRegisterPackage` → `ex_host_register_module_package`, and stamps
+   each module's Domain by calling `__exactSetPendingPackageId` right before
+   `new Function(body)` (`compileModuleBody`). Builtin modules (`node:fs`, …) get
+   the runtime principal `0xFFFFFFFF` so they are transparent deputies. The
+   bootstrap default principal is set to `0xFFFFFFFF` during boot and reset to 0
+   before user code runs (`src/engine/hermes_runtime.cc`).
+2. **Read the principal.** `checkCapability` (`hermes_runtime_internal.h`) calls
+   `currentPrincipalId()` → `ex_hermes_vm_current_package_id` when
+   `EXACT_HAVE_FRAME_ATTRIBUTION` is set (build.rs probes the framework for the
+   symbol; unpatched engines fall back to the thread-local and still link).
+   Demonstrated by `tests/llp0013_compartments.rs::frame_attribution_*`.
 
-1. **Set the principal.** When the module loader loads a package's bytecode,
-   call a new JSI/C-API bridge to `domain->setPackageId(id)` for that package's
-   Domain (per-package module units — Rolldown chunking — make Domain⇔package
-   1:1). Until then `packageId_` stays 0 (trusted root).
-2. **Read the principal.** `src/engine/hermes_runtime_internal.h:checkCapability`
-   calls `getCurrentPackageId(runtime)` instead of reading `g_active_module_id`,
-   and passes it to `ex_host_check_capability`. Then the thread-local,
-   `__exactSetActiveModuleId`, and `__exactGrantCapability` can be deleted
-   outright rather than sealed.
+   *Deputy caveat (RFC Open-Q3).* Ibex's high-level host surfaces are JS modules
+   layered over the native `__exact*` functions. Attribution reaches through them
+   only because those deputy Domains carry the runtime principal (skipped by the
+   walk). `process.env` is an eager snapshot (never capability-checked), and
+   `fs.writeFileSync` fires an `fs:read` but not an `fs:write` check in the
+   current runtime — the conformance test therefore discriminates on
+   `fs.readFileSync`.
+
+### Phase 5 integration — DONE
+
+`collectStackPackageIds` feeds `ex_host_check_capability_stack`; `checkCapability`
+uses it only when `ex_host_has_deputy_classes()` (policy `deputyClasses`). See
+`tests/llp0013_compartments.rs::stack_intersection_*`.
 
 ## Specified but not yet authored (Phase 3 — Class C, native compartments)
 

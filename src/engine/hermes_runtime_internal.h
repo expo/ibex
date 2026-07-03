@@ -140,6 +140,55 @@ extern "C" void ex_host_log_event(const char* event_type,
 
 extern thread_local uint64_t g_active_module_id;
 
+extern "C" void ex_host_register_module_package(uint64_t module_id,
+                                                const char* package,
+                                                const char* locator);
+extern "C" int32_t ex_host_check_capability_stack(const uint64_t* module_ids,
+                                                  size_t len,
+                                                  const char* capability);
+extern "C" int32_t ex_host_has_deputy_classes(void);
+extern "C" int32_t ex_host_check_import(uint64_t module_id,
+                                        const char* specifier);
+
+// @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
+// symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
+// and are only referenced when EXACT_HAVE_FRAME_ATTRIBUTION is defined (build.rs
+// probes the linked framework for them), so an unpatched engine still links and
+// falls back to the thread-local module id below.
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+extern "C" uint32_t ex_hermes_vm_current_package_id(void* vm_runtime);
+extern "C" void ex_hermes_vm_set_pending_package_id(void* vm_runtime,
+                                                    uint32_t package_id);
+extern "C" void ex_hermes_vm_set_default_package_id(void* vm_runtime,
+                                                    uint32_t package_id);
+extern "C" size_t ex_hermes_vm_collect_package_ids(void* vm_runtime,
+                                                   uint32_t* out,
+                                                   size_t max);
+// The vm::Runtime pointer (HermesRuntime::getVMRuntimeUnsafe()), cached once at
+// runtime creation. Null on unpatched engines and until the runtime is created.
+extern void* g_vm_runtime;
+// The reserved principal for runtime-internal code (bootstrap, module loader,
+// lockdown/compartment installers). Domains stamped with it are transparent to
+// frame attribution — the walk skips them so the nearest user frame is charged.
+// Kept in sync with kRuntimePackageId in Hermes' CapabilityAttribution.cpp.
+constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
+#endif
+
+// The capability principal for the code currently executing at the host
+// boundary. With the carried patch stack this is the package id of the nearest
+// JS frame's Domain — engine truth that JS cannot forge (a stored callback or a
+// patched prototype method still reports its true author). Without the patch it
+// is the legacy thread-local module id set by the loader around evaluation.
+// @ref LLP 0013#mechanism-3
+inline uint64_t currentPrincipalId() {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (g_vm_runtime != nullptr) {
+    return static_cast<uint64_t>(ex_hermes_vm_current_package_id(g_vm_runtime));
+  }
+#endif
+  return g_active_module_id;
+}
+
 #if defined(EXACT_HAVE_JSI_MUTABLE_BUFFER)
 class VectorBuffer : public facebook::jsi::MutableBuffer {
  public:
@@ -169,10 +218,34 @@ inline bool checkCapability(const std::string& capability) {
   if (isAllowAll()) {
     return true;
   }
-  auto allowed = ex_host_check_capability(g_active_module_id, capability.c_str());
+  auto principal = currentPrincipalId();
+#if defined(EXACT_HAVE_FRAME_ATTRIBUTION)
+  // @ref LLP 0013#phase-5 — for deputy-sensitive capability classes (opt-in via
+  // policy), effective authority is the AND of every package on the call stack,
+  // so a deputy holding e.g. fs:write cannot be driven to act for an ungranted
+  // caller. Only collect the stack when deputy classes are actually configured.
+  if (g_vm_runtime != nullptr && ex_host_has_deputy_classes()) {
+    uint32_t ids32[64];
+    size_t n = ex_hermes_vm_collect_package_ids(g_vm_runtime, ids32, 64);
+    if (n > 0) {
+      uint64_t ids64[64];
+      for (size_t i = 0; i < n; i++) {
+        ids64[i] = static_cast<uint64_t>(ids32[i]);
+      }
+      auto allowed = ex_host_check_capability_stack(ids64, n, capability.c_str());
+      ex_host_log_event(
+          allowed ? "capability_granted" : "capability_denied",
+          ids64[0],
+          capability.c_str(),
+          allowed);
+      return allowed != 0;
+    }
+  }
+#endif
+  auto allowed = ex_host_check_capability(principal, capability.c_str());
   ex_host_log_event(
       allowed ? "capability_granted" : "capability_denied",
-      g_active_module_id,
+      principal,
       capability.c_str(),
       allowed);
   return allowed != 0;

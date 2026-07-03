@@ -16,6 +16,85 @@
   // and legitimately needs to compile CommonJS module bodies; package code that
   // reaches `({}).constructor.constructor` gets the tamed (throwing) form.
   var __privFunction = Function;
+  // @ref LLP 0013#mechanism-3 — capture the frame-attribution bridge before the
+  // end-of-bootstrap seal deletes these globals. The loader is the only
+  // legitimate caller: it labels each package's Domain with a capability
+  // principal so host-boundary checks resolve to the true executing package,
+  // which JS cannot forge. Null on engines without the carried patch stack.
+  var __privSetPendingPackageId = (typeof g.__exactSetPendingPackageId === 'function')
+    ? g.__exactSetPendingPackageId
+    : null;
+  var __privRegisterPackage = (typeof g.__exactRegisterPackage === 'function')
+    ? g.__exactRegisterPackage
+    : null;
+  // @ref LLP 0013#policy — the import-graph gate (Policy surface 3). Captured
+  // privately so the check survives the end-of-bootstrap seal; the loader is its
+  // only caller.
+  var __privCheckImport = (typeof g.__exactCheckImport === 'function')
+    ? g.__exactCheckImport
+    : null;
+  // Principal ids assigned per package name (0 = first-party / trusted root).
+  var __packagePrincipals = Object.create(null);
+  var __nextPackagePrincipal = 1;
+  // The reserved runtime principal (kept in sync with kRuntimePackageId in
+  // Hermes' CapabilityAttribution.cpp): builtin modules (node:fs, node:path, …)
+  // are trusted deputies whose Domains attribution sees through to the caller.
+  var __runtimePrincipal = 0xFFFFFFFF;
+  // Derive the npm package selector from a resolved module path: the segment
+  // after the last `node_modules/` (two segments for an @scope). Returns null
+  // for first-party / workspace code, which stays the trusted root principal.
+  // @ref LLP 0013#resolved-questions (package name is the policy selector)
+  function packageNameFromPath(p) {
+    if (typeof p !== 'string') return null;
+    var marker = 'node_modules/';
+    var idx = p.lastIndexOf(marker);
+    if (idx === -1) return null;
+    var rest = p.slice(idx + marker.length);
+    var parts = rest.split('/');
+    if (!parts.length || !parts[0]) return null;
+    if (parts[0].charAt(0) === '@' && parts.length >= 2) {
+      return parts[0] + '/' + parts[1];
+    }
+    return parts[0];
+  }
+  // Allocate (and register with the host, once) the capability principal id for
+  // the package a module belongs to. @ref LLP 0013#mechanism-3
+  function packagePrincipalFor(record) {
+    // Builtin modules are trusted runtime deputies (require('fs') is a JS shim
+    // over the host functions); mark them so a package's host access through
+    // them is attributed to the package, not laundered into root.
+    if (record && record.kind === 'builtin') return __runtimePrincipal;
+    var name = packageNameFromPath(record && (record.path || record.id));
+    if (!name) return 0;
+    var existing = __packagePrincipals[name];
+    if (existing) return existing;
+    var id = __nextPackagePrincipal++;
+    __packagePrincipals[name] = id;
+    if (__privRegisterPackage) {
+      try {
+        __privRegisterPackage(id, name, (record && record.path) || null);
+      } catch (e) {}
+    }
+    return id;
+  }
+  // Compile a module body, labelling the fresh Domain it creates with the
+  // owning package's principal so frame-derived attribution is accurate even
+  // for callbacks that run long after evaluation returns. One-shot: the pending
+  // id is consumed by the engine when it creates the Domain.
+  // @ref LLP 0013#mechanism-3
+  function compileModuleBody(packagePrincipal, source) {
+    if (__privSetPendingPackageId) {
+      __privSetPendingPackageId(packagePrincipal || 0);
+    }
+    try {
+      return new __privFunction(
+        "require", "module", "exports", "__filename", "__dirname", source);
+    } finally {
+      if (__privSetPendingPackageId) {
+        __privSetPendingPackageId(0);
+      }
+    }
+  }
   const cache = Object.create(null);
   var mainModule = null;
   function getDebugModuleSourceLimit() {
@@ -4120,6 +4199,20 @@
     if (record.error) {
       throw new Error(record.error);
     }
+    // @ref LLP 0013#policy — import-graph gate (Policy surface 3). Ask the host
+    // whether the *requesting* package may load this specifier. Gated per
+    // require (before the cache short-circuit), inert for the root and runtime
+    // principals and for packages the policy does not restrict; the host logs
+    // (audit) or denies (enforce).
+    if (__privCheckImport) {
+      var requesterPrincipal =
+        (parent && typeof parent.__exactPackageId === 'number') ? parent.__exactPackageId : 0;
+      if (requesterPrincipal > 0 && requesterPrincipal !== __runtimePrincipal &&
+          !__privCheckImport(requesterPrincipal, specifier)) {
+        throw new Error(
+          "Import denied: '" + specifier + "' is not permitted for this package (LLP 0013 import policy)");
+      }
+    }
     const id = record.id || resolvedSpecifier;
     var moduleId = idToModuleId(id);
     if (cache[id]) {
@@ -4146,6 +4239,7 @@
     const module = {
       id: id,
       __exactId: moduleId,
+      __exactPackageId: packagePrincipalFor(record),
       filename: filename,
       path: modulePath,
       exports: {},
@@ -4402,14 +4496,7 @@
           "\n//# sourceURL=" + filename;
         let wrappedRuntimeForAwait = false;
         const runFallbackSource = function(sourceText) {
-          const fallbackFn = new __privFunction(
-            "require",
-            "module",
-            "exports",
-            "__filename",
-            "__dirname",
-            sourceText
-          );
+          const fallbackFn = compileModuleBody(module.__exactPackageId, sourceText);
           g.__filename = filename;
           g.__dirname = dir;
           fallbackFn(localRequire, module, module.exports, filename, dir);
@@ -4453,14 +4540,7 @@
         try {
           g.__filename = filename;
           g.__dirname = dir;
-          const directFn = new __privFunction(
-            "require",
-            "module",
-            "exports",
-            "__filename",
-            "__dirname",
-            directSource
-          );
+          const directFn = compileModuleBody(module.__exactPackageId, directSource);
           directFn(localRequire, module, module.exports, filename, dir);
         } catch (err) {
           const needsAsyncFallback = isAwaitSyntaxFailure(err);

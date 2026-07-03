@@ -369,6 +369,15 @@ impl CapabilityManager {
             .unwrap_or(false)
     }
 
+    /// Whether any deputy capability classes are configured (Phase 5 opt-in).
+    /// @ref LLP 0013#phase-5
+    pub fn has_deputy_classes(&self) -> bool {
+        self.deputy_classes
+            .read()
+            .map(|set| !set.is_empty())
+            .unwrap_or(false)
+    }
+
     /// Stack-intersection check (optional deputy hardening, Phase 5). For a
     /// capability whose class is configured for stack intersection, the
     /// effective permission is the AND of every principal on the call stack —

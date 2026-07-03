@@ -767,6 +767,47 @@ pub extern "C" fn ex_host_check_capability(module_id: u64, capability: *const c_
     }
 }
 
+/// Stack-intersection capability check for deputy-sensitive classes (Phase 5).
+/// `module_ids` is the distinct principal stack, innermost-first, from
+/// frame-derived attribution; the effective grant is the AND over the stack for
+/// configured deputy classes, and the normal top-principal check otherwise.
+/// @ref LLP 0013#phase-5
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_stack(
+    module_ids: *const u64,
+    len: usize,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() || module_ids.is_null() || len == 0 {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    // Render each numeric principal to the decimal-string form the manager keys
+    // on (matching ex_host_check_capability's single-principal conversion).
+    let stack_strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    let stack_refs: Vec<&str> = stack_strings.iter().map(|s| s.as_str()).collect();
+    let allowed = with_host(|host| host.check_capability_stack(&stack_refs, &cap), false);
+    if allowed {
+        1
+    } else {
+        0
+    }
+}
+
+/// Whether any deputy capability classes are configured. The engine only
+/// collects the full principal stack when this returns non-zero. @ref LLP 0013#phase-5
+#[no_mangle]
+pub extern "C" fn ex_host_has_deputy_classes() -> i32 {
+    if with_host(|host| host.has_deputy_classes(), false) {
+        1
+    } else {
+        0
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ex_host_grant_capability(module_id: u64, capability: *const c_char) {
     if capability.is_null() {

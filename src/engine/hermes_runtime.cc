@@ -171,6 +171,14 @@ extern "C" char **environ;
 
 thread_local uint64_t g_active_module_id = 0;
 
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+// @ref LLP 0013#mechanism-3 — the vm::Runtime pointer used by the exported
+// attribution bridge, cached from HermesRuntime::getVMRuntimeUnsafe() when the
+// runtime is created. Process-global: Ibex creates one HermesRuntime per process
+// and all host-boundary checks resolve the frame principal through it.
+void* g_vm_runtime = nullptr;
+#endif
+
 // Concrete Buffer for static HBC byte arrays (used by precompiled bootstrap)
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
 class StaticHBCBuffer : public facebook::jsi::Buffer {
@@ -978,6 +986,94 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactSetActiveModuleId", std::move(setActiveModuleIdFn));
 
+  // @ref LLP 0013#mechanism-3 — frame-derived attribution bridge, JS side. The
+  // loader labels a package's Domain with its capability principal by setting a
+  // pending id immediately before compiling that package's body (each dynamic
+  // function mints a fresh Domain that consumes the pending id). Powerful — a
+  // forged call could stamp attacker code as trusted root — so the loader
+  // captures it privately and the end-of-bootstrap seal deletes the global.
+  auto setPendingPackageIdFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSetPendingPackageId"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+        uint32_t id = 0;
+        if (count > 0 && args[0].isNumber()) {
+          auto next = args[0].asNumber();
+          id = next < 0.0 ? 0u : static_cast<uint32_t>(next);
+        }
+        if (g_vm_runtime != nullptr) {
+          ex_hermes_vm_set_pending_package_id(g_vm_runtime, id);
+        }
+#else
+        (void)args;
+        (void)count;
+#endif
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactSetPendingPackageId", std::move(setPendingPackageIdFn));
+
+  // @ref LLP 0013#mechanism-3 — map a capability principal id to a package
+  // selector (name + resolved locator) in the Rust host, so frame-derived
+  // attribution resolves to the package's policy grants. Installed on all
+  // engines (registration is harmless when attribution reads the thread-local),
+  // captured by the loader and deleted at the seal.
+  auto registerPackageFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRegisterPackage"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          return facebook::jsi::Value::undefined();
+        }
+        auto id = static_cast<uint64_t>(args[0].asNumber());
+        auto name = args[1].asString(runtime).utf8(runtime);
+        std::string locator;
+        bool haveLocator = count > 2 && args[2].isString();
+        if (haveLocator) {
+          locator = args[2].asString(runtime).utf8(runtime);
+        }
+        ex_host_register_module_package(
+            id, name.c_str(), haveLocator ? locator.c_str() : nullptr);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactRegisterPackage", std::move(registerPackageFn));
+
+  // @ref LLP 0013#policy — import-graph gate (Policy surface 3). Builtins are
+  // reachable by `require`, so a compartment with no `fs` endowment but
+  // unrestricted `require('node:fs')` is not contained: import policy is the
+  // primary gate for them. Returns whether the requesting principal may load the
+  // specifier under the active mode (audit logs but allows). Inert unless policy
+  // restricts a package's `builtins`/`packages`. Captured by the loader, sealed.
+  auto checkImportFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactCheckImport"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[1].isString()) {
+          return facebook::jsi::Value(true);
+        }
+        auto principal = (count > 0 && args[0].isNumber())
+            ? static_cast<uint64_t>(args[0].asNumber())
+            : 0;
+        auto specifier = args[1].asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(
+            ex_host_check_import(principal, specifier.c_str()) != 0);
+      });
+  rt.global().setProperty(rt, "__exactCheckImport", std::move(checkImportFn));
+
   auto getCwdFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetCwd"),
@@ -1345,7 +1441,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       for (var i = 0; i < caps.length; i++) { grant(moduleId, caps[i]); }
     };
   }
-  var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability'];
+  var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
+                 '__exactSetPendingPackageId', '__exactRegisterPackage',
+                 '__exactCheckImport'];
   for (var j = 0; j < hatches.length; j++) {
     try { delete g[hatches[j]]; } catch (e) {}
   }
@@ -1645,6 +1743,21 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   auto handle = new ExactHermesRuntime();
   handle->runtime = std::move(runtime);
   handle->runtime_thread = std::this_thread::get_id();
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // @ref LLP 0013#mechanism-3 — cache the vm::Runtime so host-boundary checks can
+  // resolve the executing frame's package principal. getVMRuntimeUnsafe() is the
+  // documented (unstable) accessor on IHermes, which HermesRuntime implements.
+  g_vm_runtime = handle->runtime->getVMRuntimeUnsafe();
+  // Mark everything compiled during bootstrap (the module loader, the shared
+  // runtime bundle, the lockdown/compartment installers, and all the trusted
+  // deputy wrappers they install) with the runtime principal, so frame
+  // attribution sees through those deputies to the real caller. Reset to the
+  // root principal after installGlobals so eval/Function-minted Domains and user
+  // code are attributed to root, not the runtime. @ref LLP 0013 Open-Q3
+  if (g_vm_runtime != nullptr) {
+    ex_hermes_vm_set_default_package_id(g_vm_runtime, kRuntimePrincipalId);
+  }
+#endif
   TRACE_END(handle_alloc);
 
   TRACE_START(debugger_init);
@@ -1683,6 +1796,16 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
     fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");
   }
   registerRuntime(handle);
+
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // Bootstrap and all built-in polyfills are installed; from here on, code
+  // compiled with no explicit principal (eval/Function, or any stray script the
+  // embedder evaluates) is attributed to the root principal rather than the
+  // runtime. Package code is stamped explicitly by the loader. @ref LLP 0013 Open-Q3
+  if (g_vm_runtime != nullptr) {
+    ex_hermes_vm_set_default_package_id(g_vm_runtime, 0);
+  }
+#endif
 
   TRACE_END(total);
   return handle;
