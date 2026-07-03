@@ -623,6 +623,39 @@ fn attenuator_handle_delegation_scoping_and_revocation() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn permission_acquisition_is_async_with_a_pluggable_broker() {
+    // Acquisition is async (returns a Promise); the sync status query reflects
+    // the resolved grant. The default broker approves within-ceiling caps; a
+    // custom broker can reject.
+    let dir = fixtures_dir().join("async-broker");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[],
+        Some(&dir),
+    );
+    for expected in [
+        "before: prompt",
+        "acquired: true after: granted",
+        "denied-acquire: false status: denied",
+        "broker-reject: false status: prompt",
+    ] {
+        assert!(
+            out.stdout.contains(expected),
+            "expected {expected}:\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    }
+}
+
+#[test]
 fn dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling() {
     let dir = fixtures_dir().join("dynamic-permissions");
     let policy = dir.join("ibex-policy.json");

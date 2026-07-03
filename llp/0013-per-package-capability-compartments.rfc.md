@@ -1090,10 +1090,16 @@ Authority-bearing attenuators and dynamic permissions:
   (`grant_status` → granted / prompt / denied), and a runtime grant
   (`Ibex.permissions.request`) mutates the root principal's grant set **bounded
   by the policy `ceiling`** — the static artifact is the ceiling, a prompt moves
-  the floor, never past it. `revoke` moves the floor back down. Tested by
-  `dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling`. The broker UX,
-  async acquisition, per-view grants, and OS mapping remain embedder work per
-  §Interaction with user-facing dynamic permissions.
+  the floor, never past it. `revoke` moves the floor back down. Acquisition is
+  **async and lives in the attenuator** (`Ibex.permissions.acquire` returns a
+  Promise that suspends on the broker decision) while the boundary check stays
+  synchronous and consults the resolved state — never the prompt (the TOCTOU
+  failure mode); the broker is pluggable (`Ibex.permissions.broker`), defaulting
+  to resolve against the ceiling. Tested by
+  `dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling` and
+  `permission_acquisition_is_async_with_a_pluggable_broker`. The broker UX,
+  per-view grants, and OS mapping remain embedder work per §Interaction with
+  user-facing dynamic permissions.
 
 #### Phase 5
 

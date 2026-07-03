@@ -1616,6 +1616,25 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     return !!g.__exactPermissionRequest(String(cap));
   };
   Ibex.permissions.revoke = function (cap) { g.__exactPermissionRevoke(String(cap)); };
+  // @ref LLP 0013 §dynamic permissions — acquisition is async and lives in the
+  // attenuator, while the host-boundary check stays synchronous. `acquire`
+  // returns a Promise that suspends on the broker decision and resolves the
+  // (now-current) grant state; a real embedder awaits an OS prompt here, and
+  // Ibex's default broker resolves against the static ceiling. After it resolves
+  // true, a synchronous capability check consults the already-updated state —
+  // never the prompt (the TOCTOU failure mode). A pluggable broker can replace
+  // the default via Ibex.permissions.broker = function (cap) => Promise<bool>.
+  Ibex.permissions.broker = null;
+  Ibex.permissions.acquire = function (cap) {
+    cap = String(cap);
+    if (Ibex.permissions.status(cap) === 'granted') return Promise.resolve(true);
+    var decide = Ibex.permissions.broker
+      ? Promise.resolve(Ibex.permissions.broker(cap))
+      : Promise.resolve(Ibex.permissions.status(cap) === 'prompt');
+    return decide.then(function (approved) {
+      return approved ? Ibex.permissions.request(cap) : false;
+    });
+  };
 })();
 )JS";
     try {
