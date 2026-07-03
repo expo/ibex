@@ -170,6 +170,7 @@ extern "C" void ex_hermes_vm_set_pending_package_id(void* vm_runtime,
                                                     uint32_t package_id);
 extern "C" void ex_hermes_vm_set_default_package_id(void* vm_runtime,
                                                     uint32_t package_id);
+extern "C" void ex_hermes_vm_clear_pending_package_id(void* vm_runtime);
 extern "C" size_t ex_hermes_vm_collect_package_ids(void* vm_runtime,
                                                    uint32_t* out,
                                                    size_t max);

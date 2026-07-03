@@ -665,6 +665,14 @@ fn per_package_chunks_give_bundled_apps_frame_attribution() {
         chunked.stdout,
         chunked.stderr
     );
+    // The entry keeps a source-relative __dirname even though sibling package
+    // chunks are resolved from the cache dir.
+    assert!(
+        chunked.stdout.contains("dirname-source: true"),
+        "entry __dirname should stay source-relative under per-package chunking:\nstdout:\n{}\nstderr:\n{}",
+        chunked.stdout,
+        chunked.stderr
+    );
     // Control: a flat bundle collapses to one Domain, so the dependency's read is
     // attributed to root and succeeds (proving the chunking is what separates it).
     let flat = run_ibex(
@@ -795,6 +803,140 @@ fn native_compartment_withholds_globals_without_rewrite() {
         out.stdout
             .contains("evil: bare-process=undefined this-process=undefined"),
         "native compartment should withhold process via both bare-global and sloppy-this:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn eval_and_function_inherit_the_caller_compartment() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: eval/Function binding needs the patched Hermes engine");
+        return;
+    }
+    // Even with eval + Function endowed to the package, code they produce
+    // inherits the package's compartment (captured at the eval call site), so
+    // `process` stays withheld — dynamic code cannot escape the compartment.
+    let dir = fixtures_dir().join("eval-binding");
+    let out = run_ibex(
+        &["run", "app.js"],
+        &[
+            ("IBEX_COMPARTMENTS", "1"),
+            ("IBEX_ENDOW", "evil-pkg:Function,eval"),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("evil: fn=undefined directEval=undefined"),
+        "eval/Function-produced code must inherit the compartment (process withheld):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn native_lockdown_freezes_intrinsics_and_contains_redteam() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: native lockdown needs the patched Hermes engine");
+        return;
+    }
+    // IBEX_NATIVE_LOCKDOWN freezes the intrinsics graph natively
+    // (__exactDeepFreeze) instead of the JS walk — the runtime stays usable and
+    // the red-team attacks are still contained.
+    let conf = run_ibex(
+        &["--lockdown", "run", &fixture("lockdown-conformance.js")],
+        &[("IBEX_NATIVE_LOCKDOWN", "1")],
+        None,
+    );
+    for expected in [
+        "lockedDown=true",
+        "mapWorks=true",
+        "instanceofWorks=true",
+        "frozenProtoThrows=true",
+    ] {
+        assert!(
+            conf.stdout.contains(expected),
+            "native lockdown must keep the runtime usable ({expected}):\nstdout:\n{}\nstderr:\n{}",
+            conf.stdout,
+            conf.stderr
+        );
+    }
+    let redteam = run_ibex(
+        &["--lockdown", "run", &fixture("redteam.js")],
+        &[("IBEX_NATIVE_LOCKDOWN", "1")],
+        None,
+    );
+    assert!(
+        !redteam.stdout.contains("NOT_CONTAINED"),
+        "native lockdown must contain the red-team attacks:\nstdout:\n{}\nstderr:\n{}",
+        redteam.stdout,
+        redteam.stderr
+    );
+}
+
+#[test]
+fn native_deep_freeze_freezes_a_graph_without_invoking_getters() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: native deep-freeze needs the patched Hermes engine");
+        return;
+    }
+    // The native transitive deep-freeze freezes the whole reachable graph
+    // (nested objects, array elements) via descriptors — without invoking the
+    // accessor getter (getterCalls stays 0).
+    let js = "var g = { a: { b: { c: 1 } }, arr: [ { x: 1 } ] }; var calls = 0; \
+              Object.defineProperty(g, 'acc', { get: function(){ calls++; return {}; }, configurable: true }); \
+              globalThis.__exactDeepFreeze(g); \
+              console.log('df: ' + Object.isFrozen(g) + ',' + Object.isFrozen(g.a) + ',' + \
+                Object.isFrozen(g.a.b) + ',' + Object.isFrozen(g.arr[0]) + ',' + calls);";
+    let dir = unique_dir("deepfreeze");
+    let path = dir.join("df.js");
+    std::fs::write(&path, js).unwrap();
+    let out = run_ibex(&["run", &path.to_string_lossy()], &[], None);
+    assert!(
+        out.stdout.contains("df: true,true,true,true,0"),
+        "deep-freeze should freeze the graph without invoking getters:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn permission_onchange_signals_grants_and_revocations() {
+    // The grant-change signal fires on request/revoke (so handles/embedder react
+    // to revocation) and stops after unsubscribe.
+    let js = "var log = []; \
+              var off = Ibex.permissions.onChange(function (cap, status) { log.push(cap + '=' + status); }); \
+              Ibex.permissions.request('network:fetch'); \
+              Ibex.permissions.revoke('network:fetch'); \
+              off(); \
+              Ibex.permissions.request('network:fetch'); \
+              console.log('changes: ' + log.join(' '));";
+    let dir = unique_dir("onchange");
+    let path = dir.join("oc.js");
+    std::fs::write(&path, js).unwrap();
+    let policy = dir.join("policy.json");
+    std::fs::write(
+        &policy,
+        r#"{ "mode":"enforce", "allow":["fs","process","crypto","time","env","os"], "ceiling":["network:fetch"] }"#,
+    )
+    .unwrap();
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            &path.to_string_lossy(),
+        ],
+        &[],
+        None,
+    );
+    assert!(
+        out.stdout
+            .contains("changes: network:fetch=granted network:fetch=prompt"),
+        "onChange should fire on grant + revoke and stop after unsubscribe:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );

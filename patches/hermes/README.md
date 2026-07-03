@@ -16,7 +16,7 @@ Each patch is classified in its header:
 A cross-cutting rewrite (realm-shaped) is prohibited by this discipline — that
 is the line between "carrying patches" and "maintaining a divergent engine."
 
-## Applied patches (Phase 2 + Phase 5 — additive)
+## Applied patches (Phases 2, 3 + 5)
 
 | # | File | Class | What |
 |---|---|---|---|
@@ -24,12 +24,14 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0002 | `0002-frame-attribution-helper.patch` | A (+1 B CMake line) | Adds `VM::getCurrentPackageId(Runtime&)` (nearest *user* frame's `packageId`, skipping native frames and runtime-internal deputy frames — principal `0xFFFFFFFF`), `VM::collectStackPackageIds` (the distinct user principals on the stack, innermost-first — the Phase 5 substrate), and the exported `extern "C"` bridge (`ex_hermes_vm_current_package_id` / `collect_package_ids` / `set_pending_package_id` / `set_default_package_id`) reachable through `IHermes::getVMRuntimeUnsafe()`. |
 | 0003 | `0003-capability-bridge-exports.patch` | B (+1 C site) | Adds `Runtime::{setPendingPackageId,setDefaultPackageId,consumePendingPackageId}` + backing fields, and the single semantic insertion in `runBytecode` that stamps each fresh `Domain` with the pending-or-default principal. |
 | 0004 | `0004-native-compartment-globals.patch` | B (+3 C sites) | Native per-package compartment globals (Phase 3). Adds `Domain::compartmentGlobal_` (GC-traced, with metadata field) + accessors, the native `__exactSetCompartmentFor(fn, obj)` in `initGlobalObject`, and re-points the interpreter's `GetGlobalObject`/`CoerceThisNS`/`LoadThisNS` through `globalForFrame(runtime, curCodeBlock)`. Bare globals and sloppy-`this` resolve through the frame's compartment when set — no build-time source rewrite. |
-| 0005 | `0005-native-compartment-refinements.patch` | B (+1 C site) | Phase 3 refinements: a `Runtime::anyCompartmentActive_` hot-path guard so non-compartment code skips the Domain walk; the native `__exactNativeFreeze(obj)` freeze primitive; and `getCurrentCompartmentGlobal` (the helper for a future eval/Function call-site binding). |
+| 0005 | `0005-native-compartment-refinements.patch` | B (+1 C site) | Phase 3 refinements: a `Runtime::anyCompartmentActive_` hot-path guard so non-compartment code skips the Domain walk; the native `__exactNativeFreeze(obj)` freeze primitive; and `getCurrentCompartmentGlobal` (the helper for the eval/Function call-site binding). |
+| 0006 | `0006-eval-binding-and-native-deep-freeze.patch` | B (+1 A export) | `eval`/`Function` compartment binding + native deep-freeze (Phase 3). `evalInEnvironment` captures the caller's principal + compartment (frame still current there) into a GC-rooted `Runtime::pendingCompartment_`; `runBytecode` stamps both onto the minted Domain, so eval/`new Function` code inherits the caller's compartment and cannot escape it. Adds `clearPendingPackageId()` / `ex_hermes_vm_clear_pending_package_id` (clearing ≠ pinning 0). Adds `__exactDeepFreeze(obj)` — a native SES-style transitive freeze that walks descriptors (getters/setters read without invoking) + prototype, guarded by freeze-before-recurse — for a native boot-time lockdown (`IBEX_NATIVE_LOCKDOWN`). |
 
-All three apply clean from pristine (`scripts/apply-hermes-patches.sh`) and
-compile into a working `hermesvm.framework` exporting the four `ex_hermes_vm_*`
-symbols, verified against the pinned checkout
-(`ac8c6e6c80ec…`, HEAD of `origin/260318099.0.0-stable`).
+All six apply clean from pristine (`scripts/apply-hermes-patches.sh`) and
+compile into a working `hermesvm.framework` exporting the `ex_hermes_vm_*`
+symbols (`current_package_id`, `set_pending_package_id`, `clear_pending_package_id`,
+`set_default_package_id`, `collect_package_ids`), verified against the pinned
+checkout (`ac8c6e6c80ec…`, HEAD of `origin/260318099.0.0-stable`).
 
 ### Phase 2 integration — DONE (Ibex-side, no Hermes patch)
 
@@ -77,22 +79,31 @@ uses it only when `ex_host_has_deputy_classes()` (policy `deputyClasses`). See
 Landed refinements (patch 0005): the `anyCompartmentActive_` hot-path guard and
 the native `__exactNativeFreeze` freeze primitive.
 
-Remaining Phase 3 refinements (low-priority — `eval`/`Function` are contained by
-compartment withholding + lockdown taming today):
-
-- **`eval`/`Function` compartment binding.** Must capture the caller's
-  compartment at the eval call site (`getCurrentCompartmentGlobal` is the helper;
-  the eval'd code's caller frame is not walkable at `runBytecode`).
-  `lib/VM/JSLib/Eval.cpp:157`
-  (`getGlobal()` scope arg) and the two `codeBlock=nullptr` sites at
-  `Eval.cpp:171-172` and `Interpreter-slowpaths.cpp:203-208`; the constructor
-  entry points `Function.cpp:125-127`, `AsyncFunction.cpp:18-21`,
-  `GeneratorFunction.cpp:76-78` (shared `createDynamicFunction` at
-  `JSLibInternal.cpp:300`). Bind produced code to the caller's compartment.
-- **Native lockdown primitive.** A new HermesInternal/JSI freeze function
-  (**Class A**), optionally invoked after `initGlobalObject`/`initNativeBuiltins`
-  at `lib/VM/Runtime.cpp:469-473` (**Class B**). Retires the userland freeze
-  walk once native.
+- **`eval`/`Function` compartment binding — DONE (patch 0006).** The capture
+  happens in `evalInEnvironment` (`lib/VM/JSLib/eval.cpp`), where the caller's
+  frame is still on the stack — unlike `runBytecode`, where it is gone. It reads
+  `getCurrentPackageId` + `getCurrentCompartmentGlobal` and stashes them as
+  pending (the compartment in the GC-rooted `Runtime::pendingCompartment_`);
+  `runBytecode` stamps both onto the Domain it mints. So `eval` and `new Function`
+  produced code inherits the caller's compartment (cannot escape to the root
+  realm) and its attribution. The capture is skipped when a principal was already
+  labelled explicitly, so the loader's own module compiles keep their principal;
+  the loader `clearPendingPackageId()`s (rather than pinning 0) after each compile
+  so the next eval is seen as unlabelled and inherits its caller. Demonstrated by
+  `tests/llp0013_compartments.rs::eval_and_function_inherit_the_caller_compartment`
+  (`eval` and `new Function` in a withholding compartment both see `undefined`
+  globals instead of escaping).
+- **Native deep-freeze — DONE (patch 0006).** `__exactDeepFreeze(obj)` is a
+  native SES-style transitive freeze: each object frozen via `JSObject::freeze`,
+  recursing through property *descriptors* (data values + accessor getter/setter
+  functions, read WITHOUT invoking getters) and the prototype, with a
+  freeze-before-recurse `isFrozen` guard for cycles/shared subgraphs and a depth
+  backstop. Under `IBEX_NATIVE_LOCKDOWN=1` the lockdown harness (`hermes_runtime.cc`)
+  freezes each intrinsic root with `__exactDeepFreeze` instead of the userland
+  `harden` graph walk. Demonstrated by
+  `native_deep_freeze_freezes_a_graph_without_invoking_getters` (getter-count
+  stays 0) and `native_lockdown_freezes_intrinsics_and_contains_redteam` (8/8
+  red-team escapes contained, runtime still usable).
 
 ## Pin-bump runbook
 

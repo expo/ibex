@@ -1003,13 +1003,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
-        uint32_t id = 0;
-        if (count > 0 && args[0].isNumber()) {
-          auto next = args[0].asNumber();
-          id = next < 0.0 ? 0u : static_cast<uint32_t>(next);
-        }
+        double next = (count > 0 && args[0].isNumber()) ? args[0].asNumber() : 0.0;
         if (g_vm_runtime != nullptr) {
-          ex_hermes_vm_set_pending_package_id(g_vm_runtime, id);
+          // A negative argument clears the pending id (so a later eval/Function
+          // is recognised as unlabelled and inherits its caller); a
+          // non-negative one pins that principal. @ref LLP 0013#mechanism-2
+          if (next < 0.0) {
+            ex_hermes_vm_clear_pending_package_id(g_vm_runtime);
+          } else {
+            ex_hermes_vm_set_pending_package_id(
+                g_vm_runtime, static_cast<uint32_t>(next));
+          }
         }
 #else
         (void)args;
@@ -1612,10 +1616,39 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var s = g.__exactPermissionStatus(String(cap));
     return s === 1 ? 'granted' : (s === 2 ? 'prompt' : 'denied');
   };
-  Ibex.permissions.request = function (cap) {
-    return !!g.__exactPermissionRequest(String(cap));
+  // @ref LLP 0013 §dynamic permissions — the grant-change signal handles and the
+  // embedder subscribe to, so live resources (watches, sessions) tear down
+  // fail-closed when a grant is revoked and re-arm when re-granted. onChange
+  // returns an unsubscribe function. This plus request/revoke/acquire, the
+  // pluggable broker, and the handle revocation cascade are the full runtime
+  // mechanism the embedder wires its OS-prompt UI onto; per-view grants map to
+  // per-instance root grants (a view is its own runtime instance — layer 1).
+  var __permListeners = [];
+  Ibex.permissions.onChange = function (listener) {
+    if (typeof listener !== 'function') return function () {};
+    __permListeners.push(listener);
+    return function () {
+      var i = __permListeners.indexOf(listener);
+      if (i !== -1) __permListeners.splice(i, 1);
+    };
   };
-  Ibex.permissions.revoke = function (cap) { g.__exactPermissionRevoke(String(cap)); };
+  function __notifyPerm(cap) {
+    var status = Ibex.permissions.status(cap);
+    for (var i = 0; i < __permListeners.length; i++) {
+      try { __permListeners[i](cap, status); } catch (e) {}
+    }
+  }
+  Ibex.permissions.request = function (cap) {
+    cap = String(cap);
+    var ok = !!g.__exactPermissionRequest(cap);
+    if (ok) __notifyPerm(cap);
+    return ok;
+  };
+  Ibex.permissions.revoke = function (cap) {
+    cap = String(cap);
+    g.__exactPermissionRevoke(cap);
+    __notifyPerm(cap);
+  };
   // @ref LLP 0013 §dynamic permissions — acquisition is async and lives in the
   // attenuator, while the host-boundary check stays synchronous. `acquire`
   // returns a Promise that suspends on the broker decision and resolves the
@@ -1748,6 +1781,15 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // `--lockdown` CLI flag) because freezing intrinsics can break packages that
   // mutate them — the top risk in the RFC. Composes with any --capsec mode.
   if (env_flag_enabled("IBEX_LOCKDOWN")) {
+    // @ref LLP 0013#mechanism-1 (Phase 3) — opt into the native transitive
+    // freeze (__exactDeepFreeze) for the intrinsics graph instead of the JS
+    // walk. Same result; native is faster at boot.
+    if (env_flag_enabled("IBEX_NATIVE_LOCKDOWN")) {
+      try {
+        rt.global().setProperty(rt, "__ibexNativeLockdown", true);
+      } catch (...) {
+      }
+    }
     static const char* kLockdownJS = R"JS((function () {
   var g = globalThis;
   if (g.__ibexLockedDown) return;
@@ -1834,7 +1876,16 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     if (typeof g[typedArrays[k]] === 'function') roots.push(g[typedArrays[k]]);
   }
   try { roots.push(getProto(getProto([][Symbol.iterator]()))); } catch (e) {} // %IteratorPrototype%
-  for (var r = 0; r < roots.length; r++) { if (roots[r] != null) harden(roots[r]); }
+  // @ref LLP 0013#mechanism-1 (Phase 3) — freeze the intrinsics graph. With
+  // IBEX_NATIVE_LOCKDOWN the transitive freeze runs in native code
+  // (__exactDeepFreeze) instead of this JS walk; both freeze the same graph.
+  var __nativeFreeze = g.__ibexNativeLockdown && typeof g.__exactDeepFreeze === 'function'
+    ? g.__exactDeepFreeze : null;
+  for (var r = 0; r < roots.length; r++) {
+    if (roots[r] != null) {
+      if (__nativeFreeze) __nativeFreeze(roots[r]); else harden(roots[r]);
+    }
+  }
 
   try {
     defineProp(g, '__ibexLockedDown', { value: true, writable: false, enumerable: false, configurable: false });

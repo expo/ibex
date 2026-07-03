@@ -1285,11 +1285,18 @@ impl Runtime {
             compat_reapply_code
         );
         // @ref LLP 0013#mechanism-3 — under per-package chunking the entry
-        // bundle requires sibling chunk files from the cache dir; the loader must
-        // NOT remap the entry path to the source dir (which would break sibling
-        // resolution), so signal the mode to the loader.
+        // bundle requires sibling chunk files (`__ibexpkg__*`) from the cache
+        // dir. Tell the loader that dir so it can resolve those requires
+        // absolutely, while the entry's own `__dirname`/`__filename` stay mapped
+        // to the source (the loader only redirects the `__ibexpkg__` specifiers).
         let argv_code = if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_some() {
-            format!("globalThis.__exactPerPackageChunks = true;\n{argv_code}")
+            let chunk_dir = entry_path
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let chunk_dir_json =
+                serde_json::to_string(&chunk_dir).unwrap_or_else(|_| "\"\"".to_string());
+            format!("globalThis.__exactChunkDir = {chunk_dir_json};\n{argv_code}")
         } else {
             argv_code
         };

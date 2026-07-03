@@ -1,0 +1,302 @@
+# LLP 0013 Hermes patch 0006 — eval/Function compartment binding + native deep-freeze
+# Class: B (GC-rooted Runtime field + accessors; a new native function) + A (a C
+#         bridge export). @ref LLP 0013#mechanism-2 (Phase 3)
+#
+# Two independent Phase-3 refinements that both need in-tree Hermes edits:
+#
+#   * eval / `new Function` compartment binding. Patch 0005 shipped the helper
+#     (getCurrentCompartmentGlobal) but documented that binding produced code
+#     could not be done inside runBytecode — the eval'd code's caller frame is no
+#     longer on the stack there. This patch does the capture at the correct site:
+#     in evalInEnvironment (eval.cpp), where the caller's frame IS current, it
+#     reads the caller's package principal and compartment global and stashes them
+#     as pending; runBytecode then stamps both onto the Domain it mints. So
+#     eval/Function-produced code inherits its caller's compartment (cannot escape
+#     it) and attribution instead of running in the root realm.
+#       - pendingCompartment_ : a new GC-rooted (PinnedValue) HermesValue field on
+#         Runtime, so the captured compartment survives the allocations between
+#         the eval call site and runBytecode. Declared in
+#         RuntimeHermesValueFields.def; set/consumePendingCompartment on Runtime.
+#       - clearPendingPackageId() / ex_hermes_vm_clear_pending_package_id: clearing
+#         the pending id is distinct from pinning 0 (root). The module loader
+#         clears after each compile so a subsequent eval is seen as unlabelled and
+#         inherits its caller, rather than being pinned to root.
+#
+#   * Native transitive deep-freeze. `__exactDeepFreeze(obj)` freezes the whole
+#     reachable object graph in native code (SES-style): each object frozen via
+#     JSObject::freeze, recursing through property *descriptors* — data values and
+#     accessor getter/setter functions read WITHOUT invoking getters — and the
+#     prototype. Cycles/shared subgraphs handled by a freeze-before-recurse
+#     isFrozen guard, with a depth bound as a backstop. Lets boot-time lockdown do
+#     the intrinsics freeze natively (IBEX_NATIVE_LOCKDOWN) instead of a JS walk.
+#
+diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
+index aeb865ed6..66b65c3db 100644
+--- a/include/hermes/VM/Runtime.h
++++ b/include/hermes/VM/Runtime.h
+@@ -1008,6 +1008,14 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+     pendingPackageIdSet_ = true;
+   }
+ 
++  /// Clear the pending package id so the next Domain falls back to the default
++  /// principal. Distinct from setPendingPackageId(0), which pins root. The loader
++  /// clears (not pins 0) after a compile so that a later eval/Function is
++  /// recognised as unlabelled and inherits its caller. @ref LLP 0013#mechanism-2
++  void clearPendingPackageId() {
++    pendingPackageIdSet_ = false;
++  }
++
+   /// The principal stamped onto Domains created with no pending id set — used to
+   /// mark runtime-internal code (bootstrap, the module loader) with the runtime
+   /// principal during boot, then reset to the root principal so that eval/Function
+@@ -1043,6 +1051,20 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+     anyCompartmentActive_ = true;
+   }
+ 
++  /// @ref LLP 0013#mechanism-2 (Phase 3) — set/consume the pending compartment
++  /// global (a HermesValue holding a JSObject, or undefined). Captured at the
++  /// eval call site from the caller's frame and consumed by runBytecode() to
++  /// bind eval/Function-produced code to the caller's compartment. Rooted via
++  /// the pendingCompartment_ PinnedValue so it survives allocations in between.
++  void setPendingCompartment(HermesValue v) {
++    pendingCompartment_ = v;
++  }
++  HermesValue consumePendingCompartment() {
++    HermesValue v = *pendingCompartment_;
++    pendingCompartment_ = HermesValue::encodeUndefinedValue();
++    return v;
++  }
++
+   experiments::VMExperimentFlags getVMExperimentFlags() const {
+     return vmExperimentFlags_;
+   }
+diff --git a/include/hermes/VM/RuntimeHermesValueFields.def b/include/hermes/VM/RuntimeHermesValueFields.def
+index 42ca00073..a158a8b45 100644
+--- a/include/hermes/VM/RuntimeHermesValueFields.def
++++ b/include/hermes/VM/RuntimeHermesValueFields.def
+@@ -124,4 +124,10 @@ RUNTIME_HV_FIELD(intlNumberFormatPrototype, JSObject)
+ 
+ RUNTIME_HV_FIELD(promiseRejectionTrackingHook_, HermesValue)
+ 
++// @ref LLP 0013#mechanism-2 (Phase 3) — the compartment global to stamp onto the
++// next Domain created by runBytecode(), for binding eval/Function-produced code
++// to the caller's compartment. A GC root (PinnedValue) so it survives the
++// allocations between capture (at the eval call site) and consumption.
++RUNTIME_HV_FIELD(pendingCompartment_, HermesValue)
++
+ #undef RUNTIME_HV_FIELD
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+index 458b0ca04..582316c76 100644
+--- a/lib/VM/CapabilityAttribution.cpp
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -153,6 +153,14 @@ HERMES_EXPORT void ex_hermes_vm_set_default_package_id(
+   reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)->setDefaultPackageId(id);
+ }
+ 
++/// Clear the pending package id (distinct from pinning 0). @ref LLP 0013#mechanism-2
++HERMES_EXPORT void ex_hermes_vm_clear_pending_package_id(void *vmRuntime) {
++  if (!vmRuntime)
++    return;
++  reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->clearPendingPackageId();
++}
++
+ /// Fill \p out (capacity \p max) with the distinct user principals on the stack,
+ /// innermost-first, and return the count. @ref LLP 0013#phase-5
+ HERMES_EXPORT size_t ex_hermes_vm_collect_package_ids(
+diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
+index b78ddb6ca..1bca3c449 100644
+--- a/lib/VM/JSLib/GlobalObject.cpp
++++ b/lib/VM/JSLib/GlobalObject.cpp
+@@ -27,6 +27,7 @@
+ 
+ // @ref LLP 0013#mechanism-2 (Phase 3) — native compartment global binding.
+ #include "hermes/VM/Domain.h"
++#include "hermes/VM/JSArray.h"
+ #include "hermes/VM/RuntimeModule-inline.h"
+ 
+ namespace hermes {
+@@ -71,6 +72,95 @@ CallResult<HermesValue> exactNativeFreeze(void *, Runtime &runtime) {
+   return args.getArg(0);
+ }
+ 
++/// @ref LLP 0013#mechanism-1 (Phase 3) — native transitive deep-freeze. Freezes
++/// the object graph reachable from \p obj, SES-style: each object is frozen
++/// (shallow, via JSObject::freeze) and the walk recurses through property
++/// *descriptors* — data values and accessor getter/setter functions, read
++/// WITHOUT invoking getters — plus the prototype. Cycles and shared subgraphs
++/// are handled by the isFrozen guard (freeze-before-recurse), with a depth bound
++/// as a backstop. Lets the boot-time lockdown do the whole intrinsics freeze in
++/// native code instead of a JS graph walk.
++static ExecutionStatus
++exactDeepFreezeRec(Runtime &runtime, Handle<JSObject> obj, unsigned depth) {
++  if (JSObject::isFrozen(createPseudoHandle(obj.get()), runtime))
++    return ExecutionStatus::RETURNED;
++  if (LLVM_UNLIKELY(
++          JSObject::freeze(obj, runtime) == ExecutionStatus::EXCEPTION))
++    return ExecutionStatus::EXCEPTION;
++  if (depth >= 512)
++    return ExecutionStatus::RETURNED;
++  GCScope gcScope{runtime};
++  auto keysRes = JSObject::getOwnPropertyKeys(
++      obj,
++      runtime,
++      OwnKeysFlags()
++          .plusIncludeSymbols()
++          .plusIncludeNonSymbols()
++          .plusIncludeNonEnumerable());
++  if (LLVM_UNLIKELY(keysRes == ExecutionStatus::EXCEPTION))
++    return ExecutionStatus::EXCEPTION;
++  Handle<JSArray> keys = *keysRes;
++  uint32_t len = JSArray::getLength(*keys, runtime);
++  MutableHandle<> keyHandle{runtime};
++  MutableHandle<> valueOrAccessor{runtime};
++  MutableHandle<JSObject> child{runtime};
++  GCScopeMarkerRAII marker{runtime};
++  for (uint32_t i = 0; i < len; ++i) {
++    marker.flush();
++    keyHandle = keys->at(runtime, i).unboxToHV(runtime);
++    ComputedPropertyDescriptor desc;
++    auto found = JSObject::getOwnComputedDescriptor(
++        obj, runtime, keyHandle, desc, valueOrAccessor);
++    if (LLVM_UNLIKELY(found == ExecutionStatus::EXCEPTION)) {
++      runtime.clearThrownValue();
++      continue;
++    }
++    if (!*found)
++      continue;
++    if (desc.flags.accessor) {
++      auto *accessor = vmcast<PropertyAccessor>(valueOrAccessor.getHermesValue());
++      if (Callable *g = accessor->getter.get(runtime)) {
++        child = g;
++        if (exactDeepFreezeRec(runtime, child, depth + 1) ==
++            ExecutionStatus::EXCEPTION)
++          return ExecutionStatus::EXCEPTION;
++      }
++      if (Callable *s = accessor->setter.get(runtime)) {
++        child = s;
++        if (exactDeepFreezeRec(runtime, child, depth + 1) ==
++            ExecutionStatus::EXCEPTION)
++          return ExecutionStatus::EXCEPTION;
++      }
++    } else {
++      HermesValue v = valueOrAccessor.getHermesValue();
++      if (v.isObject()) {
++        child = vmcast<JSObject>(v);
++        if (exactDeepFreezeRec(runtime, child, depth + 1) ==
++            ExecutionStatus::EXCEPTION)
++          return ExecutionStatus::EXCEPTION;
++      }
++    }
++  }
++  if (JSObject *proto = obj->getParent(runtime)) {
++    child = proto;
++    if (exactDeepFreezeRec(runtime, child, depth + 1) ==
++        ExecutionStatus::EXCEPTION)
++      return ExecutionStatus::EXCEPTION;
++  }
++  return ExecutionStatus::RETURNED;
++}
++
++CallResult<HermesValue> exactDeepFreeze(void *, Runtime &runtime) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  Handle<JSObject> obj = args.dyncastArg<JSObject>(0);
++  if (obj) {
++    if (LLVM_UNLIKELY(
++            exactDeepFreezeRec(runtime, obj, 0) == ExecutionStatus::EXCEPTION))
++      return ExecutionStatus::EXCEPTION;
++  }
++  return args.getArg(0);
++}
++
+ /// ES5.1 15.1.2.4
+ CallResult<HermesValue> isNaN(void *, Runtime &runtime) {
+   NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
+@@ -782,12 +872,17 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
+           runtime, createASCIIRef("__exactSetCompartmentFor")),
+       exactSetCompartmentFor,
+       2);
+-  // @ref LLP 0013#mechanism-1 (Phase 3) — the native freeze primitive.
++  // @ref LLP 0013#mechanism-1 (Phase 3) — the native freeze primitives.
+   defineGlobalFunc(
+       runtime.getIdentifierTable().registerLazyIdentifier(
+           runtime, createASCIIRef("__exactNativeFreeze")),
+       exactNativeFreeze,
+       1);
++  defineGlobalFunc(
++      runtime.getIdentifierTable().registerLazyIdentifier(
++          runtime, createASCIIRef("__exactDeepFreeze")),
++      exactDeepFreeze,
++      1);
+ 
+   // Define the 'eval' function.
+   defineGlobalFunc(Predefined::getSymbolID(Predefined::eval), eval, 1);
+diff --git a/lib/VM/JSLib/eval.cpp b/lib/VM/JSLib/eval.cpp
+index 3d0fc7ed1..fa6513eea 100644
+--- a/lib/VM/JSLib/eval.cpp
++++ b/lib/VM/JSLib/eval.cpp
+@@ -11,6 +11,7 @@
+ #include "hermes/Parser/JSParser.h"
+ #include "hermes/Support/MemoryBuffer.h"
+ #include "hermes/Support/ScopeChain.h"
++#include "hermes/VM/CapabilityAttribution.h"
+ #include "hermes/VM/JSLib.h"
+ #include "hermes/VM/Runtime.h"
+ #include "hermes/VM/StringPrimitive.h"
+@@ -121,6 +122,22 @@ CallResult<HermesValue> evalInEnvironment(
+     }
+   }
+ 
++  // @ref LLP 0013#mechanism-2 (Phase 3) — eval/Function binding. Here the
++  // caller's frame is still current (unlike inside runBytecode), so capture the
++  // caller's package principal and compartment and stamp them onto the Domain
++  // runBytecode is about to mint — so eval/`new Function`-produced code inherits
++  // the caller's compartment (cannot escape it) and attribution. Skipped when a
++  // principal was already labelled explicitly (loader-driven module compiles go
++  // through this path too and must keep their own principal).
++  if (!runtime.pendingPackageIdSet_) {
++    uint32_t callerPkg = getCurrentPackageId(runtime);
++    JSObject *cg = getCurrentCompartmentGlobal(runtime);
++    if (callerPkg != 0)
++      runtime.setPendingPackageId(callerPkg);
++    if (cg)
++      runtime.setPendingCompartment(HermesValue::encodeObjectValue(cg));
++  }
++
+   // TODO: pass a sourceURL derived from a '//# sourceURL' comment.
+   llvh::StringRef sourceURL{};
+   return runtime.runBytecode(
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index 0828b7267..1cadc9340 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -1175,17 +1175,19 @@ CallResult<HermesValue> Runtime::runBytecode(
+   Handle<Domain> domain = makeHandle(Domain::create(*this));
+ 
+   // @ref LLP 0013#mechanism-3 — label this Domain with the package principal
+-  // the embedder set just before compiling this unit of code. One-shot: the
+-  // pending id is consumed here so it never leaks onto a later Domain.
+-  //
+-  // Note (Phase 3): binding eval/`new Function`-produced code to the *caller's*
+-  // compartment/principal is intentionally NOT done here — at runBytecode time
+-  // the eval'd code's caller frame is no longer walkable, so the inheritance
+-  // would be a silent no-op. eval/Function are contained by withholding (the
+-  // compartment omits them) and by lockdown taming; binding produced code
+-  // requires capturing the caller's compartment at the eval *call site*
+-  // (Eval.cpp / createDynamicFunction) and is tracked as a follow-up.
++  // the embedder set just before compiling this unit of code (or, for eval/
++  // Function, the caller principal captured at the eval call site). One-shot:
++  // consumed here so it never leaks onto a later Domain.
+   domain->setPackageId(consumePendingPackageId());
++  // @ref LLP 0013#mechanism-2 (Phase 3) — and its compartment global, so
++  // eval/Function-produced code inherits the caller's compartment.
++  {
++    HermesValue pendingCg = consumePendingCompartment();
++    if (pendingCg.isObject()) {
++      domain->setCompartmentGlobal(*this, vmcast<JSObject>(pendingCg));
++      markCompartmentActive();
++    }
++  }
+ 
+   auto runtimeModuleRes = RuntimeModule::create(
+       *this, domain, allocateScriptId(), std::move(bytecode), flags, sourceURL);

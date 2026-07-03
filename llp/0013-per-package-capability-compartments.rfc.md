@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -959,14 +959,19 @@ app's own, is attributed to the dependency and denied). Phase 1 (reachability
 containment, real-global inventory closed) and the Phase 0 defect fixes remain in
 force. **Phase 3** native compartment globals are landed (patch 0004): the
 interpreter resolves bare globals and sloppy-`this` through the per-package
-Domain compartment with no source rewrite. **Phase 5** (opt-in stack-intersection)
-is wired to real frame stacks. **Phase 4** authority-bearing attenuators
-(possession-based `FsHandle` with `scoped()` re-attenuation and a revocation
-cascade) and the dynamic-permission mechanism (tri-state grant status +
-ceiling-bounded runtime grants) are landed; the OS-broker UX / async-acquisition
-/ per-view-grant layer remains embedder work per §Interaction with user-facing
-dynamic permissions. See [Upstream tracking](#upstream-tracking-and-re-derivation) and
-`patches/hermes/README.md` for the carried patch stack (0001–0003) and the
+Domain compartment with no source rewrite; its refinements are landed too
+(patch 0006): `eval`/`Function`-produced code binds to the caller's compartment
+and principal (captured at the eval call site), and a native transitive
+deep-freeze (`__exactDeepFreeze`, behind `IBEX_NATIVE_LOCKDOWN`) does the
+intrinsics freeze in C++. **Phase 5** (opt-in stack-intersection) is wired to
+real frame stacks. **Phase 4** authority-bearing attenuators (possession-based
+`FsHandle` with `scoped()` re-attenuation and a revocation cascade), the
+dynamic-permission mechanism (tri-state grant status + ceiling-bounded runtime
+grants), and a grant-change signal (`Ibex.permissions.onChange`) for embedder
+UIs are landed; the OS-broker UX / async-acquisition / per-view-grant layer
+remains embedder work per §Interaction with user-facing dynamic permissions. See
+[Upstream tracking](#upstream-tracking-and-re-derivation) and
+`patches/hermes/README.md` for the carried patch stack (0001–0006) and the
 Ibex-side integration.
 
 Phase 2 finding (recorded per the acceptance criteria): the trusted runtime
@@ -976,9 +981,14 @@ functions; the frame walk reaches the true caller only because those deputy
 Domains carry a reserved *runtime principal* (`0xFFFFFFFF`) that the walk skips
 (Open question 3's "skip runtime-internal frames" rule, now concrete). Two
 surfaces surprised the spike: `process.env` is an eager snapshot that is never
-capability-checked, and `fs.writeFileSync` fires an `fs:read` but not an
-`fs:write` check in the current runtime — both are enforcement gaps orthogonal
-to attribution, noted for Phase 4.
+capability-checked, and `fs.writeFileSync` fired an `fs:read` but not an
+`fs:write` check — both enforcement gaps orthogonal to attribution. The
+`fs:write` gap is now fixed: the fd-based `__exactFsOpen` path checks the
+capability after parsing the open flags and gates on the actual access intent
+(`O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND` → `fs:write`, read-only → `fs:read`),
+so a write through any `fs` API is attributed and enforced
+(`tests/llp0013_compartments.rs::fs_write_requires_fs_write_capability`). The
+`process.env` snapshot remains a known gap.
 
 #### Mechanism 1
 
@@ -987,6 +997,14 @@ intrinsics graph is frozen and the `%Function%` family + indirect `eval` are
 tamed (`src/engine/hermes_runtime.cc`, `<lockdown>` eval). The module loader
 captures the real `Function` privately so it can still compile CommonJS bodies.
 Verified against the named red-team cases (`tests/llp0013_compartments.rs`).
+The intrinsics freeze runs in userland by default (the SES `harden` graph walk);
+under `IBEX_NATIVE_LOCKDOWN=1` the harness instead freezes each intrinsic root
+with the native `__exactDeepFreeze` (patch 0006) — a transitive freeze that walks
+property *descriptors* (getters/setters read without invoking) and prototypes in
+C++ with a freeze-before-recurse cycle guard, retiring the JS walk. Both produce
+an identically locked-down runtime; tested by
+`native_deep_freeze_freezes_a_graph_without_invoking_getters` and
+`native_lockdown_freezes_intrinsics_and_contains_redteam`.
 
 #### Mechanism 2
 
@@ -1012,11 +1030,19 @@ Per-package compartment globals, two implementations of one semantics:
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.
   Refinements landed (patch 0005): a `Runtime::anyCompartmentActive_` hot-path
   guard so code that never uses a compartment skips the Domain walk, and a native
-  `__exactNativeFreeze` freeze primitive. Remaining (low-priority — `eval`/
-  `Function` are contained by withholding + lockdown taming today): binding
-  `eval`/`Function`-produced code to the caller's compartment, which needs the
-  capture at the eval *call site* (the eval'd frame's caller is not walkable at
-  `runBytecode`; `getCurrentCompartmentGlobal` is the helper for it).
+  `__exactNativeFreeze` freeze primitive. **`eval`/`Function` compartment binding
+  is landed (patch 0006).** The capture happens in `evalInEnvironment`, where the
+  caller's frame is still on the stack (it is gone by `runBytecode`): it reads the
+  caller's principal + compartment (`getCurrentPackageId` /
+  `getCurrentCompartmentGlobal`) into a pending slot — the compartment held in the
+  GC-rooted `Runtime::pendingCompartment_` — and `runBytecode` stamps both onto
+  the Domain it mints, so `eval` and `new Function` produced code inherits the
+  caller's compartment (it cannot reach the root realm's globals) and attribution.
+  The capture is skipped when a principal was labelled explicitly, so loader-driven
+  module compiles keep their own principal; the loader `clearPendingPackageId()`s
+  (distinct from pinning 0) after each compile so a later eval reads as unlabelled
+  and inherits its caller. Tested by
+  `tests/llp0013_compartments.rs::eval_and_function_inherit_the_caller_compartment`.
 
 #### Mechanism 3
 
@@ -1040,7 +1066,12 @@ npm package (named `__ibexpkg__<pkg>`), which the loader compiles into its own
 Domain stamped with the package principal — so a *bundled* app gets per-package
 attribution too, not just the unbundled/dynamic-require path. The default flat
 bundle still collapses to one Domain (a bundled dependency is attributed to root
-until the flag is set). Tested by
+until the flag is set). In this mode the loader resolves the `__ibexpkg__<pkg>`
+sibling specifiers absolutely against the chunk cache directory
+(`globalThis.__exactChunkDir`, the entry's parent) so the split chunks find each
+other, while the entry module keeps its **source-relative** `__dirname` /
+`__filename` (the entry-path remap is unaffected — only the `__ibexpkg__`
+specifiers are redirected). Tested by
 `tests/llp0013_compartments.rs::per_package_chunks_give_bundled_apps_frame_attribution`
 (with a flat-bundle control). The deputy caveat above still applies.
 
@@ -1099,11 +1130,17 @@ Authority-bearing attenuators and dynamic permissions:
   Promise that suspends on the broker decision) while the boundary check stays
   synchronous and consults the resolved state — never the prompt (the TOCTOU
   failure mode); the broker is pluggable (`Ibex.permissions.broker`), defaulting
-  to resolve against the ceiling. Tested by
-  `dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling` and
-  `permission_acquisition_is_async_with_a_pluggable_broker`. The broker UX,
-  per-view grants, and OS mapping remain embedder work per §Interaction with
-  user-facing dynamic permissions.
+  to resolve against the ceiling. A grant-change signal
+  (`Ibex.permissions.onChange(cb)`) fires the registered listeners on every
+  `request`/`revoke` with `{capability, status}`, so an embedder's UI (an OS
+  permission sheet, a per-view indicator) can reflect live grant state without
+  polling — the runtime provides the mechanism; the actual sheet/indicator UX
+  stays embedder work. Tested by
+  `dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling`,
+  `permission_acquisition_is_async_with_a_pluggable_broker`, and
+  `permission_onchange_signals_grants_and_revocations`. The broker UX, per-view
+  grants, and OS mapping remain embedder work per §Interaction with user-facing
+  dynamic permissions.
 
 #### Phase 5
 

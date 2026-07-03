@@ -121,7 +121,11 @@
         "require", "module", "exports", "__filename", "__dirname", source);
     } finally {
       if (__privSetPendingPackageId) {
-        __privSetPendingPackageId(0);
+        // Clear (not pin 0): the compile's runBytecode already consumed the
+        // pending id; this only matters if the compile threw first. Passing -1
+        // clears the pending flag so a later eval/Function is treated as
+        // unlabelled and inherits its caller. @ref LLP 0013#mechanism-2
+        __privSetPendingPackageId(-1);
       }
     }
     // @ref LLP 0013#mechanism-2 (Phase 3) — bind this package's compartment to
@@ -4133,6 +4137,19 @@
   function load(specifier, referrer, parent) {
     __exactPinProcessStreams();
 
+    // @ref LLP 0013#mechanism-3 — per-package chunk requires (`__ibexpkg__*`)
+    // live in the bundle cache dir, but the entry's `__dirname` is mapped to the
+    // source dir; resolve these specifiers absolutely against the chunk dir so
+    // sibling chunks are found while the entry keeps source-relative __dirname.
+    if (typeof specifier === 'string' && g.__exactChunkDir &&
+        specifier.indexOf('__ibexpkg__') !== -1) {
+      var __ci = specifier.lastIndexOf('/');
+      var __cbase = __ci === -1 ? specifier : specifier.slice(__ci + 1);
+      if (__cbase.indexOf('__ibexpkg__') === 0) {
+        specifier = g.__exactChunkDir + '/' + __cbase;
+      }
+    }
+
     // Lazy-load triggers: ensure non-essential bootstrap blocks are loaded
     // when their corresponding modules are first required.
     if (typeof __exactEnsureStreamEnhance === 'function') {
@@ -4261,11 +4278,7 @@
     // For the entry module, use the original source path so that
     // __dirname/__filename and require.resolve work relative to
     // the source dir, not the bundle cache dir.
-    // @ref LLP 0013#mechanism-3 — with per-package chunking the entry bundle
-    // requires sibling chunk files by a path relative to its real (cache-dir)
-    // location, so keep the real filename; remapping it to the source dir would
-    // break sibling resolution.
-    if (g.__exactEntryFile && !g.__exactEntryFileConsumed && !g.__exactPerPackageChunks &&
+    if (g.__exactEntryFile && !g.__exactEntryFileConsumed &&
         filename.indexOf('/Caches/') !== -1) {
       filename = g.__exactEntryFile;
       g.__exactEntryFileConsumed = true;
