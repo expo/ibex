@@ -1284,6 +1284,15 @@ impl Runtime {
             process_versions_code,
             compat_reapply_code
         );
+        // @ref LLP 0013#mechanism-3 — under per-package chunking the entry
+        // bundle requires sibling chunk files from the cache dir; the loader must
+        // NOT remap the entry path to the source dir (which would break sibling
+        // resolution), so signal the mode to the loader.
+        let argv_code = if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_some() {
+            format!("globalThis.__exactPerPackageChunks = true;\n{argv_code}")
+        } else {
+            argv_code
+        };
 
         if cfg!(windows) {
             let source = tokio::fs::read_to_string(&entry_path)
@@ -2063,6 +2072,11 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
     let compartments = std::env::var_os("IBEX_LOCKDOWN").is_some()
         || std::env::var_os("IBEX_COMPARTMENTS").is_some();
     compartments.hash(&mut hasher);
+    // @ref LLP 0013#mechanism-3 — per-package chunking changes the output shape
+    // (multiple chunk files), so it must key distinctly from a flat bundle.
+    std::env::var_os("IBEX_PER_PACKAGE_CHUNKS")
+        .is_some()
+        .hash(&mut hasher);
     hash_file_contents(&mut hasher, entry)?;
 
     for bundler_input in bundler_cache_input_paths() {
@@ -2474,6 +2488,12 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
         || std::env::var_os("IBEX_COMPARTMENTS").is_some()
     {
         command.arg("--compartments");
+    }
+    // @ref LLP 0013#mechanism-3 — opt-in per-package chunking so a bundled app
+    // gets per-package frame attribution (each package chunk loads into its own
+    // Domain). iife can't split; the bundler ignores the flag there.
+    if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_some() {
+        command.arg("--per-package-chunks");
     }
     let cmd_output = output_with_timeout(
         &mut command,

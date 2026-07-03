@@ -64,6 +64,17 @@
   // @ref LLP 0013#resolved-questions (package name is the policy selector)
   function packageNameFromPath(p) {
     if (typeof p !== 'string') return null;
+    // @ref LLP 0013#mechanism-3 — per-package bundle chunks (IBEX_PER_PACKAGE_CHUNKS)
+    // are named `__ibexpkg__<encoded package>`; recover the package from the
+    // chunk basename so a bundled app gets per-package attribution too. The
+    // bundler escapes `/` (scoped names) as `__SLASH__`.
+    var slash = p.lastIndexOf('/');
+    var base = slash === -1 ? p : p.slice(slash + 1);
+    var pkgPrefix = '__ibexpkg__';
+    if (base.indexOf(pkgPrefix) === 0) {
+      var enc = base.slice(pkgPrefix.length).replace(/\.js$/, '').replace(/\.[0-9a-f]+$/i, '');
+      return enc.split('__SLASH__').join('/');
+    }
     var marker = 'node_modules/';
     var idx = p.lastIndexOf(marker);
     if (idx === -1) return null;
@@ -4250,7 +4261,12 @@
     // For the entry module, use the original source path so that
     // __dirname/__filename and require.resolve work relative to
     // the source dir, not the bundle cache dir.
-    if (g.__exactEntryFile && !g.__exactEntryFileConsumed && filename.indexOf('/Caches/') !== -1) {
+    // @ref LLP 0013#mechanism-3 — with per-package chunking the entry bundle
+    // requires sibling chunk files by a path relative to its real (cache-dir)
+    // location, so keep the real filename; remapping it to the source dir would
+    // break sibling resolution.
+    if (g.__exactEntryFile && !g.__exactEntryFileConsumed && !g.__exactPerPackageChunks &&
+        filename.indexOf('/Caches/') !== -1) {
       filename = g.__exactEntryFile;
       g.__exactEntryFileConsumed = true;
     }

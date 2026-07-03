@@ -1034,11 +1034,15 @@ thread-local, `__exactSetActiveModuleId`, and `__exactGrantCapability` are still
 sealed at end-of-bootstrap (the deletion-outright cleanup is deferred to keep the
 fallback path intact for unpatched targets). Red-team coverage:
 `tests/llp0013_compartments.rs::frame_attribution_denies_deferred_dependency_but_allows_app`
-(and its permissive-mode control). Remaining: per-package **bundled** units
-(the bundler still emits one flat chunk, so a bundled app collapses to one
-Domain — frame attribution distinguishes packages on the unbundled/dynamic-require
-path today; per-package Rolldown chunking is the follow-up), and the deputy
-caveat above.
+(and its permissive-mode control). **Per-package bundled units** are landed as an
+opt-in: `IBEX_PER_PACKAGE_CHUNKS` makes the bundler emit one Rolldown chunk per
+npm package (named `__ibexpkg__<pkg>`), which the loader compiles into its own
+Domain stamped with the package principal — so a *bundled* app gets per-package
+attribution too, not just the unbundled/dynamic-require path. The default flat
+bundle still collapses to one Domain (a bundled dependency is attributed to root
+until the flag is set). Tested by
+`tests/llp0013_compartments.rs::per_package_chunks_give_bundled_apps_frame_attribution`
+(with a flat-bundle control). The deputy caveat above still applies.
 
 #### Import gating (Policy surface 3)
 

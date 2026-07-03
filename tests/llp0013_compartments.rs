@@ -618,6 +618,69 @@ fn attenuator_handle_delegation_scoping_and_revocation() {
 }
 
 // ---------------------------------------------------------------------------
+// Per-package bundled units (frame attribution for a *bundled* app)
+//
+// A flat bundle collapses to one Domain, so a bundled dependency is attributed
+// to root. With per-package chunking (IBEX_PER_PACKAGE_CHUNKS) each package
+// becomes its own chunk that loads into its own Domain, so a bundled app gets
+// per-package frame attribution too.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn per_package_chunks_give_bundled_apps_frame_attribution() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: frame attribution needs the patched Hermes engine");
+        return;
+    }
+    if !have_js_runner() {
+        eprintln!("skipping: per-package chunking needs the bundler (bun/node)");
+        return;
+    }
+    let dir = fixtures_dir().join("per-package-chunks");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let args = [
+        "--capsec",
+        "enforce",
+        "--policy",
+        &policy.to_string_lossy() as &str,
+        "run",
+        "app.js",
+    ];
+    // Bundled with per-package chunking: evil-pkg loads into its own Domain, so
+    // its deferred read is attributed to evil-pkg and denied; the app's succeeds.
+    let chunked = run_ibex(
+        &args,
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("IBEX_PER_PACKAGE_CHUNKS", "1"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        chunked.stdout.contains("app-deferred: READ:TOPSECRET-ppc")
+            && chunked.stdout.contains("evil-deferred: CONTAINED")
+            && !chunked.stdout.contains("evil-deferred: STOLEN"),
+        "per-package chunking should give the bundled dependency its own principal:\nstdout:\n{}\nstderr:\n{}",
+        chunked.stdout,
+        chunked.stderr
+    );
+    // Control: a flat bundle collapses to one Domain, so the dependency's read is
+    // attributed to root and succeeds (proving the chunking is what separates it).
+    let flat = run_ibex(
+        &args,
+        &[("SECRETPATH", &secret.to_string_lossy())],
+        Some(&dir),
+    );
+    assert!(
+        flat.stdout.contains("evil-deferred: STOLEN:TOPSECRET-ppc"),
+        "a flat bundle should collapse to one Domain (control):\nstdout:\n{}\nstderr:\n{}",
+        flat.stdout,
+        flat.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Dynamic permissions: tri-state status + ceiling-bounded runtime grants
 // (Phase 4 / §Interaction with user-facing dynamic permissions)
 // ---------------------------------------------------------------------------
