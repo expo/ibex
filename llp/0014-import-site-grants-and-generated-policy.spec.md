@@ -361,7 +361,14 @@ dispatched to `run_policy_command` in `src/bin/ibex/runtime.rs`)
 spawns the generator with the bundler's runner-resolution plumbing. At
 boot, `packages.*.endow` from the loaded policy composes into the
 compartment registry's endowment map (`src/bin/ibex/runtime.rs`), so the
-artifact drives Mechanism 2 end-to-end.
+artifact drives Mechanism 2 end-to-end. The artifact is also the security
+**mode** source: when no explicit `--capsec` is passed, the policy's `mode`
+field (`enforce`/`audit`/`permissive`) sets the runtime `SecurityMode`
+(`policy_declared_mode` → `build_host_config`), so a generated artifact that
+declares `mode: "enforce"` enforces without a redundant flag; `--allow-all` is
+the explicit permissive escape. (First-party root and the module loader are
+trusted under enforce so the app runs without self-granting — see LLP 0013
+§Mechanism 3.)
 
 #### Conformance
 

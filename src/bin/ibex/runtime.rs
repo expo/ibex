@@ -1479,24 +1479,48 @@ impl Runtime {
     }
 }
 
+/// The `SecurityMode` a policy artifact declares via its `mode` field, if any.
+/// `enforce`/`strict` → Enforce, `audit` → Audit, `permissive`/`legacy` →
+/// Permissive; unknown/absent → None (caller keeps its default).
+/// @ref LLP 0014#runtime-and-cli
+fn policy_declared_mode(path: &Path) -> Option<crate::host::SecurityMode> {
+    use crate::host::SecurityMode;
+    let policy = crate::host::policy::PolicyFile::load(path).ok()?;
+    match policy.mode.as_deref()?.trim().to_ascii_lowercase().as_str() {
+        "enforce" | "strict" | "capability" => Some(SecurityMode::Enforce),
+        "audit" => Some(SecurityMode::Audit),
+        "permissive" | "legacy" => Some(SecurityMode::Permissive),
+        _ => None,
+    }
+}
+
 fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     use crate::cli::CapSecMode;
     use crate::host::SecurityMode;
 
-    // Map CLI mode to host SecurityMode
-    // --allow-all overrides --capsec for backward compatibility
+    let policy_path = resolve_policy_path(cli);
+
+    // Map CLI mode to host SecurityMode.
+    // --allow-all overrides --capsec for backward compatibility.
     let mode = if cli.allow_all {
         SecurityMode::Permissive
     } else {
         // @ref LLP 0013#phase-1 — Audit maps to the log-but-proceed mode.
         match cli.capsec {
-            CapSecMode::Permissive => SecurityMode::Permissive,
             CapSecMode::Audit => SecurityMode::Audit,
             CapSecMode::Enforce => SecurityMode::Enforce,
+            // Default (no explicit --capsec): honor the policy artifact's declared
+            // `mode` when it has one — the generated policy is the security config,
+            // so `mode: "enforce"` takes effect without a redundant flag.
+            // `--allow-all` (above) is the explicit permissive escape hatch.
+            // @ref LLP 0014#runtime-and-cli
+            CapSecMode::Permissive => policy_path
+                .as_deref()
+                .and_then(policy_declared_mode)
+                .unwrap_or(SecurityMode::Permissive),
         }
     };
 
-    let policy_path = resolve_policy_path(cli);
     apply_policy_endowments(policy_path.as_deref());
 
     Ok(HostConfig {

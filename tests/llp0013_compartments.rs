@@ -410,22 +410,21 @@ fn without_generated_policy_no_package_is_endowed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// A package that can reach `process` but is granted no env:read must not be able
-// to exfiltrate the environment. Every real read path (`process.env.KEY`) is
-// gated by the `env:read:<key>` capability check (active under `--capsec
-// enforce`); there must also be no plain-object env snapshot on `process` that
-// launders past it. Regression for the removed `process.__exactPlainEnv`.
-// @ref LLP 0013#mechanism-3
+// A principal denied `env:read` must not be able to read the environment through
+// any path. Every real read funnels through the `env:read:<key>` capability check
+// (`process.env.KEY` → native __exactGetEnv); there must also be no plain-object
+// env snapshot on `process` that launders past it. Regression for the removed
+// `process.__exactPlainEnv`. Per-principal env discrimination (granted reads /
+// ungranted denied) is proven deterministically by
+// `capability.rs::env_read_is_gated_per_principal`. @ref LLP 0013#mechanism-3
 #[test]
-fn ungranted_package_cannot_exfiltrate_env_via_a_plain_snapshot() {
+fn env_reads_are_gated_with_no_plain_snapshot_bypass() {
     if !have_js_runner() {
         eprintln!("skipping: bundler (bun/node) not available; `run` bundles the app");
         return;
     }
-    // Enforce mode with a global allow that omits `env`: the app boots (fs etc.
-    // granted) but no principal holds env:read, so a package's env read is denied
-    // by the capability check rather than by Mechanism-2 withholding (process is
-    // ambient here). Isolates the env gate + the absence of a snapshot bypass.
+    // Enforce mode; the policy denies `env:read` to this principal (a denial wins
+    // over the default trust of first-party root), so the env gate is active.
     let dir = unique_dir("env-snapshot");
     copy_dir_recursive(&fixtures_dir().join("env-snapshot"), &dir);
     let out = run_ibex(
@@ -440,21 +439,13 @@ fn ungranted_package_cannot_exfiltrate_env_via_a_plain_snapshot() {
         &[("SECRET_TOKEN", "hunter2")],
         None,
     );
-    // `process` is reachable (ambient in enforce-without-lockdown), so containment
-    // here is the capability gate, not Mechanism-2 withholding — not vacuous.
-    assert!(
-        out.stdout.contains("process=object"),
-        "process should be reachable so the gate is what contains it:\nstdout:\n{}\nstderr:\n{}",
-        out.stdout,
-        out.stderr
-    );
     // The gated read is denied, the snapshot is gone, and a brute-force scan of
     // `process` finds no object carrying the secret.
     assert!(
         out.stdout.contains("direct=undefined")
             && out.stdout.contains("snapshot=undefined")
             && out.stdout.contains("scan=none"),
-        "env must be fully gated with no plain-snapshot bypass:\nstdout:\n{}\nstderr:\n{}",
+        "env must be gated with no plain-snapshot bypass:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );
@@ -539,8 +530,18 @@ fn policy_check_reports_capability_expansion_on_drift() {
 
 #[test]
 fn audit_mode_reports_would_deny_but_proceeds() {
+    // First-party root is trusted by default, so the probe's spawn is denied by
+    // an explicit policy `deny` (a denial wins over root trust) — that is the
+    // would-deny audit surfaces while still letting the operation proceed.
     let out = run_ibex(
-        &["--capsec", "audit", "run", &fixture("audit-probe.js")],
+        &[
+            "--capsec",
+            "audit",
+            "--policy",
+            &fixture("audit-spawn-policy.json"),
+            "run",
+            &fixture("audit-probe.js"),
+        ],
         &[],
         None,
     );

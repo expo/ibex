@@ -97,6 +97,17 @@ impl AuditEntry {
 
 const ALWAYS_ALLOWED: [&str; 2] = ["crypto:random", "time:now"];
 
+/// The first-party root/principal id. `currentPrincipalId()` reports `0` for
+/// code whose nearest JS frame is first-party (or for which no user frame is
+/// attributable); every registered third-party package has a non-zero principal.
+/// @ref LLP 0013#policy
+const ROOT_PRINCIPAL: &str = "0";
+
+/// The synthetic principal Ibex's module loader uses for its own file reads
+/// (`Host::resolve_module`). Not a real package; trusted runtime infrastructure
+/// gated by the import graph, not the capability system. @ref LLP 0013#policy
+const MODULE_LOADER_PRINCIPAL: &str = "module-loader";
+
 impl CapabilityManager {
     /// Create a new capability manager
     pub fn new(mode: SecurityMode) -> Self {
@@ -174,6 +185,15 @@ impl CapabilityManager {
             .read()
             .map(|c| c.iter().any(|g| matches_capability(g, &normalized)))
             .unwrap_or(false)
+    }
+
+    /// Whether the policy declares a ceiling — i.e. the app opted into
+    /// fine-grained dynamic (user-facing) permissions. When it has, the root
+    /// principal is governed by the normal allow-list + dynamic-grant precedence
+    /// bounded by the ceiling; when it has not, root is trusted (ambient app
+    /// authority). @ref LLP 0013 §dynamic permissions
+    fn ceiling_configured(&self) -> bool {
+        self.ceiling.read().map(|c| !c.is_empty()).unwrap_or(false)
     }
 
     /// Runtime-grant `capability` to the root principal, bounded by the ceiling
@@ -312,6 +332,16 @@ impl CapabilityManager {
             return true;
         }
 
+        // Ibex's own module loader reads module source files as runtime
+        // infrastructure under this synthetic principal. Which modules may be
+        // loaded is governed by the import gate (`check_import`), not the
+        // capability system, so the loader's file reads are trusted here — else
+        // `--capsec enforce` would deny the app reading its own bundle. Real app
+        // and package code never runs under this principal. @ref LLP 0013#policy
+        if module_id == MODULE_LOADER_PRINCIPAL {
+            return true;
+        }
+
         // Module-specific (numeric id) grants first.
         if let Ok(grants) = self.grants.read() {
             if matches_denials(grants.get(module_id), capability) {
@@ -342,6 +372,20 @@ impl CapabilityManager {
             if matches_grants(grants.get("*"), capability) {
                 return true;
             }
+        }
+
+        // The first-party root principal carries the app's own authority: absent
+        // an explicit grant or denial above, it is trusted so `--capsec enforce`
+        // is usable without the app self-granting its operational needs (reading
+        // its own bundle/files), and only third-party packages (non-zero
+        // principals) are gated — mirroring `decide_import`'s trust of the
+        // first-party principal (RFC Resolved Q1). The exception is an app that
+        // opted into dynamic user-facing permissions (a ceiling is configured):
+        // then root falls through to default-deny so a capability outside the
+        // ceiling stays denied and the tri-state permission model holds.
+        // @ref LLP 0013#policy
+        if module_id == ROOT_PRINCIPAL && !self.ceiling_configured() {
+            return true;
         }
 
         // Default deny in enforce/audit mode.
@@ -935,6 +979,53 @@ mod tests {
         manager.register_module_package("7", "evil", None);
         assert!(manager.check("7", "network:fetch:ok.example.com"));
         assert!(!manager.check("7", "network:fetch:evil.example.com"));
+    }
+
+    // The first-party root principal ("0") carries the app's own authority: it
+    // is trusted (ambient) so --capsec enforce is usable, while third-party
+    // packages stay gated. @ref LLP 0013#policy
+    #[test]
+    fn root_principal_is_trusted_without_a_ceiling() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        // No ceiling configured: root is trusted for its operational needs …
+        assert!(manager.check("0", "fs:read:/app/data"));
+        assert!(manager.check("0", "fs:write:/app/out"));
+        assert!(manager.check("0", "process:spawn"));
+        // … but a registered third-party package with no grant is still denied.
+        manager.register_module_package("7", "evil-pkg", None);
+        assert!(!manager.check("7", "fs:write:/app/out"));
+    }
+
+    // Ibex's module loader reads module files under a synthetic principal that is
+    // trusted here (the import gate governs which modules load, not this check),
+    // so --capsec enforce can load the app's own bundle. @ref LLP 0013#policy
+    #[test]
+    fn module_loader_principal_is_trusted() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        assert!(manager.check("module-loader", "fs:read:/Caches/app.bundle.js"));
+    }
+
+    // When the app opts into dynamic (user-facing) permissions — a ceiling is
+    // configured — root is NOT blanket-trusted: it is governed by the normal
+    // allow-list + dynamic-grant precedence bounded by the ceiling, so a
+    // capability outside the ceiling stays denied and the tri-state permission
+    // model holds. Explicit grants/denials still win for root. @ref LLP 0013 §dynamic permissions
+    #[test]
+    fn ceiling_restores_root_gating_for_dynamic_permissions() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.apply_policy(&PolicyFile {
+            ceiling: vec!["network:fetch".to_string()],
+            ..Default::default()
+        });
+        // In-ceiling but not yet granted: denied until a runtime grant moves the
+        // floor (the tri-state prompt state).
+        assert!(!manager.check("0", "network:fetch:api.example.com"));
+        assert!(manager.runtime_grant_root("network:fetch:api.example.com"));
+        assert!(manager.check("0", "network:fetch:api.example.com"));
+        // Outside the ceiling: root stays denied — no ambient escape hatch, and a
+        // runtime request cannot exceed the ceiling.
+        assert!(!manager.check("0", "device:location"));
+        assert!(!manager.runtime_grant_root("device:location"));
     }
 
     // The `env:read:<key>` check that every `process.env` read funnels through

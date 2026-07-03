@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -1005,11 +1005,26 @@ capsec mode. The residual was a laundering channel: a former
 for a since-replaced native env HostObject) copied the whole environment ungated
 at boot, so any code reaching `process` could read it past its `env:read` grant.
 It had no readers and is removed, so env reads have exactly one gated path
-(`tests/llp0013_compartments.rs::ungranted_package_cannot_exfiltrate_env_via_a_plain_snapshot`).
-One gap orthogonal to this remains: `decide()` default-denies the first-party
-root principal (unlike `decide_import()`, which trusts it), so `--capsec enforce`
-requires the app to grant itself its own file/host access via the global `allow`
-list; making enforce mode usable without that is tracked separately.
+(`tests/llp0013_compartments.rs::env_reads_are_gated_with_no_plain_snapshot_bypass`).
+
+**Enforce mode is usable by default.** `--capsec enforce` is where the capability
+checks (env, fs, network, spawn) actually block, so it must be runnable without
+the app declaring grants for its own operation. Two rules make it so, mirroring
+`decide_import`'s trust of the first-party principal (RFC Resolved Q1):
+`decide()` trusts the **root principal** (`"0"`, the first-party app — its
+nearest attributable frame reports principal 0) and the synthetic
+**`module-loader`** principal (Ibex's own bundle/module reads, governed by the
+import gate, not the capability system). So the app has ambient authority and
+only third-party packages (non-zero principals) are gated. The exception
+preserves Phase 4: when the policy declares a **ceiling** (the app opted into
+dynamic user-facing permissions), root is no longer blanket-trusted — it falls
+through to the normal allow-list + dynamic-grant precedence bounded by the
+ceiling, so a capability outside the ceiling stays denied and the tri-state
+permission model holds. Consequence: the capability gates and audit-mode
+would-deny reporting apply to *dependencies*, not first-party code (the app's own
+usage is authored through import-site grants, LLP 0014, not discovered by audit).
+Tested by `capability.rs::{root_principal_is_trusted_without_a_ceiling,
+module_loader_principal_is_trusted, ceiling_restores_root_gating_for_dynamic_permissions}`.
 
 #### Mechanism 1
 
