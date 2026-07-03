@@ -513,6 +513,62 @@ fn audit_mode_reports_would_deny_but_proceeds() {
 }
 
 // ---------------------------------------------------------------------------
+// fs:write is gated on the actual open access (regression: the fd-based write
+// path only ever checked fs:read).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fs_write_requires_fs_write_capability() {
+    let dir = fixtures_dir().join("fs-write-gate");
+    let readable = dir.join("readable.txt");
+    let out = dir.join("out");
+    // Only fs:read granted: the read succeeds, the write is denied.
+    let ro = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("readonly-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("OUTDIR", &out.to_string_lossy()),
+            ("READABLE", &readable.to_string_lossy()),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        ro.stdout.contains("write: DENIED") && ro.stdout.contains("read: OK"),
+        "fs:read alone must allow reads but deny writes:\nstdout:\n{}\nstderr:\n{}",
+        ro.stdout,
+        ro.stderr
+    );
+    // With fs granted, the write succeeds.
+    let rw = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("readwrite-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("OUTDIR", &out.to_string_lossy()),
+            ("READABLE", &readable.to_string_lossy()),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        rw.stdout.contains("write: SUCCEEDED"),
+        "fs (read+write) must allow the write:\nstdout:\n{}\nstderr:\n{}",
+        rw.stdout,
+        rw.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Authority-bearing attenuator handles (Phase 4 / §Delegation)
 //
 // A package with no ambient fs uses a handle the app hands it: reads within the

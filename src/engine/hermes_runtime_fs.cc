@@ -689,15 +689,6 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsOpen: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        if (!isAllowAll()) {
-          std::string cap = "fs:read:" + path;
-          if (!checkCapability(cap)) {
-            std::string wcap = "fs:write:" + path;
-            if (!checkCapability(wcap)) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
-            }
-          }
-        }
 
         // Parse flags string to POSIX flags
         int posixFlags = O_RDONLY;
@@ -755,6 +746,24 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           }
         } else if (count > 1 && args[1].isNumber()) {
           posixFlags = static_cast<int>(args[1].asNumber());
+        }
+
+        // @ref LLP 0013#policy — gate the open on the access the flags actually
+        // request: an open-for-write (w/a/r+/O_WRONLY/O_RDWR/O_CREAT/O_TRUNC/
+        // O_APPEND) requires fs:write, not merely fs:read. Previously the open
+        // only ever checked fs:read, so writeFileSync (fd-based) bypassed the
+        // fs:write gate.
+        if (!isAllowAll()) {
+          int access = posixFlags & O_ACCMODE;
+          bool needsWrite = access == O_WRONLY || access == O_RDWR ||
+              (posixFlags & (O_CREAT | O_TRUNC | O_APPEND)) != 0;
+          bool needsRead = access == O_RDONLY || access == O_RDWR;
+          if (needsWrite && !checkCapability("fs:write:" + path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          if (needsRead && !checkCapability("fs:read:" + path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
         }
 
         int mode = 0666;
