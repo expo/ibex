@@ -882,8 +882,13 @@ fn fs_write_requires_fs_write_capability() {
 // in-tree write still succeeds (proving the deny is the resolution, not a
 // blanket block). A `ceiling` is configured so the first-party root loses its
 // ambient trust and the path-scoped grant actually binds.
+//
+// Unix-only: the escape is planted with a real symlink, so the test is
+// meaningless without one — gate the whole test rather than assert ordinary-path
+// semantics on non-Unix. (ENG-22702)
 // ---------------------------------------------------------------------------
 
+#[cfg(unix)]
 #[test]
 fn path_scoped_write_grant_cannot_escape_through_a_symlink() {
     let dir = unique_dir("fs-symlink-escape");
@@ -1560,6 +1565,95 @@ fn native_compartment_control_no_containment_without_compartments() {
         "without compartments the unbundled package reaches process (control):\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Runtime capability-escape channels closed under enforce (ENG-22695/96/97)
+//
+// A compromised dependency (evil-pkg, granted nothing, builtins:[]) must not be
+// able to: self-grant via Exact.setModuleCapabilities (22695), import a builtin
+// through a detached globalThis.require callback (22696), or import a builtin
+// via the exact:/bun: alias namespaces (22697). Each has a permissive control
+// proving the enforce denial is enforcement, not breakage.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn enforce_closes_runtime_capability_escapes() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: the self-grant/detached-require reads need frame attribution");
+        return;
+    }
+    let dir = fixtures_dir().join("enforce-escapes");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let enforced = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // ENG-22695: the self-grant surface is removed and the grant is refused —
+    // the later read stays denied.
+    assert!(
+        enforced.stdout.contains("selfgrant: setModuleCapabilities=absent read=DENIED"),
+        "self-grant must be sealed and refused under enforce:\nstdout:\n{}\nstderr:\n{}",
+        enforced.stdout,
+        enforced.stderr
+    );
+    // ENG-22697: exact:/bun: builtin aliases are denied by builtins:[].
+    assert!(
+        enforced.stdout.contains("aliases: exact:sqlite=DENIED bun:sqlite=DENIED bun:fs=DENIED"),
+        "builtin aliases must be denied under builtins:[]:\nstdout:\n{}\nstderr:\n{}",
+        enforced.stdout,
+        enforced.stderr
+    );
+    // ENG-22696: the detached require callback fails closed.
+    assert!(
+        enforced.stdout.contains("detached: DENIED"),
+        "a detached globalThis.require must fail closed:\nstdout:\n{}\nstderr:\n{}",
+        enforced.stdout,
+        enforced.stderr
+    );
+    assert!(
+        !enforced.stdout.contains("STOLEN") && !enforced.stdout.contains("IMPORTED"),
+        "no escape channel may succeed under enforce:\nstdout:\n{}\nstderr:\n{}",
+        enforced.stdout,
+        enforced.stderr
+    );
+
+    // Permissive control: every channel is live (the deny above is enforcement).
+    let permissive = run_ibex(
+        &[
+            "--capsec",
+            "permissive",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        permissive.stdout.contains("read=STOLEN")
+            && permissive.stdout.contains("exact:sqlite=IMPORTED")
+            && permissive.stdout.contains("detached: IMPORTED"),
+        "permissive control must show the escape channels are live:\nstdout:\n{}\nstderr:\n{}",
+        permissive.stdout,
+        permissive.stderr
     );
 }
 

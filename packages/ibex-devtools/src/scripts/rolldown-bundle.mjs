@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 import fs from 'fs/promises';
 import path from 'path';
-import { createRolldownConfig, runtimeImportMetaDefine, packageIdentityOfModuleId } from './transforms.mjs';
+import {
+  createRolldownConfig,
+  runtimeImportMetaDefine,
+  packageOfModuleId,
+  packageIdentityOfModuleId,
+} from './transforms.mjs';
 
 // @ref LLP 0013#mechanism-3 — encode a package name into a chunk name reversibly
 // (filesystem-safe), so the runtime loader can recover the package a chunk
@@ -97,7 +102,12 @@ const writeResult = await bundle.write({
                 const pkg = packageIdentityOfModuleId(id);
                 return pkg ? encodePackageChunkName(pkg) : null;
               },
-              test: /node_modules/,
+              // Detect package modules via packageOfModuleId, which normalizes
+              // path separators — a POSIX-only `/node_modules/` regex would miss
+              // Windows ids using backslashes (`C:\app\node_modules\evil\...`),
+              // silently leaving those packages in the root bundle and disabling
+              // per-package attribution on Windows. (ENG-22698)
+              test: (id) => packageOfModuleId(id) !== null,
             },
           ],
         },

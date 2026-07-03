@@ -56,10 +56,55 @@ export function builtinSpecifierOf(specifier) {
   if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('\0')) {
     return null;
   }
+  // Runtime builtin-alias namespaces (`exact:sqlite`, `bun:sqlite`, `bun:fs`;
+  // see modules.ts). Keep the alias verbatim — the runtime gates it by prefix
+  // (is_builtin_specifier), so the emitted allowlist entry must match the exact
+  // spelling the package imports. (ENG-22697)
+  if (specifier.startsWith('exact:') || specifier.startsWith('bun:')) return specifier;
   const bare = specifier.startsWith('node:') ? specifier.slice(5) : specifier;
   if (!bare || bare.startsWith('@')) return null;
   const root = bare.split('/')[0];
   return BUILTIN_ROOTS.has(root) ? `node:${bare}` : null;
+}
+
+/**
+ * Diff the builtins (import) axis of two generated artifacts' `packages` maps
+ * for `--check`, returning `{ expansions, shrinkage }` of `pkg: import <b>`
+ * lines. A package entry that OMITS `builtins` is unrestricted, modeled as the
+ * wildcard sentinel `*`: tightening it (omitted → an explicit list) is
+ * shrinkage, never a false expansion; widening it (explicit → omitted) reports
+ * the `*` as an expansion. (ENG-22701)
+ * @ref LLP 0014#the-generated-artifact
+ */
+export function diffBuiltinAxis(oldPackages = {}, newPackages = {}) {
+  const setsOf = (pkgs) => {
+    const m = new Map();
+    for (const [pkg, entry] of Object.entries(pkgs || {})) {
+      const list = entry && entry.builtins == null ? ['*'] : entry && entry.builtins;
+      m.set(pkg, new Set(list || []));
+    }
+    return m;
+  };
+  const oldB = setsOf(oldPackages);
+  const newB = setsOf(newPackages);
+  const expansions = [];
+  const shrinkage = [];
+  for (const [pkg, list] of newB) {
+    const old = oldB.get(pkg);
+    // An old entry that was unrestricted (`*`) covers everything, so any new
+    // explicit builtin is a tightening, not an expansion.
+    if (old && old.has('*')) continue;
+    for (const b of list) {
+      if (!old || !old.has(b)) expansions.push(`${pkg}: import ${b}`);
+    }
+  }
+  for (const [pkg, list] of oldB) {
+    const nw = newB.get(pkg);
+    for (const b of list) {
+      if (!nw || !nw.has(b)) shrinkage.push(`${pkg}: import ${b}`);
+    }
+  }
+  return { expansions, shrinkage };
 }
 
 /**
@@ -178,7 +223,11 @@ export function packageNameOfSpecifier(specifier) {
   if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('\0')) {
     return null;
   }
-  if (specifier.startsWith('node:')) return null;
+  // Builtins are not packages: a bare builtin (`fs`, `fs/promises`), a `node:`
+  // spec, or an `exact:`/`bun:` alias must never be modeled as a package
+  // selector or dependency edge. Delegate to the single builtin classifier so
+  // grant-site parsing and graph edges agree with runtime enforcement. (ENG-22699)
+  if (builtinSpecifierOf(specifier)) return null;
   const parts = specifier.split('/');
   if (parts[0].startsWith('@')) {
     return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : null;

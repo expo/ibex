@@ -27,6 +27,7 @@ import {
   capabilityUnion,
   resolveCascade,
   deriveSurfaces,
+  diffBuiltinAxis,
 } from './import-grants.mjs';
 
 const args = process.argv.slice(2);
@@ -321,20 +322,6 @@ function capsByPackage(artifactJson) {
   return map;
 }
 
-// @ref LLP 0014#the-generated-artifact — the import (builtins) axis drifts like
-// the capability axis: a hijacked release that adds a builtin import (e.g.
-// `node:child_process`) must surface as an EXPANSION review tripwire, not a
-// silent structural change. A *missing* builtins field reads as unrestricted, so
-// treat it as the wildcard sentinel `*` here so tightening it to a list reads as
-// shrinkage, never expansion.
-function builtinsByPackage(artifactJson) {
-  const map = new Map();
-  for (const [pkg, entryOut] of Object.entries(artifactJson.packages || {})) {
-    map.set(pkg, new Set(entryOut.builtins == null ? ['*'] : entryOut.builtins));
-  }
-  return map;
-}
-
 if (opts.check) {
   // @ref LLP 0014#the-generated-artifact — the committed artifact is
   // drift-checked; expansions are the review tripwire, shrinkage is free.
@@ -374,23 +361,11 @@ if (opts.check) {
         if (!newCaps.get(pkg)?.has(cap)) shrinkage.push(`${pkg}: ${cap}`);
       }
     }
-    const oldBuiltins = builtinsByPackage(existingJson);
-    const newBuiltins = builtinsByPackage(artifact);
-    for (const [pkg, list] of newBuiltins) {
-      const old = oldBuiltins.get(pkg);
-      // An old entry that OMITTED builtins is unrestricted (sentinel `*`), so
-      // replacing it with any explicit list is a *tightening* (shrinkage), never
-      // an expansion — don't fire a false review tripwire on the import axis.
-      if (old?.has('*')) continue;
-      for (const b of list) {
-        if (!old?.has(b)) expansions.push(`${pkg}: import ${b}`);
-      }
-    }
-    for (const [pkg, list] of oldBuiltins) {
-      for (const b of list) {
-        if (!newBuiltins.get(pkg)?.has(b)) shrinkage.push(`${pkg}: import ${b}`);
-      }
-    }
+    // Import (builtins) axis drift, with the omitted=unrestricted `*` sentinel
+    // so a tightening isn't misreported as an expansion (ENG-22701).
+    const builtinDrift = diffBuiltinAxis(existingJson.packages, artifact.packages);
+    expansions.push(...builtinDrift.expansions);
+    shrinkage.push(...builtinDrift.shrinkage);
     if (modeChanged) {
       console.error(
         `mode changed: ${oldMode} -> ${newMode} ` +

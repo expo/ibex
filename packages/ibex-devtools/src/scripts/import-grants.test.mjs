@@ -9,6 +9,7 @@ import {
   packageNameOfSpecifier,
   builtinSpecifierOf,
   extractImportSpecifiers,
+  diffBuiltinAxis,
   capabilitySubsumes,
   capabilityIntersect,
   capabilityUnion,
@@ -16,6 +17,54 @@ import {
   deriveSurfaces,
   createImportGrantsPlugin,
 } from './import-grants.mjs';
+
+// ---------------------------------------------------------------------------
+// builtin aliases + package classification (ENG-22697 / ENG-22699)
+// ---------------------------------------------------------------------------
+
+test('builtinSpecifierOf recognizes exact:/bun: aliases and keeps them verbatim', () => {
+  expect(builtinSpecifierOf('exact:sqlite')).toBe('exact:sqlite');
+  expect(builtinSpecifierOf('bun:sqlite')).toBe('bun:sqlite');
+  expect(builtinSpecifierOf('bun:fs')).toBe('bun:fs');
+  // A real package is still not a builtin.
+  expect(builtinSpecifierOf('lodash')).toBeNull();
+});
+
+test('packageNameOfSpecifier excludes bare/aliased builtins (ENG-22699)', () => {
+  // Builtins in every spelling are NOT package selectors.
+  for (const b of ['fs', 'fs/promises', 'node:fs', 'bun:fs', 'exact:sqlite', 'bun:sqlite']) {
+    expect(packageNameOfSpecifier(b)).toBeNull();
+  }
+  // Real packages still resolve to a selector.
+  expect(packageNameOfSpecifier('lodash')).toBe('lodash');
+  expect(packageNameOfSpecifier('lodash/fp')).toBe('lodash');
+  expect(packageNameOfSpecifier('@scope/pkg/x')).toBe('@scope/pkg');
+});
+
+// ---------------------------------------------------------------------------
+// diffBuiltinAxis: --check tightening vs expansion (ENG-22701)
+// ---------------------------------------------------------------------------
+
+test('diffBuiltinAxis: unrestricted (omitted) → explicit list is tightening, not expansion', () => {
+  const d = diffBuiltinAxis({ p: {} }, { p: { builtins: ['node:os'] } });
+  expect(d.expansions).toEqual([]);
+  expect(d.shrinkage).toEqual(['p: import *']);
+});
+
+test('diffBuiltinAxis: explicit → unrestricted (omitted) is an expansion', () => {
+  const d = diffBuiltinAxis({ p: { builtins: ['node:os'] } }, { p: {} });
+  expect(d.expansions).toEqual(['p: import *']);
+  expect(d.shrinkage).toEqual(['p: import node:os']);
+});
+
+test('diffBuiltinAxis: explicit expansion and shrinkage', () => {
+  const exp = diffBuiltinAxis({ p: { builtins: ['node:os'] } }, { p: { builtins: ['node:os', 'node:fs'] } });
+  expect(exp.expansions).toEqual(['p: import node:fs']);
+  expect(exp.shrinkage).toEqual([]);
+  const shr = diffBuiltinAxis({ p: { builtins: ['node:os', 'node:fs'] } }, { p: { builtins: ['node:os'] } });
+  expect(shr.expansions).toEqual([]);
+  expect(shr.shrinkage).toEqual(['p: import node:fs']);
+});
 
 // ---------------------------------------------------------------------------
 // builtinSpecifierOf / extractImportSpecifiers (ENG-22683 — builtins axis)
@@ -71,12 +120,14 @@ test('extractImportSpecifiers finds import/export-from/dynamic-import/require', 
   expect(specs).not.toContain('n');
 });
 
-test('extractImportSpecifiers observes requires in sloppy-mode CommonJS (ENG-22683)', () => {
+test('extractImportSpecifiers observes requires in sloppy-mode CommonJS (ENG-22683/ENG-22700)', () => {
   // Octal literals and `with` are invalid as ES modules; the script-parse
   // fallback must still observe the builtin require, else the package gets
   // builtins:[] and its require is denied under enforce.
   expect(extractImportSpecifiers('var mode = 0777;\nvar os = require("os");')).toContain('os');
   expect(extractImportSpecifiers('with (Math) { }\nvar fs = require("fs");')).toContain('fs');
+  // The exact ENG-22700 probe: require() INSIDE a sloppy-only `with` block.
+  expect(extractImportSpecifiers('with (x) { require("os") }')).toContain('os');
 });
 
 // ---------------------------------------------------------------------------

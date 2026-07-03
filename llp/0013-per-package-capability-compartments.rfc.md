@@ -1269,6 +1269,26 @@ Closes the "no `fs` endowment but unrestricted `require('node:fs')`" hole. Teste
 by `tests/llp0013_compartments.rs::import_gate_denies_restricted_package_builtin`
 and `import_gate_is_inert_without_restriction`.
 
+**Import-gate hardening (deep-review round 2).** Three escape channels closed:
+(1) **Builtin aliases** — `is_builtin_specifier` now classifies the runtime's
+`exact:`/`bun:` alias namespaces (`exact:sqlite`, `bun:sqlite`, `bun:fs`) as
+builtins, so `builtins: []` denies them; previously they fell through to the
+allow-by-default `packages` axis, a fail-open hole (ENG-22697). (2) **Detached
+require** — `decide_import` fails closed for the `NO_USER_PRINCIPAL` sentinel, so
+a detached callback with no package frame (`Promise.resolve("fs").then(globalThis.require)`)
+cannot launder an import into trusted/root, mirroring `decide()`'s capability
+rule (ENG-22696). (3) **Runtime self-grant** — the legacy
+`Exact.setModuleCapabilities` / `require(spec, { needs })` channel is refused
+host-side under enforce/audit (`CapabilityManager::runtime_self_grant` no-ops
+outside permissive) AND the JS function is deleted at boot under enforce/audit
+(`IBEX_SEAL_SELF_GRANT`), not just under lockdown — so a package cannot escalate
+its own capabilities on the plain `--capsec enforce` path once it learns its
+package id (ENG-22695, was **Urgent**: the seal previously only ran on the
+lockdown/compartment path). Tested by
+`tests/llp0013_compartments.rs::enforce_closes_runtime_capability_escapes` (with
+a permissive control) and `capability.rs::{builtins_deny_covers_exact_and_bun_aliases,
+import_from_no_user_principal_fails_closed, runtime_self_grant_is_refused_under_enforce_but_works_permissive}`.
+
 #### Phase 0
 
 `SecurityMode::Capability`≡`Strict` collapsed into one `Enforce` mode (`strict`

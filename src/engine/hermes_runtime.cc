@@ -1711,15 +1711,30 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // globals so no code that runs after bootstrap can reach them. Runs in all
   // modes (acceptance criterion: escape-hatch globals unreachable in all modes).
   {
-    static const char* kCapabilityHardeningJS = R"JS((function () {
+    // @ref LLP 0013 §self-grant — under enforce/audit (IBEX_SEAL_SELF_GRANT) the
+    // runtime self-grant surface is removed entirely: package code must not
+    // reach `Exact.setModuleCapabilities`, since grants come from the policy
+    // artifact, not runtime self-declaration. The host also refuses the grant
+    // (runtime_self_grant), so this is defense in depth. Only the permissive/dev
+    // path keeps the function (rebound onto the captured grant for
+    // require({needs})). (ENG-22695)
+    std::string capabilityHardeningJS = std::string(R"JS((function () {
   var g = globalThis;
+  var sealSelfGrant = )JS") +
+        (env_flag_enabled("IBEX_SEAL_SELF_GRANT") ? "true" : "false") + R"JS(;
   var grant = g.__exactGrantCapability;
-  if (grant && g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
-    g.Exact.setModuleCapabilities = function (moduleId, capabilities) {
-      if (!capabilities) return;
-      var caps = Array.isArray(capabilities) ? capabilities : [capabilities];
-      for (var i = 0; i < caps.length; i++) { grant(moduleId, caps[i]); }
-    };
+  if (g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
+    if (sealSelfGrant) {
+      // Enforce/audit: remove the self-grant channel outright.
+      try { delete g.Exact.setModuleCapabilities; } catch (e) {}
+    } else if (grant) {
+      // Permissive/dev: rebind onto the captured grant for require({needs}).
+      g.Exact.setModuleCapabilities = function (moduleId, capabilities) {
+        if (!capabilities) return;
+        var caps = Array.isArray(capabilities) ? capabilities : [capabilities];
+        for (var i = 0; i < caps.length; i++) { grant(moduleId, caps[i]); }
+      };
+    }
   }
   var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
                  '__exactSetPendingPackageId', '__exactRegisterPackage',
@@ -1729,6 +1744,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   }
 })();
 )JS";
+    const char* kCapabilityHardeningJS = capabilityHardeningJS.c_str();
     try {
       auto buffer =
           std::make_shared<facebook::jsi::StringBuffer>(kCapabilityHardeningJS);

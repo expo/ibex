@@ -277,6 +277,37 @@ impl CapabilityManager {
             .and_then(|map| map.get(module_id).cloned())
     }
 
+    /// A runtime **package self-grant** (the legacy `Exact.setModuleCapabilities`
+    /// / `require(spec, { needs })` path). This is a permissive/dev convenience
+    /// only: under enforce/audit the generated policy artifact is the SOLE grant
+    /// source (LLP 0014), so a package must not be able to escalate its own
+    /// capabilities at runtime. The `Exact.setModuleCapabilities` global is only
+    /// deleted on the lockdown/compartment path, so under a plain `--capsec
+    /// enforce` run it stays reachable and would otherwise self-grant here — this
+    /// host-side gate is the robust close: the grant is refused (and audited)
+    /// outside permissive regardless of the reachable JS surface. Distinct from
+    /// `runtime_grant_root`, which is the ceiling-bounded dynamic-permission path.
+    /// (ENG-22695)
+    pub fn runtime_self_grant(&self, module_id: &str, capability: &str) {
+        if self.mode == SecurityMode::Permissive {
+            self.grant(module_id, capability, None);
+            return;
+        }
+        // Refused under enforce/audit; record a would-deny so the attempt is
+        // visible in the audit report.
+        let normalized = normalize_capability(capability);
+        self.record(AuditEntry {
+            timestamp: std::time::SystemTime::now(),
+            module_id: module_id.to_string(),
+            package: self.principal_for(module_id),
+            capability: format!("self-grant:{}", normalized),
+            constraint: None,
+            decision: false,
+            allowed: false,
+            mode: self.mode,
+        });
+    }
+
     /// Grant a capability to a package selector.
     pub fn grant_package(&self, selector: &str, capability: &str) {
         if let Ok(mut grants) = self.package_grants.write() {
@@ -451,6 +482,14 @@ impl CapabilityManager {
     }
 
     fn decide_import(&self, module_id: &str, specifier: &str) -> bool {
+        // No attributable user frame (a detached callback with no package frame,
+        // e.g. `Promise.resolve("fs").then(globalThis.require)`): fail closed,
+        // never trusted — must be checked before the unregistered=trusted
+        // fallback below, exactly as decide() does for capability checks, so an
+        // import cannot be laundered through a detached require. (ENG-22696)
+        if module_id == NO_USER_PRINCIPAL {
+            return false;
+        }
         // Unregistered principals are first-party/root (trusted): allow.
         let Some(principal) = self.principal_for(module_id) else {
             return true;
@@ -676,7 +715,17 @@ fn capability_class(capability: &str) -> String {
 /// fail-open hole (a `builtins: []` package could still `require('dgram')`).
 /// (ENG-22630)
 fn is_builtin_specifier(specifier: &str) -> bool {
-    if specifier.starts_with("node:") {
+    // Builtin-alias namespaces: `node:` plus the runtime's own `exact:`/`bun:`
+    // aliases (e.g. `exact:sqlite`, `bun:sqlite`, `bun:fs`; see modules.ts).
+    // These MUST classify as builtins, else `builtins: []` fails open — the
+    // alias falls through to the `packages` axis, which is allow-by-default.
+    // Any `exact:`/`bun:` specifier is a runtime builtin namespace (an
+    // unregistered one is denied by the builtins gate rather than allowed as a
+    // package). (ENG-22697)
+    if specifier.starts_with("node:")
+        || specifier.starts_with("exact:")
+        || specifier.starts_with("bun:")
+    {
         return true;
     }
     // Runtime-internal modules are the loader's own trusted surface and must not
@@ -1096,6 +1145,11 @@ mod tests {
     // outside the granted subtree even when the leaf does not yet exist (the
     // O_CREAT case, where the old lexical fallback kept the syntactic prefix).
     // (ENG-22682)
+    //
+    // Unix-only: the test plants a real symlink to exercise the escape, so its
+    // assertions are meaningless without one — gate the whole test rather than
+    // let it assert ordinary-path semantics on non-Unix. (ENG-22702)
+    #[cfg(unix)]
     #[test]
     fn path_scoped_grants_resolve_symlinks_and_deny_escaping_writes() {
         use std::process::id;
@@ -1321,6 +1375,64 @@ mod tests {
         manager.register_module_package("7", "evil", None);
         assert!(manager.check("7", "network:fetch:ok.example.com"));
         assert!(!manager.check("7", "network:fetch:evil.example.com"));
+    }
+
+    // @ref LLP 0013#policy (ENG-22697) — `builtins: []` must deny the runtime's
+    // `exact:`/`bun:` builtin aliases, not just `node:`/bare builtins: an alias
+    // that classifies as a package would fall to the allow-by-default packages
+    // axis (fail open).
+    #[test]
+    fn builtins_deny_covers_exact_and_bun_aliases() {
+        assert!(is_builtin_specifier("exact:sqlite"));
+        assert!(is_builtin_specifier("bun:sqlite"));
+        assert!(is_builtin_specifier("bun:fs"));
+        let m = CapabilityManager::new(SecurityMode::Enforce);
+        let mut policy = PolicyFile::default();
+        policy.packages.insert(
+            "evil".to_string(),
+            crate::host::policy::PackagePolicy {
+                builtins: Some(vec![]), // deny all builtins
+                ..Default::default()
+            },
+        );
+        m.apply_policy(&policy);
+        m.register_module_package("1", "evil", None);
+        for alias in ["exact:sqlite", "bun:sqlite", "bun:fs", "fs", "node:fs"] {
+            assert!(!m.check_import("1", alias), "alias should be denied: {alias}");
+        }
+    }
+
+    // @ref LLP 0013#policy (ENG-22696) — an import with no attributable user
+    // frame (a detached require callback) fails closed, never trusted.
+    #[test]
+    fn import_from_no_user_principal_fails_closed() {
+        let m = CapabilityManager::new(SecurityMode::Enforce);
+        // NO_USER_PRINCIPAL is the sentinel the engine reports for a detached
+        // callback; the import must be denied even though it is "unregistered".
+        assert!(!m.check_import(NO_USER_PRINCIPAL, "node:fs"));
+        // A genuinely unregistered (first-party/root) principal still imports.
+        assert!(m.check_import("999", "node:fs"));
+    }
+
+    // @ref LLP 0013 §self-grant (ENG-22695) — the runtime package self-grant path
+    // (Exact.setModuleCapabilities / require({needs})) is refused under
+    // enforce/audit; a package cannot escalate its own capabilities at runtime.
+    #[test]
+    fn runtime_self_grant_is_refused_under_enforce_but_works_permissive() {
+        let enforce = CapabilityManager::new(SecurityMode::Enforce);
+        enforce.register_module_package("1", "evil", None);
+        enforce.runtime_self_grant("1", "fs:read");
+        assert!(!enforce.check("1", "fs:read:/etc/passwd"), "self-grant must not stick under enforce");
+
+        let audit = CapabilityManager::new(SecurityMode::Audit);
+        audit.runtime_self_grant("2", "fs:read");
+        // Audit lets ops proceed but the grant itself must not be recorded.
+        assert!(!audit.decide("2", "fs:read:/etc/passwd"), "self-grant must not stick under audit");
+
+        let permissive = CapabilityManager::new(SecurityMode::Permissive);
+        permissive.runtime_self_grant("3", "fs:read");
+        // Permissive keeps the dev convenience (though permissive allows anyway).
+        assert!(permissive.decide("3", "fs:read:/etc/passwd"), "self-grant works under permissive");
     }
 
     // The first-party root principal ("0") carries the app's own authority: it

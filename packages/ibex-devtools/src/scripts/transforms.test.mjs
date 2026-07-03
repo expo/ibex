@@ -37,6 +37,17 @@ describe('packageIdentityOfModuleId', () => {
     expect(packageOfModuleId(path.join(nestedPkg, 'index.js'))).toBe('shared-pkg');
   });
 
+  // @ref LLP 0013#mechanism-3 (ENG-22698) — the per-package chunk group's `test`
+  // predicate is `packageOfModuleId(id) !== null`, which normalizes separators,
+  // so Windows backslash ids still map to their package chunk (a POSIX-only
+  // `/node_modules/` regex would miss them and leave them in the root bundle).
+  it('packageOfModuleId detects packages in Windows backslash module ids', () => {
+    expect(packageOfModuleId('C:\\app\\node_modules\\evil-pkg\\index.js')).toBe('evil-pkg');
+    expect(packageOfModuleId('C:\\a\\node_modules\\@scope\\tool\\i.js')).toBe('@scope/tool');
+    expect(packageOfModuleId('/app/node_modules/evil-pkg/index.js')).toBe('evil-pkg');
+    expect(packageOfModuleId('C:\\app\\src\\index.js')).toBeNull();
+  });
+
   it('falls back to the bare name when no version is readable', () => {
     const base = mkdtempSync(path.join(os.tmpdir(), 'ibex-ident-'));
     const pkg = path.join(base, 'node_modules', 'noversion');

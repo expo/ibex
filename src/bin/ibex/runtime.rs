@@ -1608,6 +1608,13 @@ fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
             }
         );
     }
+    // @ref LLP 0013 §self-grant — under enforce/audit the runtime package
+    // self-grant surface (`Exact.setModuleCapabilities`, the `require({needs})`
+    // channel) must not be reachable: grants come from the policy artifact. The
+    // host already refuses the grant (runtime_self_grant), but signal the engine
+    // to delete the JS function too so package code can't even see it. No opt-out
+    // — this is a security seal, not an isolation-cost tradeoff. (ENG-22695)
+    std::env::set_var("IBEX_SEAL_SELF_GRANT", "1");
 }
 
 /// Compose the compartment endowment map from the policy artifact's
