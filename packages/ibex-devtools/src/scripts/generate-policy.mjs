@@ -377,8 +377,13 @@ if (opts.check) {
     const oldBuiltins = builtinsByPackage(existingJson);
     const newBuiltins = builtinsByPackage(artifact);
     for (const [pkg, list] of newBuiltins) {
+      const old = oldBuiltins.get(pkg);
+      // An old entry that OMITTED builtins is unrestricted (sentinel `*`), so
+      // replacing it with any explicit list is a *tightening* (shrinkage), never
+      // an expansion — don't fire a false review tripwire on the import axis.
+      if (old?.has('*')) continue;
       for (const b of list) {
-        if (!oldBuiltins.get(pkg)?.has(b)) expansions.push(`${pkg}: import ${b}`);
+        if (!old?.has(b)) expansions.push(`${pkg}: import ${b}`);
       }
     }
     for (const [pkg, list] of oldBuiltins) {

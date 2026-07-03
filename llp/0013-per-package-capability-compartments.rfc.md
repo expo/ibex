@@ -1028,6 +1028,19 @@ guarantee is traversal-time denial at the normalize choke point every mutator
 shares; the residual check-vs-syscall TOCTOU (low risk under single-threaded,
 same-principal JS) is noted for a possible `openat`/`O_NOFOLLOW` follow-up.
 
+**Known residual gaps (follow-ups, from the ENG-22682 review).** Two `fs:write`
+imprecisions remain, both low/medium and out of the symlink-escape scope: (1) the
+**fd-based metadata mutators** `fchmod`/`fchown`/`futimes` carry no capability
+check — they rely on "the fd was gated at open", which holds for content but not
+for POSIX metadata ops (`fchmod` on an `O_RDONLY` fd succeeds by ownership), so a
+principal with only `fs:read` can change a file's mode/owner/timestamps via a
+read-opened fd; closing this needs an fd→path map captured at open so the metadata
+op can gate `fs:write` on the underlying path. (2) The link-only mutators
+(`lchmod`/`lutimes`/`lchown`) gate the symlink-*resolved* path, but they operate on
+the link entry itself — so the gate checks the target, not the link (a net
+improvement over the pre-review *ungated* state, but semantically it should check
+the link's own path via a no-follow-final normalization).
+
 The `process.env` gap: `process.env` is a JS Proxy whose reads funnel every key
 through the capability-checked native `__exactGetEnv`/`__exactGetAllEnv`
 (`env:read:<key>` / `env:read:*`) — so env reads are gated per principal under

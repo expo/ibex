@@ -822,6 +822,12 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     if cli.allow_all {
         flags.push("--allow-all".into());
     }
+    // @ref LLP 0013#mechanism-2 (ENG-22684) — the env-endowment escape hatch must
+    // reach the watch child, else an enforce-mode restart would drop IBEX_ENDOW
+    // the parent honored, silently changing behavior across a reload.
+    if cli.allow_env_endowments {
+        flags.push("--allow-env-endowments".into());
+    }
     if cli.bundle_format != cli::BundleFormat::Esm {
         flags.extend(["--bundle-format".into(), cli.bundle_format.as_str().into()]);
     }
@@ -1313,6 +1319,28 @@ mod tests {
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "audit", "app.ts"]);
         let joined = watch_child_args(&cli).join(" ");
         assert!(joined.contains("--capsec audit"), "flags: {joined}");
+
+        // ENG-22684 — the env-endowment escape hatch must survive a watch restart,
+        // else an enforce reload would silently drop IBEX_ENDOW the parent honored.
+        let cli = cli::Cli::parse_from([
+            "ibex",
+            "--watch",
+            "--capsec",
+            "enforce",
+            "--allow-env-endowments",
+            "app.ts",
+        ]);
+        let joined = watch_child_args(&cli).join(" ");
+        assert!(
+            joined.contains("--allow-env-endowments"),
+            "flags: {joined}"
+        );
+        // Not passed → not forwarded.
+        let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "enforce", "app.ts"]);
+        assert!(
+            !watch_child_args(&cli).join(" ").contains("--allow-env-endowments"),
+            "should not forward the hatch when it wasn't set"
+        );
 
         // review R1: opt-in compat surfaces ride along too.
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--compat", "bun", "app.ts"]);

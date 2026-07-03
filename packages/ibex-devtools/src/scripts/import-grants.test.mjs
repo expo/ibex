@@ -32,6 +32,28 @@ test('builtinSpecifierOf classifies builtins and normalizes the node: prefix', (
   expect(builtinSpecifierOf('/abs/path')).toBeNull();
 });
 
+// @ref LLP 0014#the-generated-artifact (ENG-22683) — the generator's builtin
+// classifier must cover every root the RUNTIME gates as a builtin
+// (is_builtin_specifier / NODE_BUILTINS in src/host/capability.rs). If it lags,
+// a package's real `require("<root>")` (e.g. node:sqlite) is emitted as a
+// package edge, omitted from the builtins allowlist, and DENIED under enforce.
+test('builtinSpecifierOf covers every root the runtime gates (no classifier drift)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const url = require('node:url');
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const capsrc = fs.readFileSync(
+    path.resolve(here, '../../../../src/host/capability.rs'),
+    'utf8',
+  );
+  const block = capsrc.match(/const NODE_BUILTINS: &\[&str\] = &\[([\s\S]*?)\];/);
+  expect(block).not.toBeNull();
+  const roots = [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  expect(roots.length).toBeGreaterThan(30);
+  const missing = roots.filter((r) => builtinSpecifierOf(r) !== `node:${r}`);
+  expect(missing).toEqual([]);
+});
+
 test('extractImportSpecifiers finds import/export-from/dynamic-import/require', () => {
   const src = [
     'import a from "os";',
@@ -47,6 +69,14 @@ test('extractImportSpecifiers finds import/export-from/dynamic-import/require', 
   expect(specs).toContain('child_process');
   // The computed require contributes nothing (fail closed).
   expect(specs).not.toContain('n');
+});
+
+test('extractImportSpecifiers observes requires in sloppy-mode CommonJS (ENG-22683)', () => {
+  // Octal literals and `with` are invalid as ES modules; the script-parse
+  // fallback must still observe the builtin require, else the package gets
+  // builtins:[] and its require is denied under enforce.
+  expect(extractImportSpecifiers('var mode = 0777;\nvar os = require("os");')).toContain('os');
+  expect(extractImportSpecifiers('with (Math) { }\nvar fs = require("fs");')).toContain('fs');
 });
 
 // ---------------------------------------------------------------------------

@@ -18,10 +18,29 @@ export const GRANT_ATTRIBUTE_KEYS = Object.freeze([
   'also',
 ]);
 
-/** Root segments of the runtime's node builtins (e.g. `fs`, `os`, `stream`),
- * mirroring `src/host/capability.rs`'s NODE_BUILTINS. A specifier's first path
- * segment is matched against this so subpaths (`fs/promises`) classify too. */
-const BUILTIN_ROOTS = new Set((nodeBuiltins || []).map((b) => String(b).split('/')[0]));
+/** Root segments of the runtime's node builtins (e.g. `fs`, `os`, `stream`).
+ * MUST cover every root the runtime GATES as a builtin — `is_builtin_specifier`
+ * in `src/host/capability.rs` (its NODE_BUILTINS list) is the authority: if the
+ * generator fails to classify a root the runtime gates, that root is emitted as
+ * a package edge instead of the builtins allowlist, and the package's real
+ * `require("<root>")` is then DENIED under enforce (the allowlist won't contain
+ * it). The manifest-derived `nodeBuiltins` currently lags the runtime gate for a
+ * few roots (`repl`, `sqlite`), so union in the gate list explicitly. Over-
+ * classifying is harmless (an inert allowlist entry); under-classifying denies.
+ * A drift guard in import-grants.test.mjs asserts this set covers NODE_BUILTINS.
+ * (ENG-22683) */
+const RUNTIME_GATED_BUILTINS = [
+  'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
+  'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain',
+  'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os',
+  'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline', 'repl',
+  'sqlite', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events',
+  'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib',
+];
+const BUILTIN_ROOTS = new Set([
+  ...(nodeBuiltins || []).map((b) => String(b).split('/')[0]),
+  ...RUNTIME_GATED_BUILTINS,
+]);
 
 /**
  * Classify a builtin import and return its normalized `node:`-prefixed form, or
@@ -49,10 +68,17 @@ export function builtinSpecifierOf(specifier) {
  * String literals only — a computed specifier (`require(n)`) contributes
  * nothing (it is unresolvable statically and therefore denied at runtime, fail
  * closed). Used by the generator to observe each package's builtin imports.
+ *
+ * Falls back to a `sourceType: 'script'` parse when the `module` parse fails:
+ * a CommonJS package using sloppy-mode-only syntax (octal literals, `with`,
+ * reserved-word bindings, HTML comments) is invalid as a module, and without
+ * the fallback its `require("<builtin>")` calls would go UNOBSERVED — the
+ * generator would emit `builtins: []` and the runtime would then DENY the
+ * package's real builtin imports under enforce. (ENG-22683)
  * @ref LLP 0014#the-generated-artifact
  */
 export function extractImportSpecifiers(source) {
-  const ast = parseModule(source);
+  const ast = parseModule(source) || parseScript(source);
   if (!ast) return [];
   const out = [];
   const visit = (node) => {
@@ -109,6 +135,21 @@ function parseModule(source, { locations = false } = {}) {
     });
   } catch {
     // Script sources have no import declarations, hence no attributes.
+    return null;
+  }
+}
+
+/** Fallback parse for CommonJS sources that are invalid as ES modules (sloppy
+ * mode). Used only to observe `require()` specifiers, not import attributes. */
+function parseScript(source) {
+  try {
+    return parse(source, {
+      ecmaVersion: 'latest',
+      sourceType: 'script',
+      allowReturnOutsideFunction: true,
+      ranges: true,
+    });
+  } catch {
     return null;
   }
 }

@@ -13,7 +13,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
@@ -124,12 +124,15 @@ impl ModuleLoader {
     /// version is taken from the manifest, which a package could otherwise use
     /// to claim a different name. @ref LLP 0013#resolved-questions (ENG-22621)
     fn package_version_for(&self, path: &Path) -> Option<String> {
-        // Only node_modules packages carry a distinguishing version; first-party
-        // code is the root principal regardless.
-        if !path.components().any(|c| c.as_os_str() == "node_modules") {
-            return None;
-        }
-        let root = find_package_root(path)?;
+        // Read the version from the package's OWN root (`node_modules/<name>`,
+        // the same segment the loader derives the package NAME from), NOT the
+        // nearest enclosing package.json: a package commonly ships a nested,
+        // versionless `package.json` (e.g. `dist/package.json` with
+        // `{"type":"module"}`, or subpath-exports dirs), and walking to the
+        // nearest one would read that versionless manifest and silently degrade
+        // the identity to the bare name — disabling version pinning for those
+        // packages. (ENG-22621)
+        let root = package_root_in_node_modules(path)?;
         if let Ok(memo) = self.package_versions.read() {
             if let Some(v) = memo.get(&root) {
                 return v.clone();
@@ -762,6 +765,27 @@ fn read_package_manifest(path: &Path) -> Result<Value> {
     let manifest: Value = serde_json::from_str(&contents)
         .with_context(|| format!("Invalid package manifest {}", path.display()))?;
     Ok(manifest)
+}
+
+/// The installed package root for a module path: the `node_modules/<name>`
+/// prefix (two segments for an `@scope/name`), using the LAST `node_modules`
+/// segment so nested and pnpm layouts resolve to the package that actually owns
+/// the file. Returns `None` for first-party code (no `node_modules` ancestor).
+/// Mirrors the loader's `packageNameFromPath` so the version manifest agrees
+/// with the derived package name. (ENG-22621)
+fn package_root_in_node_modules(path: &Path) -> Option<PathBuf> {
+    let comps: Vec<Component> = path.components().collect();
+    let nm_idx = comps
+        .iter()
+        .rposition(|c| c.as_os_str() == OsStr::new("node_modules"))?;
+    let name_start = nm_idx + 1;
+    let first = comps.get(name_start)?;
+    let scoped = first.as_os_str().to_string_lossy().starts_with('@');
+    let end = if scoped { name_start + 2 } else { name_start + 1 };
+    if end > comps.len() {
+        return None; // `node_modules/@scope` with no name segment
+    }
+    Some(comps[..end].iter().collect())
 }
 
 fn find_package_root(start: &Path) -> Option<PathBuf> {
@@ -1837,5 +1861,51 @@ for (let i = 0; i < 3; i++) {
                 assert_eq!(resolved.source, first_source, "{}", specifier);
             }
         }
+    }
+
+    // @ref LLP 0013#resolved-questions (ENG-22621) — the package root for
+    // version derivation is node_modules/<name>, so a nested versionless
+    // package.json (e.g. dist/) doesn't degrade identity to the bare name.
+    #[test]
+    fn package_root_uses_the_node_modules_name_segment() {
+        let p = Path::new("/app/node_modules/foo/dist/index.js");
+        assert_eq!(
+            package_root_in_node_modules(p),
+            Some(PathBuf::from("/app/node_modules/foo"))
+        );
+        // @scope takes two segments.
+        let s = Path::new("/app/node_modules/@acme/tool/lib/x.js");
+        assert_eq!(
+            package_root_in_node_modules(s),
+            Some(PathBuf::from("/app/node_modules/@acme/tool"))
+        );
+        // Nested layout resolves to the deepest owning package.
+        let nested = Path::new("/a/node_modules/uses/node_modules/foo/dist/i.js");
+        assert_eq!(
+            package_root_in_node_modules(nested),
+            Some(PathBuf::from("/a/node_modules/uses/node_modules/foo"))
+        );
+        // First-party code has no package root.
+        assert_eq!(package_root_in_node_modules(Path::new("/app/src/index.js")), None);
+    }
+
+    #[test]
+    fn package_version_reads_the_outer_manifest_not_a_nested_versionless_one() {
+        let dir = tempdir().unwrap();
+        let pkg = dir.path().join("node_modules").join("foo");
+        std::fs::create_dir_all(pkg.join("dist")).unwrap();
+        std::fs::write(
+            pkg.join("package.json"),
+            r#"{ "name": "foo", "version": "2.0.0", "main": "dist/index.js" }"#,
+        )
+        .unwrap();
+        // A nested, versionless package.json (the common "type" marker) must NOT
+        // shadow the package's real version.
+        std::fs::write(pkg.join("dist").join("package.json"), r#"{ "type": "commonjs" }"#).unwrap();
+        std::fs::write(pkg.join("dist").join("index.js"), "module.exports = 1;").unwrap();
+
+        let loader = test_loader();
+        let version = loader.package_version_for(&pkg.join("dist").join("index.js"));
+        assert_eq!(version.as_deref(), Some("2.0.0"));
     }
 }

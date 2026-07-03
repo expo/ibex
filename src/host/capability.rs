@@ -455,38 +455,43 @@ impl CapabilityManager {
         let Some(principal) = self.principal_for(module_id) else {
             return true;
         };
-        let policy = self.import_policy.read().ok();
-        // Version/locator-specific import policy takes precedence over the
-        // name-level default, mirroring the capability selector precedence. (ENG-22621)
-        let Some(policy) = policy
-            .as_ref()
-            .and_then(|m| principal.selectors().find_map(|selector| m.get(selector)))
-        else {
-            // Governed for capabilities but not for imports: unrestricted axis.
-            return true;
+        let Ok(map) = self.import_policy.read() else {
+            // Fail closed on a poisoned lock rather than silently allowing.
+            return false;
         };
+        // Resolve each axis (builtins / packages) INDEPENDENTLY across the
+        // principal's selectors, most-specific first: the first selector whose
+        // entry constrains this axis governs it; if no selector constrains it,
+        // the axis is unrestricted. Binding both axes to a single most-specific
+        // entry would let a version-pin that restricts only one axis silently
+        // shadow (unrestrict) the other axis a bare-name entry constrains.
+        // Mirrors decide()'s per-selector precedence. (ENG-22621)
         if is_builtin_specifier(specifier) {
-            match &policy.builtins {
-                None => true,
-                Some(list) => list.iter().any(|b| import_specifier_matches(b, specifier)),
+            for selector in principal.selectors() {
+                if let Some(list) = map.get(selector).and_then(|p| p.builtins.as_ref()) {
+                    return list.iter().any(|b| import_specifier_matches(b, specifier));
+                }
             }
+            true
         } else {
-            match &policy.packages {
-                None => true,
-                // Match on the package *selector*, not the raw specifier: fold a
-                // subpath/deep import to its package (`lodash/fp` -> `lodash`) so
-                // the runtime agrees with how the generator authors the list, and
-                // treat a relative/absolute specifier as an intra-package import
-                // (not a cross-package edge) so a package can load its own files.
-                // (ENG-22637)
-                Some(list) => match package_selector_of_specifier(specifier) {
-                    None => true,
-                    Some(selector) => list.iter().any(|p| {
-                        p == specifier
-                            || package_selector_of_specifier(p).as_deref() == Some(&selector)
-                    }),
-                },
+            for selector in principal.selectors() {
+                if let Some(list) = map.get(selector).and_then(|p| p.packages.as_ref()) {
+                    // Match on the package *selector*, not the raw specifier: fold
+                    // a subpath/deep import to its package (`lodash/fp` -> `lodash`)
+                    // so the runtime agrees with how the generator authors the
+                    // list, and treat a relative/absolute specifier as an
+                    // intra-package import (not a cross-package edge) so a package
+                    // can load its own files. (ENG-22637)
+                    return match package_selector_of_specifier(specifier) {
+                        None => true,
+                        Some(selector) => list.iter().any(|p| {
+                            p == specifier
+                                || package_selector_of_specifier(p).as_deref() == Some(&selector)
+                        }),
+                    };
+                }
             }
+            true
         }
     }
 
@@ -1261,6 +1266,38 @@ mod tests {
         assert!(m.check("1", "network:fetch:api.example.com"));
         // The pinned version is denied — the locator selector wins over the name.
         assert!(!m.check("2", "network:fetch:api.example.com"));
+    }
+
+    // @ref LLP 0013#resolved-questions (ENG-22621) — import-policy axes resolve
+    // independently across selectors: a version pin that constrains only the
+    // packages axis must NOT unrestrict the builtins axis a bare-name entry set.
+    #[test]
+    fn import_policy_axes_resolve_independently_across_selectors() {
+        use crate::host::policy::PackagePolicy;
+        let m = CapabilityManager::new(SecurityMode::Enforce);
+        let mut policy = PolicyFile::default();
+        policy.packages.insert(
+            "foo".to_string(),
+            PackagePolicy {
+                builtins: Some(vec![]), // bare name: deny all builtins
+                ..Default::default()
+            },
+        );
+        policy.packages.insert(
+            "foo@1.0.0".to_string(),
+            PackagePolicy {
+                packages: Some(vec!["allowed-dep".to_string()]), // pin: only the packages axis
+                ..Default::default()
+            },
+        );
+        m.apply_policy(&policy);
+        m.register_module_package("1", "foo", Some("foo@1.0.0"));
+        // The version pin constrains only `packages`; the bare name's empty
+        // `builtins` still governs the builtins axis → node:fs denied.
+        assert!(!m.check_import("1", "node:fs"));
+        // And the pin's packages allowlist still applies.
+        assert!(m.check_import("1", "allowed-dep"));
+        assert!(!m.check_import("1", "other-dep"));
     }
 
     // @ref LLP 0013#resolved-questions (ENG-22621) — a bare-name grant with no
