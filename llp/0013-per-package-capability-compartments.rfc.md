@@ -1010,10 +1010,13 @@ Per-package compartment globals, two implementations of one semantics:
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
   rewrite never touches. Tested by
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.
-  Remaining Phase 3 refinements: binding `eval`/`Function`-produced code to the
-  caller's compartment, and a native lockdown freeze primitive (both
-  low-priority — lockdown already tames the evaluators and the userland freeze
-  works); and a perf pass on the added hot-path branch.
+  Refinements landed (patch 0005): a `Runtime::anyCompartmentActive_` hot-path
+  guard so code that never uses a compartment skips the Domain walk, and a native
+  `__exactNativeFreeze` freeze primitive. Remaining (low-priority — `eval`/
+  `Function` are contained by withholding + lockdown taming today): binding
+  `eval`/`Function`-produced code to the caller's compartment, which needs the
+  capture at the eval *call site* (the eval'd frame's caller is not walkable at
+  `runBytecode`; `getCurrentCompartmentGlobal` is the helper for it).
 
 #### Mechanism 3
 

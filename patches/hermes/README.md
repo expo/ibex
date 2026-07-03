@@ -24,6 +24,7 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0002 | `0002-frame-attribution-helper.patch` | A (+1 B CMake line) | Adds `VM::getCurrentPackageId(Runtime&)` (nearest *user* frame's `packageId`, skipping native frames and runtime-internal deputy frames — principal `0xFFFFFFFF`), `VM::collectStackPackageIds` (the distinct user principals on the stack, innermost-first — the Phase 5 substrate), and the exported `extern "C"` bridge (`ex_hermes_vm_current_package_id` / `collect_package_ids` / `set_pending_package_id` / `set_default_package_id`) reachable through `IHermes::getVMRuntimeUnsafe()`. |
 | 0003 | `0003-capability-bridge-exports.patch` | B (+1 C site) | Adds `Runtime::{setPendingPackageId,setDefaultPackageId,consumePendingPackageId}` + backing fields, and the single semantic insertion in `runBytecode` that stamps each fresh `Domain` with the pending-or-default principal. |
 | 0004 | `0004-native-compartment-globals.patch` | B (+3 C sites) | Native per-package compartment globals (Phase 3). Adds `Domain::compartmentGlobal_` (GC-traced, with metadata field) + accessors, the native `__exactSetCompartmentFor(fn, obj)` in `initGlobalObject`, and re-points the interpreter's `GetGlobalObject`/`CoerceThisNS`/`LoadThisNS` through `globalForFrame(runtime, curCodeBlock)`. Bare globals and sloppy-`this` resolve through the frame's compartment when set — no build-time source rewrite. |
+| 0005 | `0005-native-compartment-refinements.patch` | B (+1 C site) | Phase 3 refinements: a `Runtime::anyCompartmentActive_` hot-path guard so non-compartment code skips the Domain walk; the native `__exactNativeFreeze(obj)` freeze primitive; and `getCurrentCompartmentGlobal` (the helper for a future eval/Function call-site binding). |
 
 All three apply clean from pristine (`scripts/apply-hermes-patches.sh`) and
 compile into a working `hermesvm.framework` exporting the four `ex_hermes_vm_*`
@@ -73,10 +74,16 @@ uses it only when `ex_host_has_deputy_classes()` (policy `deputyClasses`). See
   compartment-present fast-flag is a possible follow-up if boot/steady-state
   profiling shows it.
 
-Remaining Phase 3 refinements (both low-priority — lockdown already tames
-`eval`/`Function`, and the userland freeze works):
+Landed refinements (patch 0005): the `anyCompartmentActive_` hot-path guard and
+the native `__exactNativeFreeze` freeze primitive.
 
-- **`eval`/`Function` compartment binding.** `lib/VM/JSLib/Eval.cpp:157`
+Remaining Phase 3 refinements (low-priority — `eval`/`Function` are contained by
+compartment withholding + lockdown taming today):
+
+- **`eval`/`Function` compartment binding.** Must capture the caller's
+  compartment at the eval call site (`getCurrentCompartmentGlobal` is the helper;
+  the eval'd code's caller frame is not walkable at `runBytecode`).
+  `lib/VM/JSLib/Eval.cpp:157`
   (`getGlobal()` scope arg) and the two `codeBlock=nullptr` sites at
   `Eval.cpp:171-172` and `Interpreter-slowpaths.cpp:203-208`; the constructor
   entry points `Function.cpp:125-127`, `AsyncFunction.cpp:18-21`,

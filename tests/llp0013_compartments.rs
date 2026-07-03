@@ -705,6 +705,29 @@ fn native_compartment_withholds_globals_without_rewrite() {
 }
 
 #[test]
+fn native_freeze_primitive_freezes_objects() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: native freeze needs the patched Hermes engine");
+        return;
+    }
+    // @ref LLP 0013#mechanism-1 (Phase 3) — the native freeze primitive freezes
+    // an object and returns it; a subsequent write is a no-op.
+    let js = "var o = { a: 1 }; var r = globalThis.__exactNativeFreeze(o); \
+              try { o.a = 2; } catch (e) {} \
+              console.log('freeze: ' + Object.isFrozen(o) + ',' + o.a + ',' + (r === o));";
+    let dir = unique_dir("freeze");
+    let path = dir.join("f.js");
+    std::fs::write(&path, js).unwrap();
+    let out = run_ibex(&["run", &path.to_string_lossy()], &[], None);
+    assert!(
+        out.stdout.contains("freeze: true,1,true"),
+        "native freeze should freeze the object and return it:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
 fn native_compartment_control_no_containment_without_compartments() {
     // Same unbundled package, no compartments: it reaches process both ways.
     let dir = fixtures_dir().join("native-compartment");
