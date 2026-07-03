@@ -33,6 +33,15 @@ pub struct PolicyFile {
     /// @ref LLP 0013#phase-5
     #[serde(default, rename = "deputyClasses")]
     pub deputy_classes: Vec<String>,
+
+    /// Capabilities the root principal MAY acquire at runtime (the dynamic
+    /// "prompt" ceiling). A runtime grant request succeeds only for a capability
+    /// within this list; the static artifact is the ceiling, prompts move the
+    /// floor. Empty = no runtime widening.
+    ///
+    /// @ref LLP 0013#interaction-with-user-facing-dynamic-permissions
+    #[serde(default)]
+    pub ceiling: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]

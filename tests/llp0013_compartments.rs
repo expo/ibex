@@ -513,6 +513,102 @@ fn audit_mode_reports_would_deny_but_proceeds() {
 }
 
 // ---------------------------------------------------------------------------
+// Authority-bearing attenuator handles (Phase 4 / §Delegation)
+//
+// A package with no ambient fs uses a handle the app hands it: reads within the
+// handle's grant succeed (possession-based, not frame-based), reads outside are
+// denied, `scoped()` re-attenuates to a narrower grant, and revoking the root
+// handle fail-closes it and every handle derived from it.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn attenuator_handle_delegation_scoping_and_revocation() {
+    let dir = fixtures_dir().join("handles");
+    let policy = dir.join("ibex-policy.json");
+    let images = dir.join("images");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("IMAGES", &images.to_string_lossy()),
+            ("SECRET", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // Ambient fs denied; the passed handle works within its grant only; the
+    // re-attenuated (scoped) handle is narrower; revocation fail-closes.
+    assert!(
+        out.stdout.contains(
+            "result: ambient=DENIED within=LOGO-BYTES outside=DENIED scoped-in=THUMB-BYTES scoped-out=DENIED"
+        ),
+        "handle delegation/scoping failed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("after-revoke: DENIED"),
+        "revocation should fail-close the handle:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic permissions: tri-state status + ceiling-bounded runtime grants
+// (Phase 4 / §Interaction with user-facing dynamic permissions)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling() {
+    let dir = fixtures_dir().join("dynamic-permissions");
+    let policy = dir.join("ibex-policy.json");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[],
+        Some(&dir),
+    );
+    // A capability in the ceiling is `prompt` until requested, then `granted`,
+    // and returns to `prompt` after revoke.
+    for expected in [
+        "fetch-before: prompt",
+        "fetch-request: true",
+        "fetch-after: granted",
+        "fetch-revoked: prompt",
+    ] {
+        assert!(
+            out.stdout.contains(expected),
+            "expected {expected}:\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    }
+    // A capability outside the ceiling is `denied`, and a runtime request for it
+    // must fail — the static artifact is the ceiling, dynamic grants never
+    // exceed it.
+    assert!(
+        out.stdout.contains("loc-status: denied") && out.stdout.contains("loc-request: false"),
+        "a capability outside the ceiling must stay denied and un-grantable:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Native compartments (Mechanism 2, Phase 3)
 //
 // With the carried Hermes patch stack, the interpreter resolves bare-global

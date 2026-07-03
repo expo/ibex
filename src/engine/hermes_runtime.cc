@@ -36,6 +36,8 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -1074,6 +1076,154 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactCheckImport", std::move(checkImportFn));
 
+  // @ref LLP 0013#delegation-and-authority-flow — authority-bearing handle API. `create` is
+  // frame-checked (only a frame that already holds the capability may mint a
+  // handle for it), so a package cannot forge authority; `read`/`scoped`/`revoke`
+  // are possession-based (they consult the handle's grant, not the calling
+  // frame), which is what lets a package with no ambient `fs` use a handle it
+  // was handed. These stay reachable after the seal — that is the point.
+  auto createHandleFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactCreateHandle"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          return facebook::jsi::Value(0.0);
+        }
+        auto cap = args[0].asString(runtime).utf8(runtime);
+        // Minting requires the calling frame to actually hold the capability.
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(
+              runtime, "Permission denied: cannot mint a handle for " + cap);
+        }
+        auto id = ex_host_handle_create(cap.c_str());
+        return facebook::jsi::Value(static_cast<double>(id));
+      });
+  rt.global().setProperty(rt, "__exactCreateHandle", std::move(createHandleFn));
+
+  auto handleReadFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHandleReadFileSync"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactHandleReadFileSync: id and path required");
+        }
+        auto id = static_cast<uint64_t>(args[0].asNumber());
+        auto path = args[1].asString(runtime).utf8(runtime);
+        std::string cap = "fs:read:" + path;
+        // Possession-based: check the handle's grant, not the calling frame.
+        if (!ex_host_handle_check(id, cap.c_str())) {
+          throw facebook::jsi::JSError(
+              runtime, "Permission denied: handle does not grant " + cap);
+        }
+        std::ifstream f(path, std::ios::binary);
+        if (!f) {
+          throw facebook::jsi::JSError(runtime, "ENOENT: " + path);
+        }
+        std::vector<uint8_t> data(
+            (std::istreambuf_iterator<char>(f)),
+            std::istreambuf_iterator<char>());
+        return makeUint8Array(runtime, std::move(data));
+      });
+  rt.global().setProperty(
+      rt, "__exactHandleReadFileSync", std::move(handleReadFn));
+
+  auto handleScopedFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHandleScoped"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          return facebook::jsi::Value(0.0);
+        }
+        auto parent = static_cast<uint64_t>(args[0].asNumber());
+        auto narrower = args[1].asString(runtime).utf8(runtime);
+        auto id = ex_host_handle_scoped(parent, narrower.c_str());
+        return facebook::jsi::Value(static_cast<double>(id));
+      });
+  rt.global().setProperty(rt, "__exactHandleScoped", std::move(handleScopedFn));
+
+  auto revokeHandleFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRevokeHandle"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count >= 1 && args[0].isNumber()) {
+          ex_host_handle_revoke(static_cast<uint64_t>(args[0].asNumber()));
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactRevokeHandle", std::move(revokeHandleFn));
+
+  // @ref LLP 0013 §dynamic permissions — runtime root-grant mutation. request()
+  // grants the ROOT principal a capability if it is within the policy ceiling
+  // (the static artifact is the ceiling; a prompt moves the floor). Granting
+  // root does not escalate the calling package (checks key on the frame's own
+  // principal), so these stay reachable; the "which package may prompt" gating
+  // is embedder broker logic. status() is tri-state: 1 granted / 2 prompt / 0.
+  auto permRequestFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPermissionRequest"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          return facebook::jsi::Value(false);
+        }
+        auto cap = args[0].asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(ex_host_permission_request(cap.c_str()) != 0);
+      });
+  rt.global().setProperty(
+      rt, "__exactPermissionRequest", std::move(permRequestFn));
+
+  auto permRevokeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPermissionRevoke"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count >= 1 && args[0].isString()) {
+          auto cap = args[0].asString(runtime).utf8(runtime);
+          ex_host_permission_revoke(cap.c_str());
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactPermissionRevoke", std::move(permRevokeFn));
+
+  auto permStatusFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPermissionStatus"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          return facebook::jsi::Value(0.0);
+        }
+        auto cap = args[0].asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(
+            static_cast<double>(ex_host_permission_status(cap.c_str())));
+      });
+  rt.global().setProperty(rt, "__exactPermissionStatus", std::move(permStatusFn));
+
   auto getCwdFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetCwd"),
@@ -1421,6 +1571,64 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   IG_TRACE_START(ipc_patch);
   installIpcListenerPatch(handle);
   IG_TRACE_END(ipc_patch);
+
+  // @ref LLP 0013#delegation-and-authority-flow — the FsHandle attenuator. `Ibex.fs.readHandle(dir)`
+  // mints a handle (requires the caller to hold fs:read:dir); the returned
+  // object can be passed to a package that has no ambient fs, which uses it
+  // possession-based. `scoped()` re-attenuates; `revoke()` fail-closes the
+  // handle and every handle derived from it. The prototype methods run in the
+  // trusted root Domain, so they reach the possession-checked natives.
+  {
+    static const char* kFsHandleJS = R"JS((function () {
+  var g = globalThis;
+  function FsHandle(id) { this._id = id; }
+  FsHandle.prototype.readFileSync = function (path) {
+    return g.__exactHandleReadFileSync(this._id, String(path));
+  };
+  FsHandle.prototype.readTextSync = function (path) {
+    var bytes = g.__exactHandleReadFileSync(this._id, String(path));
+    var s = '';
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return s;
+  };
+  FsHandle.prototype.scoped = function (sub) {
+    var id = g.__exactHandleScoped(this._id, String(sub));
+    if (!id) throw new Error('Cannot scope handle to ' + sub);
+    return new FsHandle(id);
+  };
+  FsHandle.prototype.revoke = function () { g.__exactRevokeHandle(this._id); };
+  var Ibex = g.Ibex || (g.Ibex = {});
+  Ibex.fs = Ibex.fs || {};
+  Ibex.fs.readHandle = function (dir) {
+    var id = g.__exactCreateHandle('fs:read:' + String(dir));
+    if (!id) throw new Error('Cannot mint handle for ' + dir);
+    return new FsHandle(id);
+  };
+  // @ref LLP 0013 §dynamic permissions — the runtime permission surface. status
+  // is tri-state ('granted' | 'prompt' | 'denied'); request/revoke move the root
+  // grant floor within the static ceiling.
+  Ibex.permissions = Ibex.permissions || {};
+  Ibex.permissions.status = function (cap) {
+    var s = g.__exactPermissionStatus(String(cap));
+    return s === 1 ? 'granted' : (s === 2 ? 'prompt' : 'denied');
+  };
+  Ibex.permissions.request = function (cap) {
+    return !!g.__exactPermissionRequest(String(cap));
+  };
+  Ibex.permissions.revoke = function (cap) { g.__exactPermissionRevoke(String(cap)); };
+})();
+)JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kFsHandleJS);
+      handle->runtime->evaluateJavaScript(buffer, "<fs-handle>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1, (std::string("FsHandle install error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("FsHandle install error: ") + err.what()).c_str());
+    }
+  }
 
   // @ref LLP 0013#phase-0 — end-of-bootstrap capability hardening seal. The
   // module-attribution setter (`__exactSetActiveModuleId`) and the self-grant

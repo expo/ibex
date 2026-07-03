@@ -61,6 +61,9 @@ pub struct CapabilityManager {
     /// Capability classes (e.g. `fs:write`, `process:spawn`) that require
     /// stack-intersection enforcement. Empty = off (the default).
     deputy_classes: RwLock<HashSet<String>>,
+    /// Capabilities the root principal may acquire at runtime (the dynamic
+    /// "prompt" ceiling). @ref LLP 0013#interaction-with-user-facing-dynamic-permissions
+    ceiling: RwLock<Vec<String>>,
     /// Audit log of capability checks
     audit_log: RwLock<VecDeque<AuditEntry>>,
 }
@@ -104,6 +107,7 @@ impl CapabilityManager {
             module_to_package: RwLock::new(HashMap::new()),
             import_policy: RwLock::new(HashMap::new()),
             deputy_classes: RwLock::new(HashSet::new()),
+            ceiling: RwLock::new(Vec::new()),
             audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
         }
     }
@@ -149,6 +153,61 @@ impl CapabilityManager {
         // @ref LLP 0013#phase-5 — optional deputy hardening classes.
         if !policy.deputy_classes.is_empty() {
             self.set_deputy_classes(policy.deputy_classes.iter().cloned());
+        }
+        // @ref LLP 0013 §dynamic permissions — the runtime-grant ceiling.
+        if !policy.ceiling.is_empty() {
+            if let Ok(mut c) = self.ceiling.write() {
+                *c = policy
+                    .ceiling
+                    .iter()
+                    .map(|s| normalize_capability(s))
+                    .collect();
+            }
+        }
+    }
+
+    /// Is `capability` within the runtime-grant ceiling (may root acquire it at
+    /// runtime)? @ref LLP 0013 §dynamic permissions
+    fn within_ceiling(&self, capability: &str) -> bool {
+        let normalized = normalize_capability(capability);
+        self.ceiling
+            .read()
+            .map(|c| c.iter().any(|g| matches_capability(g, &normalized)))
+            .unwrap_or(false)
+    }
+
+    /// Runtime-grant `capability` to the root principal, bounded by the ceiling
+    /// (the static artifact is the ceiling; prompts move the floor). Returns
+    /// whether the grant was applied. @ref LLP 0013 §dynamic permissions
+    pub fn runtime_grant_root(&self, capability: &str) -> bool {
+        if !self.within_ceiling(capability) {
+            return false;
+        }
+        self.grant("0", capability, None);
+        true
+    }
+
+    /// Runtime-revoke a previously runtime-granted capability from root.
+    pub fn runtime_revoke_root(&self, capability: &str) {
+        let normalized = normalize_capability(capability);
+        if let Ok(mut grants) = self.grants.write() {
+            if let Some(list) = grants.get_mut("0") {
+                list.retain(|g| g.denied || g.capability != normalized);
+            }
+        }
+    }
+
+    /// Tri-state grant status for the root principal: 1 = granted now, 2 =
+    /// prompt (not granted but within the ceiling, so acquirable), 0 = denied
+    /// (neither). @ref LLP 0013 §dynamic permissions — grant status is tri-state
+    /// at the host surface, not boolean.
+    pub fn grant_status(&self, capability: &str) -> u8 {
+        if self.decide("0", capability) {
+            1
+        } else if self.within_ceiling(capability) {
+            2
+        } else {
+            0
         }
     }
 
@@ -561,7 +620,7 @@ const NODE_BUILTINS: &[&str] = &[
     "zlib",
 ];
 
-fn normalize_capability(capability: &str) -> String {
+pub fn normalize_capability(capability: &str) -> String {
     let trimmed = capability.trim();
     if trimmed.is_empty() {
         return String::new();

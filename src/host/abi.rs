@@ -808,6 +808,103 @@ pub extern "C" fn ex_host_has_deputy_classes() -> i32 {
     }
 }
 
+// --- Authority-bearing capability handles (attenuators). @ref LLP 0013#delegation-and-authority-flow
+
+/// Mint a handle carrying `capability` and return its (unforgeable, random) id.
+/// The engine only calls this after verifying the *calling frame* holds
+/// `capability` — so a package cannot mint a handle for authority it lacks.
+#[no_mangle]
+pub extern "C" fn ex_host_handle_create(capability: *const c_char) -> u64 {
+    if capability.is_null() {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    with_host(|host| host.handles().create(&cap), 0)
+}
+
+/// Re-attenuate handle `parent` to a narrower grant (a full capability that must
+/// be within the parent, or a bare sub-path appended to the parent's resource).
+/// Returns 0 if the parent is missing/dead or the request would widen it.
+#[no_mangle]
+pub extern "C" fn ex_host_handle_scoped(parent: u64, narrower: *const c_char) -> u64 {
+    if narrower.is_null() {
+        return 0;
+    }
+    let n = unsafe { CStr::from_ptr(narrower) }
+        .to_string_lossy()
+        .to_string();
+    with_host(|host| host.handles().scoped(parent, &n), 0)
+}
+
+/// Possession check: is the handle live (no revoked ancestor) and does its grant
+/// cover `capability`? This does NOT consult the calling frame — a handle is
+/// authority-bearing.
+#[no_mangle]
+pub extern "C" fn ex_host_handle_check(id: u64, capability: *const c_char) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    if with_host(|host| host.handles().check(id, &cap), false) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Revoke a handle; every handle derived from it fail-closes on its next check.
+#[no_mangle]
+pub extern "C" fn ex_host_handle_revoke(id: u64) {
+    with_host(|host| host.handles().revoke(id), ());
+}
+
+// --- Dynamic root-principal permissions. @ref LLP 0013 §dynamic permissions
+
+/// Runtime-grant `capability` to the root principal, bounded by the policy
+/// ceiling. Returns 1 if applied, 0 if outside the ceiling (denied).
+#[no_mangle]
+pub extern "C" fn ex_host_permission_request(capability: *const c_char) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    if with_host(|host| host.runtime_grant_root(&cap), false) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Runtime-revoke a previously runtime-granted root capability.
+#[no_mangle]
+pub extern "C" fn ex_host_permission_revoke(capability: *const c_char) {
+    if capability.is_null() {
+        return;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    with_host(|host| host.runtime_revoke_root(&cap), ());
+}
+
+/// Tri-state grant status: 1 = granted, 2 = prompt (acquirable), 0 = denied.
+#[no_mangle]
+pub extern "C" fn ex_host_permission_status(capability: *const c_char) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    with_host(|host| host.grant_status(&cap) as i32, 0)
+}
+
 #[no_mangle]
 pub extern "C" fn ex_host_grant_capability(module_id: u64, capability: *const c_char) {
     if capability.is_null() {

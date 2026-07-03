@@ -14,6 +14,7 @@
 pub mod abi;
 pub mod capability;
 pub mod capability_bits;
+pub mod handles;
 // @ref LLP 0005#c-compilation — the hyper-based `ex_host_http_*` server is
 // feature-gated; without it the C++ adapter links no-op stubs.
 #[cfg(feature = "host-http-server")]
@@ -106,6 +107,8 @@ pub struct Host {
     config: HostConfig,
     capability_manager: Arc<capability::CapabilityManager>,
     module_loader: Arc<ModuleLoader>,
+    /// @ref LLP 0013#delegation-and-authority-flow — authority-bearing capability handles.
+    handles: Arc<handles::HandleRegistry>,
 }
 
 impl Host {
@@ -156,7 +159,29 @@ impl Host {
             capability_manager: manager,
             config,
             module_loader: loader,
+            handles: Arc::new(handles::HandleRegistry::new()),
         }
+    }
+
+    /// The authority-bearing handle registry. @ref LLP 0013#delegation-and-authority-flow
+    pub fn handles(&self) -> &handles::HandleRegistry {
+        &self.handles
+    }
+
+    /// Runtime-grant a capability to the root principal, bounded by the static
+    /// ceiling. Returns whether it was applied. @ref LLP 0013 §dynamic permissions
+    pub fn runtime_grant_root(&self, capability: &str) -> bool {
+        self.capability_manager.runtime_grant_root(capability)
+    }
+
+    /// Runtime-revoke a runtime-granted root capability.
+    pub fn runtime_revoke_root(&self, capability: &str) {
+        self.capability_manager.runtime_revoke_root(capability)
+    }
+
+    /// Tri-state grant status (1 granted / 2 prompt / 0 denied) for root.
+    pub fn grant_status(&self, capability: &str) -> u8 {
+        self.capability_manager.grant_status(capability)
     }
 
     /// Create a host with default (legacy) configuration

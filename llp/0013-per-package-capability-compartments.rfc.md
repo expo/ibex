@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -960,9 +960,12 @@ containment, real-global inventory closed) and the Phase 0 defect fixes remain i
 force. **Phase 3** native compartment globals are landed (patch 0004): the
 interpreter resolves bare globals and sloppy-`this` through the per-package
 Domain compartment with no source rewrite. **Phase 5** (opt-in stack-intersection)
-is wired to real frame stacks. The Phase 4 attenuator/tri-state/revocation
-surface is the main remaining work (the frame-attribution, stack-collection, and
-native-compartment primitives it needs now exist). See [Upstream tracking](#upstream-tracking-and-re-derivation) and
+is wired to real frame stacks. **Phase 4** authority-bearing attenuators
+(possession-based `FsHandle` with `scoped()` re-attenuation and a revocation
+cascade) and the dynamic-permission mechanism (tri-state grant status +
+ceiling-bounded runtime grants) are landed; the OS-broker UX / async-acquisition
+/ per-view-grant layer remains embedder work per §Interaction with user-facing
+dynamic permissions. See [Upstream tracking](#upstream-tracking-and-re-derivation) and
 `patches/hermes/README.md` for the carried patch stack (0001–0003) and the
 Ibex-side integration.
 
@@ -1064,6 +1067,30 @@ appear on a frozen global mid-run), and the ambient self-grant channel
 (`Exact.setModuleCapabilities`) is removed — grants come from the generated
 policy artifact, not runtime self-declaration
 (`tests/llp0013_compartments.rs::lockdown_seals_lazy_installers_and_self_grant_channel`).
+
+#### Phase 4
+
+Authority-bearing attenuators and dynamic permissions:
+
+- **Attenuator handles** (`src/host/handles.rs`, `HandleRegistry`): a handle
+  carries a capability grant fixed at creation; host operations mediated by a
+  handle check **possession** (the handle's grant), not the calling frame — so a
+  package with no ambient `fs` uses a handle it was handed, but only within that
+  handle's grant. `Ibex.fs.readHandle(dir)` mints one (frame-checked: only a
+  frame that holds `fs:read:dir` may mint it); `handle.scoped(sub)` re-attenuates
+  to a narrower grant; `handle.revoke()` fail-closes the handle and every handle
+  derived from it (the revocation cascade, via an ancestor walk). Handle ids are
+  53-bit OS-random so possession cannot be forged by guessing. Tested by
+  `tests/llp0013_compartments.rs::attenuator_handle_delegation_scoping_and_revocation`
+  (+ `src/host/handles.rs` unit tests).
+- **Dynamic permissions**: grant status is tri-state at the host surface
+  (`grant_status` → granted / prompt / denied), and a runtime grant
+  (`Ibex.permissions.request`) mutates the root principal's grant set **bounded
+  by the policy `ceiling`** — the static artifact is the ceiling, a prompt moves
+  the floor, never past it. `revoke` moves the floor back down. Tested by
+  `dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling`. The broker UX,
+  async acquisition, per-view grants, and OS mapping remain embedder work per
+  §Interaction with user-facing dynamic permissions.
 
 #### Phase 5
 

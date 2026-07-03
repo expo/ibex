@@ -149,6 +149,15 @@ extern "C" int32_t ex_host_check_capability_stack(const uint64_t* module_ids,
 extern "C" int32_t ex_host_has_deputy_classes(void);
 extern "C" int32_t ex_host_check_import(uint64_t module_id,
                                         const char* specifier);
+// @ref LLP 0013#delegation-and-authority-flow — authority-bearing capability handles.
+extern "C" uint64_t ex_host_handle_create(const char* capability);
+extern "C" uint64_t ex_host_handle_scoped(uint64_t parent, const char* narrower);
+extern "C" int32_t ex_host_handle_check(uint64_t id, const char* capability);
+extern "C" void ex_host_handle_revoke(uint64_t id);
+// @ref LLP 0013 §dynamic permissions — runtime root-grant mutation (tri-state).
+extern "C" int32_t ex_host_permission_request(const char* capability);
+extern "C" void ex_host_permission_revoke(const char* capability);
+extern "C" int32_t ex_host_permission_status(const char* capability);
 
 // @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
 // symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
