@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed); 2026-07-03 (adversarial review + fixes — patch 0007 fails closed on the async/deputy attribution boundary (`kNoUserPrincipal` sentinel + internal-bytecode runtime-principal stamp) so a package cannot launder a detached deputy op into trusted root; endowment config injected via `__ibexEndowRaw` not gated `process.env`; explicit `--capsec permissive` distinguished from the `Auto` default; `ceiling_configured` fails closed on lock poison; native deep-freeze per-root try/catch; chunk-basename traversal guard)
+**Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed); 2026-07-03 (adversarial review + fixes — patch 0007 fails closed on the async/deputy attribution boundary (`kNoUserPrincipal` sentinel + internal-bytecode runtime-principal stamp) so a package cannot launder a detached deputy op into trusted root; endowment config injected via `__ibexEndowRaw` not gated `process.env`; explicit `--capsec permissive` distinguished from the `Auto` default; `ceiling_configured` fails closed on lock poison; native deep-freeze per-root try/catch; chunk-basename traversal guard); 2026-07-03 (patch 0008 closes the async deputy-class laundering hole ENG-22631 — the schedule-time principal is captured at `enqueueJob` and appended to the deputy-class stack, so `Promise.resolve(x).then(deputy.method)` under `deputyClasses` is attributed to its scheduler; resolves Open question 3's schedule-time half)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -898,6 +898,15 @@ Phases 2 and 4.
    Audit entries for deputy-shaped flows should make the acting-principal
    chain visible: at minimum the top user frame's principal plus the
    schedule-time principal when they differ.
+   *Resolved (both halves landed).* Nearest-user-frame with runtime-internal
+   frames skipped is patch 0002's `getCurrentPackageId`; the no-user-frame host
+   call fails closed via patch 0007's `kNoUserPrincipal`. The schedule-time
+   fallback is patch 0008 (ENG-22631): the scheduling principal is captured at
+   `enqueueJob` and appended to the deputy-class stack so a deputy op detached
+   across a microtask is attributed to its scheduler, not just the bare deputy
+   frame. The remaining "make the acting-principal chain visible in audit
+   entries" refinement (surfacing scheduler ≠ top-frame in the audit log) is
+   deferred, tracked with the deputy audit-chain work.
 4. **Granularity escape hatch**: do we ever need per-module (not package)
    compartments for specific high-risk packages?
    *Lean:* no — the compromise unit is the published package, and the tool
@@ -977,7 +986,7 @@ grants), and a grant-change signal (`Ibex.permissions.onChange`) for embedder
 UIs are landed; the OS-broker UX / async-acquisition / per-view-grant layer
 remains embedder work per §Interaction with user-facing dynamic permissions. See
 [Upstream tracking](#upstream-tracking-and-re-derivation) and
-`patches/hermes/README.md` for the carried patch stack (0001–0007) and the
+`patches/hermes/README.md` for the carried patch stack (0001–0008) and the
 Ibex-side integration.
 
 Phase 2 finding (recorded per the acceptance criteria): the trusted runtime
@@ -1048,6 +1057,30 @@ deputy reaches no user frame and is denied. Because the endowment config
 now failing closed — it is injected directly by the host (`__ibexEndowRaw`)
 instead of through the capability-gated `process.env`. Red-team:
 `tests/llp0013_compartments.rs::detached_deputy_read_is_contained_but_app_wrapped_read_works`.
+
+Patch 0007 closed the *native* detached-callback case (empty stack → fail
+closed), but not the deputy-class case where the detached callback is a JS deputy
+**method** (ENG-22631): `Promise.resolve(SECRET).then(deputy.readFor)` under
+`deputyClasses: ["fs:read"]` drains with the deputy's own frame live, so the
+collected stack is `[deputy]` (len 1), the stack-intersection AND is skipped, and
+the read is allowed for an ungranted scheduler. This is Open question 3's
+schedule-time-principal case made concrete, and it is not soundly closable from
+the stack alone — a len-1 package stack is *also* the normal shape of a granted
+package running its own async continuation. Patch 0008 resolves it by recording
+the scheduling principal at `enqueueJob` (where the scheduler's frame is still
+live — the frame walk reaches past the native enqueue frame and the runtime-
+internal Promise trampoline to the real caller), carrying it in a job-parallel
+queue, restoring it as ambient runtime state across the job's drain, and
+**appending** it to the deputy-class stack. The detached read then collects
+`[deputy, scheduler]`: an ungranted scheduler makes the AND deny, while a granted
+package's own continuation (scheduler == running principal) collapses to a single
+principal and is **not** false-denied. The enqueue-time walk is armed only when
+deputy classes are configured, so the microtask hot path is unchanged for the
+common (no-deputy-hardening) case. Red-team:
+`tests/llp0013_compartments.rs::async_detached_deputy_read_is_contained_but_granted_self_async_works`
+(plus a permissive control that leaks). Residual, out of scope by default: a
+deputy that itself re-schedules the op across a further async hop is "deputy by
+design" (RFC §What this does not attempt to solve).
 
 #### Mechanism 1
 

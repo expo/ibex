@@ -533,7 +533,10 @@ impl CapabilityManager {
     ///
     /// `stack` is ordered innermost-first (index 0 is the direct caller). It is
     /// provided by frame-derived attribution (Phase 2/3); in Phase 1 callers
-    /// pass a single-element stack and this reduces to `check`.
+    /// pass a single-element stack and this reduces to `check`. For a job that
+    /// drains detached from its scheduling frame (a promise/microtask reaction),
+    /// the engine appends the schedule-time principal (Hermes patch 0008), so the
+    /// stack already carries the true causal chain — see the ENG-22631 note below.
     ///
     /// @ref LLP 0013#phase-5
     pub fn check_stack(&self, stack: &[&str], capability_str: &str) -> bool {
@@ -543,24 +546,27 @@ impl CapabilityManager {
         let decision = if self.mode == SecurityMode::Permissive {
             true
         } else if self.is_deputy_class(&normalized) && stack.len() > 1 {
-            // Walk-and-AND: every principal on the stack must be granted.
+            // Walk-and-AND: every principal on the stack must be granted. The stack
+            // includes the schedule-time principal appended by the engine for a
+            // detached async job (ENG-22631), so this AND spans the async causal
+            // chain, not just the frames live at the moment of the check.
             stack
                 .iter()
                 .all(|principal| self.decide(principal, &normalized))
         } else {
-            // NOTE (ENG-22631): the async-detached deputy laundering case
-            // (`Promise.resolve(x).then(deputy.method)`) collects a len==1 stack
-            // of just [deputy] — the scheduling caller's frame has already
-            // returned. It is NOT soundly closable here: a len==1 package stack is
-            // ALSO the normal shape of a granted package running its own async /
-            // timer continuation, and the two are indistinguishable from the stack
-            // alone, so a blunt deny would false-deny every legitimate async
-            // deputy-class op by a granted package. The sound fix is to capture the
-            // scheduling principal into the microtask/job (an async-context
-            // propagation extension of Hermes patch 0007, RFC Open Q3), which
-            // requires an engine change. Until then this remains a documented
-            // residual of the opt-in deputy hardening (deputy-by-design is out of
-            // scope by default; the synchronous case above is fully closed).
+            // A genuinely single-principal deputy-class stack: a package (deputy or
+            // not) acting for itself. This includes a granted package's own async
+            // continuation (`queueMicrotask(() => this.read())`) — the engine's
+            // schedule-time capture appends the scheduler, but it equals the running
+            // principal there and collapses, so the stack stays len==1 and is NOT
+            // false-denied. The async-detached laundering case that used to fall
+            // here (`Promise.resolve(x).then(deputy.method)`, ungranted scheduler)
+            // is now closed upstream: the engine appends the DISTINCT scheduling
+            // principal, making that stack len>1 so it takes the AND branch above.
+            // (ENG-22631 — the sound fix, replacing the reverted blunt len==1 deny
+            // that false-denied every legitimate async deputy-class op.) Residual:
+            // a deputy that itself re-schedules across a further async hop is
+            // "deputy by design," out of scope by default (RFC Open Q3).
             self.decide(top, &normalized)
         };
         self.gate_and_record(top, normalized, decision)

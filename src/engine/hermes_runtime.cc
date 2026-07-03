@@ -2204,6 +2204,16 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   // runtime. Package code is stamped explicitly by the loader. @ref LLP 0013 Open-Q3
   if (g_vm_runtime != nullptr) {
     ex_hermes_vm_set_default_package_id(g_vm_runtime, 0);
+    // @ref LLP 0013#phase-5 (Open-Q3) — arm schedule-time principal capture only
+    // when deputy-class hardening is configured (policy `deputyClasses`), so
+    // enqueueJob pays the stack walk only when the captured scheduler can be
+    // consumed by the deputy-class stack AND. The policy is applied to the host
+    // before the runtime is created (Host::new → install_host precede
+    // create_engine), so ex_host_has_deputy_classes() is authoritative here. This
+    // is the sole record of who scheduled a job once it drains detached, closing
+    // the async deputy-laundering hole (`Promise.resolve(x).then(deputy.method)`).
+    ex_hermes_vm_set_job_scheduler_capture(
+        g_vm_runtime, ex_host_has_deputy_classes());
   }
 #endif
 

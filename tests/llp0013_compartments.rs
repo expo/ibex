@@ -1429,3 +1429,116 @@ fn stack_intersection_is_off_by_default() {
         out.stderr
     );
 }
+
+// ENG-22631: the async-detached variant of the confused-deputy attack. evil
+// launders a deputy-class read by passing the deputy method straight to `.then`
+// (`Promise.resolve(SECRET).then(deputy.readFor)`), so the reaction drains with
+// only the deputy's own frame live — the scheduling frame has returned. Patch
+// 0007 (empty-stack native-callback fail-closed) does NOT cover this: the deputy
+// frame is a real user frame, so the collected stack is [deputy] (len 1), the
+// deputy-class AND is skipped, and the read would be allowed. Patch 0008 captures
+// the SCHEDULING principal at enqueueJob and re-attributes it into the job, so the
+// read now collects [deputy, evil] and the AND denies. The same test pins the
+// non-regression the reverted Rust-only fix broke: a GRANTED package's own async
+// continuation (scheduler == running principal) collapses to a single-principal
+// stack and stays allowed. Needs frame attribution + schedule-time capture.
+#[test]
+fn async_detached_deputy_read_is_contained_but_granted_self_async_works() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: async deputy attribution needs frame attribution");
+        return;
+    }
+    let dir = fixtures_dir().join("async-deputy");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // (A) The app (root) schedules the deputy across a microtask — allowed: the
+    // scheduler captured at enqueue is the trusted root principal.
+    assert!(
+        out.stdout
+            .contains("app-async-via-deputy: READ:ASYNC-DEPUTY-SECRET-llp0013"),
+        "root's own async deputy read should be allowed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (B) A granted package's OWN async continuation — allowed. This is the shape
+    // a blunt len==1 deny would false-deny; schedule-time capture collapses the
+    // scheduler (== running principal) instead of denying.
+    assert!(
+        out.stdout
+            .contains("logger-async-self: READ:ASYNC-DEPUTY-SECRET-llp0013"),
+        "a granted package's own async read must NOT be false-denied:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (C) A granted package driving the deputy across a microtask — allowed, since
+    // both the scheduler (logger) and the deputy are granted.
+    assert!(
+        out.stdout
+            .contains("logger-async-via-deputy: READ:ASYNC-DEPUTY-SECRET-llp0013"),
+        "a granted package's async deputy read should be allowed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (D) The attack: ungranted evil detaches the deputy across a microtask. The
+    // recovered scheduler (evil) makes the deputy-class AND deny, and the secret
+    // never leaks.
+    assert!(
+        out.stdout.contains("evil-async-via-deputy: CONTAINED")
+            && !out.stdout.contains("evil-async-via-deputy: STOLEN"),
+        "schedule-time capture must contain the async-detached deputy read:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+/// Control: with the SAME graph and deputyClasses configured but the mode forced
+/// to permissive, nothing is enforced, so the async-detached deputy read leaks the
+/// secret. Proves the containment above is the capability system working, not a
+/// broken fs path, a rejected promise, or a dead code path.
+#[test]
+fn async_detached_deputy_control_permissive_leaks() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: async deputy attribution needs frame attribution");
+        return;
+    }
+    let dir = fixtures_dir().join("async-deputy");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "permissive",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout
+            .contains("evil-async-via-deputy: STOLEN:ASYNC-DEPUTY-SECRET-llp0013"),
+        "permissive mode should let the detached deputy read leak (control):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}

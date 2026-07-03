@@ -174,6 +174,12 @@ extern "C" void ex_hermes_vm_clear_pending_package_id(void* vm_runtime);
 extern "C" size_t ex_hermes_vm_collect_package_ids(void* vm_runtime,
                                                    uint32_t* out,
                                                    size_t max);
+// @ref LLP 0013#phase-5 (Open-Q3) — arm schedule-time principal capture so a
+// deputy op detached across a microtask (`Promise.resolve(x).then(deputy.method)`)
+// is attributed to its scheduler, not just the bare deputy frame. Exported by
+// patches/hermes/0008; armed at boot iff deputy-class hardening is configured.
+extern "C" void ex_hermes_vm_set_job_scheduler_capture(void* vm_runtime,
+                                                       int enabled);
 // The vm::Runtime pointer (HermesRuntime::getVMRuntimeUnsafe()), cached once at
 // runtime creation. Null on unpatched engines and until the runtime is created.
 extern void* g_vm_runtime;
