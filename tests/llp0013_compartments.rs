@@ -335,7 +335,8 @@ fn generated_policy_endows_granted_package_and_contains_the_rest() {
     );
     // The self-grant inside node_modules conferred nothing; the code still runs.
     assert!(
-        out.stdout.contains("sneaky-pkg:  requested-nothing-got-nothing"),
+        out.stdout
+            .contains("sneaky-pkg:  requested-nothing-got-nothing"),
         "package self-grant must be inert:\n{}",
         out.stdout
     );
