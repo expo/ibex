@@ -1,0 +1,83 @@
+# LLP 0013 Hermes patch 0007 — fail closed on the async/deputy attribution boundary
+# Class: B (a constant + one-line changes to two existing functions).
+# @ref LLP 0013#mechanism-3, Open-Q3 (native/microtask attribution)
+#
+# Closes a deputy-laundering hole in enforce mode: a package could exfiltrate a
+# host capability by DETACHING a deputy method from its own frame — passing it
+# directly as a promise/timer callback (`Promise.resolve(x).then(fs.readFileSync)`)
+# so the reaction runs with no package frame on the stack. Two fixes:
+#
+#   * getCurrentPackageId returned 0 (the first-party root principal) BOTH for a
+#     genuine first-party frame AND when the walk found no user frame at all.
+#     With the host trusting root 0 (so `--capsec enforce` is usable), the
+#     no-user-frame case fell open. Now it returns a distinct kNoUserPrincipal
+#     (0xFFFFFFFE) that the host fails closed on — genuine first-party (a frame
+#     stamped 0) still returns 0 and stays trusted.
+#
+#   * The internal bytecode (Hermes's JS Promise implementation) loaded during
+#     Runtime construction with the default principal 0, so its reaction
+#     trampoline (`tryCallOne`) sat on the stack of every microtask job labelled
+#     packageId 0 — indistinguishable from first-party root. It is a runtime
+#     deputy: stamp its Domain with the runtime principal (0xFFFFFFFF) so the
+#     frame walk skips it and reaches kNoUserPrincipal for a detached deputy.
+#
+# Together: the app's own async work (its callback carries principal 0) is still
+# trusted; a dependency's detached-deputy op reaches no user frame and is denied.
+# Red-team: tests/llp0013_compartments.rs
+# detached_deputy_read_is_contained_but_app_wrapped_read_works.
+#
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+index 582316c76..09c8b2129 100644
+--- a/lib/VM/CapabilityAttribution.cpp
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -35,10 +35,19 @@ namespace vm {
+ // the Ibex side. @ref LLP 0013 Open-Q3 (skip runtime-internal frames).
+ static constexpr uint32_t kRuntimePackageId = 0xFFFFFFFFu;
+ 
++// Returned when the stack has NO attributable user frame (only native and/or
++// runtime-deputy frames) — e.g. a deputy method invoked directly as a
++// promise/timer callback (`Promise.resolve(x).then(fs.readFileSync)`), so the
++// scheduling package's frame is already gone. This is DISTINCT from the
++// first-party root principal 0: the host must fail closed here (a trusted-root
++// default for 0 would otherwise let any package launder a deputy op across the
++// async boundary). @ref LLP 0013 Open-Q3 (native/microtask attribution).
++static constexpr uint32_t kNoUserPrincipal = 0xFFFFFFFEu;
++
+ uint32_t getCurrentPackageId(Runtime &runtime) {
+   // Walk from the innermost frame outward, skipping native frames (null callee
+   // CodeBlock) and runtime-internal deputy frames, and return the principal of
+-  // the nearest *user* frame — the true acting package or the root principal.
++  // the nearest *user* frame — the true acting package or the root principal 0.
+   for (StackFramePtr frame : runtime.getStackFrames()) {
+     CodeBlock *cb = frame.getCalleeCodeBlock();
+     if (!cb)
+@@ -54,7 +63,8 @@ uint32_t getCurrentPackageId(Runtime &runtime) {
+       continue;
+     return packageId;
+   }
+-  return 0;
++  // No user frame at all — NOT first-party. Fail closed (see kNoUserPrincipal).
++  return kNoUserPrincipal;
+ }
+ 
+ // @ref LLP 0013#mechanism-2 — the compartment global of the nearest user JS
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index 1cadc9340..98c12dbf0 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -1304,6 +1304,15 @@ Handle<JSObject> Runtime::runInternalJavaScript() {
+   // is enabled, because the Promise implementation is a built-in.
+   flags.funcsAreBuiltins = hasMicrotaskQueue();
+ 
++  // @ref LLP 0013#mechanism-3 — the internal bytecode (the JS Promise
++  // implementation etc.) is a runtime deputy, not first-party code. Stamp its
++  // Domain with the runtime principal (0xFFFFFFFF) so the capability frame walk
++  // SKIPS it. Otherwise it loads during Runtime construction with the default
++  // principal 0 and its reaction trampolines (`tryCallOne`) sit on the stack
++  // during every promise/microtask job with packageId 0 — indistinguishable from
++  // first-party root, which lets a package launder a deputy op detached from its
++  // own frame (`Promise.resolve(x).then(fs.readFileSync)`) into the root principal.
++  setPendingPackageId(0xFFFFFFFFu);
+   auto res = runBytecode(
+       std::move(bcResult.first),
+       flags,

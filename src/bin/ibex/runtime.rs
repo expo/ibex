@@ -1507,14 +1507,15 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     } else {
         // @ref LLP 0013#phase-1 — Audit maps to the log-but-proceed mode.
         match cli.capsec {
+            CapSecMode::Permissive => SecurityMode::Permissive,
             CapSecMode::Audit => SecurityMode::Audit,
             CapSecMode::Enforce => SecurityMode::Enforce,
             // Default (no explicit --capsec): honor the policy artifact's declared
             // `mode` when it has one — the generated policy is the security config,
-            // so `mode: "enforce"` takes effect without a redundant flag.
-            // `--allow-all` (above) is the explicit permissive escape hatch.
+            // so `mode: "enforce"` takes effect without a redundant flag. Explicit
+            // `--capsec permissive` (and `--allow-all`) still force Permissive.
             // @ref LLP 0014#runtime-and-cli
-            CapSecMode::Permissive => policy_path
+            CapSecMode::Auto => policy_path
                 .as_deref()
                 .and_then(policy_declared_mode)
                 .unwrap_or(SecurityMode::Permissive),

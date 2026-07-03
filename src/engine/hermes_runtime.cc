@@ -1883,7 +1883,15 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     ? g.__exactDeepFreeze : null;
   for (var r = 0; r < roots.length; r++) {
     if (roots[r] != null) {
-      if (__nativeFreeze) __nativeFreeze(roots[r]); else harden(roots[r]);
+      // Per-root try/catch: a freeze failure on one intrinsic must not abort the
+      // whole walk (which would leave later roots mutable AND __ibexLockedDown
+      // unset — a fail-open lockdown). Mirror the JS `harden` swallow; fall back
+      // to `harden` if the native freeze throws. @ref LLP 0013#mechanism-1
+      try {
+        if (__nativeFreeze) __nativeFreeze(roots[r]); else harden(roots[r]);
+      } catch (e) {
+        try { harden(roots[r]); } catch (e2) {}
+      }
     }
   }
 
@@ -1925,8 +1933,12 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var keys = Object.getOwnPropertyNames(raw);
     for (var i = 0; i < keys.length; i++) { endowMap[keys[i]] = raw[keys[i]]; }
   }
-  // CLI/test injection via env: IBEX_ENDOW="pkg:fetch,process;other:fetch"
-  var envEndow = (g.process && g.process.env && g.process.env.IBEX_ENDOW) || '';
+  // CLI/test injection via env: IBEX_ENDOW="pkg:fetch,process;other:fetch".
+  // Read the raw value injected by the host (below) rather than `process.env`:
+  // this runs as a runtime deputy with no user frame, so a gated `process.env`
+  // read fails closed under --capsec enforce; and the endowment config must not
+  // be reachable by a package that merely holds env:read. @ref LLP 0013#mechanism-3
+  var envEndow = g.__ibexEndowRaw || '';
   if (envEndow) {
     var groups = String(envEndow).split(';');
     for (var gi = 0; gi < groups.length; gi++) {
@@ -1971,6 +1983,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 })();
 )JS";
     try {
+      // Inject the raw endowment config (IBEX_ENDOW) directly from the host, so
+      // the registry does not read it through the capability-gated `process.env`
+      // (which fails closed under enforce, and would expose the config to any
+      // package holding env:read). @ref LLP 0013#mechanism-3
+      auto& rt = *handle->runtime;
+      if (const char* endow = ::getenv("IBEX_ENDOW")) {
+        rt.global().setProperty(
+            rt,
+            "__ibexEndowRaw",
+            facebook::jsi::String::createFromUtf8(rt, endow));
+      }
       auto buffer =
           std::make_shared<facebook::jsi::StringBuffer>(kCompartmentRegistryJS);
       handle->runtime->evaluateJavaScript(buffer, "<compartment-registry>");

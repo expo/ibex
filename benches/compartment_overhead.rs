@@ -228,21 +228,30 @@ fn main() {
     );
     println!();
 
-    // Sanity: the A/B must have actually flipped the guard, and both arms must
-    // have computed the identical result (i.e. run the same work).
+    // Precondition (HARD): the A/B must have actually flipped the guard and both
+    // arms must have computed the identical result. If not, the measurement is
+    // meaningless — fail loudly rather than report a bogus ≈0% and exit 0 (which a
+    // CI job keying on exit code would read as a clean pass). This also catches an
+    // unpatched engine where IBEX_COMPARTMENTS is a no-op.
+    let mut precondition_failed = false;
     if base_armed_any {
-        println!(
-            "WARNING: baseline arm reported the compartment guard ARMED — the A/B is not clean."
+        eprintln!(
+            "FAIL: baseline arm reported the compartment guard ARMED — the A/B is not clean."
         );
+        precondition_failed = true;
     }
     if !act_armed_all {
-        println!("WARNING: active arm did NOT report the compartment guard armed — IBEX_COMPARTMENTS may not have taken effect (unpatched engine?).");
+        eprintln!("FAIL: active arm did NOT report the compartment guard armed — IBEX_COMPARTMENTS did not take effect (unpatched engine? the bench needs the compartment-capable engine).");
+        precondition_failed = true;
     }
-    match (base_result, act_result) {
-        (Some(b), Some(a)) if b != a => {
-            println!("WARNING: arms computed different results (baseline={b}, active={a}); the workloads diverged.");
+    if let (Some(b), Some(a)) = (&base_result, &act_result) {
+        if b != a {
+            eprintln!("FAIL: arms computed different results (baseline={b}, active={a}); the workloads diverged — the A/B is not comparing like with like.");
+            precondition_failed = true;
         }
-        _ => {}
+    }
+    if precondition_failed {
+        std::process::exit(1);
     }
 
     // Report the =<1% budget informationally against the startup-free inner

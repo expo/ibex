@@ -456,6 +456,27 @@ fn env_reads_are_gated_with_no_plain_snapshot_bypass() {
         out.stdout,
         out.stderr
     );
+    // Positive control: the SAME app under forced permissive (no gate) reads the
+    // secret — proving `direct=undefined` above is the deny suppressing a live
+    // read path, not a dead one.
+    let control = run_ibex(
+        &[
+            "--capsec",
+            "permissive",
+            "--policy",
+            dir.join("ibex-policy.json").to_str().unwrap(),
+            "run",
+            dir.join("app.js").to_str().unwrap(),
+        ],
+        &[("SECRET_TOKEN", "hunter2")],
+        None,
+    );
+    assert!(
+        control.stdout.contains("direct=hunter2") && control.stdout.contains("scan=via:env"),
+        "control: the read path must reach the secret without the gate:\nstdout:\n{}\nstderr:\n{}",
+        control.stdout,
+        control.stderr
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1204,6 +1225,54 @@ fn frame_attribution_denies_deferred_dependency_but_allows_app() {
     assert!(
         out.stdout.contains("evil-deferred: CONTAINED"),
         "the dependency's deferred read should be contained:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+// Red-team: a dependency must not launder a deputy op past frame attribution by
+// DETACHING it from its own frame — passing the fs method directly as a promise
+// callback (`.then(fs.readFileSync)`), so the reaction runs with no evil frame on
+// the stack. The internal Promise trampoline is a runtime deputy (runtime
+// principal), not first-party root, so the walk reaches no user frame and fails
+// closed. Regression for the internal-bytecode principal stamp + kNoUserPrincipal
+// sentinel. @ref LLP 0013#mechanism-3
+#[test]
+fn detached_deputy_read_is_contained_but_app_wrapped_read_works() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: engine built without frame attribution (unpatched Hermes framework)");
+        return;
+    }
+    let dir = fixtures_dir().join("detached-deputy");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &dir.join("secret.txt").to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // The app (root) is granted fs — its own wrapped async read succeeds.
+    assert!(
+        out.stdout.contains("app: READ:TOPSECRET-detached"),
+        "the app's own wrapped read should be allowed (root principal):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // evil-pkg's read is contained BOTH when wrapped (its frame is seen) and when
+    // detached (no frame → fails closed), and the secret never leaks.
+    assert!(
+        out.stdout
+            .contains("evil: attached:CONTAINED detached:CONTAINED")
+            && !out.stdout.contains("STOLEN"),
+        "the dependency's detached-deputy read must be contained:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );

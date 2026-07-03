@@ -108,6 +108,15 @@ const ROOT_PRINCIPAL: &str = "0";
 /// gated by the import graph, not the capability system. @ref LLP 0013#policy
 const MODULE_LOADER_PRINCIPAL: &str = "module-loader";
 
+/// Mirror of the engine's `kNoUserPrincipal` (0xFFFFFFFE): reported by
+/// `getCurrentPackageId` when the stack has NO attributable user frame — a deputy
+/// op run detached from its scheduling package's frame
+/// (`Promise.resolve(x).then(fs.readFileSync)`). It is DISTINCT from first-party
+/// root "0" and MUST fail closed: trusting it (as a root-0 default would) lets any
+/// package launder a deputy op across the async boundary into trusted root.
+/// @ref LLP 0013#policy
+const NO_USER_PRINCIPAL: &str = "4294967294";
+
 impl CapabilityManager {
     /// Create a new capability manager
     pub fn new(mode: SecurityMode) -> Self {
@@ -193,7 +202,9 @@ impl CapabilityManager {
     /// bounded by the ceiling; when it has not, root is trusted (ambient app
     /// authority). @ref LLP 0013 §dynamic permissions
     fn ceiling_configured(&self) -> bool {
-        self.ceiling.read().map(|c| !c.is_empty()).unwrap_or(false)
+        // Fail closed on a poisoned lock: assume a ceiling is configured so root
+        // is gated (not blanket-trusted) rather than silently ambient.
+        self.ceiling.read().map(|c| !c.is_empty()).unwrap_or(true)
     }
 
     /// Runtime-grant `capability` to the root principal, bounded by the ceiling
@@ -330,6 +341,14 @@ impl CapabilityManager {
     fn decide(&self, module_id: &str, capability: &str) -> bool {
         if ALWAYS_ALLOWED.iter().any(|cap| cap == &capability) {
             return true;
+        }
+
+        // No attributable user frame (a deputy op detached from its scheduling
+        // package's frame): fail closed, never trusted. Must be checked before the
+        // root-trust fallback below — the engine reports this distinctly from
+        // first-party root exactly so it does not inherit root's trust.
+        if module_id == NO_USER_PRINCIPAL {
+            return false;
         }
 
         // Ibex's own module loader reads module source files as runtime

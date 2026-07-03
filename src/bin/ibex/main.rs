@@ -785,7 +785,9 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     let mut flags = vec!["--engine".to_string(), cli.engine.clone()];
 
     match cli.capsec {
-        cli::CapSecMode::Permissive => {}
+        // Auto is the default — forward nothing so the child also defers to policy.
+        cli::CapSecMode::Auto => {}
+        cli::CapSecMode::Permissive => flags.extend(["--capsec".into(), "permissive".into()]),
         cli::CapSecMode::Audit => flags.extend(["--capsec".into(), "audit".into()]),
         cli::CapSecMode::Enforce => flags.extend(["--capsec".into(), "enforce".into()]),
     }

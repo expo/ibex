@@ -4145,7 +4145,13 @@
         specifier.indexOf('__ibexpkg__') !== -1) {
       var __ci = specifier.lastIndexOf('/');
       var __cbase = __ci === -1 ? specifier : specifier.slice(__ci + 1);
-      if (__cbase.indexOf('__ibexpkg__') === 0) {
+      // Only bundler-emitted chunk basenames resolve against the cache dir. Reject
+      // anything with a backslash (a Windows path separator), a `..` segment, or a
+      // NUL so the basename cannot escape __exactChunkDir. @ref LLP 0013#mechanism-3
+      if (__cbase.indexOf('__ibexpkg__') === 0 &&
+          __cbase.indexOf('\\') === -1 &&
+          __cbase.indexOf('..') === -1 &&
+          __cbase.indexOf('\0') === -1) {
         specifier = g.__exactChunkDir + '/' + __cbase;
       }
     }

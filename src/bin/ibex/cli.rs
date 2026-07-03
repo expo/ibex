@@ -59,7 +59,7 @@ pub struct Cli {
     pub inspect_host: Option<String>,
 
     /// Capability security mode
-    #[arg(long, value_enum, default_value = "permissive")]
+    #[arg(long, value_enum, default_value = "auto")]
     pub capsec: CapSecMode,
 
     /// Harden the runtime at boot: freeze the shared intrinsics and tame the
@@ -273,7 +273,10 @@ pub enum PolicyCommands {
 /// (Phase 1) logs would-deny decisions but lets operations proceed.
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapSecMode {
-    /// Allow all capabilities (development/legacy mode)
+    /// Default: honor the policy artifact's declared `mode`, else permissive.
+    Auto,
+    /// Force permissive — allow all capabilities (development/legacy mode) even if
+    /// a policy declares a stricter mode.
     Permissive,
     /// Log would-deny decisions but let operations proceed (supply-chain audit)
     Audit,
