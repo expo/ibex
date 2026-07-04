@@ -369,7 +369,7 @@ targets.
 
 #### Parse and strip
 
-`import-grants.mjs`: `parseImportGrants` (acorn import-attributes;
+`import-grants.mjs`: `parseImportGrants` (Rolldown/Oxc import-attributes;
 fail-closed errors for malformed grant strings), `stripGrantAttributes`
 (removes recognized keys, drops emptied `with` clauses),
 `createImportGrantsPlugin` (always-on bundler strip — wired into

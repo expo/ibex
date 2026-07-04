@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'acorn';
+import { parseSync } from 'rolldown/utils';
 import ts from 'typescript';
 import { describe, expect, it } from 'bun:test';
 
@@ -65,22 +65,22 @@ function mkdirRec(dir) {
 }
 
 function expectParses(source) {
-  try {
-    parse(source, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      allowReturnOutsideFunction: true,
-      ranges: true,
+  const tryParse = (sourceType) => {
+    const parsed = parseSync('test.js', source, {
+      lang: 'js',
+      sourceType,
+      range: true,
+      preserveParens: false,
     });
-    return;
-  } catch {}
-
-  parse(source, {
-    ecmaVersion: 'latest',
-    sourceType: 'script',
-    allowReturnOutsideFunction: true,
-    ranges: true,
-  });
+    if (parsed.errors && parsed.errors.length) {
+      throw parsed.errors[0];
+    }
+  };
+  try {
+    tryParse('module');
+  } catch {
+    tryParse('commonjs');
+  }
 }
 
 describe('createRolldownConfig', () => {

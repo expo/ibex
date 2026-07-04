@@ -146,6 +146,7 @@ test('parses grants, endow, builtins, and also from import attributes', () => {
   expect(sites).toHaveLength(1);
   const site = sites[0];
   expect(site.package).toBe('image-lib');
+  expect(site.line).toBe(1);
   expect(site.capabilities).toEqual([
     'fs:read:/app/images/**',
     'fs:write:/app/images/**',
@@ -188,6 +189,7 @@ test('fail closed: malformed capability and also entries are errors', () => {
     'app.mjs',
   );
   expect(errors).toHaveLength(2);
+  expect(errors.map((error) => error.line)).toEqual([1, 2]);
 });
 
 // ---------------------------------------------------------------------------

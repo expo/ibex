@@ -11,7 +11,8 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { parse } from 'acorn';
+// @ref LLP 0007#summary — keep devtools parsing on the Rolldown/Oxc toolchain.
+import { parseSync } from 'rolldown/utils';
 import {
   bundlerExternalModules,
   nodeBuiltins,
@@ -41,23 +42,23 @@ export const runtimeImportMetaDefine = Object.freeze({
 const compatExponentMarker = '__exactCompatPow__';
 
 function parseModuleOrScript(source) {
-  try {
-    return parse(source, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      allowReturnOutsideFunction: true,
-      locations: false,
-      ranges: true,
+  const parseWithOxc = (sourceType) => {
+    const parsed = parseSync('module.js', source, {
+      lang: 'js',
+      sourceType,
+      range: true,
+      preserveParens: false,
     });
+    if (parsed.errors && parsed.errors.length) {
+      throw parsed.errors[0];
+    }
+    return parsed.program;
+  };
+  try {
+    return parseWithOxc('module');
   } catch {
     try {
-      return parse(source, {
-        ecmaVersion: 'latest',
-        sourceType: 'script',
-        allowReturnOutsideFunction: true,
-        locations: false,
-        ranges: true,
-      });
+      return parseWithOxc('commonjs');
     } catch {
       return null;
     }

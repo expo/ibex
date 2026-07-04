@@ -7,7 +7,8 @@
  * the generated policy artifact and stripped before the engine sees them.
  * Parsing is fail-closed: a malformed grant string is an error, not a skip.
  */
-import { parse } from 'acorn';
+// @ref LLP 0007#summary — import-site grant parsing rides the Rolldown/Oxc toolchain.
+import { parseSync } from 'rolldown/utils';
 import { nodeBuiltins } from './builtin-manifest.mjs';
 
 /** Attribute keys this layer owns. Anything else (e.g. `type`) passes through. */
@@ -171,13 +172,19 @@ export function extractImportSpecifiers(source) {
 
 function parseModule(source, { locations = false } = {}) {
   try {
-    return parse(source, {
-      ecmaVersion: 'latest',
+    const parsed = parseSync('module.js', source, {
+      lang: 'js',
       sourceType: 'module',
-      allowReturnOutsideFunction: true,
-      locations,
-      ranges: true,
+      range: true,
+      preserveParens: false,
     });
+    if (parsed.errors && parsed.errors.length) {
+      return null;
+    }
+    if (locations) {
+      attachStartLocations(parsed.program, source);
+    }
+    return parsed.program;
   } catch {
     // Script sources have no import declarations, hence no attributes.
     return null;
@@ -188,15 +195,64 @@ function parseModule(source, { locations = false } = {}) {
  * mode). Used only to observe `require()` specifiers, not import attributes. */
 function parseScript(source) {
   try {
-    return parse(source, {
-      ecmaVersion: 'latest',
-      sourceType: 'script',
-      allowReturnOutsideFunction: true,
-      ranges: true,
+    const parsed = parseSync('script.js', source, {
+      lang: 'js',
+      sourceType: 'commonjs',
+      range: true,
+      preserveParens: false,
     });
+    if (parsed.errors && parsed.errors.length) {
+      return null;
+    }
+    return parsed.program;
   } catch {
     return null;
   }
+}
+
+function attachStartLocations(ast, source) {
+  const lineStarts = [0];
+  for (let i = 0; i < source.length; i += 1) {
+    if (source.charCodeAt(i) === 10) {
+      lineStarts.push(i + 1);
+    }
+  }
+  const locate = (offset) => {
+    let lo = 0;
+    let hi = lineStarts.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (lineStarts[mid] <= offset) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    const lineIndex = Math.max(0, hi);
+    return {
+      line: lineIndex + 1,
+      column: offset - lineStarts[lineIndex],
+    };
+  };
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    if (typeof node.type === 'string' && typeof node.start === 'number') {
+      node.loc = {
+        start: locate(node.start),
+        end: locate(typeof node.end === 'number' ? node.end : node.start),
+      };
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'loc' || key === 'range') continue;
+      const value = node[key];
+      if (value && typeof value === 'object') visit(value);
+    }
+  };
+  visit(ast);
 }
 
 function applyReplacements(source, replacements) {
@@ -295,7 +351,7 @@ function parseAlsoList(raw, errors, file, line) {
  *
  * Fail-closed properties — @ref LLP 0014#grant-syntax — normative rules:
  *  - a grant attribute whose value is not a string literal is unreachable by
- *    grammar (acorn rejects it), so everything here is statically evaluable;
+ *    grammar (the parser rejects it), so everything here is statically evaluable;
  *  - malformed grant/also strings produce `errors`, never silent skips;
  *  - grant attributes on a non-package specifier (relative path, `node:`
  *    builtin) are errors — grants attach to package selectors only.
