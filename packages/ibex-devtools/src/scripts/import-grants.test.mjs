@@ -17,6 +17,7 @@ import {
   deriveSurfaces,
   createImportGrantsPlugin,
 } from './import-grants.mjs';
+import { runtimeGatedNodeBuiltins } from './builtin-manifest.mjs';
 
 // ---------------------------------------------------------------------------
 // builtin aliases + package classification (ENG-22697 / ENG-22699)
@@ -66,6 +67,18 @@ test('diffBuiltinAxis: explicit expansion and shrinkage', () => {
   expect(shr.shrinkage).toEqual(['p: import node:fs']);
 });
 
+test('diffBuiltinAxis: literal "*" is an explicit builtin, not unrestricted', () => {
+  const d = diffBuiltinAxis({ p: { builtins: ['*'] } }, { p: { builtins: ['node:os'] } });
+  expect(d.expansions).toEqual(['p: import node:os']);
+  expect(d.shrinkage).toEqual(['p: import *']);
+});
+
+test('diffBuiltinAxis: string-typed builtins is invalid policy shape', () => {
+  expect(() => diffBuiltinAxis({ p: { builtins: 'node:os' } }, {})).toThrow(
+    /packages\.p\.builtins must be an array/,
+  );
+});
+
 // ---------------------------------------------------------------------------
 // builtinSpecifierOf / extractImportSpecifiers (ENG-22683 — builtins axis)
 // ---------------------------------------------------------------------------
@@ -73,6 +86,7 @@ test('diffBuiltinAxis: explicit expansion and shrinkage', () => {
 test('builtinSpecifierOf classifies builtins and normalizes the node: prefix', () => {
   expect(builtinSpecifierOf('os')).toBe('node:os');
   expect(builtinSpecifierOf('node:os')).toBe('node:os');
+  expect(builtinSpecifierOf('node:test')).toBe('node:test');
   expect(builtinSpecifierOf('fs/promises')).toBe('node:fs/promises'); // subpath preserved
   expect(builtinSpecifierOf('node:crypto')).toBe('node:crypto');
   expect(builtinSpecifierOf('lodash')).toBeNull(); // real package
@@ -81,25 +95,15 @@ test('builtinSpecifierOf classifies builtins and normalizes the node: prefix', (
   expect(builtinSpecifierOf('/abs/path')).toBeNull();
 });
 
-// @ref LLP 0014#the-generated-artifact (ENG-22683) — the generator's builtin
-// classifier must cover every root the RUNTIME gates as a builtin
-// (is_builtin_specifier / NODE_BUILTINS in src/host/capability.rs). If it lags,
-// a package's real `require("<root>")` (e.g. node:sqlite) is emitted as a
+// @ref LLP 0014#the-generated-artifact (ENG-22683/ENG-22772) — the generator's
+// builtin classifier and the runtime gate share the generated manifest roots. If
+// this lags, a package's real `require("<root>")` (e.g. `sqlite`) is emitted as a
 // package edge, omitted from the builtins allowlist, and DENIED under enforce.
-test('builtinSpecifierOf covers every root the runtime gates (no classifier drift)', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const url = require('node:url');
-  const here = path.dirname(url.fileURLToPath(import.meta.url));
-  const capsrc = fs.readFileSync(
-    path.resolve(here, '../../../../src/host/capability.rs'),
-    'utf8',
-  );
-  const block = capsrc.match(/const NODE_BUILTINS: &\[&str\] = &\[([\s\S]*?)\];/);
-  expect(block).not.toBeNull();
-  const roots = [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  expect(roots.length).toBeGreaterThan(30);
-  const missing = roots.filter((r) => builtinSpecifierOf(r) !== `node:${r}`);
+test('builtinSpecifierOf covers every generated runtime-gated root', () => {
+  expect(runtimeGatedNodeBuiltins.length).toBeGreaterThan(30);
+  expect(runtimeGatedNodeBuiltins).toContain('repl');
+  expect(runtimeGatedNodeBuiltins).toContain('sqlite');
+  const missing = runtimeGatedNodeBuiltins.filter((r) => builtinSpecifierOf(r) !== `node:${r}`);
   expect(missing).toEqual([]);
 });
 

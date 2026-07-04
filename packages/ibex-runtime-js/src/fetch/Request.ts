@@ -63,11 +63,25 @@ function isBunCompatRequestTest(): boolean {
   if ((globalThis as { __exactRuntimeContext?: string }).__exactRuntimeContext === 'shell') {
     return false;
   }
-  if (typeof process !== 'object' || !process || typeof process.env !== 'object') {
-    return false;
-  }
 
-  return process.env.EXACT_COMPAT_TEST === '1' && process.env.EXACT_TEST_SECTION === 'bun';
+  return readRuntimeEnv('EXACT_COMPAT_TEST') === '1' && readRuntimeEnv('EXACT_TEST_SECTION') === 'bun';
+}
+
+function readRuntimeEnv(key: string): string | undefined {
+  const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
+    .__exactHostEnv;
+  if (hostEnv && typeof hostEnv[key] === 'string') {
+    return hostEnv[key];
+  }
+  try {
+    if (typeof process !== 'object' || !process || typeof process.env !== 'object') {
+      return undefined;
+    }
+    const value = (process.env as Record<string, string | undefined>)[key];
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -146,15 +160,9 @@ export class Request extends BodyMixin {
           typeof (globalThis as any).location.href === 'string'
             ? (globalThis as any).location.href
             : undefined;
-        const processEnv =
-          (globalThis as { __exactRuntimeContext?: string }).__exactRuntimeContext === 'shell'
-            ? null
-            : typeof process === 'object' && process && typeof process.env === 'object'
-              ? (process.env as Record<string, string | undefined>)
-              : null;
         const defaultBase =
           locationHref ||
-          (processEnv?.WPT_SERVER_URL ?? undefined) ||
+          readRuntimeEnv('WPT_SERVER_URL') ||
           (typeof globalThis.location === 'string' ? globalThis.location : null);
         const baseForParse = hasScheme || !defaultBase ? undefined : defaultBase;
         const parsedUrl = baseForParse ? new URL(url, baseForParse) : new URL(url);

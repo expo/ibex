@@ -374,6 +374,11 @@ function getSocketBufferConstructor(
 function getRuntimeProcessEnv(
   runtimeRequire: (specifier: string) => unknown
 ): Record<string, string | undefined> | null {
+  const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
+    .__exactHostEnv;
+  if (hostEnv && typeof hostEnv === 'object') {
+    return hostEnv;
+  }
   try {
     const processModule = runtimeRequire('node:process') as {
       env?: Record<string, string | undefined>;
@@ -1333,17 +1338,19 @@ function shouldUseTlsSocketTransport(init?: RequestInit): boolean {
     return true;
   }
 
-  const env = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
+  const env = getRuntimeEnvObject();
   if (!env) {
     return false;
   }
 
-  return (
-    (typeof env.NODE_EXTRA_CA_CERTS === 'string' && env.NODE_EXTRA_CA_CERTS.trim().length > 0) ||
-    env.NODE_TLS_REJECT_UNAUTHORIZED === '0'
-  );
+  try {
+    return (
+      (typeof env.NODE_EXTRA_CA_CERTS === 'string' && env.NODE_EXTRA_CA_CERTS.trim().length > 0) ||
+      env.NODE_TLS_REJECT_UNAUTHORIZED === '0'
+    );
+  } catch {
+    return false;
+  }
 }
 
 function locationForReferrer(source: ReferrerSource): string | null {
@@ -1501,8 +1508,35 @@ function isBunCompatEnv(): boolean {
   if ((globalThis as { __exactRuntimeContext?: string }).__exactRuntimeContext === 'shell') {
     return false;
   }
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  return env?.EXACT_COMPAT_TEST === '1' && env?.EXACT_TEST_SECTION === 'bun';
+  return readRuntimeEnv('EXACT_COMPAT_TEST') === '1' && readRuntimeEnv('EXACT_TEST_SECTION') === 'bun';
+}
+
+function getRuntimeEnvObject(): Record<string, string | undefined> | null {
+  const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
+    .__exactHostEnv;
+  if (hostEnv && typeof hostEnv === 'object') {
+    return hostEnv;
+  }
+  try {
+    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+      .process?.env;
+    return env && typeof env === 'object' ? env : null;
+  } catch {
+    return null;
+  }
+}
+
+function readRuntimeEnv(key: string): string | undefined {
+  const env = getRuntimeEnvObject();
+  if (!env) {
+    return undefined;
+  }
+  try {
+    const value = env[key];
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeRedirectLocation(location: string, currentUrl?: string): string {

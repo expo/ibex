@@ -18,12 +18,13 @@ import {
   createRolldownConfig,
   runtimeImportMetaDefine,
   packageOfModuleId,
+  packageIdentityOfModuleId,
 } from './transforms.mjs';
 import {
   createImportGrantsPlugin,
   packageNameOfSpecifier,
   builtinSpecifierOf,
-  extractImportSpecifiers,
+  extractImportSpecifiersDetailed,
   capabilityUnion,
   resolveCascade,
   deriveSurfaces,
@@ -72,8 +73,10 @@ const rootSiteLists = []; // [{ file, sites }]
 const ignoredPackageGrants = []; // supply-chain signal: grant syntax in node_modules
 const generationErrors = [];
 const packageDirs = new Map(); // pkg -> Set<dir>
+const packageIdentities = new Set(); // version-qualified runtime selectors
+const edgeTargets = new Set(); // package selectors reached by import edges
 const edges = new Set(); // "fromPkg\0toPkg" ("" = root principal)
-const observedBuiltins = new Map(); // pkg -> Set<node:builtin> the package imports
+const observedBuiltins = new Map(); // package identity -> Set<node:builtin>
 
 // @ref LLP 0014#the-grant-channel — grants are honored only in modules that
 // belong to the trusted root principal (no node_modules ancestor). The same
@@ -96,13 +99,34 @@ const graphPlugin = {
     if (!importer) return null;
     const to = packageNameOfSpecifier(specifier);
     if (!to) return null;
+    edgeTargets.add(to);
     const from = packageOfModuleId(importer);
     if (from !== to) edges.add(`${from ?? ''}\u0000${to}`);
     return null; // observe only; default resolution proceeds
   },
   transform(code, id) {
     const pkg = packageOfModuleId(id);
+    const extracted = extractImportSpecifiersDetailed(code);
+    if (!extracted.parseable && pkg) {
+      generationErrors.push({
+        message:
+          'unable to parse package module for import-policy analysis; refusing to under-generate builtins/packages',
+        file: id,
+        line: 0,
+      });
+      return null;
+    }
+    for (const spec of extracted.specifiers) {
+      const to = packageNameOfSpecifier(spec);
+      if (to) {
+        edgeTargets.add(to);
+        const from = pkg ?? '';
+        if (from !== to) edges.add(`${from}\u0000${to}`);
+      }
+    }
     if (pkg) {
+      const identity = packageIdentityOfModuleId(id) || pkg;
+      packageIdentities.add(identity);
       if (!packageDirs.has(pkg)) packageDirs.set(pkg, new Set());
       // Normalize backslashes to agree with packageOfModuleId (ENG-22619): on
       // Windows the raw id uses `\`, so an un-normalized scan misses the marker
@@ -119,11 +143,11 @@ const graphPlugin = {
       // external and skips the resolve hook for them, but transform still sees
       // the source. A computed specifier (`require(n)`) contributes nothing and
       // is therefore denied at runtime (fail closed).
-      for (const spec of extractImportSpecifiers(code)) {
+      for (const spec of extracted.specifiers) {
         const builtin = builtinSpecifierOf(spec);
         if (builtin) {
-          if (!observedBuiltins.has(pkg)) observedBuiltins.set(pkg, new Set());
-          observedBuiltins.get(pkg).add(builtin);
+          if (!observedBuiltins.has(identity)) observedBuiltins.set(identity, new Set());
+          observedBuiltins.get(identity).add(builtin);
         }
       }
     }
@@ -134,7 +158,7 @@ const graphPlugin = {
 const config = createRolldownConfig({
   input: entry,
   treeshake: false,
-  keepRelativeCjsExternal: true,
+  keepRelativeCjsExternal: false,
   define: runtimeImportMetaDefine,
   compartments: false,
 });
@@ -148,6 +172,24 @@ if (typeof bundle.close === 'function') await bundle.close();
 if (generationErrors.length) {
   for (const err of generationErrors) {
     console.error(`error: ${err.message} (${path.relative(root, err.file)}:${err.line})`);
+  }
+  process.exit(2);
+}
+
+for (const target of edgeTargets) {
+  if (!packageDirs.has(target)) {
+    generationErrors.push({
+      message: `package "${target}" is reachable but no module source was analyzed for import policy`,
+      file: entry,
+      line: 0,
+    });
+  }
+}
+
+if (generationErrors.length) {
+  for (const err of generationErrors) {
+    const where = err.line ? `${path.relative(root, err.file)}:${err.line}` : path.relative(root, err.file);
+    console.error(`error: ${err.message} (${where})`);
   }
   process.exit(2);
 }
@@ -236,8 +278,11 @@ const effective = resolveCascade({ rootGrants, edges: sortedEdges, requests });
 
 const universe = new Set([
   ...packageDirs.keys(),
+  ...packageIdentities,
+  ...edgeTargets,
   ...rootGrants.keys(),
   ...effective.keys(),
+  ...observedBuiltins.keys(),
 ]);
 
 const packagesOut = {};
@@ -383,8 +428,12 @@ if (opts.check) {
     if (!expansions.length && !shrinkage.length && !modeChanged) {
       console.error('(structural changes only — packages, surfaces, or provenance)');
     }
-  } catch {
-    console.error('(existing artifact is not valid JSON)');
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      console.error('(existing artifact is not valid JSON)');
+    } else {
+      console.error(`policy artifact validation error: ${err?.message || err}`);
+    }
   }
   console.error(`run: generate-policy.mjs --entry ${opts.entry} --out ${opts.out || out}`);
   process.exit(1);

@@ -7,9 +7,10 @@
  * the generated policy artifact and stripped before the engine sees them.
  * Parsing is fail-closed: a malformed grant string is an error, not a skip.
  */
-// @ref LLP 0007#summary — import-site grant parsing rides the Rolldown/Oxc toolchain.
-import { parseSync } from 'rolldown/utils';
-import { nodeBuiltins } from './builtin-manifest.mjs';
+// @ref LLP 0007#summary — import-site grant parsing rides the Rolldown/Oxc
+// toolchain through the shared parser helpers.
+import { runtimeGatedNodeBuiltins } from './builtin-manifest.mjs';
+import { parseModule, parseModuleOrScript } from './parse-js.mjs';
 
 /** Attribute keys this layer owns. Anything else (e.g. `type`) passes through. */
 export const GRANT_ATTRIBUTE_KEYS = Object.freeze([
@@ -19,29 +20,11 @@ export const GRANT_ATTRIBUTE_KEYS = Object.freeze([
   'also',
 ]);
 
-/** Root segments of the runtime's node builtins (e.g. `fs`, `os`, `stream`).
- * MUST cover every root the runtime GATES as a builtin — `is_builtin_specifier`
- * in `src/host/capability.rs` (its NODE_BUILTINS list) is the authority: if the
- * generator fails to classify a root the runtime gates, that root is emitted as
- * a package edge instead of the builtins allowlist, and the package's real
- * `require("<root>")` is then DENIED under enforce (the allowlist won't contain
- * it). The manifest-derived `nodeBuiltins` currently lags the runtime gate for a
- * few roots (`repl`, `sqlite`), so union in the gate list explicitly. Over-
- * classifying is harmless (an inert allowlist entry); under-classifying denies.
- * A drift guard in import-grants.test.mjs asserts this set covers NODE_BUILTINS.
- * (ENG-22683) */
-const RUNTIME_GATED_BUILTINS = [
-  'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
-  'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain',
-  'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os',
-  'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline', 'repl',
-  'sqlite', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events',
-  'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib',
-];
-const BUILTIN_ROOTS = new Set([
-  ...(nodeBuiltins || []).map((b) => String(b).split('/')[0]),
-  ...RUNTIME_GATED_BUILTINS,
-]);
+/** Root segments of the runtime's bare Node builtins. Generated from
+ * `modules.ts` together with Rust's `RUNTIME_GATED_NODE_BUILTINS`, so the
+ * generator and runtime import fence use the same root set. (ENG-22683/ENG-22772)
+ */
+const BUILTIN_ROOTS = new Set(runtimeGatedNodeBuiltins || []);
 
 /**
  * Classify a builtin import and return its normalized `node:`-prefixed form, or
@@ -62,6 +45,7 @@ export function builtinSpecifierOf(specifier) {
   // (is_builtin_specifier), so the emitted allowlist entry must match the exact
   // spelling the package imports. (ENG-22697)
   if (specifier.startsWith('exact:') || specifier.startsWith('bun:')) return specifier;
+  if (specifier.startsWith('node:')) return specifier;
   const bare = specifier.startsWith('node:') ? specifier.slice(5) : specifier;
   if (!bare || bare.startsWith('@')) return null;
   const root = bare.split('/')[0];
@@ -78,14 +62,19 @@ export function builtinSpecifierOf(specifier) {
  * @ref LLP 0014#the-generated-artifact
  */
 export function diffBuiltinAxis(oldPackages = {}, newPackages = {}) {
+  const UNRESTRICTED = Symbol('unrestricted builtins');
   const setsOf = (pkgs) => {
     const m = new Map();
     for (const [pkg, entry] of Object.entries(pkgs || {})) {
-      const list = entry && entry.builtins == null ? ['*'] : entry && entry.builtins;
+      const list = entry && entry.builtins == null ? [UNRESTRICTED] : entry && entry.builtins;
+      if (list != null && !Array.isArray(list)) {
+        throw new TypeError(`packages.${pkg}.builtins must be an array when present`);
+      }
       m.set(pkg, new Set(list || []));
     }
     return m;
   };
+  const label = (value) => (value === UNRESTRICTED ? '*' : value);
   const oldB = setsOf(oldPackages);
   const newB = setsOf(newPackages);
   const expansions = [];
@@ -94,15 +83,15 @@ export function diffBuiltinAxis(oldPackages = {}, newPackages = {}) {
     const old = oldB.get(pkg);
     // An old entry that was unrestricted (`*`) covers everything, so any new
     // explicit builtin is a tightening, not an expansion.
-    if (old && old.has('*')) continue;
+    if (old && old.has(UNRESTRICTED)) continue;
     for (const b of list) {
-      if (!old || !old.has(b)) expansions.push(`${pkg}: import ${b}`);
+      if (!old || !old.has(b)) expansions.push(`${pkg}: import ${label(b)}`);
     }
   }
   for (const [pkg, list] of oldB) {
     const nw = newB.get(pkg);
     for (const b of list) {
-      if (!nw || !nw.has(b)) shrinkage.push(`${pkg}: import ${b}`);
+      if (!nw || !nw.has(b)) shrinkage.push(`${pkg}: import ${label(b)}`);
     }
   }
   return { expansions, shrinkage };
@@ -124,8 +113,12 @@ export function diffBuiltinAxis(oldPackages = {}, newPackages = {}) {
  * @ref LLP 0014#the-generated-artifact
  */
 export function extractImportSpecifiers(source) {
-  const ast = parseModule(source) || parseScript(source);
-  if (!ast) return [];
+  return extractImportSpecifiersDetailed(source).specifiers;
+}
+
+export function extractImportSpecifiersDetailed(source) {
+  const ast = parseModuleOrScript(source);
+  if (!ast) return { specifiers: [], parseable: false };
   const out = [];
   const visit = (node) => {
     if (!node || typeof node !== 'object') return;
@@ -167,92 +160,7 @@ export function extractImportSpecifiers(source) {
     }
   };
   visit(ast);
-  return out;
-}
-
-function parseModule(source, { locations = false } = {}) {
-  try {
-    const parsed = parseSync('module.js', source, {
-      lang: 'js',
-      sourceType: 'module',
-      range: true,
-      preserveParens: false,
-    });
-    if (parsed.errors && parsed.errors.length) {
-      return null;
-    }
-    if (locations) {
-      attachStartLocations(parsed.program, source);
-    }
-    return parsed.program;
-  } catch {
-    // Script sources have no import declarations, hence no attributes.
-    return null;
-  }
-}
-
-/** Fallback parse for CommonJS sources that are invalid as ES modules (sloppy
- * mode). Used only to observe `require()` specifiers, not import attributes. */
-function parseScript(source) {
-  try {
-    const parsed = parseSync('script.js', source, {
-      lang: 'js',
-      sourceType: 'commonjs',
-      range: true,
-      preserveParens: false,
-    });
-    if (parsed.errors && parsed.errors.length) {
-      return null;
-    }
-    return parsed.program;
-  } catch {
-    return null;
-  }
-}
-
-function attachStartLocations(ast, source) {
-  const lineStarts = [0];
-  for (let i = 0; i < source.length; i += 1) {
-    if (source.charCodeAt(i) === 10) {
-      lineStarts.push(i + 1);
-    }
-  }
-  const locate = (offset) => {
-    let lo = 0;
-    let hi = lineStarts.length - 1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (lineStarts[mid] <= offset) {
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    const lineIndex = Math.max(0, hi);
-    return {
-      line: lineIndex + 1,
-      column: offset - lineStarts[lineIndex],
-    };
-  };
-  const visit = (node) => {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) {
-      for (const child of node) visit(child);
-      return;
-    }
-    if (typeof node.type === 'string' && typeof node.start === 'number') {
-      node.loc = {
-        start: locate(node.start),
-        end: locate(typeof node.end === 'number' ? node.end : node.start),
-      };
-    }
-    for (const key of Object.keys(node)) {
-      if (key === 'loc' || key === 'range') continue;
-      const value = node[key];
-      if (value && typeof value === 'object') visit(value);
-    }
-  };
-  visit(ast);
+  return { specifiers: out, parseable: true };
 }
 
 function applyReplacements(source, replacements) {

@@ -969,9 +969,9 @@ pub extern "C" fn ex_host_grant_capability(module_id: u64, capability: *const c_
     let module = module_id.to_string();
     // @ref LLP 0013 §self-grant — this ABI is the JS-reachable package self-grant
     // (Exact.setModuleCapabilities / require({needs})); route it through
-    // runtime_self_grant so it is refused under enforce/audit (the policy
-    // artifact is the sole grant source there). Policy-driven grants use grant()
-    // directly and are unaffected. (ENG-22695)
+    // runtime_self_grant so it is refused under enforce and audited without
+    // changing behavior under audit. Policy-driven grants use grant() directly
+    // and are unaffected. (ENG-22695/ENG-22770)
     with_host(
         |host| host.capabilities().runtime_self_grant(&module, &cap),
         (),

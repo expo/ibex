@@ -29,15 +29,16 @@
 #     jobSchedulerQueue_ (POD uint32_t, no GC marking) in lockstep with jobQueue_.
 #     kNoJobSchedulerPrincipal == the runtime principal 0xFFFFFFFF, an unambiguous
 #     "no active job" sentinel (getCurrentPackageId never returns 0xFFFFFFFF).
-#   * enqueueJob captures getCurrentPackageId, GATED on capture being armed so the
-#     stack walk is paid only when deputy-class hardening is configured (Goal 3
-#     hot-path budget; the deque push stays unconditional for lockstep).
+#   * enqueueJob captures getCurrentPackageId when capture is armed. Ibex arms
+#     capture whenever the patched engine is present because embedders may
+#     configure deputy classes after create_engine and native-resolved
+#     continuations may otherwise report kNoUserPrincipal; checkCapability
+#     consumes the stack only for live deputy classes or that no-user fallback.
 #   * drainJobs restores the captured scheduler around executeCall0 (save/restore
 #     across both the normal and exceptional exit).
-#   * collectStackPackageIds appends the ambient scheduler (skip sentinel, collapse
-#     against the innermost frame, bounded by max).
-#   * ex_hermes_vm_set_job_scheduler_capture arms it; the embedder calls it at boot
-#     iff ex_host_has_deputy_classes().
+#   * collectStackPackageIds appends an attributable user scheduler (skip runtime
+#     and no-user sentinels, collapse against the innermost frame, bounded by max).
+#   * ex_hermes_vm_set_job_scheduler_capture arms it.
 #
 # Residual (documented, out of scope by default): a deputy that RE-SCHEDULES the op
 # from its OWN frame across a further async hop (`.then(deputy.scheduleRead)` where
@@ -68,10 +69,11 @@ index 8793016d5..e81169cf3 100644
 +  // reaction runs detached (only the callback's own frame on the stack), so this
 +  // is the sole record of who scheduled it. getCurrentPackageId walks past native
 +  // and runtime-internal frames (the Promise trampoline) to the real caller. The
-+  // walk is gated on deputy-class hardening being configured (captureJobScheduler
-+  // armed by the embedder at boot); otherwise this stays a pure deque push and
-+  // the captured value is never read. The push is unconditional to keep
-+  // jobSchedulerQueue_ in lockstep with jobQueue_.
++  // capture is armed by the embedder when the patched engine is present. The
++  // host consumes the captured value only for deputy-class hardening or the
++  // kNoUserPrincipal fallback path;
++  // the push is unconditional to keep jobSchedulerQueue_ in lockstep with
++  // jobQueue_.
 +  jobSchedulerQueue_.push_back(
 +      captureJobSchedulerPrincipal_ ? getCurrentPackageId(*this)
 +                                    : kNoJobSchedulerPrincipal);
@@ -109,13 +111,14 @@ index 66b65c3db..e0a3f9339 100644
 +    currentJobSchedulerPrincipal_ = id;
 +  }
 +
-+  /// Enable/disable capturing the scheduling principal at enqueueJob time. The
-+  /// walk is only needed when deputy-class hardening is configured (policy
-+  /// `deputyClasses`), so the embedder arms this at boot iff any deputy class is
-+  /// set — keeping enqueueJob a pure push when the opt-in feature is off (Goal 3
-+  /// hot-path budget, same discipline as anyCompartmentActive_). The parallel
-+  /// jobSchedulerQueue_ is maintained either way to stay in lockstep with
-+  /// jobQueue_; only the (stack-walking) capture is gated.
++  /// Enable/disable capturing the scheduling principal at enqueueJob time. Ibex
++  /// arms this when the patched engine is present, independent of boot-time
++  /// deputyClasses state, because embedders may configure deputy hardening after
++  /// create_engine and native-resolved continuations may otherwise report
++  /// kNoUserPrincipal. The host still consumes captured schedulers only on the
++  /// deputy-class path or the no-user fallback. The parallel jobSchedulerQueue_ is
++  /// maintained either way to stay in lockstep with jobQueue_; only the
++  /// (stack-walking) capture is gated.
 +  void setCaptureJobSchedulerPrincipal(bool b) {
 +    captureJobSchedulerPrincipal_ = b;
 +  }
@@ -161,11 +164,14 @@ index 09c8b2129..ee1d923bb 100644
 +  // collected principal — so a granted package's OWN async continuation
 +  // (scheduler == running principal, e.g. `queueMicrotask(() => this.read())`)
 +  // stays a single-principal stack and is NOT false-denied. A scheduler of
-+  // kNoUserPrincipal (job scheduled with no attributable user frame) IS appended
-+  // and denies the deputy-class op — fail closed, the correct default for the
-+  // opt-in hardening. Bounded by \p max like the frame loop.
++  // kNoUserPrincipal (job scheduled by a native completion with no attributable
++  // user frame) is NOT appended: native resolution is not evidence of laundering,
++  // and adding it would false-deny a granted package's own
++  // `nativePromise.then(() => fs.writeFileSync(...))` continuation. Bounded by
++  // \p max like the frame loop.
 +  uint32_t scheduler = runtime.currentJobSchedulerPrincipal();
-+  if (scheduler != kRuntimePackageId && scheduler != last && count < max) {
++  if (scheduler != kRuntimePackageId && scheduler != kNoUserPrincipal &&
++      scheduler != last && count < max) {
 +    out[count++] = scheduler;
 +  }
    return count;
@@ -175,9 +181,9 @@ index 09c8b2129..ee1d923bb 100644
        *reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime), out, max);
  }
  
-+/// Arm/disarm schedule-time principal capture. The embedder enables this at boot
-+/// iff deputy-class hardening is configured, so enqueueJob only pays the stack
-+/// walk when the captured value can actually be consumed. @ref LLP 0013#phase-5
++/// Arm/disarm schedule-time principal capture. Ibex enables this whenever the
++/// patched engine is present; the host consumes captured schedulers on the
++/// deputy-class path and the kNoUserPrincipal fallback. @ref LLP 0013#phase-5
 +HERMES_EXPORT void ex_hermes_vm_set_job_scheduler_capture(
 +    void *vmRuntime,
 +    int enabled) {

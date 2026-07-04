@@ -11,13 +11,12 @@
  */
 import fs from 'fs';
 import path from 'path';
-// @ref LLP 0007#summary — keep devtools parsing on the Rolldown/Oxc toolchain.
-import { parseSync } from 'rolldown/utils';
 import {
   bundlerExternalModules,
   nodeBuiltins,
 } from './builtin-manifest.mjs';
 import { createImportGrantsPlugin } from './import-grants.mjs';
+import { parseModuleOrScript } from './parse-js.mjs';
 
 export const rolldownConditionNames = Object.freeze([
   'node',
@@ -40,30 +39,6 @@ export const runtimeImportMetaDefine = Object.freeze({
 });
 
 const compatExponentMarker = '__exactCompatPow__';
-
-function parseModuleOrScript(source) {
-  const parseWithOxc = (sourceType) => {
-    const parsed = parseSync('module.js', source, {
-      lang: 'js',
-      sourceType,
-      range: true,
-      preserveParens: false,
-    });
-    if (parsed.errors && parsed.errors.length) {
-      throw parsed.errors[0];
-    }
-    return parsed.program;
-  };
-  try {
-    return parseWithOxc('module');
-  } catch {
-    try {
-      return parseWithOxc('commonjs');
-    } catch {
-      return null;
-    }
-  }
-}
 
 // DUPLICATION SEAM (ENG-22559 / ENG-22558): this AST-based fixForOfScoping
 // has two independent siblings solving the same Hermes function-scoped-const
@@ -1504,12 +1479,13 @@ export function packageOfModuleId(id) {
 const __pkgVersionMemo = new Map();
 
 /**
- * The canonical version-qualified identity of a module's package
- * (`name@version`), or the bare name when no version is readable. Reads the
- * `version` field of the package's own nearest `package.json` (memoized per
- * package root), so coexisting versions get distinct compartment keys and chunk
- * groups — matching the runtime loader's identity (`name@version`). Bundle-time
- * only. @ref LLP 0013#resolved-questions (ENG-22621)
+ * The version-qualified identity of a module's package (`name@version`), or the
+ * bare name when no version is readable. Reads the package's self-reported
+ * `version` field (memoized per package root), so coexisting versions get
+ * distinct compartment keys and chunk groups — matching the runtime loader's
+ * identity. This distinguishes installed copies; it is not an integrity boundary
+ * against a package that forges its package.json version. Bundle-time only.
+ * @ref LLP 0013#resolved-questions (ENG-22621/ENG-22768)
  */
 export function packageIdentityOfModuleId(id) {
   const name = packageOfModuleId(id);

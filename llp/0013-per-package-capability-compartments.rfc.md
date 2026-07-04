@@ -8,6 +8,7 @@
 **Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed); 2026-07-03 (adversarial review + fixes — patch 0007 fails closed on the async/deputy attribution boundary (`kNoUserPrincipal` sentinel + internal-bytecode runtime-principal stamp) so a package cannot launder a detached deputy op into trusted root; endowment config injected via `__ibexEndowRaw` not gated `process.env`; explicit `--capsec permissive` distinguished from the `Auto` default; `ceiling_configured` fails closed on lock poison; native deep-freeze per-root try/catch; chunk-basename traversal guard); 2026-07-03 (patch 0008 closes the async deputy-class laundering hole ENG-22631 — the schedule-time principal is captured at `enqueueJob` and appended to the deputy-class stack, so `Promise.resolve(x).then(deputy.method)` under `deputyClasses` is attributed to its scheduler; resolves Open question 3's schedule-time half); 2026-07-03 (deep-review fixes ENG-22681/22682/22683/22684/22621: enforce/audit auto-enable per-package chunking so a bundled dependency is attributed to its own principal, not root — plus a per-key bundle-cache subdir and the shared `rolldown-runtime.js` chunk redirect that makes chunking robust for ESM apps and safe under concurrent runs; path-scoped `fs` grants resolve symlinks before matching, and `lutimes`/`lchmod`/symlink-target/hardlink-source gates close the last path-mutator holes; `IBEX_ENDOW` can no longer widen policy endowments under enforce/audit without `--allow-env-endowments`; the generated policy emits an explicit observed `builtins` allowlist so the import axis is default-deny; and package identity is now version-distinguished end-to-end — `name@version` principals/compartments/chunks with bare-name policy selectors, so coexisting versions receive distinct policy treatment)
 **Revised:** 2026-07-04 (deep-review fixes ENG-22716/ENG-22717/ENG-22718/ENG-22720/ENG-22722: no-follow-final link metadata gates, `access(W_OK)` write gating, caller-referrer dynamic imports, `Bun.which` spawn gating, and native server/socket network gates)
 **Revised:** 2026-07-04 (follow-up hardening ENG-22741/ENG-22742/ENG-22743/ENG-22744/ENG-22745: native handles carry owner/capability metadata, fetch/WebSocket checks use endpoint-scoped grants, fs-write tests use temporary copies, stale security-document comments were retargeted to local LLPs, and formatting/lint drift was cleaned up)
+**Revised:** 2026-07-04 (capability-security deep review ENG-22761..ENG-22774: fail-closed endowment resolution, two-sided import reachability, safer generated/runtime builtin classification, path and selector hardening, audit-mode non-interference, and native-callback principal stamps for no-user async host re-entry)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -823,8 +824,12 @@ Open questions below.
    before the policy format freezes. *Refinement (2026-07-02 review):* the
    package name is the policy **selector**; the runtime **principal** is the
    name plus resolved locator (lockfile identity / path / integrity as
-   available). Audit logs emit both, so coexisting versions and aliased
-   packages stay distinguishable (see the policy sketch in Design §Policy).
+   available). Current Ibex uses the path-derived package name plus the package's
+   self-reported `version` field to form `name@version`; this distinguishes
+   coexisting installed copies but is not a trust boundary against a malicious
+   package that forges its manifest version. Audit logs emit both, so coexisting
+   versions and aliased packages stay distinguishable (see the policy sketch in
+   Design §Policy).
 2. **Dynamic import and plugins** — default-deny: code outside the build
    graph runs as a no-capability quarantine principal (refused outright in
    enforce mode unless policy names it), and the runtime loader applies the
@@ -1105,9 +1110,15 @@ queue, restoring it as ambient runtime state across the job's drain, and
 **appending** it to the deputy-class stack. The detached read then collects
 `[deputy, scheduler]`: an ungranted scheduler makes the AND deny, while a granted
 package's own continuation (scheduler == running principal) collapses to a single
-principal and is **not** false-denied. The enqueue-time walk is armed only when
-deputy classes are configured, so the microtask hot path is unchanged for the
-common (no-deputy-hardening) case. Red-team:
+principal and is **not** false-denied. The enqueue-time walk is armed whenever
+the patched engine is present; the host consumes the captured scheduler only for
+live deputy-class stack checks or the `kNoUserPrincipal` fallback, so a boot-time
+absence of deputy classes cannot permanently disable later hardening.
+Host-scheduled callbacks outside Hermes's Promise queue (timers, `nextTick`, and
+native fetch/HTTP wait completions) also capture the caller principal in the
+embedding and apply it only when a host-boundary check re-enters from a
+no-user-frame callback; stored native handles still enforce their owner and
+capability metadata before operating. Red-team:
 `tests/llp0013_compartments.rs::async_detached_deputy_read_is_contained_but_granted_self_async_works`
 (plus a permissive control that leaks). Residual, out of scope by default: a
 deputy that itself re-schedules the op across a further async hop is "deputy by
@@ -1279,12 +1290,13 @@ a detached callback with no package frame (`Promise.resolve("fs").then(globalThi
 cannot launder an import into trusted/root, mirroring `decide()`'s capability
 rule (ENG-22696). (3) **Runtime self-grant** — the legacy
 `Exact.setModuleCapabilities` / `require(spec, { needs })` channel is refused
-host-side under enforce/audit (`CapabilityManager::runtime_self_grant` no-ops
-outside permissive) AND the JS function is deleted at boot under enforce/audit
-(`IBEX_SEAL_SELF_GRANT`), not just under lockdown — so a package cannot escalate
-its own capabilities on the plain `--capsec enforce` path once it learns its
-package id (ENG-22695, was **Urgent**: the seal previously only ran on the
-lockdown/compartment path). Tested by
+host-side under enforce and audited without changing behavior under audit
+(`CapabilityManager::runtime_self_grant` records a would-deny there) AND the JS
+function is deleted at boot under enforce (`IBEX_SEAL_SELF_GRANT`), not just
+under lockdown — so a package cannot escalate its own capabilities on the plain
+`--capsec enforce` path once it learns its package id (ENG-22695/ENG-22770, was
+**Urgent**: the seal previously only ran on the lockdown/compartment path).
+Tested by
 `tests/llp0013_compartments.rs::enforce_closes_runtime_capability_escapes` (with
 a permissive control) and `capability.rs::{builtins_deny_covers_exact_and_bun_aliases,
 import_from_no_user_principal_fails_closed, runtime_self_grant_is_refused_under_enforce_but_works_permissive}`.

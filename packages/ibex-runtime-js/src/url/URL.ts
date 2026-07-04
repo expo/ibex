@@ -20,6 +20,8 @@ const SPECIAL_SCHEMES = new Set(["ftp", "file", "http", "https", "ws", "wss"]);
 const OBJECT_URL_PREFIX = "blob:exact:";
 const objectURLRegistry = new Map<string, unknown>();
 let objectURLCounter = 0;
+const HOST_URL_CONSTRUCTOR: typeof globalThis.URL | undefined =
+  typeof globalThis.URL === "function" ? globalThis.URL : undefined;
 
 function makeMissingArgsError(argumentName: string): TypeError {
   const error = new TypeError(`The "${argumentName}" argument must be specified`);
@@ -43,6 +45,13 @@ function makeInvalidBlobError(object: unknown): TypeError {
 }
 
 function resolveHostURLConstructor(): typeof globalThis.URL | undefined {
+  if (
+    typeof HOST_URL_CONSTRUCTOR === "function" &&
+    HOST_URL_CONSTRUCTOR !== (URL as any)
+  ) {
+    return HOST_URL_CONSTRUCTOR;
+  }
+
   const globalURL = globalThis.URL;
   if (typeof globalURL === "function" && globalURL !== (URL as any)) {
     return globalURL;
@@ -241,6 +250,170 @@ function _makeURLError(input: string, baseInput?: string): TypeError {
   return err;
 }
 
+type ParsedURLParts = {
+  protocol: string;
+  username: string;
+  password: string;
+  hostname: string;
+  port: string;
+  pathname: string;
+  search: string;
+  hash: string;
+};
+
+function splitPathSearchHash(input: string): { path: string; search: string; hash: string } {
+  let value = input;
+  let hash = "";
+  const hashIndex = value.indexOf("#");
+  if (hashIndex !== -1) {
+    hash = value.slice(hashIndex);
+    value = value.slice(0, hashIndex);
+  }
+  let search = "";
+  const searchIndex = value.indexOf("?");
+  if (searchIndex !== -1) {
+    search = value.slice(searchIndex);
+    value = value.slice(0, searchIndex);
+  }
+  return { path: value, search, hash };
+}
+
+function normalizePathname(path: string): string {
+  if (!path) return "/";
+  const segments = path.split("/");
+  const normalized: string[] = [];
+  for (const segment of segments) {
+    if (segment === "" || segment === ".") {
+      if (normalized.length === 0) normalized.push("");
+      continue;
+    }
+    if (segment === "..") {
+      if (normalized.length > 1) normalized.pop();
+      continue;
+    }
+    normalized.push(segment);
+  }
+  let result = normalized.join("/");
+  if (!result.startsWith("/")) result = "/" + result;
+  if (path.endsWith("/") && !result.endsWith("/")) result += "/";
+  return result || "/";
+}
+
+function parseAuthorityUrl(protocol: string, rest: string): ParsedURLParts | null {
+  const authorityEnd = rest.search(/[/?#]/);
+  const authority = authorityEnd === -1 ? rest : rest.slice(0, authorityEnd);
+  const pathTail = authorityEnd === -1 ? "" : rest.slice(authorityEnd);
+  if (!authority) {
+    return null;
+  }
+
+  let hostPort = authority;
+  let username = "";
+  let password = "";
+  const at = hostPort.lastIndexOf("@");
+  if (at !== -1) {
+    const rawUserinfo = hostPort.slice(0, at);
+    hostPort = hostPort.slice(at + 1);
+    const colon = rawUserinfo.indexOf(":");
+    if (colon === -1) {
+      username = sanitizeUserinfo(rawUserinfo);
+    } else {
+      username = sanitizeUserinfo(rawUserinfo.slice(0, colon));
+      password = sanitizeUserinfo(rawUserinfo.slice(colon + 1));
+    }
+  }
+
+  let hostname = "";
+  let port = "";
+  if (hostPort.startsWith("[")) {
+    const close = hostPort.indexOf("]");
+    if (close === -1) return null;
+    hostname = hostPort.slice(0, close + 1).toLowerCase();
+    if (close + 1 < hostPort.length) {
+      if (hostPort.charAt(close + 1) !== ":") return null;
+      port = normalizePort(hostPort.slice(close + 2));
+    }
+  } else {
+    const colon = hostPort.lastIndexOf(":");
+    if (colon !== -1) {
+      hostname = canonicalizeHost(hostPort.slice(0, colon), protocol);
+      port = normalizePort(hostPort.slice(colon + 1));
+    } else {
+      hostname = canonicalizeHost(hostPort, protocol);
+    }
+  }
+  if (!hostname) return null;
+  if (port) {
+    const portNumber = Number(port);
+    if (!Number.isInteger(portNumber) || portNumber > 65535) return null;
+    if (port === DEFAULT_PORTS[protocol.slice(0, -1)]) port = "";
+  }
+
+  const { path, search, hash } = splitPathSearchHash(pathTail || "/");
+  return {
+    protocol,
+    username,
+    password,
+    hostname,
+    port,
+    pathname: normalizePathname(path),
+    search,
+    hash,
+  };
+}
+
+function parseBasicUrl(input: string, base: URL | null): ParsedURLParts | null {
+  const value = stripProtocolControlChars(String(input).trim());
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(value);
+  if (scheme) {
+    const protocol = `${scheme[1].toLowerCase()}:`;
+    const rest = value.slice(scheme[0].length);
+    if (rest.startsWith("//")) {
+      return parseAuthorityUrl(protocol, rest.slice(2));
+    }
+    const { path, search, hash } = splitPathSearchHash(rest);
+    return {
+      protocol,
+      username: "",
+      password: "",
+      hostname: "",
+      port: "",
+      pathname: path,
+      search,
+      hash,
+    };
+  }
+
+  if (!base) {
+    return null;
+  }
+  if (value.startsWith("//")) {
+    return parseAuthorityUrl(base.protocol, value.slice(2));
+  }
+  const { path, search, hash } = splitPathSearchHash(value);
+  const basePath = base.pathname || "/";
+  let pathname = basePath;
+  if (path) {
+    if (path.startsWith("/")) {
+      pathname = normalizePathname(path);
+    } else {
+      const slash = basePath.lastIndexOf("/");
+      const dir = slash === -1 ? "/" : basePath.slice(0, slash + 1);
+      pathname = normalizePathname(dir + path);
+    }
+  }
+  return {
+    protocol: base.protocol,
+    username: base.username,
+    password: base.password,
+    hostname: base.hostname,
+    port: base.port,
+    pathname,
+    search: search || (path ? "" : base.search),
+    hash,
+  };
+}
+
 export class URL {
   private _protocol: string = "";
   private _username: string = "";
@@ -287,23 +460,33 @@ export class URL {
 
   private _parse(input: string, base: URL | null, baseStr?: string): void {
     const hostURL = resolveHostURLConstructor();
-    if (typeof hostURL !== "function") {
-      throw _makeURLError(input, baseStr);
+    if (typeof hostURL === "function") {
+      try {
+        const parsed = base ? new hostURL(input, base.href) : new hostURL(input);
+        this._protocol = parsed.protocol;
+        this._username = parsed.username;
+        this._password = parsed.password;
+        this._hostname = parsed.hostname;
+        this._port = parsed.port;
+        this._pathname = parsed.pathname;
+        this._search = parsed.search;
+        this._hash = parsed.hash;
+        return;
+      } catch {
+        throw _makeURLError(input, baseStr);
+      }
     }
 
-    try {
-      const parsed = base ? new hostURL(input, base.href) : new hostURL(input);
-      this._protocol = parsed.protocol;
-      this._username = parsed.username;
-      this._password = parsed.password;
-      this._hostname = parsed.hostname;
-      this._port = parsed.port;
-      this._pathname = parsed.pathname;
-      this._search = parsed.search;
-      this._hash = parsed.hash;
-    } catch {
-      throw _makeURLError(input, baseStr);
-    }
+    const parsed = parseBasicUrl(input, base);
+    if (!parsed) throw _makeURLError(input, baseStr);
+    this._protocol = parsed.protocol;
+    this._username = parsed.username;
+    this._password = parsed.password;
+    this._hostname = parsed.hostname;
+    this._port = parsed.port;
+    this._pathname = parsed.pathname;
+    this._search = parsed.search;
+    this._hash = parsed.hash;
   }
 
   private _normalizePath(path: string): string {

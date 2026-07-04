@@ -1168,6 +1168,14 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
         anyhow::bail!("build command is only supported for the Hermes engine");
     }
 
+    // Apply the same enforce/audit isolation prerequisite the run path applies,
+    // so a build under an enforce policy produces a per-package-chunked artifact
+    // (each dependency in its own Domain/principal) instead of a flat,
+    // single-principal bundle that attributes every dependency to trusted root.
+    // Sets IBEX_PER_PACKAGE_CHUNKS before bundling so the bundler chunks and the
+    // cache key agrees. @ref LLP 0013#mechanism-3 (ENG-22760)
+    runtime::apply_build_isolation(cli)?;
+
     let output_path = runtime::compute_build_output(file, outdir)?;
     let map_path = output_path.with_extension("hbc.map");
     // hermesc doesn't support ESM — always use CJS for bytecode compilation
@@ -1180,6 +1188,25 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     let bundled_str = bundled.to_string_lossy().to_string();
 
     engine::hermes::compile_to_bytecode(&bundled_str, &output_path, Some(&map_path)).await?;
+
+    // Under per-package chunking the entry bundle requires sibling chunk files
+    // (`__ibexpkg__*`, `rolldown-runtime.js`) that live in the bundle cache dir,
+    // not next to the built `.hbc`. The run path resolves them against the
+    // artifact's own directory (`__exactChunkDir`), so ship them alongside the
+    // `.hbc` — otherwise the built artifact silently loses per-package
+    // attribution (a flat single-Domain run). @ref LLP 0013#mechanism-3 (ENG-22760)
+    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
+        if let Some(dest_dir) = output_path.parent() {
+            let copied = runtime::ship_chunk_siblings(&bundled, dest_dir)?;
+            if copied > 0 {
+                println!(
+                    "Shipped {} per-package chunk file(s) alongside {}",
+                    copied,
+                    output_path.display()
+                );
+            }
+        }
+    }
 
     println!("Compiled {} -> {}", file, output_path.display());
     Ok(())

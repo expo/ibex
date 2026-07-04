@@ -46,11 +46,24 @@ export interface UnderlyingByteSource {
 }
 
 function isBunCompatReadableStreamTest(): boolean {
-  if (typeof process !== 'object' || !process || typeof process.env !== 'object') {
-    return false;
-  }
+  return readRuntimeEnv('EXACT_COMPAT_TEST') === '1' && readRuntimeEnv('EXACT_TEST_SECTION') === 'bun';
+}
 
-  return process.env.EXACT_COMPAT_TEST === '1' && process.env.EXACT_TEST_SECTION === 'bun';
+function readRuntimeEnv(key: string): string | undefined {
+  const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
+    .__exactHostEnv;
+  if (hostEnv && typeof hostEnv[key] === 'string') {
+    return hostEnv[key];
+  }
+  try {
+    if (typeof process !== 'object' || !process || typeof process.env !== 'object') {
+      return undefined;
+    }
+    const value = (process.env as Record<string, string | undefined>)[key];
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function getReadableStreamLockedMessage(): string {

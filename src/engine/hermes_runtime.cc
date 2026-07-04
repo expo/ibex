@@ -172,6 +172,7 @@ extern "C" char **environ;
 #include <limits.h>
 
 thread_local uint64_t g_active_module_id = 0;
+thread_local uint64_t g_native_callback_principal_id = kNoNativePrincipalOverride;
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
 // @ref LLP 0013#mechanism-3 — the vm::Runtime pointer used by the exported
@@ -729,6 +730,7 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
     int count = 0;
     for (auto& fn : queue) {
         try {
+            ScopedNativePrincipal nativePrincipal(kNoNativePrincipalOverride);
             fn(*runtime->runtime);
             count++;
         } catch (const facebook::jsi::JSError& err) {
@@ -1537,6 +1539,35 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       )
   );
 
+  // @ref LLP 0013#resolved-questions — one implementation of "strip a trailing
+  // @version while preserving @scope/pkg". The module loader captures this to
+  // register bare policy selectors, and the compartment registry uses the same
+  // helper for name-level endowment fallback. It is deleted before user package
+  // code runs. (ENG-22773)
+  auto barePackageNameFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__ibexBarePackageName"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          return facebook::jsi::Value::undefined();
+        }
+        std::string identity = args[0].asString(runtime).utf8(runtime);
+        auto at = identity.rfind('@');
+        auto slash = identity.find('/');
+        if (at != std::string::npos && at > 0 &&
+            (slash == std::string::npos || at > slash)) {
+          identity.resize(at);
+        }
+        return facebook::jsi::Value(
+            facebook::jsi::String::createFromUtf8(runtime, identity));
+      });
+  rt.global().setProperty(
+      rt, "__ibexBarePackageName", std::move(barePackageNameFn));
+
   // ============================================================
   // TCP Socket host functions for net module
   // ============================================================
@@ -1711,24 +1742,31 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // globals so no code that runs after bootstrap can reach them. Runs in all
   // modes (acceptance criterion: escape-hatch globals unreachable in all modes).
   {
-    // @ref LLP 0013 §self-grant — under enforce/audit (IBEX_SEAL_SELF_GRANT) the
+    // @ref LLP 0013 §self-grant — under enforce (IBEX_SEAL_SELF_GRANT) the
     // runtime self-grant surface is removed entirely: package code must not
     // reach `Exact.setModuleCapabilities`, since grants come from the policy
-    // artifact, not runtime self-declaration. The host also refuses the grant
-    // (runtime_self_grant), so this is defense in depth. Only the permissive/dev
-    // path keeps the function (rebound onto the captured grant for
-    // require({needs})). (ENG-22695)
+    // artifact, not runtime self-declaration. Audit leaves the surface reachable
+    // and records a would-deny in the host. Only the permissive/dev/audit path
+    // keeps the function rebound onto the captured grant for require({needs}).
+    // (ENG-22695/ENG-22770)
     std::string capabilityHardeningJS = std::string(R"JS((function () {
   var g = globalThis;
   var sealSelfGrant = )JS") +
-        (env_flag_enabled("IBEX_SEAL_SELF_GRANT") ? "true" : "false") + R"JS(;
+        (env_flag_enabled("IBEX_SEAL_SELF_GRANT") ? "true" : "false") +
+        R"JS(;
+  var keepBareNameHelper = )JS" +
+        ((env_flag_enabled("IBEX_LOCKDOWN") ||
+          env_flag_enabled("IBEX_COMPARTMENTS"))
+             ? std::string("true")
+             : std::string("false")) +
+        R"JS(;
   var grant = g.__exactGrantCapability;
   if (g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
     if (sealSelfGrant) {
-      // Enforce/audit: remove the self-grant channel outright.
+      // Enforce: remove the self-grant channel outright.
       try { delete g.Exact.setModuleCapabilities; } catch (e) {}
     } else if (grant) {
-      // Permissive/dev: rebind onto the captured grant for require({needs}).
+      // Permissive/dev/audit: rebind onto the captured grant for require({needs}).
       g.Exact.setModuleCapabilities = function (moduleId, capabilities) {
         if (!capabilities) return;
         var caps = Array.isArray(capabilities) ? capabilities : [capabilities];
@@ -1739,6 +1777,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
                  '__exactSetPendingPackageId', '__exactRegisterPackage',
                  '__exactCheckImport', '__exactSetCompartmentFor'];
+  if (!keepBareNameHelper) hatches.push('__ibexBarePackageName');
   for (var j = 0; j < hatches.length; j++) {
     try { delete g[hatches[j]]; } catch (e) {}
   }
@@ -1988,15 +2027,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       if (pkgName) endowMap[pkgName] = caps;
     }
   }
-  // Strip a trailing `@version` from a version-qualified compartment key,
-  // preserving an `@scope/` prefix (the `@` at index 0 is the scope, not a
-  // version). `pkg@1.0.0` -> `pkg`, `@scope/pkg@1.0.0` -> `@scope/pkg`. (ENG-22621)
-  function bareNameOf(pkg) {
-    var at = pkg.lastIndexOf('@');
-    var slash = pkg.indexOf('/');
-    if (at > 0 && at > slash) return pkg.slice(0, at);
-    return pkg;
-  }
+  var bareNameOf = typeof g.__ibexBarePackageName === 'function'
+    ? g.__ibexBarePackageName
+    : function (pkg) { return pkg; };
   function isEndowed(pkg, name) {
     // Compartments are keyed by the version-qualified identity (`name@version`),
     // but endow entries are usually written bare (`pkg:fetch`, applying to every
@@ -2058,6 +2091,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       value: registry, writable: false, enumerable: false, configurable: false
     });
   } catch (e) {}
+  try { delete g.__ibexBarePackageName; } catch (e) {}
 })();
 )JS";
     try {
@@ -2099,6 +2133,7 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
     auto entry = std::move(runtime->next_tick.front());
     runtime->next_tick.pop_front();
     try {
+      ScopedNativePrincipal nativePrincipal(entry.principal);
       if (entry.args.empty()) {
         entry.callback.call(rt);
       } else {
@@ -2233,16 +2268,13 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   // runtime. Package code is stamped explicitly by the loader. @ref LLP 0013 Open-Q3
   if (g_vm_runtime != nullptr) {
     ex_hermes_vm_set_default_package_id(g_vm_runtime, 0);
-    // @ref LLP 0013#phase-5 (Open-Q3) — arm schedule-time principal capture only
-    // when deputy-class hardening is configured (policy `deputyClasses`), so
-    // enqueueJob pays the stack walk only when the captured scheduler can be
-    // consumed by the deputy-class stack AND. The policy is applied to the host
-    // before the runtime is created (Host::new → install_host precede
-    // create_engine), so ex_host_has_deputy_classes() is authoritative here. This
-    // is the sole record of who scheduled a job once it drains detached, closing
-    // the async deputy-laundering hole (`Promise.resolve(x).then(deputy.method)`).
-    ex_hermes_vm_set_job_scheduler_capture(
-        g_vm_runtime, ex_host_has_deputy_classes());
+    // @ref LLP 0013#phase-5 (Open-Q3) — arm schedule-time principal capture when
+    // the patched engine is present. Deputy classes can be configured after
+    // create_engine, and the host consumes the captured scheduler only on the
+    // live deputy-stack path or when a native-resolved continuation would
+    // otherwise report kNoUserPrincipal. A boot-time latch would fail open for
+    // later policy/application setup and false-deny granted continuations.
+    ex_hermes_vm_set_job_scheduler_capture(g_vm_runtime, 1);
   }
 #endif
 
@@ -2700,6 +2732,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       }
     };
     try {
+      ScopedNativePrincipal nativePrincipal(it->second.principal);
       if (it->second.args.empty()) {
         it->second.callback.call(*runtime->runtime);
       } else {

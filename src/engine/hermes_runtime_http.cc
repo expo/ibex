@@ -253,6 +253,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         if (!requireHttpServerOwner(runtime, server_id, "__exactHttpWait")) {
           return facebook::jsi::Value::null();
         }
+        auto waitPrincipal = currentPrincipalId();
 
         // Fast path: try synchronous poll first to avoid Promise overhead entirely
         {
@@ -263,6 +264,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
             // Wrap in resolved Promise to maintain API contract
             auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
             auto resolveFn = promiseCtor.getPropertyAsFunction(runtime, "resolve");
+            ScopedNativePrincipal nativePrincipal(waitPrincipal);
             return resolveFn.call(runtime, result);
           }
         }
@@ -272,10 +274,11 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
             runtime,
             facebook::jsi::PropNameID::forAscii(runtime, "__exactHttpWaitExecutor"),
             2,
-            [handle, server_id, timeout_ms](facebook::jsi::Runtime& runtime,
-                                           const facebook::jsi::Value&,
-                                           const facebook::jsi::Value* args,
-                                           size_t count) -> facebook::jsi::Value {
+            [handle, server_id, timeout_ms, waitPrincipal](
+                facebook::jsi::Runtime& runtime,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
               if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
                 return facebook::jsi::Value::undefined();
               }
@@ -289,6 +292,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 ExactHermesRuntime* handle;
                 uint32_t server_id;
                 uint32_t timeout_ms;
+                uint64_t principal;
                 std::shared_ptr<facebook::jsi::Function> resolve;
                 std::shared_ptr<facebook::jsi::Function> reject;
               };
@@ -328,8 +332,10 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                       pushRuntimeCallback(
                           t.handle,
                           [resolve = t.resolve, reject = t.reject,
-                           has_payload, payload = std::move(payload)](
+                           principal = t.principal, has_payload,
+                           payload = std::move(payload)](
                               facebook::jsi::Runtime& rt) {
+                            ScopedNativePrincipal nativePrincipal(principal);
                             try {
                               if (has_payload) {
                                 resolve->call(rt,
@@ -362,7 +368,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
 
               static WaitWorkerPool workerPool;
 
-              auto task = WaitTask{handle, server_id, timeout_ms, resolve, reject};
+              auto task = WaitTask{handle, server_id, timeout_ms, waitPrincipal, resolve, reject};
               workerPool.enqueue(std::move(task));
 
               return facebook::jsi::Value::undefined();

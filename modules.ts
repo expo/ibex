@@ -18,6 +18,7 @@ export interface PublicBuiltin {
 
 export const meta = {
   reservedNodeOnly: ['sqlite', 'sea'] as const,
+  runtimeGatedNodeBuiltinRoots: ['repl', 'sqlite'] as const,
   defaults: {
     bundleExternal: true,
     moduleBuiltin: true,

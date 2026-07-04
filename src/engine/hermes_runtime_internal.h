@@ -54,11 +54,13 @@ struct TimerEntry {
   uint64_t interval_ms;
   bool repeat;
   bool referenced = true;
+  uint64_t principal;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
 
 struct NextTickEntry {
+  uint64_t principal;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
@@ -66,6 +68,7 @@ struct NextTickEntry {
 struct FetchCallbackEntry {
   std::shared_ptr<facebook::jsi::Function> resolve;
   std::shared_ptr<facebook::jsi::Function> reject;
+  uint64_t principal;
   std::string url;
   std::chrono::steady_clock::time_point deadline;
 };
@@ -145,6 +148,8 @@ extern "C" void ex_host_log_event(const char* event_type,
                                   int32_t result);
 
 extern thread_local uint64_t g_active_module_id;
+constexpr uint64_t kNoNativePrincipalOverride = std::numeric_limits<uint64_t>::max();
+extern thread_local uint64_t g_native_callback_principal_id;
 
 extern "C" void ex_host_register_module_package(uint64_t module_id,
                                                 const char* package,
@@ -212,11 +217,41 @@ constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
 inline uint64_t currentPrincipalId() {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   if (g_vm_runtime != nullptr) {
-    return static_cast<uint64_t>(ex_hermes_vm_current_package_id(g_vm_runtime));
+    auto principal =
+        static_cast<uint64_t>(ex_hermes_vm_current_package_id(g_vm_runtime));
+    if (principal == static_cast<uint64_t>(kNoUserPrincipalId) &&
+        g_native_callback_principal_id != kNoNativePrincipalOverride) {
+      return g_native_callback_principal_id;
+    }
+    return principal;
   }
 #endif
+  if (g_native_callback_principal_id != kNoNativePrincipalOverride) {
+    return g_native_callback_principal_id;
+  }
   return g_active_module_id;
 }
+
+// @ref LLP 0013#phase-5 — native-host callbacks can re-enter JS with no live
+// user frame. Carry the scheduling/owning principal only for that no-user
+// boundary; frame attribution remains authoritative when Hermes reports one.
+class ScopedNativePrincipal {
+ public:
+  explicit ScopedNativePrincipal(uint64_t principal)
+      : previous_(g_native_callback_principal_id) {
+    g_native_callback_principal_id = principal;
+  }
+
+  ScopedNativePrincipal(const ScopedNativePrincipal&) = delete;
+  ScopedNativePrincipal& operator=(const ScopedNativePrincipal&) = delete;
+
+  ~ScopedNativePrincipal() {
+    g_native_callback_principal_id = previous_;
+  }
+
+ private:
+  uint64_t previous_;
+};
 
 #if defined(EXACT_HAVE_JSI_MUTABLE_BUFFER)
 class VectorBuffer : public facebook::jsi::MutableBuffer {
@@ -261,8 +296,13 @@ inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFoll
   // @ref LLP 0013#phase-5 — for deputy-sensitive capability classes (opt-in via
   // policy), effective authority is the AND of every package on the call stack,
   // so a deputy holding e.g. fs:write cannot be driven to act for an ungranted
-  // caller. Only collect the stack when deputy classes are actually configured.
-  if (g_vm_runtime != nullptr && hasDeputyClasses()) {
+  // caller. Also collect when the live frame walk found no user principal: the
+  // scheduler capture can recover the package/root that caused a native-resolved
+  // continuation, avoiding a false deny while still denying ungranted schedulers.
+  bool useStack =
+      g_vm_runtime != nullptr &&
+      (hasDeputyClasses() || principal == kNoUserPrincipalId);
+  if (useStack) {
     // Collection is innermost-first, so a full buffer drops the OUTERMOST frames
     // — exactly the low-authority callers whose absence would let the AND pass
     // (fail open). Size the buffer generously (the collector collapses

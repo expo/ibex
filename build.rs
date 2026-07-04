@@ -463,6 +463,12 @@ fn main() {
             "cargo:rerun-if-changed={}",
             vendored_generated_dir.display()
         );
+        println!(
+            "cargo:rerun-if-changed={}",
+            vendored_generated_dir
+                .join("embedded_runtime_bundle.js")
+                .display()
+        );
     } else if !regenerate_runtime {
         // The default ibex build is hermetic: it expects the committed
         // vendored-generated/ artifacts. If they are missing, fail loudly

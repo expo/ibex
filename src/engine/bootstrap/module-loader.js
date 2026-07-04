@@ -41,6 +41,9 @@
   var __privSetCompartmentFor = (typeof g.__exactSetCompartmentFor === 'function')
     ? g.__exactSetCompartmentFor
     : null;
+  var __privBarePackageName = (typeof g.__ibexBarePackageName === 'function')
+    ? g.__ibexBarePackageName
+    : function (identity) { return identity; };
   // The canonical runtime identity for a resolved module: the package name plus
   // its resolved version (`name@version`) when the host reported one, else the
   // bare name. Coexisting versions of one package therefore get distinct
@@ -51,17 +54,6 @@
     if (!name) return null;
     var version = record && record.pkgVersion;
     return version ? name + '@' + version : name;
-  }
-  // Strip a trailing `@version` from a version-qualified identity to recover the
-  // bare package **selector**, preserving an `@scope/` prefix (the `@` at index
-  // 0 is the scope, not a version). Kept in sync with `bareNameOf` in the
-  // compartment registry (hermes_runtime.cc). @ref LLP 0013#resolved-questions (ENG-22621)
-  function bareNameOf(identity) {
-    if (typeof identity !== 'string') return identity;
-    var at = identity.lastIndexOf('@');
-    var slash = identity.indexOf('/');
-    if (at > 0 && at > slash) return identity.slice(0, at);
-    return identity;
   }
   function normalizeRecordPath(p) {
     return typeof p === 'string' ? p.replace(/\\/g, '/').replace(/\/+$/, '') : null;
@@ -195,7 +187,7 @@
     // path — so derive both from the identity uniformly. @ref LLP 0013#resolved-questions
     // (ENG-22621)
     var identity = packageIdentityFor(name, record);
-    var selector = bareNameOf(identity);
+    var selector = __privBarePackageName(identity);
     var existing = __packagePrincipals[identity];
     if (existing) return existing;
     var id = __nextPackagePrincipal++;
@@ -4979,14 +4971,14 @@
     // on (which enforce/audit now does by default — ENG-22681/ENG-22624).
     if (typeof specifier === 'string' && g.__exactChunkDir &&
         (specifier.indexOf('__ibexpkg__') !== -1 ||
-         specifier.indexOf('rolldown-runtime.js') !== -1)) {
+         specifier === './rolldown-runtime.js')) {
       var __ci = specifier.lastIndexOf('/');
       var __cbase = __ci === -1 ? specifier : specifier.slice(__ci + 1);
       // Only bundler-emitted chunk basenames resolve against the cache dir. Reject
       // anything with a backslash (a Windows path separator), a `..` segment, or a
       // NUL so the basename cannot escape __exactChunkDir. @ref LLP 0013#mechanism-3
       var __isChunk = __cbase.indexOf('__ibexpkg__') === 0 ||
-          __cbase === 'rolldown-runtime.js';
+          specifier === './rolldown-runtime.js';
       if (__isChunk &&
           __cbase.indexOf('\\') === -1 &&
           __cbase.indexOf('..') === -1 &&

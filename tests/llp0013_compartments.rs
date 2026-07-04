@@ -282,6 +282,43 @@ fn env_endowments_cannot_widen_policy_under_enforce() {
         enforced.stderr
     );
 
+    // Enforce, no policy file resolved: still fail closed. This guards the early
+    // return where a stale ambient IBEX_ENDOW used to survive if policy discovery
+    // found no readable artifact. (ENG-22761)
+    let home = unique_dir("endow-no-policy-home");
+    let xdg = unique_dir("endow-no-policy-xdg");
+    let home_str = home.to_string_lossy().into_owned();
+    let xdg_str = xdg.to_string_lossy().into_owned();
+    let no_policy = run_ibex(
+        &[
+            "--lockdown",
+            "--capsec",
+            "enforce",
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[
+            ("IBEX_ENDOW", "evil-pkg:process"),
+            ("IBEX_POLICY", ""),
+            ("EXACT_POLICY", ""),
+            ("HOME", &home_str),
+            ("XDG_CONFIG_HOME", &xdg_str),
+        ],
+        None,
+    );
+    assert!(
+        no_policy.stdout.contains("evil.process=undefined"),
+        "IBEX_ENDOW must be cleared under enforce even when no policy file exists:\nstdout:\n{}\nstderr:\n{}",
+        no_policy.stdout,
+        no_policy.stderr
+    );
+    assert!(
+        no_policy.stderr.contains("IBEX_ENDOW ignored"),
+        "the no-policy fail-closed drop should be reported:\nstdout:\n{}\nstderr:\n{}",
+        no_policy.stdout,
+        no_policy.stderr
+    );
+
     // Escape hatch: the ambient override is honored again (proves the deny above
     // is a live suppression).
     let hatched = run_ibex(
@@ -319,6 +356,8 @@ fn env_endowments_cannot_widen_policy_under_enforce() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&xdg);
 }
 
 // ---------------------------------------------------------------------------
@@ -706,8 +745,8 @@ fn generated_builtins_artifact_is_in_sync() {
         return;
     }
     // The committed generated-builtins artifact regenerates byte-identically,
-    // and its `os-user` entry carries the observed `node:os` allowlist while
-    // `sneaky-os` stays `[]` (deny-all).
+    // and its version-qualified `os-user` identity carries the observed
+    // `node:os` allowlist while `sneaky-os` stays `[]` (deny-all).
     let out = run_ibex(
         &[
             "policy",
@@ -761,10 +800,176 @@ fn policy_check_reports_builtin_expansion_on_drift() {
     );
     assert!(
         out.stderr.contains("EXPANSIONS")
-            && out.stderr.contains("os-user: import node:child_process"),
+            && out
+                .stderr
+                .contains("os-user@1.0.0: import node:child_process"),
         "a new builtin import must surface as an import-axis expansion:\nstderr:\n{}",
         out.stderr
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn generated_policy_observes_relative_cjs_bridge_dependencies() {
+    if !have_js_runner() {
+        eprintln!("skipping: generator (bun/node) not available");
+        return;
+    }
+    let dir = unique_dir("generated-cjs-bridge");
+    let bridge = dir.join("node_modules").join("bridge-pkg");
+    let child = dir.join("node_modules").join("child-pkg");
+    std::fs::create_dir_all(&bridge).unwrap();
+    std::fs::create_dir_all(&child).unwrap();
+    std::fs::write(
+        dir.join("app.mjs"),
+        r#"import bridge from "bridge-pkg";
+console.log(bridge());
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        bridge.join("package.json"),
+        r#"{ "name":"bridge-pkg", "version":"1.2.3", "main":"index.js" }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        bridge.join("index.js"),
+        r#"module.exports = require("./bridge.cjs");"#,
+    )
+    .unwrap();
+    std::fs::write(
+        bridge.join("bridge.cjs"),
+        r#"var os = require("os");
+var child = require("child-pkg");
+module.exports = function bridge() { return os.platform() + ":" + child.name; };
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        child.join("package.json"),
+        r#"{ "name":"child-pkg", "version":"0.5.0", "main":"index.js" }"#,
+    )
+    .unwrap();
+    std::fs::write(child.join("index.js"), r#"exports.name = "child";"#).unwrap();
+
+    let policy = dir.join("ibex-policy.json");
+    let out = run_ibex(
+        &[
+            "policy",
+            "generate",
+            "--entry",
+            dir.join("app.mjs").to_str().unwrap(),
+            "--out",
+            policy.to_str().unwrap(),
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(
+        out.status, 0,
+        "policy generation should analyze relative CJS bridge modules:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    let artifact = std::fs::read_to_string(&policy).unwrap();
+    assert!(
+        artifact.contains(r#""bridge-pkg@1.2.3""#)
+            && artifact.contains(r#""node:os""#)
+            && artifact.contains(r#""child-pkg""#),
+        "policy artifact must include bridge identity, observed builtin, and child package:\n{}",
+        artifact
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn generated_policy_observed_builtins_are_version_scoped() {
+    if !have_js_runner() {
+        eprintln!("skipping: generator (bun/node) not available");
+        return;
+    }
+    let dir = unique_dir("generated-version-builtins");
+    let top = dir.join("node_modules").join("shared-pkg");
+    let uses_old = dir.join("node_modules").join("uses-old");
+    let old = uses_old.join("node_modules").join("shared-pkg");
+    std::fs::create_dir_all(&top).unwrap();
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(
+        dir.join("app.js"),
+        r#"require("shared-pkg");
+require("uses-old");
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        top.join("package.json"),
+        r#"{ "name":"shared-pkg", "version":"2.0.0", "main":"index.js" }"#,
+    )
+    .unwrap();
+    std::fs::write(top.join("index.js"), r#"exports.v = "v2";"#).unwrap();
+    std::fs::write(
+        uses_old.join("package.json"),
+        r#"{ "name":"uses-old", "version":"1.0.0", "main":"index.js" }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        uses_old.join("index.js"),
+        r#"module.exports = require("shared-pkg");"#,
+    )
+    .unwrap();
+    std::fs::write(
+        old.join("package.json"),
+        r#"{ "name":"shared-pkg", "version":"1.0.0", "main":"index.js" }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        old.join("index.js"),
+        r#"var os = require("os");
+exports.platform = os.platform();
+"#,
+    )
+    .unwrap();
+
+    let policy = dir.join("ibex-policy.json");
+    let out = run_ibex(
+        &[
+            "policy",
+            "generate",
+            "--entry",
+            dir.join("app.js").to_str().unwrap(),
+            "--out",
+            policy.to_str().unwrap(),
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(
+        out.status, 0,
+        "policy generation should distinguish coexisting package versions:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&policy).unwrap()).unwrap();
+    let packages = artifact["packages"]
+        .as_object()
+        .expect("generated artifact packages object");
+    let old_builtins = packages["shared-pkg@1.0.0"]["builtins"]
+        .as_array()
+        .expect("old shared-pkg builtins array");
+    let top_builtins = packages["shared-pkg@2.0.0"]["builtins"]
+        .as_array()
+        .expect("top shared-pkg builtins array");
+    assert!(
+        old_builtins.iter().any(|b| b == "node:os"),
+        "nested shared-pkg@1.0.0 should carry its observed os import:\n{}",
+        artifact
+    );
+    assert!(
+        !top_builtins.iter().any(|b| b == "node:os"),
+        "top shared-pkg@2.0.0 must not inherit the nested version's builtin import:\n{}",
+        artifact
+    );
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 

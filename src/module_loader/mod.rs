@@ -38,12 +38,15 @@ pub struct ResolvedModule {
     /// Canonical package root for propagating a package classification across
     /// relative imports inside a linked/realpathed dependency.
     pub package_root: Option<PathBuf>,
-    /// The `version` field of the resolved module's own nearest `package.json`
-    /// when the module lives under `node_modules`, else `None`. Combined with
-    /// the path-derived package **name** by the loader into the canonical
-    /// runtime identity `name@version`, so coexisting versions of one package
-    /// get distinct principals/compartments and a `name@version` policy selector
-    /// can pin a specific version. @ref LLP 0013#resolved-questions (ENG-22621)
+    /// The self-reported `version` field of the resolved module's own nearest
+    /// `package.json` when the module lives under `node_modules`, else `None`.
+    /// Combined with the resolver/path-derived package **name** by the loader
+    /// into `name@version`, so coexisting versions of one package get distinct
+    /// principals/compartments and a `name@version` policy selector can pin a
+    /// specific installed version. This is not an integrity boundary against a
+    /// malicious package that forges its manifest version; authoritative identity
+    /// would need lockfile/integrity input. @ref LLP 0013#resolved-questions
+    /// (ENG-22621/ENG-22768)
     pub package_version: Option<String>,
 }
 
@@ -126,10 +129,12 @@ impl ModuleLoader {
     /// The `version` of the package that owns `path`, when `path` is under a
     /// `node_modules` tree — read from the nearest enclosing `package.json` and
     /// memoized per package root. `None` for first-party/workspace code (no
-    /// `node_modules` ancestor) or a manifest with no `version`. The path (i.e.
-    /// where the package is installed) is authoritative for identity; only the
-    /// version is taken from the manifest, which a package could otherwise use
-    /// to claim a different name. @ref LLP 0013#resolved-questions (ENG-22621)
+    /// `node_modules` ancestor) or a manifest with no `version`. The resolver
+    /// metadata/path is authoritative for the package name; the version is
+    /// self-reported and only distinguishes coexisting installed copies.
+    /// Version-pinned selectors are therefore convenience/precision, not a trust
+    /// boundary against a malicious package forging its package.json. @ref LLP
+    /// 0013#resolved-questions (ENG-22621/ENG-22768)
     fn package_version_for(&self, path: &Path) -> Option<String> {
         // Read the version from the package's OWN root (`node_modules/<name>`,
         // the same segment the loader derives the package NAME from), NOT the

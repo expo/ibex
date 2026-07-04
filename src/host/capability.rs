@@ -5,6 +5,7 @@
 
 use super::SecurityMode;
 use crate::host::policy::PolicyFile;
+use crate::module_loader::RUNTIME_GATED_NODE_BUILTINS;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
 use std::sync::RwLock;
@@ -139,6 +140,12 @@ const NO_USER_PRINCIPAL: &str = "4294967294";
 enum FsNormalizationMode {
     FollowFinal,
     NoFollowFinal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FsResourceKind {
+    Pattern,
+    Value,
 }
 
 impl CapabilityManager {
@@ -288,33 +295,29 @@ impl CapabilityManager {
 
     /// A runtime **package self-grant** (the legacy `Exact.setModuleCapabilities`
     /// / `require(spec, { needs })` path). This is a permissive/dev convenience
-    /// only: under enforce/audit the generated policy artifact is the SOLE grant
-    /// source (LLP 0014), so a package must not be able to escalate its own
-    /// capabilities at runtime. The `Exact.setModuleCapabilities` global is only
-    /// deleted on the lockdown/compartment path, so under a plain `--capsec
-    /// enforce` run it stays reachable and would otherwise self-grant here — this
-    /// host-side gate is the robust close: the grant is refused (and audited)
-    /// outside permissive regardless of the reachable JS surface. Distinct from
+    /// only: under enforce the generated policy artifact is the SOLE grant source
+    /// (LLP 0014), so a package must not be able to escalate its own capabilities
+    /// at runtime. Audit records the would-deny but applies the grant so it can
+    /// observe-and-proceed like permissive mode. Distinct from
     /// `runtime_grant_root`, which is the ceiling-bounded dynamic-permission path.
-    /// (ENG-22695)
+    /// (ENG-22695/ENG-22770)
     pub fn runtime_self_grant(&self, module_id: &str, capability: &str) {
-        if self.mode == SecurityMode::Permissive {
+        if matches!(self.mode, SecurityMode::Permissive | SecurityMode::Audit) {
             self.grant(module_id, capability, None);
-            return;
         }
-        // Refused under enforce/audit; record a would-deny so the attempt is
-        // visible in the audit report.
         let normalized = normalize_capability(capability);
-        self.record(AuditEntry {
-            timestamp: std::time::SystemTime::now(),
-            module_id: module_id.to_string(),
-            package: self.principal_for(module_id),
-            capability: format!("self-grant:{}", normalized),
-            constraint: None,
-            decision: false,
-            allowed: false,
-            mode: self.mode,
-        });
+        if self.mode != SecurityMode::Permissive {
+            self.record(AuditEntry {
+                timestamp: std::time::SystemTime::now(),
+                module_id: module_id.to_string(),
+                package: self.principal_for(module_id),
+                capability: format!("self-grant:{}", normalized),
+                constraint: None,
+                decision: false,
+                allowed: self.mode == SecurityMode::Audit,
+                mode: self.mode,
+            });
+        }
     }
 
     /// Grant a capability to a package selector.
@@ -377,7 +380,7 @@ impl CapabilityManager {
         capability_str: &str,
         fs_mode: FsNormalizationMode,
     ) -> bool {
-        let normalized = normalize_capability_with_fs_mode(capability_str, fs_mode);
+        let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
         let decision =
             self.mode == SecurityMode::Permissive || self.decide(module_id, &normalized, fs_mode);
         self.gate_and_record(module_id, normalized, decision)
@@ -531,39 +534,28 @@ impl CapabilityManager {
             // Fail closed on a poisoned lock rather than silently allowing.
             return false;
         };
-        // Resolve each axis (builtins / packages) INDEPENDENTLY across the
-        // principal's selectors, most-specific first: the first selector whose
-        // entry constrains this axis governs it; if no selector constrains it,
-        // the axis is unrestricted. Binding both axes to a single most-specific
-        // entry would let a version-pin that restricts only one axis silently
-        // shadow (unrestrict) the other axis a bare-name entry constrains.
-        // Mirrors decide()'s per-selector precedence. (ENG-22621)
         if is_builtin_specifier(specifier) {
-            for selector in principal.selectors() {
-                if let Some(list) = map.get(selector).and_then(|p| p.builtins.as_ref()) {
-                    return list.iter().any(|b| import_specifier_matches(b, specifier));
-                }
-            }
-            true
+            selected_import_axis(&map, &principal, |p| p.builtins.as_ref())
+                .map(|list| list.iter().any(|b| import_specifier_matches(b, specifier)))
+                .unwrap_or(true)
         } else {
-            for selector in principal.selectors() {
-                if let Some(list) = map.get(selector).and_then(|p| p.packages.as_ref()) {
+            selected_import_axis(&map, &principal, |p| p.packages.as_ref())
+                .map(|list| {
                     // Match on the package *selector*, not the raw specifier: fold
                     // a subpath/deep import to its package (`lodash/fp` -> `lodash`)
                     // so the runtime agrees with how the generator authors the
                     // list, and treat a relative/absolute specifier as an
                     // intra-package import (not a cross-package edge) so a package
                     // can load its own files. (ENG-22637)
-                    return match package_selector_of_specifier(specifier) {
+                    match package_selector_of_specifier(specifier) {
                         None => true,
                         Some(selector) => list.iter().any(|p| {
                             p == specifier
                                 || package_selector_of_specifier(p).as_deref() == Some(&selector)
                         }),
-                    };
-                }
-            }
-            true
+                    }
+                })
+                .unwrap_or(true)
         }
     }
 
@@ -630,7 +622,7 @@ impl CapabilityManager {
         capability_str: &str,
         fs_mode: FsNormalizationMode,
     ) -> bool {
-        let normalized = normalize_capability_with_fs_mode(capability_str, fs_mode);
+        let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
         let top = stack.first().copied().unwrap_or("");
 
         let decision = if self.mode == SecurityMode::Permissive {
@@ -785,7 +777,7 @@ fn is_builtin_specifier(specifier: &str) -> bool {
     // A builtin subpath (`fs/promises`, `stream/web`, `dns/promises`) shares the
     // root builtin's axis, so a subpath can't dodge a `builtins: []` fence.
     let root = specifier.split('/').next().unwrap_or(specifier);
-    NODE_BUILTINS.contains(&root)
+    RUNTIME_GATED_NODE_BUILTINS.contains(&root)
 }
 
 /// Match a policy builtin entry against a require specifier, tolerating the
@@ -834,65 +826,57 @@ fn package_selector_of_specifier(specifier: &str) -> Option<String> {
     }
 }
 
-/// Node builtin module names (roots) reachable without the `node:` prefix. A
-/// specifier's first path segment is matched against this, so subpaths like
-/// `fs/promises` or `stream/web` classify as builtins too. Derived from the
-/// runtime's supported builtins; keep in sync as coverage grows. (ENG-22630)
-const NODE_BUILTINS: &[&str] = &[
-    "assert",
-    "async_hooks",
-    "buffer",
-    "child_process",
-    "cluster",
-    "console",
-    "constants",
-    "crypto",
-    "dgram",
-    "diagnostics_channel",
-    "dns",
-    "domain",
-    "events",
-    "fs",
-    "http",
-    "http2",
-    "https",
-    "inspector",
-    "module",
-    "net",
-    "os",
-    "path",
-    "perf_hooks",
-    "process",
-    "punycode",
-    "querystring",
-    "readline",
-    "repl",
-    "sqlite",
-    "stream",
-    "string_decoder",
-    "sys",
-    "timers",
-    "tls",
-    "trace_events",
-    "tty",
-    "url",
-    "util",
-    "v8",
-    "vm",
-    "wasi",
-    "worker_threads",
-    "zlib",
-];
+// Resolve each import-policy axis (builtins / packages) independently across the
+// principal's selectors, most-specific first. The first selector whose entry
+// constrains that axis governs it; if no selector constrains it, the axis is
+// unrestricted. Binding both axes to a single most-specific entry would let a
+// version pin that restricts only one axis silently shadow the other axis that a
+// bare-name entry constrains. Mirrors decide()'s per-selector precedence.
+// (ENG-22621/ENG-22773)
+fn selected_import_axis<'a, F>(
+    map: &'a HashMap<String, ImportPolicy>,
+    principal: &'a PackagePrincipal,
+    axis: F,
+) -> Option<&'a Vec<String>>
+where
+    F: Fn(&'a ImportPolicy) -> Option<&'a Vec<String>>,
+{
+    for selector in principal.selectors() {
+        if let Some(list) = map.get(selector).and_then(&axis) {
+            return Some(list);
+        }
+    }
+    None
+}
 
 pub fn normalize_capability(capability: &str) -> String {
-    normalize_capability_with_fs_mode(capability, FsNormalizationMode::FollowFinal)
+    normalize_capability_with_fs(
+        capability,
+        FsNormalizationMode::FollowFinal,
+        FsResourceKind::Pattern,
+    )
 }
 
 fn normalize_capability_no_follow_final(capability: &str) -> String {
-    normalize_capability_with_fs_mode(capability, FsNormalizationMode::NoFollowFinal)
+    normalize_capability_with_fs(
+        capability,
+        FsNormalizationMode::NoFollowFinal,
+        FsResourceKind::Pattern,
+    )
 }
 
-fn normalize_capability_with_fs_mode(capability: &str, fs_mode: FsNormalizationMode) -> String {
+fn normalize_capability_value_with_fs_mode(
+    capability: &str,
+    fs_mode: FsNormalizationMode,
+) -> String {
+    normalize_capability_with_fs(capability, fs_mode, FsResourceKind::Value)
+}
+
+fn normalize_capability_with_fs(
+    capability: &str,
+    fs_mode: FsNormalizationMode,
+    fs_kind: FsResourceKind,
+) -> String {
     let trimmed = capability.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -913,7 +897,7 @@ fn normalize_capability_with_fs_mode(capability: &str, fs_mode: FsNormalizationM
     };
     let action = action.to_lowercase();
     let normalized_resource = match scope.as_str() {
-        "fs" => normalize_fs_resource(resource, fs_mode),
+        "fs" => normalize_fs_resource(resource, fs_mode, fs_kind),
         "env" => normalize_env_resource(resource),
         "network" => normalize_network_resource(resource),
         _ => resource.to_string(),
@@ -934,7 +918,11 @@ fn normalize_network_resource(resource: &str) -> String {
     resource.trim().to_lowercase()
 }
 
-fn normalize_fs_resource(resource: &str, fs_mode: FsNormalizationMode) -> String {
+fn normalize_fs_resource(
+    resource: &str,
+    fs_mode: FsNormalizationMode,
+    kind: FsResourceKind,
+) -> String {
     let trimmed = resource.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -955,7 +943,7 @@ fn normalize_fs_resource(resource: &str, fs_mode: FsNormalizationMode) -> String
     // while the OS followed the symlink outside it. Both the checked value and
     // the grant pattern resolve through the same walk so they stay comparable
     // (e.g. macOS `/var` → `/private/var`). (ENG-22682)
-    let has_wildcard = trimmed.contains('*');
+    let has_wildcard = kind == FsResourceKind::Pattern && trimmed.contains('*');
     if !has_wildcard {
         let resolved = match fs_mode {
             FsNormalizationMode::FollowFinal => resolve_symlinks_partial(&path),
@@ -1016,6 +1004,19 @@ fn resolve_symlinks_partial_with_mode(path: &Path, follow_final: bool) -> PathBu
     if follow_final {
         if let Ok(canon) = path.canonicalize() {
             return canon;
+        }
+    }
+    // Fast path for create-like paths: when only the leaf is absent, canonicalize
+    // the parent once and append the leaf. Fall through to the component walk
+    // only when the final entry is itself a symlink or the parent is missing.
+    // (ENG-22771)
+    if let (Some(parent), Some(file_name)) = (path.parent(), path.file_name()) {
+        if let Ok(parent_canon) = parent.canonicalize() {
+            let candidate = parent_canon.join(file_name);
+            match std::fs::symlink_metadata(&candidate) {
+                Ok(md) if md.file_type().is_symlink() => {}
+                _ => return candidate,
+            }
         }
     }
 
@@ -1162,6 +1163,11 @@ fn matches_capability(pattern: &str, value: &str) -> bool {
         }
         if index == pattern_parts.len() - 1 {
             let value_tail = value_parts[index..].join(":");
+            if pattern_parts.first() == Some(&"network")
+                && network_endpoint_match(pattern_part, &value_tail)
+            {
+                return true;
+            }
             if path_prefix_match(pattern_part, &value_tail) {
                 return true;
             }
@@ -1170,6 +1176,24 @@ fn matches_capability(pattern: &str, value: &str) -> bool {
     }
 
     true
+}
+
+fn network_endpoint_match(pattern: &str, value: &str) -> bool {
+    if pattern == value {
+        return true;
+    }
+    // Network endpoint capabilities are emitted as `host:port` for socket
+    // operations and, depending on URL parser shape, fetch/WebSocket authorities.
+    // A policy resource without a port grants that host across ports, but it must
+    // not become a generic string prefix (`example.com` must not match
+    // `example.com.evil`). Keep this scope-specific so generic capability
+    // resources remain exact unless they use `/**`.
+    if pattern.contains(':') {
+        return false;
+    }
+    value
+        .strip_prefix(pattern)
+        .is_some_and(|remainder| remainder.starts_with(':'))
 }
 
 fn path_prefix_match(pattern: &str, value: &str) -> bool {
@@ -1209,6 +1233,14 @@ mod tests {
         assert!(matches_capability(
             "network:fetch",
             "network:fetch:api.example.com"
+        ));
+        assert!(matches_capability(
+            "network:fetch:api.example.com",
+            "network:fetch:api.example.com:443"
+        ));
+        assert!(!matches_capability(
+            "network:fetch:api.example.com",
+            "network:fetch:api.example.com.evil:443"
         ));
         assert!(matches_capability("fs:read", "fs:read:/tmp/file.txt"));
         assert!(!matches_capability(
@@ -1568,6 +1600,7 @@ mod tests {
         assert!(is_builtin_specifier("exact:sqlite"));
         assert!(is_builtin_specifier("bun:sqlite"));
         assert!(is_builtin_specifier("bun:fs"));
+        assert!(is_builtin_specifier("node:test"));
         let m = CapabilityManager::new(SecurityMode::Enforce);
         let mut policy = PolicyFile::default();
         policy.packages.insert(
@@ -1579,7 +1612,14 @@ mod tests {
         );
         m.apply_policy(&policy);
         m.register_module_package("1", "evil", None);
-        for alias in ["exact:sqlite", "bun:sqlite", "bun:fs", "fs", "node:fs"] {
+        for alias in [
+            "exact:sqlite",
+            "bun:sqlite",
+            "bun:fs",
+            "fs",
+            "node:fs",
+            "node:test",
+        ] {
             assert!(
                 !m.check_import("1", alias),
                 "alias should be denied: {alias}"
@@ -1599,11 +1639,12 @@ mod tests {
         assert!(m.check_import("999", "node:fs"));
     }
 
-    // @ref LLP 0013 §self-grant (ENG-22695) — the runtime package self-grant path
-    // (Exact.setModuleCapabilities / require({needs})) is refused under
-    // enforce/audit; a package cannot escalate its own capabilities at runtime.
+    // @ref LLP 0013 §self-grant (ENG-22695/ENG-22770) — the runtime package
+    // self-grant path (Exact.setModuleCapabilities / require({needs})) is
+    // refused under enforce; audit preserves the legacy observable grant while
+    // recording the would-deny so compatibility probes do not perturb behavior.
     #[test]
-    fn runtime_self_grant_is_refused_under_enforce_but_works_permissive() {
+    fn runtime_self_grant_is_refused_under_enforce_but_preserved_outside_enforce() {
         let enforce = CapabilityManager::new(SecurityMode::Enforce);
         enforce.register_module_package("1", "evil", None);
         enforce.runtime_self_grant("1", "fs:read");
@@ -1614,11 +1655,19 @@ mod tests {
 
         let audit = CapabilityManager::new(SecurityMode::Audit);
         audit.runtime_self_grant("2", "fs:read");
-        // Audit lets ops proceed but the grant itself must not be recorded.
+        // Audit lets ops proceed and preserves the legacy self-grant effect, but
+        // records that the self-grant would be denied under enforce.
         assert!(
-            !audit.decide("2", "fs:read:/etc/passwd", FsNormalizationMode::FollowFinal),
-            "self-grant must not stick under audit"
+            audit.decide("2", "fs:read:/etc/passwd", FsNormalizationMode::FollowFinal),
+            "self-grant sticks under audit to avoid changing observable behavior"
         );
+        let audit_log = audit.audit_log();
+        let entry = audit_log
+            .last()
+            .expect("audit self-grant should record a would-deny");
+        assert_eq!(entry.capability, "self-grant:fs:read");
+        assert!(entry.allowed);
+        assert!(!entry.decision);
 
         let permissive = CapabilityManager::new(SecurityMode::Permissive);
         permissive.runtime_self_grant("3", "fs:read");
@@ -1708,7 +1757,11 @@ mod tests {
                 "node-fetch".to_string(),
                 crate::host::policy::PackagePolicy {
                     capabilities: vec!["network:fetch".to_string()],
-                    builtins: Some(vec!["node:http".to_string(), "node:https".to_string()]),
+                    builtins: Some(vec![
+                        "node:http".to_string(),
+                        "node:https".to_string(),
+                        "node:test".to_string(),
+                    ]),
                     ..Default::default()
                 },
             )]),
@@ -1719,6 +1772,7 @@ mod tests {
 
         assert!(manager.check_import("42", "node:http"));
         assert!(manager.check_import("42", "https")); // node: prefix tolerated
+        assert!(manager.check_import("42", "test")); // generated/runtime node list agrees
         assert!(!manager.check_import("42", "node:fs")); // not in allowlist
         assert!(!manager.check_import("42", "fs"));
 

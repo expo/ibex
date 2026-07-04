@@ -1510,10 +1510,34 @@ fn policy_is_explicit(cli: &Cli) -> bool {
 }
 
 fn build_host_config(cli: &Cli) -> Result<HostConfig> {
+    let policy_path = resolve_policy_path(cli);
+    let mode = resolve_security_mode(cli, policy_path.as_deref())?;
+
+    enable_isolation_prerequisites(mode);
+    apply_policy_endowments(policy_path.as_deref(), mode, cli.allow_env_endowments);
+
+    Ok(HostConfig {
+        mode,
+        policy_path,
+        allow: cli.allow.clone(),
+        deny: cli.deny.clone(),
+        root_dir: None,
+        allowed_hosts: None,
+    })
+}
+
+/// Resolve the effective `SecurityMode` from the CLI flags and the policy
+/// artifact's declared `mode`. Shared by the run path (`build_host_config`) and
+/// `ibex build` (`apply_build_isolation`) so a built artifact is chunked for
+/// per-package attribution exactly when a run of the same app would enforce —
+/// otherwise `ibex build` under an enforce policy silently emits a flat,
+/// single-principal bundle. (ENG-22760)
+fn resolve_security_mode(
+    cli: &Cli,
+    policy_path: Option<&Path>,
+) -> Result<crate::host::SecurityMode> {
     use crate::cli::CapSecMode;
     use crate::host::{policy::PolicyFile, SecurityMode};
-
-    let policy_path = resolve_policy_path(cli);
 
     // Load + validate the policy when its path exists. A configured policy that
     // exists but cannot be parsed FAILS CLOSED: a malformed committed policy
@@ -1523,7 +1547,7 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     // auto-mode. (ENG-22620) The declared mode reuses `SecurityMode::from_policy_str`
     // — the single source of truth for mode-string parsing (formerly duplicated by
     // `policy_declared_mode`). @ref LLP 0014#runtime-and-cli
-    let declared_mode = match policy_path.as_deref() {
+    let declared_mode = match policy_path {
         Some(p) if p.exists() => {
             let policy = PolicyFile::load(p)
                 .with_context(|| format!("failed to load capability policy {}", p.display()))?;
@@ -1570,17 +1594,21 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
         }
     };
 
-    enable_isolation_prerequisites(mode);
-    apply_policy_endowments(policy_path.as_deref(), mode, cli.allow_env_endowments);
+    Ok(mode)
+}
 
-    Ok(HostConfig {
-        mode,
-        policy_path,
-        allow: cli.allow.clone(),
-        deny: cli.deny.clone(),
-        root_dir: None,
-        allowed_hosts: None,
-    })
+/// Apply the enforce/audit isolation prerequisite (per-package chunking) for the
+/// `ibex build` path, mirroring what `build_host_config` does for a run. Without
+/// this, a build under an enforce policy compiles a flat single-Domain bundle and
+/// the resulting `.hbc`, run under `--capsec enforce`, attributes every
+/// `node_modules` frame to the trusted root — the capability gate never fires for
+/// a dependency. Returns the resolved mode (Enforce/Audit imply chunking).
+/// @ref LLP 0013#mechanism-3 (ENG-22760)
+pub(crate) fn apply_build_isolation(cli: &Cli) -> Result<crate::host::SecurityMode> {
+    let policy_path = resolve_policy_path(cli);
+    let mode = resolve_security_mode(cli, policy_path.as_deref())?;
+    enable_isolation_prerequisites(mode);
+    Ok(mode)
 }
 
 /// Enable the per-package **attribution** prerequisite that enforce/audit mode
@@ -1626,13 +1654,14 @@ fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
             }
         );
     }
-    // @ref LLP 0013 §self-grant — under enforce/audit the runtime package
+    // @ref LLP 0013 §self-grant — under enforce the runtime package
     // self-grant surface (`Exact.setModuleCapabilities`, the `require({needs})`
-    // channel) must not be reachable: grants come from the policy artifact. The
-    // host already refuses the grant (runtime_self_grant), but signal the engine
-    // to delete the JS function too so package code can't even see it. No opt-out
-    // — this is a security seal, not an isolation-cost tradeoff. (ENG-22695)
-    std::env::set_var("IBEX_SEAL_SELF_GRANT", "1");
+    // channel) must not be reachable: grants come from the policy artifact. Audit
+    // mode observes would-deny self-grant attempts while preserving permissive
+    // behavior, so sealing is limited to enforce. (ENG-22695/ENG-22770)
+    if mode == SecurityMode::Enforce {
+        std::env::set_var("IBEX_SEAL_SELF_GRANT", "1");
+    }
 }
 
 /// Compose the compartment endowment map from the policy artifact's
@@ -1663,29 +1692,29 @@ fn apply_policy_endowments(
 ) {
     use crate::host::SecurityMode;
     static APPLIED: AtomicBool = AtomicBool::new(false);
-    let Some(path) = policy_path else {
-        return;
+    let fail_closed = matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) && !allow_env;
+    let mut groups: Vec<String> = match policy_path {
+        Some(path) if path.exists() => {
+            let Ok(policy) = crate::host::policy::PolicyFile::load(path) else {
+                // Unreadable policy files surface as errors in host setup;
+                // endowment wiring stays silent here to avoid double-reporting.
+                return;
+            };
+            policy
+                .packages
+                .iter()
+                .filter_map(|(pkg, package_policy)| {
+                    let endow = package_policy.endow.as_ref()?;
+                    if endow.is_empty() {
+                        None
+                    } else {
+                        Some(format!("{}:{}", pkg, endow.join(",")))
+                    }
+                })
+                .collect()
+        }
+        _ => Vec::new(),
     };
-    if !path.exists() {
-        return;
-    }
-    let Ok(policy) = crate::host::policy::PolicyFile::load(path) else {
-        // Unreadable policy files surface as errors in host setup; endowment
-        // wiring stays silent here to avoid double-reporting.
-        return;
-    };
-    let mut groups: Vec<String> = policy
-        .packages
-        .iter()
-        .filter_map(|(pkg, package_policy)| {
-            let endow = package_policy.endow.as_ref()?;
-            if endow.is_empty() {
-                None
-            } else {
-                Some(format!("{}:{}", pkg, endow.join(",")))
-            }
-        })
-        .collect();
     groups.sort();
 
     // Under enforce/audit, the policy is the sole endowment source and a stale
@@ -1693,7 +1722,6 @@ fn apply_policy_endowments(
     // otherwise an inherited value would survive untouched. In permissive/hatch
     // mode with no policy groups there is nothing to compose, so leave any
     // ambient value in place.
-    let fail_closed = matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) && !allow_env;
     if groups.is_empty() && !fail_closed {
         return;
     }
@@ -1709,7 +1737,7 @@ fn apply_policy_endowments(
     let value = if fail_closed {
         if let Some(env) = &existing {
             eprintln!(
-                "warning: IBEX_ENDOW ignored under an enforce/audit policy (would widen \
+                "warning: IBEX_ENDOW ignored under enforce/audit mode (would widen \
                  compartment endowments: {env}); pass --allow-env-endowments to override"
             );
         }
@@ -1723,7 +1751,11 @@ fn apply_policy_endowments(
             None => policy_value,
         }
     };
-    std::env::set_var("IBEX_ENDOW", value);
+    if value.is_empty() {
+        std::env::remove_var("IBEX_ENDOW");
+    } else {
+        std::env::set_var("IBEX_ENDOW", value);
+    }
 }
 
 fn resolve_policy_path(cli: &Cli) -> Option<PathBuf> {
@@ -2283,6 +2315,47 @@ fn bundle_output_path(cache_dir: &Path, key: &str, format: BundleFormat) -> Path
     } else {
         cache_dir.join(format!("{}.bundle.{}", key, ext))
     }
+}
+
+/// Copy the per-package chunk siblings a chunked bundle emitted — the
+/// `__ibexpkg__*` package chunks and the shared `rolldown-runtime.js` — from the
+/// bundle entry's directory into `dest_dir`. A flat `.hbc` produced by
+/// `ibex build` lives away from its cache-dir chunks; the run path sets
+/// `__exactChunkDir` to the artifact's own directory, so the chunks must sit next
+/// to the built `.hbc` or the entry's `require('__ibexpkg__…')` fails to resolve.
+/// The copied set is exactly what the loader's chunk-redirect recognizes
+/// (module-loader.js). Returns the number of chunk files copied. (ENG-22760)
+/// @ref LLP 0013#mechanism-3
+pub(crate) fn ship_chunk_siblings(bundle_entry: &Path, dest_dir: &Path) -> Result<usize> {
+    let Some(src_dir) = bundle_entry.parent() else {
+        return Ok(0);
+    };
+    // No-op when the bundle already lives in the destination (an in-place run).
+    if src_dir == dest_dir {
+        return Ok(0);
+    }
+    std::fs::create_dir_all(dest_dir)?;
+    let mut copied = 0usize;
+    for entry in std::fs::read_dir(src_dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        // Mirror the loader's recognized chunk set; any other file (the entry
+        // bundle, a source map) is not a chunk and must not be copied.
+        let is_chunk = name_str.starts_with("__ibexpkg__") || name_str == "rolldown-runtime.js";
+        if !is_chunk || !entry.file_type()?.is_file() {
+            continue;
+        }
+        std::fs::copy(entry.path(), dest_dir.join(&name)).with_context(|| {
+            format!(
+                "failed to copy chunk {} into {}",
+                name_str,
+                dest_dir.display()
+            )
+        })?;
+        copied += 1;
+    }
+    Ok(copied)
 }
 
 pub(crate) fn contains_top_level_await(source: &str) -> bool {
@@ -2925,6 +2998,46 @@ mod tests {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         hash_file_contents(&mut hasher, path).expect("hashing file contents should succeed");
         hasher.finish()
+    }
+
+    // ENG-22760 — `ibex build` under enforce/audit must ship the per-package
+    // chunk siblings next to the `.hbc`, or the built artifact silently loses
+    // per-package attribution (a flat single-Domain run). Ship exactly the set
+    // the loader's chunk-redirect recognizes (`__ibexpkg__*`, `rolldown-runtime.js`)
+    // and nothing else (not the entry bundle, its deps json, or unrelated files).
+    #[test]
+    fn ship_chunk_siblings_copies_only_recognized_chunks() {
+        let src = tempdir().unwrap();
+        let dest = tempdir().unwrap();
+        // A chunked bundle dir as the bundler emits it.
+        std::fs::write(src.path().join("bundle.js"), "entry").unwrap();
+        std::fs::write(src.path().join("bundle.js.map"), "{}").unwrap();
+        std::fs::write(src.path().join("bundle.js.deps.json"), "[]").unwrap();
+        std::fs::write(src.path().join("__ibexpkg__evil-pkg@1.0.0.js"), "chunk").unwrap();
+        std::fs::write(src.path().join("__ibexpkg__evil-pkg@1.0.0.js.map"), "{}").unwrap();
+        std::fs::write(src.path().join("rolldown-runtime.js"), "rt").unwrap();
+        std::fs::write(src.path().join("unrelated.txt"), "x").unwrap();
+
+        let entry = src.path().join("bundle.js");
+        let copied = ship_chunk_siblings(&entry, dest.path()).unwrap();
+
+        // The chunk, its map, and the shared runtime are shipped...
+        assert!(dest.path().join("__ibexpkg__evil-pkg@1.0.0.js").exists());
+        assert!(dest
+            .path()
+            .join("__ibexpkg__evil-pkg@1.0.0.js.map")
+            .exists());
+        assert!(dest.path().join("rolldown-runtime.js").exists());
+        assert_eq!(copied, 3);
+        // ...but the entry bundle, its deps json, its map, and unrelated files
+        // are not (they'd shadow the entry / bloat the artifact).
+        assert!(!dest.path().join("bundle.js").exists());
+        assert!(!dest.path().join("bundle.js.map").exists());
+        assert!(!dest.path().join("bundle.js.deps.json").exists());
+        assert!(!dest.path().join("unrelated.txt").exists());
+
+        // Shipping into the bundle's own directory (an in-place run) is a no-op.
+        assert_eq!(ship_chunk_siblings(&entry, src.path()).unwrap(), 0);
     }
 
     #[tokio::test]

@@ -212,8 +212,9 @@ to it, so a bare builtin (`fs`), a `node:`/`exact:`/`bun:` alias, or a builtin
 subpath is never modeled as a package selector or dependency edge (ENG-22699),
 and the `exact:`/`bun:` alias namespaces are observed and emitted verbatim so
 the generated allowlist matches how the runtime gates them (ENG-22697). It must
-cover every root the runtime gates (`NODE_BUILTINS` in `src/host/capability.rs`)
-— a drift guard in `import-grants.test.mjs` asserts this.
+cover every root the runtime gates (`RUNTIME_GATED_NODE_BUILTINS` in the
+generated builtin manifest) — a drift guard in `import-grants.test.mjs` asserts
+this.
 
 ## The generated artifact
 
