@@ -1630,6 +1630,11 @@ export function createRolldownConfig({
     }),
     resolve: {
       conditionNames: [...rolldownConditionNames],
+      // @ref LLP 0014#the-grant-channel — keep symlinked dependencies
+      // classifiable as dependencies in the generated graph. If Rolldown
+      // realpaths an npm-link/pnpm-style edge outside node_modules, package
+      // code can be misread as trusted root grant-authoring code.
+      symlinks: false,
     },
     plugins: createSharedBundlerPlugins({ injectDirnameBindings, compartments }),
     transform: {

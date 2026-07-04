@@ -12,6 +12,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <iomanip>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -26,6 +27,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <unordered_map>
 #include <unistd.h>
 
 extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
@@ -47,7 +49,7 @@ extern "C" int32_t ex_host_fs_copy(const char* from, const char* to);
 extern "C" char* ex_host_fs_realpath(const char* path);
 extern "C" int32_t ex_host_fs_access(const char* path, int32_t mode);
 extern "C" int32_t ex_host_fs_chmod(const char* path, uint32_t mode);
-extern "C" char* ex_host_fs_mkdtemp(const char* prefix);
+extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
 extern "C" void ex_host_free_string(char* value);
 
@@ -60,6 +62,101 @@ struct IoVecMetadata {
   size_t byteOffset;
   size_t byteLength;
 };
+
+struct FdEntry {
+  uint64_t owner;
+  std::string path;
+  bool canRead;
+  bool canWrite;
+};
+
+static std::mutex g_fd_registry_mutex;
+static std::unordered_map<int, FdEntry> g_fd_registry;
+
+static bool principalMayUseUnknownFd(uint64_t principal) {
+  if (principal == 0) {
+    return true;
+  }
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (principal == static_cast<uint64_t>(kRuntimePrincipalId)) {
+    return true;
+  }
+#endif
+  return false;
+}
+
+static void registerFd(int fd, const std::string& path, bool canRead, bool canWrite) {
+  if (fd < 0 || isAllowAll()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  g_fd_registry[fd] = FdEntry{currentPrincipalId(), path, canRead, canWrite};
+}
+
+static void unregisterFd(int fd) {
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  g_fd_registry.erase(fd);
+}
+
+static std::optional<FdEntry> lookupFdEntry(int fd) {
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  auto it = g_fd_registry.find(fd);
+  if (it == g_fd_registry.end()) {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+static FdEntry requireOwnedFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  auto principal = currentPrincipalId();
+  auto entry = lookupFdEntry(fd);
+  if (!entry) {
+    if (principalMayUseUnknownFd(principal) || isAllowAll()) {
+      return FdEntry{principal, std::string("/dev/fd/") + std::to_string(fd), true, true};
+    }
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
+  }
+  if (entry->owner != principal) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  return *entry;
+}
+
+static void requireFdRead(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  if (isAllowAll()) {
+    return;
+  }
+  auto entry = requireOwnedFd(runtime, fd, syscall);
+  if (!entry.canRead) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": fd not opened for reading");
+  }
+  if (!checkCapability("fs:read:" + entry.path)) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+}
+
+static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  if (isAllowAll()) {
+    return;
+  }
+  auto entry = requireOwnedFd(runtime, fd, syscall);
+  if (!entry.canWrite) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": fd not opened for writing");
+  }
+  if (!checkCapability("fs:write:" + entry.path)) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+}
+
+static void requireFdMetadataWrite(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  if (isAllowAll()) {
+    return;
+  }
+  auto entry = requireOwnedFd(runtime, fd, syscall);
+  if (!checkCapability("fs:write:" + entry.path)) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+}
 
 static bool parseIoVecArguments(
     facebook::jsi::Runtime& runtime,
@@ -95,36 +192,8 @@ static bool parseIoVecArguments(
     size_t byteLength = 0;
     const uint8_t* source = nullptr;
     bool isArrayBuffer = false;
-    if (entryObj.isArrayBuffer(runtime)) {
-      auto ab = entryObj.getArrayBuffer(runtime);
-      source = ab.data(runtime);
-      byteLength = ab.size(runtime);
-      isArrayBuffer = true;
-    } else if (entryObj.hasProperty(runtime, "buffer")) {
-      auto bufferValue = entryObj.getProperty(runtime, "buffer");
-      if (!bufferValue.isObject()) {
-        return false;
-      }
-      auto bufferObj = bufferValue.asObject(runtime);
-      if (!bufferObj.isArrayBuffer(runtime)) {
-        return false;
-      }
-      auto ab = bufferObj.getArrayBuffer(runtime);
-      size_t available = ab.size(runtime);
-      byteOffset = entryObj.hasProperty(runtime, "byteOffset")
-          ? static_cast<size_t>(entryObj.getProperty(runtime, "byteOffset").asNumber())
-          : 0;
-      byteLength = entryObj.hasProperty(runtime, "byteLength")
-          ? static_cast<size_t>(entryObj.getProperty(runtime, "byteLength").asNumber())
-          : (available - byteOffset);
-      if (byteOffset > available) {
-        return false;
-      }
-      if (byteOffset + byteLength > available) {
-        byteLength = available - byteOffset;
-      }
-      source = ab.data(runtime) + byteOffset;
-    } else {
+    isArrayBuffer = entryObj.isArrayBuffer(runtime);
+    if (!extractArrayBufferView(runtime, entryObj, source, byteLength, &byteOffset)) {
       return false;
     }
     if (byteLength > 0 && !source) {
@@ -271,26 +340,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
 
-        // Extract bytes from Uint8Array
-        auto obj = args[1].asObject(runtime);
-        size_t length = 0;
-        const uint8_t* dataPtr = nullptr;
-        std::vector<uint8_t> dataCopy;
-
-        if (obj.hasProperty(runtime, "buffer")) {
-          auto bufVal = obj.getProperty(runtime, "buffer");
-          if (bufVal.isObject()) {
-            auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-            auto offset = obj.hasProperty(runtime, "byteOffset")
-                ? static_cast<size_t>(obj.getProperty(runtime, "byteOffset").asNumber())
-                : 0;
-            length = obj.hasProperty(runtime, "byteLength")
-                ? static_cast<size_t>(obj.getProperty(runtime, "byteLength").asNumber())
-                : buf.size(runtime) - offset;
-            dataCopy.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
-            dataPtr = dataCopy.data();
-          }
-        }
+        auto dataCopy = extractBytes(runtime, args[1]);
+        size_t length = dataCopy.size();
+        const uint8_t* dataPtr = dataCopy.empty() ? nullptr : dataCopy.data();
 
         void* handle = ex_host_fs_open(path.c_str(), EXACT_FS_WRITE | EXACT_FS_CREATE | EXACT_FS_TRUNCATE);
         if (!handle) {
@@ -326,25 +378,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
 
-        auto obj = args[1].asObject(runtime);
-        size_t length = 0;
-        const uint8_t* dataPtr = nullptr;
-        std::vector<uint8_t> dataCopy;
-
-        if (obj.hasProperty(runtime, "buffer")) {
-          auto bufVal = obj.getProperty(runtime, "buffer");
-          if (bufVal.isObject()) {
-            auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-            auto offset = obj.hasProperty(runtime, "byteOffset")
-                ? static_cast<size_t>(obj.getProperty(runtime, "byteOffset").asNumber())
-                : 0;
-            length = obj.hasProperty(runtime, "byteLength")
-                ? static_cast<size_t>(obj.getProperty(runtime, "byteLength").asNumber())
-                : buf.size(runtime) - offset;
-            dataCopy.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
-            dataPtr = dataCopy.data();
-          }
-        }
+        auto dataCopy = extractBytes(runtime, args[1]);
+        size_t length = dataCopy.size();
+        const uint8_t* dataPtr = dataCopy.empty() ? nullptr : dataCopy.data();
 
         if (length > 0 && dataPtr) {
           int32_t written = ex_host_fs_append(path.c_str(), dataPtr, static_cast<uint32_t>(length));
@@ -667,11 +703,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count > 0 && args[0].isString()) {
           prefix = args[0].toString(runtime).utf8(runtime);
         }
-        std::string cap = "fs:write:" + prefix;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
-        char* path = ex_host_fs_mkdtemp(prefix.c_str());
+        char* path = ex_host_fs_mkdtemp(prefix.c_str(), currentPrincipalId());
         if (!path) {
           throw facebook::jsi::JSError(runtime, "Failed to create temporary directory");
         }
@@ -758,18 +790,18 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         // O_APPEND) requires fs:write, not merely fs:read. Previously the open
         // only ever checked fs:read, so writeFileSync (fd-based) bypassed the
         // fs:write gate.
+        int access = posixFlags & O_ACCMODE;
+        bool needsWrite = access == O_WRONLY || access == O_RDWR ||
+            (posixFlags & (O_CREAT | O_TRUNC | O_APPEND)) != 0;
+        bool needsRead = access == O_RDONLY || access == O_RDWR;
+        // An exotic/invalid access mode (O_ACCMODE == 3 on Linux, where the fd
+        // still enables fstat/fchmod/existence probing) must not skip the gate.
+        // Every open requires at least fs:read, so the flag math can only
+        // *widen* the requirement, never eliminate it. (ENG-22639)
+        if (!needsWrite && !needsRead) {
+          needsRead = true;
+        }
         if (!isAllowAll()) {
-          int access = posixFlags & O_ACCMODE;
-          bool needsWrite = access == O_WRONLY || access == O_RDWR ||
-              (posixFlags & (O_CREAT | O_TRUNC | O_APPEND)) != 0;
-          bool needsRead = access == O_RDONLY || access == O_RDWR;
-          // An exotic/invalid access mode (O_ACCMODE == 3 on Linux, where the fd
-          // still enables fstat/fchmod/existence probing) must not skip the gate.
-          // Every open requires at least fs:read, so the flag math can only
-          // *widen* the requirement, never eliminate it. (ENG-22639)
-          if (!needsWrite && !needsRead) {
-            needsRead = true;
-          }
           if (needsWrite && !checkCapability("fs:write:" + path)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
@@ -787,6 +819,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (fd < 0) {
           throwFsError(runtime, "open", path);
         }
+        // @ref LLP 0013#policy — raw POSIX fds are forgeable integers, so the
+        // host records the owner/path/access class at open and later fd ops
+        // recheck both ownership and the current capability grant. (ENG-22707)
+        registerFd(fd, path, needsRead, needsWrite);
         return facebook::jsi::Value(fd);
       });
   rt.global().setProperty(rt, "__exactFsOpen", std::move(fsOpenFn));
@@ -804,9 +840,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsClose: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        if (!isAllowAll()) {
+          (void)requireOwnedFd(runtime, fd, "close");
+        }
         if (::close(fd) < 0) {
           throwFsError(runtime, "close", "");
         }
+        unregisterFd(fd);
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactFsClose", std::move(fsCloseFn));
@@ -826,6 +866,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         size_t length = static_cast<size_t>(args[1].asNumber());
+        requireFdRead(runtime, fd, "read");
 
         // If position is provided and not -1 / null / undefined, seek first
         if (count > 2 && args[2].isNumber()) {
@@ -864,7 +905,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactFdPollHup"),
       1,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -872,6 +913,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(false);
         }
         int fd = static_cast<int>(args[0].asNumber());
+        if (!isAllowAll()) {
+          (void)requireOwnedFd(runtime, fd, "poll");
+        }
         struct pollfd pfd;
         pfd.fd = fd;
         pfd.events = POLLIN;
@@ -1029,6 +1073,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdWrite(runtime, fd, "write");
 
         // Extract data bytes
         auto dataBytes = extractBytes(runtime, args[1]);
@@ -1065,6 +1110,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsReadv: fd and buffers required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdRead(runtime, fd, "readv");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
         std::vector<IoVecMetadata> targetMetadata;
@@ -1159,6 +1205,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWritev: fd and buffers required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdWrite(runtime, fd, "writev");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
         if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
@@ -1596,6 +1643,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFtruncateSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdMetadataWrite(runtime, fd, "ftruncate");
         off_t len = 0;
         if (count > 1 && args[1].isNumber()) len = static_cast<off_t>(args[1].asNumber());
         if (::ftruncate(fd, len) != 0) {
@@ -1614,6 +1662,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFstatSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdRead(runtime, fd, "fstat");
         struct stat sb;
         if (::fstat(fd, &sb) != 0) {
           throwFsError(runtime, "fstat", "");
@@ -1677,6 +1726,16 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFsyncSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        if (!isAllowAll()) {
+          auto entry = requireOwnedFd(runtime, fd, "fsync");
+          if (entry.canWrite) {
+            if (!checkCapability("fs:write:" + entry.path)) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+          } else if (!checkCapability("fs:read:" + entry.path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        }
         if (::fsync(fd) != 0) {
           throwFsError(runtime, "fsync", "");
         }
@@ -1693,6 +1752,16 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFdatasyncSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        if (!isAllowAll()) {
+          auto entry = requireOwnedFd(runtime, fd, "fdatasync");
+          if (entry.canWrite) {
+            if (!checkCapability("fs:write:" + entry.path)) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+          } else if (!checkCapability("fs:read:" + entry.path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        }
 #if defined(__APPLE__)
         // macOS doesn't have fdatasync, use fsync instead
         if (::fsync(fd) != 0) {
@@ -1714,6 +1783,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFchmod: fd and mode required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdMetadataWrite(runtime, fd, "fchmod");
         mode_t mode = static_cast<mode_t>(args[1].asNumber());
         bool hasCallback = false;
         std::optional<facebook::jsi::Function> callback;
@@ -1747,6 +1817,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFchown: fd, uid, gid required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdMetadataWrite(runtime, fd, "fchown");
         uid_t uid = static_cast<uid_t>(args[1].asNumber());
         gid_t gid = static_cast<gid_t>(args[2].asNumber());
         bool hasCallback = false;
@@ -1781,6 +1852,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFchmodSync: fd and mode required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdMetadataWrite(runtime, fd, "fchmod");
         mode_t mode = static_cast<mode_t>(args[1].asNumber());
         if (::fchmod(fd, mode) != 0) {
           throwFsError(runtime, "fchmod", "");
@@ -1798,6 +1870,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFchownSync: fd, uid, gid required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdMetadataWrite(runtime, fd, "fchown");
         uid_t uid = static_cast<uid_t>(args[1].asNumber());
         gid_t gid = static_cast<gid_t>(args[2].asNumber());
         if (::fchown(fd, uid, gid) != 0) {
@@ -1816,6 +1889,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFutimesSync: fd, atime, mtime required");
         }
         int fd = static_cast<int>(args[0].asNumber());
+        requireFdMetadataWrite(runtime, fd, "futimes");
         double atimeVal = args[1].asNumber();
         double mtimeVal = args[2].asNumber();
         struct timeval times[2];

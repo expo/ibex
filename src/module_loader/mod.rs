@@ -31,6 +31,13 @@ pub struct ResolvedModule {
     pub kind: ModuleKind,
     pub path: Option<PathBuf>,
     pub source: Option<String>,
+    /// Package selector reported by resolver/package metadata, not inferred by
+    /// the JS loader from the resolved path. `None` means first-party/root or
+    /// an unclassified local path.
+    pub package_name: Option<String>,
+    /// Canonical package root for propagating a package classification across
+    /// relative imports inside a linked/realpathed dependency.
+    pub package_root: Option<PathBuf>,
     /// The `version` field of the resolved module's own nearest `package.json`
     /// when the module lives under `node_modules`, else `None`. Combined with
     /// the path-derived package **name** by the loader into the canonical
@@ -171,6 +178,8 @@ impl ModuleLoader {
                 kind: ModuleKind::Builtin,
                 path: None,
                 source: Some(source.clone()),
+                package_name: None,
+                package_root: None,
                 package_version: None,
             });
         }
@@ -195,12 +204,17 @@ impl ModuleLoader {
         let raw_target = resolve_package_import_target(specifier, imports)?;
         let target_path = normalize_import_target(&package_root, package_root.join(raw_target))?;
 
+        let (package_name, package_root_from_path) =
+            package_name_and_root_in_node_modules(&target_path).unzip();
+        let package_root_for_record = package_root_from_path.or_else(|| Some(package_root.clone()));
         let package_version = self.package_version_for(&target_path);
         Some(ResolvedModule {
             id: target_path.to_string_lossy().to_string(),
             kind: module_kind_from_path(&target_path),
             path: Some(target_path),
             source: None,
+            package_name,
+            package_root: package_root_for_record,
             package_version,
         })
     }
@@ -748,12 +762,34 @@ impl ModuleLoader {
         }
 
         let full_path = resolution.full_path().to_path_buf();
-        let package_version = self.package_version_for(&full_path);
+        let (mut package_name, mut package_root) =
+            package_name_and_root_in_node_modules(&full_path).unzip();
+        let mut package_version = self.package_version_for(&full_path);
+        if let Some(pkg) = resolution.package_json() {
+            let resolved_package_root = pkg.directory().to_path_buf();
+            if package_name.is_none() {
+                let requested = package_name_from_bare_specifier(specifier);
+                if let Some(requested_name) = requested {
+                    if pkg.name() == Some(requested_name.as_str()) {
+                        package_name = Some(requested_name);
+                    }
+                }
+                package_root = Some(resolved_package_root.clone());
+            }
+            if package_root.is_none() {
+                package_root = Some(resolved_package_root);
+            }
+            if package_version.is_none() {
+                package_version = pkg.version().map(str::to_string);
+            }
+        }
         Ok(ResolvedModule {
             id: full_path.to_string_lossy().to_string(),
             kind,
             path: Some(full_path),
             source: None,
+            package_name,
+            package_root,
             package_version,
         })
     }
@@ -774,6 +810,10 @@ fn read_package_manifest(path: &Path) -> Result<Value> {
 /// Mirrors the loader's `packageNameFromPath` so the version manifest agrees
 /// with the derived package name. (ENG-22621)
 fn package_root_in_node_modules(path: &Path) -> Option<PathBuf> {
+    package_name_and_root_in_node_modules(path).map(|(_, root)| root)
+}
+
+fn package_name_and_root_in_node_modules(path: &Path) -> Option<(String, PathBuf)> {
     let comps: Vec<Component> = path.components().collect();
     let nm_idx = comps
         .iter()
@@ -781,11 +821,42 @@ fn package_root_in_node_modules(path: &Path) -> Option<PathBuf> {
     let name_start = nm_idx + 1;
     let first = comps.get(name_start)?;
     let scoped = first.as_os_str().to_string_lossy().starts_with('@');
-    let end = if scoped { name_start + 2 } else { name_start + 1 };
+    let end = if scoped {
+        name_start + 2
+    } else {
+        name_start + 1
+    };
     if end > comps.len() {
         return None; // `node_modules/@scope` with no name segment
     }
-    Some(comps[..end].iter().collect())
+    let name = if scoped {
+        format!(
+            "{}/{}",
+            first.as_os_str().to_string_lossy(),
+            comps.get(name_start + 1)?.as_os_str().to_string_lossy()
+        )
+    } else {
+        first.as_os_str().to_string_lossy().to_string()
+    };
+    Some((name, comps[..end].iter().collect()))
+}
+
+fn package_name_from_bare_specifier(specifier: &str) -> Option<String> {
+    if specifier.is_empty()
+        || specifier.starts_with('.')
+        || specifier.starts_with('/')
+        || specifier.starts_with('#')
+        || Path::new(specifier).is_absolute()
+    {
+        return None;
+    }
+    let mut parts = specifier.split('/');
+    let first = parts.next()?;
+    if first.starts_with('@') {
+        let second = parts.next()?;
+        return Some(format!("{first}/{second}"));
+    }
+    Some(first.to_string())
 }
 
 fn find_package_root(start: &Path) -> Option<PathBuf> {
@@ -1863,6 +1934,46 @@ for (let i = 0; i < 3; i++) {
         }
     }
 
+    // @ref LLP 0014#the-grant-channel — package/root trust classification must
+    // come from resolver/package metadata, not only the post-resolution path
+    // shape: linked dependencies can resolve outside node_modules.
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_dependency_resolution_keeps_package_metadata() {
+        let dir = tempdir().unwrap();
+        let app = dir.path().join("app");
+        let real_pkg = dir.path().join("workspace").join("linked-pkg");
+        let nm = app.join("node_modules");
+        std::fs::create_dir_all(&nm).unwrap();
+        std::fs::create_dir_all(&real_pkg).unwrap();
+        std::fs::write(
+            real_pkg.join("package.json"),
+            r#"{ "name":"linked-pkg", "version":"1.2.3", "main":"index.js" }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            real_pkg.join("index.js"),
+            "module.exports = require('./lib');",
+        )
+        .unwrap();
+        std::fs::write(real_pkg.join("lib.js"), "module.exports = 1;").unwrap();
+        std::os::unix::fs::symlink(&real_pkg, nm.join("linked-pkg")).unwrap();
+
+        let loader = test_loader();
+        let entry = loader
+            .resolve_meta("linked-pkg", Some(&app.join("entry.js")))
+            .unwrap();
+        assert_eq!(entry.package_name.as_deref(), Some("linked-pkg"));
+        assert_eq!(entry.package_version.as_deref(), Some("1.2.3"));
+        let entry_root = entry.package_root.clone().expect("package root");
+
+        let internal = loader
+            .resolve_meta("./lib.js", Some(entry.path.as_ref().unwrap()))
+            .unwrap();
+        assert_eq!(internal.package_root.as_deref(), Some(entry_root.as_path()));
+        assert_eq!(internal.package_version.as_deref(), Some("1.2.3"));
+    }
+
     // @ref LLP 0013#resolved-questions (ENG-22621) — the package root for
     // version derivation is node_modules/<name>, so a nested versionless
     // package.json (e.g. dist/) doesn't degrade identity to the bare name.
@@ -1886,7 +1997,10 @@ for (let i = 0; i < 3; i++) {
             Some(PathBuf::from("/a/node_modules/uses/node_modules/foo"))
         );
         // First-party code has no package root.
-        assert_eq!(package_root_in_node_modules(Path::new("/app/src/index.js")), None);
+        assert_eq!(
+            package_root_in_node_modules(Path::new("/app/src/index.js")),
+            None
+        );
     }
 
     #[test]
@@ -1901,7 +2015,11 @@ for (let i = 0; i < 3; i++) {
         .unwrap();
         // A nested, versionless package.json (the common "type" marker) must NOT
         // shadow the package's real version.
-        std::fs::write(pkg.join("dist").join("package.json"), r#"{ "type": "commonjs" }"#).unwrap();
+        std::fs::write(
+            pkg.join("dist").join("package.json"),
+            r#"{ "type": "commonjs" }"#,
+        )
+        .unwrap();
         std::fs::write(pkg.join("dist").join("index.js"), "module.exports = 1;").unwrap();
 
         let loader = test_loader();

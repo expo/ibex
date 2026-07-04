@@ -834,7 +834,9 @@ fn fs_write_requires_fs_write_capability() {
     );
     // ENG-22627: path-based mutators (truncate, symlink) are gated on fs:write too.
     assert!(
-        ro.stdout.contains("truncate: DENIED") && ro.stdout.contains("symlink: DENIED"),
+        ro.stdout.contains("truncate: DENIED")
+            && ro.stdout.contains("symlink: DENIED")
+            && (!cfg!(unix) || ro.stdout.contains("fchmod-read-fd: DENIED")),
         "path-based fs mutators must be denied without fs:write:\nstdout:\n{}\nstderr:\n{}",
         ro.stdout,
         ro.stderr
@@ -864,11 +866,154 @@ fn fs_write_requires_fs_write_capability() {
     // ENG-22627: with fs:write granted, the path-based mutators succeed (the gate
     // permits, not blocks) — proving the DENIED above is enforcement, not breakage.
     assert!(
-        rw.stdout.contains("truncate: SUCCEEDED") && rw.stdout.contains("symlink: SUCCEEDED"),
+        rw.stdout.contains("truncate: SUCCEEDED")
+            && rw.stdout.contains("symlink: SUCCEEDED")
+            && (!cfg!(unix) || rw.stdout.contains("fchmod-read-fd: SUCCEEDED")),
         "path-based fs mutators must succeed when fs:write is granted:\nstdout:\n{}\nstderr:\n{}",
         rw.stdout,
         rw.stderr
     );
+}
+
+#[test]
+fn mkdtemp_checks_the_created_directory_path_not_only_the_prefix() {
+    let dir = unique_dir("mkdtemp-actual");
+    let base = dir.canonicalize().expect("canonicalize temp base");
+    let base_str = base.to_string_lossy().into_owned();
+    let prefix = base.join("tmp-");
+    let prefix_str = prefix.to_string_lossy().into_owned();
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "allow": [
+            format!("fs:read:{base_str}/**"),
+            format!("fs:write:{prefix_str}"),
+            "network",
+            "process",
+            "crypto",
+            "time",
+            "env",
+            "os",
+            "device",
+            "worker",
+            "ffi"
+        ],
+        "ceiling": ["network:fetch:example.invalid"]
+    })
+    .to_string();
+    std::fs::write(base.join("ibex-policy.json"), policy).unwrap();
+    std::fs::write(
+        base.join("app.js"),
+        r#"var fs = require("fs");
+var prefix = process.env.PREFIX;
+try {
+  var made = fs.mkdtempSync(prefix);
+  console.log("mkdtemp-exact-prefix: SUCCEEDED:" + made);
+  try { fs.rmdirSync(made); } catch (_) {}
+} catch (e) {
+  var msg = (e && e.message) || "";
+  console.log("mkdtemp-exact-prefix: DENIED:" + msg);
+}
+"#,
+    )
+    .unwrap();
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &base.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("PREFIX", &prefix_str), ("EXACT_COMPAT_TEST", "1")],
+        Some(&base),
+    );
+    assert!(
+        out.stdout.contains("mkdtemp-exact-prefix: DENIED"),
+        "mkdtemp must gate the actual created path, not the unsuffixed prefix:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    let created = std::fs::read_dir(&base)
+        .unwrap()
+        .filter_map(Result::ok)
+        .any(|entry| {
+            entry.file_name().to_string_lossy().starts_with("tmp-")
+                && entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+        });
+    assert!(
+        !created,
+        "denied mkdtemp must not leave behind a suffixed directory"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn native_byte_extraction_rejects_forged_arraybuffer_view_bounds() {
+    let dir = unique_dir("native-byte-bounds");
+    let out_file = dir.join("out.bin");
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "allow": [
+            "fs",
+            "network",
+            "process",
+            "crypto",
+            "time",
+            "env",
+            "os",
+            "device",
+            "worker",
+            "ffi"
+        ]
+    })
+    .to_string();
+    std::fs::write(dir.join("ibex-policy.json"), policy).unwrap();
+    std::fs::write(
+        dir.join("app.js"),
+        r#"var fs = require("fs");
+var fd = fs.openSync(process.env.OUTFILE, "w");
+try {
+  var forged = { buffer: new ArrayBuffer(4), byteOffset: 3, byteLength: 4 };
+  globalThis.__exactFsWrite(fd, forged, -1);
+  console.log("forged-view: ACCEPTED");
+} catch (e) {
+  console.log("forged-view: REJECTED");
+} finally {
+  fs.closeSync(fd);
+}
+console.log("forged-size: " + fs.statSync(process.env.OUTFILE).size);
+"#,
+    )
+    .unwrap();
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("OUTFILE", &out_file.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("forged-view: REJECTED")
+            && out.stdout.contains("forged-size: 0")
+            && !out.stdout.contains("forged-view: ACCEPTED"),
+        "native byte extraction must reject forged view bounds before writing:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -1706,6 +1851,12 @@ fn import_gate_denies_restricted_package_builtin() {
         out.stderr
     );
     assert!(
+        out.stdout.contains("evil-exact-require: IMPORT-DENIED"),
+        "__exactRequire must be gated by the package principal:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
         out.stdout.contains("evil-dynamic-import: IMPORT-DENIED"),
         "dynamic import() must be gated by the package principal:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
@@ -1742,6 +1893,7 @@ fn import_gate_is_inert_without_restriction() {
     assert!(
         out.stdout
             .contains("evil-global-require: IMPORTED:function")
+            && out.stdout.contains("evil-exact-require: IMPORTED:function")
             && out
                 .stdout
                 .contains("evil-dynamic-import: IMPORTED:function"),

@@ -901,7 +901,9 @@ fn normalize_fs_resource(resource: &str) -> String {
     // (e.g. macOS `/var` → `/private/var`). (ENG-22682)
     let has_wildcard = trimmed.contains('*');
     if !has_wildcard {
-        return resolve_symlinks_partial(&path).to_string_lossy().to_string();
+        return resolve_symlinks_partial(&path)
+            .to_string_lossy()
+            .to_string();
     }
 
     // Wildcard pattern: resolve the fixed literal prefix (components before the
@@ -1059,9 +1061,6 @@ fn matches_capability(pattern: &str, value: &str) -> bool {
     if pattern == value {
         return true;
     }
-    if pattern.contains('*') {
-        return wildcard_match(pattern, value);
-    }
 
     let pattern_parts: Vec<&str> = pattern.splitn(3, ':').collect();
     let value_parts: Vec<&str> = value.splitn(3, ':').collect();
@@ -1070,40 +1069,39 @@ fn matches_capability(pattern: &str, value: &str) -> bool {
         return false;
     }
 
-    pattern_parts
-        .iter()
-        .zip(value_parts.iter())
-        .all(|(pattern_part, value_part)| pattern_part == value_part)
-}
-
-fn wildcard_match(pattern: &str, value: &str) -> bool {
-    let mut pattern_iter = pattern.split('*');
-    let mut remainder = value;
-
-    if let Some(first) = pattern_iter.next() {
-        if !first.is_empty() {
-            if let Some(stripped) = remainder.strip_prefix(first) {
-                remainder = stripped;
-            } else {
-                return false;
-            }
-        }
-    }
-
-    for part in pattern_iter {
-        if part.is_empty() {
+    for (index, pattern_part) in pattern_parts.iter().enumerate() {
+        let value_part = value_parts[index];
+        if *pattern_part == "*" || *pattern_part == value_part {
             continue;
         }
-        if let Some(index) = remainder.find(part) {
-            remainder = &remainder[index + part.len()..];
-        } else {
-            return false;
+        if index == pattern_parts.len() - 1 {
+            let value_tail = value_parts[index..].join(":");
+            if path_prefix_match(pattern_part, &value_tail) {
+                return true;
+            }
         }
+        return false;
     }
 
     true
 }
 
+fn path_prefix_match(pattern: &str, value: &str) -> bool {
+    if !pattern.ends_with("/**") {
+        return false;
+    }
+    let base = &pattern[..pattern.len() - 3];
+    if value == base {
+        return true;
+    }
+    if base.ends_with('/') {
+        value.starts_with(base)
+    } else {
+        value
+            .strip_prefix(base)
+            .is_some_and(|remainder| remainder.starts_with('/'))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1140,6 +1138,39 @@ mod tests {
         assert!(!matches_capability(&root, &child));
     }
 
+    // @ref LLP 0014#set-algebra-and-cascade — runtime wildcard matching uses
+    // the same conservative algebra as generated-policy review: `*` is a whole
+    // capability segment, and path prefixes use trailing `/**` with a boundary
+    // check. Ad hoc substring wildcards fail closed. (ENG-22709)
+    #[test]
+    fn wildcard_matching_uses_policy_algebra() {
+        assert!(matches_capability(
+            "network:*",
+            "network:fetch:api.example.com"
+        ));
+        assert!(matches_capability(
+            "network:fetch:*",
+            "network:fetch:api.example.com"
+        ));
+        assert!(matches_capability("fs:read:/app/**", "fs:read:/app"));
+        assert!(matches_capability(
+            "fs:read:/app/**",
+            "fs:read:/app/config.json"
+        ));
+        assert!(!matches_capability(
+            "fs:read:/app/**",
+            "fs:read:/app2/config.json"
+        ));
+        assert!(!matches_capability(
+            "fs:read:/app/*.json",
+            "fs:read:/app/config.json"
+        ));
+        assert!(!matches_capability(
+            "network:fetch:*.example.com",
+            "network:fetch:api.example.com"
+        ));
+    }
+
     // @ref LLP 0013#policy — a path-scoped grant is matched against the
     // symlink-RESOLVED path, so a symlinked component cannot smuggle a write
     // outside the granted subtree even when the leaf does not yet exist (the
@@ -1174,10 +1205,8 @@ mod tests {
         std::os::unix::fs::symlink(base.join("outside"), base.join("granted").join("link"))
             .unwrap();
 
-        let grant = normalize_capability(&format!(
-            "fs:write:{}/granted/**",
-            base.to_string_lossy()
-        ));
+        let grant =
+            normalize_capability(&format!("fs:write:{}/granted/**", base.to_string_lossy()));
 
         // Escaping write through the symlinked component: leaf does not exist,
         // but the parent resolves outside the grant → denied.
@@ -1398,7 +1427,10 @@ mod tests {
         m.apply_policy(&policy);
         m.register_module_package("1", "evil", None);
         for alias in ["exact:sqlite", "bun:sqlite", "bun:fs", "fs", "node:fs"] {
-            assert!(!m.check_import("1", alias), "alias should be denied: {alias}");
+            assert!(
+                !m.check_import("1", alias),
+                "alias should be denied: {alias}"
+            );
         }
     }
 
@@ -1422,17 +1454,26 @@ mod tests {
         let enforce = CapabilityManager::new(SecurityMode::Enforce);
         enforce.register_module_package("1", "evil", None);
         enforce.runtime_self_grant("1", "fs:read");
-        assert!(!enforce.check("1", "fs:read:/etc/passwd"), "self-grant must not stick under enforce");
+        assert!(
+            !enforce.check("1", "fs:read:/etc/passwd"),
+            "self-grant must not stick under enforce"
+        );
 
         let audit = CapabilityManager::new(SecurityMode::Audit);
         audit.runtime_self_grant("2", "fs:read");
         // Audit lets ops proceed but the grant itself must not be recorded.
-        assert!(!audit.decide("2", "fs:read:/etc/passwd"), "self-grant must not stick under audit");
+        assert!(
+            !audit.decide("2", "fs:read:/etc/passwd"),
+            "self-grant must not stick under audit"
+        );
 
         let permissive = CapabilityManager::new(SecurityMode::Permissive);
         permissive.runtime_self_grant("3", "fs:read");
         // Permissive keeps the dev convenience (though permissive allows anyway).
-        assert!(permissive.decide("3", "fs:read:/etc/passwd"), "self-grant works under permissive");
+        assert!(
+            permissive.decide("3", "fs:read:/etc/passwd"),
+            "self-grant works under permissive"
+        );
     }
 
     // The first-party root principal ("0") carries the app's own authority: it

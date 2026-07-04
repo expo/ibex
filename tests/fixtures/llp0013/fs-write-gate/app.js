@@ -22,3 +22,9 @@ function probe(label, fn) {
 probe("truncate", function () { fs.truncateSync(out, 0); });
 var link = process.env.OUTDIR + "/x.link";
 probe("symlink", function () { try { fs.unlinkSync(link); } catch (_) {} fs.symlinkSync(out, link); });
+var readFd = fs.openSync(process.env.READABLE, "r");
+try {
+  probe("fchmod-read-fd", function () { fs.fchmodSync(readFd, 0o600); });
+} finally {
+  fs.closeSync(readFd);
+}

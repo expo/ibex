@@ -63,13 +63,38 @@
     if (at > 0 && at > slash) return identity.slice(0, at);
     return identity;
   }
+  function normalizeRecordPath(p) {
+    return typeof p === 'string' ? p.replace(/\\/g, '/').replace(/\/+$/, '') : null;
+  }
+  function packageRootForRecord(record) {
+    return record && typeof record.pkgRoot === 'string'
+      ? normalizeRecordPath(record.pkgRoot)
+      : null;
+  }
+  // Prefer resolver-owned package metadata over path-shape inference. A linked
+  // dependency may resolve to a real path outside node_modules; the first bare
+  // import carries pkgName/pkgRoot from the resolver, and same-root relative
+  // imports inherit that package identity from their parent. Path parsing remains
+  // only a fallback for older records and generated per-package chunks.
+  // @ref LLP 0014#the-grant-channel — package-vs-root classification decides
+  // whether grant syntax is trusted root-authored policy input.
+  function packageNameForRecord(record, parent) {
+    if (record && typeof record.pkgName === 'string' && record.pkgName) {
+      return record.pkgName;
+    }
+    var root = packageRootForRecord(record);
+    if (root && parent && parent.__exactPackageRoot === root && parent.__exactPackageName) {
+      return parent.__exactPackageName;
+    }
+    return packageNameFromPath(record && (record.path || record.id));
+  }
   // The per-package compartment global for a resolved module, or null when it
   // should resolve against the real global (root / builtins / no registry).
-  function compartmentForRecord(record) {
+  function compartmentForRecord(record, parent) {
     if (!__privSetCompartmentFor) return null;
     var registry = g.__compartments;
     if (!registry) return null;
-    var name = packageNameFromPath(record && (record.path || record.id));
+    var name = packageNameForRecord(record, parent);
     if (!name) return null;
     // Key by the version-qualified identity so two installed versions never
     // share one mutable compartment global (ENG-22621). Name-level endowment
@@ -142,13 +167,13 @@
   }
   // Allocate (and register with the host, once) the capability principal id for
   // the package a module belongs to. @ref LLP 0013#mechanism-3
-  function packagePrincipalFor(record) {
+  function packagePrincipalFor(record, parent) {
     // Builtin modules are trusted runtime deputies (require('fs') is a JS shim
     // over the host functions); mark them so a package's host access through
     // them is attributed to the package, not laundered into root.
     if (record && record.kind === 'builtin') return __runtimePrincipal;
     var raw = record && (record.path || record.id);
-    var name = packageNameFromPath(raw);
+    var name = packageNameForRecord(record, parent);
     if (!name) {
       // A file whose basename claims to be a per-package chunk (`__ibexpkg__*`)
       // but did not resolve to a real package name must never be attributed to
@@ -5080,11 +5105,11 @@
     // (ENG-22637 review)
     if (__privCheckImport && typeof specifier === 'string' &&
         (specifier.charAt(0) === '.' || specifier.charAt(0) === '/')) {
-      var __targetPkg = packageNameFromPath(record.path || record.id);
+      var __targetPkg = packageNameForRecord(record, parent);
       if (__targetPkg) {
         var __reqId = (parent && typeof parent.__exactPackageId === 'number')
           ? parent.__exactPackageId : null;
-        var __tgtId = packagePrincipalFor(record);
+        var __tgtId = packagePrincipalFor(record, parent);
         if (__reqId === null || __reqId !== __tgtId) {
           checkImportGate(__targetPkg, __reqId === null ? undefined : __reqId);
         }
@@ -5117,8 +5142,10 @@
     const module = {
       id: id,
       __exactId: moduleId,
-      __exactPackageId: packagePrincipalFor(record),
-      __exactCompartment: compartmentForRecord(record),
+      __exactPackageName: packageNameForRecord(record, parent),
+      __exactPackageRoot: packageRootForRecord(record),
+      __exactPackageId: packagePrincipalFor(record, parent),
+      __exactCompartment: compartmentForRecord(record, parent),
       filename: filename,
       path: modulePath,
       exports: {},
@@ -5539,7 +5566,24 @@
     configurable: true,
     enumerable: true
   });
-  globalThis.__exactRequire = load;
+  var exactRequire = function(specifier) {
+    // __exactRequire is a legacy/internal loader escape hatch used by runtime
+    // bootstrap code. It is still reachable from package code, so it must carry
+    // the same package-facing import gate as globalThis.require rather than
+    // exposing load() directly. Loader-internal fan-out keeps using the closure
+    // scoped load() primitive above. @ref LLP 0013#policy
+    checkImportGate(specifier);
+    return load(specifier, "");
+  };
+  exactRequire.cache = cache;
+  exactRequire.resolve = globalThis.require.resolve;
+  exactRequire.resolve.paths = globalThis.require.resolve.paths;
+  Object.defineProperty(exactRequire, 'main', {
+    get: function() { return mainModule; },
+    configurable: true,
+    enumerable: true
+  });
+  globalThis.__exactRequire = exactRequire;
 
   function __exactInstallGlobalBuffer() {
     var bufferModule;

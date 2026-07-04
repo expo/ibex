@@ -9,6 +9,7 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   createBundlerExternalPredicate,
+  createRolldownConfig,
   fixForOfScoping,
   packageOfModuleId,
   packageIdentityOfModuleId,
@@ -81,6 +82,12 @@ function expectParses(source) {
     ranges: true,
   });
 }
+
+describe('createRolldownConfig', () => {
+  it('preserves symlink dependency ids for package classification', () => {
+    expect(createRolldownConfig({ input: 'app.js' }).resolve.symlinks).toBe(false);
+  });
+});
 
 describe('fixForOfScoping', () => {
   it('rewrites safe for-of loops and preserves per-iteration bindings', () => {

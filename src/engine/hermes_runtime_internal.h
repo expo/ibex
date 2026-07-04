@@ -28,13 +28,16 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <cmath>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -310,6 +313,89 @@ inline facebook::jsi::Value makeUint8Array(
   return facebook::jsi::Value(std::move(typed));
 }
 
+inline bool exactByteLengthFromValue(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    const char* propertyName,
+    size_t defaultValue,
+    size_t& out) {
+  if (value.isUndefined() || value.isNull()) {
+    out = defaultValue;
+    return true;
+  }
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(runtime, std::string("Invalid ") + propertyName);
+  }
+  double n = value.asNumber();
+  if (!std::isfinite(n) || n < 0 || std::floor(n) != n ||
+      n > static_cast<double>(std::numeric_limits<size_t>::max())) {
+    throw facebook::jsi::JSError(runtime, std::string("Invalid ") + propertyName);
+  }
+  out = static_cast<size_t>(n);
+  return true;
+}
+
+inline bool extractArrayBufferView(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Object& object,
+    const uint8_t*& data,
+    size_t& length,
+    size_t* byteOffsetOut = nullptr) {
+  data = nullptr;
+  length = 0;
+  if (object.isArrayBuffer(runtime)) {
+    auto buffer = object.getArrayBuffer(runtime);
+    data = buffer.data(runtime);
+    length = buffer.size(runtime);
+    if (byteOffsetOut) {
+      *byteOffsetOut = 0;
+    }
+    return true;
+  }
+  if (!object.hasProperty(runtime, "buffer")) {
+    return false;
+  }
+  auto bufferValue = object.getProperty(runtime, "buffer");
+  if (!bufferValue.isObject()) {
+    return false;
+  }
+  auto bufferObject = bufferValue.asObject(runtime);
+  if (!bufferObject.isArrayBuffer(runtime)) {
+    return false;
+  }
+  auto arrayBuffer = bufferObject.getArrayBuffer(runtime);
+  size_t bufferSize = arrayBuffer.size(runtime);
+  size_t offset = 0;
+  size_t viewLength = bufferSize;
+  if (object.hasProperty(runtime, "byteOffset")) {
+    exactByteLengthFromValue(
+        runtime,
+        object.getProperty(runtime, "byteOffset"),
+        "byteOffset",
+        0,
+        offset);
+  }
+  if (object.hasProperty(runtime, "byteLength")) {
+    exactByteLengthFromValue(
+        runtime,
+        object.getProperty(runtime, "byteLength"),
+        "byteLength",
+        bufferSize - std::min(offset, bufferSize),
+        viewLength);
+  } else {
+    viewLength = bufferSize - std::min(offset, bufferSize);
+  }
+  if (offset > bufferSize || viewLength > bufferSize - offset) {
+    throw facebook::jsi::JSError(runtime, "ArrayBuffer view out of bounds");
+  }
+  data = arrayBuffer.data(runtime) + offset;
+  length = viewLength;
+  if (byteOffsetOut) {
+    *byteOffsetOut = offset;
+  }
+  return true;
+}
+
 inline std::vector<uint8_t> extractBytes(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::Value& value) {
@@ -322,31 +408,10 @@ inline std::vector<uint8_t> extractBytes(
   }
 
   auto object = value.asObject(runtime);
-  if (object.isArrayBuffer(runtime)) {
-    auto buffer = object.getArrayBuffer(runtime);
-    return std::vector<uint8_t>(buffer.data(runtime), buffer.data(runtime) + buffer.size(runtime));
-  }
-
-  if (object.hasProperty(runtime, "buffer")) {
-    auto bufferValue = object.getProperty(runtime, "buffer");
-    if (bufferValue.isObject()) {
-      auto bufferObject = bufferValue.asObject(runtime);
-      if (bufferObject.isArrayBuffer(runtime)) {
-        auto arrayBuffer = bufferObject.getArrayBuffer(runtime);
-        size_t offset = 0;
-        size_t length = arrayBuffer.size(runtime);
-        auto offsetValue = object.getProperty(runtime, "byteOffset");
-        if (offsetValue.isNumber()) {
-          offset = static_cast<size_t>(offsetValue.asNumber());
-        }
-        auto lengthValue = object.getProperty(runtime, "byteLength");
-        if (lengthValue.isNumber()) {
-          length = static_cast<size_t>(lengthValue.asNumber());
-        }
-        auto* ptr = arrayBuffer.data(runtime) + offset;
-        return std::vector<uint8_t>(ptr, ptr + length);
-      }
-    }
+  const uint8_t* data = nullptr;
+  size_t length = 0;
+  if (extractArrayBufferView(runtime, object, data, length)) {
+    return data ? std::vector<uint8_t>(data, data + length) : std::vector<uint8_t>();
   }
 
   return {};

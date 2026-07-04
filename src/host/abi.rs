@@ -1056,6 +1056,11 @@ pub extern "C" fn ex_host_module_resolve(
                 crate::module_loader::ModuleKind::Esm => "esm",
             },
             "path": module.path.as_ref().map(|p| p.to_string_lossy().to_string()),
+            // Resolver-owned package metadata. The JS loader must not decide
+            // root-vs-package trust solely from the path shape because symlinked
+            // and realpathed dependencies can live outside `node_modules`.
+            "pkgName": module.package_name,
+            "pkgRoot": module.package_root.as_ref().map(|p| p.to_string_lossy().to_string()),
             // The resolved package's own version (node_modules packages only),
             // so the loader can form the `name@version` runtime identity for
             // version-distinguished principals/compartments. (ENG-22621)
@@ -1482,7 +1487,7 @@ pub extern "C" fn ex_host_fs_chmod(path: *const c_char, mode: u32) -> i32 {
 /// Create a temporary directory with the given prefix.
 /// Caller must free the returned path with `ex_host_free_string`.
 #[no_mangle]
-pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
+pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char, module_id: u64) -> *mut c_char {
     let prefix_str = if prefix.is_null() {
         "tmp".to_string()
     } else {
@@ -1490,9 +1495,6 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
             .to_string_lossy()
             .to_string()
     };
-
-    let mut template = std::env::temp_dir();
-    template.push(format!("{}{}", prefix_str, "XXXXXX"));
 
     // Generate random suffix
     let mut rng_bytes = [0u8; 6];
@@ -1512,6 +1514,13 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
         .collect();
 
     let dir_path = std::env::temp_dir().join(format!("{}{}", prefix_str, suffix));
+    let cap = format!("fs:write:{}", dir_path.to_string_lossy());
+    let module = module_id.to_string();
+    let allowed = with_host(|host| host.check_capability(&module, &cap), false);
+    if !allowed {
+        set_errno_from_io_error(&std::io::Error::from_raw_os_error(libc::EACCES));
+        return ptr::null_mut();
+    }
     match std::fs::create_dir(&dir_path) {
         Ok(_) => match CString::new(dir_path.to_string_lossy().to_string()) {
             Ok(cstr) => cstr.into_raw(),

@@ -242,7 +242,7 @@ extern "C" int32_t ex_host_fs_copy(const char* from, const char* to);
 extern "C" char* ex_host_fs_realpath(const char* path);
 extern "C" int32_t ex_host_fs_access(const char* path, int32_t mode);
 extern "C" int32_t ex_host_fs_chmod(const char* path, uint32_t mode);
-extern "C" char* ex_host_fs_mkdtemp(const char* prefix);
+extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
 extern "C" uint32_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
