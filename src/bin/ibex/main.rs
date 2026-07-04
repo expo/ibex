@@ -10,6 +10,7 @@ mod engine;
 mod host;
 mod repl;
 mod runtime;
+mod runtime_tests;
 mod subprocess;
 
 // Re-export module_loader from the shared runtime crate
@@ -317,6 +318,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Commands::Debug { command }) => match command {
             DebugCommands::Modules => run_debug_modules(),
         },
+        Some(Commands::SelfTest) => runtime_tests::run_all(&cli).await,
         None => {
             // If no command but a file is provided via positional argument
             if let Some(file) = &cli.file {

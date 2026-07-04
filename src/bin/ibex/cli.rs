@@ -3,7 +3,8 @@
 //! `ibex` runs JavaScript and TypeScript. Project tooling remains on the
 //! `exact` binary; reserved-but-unbuilt runtime names (`test`, `install`,
 //! `bench`, `exec`) are absent from this clap tree and intercepted by the
-//! pre-clap dispatcher in `main.rs`.
+//! pre-clap dispatcher in `main.rs`. The hidden `self-test` command is a CI
+//! harness smoke, not a user-facing test runner.
 
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -214,6 +215,10 @@ pub enum Commands {
         #[command(subcommand)]
         command: DebugCommands,
     },
+
+    /// Run the hidden in-binary runtime smoke suite
+    #[command(hide = true, name = "self-test")]
+    SelfTest,
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq)]
@@ -396,6 +401,12 @@ mod tests {
                 command: DebugCommands::Modules,
             })
         ));
+    }
+
+    #[test]
+    fn self_test_command_parses() {
+        let cli = Cli::parse_from(["ibex", "self-test"]);
+        assert!(matches!(cli.command, Some(Commands::SelfTest)));
     }
 
     #[test]
