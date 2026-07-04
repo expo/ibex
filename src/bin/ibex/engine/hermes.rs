@@ -1505,6 +1505,31 @@ mod tests {
     }
 
     #[cfg(feature = "host-http-server")]
+    async fn wait_for_exact_wait_status(engine: &HermesEngine) -> serde_json::Value {
+        let deadline = Instant::now() + StdDuration::from_secs(2);
+        let mut status = serde_json::json!({ "status": "pending" });
+        while Instant::now() < deadline {
+            match timeout(Duration::from_millis(250), engine.drive_event_loop()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => panic!("event loop pump should succeed: {err:?}"),
+                Err(_) => {}
+            }
+            status = eval_json(
+                engine,
+                r#"(function() {
+                    return JSON.stringify({ status: globalThis.__exactWaitStatus });
+                })()"#,
+            )
+            .await;
+            if status.get("status").and_then(serde_json::Value::as_str) != Some("pending") {
+                return status;
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+        status
+    }
+
+    #[cfg(feature = "host-http-server")]
     fn blocking_http_get(port: u16, path: &str) -> std::io::Result<String> {
         let mut stream = TcpStream::connect(("127.0.0.1", port))?;
         let request =
@@ -1668,27 +1693,17 @@ mod tests {
 
         assert!(setup.get("error").is_none(), "server setup failed: {setup}");
 
-        sleep(Duration::from_millis(150)).await;
-        timeout(Duration::from_secs(1), engine.drive_event_loop())
-            .await
-            .expect("event loop pump should finish")
-            .expect("event loop pump should succeed");
-
-        let status = eval_json(
-            &engine,
-            r#"(function() {
-                return JSON.stringify({ status: globalThis.__exactWaitStatus });
-            })()"#,
-        )
-        .await;
+        // CI runners can start the native wait task after the fixed pre-sleep,
+        // so observe the JS-visible terminal state instead of assuming a
+        // single pump has already crossed the native timeout.
+        let status = wait_for_exact_wait_status(&engine).await;
+        close_server(&engine, "__exactWaitServerId").await;
 
         assert_eq!(
             status.get("status").and_then(serde_json::Value::as_str),
             Some("timeout"),
             "timed wait should resolve even while other waits are parked: {status}",
         );
-
-        close_server(&engine, "__exactWaitServerId").await;
     }
 
     #[cfg(feature = "host-http-server")]
