@@ -49,6 +49,12 @@ function getBaseUrl(): string | undefined {
   return undefined;
 }
 
+function networkConnectCapabilityForWebSocketUrl(parsedUrl: URL): string {
+  const host = parsedUrl.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  const port = parsedUrl.port || (parsedUrl.protocol === 'wss:' ? '443' : '80');
+  return `${Capabilities.NETWORK_CONNECT}:${host}:${port}`;
+}
+
 function isSecureContextForWebSocket(): boolean {
   const currentLocation = (globalThis as any).location;
   return !!currentLocation && currentLocation.protocol === 'https:';
@@ -113,10 +119,6 @@ export class WebSocket extends EventTarget {
   constructor(url: string | URL, protocols?: string | string[]) {
     super();
 
-    // Check capability before proceeding
-    // This throws NotAllowedError if the capability is not granted
-    requireCapability(Capabilities.NETWORK_CONNECT);
-
     // Normalize URL
     const urlString = url instanceof URL ? url.href : String(url);
 
@@ -152,6 +154,10 @@ export class WebSocket extends EventTarget {
         'SecurityError'
       );
     }
+
+    // @ref LLP 0013#policy — generated policy can grant individual network
+    // endpoints, so the JS guard mirrors the native WebSocket boundary.
+    requireCapability(networkConnectCapabilityForWebSocketUrl(parsedUrl));
 
     // Normalize protocols
     const protocolList = protocols !== undefined

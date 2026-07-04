@@ -13,13 +13,131 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+namespace {
+
+struct SocketEntry {
+  int fd;
+  uint64_t owner;
+  std::string capability;
+};
+
+static std::unordered_map<int, SocketEntry> g_socket_handles;
+static int g_next_socket_handle = 1;
+static std::mutex g_socket_mutex;
+
+std::string networkEndpointCapability(const char* base, const std::string& host, int port) {
+  return std::string(base) + ":" + host + ":" + std::to_string(port);
+}
+
+void requireNetworkCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& capability,
+    const char* description) {
+  if (!checkCapability(capability)) {
+    std::string message =
+        std::string("Permission denied: ") + description + " capability required";
+    throw facebook::jsi::JSError(runtime, message.c_str());
+  }
+}
+
+bool principalMayAdoptRawSocket(uint64_t principal) {
+  if (principal == 0) {
+    return true;
+  }
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (principal == static_cast<uint64_t>(kRuntimePrincipalId)) {
+    return true;
+  }
+#endif
+  return false;
+}
+
+void requireRawSocketAdoptionAllowed(facebook::jsi::Runtime& runtime, const char* syscall) {
+  if (isAllowAll()) {
+    return;
+  }
+  if (!principalMayAdoptRawSocket(currentPrincipalId())) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": Permission denied");
+  }
+}
+
+int registerSocketHandle(int fd, const std::string& capability, uint64_t owner = currentPrincipalId()) {
+  std::lock_guard<std::mutex> lock(g_socket_mutex);
+  int handle = g_next_socket_handle++;
+  g_socket_handles[handle] = SocketEntry{fd, owner, capability};
+  return handle;
+}
+
+SocketEntry requireSocketHandle(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* syscall) {
+  SocketEntry entry;
+  {
+    std::lock_guard<std::mutex> lock(g_socket_mutex);
+    auto it = g_socket_handles.find(handle);
+    if (it == g_socket_handles.end()) {
+      throw facebook::jsi::JSError(runtime, std::string(syscall) + ": invalid handle");
+    }
+    entry = it->second;
+  }
+  if (!isAllowAll()) {
+    if (entry.owner != currentPrincipalId()) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+  }
+  return entry;
+}
+
+bool trySocketHandle(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* syscall,
+    SocketEntry& entry) {
+  try {
+    entry = requireSocketHandle(runtime, handle, syscall);
+    return true;
+  } catch (const facebook::jsi::JSError&) {
+    return false;
+  }
+}
+
+int takeSocketFd(facebook::jsi::Runtime& runtime, int handle, const char* syscall) {
+  SocketEntry entry = requireSocketHandle(runtime, handle, syscall);
+  std::lock_guard<std::mutex> lock(g_socket_mutex);
+  auto it = g_socket_handles.find(handle);
+  if (it == g_socket_handles.end()) {
+    return -1;
+  }
+  if (!isAllowAll() && it->second.owner != entry.owner) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  int fd = it->second.fd;
+  g_socket_handles.erase(it);
+  return fd;
+}
+
+void setSocketCapability(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const std::string& capability,
+    const char* syscall) {
+  SocketEntry entry = requireSocketHandle(runtime, handle, syscall);
+  std::lock_guard<std::mutex> lock(g_socket_mutex);
+  auto it = g_socket_handles.find(handle);
+  if (it != g_socket_handles.end() && (isAllowAll() || it->second.owner == entry.owner)) {
+    it->second.capability = capability;
+  }
+}
+
+} // namespace
+
 void installNetHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   {
-    static std::unordered_map<int, int> g_tcp_sockets;
-    static int g_tcp_next_handle = 1;
-    static std::mutex g_tcp_mutex;
-
     // __exactTcpConnect(host, port, localAddress?, localPort?) -> handle or throws
     auto tcpConnectFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpConnect"), 4,
@@ -46,6 +164,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             }
             localPort = static_cast<int>(args[3].asNumber());
           }
+          // @ref LLP 0013#policy — loading node:net is only import authority;
+          // opening a TCP connection is a host-boundary operation.
+          std::string connectCapability =
+              networkEndpointCapability("network:connect", host, port);
+          requireNetworkCapability(runtime, connectCapability, "network:connect");
           struct addrinfo hints{}, *result = nullptr;
           hints.ai_family = AF_UNSPEC;
           hints.ai_socktype = SOCK_STREAM;
@@ -102,12 +225,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
+          int handle = registerSocketHandle(fd, connectCapability);
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactTcpConnect", std::move(tcpConnectFn));
@@ -126,13 +244,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             maxBytes = static_cast<int>(args[1].asNumber());
             if (maxBytes <= 0) maxBytes = 65536;
           }
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpRead: invalid handle");
-            fd = it->second;
-          }
+          int fd = requireSocketHandle(runtime, handle, "__exactTcpRead").fd;
           std::vector<uint8_t> buf(maxBytes);
           ssize_t n = ::read(fd, buf.data(), maxBytes);
           if (n > 0) {
@@ -171,13 +283,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactTcpWrite: handle and data required");
           }
           int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid handle");
-            fd = it->second;
-          }
+          int fd = requireSocketHandle(runtime, handle, "__exactTcpWrite").fd;
           ssize_t written;
           if (args[1].isString()) {
             std::string data = args[1].toString(runtime).utf8(runtime);
@@ -230,21 +336,14 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpClose: handle required");
           int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
-            fd = it->second;
-            g_tcp_sockets.erase(it);
-          }
-          ::close(fd);
+          int fd = takeSocketFd(runtime, handle, "__exactTcpClose");
+          if (fd >= 0) ::close(fd);
           return facebook::jsi::Value(0);
         });
     rt.global().setProperty(rt, "__exactTcpClose", std::move(tcpCloseFn));
 
     // __exactTcpFromFd(fd) -> handle
-    // Register an existing raw file descriptor as a TCP handle in g_tcp_sockets.
+    // Register an existing raw file descriptor as a TCP handle.
     // Used for SCM_RIGHTS: after receiving an fd via recvmsg, register it so
     // net.Socket can wrap it with full read/write/close support.
     auto tcpFromFdFn = facebook::jsi::Function::createFromHostFunction(
@@ -258,15 +357,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (fd < 0) {
             throw facebook::jsi::JSError(runtime, "__exactTcpFromFd: invalid fd");
           }
+          requireRawSocketAdoptionAllowed(runtime, "__exactTcpFromFd");
           // Set non-blocking mode
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
+          int handle = registerSocketHandle(fd, "");
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactTcpFromFd", std::move(tcpFromFdFn));
@@ -276,16 +371,17 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
     // Used for SCM_RIGHTS: need the raw fd to send via sendmsg.
     auto tcpGetFdFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpGetFd"), 1,
-        [](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) {
             return facebook::jsi::Value(-1);
           }
           int handle = static_cast<int>(args[0].asNumber());
-          std::lock_guard<std::mutex> lock(g_tcp_mutex);
-          auto it = g_tcp_sockets.find(handle);
-          if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
-          return facebook::jsi::Value(it->second);
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactTcpGetFd", entry)) {
+            return facebook::jsi::Value(-1);
+          }
+          return facebook::jsi::Value(entry.fd);
         });
     rt.global().setProperty(rt, "__exactTcpGetFd", std::move(tcpGetFdFn));
 
@@ -303,13 +399,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             if (h == 0) how = SHUT_RD;
             else if (h == 2) how = SHUT_RDWR;
           }
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
-            fd = it->second;
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactTcpShutdown", entry)) {
+            return facebook::jsi::Value(0);
           }
+          int fd = entry.fd;
           ::shutdown(fd, how);
           return facebook::jsi::Value(0);
         });
@@ -324,13 +418,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactTcpReset: handle required");
           }
           int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
-            fd = it->second;
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactTcpReset", entry)) {
+            return facebook::jsi::Value(0);
           }
+          int fd = entry.fd;
           struct linger lingerOpt;
           lingerOpt.l_onoff = 1;
           lingerOpt.l_linger = 0;
@@ -348,13 +440,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetNoDelay: handle required");
           int handle = static_cast<int>(args[0].asNumber());
           int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
-            fd = it->second;
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactTcpSetNoDelay", entry)) {
+            return facebook::jsi::Value(-1);
           }
+          int fd = entry.fd;
           int flag = enable ? 1 : 0;
           setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
           return facebook::jsi::Value(0);
@@ -369,13 +459,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetKeepAlive: handle required");
           int handle = static_cast<int>(args[0].asNumber());
           int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
-            fd = it->second;
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactTcpSetKeepAlive", entry)) {
+            return facebook::jsi::Value(-1);
           }
+          int fd = entry.fd;
           int flag = enable ? 1 : 0;
           setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
           return facebook::jsi::Value(0);
@@ -397,6 +485,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count > 3 && args[3].isNumber()) ipv6Only = static_cast<int>(args[3].asNumber());
           int reusePort = 0;
           if (count > 4 && args[4].isNumber()) reusePort = static_cast<int>(args[4].asNumber());
+          // @ref LLP 0013#policy — listening/binding requires host authority,
+          // independent of the builtin import allowlist. (ENG-22722)
+          std::string listenCapability =
+              networkEndpointCapability("network:listen", host, port);
+          requireNetworkCapability(runtime, listenCapability, "network:listen");
           struct addrinfo hints{}, *result = nullptr;
           if (ipv6Only || host.find(':') != std::string::npos) {
             hints.ai_family = AF_INET6;
@@ -454,12 +547,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
+          int handle = registerSocketHandle(fd, listenCapability);
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactTcpListen", std::move(tcpListenFn));
@@ -471,13 +559,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpAccept: handle required");
           int handle = static_cast<int>(args[0].asNumber());
-          int listenFd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactTcpAccept: invalid handle");
-            listenFd = it->second;
-          }
+          SocketEntry listenEntry = requireSocketHandle(runtime, handle, "__exactTcpAccept");
+          int listenFd = listenEntry.fd;
           struct sockaddr_storage clientAddr;
           socklen_t clientLen = sizeof(clientAddr);
           int clientFd = ::accept(listenFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
@@ -487,12 +570,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int flags = fcntl(clientFd, F_GETFL, 0);
           if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
-          int newHandle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            newHandle = g_tcp_next_handle++;
-            g_tcp_sockets[newHandle] = clientFd;
-          }
+          int newHandle =
+              registerSocketHandle(clientFd, listenEntry.capability, listenEntry.owner);
           return facebook::jsi::Value(newHandle);
         });
     rt.global().setProperty(rt, "__exactTcpAccept", std::move(tcpAcceptFn));
@@ -504,13 +583,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
           int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
-            fd = it->second;
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactTcpLocalAddr", entry)) {
+            return facebook::jsi::Value::null();
           }
+          int fd = entry.fd;
           struct sockaddr_storage addr;
           socklen_t addrLen = sizeof(addr);
           if (getsockname(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1) return facebook::jsi::Value::null();
@@ -536,13 +613,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
           int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
-            fd = it->second;
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactTcpRemoteAddr", entry)) {
+            return facebook::jsi::Value::null();
           }
+          int fd = entry.fd;
           struct sockaddr_storage addr;
           socklen_t addrLen = sizeof(addr);
           if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1) return facebook::jsi::Value::null();
@@ -563,7 +638,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
 
     // ============================================================
     // Unix Domain Socket host functions
-    // Reuses g_tcp_sockets/g_tcp_next_handle/g_tcp_mutex so that
+    // Reuses the native socket-handle registry so that
     // __exactTcpRead, __exactTcpWrite, __exactTcpClose work on
     // Unix socket fds too (they all use the same fd-based I/O).
     // ============================================================
@@ -579,6 +654,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           std::string path = args[0].toString(runtime).utf8(runtime);
           if (path.size() >= sizeof(((struct sockaddr_un*)0)->sun_path)) {
             throw facebook::jsi::JSError(runtime, "__exactUnixConnect: path too long");
+          }
+          std::string localCapability = "network:local:" + path;
+          requireNetworkCapability(runtime, localCapability, "network:local");
+          if (!checkCapability("fs:read:" + path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
           }
           int fd = socket(AF_UNIX, SOCK_STREAM, 0);
           if (fd == -1) {
@@ -597,12 +677,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
+          int handle = registerSocketHandle(fd, localCapability);
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactUnixConnect", std::move(unixConnectFn));
@@ -621,6 +696,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int backlog = 128;
           if (count > 1 && args[1].isNumber()) backlog = static_cast<int>(args[1].asNumber());
+          std::string localCapability = "network:local:" + path;
+          requireNetworkCapability(runtime, localCapability, "network:local");
+          if (!checkCapability("fs:write:" + path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
           int fd = socket(AF_UNIX, SOCK_STREAM, 0);
           if (fd == -1) {
             throw facebook::jsi::JSError(runtime,
@@ -645,12 +725,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
+          int handle = registerSocketHandle(fd, localCapability);
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactUnixListen", std::move(unixListenFn));
@@ -665,15 +740,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactUnixAccept: handle required");
           }
           int handle = static_cast<int>(args[0].asNumber());
-          int listenFd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) {
-              throw facebook::jsi::JSError(runtime, "__exactUnixAccept: invalid handle");
-            }
-            listenFd = it->second;
-          }
+          SocketEntry listenEntry = requireSocketHandle(runtime, handle, "__exactUnixAccept");
+          int listenFd = listenEntry.fd;
           struct sockaddr_un clientAddr;
           socklen_t clientLen = sizeof(clientAddr);
           int clientFd = ::accept(listenFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
@@ -684,19 +752,15 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int flags = fcntl(clientFd, F_GETFL, 0);
           if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
-          int newHandle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            newHandle = g_tcp_next_handle++;
-            g_tcp_sockets[newHandle] = clientFd;
-          }
+          int newHandle =
+              registerSocketHandle(clientFd, listenEntry.capability, listenEntry.owner);
           return facebook::jsi::Value(newHandle);
         });
     rt.global().setProperty(rt, "__exactUnixAccept", std::move(unixAcceptFn));
 
   // ============================================================
     // UDP (dgram) host functions
-    // Reuses g_tcp_sockets/g_tcp_next_handle/g_tcp_mutex for
+    // Reuses the native socket-handle registry for
     // the handle→fd mapping (same pattern as Unix sockets).
     // ============================================================
 
@@ -723,12 +787,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
 #ifdef SO_REUSEPORT
           setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
 #endif
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
+          int handle = registerSocketHandle(fd, "");
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactUdpSocket", std::move(udpSocketFn));
@@ -746,13 +805,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           int port = 0;
           if (count > 1 && args[1].isString()) host = args[1].toString(runtime).utf8(runtime);
           if (count > 2 && args[2].isNumber()) port = static_cast<int>(args[2].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpBind: invalid handle");
-            fd = it->second;
-          }
+          std::string listenCapability =
+              networkEndpointCapability("network:listen", host, port);
+          requireNetworkCapability(runtime, listenCapability, "network:listen");
+          int fd = requireSocketHandle(runtime, handle, "__exactUdpBind").fd;
           struct sockaddr_in addr4;
           struct sockaddr_in6 addr6;
           struct sockaddr* sa; socklen_t sa_len;
@@ -775,6 +831,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime,
                 ("bind failed: " + std::string(strerror(errno))).c_str());
           }
+          setSocketCapability(runtime, handle, listenCapability, "__exactUdpBind");
           // Get actual bound address
           struct sockaddr_storage bound; socklen_t boundLen = sizeof(bound);
           getsockname(fd, reinterpret_cast<struct sockaddr*>(&bound), &boundLen);
@@ -804,13 +861,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           int handle = static_cast<int>(args[0].asNumber());
           int port = static_cast<int>(args[2].asNumber());
           std::string host = args[3].toString(runtime).utf8(runtime);
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpSend: invalid handle");
-            fd = it->second;
-          }
+          requireNetworkCapability(
+              runtime,
+              networkEndpointCapability("network:connect", host, port),
+              "network:connect");
+          int fd = requireSocketHandle(runtime, handle, "__exactUdpSend").fd;
           // Get data bytes
           const uint8_t* dataPtr = nullptr; size_t dataLen = 0;
           std::string strData;
@@ -878,13 +933,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactUdpRecv: handle required");
           }
           int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) throw facebook::jsi::JSError(runtime, "__exactUdpRecv: invalid handle");
-            fd = it->second;
-          }
+          int fd = requireSocketHandle(runtime, handle, "__exactUdpRecv").fd;
           uint8_t buf[65536];
           struct sockaddr_storage from; socklen_t fromLen = sizeof(from);
           ssize_t n = ::recvfrom(fd, buf, sizeof(buf), 0,
@@ -927,15 +976,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactUdpClose: handle required");
           int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value(0);
-            fd = it->second;
-            g_tcp_sockets.erase(it);
-          }
-          ::close(fd);
+          int fd = takeSocketFd(runtime, handle, "__exactUdpClose");
+          if (fd >= 0) ::close(fd);
           return facebook::jsi::Value(0);
         });
     rt.global().setProperty(rt, "__exactUdpClose", std::move(udpCloseFn));
@@ -947,13 +989,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
           int handle = static_cast<int>(args[0].asNumber());
-          int fd;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            auto it = g_tcp_sockets.find(handle);
-            if (it == g_tcp_sockets.end()) return facebook::jsi::Value::null();
-            fd = it->second;
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactUdpAddress", entry)) {
+            return facebook::jsi::Value::null();
           }
+          int fd = entry.fd;
           struct sockaddr_storage addr; socklen_t addrLen = sizeof(addr);
           if (getsockname(fd, reinterpret_cast<struct sockaddr*>(&addr), &addrLen) == -1)
             return facebook::jsi::Value::null();
@@ -980,14 +1020,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactUdpFromFd: fd required");
           int fd = static_cast<int>(args[0].asNumber());
           if (fd < 0) throw facebook::jsi::JSError(runtime, "__exactUdpFromFd: invalid fd");
+          requireRawSocketAdoptionAllowed(runtime, "__exactUdpFromFd");
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle;
-          {
-            std::lock_guard<std::mutex> lock(g_tcp_mutex);
-            handle = g_tcp_next_handle++;
-            g_tcp_sockets[handle] = fd;
-          }
+          int handle = registerSocketHandle(fd, "");
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactUdpFromFd", std::move(udpFromFdFn));
@@ -995,14 +1031,15 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
     // __exactUdpGetFd(handle) -> fd
     auto udpGetFdFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactUdpGetFd"), 1,
-        [](facebook::jsi::Runtime&, const facebook::jsi::Value&,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value(-1);
           int handle = static_cast<int>(args[0].asNumber());
-          std::lock_guard<std::mutex> lock(g_tcp_mutex);
-          auto it = g_tcp_sockets.find(handle);
-          if (it == g_tcp_sockets.end()) return facebook::jsi::Value(-1);
-          return facebook::jsi::Value(it->second);
+          SocketEntry entry;
+          if (!trySocketHandle(runtime, handle, "__exactUdpGetFd", entry)) {
+            return facebook::jsi::Value(-1);
+          }
+          return facebook::jsi::Value(entry.fd);
         });
     rt.global().setProperty(rt, "__exactUdpGetFd", std::move(udpGetFdFn));
 

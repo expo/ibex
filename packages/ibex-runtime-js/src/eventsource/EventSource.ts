@@ -9,7 +9,6 @@
 import { EventTarget } from '../events/EventTarget';
 import { Event } from '../events/Event';
 import { MessageEvent } from '../events/MessageEvent';
-import { requireCapability, Capabilities } from '../security/Capabilities';
 
 // EventSource ready states
 const CONNECTING = 0;
@@ -64,9 +63,6 @@ export class EventSource extends EventTarget {
 
   constructor(url: string | URL, eventSourceInitDict?: EventSourceInit) {
     super();
-
-    // Check capability before proceeding
-    requireCapability(Capabilities.NETWORK_CONNECT);
 
     // Normalize URL
     const urlString = url instanceof URL ? url.href : url;

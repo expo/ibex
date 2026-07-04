@@ -49,6 +49,7 @@ interface NormalizedManifest {
   nodeOnlyBuiltinModules: string[];
   publicBuiltins: { name: string; nodeOnly: boolean }[];
   reservedNodeOnlyBuiltins: string[];
+  runtimeGatedNodeBuiltins: string[];
   staticBootstrapInternalModules: string[];
 }
 
@@ -131,6 +132,12 @@ function normalizeManifest(): NormalizedManifest {
 
   const reservedNodeOnlyBuiltins = [...meta.reservedNodeOnly];
   const nodeBuiltins = normalizedPublicBuiltins.map((entry) => entry.name);
+  const runtimeGatedNodeBuiltins = [
+    ...new Set([
+      ...nodeBuiltins.map((name) => name.split('/')[0]),
+      ...(meta.runtimeGatedNodeBuiltinRoots ?? []),
+    ]),
+  ].sort();
   const moduleBuiltinList = [...nodeBuiltins, ...reservedNodeOnlyBuiltins];
   const nodeOnlyBuiltinModules = [
     ...normalizedPublicBuiltins
@@ -155,6 +162,7 @@ function normalizeManifest(): NormalizedManifest {
     nodeOnlyBuiltinModules,
     publicBuiltins: normalizedPublicBuiltins,
     reservedNodeOnlyBuiltins,
+    runtimeGatedNodeBuiltins,
     staticBootstrapInternalModules: normalizedBootstrapInternalModules,
   };
 }
@@ -177,6 +185,7 @@ const registryEntries = Object.freeze(${renderJsValue(manifest.registryEntries)}
 const staticBootstrapInternalModules = Object.freeze(${renderJsValue(manifest.staticBootstrapInternalModules)});
 
 const nodeBuiltins = Object.freeze(publicBuiltins.map((entry) => entry.name));
+const runtimeGatedNodeBuiltins = Object.freeze(${renderJsValue(manifest.runtimeGatedNodeBuiltins)});
 const moduleBuiltinList = Object.freeze([...nodeBuiltins, ...reservedNodeOnlyBuiltins]);
 const nodeOnlyBuiltinModules = Object.freeze(
   [
@@ -200,6 +209,7 @@ module.exports = Object.freeze({
   publicBuiltins,
   registryEntries,
   reservedNodeOnlyBuiltins,
+  runtimeGatedNodeBuiltins,
   staticBootstrapInternalModules,
 });
 `;
@@ -246,6 +256,9 @@ export function renderRustBuiltinManifest(): string {
     (entry) =>
       `    BuiltinManifestDebugEntry { specifier: ${rustStringLiteral(entry.specifier)}, source_key: ${rustStringLiteral(entry.sourceKey)}, source_kind: ${rustStringLiteral(entry.sourceKind)}, source_path: ${renderRustOptionString(entry.sourcePath)}, platform_availability: ${rustStringLiteral(entry.platformAvailability)}, module_builtin: ${entry.moduleBuiltin}, bundle_external: ${entry.bundleExternal} },`,
   );
+  const gatedBuiltinLines = manifest.runtimeGatedNodeBuiltins.map(
+    (name) => `    ${rustStringLiteral(name)},`,
+  );
   const sourceLines = Object.entries(sources).map(
     ([sourceKey, source]) =>
       `        ${rustStringLiteral(sourceKey)} => ${renderRustSourceExpression(source)},`,
@@ -257,6 +270,11 @@ export function renderRustBuiltinManifest(): string {
 #[rustfmt::skip]
 pub(crate) const BUILTIN_MANIFEST_REGISTRATIONS: &[BuiltinManifestRegistration] = &[
 ${registrationLines.join('\n')}
+];
+
+#[rustfmt::skip]
+pub(crate) const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
+${gatedBuiltinLines.join('\n')}
 ];
 
 #[rustfmt::skip]

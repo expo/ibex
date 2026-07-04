@@ -67,7 +67,8 @@ void installProcessSetup(ExactHermesRuntime* handle) {
             callbackArgs.emplace_back(runtime, args[i]);
           }
         }
-        handle->next_tick.push_back(NextTickEntry{std::move(callback), std::move(callbackArgs)});
+        handle->next_tick.push_back(
+            NextTickEntry{currentPrincipalId(), std::move(callback), std::move(callbackArgs)});
         return facebook::jsi::Value::undefined();
       });
   processObj.setProperty(rt, "nextTick", std::move(nextTickFn));

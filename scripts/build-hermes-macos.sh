@@ -86,6 +86,10 @@ git clone --depth 1 --branch "$HERMES_REF" https://github.com/facebook/hermes.gi
 
 cd "$TEMP_DIR/hermes"
 
+# @ref LLP 0013#upstream-tracking — apply the carried Hermes patch stack (the
+# pin + patch series is the fork). No-op when patches/hermes is empty.
+"$SCRIPT_DIR/apply-hermes-patches.sh" "$TEMP_DIR/hermes"
+
 echo "[i] Building host hermesc"
 python3 ./utils/build/configure.py build_host_hermesc
 cmake --build ./build_host_hermesc --target hermesc

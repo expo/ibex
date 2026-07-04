@@ -63,12 +63,21 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         if (count < 2 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__nativeFetch: url and init required");
         }
-        if (!checkCapability("network:fetch")) {
+        std::string url = args[0].toString(runtime).utf8(runtime);
+        ParsedNetworkUrl parsedUrl;
+        if (!parseNetworkUrl(url, parsedUrl) ||
+            (parsedUrl.scheme != "http" && parsedUrl.scheme != "https")) {
+          throw facebook::jsi::JSError(runtime, "__nativeFetch: invalid network URL");
+        }
+        // @ref LLP 0013#policy — generated policies can grant fetch to a
+        // specific endpoint (`network:fetch:host`), so the native boundary must
+        // check the concrete URL host rather than only the broad class.
+        if (!checkCapability("network:fetch:" + parsedUrl.host)) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: network:fetch capability required");
         }
+        auto requestPrincipal = currentPrincipalId();
 
-        std::string url = args[0].toString(runtime).utf8(runtime);
         auto init = args[1].asObject(runtime);
         std::string method = "GET";
         if (init.hasProperty(runtime, "method")) {
@@ -162,6 +171,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
              headersCopy,
              bodyCopy,
              timeoutCopy,
+             requestPrincipal,
              decompress](facebook::jsi::Runtime& rt,
                          const facebook::jsi::Value&,
                          const facebook::jsi::Value* args,
@@ -182,6 +192,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                   handle->fetchCallbacks[requestId] = {
                       std::move(resolve),
                       std::move(reject),
+                      requestPrincipal,
                       *urlCopy,
                       deadline,
                   };
@@ -215,6 +226,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
 
                       std::shared_ptr<facebook::jsi::Function> resolve;
                       std::shared_ptr<facebook::jsi::Function> reject;
+                      uint64_t principal = 0;
                       std::string requestUrl;
                       {
                         std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
@@ -222,6 +234,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                         if (it == wrapper->fetchCallbacks.end()) return;
                         resolve = std::move(it->second.resolve);
                         reject = std::move(it->second.reject);
+                        principal = it->second.principal;
                         requestUrl = std::move(it->second.url);
                         wrapper->fetchCallbacks.erase(it);
                       }
@@ -238,7 +251,9 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                            statusTextCopy,
                            headersCopy,
                            requestUrl = std::move(requestUrl),
+                           principal,
                            bodyCopy = std::move(bodyCopy)](facebook::jsi::Runtime& rt) {
+                            ScopedNativePrincipal nativePrincipal(principal);
                             try {
                               if (statusCopy == 0) {
                                 reject->call(
@@ -361,12 +376,17 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         if (count < 2 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__nativeFetchSync: url and init required");
         }
-        if (!checkCapability("network:fetch")) {
+        std::string url = args[0].toString(runtime).utf8(runtime);
+        ParsedNetworkUrl parsedUrl;
+        if (!parseNetworkUrl(url, parsedUrl) ||
+            (parsedUrl.scheme != "http" && parsedUrl.scheme != "https")) {
+          throw facebook::jsi::JSError(runtime, "__nativeFetchSync: invalid network URL");
+        }
+        if (!checkCapability("network:fetch:" + parsedUrl.host)) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: network:fetch capability required");
         }
 
-        std::string url = args[0].toString(runtime).utf8(runtime);
         auto init = args[1].asObject(runtime);
         std::string method = "GET";
         if (init.hasProperty(runtime, "method")) {

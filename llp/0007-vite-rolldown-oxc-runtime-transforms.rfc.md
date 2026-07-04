@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-13
-**Revised:** 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision)
+**Revised:** 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities)
 **Related:** LLP 0000; LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0006 (design principles); LLP 0009
 
 ## Summary
@@ -89,7 +89,7 @@ Today Ibex has several transform mechanisms:
   (`src/module_loader/transpile.rs:1-41`).
 - Handwritten Hermes syntax *scanners* in the module loader that flag files for
   transpile `[observed]` (`src/module_loader/mod.rs:188-228,585-605`).
-- Acorn-based JS source rewrites in the devtools transform script —
+- Rolldown/Oxc-backed JS source rewrites in the devtools transform script —
   `fixForOfScoping`, `transformAsyncGenerators`, `replaceModuleDirnameBindings`
   `[observed]`
   (`packages/ibex-devtools/src/scripts/transforms.mjs:10,62-251,392-597,672-777`).
@@ -118,7 +118,7 @@ class lowering `[observed]`
 (`packages/ibex-devtools/src/scripts/rolldown-bundle.mjs:90-131`), and that
 escape hatch sits on the default build path — `build:runtime` passes
 `--lower-classes` `[observed]` (`package.json:10`). The shared transform script
-still contains custom Acorn rewrites for Hermes workarounds `[observed]`
+still contains custom Oxc-parsed rewrites for Hermes workarounds `[observed]`
 (`packages/ibex-devtools/src/scripts/transforms.mjs:62-251,392-597`).
 
 ### Runtime module loading
@@ -287,7 +287,7 @@ Move it first:
   configuration if current Rolldown can produce Hermes-compatible class output.
   If not, document the remaining Babel exception with a failing fixture and a
   removal condition.
-- Audit custom Acorn rewrites in `transforms.mjs`. Where Oxc/Rolldown can now
+- Audit custom Oxc-parsed rewrites in `transforms.mjs`. Where Oxc/Rolldown can now
   perform the same lowering, delete the custom rewrite. Where the rewrite is a
   Hermes bug workaround rather than a language transform, keep it but isolate
   it as an Ibex/Hermes pass.

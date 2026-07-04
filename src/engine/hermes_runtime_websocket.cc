@@ -45,6 +45,18 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
         auto url = args[0].toString(runtime).utf8(runtime);
         auto protocols =
             args[1].isString() ? args[1].toString(runtime).utf8(runtime) : std::string("");
+        ParsedNetworkUrl parsedUrl;
+        if (!parseNetworkUrl(url, parsedUrl) ||
+            (parsedUrl.scheme != "ws" && parsedUrl.scheme != "wss")) {
+          throw facebook::jsi::JSError(runtime, "__exactWsConnect: invalid network URL");
+        }
+        // @ref LLP 0013#policy — WebSocket native I/O is the security boundary;
+        // endpoint-scoped grants must authorize the concrete peer, not just JS.
+        if (!checkCapability(
+                "network:connect:" + parsedUrl.host + ":" + std::to_string(parsedUrl.port))) {
+          throw facebook::jsi::JSError(
+              runtime, "Permission denied: network:connect capability required");
+        }
         auto wsInstance = std::make_shared<facebook::jsi::Object>(args[2].asObject(runtime));
         auto* callbackContext = new NativeWebSocketCallbackContext{handle, wsInstance, 1};
 

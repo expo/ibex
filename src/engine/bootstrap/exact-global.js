@@ -1201,6 +1201,10 @@
   // --- Bun.which() ---
   E.which = function(cmd) {
     if (typeof cmd !== 'string' || !cmd) return null;
+    if (typeof g.__exactWhich !== 'function' &&
+        typeof g.__exactEnsureChildProcess === 'function') {
+      try { g.__exactEnsureChildProcess(); } catch (_) {}
+    }
     if (typeof g.__exactWhich === 'function') return g.__exactWhich(cmd);
     return null;
   };

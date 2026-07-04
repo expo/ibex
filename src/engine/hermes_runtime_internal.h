@@ -28,13 +28,17 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <cmath>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -50,11 +54,13 @@ struct TimerEntry {
   uint64_t interval_ms;
   bool repeat;
   bool referenced = true;
+  uint64_t principal;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
 
 struct NextTickEntry {
+  uint64_t principal;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
@@ -62,6 +68,7 @@ struct NextTickEntry {
 struct FetchCallbackEntry {
   std::shared_ptr<facebook::jsi::Function> resolve;
   std::shared_ptr<facebook::jsi::Function> reject;
+  uint64_t principal;
   std::string url;
   std::chrono::steady_clock::time_point deadline;
 };
@@ -140,12 +147,118 @@ struct NativeWebSocketCallbackContext {
 
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
+extern "C" int32_t ex_host_check_capability_no_follow_final(uint64_t module_id,
+                                                            const char* capability);
 extern "C" void ex_host_log_event(const char* event_type,
                                   uint64_t module_id,
                                   const char* capability,
                                   int32_t result);
 
 extern thread_local uint64_t g_active_module_id;
+constexpr uint64_t kNoNativePrincipalOverride = std::numeric_limits<uint64_t>::max();
+extern thread_local uint64_t g_native_callback_principal_id;
+
+extern "C" void ex_host_register_module_package(uint64_t module_id,
+                                                const char* package,
+                                                const char* locator);
+extern "C" int32_t ex_host_check_capability_stack(const uint64_t* module_ids,
+                                                  size_t len,
+                                                  const char* capability);
+extern "C" int32_t ex_host_check_capability_stack_no_follow_final(const uint64_t* module_ids,
+                                                                  size_t len,
+                                                                  const char* capability);
+extern "C" int32_t ex_host_has_deputy_classes(void);
+extern "C" int32_t ex_host_check_import(uint64_t module_id,
+                                        const char* specifier);
+// @ref LLP 0013#delegation-and-authority-flow — authority-bearing capability handles.
+extern "C" uint64_t ex_host_handle_create(const char* capability);
+extern "C" uint64_t ex_host_handle_scoped(uint64_t parent, const char* narrower);
+extern "C" int32_t ex_host_handle_check(uint64_t id, const char* capability);
+extern "C" void ex_host_handle_revoke(uint64_t id);
+// @ref LLP 0013 §dynamic permissions — runtime root-grant mutation (tri-state).
+extern "C" int32_t ex_host_permission_request(const char* capability);
+extern "C" void ex_host_permission_revoke(const char* capability);
+extern "C" int32_t ex_host_permission_status(const char* capability);
+
+// @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
+// symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
+// and are only referenced when EXACT_HAVE_FRAME_ATTRIBUTION is defined (build.rs
+// probes the linked framework for them), so an unpatched engine still links and
+// falls back to the thread-local module id below.
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+extern "C" uint32_t ex_hermes_vm_current_package_id(void* vm_runtime);
+extern "C" void ex_hermes_vm_set_pending_package_id(void* vm_runtime,
+                                                    uint32_t package_id);
+extern "C" void ex_hermes_vm_set_default_package_id(void* vm_runtime,
+                                                    uint32_t package_id);
+extern "C" void ex_hermes_vm_clear_pending_package_id(void* vm_runtime);
+extern "C" size_t ex_hermes_vm_collect_package_ids(void* vm_runtime,
+                                                   uint32_t* out,
+                                                   size_t max);
+// @ref LLP 0013#phase-5 (Open-Q3) — arm schedule-time principal capture so a
+// deputy op detached across a microtask (`Promise.resolve(x).then(deputy.method)`)
+// is attributed to its scheduler, not just the bare deputy frame. Exported by
+// patches/hermes/0008; armed at boot iff deputy-class hardening is configured.
+extern "C" void ex_hermes_vm_set_job_scheduler_capture(void* vm_runtime,
+                                                       int enabled);
+// The vm::Runtime pointer (HermesRuntime::getVMRuntimeUnsafe()), cached once at
+// runtime creation. Null on unpatched engines and until the runtime is created.
+extern void* g_vm_runtime;
+// The reserved principal for runtime-internal code (bootstrap, module loader,
+// lockdown/compartment installers). Domains stamped with it are transparent to
+// frame attribution — the walk skips them so the nearest user frame is charged.
+// Kept in sync with kRuntimePackageId in Hermes' CapabilityAttribution.cpp.
+constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
+// Mirror of the Rust NO_USER_PRINCIPAL / engine kNoUserPrincipal: a principal
+// with no grants that fails closed. Used as a fail-closed sentinel when the
+// deputy-stack collector may have truncated (see checkCapability). (ENG-22643)
+constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
+#endif
+
+// The capability principal for the code currently executing at the host
+// boundary. With the carried patch stack this is the package id of the nearest
+// JS frame's Domain — engine truth that JS cannot forge (a stored callback or a
+// patched prototype method still reports its true author). Without the patch it
+// is the legacy thread-local module id set by the loader around evaluation.
+// @ref LLP 0013#mechanism-3
+inline uint64_t currentPrincipalId() {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (g_vm_runtime != nullptr) {
+    auto principal =
+        static_cast<uint64_t>(ex_hermes_vm_current_package_id(g_vm_runtime));
+    if (principal == static_cast<uint64_t>(kNoUserPrincipalId) &&
+        g_native_callback_principal_id != kNoNativePrincipalOverride) {
+      return g_native_callback_principal_id;
+    }
+    return principal;
+  }
+#endif
+  if (g_native_callback_principal_id != kNoNativePrincipalOverride) {
+    return g_native_callback_principal_id;
+  }
+  return g_active_module_id;
+}
+
+// @ref LLP 0013#phase-5 — native-host callbacks can re-enter JS with no live
+// user frame. Carry the scheduling/owning principal only for that no-user
+// boundary; frame attribution remains authoritative when Hermes reports one.
+class ScopedNativePrincipal {
+ public:
+  explicit ScopedNativePrincipal(uint64_t principal)
+      : previous_(g_native_callback_principal_id) {
+    g_native_callback_principal_id = principal;
+  }
+
+  ScopedNativePrincipal(const ScopedNativePrincipal&) = delete;
+  ScopedNativePrincipal& operator=(const ScopedNativePrincipal&) = delete;
+
+  ~ScopedNativePrincipal() {
+    g_native_callback_principal_id = previous_;
+  }
+
+ private:
+  uint64_t previous_;
+};
 
 #if defined(EXACT_HAVE_JSI_MUTABLE_BUFFER)
 class VectorBuffer : public facebook::jsi::MutableBuffer {
@@ -172,17 +285,209 @@ inline bool isAllowAll() {
 #endif
 }
 
-inline bool checkCapability(const std::string& capability) {
+// Whether any deputy capability classes are configured (Phase 5 opt-in). NOT
+// cached: a process-lifetime latch of the first observed answer would be a
+// footgun if a check ever ran before deputy classes were configured (it would
+// pin `false` for the whole process). The check is only reached on the opt-in
+// deputy path, and the FFI is two cheap RwLock reads, so query it live. (ENG-22644)
+inline bool hasDeputyClasses() {
+  return ex_host_has_deputy_classes() != 0;
+}
+
+inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFollowFinal) {
   if (isAllowAll()) {
     return true;
   }
-  auto allowed = ex_host_check_capability(g_active_module_id, capability.c_str());
+  auto principal = currentPrincipalId();
+#if defined(EXACT_HAVE_FRAME_ATTRIBUTION)
+  // @ref LLP 0013#phase-5 — for deputy-sensitive capability classes (opt-in via
+  // policy), effective authority is the AND of every package on the call stack,
+  // so a deputy holding e.g. fs:write cannot be driven to act for an ungranted
+  // caller. Also collect when the live frame walk found no user principal: the
+  // scheduler capture can recover the package/root that caused a native-resolved
+  // continuation, avoiding a false deny while still denying ungranted schedulers.
+  bool deputyClasses = hasDeputyClasses();
+  bool useStack =
+      g_vm_runtime != nullptr &&
+      (deputyClasses || principal == kNoUserPrincipalId);
+  if (useStack) {
+    // Collection is innermost-first, so a full buffer drops the OUTERMOST frames
+    // — exactly the low-authority callers whose absence would let the AND pass
+    // (fail open). Size the buffer generously (the collector collapses
+    // consecutive-duplicate principal runs, so this is astronomically deep) and,
+    // if it still fills, append the fail-closed sentinel so the deputy-class AND
+    // denies rather than trusting a possibly-truncated stack. The non-deputy path
+    // keys on ids64[0] (innermost, never dropped) and is unaffected. (ENG-22643)
+    constexpr size_t kMaxStack = 256;
+    uint32_t ids32[kMaxStack];
+    size_t n = ex_hermes_vm_collect_package_ids(g_vm_runtime, ids32, kMaxStack);
+    if (n > 0) {
+      uint64_t ids64[kMaxStack + 1];
+      for (size_t i = 0; i < n; i++) {
+        ids64[i] = static_cast<uint64_t>(ids32[i]);
+      }
+      if (n == kMaxStack) {
+        ids64[n++] = static_cast<uint64_t>(kNoUserPrincipalId);
+      }
+      // @ref LLP 0013#phase-5 (Open-Q3), ENG-22759 — fold in the HOST-queue
+      // scheduling principal for a deputy op detached across a timer /
+      // process.nextTick / setImmediate / the non-JSI queueMicrotask fallback.
+      // ENG-22761 captures that principal into g_native_callback_principal_id
+      // (ScopedNativePrincipal around the detached drain), but currentPrincipalId
+      // consults it only as a fallback for a *no-user* frame walk. A detached
+      // deputy METHOD (`setTimeout(deputy.readFor, 0, SECRET)`) runs with its own
+      // frame live, so the walk returns the deputy and the scheduler is otherwise
+      // dropped — leaving [deputy] (len 1), the deputy-class AND skipped, and the
+      // read laundered for the ungranted scheduler. Append it here, exactly as
+      // Hermes' collectStackPackageIds appends the Promise-queue scheduler for
+      // `Promise.resolve(x).then(deputy.method)` (that queue lives in the VM; the
+      // timer/nextTick queues live in the embedder, so the append is done here).
+      // An ungranted scheduler makes the AND deny; a granted package's own timer
+      // continuation (scheduler == the innermost frame) collapses and is not
+      // false-denied. Skip the runtime/no-user sentinels — a native completion with
+      // no attributable scheduler is not evidence of laundering (matches ENG-22761
+      // for the Promise queue). Deputy-class path only, with room after the
+      // truncation sentinel.
+      if (deputyClasses && n <= kMaxStack &&
+          g_native_callback_principal_id != kNoNativePrincipalOverride) {
+        uint64_t scheduler = g_native_callback_principal_id;
+        if (scheduler != static_cast<uint64_t>(kRuntimePrincipalId) &&
+            scheduler != static_cast<uint64_t>(kNoUserPrincipalId) &&
+            scheduler != ids64[n - 1]) {
+          ids64[n++] = scheduler;
+        }
+      }
+      auto allowed = noFollowFinal
+          ? ex_host_check_capability_stack_no_follow_final(ids64, n, capability.c_str())
+          : ex_host_check_capability_stack(ids64, n, capability.c_str());
+      ex_host_log_event(
+          allowed ? "capability_granted" : "capability_denied",
+          ids64[0],
+          capability.c_str(),
+          allowed);
+      return allowed != 0;
+    }
+  }
+#endif
+  auto allowed = noFollowFinal
+      ? ex_host_check_capability_no_follow_final(principal, capability.c_str())
+      : ex_host_check_capability(principal, capability.c_str());
   ex_host_log_event(
       allowed ? "capability_granted" : "capability_denied",
-      g_active_module_id,
+      principal,
       capability.c_str(),
       allowed);
   return allowed != 0;
+}
+
+inline bool checkCapability(const std::string& capability) {
+  return checkCapabilityWithFsMode(capability, false);
+}
+
+inline bool checkCapabilityNoFollowFinal(const std::string& capability) {
+  return checkCapabilityWithFsMode(capability, true);
+}
+
+struct ParsedNetworkUrl {
+  std::string scheme;
+  std::string host;
+  int port;
+};
+
+inline std::string asciiLower(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return value;
+}
+
+inline int defaultPortForNetworkScheme(const std::string& scheme) {
+  if (scheme == "http" || scheme == "ws") {
+    return 80;
+  }
+  if (scheme == "https" || scheme == "wss") {
+    return 443;
+  }
+  return -1;
+}
+
+inline bool parseNetworkPort(const std::string& value, int& port) {
+  if (value.empty()) {
+    return false;
+  }
+  int parsed = 0;
+  for (unsigned char c : value) {
+    if (std::isdigit(c) == 0) {
+      return false;
+    }
+    int digit = static_cast<int>(c - '0');
+    if (parsed > (65535 - digit) / 10) {
+      return false;
+    }
+    parsed = parsed * 10 + digit;
+  }
+  port = parsed;
+  return true;
+}
+
+inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
+  auto scheme_end = url.find("://");
+  if (scheme_end == std::string::npos || scheme_end == 0) {
+    return false;
+  }
+  parsed.scheme = asciiLower(url.substr(0, scheme_end));
+  size_t authority_start = scheme_end + 3;
+  size_t authority_end = url.find_first_of("/?#", authority_start);
+  std::string authority = url.substr(
+      authority_start,
+      authority_end == std::string::npos ? std::string::npos : authority_end - authority_start);
+  auto at = authority.rfind('@');
+  if (at != std::string::npos) {
+    authority = authority.substr(at + 1);
+  }
+  if (authority.empty()) {
+    return false;
+  }
+
+  parsed.port = defaultPortForNetworkScheme(parsed.scheme);
+  std::string host;
+  if (authority[0] == '[') {
+    auto close = authority.find(']');
+    if (close == std::string::npos) {
+      return false;
+    }
+    host = authority.substr(1, close - 1);
+    if (close + 1 < authority.size()) {
+      if (authority[close + 1] != ':') {
+        return false;
+      }
+      auto port_str = authority.substr(close + 2);
+      if (!parseNetworkPort(port_str, parsed.port)) {
+        return false;
+      }
+    }
+  } else {
+    auto first_colon = authority.find(':');
+    auto colon = authority.rfind(':');
+    if (first_colon != std::string::npos && first_colon != colon) {
+      return false;
+    }
+    if (colon != std::string::npos) {
+      host = authority.substr(0, colon);
+      auto port_str = authority.substr(colon + 1);
+      if (!parseNetworkPort(port_str, parsed.port)) {
+        return false;
+      }
+    } else {
+      host = authority;
+    }
+  }
+
+  if (host.empty() || parsed.port < 0 || parsed.port > 65535) {
+    return false;
+  }
+  parsed.host = asciiLower(host);
+  return true;
 }
 
 inline facebook::jsi::Value makeUint8Array(
@@ -204,6 +509,89 @@ inline facebook::jsi::Value makeUint8Array(
   return facebook::jsi::Value(std::move(typed));
 }
 
+inline bool exactByteLengthFromValue(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    const char* propertyName,
+    size_t defaultValue,
+    size_t& out) {
+  if (value.isUndefined() || value.isNull()) {
+    out = defaultValue;
+    return true;
+  }
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(runtime, std::string("Invalid ") + propertyName);
+  }
+  double n = value.asNumber();
+  if (!std::isfinite(n) || n < 0 || std::floor(n) != n ||
+      n > static_cast<double>(std::numeric_limits<size_t>::max())) {
+    throw facebook::jsi::JSError(runtime, std::string("Invalid ") + propertyName);
+  }
+  out = static_cast<size_t>(n);
+  return true;
+}
+
+inline bool extractArrayBufferView(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Object& object,
+    const uint8_t*& data,
+    size_t& length,
+    size_t* byteOffsetOut = nullptr) {
+  data = nullptr;
+  length = 0;
+  if (object.isArrayBuffer(runtime)) {
+    auto buffer = object.getArrayBuffer(runtime);
+    data = buffer.data(runtime);
+    length = buffer.size(runtime);
+    if (byteOffsetOut) {
+      *byteOffsetOut = 0;
+    }
+    return true;
+  }
+  if (!object.hasProperty(runtime, "buffer")) {
+    return false;
+  }
+  auto bufferValue = object.getProperty(runtime, "buffer");
+  if (!bufferValue.isObject()) {
+    return false;
+  }
+  auto bufferObject = bufferValue.asObject(runtime);
+  if (!bufferObject.isArrayBuffer(runtime)) {
+    return false;
+  }
+  auto arrayBuffer = bufferObject.getArrayBuffer(runtime);
+  size_t bufferSize = arrayBuffer.size(runtime);
+  size_t offset = 0;
+  size_t viewLength = bufferSize;
+  if (object.hasProperty(runtime, "byteOffset")) {
+    exactByteLengthFromValue(
+        runtime,
+        object.getProperty(runtime, "byteOffset"),
+        "byteOffset",
+        0,
+        offset);
+  }
+  if (object.hasProperty(runtime, "byteLength")) {
+    exactByteLengthFromValue(
+        runtime,
+        object.getProperty(runtime, "byteLength"),
+        "byteLength",
+        bufferSize - std::min(offset, bufferSize),
+        viewLength);
+  } else {
+    viewLength = bufferSize - std::min(offset, bufferSize);
+  }
+  if (offset > bufferSize || viewLength > bufferSize - offset) {
+    throw facebook::jsi::JSError(runtime, "ArrayBuffer view out of bounds");
+  }
+  data = arrayBuffer.data(runtime) + offset;
+  length = viewLength;
+  if (byteOffsetOut) {
+    *byteOffsetOut = offset;
+  }
+  return true;
+}
+
 inline std::vector<uint8_t> extractBytes(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::Value& value) {
@@ -216,31 +604,10 @@ inline std::vector<uint8_t> extractBytes(
   }
 
   auto object = value.asObject(runtime);
-  if (object.isArrayBuffer(runtime)) {
-    auto buffer = object.getArrayBuffer(runtime);
-    return std::vector<uint8_t>(buffer.data(runtime), buffer.data(runtime) + buffer.size(runtime));
-  }
-
-  if (object.hasProperty(runtime, "buffer")) {
-    auto bufferValue = object.getProperty(runtime, "buffer");
-    if (bufferValue.isObject()) {
-      auto bufferObject = bufferValue.asObject(runtime);
-      if (bufferObject.isArrayBuffer(runtime)) {
-        auto arrayBuffer = bufferObject.getArrayBuffer(runtime);
-        size_t offset = 0;
-        size_t length = arrayBuffer.size(runtime);
-        auto offsetValue = object.getProperty(runtime, "byteOffset");
-        if (offsetValue.isNumber()) {
-          offset = static_cast<size_t>(offsetValue.asNumber());
-        }
-        auto lengthValue = object.getProperty(runtime, "byteLength");
-        if (lengthValue.isNumber()) {
-          length = static_cast<size_t>(lengthValue.asNumber());
-        }
-        auto* ptr = arrayBuffer.data(runtime) + offset;
-        return std::vector<uint8_t>(ptr, ptr + length);
-      }
-    }
+  const uint8_t* data = nullptr;
+  size_t length = 0;
+  if (extractArrayBufferView(runtime, object, data, length)) {
+    return data ? std::vector<uint8_t>(data, data + length) : std::vector<uint8_t>();
   }
 
   return {};

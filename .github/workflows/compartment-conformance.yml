@@ -1,0 +1,83 @@
+# @ref LLP 0013#implementation-status — the end-to-end compartment conformance /
+# red-team suite is the durable asset the fork phases and every rebase are
+# measured against. It needs a real `ibex` binary linked against the *patched*
+# Hermes, so this job builds the carried patch stack into a macOS framework
+# (cached on the pin + patch content, so a full ~hour build only happens when the
+# pin or the patches change) and runs `cargo test --test llp0013_compartments`.
+#
+# The weekly hermes-patch-canary only does `git apply --check`; this is the
+# functional guard that the patched engine actually builds and enforces.
+name: Compartment conformance
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Monday 08:00 UTC (after the patch canary).
+    - cron: "0 8 * * 1"
+  pull_request:
+    paths:
+      - "patches/hermes/**"
+      - "scripts/apply-hermes-patches.sh"
+      - "scripts/hermes-version.sh"
+      - "scripts/build-hermes*.sh"
+      - "src/engine/**"
+      - "src/host/**"
+      - "src/bin/ibex/**"
+      - "src/module_loader/**"
+      - "tests/llp0013_compartments.rs"
+      - "tests/fixtures/llp0013/**"
+      - "build.rs"
+
+jobs:
+  conformance:
+    name: Patched engine + red-team suite (macOS)
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      # Cache the built patched framework + host hermesc, keyed on the pin and
+      # the patch content. A miss triggers the full Hermes build; a hit reuses
+      # the installed artifacts so the run is just cargo build + test.
+      - name: Cache patched Hermes artifacts
+        id: hermes-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Frameworks
+            tools/hermes
+            ~/.cache/exact/hermes
+          key: hermes-patched-${{ runner.os }}-${{ hashFiles('scripts/hermes-version.sh', 'patches/hermes/**') }}
+
+      - name: Build patched Hermes (on cache miss)
+        if: steps.hermes-cache.outputs.cache-hit != 'true'
+        run: ./scripts/download-hermes.sh
+
+      - name: Build ibex
+        run: cargo build
+
+      - name: Verify frame attribution is compiled in
+        run: |
+          nm -u target/debug/ibex | grep -q ex_hermes_vm_current_package_id \
+            && echo "frame attribution: linked" \
+            || (echo "::error::patched Hermes not linked (frame attribution absent)"; exit 1)
+
+      - name: Compartment conformance / red-team suite
+        run: cargo test --test llp0013_compartments -- --nocapture
+
+      - name: Host + handle unit tests
+        run: cargo test --lib

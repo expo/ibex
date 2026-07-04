@@ -1,15 +1,18 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'acorn';
+import { parseSync } from 'rolldown/utils';
 import ts from 'typescript';
 import { describe, expect, it } from 'bun:test';
 
 import {
   createBundlerExternalPredicate,
+  createRolldownConfig,
   fixForOfScoping,
+  packageOfModuleId,
+  packageIdentityOfModuleId,
   protectExponentiation,
   replaceModuleDirnameBindings,
   restoreExponentiation,
@@ -18,24 +21,73 @@ import {
   transformBigIntLiterals,
 } from './transforms.mjs';
 
-function expectParses(source) {
-  try {
-    parse(source, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      allowReturnOutsideFunction: true,
-      ranges: true,
-    });
-    return;
-  } catch {}
-
-  parse(source, {
-    ecmaVersion: 'latest',
-    sourceType: 'script',
-    allowReturnOutsideFunction: true,
-    ranges: true,
+// @ref LLP 0013#resolved-questions (ENG-22621) — the version-qualified identity
+// keys compartments and chunk groups so coexisting versions stay separate.
+describe('packageIdentityOfModuleId', () => {
+  it('reads name@version from the nearest package.json and distinguishes nested versions', () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), 'ibex-ident-'));
+    const topPkg = path.join(base, 'node_modules', 'shared-pkg');
+    const nestedPkg = path.join(base, 'node_modules', 'uses-old', 'node_modules', 'shared-pkg');
+    mkdirRec(topPkg);
+    mkdirRec(nestedPkg);
+    writeFileSync(path.join(topPkg, 'package.json'), '{"name":"shared-pkg","version":"2.0.0"}');
+    writeFileSync(path.join(nestedPkg, 'package.json'), '{"name":"shared-pkg","version":"1.0.0"}');
+    expect(packageIdentityOfModuleId(path.join(topPkg, 'index.js'))).toBe('shared-pkg@2.0.0');
+    expect(packageIdentityOfModuleId(path.join(nestedPkg, 'index.js'))).toBe('shared-pkg@1.0.0');
+    // The bare selector is unchanged (survives version bumps).
+    expect(packageOfModuleId(path.join(nestedPkg, 'index.js'))).toBe('shared-pkg');
   });
+
+  // @ref LLP 0013#mechanism-3 (ENG-22698) — the per-package chunk group's `test`
+  // predicate is `packageOfModuleId(id) !== null`, which normalizes separators,
+  // so Windows backslash ids still map to their package chunk (a POSIX-only
+  // `/node_modules/` regex would miss them and leave them in the root bundle).
+  it('packageOfModuleId detects packages in Windows backslash module ids', () => {
+    expect(packageOfModuleId('C:\\app\\node_modules\\evil-pkg\\index.js')).toBe('evil-pkg');
+    expect(packageOfModuleId('C:\\a\\node_modules\\@scope\\tool\\i.js')).toBe('@scope/tool');
+    expect(packageOfModuleId('/app/node_modules/evil-pkg/index.js')).toBe('evil-pkg');
+    expect(packageOfModuleId('C:\\app\\src\\index.js')).toBeNull();
+  });
+
+  it('falls back to the bare name when no version is readable', () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), 'ibex-ident-'));
+    const pkg = path.join(base, 'node_modules', 'noversion');
+    mkdirRec(pkg);
+    writeFileSync(path.join(pkg, 'package.json'), '{"name":"noversion"}');
+    expect(packageIdentityOfModuleId(path.join(pkg, 'index.js'))).toBe('noversion');
+    // First-party code (no node_modules ancestor) has no package identity.
+    expect(packageIdentityOfModuleId('/app/src/index.js')).toBeNull();
+  });
+});
+
+function mkdirRec(dir) {
+  mkdirSync(dir, { recursive: true });
 }
+
+function expectParses(source) {
+  const tryParse = (sourceType) => {
+    const parsed = parseSync('test.js', source, {
+      lang: 'js',
+      sourceType,
+      range: true,
+      preserveParens: false,
+    });
+    if (parsed.errors && parsed.errors.length) {
+      throw parsed.errors[0];
+    }
+  };
+  try {
+    tryParse('module');
+  } catch {
+    tryParse('commonjs');
+  }
+}
+
+describe('createRolldownConfig', () => {
+  it('preserves symlink dependency ids for package classification', () => {
+    expect(createRolldownConfig({ input: 'app.js' }).resolve.symlinks).toBe(false);
+  });
+});
 
 describe('fixForOfScoping', () => {
   it('rewrites safe for-of loops and preserves per-iteration bindings', () => {

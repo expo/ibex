@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ibex — stop trusting node_modules</title>
+
+<!-- Fonts: Barlow (the single text face, weights 400–900) + IBM Plex Mono (chrome only) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ===========================================
+   THEME — Broadside design system
+   Two registers: dark (ink + cream + orange accent)
+   and orange (fire orange + dark ink). No third color,
+   no shadows, no border-radius. Flat plane.
+   All sizes authored at the fixed 1920×1080 stage.
+   =========================================== */
+:root {
+    /* Palette */
+    --ink:            #111111;
+    --ink-alt:        #1A1A18;
+    --orange:         #E85D26;
+    --cream:          #F0ECE5;
+    --cream-muted:    #888880;
+    --cream-hint:     #505048;
+    --border-dark:    #282826;
+    --ink-75:         rgba(17, 17, 17, 0.75);
+    --ink-55:         rgba(17, 17, 17, 0.55);
+    --ink-45:         rgba(17, 17, 17, 0.45);
+    --ink-40:         rgba(17, 17, 17, 0.40);
+    --ink-20:         rgba(17, 17, 17, 0.20);
+
+    /* Stage background (letterbox) */
+    --stage-bg: #000;
+    --slide-bg: var(--ink);
+
+    /* Typography — Broadside vw tokens translated to 1920px stage */
+    --font-text: 'Barlow', 'Noto Sans SC', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --sz-display: 236px;   /* 13vw-ish; cover statements       */
+    --sz-h1:      144px;   /* chapter titles                   */
+    --sz-stat:    104px;   /* stat card numerals               */
+    --sz-h2:       84px;   /* content-slide headlines          */
+    --sz-h3:       52px;   /* panel titles                     */
+    --sz-lead:     30px;   /* lead copy, list items            */
+    --sz-body:     23px;   /* body copy                        */
+    --sz-caption:  17px;   /* footnotes                        */
+    --sz-label:    14px;   /* mono chrome                      */
+
+    /* Spacing */
+    --pad-x: 106px;
+    --pad-y: 58px;
+    --gap-lg: 38px;
+    --gap-md: 22px;
+    --gap-sm: 11px;
+
+    /* Motion */
+    --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur-enter: 0.6s;
+}
+
+/* ===========================================
+   BASE RESET
+   =========================================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ===========================================
+   FIXED 16:9 STAGE: MANDATORY BASE STYLES
+   (viewport-base.css, included in full)
+   Slides are authored at 1920×1080 and scaled as a whole.
+   =========================================== */
+
+/* 1. Lock the browser viewport */
+html,
+body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: var(--stage-bg, #000);
+}
+
+/* 2. Full-window deck viewport */
+.deck-viewport {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: var(--stage-bg, #000);
+}
+
+/* 3. Fixed 16:9 design canvas.
+   JavaScript sets transform: translate(...) scale(...). */
+.deck-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    transform-origin: 0 0;
+    background: var(--slide-bg, #fff);
+}
+
+/* 4. Slides stack inside the fixed stage.
+   Content must be laid out at 1920×1080, not reflowed per device. */
+.slide {
+    position: absolute;
+    inset: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    display: block;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    background: var(--slide-bg, #fff);
+}
+
+.slide.active,
+.slide.visible {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    z-index: 1;
+}
+
+/* 5. Keep media inside authored slide bounds */
+img,
+video,
+canvas,
+svg {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+/* 6. Presentation chrome stays outside the slide design system */
+.deck-controls {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    z-index: 1000;
+}
+
+/* 7. Print one fixed-size slide per page */
+@media print {
+    html,
+    body {
+        width: 1920px;
+        height: auto;
+        overflow: visible;
+        background: #fff;
+    }
+
+    .deck-viewport {
+        position: static;
+        overflow: visible;
+        background: #fff;
+    }
+
+    .deck-stage {
+        position: static;
+        width: auto;
+        height: auto;
+        transform: none !important;
+        background: none;
+    }
+
+    .slide {
+        position: relative;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        width: 1920px;
+        height: 1080px;
+        break-after: page;
+        page-break-after: always;
+    }
+
+    .slide:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+
+    .deck-controls {
+        display: none !important;
+    }
+}
+
+/* 8. Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.2s !important;
+    }
+}
+
+/* ===========================================
+   SLIDE REGISTERS
+   Every slide is either dark (default) or orange.
+   Orange is reserved for declaration moments:
+   cover, chapter, statement, end.
+   =========================================== */
+.slide {
+    background: var(--ink);
+    color: var(--cream);
+    font-family: var(--font-text);
+    padding: var(--pad-y) var(--pad-x);
+    display: flex;
+    flex-direction: column;
+}
+
+.slide.orange {
+    background: var(--orange);
+    color: var(--ink);
+}
+
+/* ===========================================
+   CHROME — top and bottom hairline bars.
+   Content slides only; declarative slides suppress it.
+   Chrome voice is always IBM Plex Mono uppercase.
+   =========================================== */
+.slide-chrome,
+.slide-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: var(--sz-label);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--cream-hint);
+    flex: 0 0 auto;
+}
+.slide-chrome { padding-bottom: var(--gap-sm); border-bottom: 1px solid var(--border-dark); margin-bottom: var(--gap-lg); }
+.slide-foot   { padding-top: var(--gap-sm);   border-top: 1px solid var(--border-dark);   margin-top: auto; }
+.slide-chrome .lbl { color: var(--orange); }
+
+/* Slide body area between chrome bars */
+.slide-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+
+/* ===========================================
+   TYPE ROLES
+   Barlow: sentence case only, heavy, negative tracking.
+   Mono: uppercase, tracked, chrome only.
+   =========================================== */
+.kicker {
+    font-family: var(--font-mono);
+    font-size: var(--sz-label);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange);
+    margin-bottom: var(--gap-md);
+}
+.orange .kicker { color: var(--ink-55); }
+
+.display {
+    font-size: var(--sz-display);
+    font-weight: 900;
+    line-height: 0.88;
+    letter-spacing: -0.04em;
+}
+h1 { font-size: var(--sz-h1); font-weight: 800; line-height: 0.92; letter-spacing: -0.03em; }
+h2 { font-size: var(--sz-h2); font-weight: 700; line-height: 1.04; letter-spacing: -0.02em; }
+h3 { font-size: var(--sz-h3); font-weight: 600; line-height: 1.15; letter-spacing: -0.01em; }
+.lead { font-size: var(--sz-lead); font-weight: 400; line-height: 1.5; color: var(--cream-muted); }
+.lead strong { color: var(--cream); font-weight: 600; }
+.body { font-size: var(--sz-body); font-weight: 400; line-height: 1.6; color: var(--cream-muted); }
+.body strong { color: var(--cream); font-weight: 600; }
+.caption { font-size: var(--sz-caption); line-height: 1.5; color: var(--cream-hint); }
+
+.orange .lead  { color: var(--ink-75); }
+.orange .lead strong { color: var(--ink); }
+.orange .body  { color: var(--ink-75); }
+.orange .caption { color: var(--ink-45); }
+
+/* Accent words inside dark-register headlines */
+.acc { color: var(--orange); }
+
+/* Catalogue-style number, top-left of declarative slides */
+.broadside-num {
+    position: absolute;
+    top: var(--pad-y);
+    left: var(--pad-x);
+    font-family: var(--font-mono);
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-45);
+}
+.slide:not(.orange) .broadside-num { color: var(--cream-hint); }
+
+/* Stub accent rule — the system's only ornament */
+.rule { width: 36px; height: 2px; background: var(--orange); border: 0; }
+.orange .rule { background: var(--ink); }
+
+/* Bordered mono tag */
+.tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: var(--sz-label);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange);
+    border: 1px solid var(--orange);
+    padding: 0.35em 0.8em;
+    white-space: nowrap;
+}
+.orange .tag { color: var(--ink); border-color: var(--ink-40); }
+
+/* ===========================================
+   LISTS — slash-marker bullets, capped at 3 items
+   =========================================== */
+ul.slash { list-style: none; }
+ul.slash li {
+    position: relative;
+    padding-left: 44px;
+    font-size: var(--sz-lead);
+    line-height: 1.45;
+    color: var(--cream-muted);
+}
+ul.slash li + li { margin-top: var(--gap-lg); }
+ul.slash li::before {
+    content: "/";
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--orange);
+}
+ul.slash li strong { color: var(--cream); font-weight: 600; }
+
+/* ===========================================
+   STAT CARDS — top-border-only data blocks
+   =========================================== */
+.stat-row { display: flex; gap: var(--gap-lg); }
+.stat-card {
+    flex: 1;
+    border-top: 1px solid var(--border-dark);
+    padding: var(--gap-md) var(--gap-md) 0 0;
+}
+.stat-card .val {
+    font-size: var(--sz-stat);
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--orange);
+}
+.stat-card .val small { font-size: 0.45em; font-weight: 800; letter-spacing: -0.02em; }
+.stat-card .name { font-size: var(--sz-body); color: var(--cream); font-weight: 600; margin-top: 14px; }
+.stat-card .note {
+    font-family: var(--font-mono);
+    font-size: var(--sz-label);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cream-hint);
+    margin-top: 10px;
+}
+
+/* ===========================================
+   INCIDENT LEDGER — timeline / red-team tables.
+   Hairline rows; mono verdict stamps on the right.
+   =========================================== */
+.ledger { width: 100%; }
+.ledger .row {
+    display: grid;
+    align-items: baseline;
+    border-top: 1px solid var(--border-dark);
+    padding: 18px 0;
+}
+.ledger .row:last-child { border-bottom: 1px solid var(--border-dark); }
+.ledger .yr {
+    font-family: var(--font-mono);
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    color: var(--orange);
+}
+.ledger .pkg { font-size: 36px; font-weight: 700; letter-spacing: -0.02em; color: var(--cream); }
+.ledger .what { font-size: 21px; line-height: 1.35; color: var(--cream-muted); }
+.ledger .stamp {
+    justify-self: end;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange);
+    border: 1px solid var(--orange);
+    padding: 0.35em 0.8em;
+    white-space: nowrap;
+}
+
+/* ===========================================
+   CODE PANEL — flat, hairline border, mono.
+   Orange marks the load-bearing tokens.
+   =========================================== */
+.code {
+    background: var(--ink-alt);
+    border: 1px solid var(--border-dark);
+    padding: 30px 36px;
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 400;
+    line-height: 1.65;
+    color: var(--cream);
+    white-space: pre;
+    overflow: hidden;
+}
+.code .c  { color: var(--cream-hint); }   /* comment  */
+.code .o  { color: var(--orange); }        /* the point */
+.code .m  { color: var(--cream-muted); }   /* secondary */
+
+/* Mono flow diagram (frame walk) */
+.flow {
+    font-family: var(--font-mono);
+    font-size: 21px;
+    letter-spacing: 0.04em;
+    color: var(--cream);
+    border: 1px solid var(--border-dark);
+    background: var(--ink-alt);
+    padding: 26px 36px;
+    white-space: nowrap;
+}
+.flow .a { color: var(--orange); }
+.flow .dim { color: var(--cream-hint); }
+
+/* ===========================================
+   MULTI-COLUMN SCAFFOLDS
+   =========================================== */
+.cols { display: flex; gap: 64px; min-height: 0; }
+.col  { flex: 1; min-width: 0; }
+.col + .col { border-left: 1px solid var(--border-dark); padding-left: 64px; }
+
+.mech { flex: 1; border-top: 1px solid var(--border-dark); padding-top: var(--gap-md); }
+.mech .num { font-size: var(--sz-stat); font-weight: 900; letter-spacing: -0.04em; line-height: 1; color: var(--orange); }
+.mech h3 { margin: 18px 0 14px; }
+.mech .body { min-height: 150px; }
+.mech .kills {
+    font-family: var(--font-mono);
+    font-size: var(--sz-label);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--cream-hint);
+    margin-top: 18px;
+    line-height: 1.7;
+}
+.mech .kills b { color: var(--orange); font-weight: 600; }
+
+/* ===========================================
+   ENTRY ANIMATIONS — replay on each activation
+   =========================================== */
+.reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity var(--dur-enter) var(--ease-enter),
+                transform var(--dur-enter) var(--ease-enter);
+}
+.slide.visible .reveal { opacity: 1; transform: translateY(0); }
+.d1 { transition-delay: 0.08s; }
+.d2 { transition-delay: 0.16s; }
+.d3 { transition-delay: 0.24s; }
+.d4 { transition-delay: 0.32s; }
+.d5 { transition-delay: 0.40s; }
+.d6 { transition-delay: 0.48s; }
+.d7 { transition-delay: 0.56s; }
+.d8 { transition-delay: 0.64s; }
+.d9 { transition-delay: 0.72s; }
+.d10 { transition-delay: 0.80s; }
+
+/* ===========================================
+   DECK CONTROLS — nav dots + counter, outside the stage
+   =========================================== */
+.deck-controls { display: flex; gap: 10px; align-items: center; }
+.nav-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--cream-hint);
+    opacity: 0.5;
+    cursor: pointer;
+    transition: opacity 0.2s, background 0.2s;
+}
+.nav-dot.on { background: var(--orange); opacity: 1; }
+.deck-counter {
+    position: fixed;
+    right: 24px; bottom: 16px;
+    z-index: 1000;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    color: var(--cream-hint);
+}
+
+/* ===========================================
+   INLINE EDITING — hidden until hover/E key
+   =========================================== */
+.edit-hotzone {
+    position: fixed; top: 0; left: 0;
+    width: 80px; height: 80px;
+    z-index: 10000;
+    cursor: pointer;
+}
+.edit-toggle {
+    position: fixed; top: 18px; left: 18px;
+    z-index: 10001;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    background: var(--ink-alt);
+    color: var(--cream);
+    border: 1px solid var(--border-dark);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    cursor: pointer;
+}
+.edit-toggle.show, .edit-toggle.active { opacity: 1; pointer-events: auto; }
+.edit-toggle.active { border-color: var(--orange); color: var(--orange); }
+body.editing [contenteditable="true"] { outline: 1px dashed rgba(232, 93, 38, 0.6); outline-offset: 4px; }
+</style>
+</head>
+<body>
+
+<div class="deck-viewport">
+<main class="deck-stage" id="deckStage">
+
+<!-- ============================================================
+     SLIDE 01 · COVER (orange register, chrome suppressed)
+     ============================================================ -->
+<section class="slide orange active">
+    <div class="broadside-num">ibex · llp 0013 / 0014</div>
+    <div class="slide-body" style="justify-content: center;">
+        <div class="kicker reveal">a hermes-based javascript / typescript runtime</div>
+        <div class="display reveal d1">stop trusting<br>node_modules.</div>
+        <p class="lead reveal d3" style="margin-top: 44px; max-width: 1150px;">
+            Ibex runs every npm package inside its own capability boundary,
+            enforced by the engine itself. Your code keeps its authority.
+            Your dependencies get exactly what you granted them — and nothing else.
+        </p>
+    </div>
+    <div class="reveal d5" style="font-family: var(--font-mono); font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-40); flex: 0 0 auto;">
+        event-stream 2018&nbsp;&nbsp;·&nbsp;&nbsp;ua-parser-js 2021&nbsp;&nbsp;·&nbsp;&nbsp;node-ipc 2022&nbsp;&nbsp;·&nbsp;&nbsp;chalk / debug 2025&nbsp;&nbsp;·&nbsp;&nbsp;shai-hulud 2025
+    </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 02 · THE INCIDENT RECORD (dark, timeline ledger)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the attack class</span><span>ibex · 02 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">a standing incident, not a series of surprises</div>
+        <h2 class="reveal d1" style="max-width: 1500px;">the same attack keeps working,<br>because the platform keeps allowing it</h2>
+        <div class="ledger" style="margin-top: 40px;">
+            <div class="row reveal d2" style="grid-template-columns: 120px 340px 1fr;">
+                <span class="yr">2016</span><span class="pkg">left-pad</span>
+                <span class="what">eleven lines unpublished, builds break worldwide — the wake-up call for how deep the graph runs</span>
+            </div>
+            <div class="row reveal d3" style="grid-template-columns: 120px 340px 1fr;">
+                <span class="yr">2018</span><span class="pkg">event-stream</span>
+                <span class="what">handed to a volunteer maintainer; ships a payload hunting a bitcoin wallet three levels up the tree</span>
+            </div>
+            <div class="row reveal d4" style="grid-template-columns: 120px 340px 1fr;">
+                <span class="yr">2021</span><span class="pkg">ua-parser-js</span>
+                <span class="what">account hijacked; millions of weekly downloads ship a cryptominer and credential stealer</span>
+            </div>
+            <div class="row reveal d5" style="grid-template-columns: 120px 340px 1fr;">
+                <span class="yr">2022</span><span class="pkg">node-ipc</span>
+                <span class="what">a trusted maintainer adds geolocation-triggered file wiping — supply chain risk includes the authors</span>
+            </div>
+            <div class="row reveal d6" style="grid-template-columns: 120px 340px 1fr;">
+                <span class="yr">2025</span><span class="pkg">chalk, debug, …</span>
+                <span class="what">one phished maintainer; eighteen packages with billions of combined weekly downloads turn malicious</span>
+            </div>
+            <div class="row reveal d7" style="grid-template-columns: 120px 340px 1fr;">
+                <span class="yr">2025</span><span class="pkg">shai-hulud</span>
+                <span class="what">the first self-replicating npm worm: steals publish tokens, republishes itself into victims' packages</span>
+            </div>
+        </div>
+        <p class="body reveal d8" style="margin-top: 34px; max-width: 1500px;">
+            Detection improved. Signing improved. Advisories got faster. <strong>The blast radius never changed:</strong>
+            every one of these packages ran with the full authority of every app that installed it.
+        </p>
+    </div>
+    <div class="slide-foot"><span>the npm supply chain</span><span>per-package capability compartments</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 03 · THE ROOT CAUSE (dark statement, chrome suppressed)
+     ============================================================ -->
+<section class="slide">
+    <div class="broadside-num">the root cause</div>
+    <div class="slide-body" style="justify-content: center;">
+        <div class="kicker reveal">ambient authority</div>
+        <div class="display reveal d1" style="font-size: 200px;">every package<br>runs as <span class="acc">you.</span></div>
+        <p class="lead reveal d3" style="margin-top: 46px; max-width: 1300px;">
+            <code style="font-family: var(--font-mono); font-size: 0.85em;">npm install</code> is a total grant of trust.
+            The deepest transitive dependency can read <strong>~/.ssh</strong>, exfiltrate <strong>process.env</strong>,
+            and phone home — not by exploiting anything, but because <strong>fs</strong>, <strong>env</strong> and
+            <strong>fetch</strong> are simply <em style="font-style: normal; color: var(--orange);">there</em>, for everyone.
+        </p>
+        <p class="lead reveal d4" style="margin-top: 26px; max-width: 1300px;">
+            The attacker doesn't need a vulnerability. <strong>The default is the vulnerability.</strong>
+        </p>
+    </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 04 · WHY EXISTING ANSWERS MISS (dark, list)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the attack class</span><span>ibex · 04 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">why hasn't this been fixed?</div>
+        <h2 class="reveal d1" style="max-width: 1500px;">process flags can't see packages</h2>
+        <ul class="slash" style="margin-top: 52px; max-width: 1560px;">
+            <li class="reveal d2"><strong>Process-level permissions</strong> — Node's permission model, Deno's flags — draw one boundary
+                around all of your code. Your app needs the filesystem and the network, so the flags are on.
+                The malicious dependency runs <strong>inside</strong> that boundary, with everything you enabled.</li>
+            <li class="reveal d3"><strong>Scanners and advisories</strong> catch known-bad versions after publication, after installation,
+                often after exfiltration. Detection is necessary. It is not containment.</li>
+            <li class="reveal d4"><strong>Lockfiles, pinning, provenance</strong> prove you got the bytes you asked for.
+                They say nothing about what those bytes are allowed to do.</li>
+        </ul>
+        <div style="margin-top: 58px;" class="reveal d5">
+            <hr class="rule" style="margin-bottom: 22px;">
+            <p style="font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; max-width: 1450px;">
+                The unit of compromise is the package.<br>
+                The unit of enforcement must be the package.
+            </p>
+        </div>
+    </div>
+    <div class="slide-foot"><span>the npm supply chain</span><span>per-package capability compartments</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 05 · CHAPTER (orange register)
+     ============================================================ -->
+<section class="slide orange">
+    <div class="broadside-num">01 · the design</div>
+    <div class="slide-body" style="justify-content: center;">
+        <hr class="rule reveal" style="margin-bottom: 34px;">
+        <h1 class="reveal d1" style="max-width: 1500px;">make the engine know<br>who is calling.</h1>
+        <p class="lead reveal d3" style="margin-top: 40px; max-width: 1250px;">
+            Three mechanisms, layered inside one Hermes runtime — the hardened-JavaScript
+            compartment design (SES / LavaMoat lineage), moved into the engine where JavaScript can't reach it.
+        </p>
+    </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 06 · THREE MECHANISMS (dark, three-up)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the design</span><span>ibex · 06 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">one runtime, three locks</div>
+        <h2 class="reveal d1">what it takes to contain a package</h2>
+        <div class="cols" style="margin-top: 48px;">
+            <div class="mech reveal d2">
+                <div class="num">01</div>
+                <h3>lockdown</h3>
+                <p class="body">At boot, after the runtime's own repairs install, the entire shared intrinsics
+                    graph is frozen — every prototype, every constructor — and the intrinsic evaluators are tamed.</p>
+                <p class="kills"><b>kills</b> prototype pollution &amp;<br>prototype-patch identity theft</p>
+            </div>
+            <div class="mech reveal d3" style="border-left: 1px solid var(--border-dark); padding-left: 40px;">
+                <div class="num">02</div>
+                <h3>compartment globals</h3>
+                <p class="body">Each package resolves bare globals against its own private global object,
+                    holding only what policy endowed it. No endowment, no <span style="font-family: var(--font-mono); font-size: 0.9em;">process</span> —
+                    it simply doesn't exist there.</p>
+                <p class="kills"><b>kills</b> ambient authority —<br>the default that runs as you</p>
+            </div>
+            <div class="mech reveal d4" style="border-left: 1px solid var(--border-dark); padding-left: 40px;">
+                <div class="num">03</div>
+                <h3>frame attribution</h3>
+                <p class="body">Every host-boundary check identifies the caller from the executing bytecode
+                    frame. Identity is engine truth, read from the stack — not a variable JavaScript can set.</p>
+                <p class="kills"><b>kills</b> impersonation at<br>the host boundary</p>
+            </div>
+        </div>
+        <p class="body reveal d5" style="margin-top: 46px; max-width: 1560px;">
+            Intrinsics stay <strong>shared</strong> — frozen, but one heap. Objects, classes and
+            <span style="font-family: var(--font-mono); font-size: 0.9em;">instanceof</span> flow across packages the way npm code expects.
+            <strong>Realms break npm. Compartments don't.</strong>
+        </p>
+    </div>
+    <div class="slide-foot"><span>llp 0013 · mechanisms 1–3</span><span>per-package capability compartments</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 07 · LOCKDOWN DETAIL (dark, split)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the design · mechanism 1</span><span>ibex · 07 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">lockdown</div>
+        <h2 class="reveal d1" style="max-width: 1500px;">the shared world becomes read-only</h2>
+        <div class="cols" style="margin-top: 46px;">
+            <div class="col reveal d2">
+                <h3 style="color: var(--cream-muted);">the classic move</h3>
+                <div class="code" style="margin-top: 24px; font-size: 21px;"><span class="c">// any dependency, running anywhere:</span>
+Array.prototype.map = <span class="m">function (f) {</span>
+  <span class="o">exfiltrate(this);</span>          <span class="c">// runs later,</span>
+  <span class="m">return original.call(this, f);</span> <span class="c">// during YOUR turn</span>
+<span class="m">};</span>
+
+<span class="c">// and the evaluator walk:</span>
+({}).constructor.constructor(<span class="o">"steal()"</span>)()</div>
+            </div>
+            <div class="col reveal d3">
+                <h3 style="color: var(--cream-muted);">after lockdown</h3>
+                <ul class="slash" style="margin-top: 24px;">
+                    <li style="font-size: 26px;"><strong>Freeze the full intrinsics graph</strong> — the patch throws;
+                        prototypes can no longer be turned into listening posts.</li>
+                    <li style="font-size: 26px;"><strong>Tame the evaluators</strong> — <span style="font-family: var(--font-mono); font-size: 0.85em;">%Function%</span>,
+                        generators, indirect <span style="font-family: var(--font-mono); font-size: 0.85em;">eval</span>. The prototype walk
+                        reaches a constructor that mints nothing.</li>
+                    <li style="font-size: 26px;"><strong>Paid once at boot</strong> — after the runtime's own repairs,
+                        before the first package runs.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="slide-foot"><span>llp 0013 · mechanism 1</span><span>per-package capability compartments</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 08 · COMPARTMENTS DETAIL (dark, code + points)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the design · mechanism 2</span><span>ibex · 08 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">per-package compartment globals</div>
+        <h2 class="reveal d1" style="max-width: 1560px;">inside its compartment, the powerful world isn't hidden — it's absent</h2>
+        <div class="cols" style="margin-top: 44px;">
+            <div class="col reveal d2" style="flex: 1.15;">
+                <div class="code" style="font-size: 21px;"><span class="c">// running inside left-pad's compartment:</span>
+
+process.env.AWS_SECRET     <span class="o">// ReferenceError</span>
+globalThis.fetch           <span class="o">// undefined — its global,</span>
+                           <span class="o">// not yours</span>
+(function () { return this })()
+                           <span class="o">// its compartment. the UMD</span>
+                           <span class="o">// escape resolves nowhere</span></div>
+            </div>
+            <div class="col reveal d3">
+                <ul class="slash">
+                    <li style="font-size: 26px;"><strong>Engine-native.</strong> The interpreter resolves bare globals and
+                        sloppy-mode <span style="font-family: var(--font-mono); font-size: 0.85em;">this</span> through the executing
+                        frame's Domain — no source rewrite, no <span style="font-family: var(--font-mono); font-size: 0.85em;">with</span>/Proxy
+                        shim to escape from.</li>
+                    <li style="font-size: 26px;"><strong>Endowments are the policy.</strong> A package granted
+                        <span style="font-family: var(--font-mono); font-size: 0.85em;">network:fetch</span> gets a scoped
+                        <span style="font-family: var(--font-mono); font-size: 0.85em;">fetch</span> on its global. Nothing else appears.</li>
+                    <li style="font-size: 26px;"><strong>Cheap.</strong> One compartment per package, ~2 KB each —
+                        package granularity, because intra-package files already trust each other.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="slide-foot"><span>llp 0013 · mechanism 2</span><span>per-package capability compartments</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 09 · FRAME ATTRIBUTION (dark)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the design · mechanism 3</span><span>ibex · 09 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">frame-derived attribution</div>
+        <h2 class="reveal d1" style="max-width: 1560px;">identity is read from the bytecode,<br>not from a variable</h2>
+        <div class="flow reveal d2" style="margin-top: 44px;">
+            executing frame <span class="a">→</span> CodeBlock <span class="a">→</span> Domain <span class="a">→</span> package principal <span class="a">→</span> policy check&nbsp;&nbsp;<span class="dim">// engine truth. JS cannot set it.</span>
+        </div>
+        <ul class="slash" style="margin-top: 48px; max-width: 1600px;">
+            <li class="reveal d3"><strong>The forgeable version is gone.</strong> The old thread-local module id — settable by
+                one line of user code — is removed, along with the global grant function. There is nothing left to impersonate with.</li>
+            <li class="reveal d4"><strong>Deferred attacks attribute to their author.</strong> A stored callback, a patched method,
+                a promise job scheduled for later: when it finally runs, its frames still belong to the package that wrote it.
+                Same async path as the app, same trusted deputies — <strong>different answer at the boundary.</strong></li>
+            <li class="reveal d5"><strong>Deputies stay transparent.</strong> The runtime's own fs / fetch / process layers carry a
+                reserved runtime principal the frame walk skips — checks land on the real caller, not the plumbing.</li>
+        </ul>
+    </div>
+    <div class="slide-foot"><span>llp 0013 · mechanism 3</span><span>per-package capability compartments</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 10 · POLICY AUTHORING (dark, code)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the policy</span><span>ibex · 10 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">llp 0014 · import-site grants</div>
+        <h2 class="reveal d1" style="max-width: 1560px;">nobody maintains the policy file</h2>
+        <div class="code reveal d2" style="margin-top: 40px; font-size: 22px; width: max-content; padding-right: 110px;"><span class="c">// app.js — first-party code is the only grant channel</span>
+<span class="m">import</span> img <span class="m">from</span> "image-lib" <span class="o">with</span> {
+  <span class="o">grants:</span> "fs:read:/app/images, fs:write:/app/images",
+};
+
+<span class="m">import</span> pad <span class="m">from</span> "left-pad";   <span class="c">// no attributes → empty grant set. contained.</span></div>
+        <div class="cols" style="margin-top: 42px;">
+            <div class="col reveal d3">
+                <p class="body"><strong>Generated, committed, drift-checked.</strong> The build compiles every import-site
+                    grant into one policy artifact — checked in like a lockfile. Every reachable package appears,
+                    granted or empty. Every grant carries provenance: the <span style="font-family: var(--font-mono); font-size: 0.9em;">file:line</span> that issued it.</p>
+            </div>
+            <div class="col reveal d4">
+                <p class="body"><strong>Grants garbage-collect.</strong> Delete the import and the authority disappears from
+                    the regenerated artifact. CI fails on drift and reports <strong>expansions</strong> loudly —
+                    new authority shows up in the PR diff, next to the import that caused it.</p>
+            </div>
+        </div>
+    </div>
+    <div class="slide-foot"><span>llp 0014 · generated policy artifact</span><span>import-site capability grants</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 11 · STATEMENT (orange): fail closed
+     ============================================================ -->
+<section class="slide orange">
+    <div class="broadside-num">declared, not inferred</div>
+    <div class="slide-body" style="justify-content: center;">
+        <div class="kicker reveal">what happens when a good package goes bad</div>
+        <div class="display reveal d1" style="font-size: 176px;">a malicious update<br>fails <span style="text-decoration: none;">closed.</span></div>
+        <p class="lead reveal d3" style="margin-top: 44px; max-width: 1320px;">
+            Tools that infer policy from what code <em style="font-style: normal; font-weight: 600;">does</em> rubber-stamp the
+            compromised version's new behavior. Ibex grants only what root code <strong>declares</strong> —
+            so the hijacked release that suddenly wants the network is denied until a human
+            widens their own import site, in their own reviewed diff.
+        </p>
+    </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 12 · DELEGATION (dark, code + points)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the policy · delegation</span><span>ibex · 12 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">authority flows like data — on purpose</div>
+        <h2 class="reveal d1" style="max-width: 1500px;">capabilities are objects you can hand over, narrow, and kill</h2>
+        <div class="cols" style="margin-top: 44px;">
+            <div class="col reveal d2" style="flex: 1.15;">
+                <div class="code" style="font-size: 21px;"><span class="c">// image-lib holds fs for /app/images — and delegates a slice</span>
+<span class="m">const</span> codec = require("fast-codec");
+
+codec.decode(buf, fsHandle.<span class="o">scoped</span>("cache/"));
+                    <span class="c">// codec has NO ambient fs. it can use</span>
+                    <span class="c">// exactly this handle, exactly this far</span>
+
+fsHandle.<span class="o">revoke</span>();  <span class="c">// every handle derived from it</span>
+                    <span class="c">// dies with it, fail-closed</span></div>
+            </div>
+            <div class="col reveal d3">
+                <ul class="slash">
+                    <li style="font-size: 25px;"><strong>Possession, not identity.</strong> A passed handle works within its grant —
+                        delegation between cooperating packages is a feature, not a hole. Frame attribution still writes the audit
+                        trail: <em style="font-style: normal;">codec wrote, via image-lib's grant.</em></li>
+                    <li style="font-size: 25px;"><strong>Ambient fallback, bounded.</strong> Packages can request; only the app grants.
+                        Effective authority intersects down every dependency edge — a compromised intermediate can never delegate
+                        more than it was given.</li>
+                    <li style="font-size: 25px;"><strong>Deputy hardening, opt-in.</strong> For the scary classes —
+                        <span style="font-family: var(--font-mono); font-size: 0.85em;">fs:write</span>,
+                        <span style="font-family: var(--font-mono); font-size: 0.85em;">process:spawn</span> — stack-intersection
+                        requires every principal on the stack to hold the grant.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="slide-foot"><span>llp 0013 · attenuators &amp; the cascade</span><span>per-package capability compartments</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 13 · RED TEAM LEDGER (dark)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the proof</span><span>ibex · 13 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">the conformance suite is a red team</div>
+        <h2 class="reveal d1">every classic escape, run in CI, expected to fail</h2>
+        <div class="ledger" style="margin-top: 36px;">
+            <div class="row reveal d2" style="grid-template-columns: 1fr 220px; column-gap: 40px;">
+                <span class="what" style="font-size: 25px; color: var(--cream);">recover the real global via sloppy-mode <span style="font-family: var(--font-mono); font-size: 0.85em;">(function(){return this})()</span></span>
+                <span class="stamp">own compartment</span>
+            </div>
+            <div class="row reveal d3" style="grid-template-columns: 1fr 220px; column-gap: 40px;">
+                <span class="what" style="font-size: 25px; color: var(--cream);">mint an evaluator through <span style="font-family: var(--font-mono); font-size: 0.85em;">({}).constructor.constructor</span></span>
+                <span class="stamp">tamed · throws</span>
+            </div>
+            <div class="row reveal d4" style="grid-template-columns: 1fr 220px; column-gap: 40px;">
+                <span class="what" style="font-size: 25px; color: var(--cream);">patch <span style="font-family: var(--font-mono); font-size: 0.85em;">Array.prototype.map</span> and wait for the app's privileged turn</span>
+                <span class="stamp">frozen</span>
+            </div>
+            <div class="row reveal d5" style="grid-template-columns: 1fr 220px; column-gap: 40px;">
+                <span class="what" style="font-size: 25px; color: var(--cream);">impersonate the app or self-grant via the runtime's own bridge globals</span>
+                <span class="stamp">removed</span>
+            </div>
+            <div class="row reveal d6" style="grid-template-columns: 1fr 220px; column-gap: 40px;">
+                <span class="what" style="font-size: 25px; color: var(--cream);">quietly <span style="font-family: var(--font-mono); font-size: 0.85em;">require("node:fs")</span> with no grant — endowments don't gate the loader</span>
+                <span class="stamp">import gate · denied</span>
+            </div>
+            <div class="row reveal d7" style="grid-template-columns: 1fr 220px; column-gap: 40px;">
+                <span class="what" style="font-size: 25px; color: var(--cream);">defer the theft into a promise job routed through a trusted runtime deputy</span>
+                <span class="stamp">attributed · denied</span>
+            </div>
+            <div class="row reveal d8" style="grid-template-columns: 1fr 220px; column-gap: 40px;">
+                <span class="what" style="font-size: 25px; color: var(--cream);">annotate your own imports with grant attributes from inside node_modules</span>
+                <span class="stamp">stripped · reported</span>
+            </div>
+        </div>
+        <p class="body reveal d9" style="margin-top: 30px;">
+            The bar, in CI: <strong>the attacks that succeed against an advisory model must fail against enforcement</strong> —
+            a deliberately compromised transitive dependency cannot read a file outside its grants, exfiltrate
+            <span style="font-family: var(--font-mono); font-size: 0.9em;">process.env</span>, or touch the network.
+        </p>
+    </div>
+    <div class="slide-foot"><span>tests/llp0013_compartments.rs</span><span>red-team conformance suite</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 14 · THE HONEST PART (dark)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the honest part</span><span>ibex · 14 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">threat model, stated out loud</div>
+        <h2 class="reveal d1" style="max-width: 1500px;">what we refuse to claim</h2>
+        <ul class="slash" style="margin-top: 50px; max-width: 1600px;">
+            <li class="reveal d2"><strong>Deputies are what libraries are.</strong> An API that does I/O for its callers acts with
+                its own authority — by design. We bound what exists to be misused, and offer stack-intersection where it matters;
+                we don't pretend the pattern away.</li>
+            <li class="reveal d3"><strong>Objects carry authority.</strong> A package may deliberately hand its granted handle to
+                another. Endowment policy and attenuation bound what can be passed; the passing itself is the delegation model working.</li>
+            <li class="reveal d4"><strong>Engine bugs bypass everything.</strong> Memory-safety escapes and side channels are below
+                this layer. Genuinely hostile code still gets what it always got: its own isolated runtime instance.</li>
+        </ul>
+        <div style="margin-top: 56px;" class="reveal d5">
+            <hr class="rule" style="margin-bottom: 22px;">
+            <p style="font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; max-width: 1500px;">
+                The honest name is <span class="acc">supply-chain integrity</span>, not sandbox.<br>
+                Security people can smell the difference. So can we.
+            </p>
+        </div>
+    </div>
+    <div class="slide-foot"><span>llp 0013 · threat model (normative)</span><span>per-package capability compartments</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 15 · ENGINEERING CREDIBILITY (dark, stats)
+     ============================================================ -->
+<section class="slide">
+    <div class="slide-chrome"><span class="lbl">the engineering</span><span>ibex · 15 / 16</span></div>
+    <div class="slide-body">
+        <div class="kicker reveal">"hardened fork" without the abandonware ending</div>
+        <h2 class="reveal d1" style="max-width: 1560px;">a fork you can actually carry</h2>
+        <div class="stat-row" style="margin-top: 48px;">
+            <div class="stat-card reveal d2">
+                <div class="val">4</div>
+                <div class="name">carried Hermes patches</div>
+                <div class="note">one surgical interpreter site</div>
+            </div>
+            <div class="stat-card reveal d3">
+                <div class="val">½<small>&nbsp;day</small></div>
+                <div class="name">per upstream pin bump</div>
+                <div class="note">runbook · weekly canary ci</div>
+            </div>
+            <div class="stat-card reveal d4">
+                <div class="val">≤1<small>%</small></div>
+                <div class="name">steady-state overhead</div>
+                <div class="note">ci-gated perf budget</div>
+            </div>
+            <div class="stat-card reveal d5">
+                <div class="val">~2<small>&nbsp;kb</small></div>
+                <div class="name">memory per package</div>
+                <div class="note">lockdown paid once at boot</div>
+            </div>
+        </div>
+        <p class="body reveal d6" style="margin-top: 52px; max-width: 1600px;">
+            Global resolution in Hermes is <strong>one interpreter case</strong>; re-pointing it through the executing frame's
+            Domain is surgery, not a realm refactor — the 84 intrinsic fields and their ~320 use sites are untouched.
+            Patches are classified (additive / insertion / surgical) with a single-digit budget on the surgical class.
+        </p>
+        <p class="body reveal d7" style="margin-top: 22px; max-width: 1600px;">
+            And if upstream reshapes the interpreter: <strong>the spec and the conformance suite are the durable asset,
+            not the diff.</strong> Re-derivation is the plan of record, not a crisis.
+        </p>
+    </div>
+    <div class="slide-foot"><span>llp 0013 · upstream tracking</span><span>patches/hermes · canary ci</span></div>
+</section>
+
+<!-- ============================================================
+     SLIDE 16 · END (orange register)
+     ============================================================ -->
+<section class="slide orange">
+    <div class="broadside-num">ibex · llp 0013 / 0014</div>
+    <div class="slide-body" style="justify-content: center;">
+        <div class="kicker reveal">the runtime is the right layer</div>
+        <div class="display reveal d1" style="font-size: 190px;">make install<br>a policy decision.</div>
+        <p class="lead reveal d3" style="margin-top: 44px; max-width: 1250px;">
+            Lockdown. Compartment globals. Frame-derived attribution. Import-site grants
+            compiled to a reviewable artifact. <strong>The whole graph contained, and honest about the edges.</strong>
+        </p>
+    </div>
+    <div class="reveal d5" style="font-family: var(--font-mono); font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-55); flex: 0 0 auto; display: flex; justify-content: space-between;">
+        <span>llp/0013-per-package-capability-compartments.rfc.md</span>
+        <span>llp/0014-import-site-grants-and-generated-policy.spec.md</span>
+    </div>
+</section>
+
+</main>
+</div>
+
+<!-- Deck chrome: nav dots (center) + counter (right), outside the stage -->
+<nav class="deck-controls" id="deckDots" aria-label="Slide navigation"></nav>
+<div class="deck-counter" id="deckCounter">01 / 16</div>
+
+<!-- Inline editing affordance (hover top-left corner, or press E) -->
+<div class="edit-hotzone" id="editHotzone"></div>
+<button class="edit-toggle" id="editToggle" title="Edit mode (E)">✏ edit</button>
+
+<script>
+/* ===========================================
+   SLIDE PRESENTATION CONTROLLER
+   Fixed 1920×1080 stage scaled to the viewport.
+   Keyboard, wheel, touch, dots. Entry animations
+   replay on each activation via .visible.
+   =========================================== */
+class SlidePresentation {
+    constructor() {
+        this.slides = Array.from(document.querySelectorAll('.slide'));
+        this.stage = document.getElementById('deckStage');
+        this.dotsEl = document.getElementById('deckDots');
+        this.counterEl = document.getElementById('deckCounter');
+        this.current = 0;
+        this.wheelLock = false;
+
+        this.buildDots();
+        this.setupStageScale();
+        this.setupKeyboardNav();
+        this.setupWheelNav();
+        this.setupTouchNav();
+        this.showSlide(0);
+    }
+
+    /* Scale the whole 1920×1080 stage uniformly; letterbox as needed */
+    setupStageScale() {
+        const scale = () => {
+            const f = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+            const x = (window.innerWidth - 1920 * f) / 2;
+            const y = (window.innerHeight - 1080 * f) / 2;
+            this.stage.style.transform = `translate(${x}px, ${y}px) scale(${f})`;
+        };
+        scale();
+        window.addEventListener('resize', scale);
+    }
+
+    buildDots() {
+        this.slides.forEach((_, i) => {
+            const d = document.createElement('button');
+            d.className = 'nav-dot';
+            d.setAttribute('aria-label', 'Slide ' + (i + 1));
+            d.style.border = 'none';
+            d.addEventListener('click', () => this.showSlide(i));
+            this.dotsEl.appendChild(d);
+        });
+    }
+
+    setupKeyboardNav() {
+        document.addEventListener('keydown', (e) => {
+            if (e.target.getAttribute && e.target.getAttribute('contenteditable')) return;
+            if (['ArrowRight', 'ArrowDown', ' ', 'PageDown'].includes(e.key)) { e.preventDefault(); this.next(); }
+            else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) { e.preventDefault(); this.prev(); }
+            else if (e.key === 'Home') { e.preventDefault(); this.showSlide(0); }
+            else if (e.key === 'End') { e.preventDefault(); this.showSlide(this.slides.length - 1); }
+        });
+    }
+
+    setupWheelNav() {
+        window.addEventListener('wheel', (e) => {
+            if (document.body.classList.contains('editing')) return;
+            if (this.wheelLock || Math.abs(e.deltaY) < 24) return;
+            this.wheelLock = true;
+            e.deltaY > 0 ? this.next() : this.prev();
+            setTimeout(() => { this.wheelLock = false; }, 650);
+        }, { passive: true });
+    }
+
+    setupTouchNav() {
+        let x0 = null, y0 = null;
+        window.addEventListener('touchstart', (e) => {
+            x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+        }, { passive: true });
+        window.addEventListener('touchend', (e) => {
+            if (x0 === null) return;
+            const dx = e.changedTouches[0].clientX - x0;
+            const dy = e.changedTouches[0].clientY - y0;
+            if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? this.next() : this.prev();
+            x0 = y0 = null;
+        }, { passive: true });
+    }
+
+    next() { this.showSlide(this.current + 1); }
+    prev() { this.showSlide(this.current - 1); }
+
+    showSlide(i) {
+        this.current = Math.max(0, Math.min(i, this.slides.length - 1));
+        this.slides.forEach((s, k) => {
+            s.classList.toggle('active', k === this.current);
+            s.classList.toggle('visible', k === this.current);
+        });
+        Array.from(this.dotsEl.children).forEach((d, k) =>
+            d.classList.toggle('on', k === this.current));
+        this.counterEl.textContent =
+            String(this.current + 1).padStart(2, '0') + ' / ' + String(this.slides.length).padStart(2, '0');
+    }
+}
+
+/* ===========================================
+   INLINE EDITOR
+   Hover the top-left corner (or press E) to reveal.
+   Edits autosave to localStorage; Ctrl/Cmd+S downloads
+   the edited HTML.
+   =========================================== */
+class InlineEditor {
+    constructor() {
+        this.key = 'ibex-supply-chain-security-deck';
+        this.isActive = false;
+        this.editable = 'h1, h2, h3, p, li, .display, .kicker, .stat-card .val, .stat-card .name, .stat-card .note, .ledger span, .code, .flow, .slide-chrome span, .slide-foot span, .broadside-num';
+        this.assignIds();
+        this.restore();
+        this.wireToggle();
+        this.wireSave();
+    }
+
+    assignIds() {
+        document.querySelectorAll(this.editable).forEach((el, i) => el.dataset.eid = 'e' + i);
+    }
+
+    restore() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(this.key) || '{}');
+            Object.entries(saved).forEach(([id, html]) => {
+                const el = document.querySelector('[data-eid="' + id + '"]');
+                if (el) el.innerHTML = html;
+            });
+        } catch (e) { /* corrupted store — ignore */ }
+    }
+
+    persist(el) {
+        try {
+            const saved = JSON.parse(localStorage.getItem(this.key) || '{}');
+            saved[el.dataset.eid] = el.innerHTML;
+            localStorage.setItem(this.key, JSON.stringify(saved));
+        } catch (e) { /* storage full — ignore */ }
+    }
+
+    toggleEditMode() {
+        this.isActive = !this.isActive;
+        document.body.classList.toggle('editing', this.isActive);
+        document.getElementById('editToggle').classList.toggle('active', this.isActive);
+        document.querySelectorAll(this.editable).forEach(el => {
+            if (this.isActive) {
+                el.setAttribute('contenteditable', 'true');
+                el.addEventListener('input', () => this.persist(el));
+            } else {
+                el.removeAttribute('contenteditable');
+            }
+        });
+    }
+
+    wireToggle() {
+        const hotzone = document.getElementById('editHotzone');
+        const toggle = document.getElementById('editToggle');
+        let hideTimeout = null;
+        const scheduleHide = () => {
+            hideTimeout = setTimeout(() => { if (!this.isActive) toggle.classList.remove('show'); }, 400);
+        };
+        hotzone.addEventListener('mouseenter', () => { clearTimeout(hideTimeout); toggle.classList.add('show'); });
+        hotzone.addEventListener('mouseleave', scheduleHide);
+        toggle.addEventListener('mouseenter', () => clearTimeout(hideTimeout));
+        toggle.addEventListener('mouseleave', scheduleHide);
+        hotzone.addEventListener('click', () => this.toggleEditMode());
+        toggle.addEventListener('click', () => this.toggleEditMode());
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === 'e' || e.key === 'E') && !(e.target.getAttribute && e.target.getAttribute('contenteditable'))) {
+                this.toggleEditMode();
+            }
+        });
+    }
+
+    wireSave() {
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                const blob = new Blob(['<!DOCTYPE html>\n' + document.documentElement.outerHTML],
+                    { type: 'text/html' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'ibex-supply-chain-security.html';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }
+        });
+    }
+}
+
+new SlidePresentation();
+new InlineEditor();
+</script>
+</body>
+</html>

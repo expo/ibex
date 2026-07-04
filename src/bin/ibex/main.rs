@@ -67,6 +67,22 @@ pub(crate) fn runtime_env(ibex_name: &str, legacy_name: &str) -> Option<String> 
     None
 }
 
+/// Shared truthiness parse for boolean `IBEX_*` env flags, mirroring the C++
+/// `env_flag_enabled` in hermes_runtime.cc so the Rust bundler driver and bundle
+/// cache key agree with the engine on whether a flag is set. A bare presence
+/// check (`var_os(..).is_some()`) disagreed with the engine's value check:
+/// `IBEX_COMPARTMENTS=true` made the bundler emit `__compartments` references the
+/// engine never installed, throwing ReferenceError (and caching the broken
+/// artifact). Accepts a leading 1/y/Y/t/T (so `1`, `yes`, `true` all enable) and
+/// rejects `0`/`false`/`no`/`off`/empty. (ENG-22634)
+pub(crate) fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.chars().next())
+        .map(|c| matches!(c, '1' | 'y' | 'Y' | 't' | 'T'))
+        .unwrap_or(false)
+}
+
 fn trace_startup() -> bool {
     runtime_env("IBEX_STARTUP_TRACE", "EX_STARTUP_TRACE")
         .map(|v| v.starts_with('1') || v.starts_with('y') || v.starts_with('Y'))
@@ -251,6 +267,13 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    // @ref LLP 0013#mechanism-1 — the boot lockdown is read by the engine from
+    // the environment (std::getenv). Setting it here, before any runtime is
+    // created, lets `--lockdown` reach the in-process Hermes runtime.
+    if cli.lockdown {
+        std::env::set_var("IBEX_LOCKDOWN", "1");
+    }
+
     if cli.version {
         println!("v{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -318,6 +341,7 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Commands::Debug { command }) => match command {
             DebugCommands::Modules => run_debug_modules(),
         },
+        Some(Commands::Policy { command }) => runtime::run_policy_command(command).await,
         Some(Commands::SelfTest) => runtime_tests::run_all(&cli).await,
         None => {
             // If no command but a file is provided via positional argument
@@ -632,6 +656,12 @@ async fn run_file(
     // Run the user's file
     runtime.run_file_with_args(file, args).await?;
 
+    // @ref LLP 0013#phase-1 — surface would-deny decisions collected in audit
+    // mode so operators see exactly what to declare before enforcing.
+    if let Some(report) = crate::host::abi::current_audit_report() {
+        eprintln!("\n{report}");
+    }
+
     if options.keep_alive || cli.keep_alive {
         eprintln!("Press Ctrl+C to exit.");
         run_debug_loop().await;
@@ -773,9 +803,14 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     let mut flags = vec!["--engine".to_string(), cli.engine.clone()];
 
     match cli.capsec {
-        cli::CapSecMode::Permissive => {}
-        cli::CapSecMode::Capability => flags.extend(["--capsec".into(), "capability".into()]),
-        cli::CapSecMode::Strict => flags.extend(["--capsec".into(), "strict".into()]),
+        // Auto is the default — forward nothing so the child also defers to policy.
+        cli::CapSecMode::Auto => {}
+        cli::CapSecMode::Permissive => flags.extend(["--capsec".into(), "permissive".into()]),
+        cli::CapSecMode::Audit => flags.extend(["--capsec".into(), "audit".into()]),
+        cli::CapSecMode::Enforce => flags.extend(["--capsec".into(), "enforce".into()]),
+    }
+    if cli.lockdown {
+        flags.push("--lockdown".into());
     }
     if let Some(policy) = &cli.policy {
         flags.extend(["--policy".into(), policy.to_string_lossy().into_owned()]);
@@ -788,6 +823,12 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     }
     if cli.allow_all {
         flags.push("--allow-all".into());
+    }
+    // @ref LLP 0013#mechanism-2 (ENG-22684) — the env-endowment escape hatch must
+    // reach the watch child, else an enforce-mode restart would drop IBEX_ENDOW
+    // the parent honored, silently changing behavior across a reload.
+    if cli.allow_env_endowments {
+        flags.push("--allow-env-endowments".into());
     }
     if cli.bundle_format != cli::BundleFormat::Esm {
         flags.extend(["--bundle-format".into(), cli.bundle_format.as_str().into()]);
@@ -1129,6 +1170,14 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
         anyhow::bail!("build command is only supported for the Hermes engine");
     }
 
+    // Apply the same enforce/audit isolation prerequisite the run path applies,
+    // so a build under an enforce policy produces a per-package-chunked artifact
+    // (each dependency in its own Domain/principal) instead of a flat,
+    // single-principal bundle that attributes every dependency to trusted root.
+    // Sets IBEX_PER_PACKAGE_CHUNKS before bundling so the bundler chunks and the
+    // cache key agrees. @ref LLP 0013#mechanism-3 (ENG-22760)
+    runtime::apply_build_isolation(cli)?;
+
     let output_path = runtime::compute_build_output(file, outdir)?;
     let map_path = output_path.with_extension("hbc.map");
     // hermesc doesn't support ESM — always use CJS for bytecode compilation
@@ -1141,6 +1190,25 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     let bundled_str = bundled.to_string_lossy().to_string();
 
     engine::hermes::compile_to_bytecode(&bundled_str, &output_path, Some(&map_path)).await?;
+
+    // Under per-package chunking the entry bundle requires sibling chunk files
+    // (`__ibexpkg__*`, `rolldown-runtime.js`) that live in the bundle cache dir,
+    // not next to the built `.hbc`. The run path resolves them against the
+    // artifact's own directory (`__exactChunkDir`), so ship them alongside the
+    // `.hbc` — otherwise the built artifact silently loses per-package
+    // attribution (a flat single-Domain run). @ref LLP 0013#mechanism-3 (ENG-22760)
+    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
+        if let Some(dest_dir) = output_path.parent() {
+            let copied = runtime::ship_chunk_siblings(&bundled, dest_dir)?;
+            if copied > 0 {
+                println!(
+                    "Shipped {} per-package chunk file(s) alongside {}",
+                    copied,
+                    output_path.display()
+                );
+            }
+        }
+    }
 
     println!("Compiled {} -> {}", file, output_path.display());
     Ok(())
@@ -1253,6 +1321,8 @@ mod tests {
 
     #[test]
     fn watch_child_preserves_security_flags() {
+        // @ref LLP 0013#phase-0 — `strict` is a back-compat alias that parses to
+        // Enforce; the child receives the canonical `--capsec enforce`.
         let cli = cli::Cli::parse_from([
             "ibex",
             "--watch",
@@ -1266,12 +1336,38 @@ mod tests {
         ]);
         let flags = watch_child_args(&cli);
         let joined = flags.join(" ");
-        assert!(joined.contains("--capsec strict"), "flags: {joined}");
+        assert!(joined.contains("--capsec enforce"), "flags: {joined}");
         assert!(joined.contains("--allow fs:read:/tmp"), "flags: {joined}");
         assert!(joined.contains("--deny net"), "flags: {joined}");
         assert!(
             !joined.contains("--watch"),
             "watch must not recurse: {joined}"
+        );
+
+        // Audit mode round-trips.
+        let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "audit", "app.ts"]);
+        let joined = watch_child_args(&cli).join(" ");
+        assert!(joined.contains("--capsec audit"), "flags: {joined}");
+
+        // ENG-22684 — the env-endowment escape hatch must survive a watch restart,
+        // else an enforce reload would silently drop IBEX_ENDOW the parent honored.
+        let cli = cli::Cli::parse_from([
+            "ibex",
+            "--watch",
+            "--capsec",
+            "enforce",
+            "--allow-env-endowments",
+            "app.ts",
+        ]);
+        let joined = watch_child_args(&cli).join(" ");
+        assert!(joined.contains("--allow-env-endowments"), "flags: {joined}");
+        // Not passed → not forwarded.
+        let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "enforce", "app.ts"]);
+        assert!(
+            !watch_child_args(&cli)
+                .join(" ")
+                .contains("--allow-env-endowments"),
+            "should not forward the hatch when it wasn't set"
         );
 
         // review R1: opt-in compat surfaces ride along too.

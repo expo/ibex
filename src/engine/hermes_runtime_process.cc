@@ -102,10 +102,13 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
                const facebook::jsi::Value&,
                const facebook::jsi::Value*,
                size_t) -> facebook::jsi::Value {
-          if (!checkCapability("child_process")) {
+          // @ref LLP 0013#phase-0 — the canonical capability is `process:spawn`
+          // (capability_bits.rs bit 9). The old `child_process` string was not
+          // in the manifest, so this check could never match a policy grant.
+          if (!checkCapability("process:spawn")) {
             throw facebook::jsi::JSError(
                 runtime,
-                "Permission denied: child_process capability required");
+                "Permission denied: process:spawn capability required");
           }
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, json));
@@ -233,8 +236,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (!checkCapability("child_process")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
+        if (!checkCapability("process:spawn")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
         }
         if (count == 0 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactExecSync: command string required");
@@ -387,8 +390,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (!checkCapability("child_process")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
+        if (!checkCapability("process:spawn")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
         }
         if (count == 0 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactSpawnSync: file path required");
@@ -788,6 +791,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   // --- Async spawn support ---
   // SpawnedProcess stores pipe fds and pid for async child processes.
   struct SpawnedProcess {
+    uint64_t owner;
+    std::string capability;
     pid_t pid;
     int stdinFd;   // parent writes to child's stdin
     int stdoutFd;  // parent reads from child's stdout
@@ -802,6 +807,39 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   static int s_nextSpawnHandle = 1;
   static std::mutex s_spawnMutex;
 
+  auto requireSpawnHandle =
+      [](facebook::jsi::Runtime& runtime, int handle, const char* syscall) {
+        uint64_t owner = 0;
+        std::string capability;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          auto it = s_spawnedProcesses.find(handle);
+          if (it == s_spawnedProcesses.end()) {
+            throw facebook::jsi::JSError(runtime, std::string(syscall) + ": invalid handle");
+          }
+          owner = it->second.owner;
+          capability = it->second.capability;
+        }
+        if (!isAllowAll()) {
+          if (owner != currentPrincipalId()) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          if (!capability.empty() && !checkCapability(capability)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        }
+      };
+
+  auto trySpawnHandle =
+      [requireSpawnHandle](facebook::jsi::Runtime& runtime, int handle, const char* syscall) {
+        try {
+          requireSpawnHandle(runtime, handle, syscall);
+          return true;
+        } catch (const facebook::jsi::JSError&) {
+          return false;
+        }
+      };
+
   // __exactSpawn(file, argsJSON, optionsJSON) -> JSON string {"handle":N,"pid":N} or {"error":"..."}
   auto spawnFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -811,8 +849,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (!checkCapability("child_process")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
+        if (!checkCapability("process:spawn")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
         }
         if (count == 0 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactSpawn: file path required");
@@ -1321,6 +1359,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           std::lock_guard<std::mutex> lock(s_spawnMutex);
           handle = s_nextSpawnHandle++;
           SpawnedProcess proc;
+          proc.owner = currentPrincipalId();
+          proc.capability = "process:spawn";
           proc.pid = pid;
           proc.stdinFd = stdinPipeRequested ? stdinPipeFd[1] : -1;
           proc.stdoutFd = stdoutPipeRequested ? stdoutPipeFd[0] : -1;
@@ -1354,7 +1394,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRead"),
       2,
-      [](facebook::jsi::Runtime& runtime,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1362,6 +1402,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
         }
         int handle = static_cast<int>(args[0].asNumber());
+        if (!trySpawnHandle(runtime, handle, "__exactSpawnRead")) {
+          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
+        }
         std::string streamName;
         if (args[1].isString()) {
           streamName = args[1].toString(runtime).utf8(runtime);
@@ -1438,7 +1481,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnGetFd"),
       2,
-      [](facebook::jsi::Runtime&,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1446,6 +1489,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(-1);
         }
         int handle = static_cast<int>(args[0].asNumber());
+        if (!trySpawnHandle(runtime, handle, "__exactSpawnGetFd")) {
+          return facebook::jsi::Value(-1);
+        }
         int streamIndex = static_cast<int>(args[1].asNumber());
         std::lock_guard<std::mutex> lock(s_spawnMutex);
         auto it = s_spawnedProcesses.find(handle);
@@ -1474,7 +1520,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnWrite"),
       3,
-      [](facebook::jsi::Runtime& runtime,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1482,6 +1528,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(-1);
         }
         int handle = static_cast<int>(args[0].asNumber());
+        if (!trySpawnHandle(runtime, handle, "__exactSpawnWrite")) {
+          return facebook::jsi::Value(-1);
+        }
         auto data = args[1].toString(runtime).utf8(runtime);
         auto streamName = std::string("stdin");
         if (count > 2 && args[2].isString()) {
@@ -1558,7 +1607,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSendMsg"),
       3,
-      [](facebook::jsi::Runtime& runtime,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1566,6 +1615,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(false);
         }
         int handle = static_cast<int>(args[0].asNumber());
+        if (!trySpawnHandle(runtime, handle, "__exactSpawnSendMsg")) {
+          return facebook::jsi::Value(false);
+        }
         auto data = args[1].toString(runtime).utf8(runtime);
         int sendFd = -1;
         if (count > 2 && args[2].isNumber()) {
@@ -1617,7 +1669,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRecvMsg"),
       1,
-      [](facebook::jsi::Runtime& runtime,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1625,6 +1677,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::null();
         }
         int handle = static_cast<int>(args[0].asNumber());
+        if (!trySpawnHandle(runtime, handle, "__exactSpawnRecvMsg")) {
+          return facebook::jsi::Value::null();
+        }
 
         int ipcFd = -1;
         {
@@ -1682,7 +1737,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnPoll"),
       1,
-      [](facebook::jsi::Runtime& runtime,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1691,6 +1746,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}"));
         }
         int handle = static_cast<int>(args[0].asNumber());
+        if (!trySpawnHandle(runtime, handle, "__exactSpawnPoll")) {
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":true,\"exitCode\":-1,\"signal\":0}"));
+        }
 
         std::lock_guard<std::mutex> lock(s_spawnMutex);
         auto it = s_spawnedProcesses.find(handle);
@@ -1744,7 +1803,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnKill"),
       2,
-      [](facebook::jsi::Runtime& /*runtime*/,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1752,6 +1811,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(false);
         }
         int handle = static_cast<int>(args[0].asNumber());
+        if (!trySpawnHandle(runtime, handle, "__exactSpawnKill")) {
+          return facebook::jsi::Value(false);
+        }
         int sig = SIGTERM; // default
         if (count > 1 && args[1].isNumber()) {
           sig = static_cast<int>(args[1].asNumber());
@@ -1780,7 +1842,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnCloseStdin"),
       2,
-      [](facebook::jsi::Runtime& runtime,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1788,6 +1850,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         int handle = static_cast<int>(args[0].asNumber());
+        if (!trySpawnHandle(runtime, handle, "__exactSpawnCloseStdin")) {
+          return facebook::jsi::Value::undefined();
+        }
         auto streamName = std::string("stdin");
         if (count > 1 && args[1].isString()) {
           streamName = args[1].toString(runtime).utf8(runtime);
@@ -1829,6 +1894,11 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         if (count == 0 || !args[0].isString()) {
           return facebook::jsi::Value::null();
+        }
+        if (!checkCapability("process:spawn")) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: process:spawn capability required");
         }
         auto command = args[0].asString(runtime).utf8(runtime);
 

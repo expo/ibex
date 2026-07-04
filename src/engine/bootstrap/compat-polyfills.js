@@ -656,31 +656,17 @@
     };
   }
 
-  // Copy process.env to a plain JS object for proper read/write support.
-  // The native JSI HostObject silently ignores property overwrites for
-  // existing properties. We can't replace process.env or globalThis.process
-  // from JS. Instead, store a mutable copy as process.__exactPlainEnv
-  // and have builtin modules use it when available.
-  if (typeof globalThis.process === 'object' && globalThis.process !== null && globalThis.process.env) {
-    (function() {
-      var _nativeEnv = globalThis.process.env;
-      var _plainEnv = {};
-      var keys = Object.keys(_nativeEnv);
-      for (var i = 0; i < keys.length; i++) {
-        _plainEnv[keys[i]] = '' + _nativeEnv[keys[i]];
-      }
-      if (typeof globalThis.__exactGetAllEnv === 'function') {
-        var all = globalThis.__exactGetAllEnv();
-        var allKeys = Object.keys(all);
-        for (var j = 0; j < allKeys.length; j++) {
-          if (!Object.prototype.hasOwnProperty.call(_plainEnv, allKeys[j])) {
-            _plainEnv[allKeys[j]] = '' + all[allKeys[j]];
-          }
-        }
-      }
-      globalThis.process.__exactPlainEnv = _plainEnv;
-    })();
-  }
+  // @ref LLP 0013#mechanism-3 — no plain-object env snapshot on `process`.
+  // A former workaround materialized `process.__exactPlainEnv`, a full copy of
+  // the environment, because the old native JSI HostObject `env` silently
+  // dropped writes. `process.env` is now a JS Proxy (see exact-global.js) whose
+  // `set` trap handles writes and whose reads funnel every key through the
+  // capability-checked `__exactGetEnv`/`__exactGetAllEnv` host functions
+  // (`env:read:<key>` / `env:read:*`). A plain snapshot would be an UNGATED
+  // full-environment surface: any code holding `process` (e.g. a package
+  // endowed with `process` for `process.argv`) could read every secret via
+  // `process.__exactPlainEnv`, laundering past its `env:read` grant. It had no
+  // readers, so it is simply not created — env reads have exactly one gated path.
 
   function __exactGetSharedArrayBufferBacking(buffer) {
     if (!buffer || typeof buffer !== 'object') {
@@ -3803,7 +3789,7 @@
           } else if (typeof sendHandle._handle === 'number' && sendHandle._handle >= 0 && (sendHandle.type === 'udp4' || sendHandle.type === 'udp6')) {
             if (typeof globalThis.__exactUdpGetFd === 'function') handleFd = globalThis.__exactUdpGetFd(sendHandle._handle);
           }
-          // Our native handle system: _handle._exactHandle is an ID into g_tcp_sockets
+          // Our native handle system: _handle._exactHandle is an ID into the native socket table.
           else if (sendHandle._handle && typeof sendHandle._handle._exactHandle === 'number' && sendHandle._handle._exactHandle > 0 && typeof globalThis.__exactTcpGetFd === 'function') {
             handleFd = globalThis.__exactTcpGetFd(sendHandle._handle._exactHandle);
           } else if (sendHandle._handle && typeof sendHandle._handle.fd === 'number') handleFd = sendHandle._handle.fd;

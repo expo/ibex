@@ -36,6 +36,8 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -170,6 +172,15 @@ extern "C" char **environ;
 #include <limits.h>
 
 thread_local uint64_t g_active_module_id = 0;
+thread_local uint64_t g_native_callback_principal_id = kNoNativePrincipalOverride;
+
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+// @ref LLP 0013#mechanism-3 — the vm::Runtime pointer used by the exported
+// attribution bridge, cached from HermesRuntime::getVMRuntimeUnsafe() when the
+// runtime is created. Process-global: Ibex creates one HermesRuntime per process
+// and all host-boundary checks resolve the frame principal through it.
+void* g_vm_runtime = nullptr;
+#endif
 
 // Concrete Buffer for static HBC byte arrays (used by precompiled bootstrap)
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
@@ -196,8 +207,13 @@ bool startup_trace_enabled() {
 }
 
 bool env_flag_enabled(const char* env_name) {
+  // Shared truthiness parse: a leading 1/y/Y/t/T enables (so `1`, `yes`, `true`
+  // all work), everything else (0/false/no/off/empty/unset) disables. The Rust
+  // `env_flag_enabled` (src/bin/ibex/main.rs) mirrors this so the bundler driver
+  // and the engine never disagree about whether compartments are on. (ENG-22634)
   const char* val = std::getenv(env_name);
-  return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y');
+  return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y' ||
+                 val[0] == 't' || val[0] == 'T');
 }
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
@@ -227,7 +243,7 @@ extern "C" int32_t ex_host_fs_copy(const char* from, const char* to);
 extern "C" char* ex_host_fs_realpath(const char* path);
 extern "C" int32_t ex_host_fs_access(const char* path, int32_t mode);
 extern "C" int32_t ex_host_fs_chmod(const char* path, uint32_t mode);
-extern "C" char* ex_host_fs_mkdtemp(const char* prefix);
+extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
 extern "C" uint32_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
@@ -714,6 +730,7 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
     int count = 0;
     for (auto& fn : queue) {
         try {
+            ScopedNativePrincipal nativePrincipal(kNoNativePrincipalOverride);
             fn(*runtime->runtime);
             count++;
         } catch (const facebook::jsi::JSError& err) {
@@ -977,6 +994,261 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         return facebook::jsi::Value(static_cast<double>(previous));
       });
   rt.global().setProperty(rt, "__exactSetActiveModuleId", std::move(setActiveModuleIdFn));
+
+  // @ref LLP 0013#mechanism-3 — frame-derived attribution bridge, JS side. The
+  // loader labels a package's Domain with its capability principal by setting a
+  // pending id immediately before compiling that package's body (each dynamic
+  // function mints a fresh Domain that consumes the pending id). Powerful — a
+  // forged call could stamp attacker code as trusted root — so the loader
+  // captures it privately and the end-of-bootstrap seal deletes the global.
+  auto setPendingPackageIdFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSetPendingPackageId"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+        double next = (count > 0 && args[0].isNumber()) ? args[0].asNumber() : 0.0;
+        if (g_vm_runtime != nullptr) {
+          // A negative argument clears the pending id (so a later eval/Function
+          // is recognised as unlabelled and inherits its caller); a
+          // non-negative one pins that principal. @ref LLP 0013#mechanism-2
+          if (next < 0.0) {
+            ex_hermes_vm_clear_pending_package_id(g_vm_runtime);
+          } else {
+            ex_hermes_vm_set_pending_package_id(
+                g_vm_runtime, static_cast<uint32_t>(next));
+          }
+        }
+#else
+        (void)args;
+        (void)count;
+#endif
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactSetPendingPackageId", std::move(setPendingPackageIdFn));
+
+  // @ref LLP 0013#mechanism-3 — map a capability principal id to a package
+  // selector (name + resolved locator) in the Rust host, so frame-derived
+  // attribution resolves to the package's policy grants. Installed on all
+  // engines (registration is harmless when attribution reads the thread-local),
+  // captured by the loader and deleted at the seal.
+  auto registerPackageFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRegisterPackage"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          return facebook::jsi::Value::undefined();
+        }
+        auto id = static_cast<uint64_t>(args[0].asNumber());
+        auto name = args[1].asString(runtime).utf8(runtime);
+        std::string locator;
+        bool haveLocator = count > 2 && args[2].isString();
+        if (haveLocator) {
+          locator = args[2].asString(runtime).utf8(runtime);
+        }
+        ex_host_register_module_package(
+            id, name.c_str(), haveLocator ? locator.c_str() : nullptr);
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactRegisterPackage", std::move(registerPackageFn));
+
+  // @ref LLP 0013#policy — import-graph gate (Policy surface 3). Builtins are
+  // reachable by `require`, so a compartment with no `fs` endowment but
+  // unrestricted `require('node:fs')` is not contained: import policy is the
+  // primary gate for them. Returns whether the requesting principal may load the
+  // specifier under the active mode (audit logs but allows). Inert unless policy
+  // restricts a package's `builtins`/`packages`. Captured by the loader, sealed.
+  auto checkImportFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactCheckImport"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[1].isString()) {
+          return facebook::jsi::Value(true);
+        }
+        // @ref LLP 0013#mechanism-3 — re-derive the requesting principal from
+        // the executing frame; never trust the JS-passed id. Dynamic import()
+        // and globalThis.require reach this check with no module `parent`, so a
+        // JS-supplied principal is zero/forgeable. The loader and bootstrap
+        // frames carry the runtime principal and are skipped by the walk, so it
+        // lands on the true requesting package. Fall back to the JS arg only
+        // when the frame-attribution engine is unavailable. (ENG-22618/ENG-22629)
+        uint64_t principal;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+        if (g_vm_runtime != nullptr) {
+          principal = currentPrincipalId();
+        } else
+#endif
+        {
+          principal = (count > 0 && args[0].isNumber())
+              ? static_cast<uint64_t>(args[0].asNumber())
+              : 0;
+        }
+        auto specifier = args[1].asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(
+            ex_host_check_import(principal, specifier.c_str()) != 0);
+      });
+  rt.global().setProperty(rt, "__exactCheckImport", std::move(checkImportFn));
+
+  // @ref LLP 0013#delegation-and-authority-flow — authority-bearing handle API. `create` is
+  // frame-checked (only a frame that already holds the capability may mint a
+  // handle for it), so a package cannot forge authority; `read`/`scoped`/`revoke`
+  // are possession-based (they consult the handle's grant, not the calling
+  // frame), which is what lets a package with no ambient `fs` use a handle it
+  // was handed. These stay reachable after the seal — that is the point.
+  auto createHandleFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactCreateHandle"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          return facebook::jsi::Value(0.0);
+        }
+        auto cap = args[0].asString(runtime).utf8(runtime);
+        // Minting requires the calling frame to actually hold the capability.
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(
+              runtime, "Permission denied: cannot mint a handle for " + cap);
+        }
+        auto id = ex_host_handle_create(cap.c_str());
+        return facebook::jsi::Value(static_cast<double>(id));
+      });
+  rt.global().setProperty(rt, "__exactCreateHandle", std::move(createHandleFn));
+
+  auto handleReadFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHandleReadFileSync"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactHandleReadFileSync: id and path required");
+        }
+        auto id = static_cast<uint64_t>(args[0].asNumber());
+        auto path = args[1].asString(runtime).utf8(runtime);
+        std::string cap = "fs:read:" + path;
+        // Possession-based: check the handle's grant, not the calling frame.
+        if (!ex_host_handle_check(id, cap.c_str())) {
+          throw facebook::jsi::JSError(
+              runtime, "Permission denied: handle does not grant " + cap);
+        }
+        std::ifstream f(path, std::ios::binary);
+        if (!f) {
+          throw facebook::jsi::JSError(runtime, "ENOENT: " + path);
+        }
+        std::vector<uint8_t> data(
+            (std::istreambuf_iterator<char>(f)),
+            std::istreambuf_iterator<char>());
+        return makeUint8Array(runtime, std::move(data));
+      });
+  rt.global().setProperty(
+      rt, "__exactHandleReadFileSync", std::move(handleReadFn));
+
+  auto handleScopedFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHandleScoped"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+          return facebook::jsi::Value(0.0);
+        }
+        auto parent = static_cast<uint64_t>(args[0].asNumber());
+        auto narrower = args[1].asString(runtime).utf8(runtime);
+        auto id = ex_host_handle_scoped(parent, narrower.c_str());
+        return facebook::jsi::Value(static_cast<double>(id));
+      });
+  rt.global().setProperty(rt, "__exactHandleScoped", std::move(handleScopedFn));
+
+  auto revokeHandleFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRevokeHandle"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count >= 1 && args[0].isNumber()) {
+          ex_host_handle_revoke(static_cast<uint64_t>(args[0].asNumber()));
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactRevokeHandle", std::move(revokeHandleFn));
+
+  // @ref LLP 0013 §dynamic permissions — runtime root-grant mutation. request()
+  // grants the ROOT principal a capability if it is within the policy ceiling
+  // (the static artifact is the ceiling; a prompt moves the floor). Granting
+  // root does not escalate the calling package (checks key on the frame's own
+  // principal), so these stay reachable; the "which package may prompt" gating
+  // is embedder broker logic. status() is tri-state: 1 granted / 2 prompt / 0.
+  auto permRequestFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPermissionRequest"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          return facebook::jsi::Value(false);
+        }
+        auto cap = args[0].asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(ex_host_permission_request(cap.c_str()) != 0);
+      });
+  rt.global().setProperty(
+      rt, "__exactPermissionRequest", std::move(permRequestFn));
+
+  auto permRevokeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPermissionRevoke"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count >= 1 && args[0].isString()) {
+          auto cap = args[0].asString(runtime).utf8(runtime);
+          ex_host_permission_revoke(cap.c_str());
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactPermissionRevoke", std::move(permRevokeFn));
+
+  auto permStatusFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactPermissionStatus"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          return facebook::jsi::Value(0.0);
+        }
+        auto cap = args[0].asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(
+            static_cast<double>(ex_host_permission_status(cap.c_str())));
+      });
+  rt.global().setProperty(rt, "__exactPermissionStatus", std::move(permStatusFn));
 
   auto getCwdFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1267,6 +1539,35 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       )
   );
 
+  // @ref LLP 0013#resolved-questions — one implementation of "strip a trailing
+  // @version while preserving @scope/pkg". The module loader captures this to
+  // register bare policy selectors, and the compartment registry uses the same
+  // helper for name-level endowment fallback. It is deleted before user package
+  // code runs. (ENG-22773)
+  auto barePackageNameFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__ibexBarePackageName"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          return facebook::jsi::Value::undefined();
+        }
+        std::string identity = args[0].asString(runtime).utf8(runtime);
+        auto at = identity.rfind('@');
+        auto slash = identity.find('/');
+        if (at != std::string::npos && at > 0 &&
+            (slash == std::string::npos || at > slash)) {
+          identity.resize(at);
+        }
+        return facebook::jsi::Value(
+            facebook::jsi::String::createFromUtf8(runtime, identity));
+      });
+  rt.global().setProperty(
+      rt, "__ibexBarePackageName", std::move(barePackageNameFn));
+
   // ============================================================
   // TCP Socket host functions for net module
   // ============================================================
@@ -1325,6 +1626,501 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   IG_TRACE_START(ipc_patch);
   installIpcListenerPatch(handle);
   IG_TRACE_END(ipc_patch);
+
+  // @ref LLP 0013#delegation-and-authority-flow — the FsHandle attenuator. `Ibex.fs.readHandle(dir)`
+  // mints a handle (requires the caller to hold fs:read:dir); the returned
+  // object can be passed to a package that has no ambient fs, which uses it
+  // possession-based. `scoped()` re-attenuates; `revoke()` fail-closes the
+  // handle and every handle derived from it. The prototype methods run in the
+  // trusted root Domain, so they reach the possession-checked natives.
+  {
+    static const char* kFsHandleJS = R"JS((function () {
+  var g = globalThis;
+  function FsHandle(id) { this._id = id; }
+  FsHandle.prototype.readFileSync = function (path) {
+    return g.__exactHandleReadFileSync(this._id, String(path));
+  };
+  FsHandle.prototype.readTextSync = function (path) {
+    var bytes = g.__exactHandleReadFileSync(this._id, String(path));
+    var s = '';
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return s;
+  };
+  FsHandle.prototype.scoped = function (sub) {
+    var id = g.__exactHandleScoped(this._id, String(sub));
+    if (!id) throw new Error('Cannot scope handle to ' + sub);
+    return new FsHandle(id);
+  };
+  FsHandle.prototype.revoke = function () { g.__exactRevokeHandle(this._id); };
+  var Ibex = g.Ibex || (g.Ibex = {});
+  Ibex.fs = Ibex.fs || {};
+  Ibex.fs.readHandle = function (dir) {
+    var id = g.__exactCreateHandle('fs:read:' + String(dir));
+    if (!id) throw new Error('Cannot mint handle for ' + dir);
+    return new FsHandle(id);
+  };
+  // @ref LLP 0013 §dynamic permissions — the runtime permission surface. status
+  // is tri-state ('granted' | 'prompt' | 'denied'); request/revoke move the root
+  // grant floor within the static ceiling.
+  Ibex.permissions = Ibex.permissions || {};
+  Ibex.permissions.status = function (cap) {
+    var s = g.__exactPermissionStatus(String(cap));
+    return s === 1 ? 'granted' : (s === 2 ? 'prompt' : 'denied');
+  };
+  // @ref LLP 0013 §dynamic permissions — the grant-change signal handles and the
+  // embedder subscribe to, so live resources (watches, sessions) tear down
+  // fail-closed when a grant is revoked and re-arm when re-granted. onChange
+  // returns an unsubscribe function. This plus request/revoke/acquire, the
+  // pluggable broker, and the handle revocation cascade are the full runtime
+  // mechanism the embedder wires its OS-prompt UI onto; per-view grants map to
+  // per-instance root grants (a view is its own runtime instance — layer 1).
+  var __permListeners = [];
+  Ibex.permissions.onChange = function (listener) {
+    if (typeof listener !== 'function') return function () {};
+    __permListeners.push(listener);
+    return function () {
+      var i = __permListeners.indexOf(listener);
+      if (i !== -1) __permListeners.splice(i, 1);
+    };
+  };
+  function __notifyPerm(cap) {
+    var status = Ibex.permissions.status(cap);
+    for (var i = 0; i < __permListeners.length; i++) {
+      try { __permListeners[i](cap, status); } catch (e) {}
+    }
+  }
+  Ibex.permissions.request = function (cap) {
+    cap = String(cap);
+    var ok = !!g.__exactPermissionRequest(cap);
+    if (ok) __notifyPerm(cap);
+    return ok;
+  };
+  Ibex.permissions.revoke = function (cap) {
+    cap = String(cap);
+    g.__exactPermissionRevoke(cap);
+    __notifyPerm(cap);
+  };
+  // @ref LLP 0013 §dynamic permissions — acquisition is async and lives in the
+  // attenuator, while the host-boundary check stays synchronous. `acquire`
+  // returns a Promise that suspends on the broker decision and resolves the
+  // (now-current) grant state; a real embedder awaits an OS prompt here, and
+  // Ibex's default broker resolves against the static ceiling. After it resolves
+  // true, a synchronous capability check consults the already-updated state —
+  // never the prompt (the TOCTOU failure mode). A pluggable broker can replace
+  // the default via Ibex.permissions.broker = function (cap) => Promise<bool>.
+  Ibex.permissions.broker = null;
+  Ibex.permissions.acquire = function (cap) {
+    cap = String(cap);
+    if (Ibex.permissions.status(cap) === 'granted') return Promise.resolve(true);
+    var decide = Ibex.permissions.broker
+      ? Promise.resolve(Ibex.permissions.broker(cap))
+      : Promise.resolve(Ibex.permissions.status(cap) === 'prompt');
+    return decide.then(function (approved) {
+      return approved ? Ibex.permissions.request(cap) : false;
+    });
+  };
+})();
+)JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kFsHandleJS);
+      handle->runtime->evaluateJavaScript(buffer, "<fs-handle>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1, (std::string("FsHandle install error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("FsHandle install error: ") + err.what()).c_str());
+    }
+  }
+
+  // @ref LLP 0013#phase-0 — end-of-bootstrap capability hardening seal. The
+  // module-attribution setter (`__exactSetActiveModuleId`) and the self-grant
+  // function (`__exactGrantCapability`) are ambient-authority escape hatches:
+  // any line of package code could impersonate module 0 or grant itself a
+  // capability. The trusted loader has already captured the setter privately;
+  // here we re-bind the grant path to a captured reference and then delete both
+  // globals so no code that runs after bootstrap can reach them. Runs in all
+  // modes (acceptance criterion: escape-hatch globals unreachable in all modes).
+  {
+    // @ref LLP 0013 §self-grant — under enforce (IBEX_SEAL_SELF_GRANT) the
+    // runtime self-grant surface is removed entirely: package code must not
+    // reach `Exact.setModuleCapabilities`, since grants come from the policy
+    // artifact, not runtime self-declaration. Audit leaves the surface reachable
+    // and records a would-deny in the host. Only the permissive/dev/audit path
+    // keeps the function rebound onto the captured grant for require({needs}).
+    // (ENG-22695/ENG-22770)
+    std::string capabilityHardeningJS = std::string(R"JS((function () {
+  var g = globalThis;
+  var sealSelfGrant = )JS") +
+        (env_flag_enabled("IBEX_SEAL_SELF_GRANT") ? "true" : "false") +
+        R"JS(;
+  var keepBareNameHelper = )JS" +
+        ((env_flag_enabled("IBEX_LOCKDOWN") ||
+          env_flag_enabled("IBEX_COMPARTMENTS"))
+             ? std::string("true")
+             : std::string("false")) +
+        R"JS(;
+  var grant = g.__exactGrantCapability;
+  if (g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
+    if (sealSelfGrant) {
+      // Enforce: remove the self-grant channel outright.
+      try { delete g.Exact.setModuleCapabilities; } catch (e) {}
+    } else if (grant) {
+      // Permissive/dev/audit: rebind onto the captured grant for require({needs}).
+      g.Exact.setModuleCapabilities = function (moduleId, capabilities) {
+        if (!capabilities) return;
+        var caps = Array.isArray(capabilities) ? capabilities : [capabilities];
+        for (var i = 0; i < caps.length; i++) { grant(moduleId, caps[i]); }
+      };
+    }
+  }
+  var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
+                 '__exactSetPendingPackageId', '__exactRegisterPackage',
+                 '__exactCheckImport', '__exactSetCompartmentFor'];
+  if (!keepBareNameHelper) hatches.push('__ibexBarePackageName');
+  for (var j = 0; j < hatches.length; j++) {
+    try { delete g[hatches[j]]; } catch (e) {}
+  }
+})();
+)JS";
+    const char* kCapabilityHardeningJS = capabilityHardeningJS.c_str();
+    try {
+      auto buffer =
+          std::make_shared<facebook::jsi::StringBuffer>(kCapabilityHardeningJS);
+      handle->runtime->evaluateJavaScript(buffer, "<capability-hardening>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1,
+          (std::string("Capability hardening error: ") + err.getMessage())
+              .c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("Capability hardening error: ") + err.what()).c_str());
+    }
+  }
+
+  // @ref LLP 0013#phase-1 — eager-install-then-seal the lazy `__exactEnsure*`
+  // installers. They install native host surfaces (fs, http, dns, child_process,
+  // net, web-crypto, …) on first use; left lazy, a package could trigger one
+  // *after* lockdown has frozen the global, adding surface the compartment
+  // inventory never accounted for. Under lockdown/compartment mode we run every
+  // installer once (they are idempotent) so the true global is closed before any
+  // package runs, then delete the installer globals themselves. Off the
+  // lockdown/compartment path the installers stay lazy for startup cost.
+  if (env_flag_enabled("IBEX_LOCKDOWN") ||
+      env_flag_enabled("IBEX_COMPARTMENTS")) {
+    static const char* kEagerInstallSealJS = R"JS((function () {
+  var g = globalThis;
+  var ensures = ['__exactEnsureFs', '__exactEnsureHttp', '__exactEnsureSqlite',
+    '__exactEnsureDns', '__exactEnsureChildProcess', '__exactEnsureNet',
+    '__exactEnsureStreamEnhance', '__exactEnsureWebCrypto',
+    '__exactEnsureWebStorage', '__exactEnsureFormData'];
+  for (var i = 0; i < ensures.length; i++) {
+    var fn = g[ensures[i]];
+    if (typeof fn === 'function') { try { fn(); } catch (e) {} }
+    try { delete g[ensures[i]]; } catch (e) {}
+  }
+  // @ref LLP 0013#phase-1 — close the ambient self-grant channel. The
+  // end-of-bootstrap seal deletes __exactGrantCapability but rebinds
+  // Exact.setModuleCapabilities onto the captured grant for the legacy
+  // require(spec, {needs}) path. Under enforce/lockdown, grants come from the
+  // generated policy artifact (LLP 0014), not runtime self-declaration, so we
+  // remove the self-grant surface entirely; the loader's grantCapabilities
+  // already no-ops when the function is absent.
+  try {
+    if (g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
+      delete g.Exact.setModuleCapabilities;
+    }
+  } catch (e) {}
+})();
+)JS";
+    try {
+      auto buffer =
+          std::make_shared<facebook::jsi::StringBuffer>(kEagerInstallSealJS);
+      handle->runtime->evaluateJavaScript(buffer, "<eager-install-seal>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1,
+          (std::string("Eager-install seal error: ") + err.getMessage())
+              .c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("Eager-install seal error: ") + err.what()).c_str());
+    }
+  }
+
+  // @ref LLP 0013#mechanism-1 — Lockdown. Freezes the shared intrinsics graph
+  // and tames the intrinsic evaluators (the %Function% family + indirect eval)
+  // so no compartment can mint code against the real global via a prototype
+  // walk (`({}).constructor.constructor`). Opt-in (IBEX_LOCKDOWN=1 / the
+  // `--lockdown` CLI flag) because freezing intrinsics can break packages that
+  // mutate them — the top risk in the RFC. Composes with any --capsec mode.
+  if (env_flag_enabled("IBEX_LOCKDOWN")) {
+    // @ref LLP 0013#mechanism-1 (Phase 3) — opt into the native transitive
+    // freeze (__exactDeepFreeze) for the intrinsics graph instead of the JS
+    // walk. Same result; native is faster at boot.
+    if (env_flag_enabled("IBEX_NATIVE_LOCKDOWN")) {
+      try {
+        rt.global().setProperty(rt, "__ibexNativeLockdown", true);
+      } catch (...) {
+      }
+    }
+    static const char* kLockdownJS = R"JS((function () {
+  var g = globalThis;
+  if (g.__ibexLockedDown) return;
+  var freeze = Object.freeze;
+  var getProto = Object.getPrototypeOf;
+  var getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var getOwnPropNames = Object.getOwnPropertyNames;
+  var getOwnPropSymbols = Object.getOwnPropertySymbols;
+  var defineProp = Object.defineProperty;
+
+  // --- Evaluator taming (Mechanism 1, load-bearing) ---
+  function makeTamed(name) {
+    function tamedEvaluator() {
+      throw new TypeError(name + ' is disabled under lockdown (LLP 0013 Mechanism 1)');
+    }
+    tamedEvaluator.__ibexTamed = true;
+    return tamedEvaluator;
+  }
+  function tameCtor(proto, label) {
+    if (!proto) return null;
+    var tamed = makeTamed(label);
+    try {
+      defineProp(proto, 'constructor', {
+        value: tamed, writable: false, enumerable: false, configurable: false
+      });
+    } catch (e) {}
+    return tamed;
+  }
+  var tamedFunction = tameCtor(Function.prototype, 'Function');
+  if (tamedFunction) { try { defineProp(g, 'Function', { value: tamedFunction, writable: false, configurable: false }); } catch (e) {} }
+  try { tameCtor(getProto(function*(){}), 'GeneratorFunction'); } catch (e) {}
+  try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) {}
+  // NB: this engine (Hermes) has no native async generators, so there is no
+  // reachable %AsyncGeneratorFunction% evaluator intrinsic to tame.
+  try {
+    var tamedEval = makeTamed('eval');
+    // Mark it so the loader's eval-shim preamble does not reassign it, and pin
+    // it non-writable so package code cannot restore the native evaluator.
+    tamedEval.__exactWrappedForNativesSyntax = true;
+    defineProp(g, 'eval', { value: tamedEval, writable: false, configurable: false });
+  } catch (e) {}
+
+  // --- Freeze walk over the shared intrinsics graph ---
+  var frozen = new WeakSet();
+  function enqueueProp(obj, key, queue) {
+    var desc;
+    try { desc = getOwnPropDesc(obj, key); } catch (e) { return; }
+    if (!desc) return;
+    if ('value' in desc) queue.push(desc.value);
+    if (desc.get) queue.push(desc.get);
+    if (desc.set) queue.push(desc.set);
+  }
+  function harden(root) {
+    var queue = [root];
+    while (queue.length) {
+      var obj = queue.pop();
+      var t = obj === null ? 'null' : typeof obj;
+      if (t !== 'object' && t !== 'function') continue;
+      if (frozen.has(obj)) continue;
+      frozen.add(obj);
+      try { freeze(obj); } catch (e) {}
+      try { var p = getProto(obj); if (p) queue.push(p); } catch (e) {}
+      var names;
+      try { names = getOwnPropNames(obj); } catch (e) { names = []; }
+      for (var i = 0; i < names.length; i++) enqueueProp(obj, names[i], queue);
+      var syms;
+      try { syms = getOwnPropSymbols(obj); } catch (e) { syms = []; }
+      for (var j = 0; j < syms.length; j++) enqueueProp(obj, syms[j], queue);
+    }
+  }
+  var roots = [
+    Object, Array, String, Number, Boolean, Symbol, Math, JSON, Date, RegExp,
+    Promise, Map, Set, WeakMap, WeakSet, Reflect, ArrayBuffer, DataView,
+    Error, TypeError, RangeError, SyntaxError, ReferenceError, EvalError, URIError,
+    Object.prototype, Function.prototype, Array.prototype, String.prototype,
+    Number.prototype, Boolean.prototype
+  ];
+  if (typeof BigInt === 'function') roots.push(BigInt);
+  if (typeof Proxy === 'function') roots.push(Proxy);
+  var typedArrays = ['Int8Array','Uint8Array','Uint8ClampedArray','Int16Array',
+    'Uint16Array','Int32Array','Uint32Array','Float32Array','Float64Array',
+    'BigInt64Array','BigUint64Array'];
+  for (var k = 0; k < typedArrays.length; k++) {
+    if (typeof g[typedArrays[k]] === 'function') roots.push(g[typedArrays[k]]);
+  }
+  try { roots.push(getProto(getProto([][Symbol.iterator]()))); } catch (e) {} // %IteratorPrototype%
+  // @ref LLP 0013#mechanism-1 (Phase 3) — freeze the intrinsics graph. With
+  // IBEX_NATIVE_LOCKDOWN the transitive freeze runs in native code
+  // (__exactDeepFreeze) instead of this JS walk; both freeze the same graph.
+  var __nativeFreeze = g.__ibexNativeLockdown && typeof g.__exactDeepFreeze === 'function'
+    ? g.__exactDeepFreeze : null;
+  for (var r = 0; r < roots.length; r++) {
+    if (roots[r] != null) {
+      // Per-root try/catch: a freeze failure on one intrinsic must not abort the
+      // whole walk (which would leave later roots mutable AND __ibexLockedDown
+      // unset — a fail-open lockdown). Mirror the JS `harden` swallow; fall back
+      // to `harden` if the native freeze throws. @ref LLP 0013#mechanism-1
+      try {
+        if (__nativeFreeze) __nativeFreeze(roots[r]); else harden(roots[r]);
+      } catch (e) {
+        try { harden(roots[r]); } catch (e2) {}
+      }
+    }
+  }
+
+  try {
+    defineProp(g, '__ibexLockedDown', { value: true, writable: false, enumerable: false, configurable: false });
+  } catch (e) {}
+})();
+)JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kLockdownJS);
+      handle->runtime->evaluateJavaScript(buffer, "<lockdown>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1, (std::string("Lockdown error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1,
+                          (std::string("Lockdown error: ") + err.what()).c_str());
+    }
+  }
+
+  // @ref LLP 0013#mechanism-2 — per-package compartment registry. Package code
+  // rewritten by the compartment transform resolves its bare globals against
+  // `__compartments[<package>]` instead of the real global. Each compartment is
+  // a Proxy that passes safe shared intrinsics through but WITHHOLDS powerful
+  // globals (process, fetch, Buffer, ...) unless the package is endowed by
+  // policy (globalThis.__ibexEndowments). Ships with lockdown (which closes the
+  // prototype-walk channel) so the two mechanisms compose.
+  if (env_flag_enabled("IBEX_LOCKDOWN") ||
+      env_flag_enabled("IBEX_COMPARTMENTS")) {
+    static const char* kCompartmentRegistryJS = R"JS((function () {
+  var g = globalThis;
+  if (g.__compartments) return;
+  var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
+    'importScripts','queueMicrotask','eval','Function','Ibex','Exact','Bun'];
+  var POWERFUL_SET = Object.create(null);
+  for (var pwi = 0; pwi < POWERFUL.length; pwi++) POWERFUL_SET[POWERFUL[pwi]] = true;
+  var endowMap = Object.create(null);
+  // Programmatic/policy injection: { "pkg": ["fetch", ...], ... }
+  var raw = g.__ibexEndowments;
+  if (raw && typeof raw === 'object') {
+    var keys = Object.getOwnPropertyNames(raw);
+    for (var i = 0; i < keys.length; i++) { endowMap[keys[i]] = raw[keys[i]]; }
+  }
+  // CLI/test injection via env: IBEX_ENDOW="pkg:fetch,process;other:fetch".
+  // Read the raw value injected by the host (below) rather than `process.env`:
+  // this runs as a runtime deputy with no user frame, so a gated `process.env`
+  // read fails closed under --capsec enforce; and the endowment config must not
+  // be reachable by a package that merely holds env:read. @ref LLP 0013#mechanism-3
+  var envEndow = g.__ibexEndowRaw || '';
+  if (envEndow) {
+    var groups = String(envEndow).split(';');
+    for (var gi = 0; gi < groups.length; gi++) {
+      var colon = groups[gi].indexOf(':');
+      if (colon === -1) continue;
+      var pkgName = groups[gi].slice(0, colon).trim();
+      var caps = groups[gi].slice(colon + 1).split(',');
+      for (var ci = 0; ci < caps.length; ci++) caps[ci] = caps[ci].trim();
+      if (pkgName) endowMap[pkgName] = caps;
+    }
+  }
+  var bareNameOf = typeof g.__ibexBarePackageName === 'function'
+    ? g.__ibexBarePackageName
+    : function (pkg) { return pkg; };
+  function isEndowed(pkg, name) {
+    // Compartments are keyed by the version-qualified identity (`name@version`),
+    // but endow entries are usually written bare (`pkg:fetch`, applying to every
+    // version). Consult the exact key first so a pinned `pkg@1.0.0:fetch` can
+    // narrow one version, then fall back to the bare name. (ENG-22621)
+    var e = endowMap[pkg] || endowMap[bareNameOf(pkg)];
+    return !!e && e.indexOf(name) !== -1;
+  }
+  function isWithheld(pkg, name) {
+    // Raw host primitives (__exact* / __ibex*) must never be reachable from
+    // package code, endowed or not — exposing e.g. __exactFsOpen or the
+    // __ibexEndowRaw config would defeat the whole membrane. (ENG-22625/ENG-22636)
+    if (name.indexOf('__exact') === 0 || name.indexOf('__ibex') === 0) return true;
+    return POWERFUL_SET[name] === true && !isEndowed(pkg, name);
+  }
+  function makeCompartment(pkg) {
+    return new Proxy(Object.create(null), {
+      get: function (t, prop, receiver) {
+        if (typeof prop !== 'string') return g[prop];
+        // A write the compartment made shadows the real global for this package
+        // only — the set trap writes to `t`, never to the shared global. (ENG-22626)
+        if (Object.prototype.hasOwnProperty.call(t, prop)) return t[prop];
+        // Self-referential globals resolve to the compartment itself, never the
+        // real global: otherwise `globalThis.process` (or global/self) reaches
+        // every withheld capability in one hop. (ENG-22625)
+        if (prop === 'globalThis' || prop === 'global' || prop === 'self') return receiver;
+        if (isWithheld(pkg, prop)) return undefined; // withheld
+        return g[prop];
+      },
+      set: function (t, prop, value) {
+        // Writes land on the compartment's own backing object, never the shared
+        // real global — a package poisoning `fetch`/`process` (or defining a
+        // sloppy `foo = 1`) must not be observed by root or any other
+        // compartment. (ENG-22626/ENG-22640)
+        t[prop] = value;
+        return true;
+      },
+      has: function (t, prop) {
+        // Reflect real presence: a withheld name (present on the real global)
+        // still reads as `undefined` via the get trap, but a genuinely-absent
+        // name reports false so a typo throws ReferenceError as JS requires,
+        // rather than silently resolving to undefined. (ENG-22640)
+        if (Object.prototype.hasOwnProperty.call(t, prop)) return true;
+        if (prop === 'globalThis' || prop === 'global' || prop === 'self') return true;
+        return (prop in g);
+      }
+    });
+  }
+  var backing = Object.create(null);
+  var registry = new Proxy(backing, {
+    get: function (t, pkg) {
+      if (typeof pkg !== 'string') return undefined;
+      if (!t[pkg]) { t[pkg] = makeCompartment(pkg); }
+      return t[pkg];
+    }
+  });
+  try {
+    Object.defineProperty(g, '__compartments', {
+      value: registry, writable: false, enumerable: false, configurable: false
+    });
+  } catch (e) {}
+  try { delete g.__ibexBarePackageName; } catch (e) {}
+})();
+)JS";
+    try {
+      // Inject the raw endowment config (IBEX_ENDOW) directly from the host, so
+      // the registry does not read it through the capability-gated `process.env`
+      // (which fails closed under enforce, and would expose the config to any
+      // package holding env:read). @ref LLP 0013#mechanism-3
+      auto& rt = *handle->runtime;
+      if (const char* endow = ::getenv("IBEX_ENDOW")) {
+        rt.global().setProperty(
+            rt,
+            "__ibexEndowRaw",
+            facebook::jsi::String::createFromUtf8(rt, endow));
+      }
+      auto buffer =
+          std::make_shared<facebook::jsi::StringBuffer>(kCompartmentRegistryJS);
+      handle->runtime->evaluateJavaScript(buffer, "<compartment-registry>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1,
+          (std::string("Compartment registry error: ") + err.getMessage())
+              .c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1,
+          (std::string("Compartment registry error: ") + err.what()).c_str());
+    }
+  }
+
   IG_TRACE_END(post_host_fns);
 }
 
@@ -1337,6 +2133,7 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
     auto entry = std::move(runtime->next_tick.front());
     runtime->next_tick.pop_front();
     try {
+      ScopedNativePrincipal nativePrincipal(entry.principal);
       if (entry.args.empty()) {
         entry.callback.call(rt);
       } else {
@@ -1410,6 +2207,21 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   auto handle = new ExactHermesRuntime();
   handle->runtime = std::move(runtime);
   handle->runtime_thread = std::this_thread::get_id();
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // @ref LLP 0013#mechanism-3 — cache the vm::Runtime so host-boundary checks can
+  // resolve the executing frame's package principal. getVMRuntimeUnsafe() is the
+  // documented (unstable) accessor on IHermes, which HermesRuntime implements.
+  g_vm_runtime = handle->runtime->getVMRuntimeUnsafe();
+  // Mark everything compiled during bootstrap (the module loader, the shared
+  // runtime bundle, the lockdown/compartment installers, and all the trusted
+  // deputy wrappers they install) with the runtime principal, so frame
+  // attribution sees through those deputies to the real caller. Reset to the
+  // root principal after installGlobals so eval/Function-minted Domains and user
+  // code are attributed to root, not the runtime. @ref LLP 0013 Open-Q3
+  if (g_vm_runtime != nullptr) {
+    ex_hermes_vm_set_default_package_id(g_vm_runtime, kRuntimePrincipalId);
+  }
+#endif
   TRACE_END(handle_alloc);
 
   TRACE_START(debugger_init);
@@ -1448,6 +2260,23 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
     fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");
   }
   registerRuntime(handle);
+
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // Bootstrap and all built-in polyfills are installed; from here on, code
+  // compiled with no explicit principal (eval/Function, or any stray script the
+  // embedder evaluates) is attributed to the root principal rather than the
+  // runtime. Package code is stamped explicitly by the loader. @ref LLP 0013 Open-Q3
+  if (g_vm_runtime != nullptr) {
+    ex_hermes_vm_set_default_package_id(g_vm_runtime, 0);
+    // @ref LLP 0013#phase-5 (Open-Q3) — arm schedule-time principal capture when
+    // the patched engine is present. Deputy classes can be configured after
+    // create_engine, and the host consumes the captured scheduler only on the
+    // live deputy-stack path or when a native-resolved continuation would
+    // otherwise report kNoUserPrincipal. A boot-time latch would fail open for
+    // later policy/application setup and false-deny granted continuations.
+    ex_hermes_vm_set_job_scheduler_capture(g_vm_runtime, 1);
+  }
+#endif
 
   TRACE_END(total);
   return handle;
@@ -1905,6 +2734,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       }
     };
     try {
+      ScopedNativePrincipal nativePrincipal(it->second.principal);
       if (it->second.args.empty()) {
         it->second.callback.call(*runtime->runtime);
       } else {

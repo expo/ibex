@@ -755,6 +755,15 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
   Bun.fetch = typeof Bun.fetch === 'function' ? Bun.fetch : g.fetch;
   Bun.argv = Bun.argv || g.process.argv || [];
   Bun.main = Bun.main || (g.process.argv && g.process.argv[1]) || '';
+  Bun.which = typeof Bun.which === 'function' ? Bun.which : function(cmd) {
+    if (typeof cmd !== 'string' || !cmd) return null;
+    if (typeof g.__exactWhich !== 'function' &&
+        typeof g.__exactEnsureChildProcess === 'function') {
+      try { g.__exactEnsureChildProcess(); } catch (_) {}
+    }
+    if (typeof g.__exactWhich === 'function') return g.__exactWhich(cmd);
+    return null;
+  };
 
   function normalizeBunCommand(cmd, opts) {
     var args;
@@ -1082,6 +1091,15 @@ impl Runtime {
             globalThis.__exactExecArgv = {};\n\
             globalThis.__exactRawArgv0 = {};\n\
             globalThis.__exactCompatModes = {};\n\
+            if (Array.isArray(globalThis.__exactCompatModes) && \
+                globalThis.__exactCompatModes.indexOf('bun') !== -1 && \
+                !globalThis.Bun && globalThis.Exact) {{\n\
+              globalThis.Bun = globalThis.Exact;\n\
+            }}\n\
+            if (typeof globalThis.__exactWhich === 'function') {{\n\
+              if (globalThis.Exact) globalThis.Exact.which = globalThis.__exactWhich;\n\
+              if (globalThis.Bun) globalThis.Bun.which = globalThis.__exactWhich;\n\
+            }}\n\
             ",
             exec_path_json, exec_argv_json, raw_argv0_json, compat_modes_json
         );
@@ -1284,6 +1302,22 @@ impl Runtime {
             process_versions_code,
             compat_reapply_code
         );
+        // @ref LLP 0013#mechanism-3 — under per-package chunking the entry
+        // bundle requires sibling chunk files (`__ibexpkg__*`) from the cache
+        // dir. Tell the loader that dir so it can resolve those requires
+        // absolutely, while the entry's own `__dirname`/`__filename` stay mapped
+        // to the source (the loader only redirects the `__ibexpkg__` specifiers).
+        let argv_code = if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
+            let chunk_dir = entry_path
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let chunk_dir_json =
+                serde_json::to_string(&chunk_dir).unwrap_or_else(|_| "\"\"".to_string());
+            format!("globalThis.__exactChunkDir = {chunk_dir_json};\n{argv_code}")
+        } else {
+            argv_code
+        };
 
         if cfg!(windows) {
             let source = tokio::fs::read_to_string(&entry_path)
@@ -1463,23 +1497,24 @@ impl Runtime {
     }
 }
 
+/// Whether the policy path was explicitly configured (via `--policy` or the
+/// `IBEX_POLICY`/`EXACT_POLICY` env), as opposed to the auto-discovered default.
+/// An explicit-but-missing policy is a hard error; a missing default is not.
+fn policy_is_explicit(cli: &Cli) -> bool {
+    if cli.policy.is_some() {
+        return true;
+    }
+    crate::runtime_env("IBEX_POLICY", "EXACT_POLICY")
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+}
+
 fn build_host_config(cli: &Cli) -> Result<HostConfig> {
-    use crate::cli::CapSecMode;
-    use crate::host::SecurityMode;
-
-    // Map CLI mode to host SecurityMode
-    // --allow-all overrides --capsec for backward compatibility
-    let mode = if cli.allow_all {
-        SecurityMode::Permissive
-    } else {
-        match cli.capsec {
-            CapSecMode::Permissive => SecurityMode::Permissive,
-            CapSecMode::Capability => SecurityMode::Capability,
-            CapSecMode::Strict => SecurityMode::Strict,
-        }
-    };
-
     let policy_path = resolve_policy_path(cli);
+    let mode = resolve_security_mode(cli, policy_path.as_deref())?;
+
+    enable_isolation_prerequisites(mode);
+    apply_policy_endowments(policy_path.as_deref(), mode, cli.allow_env_endowments);
 
     Ok(HostConfig {
         mode,
@@ -1489,6 +1524,238 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
         root_dir: None,
         allowed_hosts: None,
     })
+}
+
+/// Resolve the effective `SecurityMode` from the CLI flags and the policy
+/// artifact's declared `mode`. Shared by the run path (`build_host_config`) and
+/// `ibex build` (`apply_build_isolation`) so a built artifact is chunked for
+/// per-package attribution exactly when a run of the same app would enforce —
+/// otherwise `ibex build` under an enforce policy silently emits a flat,
+/// single-principal bundle. (ENG-22760)
+fn resolve_security_mode(
+    cli: &Cli,
+    policy_path: Option<&Path>,
+) -> Result<crate::host::SecurityMode> {
+    use crate::cli::CapSecMode;
+    use crate::host::{policy::PolicyFile, SecurityMode};
+
+    // Load + validate the policy when its path exists. A configured policy that
+    // exists but cannot be parsed FAILS CLOSED: a malformed committed policy
+    // (which may carry `mode: "enforce"`) must not silently degrade the run to
+    // permissive. An explicitly configured policy that is missing is likewise an
+    // error; only a MISSING auto-discovered default falls back to permissive
+    // auto-mode. (ENG-22620) The declared mode reuses `SecurityMode::from_policy_str`
+    // — the single source of truth for mode-string parsing (formerly duplicated by
+    // `policy_declared_mode`). @ref LLP 0014#runtime-and-cli
+    let declared_mode = match policy_path {
+        Some(p) if p.exists() => {
+            let policy = PolicyFile::load(p)
+                .with_context(|| format!("failed to load capability policy {}", p.display()))?;
+            match policy.mode.as_deref() {
+                None => None,
+                Some(raw) => match SecurityMode::from_policy_str(raw) {
+                    Some(m) => Some(m),
+                    // Present but unrecognized (a typo like "enfore"): fail closed
+                    // rather than silently degrading an Auto run to permissive —
+                    // the same class ENG-22620 targets. (review follow-up)
+                    None => anyhow::bail!(
+                        "capability policy {} declares an unrecognized mode {:?} \
+                         (expected enforce | audit | permissive)",
+                        p.display(),
+                        raw
+                    ),
+                },
+            }
+        }
+        Some(p) => {
+            if policy_is_explicit(cli) {
+                anyhow::bail!("capability policy {} not found", p.display());
+            }
+            None
+        }
+        None => None,
+    };
+
+    // Map CLI mode to host SecurityMode.
+    // --allow-all overrides --capsec for backward compatibility.
+    let mode = if cli.allow_all {
+        SecurityMode::Permissive
+    } else {
+        // @ref LLP 0013#phase-1 — Audit maps to the log-but-proceed mode.
+        match cli.capsec {
+            CapSecMode::Permissive => SecurityMode::Permissive,
+            CapSecMode::Audit => SecurityMode::Audit,
+            CapSecMode::Enforce => SecurityMode::Enforce,
+            // Default (no explicit --capsec): honor the policy artifact's declared
+            // `mode` when it has one — the generated policy is the security config,
+            // so `mode: "enforce"` takes effect without a redundant flag. Explicit
+            // `--capsec permissive` (and `--allow-all`) still force Permissive.
+            CapSecMode::Auto => declared_mode.unwrap_or(SecurityMode::Permissive),
+        }
+    };
+
+    Ok(mode)
+}
+
+/// Apply the enforce/audit isolation prerequisite (per-package chunking) for the
+/// `ibex build` path, mirroring what `build_host_config` does for a run. Without
+/// this, a build under an enforce policy compiles a flat single-Domain bundle and
+/// the resulting `.hbc`, run under `--capsec enforce`, attributes every
+/// `node_modules` frame to the trusted root — the capability gate never fires for
+/// a dependency. Returns the resolved mode (Enforce/Audit imply chunking).
+/// @ref LLP 0013#mechanism-3 (ENG-22760)
+pub(crate) fn apply_build_isolation(cli: &Cli) -> Result<crate::host::SecurityMode> {
+    let policy_path = resolve_policy_path(cli);
+    let mode = resolve_security_mode(cli, policy_path.as_deref())?;
+    enable_isolation_prerequisites(mode);
+    Ok(mode)
+}
+
+/// Enable the per-package **attribution** prerequisite that enforce/audit mode
+/// implies (ENG-22681). Selecting enforce (via `--capsec enforce` or a policy
+/// artifact's `mode: "enforce"`) only changes the host-boundary *decision*
+/// logic; on its own it does not give a bundled dependency its own runtime
+/// principal. A default flat bundle collapses to one Hermes Domain, so every
+/// `node_modules` frame carries the trusted root principal and the capability
+/// gate — which only bites non-root principals — never fires for a dependency.
+/// That makes a generated enforce policy a footgun: it looks like enforcement
+/// while a dependency's `fs`/`env`/network access is attributed to root.
+///
+/// So under enforce **and** audit we turn on per-package chunking (each npm
+/// package becomes its own chunk → its own Domain → its own principal), unless
+/// the operator explicitly opted out with `IBEX_PER_PACKAGE_CHUNKS=0`. This is
+/// the attribution prerequisite the RFC's Mechanism 3 needs for a bundled app;
+/// the unbundled loader path already attributes per package, and a bundler that
+/// is unavailable degrades to that path, so this never hard-fails a run. Set as
+/// an env var (before engine boot and before bundling) so it reaches the
+/// bundler, the bundle-cache key, and any spawned children uniformly.
+///
+/// Reachability hardening (Mechanism 1 lockdown + Mechanism 2 compartment
+/// withholding) stays **opt-in** via `--lockdown`: freezing intrinsics is the
+/// RFC's documented top compat risk (Risks §1) and is orthogonal to the
+/// attribution footgun this closes — an ungranted package's dangerous op is
+/// already denied at the host boundary once it is attributed to its own
+/// principal. @ref LLP 0013#mechanism-3
+fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
+    use crate::host::SecurityMode;
+    if !matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) {
+        return;
+    }
+    // Respect an explicit operator choice either way: `=1` (already on) or `=0`
+    // (opt out). We only supply the default when the var is absent.
+    if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_none() {
+        std::env::set_var("IBEX_PER_PACKAGE_CHUNKS", "1");
+        eprintln!(
+            "note: {} enables per-package isolation so bundled dependencies get \
+             their own principal (opt out with IBEX_PER_PACKAGE_CHUNKS=0)",
+            match mode {
+                SecurityMode::Enforce => "capsec enforce",
+                _ => "capsec audit",
+            }
+        );
+    }
+    // @ref LLP 0013 §self-grant — under enforce the runtime package
+    // self-grant surface (`Exact.setModuleCapabilities`, the `require({needs})`
+    // channel) must not be reachable: grants come from the policy artifact. Audit
+    // mode observes would-deny self-grant attempts while preserving permissive
+    // behavior, so sealing is limited to enforce. (ENG-22695/ENG-22770)
+    if mode == SecurityMode::Enforce {
+        std::env::set_var("IBEX_SEAL_SELF_GRANT", "1");
+    }
+}
+
+/// Compose the compartment endowment map from the policy artifact's
+/// `packages.*.endow` lists into `IBEX_ENDOW` (`pkg:a,b;pkg2:c`) — the channel
+/// the engine's compartment registry reads at boot — so the generated policy
+/// drives Mechanism 2 end-to-end. Applied once per process, before engine boot.
+///
+/// Precedence depends on the effective mode (ENG-22684). The registry's
+/// per-package parse is last-write-wins, so whichever `pkg:` group appears last
+/// in the string wins:
+///
+/// - **Enforce / Audit (fail closed):** the policy artifact is the *sole*
+///   endowment source. A pre-existing (ambient/operator/wrapper-set)
+///   `IBEX_ENDOW` is dropped — never appended — so it cannot widen a package's
+///   globals (`process`, `fetch`, `eval`, …) past what the reviewed artifact
+///   grants. A stale value is cleared even when the policy contributes no
+///   groups. The `--allow-env-endowments` development escape hatch restores the
+///   append-merge. A dropped non-empty value is reported on stderr.
+/// - **Permissive (dev/legacy):** keep the append-merge so `IBEX_ENDOW` stays a
+///   usable ambient override, mirroring how `--capsec permissive`/`--allow-all`
+///   already relax enforcement.
+///
+/// @ref LLP 0014#runtime-and-cli
+fn apply_policy_endowments(
+    policy_path: Option<&Path>,
+    mode: crate::host::SecurityMode,
+    allow_env: bool,
+) {
+    use crate::host::SecurityMode;
+    static APPLIED: AtomicBool = AtomicBool::new(false);
+    let fail_closed = matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) && !allow_env;
+    let mut groups: Vec<String> = match policy_path {
+        Some(path) if path.exists() => {
+            let Ok(policy) = crate::host::policy::PolicyFile::load(path) else {
+                // Unreadable policy files surface as errors in host setup;
+                // endowment wiring stays silent here to avoid double-reporting.
+                return;
+            };
+            policy
+                .packages
+                .iter()
+                .filter_map(|(pkg, package_policy)| {
+                    let endow = package_policy.endow.as_ref()?;
+                    if endow.is_empty() {
+                        None
+                    } else {
+                        Some(format!("{}:{}", pkg, endow.join(",")))
+                    }
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    groups.sort();
+
+    // Under enforce/audit, the policy is the sole endowment source and a stale
+    // ambient IBEX_ENDOW must be cleared even when the policy has no groups —
+    // otherwise an inherited value would survive untouched. In permissive/hatch
+    // mode with no policy groups there is nothing to compose, so leave any
+    // ambient value in place.
+    if groups.is_empty() && !fail_closed {
+        return;
+    }
+    if APPLIED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let policy_value = groups.join(";");
+    let existing = std::env::var("IBEX_ENDOW")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+
+    let value = if fail_closed {
+        if let Some(env) = &existing {
+            eprintln!(
+                "warning: IBEX_ENDOW ignored under enforce/audit mode (would widen \
+                 compartment endowments: {env}); pass --allow-env-endowments to override"
+            );
+        }
+        policy_value
+    } else {
+        // Permissive, or the explicit escape hatch: the ambient value keeps
+        // precedence (appended last → wins the registry's per-package parse).
+        match existing {
+            Some(env) if policy_value.is_empty() => env,
+            Some(env) => format!("{};{}", policy_value, env),
+            None => policy_value,
+        }
+    };
+    if value.is_empty() {
+        std::env::remove_var("IBEX_ENDOW");
+    } else {
+        std::env::set_var("IBEX_ENDOW", value);
+    }
 }
 
 fn resolve_policy_path(cli: &Cli) -> Option<PathBuf> {
@@ -1570,11 +1837,7 @@ pub async fn prepare_entry_with_format(
 
     let cache_dir = runtime_cache_dir()?;
     let cache_key = bundle_cache_key(&path, bundle_format)?;
-    let output = cache_dir.join(format!(
-        "{}.bundle.{}",
-        cache_key,
-        bundle_file_ext(bundle_format)
-    ));
+    let output = bundle_output_path(&cache_dir, &cache_key, bundle_format);
 
     if bundle_cache_is_fresh(&output, &path).await {
         // Bundle is cached. Try bytecode if not already known incompatible.
@@ -1607,11 +1870,7 @@ pub async fn prepare_entry_with_format(
     // If format changed, recompute output path
     let output = if effective_format != bundle_format {
         let new_key = bundle_cache_key(&path, effective_format)?;
-        cache_dir.join(format!(
-            "{}.bundle.{}",
-            new_key,
-            bundle_file_ext(effective_format)
-        ))
+        bundle_output_path(&cache_dir, &new_key, effective_format)
     } else {
         output
     };
@@ -1624,11 +1883,7 @@ pub async fn prepare_entry_with_format(
             // blocks that our heuristic missed), retry with ESM format.
             if effective_format == BundleFormat::Cjs && err_msg.contains("Top-level await") {
                 let esm_key = bundle_cache_key(&path, BundleFormat::Esm)?;
-                let esm_output = cache_dir.join(format!(
-                    "{}.bundle.{}",
-                    esm_key,
-                    bundle_file_ext(BundleFormat::Esm)
-                ));
+                let esm_output = bundle_output_path(&cache_dir, &esm_key, BundleFormat::Esm);
                 match run_bundler(&path, &esm_output, BundleFormat::Esm).await {
                     Ok(()) => esm_output,
                     Err(esm_err) => return Err(esm_err),
@@ -1989,13 +2244,37 @@ fn bundler_cache_input_paths() -> Vec<PathBuf> {
             .join("src")
             .join("scripts")
             .join("transforms.mjs"),
+        // @ref LLP 0014#parse-and-strip — the grant-attribute strip runs in
+        // every bundle; its logic changing must invalidate cached bundles.
+        root.join("packages")
+            .join("ibex-devtools")
+            .join("src")
+            .join("scripts")
+            .join("import-grants.mjs"),
     ]
 }
 
 fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "bundle-cache-v5-deps-manifest".hash(&mut hasher);
+    "bundle-cache-v6-deps-manifest".hash(&mut hasher);
     bundle_format.as_str().hash(&mut hasher);
+    // @ref LLP 0013#mechanism-2 — a compartmentalized bundle references the
+    // `__compartments` registry, which only exists under lockdown/compartments.
+    // It MUST NOT be reused for a non-compartment run (the reference would throw
+    // ReferenceError), nor vice versa. Fold the state into the cache key so the
+    // two variants are cached under distinct paths. This mirrors the same signal
+    // `run_bundler` uses to pass `--compartments`.
+    // Resolve with the same truthiness parse the engine uses (ENG-22634), and
+    // key the cache on that resolved bool so a compartmentalized bundle can never
+    // be reused for a non-compartment run (or vice versa).
+    let compartments =
+        crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS");
+    compartments.hash(&mut hasher);
+    // @ref LLP 0013#mechanism-3 — per-package chunking changes the output shape
+    // (multiple chunk files), so it must key distinctly from a flat bundle. Use
+    // the same truthiness parse as the other two read sites so `=0` is a real
+    // opt-out and the cache key agrees with what the bundler actually emitted.
+    crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS").hash(&mut hasher);
     hash_file_contents(&mut hasher, entry)?;
 
     for bundler_input in bundler_cache_input_paths() {
@@ -2019,6 +2298,64 @@ fn bundle_file_ext(format: BundleFormat) -> &'static str {
         BundleFormat::Cjs => "js",
         BundleFormat::Esm => "mjs",
     }
+}
+
+/// Where a bundle's entry file lands in the cache. A flat bundle is a single
+/// file named by the cache key. A per-package-chunked bundle also emits sibling
+/// chunk files (`__ibexpkg__*`, and the shared `rolldown-runtime.js`) into the
+/// entry's directory with **fixed, cross-bundle names** — so it gets its own
+/// per-key subdirectory, otherwise two concurrently-bundled apps race on the
+/// shared `rolldown-runtime.js` name and corrupt each other's cache (a real
+/// hazard for concurrent `ibex run` of different apps, surfaced once enforce
+/// began auto-enabling chunking — ENG-22681). @ref LLP 0013#mechanism-3
+fn bundle_output_path(cache_dir: &Path, key: &str, format: BundleFormat) -> PathBuf {
+    let ext = bundle_file_ext(format);
+    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
+        cache_dir.join(key).join(format!("bundle.{}", ext))
+    } else {
+        cache_dir.join(format!("{}.bundle.{}", key, ext))
+    }
+}
+
+/// Copy the per-package chunk siblings a chunked bundle emitted — the
+/// `__ibexpkg__*` package chunks and the shared `rolldown-runtime.js` — from the
+/// bundle entry's directory into `dest_dir`. A flat `.hbc` produced by
+/// `ibex build` lives away from its cache-dir chunks; the run path sets
+/// `__exactChunkDir` to the artifact's own directory, so the chunks must sit next
+/// to the built `.hbc` or the entry's `require('__ibexpkg__…')` fails to resolve.
+/// The copied set is exactly what the loader's chunk-redirect recognizes
+/// (module-loader.js). Returns the number of chunk files copied. (ENG-22760)
+/// @ref LLP 0013#mechanism-3
+pub(crate) fn ship_chunk_siblings(bundle_entry: &Path, dest_dir: &Path) -> Result<usize> {
+    let Some(src_dir) = bundle_entry.parent() else {
+        return Ok(0);
+    };
+    // No-op when the bundle already lives in the destination (an in-place run).
+    if src_dir == dest_dir {
+        return Ok(0);
+    }
+    std::fs::create_dir_all(dest_dir)?;
+    let mut copied = 0usize;
+    for entry in std::fs::read_dir(src_dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        // Mirror the loader's recognized chunk set; any other file (the entry
+        // bundle, a source map) is not a chunk and must not be copied.
+        let is_chunk = name_str.starts_with("__ibexpkg__") || name_str == "rolldown-runtime.js";
+        if !is_chunk || !entry.file_type()?.is_file() {
+            continue;
+        }
+        std::fs::copy(entry.path(), dest_dir.join(&name)).with_context(|| {
+            format!(
+                "failed to copy chunk {} into {}",
+                name_str,
+                dest_dir.display()
+            )
+        })?;
+        copied += 1;
+    }
+    Ok(copied)
 }
 
 pub(crate) fn contains_top_level_await(source: &str) -> bool {
@@ -2389,6 +2726,12 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
     let working_dir = bundler_working_dir()?;
     let timeout = timeout_from_env("EXACT_BUNDLER_TIMEOUT_MS", DEFAULT_BUNDLER_TIMEOUT_MS);
 
+    // The output may live in a per-key subdir (per-package chunking); make sure
+    // it exists before the bundler writes the entry + sibling chunks there.
+    if let Some(parent) = output.parent() {
+        tokio::fs::create_dir_all(parent).await.ok();
+    }
+
     let mut command = tokio::process::Command::new(&runner);
     command
         .arg(&script)
@@ -2400,6 +2743,20 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
         .arg(bundle_format.as_str())
         .arg("--sourcemap")
         .current_dir(&working_dir);
+    // @ref LLP 0013#mechanism-2 — when the runtime boots with lockdown, bundle
+    // package (node_modules) code through the per-package compartment rewrite so
+    // its bare globals resolve against the runtime compartment registry.
+    if crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS") {
+        command.arg("--compartments");
+    }
+    // @ref LLP 0013#mechanism-3 — per-package chunking so a bundled app gets
+    // per-package frame attribution (each package chunk loads into its own
+    // Domain). Auto-enabled under enforce/audit (see enable_isolation_prereqs);
+    // `IBEX_PER_PACKAGE_CHUNKS=0` opts out. iife can't split; the bundler
+    // ignores the flag there.
+    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
+        command.arg("--per-package-chunks");
+    }
     let cmd_output = output_with_timeout(
         &mut command,
         timeout,
@@ -2458,6 +2815,61 @@ fn bundler_script_path() -> Result<PathBuf> {
         anyhow::bail!("Bundler script not found at {}", script.display());
     }
     Ok(script)
+}
+
+/// `ibex policy generate|check` — runs the LLP 0014 policy generator with the
+/// same JS-runner resolution as the bundler. The generator's exit code is the
+/// command's exit code (`check` uses 1 for drift, the CI-gate contract).
+/// @ref LLP 0014#runtime-and-cli
+pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<()> {
+    use crate::cli::PolicyCommands;
+
+    let root = repo_root()?;
+    let script = root
+        .join("packages")
+        .join("ibex-devtools")
+        .join("src")
+        .join("scripts")
+        .join("generate-policy.mjs");
+    if !script.exists() {
+        anyhow::bail!("Policy generator not found at {}", script.display());
+    }
+    let (runner, _runner_name) = find_js_runner()?;
+
+    let mut cmd = tokio::process::Command::new(&runner);
+    cmd.arg(&script);
+    match command {
+        PolicyCommands::Generate { entry, out, mode } => {
+            cmd.arg("--entry").arg(entry);
+            if let Some(out) = out {
+                cmd.arg("--out").arg(out);
+            }
+            if let Some(mode) = mode {
+                cmd.arg("--mode").arg(mode);
+            }
+        }
+        PolicyCommands::Check { entry, out, mode } => {
+            cmd.arg("--entry").arg(entry).arg("--check");
+            if let Some(out) = out {
+                cmd.arg("--out").arg(out);
+            }
+            // Forward the mode so the regenerated artifact stamps the same
+            // `mode` the committed one carries — else an audit-mode policy
+            // false-drifts against an enforce-default regeneration. (ENG-22642)
+            if let Some(mode) = mode {
+                cmd.arg("--mode").arg(mode);
+            }
+        }
+    }
+    // Inherit stdio: the generator's report is the user-facing output.
+    let status = cmd
+        .status()
+        .await
+        .context("failed to spawn the policy generator")?;
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    Ok(())
 }
 
 fn bundler_working_dir() -> Result<PathBuf> {
@@ -2588,6 +3000,109 @@ mod tests {
         hasher.finish()
     }
 
+    // ENG-22760 — `ibex build` under enforce/audit must ship the per-package
+    // chunk siblings next to the `.hbc`, or the built artifact silently loses
+    // per-package attribution (a flat single-Domain run). Ship exactly the set
+    // the loader's chunk-redirect recognizes (`__ibexpkg__*`, `rolldown-runtime.js`)
+    // and nothing else (not the entry bundle, its deps json, or unrelated files).
+    #[test]
+    fn ship_chunk_siblings_copies_only_recognized_chunks() {
+        let src = tempdir().unwrap();
+        let dest = tempdir().unwrap();
+        // A chunked bundle dir as the bundler emits it.
+        std::fs::write(src.path().join("bundle.js"), "entry").unwrap();
+        std::fs::write(src.path().join("bundle.js.map"), "{}").unwrap();
+        std::fs::write(src.path().join("bundle.js.deps.json"), "[]").unwrap();
+        std::fs::write(src.path().join("__ibexpkg__evil-pkg@1.0.0.js"), "chunk").unwrap();
+        std::fs::write(src.path().join("__ibexpkg__evil-pkg@1.0.0.js.map"), "{}").unwrap();
+        std::fs::write(src.path().join("rolldown-runtime.js"), "rt").unwrap();
+        std::fs::write(src.path().join("unrelated.txt"), "x").unwrap();
+
+        let entry = src.path().join("bundle.js");
+        let copied = ship_chunk_siblings(&entry, dest.path()).unwrap();
+
+        // The chunk, its map, and the shared runtime are shipped...
+        assert!(dest.path().join("__ibexpkg__evil-pkg@1.0.0.js").exists());
+        assert!(dest
+            .path()
+            .join("__ibexpkg__evil-pkg@1.0.0.js.map")
+            .exists());
+        assert!(dest.path().join("rolldown-runtime.js").exists());
+        assert_eq!(copied, 3);
+        // ...but the entry bundle, its deps json, its map, and unrelated files
+        // are not (they'd shadow the entry / bloat the artifact).
+        assert!(!dest.path().join("bundle.js").exists());
+        assert!(!dest.path().join("bundle.js.map").exists());
+        assert!(!dest.path().join("bundle.js.deps.json").exists());
+        assert!(!dest.path().join("unrelated.txt").exists());
+
+        // Shipping into the bundle's own directory (an in-place run) is a no-op.
+        assert_eq!(ship_chunk_siblings(&entry, src.path()).unwrap(), 0);
+    }
+
+    // ENG-22760 — `ibex build` under an enforce policy must NOT emit a flat,
+    // single-principal bundle. The build path (`apply_build_isolation`) turns on
+    // per-package chunking exactly when `resolve_security_mode` reports
+    // Enforce/Audit, so this guards that resolution: a committed policy declaring
+    // `mode: "enforce"` yields Enforce under the default (Auto) CLI mode — the
+    // signal that drives `enable_isolation_prerequisites` for the build and run
+    // paths alike. Platform-independent cover for the wiring the run-path
+    // integration tests can't reach on the unpatched checked-in Hermes (they
+    // skip vacuously). @ref LLP 0013#mechanism-3
+    #[test]
+    fn resolve_security_mode_honors_committed_enforce_policy() {
+        use crate::host::SecurityMode;
+
+        let dir = tempdir().unwrap();
+        let write_policy = |mode: &str| {
+            let p = dir.path().join(format!("ibex-policy.{mode}.json"));
+            std::fs::write(&p, format!(r#"{{"mode":"{mode}"}}"#)).unwrap();
+            p
+        };
+        let enforce = write_policy("enforce");
+        let audit = write_policy("audit");
+        let permissive = write_policy("permissive");
+
+        // Default CLI (capsec = Auto): the committed policy's declared mode wins,
+        // so an enforce policy resolves to Enforce — the build path then enables
+        // per-package chunking instead of emitting a flat, single-principal bundle.
+        let cli = Cli::parse_from(["ibex", "app.ts"]);
+        assert_eq!(
+            resolve_security_mode(&cli, Some(enforce.as_path())).unwrap(),
+            SecurityMode::Enforce,
+        );
+        // Audit likewise implies per-package attribution.
+        assert_eq!(
+            resolve_security_mode(&cli, Some(audit.as_path())).unwrap(),
+            SecurityMode::Audit,
+        );
+        assert_eq!(
+            resolve_security_mode(&cli, Some(permissive.as_path())).unwrap(),
+            SecurityMode::Permissive,
+        );
+
+        // No policy under Auto stays Permissive: an absent auto-discovered default
+        // must not silently flip a build to chunked/enforced.
+        assert_eq!(
+            resolve_security_mode(&cli, None).unwrap(),
+            SecurityMode::Permissive,
+        );
+
+        // The documented operator opt-outs override a committed enforce policy, so
+        // a build under either stays flat: explicit `--capsec permissive` ...
+        let forced = Cli::parse_from(["ibex", "--capsec", "permissive", "app.ts"]);
+        assert_eq!(
+            resolve_security_mode(&forced, Some(enforce.as_path())).unwrap(),
+            SecurityMode::Permissive,
+        );
+        // ... and `--allow-all` (back-compat legacy escape hatch).
+        let allow_all = Cli::parse_from(["ibex", "--allow-all", "app.ts"]);
+        assert_eq!(
+            resolve_security_mode(&allow_all, Some(enforce.as_path())).unwrap(),
+            SecurityMode::Permissive,
+        );
+    }
+
     #[tokio::test]
     async fn bundle_cache_freshness_tracks_dep_mtimes() {
         let dir = tempdir().expect("tempdir");
@@ -2669,13 +3184,16 @@ mod tests {
         // is empty by design.
         let paths = bundler_cache_input_paths();
 
-        assert_eq!(paths.len(), 2);
+        assert_eq!(paths.len(), 3);
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/rolldown-bundle.mjs")));
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/transforms.mjs")));
+        assert!(paths
+            .iter()
+            .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/import-grants.mjs")));
         assert!(paths.iter().all(|path| path.exists()));
     }
 

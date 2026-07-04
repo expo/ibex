@@ -1451,9 +1451,20 @@ export function installGlobals(): void {
       while (Date.now() < end) { /* spin */ }
     };
   }
-  // Bun.which(cmd) - find executable in PATH (stub - returns null on mobile)
-  if (g.Exact && !g.Exact.which) {
-    g.Exact.which = (_cmd: string) => null;
+  // Bun.which(cmd) - native PATH lookup, capability-gated at the host boundary.
+  if (g.Exact && (typeof (g as any).__exactWhich === 'function' || !g.Exact.which)) {
+    g.Exact.which = (cmd: string) => {
+      if (typeof cmd !== 'string' || !cmd) return null;
+      if (
+        typeof (g as any).__exactWhich !== 'function' &&
+        typeof (g as any).__exactEnsureChildProcess === 'function'
+      ) {
+        try { (g as any).__exactEnsureChildProcess(); } catch (_) {}
+      }
+      return typeof (g as any).__exactWhich === 'function'
+        ? (g as any).__exactWhich(cmd)
+        : null;
+    };
   }
   // Exact.unsafe (aliased as Bun.unsafe under --compat=bun) - shims expected
   // by the CLI test harness.

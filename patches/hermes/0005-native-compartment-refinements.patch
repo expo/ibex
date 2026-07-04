@@ -1,0 +1,178 @@
+# LLP 0013 Hermes patch 0005 — native-compartment refinements
+# Class: B (a POD flag + accessors on Runtime; a new native function) + C (the
+#         GetGlobalObject fast-path guard). @ref LLP 0013#mechanism-2 (Phase 3)
+#
+# Refinements on the native compartments landed in patch 0004:
+#
+#   * Hot-path guard. Runtime gains `anyCompartmentActive_` (set the first time a
+#     Domain is given a compartment). While false, the interpreter's
+#     globalForFrame returns the real global directly, so code that never uses
+#     compartments (the common case) pays a single predicted-not-taken branch
+#     instead of the Domain walk. __exactSetCompartmentFor arms the flag.
+#   * Native freeze primitive. `__exactNativeFreeze(obj)` (JSObject::freeze), the
+#     building block for a faster / boot-time lockdown; the userland freeze walk
+#     can call it per intrinsic.
+#   * getCurrentCompartmentGlobal(Runtime&): the compartment of the nearest user
+#     frame's Domain — the helper a future eval/Function call-site binding will
+#     use. (Binding produced code is intentionally NOT done in runBytecode: the
+#     eval'd code's caller frame is not walkable there, so it documents that the
+#     capture must happen at the eval call site; eval/Function are contained by
+#     withholding + lockdown taming in the meantime.)
+diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h
+index 2b1a48add..e571e8184 100644
+--- a/include/hermes/VM/CapabilityAttribution.h
++++ b/include/hermes/VM/CapabilityAttribution.h
+@@ -25,12 +25,18 @@ namespace hermes {
+ namespace vm {
+ 
+ class Runtime;
++class JSObject;
+ 
+ /// \return the capability principal (package id) of the nearest JS frame on the
+ /// stack, or 0 (trusted root / unassigned) when no attributable JS frame is
+ /// found. Skips native frames, whose callee CodeBlock is null.
+ uint32_t getCurrentPackageId(Runtime &runtime);
+ 
++/// \return the compartment global of the nearest user JS frame's Domain, or
++/// nullptr when none. A helper for binding eval/Function-produced code to the
++/// caller's compartment. @ref LLP 0013#mechanism-2
++JSObject *getCurrentCompartmentGlobal(Runtime &runtime);
++
+ } // namespace vm
+ } // namespace hermes
+ 
+diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
+index f506f6cb9..aeb865ed6 100644
+--- a/include/hermes/VM/Runtime.h
++++ b/include/hermes/VM/Runtime.h
+@@ -1031,6 +1031,18 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   bool pendingPackageIdSet_{false};
+   uint32_t defaultPackageId_{0};
+ 
++  /// @ref LLP 0013#mechanism-2 (Phase 3) — hot-path guard. Stays false until the
++  /// first Domain is given a compartment global; while false, the interpreter's
++  /// GetGlobalObject/this resolution skips the compartment walk entirely and
++  /// returns the real global directly. Set once, never cleared.
++  bool anyCompartmentActive_{false};
++  bool anyCompartmentActive() const {
++    return anyCompartmentActive_;
++  }
++  void markCompartmentActive() {
++    anyCompartmentActive_ = true;
++  }
++
+   experiments::VMExperimentFlags getVMExperimentFlags() const {
+     return vmExperimentFlags_;
+   }
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+index 0cd93dc8f..458b0ca04 100644
+--- a/lib/VM/CapabilityAttribution.cpp
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -57,6 +57,26 @@ uint32_t getCurrentPackageId(Runtime &runtime) {
+   return 0;
+ }
+ 
++// @ref LLP 0013#mechanism-2 — the compartment global of the nearest user JS
++// frame's Domain (skipping native and runtime-internal frames), or nullptr.
++JSObject *getCurrentCompartmentGlobal(Runtime &runtime) {
++  for (StackFramePtr frame : runtime.getStackFrames()) {
++    CodeBlock *cb = frame.getCalleeCodeBlock();
++    if (!cb)
++      continue;
++    RuntimeModule *rm = cb->getRuntimeModule();
++    if (!rm)
++      continue;
++    Domain *domain = rm->getDomainUnsafe(runtime);
++    if (!domain)
++      continue;
++    if (domain->getPackageId() == kRuntimePackageId)
++      continue;
++    return domain->getCompartmentGlobal(runtime);
++  }
++  return nullptr;
++}
++
+ // @ref LLP 0013#phase-5 — collect the distinct user principals on the stack,
+ // innermost-first, for stack-intersection ("deputy") enforcement. Skips native
+ // and runtime-internal frames and collapses consecutive duplicates so the host
+diff --git a/lib/VM/Interpreter.cpp b/lib/VM/Interpreter.cpp
+index 7f8769c6c..b5511f787 100644
+--- a/lib/VM/Interpreter.cpp
++++ b/lib/VM/Interpreter.cpp
+@@ -111,6 +111,10 @@ namespace vm {
+ /// on the hot path.
+ static LLVM_ATTRIBUTE_ALWAYS_INLINE HermesValue
+ globalForFrame(Runtime &runtime, CodeBlock *cb) {
++  // Fast path: until the first compartment is installed, every frame resolves to
++  // the real global — a single predicted-not-taken branch for the common case.
++  if (LLVM_LIKELY(!runtime.anyCompartmentActive()))
++    return runtime.getGlobal().getHermesValue();
+   if (LLVM_LIKELY(cb)) {
+     Domain *d = cb->getRuntimeModule()->getDomainUnsafe(runtime);
+     if (JSObject *cg = d->getCompartmentGlobal(runtime))
+diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
+index 665ecc0a6..b78ddb6ca 100644
+--- a/lib/VM/JSLib/GlobalObject.cpp
++++ b/lib/VM/JSLib/GlobalObject.cpp
+@@ -48,12 +48,29 @@ CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime) {
+     if (rm) {
+       if (Domain *domain = rm->getDomainUnsafe(runtime)) {
+         domain->setCompartmentGlobal(runtime, obj);
++        // Arm the interpreter's compartment fast-path guard.
++        runtime.markCompartmentActive();
+       }
+     }
+   }
+   return HermesValue::encodeUndefinedValue();
+ }
+ 
++/// @ref LLP 0013#mechanism-1 (Phase 3) — native shallow freeze primitive.
++/// __exactNativeFreeze(obj): freeze one object natively (JSObject::freeze). The
++/// userland lockdown walk can call this per intrinsic to freeze faster than a
++/// JS Object.freeze; a full boot-time native snapshot is the further step.
++CallResult<HermesValue> exactNativeFreeze(void *, Runtime &runtime) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  Handle<JSObject> obj = args.dyncastArg<JSObject>(0);
++  if (obj) {
++    if (JSObject::freeze(obj, runtime) == ExecutionStatus::EXCEPTION) {
++      return ExecutionStatus::EXCEPTION;
++    }
++  }
++  return args.getArg(0);
++}
++
+ /// ES5.1 15.1.2.4
+ CallResult<HermesValue> isNaN(void *, Runtime &runtime) {
+   NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
+@@ -765,6 +782,12 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
+           runtime, createASCIIRef("__exactSetCompartmentFor")),
+       exactSetCompartmentFor,
+       2);
++  // @ref LLP 0013#mechanism-1 (Phase 3) — the native freeze primitive.
++  defineGlobalFunc(
++      runtime.getIdentifierTable().registerLazyIdentifier(
++          runtime, createASCIIRef("__exactNativeFreeze")),
++      exactNativeFreeze,
++      1);
+ 
+   // Define the 'eval' function.
+   defineGlobalFunc(Predefined::getSymbolID(Predefined::eval), eval, 1);
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index e54485f2e..0828b7267 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -1177,6 +1177,14 @@ CallResult<HermesValue> Runtime::runBytecode(
+   // @ref LLP 0013#mechanism-3 — label this Domain with the package principal
+   // the embedder set just before compiling this unit of code. One-shot: the
+   // pending id is consumed here so it never leaks onto a later Domain.
++  //
++  // Note (Phase 3): binding eval/`new Function`-produced code to the *caller's*
++  // compartment/principal is intentionally NOT done here — at runBytecode time
++  // the eval'd code's caller frame is no longer walkable, so the inheritance
++  // would be a silent no-op. eval/Function are contained by withholding (the
++  // compartment omits them) and by lockdown taming; binding produced code
++  // requires capturing the caller's compartment at the eval *call site*
++  // (Eval.cpp / createDynamicFunction) and is tracked as a follow-up.
+   domain->setPackageId(consumePendingPackageId());
+ 
+   auto runtimeModuleRes = RuntimeModule::create(

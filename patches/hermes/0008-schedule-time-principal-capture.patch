@@ -1,0 +1,228 @@
+# LLP 0013 Hermes patch 0008 — schedule-time principal capture (async deputy laundering)
+# Class: B (a field + accessors on Runtime, a parallel job queue, and one-line
+#          changes to enqueueJob / drainJobs / collectStackPackageIds).
+# @ref LLP 0013#phase-5, Open-Q3 (native/microtask attribution). Closes ENG-22631.
+#
+# Completes patch 0007. 0007 closed the async/deputy boundary for the EMPTY-stack
+# native-callback case (`Promise.resolve(x).then(fs.readFileSync)` — no user frame
+# at all -> kNoUserPrincipal -> host fails closed). It did NOT close the case where
+# the detached callback is a JS deputy METHOD under configured `deputyClasses`:
+# `Promise.resolve(SECRET).then(deputy.readFor)` drains with the deputy's own frame
+# live, so collectStackPackageIds returns [deputy] (len 1), the deputy-class stack
+# AND is skipped (it requires len > 1), and the read is ALLOWED for an ungranted
+# scheduler. A blunt "deny len==1" is a regression: len==1 is ALSO the normal shape
+# of a granted package running its OWN async continuation. The two are
+# indistinguishable from the stack alone — the missing datum is WHO SCHEDULED the
+# job, whose frame has already returned.
+#
+# This patch recovers that datum. The scheduling principal is captured at
+# enqueueJob time (the scheduler's frame is still live there — getCurrentPackageId
+# walks past the native enqueue frame and the runtime-internal Promise trampoline
+# to the real caller), carried in a queue kept in lockstep with jobQueue_, restored
+# as ambient Runtime state while the job drains, and APPENDED to the deputy-class
+# stack by collectStackPackageIds. So the detached read now collects [deputy,
+# scheduler]: an ungranted scheduler makes the AND deny, while a granted package's
+# own continuation (scheduler == running principal) collapses to a single-principal
+# stack and is NOT false-denied.
+#
+#   * Runtime: currentJobSchedulerPrincipal_ (ambient, restored by drainJobs) +
+#     jobSchedulerQueue_ (POD uint32_t, no GC marking) in lockstep with jobQueue_.
+#     kNoJobSchedulerPrincipal == the runtime principal 0xFFFFFFFF, an unambiguous
+#     "no active job" sentinel (getCurrentPackageId never returns 0xFFFFFFFF).
+#   * enqueueJob captures getCurrentPackageId when capture is armed. Ibex arms
+#     capture whenever the patched engine is present because embedders may
+#     configure deputy classes after create_engine and native-resolved
+#     continuations may otherwise report kNoUserPrincipal; checkCapability
+#     consumes the stack only for live deputy classes or that no-user fallback.
+#   * drainJobs restores the captured scheduler around executeCall0 (save/restore
+#     across both the normal and exceptional exit).
+#   * collectStackPackageIds appends an attributable user scheduler (skip runtime
+#     and no-user sentinels, collapse against the innermost frame, bounded by max).
+#   * ex_hermes_vm_set_job_scheduler_capture arms it.
+#
+# Residual (documented, out of scope by default): a deputy that RE-SCHEDULES the op
+# from its OWN frame across a further async hop (`.then(deputy.scheduleRead)` where
+# scheduleRead itself does `queueMicrotask(() => this.read())`) is captured with the
+# deputy as scheduler, not the original caller — that is "deputy by design," which
+# the RFC scopes out of the default. The one-hop detach in the ticket is fully
+# closed. Red-team: tests/llp0013_compartments.rs
+# async_detached_deputy_read_is_contained_but_granted_self_async_works.
+#
+diff --git a/include/hermes/VM/Runtime-inline.h b/include/hermes/VM/Runtime-inline.h
+index 8793016..0f0c7c3 100644
+--- a/include/hermes/VM/Runtime-inline.h
++++ b/include/hermes/VM/Runtime-inline.h
+@@ -9,6 +9,7 @@
+ #define HERMES_VM_RUNTIME_INLINE_H
+ 
+ #include "hermes/FrontEndDefs/Builtins.h"
++#include "hermes/VM/CapabilityAttribution.h"
+ #include "hermes/VM/Runtime.h"
+ 
+ namespace hermes {
+@@ -30,6 +31,19 @@ void Runtime::registerBuiltin(
+ 
+ inline void Runtime::enqueueJob(Callable *job) {
+   jobQueue_.push_back(job);
++  // @ref LLP 0013#phase-5 (Open-Q3) — capture the SCHEDULING principal now, while
++  // the frame enqueuing this job is still live. When the job later drains, its
++  // reaction runs detached (only the callback's own frame on the stack), so this
++  // is the sole record of who scheduled it. getCurrentPackageId walks past native
++  // and runtime-internal frames (the Promise trampoline) to the real caller. The
++  // capture is armed by the embedder when the patched engine is present. The
++  // host consumes the captured value only for deputy-class hardening or the
++  // kNoUserPrincipal fallback path;
++  // the push is unconditional to keep jobSchedulerQueue_ in lockstep with
++  // jobQueue_.
++  jobSchedulerQueue_.push_back(
++      captureJobSchedulerPrincipal_ ? getCurrentPackageId(*this)
++                                    : kNoJobSchedulerPrincipal);
+ }
+ 
+ inline Handle<HiddenClass> Runtime::getHiddenClassForPrototype(
+diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
+index 66b65c3..e0ce7bc 100644
+--- a/include/hermes/VM/Runtime.h
++++ b/include/hermes/VM/Runtime.h
+@@ -1065,6 +1065,47 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+     return v;
+   }
+ 
++  /// @ref LLP 0013#phase-5 (Open-Q3) — schedule-time principal capture for the
++  /// async/deputy attribution boundary. A capability principal id is a user
++  /// package (0 = first-party root, 1.. = npm packages) or the runtime principal
++  /// 0xFFFFFFFF; getCurrentPackageId() yields a user id or kNoUserPrincipal
++  /// (0xFFFFFFFE), never 0xFFFFFFFF. So 0xFFFFFFFF is an unambiguous "no active
++  /// job / no scheduler" sentinel: it can never be a real captured value, and
++  /// collectStackPackageIds already skips it as the runtime principal.
++  static constexpr uint32_t kNoJobSchedulerPrincipal = 0xFFFFFFFFu;
++
++  /// The principal that SCHEDULED the currently-draining job (restored from the
++  /// job's enqueue-time capture by drainJobs), or kNoJobSchedulerPrincipal when
++  /// no job is draining. collectStackPackageIds appends it to the deputy-class
++  /// stack so a package cannot launder a deputy op by detaching it across a
++  /// microtask (`Promise.resolve(x).then(deputy.method)`): the reaction runs with
++  /// only the deputy's frame live, but the scheduler's principal is recovered
++  /// here. @ref LLP 0013 Open-Q3 (native/microtask attribution).
++  uint32_t currentJobSchedulerPrincipal() const {
++    return currentJobSchedulerPrincipal_;
++  }
++  void setCurrentJobSchedulerPrincipal(uint32_t id) {
++    currentJobSchedulerPrincipal_ = id;
++  }
++
++  /// Enable/disable capturing the scheduling principal at enqueueJob time. Ibex
++  /// arms this when the patched engine is present, independent of boot-time
++  /// deputyClasses state, because embedders may configure deputy hardening after
++  /// create_engine and native-resolved continuations may otherwise report
++  /// kNoUserPrincipal. The host still consumes captured schedulers only on the
++  /// deputy-class path or the no-user fallback. The parallel jobSchedulerQueue_ is
++  /// maintained either way to stay in lockstep with jobQueue_; only the
++  /// (stack-walking) capture is gated.
++  void setCaptureJobSchedulerPrincipal(bool b) {
++    captureJobSchedulerPrincipal_ = b;
++  }
++  bool captureJobSchedulerPrincipal() const {
++    return captureJobSchedulerPrincipal_;
++  }
++
++  uint32_t currentJobSchedulerPrincipal_{kNoJobSchedulerPrincipal};
++  bool captureJobSchedulerPrincipal_{false};
++
+   experiments::VMExperimentFlags getVMExperimentFlags() const {
+     return vmExperimentFlags_;
+   }
+@@ -1448,6 +1489,12 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   /// HTML spec specified "perform a microtask checkpoint" algorithm.
+   std::deque<Callable *> jobQueue_{};
+ 
++  /// @ref LLP 0013#phase-5 (Open-Q3) — the scheduling principal captured for each
++  /// queued job, kept in lockstep with jobQueue_ (one entry per job, same FIFO
++  /// order; enqueueJob pushes both, drainJobs pops both). POD uint32_t, so unlike
++  /// jobQueue_ it holds no heap pointers and needs no GC root marking.
++  std::deque<uint32_t> jobSchedulerQueue_{};
++
+ #ifdef HERMESVM_PROFILER_BB
+   BasicBlockExecutionInfo basicBlockExecInfo_;
+ #endif
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+index 09c8b21..0f806cf 100644
+--- a/lib/VM/CapabilityAttribution.cpp
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -115,6 +115,27 @@ size_t collectStackPackageIds(Runtime &runtime, uint32_t *out, size_t max) {
+     out[count++] = packageId;
+     last = packageId;
+   }
++  // @ref LLP 0013#phase-5 (Open-Q3) — append the principal that SCHEDULED the
++  // currently-draining job, if any. A deputy op detached across a microtask
++  // (`Promise.resolve(x).then(deputy.method)`) runs with only the deputy's frame
++  // on the stack; without this the deputy-class AND would see just [deputy] and
++  // pass, laundering the read for the ungranted scheduler. The scheduler was
++  // captured at enqueueJob (Runtime::drainJobs restores it here). It is skipped
++  // when there is no active job (kNoJobSchedulerPrincipal == kRuntimePackageId,
++  // the runtime-principal sentinel) and collapsed when it equals the innermost
++  // collected principal — so a granted package's OWN async continuation
++  // (scheduler == running principal, e.g. `queueMicrotask(() => this.read())`)
++  // stays a single-principal stack and is NOT false-denied. A scheduler of
++  // kNoUserPrincipal (job scheduled by a native completion with no attributable
++  // user frame) is NOT appended: native resolution is not evidence of laundering,
++  // and adding it would false-deny a granted package's own
++  // `nativePromise.then(() => fs.writeFileSync(...))` continuation. Bounded by
++  // \p max like the frame loop.
++  uint32_t scheduler = runtime.currentJobSchedulerPrincipal();
++  if (scheduler != kRuntimePackageId && scheduler != kNoUserPrincipal &&
++      scheduler != last && count < max) {
++    out[count++] = scheduler;
++  }
+   return count;
+ }
+ 
+@@ -183,4 +204,16 @@ HERMES_EXPORT size_t ex_hermes_vm_collect_package_ids(
+       *reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime), out, max);
+ }
+ 
++/// Arm/disarm schedule-time principal capture. Ibex enables this whenever the
++/// patched engine is present; the host consumes captured schedulers on the
++/// deputy-class path and the kNoUserPrincipal fallback. @ref LLP 0013#phase-5
++HERMES_EXPORT void ex_hermes_vm_set_job_scheduler_capture(
++    void *vmRuntime,
++    int enabled) {
++  if (!vmRuntime)
++    return;
++  reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->setCaptureJobSchedulerPrincipal(enabled != 0);
++}
++
+ } // extern "C"
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index 98c12db..d82e722 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -2033,10 +2033,27 @@ ExecutionStatus Runtime::drainJobs() {
+     job = jobQueue_.front();
+     jobQueue_.pop_front();
+ 
++    // @ref LLP 0013#phase-5 (Open-Q3) — restore the principal that SCHEDULED this
++    // job (captured at enqueueJob, kept in lockstep with jobQueue_) as ambient
++    // state for the duration of the job, so collectStackPackageIds can attribute a
++    // detached deputy op to its true scheduler. Save/restore around the call so a
++    // nested drain (or the top-level "no active job" state) is preserved on both
++    // the normal and the exceptional exit. The empty() guard is defensive: the
++    // sole push site (enqueueJob) always pushes both queues, so they cannot skew.
++    uint32_t sched = kNoJobSchedulerPrincipal;
++    if (!jobSchedulerQueue_.empty()) {
++      sched = jobSchedulerQueue_.front();
++      jobSchedulerQueue_.pop_front();
++    }
++    uint32_t savedScheduler = currentJobSchedulerPrincipal_;
++    currentJobSchedulerPrincipal_ = sched;
++
+     // Jobs are guaranteed to behave as thunks.
+     auto callRes =
+         Callable::executeCall0(job, *this, Runtime::getUndefinedValue());
+ 
++    currentJobSchedulerPrincipal_ = savedScheduler;
++
+     // Early return to signal the caller. Note that the exceptional job has been
+     // popped, so re-invocation would pick up from the next available job.
+     if (LLVM_UNLIKELY(callRes == ExecutionStatus::EXCEPTION)) {

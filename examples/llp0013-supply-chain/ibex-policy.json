@@ -1,0 +1,27 @@
+{
+  "generated": {
+    "version": 1,
+    "tool": "generate-policy.mjs",
+    "entry": "app.mjs"
+  },
+  "mode": "enforce",
+  "packages": {
+    "env-reader": {
+      "capabilities": [
+        "process:env"
+      ],
+      "endow": [
+        "process"
+      ]
+    },
+    "evil-pkg": {}
+  },
+  "provenance": {
+    "env-reader": [
+      {
+        "capability": "process:env",
+        "site": "app.mjs:5"
+      }
+    ]
+  }
+}

@@ -11,5 +11,6 @@ export const {
   publicBuiltins,
   registryEntries,
   reservedNodeOnlyBuiltins,
+  runtimeGatedNodeBuiltins,
   staticBootstrapInternalModules,
 } = runtimeModuleManifest;

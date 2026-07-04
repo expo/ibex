@@ -60,8 +60,15 @@ pub struct Cli {
     pub inspect_host: Option<String>,
 
     /// Capability security mode
-    #[arg(long, value_enum, default_value = "permissive")]
+    #[arg(long, value_enum, default_value = "auto")]
     pub capsec: CapSecMode,
+
+    /// Harden the runtime at boot: freeze the shared intrinsics and tame the
+    /// intrinsic evaluators (SES-style lockdown). Opt-in — it can break packages
+    /// that mutate intrinsics. Composes with any `--capsec` mode.
+    /// @ref LLP 0013#mechanism-1
+    #[arg(long)]
+    pub lockdown: bool,
 
     /// Enable an opt-in compatibility surface. `bun` installs the Bun-shaped
     /// global facade and sets process.versions.bun.
@@ -89,6 +96,13 @@ pub struct Cli {
     /// Disable capability checks (legacy mode)
     #[arg(long)]
     pub allow_all: bool,
+
+    /// Permit `IBEX_ENDOW` to add or widen compartment endowments even under an
+    /// enforce-mode policy. Development escape hatch: by default a generated
+    /// enforce policy is the sole endowment source and an ambient `IBEX_ENDOW`
+    /// cannot broaden it. @ref LLP 0013#mechanism-2
+    #[arg(long)]
+    pub allow_env_endowments: bool,
 
     /// Watch for file changes and auto-restart
     #[arg(long)]
@@ -216,6 +230,12 @@ pub enum Commands {
         command: DebugCommands,
     },
 
+    /// Generate or check the capability policy artifact (LLP 0014)
+    Policy {
+        #[command(subcommand)]
+        command: PolicyCommands,
+    },
+
     /// Run the hidden in-binary runtime smoke suite
     #[command(hide = true, name = "self-test")]
     SelfTest,
@@ -227,15 +247,60 @@ pub enum DebugCommands {
     Modules,
 }
 
-/// Capability security enforcement mode for CLI
+/// `ibex policy` — the LLP 0014 grant-authoring toolchain: the policy file is
+/// generated from root-principal import-site grant declarations, committed,
+/// and drift-checked; it is not hand-maintained.
+#[derive(Subcommand, Debug, Clone, PartialEq)]
+pub enum PolicyCommands {
+    /// Generate the policy artifact from the entry's import-site grants
+    Generate {
+        /// Entry point whose module graph scopes the policy
+        #[arg(long)]
+        entry: PathBuf,
+
+        /// Artifact path (default: <entry dir>/ibex-policy.json)
+        #[arg(long)]
+        out: Option<PathBuf>,
+
+        /// Policy mode recorded in the artifact
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// Regenerate and fail if the committed artifact drifted (CI gate)
+    Check {
+        /// Entry point whose module graph scopes the policy
+        #[arg(long)]
+        entry: PathBuf,
+
+        /// Artifact path to check (default: <entry dir>/ibex-policy.json)
+        #[arg(long)]
+        out: Option<PathBuf>,
+
+        /// Policy mode the artifact was generated with. Must be forwarded so a
+        /// policy generated with `--mode audit` doesn't false-drift against a
+        /// regeneration that defaults to `enforce`. (ENG-22642)
+        #[arg(long)]
+        mode: Option<String>,
+    },
+}
+
+/// Capability security enforcement mode for CLI.
+///
+/// @ref LLP 0013#phase-0 — the old `capability`/`strict` split was a no-op; they
+/// are kept as hidden back-compat aliases for the single `enforce` mode. `audit`
+/// (Phase 1) logs would-deny decisions but lets operations proceed.
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapSecMode {
-    /// Allow all capabilities (development/legacy mode)
+    /// Default: honor the policy artifact's declared `mode`, else permissive.
+    Auto,
+    /// Force permissive — allow all capabilities (development/legacy mode) even if
+    /// a policy declares a stricter mode.
     Permissive,
-    /// Enforce capability declarations, wildcards allowed
-    Capability,
-    /// Enforce capability declarations, no wildcards
-    Strict,
+    /// Log would-deny decisions but let operations proceed (supply-chain audit)
+    Audit,
+    /// Enforce capability declarations; deny on a miss
+    #[value(alias = "strict", alias = "capability")]
+    Enforce,
 }
 
 /// Bundler output format for runnable files
@@ -425,6 +490,7 @@ mod tests {
                 "completions",
                 "debug",
                 "eval",
+                "policy",
                 "repl",
                 "run",
                 "version"

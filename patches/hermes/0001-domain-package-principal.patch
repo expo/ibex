@@ -1,0 +1,45 @@
+# LLP 0013 Hermes patch 0001 — Domain package principal
+# Class: B (insertion point — a POD field + two inline accessors on Domain)
+# @ref LLP 0013#mechanism-3
+#
+# Adds a `packageId_` capability principal to VM::Domain. It is a plain integer,
+# not a GC pointer, so DomainBuildMeta needs no change. Ibex sets it when a
+# package's bytecode is loaded; frame-derived attribution reads it back.
+diff --git a/include/hermes/VM/Domain.h b/include/hermes/VM/Domain.h
+index b25e6b67a..9a37c7c5c 100644
+--- a/include/hermes/VM/Domain.h
++++ b/include/hermes/VM/Domain.h
+@@ -105,6 +105,14 @@ class Domain final : public GCCell {
+   /// of the first RuntimeModule.
+   OptValue<uint32_t> cjsEntryModuleID_;
+ 
++  /// @ref LLP 0013#mechanism-3 — the capability principal (package id) that
++  /// owns the code in this Domain. Zero means "unassigned / trusted root". This
++  /// is a plain integer (not a GC pointer), so it needs no metadata builder
++  /// entry. Ibex sets it when a package's bytecode is loaded; the host boundary
++  /// derives the acting principal from the executing frame's Domain, which JS
++  /// cannot forge.
++  uint32_t packageId_{0};
++
+  public:
+   static constexpr CellKind getCellKind() {
+     return CellKind::DomainKind;
+@@ -113,6 +121,18 @@ class Domain final : public GCCell {
+     return cell->getKind() == CellKind::DomainKind;
+   }
+ 
++  /// \return the capability principal (package id) that owns this Domain's code.
++  /// @ref LLP 0013#mechanism-3
++  uint32_t getPackageId() const {
++    return packageId_;
++  }
++
++  /// Set the capability principal (package id) that owns this Domain's code.
++  /// @ref LLP 0013#mechanism-3
++  void setPackageId(uint32_t packageId) {
++    packageId_ = packageId;
++  }
++
+   /// Create a Domain with no associated RuntimeModules.
+   static PseudoHandle<Domain> create(Runtime &runtime);
+ 

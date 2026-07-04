@@ -152,6 +152,29 @@ fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     }
 }
 
+/// Render the would-deny audit report for the installed host, but only when it
+/// is running in `Audit` mode and something was flagged.
+///
+/// @ref LLP 0013#phase-1 — printed at process shutdown so `ibex run --capsec
+/// audit` surfaces the grants an app must declare before moving to `enforce`.
+pub fn current_audit_report() -> Option<String> {
+    with_host(
+        |host| {
+            if host.security_mode() == super::SecurityMode::Audit {
+                let report = host.audit_report();
+                if report.is_empty() {
+                    None
+                } else {
+                    Some(report)
+                }
+            } else {
+                None
+            }
+        },
+        None,
+    )
+}
+
 fn security_log_enabled() -> bool {
     *SECURITY_LOG_ENABLED.get_or_init(|| {
         std::env::var("EXACT_SECURITY_LOG")
@@ -745,6 +768,195 @@ pub extern "C" fn ex_host_check_capability(module_id: u64, capability: *const c_
 }
 
 #[no_mangle]
+pub extern "C" fn ex_host_check_capability_no_follow_final(
+    module_id: u64,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+
+    let module = module_id.to_string();
+    let allowed = with_host(
+        |host| host.check_capability_no_follow_final(&module, &cap),
+        false,
+    );
+    if allowed {
+        1
+    } else {
+        0
+    }
+}
+
+/// Stack-intersection capability check for deputy-sensitive classes (Phase 5).
+/// `module_ids` is the distinct principal stack, innermost-first, from
+/// frame-derived attribution; the effective grant is the AND over the stack for
+/// configured deputy classes, and the normal top-principal check otherwise.
+/// @ref LLP 0013#phase-5
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_stack(
+    module_ids: *const u64,
+    len: usize,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() || module_ids.is_null() || len == 0 {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    // Render each numeric principal to the decimal-string form the manager keys
+    // on (matching ex_host_check_capability's single-principal conversion).
+    let stack_strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    let stack_refs: Vec<&str> = stack_strings.iter().map(|s| s.as_str()).collect();
+    let allowed = with_host(|host| host.check_capability_stack(&stack_refs, &cap), false);
+    if allowed {
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_stack_no_follow_final(
+    module_ids: *const u64,
+    len: usize,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() || module_ids.is_null() || len == 0 {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    let stack_strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    let stack_refs: Vec<&str> = stack_strings.iter().map(|s| s.as_str()).collect();
+    let allowed = with_host(
+        |host| host.check_capability_stack_no_follow_final(&stack_refs, &cap),
+        false,
+    );
+    if allowed {
+        1
+    } else {
+        0
+    }
+}
+
+/// Whether any deputy capability classes are configured. The engine only
+/// collects the full principal stack when this returns non-zero. @ref LLP 0013#phase-5
+#[no_mangle]
+pub extern "C" fn ex_host_has_deputy_classes() -> i32 {
+    if with_host(|host| host.has_deputy_classes(), false) {
+        1
+    } else {
+        0
+    }
+}
+
+// --- Authority-bearing capability handles (attenuators). @ref LLP 0013#delegation-and-authority-flow
+
+/// Mint a handle carrying `capability` and return its (unforgeable, random) id.
+/// The engine only calls this after verifying the *calling frame* holds
+/// `capability` — so a package cannot mint a handle for authority it lacks.
+#[no_mangle]
+pub extern "C" fn ex_host_handle_create(capability: *const c_char) -> u64 {
+    if capability.is_null() {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    with_host(|host| host.handles().create(&cap), 0)
+}
+
+/// Re-attenuate handle `parent` to a narrower grant (a full capability that must
+/// be within the parent, or a bare sub-path appended to the parent's resource).
+/// Returns 0 if the parent is missing/dead or the request would widen it.
+#[no_mangle]
+pub extern "C" fn ex_host_handle_scoped(parent: u64, narrower: *const c_char) -> u64 {
+    if narrower.is_null() {
+        return 0;
+    }
+    let n = unsafe { CStr::from_ptr(narrower) }
+        .to_string_lossy()
+        .to_string();
+    with_host(|host| host.handles().scoped(parent, &n), 0)
+}
+
+/// Possession check: is the handle live (no revoked ancestor) and does its grant
+/// cover `capability`? This does NOT consult the calling frame — a handle is
+/// authority-bearing.
+#[no_mangle]
+pub extern "C" fn ex_host_handle_check(id: u64, capability: *const c_char) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    if with_host(|host| host.handles().check(id, &cap), false) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Revoke a handle; every handle derived from it fail-closes on its next check.
+#[no_mangle]
+pub extern "C" fn ex_host_handle_revoke(id: u64) {
+    with_host(|host| host.handles().revoke(id), ());
+}
+
+// --- Dynamic root-principal permissions. @ref LLP 0013 §dynamic permissions
+
+/// Runtime-grant `capability` to the root principal, bounded by the policy
+/// ceiling. Returns 1 if applied, 0 if outside the ceiling (denied).
+#[no_mangle]
+pub extern "C" fn ex_host_permission_request(capability: *const c_char) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    if with_host(|host| host.runtime_grant_root(&cap), false) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Runtime-revoke a previously runtime-granted root capability.
+#[no_mangle]
+pub extern "C" fn ex_host_permission_revoke(capability: *const c_char) {
+    if capability.is_null() {
+        return;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    with_host(|host| host.runtime_revoke_root(&cap), ());
+}
+
+/// Tri-state grant status: 1 = granted, 2 = prompt (acquirable), 0 = denied.
+#[no_mangle]
+pub extern "C" fn ex_host_permission_status(capability: *const c_char) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    with_host(|host| host.grant_status(&cap) as i32, 0)
+}
+
+#[no_mangle]
 pub extern "C" fn ex_host_grant_capability(module_id: u64, capability: *const c_char) {
     if capability.is_null() {
         return;
@@ -755,7 +967,70 @@ pub extern "C" fn ex_host_grant_capability(module_id: u64, capability: *const c_
         .to_string();
 
     let module = module_id.to_string();
-    with_host(|host| host.capabilities().grant(&module, &cap, None), ());
+    // @ref LLP 0013 §self-grant — this ABI is the JS-reachable package self-grant
+    // (Exact.setModuleCapabilities / require({needs})); route it through
+    // runtime_self_grant so it is refused under enforce and audited without
+    // changing behavior under audit. Policy-driven grants use grant() directly
+    // and are unaffected. (ENG-22695/ENG-22770)
+    with_host(
+        |host| host.capabilities().runtime_self_grant(&module, &cap),
+        (),
+    );
+}
+
+/// Register the resolved package principal for a numeric module id, so
+/// per-package policy resolves at the host boundary.
+///
+/// @ref LLP 0013#mechanism-3 — Phase 1 attribution is loader-provided and thus
+/// forgeable; Phase 2 replaces it with frame-derived provenance.
+#[no_mangle]
+pub extern "C" fn ex_host_register_module_package(
+    module_id: u64,
+    package: *const c_char,
+    locator: *const c_char,
+) {
+    if package.is_null() {
+        return;
+    }
+    let package = unsafe { CStr::from_ptr(package) }
+        .to_string_lossy()
+        .to_string();
+    let locator = if locator.is_null() {
+        None
+    } else {
+        Some(
+            unsafe { CStr::from_ptr(locator) }
+                .to_string_lossy()
+                .to_string(),
+        )
+    };
+    let module = module_id.to_string();
+    with_host(
+        |host| host.register_module_package(&module, &package, locator.as_deref()),
+        (),
+    );
+}
+
+/// Import-graph gate: may `module_id` load `specifier`? Returns 1 if the load
+/// may proceed under the active mode (audit logs but permits), else 0.
+///
+/// @ref LLP 0013#policy — builtins are reachable by `require`, so import policy
+/// is the primary containment gate for them.
+#[no_mangle]
+pub extern "C" fn ex_host_check_import(module_id: u64, specifier: *const c_char) -> i32 {
+    if specifier.is_null() {
+        return 1;
+    }
+    let specifier = unsafe { CStr::from_ptr(specifier) }
+        .to_string_lossy()
+        .to_string();
+    let module = module_id.to_string();
+    let allowed = with_host(|host| host.check_import(&module, &specifier), true);
+    if allowed {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
@@ -832,6 +1107,15 @@ pub extern "C" fn ex_host_module_resolve(
                 crate::module_loader::ModuleKind::Esm => "esm",
             },
             "path": module.path.as_ref().map(|p| p.to_string_lossy().to_string()),
+            // Resolver-owned package metadata. The JS loader must not decide
+            // root-vs-package trust solely from the path shape because symlinked
+            // and realpathed dependencies can live outside `node_modules`.
+            "pkgName": module.package_name,
+            "pkgRoot": module.package_root.as_ref().map(|p| p.to_string_lossy().to_string()),
+            // The resolved package's own version (node_modules packages only),
+            // so the loader can form the `name@version` runtime identity for
+            // version-distinguished principals/compartments. (ENG-22621)
+            "pkgVersion": module.package_version,
             "source": module.source.unwrap_or_default()
         }),
         Err(err) => json!({
@@ -1254,7 +1538,7 @@ pub extern "C" fn ex_host_fs_chmod(path: *const c_char, mode: u32) -> i32 {
 /// Create a temporary directory with the given prefix.
 /// Caller must free the returned path with `ex_host_free_string`.
 #[no_mangle]
-pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
+pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char, module_id: u64) -> *mut c_char {
     let prefix_str = if prefix.is_null() {
         "tmp".to_string()
     } else {
@@ -1262,9 +1546,6 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
             .to_string_lossy()
             .to_string()
     };
-
-    let mut template = std::env::temp_dir();
-    template.push(format!("{}{}", prefix_str, "XXXXXX"));
 
     // Generate random suffix
     let mut rng_bytes = [0u8; 6];
@@ -1284,6 +1565,13 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char) -> *mut c_char {
         .collect();
 
     let dir_path = std::env::temp_dir().join(format!("{}{}", prefix_str, suffix));
+    let cap = format!("fs:write:{}", dir_path.to_string_lossy());
+    let module = module_id.to_string();
+    let allowed = with_host(|host| host.check_capability(&module, &cap), false);
+    if !allowed {
+        set_errno_from_io_error(&std::io::Error::from_raw_os_error(libc::EACCES));
+        return ptr::null_mut();
+    }
     match std::fs::create_dir(&dir_path) {
         Ok(_) => match CString::new(dir_path.to_string_lossy().to_string()) {
             Ok(cstr) => cstr.into_raw(),
@@ -1934,7 +2222,7 @@ mod tests {
         assert!(with_host(|host| host.is_allow_all(), false));
 
         install_host(Host::new(HostConfig {
-            mode: SecurityMode::Strict,
+            mode: SecurityMode::Enforce,
             ..Default::default()
         }));
         assert!(!with_host(|host| host.is_allow_all(), true));

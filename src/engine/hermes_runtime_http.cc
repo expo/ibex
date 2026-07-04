@@ -3,6 +3,8 @@
 #include <condition_variable>
 #include <deque>
 #include <mutex>
+#include <string>
+#include <unordered_map>
 #include <thread>
 
 extern "C" char* ex_host_http_serve(uint16_t port, const char* hostname);
@@ -52,6 +54,81 @@ extern "C" int32_t ex_host_http_close(uint32_t server_id, int32_t force);
 extern "C" void ex_host_http_set_ref(uint32_t server_id, int32_t referenced);
 extern "C" void ex_host_free_string(char* value);
 
+namespace {
+
+struct HttpServerEntry {
+  uint64_t owner;
+  std::string capability;
+};
+
+static std::mutex g_http_server_mutex;
+static std::unordered_map<uint32_t, HttpServerEntry> g_http_servers;
+
+uint32_t parseHttpServerId(const std::string& json) {
+  auto id_pos = json.find("\"id\"");
+  if (id_pos == std::string::npos) {
+    return 0;
+  }
+  auto colon = json.find(':', id_pos);
+  if (colon == std::string::npos) {
+    return 0;
+  }
+  size_t pos = colon + 1;
+  while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) {
+    pos++;
+  }
+  uint32_t id = 0;
+  bool saw_digit = false;
+  while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
+    saw_digit = true;
+    id = id * 10 + static_cast<uint32_t>(json[pos] - '0');
+    pos++;
+  }
+  return saw_digit ? id : 0;
+}
+
+void registerHttpServer(uint32_t server_id, const std::string& capability) {
+  if (server_id == 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_http_server_mutex);
+  g_http_servers[server_id] = HttpServerEntry{currentPrincipalId(), capability};
+}
+
+bool requireHttpServerOwner(
+    facebook::jsi::Runtime& runtime,
+    uint32_t server_id,
+    const char* syscall) {
+  if (isAllowAll()) {
+    return true;
+  }
+  HttpServerEntry entry;
+  {
+    std::lock_guard<std::mutex> lock(g_http_server_mutex);
+    auto it = g_http_servers.find(server_id);
+    if (it == g_http_servers.end()) {
+      return false;
+    }
+    entry = it->second;
+  }
+  if (entry.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(syscall) + ": server belongs to a different principal");
+  }
+  if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+    throw facebook::jsi::JSError(
+        runtime, std::string("Permission denied: ") + syscall);
+  }
+  return true;
+}
+
+void unregisterHttpServer(uint32_t server_id) {
+  std::lock_guard<std::mutex> lock(g_http_server_mutex);
+  g_http_servers.erase(server_id);
+}
+
+} // namespace
+
 void installHttpHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   // __exactHttpServe(port, hostname) -> JSON string {"id":N,"port":N} or {"error":"..."}
@@ -71,11 +148,21 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isString()) {
           hostname = args[1].toString(runtime).utf8(runtime);
         }
+        // @ref LLP 0013#policy — importing http/Bun.serve is not authority to
+        // open a listening socket. Gate the native serve boundary. (ENG-22722)
+        std::string capability = "network:listen:" + hostname + ":" + std::to_string(port);
+        if (!checkCapability(capability)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: network:listen capability required");
+        }
         char* json = ex_host_http_serve(port, hostname.c_str());
         if (!json) {
           throw facebook::jsi::JSError(runtime, "Failed to start HTTP server");
         }
-        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        std::string payload(json);
+        registerHttpServer(parseHttpServerId(payload), capability);
+        auto result = facebook::jsi::String::createFromUtf8(runtime, payload);
         ex_host_free_string(json);
         return result;
       });
@@ -96,6 +183,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::null();
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpPoll")) {
+          return facebook::jsi::Value::null();
+        }
         char* json = ex_host_http_poll(server_id);
         if (!json) {
           return facebook::jsi::Value::null();
@@ -124,6 +214,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         uint32_t max_count = 16; // default
         if (count > 1 && args[1].isNumber()) {
           max_count = static_cast<uint32_t>(args[1].asNumber());
+        }
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpDrain")) {
+          return facebook::jsi::Value::null();
         }
         char* json = ex_host_http_drain(server_id, max_count);
         if (!json) {
@@ -157,6 +250,10 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isNumber()) {
           timeout_ms = static_cast<uint32_t>(args[1].asNumber());
         }
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpWait")) {
+          return facebook::jsi::Value::null();
+        }
+        auto waitPrincipal = currentPrincipalId();
 
         // Fast path: try synchronous poll first to avoid Promise overhead entirely
         {
@@ -167,6 +264,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
             // Wrap in resolved Promise to maintain API contract
             auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
             auto resolveFn = promiseCtor.getPropertyAsFunction(runtime, "resolve");
+            ScopedNativePrincipal nativePrincipal(waitPrincipal);
             return resolveFn.call(runtime, result);
           }
         }
@@ -176,10 +274,11 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
             runtime,
             facebook::jsi::PropNameID::forAscii(runtime, "__exactHttpWaitExecutor"),
             2,
-            [handle, server_id, timeout_ms](facebook::jsi::Runtime& runtime,
-                                           const facebook::jsi::Value&,
-                                           const facebook::jsi::Value* args,
-                                           size_t count) -> facebook::jsi::Value {
+            [handle, server_id, timeout_ms, waitPrincipal](
+                facebook::jsi::Runtime& runtime,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
               if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
                 return facebook::jsi::Value::undefined();
               }
@@ -193,6 +292,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 ExactHermesRuntime* handle;
                 uint32_t server_id;
                 uint32_t timeout_ms;
+                uint64_t principal;
                 std::shared_ptr<facebook::jsi::Function> resolve;
                 std::shared_ptr<facebook::jsi::Function> reject;
               };
@@ -232,8 +332,10 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                       pushRuntimeCallback(
                           t.handle,
                           [resolve = t.resolve, reject = t.reject,
-                           has_payload, payload = std::move(payload)](
+                           principal = t.principal, has_payload,
+                           payload = std::move(payload)](
                               facebook::jsi::Runtime& rt) {
+                            ScopedNativePrincipal nativePrincipal(principal);
                             try {
                               if (has_payload) {
                                 resolve->call(rt,
@@ -266,7 +368,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
 
               static WaitWorkerPool workerPool;
 
-              auto task = WaitTask{handle, server_id, timeout_ms, resolve, reject};
+              auto task = WaitTask{handle, server_id, timeout_ms, waitPrincipal, resolve, reject};
               workerPool.enqueue(std::move(task));
 
               return facebook::jsi::Value::undefined();
@@ -290,6 +392,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpReadBody")) {
+          return facebook::jsi::Value::null();
+        }
         char* json = ex_host_http_read_body(server_id, request_id);
         if (!json) {
           return facebook::jsi::Value::null();
@@ -315,6 +420,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
         uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespond")) {
+          return facebook::jsi::Value(-1);
+        }
 
         // Headers JSON string
         const char* headers_json = nullptr;
@@ -366,6 +474,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
         uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondText")) {
+          return facebook::jsi::Value(-1);
+        }
 
         const uint8_t* body = nullptr;
         uint32_t body_len = 0;
@@ -408,6 +519,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
         uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondJson")) {
+          return facebook::jsi::Value(-1);
+        }
 
         const uint8_t* body = nullptr;
         uint32_t body_len = 0;
@@ -452,6 +566,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
         uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondString")) {
+          return facebook::jsi::Value(-1);
+        }
 
         // Headers JSON string
         const char* headers_json = nullptr;
@@ -492,6 +609,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
         uint16_t status = static_cast<uint16_t>(args[2].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondStream")) {
+          return facebook::jsi::Value(-1);
+        }
 
         const char* headers_json = nullptr;
         std::string headers_str;
@@ -520,6 +640,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondChunk")) {
+          return facebook::jsi::Value(-1);
+        }
 
         const uint8_t* body = nullptr;
         uint32_t body_len = 0;
@@ -561,6 +684,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondEnd")) {
+          return facebook::jsi::Value(-1);
+        }
 
         int32_t result = ex_host_http_respond_end(server_id, request_id);
         return facebook::jsi::Value(result);
@@ -580,6 +706,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::null();
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpAddress")) {
+          return facebook::jsi::Value::null();
+        }
         char* json = ex_host_http_address(server_id);
         if (!json) {
           return facebook::jsi::Value::null();
@@ -595,7 +724,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactHttpClose"),
       2,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -604,7 +733,13 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         int32_t force = count > 1 && args[1].isNumber() ? static_cast<int32_t>(args[1].asNumber()) : 0;
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpClose")) {
+          return facebook::jsi::Value(-1);
+        }
         int32_t result = ex_host_http_close(server_id, force);
+        if (result == 0) {
+          unregisterHttpServer(server_id);
+        }
         return facebook::jsi::Value(result);
       });
   rt.global().setProperty(rt, "__exactHttpClose", std::move(httpCloseFn));
@@ -614,7 +749,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactHttpSetRef"),
       2,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -622,6 +757,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
           uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
           int32_t referenced = count > 1 && args[1].isNumber()
               ? static_cast<int32_t>(args[1].asNumber()) : 1;
+          if (!requireHttpServerOwner(runtime, server_id, "__exactHttpSetRef")) {
+            return facebook::jsi::Value::undefined();
+          }
           ex_host_http_set_ref(server_id, referenced);
         }
         return facebook::jsi::Value::undefined();

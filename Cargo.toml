@@ -107,3 +107,11 @@ cc = "1.0"
 [dev-dependencies]
 sha1 = "0.10"
 tempfile = "3"
+
+# LLP 0013 Goal 3 steady-state overhead benchmark. `harness = false` because the
+# unit of work is a whole `ibex` subprocess (not an in-process microbenchmark),
+# so the bench provides its own warmup + median-of-N `main` rather than using
+# criterion. @ref LLP 0013#goals
+[[bench]]
+name = "compartment_overhead"
+harness = false

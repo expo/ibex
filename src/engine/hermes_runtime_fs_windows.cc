@@ -23,6 +23,9 @@ struct FileEntry {
   void* handle = nullptr;
   std::string path;
   bool append = false;
+  uint64_t owner = 0;
+  bool canRead = false;
+  bool canWrite = false;
 };
 
 std::mutex g_files_mutex;
@@ -47,7 +50,7 @@ extern "C" int32_t ex_host_fs_copy(const char* from, const char* to);
 extern "C" char* ex_host_fs_realpath(const char* path);
 extern "C" int32_t ex_host_fs_access(const char* path, int32_t mode);
 extern "C" int32_t ex_host_fs_chmod(const char* path, uint32_t mode);
-extern "C" char* ex_host_fs_mkdtemp(const char* prefix);
+extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
 extern "C" void ex_host_free_string(char* value);
 
@@ -118,7 +121,30 @@ FileEntry getFileEntry(facebook::jsi::Runtime& runtime, int fd) {
   if (it == g_files.end() || !it->second.handle) {
     throw facebook::jsi::JSError(runtime, "bad file descriptor");
   }
+  if (!isAllowAll() && it->second.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
   return it->second;
+}
+
+void requireFileEntryRead(facebook::jsi::Runtime& runtime, const FileEntry& entry) {
+  if (isAllowAll()) {
+    return;
+  }
+  if (!entry.canRead) {
+    throw facebook::jsi::JSError(runtime, "fd not opened for reading");
+  }
+  requireReadCapability(runtime, entry.path);
+}
+
+void requireFileEntryWrite(facebook::jsi::Runtime& runtime, const FileEntry& entry) {
+  if (isAllowAll()) {
+    return;
+  }
+  if (!entry.canWrite) {
+    throw facebook::jsi::JSError(runtime, "fd not opened for writing");
+  }
+  requireWriteCapability(runtime, entry.path);
 }
 
 facebook::jsi::Value jsonStringResult(
@@ -246,7 +272,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         std::lock_guard<std::mutex> lock(g_files_mutex);
         int fd = g_next_fd++;
-        g_files[fd] = FileEntry{file, path, (flags & NODE_O_APPEND) == NODE_O_APPEND};
+        g_files[fd] = FileEntry{
+            file,
+            path,
+            (flags & NODE_O_APPEND) == NODE_O_APPEND,
+            currentPrincipalId(),
+            (host_flags & EXACT_FS_READ) == EXACT_FS_READ,
+            (host_flags & EXACT_FS_WRITE) == EXACT_FS_WRITE};
         return facebook::jsi::Value(static_cast<double>(fd));
       });
   rt.global().setProperty(rt, "__exactFsOpen", std::move(fsOpenFn));
@@ -269,6 +301,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           auto it = g_files.find(fd);
           if (it == g_files.end()) {
             throw facebook::jsi::JSError(runtime, "bad file descriptor");
+          }
+          if (!isAllowAll() && it->second.owner != currentPrincipalId()) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
           }
           entry = it->second;
           g_files.erase(it);
@@ -295,6 +330,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto length = static_cast<uint32_t>(args[1].asNumber());
         std::vector<uint8_t> bytes(length);
         auto entry = getFileEntry(runtime, fd);
+        requireFileEntryRead(runtime, entry);
         if (count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
           auto position = static_cast<uint64_t>(args[2].asNumber());
           if (ex_host_fs_seek(entry.handle, position) != 0) {
@@ -323,6 +359,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto fd = fdFromValue(runtime, args[0]);
         auto entry = getFileEntry(runtime, fd);
+        requireFileEntryWrite(runtime, entry);
         auto bytes = extractBytes(runtime, args[1]);
         if (bytes.empty()) {
           return facebook::jsi::Value(0.0);
@@ -355,7 +392,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFstatSync: fd required");
         }
         auto entry = getFileEntry(runtime, fdFromValue(runtime, args[0]));
-        requireReadCapability(runtime, entry.path);
+        requireFileEntryRead(runtime, entry);
         return jsonStringResult(runtime, ex_host_fs_stat(entry.path.c_str()), "fstat", entry.path);
       });
   rt.global().setProperty(rt, "__exactFsFstatSync", std::move(fsFstatFn));
@@ -506,8 +543,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         auto prefix = count > 0 ? pathArg(runtime, args[0]) : std::string("tmp");
-        requireWriteCapability(runtime, prefix);
-        return jsonStringResult(runtime, ex_host_fs_mkdtemp(prefix.c_str()), "mkdtemp", prefix);
+        return jsonStringResult(
+            runtime,
+            ex_host_fs_mkdtemp(prefix.c_str(), currentPrincipalId()),
+            "mkdtemp",
+            prefix);
       });
   rt.global().setProperty(rt, "__exactMkdtemp", std::move(mkdtempFn));
 

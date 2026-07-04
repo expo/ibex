@@ -1,0 +1,194 @@
+# LLP 0013 Hermes patch 0004 — native per-package compartment globals
+# Class: B (a GCPointer field + metadata line on Domain, a native global
+#         function) + C (the 3 interpreter global-resolution sites + one
+#         #include). @ref LLP 0013#mechanism-2 (Phase 3)
+#
+# Makes compartment globals native, retiring the need for the build-time
+# free-global rewrite: the interpreter resolves bare-global references and
+# sloppy-mode `this` through the executing frame's Domain "compartment global"
+# (a per-package object that withholds powerful globals) when one is set, and
+# through the shared real global otherwise (the common case, one extra load +
+# predicted-not-taken branch).
+#
+#   * Domain gains a GC-traced `GCPointer<JSObject> compartmentGlobal_` +
+#     get/setCompartmentGlobal accessors, plus its metadata-builder field.
+#   * initGlobalObject installs `__exactSetCompartmentFor(fn, obj)`, a native
+#     function that stamps a just-compiled function's Domain with a compartment
+#     global (the loader captures it privately and the end-of-bootstrap seal
+#     deletes it — setting a Domain's compartment is a containment-escape
+#     primitive if left reachable).
+#   * Interpreter CASE(GetGlobalObject) / CASE(CoerceThisNS) / CASE(LoadThisNS)
+#     resolve through `globalForFrame(runtime, curCodeBlock)`.
+#
+# Not yet native (documented Phase 3 follow-ups, both low-priority because
+# lockdown already tames eval/Function and the userland freeze works): binding
+# eval/Function-produced code to the caller's compartment, and a native lockdown
+# freeze primitive.
+diff --git a/include/hermes/VM/Domain.h b/include/hermes/VM/Domain.h
+index 9a37c7c5c..7d4b8fede 100644
+--- a/include/hermes/VM/Domain.h
++++ b/include/hermes/VM/Domain.h
+@@ -113,6 +113,15 @@ class Domain final : public GCCell {
+   /// cannot forge.
+   uint32_t packageId_{0};
+ 
++  /// @ref LLP 0013#mechanism-2 (Phase 3) — the per-package compartment global
++  /// object. When set, bare-global references and sloppy-mode `this` in code
++  /// owned by this Domain resolve to this object (a per-package global that
++  /// withholds powerful globals) instead of the shared real global — native
++  /// compartments without a build-time source rewrite. Null (the common case)
++  /// means "resolve against the real global". GC-traced, so it needs a metadata
++  /// builder entry (unlike packageId_).
++  GCPointer<JSObject> compartmentGlobal_{};
++
+  public:
+   static constexpr CellKind getCellKind() {
+     return CellKind::DomainKind;
+@@ -133,6 +142,18 @@ class Domain final : public GCCell {
+     packageId_ = packageId;
+   }
+ 
++  /// \return the per-package compartment global for this Domain's code, or null
++  /// when it resolves against the real global. @ref LLP 0013#mechanism-2
++  JSObject *getCompartmentGlobal(Runtime &runtime) const {
++    return compartmentGlobal_.get(runtime);
++  }
++
++  /// Set the per-package compartment global for this Domain's code.
++  /// @ref LLP 0013#mechanism-2
++  void setCompartmentGlobal(Runtime &runtime, JSObject *obj) {
++    compartmentGlobal_.set(runtime, obj, runtime.getHeap());
++  }
++
+   /// Create a Domain with no associated RuntimeModules.
+   static PseudoHandle<Domain> create(Runtime &runtime);
+ 
+diff --git a/lib/VM/Domain.cpp b/lib/VM/Domain.cpp
+index e1b819ac9..24aecafee 100644
+--- a/lib/VM/Domain.cpp
++++ b/lib/VM/Domain.cpp
+@@ -38,6 +38,8 @@ void DomainBuildMeta(const GCCell *cell, Metadata::Builder &mb) {
+   mb.setVTable(&Domain::vt);
+   mb.addField("cjsModules", &self->cjsModules_);
+   mb.addField("throwingRequire", &self->throwingRequire_);
++  // @ref LLP 0013#mechanism-2 (Phase 3) — the per-package compartment global.
++  mb.addField("compartmentGlobal", &self->compartmentGlobal_);
+ }
+ 
+ PseudoHandle<Domain> Domain::create(Runtime &runtime) {
+diff --git a/lib/VM/Interpreter.cpp b/lib/VM/Interpreter.cpp
+index 63126c23f..7f8769c6c 100644
+--- a/lib/VM/Interpreter.cpp
++++ b/lib/VM/Interpreter.cpp
+@@ -30,6 +30,7 @@
+ #include "hermes/VM/Profiler.h"
+ #include "hermes/VM/Profiler/CodeCoverageProfiler.h"
+ #include "hermes/VM/PropertyAccessor.h"
++#include "hermes/VM/Domain.h"
+ #include "hermes/VM/RuntimeModule-inline.h"
+ #include "hermes/VM/StackFrame-inline.h"
+ #include "hermes/VM/StringPrimitive.h"
+@@ -102,6 +103,22 @@ HERMES_SLOW_STATISTIC(
+ namespace hermes {
+ namespace vm {
+ 
++/// @ref LLP 0013#mechanism-2 (Phase 3) — resolve the global object for the
++/// currently-executing frame. If the frame's Domain carries a compartment
++/// global (a per-package global that withholds powerful globals), bare-global
++/// references and sloppy-mode `this` resolve to it; otherwise, and in the common
++/// case, to the shared real global. One load plus a predicted-not-taken branch
++/// on the hot path.
++static LLVM_ATTRIBUTE_ALWAYS_INLINE HermesValue
++globalForFrame(Runtime &runtime, CodeBlock *cb) {
++  if (LLVM_LIKELY(cb)) {
++    Domain *d = cb->getRuntimeModule()->getDomainUnsafe(runtime);
++    if (JSObject *cg = d->getCompartmentGlobal(runtime))
++      return HermesValue::encodeObjectValue(cg);
++  }
++  return runtime.getGlobal().getHermesValue();
++}
++
+ /// Initialize the state of some internal variables based on the current
+ /// code block.
+ #define INIT_STATE_FOR_CODEBLOCK(codeBlock)                      \
+@@ -1125,7 +1142,7 @@ tailCall:
+           O1REG(CoerceThisNS) = O2REG(CoerceThisNS);
+         } else if (
+             O2REG(CoerceThisNS).isNull() || O2REG(CoerceThisNS).isUndefined()) {
+-          O1REG(CoerceThisNS) = runtime.getGlobal().getHermesValue();
++          O1REG(CoerceThisNS) = globalForFrame(runtime, curCodeBlock);
+         } else {
+           lv.tmp = O2REG(CoerceThisNS);
+           nextIP = NEXTINST(CoerceThisNS);
+@@ -1140,7 +1157,7 @@ tailCall:
+         } else if (
+             FRAME.getThisArgRef().isNull() ||
+             FRAME.getThisArgRef().isUndefined()) {
+-          O1REG(LoadThisNS) = runtime.getGlobal().getHermesValue();
++          O1REG(LoadThisNS) = globalForFrame(runtime, curCodeBlock);
+         } else {
+           lv.tmp = FRAME.getThisArgRef();
+           nextIP = NEXTINST(LoadThisNS);
+@@ -1840,7 +1857,7 @@ tailCall:
+       }
+ 
+       CASE(GetGlobalObject) {
+-        O1REG(GetGlobalObject) = runtime.getGlobal().getHermesValue();
++        O1REG(GetGlobalObject) = globalForFrame(runtime, curCodeBlock);
+         ip = NEXTINST(GetGlobalObject);
+         DISPATCH;
+       }
+diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
+index ce55c5401..665ecc0a6 100644
+--- a/lib/VM/JSLib/GlobalObject.cpp
++++ b/lib/VM/JSLib/GlobalObject.cpp
+@@ -25,9 +25,35 @@
+ 
+ #include "JSLibInternal.h"
+ 
++// @ref LLP 0013#mechanism-2 (Phase 3) — native compartment global binding.
++#include "hermes/VM/Domain.h"
++#include "hermes/VM/RuntimeModule-inline.h"
++
+ namespace hermes {
+ namespace vm {
+ 
++/// @ref LLP 0013#mechanism-2 (Phase 3) — bind a compartment global to a
++/// compiled function's Domain. __exactSetCompartmentFor(fn, obj): after the
++/// loader compiles a package's module body (`new Function(...)`), it calls this
++/// to set that Domain's compartment global, so bare-global references in the
++/// package's code (and any function it defines, which shares the Domain) resolve
++/// through `obj` instead of the real global. A no-op for native callees (no
++/// CodeBlock) — the loader only ever passes a freshly compiled JSFunction.
++CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  JSFunction *fn = dyn_vmcast<JSFunction>(args.getArg(0));
++  JSObject *obj = dyn_vmcast<JSObject>(args.getArg(1));
++  if (fn && obj) {
++    RuntimeModule *rm = fn->getRuntimeModule();
++    if (rm) {
++      if (Domain *domain = rm->getDomainUnsafe(runtime)) {
++        domain->setCompartmentGlobal(runtime, obj);
++      }
++    }
++  }
++  return HermesValue::encodeUndefinedValue();
++}
++
+ /// ES5.1 15.1.2.4
+ CallResult<HermesValue> isNaN(void *, Runtime &runtime) {
+   NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
+@@ -733,6 +759,13 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
+   // Define the 'print' function.
+   defineGlobalFunc(Predefined::getSymbolID(Predefined::print), print, 1);
+ 
++  // @ref LLP 0013#mechanism-2 (Phase 3) — the native compartment binder.
++  defineGlobalFunc(
++      runtime.getIdentifierTable().registerLazyIdentifier(
++          runtime, createASCIIRef("__exactSetCompartmentFor")),
++      exactSetCompartmentFor,
++      2);
++
+   // Define the 'eval' function.
+   defineGlobalFunc(Predefined::getSymbolID(Predefined::eval), eval, 1);
+ 

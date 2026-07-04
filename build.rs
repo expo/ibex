@@ -464,6 +464,12 @@ fn main() {
             "cargo:rerun-if-changed={}",
             vendored_generated_dir.display()
         );
+        println!(
+            "cargo:rerun-if-changed={}",
+            vendored_generated_dir
+                .join("embedded_runtime_bundle.js")
+                .display()
+        );
     } else if !regenerate_runtime {
         // The default ibex build is hermetic: it expects the committed
         // vendored-generated/ artifacts. If they are missing, fail loudly
@@ -1059,6 +1065,23 @@ fn main() {
         build.define("HERMES_ENABLE_DEBUGGER", None);
         println!("cargo:rustc-cfg=hermes_debugger");
     }
+
+    // @ref LLP 0013#mechanism-3 — frame-derived capability attribution is only
+    // available when the linked Hermes framework carries the bridge exports from
+    // the carried patch stack (patches/hermes/0003). Probe the framework binary
+    // for the exported symbol; when absent (iOS/Android/Windows engines, or a
+    // macOS checkout whose framework predates the patch rebuild) the engine falls
+    // back to the legacy thread-local module id and still links.
+    let enable_frame_attribution = target_os != "windows"
+        && hermes_macos_binary
+            .as_deref()
+            .map(macos_hermes_has_frame_attribution)
+            .unwrap_or(false);
+    if enable_frame_attribution {
+        build.define("EXACT_HAVE_FRAME_ATTRIBUTION", None);
+        println!("cargo:rustc-cfg=exact_frame_attribution");
+    }
+    println!("cargo:rustc-check-cfg=cfg(exact_frame_attribution)");
     // No-op `ex_host_http_*` stubs are compiled exactly when no real
     // implementation is linked, i.e. when the `host-http-server` feature is
     // off. Non-MSVC builds mark them weak so an external strong implementation
@@ -2359,6 +2382,33 @@ fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
     }
 
     String::from_utf8_lossy(&output.stdout).contains("AsyncDebuggerAPI")
+}
+
+// @ref LLP 0013#mechanism-3 — detect whether the linked Hermes framework
+// exports the capability-attribution bridge from patches/hermes/0003. Mirrors
+// macos_hermes_has_debugger_symbols so an unpatched engine degrades to the
+// thread-local module id instead of failing to link.
+fn macos_hermes_has_frame_attribution(binary_path: &Path) -> bool {
+    let output = std::process::Command::new("nm")
+        .args(["-gU", binary_path.to_string_lossy().as_ref()])
+        .output()
+        .or_else(|_| {
+            std::process::Command::new("xcrun")
+                .arg("nm")
+                .arg("-gU")
+                .arg(binary_path)
+                .output()
+        });
+
+    let Ok(output) = output else {
+        return false;
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    String::from_utf8_lossy(&output.stdout).contains("ex_hermes_vm_current_package_id")
 }
 
 fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&Path>) -> bool {

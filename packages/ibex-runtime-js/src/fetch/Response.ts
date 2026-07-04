@@ -88,11 +88,25 @@ function isBunCompatResponseTest(): boolean {
   if ((globalThis as { __exactRuntimeContext?: string }).__exactRuntimeContext === 'shell') {
     return false;
   }
-  if (typeof process !== 'object' || !process || typeof process.env !== 'object') {
-    return false;
-  }
 
-  return process.env.EXACT_COMPAT_TEST === '1' && process.env.EXACT_TEST_SECTION === 'bun';
+  return readRuntimeEnv('EXACT_COMPAT_TEST') === '1' && readRuntimeEnv('EXACT_TEST_SECTION') === 'bun';
+}
+
+function readRuntimeEnv(key: string): string | undefined {
+  const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
+    .__exactHostEnv;
+  if (hostEnv && typeof hostEnv[key] === 'string') {
+    return hostEnv[key];
+  }
+  try {
+    if (typeof process !== 'object' || !process || typeof process.env !== 'object') {
+      return undefined;
+    }
+    const value = (process.env as Record<string, string | undefined>)[key];
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

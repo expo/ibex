@@ -1,0 +1,5 @@
+{
+  "mode": "enforce",
+  "allow": ["process", "env", "os", "crypto", "time", "network", "device", "worker", "ffi"],
+  "packages": { "evil-pkg": { "builtins": [] } }
+}

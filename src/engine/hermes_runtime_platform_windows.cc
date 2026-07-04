@@ -100,42 +100,92 @@ std::string winsockErrorString(const char* prefix, int error = WSAGetLastError()
   return result;
 }
 
+std::string networkEndpointCapability(const char* base, const std::string& host, int port) {
+  return std::string(base) + ":" + host + ":" + std::to_string(port);
+}
+
+void requireNetworkCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& capability,
+    const char* description) {
+  if (!checkCapability(capability)) {
+    std::string message =
+        std::string("Permission denied: ") + description + " capability required";
+    throw facebook::jsi::JSError(runtime, message.c_str());
+  }
+}
+
 bool setSocketNonBlocking(SOCKET socket) {
   u_long mode = 1;
   return ioctlsocket(socket, FIONBIO, &mode) == 0;
 }
 
-bool getSocketForHandle(
-    const std::unordered_map<int, SOCKET>& sockets,
-    int handle,
-    SOCKET& socket) {
-  auto it = sockets.find(handle);
-  if (it == sockets.end()) return false;
-  socket = it->second;
-  return true;
-}
+struct WindowsSocketEntry {
+  SOCKET socket;
+  uint64_t owner;
+  std::string capability;
+};
 
-std::unordered_map<int, SOCKET> g_windows_sockets;
+std::unordered_map<int, WindowsSocketEntry> g_windows_sockets;
 int g_windows_next_socket_handle = 1;
 std::mutex g_windows_sockets_mutex;
 
-int registerWindowsSocket(SOCKET socket) {
+int registerWindowsSocket(
+    SOCKET socket,
+    const std::string& capability,
+    uint64_t owner = currentPrincipalId()) {
   std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
   int handle = g_windows_next_socket_handle++;
-  g_windows_sockets[handle] = socket;
+  g_windows_sockets[handle] = WindowsSocketEntry{socket, owner, capability};
   return handle;
 }
 
-bool lookupWindowsSocket(int handle, SOCKET& socket) {
-  std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
-  return getSocketForHandle(g_windows_sockets, handle, socket);
+WindowsSocketEntry requireWindowsSocket(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* operation) {
+  WindowsSocketEntry entry{};
+  {
+    std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
+    auto it = g_windows_sockets.find(handle);
+    if (it == g_windows_sockets.end()) {
+      throw facebook::jsi::JSError(
+          runtime, std::string(operation) + ": invalid handle");
+    }
+    entry = it->second;
+  }
+  if (!isAllowAll()) {
+    if (entry.owner != currentPrincipalId()) {
+      throw facebook::jsi::JSError(
+          runtime, std::string(operation) + ": handle belongs to a different principal");
+    }
+    if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+      throw facebook::jsi::JSError(
+          runtime, "Permission denied: network capability required");
+    }
+  }
+  return entry;
 }
 
-SOCKET removeWindowsSocket(int handle) {
+bool tryWindowsSocket(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* operation,
+    WindowsSocketEntry& entry) {
+  try {
+    entry = requireWindowsSocket(runtime, handle, operation);
+    return true;
+  } catch (const facebook::jsi::JSError&) {
+    return false;
+  }
+}
+
+SOCKET removeWindowsSocket(facebook::jsi::Runtime& runtime, int handle, const char* operation) {
+  (void)requireWindowsSocket(runtime, handle, operation);
   std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
   auto it = g_windows_sockets.find(handle);
   if (it == g_windows_sockets.end()) return INVALID_SOCKET;
-  SOCKET socket = it->second;
+  SOCKET socket = it->second.socket;
   g_windows_sockets.erase(it);
   return socket;
 }
@@ -859,7 +909,8 @@ void installProcessSetup(ExactHermesRuntime* handle) {
         for (size_t i = 1; i < count; i++) {
           callback_args.emplace_back(runtime, args[i]);
         }
-        handle->next_tick.push_back(NextTickEntry{std::move(callback), std::move(callback_args)});
+        handle->next_tick.push_back(
+            NextTickEntry{currentPrincipalId(), std::move(callback), std::move(callback_args)});
         return facebook::jsi::Value::undefined();
       });
   process.setProperty(rt, "nextTick", std::move(nextTickFn));
@@ -1001,8 +1052,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (!checkCapability("child_process")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied: child_process capability required");
+        if (!checkCapability("process:spawn")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
         }
         if (count == 0 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactSpawnSync: file path required");
@@ -1066,6 +1117,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         ensureWinsock();
         std::string host = args[0].toString(runtime).utf8(runtime);
         int port = static_cast<int>(args[1].asNumber());
+        std::string connectCapability = networkEndpointCapability("network:connect", host, port);
+        requireNetworkCapability(runtime, connectCapability, "network:connect");
         addrinfo hints{};
         hints.ai_family = AF_UNSPEC;
         hints.ai_socktype = SOCK_STREAM;
@@ -1097,7 +1150,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, winsockErrorString("__exactTcpConnect", lastError));
         }
         setSocketNonBlocking(socket);
-        return facebook::jsi::Value(registerWindowsSocket(socket));
+        return facebook::jsi::Value(registerWindowsSocket(socket, connectCapability));
       });
   rt.global().setProperty(rt, "__exactTcpConnect", std::move(tcpConnectFn));
 
@@ -1112,10 +1165,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpRead: handle required");
         }
-        SOCKET socket = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), socket)) {
-          throw facebook::jsi::JSError(runtime, "__exactTcpRead: invalid handle");
-        }
+        SOCKET socket = requireWindowsSocket(
+            runtime, static_cast<int>(args[0].asNumber()), "__exactTcpRead").socket;
         int maxBytes = 65536;
         if (count > 1 && args[1].isNumber()) {
           maxBytes = std::max(1, static_cast<int>(args[1].asNumber()));
@@ -1148,10 +1199,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 2 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpWrite: handle and data required");
         }
-        SOCKET socket = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), socket)) {
-          throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid handle");
-        }
+        SOCKET socket = requireWindowsSocket(
+            runtime, static_cast<int>(args[0].asNumber()), "__exactTcpWrite").socket;
         std::vector<uint8_t> data = jsiValueToBytes(runtime, args[1]);
         if (data.empty()) return facebook::jsi::Value(0);
         int written = send(
@@ -1181,7 +1230,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpClose: handle required");
         }
-        SOCKET socket = removeWindowsSocket(static_cast<int>(args[0].asNumber()));
+        SOCKET socket =
+            removeWindowsSocket(runtime, static_cast<int>(args[0].asNumber()), "__exactTcpClose");
         if (socket != INVALID_SOCKET) {
           closesocket(socket);
         }
@@ -1200,10 +1250,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpShutdown: handle required");
         }
-        SOCKET socket = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), socket)) {
+        WindowsSocketEntry entry{};
+        if (!tryWindowsSocket(
+                runtime, static_cast<int>(args[0].asNumber()), "__exactTcpShutdown", entry)) {
           return facebook::jsi::Value(0);
         }
+        SOCKET socket = entry.socket;
         int how = SD_SEND;
         if (count > 1 && args[1].isNumber()) {
           int value = static_cast<int>(args[1].asNumber());
@@ -1226,10 +1278,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpReset: handle required");
         }
-        SOCKET socket = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), socket)) {
+        WindowsSocketEntry entry{};
+        if (!tryWindowsSocket(
+                runtime, static_cast<int>(args[0].asNumber()), "__exactTcpReset", entry)) {
           return facebook::jsi::Value(0);
         }
+        SOCKET socket = entry.socket;
         linger option{};
         option.l_onoff = 1;
         option.l_linger = 0;
@@ -1250,10 +1304,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpSetNoDelay: handle required");
         }
-        SOCKET socket = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), socket)) {
+        WindowsSocketEntry entry{};
+        if (!tryWindowsSocket(
+                runtime, static_cast<int>(args[0].asNumber()), "__exactTcpSetNoDelay", entry)) {
           return facebook::jsi::Value(-1);
         }
+        SOCKET socket = entry.socket;
         BOOL flag = !(count > 1 && args[1].isNumber() && args[1].asNumber() == 0);
         setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
         return facebook::jsi::Value(0);
@@ -1271,10 +1327,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpSetKeepAlive: handle required");
         }
-        SOCKET socket = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), socket)) {
+        WindowsSocketEntry entry{};
+        if (!tryWindowsSocket(
+                runtime, static_cast<int>(args[0].asNumber()), "__exactTcpSetKeepAlive", entry)) {
           return facebook::jsi::Value(-1);
         }
+        SOCKET socket = entry.socket;
         BOOL flag = !(count > 1 && args[1].isNumber() && args[1].asNumber() == 0);
         setsockopt(socket, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char*>(&flag), sizeof(flag));
         return facebook::jsi::Value(0);
@@ -1295,6 +1353,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         int port = count > 1 && args[1].isNumber() ? static_cast<int>(args[1].asNumber()) : 0;
         int backlog = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : 128;
         int ipv6Only = count > 3 && args[3].isNumber() ? static_cast<int>(args[3].asNumber()) : 0;
+        std::string listenCapability = networkEndpointCapability("network:listen", host, port);
+        requireNetworkCapability(runtime, listenCapability, "network:listen");
 
         addrinfo hints{};
         hints.ai_family = (ipv6Only || host.find(':') != std::string::npos) ? AF_INET6 : AF_UNSPEC;
@@ -1336,7 +1396,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, winsockErrorString("__exactTcpListen", lastError));
         }
         setSocketNonBlocking(socket);
-        return facebook::jsi::Value(registerWindowsSocket(socket));
+        return facebook::jsi::Value(registerWindowsSocket(socket, listenCapability));
       });
   rt.global().setProperty(rt, "__exactTcpListen", std::move(tcpListenFn));
 
@@ -1351,10 +1411,9 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpAccept: handle required");
         }
-        SOCKET server = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), server)) {
-          throw facebook::jsi::JSError(runtime, "__exactTcpAccept: invalid handle");
-        }
+        auto serverEntry = requireWindowsSocket(
+            runtime, static_cast<int>(args[0].asNumber()), "__exactTcpAccept");
+        SOCKET server = serverEntry.socket;
         sockaddr_storage clientAddr{};
         int clientLen = sizeof(clientAddr);
         SOCKET client = accept(server, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
@@ -1366,7 +1425,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, winsockErrorString("__exactTcpAccept", error));
         }
         setSocketNonBlocking(client);
-        return facebook::jsi::Value(registerWindowsSocket(client));
+        return facebook::jsi::Value(
+            registerWindowsSocket(client, serverEntry.capability, serverEntry.owner));
       });
   rt.global().setProperty(rt, "__exactTcpAccept", std::move(tcpAcceptFn));
 
@@ -1379,8 +1439,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
-        SOCKET socket = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), socket)) return facebook::jsi::Value::null();
+        WindowsSocketEntry entry{};
+        if (!tryWindowsSocket(
+                runtime, static_cast<int>(args[0].asNumber()), "__exactTcpLocalAddr", entry)) {
+          return facebook::jsi::Value::null();
+        }
+        SOCKET socket = entry.socket;
         sockaddr_storage addr{};
         int addrLen = sizeof(addr);
         if (getsockname(socket, reinterpret_cast<sockaddr*>(&addr), &addrLen) != 0) return facebook::jsi::Value::null();
@@ -1399,8 +1463,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
-        SOCKET socket = INVALID_SOCKET;
-        if (!lookupWindowsSocket(static_cast<int>(args[0].asNumber()), socket)) return facebook::jsi::Value::null();
+        WindowsSocketEntry entry{};
+        if (!tryWindowsSocket(
+                runtime, static_cast<int>(args[0].asNumber()), "__exactTcpRemoteAddr", entry)) {
+          return facebook::jsi::Value::null();
+        }
+        SOCKET socket = entry.socket;
         sockaddr_storage addr{};
         int addrLen = sizeof(addr);
         if (getpeername(socket, reinterpret_cast<sockaddr*>(&addr), &addrLen) != 0) return facebook::jsi::Value::null();

@@ -1,0 +1,80 @@
+# LLP 0013 Hermes patch 0003 — pending/default package id on Runtime
+# Class: B (a POD field cluster + inline accessors on Runtime) + C (one insertion
+#         in runBytecode, the single surgical-semantic site).
+# @ref LLP 0013#mechanism-3
+#
+# Lets the embedder label the Domain a unit of code will be compiled into,
+# *before* compiling it. Each dynamic `new Function(src)` / module body funnels
+# through runBytecode, which mints a fresh Domain, so one set -> one labelled
+# Domain:
+#
+#   * setPendingPackageId(id) — one-shot: applies to exactly the next Domain.
+#   * setDefaultPackageId(id) — the principal for Domains created with no pending
+#     id. Ibex sets this to the runtime principal (0xFFFFFFFF) while bootstrap
+#     scripts evaluate, then to 0 (root) before user code runs, so eval/Function
+#     minted Domains are attributed to root rather than the runtime.
+#   * consumePendingPackageId() — pending-or-default, cleared after read; called
+#     by runBytecode() where it creates the Domain.
+#
+# The exported C wrappers that drive these live in patch 0002's translation unit.
+diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
+index f88870ed5..f506f6cb9 100644
+--- a/include/hermes/VM/Runtime.h
++++ b/include/hermes/VM/Runtime.h
+@@ -997,6 +997,40 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+     return builtinsFrozen_;
+   }
+ 
++  /// @ref LLP 0013#mechanism-3 — capability principal to stamp onto the next
++  /// Domain created by runBytecode(). The embedder sets this immediately before
++  /// compiling a package's code (each dynamic function / module body mints a
++  /// fresh Domain), so the Domain that owns that code carries the right
++  /// package id. A one-shot: applies to exactly the next Domain, then reverts to
++  /// the default principal below.
++  void setPendingPackageId(uint32_t id) {
++    pendingPackageId_ = id;
++    pendingPackageIdSet_ = true;
++  }
++
++  /// The principal stamped onto Domains created with no pending id set — used to
++  /// mark runtime-internal code (bootstrap, the module loader) with the runtime
++  /// principal during boot, then reset to the root principal so that eval/Function
++  /// (which mint fresh Domains) are attributed to root rather than the runtime.
++  void setDefaultPackageId(uint32_t id) {
++    defaultPackageId_ = id;
++  }
++
++  /// Read and clear the pending package id, falling back to the default. Called
++  /// by runBytecode() when it creates a Domain; the one-shot semantics mean a
++  /// stray set never leaks onto an unrelated Domain created later.
++  uint32_t consumePendingPackageId() {
++    uint32_t id = pendingPackageIdSet_ ? pendingPackageId_ : defaultPackageId_;
++    pendingPackageIdSet_ = false;
++    return id;
++  }
++
++  /// Backing store for the package-principal stamping API. POD, so no
++  /// metadata-builder entry (mirrors Domain::packageId_ in patch 0001).
++  uint32_t pendingPackageId_{0};
++  bool pendingPackageIdSet_{false};
++  uint32_t defaultPackageId_{0};
++
+   experiments::VMExperimentFlags getVMExperimentFlags() const {
+     return vmExperimentFlags_;
+   }
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index b210bc22d..e54485f2e 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -1174,6 +1174,11 @@ CallResult<HermesValue> Runtime::runBytecode(
+ 
+   Handle<Domain> domain = makeHandle(Domain::create(*this));
+ 
++  // @ref LLP 0013#mechanism-3 — label this Domain with the package principal
++  // the embedder set just before compiling this unit of code. One-shot: the
++  // pending id is consumed here so it never leaks onto a later Domain.
++  domain->setPackageId(consumePendingPackageId());
++
+   auto runtimeModuleRes = RuntimeModule::create(
+       *this, domain, allocateScriptId(), std::move(bytecode), flags, sourceURL);
+   if (LLVM_UNLIKELY(runtimeModuleRes == ExecutionStatus::EXCEPTION)) {

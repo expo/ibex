@@ -1,0 +1,235 @@
+# LLP 0013 Hermes patch 0002 — frame-derived capability attribution
+# Class: A (two additive files + exported C bridge) + B (one CMakeLists source line)
+# @ref LLP 0013#mechanism-3
+#
+# Adds the attribution primitives the host boundary needs, all reachable from the
+# embedder without any VM header crossing into Ibex:
+#
+#   * VM::getCurrentPackageId(Runtime&) walks the stack to the nearest *user*
+#     frame's Domain packageId. Native frames (null callee CodeBlock) and
+#     runtime-internal deputy frames (Domain principal 0xFFFFFFFF — the bootstrap
+#     and trusted host-module wrappers) are skipped, so a package's access
+#     through a trusted deputy like the `fs` module is attributed to the package,
+#     not laundered into root (the RFC's Open-Q3 rule).
+#   * VM::collectStackPackageIds(Runtime&, out, max) returns the distinct user
+#     principals on the stack, innermost-first — the substrate for Phase 5
+#     stack-intersection ("deputy") enforcement.
+#   * Exported extern "C" wrappers (HERMES_EXPORT overrides the framework's
+#     -fvisibility=hidden) let Ibex reach these through the opaque void* from
+#     IHermes::getVMRuntimeUnsafe(): ex_hermes_vm_current_package_id,
+#     ex_hermes_vm_collect_package_ids, ex_hermes_vm_set_pending_package_id,
+#     ex_hermes_vm_set_default_package_id. The set_* wrappers drive the
+#     Runtime-side pending/default package id added by patch 0003.
+#
+# The wrappers reference Runtime::setPendingPackageId/setDefaultPackageId from
+# patch 0003; patches are text-applied in numeric order and compiled only once
+# the whole stack is in place, so the forward reference is fine.
+diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h
+new file mode 100644
+index 000000000..2b1a48add
+--- /dev/null
++++ b/include/hermes/VM/CapabilityAttribution.h
+@@ -0,0 +1,37 @@
++/*
++ * Copyright (c) Meta Platforms, Inc. and affiliates.
++ *
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ */
++
++//===----------------------------------------------------------------------===//
++// @ref LLP 0013#mechanism-3 — Frame-derived capability attribution.
++//
++// Ibex patch (Class A: additive file). The host-boundary capability check must
++// identify the calling package from engine truth, not a JS-settable thread
++// local. Bytecode provenance is unforgeable: given the executing frame, we walk
++// CodeBlock -> RuntimeModule -> Domain -> packageId. Native frames (JSI host
++// functions) have a null callee CodeBlock, so we skip them and attribute to the
++// nearest JS frame — the RFC's Open-Q3 rule.
++//===----------------------------------------------------------------------===//
++
++#ifndef HERMES_VM_CAPABILITYATTRIBUTION_H
++#define HERMES_VM_CAPABILITYATTRIBUTION_H
++
++#include <cstdint>
++
++namespace hermes {
++namespace vm {
++
++class Runtime;
++
++/// \return the capability principal (package id) of the nearest JS frame on the
++/// stack, or 0 (trusted root / unassigned) when no attributable JS frame is
++/// found. Skips native frames, whose callee CodeBlock is null.
++uint32_t getCurrentPackageId(Runtime &runtime);
++
++} // namespace vm
++} // namespace hermes
++
++#endif // HERMES_VM_CAPABILITYATTRIBUTION_H
+diff --git a/lib/VM/CMakeLists.txt b/lib/VM/CMakeLists.txt
+index 663a0455e..d265d76bf 100644
+--- a/lib/VM/CMakeLists.txt
++++ b/lib/VM/CMakeLists.txt
+@@ -11,6 +11,7 @@ set(source_files
+   BuildMetadata.cpp
+   Callable.cpp
+   CellKind.cpp
++  CapabilityAttribution.cpp
+   CheckHeapWellFormedAcceptor.cpp
+   CodeBlock.cpp
+   DictPropertyMap.cpp
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+new file mode 100644
+index 000000000..0cd93dc8f
+--- /dev/null
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -0,0 +1,148 @@
++/*
++ * Copyright (c) Meta Platforms, Inc. and affiliates.
++ *
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ */
++
++//===----------------------------------------------------------------------===//
++// @ref LLP 0013#mechanism-3 — Frame-derived capability attribution (Ibex patch,
++// Class A). See CapabilityAttribution.h. The frame walk mirrors the existing
++// in-tree pattern in Interpreter-slowpaths.cpp (curCodeBlock ->
++// getRuntimeModule() -> getDomain()).
++//===----------------------------------------------------------------------===//
++
++#include "hermes/VM/CapabilityAttribution.h"
++
++#include <cstddef>
++
++#include "hermes/Public/HermesExport.h"
++
++#include "hermes/VM/Callable.h"
++#include "hermes/VM/Domain.h"
++#include "hermes/VM/Runtime-inline.h"
++#include "hermes/VM/RuntimeModule-inline.h"
++#include "hermes/VM/StackFrame-inline.h"
++
++namespace hermes {
++namespace vm {
++
++// The reserved principal for runtime-internal code: the bootstrap scripts, the
++// module loader, and the lockdown/compartment installers. Frames stamped with
++// it are transparent to attribution — skipped so a trusted deputy (the
++// `process.env` getter, `fs.readFileSync`, `fetch`) does not launder a package's
++// host access into the root principal. Kept in sync with kRuntimePrincipalId on
++// the Ibex side. @ref LLP 0013 Open-Q3 (skip runtime-internal frames).
++static constexpr uint32_t kRuntimePackageId = 0xFFFFFFFFu;
++
++uint32_t getCurrentPackageId(Runtime &runtime) {
++  // Walk from the innermost frame outward, skipping native frames (null callee
++  // CodeBlock) and runtime-internal deputy frames, and return the principal of
++  // the nearest *user* frame — the true acting package or the root principal.
++  for (StackFramePtr frame : runtime.getStackFrames()) {
++    CodeBlock *cb = frame.getCalleeCodeBlock();
++    if (!cb)
++      continue;
++    RuntimeModule *rm = cb->getRuntimeModule();
++    if (!rm)
++      continue;
++    Domain *domain = rm->getDomainUnsafe(runtime);
++    if (!domain)
++      continue;
++    uint32_t packageId = domain->getPackageId();
++    if (packageId == kRuntimePackageId)
++      continue;
++    return packageId;
++  }
++  return 0;
++}
++
++// @ref LLP 0013#phase-5 — collect the distinct user principals on the stack,
++// innermost-first, for stack-intersection ("deputy") enforcement. Skips native
++// and runtime-internal frames and collapses consecutive duplicates so the host
++// can AND the capability masks of every package that is actually on the stack.
++// Returns the number written (capped at \p max).
++size_t collectStackPackageIds(Runtime &runtime, uint32_t *out, size_t max) {
++  size_t count = 0;
++  uint32_t last = kRuntimePackageId; // sentinel that never equals a user id
++  for (StackFramePtr frame : runtime.getStackFrames()) {
++    if (count >= max)
++      break;
++    CodeBlock *cb = frame.getCalleeCodeBlock();
++    if (!cb)
++      continue;
++    RuntimeModule *rm = cb->getRuntimeModule();
++    if (!rm)
++      continue;
++    Domain *domain = rm->getDomainUnsafe(runtime);
++    if (!domain)
++      continue;
++    uint32_t packageId = domain->getPackageId();
++    if (packageId == kRuntimePackageId)
++      continue;
++    if (packageId == last)
++      continue;
++    out[count++] = packageId;
++    last = packageId;
++  }
++  return count;
++}
++
++} // namespace vm
++} // namespace hermes
++
++//===----------------------------------------------------------------------===//
++// Exported C bridge (Ibex patch, Class A). @ref LLP 0013#mechanism-3
++//
++// Ibex holds only a facebook::hermes::HermesRuntime and reaches the vm::Runtime
++// through IHermes::getVMRuntimeUnsafe() (an opaque void*). These wrappers are
++// the entire embedder-visible attribution surface: no VM header crosses into
++// Ibex's translation units. HERMES_EXPORT overrides the framework's
++// -fvisibility=hidden so the symbols survive into the shipped dylib.
++//===----------------------------------------------------------------------===//
++
++extern "C" {
++
++/// \return the package id of the nearest JS frame on \p vmRuntime's stack, or 0
++/// when none is attributable. \p vmRuntime is IHermes::getVMRuntimeUnsafe().
++HERMES_EXPORT uint32_t ex_hermes_vm_current_package_id(void *vmRuntime) {
++  if (!vmRuntime)
++    return 0;
++  return ::hermes::vm::getCurrentPackageId(
++      *reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime));
++}
++
++/// Stamp the package principal onto the next Domain \p vmRuntime creates.
++/// One-shot: consumed by the next runBytecode(). Set 0 to reset to root.
++HERMES_EXPORT void ex_hermes_vm_set_pending_package_id(
++    void *vmRuntime,
++    uint32_t id) {
++  if (!vmRuntime)
++    return;
++  reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)->setPendingPackageId(id);
++}
++
++/// Set the principal stamped onto Domains created with no pending id. The
++/// embedder sets this to the runtime principal (0xFFFFFFFF) while the bootstrap
++/// scripts evaluate, then to 0 (root) before user code runs.
++HERMES_EXPORT void ex_hermes_vm_set_default_package_id(
++    void *vmRuntime,
++    uint32_t id) {
++  if (!vmRuntime)
++    return;
++  reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)->setDefaultPackageId(id);
++}
++
++/// Fill \p out (capacity \p max) with the distinct user principals on the stack,
++/// innermost-first, and return the count. @ref LLP 0013#phase-5
++HERMES_EXPORT size_t ex_hermes_vm_collect_package_ids(
++    void *vmRuntime,
++    uint32_t *out,
++    size_t max) {
++  if (!vmRuntime || !out || max == 0)
++    return 0;
++  return ::hermes::vm::collectStackPackageIds(
++      *reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime), out, max);
++}
++
++} // extern "C"

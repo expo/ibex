@@ -229,6 +229,12 @@ ACTUAL_COMMIT=$(git rev-parse HEAD | cut -c1-12)
 echo "Building commit: $ACTUAL_COMMIT"
 echo ""
 
+# @ref LLP 0013#upstream-tracking — restore a pristine tree (this cache is
+# reused across builds), then apply the carried Hermes patch stack.
+git checkout -- . 2>/dev/null || true
+git clean -fdq -- include lib 2>/dev/null || true
+"$SCRIPT_DIR/apply-hermes-patches.sh" "$HERMES_SRC"
+
 # Clean previous builds
 rm -rf destroot build_host_hermesc build_iphoneos build_iphonesimulator build_macosx
 

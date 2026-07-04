@@ -1,0 +1,5 @@
+{ "mode":"enforce",
+  "allow":["network","process","crypto","time","env","os","device","worker","ffi"],
+  "modules": { "0": { "allow":["fs"] }, "module-loader": { "allow":["fs:read"] } },
+  "packages": { "deputy-pkg": { "capabilities":["fs:read"] }, "evil-pkg": {} },
+  "deputyClasses": ["fs:read"] }

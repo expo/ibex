@@ -1,7 +1,20 @@
 #!/usr/bin/env node
 import fs from 'fs/promises';
 import path from 'path';
-import { createRolldownConfig, runtimeImportMetaDefine } from './transforms.mjs';
+import {
+  createRolldownConfig,
+  runtimeImportMetaDefine,
+  packageOfModuleId,
+  packageIdentityOfModuleId,
+} from './transforms.mjs';
+
+// @ref LLP 0013#mechanism-3 — encode a package name into a chunk name reversibly
+// (filesystem-safe), so the runtime loader can recover the package a chunk
+// belongs to and stamp its Domain principal. Only `/` needs escaping for scopes.
+const PKG_CHUNK_PREFIX = '__ibexpkg__';
+function encodePackageChunkName(pkg) {
+  return PKG_CHUNK_PREFIX + String(pkg).replace(/\//g, '__SLASH__');
+}
 
 let rolldown;
 try {
@@ -28,6 +41,14 @@ for (let i = 0; i < args.length; i++) {
     opts.name = args[++i];
   } else if (arg === '--lower-classes') {
     opts.lowerClasses = true;
+  } else if (arg === '--compartments') {
+    // @ref LLP 0013#mechanism-2 — per-package free-global rewrite.
+    opts.compartments = true;
+  } else if (arg === '--per-package-chunks') {
+    // @ref LLP 0013#mechanism-3 — emit one chunk per npm package so each
+    // compiles into its own Domain at load time, giving bundled apps
+    // per-package frame attribution (not just the unbundled path).
+    opts.perPackageChunks = true;
   }
 }
 
@@ -49,15 +70,49 @@ const bundle = await rolldown(createRolldownConfig({
   // This preserves require.cache, require.resolve, __dirname/__filename semantics.
   keepRelativeCjsExternal: true,
   define: runtimeImportMetaDefine,
+  compartments: opts.compartments || false,
 }));
 
+// @ref LLP 0013#mechanism-3 — per-package chunking. Group each npm package's
+// modules into a chunk named after the package; the entry chunk requires them,
+// and the runtime loader compiles each chunk into its own Domain stamped with
+// the package principal. Off by default (one flat chunk); iife can't split.
+const perPackageChunks = opts.perPackageChunks && (opts.format || 'cjs') !== 'iife';
+const outDir = path.dirname(out);
+const outBase = path.basename(out);
 const writeResult = await bundle.write({
-  file: out,
   format: opts.format || 'cjs',
   ...(opts.format === 'iife' ? { name: opts.name || 'ExactRuntimeBundle' } : {}),
   sourcemap: opts.sourcemap ? true : false,
   exports: 'auto',
-  codeSplitting: false,
+  ...(perPackageChunks
+    ? {
+        // Multi-chunk output must use `dir` (+ names), not `file`.
+        dir: outDir,
+        entryFileNames: outBase,
+        chunkFileNames: '[name].js',
+        advancedChunks: {
+          groups: [
+            {
+              name: (id) => {
+                // Group by the version-qualified identity (`name@version`) so two
+                // installed versions of one package become separate chunks (hence
+                // separate Domains/principals), matching the runtime loader's
+                // identity. @ref LLP 0013#resolved-questions (ENG-22621)
+                const pkg = packageIdentityOfModuleId(id);
+                return pkg ? encodePackageChunkName(pkg) : null;
+              },
+              // Detect package modules via packageOfModuleId, which normalizes
+              // path separators — a POSIX-only `/node_modules/` regex would miss
+              // Windows ids using backslashes (`C:\app\node_modules\evil\...`),
+              // silently leaving those packages in the root bundle and disabling
+              // per-package attribution on Windows. (ENG-22698)
+              test: (id) => packageOfModuleId(id) !== null,
+            },
+          ],
+        },
+      }
+    : { file: out, codeSplitting: false }),
 });
 
 if (typeof bundle.close === 'function') {
