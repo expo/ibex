@@ -100,6 +100,21 @@ std::string winsockErrorString(const char* prefix, int error = WSAGetLastError()
   return result;
 }
 
+std::string networkEndpointCapability(const char* base, const std::string& host, int port) {
+  return std::string(base) + ":" + host + ":" + std::to_string(port);
+}
+
+void requireNetworkCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& capability,
+    const char* description) {
+  if (!checkCapability(capability)) {
+    std::string message =
+        std::string("Permission denied: ") + description + " capability required";
+    throw facebook::jsi::JSError(runtime, message.c_str());
+  }
+}
+
 bool setSocketNonBlocking(SOCKET socket) {
   u_long mode = 1;
   return ioctlsocket(socket, FIONBIO, &mode) == 0;
@@ -1066,6 +1081,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         ensureWinsock();
         std::string host = args[0].toString(runtime).utf8(runtime);
         int port = static_cast<int>(args[1].asNumber());
+        requireNetworkCapability(
+            runtime,
+            networkEndpointCapability("network:connect", host, port),
+            "network:connect");
         addrinfo hints{};
         hints.ai_family = AF_UNSPEC;
         hints.ai_socktype = SOCK_STREAM;
@@ -1295,6 +1314,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         int port = count > 1 && args[1].isNumber() ? static_cast<int>(args[1].asNumber()) : 0;
         int backlog = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : 128;
         int ipv6Only = count > 3 && args[3].isNumber() ? static_cast<int>(args[3].asNumber()) : 0;
+        requireNetworkCapability(
+            runtime,
+            networkEndpointCapability("network:listen", host, port),
+            "network:listen");
 
         addrinfo hints{};
         hints.ai_family = (ipv6Only || host.find(':') != std::string::npos) ? AF_INET6 : AF_UNSPEC;

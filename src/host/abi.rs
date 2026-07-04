@@ -767,6 +767,31 @@ pub extern "C" fn ex_host_check_capability(module_id: u64, capability: *const c_
     }
 }
 
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_no_follow_final(
+    module_id: u64,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+
+    let module = module_id.to_string();
+    let allowed = with_host(
+        |host| host.check_capability_no_follow_final(&module, &cap),
+        false,
+    );
+    if allowed {
+        1
+    } else {
+        0
+    }
+}
+
 /// Stack-intersection capability check for deputy-sensitive classes (Phase 5).
 /// `module_ids` is the distinct principal stack, innermost-first, from
 /// frame-derived attribution; the effective grant is the AND over the stack for
@@ -790,6 +815,32 @@ pub extern "C" fn ex_host_check_capability_stack(
     let stack_strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
     let stack_refs: Vec<&str> = stack_strings.iter().map(|s| s.as_str()).collect();
     let allowed = with_host(|host| host.check_capability_stack(&stack_refs, &cap), false);
+    if allowed {
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_stack_no_follow_final(
+    module_ids: *const u64,
+    len: usize,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() || module_ids.is_null() || len == 0 {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+    let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    let stack_strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    let stack_refs: Vec<&str> = stack_strings.iter().map(|s| s.as_str()).collect();
+    let allowed = with_host(
+        |host| host.check_capability_stack_no_follow_final(&stack_refs, &cap),
+        false,
+    );
     if allowed {
         1
     } else {

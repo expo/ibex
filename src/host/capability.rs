@@ -16,6 +16,9 @@ const MAX_AUDIT_LOG_ENTRIES: usize = 1024;
 pub struct CapabilityGrant {
     /// The capability string (canonical form)
     pub capability: String,
+    /// Canonical form for operations that mutate a symlink entry itself rather
+    /// than the final target (`lchown`, `lutimes`, `lchmod`).
+    pub capability_no_follow_final: String,
     /// The module that was granted the capability
     pub module_id: String,
     /// Optional constraint (e.g., path pattern, host pattern)
@@ -131,6 +134,12 @@ const MODULE_LOADER_PRINCIPAL: &str = "module-loader";
 /// package launder a deputy op across the async boundary into trusted root.
 /// @ref LLP 0013#policy
 const NO_USER_PRINCIPAL: &str = "4294967294";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FsNormalizationMode {
+    FollowFinal,
+    NoFollowFinal,
+}
 
 impl CapabilityManager {
     /// Create a new capability manager
@@ -248,7 +257,7 @@ impl CapabilityManager {
     /// (neither). @ref LLP 0013 §dynamic permissions — grant status is tri-state
     /// at the host surface, not boolean.
     pub fn grant_status(&self, capability: &str) -> u8 {
-        if self.decide("0", capability) {
+        if self.decide("0", capability, FsNormalizationMode::FollowFinal) {
             1
         } else if self.within_ceiling(capability) {
             2
@@ -316,6 +325,7 @@ impl CapabilityManager {
                 .or_default()
                 .push(CapabilityGrant {
                     capability: normalize_capability(capability),
+                    capability_no_follow_final: normalize_capability_no_follow_final(capability),
                     module_id: selector.to_string(),
                     constraint: None,
                     denied: false,
@@ -331,6 +341,7 @@ impl CapabilityManager {
                 .or_default()
                 .push(CapabilityGrant {
                     capability: normalize_capability(capability),
+                    capability_no_follow_final: normalize_capability_no_follow_final(capability),
                     module_id: selector.to_string(),
                     constraint: None,
                     denied: true,
@@ -345,8 +356,30 @@ impl CapabilityManager {
     /// would-deny is logged but still returns `true`; in `Enforce` mode the
     /// returned value is the decision itself.
     pub fn check(&self, module_id: &str, capability_str: &str) -> bool {
-        let normalized = normalize_capability(capability_str);
-        let decision = self.mode == SecurityMode::Permissive || self.decide(module_id, &normalized);
+        self.check_with_fs_mode(module_id, capability_str, FsNormalizationMode::FollowFinal)
+    }
+
+    /// Check a capability for a symlink-owning filesystem operation (`lchown`,
+    /// `lutimes`, `lchmod`). The checked resource and grants resolve
+    /// intermediate symlinks but leave the final component as the link entry
+    /// the syscall mutates.
+    pub fn check_no_follow_final(&self, module_id: &str, capability_str: &str) -> bool {
+        self.check_with_fs_mode(
+            module_id,
+            capability_str,
+            FsNormalizationMode::NoFollowFinal,
+        )
+    }
+
+    fn check_with_fs_mode(
+        &self,
+        module_id: &str,
+        capability_str: &str,
+        fs_mode: FsNormalizationMode,
+    ) -> bool {
+        let normalized = normalize_capability_with_fs_mode(capability_str, fs_mode);
+        let decision =
+            self.mode == SecurityMode::Permissive || self.decide(module_id, &normalized, fs_mode);
         self.gate_and_record(module_id, normalized, decision)
     }
 
@@ -391,7 +424,7 @@ impl CapabilityManager {
     /// The real policy decision, independent of mode gating. Precedence:
     /// always-allowed → module deny/allow → package deny/allow → global
     /// deny/allow → default-deny.
-    fn decide(&self, module_id: &str, capability: &str) -> bool {
+    fn decide(&self, module_id: &str, capability: &str, fs_mode: FsNormalizationMode) -> bool {
         if ALWAYS_ALLOWED.iter().any(|cap| cap == &capability) {
             return true;
         }
@@ -416,10 +449,10 @@ impl CapabilityManager {
 
         // Module-specific (numeric id) grants first.
         if let Ok(grants) = self.grants.read() {
-            if matches_denials(grants.get(module_id), capability) {
+            if matches_denials(grants.get(module_id), capability, fs_mode) {
                 return false;
             }
-            if matches_grants(grants.get(module_id), capability) {
+            if matches_grants(grants.get(module_id), capability, fs_mode) {
                 return true;
             }
         }
@@ -431,10 +464,10 @@ impl CapabilityManager {
         if let Some(principal) = self.principal_for(module_id) {
             if let Ok(grants) = self.package_grants.read() {
                 for selector in principal.selectors() {
-                    if matches_denials(grants.get(selector), capability) {
+                    if matches_denials(grants.get(selector), capability, fs_mode) {
                         return false;
                     }
-                    if matches_grants(grants.get(selector), capability) {
+                    if matches_grants(grants.get(selector), capability, fs_mode) {
                         return true;
                     }
                 }
@@ -443,10 +476,10 @@ impl CapabilityManager {
 
         // Global grants last.
         if let Ok(grants) = self.grants.read() {
-            if matches_denials(grants.get("*"), capability) {
+            if matches_denials(grants.get("*"), capability, fs_mode) {
                 return false;
             }
-            if matches_grants(grants.get("*"), capability) {
+            if matches_grants(grants.get("*"), capability, fs_mode) {
                 return true;
             }
         }
@@ -584,7 +617,20 @@ impl CapabilityManager {
     ///
     /// @ref LLP 0013#phase-5
     pub fn check_stack(&self, stack: &[&str], capability_str: &str) -> bool {
-        let normalized = normalize_capability(capability_str);
+        self.check_stack_with_fs_mode(stack, capability_str, FsNormalizationMode::FollowFinal)
+    }
+
+    pub fn check_stack_no_follow_final(&self, stack: &[&str], capability_str: &str) -> bool {
+        self.check_stack_with_fs_mode(stack, capability_str, FsNormalizationMode::NoFollowFinal)
+    }
+
+    fn check_stack_with_fs_mode(
+        &self,
+        stack: &[&str],
+        capability_str: &str,
+        fs_mode: FsNormalizationMode,
+    ) -> bool {
+        let normalized = normalize_capability_with_fs_mode(capability_str, fs_mode);
         let top = stack.first().copied().unwrap_or("");
 
         let decision = if self.mode == SecurityMode::Permissive {
@@ -596,7 +642,7 @@ impl CapabilityManager {
             // chain, not just the frames live at the moment of the check.
             stack
                 .iter()
-                .all(|principal| self.decide(principal, &normalized))
+                .all(|principal| self.decide(principal, &normalized, fs_mode))
         } else {
             // A genuinely single-principal deputy-class stack: a package (deputy or
             // not) acting for itself. This includes a granted package's own async
@@ -611,7 +657,7 @@ impl CapabilityManager {
             // that false-denied every legitimate async deputy-class op.) Residual:
             // a deputy that itself re-schedules across a further async hop is
             // "deputy by design," out of scope by default (RFC Open Q3).
-            self.decide(top, &normalized)
+            self.decide(top, &normalized, fs_mode)
         };
         self.gate_and_record(top, normalized, decision)
     }
@@ -622,6 +668,7 @@ impl CapabilityManager {
             let module_grants = grants.entry(module_id.to_string()).or_insert_with(Vec::new);
             module_grants.push(CapabilityGrant {
                 capability: normalize_capability(capability),
+                capability_no_follow_final: normalize_capability_no_follow_final(capability),
                 module_id: module_id.to_string(),
                 constraint,
                 denied: false,
@@ -635,6 +682,7 @@ impl CapabilityManager {
             let module_grants = grants.entry(module_id.to_string()).or_insert_with(Vec::new);
             module_grants.push(CapabilityGrant {
                 capability: normalize_capability(capability),
+                capability_no_follow_final: normalize_capability_no_follow_final(capability),
                 module_id: module_id.to_string(),
                 constraint,
                 denied: true,
@@ -837,6 +885,14 @@ const NODE_BUILTINS: &[&str] = &[
 ];
 
 pub fn normalize_capability(capability: &str) -> String {
+    normalize_capability_with_fs_mode(capability, FsNormalizationMode::FollowFinal)
+}
+
+fn normalize_capability_no_follow_final(capability: &str) -> String {
+    normalize_capability_with_fs_mode(capability, FsNormalizationMode::NoFollowFinal)
+}
+
+fn normalize_capability_with_fs_mode(capability: &str, fs_mode: FsNormalizationMode) -> String {
     let trimmed = capability.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -857,7 +913,7 @@ pub fn normalize_capability(capability: &str) -> String {
     };
     let action = action.to_lowercase();
     let normalized_resource = match scope.as_str() {
-        "fs" => normalize_fs_resource(resource),
+        "fs" => normalize_fs_resource(resource, fs_mode),
         "env" => normalize_env_resource(resource),
         "network" => normalize_network_resource(resource),
         _ => resource.to_string(),
@@ -878,7 +934,7 @@ fn normalize_network_resource(resource: &str) -> String {
     resource.trim().to_lowercase()
 }
 
-fn normalize_fs_resource(resource: &str) -> String {
+fn normalize_fs_resource(resource: &str, fs_mode: FsNormalizationMode) -> String {
     let trimmed = resource.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -901,9 +957,11 @@ fn normalize_fs_resource(resource: &str) -> String {
     // (e.g. macOS `/var` → `/private/var`). (ENG-22682)
     let has_wildcard = trimmed.contains('*');
     if !has_wildcard {
-        return resolve_symlinks_partial(&path)
-            .to_string_lossy()
-            .to_string();
+        let resolved = match fs_mode {
+            FsNormalizationMode::FollowFinal => resolve_symlinks_partial(&path),
+            FsNormalizationMode::NoFollowFinal => resolve_symlinks_partial_no_follow_final(&path),
+        };
+        return resolved.to_string_lossy().to_string();
     }
 
     // Wildcard pattern: resolve the fixed literal prefix (components before the
@@ -946,9 +1004,19 @@ fn normalize_fs_resource(resource: &str) -> String {
 /// appended lexically (the actual syscall will fail with ELOOP anyway).
 /// (ENG-22682)
 fn resolve_symlinks_partial(path: &Path) -> PathBuf {
+    resolve_symlinks_partial_with_mode(path, true)
+}
+
+fn resolve_symlinks_partial_no_follow_final(path: &Path) -> PathBuf {
+    resolve_symlinks_partial_with_mode(path, false)
+}
+
+fn resolve_symlinks_partial_with_mode(path: &Path, follow_final: bool) -> PathBuf {
     // Fast path: the whole path exists — the kernel's own resolution.
-    if let Ok(canon) = path.canonicalize() {
-        return canon;
+    if follow_final {
+        if let Ok(canon) = path.canonicalize() {
+            return canon;
+        }
     }
 
     const MAX_LINK_EXPANSIONS: usize = 40;
@@ -977,9 +1045,12 @@ fn resolve_symlinks_partial(path: &Path) -> PathBuf {
             continue;
         }
         let candidate = out.join(&comp);
-        let is_link = std::fs::symlink_metadata(&candidate)
-            .map(|md| md.file_type().is_symlink())
-            .unwrap_or(false);
+        let is_final_component = pending.is_empty();
+        let should_follow = follow_final || !is_final_component;
+        let is_link = should_follow
+            && std::fs::symlink_metadata(&candidate)
+                .map(|md| md.file_type().is_symlink())
+                .unwrap_or(false);
         if is_link && expansions < MAX_LINK_EXPANSIONS {
             if let Ok(target) = std::fs::read_link(&candidate) {
                 expansions += 1;
@@ -1026,13 +1097,24 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-fn matches_grants(grants: Option<&Vec<CapabilityGrant>>, capability: &str) -> bool {
+fn grant_capability_for_mode(grant: &CapabilityGrant, fs_mode: FsNormalizationMode) -> &str {
+    match fs_mode {
+        FsNormalizationMode::FollowFinal => &grant.capability,
+        FsNormalizationMode::NoFollowFinal => &grant.capability_no_follow_final,
+    }
+}
+
+fn matches_grants(
+    grants: Option<&Vec<CapabilityGrant>>,
+    capability: &str,
+    fs_mode: FsNormalizationMode,
+) -> bool {
     if let Some(list) = grants {
         for grant in list {
             if grant.denied {
                 continue;
             }
-            if matches_capability(&grant.capability, capability) {
+            if matches_capability(grant_capability_for_mode(grant, fs_mode), capability) {
                 return true;
             }
         }
@@ -1040,13 +1122,17 @@ fn matches_grants(grants: Option<&Vec<CapabilityGrant>>, capability: &str) -> bo
     false
 }
 
-fn matches_denials(grants: Option<&Vec<CapabilityGrant>>, capability: &str) -> bool {
+fn matches_denials(
+    grants: Option<&Vec<CapabilityGrant>>,
+    capability: &str,
+    fs_mode: FsNormalizationMode,
+) -> bool {
     if let Some(list) = grants {
         for grant in list {
             if !grant.denied {
                 continue;
             }
-            if matches_capability(&grant.capability, capability) {
+            if matches_capability(grant_capability_for_mode(grant, fs_mode), capability) {
                 return true;
             }
         }
@@ -1229,6 +1315,73 @@ mod tests {
             matches_capability(&grant, &in_tree),
             "an ordinary write inside the granted tree must still match \
              (grant={grant}, value={in_tree})"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // @ref LLP 0013#policy — link-own metadata syscalls mutate the symlink
+    // entry itself, so their fs:write gate must leave the final symlink
+    // unresolved while still resolving intermediate symlinks. (ENG-22716)
+    #[cfg(unix)]
+    #[test]
+    fn link_own_metadata_checks_match_the_link_path_not_the_target() {
+        use std::process::id;
+        use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+        let base = std::env::temp_dir().join(format!(
+            "ibex-link-own-{}-{}",
+            id(),
+            COUNTER.fetch_add(1, AtomicOrdering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("links")).unwrap();
+        std::fs::create_dir_all(base.join("targets")).unwrap();
+        let base = base.canonicalize().unwrap();
+        let target = base.join("targets").join("file.txt");
+        let link = base.join("links").join("file.link");
+        std::fs::write(&target, "target").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let target_grant = CapabilityManager::new(SecurityMode::Enforce);
+        target_grant.grant(
+            "module-a",
+            &format!("fs:write:{}", target.to_string_lossy()),
+            None,
+        );
+        assert!(
+            target_grant.check("module-a", &format!("fs:write:{}", link.to_string_lossy())),
+            "ordinary fs checks still follow the final symlink"
+        );
+        assert!(
+            !target_grant
+                .check_no_follow_final("module-a", &format!("fs:write:{}", link.to_string_lossy())),
+            "link-own checks must not accept a grant on the target"
+        );
+
+        let link_grant = CapabilityManager::new(SecurityMode::Enforce);
+        link_grant.grant(
+            "module-a",
+            &format!("fs:write:{}", link.to_string_lossy()),
+            None,
+        );
+        assert!(
+            link_grant
+                .check_no_follow_final("module-a", &format!("fs:write:{}", link.to_string_lossy())),
+            "a grant on the link path must authorize link-own metadata"
+        );
+
+        let subtree_grant = CapabilityManager::new(SecurityMode::Enforce);
+        subtree_grant.grant(
+            "module-a",
+            &format!("fs:write:{}/links/**", base.to_string_lossy()),
+            None,
+        );
+        assert!(
+            subtree_grant
+                .check_no_follow_final("module-a", &format!("fs:write:{}", link.to_string_lossy())),
+            "a subtree grant containing the link entry must match"
         );
 
         let _ = std::fs::remove_dir_all(&base);
@@ -1463,7 +1616,7 @@ mod tests {
         audit.runtime_self_grant("2", "fs:read");
         // Audit lets ops proceed but the grant itself must not be recorded.
         assert!(
-            !audit.decide("2", "fs:read:/etc/passwd"),
+            !audit.decide("2", "fs:read:/etc/passwd", FsNormalizationMode::FollowFinal),
             "self-grant must not stick under audit"
         );
 
@@ -1471,7 +1624,7 @@ mod tests {
         permissive.runtime_self_grant("3", "fs:read");
         // Permissive keeps the dev convenience (though permissive allows anyway).
         assert!(
-            permissive.decide("3", "fs:read:/etc/passwd"),
+            permissive.decide("3", "fs:read:/etc/passwd", FsNormalizationMode::FollowFinal),
             "self-grant works under permissive"
         );
     }

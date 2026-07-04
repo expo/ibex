@@ -71,6 +71,13 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isString()) {
           hostname = args[1].toString(runtime).utf8(runtime);
         }
+        // @ref LLP 0013#policy — importing http/Bun.serve is not authority to
+        // open a listening socket. Gate the native serve boundary. (ENG-22722)
+        if (!checkCapability("network:listen:" + hostname + ":" + std::to_string(port))) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: network:listen capability required");
+        }
         char* json = ex_host_http_serve(port, hostname.c_str());
         if (!json) {
           throw facebook::jsi::JSError(runtime, "Failed to start HTTP server");

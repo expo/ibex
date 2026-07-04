@@ -226,11 +226,24 @@ impl Host {
         self.capability_manager.check(module_id, capability)
     }
 
+    /// Check a capability for a symlink-owning filesystem operation. This uses
+    /// no-follow-final normalization while preserving normal audit/enforce
+    /// semantics.
+    pub fn check_capability_no_follow_final(&self, module_id: &str, capability: &str) -> bool {
+        self.capability_manager
+            .check_no_follow_final(module_id, capability)
+    }
+
     /// Stack-intersection check for deputy-sensitive capability classes: the
     /// effective grant is the AND of every principal on the call stack
     /// (innermost-first). @ref LLP 0013#phase-5
     pub fn check_capability_stack(&self, stack: &[&str], capability: &str) -> bool {
         self.capability_manager.check_stack(stack, capability)
+    }
+
+    pub fn check_capability_stack_no_follow_final(&self, stack: &[&str], capability: &str) -> bool {
+        self.capability_manager
+            .check_stack_no_follow_final(stack, capability)
     }
 
     /// Whether any deputy capability classes are configured. When none are, the

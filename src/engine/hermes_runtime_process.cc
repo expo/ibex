@@ -1833,6 +1833,11 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         if (count == 0 || !args[0].isString()) {
           return facebook::jsi::Value::null();
         }
+        if (!checkCapability("process:spawn")) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: process:spawn capability required");
+        }
         auto command = args[0].asString(runtime).utf8(runtime);
 
         // If command contains a slash, check it directly

@@ -6,6 +6,7 @@
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
 **Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed); 2026-07-03 (adversarial review + fixes — patch 0007 fails closed on the async/deputy attribution boundary (`kNoUserPrincipal` sentinel + internal-bytecode runtime-principal stamp) so a package cannot launder a detached deputy op into trusted root; endowment config injected via `__ibexEndowRaw` not gated `process.env`; explicit `--capsec permissive` distinguished from the `Auto` default; `ceiling_configured` fails closed on lock poison; native deep-freeze per-root try/catch; chunk-basename traversal guard); 2026-07-03 (patch 0008 closes the async deputy-class laundering hole ENG-22631 — the schedule-time principal is captured at `enqueueJob` and appended to the deputy-class stack, so `Promise.resolve(x).then(deputy.method)` under `deputyClasses` is attributed to its scheduler; resolves Open question 3's schedule-time half); 2026-07-03 (deep-review fixes ENG-22681/22682/22683/22684/22621: enforce/audit auto-enable per-package chunking so a bundled dependency is attributed to its own principal, not root — plus a per-key bundle-cache subdir and the shared `rolldown-runtime.js` chunk redirect that makes chunking robust for ESM apps and safe under concurrent runs; path-scoped `fs` grants resolve symlinks before matching, and `lutimes`/`lchmod`/symlink-target/hardlink-source gates close the last path-mutator holes; `IBEX_ENDOW` can no longer widen policy endowments under enforce/audit without `--allow-env-endowments`; the generated policy emits an explicit observed `builtins` allowlist so the import axis is default-deny; and package identity is now version-distinguished end-to-end — `name@version` principals/compartments/chunks with bare-name policy selectors, so coexisting versions receive distinct policy treatment)
+**Revised:** 2026-07-04 (deep-review fixes ENG-22716/ENG-22717/ENG-22718/ENG-22720/ENG-22722: no-follow-final link metadata gates, `access(W_OK)` write gating, caller-referrer dynamic imports, `Bun.which` spawn gating, and native server/socket network gates)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -1028,18 +1029,21 @@ guarantee is traversal-time denial at the normalize choke point every mutator
 shares; the residual check-vs-syscall TOCTOU (low risk under single-threaded,
 same-principal JS) is noted for a possible `openat`/`O_NOFOLLOW` follow-up.
 
-**Known residual gaps (follow-ups, from the ENG-22682 review).** Two `fs:write`
-imprecisions remain, both low/medium and out of the symlink-escape scope: (1) the
-**fd-based metadata mutators** `fchmod`/`fchown`/`futimes` carry no capability
-check — they rely on "the fd was gated at open", which holds for content but not
-for POSIX metadata ops (`fchmod` on an `O_RDONLY` fd succeeds by ownership), so a
-principal with only `fs:read` can change a file's mode/owner/timestamps via a
-read-opened fd; closing this needs an fd→path map captured at open so the metadata
-op can gate `fs:write` on the underlying path. (2) The link-only mutators
-(`lchmod`/`lutimes`/`lchown`) gate the symlink-*resolved* path, but they operate on
-the link entry itself — so the gate checks the target, not the link (a net
-improvement over the pre-review *ungated* state, but semantically it should check
-the link's own path via a no-follow-final normalization).
+**Closed follow-ups (from the ENG-22682 and ENG-22716–ENG-22722 reviews).**
+The fd-based metadata mutators `fchmod`/`fchown`/`futimes` now use the fd→path
+registry captured at open time and gate `fs:write` on the underlying path before
+the metadata syscall. The link-only mutators (`lchmod`/`lutimes`/`lchown`) now
+use no-follow-final normalization, so a grant on the symlink target does not
+authorize metadata mutation of the symlink entry itself (ENG-22716). POSIX
+`access(W_OK)` requires `fs:write` rather than only `fs:read` (ENG-22717).
+Dynamic relative `import()` preserves the caller referrer for both resolution and
+import-gate attribution (ENG-22718). `Bun.which` probes are gated by
+`process:spawn` (ENG-22720). Native TCP, UDP, Unix-domain, and HTTP serving
+operations gate the relevant `network:connect`, `network:listen`, or
+`network:local` capability at the host boundary before probing, connecting,
+binding, listening, or sending (ENG-22722). The residual check-vs-syscall TOCTOU
+from path normalization remains the known possible `openat`/`O_NOFOLLOW`
+follow-up.
 
 The `process.env` gap: `process.env` is a JS Proxy whose reads funnel every key
 through the capability-checked native `__exactGetEnv`/`__exactGetAllEnv`

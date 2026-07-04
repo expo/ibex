@@ -58,6 +58,13 @@ fn unique_dir(tag: &str) -> PathBuf {
     dir
 }
 
+fn write_text(path: &Path, contents: &str) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create parent dir");
+    }
+    std::fs::write(path, contents).expect("write test file");
+}
+
 fn have_js_runner() -> bool {
     which("bun") || which("node")
 }
@@ -446,7 +453,10 @@ fn generated_policy_endows_granted_package_and_contains_the_rest() {
             "run",
             dir.join("app.mjs").to_str().unwrap(),
         ],
-        &[("SECRET_TOKEN", "hunter2"), ("IBEX_PER_PACKAGE_CHUNKS", "0")],
+        &[
+            ("SECRET_TOKEN", "hunter2"),
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+        ],
         None,
     );
     // The package granted `process:env` at its import site works under lockdown…
@@ -729,9 +739,10 @@ fn policy_check_reports_builtin_expansion_on_drift() {
     copy_dir_recursive(&fixtures_dir().join("generated-builtins"), &dir);
     // os-user grows a new builtin import the committed allowlist doesn't have.
     let os_user = dir.join("node_modules").join("os-user").join("index.js");
-    let source = std::fs::read_to_string(&os_user)
-        .unwrap()
-        .replace("var os = require(\"os\");", "var os = require(\"os\");\nvar cp = require(\"child_process\");");
+    let source = std::fs::read_to_string(&os_user).unwrap().replace(
+        "var os = require(\"os\");",
+        "var os = require(\"os\");\nvar cp = require(\"child_process\");",
+    );
     std::fs::write(&os_user, source).unwrap();
     let out = run_ibex(
         &[
@@ -743,7 +754,11 @@ fn policy_check_reports_builtin_expansion_on_drift() {
         &[],
         None,
     );
-    assert_ne!(out.status, 0, "builtin drift must fail the check:\n{}", out.stdout);
+    assert_ne!(
+        out.status, 0,
+        "builtin drift must fail the check:\n{}",
+        out.stdout
+    );
     assert!(
         out.stderr.contains("EXPANSIONS")
             && out.stderr.contains("os-user: import node:child_process"),
@@ -872,6 +887,174 @@ fn fs_write_requires_fs_write_capability() {
         "path-based fs mutators must succeed when fs:write is granted:\nstdout:\n{}\nstderr:\n{}",
         rw.stdout,
         rw.stderr
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn posix_access_w_ok_requires_fs_write_capability() {
+    let dir = unique_dir("access-w-ok");
+    let file = dir.join("writable.txt");
+    write_text(&file, "writable");
+    let pkg = dir.join("node_modules").join("access-probe");
+    write_text(
+        &pkg.join("package.json"),
+        r#"{"name":"access-probe","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &pkg.join("index.js"),
+        r#"
+const fs = require("fs");
+exports.run = function(path) {
+  try {
+    fs.accessSync(path, fs.constants.W_OK);
+    return "W_OK: ALLOWED";
+  } catch (e) {
+    return String(e && e.message || e).indexOf("Permission denied") !== -1
+      ? "W_OK: DENIED"
+      : "W_OK: ERR";
+  }
+};
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        &format!(
+            "console.log(require('access-probe').run({}));\n",
+            serde_json::to_string(&file.to_string_lossy()).unwrap()
+        ),
+    );
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "access-probe": {
+                "capabilities": [format!("fs:read:{}", file.to_string_lossy())]
+            }
+        }
+    });
+    write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("W_OK: DENIED"),
+        "fs.access(W_OK) must require fs:write, not only fs:read:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn link_own_metadata_gates_the_link_path_not_the_target() {
+    let dir = unique_dir("link-own-metadata");
+    let target = dir.join("target.txt");
+    let link = dir.join("link.txt");
+    write_text(&target, "target");
+    std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+
+    let pkg = dir.join("node_modules").join("link-probe");
+    write_text(
+        &pkg.join("package.json"),
+        r#"{"name":"link-probe","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &pkg.join("index.js"),
+        r#"
+const fs = require("fs");
+function classify(fn) {
+  try {
+    fn();
+    return "OK";
+  } catch (e) {
+    return String(e && e.message || e).indexOf("Permission denied") !== -1
+      ? "CAP_DENIED"
+      : "SYSCALL";
+  }
+}
+exports.run = function(path) {
+  return [
+    "lchown=" + classify(function() { fs.lchownSync(path, 0, 0); }),
+    "lutimes=" + classify(function() { fs.lutimesSync(path, new Date(), new Date()); }),
+    "lchmod=" + classify(function() { fs.lchmodSync(path, 0o777); })
+  ].join(" ");
+};
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        &format!(
+            "console.log(require('link-probe').run({}));\n",
+            serde_json::to_string(&link.to_string_lossy()).unwrap()
+        ),
+    );
+
+    let target_policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "link-probe": {
+                "capabilities": [format!("fs:write:{}", target.to_string_lossy())]
+            }
+        }
+    });
+    write_text(&dir.join("target-policy.json"), &target_policy.to_string());
+    let target_out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("target-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[],
+        Some(&dir),
+    );
+    assert!(
+        target_out
+            .stdout
+            .contains("lchown=CAP_DENIED lutimes=CAP_DENIED lchmod=CAP_DENIED"),
+        "a grant on the symlink target must not authorize link-own metadata:\nstdout:\n{}\nstderr:\n{}",
+        target_out.stdout,
+        target_out.stderr
+    );
+
+    let link_policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "link-probe": {
+                "capabilities": [format!("fs:write:{}", link.to_string_lossy())]
+            }
+        }
+    });
+    write_text(&dir.join("link-policy.json"), &link_policy.to_string());
+    let link_out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("link-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[],
+        Some(&dir),
+    );
+    assert!(
+        !link_out.stdout.contains("CAP_DENIED"),
+        "a grant on the symlink path should pass the capability gate; platform syscall errors are okay:\nstdout:\n{}\nstderr:\n{}",
+        link_out.stdout,
+        link_out.stderr
     );
 }
 
@@ -1263,12 +1446,7 @@ fn policy_declared_enforce_auto_enables_bundled_attribution() {
     let secret = dir.join("secret.txt");
     // No --capsec (Auto → the policy's enforce), and no IBEX_PER_PACKAGE_CHUNKS.
     let auto = run_ibex(
-        &[
-            "--policy",
-            &policy.to_string_lossy(),
-            "run",
-            "app.js",
-        ],
+        &["--policy", &policy.to_string_lossy(), "run", "app.js"],
         &[("SECRETPATH", &secret.to_string_lossy())],
         Some(&dir),
     );
@@ -1283,12 +1461,7 @@ fn policy_declared_enforce_auto_enables_bundled_attribution() {
 
     // Opt out: the flat bundle collapses to root again (control for the auto-enable).
     let opt_out = run_ibex(
-        &[
-            "--policy",
-            &policy.to_string_lossy(),
-            "run",
-            "app.js",
-        ],
+        &["--policy", &policy.to_string_lossy(), "run", "app.js"],
         &[
             ("SECRETPATH", &secret.to_string_lossy()),
             ("IBEX_PER_PACKAGE_CHUNKS", "0"),
@@ -1750,14 +1923,18 @@ fn enforce_closes_runtime_capability_escapes() {
     // ENG-22695: the self-grant surface is removed and the grant is refused —
     // the later read stays denied.
     assert!(
-        enforced.stdout.contains("selfgrant: setModuleCapabilities=absent read=DENIED"),
+        enforced
+            .stdout
+            .contains("selfgrant: setModuleCapabilities=absent read=DENIED"),
         "self-grant must be sealed and refused under enforce:\nstdout:\n{}\nstderr:\n{}",
         enforced.stdout,
         enforced.stderr
     );
     // ENG-22697: exact:/bun: builtin aliases are denied by builtins:[].
     assert!(
-        enforced.stdout.contains("aliases: exact:sqlite=DENIED bun:sqlite=DENIED bun:fs=DENIED"),
+        enforced
+            .stdout
+            .contains("aliases: exact:sqlite=DENIED bun:sqlite=DENIED bun:fs=DENIED"),
         "builtin aliases must be denied under builtins:[]:\nstdout:\n{}\nstderr:\n{}",
         enforced.stdout,
         enforced.stderr
@@ -1859,6 +2036,248 @@ fn import_gate_denies_restricted_package_builtin() {
     assert!(
         out.stdout.contains("evil-dynamic-import: IMPORT-DENIED"),
         "dynamic import() must be gated by the package principal:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn dynamic_relative_import_uses_the_calling_module_referrer() {
+    let dir = unique_dir("dynamic-relative-import");
+    let dynamic_pkg = dir.join("node_modules").join("dynamic-pkg");
+    let sibling_pkg = dir.join("node_modules").join("sibling-pkg");
+    write_text(
+        &dynamic_pkg.join("package.json"),
+        r#"{"name":"dynamic-pkg","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &dynamic_pkg.join("index.js"),
+        r#"
+exports.run = async function() {
+  var local = await import("./local.js").then(
+    function(m) { return m.value || (m.default && m.default.value); },
+    function(e) { return "LOCAL_ERR:" + (e && e.message || e); }
+  );
+  var sibling = await import("../sibling-pkg/index.js").then(
+    function(m) { return "SIBLING:" + (m.value || (m.default && m.default.value)); },
+    function() { return "SIBLING:DENIED"; }
+  );
+  return "local=" + local + " " + sibling;
+};
+"#,
+    );
+    write_text(&dynamic_pkg.join("local.js"), r#"exports.value = "LOCAL";"#);
+    write_text(
+        &sibling_pkg.join("package.json"),
+        r#"{"name":"sibling-pkg","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &sibling_pkg.join("index.js"),
+        r#"exports.value = "SIBLING";"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        r#"
+(async function() {
+  console.log(await require("dynamic-pkg").run());
+})().catch(function(e) {
+  console.log("ERR:" + (e && e.message || e));
+});
+"#,
+    );
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "dynamic-pkg": {
+                "builtins": [],
+                "packages": []
+            },
+            "sibling-pkg": {
+                "builtins": []
+            }
+        }
+    });
+    write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("local=LOCAL SIBLING:DENIED"),
+        "dynamic import must resolve ./local.js from the caller while still gating sibling traversal:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn bun_which_requires_process_spawn_capability() {
+    let dir = unique_dir("bun-which");
+    let pkg = dir.join("node_modules").join("which-probe");
+    write_text(
+        &pkg.join("package.json"),
+        r#"{"name":"which-probe","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &pkg.join("index.js"),
+        r#"
+exports.run = function() {
+  try {
+    var found = Bun.which("sh");
+    return found ? "which: ALLOWED" : "which: NULL";
+  } catch (e) {
+    return String(e && e.message || e).indexOf("process:spawn") !== -1
+      ? "which: DENIED"
+      : "which: ERR";
+  }
+};
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        "console.log(require('which-probe').run());\n",
+    );
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "which-probe": {
+                "builtins": [],
+                "endow": ["Bun"]
+            }
+        }
+    });
+    write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+
+    let out = run_ibex(
+        &[
+            "--compat",
+            "bun",
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("which: DENIED"),
+        "Bun.which must not probe PATH/executables without process:spawn:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn server_and_socket_host_functions_require_network_capabilities() {
+    let dir = unique_dir("network-gates");
+    let pkg = dir.join("node_modules").join("network-probe");
+    write_text(
+        &pkg.join("package.json"),
+        r#"{"name":"network-probe","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &pkg.join("index.js"),
+        r#"
+function once(emitter, event, cb) {
+  var done = false;
+  emitter.once(event, function(value) {
+    if (done) return;
+    done = true;
+    cb(value);
+  });
+}
+exports.run = async function() {
+  var out = [];
+  var net = require("net");
+  await new Promise(function(resolve) {
+    var socket = net.connect({ host: "127.0.0.1", port: 9 });
+    once(socket, "error", function(err) {
+      out.push("tcp-connect:" + (err && err.code === "EACCES" ? "DENIED" : "ERR"));
+      resolve();
+    });
+    socket.once("connect", function() {
+      out.push("tcp-connect:ALLOWED");
+      socket.destroy();
+      resolve();
+    });
+  });
+  await new Promise(function(resolve) {
+    var server = net.createServer();
+    once(server, "error", function(err) {
+      out.push("tcp-listen:" + (err && err.code === "EACCES" ? "DENIED" : "ERR"));
+      resolve();
+    });
+    server.listen(0, "127.0.0.1", function() {
+      out.push("tcp-listen:ALLOWED");
+      server.close(resolve);
+    });
+  });
+  var dgram = require("dgram");
+  await new Promise(function(resolve) {
+    var udp = dgram.createSocket("udp4");
+    once(udp, "error", function() {
+      out.push("udp-bind:DENIED");
+      try { udp.close(); } catch (_) {}
+      resolve();
+    });
+    udp.bind(0, "127.0.0.1", function() {
+      out.push("udp-bind:ALLOWED");
+      udp.close(resolve);
+    });
+  });
+  return out.join(" ");
+};
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        r#"
+(async function() {
+  console.log(await require("network-probe").run());
+})().catch(function(e) {
+  console.log("ERR:" + (e && e.message || e));
+});
+"#,
+    );
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "network-probe": {
+                "capabilities": []
+            }
+        }
+    });
+    write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout
+            .contains("tcp-connect:DENIED tcp-listen:DENIED udp-bind:DENIED"),
+        "net/dgram host operations must require network capabilities:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );

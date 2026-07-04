@@ -755,6 +755,15 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
   Bun.fetch = typeof Bun.fetch === 'function' ? Bun.fetch : g.fetch;
   Bun.argv = Bun.argv || g.process.argv || [];
   Bun.main = Bun.main || (g.process.argv && g.process.argv[1]) || '';
+  Bun.which = typeof Bun.which === 'function' ? Bun.which : function(cmd) {
+    if (typeof cmd !== 'string' || !cmd) return null;
+    if (typeof g.__exactWhich !== 'function' &&
+        typeof g.__exactEnsureChildProcess === 'function') {
+      try { g.__exactEnsureChildProcess(); } catch (_) {}
+    }
+    if (typeof g.__exactWhich === 'function') return g.__exactWhich(cmd);
+    return null;
+  };
 
   function normalizeBunCommand(cmd, opts) {
     var args;
@@ -1082,6 +1091,15 @@ impl Runtime {
             globalThis.__exactExecArgv = {};\n\
             globalThis.__exactRawArgv0 = {};\n\
             globalThis.__exactCompatModes = {};\n\
+            if (Array.isArray(globalThis.__exactCompatModes) && \
+                globalThis.__exactCompatModes.indexOf('bun') !== -1 && \
+                !globalThis.Bun && globalThis.Exact) {{\n\
+              globalThis.Bun = globalThis.Exact;\n\
+            }}\n\
+            if (typeof globalThis.__exactWhich === 'function') {{\n\
+              if (globalThis.Exact) globalThis.Exact.which = globalThis.__exactWhich;\n\
+              if (globalThis.Bun) globalThis.Bun.which = globalThis.__exactWhich;\n\
+            }}\n\
             ",
             exec_path_json, exec_argv_json, raw_argv0_json, compat_modes_json
         );

@@ -219,7 +219,13 @@
     var fn;
     try {
       fn = new __privFunction(
-        "require", "module", "exports", "__filename", "__dirname", source);
+        "require",
+        "module",
+        "exports",
+        "__filename",
+        "__dirname",
+        "__exactDynamicImport",
+        source);
     } finally {
       if (__privSetPendingPackageId) {
         // Clear (not pin 0): the compile's runBytecode already consumed the
@@ -3963,7 +3969,9 @@
     if (!source || source.indexOf("import(") === -1) {
       return source;
     }
-    // Replace dynamic import() calls with globalThis["import"]() polyfill.
+    // Replace dynamic import() calls with the module-local helper that closes
+    // over this module's filename/referrer. A global import polyfill cannot
+    // resolve `import("./local.js")` relative to the caller. (ENG-22718)
     // Skip replacements inside string literals to avoid breaking error messages etc.
     var result = "";
     var i = 0;
@@ -4077,7 +4085,7 @@
         var rest = source.slice(i);
         var m = rest.match(/^import\s*\(/);
         if (m) {
-          result += 'globalThis["import"](';
+          result += '__exactDynamicImport(';
           i += m[0].length;
           lastCode = i - 1;
           continue;
@@ -5265,6 +5273,9 @@
       : 0;
     const previousNodeFilename = g.__filename;
     const previousNodeDirname = g.__dirname;
+    const moduleDynamicImport = function(specifier, options) {
+      return importImpl(specifier, options, filename, module);
+    };
     try {
       const splitDirectivePrologue = function(text) {
         var sourceText = String(text || "");
@@ -5408,7 +5419,7 @@
           const fallbackFn = compileModuleBody(module.__exactPackageId, module.__exactCompartment, sourceText);
           g.__filename = filename;
           g.__dirname = dir;
-          fallbackFn(localRequire, module, module.exports, filename, dir);
+          fallbackFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
         };
         try {
           g.__exactDebugModuleSource = runtimeSource;
@@ -5450,13 +5461,14 @@
           g.__filename = filename;
           g.__dirname = dir;
           const directFn = compileModuleBody(module.__exactPackageId, module.__exactCompartment, directSource);
-          directFn(localRequire, module, module.exports, filename, dir);
+          directFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
         } catch (err) {
           const needsAsyncFallback = isAwaitSyntaxFailure(err);
           const shouldFallback = (
             kind === "esm" ||
             looksLikeModuleSyntax(directSource) ||
             directSource.indexOf('await globalThis["import"](') !== -1 ||
+            directSource.indexOf('await __exactDynamicImport(') !== -1 ||
             needsAsyncFallback
           );
           const canFallback = shouldFallback &&
@@ -5778,7 +5790,8 @@
   // Polyfill dynamic import() using require()
   // import() returns a Promise that resolves to the module
   // ESM default export becomes { default: ... }, named exports are direct properties
-  var importImpl = function(specifier, options) {
+  var importImpl = function(specifier, options, referrer, parent) {
+    referrer = typeof referrer === 'string' ? referrer : "";
     // Gate synchronously: the microtask below detaches the requesting frame, so
     // frame-derived attribution must run now, while the package's frame is still
     // on the stack. Surface a denial as a rejected promise per import()
@@ -5797,13 +5810,16 @@
           (specifier.charAt(0) === '.' || specifier.charAt(0) === '/')) {
         var __itp = null;
         try {
-          var __irj = __exactModuleResolve(stripViteImportQuery(specifier), "");
+          var __irj = __exactModuleResolve(stripViteImportQuery(specifier), referrer);
           if (__irj) {
             var __irec = JSON.parse(__irj);
-            if (!__irec.error) __itp = packageNameFromPath(__irec.path || __irec.id);
+            if (!__irec.error) __itp = packageNameForRecord(__irec, parent);
           }
         } catch (e) { __itp = null; } // resolution failure: let load() surface it
-        if (__itp) checkImportGate(__itp); // denial propagates to the catch below
+        var __irp = parent && parent.__exactPackageName
+          ? parent.__exactPackageName
+          : packageNameFromPath(referrer);
+        if (__itp && __itp !== __irp) checkImportGate(__itp); // denial propagates to the catch below
       }
     } catch (e) { gateError = e; }
     return Promise.resolve().then(function() {
@@ -5811,7 +5827,7 @@
       // Grant capabilities if provided
       grantCapabilities(specifier, options);
 
-      var module = load(specifier, "");
+      var module = load(specifier, referrer, parent);
       // Wrap CommonJS modules to look like ESM: { default: module, ...module }
       // This allows: const mod = await import('foo'); mod.default or mod.something
       if (module && !module.__esModule) {

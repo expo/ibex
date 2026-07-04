@@ -13,6 +13,25 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+namespace {
+
+std::string networkEndpointCapability(const char* base, const std::string& host, int port) {
+  return std::string(base) + ":" + host + ":" + std::to_string(port);
+}
+
+void requireNetworkCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& capability,
+    const char* description) {
+  if (!checkCapability(capability)) {
+    std::string message =
+        std::string("Permission denied: ") + description + " capability required";
+    throw facebook::jsi::JSError(runtime, message.c_str());
+  }
+}
+
+} // namespace
+
 void installNetHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   {
@@ -46,6 +65,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             }
             localPort = static_cast<int>(args[3].asNumber());
           }
+          // @ref LLP 0013#policy — loading node:net is only import authority;
+          // opening a TCP connection is a host-boundary operation.
+          requireNetworkCapability(
+              runtime,
+              networkEndpointCapability("network:connect", host, port),
+              "network:connect");
           struct addrinfo hints{}, *result = nullptr;
           hints.ai_family = AF_UNSPEC;
           hints.ai_socktype = SOCK_STREAM;
@@ -397,6 +422,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count > 3 && args[3].isNumber()) ipv6Only = static_cast<int>(args[3].asNumber());
           int reusePort = 0;
           if (count > 4 && args[4].isNumber()) reusePort = static_cast<int>(args[4].asNumber());
+          // @ref LLP 0013#policy — listening/binding requires host authority,
+          // independent of the builtin import allowlist. (ENG-22722)
+          requireNetworkCapability(
+              runtime,
+              networkEndpointCapability("network:listen", host, port),
+              "network:listen");
           struct addrinfo hints{}, *result = nullptr;
           if (ipv6Only || host.find(':') != std::string::npos) {
             hints.ai_family = AF_INET6;
@@ -580,6 +611,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (path.size() >= sizeof(((struct sockaddr_un*)0)->sun_path)) {
             throw facebook::jsi::JSError(runtime, "__exactUnixConnect: path too long");
           }
+          requireNetworkCapability(runtime, "network:local:" + path, "network:local");
+          if (!checkCapability("fs:read:" + path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
           int fd = socket(AF_UNIX, SOCK_STREAM, 0);
           if (fd == -1) {
             throw facebook::jsi::JSError(runtime,
@@ -621,6 +656,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int backlog = 128;
           if (count > 1 && args[1].isNumber()) backlog = static_cast<int>(args[1].asNumber());
+          requireNetworkCapability(runtime, "network:local:" + path, "network:local");
+          if (!checkCapability("fs:write:" + path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
           int fd = socket(AF_UNIX, SOCK_STREAM, 0);
           if (fd == -1) {
             throw facebook::jsi::JSError(runtime,
@@ -746,6 +785,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           int port = 0;
           if (count > 1 && args[1].isString()) host = args[1].toString(runtime).utf8(runtime);
           if (count > 2 && args[2].isNumber()) port = static_cast<int>(args[2].asNumber());
+          requireNetworkCapability(
+              runtime,
+              networkEndpointCapability("network:listen", host, port),
+              "network:listen");
           int fd;
           {
             std::lock_guard<std::mutex> lock(g_tcp_mutex);
@@ -804,6 +847,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           int handle = static_cast<int>(args[0].asNumber());
           int port = static_cast<int>(args[2].asNumber());
           std::string host = args[3].toString(runtime).utf8(runtime);
+          requireNetworkCapability(
+              runtime,
+              networkEndpointCapability("network:connect", host, port),
+              "network:connect");
           int fd;
           {
             std::lock_guard<std::mutex> lock(g_tcp_mutex);

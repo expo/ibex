@@ -136,6 +136,8 @@ struct NativeWebSocketCallbackContext {
 
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
+extern "C" int32_t ex_host_check_capability_no_follow_final(uint64_t module_id,
+                                                            const char* capability);
 extern "C" void ex_host_log_event(const char* event_type,
                                   uint64_t module_id,
                                   const char* capability,
@@ -149,6 +151,9 @@ extern "C" void ex_host_register_module_package(uint64_t module_id,
 extern "C" int32_t ex_host_check_capability_stack(const uint64_t* module_ids,
                                                   size_t len,
                                                   const char* capability);
+extern "C" int32_t ex_host_check_capability_stack_no_follow_final(const uint64_t* module_ids,
+                                                                  size_t len,
+                                                                  const char* capability);
 extern "C" int32_t ex_host_has_deputy_classes(void);
 extern "C" int32_t ex_host_check_import(uint64_t module_id,
                                         const char* specifier);
@@ -246,7 +251,7 @@ inline bool hasDeputyClasses() {
   return ex_host_has_deputy_classes() != 0;
 }
 
-inline bool checkCapability(const std::string& capability) {
+inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFollowFinal) {
   if (isAllowAll()) {
     return true;
   }
@@ -275,7 +280,9 @@ inline bool checkCapability(const std::string& capability) {
       if (n == kMaxStack) {
         ids64[n++] = static_cast<uint64_t>(kNoUserPrincipalId);
       }
-      auto allowed = ex_host_check_capability_stack(ids64, n, capability.c_str());
+      auto allowed = noFollowFinal
+          ? ex_host_check_capability_stack_no_follow_final(ids64, n, capability.c_str())
+          : ex_host_check_capability_stack(ids64, n, capability.c_str());
       ex_host_log_event(
           allowed ? "capability_granted" : "capability_denied",
           ids64[0],
@@ -285,13 +292,23 @@ inline bool checkCapability(const std::string& capability) {
     }
   }
 #endif
-  auto allowed = ex_host_check_capability(principal, capability.c_str());
+  auto allowed = noFollowFinal
+      ? ex_host_check_capability_no_follow_final(principal, capability.c_str())
+      : ex_host_check_capability(principal, capability.c_str());
   ex_host_log_event(
       allowed ? "capability_granted" : "capability_denied",
       principal,
       capability.c_str(),
       allowed);
   return allowed != 0;
+}
+
+inline bool checkCapability(const std::string& capability) {
+  return checkCapabilityWithFsMode(capability, false);
+}
+
+inline bool checkCapabilityNoFollowFinal(const std::string& capability) {
+  return checkCapabilityWithFsMode(capability, true);
 }
 
 inline facebook::jsi::Value makeUint8Array(

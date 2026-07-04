@@ -1961,7 +1961,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   var g = globalThis;
   if (g.__compartments) return;
   var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
-    'importScripts','queueMicrotask','eval','Function','Ibex'];
+    'importScripts','queueMicrotask','eval','Function','Ibex','Exact','Bun'];
   var POWERFUL_SET = Object.create(null);
   for (var pwi = 0; pwi < POWERFUL.length; pwi++) POWERFUL_SET[POWERFUL[pwi]] = true;
   var endowMap = Object.create(null);

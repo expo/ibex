@@ -1096,6 +1096,10 @@ export const defaultCompartmentGlobals = Object.freeze([
   // `Ibex` exposes the dynamic-permission surface (broker/request); withhold it
   // from package code so a dependency can't self-approve prompts. (ENG-22636)
   'Ibex',
+  // Exact/Bun facades contain filesystem, process, and network convenience
+  // entry points; expose them only through explicit policy endowments.
+  'Exact',
+  'Bun',
   'fetch',
   'Buffer',
   'eval',

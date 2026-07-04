@@ -650,13 +650,19 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactAccess: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:read:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
         int32_t mode = 0;
         if (count > 1 && args[1].isNumber()) {
           mode = static_cast<int32_t>(args[1].asNumber());
+        }
+        // Node-compatible access mode bits: W_OK is 2. A write-permission probe
+        // leaks write authority metadata, so POSIX must match the Windows gate
+        // and require fs:write when the caller asks about writability. (ENG-22717)
+        if ((mode & 2) != 0) {
+          if (!checkCapability("fs:write:" + path)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (!checkCapability("fs:read:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (ex_host_fs_access(path.c_str(), mode) != 0) {
           throwFsError(runtime, "access", path);
@@ -1440,8 +1446,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactLchown: path, uid, gid required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        // Changing ownership of the symlink itself mutates metadata. (ENG-22627)
-        if (!checkCapability("fs:write:" + path)) {
+        // Changing ownership of the symlink itself mutates the link entry, not
+        // the final target. Use no-follow-final normalization so `fs:write:path`
+        // names the resource the syscall actually mutates. @ref LLP 0013#policy
+        // (ENG-22716)
+        if (!checkCapabilityNoFollowFinal("fs:write:" + path)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         uid_t uid = static_cast<uid_t>(args[1].asNumber());
@@ -1551,9 +1560,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       throw facebook::jsi::JSError(runtime, "__exactLutimes: path, atime, mtime required");
     }
     auto path = args[0].toString(runtime).utf8(runtime);
-    // Setting a link's own atime/mtime mutates file metadata; this was the only
-    // path-based mutator besides lchmod with no gate at all. (ENG-22682)
-    if (!checkCapability("fs:write:" + path)) {
+    // Setting a link's own atime/mtime mutates the link entry, not the final
+    // target. Use no-follow-final normalization for the gate. (ENG-22716)
+    if (!checkCapabilityNoFollowFinal("fs:write:" + path)) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
     double atimeVal = args[1].asNumber();
@@ -1602,8 +1611,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       throw facebook::jsi::JSError(runtime, "__exactLchmod: path and mode required");
     }
     auto path = args[0].toString(runtime).utf8(runtime);
-    // Changing a link's own mode mutates file metadata; gate like chmod. (ENG-22682)
-    if (!checkCapability("fs:write:" + path)) {
+    // Changing a link's own mode mutates the link entry, not the final target.
+    // Use no-follow-final normalization for the gate. (ENG-22716)
+    if (!checkCapabilityNoFollowFinal("fs:write:" + path)) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
     mode_t mode = static_cast<mode_t>(args[1].asNumber());
