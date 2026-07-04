@@ -822,7 +822,8 @@ fn audit_mode_reports_would_deny_but_proceeds() {
 
 #[test]
 fn fs_write_requires_fs_write_capability() {
-    let dir = fixtures_dir().join("fs-write-gate");
+    let dir = unique_dir("fs-write-gate");
+    copy_dir_recursive(&fixtures_dir().join("fs-write-gate"), &dir);
     let readable = dir.join("readable.txt");
     let out = dir.join("out");
     // Only fs:read granted: the read succeeds, the write is denied.
@@ -888,6 +889,7 @@ fn fs_write_requires_fs_write_capability() {
         rw.stdout,
         rw.stderr
     );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[cfg(unix)]
@@ -2281,6 +2283,175 @@ exports.run = async function() {
         out.stdout,
         out.stderr
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn fetch_endpoint_capabilities_are_host_scoped() {
+    let dir = unique_dir("fetch-endpoints");
+    let pkg = dir.join("node_modules").join("fetch-probe");
+    write_text(
+        &pkg.join("package.json"),
+        r#"{"name":"fetch-probe","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &pkg.join("index.js"),
+        r#"
+exports.run = async function(port) {
+  var out = [];
+  try {
+    var allowed = await fetch("http://127.0.0.1:" + port + "/ok");
+    out.push("fetch-127:" + await allowed.text());
+  } catch (e) {
+    out.push("fetch-127:DENIED");
+  }
+  try {
+    await fetch("http://localhost:" + port + "/deny");
+    out.push("fetch-localhost:ALLOWED");
+  } catch (e) {
+    out.push("fetch-localhost:DENIED");
+  }
+  try {
+    var local = await fetch("data:text/plain,local");
+    out.push("fetch-data:" + await local.text());
+  } catch (e) {
+    out.push("fetch-data:DENIED");
+  }
+  return out.join(" ");
+};
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        r#"
+var http = require("node:http");
+var probe = require("fetch-probe");
+var server = http.createServer(function(_req, res) {
+  res.statusCode = 200;
+  res.end("ok");
+});
+server.listen(0, "127.0.0.1", async function() {
+  try {
+    console.log(await probe.run(server.address().port));
+  } finally {
+    server.close();
+  }
+});
+"#,
+    );
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "fetch-probe": {
+                "capabilities": ["network:fetch:127.0.0.1"],
+                "builtins": [],
+                "endow": ["fetch"]
+            }
+        }
+    });
+    write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout
+            .contains("fetch-127:ok fetch-localhost:DENIED fetch-data:local"),
+        "fetch must honor endpoint-scoped grants and keep data URLs local:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn native_tcp_handles_cannot_be_stolen_by_guessing_ids() {
+    let dir = unique_dir("tcp-handle-owner");
+    let pkg = dir.join("node_modules").join("handle-thief");
+    write_text(
+        &pkg.join("package.json"),
+        r#"{"name":"handle-thief","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &pkg.join("index.js"),
+        r#"
+exports.run = function() {
+  var net = require("node:net");
+  for (var handle = 1; handle <= 8; handle++) {
+    try {
+      new net.Socket({ _handle: handle }).destroy();
+    } catch (_) {}
+  }
+  return "steal-attempted";
+};
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        r#"
+var net = require("node:net");
+var thief = require("handle-thief");
+var server = net.createServer(function(socket) {
+  socket.end("ok");
+});
+server.listen(0, "127.0.0.1", function() {
+  var port = server.address().port;
+  console.log(thief.run());
+  var client = net.connect({ host: "127.0.0.1", port: port });
+  var body = "";
+  client.setEncoding("utf8");
+  client.on("data", function(chunk) { body += chunk; });
+  client.on("end", function() {
+    console.log("server:" + body);
+    server.close();
+  });
+  client.on("error", function(err) {
+    console.log("server-error:" + (err && err.code || err));
+    server.close();
+  });
+});
+"#,
+    );
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "handle-thief": {
+                "capabilities": [],
+                "builtins": ["node:net"]
+            }
+        }
+    });
+    write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        out.stdout.contains("steal-attempted") && out.stdout.contains("server:ok"),
+        "a package must not be able to close another principal's native TCP handle:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

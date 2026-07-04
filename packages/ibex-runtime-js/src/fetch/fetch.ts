@@ -56,6 +56,22 @@ function getNativeFetchModule(): NativeFetchModule {
   return nativeFetchModule;
 }
 
+function networkFetchCapabilityForUrl(url: string): string {
+  const parsedUrl = new URL(url, getRuntimeOrigin());
+  const host = parsedUrl.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  return `${Capabilities.NETWORK_FETCH}:${host}`;
+}
+
+function requireFetchCapabilityForUrl(url: string): void {
+  // @ref LLP 0013#policy — generated policy can grant individual fetch hosts,
+  // so JS-side checks mirror the native boundary's endpoint-scoped decision.
+  requireCapability(networkFetchCapabilityForUrl(url));
+}
+
+function isDataUrl(url: unknown): url is string {
+  return typeof url === 'string' && url.slice(0, 5).toLowerCase() === 'data:';
+}
+
 /**
  * Add an abort signal listener with cleanup function.
  */
@@ -1729,13 +1745,9 @@ export async function fetch(
   input: RequestInput,
   init?: RequestInit
 ): Promise<Response> {
-  // Check capability before proceeding
-  // This throws NotAllowedError if the capability is not granted
-  requireCapability(Capabilities.NETWORK_FETCH);
-
   // Handle data: URLs before creating Request (to avoid URL validation issues)
   const inputUrl = typeof input === 'string' ? input : (input instanceof URL ? input.href : input.url);
-  if (typeof inputUrl === 'string' && inputUrl.startsWith('data:')) {
+  if (isDataUrl(inputUrl)) {
     try {
       const method = typeof input === 'string' ? init?.method : (input instanceof Request ? input.method : init?.method);
       return fetchDataUrl(inputUrl, method);
@@ -1765,6 +1777,7 @@ export async function fetch(
     throw error;
   }
   const isRequestInput = isRequestInputObject(input);
+  requireFetchCapabilityForUrl(request.url);
   const decompress = init?.decompress !== false;
   const timeoutMs = resolveTimeoutMs(init);
 
@@ -2037,6 +2050,7 @@ export async function fetch(
       nativeResponse: NativeResponse | NativeStreamingResponse;
       bodyStream?: ReadableStream<Uint8Array>;
     }> => {
+      requireFetchCapabilityForUrl(url);
       const preferSocketTransportForHop =
         useSocketDecompressCompat ||
         !!currentUnixSocketPath ||
@@ -2452,14 +2466,18 @@ export async function fetchPolyfill(
   input: RequestInput,
   init?: RequestInit
 ): Promise<Response> {
-  // Check capability before proceeding
-  // This throws NotAllowedError if the capability is not granted
-  requireCapability(Capabilities.NETWORK_FETCH);
+  // Handle data: URLs locally; they do not exercise network authority.
+  const inputUrl = typeof input === 'string' ? input : (input instanceof URL ? input.href : input.url);
+  if (isDataUrl(inputUrl)) {
+    const method = typeof input === 'string' ? init?.method : (input instanceof Request ? input.method : init?.method);
+    return fetchDataUrl(inputUrl, method);
+  }
 
   // Create Request object
   // Per spec: if input is a Request, init overrides should still be applied
   const request = new Request(input, init);
   const isRequestInput = isRequestInputObject(input);
+  requireFetchCapabilityForUrl(request.url);
   const decompress = init?.decompress !== false;
   const timeoutMs = resolveTimeoutMs(init);
 

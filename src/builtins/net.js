@@ -3299,7 +3299,7 @@ Server.prototype.close = function(callback) {
     this._acceptTimer = null;
   }
   if (this._handle != null) {
-    // Close the fd (works for both TCP and Unix handles since they share g_tcp_sockets)
+    // Close the fd (works for both TCP and Unix handles since they share the native socket table)
     if (_hasTcp) {
       try { __exactTcpClose(_unwrapHandle(this._handle)); } catch(e) {}
     }

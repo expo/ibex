@@ -1,7 +1,7 @@
 /**
  * Capability Security System for Ibex Runtime
  * 
- * Implements the capability-based security model as defined in JS_RUNTIME_SECURITY.md.
+ * Implements the capability-based security model described by LLP 0013.
  * 
  * The effective permission for any privileged action is the intersection of:
  * 1. OS Permission (root) - enforced at native layer
@@ -9,8 +9,8 @@
  * 3. View Broker Grant - per-view user consent
  * 4. Module Import Capabilities - per-module grants
  * 
- * @see JS_RUNTIME_SECURITY.md
- * @see JS_CAPABILITY_SECURITY_MODEL_SPEC_AND_PLAN.md
+ * @see LLP 0013
+ * @see LLP 0014
  */
 
 import { 
@@ -27,7 +27,7 @@ export { CapabilityBit } from './capability-bits.generated';
 // ============================================================================
 
 /**
- * Capability categories aligned with JS_RUNTIME_SECURITY.md Section 5
+ * Capability categories aligned with LLP 0013.
  */
 export type CapabilityCategory =
   | 'fs'
@@ -53,7 +53,7 @@ export type CapabilityCategory =
 export type Capability = string;
 
 /**
- * Denial reasons aligned with JS_CAPABILITY_SECURITY_MODEL_SPEC_AND_PLAN.md
+ * Denial reasons aligned with LLP 0013.
  * 
  * Note: This is intentionally a string type (not a union) to allow for
  * forward compatibility with new denial reasons from future OS versions.
@@ -1038,8 +1038,8 @@ export function capabilityMatches(capability: Capability, grant: Capability): bo
 
 /**
  * Well-known capability names for type safety.
- * @see OS_CAPABILITY_SECURITY_OVERVIEW.md
- * @see JS_CAPABILITY_SECURITY_MODEL_SPEC_AND_PLAN.md
+ * @see LLP 0013
+ * @see LLP 0014
  */
 export const Capabilities = {
   // Network
@@ -1062,7 +1062,7 @@ export const Capabilities = {
   PROCESS_SIGNAL: 'process:signal',
   PROCESS_CWD: 'process:cwd',
   
-  // Device - Location (granular per OS_CAPABILITY_SECURITY_OVERVIEW.md Section 7.1)
+  // Device - Location (granular capability namespace)
   DEVICE_LOCATION: 'device:location',
   DEVICE_LOCATION_WHEN_IN_USE: 'device:location:whenInUse',
   DEVICE_LOCATION_ALWAYS: 'device:location:always',
@@ -1073,7 +1073,7 @@ export const Capabilities = {
   DEVICE_CAMERA: 'device:camera',
   DEVICE_MICROPHONE: 'device:microphone',
   
-  // Device - Photos (granular per OS_CAPABILITY_SECURITY_OVERVIEW.md Section 7.3)
+  // Device - Photos (granular capability namespace)
   DEVICE_PHOTOS: 'device:photos',
   DEVICE_PHOTOS_READ: 'device:photos:read',
   DEVICE_PHOTOS_WRITE: 'device:photos:write',
@@ -1088,7 +1088,7 @@ export const Capabilities = {
   DEVICE_SENSORS: 'device:sensors',
   DEVICE_MOTION: 'device:motion',
   
-  // Device - Bluetooth (granular per OS_CAPABILITY_SECURITY_OVERVIEW.md Section 7.5)
+  // Device - Bluetooth (granular capability namespace)
   DEVICE_BLUETOOTH: 'device:bluetooth',
   DEVICE_BLUETOOTH_SCAN: 'device:bluetooth:scan',
   DEVICE_BLUETOOTH_CONNECT: 'device:bluetooth:connect',

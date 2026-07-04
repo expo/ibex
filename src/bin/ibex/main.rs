@@ -1331,14 +1331,13 @@ mod tests {
             "app.ts",
         ]);
         let joined = watch_child_args(&cli).join(" ");
-        assert!(
-            joined.contains("--allow-env-endowments"),
-            "flags: {joined}"
-        );
+        assert!(joined.contains("--allow-env-endowments"), "flags: {joined}");
         // Not passed → not forwarded.
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "enforce", "app.ts"]);
         assert!(
-            !watch_child_args(&cli).join(" ").contains("--allow-env-endowments"),
+            !watch_child_args(&cli)
+                .join(" ")
+                .contains("--allow-env-endowments"),
             "should not forward the hatch when it wasn't set"
         );
 

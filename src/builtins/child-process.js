@@ -472,7 +472,7 @@ function _extractHandleFd(handle) {
       if (udpFd >= 0) return udpFd;
     }
   }
-  // Our native handle system: _handle._exactHandle is an ID into g_tcp_sockets.
+  // Our native handle system: _handle._exactHandle is an ID into the native socket table.
   // Use __exactTcpGetFd to get the raw fd from the handle ID.
   if (handle._handle && typeof handle._handle._exactHandle === 'number' && handle._handle._exactHandle > 0) {
     if (typeof globalThis.__exactTcpGetFd === 'function') {

@@ -63,12 +63,20 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         if (count < 2 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__nativeFetch: url and init required");
         }
-        if (!checkCapability("network:fetch")) {
+        std::string url = args[0].toString(runtime).utf8(runtime);
+        ParsedNetworkUrl parsedUrl;
+        if (!parseNetworkUrl(url, parsedUrl) ||
+            (parsedUrl.scheme != "http" && parsedUrl.scheme != "https")) {
+          throw facebook::jsi::JSError(runtime, "__nativeFetch: invalid network URL");
+        }
+        // @ref LLP 0013#policy — generated policies can grant fetch to a
+        // specific endpoint (`network:fetch:host`), so the native boundary must
+        // check the concrete URL host rather than only the broad class.
+        if (!checkCapability("network:fetch:" + parsedUrl.host)) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: network:fetch capability required");
         }
 
-        std::string url = args[0].toString(runtime).utf8(runtime);
         auto init = args[1].asObject(runtime);
         std::string method = "GET";
         if (init.hasProperty(runtime, "method")) {
@@ -361,12 +369,17 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         if (count < 2 || !args[0].isString()) {
           throw facebook::jsi::JSError(runtime, "__nativeFetchSync: url and init required");
         }
-        if (!checkCapability("network:fetch")) {
+        std::string url = args[0].toString(runtime).utf8(runtime);
+        ParsedNetworkUrl parsedUrl;
+        if (!parseNetworkUrl(url, parsedUrl) ||
+            (parsedUrl.scheme != "http" && parsedUrl.scheme != "https")) {
+          throw facebook::jsi::JSError(runtime, "__nativeFetchSync: invalid network URL");
+        }
+        if (!checkCapability("network:fetch:" + parsedUrl.host)) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: network:fetch capability required");
         }
 
-        std::string url = args[0].toString(runtime).utf8(runtime);
         auto init = args[1].asObject(runtime);
         std::string method = "GET";
         if (init.hasProperty(runtime, "method")) {

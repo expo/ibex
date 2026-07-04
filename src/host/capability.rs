@@ -1,7 +1,7 @@
 //! Capability management for the security model
 //!
-//! This implements the capability-based security system described in
-//! SECURITY_DESIGN.md and JS_RUNTIME_SECURITY.md.
+//! This implements the capability-based security system described by LLP 0013
+//! and the generated-policy algebra in LLP 0014.
 
 use super::SecurityMode;
 use crate::host::policy::PolicyFile;
@@ -825,10 +825,10 @@ fn package_selector_of_specifier(specifier: &str) -> Option<String> {
     if let Some(stripped) = first.strip_prefix('@') {
         let _ = stripped;
         // Scoped: keep two segments (`@scope/name`).
-        match parts.next().filter(|p| !p.is_empty()) {
-            Some(second) => Some(format!("{first}/{second}")),
-            None => None,
-        }
+        parts
+            .next()
+            .filter(|p| !p.is_empty())
+            .map(|second| format!("{first}/{second}"))
     } else {
         Some(first.to_string())
     }

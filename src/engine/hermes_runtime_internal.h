@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -309,6 +310,108 @@ inline bool checkCapability(const std::string& capability) {
 
 inline bool checkCapabilityNoFollowFinal(const std::string& capability) {
   return checkCapabilityWithFsMode(capability, true);
+}
+
+struct ParsedNetworkUrl {
+  std::string scheme;
+  std::string host;
+  int port;
+};
+
+inline std::string asciiLower(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return value;
+}
+
+inline int defaultPortForNetworkScheme(const std::string& scheme) {
+  if (scheme == "http" || scheme == "ws") {
+    return 80;
+  }
+  if (scheme == "https" || scheme == "wss") {
+    return 443;
+  }
+  return -1;
+}
+
+inline bool parseNetworkPort(const std::string& value, int& port) {
+  if (value.empty()) {
+    return false;
+  }
+  int parsed = 0;
+  for (unsigned char c : value) {
+    if (std::isdigit(c) == 0) {
+      return false;
+    }
+    int digit = static_cast<int>(c - '0');
+    if (parsed > (65535 - digit) / 10) {
+      return false;
+    }
+    parsed = parsed * 10 + digit;
+  }
+  port = parsed;
+  return true;
+}
+
+inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
+  auto scheme_end = url.find("://");
+  if (scheme_end == std::string::npos || scheme_end == 0) {
+    return false;
+  }
+  parsed.scheme = asciiLower(url.substr(0, scheme_end));
+  size_t authority_start = scheme_end + 3;
+  size_t authority_end = url.find_first_of("/?#", authority_start);
+  std::string authority = url.substr(
+      authority_start,
+      authority_end == std::string::npos ? std::string::npos : authority_end - authority_start);
+  auto at = authority.rfind('@');
+  if (at != std::string::npos) {
+    authority = authority.substr(at + 1);
+  }
+  if (authority.empty()) {
+    return false;
+  }
+
+  parsed.port = defaultPortForNetworkScheme(parsed.scheme);
+  std::string host;
+  if (authority[0] == '[') {
+    auto close = authority.find(']');
+    if (close == std::string::npos) {
+      return false;
+    }
+    host = authority.substr(1, close - 1);
+    if (close + 1 < authority.size()) {
+      if (authority[close + 1] != ':') {
+        return false;
+      }
+      auto port_str = authority.substr(close + 2);
+      if (!parseNetworkPort(port_str, parsed.port)) {
+        return false;
+      }
+    }
+  } else {
+    auto first_colon = authority.find(':');
+    auto colon = authority.rfind(':');
+    if (first_colon != std::string::npos && first_colon != colon) {
+      return false;
+    }
+    if (colon != std::string::npos) {
+      host = authority.substr(0, colon);
+      auto port_str = authority.substr(colon + 1);
+      if (!parseNetworkPort(port_str, parsed.port)) {
+        return false;
+      }
+    } else {
+      host = authority;
+    }
+  }
+
+  if (host.empty() || parsed.port < 0 || parsed.port > 65535) {
+    return false;
+  }
+  parsed.host = asciiLower(host);
+  return true;
 }
 
 inline facebook::jsi::Value makeUint8Array(

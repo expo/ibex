@@ -3789,7 +3789,7 @@
           } else if (typeof sendHandle._handle === 'number' && sendHandle._handle >= 0 && (sendHandle.type === 'udp4' || sendHandle.type === 'udp6')) {
             if (typeof globalThis.__exactUdpGetFd === 'function') handleFd = globalThis.__exactUdpGetFd(sendHandle._handle);
           }
-          // Our native handle system: _handle._exactHandle is an ID into g_tcp_sockets
+          // Our native handle system: _handle._exactHandle is an ID into the native socket table.
           else if (sendHandle._handle && typeof sendHandle._handle._exactHandle === 'number' && sendHandle._handle._exactHandle > 0 && typeof globalThis.__exactTcpGetFd === 'function') {
             handleFd = globalThis.__exactTcpGetFd(sendHandle._handle._exactHandle);
           } else if (sendHandle._handle && typeof sendHandle._handle.fd === 'number') handleFd = sendHandle._handle.fd;

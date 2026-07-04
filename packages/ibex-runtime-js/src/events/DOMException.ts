@@ -186,15 +186,15 @@ export function createOperationError(message = "The operation failed."): DOMExce
 /**
  * Create a NotAllowedError for capability/permission denials.
  * Used when a capability check fails.
- * @see JS_RUNTIME_SECURITY.md Section 10
+ * @see LLP 0013
  */
 export function createNotAllowedError(message = "The request is not allowed."): DOMException {
   return createGlobalDOMException(message, "NotAllowedError");
 }
 
-/**
+ /**
  * Denial reasons for capability errors.
- * Aligned with JS_CAPABILITY_SECURITY_MODEL_SPEC_AND_PLAN.md
+ * Aligned with LLP 0013.
  * 
  * Note: Uses string intersection to allow unknown reasons for forward compatibility.
  * New OS versions may introduce new denial reasons.
@@ -252,7 +252,7 @@ export type CapabilityDenialCategory =
  * }
  * ```
  * 
- * @see JS_CAPABILITY_SECURITY_MODEL_SPEC_AND_PLAN.md
+ * @see LLP 0013
  */
 export class CapabilityDeniedError extends DOMException {
   /**
