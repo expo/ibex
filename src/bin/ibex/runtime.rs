@@ -3040,6 +3040,69 @@ mod tests {
         assert_eq!(ship_chunk_siblings(&entry, src.path()).unwrap(), 0);
     }
 
+    // ENG-22760 — `ibex build` under an enforce policy must NOT emit a flat,
+    // single-principal bundle. The build path (`apply_build_isolation`) turns on
+    // per-package chunking exactly when `resolve_security_mode` reports
+    // Enforce/Audit, so this guards that resolution: a committed policy declaring
+    // `mode: "enforce"` yields Enforce under the default (Auto) CLI mode — the
+    // signal that drives `enable_isolation_prerequisites` for the build and run
+    // paths alike. Platform-independent cover for the wiring the run-path
+    // integration tests can't reach on the unpatched checked-in Hermes (they
+    // skip vacuously). @ref LLP 0013#mechanism-3
+    #[test]
+    fn resolve_security_mode_honors_committed_enforce_policy() {
+        use crate::host::SecurityMode;
+
+        let dir = tempdir().unwrap();
+        let write_policy = |mode: &str| {
+            let p = dir.path().join(format!("ibex-policy.{mode}.json"));
+            std::fs::write(&p, format!(r#"{{"mode":"{mode}"}}"#)).unwrap();
+            p
+        };
+        let enforce = write_policy("enforce");
+        let audit = write_policy("audit");
+        let permissive = write_policy("permissive");
+
+        // Default CLI (capsec = Auto): the committed policy's declared mode wins,
+        // so an enforce policy resolves to Enforce — the build path then enables
+        // per-package chunking instead of emitting a flat, single-principal bundle.
+        let cli = Cli::parse_from(["ibex", "app.ts"]);
+        assert_eq!(
+            resolve_security_mode(&cli, Some(enforce.as_path())).unwrap(),
+            SecurityMode::Enforce,
+        );
+        // Audit likewise implies per-package attribution.
+        assert_eq!(
+            resolve_security_mode(&cli, Some(audit.as_path())).unwrap(),
+            SecurityMode::Audit,
+        );
+        assert_eq!(
+            resolve_security_mode(&cli, Some(permissive.as_path())).unwrap(),
+            SecurityMode::Permissive,
+        );
+
+        // No policy under Auto stays Permissive: an absent auto-discovered default
+        // must not silently flip a build to chunked/enforced.
+        assert_eq!(
+            resolve_security_mode(&cli, None).unwrap(),
+            SecurityMode::Permissive,
+        );
+
+        // The documented operator opt-outs override a committed enforce policy, so
+        // a build under either stays flat: explicit `--capsec permissive` ...
+        let forced = Cli::parse_from(["ibex", "--capsec", "permissive", "app.ts"]);
+        assert_eq!(
+            resolve_security_mode(&forced, Some(enforce.as_path())).unwrap(),
+            SecurityMode::Permissive,
+        );
+        // ... and `--allow-all` (back-compat legacy escape hatch).
+        let allow_all = Cli::parse_from(["ibex", "--allow-all", "app.ts"]);
+        assert_eq!(
+            resolve_security_mode(&allow_all, Some(enforce.as_path())).unwrap(),
+            SecurityMode::Permissive,
+        );
+    }
+
     #[tokio::test]
     async fn bundle_cache_freshness_tracks_dep_mtimes() {
         let dir = tempdir().expect("tempdir");
