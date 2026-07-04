@@ -23,6 +23,9 @@ The `ibex` command is runtime-only:
 
 - shipped runtime commands: file execution, `run`, `eval`, `repl`, `build`,
   `completions`, `version`, and runtime diagnostics.
+- hidden harness command: `self-test` runs a compact in-binary smoke suite for
+  CI consumers. It is not advertised in help and does not make `ibex test`
+  user-facing.
 - reserved runtime names such as `test`, `install`, `bench`, and `exec` are not
   advertised until implemented.
 - Exact project commands such as `new`, `create`, `init`, `verify`, `facet`,

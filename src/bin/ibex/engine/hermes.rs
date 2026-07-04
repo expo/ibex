@@ -1488,6 +1488,7 @@ mod tests {
     use std::net::TcpStream;
     #[cfg(feature = "host-http-server")]
     use std::sync::mpsc;
+    use std::sync::OnceLock;
     #[cfg(feature = "host-http-server")]
     use std::time::{Duration as StdDuration, Instant};
     #[cfg(feature = "host-http-server")]
@@ -1501,6 +1502,31 @@ mod tests {
             .expect("Hermes eval should succeed")
             .unwrap_or_default();
         serde_json::from_str(&raw).expect("Hermes eval should return valid JSON")
+    }
+
+    #[cfg(feature = "host-http-server")]
+    async fn wait_for_exact_wait_status(engine: &HermesEngine) -> serde_json::Value {
+        let deadline = Instant::now() + StdDuration::from_secs(2);
+        let mut status = serde_json::json!({ "status": "pending" });
+        while Instant::now() < deadline {
+            match timeout(Duration::from_millis(250), engine.drive_event_loop()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => panic!("event loop pump should succeed: {err:?}"),
+                Err(_) => {}
+            }
+            status = eval_json(
+                engine,
+                r#"(function() {
+                    return JSON.stringify({ status: globalThis.__exactWaitStatus });
+                })()"#,
+            )
+            .await;
+            if status.get("status").and_then(serde_json::Value::as_str) != Some("pending") {
+                return status;
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+        status
     }
 
     #[cfg(feature = "host-http-server")]
@@ -1576,8 +1602,17 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_root);
     }
 
+    fn hermes_engine_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(Mutex::default)
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn fresh_runtime_preinstalls_shared_runtime_bundle() {
+        // The C Hermes host callbacks are process-global in the test binary.
+        // Keep engine-owning tests serial so the Rust test harness cannot
+        // overlap bridge teardown with another runtime's event-loop pump.
+        let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().unwrap();
         assert!(engine.runtime_bundle_installed().await.unwrap());
 
@@ -1625,6 +1660,7 @@ mod tests {
     #[cfg(feature = "host-http-server")]
     #[tokio::test(flavor = "current_thread")]
     async fn http_wait_timeout_is_not_starved_by_existing_waiters() {
+        let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().unwrap();
 
         let setup = eval_json(
@@ -1657,32 +1693,23 @@ mod tests {
 
         assert!(setup.get("error").is_none(), "server setup failed: {setup}");
 
-        sleep(Duration::from_millis(150)).await;
-        timeout(Duration::from_secs(1), engine.drive_event_loop())
-            .await
-            .expect("event loop pump should finish")
-            .expect("event loop pump should succeed");
-
-        let status = eval_json(
-            &engine,
-            r#"(function() {
-                return JSON.stringify({ status: globalThis.__exactWaitStatus });
-            })()"#,
-        )
-        .await;
+        // CI runners can start the native wait task after the fixed pre-sleep,
+        // so observe the JS-visible terminal state instead of assuming a
+        // single pump has already crossed the native timeout.
+        let status = wait_for_exact_wait_status(&engine).await;
+        close_server(&engine, "__exactWaitServerId").await;
 
         assert_eq!(
             status.get("status").and_then(serde_json::Value::as_str),
             Some("timeout"),
             "timed wait should resolve even while other waits are parked: {status}",
         );
-
-        close_server(&engine, "__exactWaitServerId").await;
     }
 
     #[cfg(feature = "host-http-server")]
     #[tokio::test(flavor = "current_thread")]
     async fn native_http_bridge_round_trips_wait_request_and_response() {
+        let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().unwrap();
 
         let setup = eval_json(
