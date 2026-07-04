@@ -1488,6 +1488,7 @@ mod tests {
     use std::net::TcpStream;
     #[cfg(feature = "host-http-server")]
     use std::sync::mpsc;
+    use std::sync::OnceLock;
     #[cfg(feature = "host-http-server")]
     use std::time::{Duration as StdDuration, Instant};
     #[cfg(feature = "host-http-server")]
@@ -1576,8 +1577,17 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_root);
     }
 
+    fn hermes_engine_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(Mutex::default)
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn fresh_runtime_preinstalls_shared_runtime_bundle() {
+        // The C Hermes host callbacks are process-global in the test binary.
+        // Keep engine-owning tests serial so the Rust test harness cannot
+        // overlap bridge teardown with another runtime's event-loop pump.
+        let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().unwrap();
         assert!(engine.runtime_bundle_installed().await.unwrap());
 
@@ -1625,6 +1635,7 @@ mod tests {
     #[cfg(feature = "host-http-server")]
     #[tokio::test(flavor = "current_thread")]
     async fn http_wait_timeout_is_not_starved_by_existing_waiters() {
+        let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().unwrap();
 
         let setup = eval_json(
@@ -1683,6 +1694,7 @@ mod tests {
     #[cfg(feature = "host-http-server")]
     #[tokio::test(flavor = "current_thread")]
     async fn native_http_bridge_round_trips_wait_request_and_response() {
+        let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().unwrap();
 
         let setup = eval_json(
