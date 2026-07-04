@@ -3068,3 +3068,133 @@ fn async_detached_deputy_control_permissive_leaks() {
         out.stderr
     );
 }
+
+// ENG-22759: the async-detached confused-deputy attack laundered through the HOST
+// callback queues instead of the Promise microtask queue. The Promise queue is
+// covered in the VM (schedule-time principal captured at enqueueJob, appended by
+// collectStackPackageIds). But setTimeout / setInterval / setImmediate /
+// process.nextTick / the non-JSI queueMicrotask fallback are queues owned by the
+// embedder, drained by its event loop, so a deputy method detached across one of
+// them (`setTimeout(deputy.readFor, 0, SECRET)`) fired with only the deputy's frame
+// live: collectStackPackageIds returned [deputy] (len 1), the deputy-class AND was
+// skipped, and the read leaked for the ungranted scheduler. setTimeout needs no
+// endowment. ENG-22761 already captures the scheduling principal into
+// g_native_callback_principal_id (ScopedNativePrincipal around each detached
+// drain); this change folds that principal into the deputy-class stack in
+// checkCapabilityWithFsMode, so the read now collects [deputy, evil] and the AND
+// denies on every channel — while a granted package's own timer continuation
+// (scheduler == running principal) collapses and is not false-denied. Needs frame
+// attribution.
+#[test]
+fn host_scheduled_detached_deputy_read_is_contained_across_timer_channels() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: host-queue deputy attribution needs frame attribution");
+        return;
+    }
+    let dir = fixtures_dir().join("timer-deputy");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // (A) The app (root) drives the deputy across a timer — allowed: the scheduler
+    // captured at enqueue is the trusted root principal.
+    assert!(
+        out.stdout
+            .contains("app-timer-via-deputy: READ:TIMER-DEPUTY-SECRET-llp0013"),
+        "root's own timer-scheduled deputy read should be allowed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (B) A granted package's OWN timer continuation — allowed. This is the shape a
+    // blunt len==1 deny would false-deny; the scheduler (== running principal)
+    // collapses against the innermost frame instead of denying.
+    assert!(
+        out.stdout
+            .contains("logger-timer-self: READ:TIMER-DEPUTY-SECRET-llp0013"),
+        "a granted package's own timer read must NOT be false-denied:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (C) A granted package driving the deputy across a timer — allowed, since both
+    // the scheduler (logger) and the deputy are granted.
+    assert!(
+        out.stdout
+            .contains("logger-timer-via-deputy: READ:TIMER-DEPUTY-SECRET-llp0013"),
+        "a granted package's timer-scheduled deputy read should be allowed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (D) The attack across all three host channels: ungranted evil detaches the
+    // deputy. The recovered scheduler (evil) makes the deputy-class AND deny, and
+    // the secret never leaks — on setTimeout, process.nextTick, AND setImmediate.
+    for label in [
+        "evil-timer-via-deputy",
+        "evil-nexttick-via-deputy",
+        "evil-setimmediate-via-deputy",
+    ] {
+        assert!(
+            out.stdout.contains(&format!("{label}: CONTAINED"))
+                && !out.stdout.contains(&format!("{label}: STOLEN")),
+            "schedule-time capture must contain the {label} channel:\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    }
+}
+
+/// Control: the SAME graph and deputyClasses configured but the mode forced to
+/// permissive — nothing is enforced, so every host-channel detached deputy read
+/// leaks the secret. Proves the containment above is the capability system working
+/// on the timer/nextTick/setImmediate paths, not a broken fs path, a dead code
+/// path, or a read that never actually happens.
+#[test]
+fn host_scheduled_detached_deputy_control_permissive_leaks() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: host-queue deputy attribution needs frame attribution");
+        return;
+    }
+    let dir = fixtures_dir().join("timer-deputy");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "permissive",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    for label in [
+        "evil-timer-via-deputy",
+        "evil-nexttick-via-deputy",
+        "evil-setimmediate-via-deputy",
+    ] {
+        assert!(
+            out.stdout
+                .contains(&format!("{label}: STOLEN:TIMER-DEPUTY-SECRET-llp0013")),
+            "permissive mode should let the {label} detached deputy read leak (control):\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    }
+}

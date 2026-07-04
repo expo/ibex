@@ -9,6 +9,7 @@
 **Revised:** 2026-07-04 (deep-review fixes ENG-22716/ENG-22717/ENG-22718/ENG-22720/ENG-22722: no-follow-final link metadata gates, `access(W_OK)` write gating, caller-referrer dynamic imports, `Bun.which` spawn gating, and native server/socket network gates)
 **Revised:** 2026-07-04 (follow-up hardening ENG-22741/ENG-22742/ENG-22743/ENG-22744/ENG-22745: native handles carry owner/capability metadata, fetch/WebSocket checks use endpoint-scoped grants, fs-write tests use temporary copies, stale security-document comments were retargeted to local LLPs, and formatting/lint drift was cleaned up)
 **Revised:** 2026-07-04 (capability-security deep review ENG-22761..ENG-22774: fail-closed endowment resolution, two-sided import reachability, safer generated/runtime builtin classification, path and selector hardening, audit-mode non-interference, and native-callback principal stamps for no-user async host re-entry)
+**Revised:** 2026-07-04 (ENG-22759: close the async deputy-class laundering hole through the HOST callback queues — `setTimeout`/`setInterval`/`setImmediate`/`process.nextTick`/the non-JSI `queueMicrotask` fallback. ENG-22761 already captures the scheduling principal for these queues but only consults it on a no-user-frame re-entry; a detached deputy *method* runs with its own frame live, so `checkCapabilityWithFsMode` now also appends that captured scheduler to the deputy-class stack, matching patch 0008's Promise-queue append. Also repairs corrupt `@@` hunk headers in patch 0008 that blocked `apply-hermes-patches.sh`.)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -906,7 +907,13 @@ Phases 2 and 4.
    fallback is patch 0008 (ENG-22631): the scheduling principal is captured at
    `enqueueJob` and appended to the deputy-class stack so a deputy op detached
    across a microtask is attributed to its scheduler, not just the bare deputy
-   frame. The remaining "make the acting-principal chain visible in audit
+   frame. The embedder-owned queues (timers, `nextTick`, `setImmediate`, the
+   non-JSI `queueMicrotask` fallback) get the same treatment (ENG-22759): the
+   scheduling principal captured for each host callback (ENG-22761's
+   `g_native_callback_principal_id`) is appended to the deputy-class stack in
+   `checkCapabilityWithFsMode`, so a deputy method detached across
+   `setTimeout(deputy.method, 0)` is attributed to its scheduler just like the
+   Promise case. The remaining "make the acting-principal chain visible in audit
    entries" refinement (surfacing scheduler ≠ top-frame in the audit log) is
    deferred, tracked with the deputy audit-chain work.
 4. **Granularity escape hatch**: do we ever need per-module (not package)
@@ -1114,15 +1121,31 @@ principal and is **not** false-denied. The enqueue-time walk is armed whenever
 the patched engine is present; the host consumes the captured scheduler only for
 live deputy-class stack checks or the `kNoUserPrincipal` fallback, so a boot-time
 absence of deputy classes cannot permanently disable later hardening.
-Host-scheduled callbacks outside Hermes's Promise queue (timers, `nextTick`, and
-native fetch/HTTP wait completions) also capture the caller principal in the
-embedding and apply it only when a host-boundary check re-enters from a
-no-user-frame callback; stored native handles still enforce their owner and
-capability metadata before operating. Red-team:
+Host-scheduled callbacks outside Hermes's Promise queue (timers, `nextTick`,
+`setImmediate`, the non-JSI `queueMicrotask` fallback, and native fetch/HTTP wait
+completions) also capture the caller principal in the embedding
+(`g_native_callback_principal_id`, set by `ScopedNativePrincipal` around each
+detached drain); stored native handles still enforce their owner and capability
+metadata before operating. That capture originally applied only when a
+host-boundary check re-entered from a *no-user-frame* callback — which left the
+deputy-class case open (ENG-22759): a deputy **method** detached across a host
+timer (`setTimeout(deputy.readFor, 0, SECRET)`) fires with the deputy's *own*
+frame live, so the walk returns the deputy (not `kNoUserPrincipal`) and the
+captured scheduler was never consulted, leaving `[deputy]` (len 1) and the
+deputy-class AND skipped — the same laundering patch 0008 closed for the Promise
+queue, on a different (embedder-owned) queue. `checkCapabilityWithFsMode` now
+**appends** the captured host-queue scheduler to the deputy-class stack exactly as
+`collectStackPackageIds` appends the Promise-queue scheduler (the Promise queue
+lives in the VM; the timer/nextTick queues live in the embedder, so the append is
+done host-side): `[deputy, evil]` denies, while a granted package's own timer
+continuation (scheduler == the innermost frame) collapses and is not false-denied.
+Red-team:
 `tests/llp0013_compartments.rs::async_detached_deputy_read_is_contained_but_granted_self_async_works`
-(plus a permissive control that leaks). Residual, out of scope by default: a
-deputy that itself re-schedules the op across a further async hop is "deputy by
-design" (RFC §What this does not attempt to solve).
+and `::host_scheduled_detached_deputy_read_is_contained_across_timer_channels`
+(setTimeout + `process.nextTick` + `setImmediate`, each with a permissive control
+that leaks). Residual, out of scope by default: a deputy that itself re-schedules
+the op across a further async hop is "deputy by design" (RFC §What this does not
+attempt to solve).
 
 #### Mechanism 1
 

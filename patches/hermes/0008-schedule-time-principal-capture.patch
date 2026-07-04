@@ -49,7 +49,7 @@
 # async_detached_deputy_read_is_contained_but_granted_self_async_works.
 #
 diff --git a/include/hermes/VM/Runtime-inline.h b/include/hermes/VM/Runtime-inline.h
-index 8793016d5..e81169cf3 100644
+index 8793016..0f0c7c3 100644
 --- a/include/hermes/VM/Runtime-inline.h
 +++ b/include/hermes/VM/Runtime-inline.h
 @@ -9,6 +9,7 @@
@@ -60,7 +60,7 @@ index 8793016d5..e81169cf3 100644
  #include "hermes/VM/Runtime.h"
  
  namespace hermes {
-@@ -30,6 +31,18 @@ void Runtime::registerBuiltin(
+@@ -30,6 +31,19 @@ void Runtime::registerBuiltin(
  
  inline void Runtime::enqueueJob(Callable *job) {
    jobQueue_.push_back(job);
@@ -81,10 +81,10 @@ index 8793016d5..e81169cf3 100644
  
  inline Handle<HiddenClass> Runtime::getHiddenClassForPrototype(
 diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
-index 66b65c3db..e0a3f9339 100644
+index 66b65c3..e0ce7bc 100644
 --- a/include/hermes/VM/Runtime.h
 +++ b/include/hermes/VM/Runtime.h
-@@ -1065,6 +1065,46 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+@@ -1065,6 +1065,47 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
      return v;
    }
  
@@ -132,7 +132,7 @@ index 66b65c3db..e0a3f9339 100644
    experiments::VMExperimentFlags getVMExperimentFlags() const {
      return vmExperimentFlags_;
    }
-@@ -1448,6 +1488,12 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+@@ -1448,6 +1489,12 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
    /// HTML spec specified "perform a microtask checkpoint" algorithm.
    std::deque<Callable *> jobQueue_{};
  
@@ -146,10 +146,10 @@ index 66b65c3db..e0a3f9339 100644
    BasicBlockExecutionInfo basicBlockExecInfo_;
  #endif
 diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
-index 09c8b2129..ee1d923bb 100644
+index 09c8b21..0f806cf 100644
 --- a/lib/VM/CapabilityAttribution.cpp
 +++ b/lib/VM/CapabilityAttribution.cpp
-@@ -115,6 +115,24 @@ size_t collectStackPackageIds(Runtime &runtime, uint32_t *out, size_t max) {
+@@ -115,6 +115,27 @@ size_t collectStackPackageIds(Runtime &runtime, uint32_t *out, size_t max) {
      out[count++] = packageId;
      last = packageId;
    }
@@ -177,7 +177,7 @@ index 09c8b2129..ee1d923bb 100644
    return count;
  }
  
-@@ -183,4 +201,16 @@ HERMES_EXPORT size_t ex_hermes_vm_collect_package_ids(
+@@ -183,4 +204,16 @@ HERMES_EXPORT size_t ex_hermes_vm_collect_package_ids(
        *reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime), out, max);
  }
  
@@ -195,7 +195,7 @@ index 09c8b2129..ee1d923bb 100644
 +
  } // extern "C"
 diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
-index 98c12dbf0..d82e72286 100644
+index 98c12db..d82e722 100644
 --- a/lib/VM/Runtime.cpp
 +++ b/lib/VM/Runtime.cpp
 @@ -2033,10 +2033,27 @@ ExecutionStatus Runtime::drainJobs() {

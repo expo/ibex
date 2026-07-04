@@ -299,9 +299,10 @@ inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFoll
   // caller. Also collect when the live frame walk found no user principal: the
   // scheduler capture can recover the package/root that caused a native-resolved
   // continuation, avoiding a false deny while still denying ungranted schedulers.
+  bool deputyClasses = hasDeputyClasses();
   bool useStack =
       g_vm_runtime != nullptr &&
-      (hasDeputyClasses() || principal == kNoUserPrincipalId);
+      (deputyClasses || principal == kNoUserPrincipalId);
   if (useStack) {
     // Collection is innermost-first, so a full buffer drops the OUTERMOST frames
     // — exactly the low-authority callers whose absence would let the AND pass
@@ -320,6 +321,34 @@ inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFoll
       }
       if (n == kMaxStack) {
         ids64[n++] = static_cast<uint64_t>(kNoUserPrincipalId);
+      }
+      // @ref LLP 0013#phase-5 (Open-Q3), ENG-22759 — fold in the HOST-queue
+      // scheduling principal for a deputy op detached across a timer /
+      // process.nextTick / setImmediate / the non-JSI queueMicrotask fallback.
+      // ENG-22761 captures that principal into g_native_callback_principal_id
+      // (ScopedNativePrincipal around the detached drain), but currentPrincipalId
+      // consults it only as a fallback for a *no-user* frame walk. A detached
+      // deputy METHOD (`setTimeout(deputy.readFor, 0, SECRET)`) runs with its own
+      // frame live, so the walk returns the deputy and the scheduler is otherwise
+      // dropped — leaving [deputy] (len 1), the deputy-class AND skipped, and the
+      // read laundered for the ungranted scheduler. Append it here, exactly as
+      // Hermes' collectStackPackageIds appends the Promise-queue scheduler for
+      // `Promise.resolve(x).then(deputy.method)` (that queue lives in the VM; the
+      // timer/nextTick queues live in the embedder, so the append is done here).
+      // An ungranted scheduler makes the AND deny; a granted package's own timer
+      // continuation (scheduler == the innermost frame) collapses and is not
+      // false-denied. Skip the runtime/no-user sentinels — a native completion with
+      // no attributable scheduler is not evidence of laundering (matches ENG-22761
+      // for the Promise queue). Deputy-class path only, with room after the
+      // truncation sentinel.
+      if (deputyClasses && n <= kMaxStack &&
+          g_native_callback_principal_id != kNoNativePrincipalOverride) {
+        uint64_t scheduler = g_native_callback_principal_id;
+        if (scheduler != static_cast<uint64_t>(kRuntimePrincipalId) &&
+            scheduler != static_cast<uint64_t>(kNoUserPrincipalId) &&
+            scheduler != ids64[n - 1]) {
+          ids64[n++] = scheduler;
+        }
       }
       auto allowed = noFollowFinal
           ? ex_host_check_capability_stack_no_follow_final(ids64, n, capability.c_str())
