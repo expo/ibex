@@ -348,6 +348,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_websocket.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fetch.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_ipc.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_worklet.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_android.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_templates.inl");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
@@ -884,6 +885,7 @@ fn main() {
         .file("src/engine/hermes_runtime_websocket.cc")
         .file("src/engine/hermes_runtime_fetch.cc")
         .file("src/engine/hermes_runtime_ipc.cc")
+        .file("src/engine/hermes_runtime_worklet.cc")
         .include(&hermes_include_dir)
         .include(&jsi_include_dir)
         .include(&out_dir); // For bootstrap_bytecode.h

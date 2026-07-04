@@ -110,6 +110,13 @@ struct ExactHermesRuntime {
   void* ios_module_sync_context = nullptr;
   void* kernel_handle = nullptr;
 
+  // LLP 0297 §4.3 (exact repo): true for restricted UI worklet runtimes
+  // created by ex_worklet_create(). Restricted runtimes refuse the app
+  // runtime's host wiring (dispatch/module/kernel/host-call setters are
+  // guarded no-ops) — worklets influence the tree only through SharedValues
+  // and their synchronous verdicts.
+  bool restricted = false;
+
   bool stream_enhance_loaded = false;
   bool web_crypto_loaded = false;
   bool web_storage_loaded = false;

@@ -279,6 +279,90 @@ char* ex_hermes_get_heap_info(ExactHermesRuntime* runtime, int include_expensive
 /// Returns malloc'd string or NULL on failure. Free with ex_hermes_free_string().
 char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime);
 
+// =============================================================================
+// UI Worklet Runtime (LLP 0297 §4.3, exact repo)
+// =============================================================================
+//
+// A second, RESTRICTED Hermes instance owned by the host's main/UI thread:
+// no module loader, no fetch/network, no timers, no exact.dispatch, no
+// kernel access. Globals: log(...), scheduleOnAppRuntime(name, args),
+// measure(nodeId), __svGet/__svSet + the frozen `worklet` stdlib
+// (clamp/lerp/sharedValue). Single-owner: every ex_worklet_* call happens
+// on the creating thread. Install/invoke are generation-fenced (§4.8):
+// stale or not-yet-current generations are defined no-ops.
+//
+// Result codes for ex_worklet_install / ex_worklet_invoke:
+//   0 = ok, 1 = error (out param carries the message), 2 = defined no-op
+//       (missing worklet or generation mismatch).
+
+/// Create a restricted worklet runtime (small heap: 1MB init / 8MB max).
+/// Compatible with ex_hermes_eval/gc/get_heap_info; destroy with
+/// ex_worklet_destroy (NOT ex_hermes_destroy — worklet state must be
+/// released first).
+ExactHermesRuntime* ex_worklet_create(void);
+
+/// Destroy a worklet runtime on its owning thread.
+void ex_worklet_destroy(ExactHermesRuntime* runtime);
+
+/// Set the current app-runtime generation; atomically drops every
+/// installed worklet whose generation differs (LLP 0297 §4.8 reset rule).
+void ex_worklet_set_generation(ExactHermesRuntime* runtime, uint64_t generation);
+
+/// Current generation (0 if never set).
+uint64_t ex_worklet_generation(ExactHermesRuntime* runtime);
+
+/// Install (or replace) a worklet. `source` must be JS source text that
+/// evaluates to a function expression, e.g. "(function(event){...})".
+/// Installs tagged with an OLDER generation than current are dropped
+/// (returns 2); NEWER generations are stored and become invocable when
+/// ex_worklet_set_generation catches up. On error returns 1 and sets
+/// *out_error (malloc'd; free with ex_hermes_free_string).
+int ex_worklet_install(
+    ExactHermesRuntime* runtime,
+    const char* worklet_id,
+    const uint8_t* source,
+    size_t source_len,
+    uint64_t generation,
+    char** out_error);
+
+/// Invoke an installed worklet synchronously with a JSON-encoded argument
+/// (may be NULL/empty for zero-arg invocation). On success returns 0 and
+/// sets *out_result_json to the JSON-stringified return value (malloc'd;
+/// free with ex_hermes_free_string). Returns 2 (no-op) for a missing
+/// worklet or generation mismatch; 1 on JS error (out param = message).
+int ex_worklet_invoke(
+    ExactHermesRuntime* runtime,
+    const char* worklet_id,
+    const char* args_json,
+    char** out_result_json);
+
+/// Bind the SharedValue slab: `slab` points to `slot_count` 32-bit slots
+/// (atomic f32 bit patterns; kernel-owned shared memory per LLP 0297 §4.5).
+/// Pass NULL to unbind. Out-of-range slot access from worklet JS is a
+/// defined no-op.
+int ex_worklet_bind_shared_values(
+    ExactHermesRuntime* runtime,
+    void* slab,
+    size_t slot_count);
+
+/// Register the measure(nodeId) host callback. The callback fills
+/// out_frame4 with {x, y, width, height} and returns 1, or returns 0 for
+/// unknown nodes (worklet JS sees null). Read from the host's presenter
+/// snapshot — never the kernel.
+void ex_worklet_set_measure_callback(
+    ExactHermesRuntime* runtime,
+    int (*callback)(uint32_t node_id, float* out_frame4, void* context),
+    void* context);
+
+/// Drain buffered log(...) entries as a JSON array of argument arrays
+/// (malloc'd; free with ex_hermes_free_string). NULL when empty.
+char* ex_worklet_drain_logs(ExactHermesRuntime* runtime);
+
+/// Drain buffered scheduleOnAppRuntime entries as a JSON array of
+/// {"name","args"} objects (malloc'd; free with ex_hermes_free_string).
+/// NULL when empty. The host forwards these to the app runtime.
+char* ex_worklet_drain_scheduled(ExactHermesRuntime* runtime);
+
 #ifdef __cplusplus
 }
 #endif

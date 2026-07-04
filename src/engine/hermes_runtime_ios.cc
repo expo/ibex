@@ -52,6 +52,7 @@ extern "C" void ex_hermes_set_dispatch_callback(
     void (*callback)(const uint8_t* data, size_t length, void* context),
     void* context) {
   if (!runtime) return;
+  if (runtime->restricted) return;  // no exact.dispatch on worklet runtimes (LLP 0297 §4.3)
   runtime->ios_dispatch_callback = callback;
   runtime->ios_dispatch_context = context;
 
@@ -113,6 +114,7 @@ extern "C" void ex_hermes_set_dispatch_with_debug_context_callback(
         void* context),
     void* context) {
   if (!runtime) return;
+  if (runtime->restricted) return;  // LLP 0297 §4.3
   runtime->ios_dispatch_with_debug_context_callback = callback;
   runtime->ios_dispatch_context = context;
 
@@ -169,6 +171,7 @@ extern "C" void ex_hermes_set_module_dispatch_callback(
     void (*callback)(const uint8_t* data, size_t length, void* context),
     void* context) {
   if (!runtime) return;
+  if (runtime->restricted) return;  // LLP 0297 §4.3
   runtime->ios_module_dispatch_callback = callback;
   runtime->ios_module_dispatch_context = context;
 
@@ -226,6 +229,7 @@ extern "C" void ex_hermes_set_module_sync_callback(
                     void* context),
     void* context) {
   if (!runtime) return;
+  if (runtime->restricted) return;  // LLP 0297 §4.3
   runtime->ios_module_sync_callback = callback;
   runtime->ios_module_sync_context = context;
 
@@ -308,6 +312,10 @@ extern "C" void ex_hermes_set_kernel_handle(
     ExactHermesRuntime* runtime,
     void* kernel_handle) {
   if (!runtime || !runtime->runtime) return;
+  // Restricted worklet runtimes get no direct kernel access (LLP 0297
+  // §4.3); geometry reads go through the measure() host callback against
+  // the presenter snapshot instead.
+  if (runtime->restricted) return;
   runtime->kernel_handle = kernel_handle;
 
   auto& rt = *runtime->runtime;

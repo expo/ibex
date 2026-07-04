@@ -1754,6 +1754,8 @@ extern "C" void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json)) {
   if (!runtime) return;
+  // Restricted worklet runtimes never get __hostCall (LLP 0297 §4.3).
+  if (runtime->restricted) return;
   runtime->host_call_fn = callback;
 
   // Install (or reinstall) the __hostCall JS function
