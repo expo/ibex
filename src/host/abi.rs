@@ -19,7 +19,7 @@ use std::ffi::c_int;
 use std::ffi::{c_char, CStr, CString};
 use std::io::{self, Write};
 use std::ptr;
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 #[cfg(unix)]
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -85,9 +85,12 @@ pub(crate) fn host_test_lock() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
-struct SqliteConnectionRecord {
-    db: Connection,
-}
+/// A SQLite connection is wrapped in its own `Mutex` and shared via `Arc` so
+/// each connection can be locked independently. The process-global registry
+/// lock is only held long enough to look up and clone this handle, not across
+/// query execution — so a slow query on one connection no longer stalls every
+/// other SQLite call process-wide.
+type SqliteConnection = Arc<Mutex<Connection>>;
 
 #[derive(Clone)]
 struct SqliteStatementRecord {
@@ -99,7 +102,7 @@ struct SqliteStatementRecord {
 struct SqliteState {
     next_db_handle: u64,
     next_statement_handle: u64,
-    dbs: HashMap<u64, SqliteConnectionRecord>,
+    dbs: HashMap<u64, SqliteConnection>,
     statements: HashMap<u64, SqliteStatementRecord>,
 }
 
@@ -123,6 +126,34 @@ fn with_sqlite_state<T>(f: impl FnOnce(&mut SqliteState) -> T) -> T {
         Err(poisoned) => poisoned.into_inner(),
     };
     f(&mut state)
+}
+
+/// Clone the shared handle for a connection. The registry lock is held only for
+/// the lookup + `Arc` clone; callers then lock the per-connection mutex on their
+/// own so independent connections execute concurrently.
+fn sqlite_connection(db_id: u64) -> Option<SqliteConnection> {
+    with_sqlite_state(|state| state.dbs.get(&db_id).map(Arc::clone))
+}
+
+/// Resolve a prepared-statement handle to its record plus the shared handle for
+/// the connection it belongs to, in a single registry-lock critical section.
+fn sqlite_statement_connection(
+    statement_handle: u64,
+) -> Option<(SqliteStatementRecord, SqliteConnection)> {
+    with_sqlite_state(|state| {
+        let statement = state.statements.get(&statement_handle)?.clone();
+        let connection = state.dbs.get(&statement.db_id).map(Arc::clone)?;
+        Some((statement, connection))
+    })
+}
+
+/// Lock a connection for the duration of an operation, recovering the guard if a
+/// previous holder panicked (a poisoned SQLite connection is still usable).
+fn lock_connection(connection: &Mutex<Connection>) -> MutexGuard<'_, Connection> {
+    match connection.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 pub fn install_host(host: Host) {
@@ -390,14 +421,28 @@ fn sqlite_open_flags(options: &SqliteOpenOptions) -> OpenFlags {
         return open_flags;
     }
 
+    // A read-only connection must not also carry READ_WRITE or CREATE: SQLite
+    // rejects `READ_ONLY|CREATE` with SQLITE_MISUSE, which is why `{readonly:
+    // true}` opens silently failed (returning handle 0 with no error) even for a
+    // file that exists and is readable. When not read-only, honor the previously
+    // ignored `readwrite` field, and treat `create` as implying write access
+    // (CREATE requires READ_WRITE, or SQLite likewise returns SQLITE_MISUSE).
     let mut open_flags = OpenFlags::empty();
     if options.readonly {
         open_flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
     } else {
-        open_flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-    }
-    if options.create {
-        open_flags.insert(OpenFlags::SQLITE_OPEN_CREATE);
+        if options.readwrite || options.create {
+            open_flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        }
+        if options.create {
+            open_flags.insert(OpenFlags::SQLITE_OPEN_CREATE);
+        }
+        if open_flags.is_empty() {
+            // `{readonly:false, readwrite:false, create:false}` requested no access
+            // mode at all; fall back to read-only rather than hand SQLite empty
+            // flags (also SQLITE_MISUSE).
+            open_flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
+        }
     }
     open_flags
 }
@@ -1663,7 +1708,7 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
     with_sqlite_state(|state| {
         let handle = state.next_db_handle;
         state.next_db_handle = state.next_db_handle.saturating_add(1);
-        state.dbs.insert(handle, SqliteConnectionRecord { db });
+        state.dbs.insert(handle, Arc::new(Mutex::new(db)));
         handle
     })
 }
@@ -1690,13 +1735,18 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
 
     let sql = unsafe { CStr::from_ptr(sql) }.to_string_lossy().to_string();
 
-    with_sqlite_state(|state| {
-        let connection = match state.dbs.get_mut(&db_handle) {
-            Some(db) => db,
-            None => return ptr::null_mut(),
-        };
+    let connection = match sqlite_connection(db_handle) {
+        Some(connection) => connection,
+        None => return ptr::null_mut(),
+    };
 
-        let statement = match connection.db.prepare(&sql) {
+    // Compile via `prepare_cached` and read the statement's metadata under the
+    // per-connection lock only. Caching the compiled plan here means the later
+    // exec/query calls for the same SQL reuse it instead of re-tokenizing,
+    // re-parsing and re-planning on every invocation.
+    let (column_names, declared_types, read_only, params_count) = {
+        let guard = lock_connection(&connection);
+        let statement = match guard.prepare_cached(&sql) {
             Ok(statement) => statement,
             Err(err) => {
                 return as_json_cstring(&json!({ "error": err.to_string() }));
@@ -1719,8 +1769,12 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
             .map(|column| column.decl_type().map(std::string::ToString::to_string))
             .collect();
         let read_only = statement.readonly();
-
         let params_count = statement.parameter_count() as usize;
+
+        (column_names, declared_types, read_only, params_count)
+    };
+
+    let statement_handle = with_sqlite_state(|state| {
         let statement_handle = state.next_statement_handle;
         state.next_statement_handle = state.next_statement_handle.saturating_add(1);
         state.statements.insert(
@@ -1731,15 +1785,16 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
                 read_only,
             },
         );
+        statement_handle
+    });
 
-        as_json_cstring(&json!({
-            "handle": statement_handle,
-            "columnNames": column_names,
-            "declaredTypes": declared_types,
-            "paramsCount": params_count,
-            "readOnly": read_only,
-        }))
-    })
+    as_json_cstring(&json!({
+        "handle": statement_handle,
+        "columnNames": column_names,
+        "declaredTypes": declared_types,
+        "paramsCount": params_count,
+        "readOnly": read_only,
+    }))
 }
 
 #[no_mangle]
@@ -1773,17 +1828,16 @@ pub extern "C" fn ex_host_sqlite_expanded_sql(statement_handle: u64) -> *mut c_c
 
 #[no_mangle]
 pub extern "C" fn ex_host_sqlite_in_transaction(handle: u64) -> i32 {
-    with_sqlite_state(|state| {
-        let connection = match state.dbs.get(&handle) {
-            Some(connection) => connection,
-            None => return 0,
-        };
-        if connection.db.is_autocommit() {
-            0
-        } else {
-            1
-        }
-    })
+    let connection = match sqlite_connection(handle) {
+        Some(connection) => connection,
+        None => return 0,
+    };
+    let guard = lock_connection(&connection);
+    if guard.is_autocommit() {
+        0
+    } else {
+        1
+    }
 }
 
 #[no_mangle]
@@ -1797,70 +1851,76 @@ pub extern "C" fn ex_host_sqlite_all(
 
     let bindings = parse_bindings(bindings_json);
 
-    with_sqlite_state(|state| {
-        let statement = match state.statements.get(&statement_handle) {
-            Some(statement) => statement,
-            None => return ptr::null_mut(),
-        };
-        let read_only = statement.read_only;
-        let connection = match state.dbs.get_mut(&statement.db_id) {
-            Some(connection) => connection,
-            None => return ptr::null_mut(),
-        };
+    let (statement, connection) = match sqlite_statement_connection(statement_handle) {
+        Some(pair) => pair,
+        None => return ptr::null_mut(),
+    };
+    let read_only = statement.read_only;
+    let guard = lock_connection(&connection);
 
-        let mut stmt = match connection.db.prepare(&statement.sql) {
-            Ok(statement) => statement,
-            Err(err) => {
-                return as_json_cstring(&json!({"error": err.to_string()}));
-            }
-        };
-
-        let column_count = stmt.column_count();
-        let column_names: Vec<String> = (0..column_count)
-            .filter_map(|index| stmt.column_name(index).ok().map(|name| name.to_string()))
-            .collect();
-        let mut rows = match query_with_bindings(&mut stmt, &bindings) {
-            Ok(result) => result,
-            Err(err) => {
-                return as_json_cstring(&json!({"error": err.to_string()}));
-            }
-        };
-
-        let mut payload_rows = Vec::new();
-        let mut column_types: Option<Vec<String>> = None;
-        while let Ok(Some(row)) = rows.next() {
-            let mut object = serde_json::Map::new();
-            let mut row_column_types = if read_only {
-                Some(Vec::with_capacity(column_count))
-            } else {
-                None
-            };
-            for index in 0..column_count {
-                let name = match column_names.get(index) {
-                    Some(name) => name.clone(),
-                    None => continue,
-                };
-
-                if let Ok(value) = row.get_ref(index) {
-                    if let Some(ref mut types) = row_column_types {
-                        types.push(sqlite_value_type_name(&value).to_string());
-                    }
-                    object.insert(name, sqlite_value_to_json(value));
-                } else if let Some(ref mut types) = row_column_types {
-                    types.push(String::new());
-                }
-            }
-            if column_types.is_none() {
-                column_types = row_column_types;
-            }
-            payload_rows.push(serde_json::Value::Object(object));
+    let mut stmt = match guard.prepare_cached(&statement.sql) {
+        Ok(statement) => statement,
+        Err(err) => {
+            return as_json_cstring(&json!({"error": err.to_string()}));
         }
+    };
 
-        as_json_cstring(&json!({
-            "rows": payload_rows,
-            "columnTypes": column_types.unwrap_or_default(),
-        }))
-    })
+    let column_count = stmt.column_count();
+    let column_names: Vec<String> = (0..column_count)
+        .filter_map(|index| stmt.column_name(index).ok().map(|name| name.to_string()))
+        .collect();
+    let mut rows = match query_with_bindings(&mut stmt, &bindings) {
+        Ok(result) => result,
+        Err(err) => {
+            return as_json_cstring(&json!({"error": err.to_string()}));
+        }
+    };
+
+    let mut payload_rows = Vec::new();
+    let mut column_types: Option<Vec<String>> = None;
+    loop {
+        // A step error after N rows (SQLITE_BUSY, an I/O error, a RAISE in a
+        // trigger, arithmetic overflow) must surface as an error — not exit the
+        // loop and return the partial rows as a silently truncated success. The
+        // old `while let Ok(Some(row))` form dropped the error on the floor.
+        let row = match rows.next() {
+            Ok(Some(row)) => row,
+            Ok(None) => break,
+            Err(err) => {
+                return as_json_cstring(&json!({"error": err.to_string()}));
+            }
+        };
+        let mut object = serde_json::Map::new();
+        let mut row_column_types = if read_only {
+            Some(Vec::with_capacity(column_count))
+        } else {
+            None
+        };
+        for index in 0..column_count {
+            let name = match column_names.get(index) {
+                Some(name) => name.clone(),
+                None => continue,
+            };
+
+            if let Ok(value) = row.get_ref(index) {
+                if let Some(ref mut types) = row_column_types {
+                    types.push(sqlite_value_type_name(&value).to_string());
+                }
+                object.insert(name, sqlite_value_to_json(value));
+            } else if let Some(ref mut types) = row_column_types {
+                types.push(String::new());
+            }
+        }
+        if column_types.is_none() {
+            column_types = row_column_types;
+        }
+        payload_rows.push(serde_json::Value::Object(object));
+    }
+
+    as_json_cstring(&json!({
+        "rows": payload_rows,
+        "columnTypes": column_types.unwrap_or_default(),
+    }))
 }
 
 #[no_mangle]
@@ -1874,64 +1934,59 @@ pub extern "C" fn ex_host_sqlite_get(
 
     let bindings = parse_bindings(bindings_json);
 
-    with_sqlite_state(|state| {
-        let statement = match state.statements.get(&statement_handle) {
-            Some(statement) => statement,
-            None => return ptr::null_mut(),
-        };
-        let read_only = statement.read_only;
-        let connection = match state.dbs.get_mut(&statement.db_id) {
-            Some(connection) => connection,
-            None => return ptr::null_mut(),
-        };
+    let (statement, connection) = match sqlite_statement_connection(statement_handle) {
+        Some(pair) => pair,
+        None => return ptr::null_mut(),
+    };
+    let read_only = statement.read_only;
+    let guard = lock_connection(&connection);
 
-        let mut stmt = match connection.db.prepare(&statement.sql) {
-            Ok(statement) => statement,
-            Err(err) => {
-                return as_json_cstring(&json!({"error": err.to_string()}));
-            }
-        };
+    let mut stmt = match guard.prepare_cached(&statement.sql) {
+        Ok(statement) => statement,
+        Err(err) => {
+            return as_json_cstring(&json!({"error": err.to_string()}));
+        }
+    };
 
-        let column_count = stmt.column_count();
-        let column_names: Vec<String> = (0..column_count)
-            .filter_map(|index| stmt.column_name(index).ok().map(|name| name.to_string()))
-            .collect();
-        let mut rows = match query_with_bindings(&mut stmt, &bindings) {
-            Ok(result) => result,
-            Err(err) => {
-                return as_json_cstring(&json!({"error": err.to_string()}));
-            }
-        };
+    let column_count = stmt.column_count();
+    let column_names: Vec<String> = (0..column_count)
+        .filter_map(|index| stmt.column_name(index).ok().map(|name| name.to_string()))
+        .collect();
+    let mut rows = match query_with_bindings(&mut stmt, &bindings) {
+        Ok(result) => result,
+        Err(err) => {
+            return as_json_cstring(&json!({"error": err.to_string()}));
+        }
+    };
 
-        let mut column_types = Vec::new();
-        let row = match rows.next() {
-            Ok(Some(row)) => {
-                let mut object = serde_json::Map::new();
-                for index in 0..column_count {
-                    let name = match column_names.get(index) {
-                        Some(name) => name.clone(),
-                        None => continue,
-                    };
-                    if let Ok(value) = row.get_ref(index) {
-                        if read_only {
-                            column_types.push(sqlite_value_type_name(&value).to_string());
-                        }
-                        object.insert(name, sqlite_value_to_json(value));
-                    } else if read_only {
-                        column_types.push(String::new());
+    let mut column_types = Vec::new();
+    let row = match rows.next() {
+        Ok(Some(row)) => {
+            let mut object = serde_json::Map::new();
+            for index in 0..column_count {
+                let name = match column_names.get(index) {
+                    Some(name) => name.clone(),
+                    None => continue,
+                };
+                if let Ok(value) = row.get_ref(index) {
+                    if read_only {
+                        column_types.push(sqlite_value_type_name(&value).to_string());
                     }
+                    object.insert(name, sqlite_value_to_json(value));
+                } else if read_only {
+                    column_types.push(String::new());
                 }
-                serde_json::Value::Object(object)
             }
-            Ok(None) => serde_json::Value::Null,
-            Err(err) => serde_json::json!({"error": err.to_string()}),
-        };
+            serde_json::Value::Object(object)
+        }
+        Ok(None) => serde_json::Value::Null,
+        Err(err) => serde_json::json!({"error": err.to_string()}),
+    };
 
-        as_json_cstring(&json!({
-            "row": row,
-            "columnTypes": column_types,
-        }))
-    })
+    as_json_cstring(&json!({
+        "row": row,
+        "columnTypes": column_types,
+    }))
 }
 
 #[no_mangle]
@@ -1945,62 +2000,66 @@ pub extern "C" fn ex_host_sqlite_values(
 
     let bindings = parse_bindings(bindings_json);
 
-    with_sqlite_state(|state| {
-        let statement = match state.statements.get(&statement_handle) {
-            Some(statement) => statement,
-            None => return ptr::null_mut(),
-        };
-        let read_only = statement.read_only;
-        let connection = match state.dbs.get_mut(&statement.db_id) {
-            Some(connection) => connection,
-            None => return ptr::null_mut(),
-        };
+    let (statement, connection) = match sqlite_statement_connection(statement_handle) {
+        Some(pair) => pair,
+        None => return ptr::null_mut(),
+    };
+    let read_only = statement.read_only;
+    let guard = lock_connection(&connection);
 
-        let mut stmt = match connection.db.prepare(&statement.sql) {
-            Ok(statement) => statement,
-            Err(err) => {
-                return as_json_cstring(&json!({"error": err.to_string()}));
-            }
-        };
-
-        let column_count = stmt.column_count();
-        let mut rows = match query_with_bindings(&mut stmt, &bindings) {
-            Ok(result) => result,
-            Err(err) => {
-                return as_json_cstring(&json!({"error": err.to_string()}));
-            }
-        };
-
-        let mut payload_rows = Vec::new();
-        let mut column_types: Option<Vec<String>> = None;
-        while let Ok(Some(row)) = rows.next() {
-            let mut values = Vec::new();
-            let mut row_column_types = if read_only {
-                Some(Vec::with_capacity(column_count))
-            } else {
-                None
-            };
-            for index in 0..column_count {
-                if let Ok(value) = row.get_ref(index) {
-                    if let Some(ref mut types) = row_column_types {
-                        types.push(sqlite_value_type_name(&value).to_string());
-                    }
-                    values.push(sqlite_value_to_json(value));
-                } else if let Some(ref mut types) = row_column_types {
-                    types.push(String::new());
-                }
-            }
-            if column_types.is_none() {
-                column_types = row_column_types;
-            }
-            payload_rows.push(serde_json::Value::Array(values));
+    let mut stmt = match guard.prepare_cached(&statement.sql) {
+        Ok(statement) => statement,
+        Err(err) => {
+            return as_json_cstring(&json!({"error": err.to_string()}));
         }
+    };
 
-        as_json_cstring(&json!({
-            "rows": payload_rows,
-            "columnTypes": column_types.unwrap_or_default(),
-        }))
-    })
+    let column_count = stmt.column_count();
+    let mut rows = match query_with_bindings(&mut stmt, &bindings) {
+        Ok(result) => result,
+        Err(err) => {
+            return as_json_cstring(&json!({"error": err.to_string()}));
+        }
+    };
+
+    let mut payload_rows = Vec::new();
+    let mut column_types: Option<Vec<String>> = None;
+    loop {
+        // As in `ex_host_sqlite_all`: surface a mid-iteration step error instead
+        // of returning the rows gathered so far as a silently truncated success.
+        let row = match rows.next() {
+            Ok(Some(row)) => row,
+            Ok(None) => break,
+            Err(err) => {
+                return as_json_cstring(&json!({"error": err.to_string()}));
+            }
+        };
+        let mut values = Vec::new();
+        let mut row_column_types = if read_only {
+            Some(Vec::with_capacity(column_count))
+        } else {
+            None
+        };
+        for index in 0..column_count {
+            if let Ok(value) = row.get_ref(index) {
+                if let Some(ref mut types) = row_column_types {
+                    types.push(sqlite_value_type_name(&value).to_string());
+                }
+                values.push(sqlite_value_to_json(value));
+            } else if let Some(ref mut types) = row_column_types {
+                types.push(String::new());
+            }
+        }
+        if column_types.is_none() {
+            column_types = row_column_types;
+        }
+        payload_rows.push(serde_json::Value::Array(values));
+    }
+
+    as_json_cstring(&json!({
+        "rows": payload_rows,
+        "columnTypes": column_types.unwrap_or_default(),
+    }))
 }
 
 #[no_mangle]
@@ -2014,32 +2073,30 @@ pub extern "C" fn ex_host_sqlite_run(
 
     let bindings = parse_bindings(bindings_json);
 
-    with_sqlite_state(|state| {
-        let statement = match state.statements.get(&statement_handle) {
-            Some(statement) => statement,
-            None => return ptr::null_mut(),
-        };
-        let connection = match state.dbs.get_mut(&statement.db_id) {
-            Some(connection) => connection,
-            None => return ptr::null_mut(),
-        };
+    let (statement, connection) = match sqlite_statement_connection(statement_handle) {
+        Some(pair) => pair,
+        None => return ptr::null_mut(),
+    };
+    let guard = lock_connection(&connection);
 
-        let mut stmt = match connection.db.prepare(&statement.sql) {
-            Ok(statement) => statement,
-            Err(err) => {
-                return as_json_cstring(&json!({"error": err.to_string()}));
-            }
-        };
-
-        if let Err(err) = execute_with_bindings(&mut stmt, &bindings) {
+    let mut stmt = match guard.prepare_cached(&statement.sql) {
+        Ok(statement) => statement,
+        Err(err) => {
             return as_json_cstring(&json!({"error": err.to_string()}));
         }
+    };
 
-        as_json_cstring(&json!({
-            "changes": connection.db.changes(),
-            "lastInsertRowid": connection.db.last_insert_rowid(),
-        }))
-    })
+    if let Err(err) = execute_with_bindings(&mut stmt, &bindings) {
+        return as_json_cstring(&json!({"error": err.to_string()}));
+    }
+    // Return the cached statement to the connection's cache before reading the
+    // connection-level counters.
+    drop(stmt);
+
+    as_json_cstring(&json!({
+        "changes": guard.changes(),
+        "lastInsertRowid": guard.last_insert_rowid(),
+    }))
 }
 
 #[no_mangle]
@@ -2055,28 +2112,28 @@ pub extern "C" fn ex_host_sqlite_exec(
     let sql = unsafe { CStr::from_ptr(sql) }.to_string_lossy().to_string();
     let bindings = parse_bindings(bindings_json);
 
-    with_sqlite_state(|state| {
-        let connection = match state.dbs.get_mut(&db_handle) {
-            Some(connection) => connection,
-            None => return ptr::null_mut(),
-        };
+    let connection = match sqlite_connection(db_handle) {
+        Some(connection) => connection,
+        None => return ptr::null_mut(),
+    };
+    let guard = lock_connection(&connection);
 
-        let mut stmt = match connection.db.prepare(&sql) {
-            Ok(statement) => statement,
-            Err(err) => {
-                return as_json_cstring(&json!({"error": err.to_string()}));
-            }
-        };
-
-        if let Err(err) = execute_with_bindings(&mut stmt, &bindings) {
+    let mut stmt = match guard.prepare_cached(&sql) {
+        Ok(statement) => statement,
+        Err(err) => {
             return as_json_cstring(&json!({"error": err.to_string()}));
         }
+    };
 
-        as_json_cstring(&json!({
-            "changes": connection.db.changes(),
-            "lastInsertRowid": connection.db.last_insert_rowid(),
-        }))
-    })
+    if let Err(err) = execute_with_bindings(&mut stmt, &bindings) {
+        return as_json_cstring(&json!({"error": err.to_string()}));
+    }
+    drop(stmt);
+
+    as_json_cstring(&json!({
+        "changes": guard.changes(),
+        "lastInsertRowid": guard.last_insert_rowid(),
+    }))
 }
 
 #[no_mangle]
@@ -2283,5 +2340,116 @@ mod tests {
         // Free with the exact reported length so the Box layout matches the
         // allocation (this is the path the C++ caller takes).
         ex_host_free_buffer(buf, out_len);
+    }
+
+    /// Run `sql` through the exec ABI, asserting it did not fault, and free the
+    /// returned status string.
+    #[cfg(test)]
+    fn exec_ok(db: u64, sql: &str, bindings: Option<&str>) {
+        let c_sql = CString::new(sql).unwrap();
+        let c_bindings = bindings.map(|b| CString::new(b).unwrap());
+        let bindings_ptr = c_bindings
+            .as_ref()
+            .map_or(ptr::null(), |c| c.as_ptr());
+        let result = ex_host_sqlite_exec(db, c_sql.as_ptr(), bindings_ptr);
+        assert!(!result.is_null(), "exec returned null for {sql}");
+        let text = unsafe { CStr::from_ptr(result) }
+            .to_string_lossy()
+            .into_owned();
+        ex_host_free_string(result);
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            value.get("error").is_none(),
+            "exec of {sql} unexpectedly errored: {text}"
+        );
+    }
+
+    /// Read a `*mut c_char` JSON result out of the SQLite ABI and free it.
+    #[cfg(test)]
+    fn take_json(ptr: *mut c_char) -> serde_json::Value {
+        assert!(!ptr.is_null(), "SQLite ABI returned null");
+        let text = unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned();
+        ex_host_free_string(ptr);
+        serde_json::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn sqlite_readonly_open_of_existing_file_succeeds() {
+        let _guard = host_test_lock();
+
+        // Create an on-disk database and write a row through a read-write open.
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_str().unwrap().to_string();
+        let c_path = CString::new(path).unwrap();
+
+        let rw = ex_host_sqlite_open(c_path.as_ptr(), ptr::null());
+        assert_ne!(rw, 0, "default (read-write) open should succeed");
+        exec_ok(rw, "CREATE TABLE t (v INTEGER)", None);
+        exec_ok(rw, "INSERT INTO t (v) VALUES (42)", None);
+        assert_eq!(ex_host_sqlite_close(rw), 0);
+
+        // Reopen read-only. Before the fix this produced `READ_ONLY|CREATE`,
+        // which rusqlite rejects with SQLITE_MISUSE, so open returned 0.
+        let ro_opts = CString::new("{\"readonly\":true}").unwrap();
+        let ro = ex_host_sqlite_open(c_path.as_ptr(), ro_opts.as_ptr());
+        assert_ne!(ro, 0, "{{readonly:true}} open of an existing file must succeed");
+
+        // Reads work.
+        let prep = CString::new("SELECT v FROM t").unwrap();
+        let prepared = take_json(ex_host_sqlite_prepare(ro, prep.as_ptr()));
+        let handle = prepared["handle"].as_u64().unwrap();
+        let rows = take_json(ex_host_sqlite_all(handle, ptr::null()));
+        assert_eq!(rows["rows"][0]["v"].as_i64(), Some(42));
+
+        // Writes are rejected on a read-only connection.
+        let write = CString::new("INSERT INTO t (v) VALUES (7)").unwrap();
+        let write_result = take_json(ex_host_sqlite_exec(ro, write.as_ptr(), ptr::null()));
+        assert!(
+            write_result.get("error").is_some(),
+            "write on a read-only connection must error, got {write_result}"
+        );
+
+        assert_eq!(ex_host_sqlite_close(ro), 0);
+    }
+
+    #[test]
+    fn sqlite_all_surfaces_mid_iteration_step_error() {
+        let _guard = host_test_lock();
+
+        let mem = CString::new(":memory:").unwrap();
+        let db = ex_host_sqlite_open(mem.as_ptr(), ptr::null());
+        assert_ne!(db, 0);
+
+        // One well-behaved row, then i64::MIN (bound as an integer so it is stored
+        // as INTEGER, not coerced to REAL). `abs(i64::MIN)` raises "integer
+        // overflow" during step — a genuine mid-iteration error after a good row.
+        exec_ok(db, "CREATE TABLE t (v INTEGER)", None);
+        exec_ok(db, "INSERT INTO t (v) VALUES (1)", None);
+        exec_ok(db, "INSERT INTO t (v) VALUES (?)", Some("[-9223372036854775808]"));
+
+        let prep = CString::new("SELECT abs(v) AS a FROM t").unwrap();
+        let prepared = take_json(ex_host_sqlite_prepare(db, prep.as_ptr()));
+        let handle = prepared["handle"].as_u64().unwrap();
+
+        let result = take_json(ex_host_sqlite_all(handle, ptr::null()));
+        assert!(
+            result.get("error").is_some(),
+            "a mid-iteration step error must surface as an error, got {result}"
+        );
+        assert!(
+            result.get("rows").is_none(),
+            "must not return partial rows as a successful result, got {result}"
+        );
+
+        // `values` takes the same code path and must behave the same way.
+        let values = take_json(ex_host_sqlite_values(handle, ptr::null()));
+        assert!(
+            values.get("error").is_some(),
+            "values must also surface the step error, got {values}"
+        );
+
+        assert_eq!(ex_host_sqlite_close(db), 0);
     }
 }
