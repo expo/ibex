@@ -486,7 +486,27 @@ function _scheduleOutgoingDrainFallback(target) {
   var emitDrain = function() {
     target._drainFallbackScheduled = false;
     if (target.destroyed || target._closed || target.closed) return;
-    _resetOutgoingBufferState(target);
+    // When a real socket backs this message, its own 'drain' event is the
+    // authoritative backpressure signal. Emitting a synthetic drain (and zeroing
+    // outputSize) while the socket is still saturated would resume the writer
+    // before anything was flushed, letting the whole body pile up in the socket
+    // write queue and defeating backpressure. Defer to the real socket 'drain'
+    // in that case; it fires when the socket genuinely drains. @ref https://linear.app/expo/issue/ENG-22961
+    var socket = target.socket;
+    if (socket &&
+        (socket.writableNeedDrain === true ||
+         (typeof socket.writableLength === 'number' &&
+          socket.writableLength >= (target.writableHighWaterMark || 0)))) {
+      return;
+    }
+    // No socket sink (fully-buffered transports, e.g. the fetch-based https
+    // path), or the socket has genuinely drained: it is now safe to let the
+    // writer continue. Only clear the buffered-byte accounting when there is no
+    // socket managing it — for socket-backed messages outputSize is maintained
+    // by the write/flush path and the real 'drain'.
+    if (!socket) {
+      _resetOutgoingBufferState(target);
+    }
     if (typeof target.emit === 'function') {
       target.emit('drain');
     }
@@ -2564,16 +2584,42 @@ ClientRequest.prototype.hasHeader = function(name) {
 
 ClientRequest.prototype.flushHeaders = function() {
   if (this._sent) return this;
-  if (this.protocol === 'http:') {
+  if (_requestUsesSocketTransport(this)) {
     this._startStreamingRequest();
     this._ensureSocketAssigned();
     if (this._writePendingRequest) {
       this._writePendingRequest();
     }
   } else {
-    this._send();
+    // Fetch-based transports (e.g. https over fetch) dispatch the request
+    // atomically at end(); there is no way to flush only the header block.
+    // Calling _send() here would transmit the request immediately with whatever
+    // body has been buffered so far — nothing, for the Expect: 100-continue
+    // pattern — and set _sent, so the body written later from the 'continue'
+    // handler would be silently dropped. Defer the send, and for
+    // Expect: 100-continue optimistically emit 'continue' so the caller writes
+    // its body (transmitted by end()'s _send()). @ref https://linear.app/expo/issue/ENG-22961
+    this._maybeEmitFetchContinue();
   }
   return this;
+};
+
+ClientRequest.prototype._maybeEmitFetchContinue = function() {
+  if (this._continueEmitted || this._sent) return;
+  var expectHeader = this.headers && this.headers['expect'];
+  if (Array.isArray(expectHeader)) {
+    expectHeader = expectHeader.length > 0 ? expectHeader[0] : '';
+  }
+  if (typeof expectHeader !== 'string' ||
+      expectHeader.trim().toLowerCase() !== '100-continue') {
+    return;
+  }
+  this._continueEmitted = true;
+  var self = this;
+  scheduleNextTick(function() {
+    if (self._sent || self._ended || self.destroyed || self._destroyRequested) return;
+    self.emit('continue');
+  });
 };
 
 function _buildRawTcpRequestHead(request, host, port, bodyLength, forceChunked) {
@@ -5463,6 +5509,12 @@ var STATUS_CODES = {
 // ---------------------------------------------------------------------------
 function HttpRequestParser() {
   this._buffer = '';
+  // When true, the parser stops at message boundaries (state 0) and leaves any
+  // buffered bytes for a later resume(). The server sets this after emitting a
+  // request so pipelined requests are processed strictly one at a time — this
+  // keeps response order correct and prevents a later request's body from being
+  // routed into an earlier request's stream. @ref https://linear.app/expo/issue/ENG-22961
+  this._paused = false;
   this._state = 0; // 0=REQUEST_LINE, 1=HEADERS, 2=BODY, 3=CHUNKED_SIZE, 4=CHUNKED_DATA, 5=CHUNKED_TRAILER, 6=DISCARD_BODY
   this._method = '';
   this._url = '';
@@ -5525,7 +5577,20 @@ function _toHttpParserString(chunk) {
 HttpRequestParser.prototype.execute = function(chunk) {
   chunk = _toHttpParserString(chunk);
   this._buffer += chunk;
-  this._rawPacket += chunk;
+  // _rawPacket is only used to report parse errors in the request-line/header
+  // section (states 0 and 1). Accumulating it across the body made a large
+  // streamed body grow an O(n) latin1 copy per request (with O(n^2) `+=`
+  // churn), defeating the streaming body path. Only retain raw bytes while we
+  // are still parsing headers. @ref https://linear.app/expo/issue/ENG-22961
+  if (this._state === 0 || this._state === 1) {
+    this._rawPacket += chunk;
+  }
+  this._parse();
+};
+
+// Resume a parser previously paused at a message boundary (see `_paused`).
+HttpRequestParser.prototype.resume = function() {
+  this._paused = false;
   this._parse();
 };
 
@@ -5631,6 +5696,12 @@ function _measureHttpHeaderLineBytes(line) {
 
 HttpRequestParser.prototype._parse = function() {
   while (this._buffer.length > 0) {
+    // Serialization gate: while paused, don't start parsing a new message.
+    // The check is scoped to state 0 so an in-flight message (its body/chunks)
+    // still drains; only the *next* pipelined request waits. @ref https://linear.app/expo/issue/ENG-22961
+    if (this._paused && this._state === 0) {
+      return;
+    }
     if (this._state === 0) {
       while (this._buffer.indexOf('\r\n') === 0) {
         this._buffer = this._buffer.substring(2);
@@ -5698,6 +5769,10 @@ HttpRequestParser.prototype._parse = function() {
           this._emitParseError('invalid_transfer_encoding', this._rawPacket, this._rawPacket.length);
           return;
         }
+        // Headers parsed successfully: the raw header bytes are no longer needed
+        // (body/chunk errors below don't report _rawPacket). Drop them now so a
+        // header+body split inside a single chunk can't retain the body. @ref https://linear.app/expo/issue/ENG-22961
+        this._rawPacket = '';
         if (Array.isArray(te)) {
           te = te.join(', ');
         }
@@ -8059,6 +8134,13 @@ Server.prototype._onConnection = function(socket) {
     _activeRes = res;
     socket._isIdle = false;
 
+    // Serialize pipelined requests: hold off parsing the next request until this
+    // one's response completes. Only state-0 parsing is gated, so this request's
+    // own body still streams. Resumed in res 'close' below. @ref https://linear.app/expo/issue/ENG-22961
+    if (parser) {
+      parser._paused = true;
+    }
+
     res.once('close', function() {
       if (req.complete && _activeReq === req) {
         _activeReq = null;
@@ -8113,6 +8195,15 @@ Server.prototype._onConnection = function(socket) {
           armPendingRequestTimeouts();
         } else {
           armKeepAliveTimeout();
+        }
+        // This response is complete: resume the serialized parser so the next
+        // pipelined request (if any is buffered) is parsed and emitted in order.
+        // @ref https://linear.app/expo/issue/ENG-22961
+        if (socket.parser === parser && parser._paused) {
+          parser._paused = false;
+          if (hasPendingHttpRequestData()) {
+            parser.resume();
+          }
         }
       }
     });

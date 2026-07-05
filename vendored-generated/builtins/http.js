@@ -346,7 +346,9 @@ function _scheduleOutgoingDrainFallback(target) {
 	var emitDrain = function() {
 		target._drainFallbackScheduled = false;
 		if (target.destroyed || target._closed || target.closed) return;
-		_resetOutgoingBufferState(target);
+		var socket = target.socket;
+		if (socket && (socket.writableNeedDrain === true || typeof socket.writableLength === "number" && socket.writableLength >= (target.writableHighWaterMark || 0))) return;
+		if (!socket) _resetOutgoingBufferState(target);
 		if (typeof target.emit === "function") target.emit("drain");
 	};
 	if (typeof process !== "undefined" && process && typeof process.nextTick === "function") process.nextTick(emitDrain);
@@ -1776,12 +1778,24 @@ ClientRequest.prototype.hasHeader = function(name) {
 };
 ClientRequest.prototype.flushHeaders = function() {
 	if (this._sent) return this;
-	if (this.protocol === "http:") {
+	if (_requestUsesSocketTransport(this)) {
 		this._startStreamingRequest();
 		this._ensureSocketAssigned();
 		if (this._writePendingRequest) this._writePendingRequest();
-	} else this._send();
+	} else this._maybeEmitFetchContinue();
 	return this;
+};
+ClientRequest.prototype._maybeEmitFetchContinue = function() {
+	if (this._continueEmitted || this._sent) return;
+	var expectHeader = this.headers && this.headers["expect"];
+	if (Array.isArray(expectHeader)) expectHeader = expectHeader.length > 0 ? expectHeader[0] : "";
+	if (typeof expectHeader !== "string" || expectHeader.trim().toLowerCase() !== "100-continue") return;
+	this._continueEmitted = true;
+	var self = this;
+	scheduleNextTick(function() {
+		if (self._sent || self._ended || self.destroyed || self._destroyRequested) return;
+		self.emit("continue");
+	});
 };
 function _buildRawTcpRequestHead(request, host, port, bodyLength, forceChunked) {
 	var reqLine = request.method + " " + request.path + " HTTP/1.1\r\n";
@@ -3914,6 +3928,7 @@ var STATUS_CODES = {
 };
 function HttpRequestParser() {
 	this._buffer = "";
+	this._paused = false;
 	this._state = 0;
 	this._method = "";
 	this._url = "";
@@ -3959,7 +3974,11 @@ function _toHttpParserString(chunk) {
 HttpRequestParser.prototype.execute = function(chunk) {
 	chunk = _toHttpParserString(chunk);
 	this._buffer += chunk;
-	this._rawPacket += chunk;
+	if (this._state === 0 || this._state === 1) this._rawPacket += chunk;
+	this._parse();
+};
+HttpRequestParser.prototype.resume = function() {
+	this._paused = false;
 	this._parse();
 };
 HttpRequestParser.prototype._resetMessageState = function() {
@@ -4033,216 +4052,220 @@ function _measureHttpHeaderLineBytes(line) {
 	return line.substring(0, colonIdx).trim().length + line.substring(colonIdx + 1).trim().length;
 }
 HttpRequestParser.prototype._parse = function() {
-	while (this._buffer.length > 0) if (this._state === 0) {
-		while (this._buffer.indexOf("\r\n") === 0) {
-			this._buffer = this._buffer.substring(2);
-			if (this._rawPacket.indexOf("\r\n") === 0) this._rawPacket = this._rawPacket.substring(2);
-		}
-		if (this._buffer.length === 0) return;
-		var firstMethodChar = this._buffer.charCodeAt(0);
-		if (firstMethodChar < 65 || firstMethodChar > 90) {
-			this._emitParseError("invalid_method", this._rawPacket, 1);
-			return;
-		}
-		var idx = this._buffer.indexOf("\r\n");
-		if (idx === -1) {
-			if (this._buffer.length > maxHeaderSize) this._emitParseError("header_overflow", this._rawPacket, this._rawPacket.length);
-			return;
-		}
-		var line = this._buffer.substring(0, idx);
-		this._buffer = this._buffer.substring(idx + 2);
-		var spaceIdx = line.indexOf(" ");
-		if (spaceIdx <= 0) {
-			this._emitParseError("invalid_method", this._rawPacket, 1);
-			return;
-		}
-		this._method = line.substring(0, spaceIdx);
-		var rest = line.substring(spaceIdx + 1);
-		var spaceIdx2 = rest.lastIndexOf(" ");
-		if (spaceIdx2 <= 0) {
-			this._emitParseError("invalid_method", this._rawPacket, 1);
-			return;
-		}
-		this._url = rest.substring(0, spaceIdx2);
-		var ver = rest.substring(spaceIdx2 + 1);
-		if (!/^HTTP\/\d+\.\d+$/.test(ver)) {
-			this._emitParseError();
-			return;
-		}
-		this._httpVersion = ver.substring(5);
-		this._headerBytes = _measureHttpRequestTargetBytes(line);
-		if (this._headerBytes >= maxHeaderSize) {
-			this._emitParseError("header_overflow", this._rawPacket, this._rawPacket.length);
-			return;
-		}
-		this._state = 1;
-	} else if (this._state === 1) {
-		var idx2 = this._buffer.indexOf("\r\n");
-		if (idx2 === -1) {
-			if (this._headerBytes + _measureHttpHeaderLineBytes(this._buffer) >= maxHeaderSize) this._emitParseError("header_overflow", this._rawPacket, this._rawPacket.length);
-			return;
-		}
-		if (idx2 === 0) {
-			this._buffer = this._buffer.substring(2);
-			var te = this._headers["transfer-encoding"];
-			var cl = this._headers["content-length"];
-			if (te !== void 0 && cl !== void 0 || _hasDuplicateContentLength(cl) || te !== void 0 && _hasInvalidTransferEncoding(te)) {
-				this._emitParseError("invalid_transfer_encoding", this._rawPacket, this._rawPacket.length);
+	while (this._buffer.length > 0) {
+		if (this._paused && this._state === 0) return;
+		if (this._state === 0) {
+			while (this._buffer.indexOf("\r\n") === 0) {
+				this._buffer = this._buffer.substring(2);
+				if (this._rawPacket.indexOf("\r\n") === 0) this._rawPacket = this._rawPacket.substring(2);
+			}
+			if (this._buffer.length === 0) return;
+			var firstMethodChar = this._buffer.charCodeAt(0);
+			if (firstMethodChar < 65 || firstMethodChar > 90) {
+				this._emitParseError("invalid_method", this._rawPacket, 1);
 				return;
 			}
-			if (Array.isArray(te)) te = te.join(", ");
-			if (Array.isArray(cl)) cl = cl[0];
-			this._isChunked = _hasChunkedTransferEncoding(te);
-			this._contentLength = cl !== void 0 ? parseInt(cl, 10) || 0 : 0;
-			if (this._isChunked || this._contentLength > 0) this._streamingBody = typeof this.onBody === "function";
-			if (!this._streamingBody && this._contentLength > MAX_PREBUFFERED_HTTP_REQUEST_BODY) {
-				if (typeof this.onHeadersComplete === "function") this.onHeadersComplete();
-				this._emitRequest({
-					hasBody: true,
-					bodyComplete: false,
-					oversizedBody: true,
-					deferReset: true
-				});
-				this._state = 6;
-				continue;
-			}
-			if (this._isChunked || this._contentLength > 0) {
-				if (typeof this.onHeadersComplete === "function") this.onHeadersComplete(this._streamingBody ? this._buildRequestData({
-					body: "",
-					hasBody: true,
-					bodyComplete: false
-				}) : void 0);
-			} else if (typeof this.onHeadersComplete === "function") this.onHeadersComplete();
-			if (this._isChunked) {
-				this._isChunked = true;
-				this._state = 3;
-				continue;
-			}
-			if (this._contentLength > 0) this._state = 2;
-			else this._emitRequest();
-		} else {
-			var headerLine = this._buffer.substring(0, idx2);
-			this._buffer = this._buffer.substring(idx2 + 2);
-			if (headerLine.indexOf("\r") !== -1 || headerLine.indexOf("\n") !== -1) {
-				this._emitParseError("lf_expected", this._rawPacket, this._rawPacket.length);
+			var idx = this._buffer.indexOf("\r\n");
+			if (idx === -1) {
+				if (this._buffer.length > maxHeaderSize) this._emitParseError("header_overflow", this._rawPacket, this._rawPacket.length);
 				return;
 			}
-			var colonIdx = headerLine.indexOf(":");
-			if (colonIdx <= 0) {
+			var line = this._buffer.substring(0, idx);
+			this._buffer = this._buffer.substring(idx + 2);
+			var spaceIdx = line.indexOf(" ");
+			if (spaceIdx <= 0) {
+				this._emitParseError("invalid_method", this._rawPacket, 1);
+				return;
+			}
+			this._method = line.substring(0, spaceIdx);
+			var rest = line.substring(spaceIdx + 1);
+			var spaceIdx2 = rest.lastIndexOf(" ");
+			if (spaceIdx2 <= 0) {
+				this._emitParseError("invalid_method", this._rawPacket, 1);
+				return;
+			}
+			this._url = rest.substring(0, spaceIdx2);
+			var ver = rest.substring(spaceIdx2 + 1);
+			if (!/^HTTP\/\d+\.\d+$/.test(ver)) {
 				this._emitParseError();
 				return;
 			}
-			var rawKey = headerLine.substring(0, colonIdx);
-			if (rawKey.trim() !== rawKey) {
-				this._emitParseError();
-				return;
-			}
-			var key = rawKey.trim();
-			var value = headerLine.substring(colonIdx + 1).trim();
-			if (!_checkIsHttpToken(key) || !this._insecureHTTPParser && _checkInvalidHeaderChar(value)) {
-				this._emitParseError();
-				return;
-			}
-			this._headerBytes += key.length + value.length;
+			this._httpVersion = ver.substring(5);
+			this._headerBytes = _measureHttpRequestTargetBytes(line);
 			if (this._headerBytes >= maxHeaderSize) {
 				this._emitParseError("header_overflow", this._rawPacket, this._rawPacket.length);
 				return;
 			}
-			var keyLower = key.toLowerCase();
-			_appendIncomingHeaderValue(this._headers, keyLower, value, this.joinDuplicateHeaders === true, true);
-			this._rawHeaders.push(key, value);
-		}
-	} else if (this._state === 2) {
-		if (this._streamingBody) {
-			if (this._buffer.length === 0) return;
-			var bodyChunkLength = this._buffer.length < this._contentLength ? this._buffer.length : this._contentLength;
-			var bodyChunk = this._buffer.substring(0, bodyChunkLength);
-			this._buffer = this._buffer.substring(bodyChunkLength);
-			this._contentLength -= bodyChunkLength;
-			if (bodyChunk.length > 0 && typeof this.onBody === "function") this.onBody(bodyChunk);
-			if (this._contentLength === 0) {
-				if (typeof this.onMessageComplete === "function") this.onMessageComplete();
-				this._resetMessageState();
-				continue;
+			this._state = 1;
+		} else if (this._state === 1) {
+			var idx2 = this._buffer.indexOf("\r\n");
+			if (idx2 === -1) {
+				if (this._headerBytes + _measureHttpHeaderLineBytes(this._buffer) >= maxHeaderSize) this._emitParseError("header_overflow", this._rawPacket, this._rawPacket.length);
+				return;
 			}
-			return;
-		}
-		if (this._buffer.length >= this._contentLength) {
-			this._bodyData = this._buffer.substring(0, this._contentLength);
-			this._buffer = this._buffer.substring(this._contentLength);
-			this._emitRequest();
-		} else return;
-	} else if (this._state === 3) {
-		if (this._buffer.indexOf("\r\n") === -1 && this._buffer.length > MAX_HTTP_CHUNK_EXTENSION_LENGTH + 32) {
-			this._emitParseError("chunk_extension_overflow");
-			return;
-		}
-		var nlIdx = this._buffer.indexOf("\r\n");
-		if (nlIdx === -1) return;
-		var parsedChunkLine = _parseHttpChunkSizeLine(this._buffer.substring(0, nlIdx));
-		if (!parsedChunkLine) {
-			this._emitParseError();
-			return;
-		}
-		if (parsedChunkLine.error === "chunk_extension_overflow") {
-			this._emitParseError("chunk_extension_overflow");
-			return;
-		}
-		this._chunkRemaining = parsedChunkLine.size;
-		this._buffer = this._buffer.substring(nlIdx + 2);
-		if (isNaN(this._chunkRemaining) || this._chunkRemaining === 0) this._state = 5;
-		else this._state = 4;
-	} else if (this._state === 4) {
-		if (this._buffer.length < this._chunkRemaining) {
+			if (idx2 === 0) {
+				this._buffer = this._buffer.substring(2);
+				var te = this._headers["transfer-encoding"];
+				var cl = this._headers["content-length"];
+				if (te !== void 0 && cl !== void 0 || _hasDuplicateContentLength(cl) || te !== void 0 && _hasInvalidTransferEncoding(te)) {
+					this._emitParseError("invalid_transfer_encoding", this._rawPacket, this._rawPacket.length);
+					return;
+				}
+				this._rawPacket = "";
+				if (Array.isArray(te)) te = te.join(", ");
+				if (Array.isArray(cl)) cl = cl[0];
+				this._isChunked = _hasChunkedTransferEncoding(te);
+				this._contentLength = cl !== void 0 ? parseInt(cl, 10) || 0 : 0;
+				if (this._isChunked || this._contentLength > 0) this._streamingBody = typeof this.onBody === "function";
+				if (!this._streamingBody && this._contentLength > MAX_PREBUFFERED_HTTP_REQUEST_BODY) {
+					if (typeof this.onHeadersComplete === "function") this.onHeadersComplete();
+					this._emitRequest({
+						hasBody: true,
+						bodyComplete: false,
+						oversizedBody: true,
+						deferReset: true
+					});
+					this._state = 6;
+					continue;
+				}
+				if (this._isChunked || this._contentLength > 0) {
+					if (typeof this.onHeadersComplete === "function") this.onHeadersComplete(this._streamingBody ? this._buildRequestData({
+						body: "",
+						hasBody: true,
+						bodyComplete: false
+					}) : void 0);
+				} else if (typeof this.onHeadersComplete === "function") this.onHeadersComplete();
+				if (this._isChunked) {
+					this._isChunked = true;
+					this._state = 3;
+					continue;
+				}
+				if (this._contentLength > 0) this._state = 2;
+				else this._emitRequest();
+			} else {
+				var headerLine = this._buffer.substring(0, idx2);
+				this._buffer = this._buffer.substring(idx2 + 2);
+				if (headerLine.indexOf("\r") !== -1 || headerLine.indexOf("\n") !== -1) {
+					this._emitParseError("lf_expected", this._rawPacket, this._rawPacket.length);
+					return;
+				}
+				var colonIdx = headerLine.indexOf(":");
+				if (colonIdx <= 0) {
+					this._emitParseError();
+					return;
+				}
+				var rawKey = headerLine.substring(0, colonIdx);
+				if (rawKey.trim() !== rawKey) {
+					this._emitParseError();
+					return;
+				}
+				var key = rawKey.trim();
+				var value = headerLine.substring(colonIdx + 1).trim();
+				if (!_checkIsHttpToken(key) || !this._insecureHTTPParser && _checkInvalidHeaderChar(value)) {
+					this._emitParseError();
+					return;
+				}
+				this._headerBytes += key.length + value.length;
+				if (this._headerBytes >= maxHeaderSize) {
+					this._emitParseError("header_overflow", this._rawPacket, this._rawPacket.length);
+					return;
+				}
+				var keyLower = key.toLowerCase();
+				_appendIncomingHeaderValue(this._headers, keyLower, value, this.joinDuplicateHeaders === true, true);
+				this._rawHeaders.push(key, value);
+			}
+		} else if (this._state === 2) {
 			if (this._streamingBody) {
-				if (this._buffer.length > 0 && typeof this.onBody === "function") this.onBody(this._buffer);
-			} else this._bodyData += this._buffer;
-			this._chunkRemaining -= this._buffer.length;
+				if (this._buffer.length === 0) return;
+				var bodyChunkLength = this._buffer.length < this._contentLength ? this._buffer.length : this._contentLength;
+				var bodyChunk = this._buffer.substring(0, bodyChunkLength);
+				this._buffer = this._buffer.substring(bodyChunkLength);
+				this._contentLength -= bodyChunkLength;
+				if (bodyChunk.length > 0 && typeof this.onBody === "function") this.onBody(bodyChunk);
+				if (this._contentLength === 0) {
+					if (typeof this.onMessageComplete === "function") this.onMessageComplete();
+					this._resetMessageState();
+					continue;
+				}
+				return;
+			}
+			if (this._buffer.length >= this._contentLength) {
+				this._bodyData = this._buffer.substring(0, this._contentLength);
+				this._buffer = this._buffer.substring(this._contentLength);
+				this._emitRequest();
+			} else return;
+		} else if (this._state === 3) {
+			if (this._buffer.indexOf("\r\n") === -1 && this._buffer.length > MAX_HTTP_CHUNK_EXTENSION_LENGTH + 32) {
+				this._emitParseError("chunk_extension_overflow");
+				return;
+			}
+			var nlIdx = this._buffer.indexOf("\r\n");
+			if (nlIdx === -1) return;
+			var parsedChunkLine = _parseHttpChunkSizeLine(this._buffer.substring(0, nlIdx));
+			if (!parsedChunkLine) {
+				this._emitParseError();
+				return;
+			}
+			if (parsedChunkLine.error === "chunk_extension_overflow") {
+				this._emitParseError("chunk_extension_overflow");
+				return;
+			}
+			this._chunkRemaining = parsedChunkLine.size;
+			this._buffer = this._buffer.substring(nlIdx + 2);
+			if (isNaN(this._chunkRemaining) || this._chunkRemaining === 0) this._state = 5;
+			else this._state = 4;
+		} else if (this._state === 4) {
+			if (this._buffer.length < this._chunkRemaining) {
+				if (this._streamingBody) {
+					if (this._buffer.length > 0 && typeof this.onBody === "function") this.onBody(this._buffer);
+				} else this._bodyData += this._buffer;
+				this._chunkRemaining -= this._buffer.length;
+				this._buffer = "";
+				return;
+			}
+			var chunkData = this._buffer.substring(0, this._chunkRemaining);
+			if (this._streamingBody) {
+				if (chunkData.length > 0 && typeof this.onBody === "function") this.onBody(chunkData);
+			} else this._bodyData += chunkData;
+			this._buffer = this._buffer.substring(this._chunkRemaining);
+			this._chunkRemaining = 0;
+			if (this._buffer.length < 2) {
+				this._state = 3;
+				return;
+			}
+			if (this._buffer.charAt(0) !== "\r" || this._buffer.charAt(1) !== "\n") {
+				this._emitParseError();
+				return;
+			}
+			this._buffer = this._buffer.substring(2);
+			this._state = 3;
+		} else if (this._state === 5) {
+			var nlIdx2 = this._buffer.indexOf("\r\n");
+			if (nlIdx2 === -1) return;
+			if (nlIdx2 === 0) {
+				this._buffer = this._buffer.substring(2);
+				if (this._streamingBody) {
+					if (typeof this.onMessageComplete === "function") this.onMessageComplete();
+					this._resetMessageState();
+				} else this._emitRequest();
+			} else {
+				var trailerLine = this._buffer.substring(0, nlIdx2);
+				this._buffer = this._buffer.substring(nlIdx2 + 2);
+				var trailerColonIdx = trailerLine.indexOf(":");
+				if (trailerColonIdx > 0) {
+					var trailerName = trailerLine.substring(0, trailerColonIdx).trim();
+					var trailerValue = trailerLine.substring(trailerColonIdx + 1).trim();
+					if (trailerName) _appendIncomingTrailerValue(this._trailers, this._rawTrailers, trailerName, trailerValue);
+				}
+			}
+		} else if (this._state === 6) if (this._buffer.length >= this._contentLength) {
+			this._buffer = this._buffer.substring(this._contentLength);
+			this._resetMessageState();
+		} else {
+			this._contentLength -= this._buffer.length;
 			this._buffer = "";
 			return;
 		}
-		var chunkData = this._buffer.substring(0, this._chunkRemaining);
-		if (this._streamingBody) {
-			if (chunkData.length > 0 && typeof this.onBody === "function") this.onBody(chunkData);
-		} else this._bodyData += chunkData;
-		this._buffer = this._buffer.substring(this._chunkRemaining);
-		this._chunkRemaining = 0;
-		if (this._buffer.length < 2) {
-			this._state = 3;
-			return;
-		}
-		if (this._buffer.charAt(0) !== "\r" || this._buffer.charAt(1) !== "\n") {
-			this._emitParseError();
-			return;
-		}
-		this._buffer = this._buffer.substring(2);
-		this._state = 3;
-	} else if (this._state === 5) {
-		var nlIdx2 = this._buffer.indexOf("\r\n");
-		if (nlIdx2 === -1) return;
-		if (nlIdx2 === 0) {
-			this._buffer = this._buffer.substring(2);
-			if (this._streamingBody) {
-				if (typeof this.onMessageComplete === "function") this.onMessageComplete();
-				this._resetMessageState();
-			} else this._emitRequest();
-		} else {
-			var trailerLine = this._buffer.substring(0, nlIdx2);
-			this._buffer = this._buffer.substring(nlIdx2 + 2);
-			var trailerColonIdx = trailerLine.indexOf(":");
-			if (trailerColonIdx > 0) {
-				var trailerName = trailerLine.substring(0, trailerColonIdx).trim();
-				var trailerValue = trailerLine.substring(trailerColonIdx + 1).trim();
-				if (trailerName) _appendIncomingTrailerValue(this._trailers, this._rawTrailers, trailerName, trailerValue);
-			}
-		}
-	} else if (this._state === 6) if (this._buffer.length >= this._contentLength) {
-		this._buffer = this._buffer.substring(this._contentLength);
-		this._resetMessageState();
-	} else {
-		this._contentLength -= this._buffer.length;
-		this._buffer = "";
-		return;
 	}
 };
 HttpRequestParser.prototype._emitRequest = function(options) {
@@ -5909,6 +5932,7 @@ Server.prototype._onConnection = function(socket) {
 		res.assignSocket(socket);
 		_activeRes = res;
 		socket._isIdle = false;
+		if (parser) parser._paused = true;
 		res.once("close", function() {
 			if (req.complete && _activeReq === req) _activeReq = null;
 			if (!req.destroyed && !req._dumped && typeof req._dump === "function" && (req._manualEndEmitted !== true || req._manualChunks && req._manualChunks.length > 0)) req._dump();
@@ -5945,6 +5969,10 @@ Server.prototype._onConnection = function(socket) {
 				}
 				if (hasPendingHttpRequestData()) armPendingRequestTimeouts();
 				else armKeepAliveTimeout();
+				if (socket.parser === parser && parser._paused) {
+					parser._paused = false;
+					if (hasPendingHttpRequestData()) parser.resume();
+				}
 			}
 		});
 		var expectHeader = req.headers && req.headers["expect"];
