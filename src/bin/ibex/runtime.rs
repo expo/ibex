@@ -2329,7 +2329,10 @@ fn wrap_source_for_tla_eval_with(
 /// source. Any depth counts: `await` inside top-level `for`/`if` blocks is
 /// still TLA, and wrapping non-TLA async code is harmless, so no brace
 /// tracking is needed — only literals and comments are excluded.
-fn contains_await_keyword(source: &str) -> bool {
+///
+/// Shared with the REPL so `.time`/prompt input use the same word-boundary,
+/// literal-aware detection instead of a raw `contains("await")`. (ENG-22957)
+pub(crate) fn contains_await_keyword(source: &str) -> bool {
     let bytes = source.as_bytes();
     let mut i = 0usize;
     let mut in_single = false;

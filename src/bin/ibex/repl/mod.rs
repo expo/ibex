@@ -9,6 +9,7 @@
 use crate::engine::Engine;
 use anyhow::Result;
 use colored::Colorize;
+use futures_util::future::FutureExt;
 use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
@@ -21,10 +22,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 const DEFAULT_PROMPT_SYMBOL: &str = "\u{27A4}";
-
-/// Longest the completer may wait on an engine eval before giving up, so a
-/// busy engine cannot wedge the prompt.
-const COMPLETION_EVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 
 fn style_prompt_symbol(symbol: &str) -> String {
     let symbol = format!("{} ", symbol);
@@ -148,9 +145,6 @@ struct ExHelper {
     globals: Vec<String>,
     prompt_symbol: String,
     engine: Arc<dyn Engine>,
-    /// Runtime handle captured at construction so completion worker threads
-    /// can enter the tokio context (`start` always runs inside the runtime).
-    runtime: tokio::runtime::Handle,
 }
 
 impl ExHelper {
@@ -215,7 +209,6 @@ impl ExHelper {
             .collect(),
             prompt_symbol: prompt_symbol.to_string(),
             engine,
-            runtime: tokio::runtime::Handle::current(),
         }
     }
 
@@ -296,26 +289,25 @@ impl ExHelper {
             prefix_json
         );
 
-        // Run the eval on a worker thread and bound the wait instead of
-        // block_on-ing the engine from the prompt thread.
-        // On timeout the worker is abandoned — it finishes (or stays queued
-        // behind whatever the engine is doing) and its result is discarded.
-        let engine = self.engine.clone();
-        let runtime = self.runtime.clone();
-        let (result_tx, result_rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let result = runtime.block_on(engine.eval(&query));
-            let _ = result_tx.send(result);
-        });
-
-        let result = match result_rx.recv_timeout(COMPLETION_EVAL_TIMEOUT) {
-            Ok(eval_result) => eval_result
-                .ok()
-                .flatten()
-                .and_then(|text| serde_json::from_str::<Vec<String>>(&text).ok())
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
-        };
+        // The completer is invoked synchronously on the prompt thread, which is
+        // the engine's creating thread (the CLI drives the REPL on a
+        // current-thread tokio runtime). Evaluate the read-only query there
+        // directly. The prior worker-thread `block_on` always ran on the wrong
+        // thread — the engine's same-thread guard rejected it and the error was
+        // swallowed into empty candidates, so member completion never worked.
+        // `eval_immediate` skips event-loop driving, and the query is a pure
+        // `Object.getOwnPropertyNames` prototype walk with no yield points, so
+        // it settles on a single poll (`now_or_never`); a busy engine cannot
+        // arise here because we are between evals on the one runtime thread.
+        // (ENG-22957)
+        let result = self
+            .engine
+            .eval_immediate(&query)
+            .now_or_never()
+            .and_then(|eval_result| eval_result.ok())
+            .flatten()
+            .and_then(|text| serde_json::from_str::<Vec<String>>(&text).ok())
+            .unwrap_or_default();
 
         let mut seen = HashSet::new();
         result
@@ -648,7 +640,7 @@ pub async fn start(engine: Arc<dyn Engine>) -> Result<()> {
                                     }})()",
                                     cap_json
                                 );
-                                let _ = engine.eval(&register_code).await;
+                                let _ = engine.eval_immediate(&register_code).await;
                             }
 
                             (transformed, true) // Inspect import results to show module exports
@@ -688,7 +680,14 @@ pub async fn start(engine: Arc<dyn Engine>) -> Result<()> {
                 // Compute how many characters of wrapper precede the user's code
                 let wrapper_prefix_len = final_code.find(trimmed).unwrap_or(0);
 
-                match engine.eval(&final_code).await {
+                // Use `eval_immediate`, not `eval`: the native eval path already
+                // drains microtasks and unwraps/awaits the result Promise before
+                // returning (so top-level `await` still resolves), while `eval`
+                // additionally drives the event loop to full quiescence. At an
+                // interactive prompt that means `setInterval(...)` or
+                // `Bun.serve(...)` never return control — the prompt wedges until
+                // Ctrl+C. Node's REPL returns immediately; match that. (ENG-22957)
+                match engine.eval_immediate(&final_code).await {
                     Ok(Some(result)) => {
                         println!("{}", result);
                     }
@@ -761,7 +760,9 @@ async fn handle_command(
             } else {
                 code.to_string()
             };
-            let result = engine.eval(&code).await;
+            // Match the prompt's `eval_immediate` semantics so `.time` cannot
+            // wedge on background work (setInterval/servers). (ENG-22957)
+            let result = engine.eval_immediate(&code).await;
             let elapsed = start.elapsed();
 
             match result {
@@ -798,7 +799,11 @@ fn needs_top_level_await(input: &str) -> bool {
     if trimmed.starts_with("async ") || trimmed.starts_with("function") {
         return false;
     }
-    trimmed.contains("await")
+    // Word-boundary + literal/comment-aware detection: a raw `contains("await")`
+    // fired on identifiers like `awaited`/`awaitTime` and on `"await"` inside a
+    // string, wrapping the line in an async IIFE and shifting `let`/`const`
+    // bindings out of the visible scope. Reuse the runtime's scanner. (ENG-22957)
+    crate::runtime::contains_await_keyword(trimmed)
 }
 
 /// Check if input starts with a statement keyword (not valid in expression position)
@@ -994,9 +999,33 @@ fn wrap_top_level_await(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        highlight_prompt_text, history_path_in, is_side_effect_free_path, plain_prompt,
-        styled_prompt_with_colors, wrap_inspected_expression, DEFAULT_PROMPT_SYMBOL,
+        highlight_prompt_text, history_path_in, is_side_effect_free_path, needs_top_level_await,
+        plain_prompt, styled_prompt_with_colors, wrap_inspected_expression, DEFAULT_PROMPT_SYMBOL,
     };
+
+    #[test]
+    fn top_level_await_detection_ignores_identifiers_and_literals() {
+        // Real top-level await must be detected.
+        assert!(needs_top_level_await("await fetch('http://x')"));
+        assert!(needs_top_level_await("const x = await f();"));
+        assert!(needs_top_level_await("for (const y of z) { await y; }"));
+
+        // Substrings of `await` inside identifiers must NOT trigger the async
+        // IIFE wrap — that was the bug that moved `let`/`const` bindings out of
+        // scope so the next line threw ReferenceError. (ENG-22957)
+        assert!(!needs_top_level_await("const awaited = 1"));
+        assert!(!needs_top_level_await("let awaitTime = 5;"));
+        assert!(!needs_top_level_await("const kawaii = 1;"));
+
+        // `await` appearing only inside a string literal is not top-level await.
+        assert!(!needs_top_level_await("console.log('await')"));
+        assert!(!needs_top_level_await("const s = \"please await\";"));
+
+        // Guards for empty / async-function / plain statements still hold.
+        assert!(!needs_top_level_await(""));
+        assert!(!needs_top_level_await("async function f() { await g(); }"));
+        assert!(!needs_top_level_await("1 + 1"));
+    }
 
     #[test]
     fn completion_guard_accepts_identifier_dot_chains() {
