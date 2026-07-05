@@ -1351,12 +1351,18 @@ Authority-bearing attenuators and dynamic permissions:
   carries a capability grant fixed at creation; host operations mediated by a
   handle check **possession** (the handle's grant), not the calling frame — so a
   package with no ambient `fs` uses a handle it was handed, but only within that
-  handle's grant. `Ibex.fs.readHandle(dir)` mints one (frame-checked: only a
-  frame that holds `fs:read:dir` may mint it); `handle.scoped(sub)` re-attenuates
-  to a narrower grant; `handle.revoke()` fail-closes the handle and every handle
-  derived from it (the revocation cascade, via an ancestor walk). Handle ids are
-  53-bit OS-random so possession cannot be forged by guessing. Tested by
+  handle's grant. Handle grants use the same path algebra as ambient matching:
+  an exact resource covers only that exact resource, and only a trailing `/**`
+  covers the subtree (ENG-22882). `Ibex.fs.readHandle(dir)` mints a subtree
+  handle carrying `fs:read:<dir>/**` (frame-checked: only a frame that holds
+  that subtree capability may mint it); `handle.scoped(sub)` re-attenuates to
+  the narrower `<dir>/<sub>/**` subtree (pass a full capability string to
+  attenuate to a single exact resource); `handle.revoke()` fail-closes the
+  handle and every handle derived from it (the revocation cascade, via an
+  ancestor walk). Handle ids are 53-bit OS-random so possession cannot be
+  forged by guessing. Tested by
   `tests/llp0013_compartments.rs::attenuator_handle_delegation_scoping_and_revocation`
+  and `tests/llp0013_compartments.rs::exact_fs_grant_cannot_mint_subtree_handle`
   (+ `src/host/handles.rs` unit tests).
 - **Dynamic permissions**: grant status is tri-state at the host surface
   (`grant_status` → granted / prompt / denied), and a runtime grant

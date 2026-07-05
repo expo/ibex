@@ -1635,11 +1635,14 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   IG_TRACE_END(ipc_patch);
 
   // @ref LLP 0013#delegation-and-authority-flow — the FsHandle attenuator. `Ibex.fs.readHandle(dir)`
-  // mints a handle (requires the caller to hold fs:read:dir); the returned
-  // object can be passed to a package that has no ambient fs, which uses it
-  // possession-based. `scoped()` re-attenuates; `revoke()` fail-closes the
-  // handle and every handle derived from it. The prototype methods run in the
-  // trusted root Domain, so they reach the possession-checked natives.
+  // mints a *subtree* handle carrying `fs:read:<dir>/**`, so the caller must
+  // hold that subtree capability ambiently — an exact `fs:read:<dir>` grant is
+  // exact and cannot be widened into directory authority through a handle
+  // (ENG-22882). The returned object can be passed to a package that has no
+  // ambient fs, which uses it possession-based. `scoped()` re-attenuates;
+  // `revoke()` fail-closes the handle and every handle derived from it. The
+  // prototype methods run in the trusted root Domain, so they reach the
+  // possession-checked natives.
   {
     static const char* kFsHandleJS = R"JS((function () {
   var g = globalThis;
@@ -1662,7 +1665,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   var Ibex = g.Ibex || (g.Ibex = {});
   Ibex.fs = Ibex.fs || {};
   Ibex.fs.readHandle = function (dir) {
-    var id = g.__exactCreateHandle('fs:read:' + String(dir));
+    var d = String(dir);
+    while (d.length > 1 && (d.charAt(d.length - 1) === '/' || d.charAt(d.length - 1) === '\\')) {
+      d = d.slice(0, -1);
+    }
+    var id = g.__exactCreateHandle('fs:read:' + d + '/**');
     if (!id) throw new Error('Cannot mint handle for ' + dir);
     return new FsHandle(id);
   };

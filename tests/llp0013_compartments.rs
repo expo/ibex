@@ -1550,6 +1550,122 @@ fn attenuator_handle_delegation_scoping_and_revocation() {
 }
 
 // ---------------------------------------------------------------------------
+// Exact fs grants cannot mint subtree handles (ENG-22882)
+//
+// Handle grant coverage uses the same path algebra as ambient capability
+// matching: an exact `fs:read:<path>` grant is exact — it can mint an exact
+// handle for that path (usable on exactly that resource), but neither
+// `Ibex.fs.readHandle(dir)` (which mints `fs:read:<dir>/**`) nor the minted
+// exact handle may reach descendants. Only an ambient `/**` subtree grant
+// mints a working directory handle.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn exact_fs_grant_cannot_mint_subtree_handle() {
+    if !cfg!(exact_frame_attribution) {
+        // Without the patched engine every ambient mint is denied outright
+        // (misattributed principal), so the exact-vs-subtree distinction this
+        // test guards is unobservable — same gate as the per-package test.
+        eprintln!("skipping: frame attribution needs the patched Hermes engine");
+        return;
+    }
+    let dir = unique_dir("handle-exact-grant");
+    // Canonicalize: macOS temp lives under /var → /private/var, so grant
+    // strings must be built from the resolved base.
+    let base = dir.canonicalize().expect("canonicalize temp base");
+    let data = base.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(data.join("child.txt"), "CHILD-BYTES\n").unwrap();
+    std::fs::write(data.join("exact.txt"), "EXACT-BYTES\n").unwrap();
+    let sub = base.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("file.txt"), "SUB-BYTES\n").unwrap();
+
+    let base_str = base.to_string_lossy().into_owned();
+    // Root module "0": an exact grant on the data dir, an exact grant on one
+    // file inside it, and a `/**` subtree grant on `sub` as the positive
+    // control. The loader keeps broad read so app.js itself loads.
+    let policy = format!(
+        r#"{{ "mode":"enforce",
+              "allow":["env","process","os","network","crypto","time","device","worker","ffi"],
+              "modules": {{
+                "0": {{ "allow":["fs:read:{base}/data","fs:read:{base}/data/exact.txt","fs:read:{base}/sub/**"] }},
+                "module-loader": {{ "allow":["fs:read"] }} }} }}"#,
+        base = base_str
+    );
+    std::fs::write(base.join("ibex-policy.json"), policy).unwrap();
+    std::fs::write(
+        base.join("app.js"),
+        r#"var base = process.env.BASE;
+// Exact ambient grant on the dir: minting a *subtree* handle must fail.
+try { Ibex.fs.readHandle(base + '/data'); console.log('mint-subtree: MINTED'); }
+catch (e) { console.log('mint-subtree: DENIED'); }
+// The exact resource itself can still be minted as an exact handle...
+var id = 0;
+try { id = globalThis.__exactCreateHandle('fs:read:' + base + '/data'); } catch (e) {}
+console.log('mint-exact: ' + (id ? 'MINTED' : 'DENIED'));
+// ...but that handle must not read descendants (the amplification bug).
+try { globalThis.__exactHandleReadFileSync(id, base + '/data/child.txt'); console.log('exact-child: LEAKED'); }
+catch (e) { console.log('exact-child: DENIED'); }
+// An exact file grant mints a handle that reads exactly that file.
+var fid = 0;
+try { fid = globalThis.__exactCreateHandle('fs:read:' + base + '/data/exact.txt'); } catch (e) {}
+try {
+  var bytes = globalThis.__exactHandleReadFileSync(fid, base + '/data/exact.txt');
+  var s = ''; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  console.log('exact-self: ' + s.trim());
+} catch (e) { console.log('exact-self: DENIED'); }
+// Control: an ambient `/**` subtree grant mints a working directory handle.
+try {
+  var h = Ibex.fs.readHandle(base + '/sub');
+  console.log('subtree: ' + h.readTextSync(base + '/sub/file.txt').trim());
+} catch (e) { console.log('subtree: DENIED'); }
+"#,
+    )
+    .unwrap();
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &base.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("BASE", &base_str), ("EXACT_COMPAT_TEST", "1")],
+        Some(&base),
+    );
+
+    assert!(
+        out.stdout.contains("mint-subtree: DENIED"),
+        "readHandle over an exact grant must not mint subtree authority:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("mint-exact: MINTED") && out.stdout.contains("exact-child: DENIED"),
+        "an exact-grant handle must cover only the exact resource:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("exact-self: EXACT-BYTES"),
+        "an exact file grant should still mint a handle usable on that file:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("subtree: SUB-BYTES"),
+        "a /** subtree grant should mint a working directory handle:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
 // Per-package bundled units (frame attribution for a *bundled* app)
 //
 // A flat bundle collapses to one Domain, so a bundled dependency is attributed

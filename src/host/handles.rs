@@ -29,9 +29,11 @@ pub struct HandleRegistry {
 }
 
 /// Does `grant` (a handle's capability) cover `request` (an attempted op)?
-/// `scope:action` must match exactly; the grant's resource must be a path/prefix
-/// of the request's resource (with `/` boundaries and an optional trailing
-/// `/**`). An empty grant resource covers the whole scope:action.
+/// `scope:action` must match exactly; resources use the same path algebra as
+/// ambient capability matching (ENG-22882): an exact resource covers only that
+/// exact resource, and only a trailing `/**` covers the base and its
+/// descendants (with `/` boundaries). An empty grant resource covers the whole
+/// scope:action.
 fn grant_covers(grant: &str, request: &str) -> bool {
     let g: Vec<&str> = grant.splitn(3, ':').collect();
     let r: Vec<&str> = request.splitn(3, ':').collect();
@@ -46,10 +48,17 @@ fn grant_covers(grant: &str, request: &str) -> bool {
     if g_res.is_empty() || g_res == "*" {
         return true; // whole scope:action
     }
+    let is_subtree = g_res.ends_with("/**") || g_res.ends_with("\\**");
     let base = normalize_handle_resource_for_match(trim_resource_pattern_suffix(g_res));
     let request = normalize_handle_resource_for_match(r_res);
     if request == base {
         return true;
+    }
+    if !is_subtree {
+        // Exact grants are exact — a handle minted for `fs:read:/a/b` must not
+        // become authority over `/a/b/*`; subtree authority requires the grant
+        // to say `/**`, same as the ambient algebra. (ENG-22882)
+        return false;
     }
     if base == "/" {
         return request.starts_with('/');
@@ -92,7 +101,9 @@ fn normalize_handle_resource_for_match(resource: &str) -> String {
 
 /// Intersect a parent grant with a `narrower` argument. `narrower` may be a full
 /// capability (`scope:action:res`) — accepted only if the parent covers it — or
-/// a bare sub-path appended to the parent's resource.
+/// a bare sub-path appended to the parent's resource, which yields the sub-path's
+/// *subtree* (`<base>/<sub>/**`); use a full capability string to attenuate to a
+/// single exact resource. (ENG-22882)
 fn narrow(parent_cap: &str, narrower: &str) -> Option<String> {
     let candidate = if narrower.contains(':') {
         // Full capability string.
@@ -106,17 +117,33 @@ fn narrow(parent_cap: &str, narrower: &str) -> Option<String> {
         let base = trim_resource_pattern_suffix(p.get(2).copied().unwrap_or(""));
         let base = normalize_handle_resource_for_match(base);
         let sub = narrower.trim_start_matches(['/', '\\']);
-        let child_resource = if base.is_empty() {
-            sub.to_string()
-        } else if sub.is_empty() {
-            base
-        } else if base.ends_with('/') {
-            format!("{}{}", base, sub)
+        if sub.is_empty() {
+            // Empty sub-path: re-mint the parent's own grant (for independent
+            // revocation), preserving its exact-vs-subtree shape.
+            normalize_capability(parent_cap)
         } else {
-            format!("{}/{}", base, sub)
-        };
-        let child = format!("{}:{}:{}", p[0], p[1], child_resource);
-        normalize_capability(&child)
+            let child_resource = if base.is_empty() {
+                sub.to_string()
+            } else if base.ends_with('/') {
+                format!("{}{}", base, sub)
+            } else {
+                format!("{}/{}", base, sub)
+            };
+            // A bare sub-path re-attenuates to the sub-*subtree*: the child
+            // carries `<base>/<sub>/**`. Against an exact (non-`/**`) parent
+            // grant the subtree candidate is simply not covered and scoping
+            // fails closed — exact authority cannot widen into a subtree; a
+            // single-resource child is expressible by passing a full exact
+            // capability string instead. (ENG-22882)
+            let child_resource =
+                if child_resource.ends_with("/**") || child_resource.ends_with("\\**") {
+                    child_resource
+                } else {
+                    format!("{}/**", child_resource.trim_end_matches(['/', '\\']))
+                };
+            let child = format!("{}:{}:{}", p[0], p[1], child_resource);
+            normalize_capability(&child)
+        }
     };
     // Both branches converge here: a child grant is valid only if the parent
     // still covers it. `normalize_capability` collapses `..`, so a bare sub-path
@@ -283,7 +310,7 @@ mod tests {
     #[test]
     fn handle_covers_within_grant_only() {
         let r = HandleRegistry::new();
-        let h = r.create("fs:read:/app/images");
+        let h = r.create("fs:read:/app/images/**");
         assert!(r.check(h, "fs:read:/app/images/logo.png"));
         assert!(r.check(h, "fs:read:/app/images"));
         assert!(!r.check(h, "fs:read:/etc/passwd"));
@@ -291,21 +318,52 @@ mod tests {
     }
 
     #[test]
+    fn exact_grant_handles_are_exact() {
+        // ENG-22882: a handle minted for an exact resource must not become
+        // subtree authority — an ambient `fs:read:/app/images` grant is exact,
+        // so the handle it can mint must be exact too. Descendant reads and
+        // sibling-boundary tricks are denied; only `/**` grants a subtree.
+        let r = HandleRegistry::new();
+        let h = r.create("fs:read:/app/images");
+        assert!(r.check(h, "fs:read:/app/images"));
+        assert!(!r.check(h, "fs:read:/app/images/logo.png"));
+        assert!(!r.check(h, "fs:read:/app/images/private.txt"));
+        assert!(!r.check(h, "fs:read:/app/images2"));
+        // An exact grant cannot delegate a subtree either (narrow() candidates
+        // carry `/**` and are rejected by coverage).
+        assert_eq!(r.scoped(h, "cache"), 0);
+        // But it can re-delegate its exact authority as a full capability.
+        let c = r.scoped(h, "fs:read:/app/images");
+        assert_ne!(c, 0);
+        assert!(r.check(c, "fs:read:/app/images"));
+        assert!(!r.check(c, "fs:read:/app/images/logo.png"));
+    }
+
+    #[test]
     fn grant_covers_accepts_platform_native_path_separators() {
         assert!(grant_covers(
-            "fs:read:C:\\workspace\\app\\images",
+            "fs:read:C:\\workspace\\app\\images\\**",
             "fs:read:C:\\workspace\\app\\images\\logo.png"
         ));
         assert!(grant_covers(
-            "fs:read:C:\\workspace\\app\\images",
+            "fs:read:C:\\workspace\\app\\images\\**",
             "fs:read:C:/workspace/app/images/logo.png"
         ));
         assert!(grant_covers(
             "fs:read:C:\\workspace\\app\\images\\**",
             "fs:read:C:/workspace/app/images/cache/logo.png"
         ));
+        // Exact windows-path grants stay exact across separator spellings.
+        assert!(grant_covers(
+            "fs:read:C:\\workspace\\app\\images",
+            "fs:read:C:/workspace/app/images"
+        ));
         assert!(!grant_covers(
             "fs:read:C:\\workspace\\app\\images",
+            "fs:read:C:\\workspace\\app\\images\\logo.png"
+        ));
+        assert!(!grant_covers(
+            "fs:read:C:\\workspace\\app\\images\\**",
             "fs:read:C:\\workspace\\app\\images2\\logo.png"
         ));
     }
@@ -313,25 +371,36 @@ mod tests {
     #[test]
     fn scoped_handles_accept_platform_native_path_separators() {
         let r = HandleRegistry::new();
-        let h = r.create("fs:read:C:\\workspace\\app\\images");
+        let h = r.create("fs:read:C:\\workspace\\app\\images\\**");
         assert_ne!(h, 0);
         let child = r.scoped(h, "cache\\logo.png");
         assert_ne!(child, 0);
         assert!(r.check(child, "fs:read:C:\\workspace\\app\\images\\cache\\logo.png"));
         assert!(r.check(child, "fs:read:C:/workspace/app/images/cache/logo.png"));
-        assert!(!r.check(child, "fs:read:C:\\workspace\\app\\images2\\cache\\logo.png"));
+        assert!(!r.check(
+            child,
+            "fs:read:C:\\workspace\\app\\images2\\cache\\logo.png"
+        ));
     }
 
     #[test]
     fn scoped_narrows_and_cannot_widen() {
         let r = HandleRegistry::new();
-        let h = r.create("fs:read:/app/images");
+        let h = r.create("fs:read:/app/images/**");
         let c = r.scoped(h, "cache");
         assert!(c != 0);
         assert!(r.check(c, "fs:read:/app/images/cache/x"));
         assert!(!r.check(c, "fs:read:/app/images/other.png")); // narrowed out
                                                                // cannot scope wider than the parent
         assert_eq!(r.scoped(h, "fs:read:/etc"), 0);
+        assert_eq!(r.scoped(h, "fs:read:/etc/**"), 0);
+        // A full exact capability within the subtree attenuates to that exact
+        // resource only.
+        let exact = r.scoped(h, "fs:read:/app/images/cache/logo.png");
+        assert_ne!(exact, 0);
+        assert!(r.check(exact, "fs:read:/app/images/cache/logo.png"));
+        assert!(!r.check(exact, "fs:read:/app/images/cache/logo.png.bak"));
+        assert!(!r.check(exact, "fs:read:/app/images/cache/logo.png/x"));
     }
 
     #[test]
@@ -339,7 +408,7 @@ mod tests {
         // ENG-22617/ENG-22628: a bare sub-path with `..` must not escape the
         // parent handle's subtree even though normalization collapses the `..`.
         let r = HandleRegistry::new();
-        let h = r.create("fs:read:/app/images");
+        let h = r.create("fs:read:/app/images/**");
         assert!(h != 0);
         // Sibling escape: /app/images/../secret -> /app/secret (not covered).
         assert_eq!(r.scoped(h, "../secret"), 0);
@@ -388,7 +457,7 @@ mod tests {
     #[test]
     fn revocation_cascades_to_descendants() {
         let r = HandleRegistry::new();
-        let h = r.create("fs:read:/app/images");
+        let h = r.create("fs:read:/app/images/**");
         let c = r.scoped(h, "cache");
         let gc = r.scoped(c, "thumbs");
         assert!(r.check(gc, "fs:read:/app/images/cache/thumbs/x"));
