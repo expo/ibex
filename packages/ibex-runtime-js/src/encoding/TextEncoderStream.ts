@@ -20,11 +20,44 @@ export class TextEncoderStream {
   constructor() {
     const encoder = new TextEncoder();
 
+    // A surrogate pair can straddle a chunk boundary: the high surrogate may end
+    // one chunk and the low surrogate begin the next. We hold back a trailing
+    // high surrogate and prepend it to the following chunk so the pair encodes as
+    // a single code point rather than two U+FFFD replacements. A lone high
+    // surrogate still pending at end-of-stream is flushed as U+FFFD.
+    // @see https://encoding.spec.whatwg.org/#interface-textencoderstream
+    let pendingHighSurrogate = "";
+
     this._transform = new TransformStream<string, Uint8Array>({
       transform(chunk: string, controller) {
-        const encoded = encoder.encode(String(chunk));
-        if (encoded.length > 0) {
-          controller.enqueue(encoded);
+        let input = pendingHighSurrogate + String(chunk);
+        pendingHighSurrogate = "";
+
+        // If the input ends with a lone high surrogate, defer it to the next
+        // chunk (it may be completed by a leading low surrogate there).
+        if (input.length > 0) {
+          const lastUnit = input.charCodeAt(input.length - 1);
+          if (lastUnit >= 0xd800 && lastUnit <= 0xdbff) {
+            pendingHighSurrogate = input.slice(input.length - 1);
+            input = input.slice(0, input.length - 1);
+          }
+        }
+
+        if (input.length > 0) {
+          const encoded = encoder.encode(input);
+          if (encoded.length > 0) {
+            controller.enqueue(encoded);
+          }
+        }
+      },
+      flush(controller) {
+        if (pendingHighSurrogate.length > 0) {
+          // Unpaired high surrogate at end of stream -> U+FFFD.
+          const encoded = encoder.encode(pendingHighSurrogate);
+          pendingHighSurrogate = "";
+          if (encoded.length > 0) {
+            controller.enqueue(encoded);
+          }
         }
       },
     });

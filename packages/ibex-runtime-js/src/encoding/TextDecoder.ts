@@ -732,6 +732,13 @@ export class TextDecoder {
   private _pendingBytes: number[] = [];
   private _bomSeen: boolean = false;
 
+  // Cached native decoder for legacy multi-byte encodings. `undefined` = not yet
+  // constructed; `null` = no native decoder available for this encoding.
+  private _nativeDecoder:
+    | { decode(input?: BufferSource, options?: TextDecodeOptions): string }
+    | null
+    | undefined = undefined;
+
   constructor(label?: string, options?: TextDecoderOptions) {
     // WHATWG spec: strip ASCII whitespace (tab, LF, FF, CR, space) from both ends
     let rawLabel = label ?? "utf-8";
@@ -856,21 +863,10 @@ export class TextDecoder {
     } else if (SINGLE_BYTE_TABLES[enc]) {
       result = this._decodeSingleByte(bytes, SINGLE_BYTE_TABLES[enc]!, false);
     } else {
-      if (NativeTextDecoderImpl && NativeTextDecoderImpl !== (TextDecoder as any)) {
-        try {
-          result = new NativeTextDecoderImpl(enc, {
-            fatal: this.fatal,
-            ignoreBOM: this.ignoreBOM,
-          }).decode(bytes, options);
-        } catch (error) {
-          if (this.fatal) {
-            throw error;
-          }
-          result = this._decodeUTF8(bytes, stream);
-        }
-      } else {
-        result = this._decodeUTF8(bytes, stream);
-      }
+      // Legacy multi-byte encodings (gbk, gb18030, big5, euc-jp, euc-kr,
+      // shift_jis, iso-2022-jp). These have no JS decoder here, so decode()
+      // delegates to a cached native decoder (see _decodeLegacyMultibyte).
+      result = this._decodeLegacyMultibyte(bytes, stream);
     }
 
     // Reset state if not streaming
@@ -930,6 +926,44 @@ export class TextDecoder {
       throw createEncodingError("Replacement encoding always errors on non-empty input");
     }
     return "\ufffd";
+  }
+
+  private _decodeLegacyMultibyte(bytes: Uint8Array, stream: boolean): string {
+    // Lazily construct and cache the native decoder so its internal streaming
+    // state (a multi-byte sequence that straddles a chunk boundary) survives
+    // across decode() calls. Constructing a fresh native decoder per call
+    // discarded that state and silently corrupted split sequences.
+    if (this._nativeDecoder === undefined) {
+      if (NativeTextDecoderImpl && NativeTextDecoderImpl !== (TextDecoder as any)) {
+        try {
+          this._nativeDecoder = new NativeTextDecoderImpl(this.encoding, {
+            fatal: this.fatal,
+            ignoreBOM: this.ignoreBOM,
+          });
+        } catch (_error) {
+          // The native runtime does not support this encoding.
+          this._nativeDecoder = null;
+        }
+      } else {
+        this._nativeDecoder = null;
+      }
+    }
+
+    if (this._nativeDecoder) {
+      // Pass through the stream flag so the native decoder buffers incomplete
+      // trailing sequences. Errors (e.g. fatal-mode invalid data) propagate.
+      return this._nativeDecoder.decode(bytes, { stream });
+    }
+
+    // No native decoder is available for this legacy multi-byte encoding.
+    // Decoding the bytes as UTF-8 would silently produce wrong text (the old
+    // behavior), so fail loudly instead. Empty input still yields "".
+    if (bytes.length === 0) {
+      return "";
+    }
+    throw new TypeError(
+      `Decoding the '${this.encoding}' encoding is not supported in this runtime`
+    );
   }
 
   private _decodeXUserDefined(bytes: Uint8Array): string {

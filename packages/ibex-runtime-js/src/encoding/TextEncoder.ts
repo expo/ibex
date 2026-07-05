@@ -135,17 +135,13 @@ export class TextEncoder {
         bytesNeeded = 4;
       }
 
-      // Check if we have room
+      // Check if we have room. Per the Encoding spec, encodeInto must stop
+      // *before* a code point that does not fully fit so the caller can grow the
+      // buffer and resume. Emitting a partial encoding (or substituting U+FFFD
+      // for a valid surrogate pair and then reprocessing the low surrogate as a
+      // second lone surrogate) permanently corrupts resize-and-continue encoders.
       if (written + bytesNeeded > destination.length) {
-        // If a surrogate pair doesn't fit as 4 bytes, fall back to treating
-        // the high surrogate as unpaired (U+FFFD = 3 bytes)
-        if (isSurrogatePair && written + 3 <= destination.length) {
-          codePoint = 0xfffd;
-          bytesNeeded = 3;
-          isSurrogatePair = false;
-        } else {
-          break;
-        }
+        break;
       }
 
       // Write bytes

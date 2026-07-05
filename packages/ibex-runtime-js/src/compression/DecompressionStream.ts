@@ -70,7 +70,11 @@ function toTypeError(error: unknown): TypeError {
 }
 
 function isRecoverableIncompleteError(error: TypeError): boolean {
-  return error.message.toLowerCase().includes("incomplete data");
+  // The zlib bridge reports truncated deflate/gzip input as "unexpected end of
+  // file"; the brotli bridge reports it as "incomplete data". Both mean the
+  // accumulated input is not yet a complete stream.
+  const message = error.message.toLowerCase();
+  return message.includes("incomplete data") || message.includes("unexpected end of file");
 }
 
 function isTrailingDataError(error: TypeError): boolean {
@@ -125,77 +129,82 @@ export class DecompressionStream {
 
     let streamError: TypeError | null = null;
     let streamFinished = false;
-    let trailingDataError = false;
-    let writableClosed = false;
     let readableController: ReadableStreamDefaultController<Uint8Array> | undefined;
-    const isBrotliFormat = format === 'brotli';
-    let streamInput = new Uint8Array(0);
-    let brotliOutputByteLength = 0;
+
+    // The native inflate/brotli bridge is one-shot: it decodes a *complete*
+    // stream in a single call and throws (rather than emitting partial output)
+    // when the input is truncated. A mid-stream deflate chunk is headerless and
+    // cannot be decoded on its own, so every chunk must be accumulated and the
+    // full input decoded once the writable side closes. Buffer chunks in a list
+    // and concatenate exactly once (O(n)) instead of reallocating the whole
+    // accumulated buffer on every write (the old O(n^2) pattern).
+    const inputChunks: Uint8Array[] = [];
+    let inputLength = 0;
 
     const appendInput = (chunk: Uint8Array): void => {
       if (chunk.length === 0) {
         return;
       }
-
-      const combined = new Uint8Array(streamInput.length + chunk.length);
-      combined.set(streamInput, 0);
-      combined.set(chunk, streamInput.length);
-      streamInput = combined;
+      const view = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+      inputChunks.push(view);
+      inputLength += view.length;
     };
 
-    const validateChunkCompletion = (): void => {
-      if (streamError || streamFinished) {
+    const collectInput = (): Uint8Array => {
+      if (inputChunks.length === 1) {
+        return inputChunks[0];
+      }
+      const combined = new Uint8Array(inputLength);
+      let offset = 0;
+      for (const c of inputChunks) {
+        combined.set(c, offset);
+        offset += c.length;
+      }
+      return combined;
+    };
+
+    // Decode all accumulated input in one pass and drive the readable side.
+    // Called once, when the writable side closes.
+    const finalizeDecompression = (): void => {
+      if (streamFinished) {
         return;
       }
-
-      try {
-        decompressChunk(streamInput, false);
-        streamFinished = true;
-      } catch (error) {
-        const decodedError = toTypeError(error);
-        if (isRecoverableIncompleteError(decodedError)) {
-          return;
-        }
-        if (isTrailingDataError(decodedError)) {
-          markTrailingDataError(decodedError);
-          streamError = decodedError;
-          trailingDataError = true;
-          streamFinished = true;
-          return;
-        }
-
-        streamError = decodedError;
+      if (streamError) {
         if (readableController) {
           readableController.error(streamError);
         }
-      }
-    };
-
-    const processBrotliChunk = (): void => {
-      if (streamError || !readableController) {
         return;
       }
 
       let output: Uint8Array;
       try {
-        output = decompressChunk(streamInput);
+        output = decompressChunk(collectInput(), false);
       } catch (error) {
         const decodedError = toTypeError(error);
-        if (isRecoverableIncompleteError(decodedError)) {
-          return;
-        }
         if (isTrailingDataError(decodedError)) {
+          // Mark so the module's unhandledrejection filter can suppress a noisy
+          // unhandled rejection if nobody is awaiting the readable.
           markTrailingDataError(decodedError);
-          trailingDataError = true;
+          streamError = decodedError;
+        } else if (isRecoverableIncompleteError(decodedError)) {
+          // All input was written but it never formed a complete stream.
+          streamError = new TypeError("Decompression stream failed: incomplete data");
+        } else {
+          streamError = decodedError;
         }
-
-        streamError = decodedError;
+        streamFinished = true;
+        if (readableController) {
+          readableController.error(streamError);
+        }
         return;
       }
 
-      if (output.byteLength > brotliOutputByteLength) {
-        readableController.enqueue(output.slice(brotliOutputByteLength));
-        brotliOutputByteLength = output.byteLength;
+      streamFinished = true;
+      if (readableController) {
+        if (output.byteLength > 0) {
+          readableController.enqueue(output);
+        }
+        readableController.close();
       }
     };
 
@@ -204,123 +213,36 @@ export class DecompressionStream {
         readableController = controller;
         if (streamError) {
           controller.error(streamError);
-          return;
         }
       },
       pull(controller) {
-        if (!streamFinished && streamInput.length > 0 && !streamError) {
-          validateChunkCompletion();
-        }
-
-        if (streamError && trailingDataError) {
-          controller.error(streamError);
-          return Promise.resolve();
-        }
+        // Output is produced only when the writable side closes (one-shot
+        // bridge), so pull only needs to surface a pre-existing error.
         if (streamError) {
           controller.error(streamError);
-          return Promise.resolve();
         }
-        if (writableClosed && streamError === null && !streamFinished) {
-          streamError = new TypeError("Decompression stream failed: incomplete data");
-          controller.error(streamError);
-          return Promise.resolve();
-        }
-        if (writableClosed && readableController && streamError === null) {
-          controller.close();
-          return Promise.resolve();
-        }
-
         return Promise.resolve();
       },
       cancel() {
-        writableClosed = true;
         return Promise.resolve();
       },
     });
 
     const writable = new WritableStream<Uint8Array>({
       write(chunk) {
-        try {
-          if (streamError) {
-            throw streamError;
-          }
-
-        if (isBrotliFormat) {
-          if (chunk.length === 0) {
-            return;
-          }
-
-          const output = decompressChunk(chunk);
-          streamFinished = true;
-          if (output.byteLength > 0 && readableController) {
-            readableController.enqueue(output);
-          }
-          return;
+        if (streamError) {
+          throw streamError;
         }
-
-          appendInput(chunk);
-
-          let output: Uint8Array;
-          try {
-            output = decompressChunk(chunk);
-            streamFinished = true;
-          } catch (error) {
-            streamError = toTypeError(error);
-            if (readableController) {
-              readableController.error(streamError);
-            }
-            return;
-          }
-
-          if (output.byteLength > 0 && readableController) {
-            readableController.enqueue(output);
-          }
-        } catch (error) {
-          streamError = toTypeError(error);
-          if (readableController) {
-            readableController.error(streamError);
-          }
-          return;
-        }
+        appendInput(chunk);
       },
-      async close() {
-        try {
-          writableClosed = true;
-
-          if (streamError) {
-            if (readableController) {
-              readableController.error(streamError);
-            }
-            return;
-          }
-
-          if (!streamFinished && streamInput.length > 0 && !streamError) {
-            validateChunkCompletion();
-          }
-
-          if (streamError === null && !streamFinished) {
-            streamError = new TypeError("Decompression stream failed: incomplete data");
-            if (readableController) {
-              readableController.error(streamError);
-            }
-            return;
-          }
-
-          if (streamError === null && readableController) {
-            readableController.close();
-          }
-        } catch (error) {
-          streamError = streamError || toTypeError(error);
-          if (readableController) {
-            readableController.error(streamError);
-          }
-        }
+      close() {
+        finalizeDecompression();
       },
-      async abort(reason) {
+      abort(reason) {
         if (streamError === null) {
           streamError = reason === undefined ? new TypeError("The operation was aborted.") : toTypeError(reason);
         }
-        writableClosed = true;
+        streamFinished = true;
         if (readableController) {
           readableController.error(streamError);
         }

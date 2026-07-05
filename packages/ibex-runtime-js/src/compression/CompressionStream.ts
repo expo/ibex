@@ -65,14 +65,33 @@ export class CompressionStream {
       return g.__exactDeflateSync(input, -1, mode);
     };
 
-    let streamInput = new Uint8Array(0);
+    // The native bridge is one-shot (a full deflate/gzip stream must be produced
+    // in a single call), so all input is buffered until close(). Collect chunks
+    // in a list and concatenate exactly once instead of reallocating and copying
+    // the entire accumulated buffer on every write() — the old approach was
+    // O(n^2) in total bytes copied (a 100 MB upload in 64 KB chunks did ~1600
+    // full-buffer copies) and pinned two full-size buffers.
+    const inputChunks: Uint8Array[] = [];
+    let inputLength = 0;
     let streamError: TypeError | null = null;
 
     const appendInput = (chunk: Uint8Array): void => {
-      const next = new Uint8Array(streamInput.length + chunk.length);
-      next.set(streamInput, 0);
-      next.set(chunk, streamInput.length);
-      streamInput = next;
+      const view = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+      inputChunks.push(view);
+      inputLength += view.length;
+    };
+
+    const collectInput = (): Uint8Array => {
+      if (inputChunks.length === 1) {
+        return inputChunks[0];
+      }
+      const combined = new Uint8Array(inputLength);
+      let offset = 0;
+      for (const c of inputChunks) {
+        combined.set(c, offset);
+        offset += c.length;
+      }
+      return combined;
     };
 
     let readableController: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -105,7 +124,7 @@ export class CompressionStream {
         }
 
         try {
-          const compressed = compressChunk(streamInput);
+          const compressed = compressChunk(collectInput());
           if (readableController && compressed.length > 0) {
             readableController.enqueue(compressed);
           }
