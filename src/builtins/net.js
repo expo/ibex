@@ -1404,6 +1404,40 @@ Socket.prototype._appendToReadBuffer = function(data) {
   this._readBufferLength += bufferData.length;
 };
 
+// A socket is "flowing" once it has a 'data' listener (Node auto-resumes on the
+// first 'data' handler). read()-based consumers instead attach 'readable' and
+// pull from the buffer.
+Socket.prototype._isFlowing = function() {
+  return typeof this.listenerCount === 'function' && this.listenerCount('data') > 0;
+};
+
+// Deliver an inbound chunk following Node's flowing/paused semantics. In flowing
+// mode the chunk is handed to 'data' consumers and dropped; it must NOT also be
+// retained in _readBuffer, otherwise a long-lived flowing connection (http.js,
+// pipe()) keeps every byte it ever received until the socket is destroyed and a
+// later read() double-delivers bytes already emitted as 'data'. In paused mode
+// (no 'data' listener) the chunk is buffered for read() and 'readable' is
+// signalled.
+Socket.prototype._deliverInboundData = function(data) {
+  if (this._isFlowing()) {
+    if (this._encoding) {
+      var encodedChunk = this._decoder && typeof this._decoder.write === 'function'
+        ? this._decoder.write(toBufferData(data))
+        : toBufferData(data).toString(this._encoding);
+      if (encodedChunk && encodedChunk.length) {
+        this.emit('data', encodedChunk);
+      }
+    } else if (typeof Buffer !== 'undefined') {
+      this.emit('data', toBufferData(data));
+    } else {
+      this.emit('data', data);
+    }
+    return;
+  }
+  this._appendToReadBuffer(data);
+  this.emit('readable');
+};
+
 Socket.prototype._consumeReadBuffer = function(size) {
   if (this._readBufferLength === 0) return null;
   if (typeof size !== 'number' || size <= 0) {
@@ -1791,23 +1825,7 @@ Socket.prototype._startPolling = function() {
         self._lastActivity = Date.now();
         self._timeoutEmitted = false;
         self.bytesRead += data.length;
-        self._appendToReadBuffer(data);
-        self.emit('readable');
-        if (self._encoding) {
-          var encodedChunk = self._decoder && typeof self._decoder.write === 'function'
-            ? self._decoder.write(toBufferData(data))
-            : toBufferData(data).toString(self._encoding);
-          if (encodedChunk && encodedChunk.length) {
-            self.emit('data', encodedChunk);
-          }
-        } else {
-          // Emit as Buffer if available, otherwise string
-          if (typeof Buffer !== 'undefined') {
-            self.emit('data', toBufferData(data));
-          } else {
-            self.emit('data', data);
-          }
-        }
+        self._deliverInboundData(data);
         if (self._paused) {
           _schedulePausedSocketPoll(self, poll);
           return;
@@ -1973,10 +1991,9 @@ Socket.prototype.connect = function(options, connectListener) {
       setTimeout(function() {
         var err = new Error('Unix sockets not supported: native __exactUnixConnect not available');
         err.code = 'ECONNREFUSED';
-        self.connecting = false;
-        self.readyState = 'closed';
-        self.pending = false;
-        self.emit('error', err);
+        // Node destroys the socket on a failed connect, so 'error' is followed
+        // by 'close'(hadError=true) and socket.destroyed becomes true.
+        self.destroy(err);
       }, 0);
       return this;
     }
@@ -1998,13 +2015,8 @@ Socket.prototype.connect = function(options, connectListener) {
         self.emit('connect');
         self.emit('ready');
       } catch(e) {
-        self.connecting = false;
-        self.pending = false;
-        self.readyState = 'closed';
-        _detachSocketAbortListener(self);
-        self._abortPending = false;
         var err = _createUnixConnectError(e, self._socketPath);
-        self.emit('error', err);
+        self.destroy(err);
       }
     }, 0);
 
@@ -2030,24 +2042,14 @@ Socket.prototype.connect = function(options, connectListener) {
       try {
         connectResult = self._handle.connect({}, self._requestedAddress, self._requestedPort);
       } catch (err) {
-        self.connecting = false;
-        self.pending = false;
-        self.readyState = 'closed';
-        _detachSocketAbortListener(self);
-        self._abortPending = false;
-        self.emit('error', err);
+        self.destroy(err);
         return;
       }
 
       if (typeof connectResult === 'number' && connectResult !== 0) {
         var errno = _uvConnectCodeToErrno(connectResult);
         var connectErr = _createConnectError(errno, self._requestedAddress, self._requestedPort, 'connect');
-        self.connecting = false;
-        self.pending = false;
-        self.readyState = 'closed';
-        _detachSocketAbortListener(self);
-        self._abortPending = false;
-        self.emit('error', connectErr);
+        self.destroy(connectErr);
         return;
       }
 
@@ -2071,10 +2073,7 @@ Socket.prototype.connect = function(options, connectListener) {
     setTimeout(function() {
       var err = new Error('TCP sockets not supported: native __exactTcpConnect not available');
       err.code = 'ECONNREFUSED';
-      self.connecting = false;
-      self.readyState = 'closed';
-      self.pending = false;
-      self.emit('error', err);
+      self.destroy(err);
     }, 0);
     return this;
   }
@@ -2094,10 +2093,7 @@ Socket.prototype.connect = function(options, connectListener) {
   if (_hasConflictingLocalBind(options.localAddress, options.localPort)) {
     _scheduleTimer(function() {
       var bindErr = _createConnectError('EADDRINUSE', self._requestedAddress, self._requestedPort, 'connect');
-      self.connecting = false;
-      self.pending = false;
-      self.readyState = 'closed';
-      self.emit('error', bindErr);
+      self.destroy(bindErr);
     }, 0, self);
     return this;
   }
@@ -2148,10 +2144,12 @@ Socket.prototype.connect = function(options, connectListener) {
         if (selfRef.destroyed || selfRef._abortPending) {
           return;
         }
-        selfRef.connecting = false;
-        selfRef.pending = false;
-        selfRef.readyState = 'closed';
-        if (attemptErrors.length === 0) return;
+        if (attemptErrors.length === 0) {
+          selfRef.connecting = false;
+          selfRef.pending = false;
+          selfRef.readyState = 'closed';
+          return;
+        }
         var finalErr = attemptErrors[attemptErrors.length - 1];
         if (shouldAutoSelect && attemptErrors.length > 1) {
           if (typeof AggregateError === 'function') {
@@ -2161,10 +2159,9 @@ Socket.prototype.connect = function(options, connectListener) {
           }
           finalErr.errors = attemptErrors;
         }
-        _detachSocketAbortListener(selfRef);
-        selfRef._abortPending = false;
-        selfRef.emit('error', finalErr);
-        selfRef.emit('close', true);
+        // destroy() emits 'error' then schedules 'close'(hadError=true) and
+        // marks the socket destroyed.
+        selfRef.destroy(finalErr);
         return;
       }
 
@@ -2196,12 +2193,7 @@ Socket.prototype.connect = function(options, connectListener) {
         if (options.blockList.check(address, ipType)) {
           var blockErr = new Error('IP blocked: ' + address);
           blockErr.code = 'ERR_IP_BLOCKED';
-          selfRef.connecting = false;
-          selfRef.pending = false;
-          selfRef.readyState = 'closed';
-          _detachSocketAbortListener(selfRef);
-          selfRef._abortPending = false;
-          selfRef.emit('error', blockErr);
+          selfRef.destroy(blockErr);
           return;
         }
       }
@@ -2281,13 +2273,8 @@ Socket.prototype.connect = function(options, connectListener) {
       try {
         resolver(self._requestedAddress, lookupOptions, function(err, lookupResult, candidateFamily) {
           if (err) {
-            self.connecting = false;
-            self.pending = false;
-            self.readyState = 'closed';
-            _detachSocketAbortListener(self);
-            self._abortPending = false;
             self.emit('lookup', err, undefined, undefined, self._requestedAddress);
-            self.emit('error', err);
+            self.destroy(err);
             return;
           }
 
@@ -2303,12 +2290,7 @@ Socket.prototype.connect = function(options, connectListener) {
           for (var ni = 0; ni < normalized.length; ni++) {
             var normalizedFamily = normalized[ni].family;
             if (normalizedFamily != null && normalizedFamily !== 0 && normalizedFamily !== 4 && normalizedFamily !== 6) {
-              self.connecting = false;
-              self.pending = false;
-              self.readyState = 'closed';
-              _detachSocketAbortListener(self);
-              self._abortPending = false;
-              self.emit('error', _createInvalidAddressFamilyError(normalizedFamily, self._requestedAddress, self._requestedPort));
+              self.destroy(_createInvalidAddressFamilyError(normalizedFamily, self._requestedAddress, self._requestedPort));
               return;
             }
           }
@@ -2342,12 +2324,7 @@ Socket.prototype.connect = function(options, connectListener) {
           }
 
           if (normalized.length === 0) {
-            self.connecting = false;
-            self.pending = false;
-            self.readyState = 'closed';
-            _detachSocketAbortListener(self);
-            self._abortPending = false;
-            self.emit('error', _createInvalidIPAddressError(self._requestedAddress));
+            self.destroy(_createInvalidIPAddressError(self._requestedAddress));
             return;
           }
 
@@ -2364,12 +2341,7 @@ Socket.prototype.connect = function(options, connectListener) {
               if (options.blockList.check(addr, blType)) {
                 var blockErr = new Error('IP blocked: ' + addr);
                 blockErr.code = 'ERR_IP_BLOCKED';
-                self.connecting = false;
-                self.pending = false;
-                self.readyState = 'closed';
-                _detachSocketAbortListener(self);
-                self._abortPending = false;
-                self.emit('error', blockErr);
+                self.destroy(blockErr);
                 return;
               }
             }
@@ -2378,12 +2350,7 @@ Socket.prototype.connect = function(options, connectListener) {
           _startTcpConnect(self, normalized, autoSelectFamily);
         });
       } catch (err) {
-        self.connecting = false;
-        self.pending = false;
-        self.readyState = 'closed';
-        _detachSocketAbortListener(self);
-        self._abortPending = false;
-        self.emit('error', err);
+        self.destroy(err);
       }
       return;
     }
@@ -2657,26 +2624,16 @@ Socket.prototype.push = function(chunk, encoding) {
   this.bytesRead += pushData.length;
   this._lastActivity = Date.now();
   this._timeoutEmitted = false;
-  this._appendToReadBuffer(pushData);
 
   if (this._onread) {
+    this._appendToReadBuffer(pushData);
     if (!this._paused) {
       this._processOnreadBuffer();
     }
     return !this._paused;
   }
 
-  this.emit('readable');
-  if (this._encoding) {
-    var encodedChunk = this._decoder && typeof this._decoder.write === 'function'
-      ? this._decoder.write(toBufferData(pushData))
-      : toBufferData(pushData).toString(this._encoding);
-    if (encodedChunk && encodedChunk.length) {
-      this.emit('data', encodedChunk);
-    }
-  } else {
-    this.emit('data', pushData);
-  }
+  this._deliverInboundData(pushData);
   return !this._paused;
 };
 
@@ -2785,9 +2742,7 @@ Socket.prototype.resume = function() {
         if (typeof Buffer !== 'undefined' && !Buffer.isBuffer(data)) {
           data = Buffer.from(buffer.slice ? buffer.slice(0, bytes) : buffer);
         }
-        self._appendToReadBuffer(data);
-        self.emit('readable');
-        self.emit('data', data);
+        self._deliverInboundData(data);
       }
     };
     try {
