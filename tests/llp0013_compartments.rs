@@ -2490,6 +2490,116 @@ exports.run = async function() {
     );
 }
 
+// @ref LLP 0013#policy (ENG-22819) — a UDP socket handle created by a package is
+// authority-bearing:
+// receiving datagrams, reading the (implicitly-bound) local address, and exporting
+// the raw fd are all listening-side authority. A package holding only
+// `network:connect` to one endpoint must not gain any of them by connecting and
+// sending — that would hand it an ephemeral listening socket with no
+// `network:listen` grant. The probe runs at module-evaluation time so its host
+// calls are attributed to the `udp-probe` principal even without the
+// frame-attribution patch.
+#[cfg(unix)]
+#[test]
+fn udp_connect_only_socket_cannot_receive_or_expose_fd_without_listen() {
+    fn probe_source() -> &'static str {
+        r#"
+var out = [];
+var dgram = require("dgram");
+var s = dgram.createSocket("udp4");
+try { s.connect(9, "127.0.0.1"); out.push("connect-returned"); }
+catch (e) { out.push("connect-threw"); }
+try { s.send("x"); out.push("send-returned"); }
+catch (e) { out.push("send-threw"); }
+try {
+  var a = s.address();
+  out.push("address:" + (a && typeof a === "object" ? (a.address + ":" + a.port) : String(a)));
+} catch (e) { out.push("address:DENIED"); }
+try {
+  var fd = s._getFd();
+  out.push("fd:" + (typeof fd === "number" && fd >= 0 ? "EXPOSED" : "HIDDEN"));
+} catch (e) { out.push("fd:DENIED"); }
+try { s.close(); } catch (_) {}
+exports.result = out.join(" ");
+"#
+    }
+
+    let run_probe = |label: &str, capabilities: serde_json::Value| {
+        let dir = unique_dir(label);
+        let pkg = dir.join("node_modules").join("udp-probe");
+        write_text(
+            &pkg.join("package.json"),
+            r#"{"name":"udp-probe","version":"1.0.0","main":"index.js"}"#,
+        );
+        write_text(&pkg.join("index.js"), probe_source());
+        write_text(
+            &dir.join("app.js"),
+            r#"console.log(require("udp-probe").result);"#,
+        );
+        let policy = serde_json::json!({
+            "mode": "enforce",
+            "packages": {
+                "udp-probe": {
+                    "capabilities": capabilities,
+                    "builtins": ["node:dgram", "node:events", "node:buffer"]
+                }
+            }
+        });
+        write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+        run_ibex(
+            &[
+                "--capsec",
+                "enforce",
+                "--policy",
+                &dir.join("ibex-policy.json").to_string_lossy(),
+                "run",
+                "app.js",
+            ],
+            &[("EXACT_COMPAT_TEST", "1")],
+            Some(&dir),
+        )
+    };
+
+    // Connect-only: send is allowed (per-datagram network:connect), but the
+    // ephemeral bound address, the raw fd, and receiving must all be denied.
+    let connect_only = run_probe(
+        "udp-connect-only",
+        serde_json::json!(["network:connect:127.0.0.1:9"]),
+    );
+    assert!(
+        connect_only.stdout.contains("send-returned"),
+        "connect-only send must still work:\nstdout:\n{}\nstderr:\n{}",
+        connect_only.stdout,
+        connect_only.stderr
+    );
+    assert!(
+        !connect_only.stdout.contains("fd:EXPOSED"),
+        "connect-only UDP socket must not expose its fd without network:listen:\nstdout:\n{}\nstderr:\n{}",
+        connect_only.stdout,
+        connect_only.stderr
+    );
+    assert!(
+        !connect_only.stdout.contains("address:127.0.0.1")
+            && !connect_only.stdout.contains("address:0.0.0.0"),
+        "connect-only UDP socket must not reveal its bound address without network:listen:\nstdout:\n{}\nstderr:\n{}",
+        connect_only.stdout,
+        connect_only.stderr
+    );
+
+    // Control: granting network:listen too makes the same operations succeed,
+    // proving the gate above is load-bearing (not a general breakage).
+    let with_listen = run_probe(
+        "udp-with-listen",
+        serde_json::json!(["network:connect:127.0.0.1:9", "network:listen"]),
+    );
+    assert!(
+        with_listen.stdout.contains("fd:EXPOSED"),
+        "with network:listen the fd should be reachable (control):\nstdout:\n{}\nstderr:\n{}",
+        with_listen.stdout,
+        with_listen.stderr
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn fetch_endpoint_capabilities_are_host_scoped() {
