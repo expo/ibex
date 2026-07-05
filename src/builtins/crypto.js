@@ -466,10 +466,17 @@ Hash.prototype.update = function(data, encoding) {
   if (data === undefined) throw _errInvalidArgType('data', 'of type string or an instance of Buffer, TypedArray, or DataView', data);
   if (typeof data === 'string') {
     this._chunks.push(_toByteStringWithEncoding(data, encoding || 'utf8'));
-  } else if (data && data.length !== undefined) {
-    var str = '';
-    for (var i = 0; i < data.length; i++) str += String.fromCharCode(data[i]);
-    this._chunks.push(str);
+  } else if (
+    data instanceof ArrayBuffer ||
+    (typeof SharedArrayBuffer !== 'undefined' && data instanceof SharedArrayBuffer) ||
+    (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) ||
+    (data && data.length !== undefined)
+  ) {
+    // Buffer, TypedArray (any element size), DataView, ArrayBuffer, or array-like:
+    // hash the underlying bytes. Using _toByteString fixes DataViews being
+    // silently dropped (no .length) and multi-byte TypedArrays hashing element
+    // values via fromCharCode instead of their raw bytes.
+    this._chunks.push(_toByteString(data));
   }
   return this;
 };
@@ -604,6 +611,63 @@ function _validateDigestAlgorithm(algorithm) {
   }
 }
 
+// HMAC block sizes (in bytes) per hash, keyed by the normalized (lowercased,
+// hyphen-stripped) algorithm name. Used to compute HMAC in JS on top of the
+// byte-accepting native hash primitive. The native __exactHmacSync host
+// function only reads string arguments and UTF-8-encodes them, so binary keys
+// or data containing bytes >= 0x80 cannot round-trip through it. Computing HMAC
+// here over __exactHashRaw/__exactHashSync (which take raw bytes) fixes that.
+var _hmacBlockSizes = {
+  md5: 64, sha1: 64, sha224: 64, sha256: 64,
+  sha384: 128, sha512: 128,
+  sha3224: 144, sha3256: 136, sha3384: 104, sha3512: 72
+};
+
+function _rawHash(algo, bytes) {
+  var input = _bytesToBufferLike(bytes);
+  if (typeof __exactHashRaw === 'function') {
+    var raw = __exactHashRaw(algo, input);
+    return raw instanceof Uint8Array ? raw : _toBytes(raw);
+  }
+  if (typeof __exactHashSync === 'function') {
+    var hex = __exactHashSync(algo, input);
+    var out = new Uint8Array(hex.length >> 1);
+    for (var i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return out;
+  }
+  throw new Error('Native hash not available');
+}
+
+// RFC 2104 HMAC computed in JS over the raw-byte hash primitive.
+// keyBytes and dataBytes are Uint8Arrays of raw bytes; returns a Uint8Array MAC.
+function _computeHmac(algo, keyBytes, dataBytes) {
+  var blockSize = _hmacBlockSizes[algo];
+  if (blockSize === undefined) {
+    // Unknown block size (e.g. an exotic OpenSSL-only digest): fall back to the
+    // native HMAC. This is only byte-accurate for ASCII key/data, but preserves
+    // prior behavior for algorithms we can't compose here.
+    if (typeof __exactHmacSync === 'function') {
+      var hexMac = __exactHmacSync(algo, _bytesToString(keyBytes), _bytesToString(dataBytes));
+      var nm = new Uint8Array(hexMac.length >> 1);
+      for (var q = 0; q < nm.length; q++) nm[q] = parseInt(hexMac.substr(q * 2, 2), 16);
+      return nm;
+    }
+    throw new Error('Unsupported HMAC algorithm: ' + algo);
+  }
+  var key = keyBytes;
+  if (key.length > blockSize) key = _rawHash(algo, key);
+  var kx = new Uint8Array(blockSize); // zero-padded key block
+  kx.set(key);
+  var inner = new Uint8Array(blockSize + dataBytes.length);
+  for (var i = 0; i < blockSize; i++) inner[i] = kx[i] ^ 0x36;
+  inner.set(dataBytes, blockSize);
+  var innerDigest = _rawHash(algo, inner);
+  var outer = new Uint8Array(blockSize + innerDigest.length);
+  for (var j = 0; j < blockSize; j++) outer[j] = kx[j] ^ 0x5c;
+  outer.set(innerDigest, blockSize);
+  return _rawHash(algo, outer);
+}
+
 function Hmac(algorithm, key) {
   if (!(this instanceof Hmac)) return new Hmac(algorithm, key);
   if (_CipherStreamTransform) _CipherStreamTransform.call(this);
@@ -615,19 +679,18 @@ function Hmac(algorithm, key) {
     throw _errInvalidArgType('key', 'of type string or an instance of Buffer, TypedArray, DataView, or KeyObject', key);
   }
   _validateDigestAlgorithm(algorithm);
-  this._algo = algorithm.toLowerCase().replace('-', '');
-  this._key = typeof key === 'string' ? key : '';
-  if (typeof key !== 'string' && key && key.length !== undefined) {
-    var str = '';
-    for (var i = 0; i < key.length; i++) str += String.fromCharCode(key[i]);
-    this._key = str;
-  }
-  // Support KeyObject as key
-  if (key && key instanceof KeyObject && key._type === 'secret') {
-    var keyData = key._data;
-    var keyStr = '';
-    for (var j = 0; j < keyData.length; j++) keyStr += String.fromCharCode(keyData[j]);
-    this._key = keyStr;
+  this._algo = algorithm.toLowerCase().replace(/-/g, '');
+  // Store the key as a latin1 byte string (each char code is one raw byte).
+  // String keys are UTF-8 encoded (Node semantics); binary keys (Buffer,
+  // TypedArray of any element size, DataView, ArrayBuffer) keep their raw
+  // bytes. This preserves bytes >= 0x80 that fromCharCode-over-elements +
+  // native UTF-8 re-encoding would have corrupted.
+  if (typeof key === 'string') {
+    this._key = _toByteStringWithEncoding(key, 'utf8');
+  } else if (key && key instanceof KeyObject && key._type === 'secret') {
+    this._key = _toByteString(key._data);
+  } else {
+    this._key = _toByteString(key);
   }
   this._chunks = [];
   this._finalized = false;
@@ -671,17 +734,20 @@ if (_CipherStreamTransform) {
 Hmac.prototype.update = function(data, encoding) {
   if (this._finalized) throw new Error('Digest already called');
   if (typeof data === 'string') {
-    if (encoding === 'hex') {
-      var hexStr = '';
-      for (var hi = 0; hi < data.length; hi += 2) hexStr += String.fromCharCode(parseInt(data.substr(hi, 2), 16));
-      this._chunks.push(hexStr);
-    } else {
-      this._chunks.push(data);
-    }
-  } else if (data && data.length !== undefined) {
-    var str = '';
-    for (var i = 0; i < data.length; i++) str += String.fromCharCode(data[i]);
-    this._chunks.push(str);
+    // Honor every input encoding (hex, base64, latin1, utf8, ...), defaulting
+    // to utf8 like Node — not just the previous 'hex' special case. Produces a
+    // latin1 byte string (each char code is one raw byte).
+    this._chunks.push(_toByteStringWithEncoding(data, encoding || 'utf8'));
+  } else if (
+    data instanceof ArrayBuffer ||
+    (typeof SharedArrayBuffer !== 'undefined' && data instanceof SharedArrayBuffer) ||
+    (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) ||
+    (data && data.length !== undefined)
+  ) {
+    // Buffer, TypedArray (any element size), DataView, ArrayBuffer, or array-like:
+    // read the raw bytes. Fixes DataViews being dropped (no .length) and
+    // multi-byte TypedArrays being read as element values instead of bytes.
+    this._chunks.push(_toByteString(data));
   }
   return this;
 };
@@ -697,33 +763,31 @@ Hmac.prototype.digest = function(encoding) {
   }
   this._finalized = true;
   var joined = this._chunks.join('');
-  if (typeof __exactHmacSync === 'function') {
-    var hex = __exactHmacSync(this._algo, this._key, joined);
-    if (encoding === 'hex') return hex;
-    if (encoding === 'base64') {
-      var bytes = [];
-      for (var i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
-      if (typeof btoa === 'function') {
-        var str = '';
-        for (var j = 0; j < bytes.length; j++) str += String.fromCharCode(bytes[j]);
-        return btoa(str);
-      }
+  // Compute HMAC in JS over the raw-byte hash primitive so binary keys/data are
+  // not mangled by the string/UTF-8 boundary of the native __exactHmacSync.
+  var macBytes = _computeHmac(this._algo, _toBytes(this._key), _toBytes(joined));
+  if (encoding === 'hex') return _toHex(macBytes);
+  if (encoding === 'base64' || encoding === 'base64url') {
+    if (typeof Buffer !== 'undefined' && Buffer.from) {
+      return Buffer.from(macBytes).toString(encoding);
     }
-    if (encoding === 'buffer' || !encoding) {
-      var bytes2 = [];
-      for (var k = 0; k < hex.length; k += 2) bytes2.push(parseInt(hex.substr(k, 2), 16));
-      return _bytesToBufferLike(bytes2);
+    if (typeof btoa === 'function') {
+      var b64 = btoa(_bytesToString(macBytes));
+      if (encoding === 'base64url') b64 = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      return b64;
     }
-    if (encoding === 'latin1' || encoding === 'binary') {
-      var bytes3 = [];
-      for (var m = 0; m < hex.length; m += 2) bytes3.push(parseInt(hex.substr(m, 2), 16));
-      var latin = '';
-      for (var n = 0; n < bytes3.length; n++) latin += String.fromCharCode(bytes3[n]);
-      return latin;
-    }
-    return hex;
+    return _toHex(macBytes);
   }
-  throw new Error('Native HMAC not available');
+  if (encoding === 'buffer' || !encoding) {
+    return _bytesToBufferLike(macBytes);
+  }
+  if (encoding === 'latin1' || encoding === 'binary') {
+    return _bytesToString(macBytes);
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.from) {
+    return Buffer.from(macBytes).toString(encoding);
+  }
+  return _toHex(macBytes);
 };
 
 Hmac.prototype[Symbol.toStringTag] = 'Hmac';
@@ -882,14 +946,26 @@ function getCipherInfo(nameOrNid, options) {
 
 // --- timingSafeEqual ---
 function timingSafeEqual(a, b) {
-  if (!_isStringOrBuffer(a)) throw _errInvalidArgType('buf1', 'an instance of Buffer, TypedArray, or DataView', a);
-  if (!_isStringOrBuffer(b)) throw _errInvalidArgType('buf2', 'an instance of Buffer, TypedArray, or DataView', b);
-  if (a.length !== b.length) {
+  // Node rejects strings and compares by byte length over the raw bytes.
+  // Strings and multi-byte views have no usable .length for byte comparison,
+  // and DataView/ArrayBuffer have none at all — so normalize to byte views
+  // first. (Previously DataView/ArrayBuffer args always returned true because
+  // undefined !== undefined was false and the loop never ran, and equal-length
+  // strings compared equal because 'a' ^ 'x' is NaN ^ NaN === 0.)
+  if (typeof a === 'string' || !_isStringOrBuffer(a)) {
+    throw _errInvalidArgType('buf1', 'an instance of ArrayBuffer, Buffer, TypedArray, or DataView', a);
+  }
+  if (typeof b === 'string' || !_isStringOrBuffer(b)) {
+    throw _errInvalidArgType('buf2', 'an instance of ArrayBuffer, Buffer, TypedArray, or DataView', b);
+  }
+  var ab = _toBytes(a);
+  var bb = _toBytes(b);
+  if (ab.length !== bb.length) {
     throw new RangeError('Input buffers must have the same byte length');
   }
   var result = 0;
-  for (var i = 0; i < a.length; i++) {
-    result |= a[i] ^ b[i];
+  for (var i = 0; i < ab.length; i++) {
+    result |= ab[i] ^ bb[i];
   }
   return result === 0;
 }
@@ -1000,7 +1076,12 @@ function randomFillSync(buf, offset, size) {
   if (buf instanceof ArrayBuffer || (typeof SharedArrayBuffer !== 'undefined' && buf instanceof SharedArrayBuffer)) {
     target = new Uint8Array(buf, offset, size);
     offset = 0; // offset is already encoded in the view
-  } else if (buf instanceof DataView) {
+  } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(buf)) {
+    // Buffer, DataView, or any TypedArray (Uint8/16/32, Float, ...): write into
+    // the underlying byte buffer so all `size` random bytes land in the view.
+    // Writing target[offset + i] on a multi-byte TypedArray previously set
+    // element slots (only indices < element count) to 0-255, discarding most of
+    // the entropy; Node fills the underlying bytes.
     target = new Uint8Array(buf.buffer, buf.byteOffset + offset, size);
     offset = 0;
   } else {
