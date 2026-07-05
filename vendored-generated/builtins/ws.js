@@ -113,30 +113,28 @@ function computeAcceptKey(key) {
 }
 function encodeFrame(opcode, payload, fin) {
 	if (fin === void 0) fin = true;
-	var payloadBytes;
-	if (typeof payload === "string") {
-		payloadBytes = [];
-		if (typeof TextEncoder !== "undefined") {
-			var encoded = new TextEncoder().encode(payload);
-			for (var i = 0; i < encoded.length; i++) payloadBytes.push(encoded[i]);
-		} else for (var i = 0; i < payload.length; i++) {
-			var c = payload.charCodeAt(i);
-			if (c < 128) payloadBytes.push(c);
-			else if (c < 2048) payloadBytes.push(192 | c >> 6, 128 | c & 63);
-			else payloadBytes.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+	var payloadU8;
+	if (typeof payload === "string") if (typeof TextEncoder !== "undefined") payloadU8 = new TextEncoder().encode(payload);
+	else {
+		var tmp = [];
+		for (var si = 0; si < payload.length; si++) {
+			var c = payload.charCodeAt(si);
+			if (c < 128) tmp.push(c);
+			else if (c < 2048) tmp.push(192 | c >> 6, 128 | c & 63);
+			else tmp.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
 		}
-	} else if (payload instanceof Uint8Array) {
-		payloadBytes = [];
-		for (var i = 0; i < payload.length; i++) payloadBytes.push(payload[i]);
-	} else if (Array.isArray(payload)) payloadBytes = payload;
-	else payloadBytes = [];
-	var len = payloadBytes.length;
+		payloadU8 = Uint8Array.from(tmp);
+	}
+	else if (payload instanceof Uint8Array) payloadU8 = payload;
+	else if (Array.isArray(payload)) payloadU8 = Uint8Array.from(payload);
+	else payloadU8 = new Uint8Array(0);
+	var len = payloadU8.length;
 	var header = [];
 	header.push((fin ? 128 : 0) | opcode & 15);
 	if (len < 126) header.push(len);
 	else if (len < 65536) {
 		header.push(126);
-		header.push(len >> 8 & 255);
+		header.push(len >>> 8 & 255);
 		header.push(len & 255);
 	} else {
 		header.push(127);
@@ -144,65 +142,58 @@ function encodeFrame(opcode, payload, fin) {
 		header.push(0);
 		header.push(0);
 		header.push(0);
-		header.push(len >> 24 & 255);
-		header.push(len >> 16 & 255);
-		header.push(len >> 8 & 255);
+		header.push(len >>> 24 & 255);
+		header.push(len >>> 16 & 255);
+		header.push(len >>> 8 & 255);
 		header.push(len & 255);
 	}
-	var frame = new Uint8Array(header.length + payloadBytes.length);
-	for (var i = 0; i < header.length; i++) frame[i] = header[i];
-	for (var j = 0; j < payloadBytes.length; j++) frame[header.length + j] = payloadBytes[j];
+	var frame = new Uint8Array(header.length + len);
+	for (var hi = 0; hi < header.length; hi++) frame[hi] = header[hi];
+	if (len > 0) frame.set(payloadU8, header.length);
 	return frame;
 }
-function parseFrames(buffer) {
-	var frames = [];
-	var pos = 0;
-	while (pos < buffer.length) {
-		if (pos + 2 > buffer.length) break;
-		var b0 = buffer.charCodeAt(pos);
-		var b1 = buffer.charCodeAt(pos + 1);
-		var fin = (b0 & 128) !== 0;
-		var opcode = b0 & 15;
-		var masked = (b1 & 128) !== 0;
-		var payloadLen = b1 & 127;
-		var headerLen = 2;
-		if (payloadLen === 126) {
-			if (pos + 4 > buffer.length) break;
-			payloadLen = buffer.charCodeAt(pos + 2) << 8 | buffer.charCodeAt(pos + 3);
-			headerLen = 4;
-		} else if (payloadLen === 127) {
-			if (pos + 10 > buffer.length) break;
-			payloadLen = buffer.charCodeAt(pos + 6) << 24 | buffer.charCodeAt(pos + 7) << 16 | buffer.charCodeAt(pos + 8) << 8 | buffer.charCodeAt(pos + 9);
-			headerLen = 10;
-		}
-		var maskLen = masked ? 4 : 0;
-		var totalLen = headerLen + maskLen + payloadLen;
-		if (pos + totalLen > buffer.length) break;
-		var maskKey = null;
-		if (masked) maskKey = [
-			buffer.charCodeAt(pos + headerLen),
-			buffer.charCodeAt(pos + headerLen + 1),
-			buffer.charCodeAt(pos + headerLen + 2),
-			buffer.charCodeAt(pos + headerLen + 3)
+function _parseFrame(bytes, start, end) {
+	var avail = end - start;
+	if (avail < 2) return null;
+	var b0 = bytes[start];
+	var b1 = bytes[start + 1];
+	var fin = (b0 & 128) !== 0;
+	var opcode = b0 & 15;
+	var masked = (b1 & 128) !== 0;
+	var payloadLen = b1 & 127;
+	var headerLen = 2;
+	if (payloadLen === 126) {
+		if (avail < 4) return null;
+		payloadLen = bytes[start + 2] << 8 | bytes[start + 3];
+		headerLen = 4;
+	} else if (payloadLen === 127) {
+		if (avail < 10) return null;
+		payloadLen = bytes[start + 6] * 16777216 + bytes[start + 7] * 65536 + bytes[start + 8] * 256 + bytes[start + 9];
+		headerLen = 10;
+	}
+	var maskLen = masked ? 4 : 0;
+	var totalLen = headerLen + maskLen + payloadLen;
+	if (avail < totalLen) return null;
+	var payloadStart = start + headerLen + maskLen;
+	var payload = new Uint8Array(payloadLen);
+	if (masked) {
+		var maskStart = start + headerLen;
+		var mask = [
+			bytes[maskStart],
+			bytes[maskStart + 1],
+			bytes[maskStart + 2],
+			bytes[maskStart + 3]
 		];
-		var payloadStart = pos + headerLen + maskLen;
-		var payload = new Uint8Array(payloadLen);
-		for (var i = 0; i < payloadLen; i++) {
-			var byte = buffer.charCodeAt(payloadStart + i);
-			if (masked) byte = byte ^ maskKey[i % 4];
-			payload[i] = byte;
-		}
-		frames.push({
+		for (var i = 0; i < payloadLen; i++) payload[i] = bytes[payloadStart + i] ^ mask[i & 3];
+	} else if (payloadLen > 0) payload.set(bytes.subarray(payloadStart, payloadStart + payloadLen));
+	return {
+		frame: {
 			fin,
 			opcode,
 			masked,
 			payload
-		});
-		pos += totalLen;
-	}
-	return {
-		frames,
-		remainder: buffer.substring(pos)
+		},
+		next: start + totalLen
 	};
 }
 function WebSocketConnection(tcpHandle, req) {
@@ -210,7 +201,9 @@ function WebSocketConnection(tcpHandle, req) {
 	this._events = {};
 	this._handle = tcpHandle;
 	this._readyState = READY_OPEN;
-	this._buffer = "";
+	this._rbuf = null;
+	this._rstart = 0;
+	this._rend = 0;
 	this._pollTimer = null;
 	this._fragments = [];
 	this._fragmentOpcode = 0;
@@ -252,19 +245,23 @@ WebSocketConnection.prototype.CLOSED = READY_CLOSED;
 WebSocketConnection.prototype._startReading = function() {
 	if (this._pollTimer != null) return;
 	var self = this;
+	var MAX_BYTES_PER_TICK = 4 * 1024 * 1024;
 	function poll() {
 		if (self._readyState === READY_CLOSED || self._handle == null) return;
+		var drained = 0;
 		try {
-			var data = __exactTcpRead(self._handle, 65536);
-			if (data === null) {
-				self._handleTransportClose();
-				return;
+			while (drained < MAX_BYTES_PER_TICK) {
+				var data = __exactTcpRead(self._handle, 65536);
+				if (data === null) {
+					self._handleTransportClose();
+					return;
+				}
+				var chunkLen = typeof data === "string" ? data.length : data && data.length || 0;
+				if (chunkLen === 0) break;
+				self._appendData(data);
+				drained += chunkLen;
 			}
-			data = _toBinaryString(data);
-			if (data.length > 0) {
-				self._buffer += data;
-				self._processBuffer();
-			}
+			if (drained > 0) self._processBuffer();
 		} catch (e) {
 			if (self._readyState !== READY_CLOSED) {
 				self.emit("error", e);
@@ -272,14 +269,53 @@ WebSocketConnection.prototype._startReading = function() {
 			}
 			return;
 		}
-		self._pollTimer = setTimeout(poll, 5);
+		if (self._readyState !== READY_CLOSED && self._handle != null) self._pollTimer = setTimeout(poll, 5);
 	}
 	self._pollTimer = setTimeout(poll, 0);
 };
+WebSocketConnection.prototype._appendData = function(data) {
+	var addLen;
+	var isStr = typeof data === "string";
+	if (isStr) addLen = data.length;
+	else if (data && typeof data.length === "number") addLen = data.length;
+	else return;
+	if (addLen === 0) return;
+	var used = this._rend - this._rstart;
+	var buf = this._rbuf;
+	var needed = used + addLen;
+	if (!buf || needed > buf.length) {
+		var cap = buf ? buf.length : 1024;
+		while (cap < needed) cap *= 2;
+		var nbuf = new Uint8Array(cap);
+		if (used > 0) nbuf.set(buf.subarray(this._rstart, this._rend), 0);
+		buf = nbuf;
+		this._rbuf = buf;
+		this._rstart = 0;
+		this._rend = used;
+	} else if (this._rend + addLen > buf.length) {
+		buf.copyWithin(0, this._rstart, this._rend);
+		this._rstart = 0;
+		this._rend = used;
+	}
+	if (isStr) {
+		var end = this._rend;
+		for (var i = 0; i < addLen; i++) buf[end + i] = data.charCodeAt(i) & 255;
+	} else buf.set(data, this._rend);
+	this._rend += addLen;
+};
 WebSocketConnection.prototype._processBuffer = function() {
-	var result = parseFrames(this._buffer);
-	this._buffer = result.remainder;
-	for (var i = 0; i < result.frames.length; i++) this._handleFrame(result.frames[i]);
+	if (!this._rbuf) return;
+	while (this._rstart < this._rend) {
+		var res = _parseFrame(this._rbuf, this._rstart, this._rend);
+		if (!res) break;
+		this._rstart = res.next;
+		this._handleFrame(res.frame);
+		if (this._readyState === READY_CLOSED || !this._rbuf) return;
+	}
+	if (this._rstart >= this._rend) {
+		this._rstart = 0;
+		this._rend = 0;
+	}
 };
 WebSocketConnection.prototype._handleFrame = function(frame) {
 	switch (frame.opcode) {
@@ -635,7 +671,7 @@ WebSocketServer.prototype._completeUpgrade = function(tcpHandle, req, remainingD
 	}
 	var ws = new WebSocketConnection(tcpHandle, req);
 	if (remainingData && remainingData.length > 0) {
-		ws._buffer += remainingData;
+		ws._appendData(remainingData);
 		ws._processBuffer();
 	}
 	this.clients.add(ws);
@@ -678,14 +714,9 @@ WebSocketServer.prototype.handleUpgrade = function(req, socket, head, callback) 
 		return;
 	}
 	var ws = new WebSocketConnection(tcpHandle, req);
-	if (head && head.length > 0) {
-		var headStr = "";
-		if (typeof head === "string") headStr = head;
-		else if (head instanceof Uint8Array || typeof Buffer !== "undefined" && Buffer.isBuffer && Buffer.isBuffer(head)) for (var i = 0; i < head.length; i++) headStr += String.fromCharCode(head[i]);
-		if (headStr.length > 0) {
-			ws._buffer += headStr;
-			ws._processBuffer();
-		}
+	if (head && head.length > 0 && (typeof head === "string" || head instanceof Uint8Array || typeof Buffer !== "undefined" && Buffer.isBuffer && Buffer.isBuffer(head))) {
+		ws._appendData(head);
+		ws._processBuffer();
 	}
 	this.clients.add(ws);
 	var self = this;

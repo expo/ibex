@@ -47,6 +47,14 @@ function _validateSendOffsetLength(buffer, offset, length) {
 		throw errLen;
 	}
 }
+function _setTimerRef(timer, refed) {
+	if (!timer || typeof timer !== "object") return;
+	try {
+		if (refed) {
+			if (typeof timer.ref === "function") timer.ref();
+		} else if (typeof timer.unref === "function") timer.unref();
+	} catch (e) {}
+}
 function Socket(type, listener) {
 	if (!(this instanceof Socket)) return new Socket(type, listener);
 	EventEmitter.call(this);
@@ -79,6 +87,7 @@ function Socket(type, listener) {
 	this._bound = false;
 	this._closed = false;
 	this._pollTimer = null;
+	this._unrefed = false;
 	this._receiving = false;
 	this._bindState = 0;
 	this._fd = -1;
@@ -197,9 +206,13 @@ Socket.prototype._startRecv = function() {
 		} catch (e) {
 			if (!self._closed) self.emit("error", e);
 		}
-		if (!self._closed) self._pollTimer = setTimeout(poll, pollInterval);
+		if (!self._closed) {
+			self._pollTimer = setTimeout(poll, pollInterval);
+			if (self._unrefed) _setTimerRef(self._pollTimer, false);
+		}
 	}
 	this._pollTimer = setTimeout(poll, 0);
+	if (this._unrefed) _setTimerRef(this._pollTimer, false);
 };
 Socket.prototype.connect = function(port, address, callback) {
 	if (this._closed) throw new Error("Socket is closed");
@@ -308,20 +321,20 @@ Socket.prototype.send = function(msg, offset, length, port, address, callback) {
 		}
 		offset = 0;
 	}
+	if (typeof address === "function") {
+		callback = address;
+		address = void 0;
+	}
+	if (typeof port === "function") {
+		callback = port;
+		port = void 0;
+	}
 	if (this._connected && (typeof port === "number" || typeof address === "string")) {
 		var connErr2 = /* @__PURE__ */ new Error("Already connected");
 		connErr2.code = "ERR_SOCKET_DGRAM_IS_CONNECTED";
 		throw connErr2;
 	}
 	if (this._connected) {
-		if (typeof address === "function") {
-			callback = address;
-			address = void 0;
-		}
-		if (typeof port === "function") {
-			callback = port;
-			port = void 0;
-		}
 		port = port || this._connectPort;
 		address = address || this._connectAddress;
 	}
@@ -510,14 +523,12 @@ Socket.prototype.setBroadcast = function(flag) {
 };
 Socket.prototype.ref = function() {
 	this._unrefed = false;
+	_setTimerRef(this._pollTimer, true);
 	return this;
 };
 Socket.prototype.unref = function() {
 	this._unrefed = true;
-	if (this._pollTimer) {
-		clearTimeout(this._pollTimer);
-		this._pollTimer = null;
-	}
+	_setTimerRef(this._pollTimer, false);
 	return this;
 };
 Socket.prototype._fromFd = function(fd) {

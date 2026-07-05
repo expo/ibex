@@ -2234,8 +2234,13 @@ function createServer(options, secureConnectionListener) {
   var serverOptions = options || {};
   var server = net && typeof net.createServer === 'function'
     ? net.createServer(serverOptions, function(rawSocket) {
-        var tlsSocket = _createServerTLSSocket(server, rawSocket);
-        server.emit('secureConnection', tlsSocket);
+        // 'secureConnection' (or 'tlsClientError' on failure) is emitted by
+        // _applyPendingServerHandshake once the handshake actually resolves —
+        // either synchronously here (if a handshake is already queued) or later
+        // when the client-side connect computes it. Emitting it again here
+        // duplicated the event on success (doubling request parsers/accounting)
+        // and wrongly emitted it for a destroyed socket after handshake failure.
+        _createServerTLSSocket(server, rawSocket);
       })
     : _createBareServer();
 

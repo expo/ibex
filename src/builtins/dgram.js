@@ -79,6 +79,20 @@ function _validateSendOffsetLength(buffer, offset, length) {
   }
 }
 
+// Apply ref/unref to a poll timer without stopping it. setTimeout returns a
+// Timeout wrapper whose ref()/unref() only toggle whether it holds the event
+// loop open; the callback keeps firing either way.
+function _setTimerRef(timer, refed) {
+  if (!timer || typeof timer !== 'object') return;
+  try {
+    if (refed) {
+      if (typeof timer.ref === 'function') timer.ref();
+    } else if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+  } catch (e) {}
+}
+
 function Socket(type, listener) {
   if (!(this instanceof Socket)) return new Socket(type, listener);
   EventEmitter.call(this);
@@ -120,6 +134,7 @@ function Socket(type, listener) {
   this._bound = false;
   this._closed = false;
   this._pollTimer = null;
+  this._unrefed = false;
   this._receiving = false;
   this._bindState = 0; // 0=unbound, 1=binding, 2=bound
   this._fd = -1;
@@ -279,10 +294,12 @@ Socket.prototype._startRecv = function() {
     }
     if (!self._closed) {
       self._pollTimer = setTimeout(poll, pollInterval);
+      if (self._unrefed) _setTimerRef(self._pollTimer, false);
     }
   }
 
   this._pollTimer = setTimeout(poll, 0);
+  if (this._unrefed) _setTimerRef(this._pollTimer, false);
 };
 
 Socket.prototype.connect = function(port, address, callback) {
@@ -453,6 +470,22 @@ Socket.prototype.send = function(msg, offset, length, port, address, callback) {
     offset = 0;
   }
 
+  // Normalize a trailing callback that argument-form parsing left in the
+  // `address` or `port` slot. This MUST run for both connected and unconnected
+  // sockets: send(msg, port, cb) parses cb into `address`, and
+  // send(msg, offset, length, port, cb) parses cb into `address` as well.
+  // Previously this only ran inside the `if (this._connected)` branch below, so
+  // an unconnected send never invoked its callback and passed the function
+  // object to __exactUdpSend as the destination address.
+  if (typeof address === 'function') {
+    callback = address;
+    address = undefined;
+  }
+  if (typeof port === 'function') {
+    callback = port;
+    port = undefined;
+  }
+
   // If connected socket with port/address provided, throw
   if (this._connected && (typeof port === 'number' || typeof address === 'string')) {
     var connErr2 = new Error('Already connected');
@@ -462,14 +495,6 @@ Socket.prototype.send = function(msg, offset, length, port, address, callback) {
 
   // For connected sockets, use stored address/port
   if (this._connected) {
-    if (typeof address === 'function') {
-      callback = address;
-      address = undefined;
-    }
-    if (typeof port === 'function') {
-      callback = port;
-      port = undefined;
-    }
     port = port || this._connectPort;
     address = address || this._connectAddress;
   }
@@ -738,15 +763,18 @@ Socket.prototype.setBroadcast = function(flag) {
 
 Socket.prototype.ref = function() {
   this._unrefed = false;
+  _setTimerRef(this._pollTimer, true);
   return this;
 };
 
 Socket.prototype.unref = function() {
   this._unrefed = true;
-  if (this._pollTimer) {
-    clearTimeout(this._pollTimer);
-    this._pollTimer = null;
-  }
+  // In Node, unref() only removes the socket's hold on the event loop; it does
+  // NOT stop message delivery. Keep the recv poll running (so ref() and ongoing
+  // reception still work) but mark the poll timer unref'd so it won't by itself
+  // keep the process alive. Clearing the timer here previously killed reception
+  // permanently: _receiving stayed true, so ref()/_startRecv() never resumed it.
+  _setTimerRef(this._pollTimer, false);
   return this;
 };
 

@@ -1713,8 +1713,7 @@ function createServer(options, secureConnectionListener) {
 	}
 	var serverOptions = options || {};
 	var server = net && typeof net.createServer === "function" ? net.createServer(serverOptions, function(rawSocket) {
-		var tlsSocket = _createServerTLSSocket(server, rawSocket);
-		server.emit("secureConnection", tlsSocket);
+		_createServerTLSSocket(server, rawSocket);
 	}) : _createBareServer();
 	if (typeof Object.setPrototypeOf === "function" && Server.prototype) Object.setPrototypeOf(server, Server.prototype);
 	return _decorateServer(server, serverOptions, secureConnectionListener);
