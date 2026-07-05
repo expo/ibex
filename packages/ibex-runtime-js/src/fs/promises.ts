@@ -337,10 +337,13 @@ export async function read(fd: number, buffer: Uint8Array, offset = 0, length = 
 export async function write(
   fd: number,
   buffer: string | Uint8Array,
-  offsetOrPosition = 0,
+  offsetOrPosition?: number | null,
   lengthOrEncoding?: number | string,
   position?: number | null,
 ): Promise<{ bytesWritten: number; buffer: string | Uint8Array }> {
+  // For the string form the third argument is the position; when it is omitted
+  // the write must go to the fd's current position, not absolute offset 0
+  // (which clobbers earlier writes). (ENG-22975)
   return runAsync(() => {
     if (typeof buffer === 'string') {
       const writePosition = typeof offsetOrPosition === 'number' ? offsetOrPosition : position;
@@ -350,7 +353,7 @@ export async function write(
       };
     }
 
-    const offset = offsetOrPosition;
+    const offset = typeof offsetOrPosition === 'number' ? offsetOrPosition : 0;
     const length = typeof lengthOrEncoding === 'number' ? lengthOrEncoding : buffer.byteLength - offset;
     return {
       bytesWritten: writeFileDescriptor(fd, buffer.subarray(offset, offset + length), position),

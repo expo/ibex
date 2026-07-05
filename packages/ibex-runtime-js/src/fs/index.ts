@@ -45,6 +45,9 @@ import {
   readlinkNative,
   truncateNative,
   utimesNative,
+  fstatJson,
+  ftruncateFd,
+  fchmodFd,
 } from './shared';
 
 export { Dirent, Stats, promises, constants };
@@ -358,6 +361,13 @@ class WriteStream extends EventEmitter {
     this.cursor = options.start ?? null;
 
     queueTask(() => {
+      // If the stream was destroyed before this deferred open ran, do not open
+      // the file: with flag 'w' that would truncate/create the target after
+      // destruction, emit 'open' after 'close', and leak the never-closed fd.
+      // (ENG-22975)
+      if (this.destroyed) {
+        return;
+      }
       try {
         if (this.fd === null) {
           this.fd = openFileDescriptor(this.path, this.flags);
@@ -710,45 +720,89 @@ export function read(
   callback: ReadCallback,
 ): void {
   queueTask(() => {
+    // Run only the read inside the try; invoke the success callback afterwards
+    // so a throwing user callback is not re-invoked with an error. (ENG-22975)
+    let bytesRead: number;
     try {
-      const bytesRead = readSync(fd, buffer, offset, length, position);
-      callback(null, bytesRead, buffer);
+      bytesRead = readSync(fd, buffer, offset, length, position);
     } catch (error) {
       callback(error instanceof Error ? error : new Error(String(error)), 0, buffer);
+      return;
     }
+    callback(null, bytesRead, buffer);
   });
 }
 
 export function write(
   fd: number,
   buffer: string | Uint8Array,
-  offsetOrCallback: number | WriteCallback,
-  lengthOrCallback?: number | string | WriteCallback,
-  position?: number | null,
-  callback?: WriteCallback,
+  a?: number | string | WriteCallback | null,
+  b?: number | string | WriteCallback | null,
+  c?: number | null | WriteCallback,
+  d?: WriteCallback,
 ): void {
-  let offset = 0;
+  // Node exposes two overloads, both with the callback as the LAST argument:
+  //   Buffer: fs.write(fd, buffer[, offset[, length[, position]]], callback)
+  //   String: fs.write(fd, string[, position[, encoding]], callback)
+  // Parse accordingly. Crucially, when the position is omitted it stays
+  // undefined (→ write at the fd's current position), not 0 (absolute offset 0,
+  // which would clobber earlier writes), and the callback is located wherever it
+  // actually sits rather than being read only from the last slot. (ENG-22975)
+  let cb: WriteCallback | undefined;
+  let offsetOrPosition: number | undefined;
   let lengthOrEncoding: number | string | undefined;
-  let cb: WriteCallback;
+  let position: number | null | undefined;
 
-  if (typeof offsetOrCallback === 'function') {
-    cb = offsetOrCallback;
-  } else if (typeof lengthOrCallback === 'function') {
-    offset = offsetOrCallback;
-    cb = lengthOrCallback;
+  if (typeof buffer === 'string') {
+    // fs.write(fd, string[, position[, encoding]], callback)
+    if (typeof a === 'function') {
+      cb = a;
+    } else if (typeof b === 'function') {
+      offsetOrPosition = a == null ? undefined : (a as number);
+      cb = b;
+    } else {
+      offsetOrPosition = a == null ? undefined : (a as number);
+      lengthOrEncoding = (b ?? undefined) as string | undefined;
+      cb = c as WriteCallback | undefined;
+    }
   } else {
-    offset = offsetOrCallback;
-    lengthOrEncoding = lengthOrCallback;
-    cb = callback!;
+    // fs.write(fd, buffer[, offset[, length[, position]]], callback)
+    if (typeof a === 'function') {
+      cb = a;
+    } else if (typeof b === 'function') {
+      offsetOrPosition = a as number;
+      cb = b;
+    } else if (typeof c === 'function') {
+      offsetOrPosition = a as number;
+      lengthOrEncoding = b as number;
+      cb = c;
+    } else {
+      offsetOrPosition = a as number;
+      lengthOrEncoding = b as number;
+      position = c as number | null;
+      cb = d;
+    }
   }
 
+  if (typeof cb !== 'function') {
+    throw assignErrorCode(
+      new TypeError(`The "cb" argument must be of type function. Received ${describeArgValue(cb)}`),
+      'ERR_INVALID_ARG_TYPE',
+    );
+  }
+
+  const callback = cb;
   queueTask(() => {
+    // Run only the write inside the try; invoke the success callback afterwards
+    // so a throwing user callback is not re-invoked with an error. (ENG-22975)
+    let bytesWritten: number;
     try {
-      const bytesWritten = writeSync(fd, buffer, offset, lengthOrEncoding, position);
-      cb(null, bytesWritten, buffer);
+      bytesWritten = writeSync(fd, buffer, offsetOrPosition, lengthOrEncoding, position);
     } catch (error) {
-      cb(error instanceof Error ? error : new Error(String(error)), 0, buffer);
+      callback(error instanceof Error ? error : new Error(String(error)), 0, buffer);
+      return;
     }
+    callback(null, bytesWritten, buffer);
   });
 }
 
@@ -812,9 +866,8 @@ export function truncate(path: string, lenOrCallback: number | Callback, callbac
 // --- ftruncate ---
 
 export function ftruncateSync(fd: number, len = 0): void {
-  // Write empty data at position to truncate via fd
-  // Fall back to no-op if not available at fd level
-  truncateNative(`/proc/self/fd/${fd}`, len);
+  // Truncate by fd via the native ftruncate syscall. (ENG-22975)
+  ftruncateFd(fd, len);
 }
 
 export function ftruncate(fd: number, lenOrCallback: number | Callback, callback?: Callback): void {
@@ -900,8 +953,8 @@ export function rm(path: string, optionsOrCallback: { recursive?: boolean; force
 // --- fstat ---
 
 export function fstatSync(fd: number): Stats {
-  // Read stat via fd path
-  return statSync(`/proc/self/fd/${fd}`);
+  // Stat by fd via the native fstat syscall. (ENG-22975)
+  return toStats(fstatJson(fd));
 }
 
 export function fstat(fd: number, callback: Callback<Stats>): void {
@@ -911,7 +964,8 @@ export function fstat(fd: number, callback: Callback<Stats>): void {
 // --- fchmod ---
 
 export function fchmodSync(fd: number, mode: number): void {
-  chmodSync(`/proc/self/fd/${fd}`, mode);
+  // chmod by fd via the native fchmod syscall. (ENG-22975)
+  fchmodFd(fd, mode);
 }
 
 export function fchmod(fd: number, mode: number, callback: Callback): void {

@@ -29,6 +29,12 @@ declare global {
   var __exactReadlink: ((path: string) => string) | undefined;
   var __exactTruncate: ((path: string, len: number) => void) | undefined;
   var __exactUtimes: ((path: string, atime: number, mtime: number) => void) | undefined;
+  // fd-based metadata primitives (used by fstat/ftruncate/fchmod). The prior
+  // implementation routed these through /proc/self/fd, which does not exist on
+  // darwin/iOS. (ENG-22975)
+  var __exactFsFstatSync: ((fd: number) => string) | undefined;
+  var __exactFsFtruncateSync: ((fd: number, len: number) => void) | undefined;
+  var __exactFsFchmodSync: ((fd: number, mode: number) => void) | undefined;
 }
 
 export type BinaryData = Uint8Array | Buffer;
@@ -78,12 +84,19 @@ export function queueTask(task: () => void): void {
 }
 
 export function wrapCallback<T>(fn: () => T, callback: Callback<T>): void {
+  // Only the operation `fn()` runs inside the try. Invoking the success
+  // callback outside it ensures a callback that throws is not re-invoked with
+  // an error (which would run the caller's failure path for a successful op and
+  // swallow the original exception). (ENG-22975)
   queueTask(() => {
+    let result: T;
     try {
-      callback(null, fn());
+      result = fn();
     } catch (err) {
       callback(coerceError(err));
+      return;
     }
+    callback(null, result);
   });
 }
 
@@ -321,6 +334,22 @@ export function readlinkNative(path: string): string {
 
 export function truncateNative(path: string, len: number): void {
   ensureFsPrimitive<(path: string, len: number) => void>('__exactTruncate')(path, len);
+}
+
+// fd-based metadata operations. These call the native fstat/ftruncate/fchmod
+// syscalls directly rather than reconstructing a path via /proc/self/fd (which
+// is Linux-only and absent on the darwin/iOS targets this runtime ships on).
+// (ENG-22975)
+export function fstatJson(fd: number): string {
+  return ensureFsPrimitive<(fd: number) => string>('__exactFsFstatSync')(fd);
+}
+
+export function ftruncateFd(fd: number, len: number): void {
+  ensureFsPrimitive<(fd: number, len: number) => void>('__exactFsFtruncateSync')(fd, len);
+}
+
+export function fchmodFd(fd: number, mode: number): void {
+  ensureFsPrimitive<(fd: number, mode: number) => void>('__exactFsFchmodSync')(fd, mode);
 }
 
 export function utimesNative(path: string, atime: number, mtime: number): void {
