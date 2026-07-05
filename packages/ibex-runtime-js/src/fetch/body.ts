@@ -1150,6 +1150,12 @@ export abstract class BodyMixin {
     if (preconditionError) {
       return Promise.reject(preconditionError);
     }
+    // Reject up front if the associated fetch was already aborted, even for a
+    // fully-buffered body that would otherwise resolve without reading a stream.
+    const abortError = this._checkAbortSignal();
+    if (abortError) {
+      return Promise.reject(abortError);
+    }
     try {
       this._consumeBody();
     } catch (e) {
@@ -1191,6 +1197,11 @@ export abstract class BodyMixin {
     const preconditionError = this._getBodyReadPreconditionError();
     if (preconditionError) {
       return Promise.reject(preconditionError);
+    }
+
+    const abortError = this._checkAbortSignal();
+    if (abortError) {
+      return Promise.reject(abortError);
     }
 
     try {

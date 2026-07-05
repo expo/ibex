@@ -980,7 +980,11 @@ function parseSocketResponseHead(
   };
 }
 
-async function executeRawHttpSocketFetchHop(
+// Exported for focused unit tests of the incremental HTTP/1.1 response parser
+// (this transport is not currently wired into fetch(), so it is otherwise only
+// reachable from tests). It is not re-exported from index.ts and stays out of
+// the embedded runtime bundle via tree-shaking.
+export async function executeRawHttpSocketFetchHop(
   url: string,
   nativeInit: NativeRequestInit,
   effectiveHeaders: [string, string][],
@@ -1159,15 +1163,23 @@ async function executeRawHttpSocketFetchHop(
             }
 
             if (chunkedState === 'data') {
-              if (responseBuffer.length - bodyOffset < currentChunkSize) {
+              // Consume whatever of the current chunk has arrived so far so the
+              // parsed prefix can be compacted; a large chunk that spans many
+              // TCP reads is drained incrementally instead of being buffered
+              // whole.
+              const available = responseBuffer.length - bodyOffset;
+              const take = available < currentChunkSize ? available : currentChunkSize;
+              if (take > 0) {
+                pushBodyChunk(bodyOffset, bodyOffset + take);
+                bodyOffset += take;
+                currentChunkSize -= take;
+              }
+              if (currentChunkSize > 0) {
                 if (eof) {
                   throw createSocketTransportError('aborted', 'ECONNRESET');
                 }
                 return;
               }
-
-              pushBodyChunk(bodyOffset, bodyOffset + currentChunkSize);
-              bodyOffset += currentChunkSize;
               chunkedState = 'data-crlf';
               continue;
             }
@@ -1215,22 +1227,35 @@ async function executeRawHttpSocketFetchHop(
         }
 
         if (parsedHead.contentLength !== null) {
-          if (responseBuffer.length - bodyOffset < parsedHead.contentLength) {
-            if (eof) {
-              throw createSocketTransportError('aborted', 'ECONNRESET');
+          // Drain the body incrementally (tracking total via bodyLength) so the
+          // parsed prefix can be compacted between reads instead of holding the
+          // entire response in the working buffer.
+          const remaining = parsedHead.contentLength - bodyLength;
+          if (remaining > 0) {
+            const available = responseBuffer.length - bodyOffset;
+            const take = available < remaining ? available : remaining;
+            if (take > 0) {
+              pushBodyChunk(bodyOffset, bodyOffset + take);
+              bodyOffset += take;
             }
+          }
+          if (bodyLength >= parsedHead.contentLength) {
+            finalizeResponse();
             return;
           }
-
-          pushBodyChunk(bodyOffset, bodyOffset + parsedHead.contentLength);
-          bodyOffset += parsedHead.contentLength;
-          finalizeResponse();
+          if (eof) {
+            throw createSocketTransportError('aborted', 'ECONNRESET');
+          }
           return;
         }
 
-        if (eof) {
+        // Body delimited by connection close: consume everything available now
+        // (so it can be compacted) and finalize once the socket ends.
+        if (responseBuffer.length > bodyOffset) {
           pushBodyChunk(bodyOffset, responseBuffer.length);
           bodyOffset = responseBuffer.length;
+        }
+        if (eof) {
           finalizeResponse();
         }
       } catch (error) {
@@ -1251,6 +1276,16 @@ async function executeRawHttpSocketFetchHop(
         ? bytes
         : BufferCtor.concat([responseBuffer, bytes]);
       consumeAvailable(false);
+      // Compact: discard the already-parsed prefix so the working buffer holds
+      // only unparsed bytes. Without this, every TCP chunk re-concatenates the
+      // whole accumulated response — O(n^2) cumulative memcpy on large bodies.
+      if (!settled && bodyOffset > 0) {
+        responseBuffer =
+          bodyOffset >= responseBuffer.length
+            ? BufferCtor.alloc(0)
+            : BufferCtor.from(responseBuffer.subarray(bodyOffset));
+        bodyOffset = 0;
+      }
     });
 
     socket.on('end', () => {
@@ -1503,6 +1538,19 @@ const MAX_REDIRECTS = 20;
  * Headers that must be stripped on cross-origin redirects per Fetch spec.
  */
 const SENSITIVE_HEADERS = ['authorization', 'cookie', 'proxy-authorization'];
+
+/**
+ * Request-body header names that must be deleted when a redirect rewrites the
+ * request method (301/302 POST -> GET, 303 -> GET) and drops the body. Per the
+ * "HTTP-redirect fetch" algorithm, these entity headers no longer describe any
+ * body once the body is nulled.
+ */
+const REQUEST_BODY_HEADERS = [
+  'content-encoding',
+  'content-language',
+  'content-location',
+  'content-type',
+];
 
 function isBunCompatEnv(): boolean {
   if ((globalThis as { __exactRuntimeContext?: string }).__exactRuntimeContext === 'shell') {
@@ -1851,8 +1899,6 @@ export async function fetch(
     const isStreamingUpload = request.isBodyStream();
     const requestBodySource = isStreamingUpload ? request.getBodyStream() : null;
     const requestSource = isRequestInput ? 'request-object' : 'input';
-    const uploadChunks: Uint8Array[] = [];
-    let uploadChunkLength = 0;
     const useSocketDecompressCompat =
       !decompress &&
       (nativeModule as NativeFetchModule & { __exactNativeBridge?: boolean }).__exactNativeBridge === true;
@@ -1872,7 +1918,6 @@ export async function fetch(
       requestBodySource && nativeModule.fetchStreamingUpload && !preferSocketTransport
         ? requestBodySource.getReader()
         : null;
-    let bufferedUploadBody: Uint8Array | null = null;
     let streamUploadPending = isStreamingUpload && !!nativeModule.fetchStreamingUpload && !!uploadReader;
     let currentBody: Uint8Array | null;
 
@@ -1891,14 +1936,7 @@ export async function fetch(
     let currentUnixSocketPath = unixSocketPath;
     const redirectMode = request.redirect;
     let stripSensitiveHeaders = false;
-
-    const getReplayableUploadBody = (): Uint8Array => {
-      if (bufferedUploadBody) {
-        return bufferedUploadBody;
-      }
-      bufferedUploadBody = concatUint8Chunks(uploadChunks, uploadChunkLength);
-      return bufferedUploadBody;
-    };
+    let stripRequestBodyHeaders = false;
 
     const finalizeResponse = (
       nativeResponse: NativeResponse | NativeStreamingResponse,
@@ -2127,13 +2165,7 @@ export async function fetch(
                 if (result.done) {
                   return null;
                 }
-                const chunk = result.value;
-                if (chunk?.byteLength) {
-                  const bufferedChunk = new Uint8Array(chunk);
-                  uploadChunks.push(bufferedChunk);
-                  uploadChunkLength += bufferedChunk.byteLength;
-                }
-                return chunk;
+                return result.value;
               },
               (nativeResponse) => {
                 if (headersSettled) {
@@ -2320,6 +2352,17 @@ export async function fetch(
         }
       }
 
+      // A method-rewriting redirect drops the request body; the entity headers
+      // that described it must be deleted so the follow-up GET/HEAD does not
+      // advertise a body it no longer carries.
+      if (stripRequestBodyHeaders) {
+        for (let i = nativeHeaders.length - 1; i >= 0; i--) {
+          if (REQUEST_BODY_HEADERS.includes(nativeHeaders[i][0].toLowerCase())) {
+            nativeHeaders.splice(i, 1);
+          }
+        }
+      }
+
       if (shouldProcessCookies(request)) {
         try {
           const reqUrl = new URL(currentUrl);
@@ -2439,11 +2482,18 @@ export async function fetch(
       cancelRequest = undefined;
 
       if (newMethod !== currentMethod && (newMethod === 'GET' || newMethod === 'HEAD')) {
+        // Method-rewriting redirect (301/302 POST, 303): drop the body and the
+        // entity headers that described it.
         currentBody = null;
         streamUploadPending = false;
-      } else if (streamUploadPending) {
-        currentBody = getReplayableUploadBody();
-        streamUploadPending = false;
+        stripRequestBodyHeaders = true;
+      } else if (isStreamingUpload) {
+        // The body survives this redirect but its source is a ReadableStream
+        // (source is null), which cannot be replayed. Per "HTTP-redirect fetch"
+        // this is a network error — do NOT re-send a partial/duplicated body.
+        throw new TypeError(
+          'Failed to fetch: a request with a ReadableStream body cannot be redirected'
+        );
       }
 
       try {

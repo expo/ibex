@@ -597,7 +597,9 @@ export class Request extends BodyMixin {
    */
   protected override _getBodyBuffer(): Promise<ArrayBuffer> {
     if (this._bodyBuffer) {
-      const buf = this._bodyBuffer;
+      // Per spec each body consumption yields a fresh ArrayBuffer; hand out a
+      // copy so callers cannot mutate the request's internal body buffer.
+      const buf = this._bodyBuffer.slice(0);
       return new Promise<ArrayBuffer>(function (resolve) {
         resolveWithoutThenable(resolve, buf);
       });

@@ -292,7 +292,10 @@ export class Response extends BodyMixin {
    */
   protected override _getBodyBuffer(): Promise<ArrayBuffer> {
     if (this._bodyBuffer) {
-      const buf = this._bodyBuffer;
+      // Per spec each body consumption yields a fresh ArrayBuffer. Hand out a
+      // copy so callers cannot mutate the internal body — and so a clone that
+      // shares this cached buffer is unaffected by mutations to a prior read.
+      const buf = this._bodyBuffer.slice(0);
       return new Promise<ArrayBuffer>(function (resolve) {
         resolveWithoutThenable(resolve, buf);
       });
@@ -304,7 +307,10 @@ export class Response extends BodyMixin {
 
     const self = this;
     return new Promise<ArrayBuffer>(function (resolve, reject) {
-      readableStreamToUint8Array(self._body!).then(
+      // Thread the fetch's abort signal so a mid-download abort cancels the
+      // reader (and the underlying native download) and rejects with the
+      // abort reason instead of resolving with a partial/complete body.
+      readableStreamToUint8Array(self._body!, self._signal).then(
         function (bytes) {
           self._bodyBuffer = bytes.buffer as ArrayBuffer;
           resolveWithoutThenable(resolve, self._bodyBuffer);
@@ -332,7 +338,10 @@ export class Response extends BodyMixin {
     cloned._type = this._type;
     cloned._url = this._url;
     cloned._redirected = this._redirected;
-    cloned._bodyBuffer = this._bodyBuffer;
+    // Give the clone its own buffer copy so consuming/mutating one body cannot
+    // corrupt the other's contents.
+    cloned._bodyBuffer = this._bodyBuffer ? this._bodyBuffer.slice(0) : null;
+    cloned._signal = this._signal;
 
     // Clone the body stream using tee if available
     if (this._body) {
