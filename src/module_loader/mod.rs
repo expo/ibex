@@ -244,7 +244,7 @@ impl ModuleLoader {
             .with_context(|| format!("Failed to read module {}", path.display()))?;
         if Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source) {
             let target = Self::transpile_target_for_source(&source);
-            return self.transpile_module(path, target);
+            return self.transpile_module(path, target, &source);
         }
         Ok(source)
     }
@@ -262,14 +262,6 @@ impl ModuleLoader {
             .map(|ext| matches!(ext, "js" | "mjs" | "cjs"))
             .unwrap_or(false)
             && Self::source_needs_downlevel(source)
-    }
-
-    fn js_file_needs_downlevel(path: &Path) -> bool {
-        let source = match std::fs::read_to_string(path) {
-            Ok(source) => source,
-            Err(_) => return false,
-        };
-        Self::needs_js_downlevel(path, &source)
     }
 
     fn source_needs_downlevel(source: &str) -> bool {
@@ -668,19 +660,17 @@ impl ModuleLoader {
         }
     }
 
-    fn transpile_module(&self, path: &Path, target: &str) -> Result<String> {
+    fn transpile_module(&self, path: &Path, target: &str, source: &str) -> Result<String> {
         let cache_key = module_cache_key(path, target)?;
+        // `transpile_cache_dir` is memoized and already created+probed the
+        // directory once per process, so we don't re-`create_dir_all` here on
+        // every (mostly cache-hit) module load. A cache miss recreates the
+        // parent inside `run_transpile_command` before writing.
         let cache_dir = transpile_cache_dir()?;
-        std::fs::create_dir_all(&cache_dir).with_context(|| {
-            format!(
-                "Failed to create transpile cache directory {}",
-                cache_dir.display()
-            )
-        })?;
 
         let output = cache_dir.join(format!("{cache_key}.js"));
         if should_rebuild_output(path, &output)? {
-            run_transpile_command(path, &output, target)?;
+            run_transpile_command(path, &output, target, source)?;
         }
 
         std::fs::read_to_string(&output)
@@ -747,6 +737,7 @@ impl ModuleLoader {
             }
         };
 
+        let full_path = resolution.full_path().to_path_buf();
         let mut kind = match resolution.module_type() {
             Some(ModuleType::Module) => ModuleKind::Esm,
             Some(ModuleType::CommonJs) => ModuleKind::CommonJs,
@@ -756,17 +747,29 @@ impl ModuleLoader {
         };
         // Force JSON kind for .json files regardless of what OXC reports,
         // so they get parsed with JSON.parse() instead of new Function().
-        if resolution.full_path().extension().and_then(|e| e.to_str()) == Some("json") {
+        if full_path.extension().and_then(|e| e.to_str()) == Some("json") {
             kind = ModuleKind::Json;
         }
-        if kind == ModuleKind::Esm
-            && (Self::needs_transpile(&resolution.full_path())
-                || Self::js_file_needs_downlevel(&resolution.full_path()))
-        {
-            kind = ModuleKind::CommonJs;
+        // Classify an ESM candidate with a SINGLE source read and reuse it.
+        // A TS/JSX module is detected by extension (no read) and served as CJS.
+        // Otherwise read the source once: a module that needs JS downleveling
+        // flips to CJS and is (re)read by the transpile path; a plain ESM module
+        // is served verbatim, so we stash the source we already read on the
+        // resolved module and let `load_source` skip the redundant second read
+        // and downlevel re-scan on the hot path (modern ESM-heavy node_modules).
+        let mut prefetched_source: Option<String> = None;
+        if kind == ModuleKind::Esm {
+            if Self::needs_transpile(&full_path) {
+                kind = ModuleKind::CommonJs;
+            } else if let Ok(source) = std::fs::read_to_string(&full_path) {
+                if Self::needs_js_downlevel(&full_path, &source) {
+                    kind = ModuleKind::CommonJs;
+                } else {
+                    prefetched_source = Some(source);
+                }
+            }
         }
 
-        let full_path = resolution.full_path().to_path_buf();
         let (mut package_name, mut package_root) =
             package_name_and_root_in_node_modules(&full_path).unzip();
         let mut package_version = self.package_version_for(&full_path);
@@ -792,7 +795,7 @@ impl ModuleLoader {
             id: full_path.to_string_lossy().to_string(),
             kind,
             path: Some(full_path),
-            source: None,
+            source: prefetched_source,
             package_name,
             package_root,
             package_version,
@@ -997,11 +1000,23 @@ fn module_cache_key(path: &Path, target: &str) -> Result<String> {
     Ok(format!("{:x}", hasher.finish()))
 }
 
-/// Hash of the transpile tooling scripts, computed once per process.
-/// The scripts don't change underneath a running loader, and re-reading
-/// both files for every module load showed up in runtime-loader profiling.
-/// @ref LLP 0007#runtime-module-loading
+/// Hash of the transpile tooling scripts, computed once per process and then
+/// memoized. The scripts/engine don't change underneath a running loader, and
+/// re-reading the override script for every module cache-key computation showed
+/// up in runtime-loader profiling. @ref LLP 0007#runtime-module-loading
 fn transpile_tooling_hash() -> Result<u64> {
+    static CACHED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    if let Some(hash) = CACHED.get() {
+        return Ok(*hash);
+    }
+    let hash = compute_transpile_tooling_hash()?;
+    // A concurrent initializer may win the race; either value is equally valid
+    // for the process, so ignore a failed set and return what we computed.
+    let _ = CACHED.set(hash);
+    Ok(hash)
+}
+
+fn compute_transpile_tooling_hash() -> Result<u64> {
     // @ref LLP 0007#proposal - the in-process engine is part of the cache key
     // so the SWC fallback and Oxc candidate never share output.
     // Only the explicit subprocess override hashes a repo script.
@@ -1017,6 +1032,21 @@ fn transpile_tooling_hash() -> Result<u64> {
 }
 
 fn transpile_cache_dir() -> Result<PathBuf> {
+    // The resolved, writable cache directory doesn't change during a process
+    // run, so resolve it once (create_dir_all + a probe write) and reuse it.
+    // Without this, every transpiled-module load re-ran mkdir + a probe
+    // create/remove round trip even on cache hits — the per-load syscall churn
+    // runtime-loader profiling flagged. @ref LLP 0007#runtime-module-loading
+    static CACHED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    if let Some(dir) = CACHED.get() {
+        return Ok(dir.clone());
+    }
+    let dir = resolve_transpile_cache_dir()?;
+    let _ = CACHED.set(dir.clone());
+    Ok(dir)
+}
+
+fn resolve_transpile_cache_dir() -> Result<PathBuf> {
     let mut dir = crate::runtime_cache_dir()?;
     dir.push("typescript");
     dir.push("loader");
@@ -1085,15 +1115,18 @@ fn should_rebuild_output(path: &Path, output: &Path) -> Result<bool> {
     Ok(source_time > output_time)
 }
 
-fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()> {
+fn run_transpile_command(entry: &Path, output: &Path, target: &str, source: &str) -> Result<()> {
     // Explicit override keeps a custom transpiler-script escape hatch;
     // everything else is in-process per LLP 0007, so TypeScript works
     // standalone without a Bun/Node subprocess.
     if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
+        // The subprocess reads the entry by path; it can't take in-memory source.
         return run_transpile_subprocess(entry, output, target);
     }
 
-    let code = transpile::transpile_file_to_cjs(entry, target)?;
+    // Reuse the source the loader already read for this module instead of
+    // re-reading the file inside the transpiler on a cache miss.
+    let code = transpile::transpile_source_to_cjs(source, entry, target)?;
 
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)
@@ -2164,5 +2197,58 @@ for (let i = 0; i < 3; i++) {
         let loader = test_loader();
         let version = loader.package_version_for(&pkg.join("dist").join("index.js"));
         assert_eq!(version.as_deref(), Some("2.0.0"));
+    }
+
+    // ENG-22950: a module that needs no transpile/downlevel is served verbatim.
+    // NOTE: the resolver runs with `module_type` detection disabled
+    // (ResolveOptions.module_type = false), so modules classify as CommonJs and
+    // the resolve-time single-read + prefetch branch (`kind == Esm`) is dormant
+    // in this configuration. Regardless of classification, a plain module must
+    // round-trip its source unchanged — this guards that the loader never
+    // corrupts or needlessly transpiles a pass-through module.
+    #[test]
+    fn serves_plain_module_source_verbatim() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("plain.js"), "module.exports = 1;\n").unwrap();
+
+        let loader = test_loader();
+        let resolved = loader
+            .resolve("./plain.js", Some(&dir.path().join("entry.js")))
+            .unwrap();
+        assert_eq!(resolved.source.as_deref(), Some("module.exports = 1;\n"));
+    }
+
+    // ENG-22950: a TypeScript module loaded end-to-end must still be transpiled
+    // to CommonJS. This exercises the source-threading path (the source read in
+    // `load_module_source` is passed straight into the transpiler instead of the
+    // file being read a second time) and, on the second load, the transpile
+    // cache hit + memoized cache directory.
+    #[test]
+    fn loads_typescript_through_loader_and_caches() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("mod.ts"),
+            "export const value: number = 41 + 1;\n",
+        )
+        .unwrap();
+
+        let loader = test_loader();
+        let resolved = loader
+            .resolve("./mod.ts", Some(&dir.path().join("entry.ts")))
+            .unwrap();
+        let source = resolved.source.expect("transpiled source");
+        // Type annotation stripped and the ESM export lowered to CommonJS.
+        assert!(
+            !source.contains(": number"),
+            "type annotation not stripped: {source}"
+        );
+        assert!(source.contains("exports"), "not CommonJS output: {source}");
+
+        // A second load hits the transpile cache (and the memoized cache dir)
+        // and returns byte-identical output.
+        let again = loader
+            .resolve("./mod.ts", Some(&dir.path().join("entry.ts")))
+            .unwrap();
+        assert_eq!(again.source.as_deref(), Some(source.as_str()));
     }
 }

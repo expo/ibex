@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{AwaitExpression, FunctionBody, Program as OxcProgram};
 use oxc_ast_visit::{walk, Visit};
@@ -81,14 +81,16 @@ pub(crate) fn selected_engine_cache_tag() -> Result<&'static str> {
     Ok(selected_transform_engine()?.cache_tag())
 }
 
-pub(crate) fn transpile_file_to_cjs(path: &Path, target: &str) -> Result<String> {
-    let source = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read {}", path.display()))?;
+/// Lower a module the loader has ALREADY read to CommonJS. Taking the source
+/// in (rather than re-reading `path` here) avoids a second disk read of the
+/// same module on a transpile-cache miss; `path` is still needed for the engine
+/// to derive syntax/JSX from the extension and for diagnostics.
+pub(crate) fn transpile_source_to_cjs(source: &str, path: &Path, target: &str) -> Result<String> {
     match selected_transform_engine()? {
-        TransformEngine::Swc => transpile_to_cjs(&source, path),
+        TransformEngine::Swc => transpile_to_cjs(source, path),
         // @ref LLP 0007#proposal - Oxc is opt-in until the runtime has a
         // proven replacement for SWC's general ESM-to-CJS lowering.
-        TransformEngine::Oxc => transpile_with_oxc(&source, path, target),
+        TransformEngine::Oxc => transpile_with_oxc(source, path, target),
     }
 }
 
