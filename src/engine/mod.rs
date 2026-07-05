@@ -104,6 +104,8 @@ mod tests {
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+        fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
+        fn ex_hermes_now_ms() -> u64;
     }
 
     fn eval(runtime: *mut HermesRuntimeOpaque, source: &str) -> (i32, Option<String>) {
@@ -163,6 +165,114 @@ mod tests {
             let (status, value) = eval(runtime, "String(globalThis.__r1Count)");
             assert_eq!(status, 0);
             assert_eq!(value.as_deref(), Some("1"));
+
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// setTimeout/setInterval store `due_ms = nowMs() + delay` on a MONOTONIC
+    /// clock, and the Rust event loop reads that same clock via
+    /// `ex_hermes_now_ms()` for the `now` it feeds to `ex_hermes_poll`. A large
+    /// numeric delay lets us confirm both sides share one clock domain: due_ms
+    /// minus a freshly-read now must be ~= the delay (not wildly off, as it
+    /// would be if the two used different clock epochs).
+    #[test]
+    fn timer_due_time_shares_monotonic_clock_domain() {
+        unsafe {
+            std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
+            let runtime = ex_hermes_create();
+            assert!(!runtime.is_null());
+
+            let t0 = ex_hermes_now_ms();
+            let (status, _) = eval(
+                runtime,
+                "globalThis.__c = 0; setTimeout(function () { globalThis.__c++; }, 100000); 'ok';",
+            );
+            assert_eq!(status, 0);
+
+            let due = ex_hermes_next_timer(runtime);
+            assert!(due >= 0, "an armed timer must report a non-negative due time");
+            let rel = (due as u64).saturating_sub(t0);
+            assert!(
+                (90_000..=110_000).contains(&rel),
+                "due_ms - ex_hermes_now_ms() = {rel}ms, expected ~100000ms; \
+                 the Rust loop clock and the C++ timer clock must be the same domain",
+            );
+
+            // Passing that due time straight to poll fires the timer.
+            let fired = ex_hermes_poll(runtime, due as u64);
+            assert!(fired >= 1, "timer should fire once its due time is reached");
+            let (_, value) = eval(runtime, "String(globalThis.__c)");
+            assert_eq!(value.as_deref(), Some("1"));
+
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// setTimeout/setInterval must (a) ToNumber-coerce a non-number delay like
+    /// `'100000'` instead of silently treating it as 0, and (b) clamp negative
+    /// and NaN delays to 0. Before the fix the delay went through
+    /// `static_cast<uint64_t>(asNumber())`: strings became 0, and negative/NaN
+    /// were UB — on x86_64 they cast to 0x8000000000000000, so `nowMs() + delay`
+    /// landed ~292M years out and the callback NEVER fired.
+    #[test]
+    fn timer_delay_is_coerced_and_clamped() {
+        unsafe {
+            std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
+            let runtime = ex_hermes_create();
+            assert!(!runtime.is_null());
+
+            // (a) A string delay is coerced via ToNumber, so a '100000' timer is
+            // due ~100s out — not immediately (which is what treating it as 0
+            // would produce).
+            let t0 = ex_hermes_now_ms();
+            let (status, _) = eval(
+                runtime,
+                "globalThis.__s = 0; setTimeout(function () { globalThis.__s++; }, '100000'); 'ok';",
+            );
+            assert_eq!(status, 0);
+            let due = ex_hermes_next_timer(runtime);
+            assert!(due >= 0);
+            let rel = (due as u64).saturating_sub(t0);
+            assert!(
+                rel >= 90_000,
+                "string delay '100000' must coerce to ~100000ms, got {rel}ms \
+                 (a non-coerced delay would be ~0)",
+            );
+            // Retire it so it doesn't interfere with the clamp cases below.
+            ex_hermes_poll(runtime, due as u64);
+            let (_, value) = eval(runtime, "String(globalThis.__s)");
+            assert_eq!(value.as_deref(), Some("1"));
+            assert_eq!(ex_hermes_next_timer(runtime), -1);
+
+            // (b) Negative, NaN, non-coercible-object, and missing delays all
+            // clamp to 0: each timer is due ~immediately (a small offset, NOT a
+            // ~292M-year deadline) and fires on the next poll.
+            let cases = [
+                ("neg", "setTimeout(function () { globalThis.__f++; }, -1);"),
+                ("nan", "setTimeout(function () { globalThis.__f++; }, NaN);"),
+                ("obj", "setTimeout(function () { globalThis.__f++; }, {});"),
+                ("none", "setTimeout(function () { globalThis.__f++; });"),
+            ];
+            for (label, arm) in cases {
+                let base = ex_hermes_now_ms();
+                let (status, _) =
+                    eval(runtime, &format!("globalThis.__f = 0; {arm} 'ok';"));
+                assert_eq!(status, 0, "{label}: setTimeout must not throw");
+                let due = ex_hermes_next_timer(runtime);
+                assert!(due >= 0, "{label}: delay must not become a far-future deadline");
+                let rel = (due as u64).saturating_sub(base);
+                assert!(
+                    rel <= 1_000,
+                    "{label}: delay must clamp to ~0ms, got {rel}ms (bogus deadline?)",
+                );
+                // now >= due, so the timer is due and fires.
+                let fired = ex_hermes_poll(runtime, ex_hermes_now_ms());
+                assert!(fired >= 1, "{label}: clamped-to-0 timer must fire");
+                let (_, value) = eval(runtime, "String(globalThis.__f)");
+                assert_eq!(value.as_deref(), Some("1"), "{label}: callback should run once");
+                assert_eq!(ex_hermes_next_timer(runtime), -1, "{label}: one-shot retired");
+            }
 
             ex_hermes_destroy(runtime);
         }

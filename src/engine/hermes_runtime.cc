@@ -508,7 +508,23 @@ facebook::jsi::Function makeLogFunction(facebook::jsi::Runtime& rt, int32_t leve
 
 uint64_t nowMs() {
   using namespace std::chrono;
-  return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+  // Timer deadlines (setTimeout/setInterval store due_ms = nowMs() + delay) must
+  // clock off a MONOTONIC source, like Node/libuv. system_clock is the wall
+  // clock: a backward NTP/manual step postpones every pending timer by the step
+  // size, and a forward step fires them all at once. steady_clock never jumps
+  // backward and is unaffected by clock adjustments. The Rust event loop reads
+  // this same source via ex_hermes_now_ms() for the `now` it feeds to
+  // ex_hermes_poll, so both sides share one clock domain.
+  return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+// Expose the monotonic timer clock (nowMs) to the Rust event loop so the `now`
+// it passes to ex_hermes_poll and the due_ms stored by setTimeout/setInterval
+// are measured on the identical clock. Mixing a Rust std::time::Instant with the
+// C++ steady_clock is not safe (their epochs are unspecified and may differ), so
+// there is exactly one source of truth for timer time.
+extern "C" uint64_t ex_hermes_now_ms() {
+  return nowMs();
 }
 
 double processUptimeSeconds() {

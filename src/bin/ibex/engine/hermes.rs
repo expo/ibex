@@ -86,6 +86,9 @@ extern "C" {
     ) -> i32;
     fn ex_hermes_free_string(value: *mut std::os::raw::c_char);
     fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+    // Monotonic timer clock shared with the C++ scheduler (nowMs). See
+    // current_time_ms() for why the Rust loop must not use its own clock.
+    fn ex_hermes_now_ms() -> u64;
     fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
     fn ex_hermes_has_pending_tasks(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_debugger_enable(runtime: *mut HermesRuntimeOpaque) -> i32;
@@ -149,6 +152,25 @@ async fn wait_for_callback_or_sleep(duration: std::time::Duration) {
         tokio::time::sleep(duration).await;
     }
 }
+
+// How long the event loop parks when host work is pending but no timer is due
+// (e.g. an idle `Bun.serve` server waiting for the next request). There is no
+// deadline to wait for here, only an external event, so the park duration is a
+// wakeup-safety fallback rather than a poll cadence.
+//
+// With `cli-notify` every cross-thread callback push signals the loop
+// (pushRuntimeCallback + the HTTP server both call ex_hermes_notify_callback),
+// so we park until notified and only re-poll after a long safety interval in the
+// (should-be-impossible) case a notification was missed. Parking a fixed 5 ms
+// here instead made an idle server re-poll ~200×/sec forever, each iteration
+// taking the tokio Mutex, the ffi_lock, and four FFI calls.
+//
+// Without `cli-notify` there is no wakeup source, so the loop genuinely must
+// poll; a short interval keeps it responsive to incoming requests.
+#[cfg(feature = "cli-notify")]
+const IDLE_PARK: std::time::Duration = std::time::Duration::from_secs(1);
+#[cfg(not(feature = "cli-notify"))]
+const IDLE_PARK: std::time::Duration = std::time::Duration::from_millis(5);
 
 fn host_call_response(payload: String) -> *mut std::os::raw::c_char {
     match CString::new(payload) {
@@ -920,11 +942,13 @@ impl HermesEngine {
             let (next, now) = next_due;
             if next < 0 {
                 // No timers but tasks pending (HTTP server, callbacks, etc.)
-                // Wait for a callback notification. The HTTP server now directly
-                // signals this via ex_hermes_notify_callback(), so requests wake
-                // the event loop with zero latency. The 5ms timeout is a safety
-                // fallback in case a notification is missed. (Item 7)
-                wait_for_callback_or_sleep(std::time::Duration::from_millis(5)).await;
+                // Wait for a callback notification. The HTTP server and every
+                // cross-thread callback push signal this via
+                // ex_hermes_notify_callback(), so requests wake the event loop
+                // with zero latency. IDLE_PARK is only a wakeup-safety fallback
+                // (see its definition), NOT a busy-poll cadence — parking a
+                // fixed 5ms here made an idle server re-poll ~200×/sec. (Item 7)
+                wait_for_callback_or_sleep(IDLE_PARK).await;
                 continue;
             }
             let delay = (next as u64).saturating_sub(now);
@@ -1436,10 +1460,14 @@ fn bytecode_versions_compatible() -> bool {
 }
 
 fn current_time_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    // Read the SAME monotonic clock the C++ timer scheduler uses to compute
+    // due_ms (nowMs). The value we return is fed to ex_hermes_poll as `now_ms`
+    // and subtracted from ex_hermes_next_timer's due_ms to size the park
+    // duration, so it must share a clock domain with due_ms. Using a Rust
+    // wall clock (SystemTime) made timers vulnerable to NTP steps, and a Rust
+    // monotonic clock (Instant) is not guaranteed to share an epoch with the
+    // C++ steady_clock — so we route through the one C++ source of truth.
+    unsafe { ex_hermes_now_ms() }
 }
 
 fn temporary_output_path(path: &std::path::Path) -> std::path::PathBuf {
