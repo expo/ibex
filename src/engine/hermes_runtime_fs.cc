@@ -954,6 +954,16 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count > 2 && args[2].isNumber()) {
           sendFd = static_cast<int>(args[2].asNumber());
         }
+        // Raw fd integers are forgeable: the caller must own the socket it
+        // writes to, and passing a descriptor via SCM_RIGHTS is an authority
+        // transfer, so the caller must own the descriptor it gives away too.
+        // (ENG-22883, same model as ENG-22707)
+        if (!isAllowAll()) {
+          (void)requireOwnedFd(runtime, sockFd, "sendmsg");
+          if (sendFd >= 0) {
+            (void)requireOwnedFd(runtime, sendFd, "sendmsg");
+          }
+        }
 
         struct iovec iov;
         iov.iov_base = const_cast<uint8_t*>(dataBytes.data());
@@ -1010,6 +1020,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int sockFd = static_cast<int>(args[0].asNumber());
         int bufSize = static_cast<int>(args[1].asNumber());
         if (bufSize <= 0) bufSize = 65536;
+        // Ownership gate on the socket a caller drains: a guessed/inherited
+        // fd int must not become a read channel. (ENG-22883)
+        if (!isAllowAll()) {
+          (void)requireOwnedFd(runtime, sockFd, "recvmsg");
+        }
 
         std::vector<uint8_t> buf(static_cast<size_t>(bufSize));
 
@@ -1051,6 +1066,17 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             // Set CLOEXEC on received fd
             if (recvFd >= 0) {
               fcntl(recvFd, F_SETFD, FD_CLOEXEC);
+              // A descriptor imported over SCM_RIGHTS enters the fd-registry
+              // authority model owned by the receiving principal, instead of
+              // floating outside it; later fs ops on it still pass through
+              // the ambient capability checks on the synthetic /dev/fd path,
+              // and socket adoption stays gated by
+              // requireRawSocketAdoptionAllowed. (ENG-22883)
+              registerFd(
+                  recvFd,
+                  std::string("/dev/fd/") + std::to_string(recvFd),
+                  /*canRead=*/true,
+                  /*canWrite=*/true);
             }
             break;
           }

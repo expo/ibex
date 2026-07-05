@@ -2341,6 +2341,15 @@ fn enforce_closes_runtime_capability_escapes() {
         enforced.stdout,
         enforced.stderr
     );
+    // ENG-22883: the SCM_RIGHTS IPC helpers refuse a forged/inherited socket fd
+    // by fd ownership before any sendmsg/recvmsg — the ungranted package cannot
+    // drive them at all (GATED, not a live syscall).
+    assert!(
+        enforced.stdout.contains("ipcfds: send=GATED recv=GATED"),
+        "IPC sendmsg/recvmsg must be gated by fd ownership under enforce:\nstdout:\n{}\nstderr:\n{}",
+        enforced.stdout,
+        enforced.stderr
+    );
     assert!(
         !enforced.stdout.contains("STOLEN") && !enforced.stdout.contains("IMPORTED"),
         "no escape channel may succeed under enforce:\nstdout:\n{}\nstderr:\n{}",
@@ -2369,6 +2378,17 @@ fn enforce_closes_runtime_capability_escapes() {
             && permissive.stdout.contains("exact:sqlite=IMPORTED")
             && permissive.stdout.contains("detached: IMPORTED"),
         "permissive control must show the escape channels are live:\nstdout:\n{}\nstderr:\n{}",
+        permissive.stdout,
+        permissive.stderr
+    );
+    // ENG-22883 control: under permissive the ownership gate is skipped, so the
+    // helpers reach the real syscall (which fails ENOTSOCK on stdio) — proving
+    // the enforce GATED result above is the ownership check, not a broken call.
+    assert!(
+        permissive
+            .stdout
+            .contains("ipcfds: send=SYSCALL recv=SYSCALL"),
+        "permissive IPC helpers must reach the syscall (gate skipped):\nstdout:\n{}\nstderr:\n{}",
         permissive.stdout,
         permissive.stderr
     );
