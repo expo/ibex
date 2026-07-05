@@ -1048,14 +1048,23 @@ export interface HrtimeFunction {
 /**
  * Create a Proxy-based env object that reads from native
  */
-function createEnvProxy(): Record<string, string | undefined> {
-  // Store for JS-set values (fallback and for values not in native)
+export function createEnvProxy(): Record<string, string | undefined> {
+  // Seeded JS defaults commonly expected by npm packages. Both the native env
+  // and explicit JS writes take precedence over these, so the native layer can
+  // still promote NODE_ENV to 'production' for release builds while a
+  // `process.env.NODE_ENV = ...` assignment from user code also sticks.
   const jsEnv: Record<string, string | undefined> = {
-    // Default values commonly expected by npm packages
-    // Default to 'development' so capability checks allow operations during dev
-    // Native layer can override this to 'production' for release builds
     NODE_ENV: 'development',
   };
+  // Keys explicitly written on the JS side. Tracking these separately from the
+  // seeded defaults lets a write win over a native value (native never wins
+  // back over an explicit `process.env.X = ...`).
+  const jsOverrides = new Set<string>();
+  // Tombstones for keys deleted on the JS side. These hide any native value so
+  // `delete process.env.X` actually sticks instead of resurrecting the host var.
+  const jsDeleted = new Set<string>();
+  // Read-through cache of the native env only. It never stores JS overrides, so
+  // refreshNativeCache() re-cloning __exactGetAllEnv() can't wipe JS state.
   let nativeCache: Record<string, string> | null = null;
 
   function refreshNativeCache(): Record<string, string> {
@@ -1081,6 +1090,36 @@ function createEnvProxy(): Record<string, string | undefined> {
     return refreshNativeCache()[key];
   }
 
+  // Resolve a key with correct precedence: a JS delete hides everything, then an
+  // explicit JS write wins over native, then native wins over a seeded default.
+  function resolveValue(key: string): string | undefined {
+    if (jsDeleted.has(key)) {
+      return undefined;
+    }
+    if (jsOverrides.has(key)) {
+      return jsEnv[key];
+    }
+    const nativeValue = getNativeValue(key);
+    if (nativeValue !== undefined) {
+      return nativeValue;
+    }
+    return jsEnv[key];
+  }
+
+  function collectAll(): Record<string, string> {
+    const keys = new Set<string>();
+    Object.keys(refreshNativeCache()).forEach(k => keys.add(k));
+    Object.keys(jsEnv).forEach(k => keys.add(k));
+    const all: Record<string, string> = {};
+    for (const key of keys) {
+      const value = resolveValue(key);
+      if (value !== undefined) {
+        all[key] = value;
+      }
+    }
+    return all;
+  }
+
   return new Proxy(jsEnv, {
     get(target, prop: string | symbol): string | undefined {
       if (typeof prop === 'symbol') {
@@ -1089,20 +1128,10 @@ function createEnvProxy(): Record<string, string | undefined> {
 
       // Special handling for toJSON
       if (prop === 'toJSON') {
-        return () => {
-          const all: Record<string, string> = { ...target } as Record<string, string>;
-          Object.assign(all, refreshNativeCache());
-          return all;
-        };
+        return () => collectAll();
       }
 
-      const nativeValue = getNativeValue(prop);
-      if (nativeValue !== undefined) {
-        return nativeValue;
-      }
-
-      // Fall back to JS store
-      return target[prop];
+      return resolveValue(prop);
     },
 
     set(target, prop: string | symbol, value: any): boolean {
@@ -1118,9 +1147,10 @@ function createEnvProxy(): Record<string, string | undefined> {
       }
       const normalized = String(value);
       target[key] = normalized;
-      if (nativeCache) {
-        nativeCache[key] = normalized;
-      }
+      // Mark as an explicit JS write so it wins over native, and clear any prior
+      // tombstone so re-setting a deleted key brings it back.
+      jsOverrides.add(key);
+      jsDeleted.delete(key);
       return true;
     },
 
@@ -1128,12 +1158,8 @@ function createEnvProxy(): Record<string, string | undefined> {
       if (typeof prop === 'symbol') {
         return false;
       }
-      
-      if (getNativeValue(prop) !== undefined) {
-        return true;
-      }
-      
-      return prop in target;
+
+      return resolveValue(prop) !== undefined;
     },
 
     deleteProperty(target, prop: string | symbol): boolean {
@@ -1142,17 +1168,19 @@ function createEnvProxy(): Record<string, string | undefined> {
       }
       const key = prop as string;
       delete target[key];
-      if (nativeCache) {
-        delete nativeCache[key];
-      }
+      // Drop the override flag and record a tombstone so the native value stays
+      // hidden until the key is written again.
+      jsOverrides.delete(key);
+      jsDeleted.add(key);
       return true;
     },
 
     ownKeys(target): string[] {
-      const keys = new Set(Object.keys(target));
+      const keys = new Set<string>();
       Object.keys(refreshNativeCache()).forEach(k => keys.add(k));
-      
-      return Array.from(keys);
+      Object.keys(target).forEach(k => keys.add(k));
+
+      return Array.from(keys).filter(k => resolveValue(k) !== undefined);
     },
 
     defineProperty(target, prop: string | symbol, descriptor: PropertyDescriptor): boolean {
@@ -1183,27 +1211,17 @@ function createEnvProxy(): Record<string, string | undefined> {
         return undefined;
       }
 
-      const key = prop as string;
-      if (Object.prototype.hasOwnProperty.call(target, key)) {
-        return {
-          value: target[key],
-          writable: true,
-          enumerable: true,
-          configurable: true,
-        };
+      const value = resolveValue(prop as string);
+      if (value === undefined) {
+        return undefined;
       }
 
-      const nativeValue = getNativeValue(key);
-      if (nativeValue !== undefined) {
-        return {
-          value: nativeValue,
-          writable: true,
-          enumerable: true,
-          configurable: true,
-        };
-      }
-
-      return undefined;
+      return {
+        value,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      };
     },
   });
 }

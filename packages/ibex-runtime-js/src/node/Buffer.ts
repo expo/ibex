@@ -932,21 +932,25 @@ export class Buffer extends Uint8Array {
   }
 
   writeDoubleBE(value: number, offset = 0): number {
+    offset = validateOffset(offset, 8, this.length);
     new DataView(this.buffer, this.byteOffset + offset).setFloat64(0, value, false);
     return offset + 8;
   }
 
   writeDoubleLE(value: number, offset = 0): number {
+    offset = validateOffset(offset, 8, this.length);
     new DataView(this.buffer, this.byteOffset + offset).setFloat64(0, value, true);
     return offset + 8;
   }
 
   writeFloatBE(value: number, offset = 0): number {
+    offset = validateOffset(offset, 4, this.length);
     new DataView(this.buffer, this.byteOffset + offset).setFloat32(0, value, false);
     return offset + 4;
   }
 
   writeFloatLE(value: number, offset = 0): number {
+    offset = validateOffset(offset, 4, this.length);
     new DataView(this.buffer, this.byteOffset + offset).setFloat32(0, value, true);
     return offset + 4;
   }
