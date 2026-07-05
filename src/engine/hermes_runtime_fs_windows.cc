@@ -37,8 +37,8 @@ extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
 extern "C" int32_t ex_host_fs_write(void* file, const uint8_t* buf, uint32_t len);
 extern "C" int32_t ex_host_fs_seek(void* file, uint64_t position);
 extern "C" void ex_host_fs_close(void* file);
-extern "C" uint8_t* ex_host_fs_read_file(const char* path, uint32_t* out_len, int32_t* out_errno);
-extern "C" void ex_host_free_buffer(uint8_t* buf, uint32_t len);
+extern "C" uint8_t* ex_host_fs_read_file(const char* path, uint64_t* out_len, int32_t* out_errno);
+extern "C" void ex_host_free_buffer(uint8_t* buf, uint64_t len);
 extern "C" char* ex_host_fs_stat(const char* path);
 extern "C" char* ex_host_fs_lstat(const char* path);
 extern "C" char* ex_host_fs_readdir(const char* path);
@@ -201,7 +201,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto path = pathArg(runtime, args[0]);
         requireReadCapability(runtime, path);
-        uint32_t len = 0;
+        uint64_t len = 0;
         int32_t read_errno = 0;
         uint8_t* data = ex_host_fs_read_file(path.c_str(), &len, &read_errno);
         if (!data) {

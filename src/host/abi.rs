@@ -693,7 +693,7 @@ pub extern "C" fn ex_host_is_allow_all() -> i32 {
 #[no_mangle]
 pub extern "C" fn ex_host_fs_read_file(
     path: *const c_char,
-    out_len: *mut u32,
+    out_len: *mut u64,
     out_errno: *mut i32,
 ) -> *mut u8 {
     if path.is_null() || out_len.is_null() {
@@ -720,8 +720,13 @@ pub extern "C" fn ex_host_fs_read_file(
     match std::io::Read::read_to_end(&mut file, &mut data) {
         Ok(_) => {
             let boxed = data.into_boxed_slice();
+            // Report the true allocation length. `usize as u64` is lossless on all
+            // supported targets; the C++ caller passes this exact value back to
+            // `ex_host_free_buffer`, so the reconstructed slice layout matches the
+            // allocation. Truncating to u32 here corrupted the free layout and
+            // silently short-read files >= 4 GiB.
             let len = boxed.len();
-            unsafe { *out_len = len as u32 };
+            unsafe { *out_len = len as u64 };
             Box::into_raw(boxed) as *mut u8
         }
         Err(err) => {
@@ -739,7 +744,7 @@ pub extern "C" fn ex_host_fs_read_file(
 
 /// Free a buffer returned by `ex_host_fs_read_file`.
 #[no_mangle]
-pub extern "C" fn ex_host_free_buffer(buf: *mut u8, len: u32) {
+pub extern "C" fn ex_host_free_buffer(buf: *mut u8, len: u64) {
     if !buf.is_null() && len > 0 {
         unsafe {
             let raw = ptr::slice_from_raw_parts_mut(buf, len as usize);
@@ -2248,5 +2253,35 @@ mod tests {
             ..Default::default()
         }));
         assert!(!with_host(|host| host.is_allow_all(), true));
+    }
+
+    #[test]
+    fn read_file_round_trips_full_length_and_frees_true_layout() {
+        // The `ex_host_fs_read_file` / `ex_host_free_buffer` length must survive the
+        // FFI round trip without truncation: the caller frees with the exact length
+        // read_file reported, so the reconstructed Box layout must match the
+        // allocation. A payload larger than a page ensures a non-trivial layout.
+        // (A real >= 4 GiB reproduction of the former `as u32` truncation is
+        // impractical in a unit test; the regression this guards is that the ABI
+        // carries the full length through.)
+        let payload: Vec<u8> = (0..70_000u32).map(|i| (i % 251) as u8).collect();
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        Write::write_all(&mut file, &payload).unwrap();
+        Write::flush(&mut file).unwrap();
+        let path = CString::new(file.path().to_str().unwrap()).unwrap();
+
+        let mut out_len: u64 = 0;
+        let mut out_errno: i32 = 0;
+        let buf = ex_host_fs_read_file(path.as_ptr(), &mut out_len, &mut out_errno);
+        assert!(!buf.is_null());
+        assert_eq!(out_len, payload.len() as u64);
+
+        let read_back = unsafe { std::slice::from_raw_parts(buf, out_len as usize) };
+        assert_eq!(read_back, payload.as_slice());
+
+        // Free with the exact reported length so the Box layout matches the
+        // allocation (this is the path the C++ caller takes).
+        ex_host_free_buffer(buf, out_len);
     }
 }
