@@ -65,6 +65,14 @@ fn hermesc_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf
     if let Some(path) = optional_env_path(&["HERMESC", "HERMES_COMPILER"]) {
         return path;
     }
+    if let Some(bin_dir) = optional_env_path(&["HERMES_BIN_DIR"]) {
+        let binary_name = if target_os == "windows" {
+            "hermesc.exe"
+        } else {
+            "hermesc"
+        };
+        return bin_dir.join(binary_name);
+    }
     if target_os == "windows" {
         return windows_hermes_root(repo_root, target_arch)
             .join("bin")
@@ -88,6 +96,14 @@ fn hermesc_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf
 fn hermes_cli_path(repo_root: &Path, target_os: &str, target_arch: &str) -> PathBuf {
     if let Some(path) = optional_env_path(&["HERMES_CLI", "HERMES_BINARY"]) {
         return path;
+    }
+    if let Some(bin_dir) = optional_env_path(&["HERMES_BIN_DIR"]) {
+        let binary_name = if target_os == "windows" {
+            "hermes.exe"
+        } else {
+            "hermes"
+        };
+        return bin_dir.join(binary_name);
     }
     if target_os == "windows" {
         return windows_hermes_root(repo_root, target_arch)
@@ -925,6 +941,9 @@ fn main() {
         // Despite the historical filename, this file owns the platform-neutral
         // exact.dispatch/module/kernel C ABI that native hosts install.
         build.file("src/engine/hermes_runtime_ios.cc");
+        // This file also provides the non-Android no-op definitions for the
+        // Android host hooks that installGlobals()/destroy() call unconditionally.
+        build.file("src/engine/hermes_runtime_android.cc");
         build.file("src/engine/hermes_runtime_platform_windows.cc");
         build.file(&hermes_jsi_cpp);
         if hermes_jsilib_windows_cpp.exists() {
