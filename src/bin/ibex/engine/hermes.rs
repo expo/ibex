@@ -953,7 +953,7 @@ impl HermesEngine {
         if source_url != "<eval>" && source_url != "<module-loader>" {
             let map_path = format!("{}.map", source_url);
             if Path::new(&map_path).exists() {
-                if let Some(sm) = super::sourcemap::SourceMap::load(Path::new(&map_path)) {
+                if let Some(sm) = super::sourcemap::SourceMap::load_cached(Path::new(&map_path)) {
                     return super::sourcemap::rewrite_error(message, &sm, source_url);
                 }
             }
@@ -986,7 +986,7 @@ impl HermesEngine {
 
         if let Some(bp) = bundle_path {
             let map_file = format!("{}.map", bp);
-            if let Some(sm) = super::sourcemap::SourceMap::load(Path::new(&map_file)) {
+            if let Some(sm) = super::sourcemap::SourceMap::load_cached(Path::new(&map_file)) {
                 return super::sourcemap::rewrite_error(message, &sm, &bp);
             }
         }

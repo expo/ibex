@@ -4,7 +4,17 @@
 //! stack traces to show original TypeScript/JSX file positions.
 
 use serde::Deserialize;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::SystemTime;
+
+/// Lock a mutex, recovering the inner value if it was poisoned by a panic in
+/// another thread. (The shared `crate::sync` helper is gated behind the
+/// `host-http-server` feature, but the source-map cache must build regardless.)
+fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// A single decoded mapping entry.
 #[derive(Debug, Clone)]
@@ -28,11 +38,60 @@ struct RawSourceMap {
     mappings: String,
 }
 
+/// A parsed source map cached against the file metadata it was loaded from.
+struct CachedMap {
+    /// Last-modified time of the source file when parsed (`None` if the
+    /// platform does not report it -- then we fall back to length only).
+    mtime: Option<SystemTime>,
+    /// Byte length of the source file when parsed.
+    len: u64,
+    map: Arc<SourceMap>,
+}
+
+/// Cache of parsed source maps keyed by path. Bundles rarely change identity,
+/// so this is naturally bounded by the number of distinct `.map` files.
+static SOURCE_MAP_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedMap>>> = OnceLock::new();
+
 impl SourceMap {
     /// Load and parse a V3 source map from a file path.
     pub fn load(path: &Path) -> Option<Self> {
         let data = std::fs::read_to_string(path).ok()?;
         Self::parse(&data)
+    }
+
+    /// Load a source map through a process-wide cache so repeated errors from
+    /// the same bundle don't re-read and re-decode the whole map (which can be
+    /// 10^5-10^6 mappings) on every error. The cache is validated against the
+    /// file's `(mtime, len)`, so a rebuilt bundle's map is transparently
+    /// reloaded rather than served stale.
+    pub fn load_cached(path: &Path) -> Option<Arc<Self>> {
+        let meta = std::fs::metadata(path).ok()?;
+        let len = meta.len();
+        let mtime = meta.modified().ok();
+
+        let cache = SOURCE_MAP_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        {
+            let guard = lock_or_recover(cache);
+            if let Some(entry) = guard.get(path) {
+                if entry.len == len && entry.mtime == mtime {
+                    return Some(entry.map.clone());
+                }
+            }
+        }
+
+        // Miss or stale entry: parse outside the lock (the expensive part),
+        // then record it.
+        let map = Arc::new(Self::load(path)?);
+        let mut guard = lock_or_recover(cache);
+        guard.insert(
+            path.to_path_buf(),
+            CachedMap {
+                mtime,
+                len,
+                map: map.clone(),
+            },
+        );
+        Some(map)
     }
 
     /// Parse a V3 source map JSON string.
@@ -48,22 +107,31 @@ impl SourceMap {
     /// Look up the original position for a generated line and column.
     /// Returns (source_file, original_line, original_col).
     pub fn lookup(&self, gen_line: u32, gen_col: u32) -> Option<(&str, u32, u32)> {
-        // Find the best matching mapping for this generated position.
-        // Mappings are sorted by gen_line, then gen_col.
-        let mut best: Option<&Mapping> = None;
-        for m in &self.mappings {
-            if m.gen_line == gen_line && m.gen_col <= gen_col {
-                match best {
-                    None => best = Some(m),
-                    Some(prev) if m.gen_col > prev.gen_col => best = Some(m),
-                    _ => {}
-                }
-            } else if m.gen_line == gen_line && best.is_none() {
-                // Take first mapping on the line even if col is past
-                best = Some(m);
+        // Mappings are sorted by (gen_line, gen_col), so we binary-search
+        // instead of scanning the whole vector (10^5-10^6 entries) per frame.
+        let maps = &self.mappings;
+
+        // `idx` is the number of mappings ordered at or before the target
+        // position, so `maps[idx - 1]` is the last such mapping.
+        let idx = maps.partition_point(|m| (m.gen_line, m.gen_col) <= (gen_line, gen_col));
+
+        let m = if idx > 0 && maps[idx - 1].gen_line == gen_line {
+            // A mapping on this line begins at or before the target column --
+            // the one with the greatest column <= gen_col.
+            &maps[idx - 1]
+        } else {
+            // No mapping on this line starts at/before the column; fall back to
+            // the first mapping on the line (matching the prior linear scan,
+            // which took the first mapping even when its column was past the
+            // target).
+            let start = maps.partition_point(|m| m.gen_line < gen_line);
+            let first = maps.get(start)?;
+            if first.gen_line != gen_line {
+                return None;
             }
-        }
-        let m = best?;
+            first
+        };
+
         let source = self.sources.get(m.source_idx as usize)?;
         Some((source, m.orig_line + 1, m.orig_col + 1)) // 1-based
     }
@@ -115,6 +183,14 @@ fn decode_vlq_segment(segment: &str) -> Vec<i64> {
     for ch in segment.bytes() {
         let digit = vlq_char_to_int(ch);
         if digit < 0 {
+            break;
+        }
+        // Valid source-map VLQ values fit in 32 bits, so a well-formed segment
+        // never shifts past 30. Bail out on a malformed run of continuation
+        // digits rather than letting `<< shift` overflow and panic (which a
+        // corrupt `.map` next to the user's bundle could otherwise trigger
+        // while formatting an error message).
+        if shift >= 32 {
             break;
         }
         let digit = digit as i64;
@@ -326,5 +402,78 @@ mod tests {
         assert_eq!(source, "input.ts");
         assert_eq!(line, 1);
         assert_eq!(col, 1);
+    }
+
+    #[test]
+    fn test_lookup_picks_greatest_col_not_past_target() {
+        // Three mappings on generated line 0 at columns 0, 5, 10, mapping to
+        // original lines 1, 2, 3 respectively. Verifies the binary search
+        // returns the mapping with the greatest column <= the target column.
+        let json = r#"{"version":3,"sources":["a.ts"],"mappings":"AAAA,KACA,KACA"}"#;
+        let sm = SourceMap::parse(json).unwrap();
+        // col 3 -> mapping at col 0 (orig line 1)
+        assert_eq!(sm.lookup(0, 3), Some(("a.ts", 1, 1)));
+        // col 7 -> mapping at col 5 (orig line 2)
+        assert_eq!(sm.lookup(0, 7), Some(("a.ts", 2, 1)));
+        // col far past the last mapping -> mapping at col 10 (orig line 3)
+        assert_eq!(sm.lookup(0, 100), Some(("a.ts", 3, 1)));
+    }
+
+    #[test]
+    fn test_lookup_before_first_col_falls_back_to_first_on_line() {
+        // Second line's first mapping is at column 4; a lookup at column 1
+        // (before it) should still resolve to that first mapping on the line.
+        // Line 0: "AAAA" (col 0). Line 1: "IACA" (gen_col delta +4 -> col 4).
+        let json = r#"{"version":3,"sources":["a.ts","b.ts"],"mappings":"AAAA;IACA"}"#;
+        let sm = SourceMap::parse(json).unwrap();
+        assert!(sm.lookup(1, 1).is_some());
+        // No mapping at all on line 5 -> None.
+        assert_eq!(sm.lookup(5, 0), None);
+    }
+
+    #[test]
+    fn test_vlq_shift_overflow_does_not_panic() {
+        // 'g' (0x20) sets the continuation bit with zero value bits, so a run
+        // of them never terminates a value. Before the shift guard this drove
+        // `shift` past 63 and panicked; now it must return gracefully.
+        let long = "g".repeat(64);
+        let values = decode_vlq_segment(&long);
+        // No value ever completes (continuation bit never clears), so empty.
+        assert!(values.is_empty());
+
+        // A full source map with a corrupt segment must parse without panicking.
+        let json = format!(
+            r#"{{"version":3,"sources":["a.ts"],"mappings":"{}"}}"#,
+            long
+        );
+        assert!(SourceMap::parse(&json).is_some());
+    }
+
+    #[test]
+    fn test_load_cached_reparses_when_file_changes() {
+        use std::io::Write;
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ibex_sm_cache_test_{}.map", std::process::id()));
+
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(br#"{"version":3,"sources":["first.ts"],"mappings":"AAAA"}"#)
+            .unwrap();
+        let first = SourceMap::load_cached(&path).unwrap();
+        assert_eq!(first.lookup(0, 0).unwrap().0, "first.ts");
+        // A second load of the unchanged file returns the same cached Arc.
+        let cached = SourceMap::load_cached(&path).unwrap();
+        assert!(Arc::ptr_eq(&first, &cached));
+
+        // Rewrite the file with different length so (mtime,len) invalidates.
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(br#"{"version":3,"sources":["second_source.ts"],"mappings":"AAAA"}"#)
+            .unwrap();
+        let second = SourceMap::load_cached(&path).unwrap();
+        assert_eq!(second.lookup(0, 0).unwrap().0, "second_source.ts");
+
+        let _ = std::fs::remove_file(&path);
     }
 }

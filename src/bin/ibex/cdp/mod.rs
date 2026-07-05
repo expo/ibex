@@ -478,6 +478,14 @@ async fn handle_connection(
         }
     }
 
+    // Connection closed. If this client had enabled the Network domain, disable
+    // capture so the HTTP server stops buffering events (and caching response
+    // bodies) that nobody will ever drain. Without this the capture state stays
+    // `enabled` forever after a DevTools disconnect and leaks unbounded.
+    if state.network_enabled {
+        network::disable();
+    }
+
     Ok(())
 }
 

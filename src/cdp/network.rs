@@ -124,10 +124,14 @@ pub fn get_response_body(request_id: &str) -> Value {
 
 /// Drain all pending network events (called from the CDP poll loop).
 pub fn drain_events() -> Vec<String> {
-    let mut events = lock_or_recover(&state().events);
-    let drained: Vec<String> = events.iter().map(|e| e.json.clone()).collect();
-    events.clear();
-    drained
+    // Move the buffer out under the lock with zero copies, then release the
+    // lock before converting -- the HTTP server contends on this mutex on
+    // every request, so we hold it for as little as possible.
+    let drained = {
+        let mut events = lock_or_recover(&state().events);
+        std::mem::take(&mut *events)
+    };
+    drained.into_iter().map(|e| e.json).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -143,9 +147,22 @@ fn monotonic_timestamp() -> f64 {
         .as_secs_f64()
 }
 
+/// Upper bound on undrained events. The CDP poll loop drains every 50ms while
+/// a DevTools client is connected, so this is only reached if the client stops
+/// draining (e.g. it disconnected before `disable()` ran). Bounding it here --
+/// mirroring the `exchanges` cache cap -- prevents the buffer from growing
+/// without limit under load and OOM-ing the server.
+const MAX_PENDING_EVENTS: usize = 1000;
+
 fn push_event(event: Value) {
     let json = event.to_string();
-    lock_or_recover(&state().events).push(NetworkCdpEvent { json });
+    let mut events = lock_or_recover(&state().events);
+    events.push(NetworkCdpEvent { json });
+    if events.len() > MAX_PENDING_EVENTS {
+        // Drop the oldest events so memory stays bounded even if nobody drains.
+        let overflow = events.len() - MAX_PENDING_EVENTS;
+        events.drain(0..overflow);
+    }
 }
 
 /// Returns whether network capture is currently enabled.
