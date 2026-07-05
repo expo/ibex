@@ -892,7 +892,11 @@ fn pick_package_import_path(value: &Value, subpath: Option<&str>) -> Option<Stri
             Some(target.to_string())
         }
         Value::Object(map) => {
-            for condition in ["node", "default", "import", "require"] {
+            // Conditions are ranked by specificity; `default` is Node's
+            // lowest-priority fallback and must be tried last, otherwise a
+            // manifest that lists `default` alongside `import`/`require`
+            // resolves the wrong module on every load.
+            for condition in ["node", "import", "require", "default"] {
                 if let Some(condition_target) = map.get(condition) {
                     if let Some(path) = pick_package_import_path(condition_target, subpath) {
                         return Some(path);
@@ -915,21 +919,31 @@ fn resolve_package_import_target(
         }
     }
 
+    // Among subpath patterns, Node selects the most specific match: the one
+    // with the longest prefix (the portion before `*`) that the specifier
+    // starts with. The serde_json map here is not insertion-ordered
+    // (`preserve_order` is off, so keys iterate alphabetically), so we must
+    // rank explicitly rather than returning the first hit.
+    let mut best: Option<(&str, &Value)> = None;
     for (key, value) in imports {
+        // Only `#foo/*`-style subpath patterns participate. Keep the trailing
+        // slash in the prefix so `#internal/*` matches `#internal/thing` but
+        // NOT the sibling specifier `#internal-utils`.
         if !key.ends_with("/*") {
             continue;
         }
-        let prefix = &key[..key.len() - 2];
+        let prefix = &key[..key.len() - 1];
         if !specifier.starts_with(prefix) {
             continue;
         }
-        let subpath = specifier[prefix.len()..].trim_start_matches('/');
-        if let Some(path) = pick_package_import_path(value, Some(subpath)) {
-            return Some(path);
+        if best.is_none_or(|(best_prefix, _)| prefix.len() > best_prefix.len()) {
+            best = Some((prefix, value));
         }
     }
 
-    None
+    let (prefix, value) = best?;
+    let subpath = &specifier[prefix.len()..];
+    pick_package_import_path(value, Some(subpath))
 }
 
 fn normalize_import_target(base: &Path, target: PathBuf) -> Option<PathBuf> {
@@ -1086,11 +1100,53 @@ fn run_transpile_command(entry: &Path, output: &Path, target: &str) -> Result<()
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
     // tmp + rename so a concurrent reader never sees a half-written module.
-    let tmp = output.with_extension("tmp");
-    std::fs::write(&tmp, code).with_context(|| format!("Failed to write {}", tmp.display()))?;
-    std::fs::rename(&tmp, output)
-        .with_context(|| format!("Failed to publish {}", output.display()))?;
+    // The tmp name must be unique per process AND per call: the transpile cache
+    // dir is shared per user, so a deterministic tmp path lets two processes
+    // cold-loading the same module write the same file — one truncates the
+    // other's in-flight write and the rename publishes a torn inode.
+    let tmp = unique_tmp_path(output);
+    if let Err(err) = std::fs::write(&tmp, code) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err).with_context(|| format!("Failed to write {}", tmp.display()));
+    }
+    if let Err(err) = std::fs::rename(&tmp, output) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err).with_context(|| format!("Failed to publish {}", output.display()));
+    }
     Ok(())
+}
+
+/// A tmp sibling of `output` whose name is unique to this process and this
+/// call, so a rename-based publish can never collide with another process (or
+/// another concurrent transpile in this one) writing the same cache entry. The
+/// tmp stays in `output`'s directory so the rename remains atomic on one
+/// filesystem.
+fn unique_tmp_path(output: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut bytes = [0u8; 8];
+    let rand = if getrandom::getrandom(&mut bytes).is_ok() {
+        u64::from_le_bytes(bytes)
+    } else {
+        // getrandom only fails in pathological environments; the pid + counter
+        // already disambiguate, so a time-based fallback is plenty.
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0)
+    };
+
+    let stem = output
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("module");
+    let name = format!("{stem}.{}.{seq}.{rand:016x}.tmp", std::process::id());
+    match output.parent() {
+        Some(parent) => parent.join(name),
+        None => PathBuf::from(name),
+    }
 }
 
 fn run_transpile_subprocess(entry: &Path, output: &Path, target: &str) -> Result<()> {
@@ -1249,6 +1305,84 @@ mod tests {
             .path
             .unwrap()
             .ends_with("node_modules/exports-pkg/cjs.js"));
+    }
+
+    #[test]
+    fn package_import_condition_prefers_import_over_default() {
+        // `default` must be the lowest-priority fallback; with `import`
+        // present it must not be selected. (ENG-22949 finding 1)
+        let value: Value = serde_json::json!({
+            "import": "./esm.mjs",
+            "require": "./cjs.js",
+            "default": "./browser.js",
+        });
+        assert_eq!(
+            pick_package_import_path(&value, None),
+            Some("./esm.mjs".to_string())
+        );
+    }
+
+    #[test]
+    fn package_import_condition_falls_back_to_default() {
+        let value: Value = serde_json::json!({ "default": "./browser.js" });
+        assert_eq!(
+            pick_package_import_path(&value, None),
+            Some("./browser.js".to_string())
+        );
+    }
+
+    #[test]
+    fn package_import_wildcard_requires_slash_boundary() {
+        // `#internal/*` must match `#internal/thing` but NOT the unrelated
+        // sibling `#internal-utils`. (ENG-22949 finding 2a)
+        let mut imports = serde_json::Map::new();
+        imports.insert(
+            "#internal/*".to_string(),
+            Value::String("./src/internal/*.js".to_string()),
+        );
+        assert_eq!(
+            resolve_package_import_target("#internal/thing", &imports),
+            Some("./src/internal/thing.js".to_string())
+        );
+        assert_eq!(
+            resolve_package_import_target("#internal-utils", &imports),
+            None
+        );
+    }
+
+    #[test]
+    fn package_import_wildcard_prefers_longest_prefix() {
+        // The most specific (longest-prefix) pattern must win regardless of
+        // map iteration order. serde_json iterates keys alphabetically, so
+        // `#a/*` sorts before `#a/b/*` — the old first-hit loop picked the
+        // wrong one. (ENG-22949 finding 2b)
+        let mut imports = serde_json::Map::new();
+        imports.insert("#a/*".to_string(), Value::String("./a/*.js".to_string()));
+        imports.insert("#a/b/*".to_string(), Value::String("./ab/*.js".to_string()));
+        assert_eq!(
+            resolve_package_import_target("#a/b/thing", &imports),
+            Some("./ab/thing.js".to_string())
+        );
+        assert_eq!(
+            resolve_package_import_target("#a/thing", &imports),
+            Some("./a/thing.js".to_string())
+        );
+    }
+
+    #[test]
+    fn unique_tmp_path_is_process_and_call_unique() {
+        // The publish tmp name must differ per call and embed the pid so two
+        // processes cold-loading the same cache entry never share a tmp inode.
+        // (ENG-22949 finding 3)
+        let output = Path::new("/tmp/exact-transpile-cache/abc123def.js");
+        let a = unique_tmp_path(output);
+        let b = unique_tmp_path(output);
+        assert_ne!(a, b);
+        // Same directory keeps the publishing rename atomic on one filesystem.
+        assert_eq!(a.parent(), output.parent());
+        let name = a.file_name().unwrap().to_str().unwrap();
+        assert!(name.contains(&std::process::id().to_string()));
+        assert!(name.ends_with(".tmp"));
     }
 
     #[test]
