@@ -221,6 +221,14 @@ pub fn handle_host_call(operation: &str, args_json: &str) -> Result<String, Stri
             Ok(r#"{"error":"screenshot capture is not available in the CLI runtime"}"#.to_string())
         }
         "agent.queryLogs" => query_logs(args_json),
+        // Self-test probe (ENG-22885): echoes the args JSON the host callback
+        // actually received, so the runtime self-test can assert the JSI
+        // bridge's args coercion (object -> JSON.stringify, omitted -> "{}").
+        "selftest.echoArgs" => {
+            let echoed = serde_json::to_string(args_json)
+                .map_err(|error| format!("Failed to echo args: {error}"))?;
+            Ok(format!(r#"{{"received":{echoed}}}"#))
+        }
         _ => Err(format!("Unknown host call: {operation}")),
     }
 }

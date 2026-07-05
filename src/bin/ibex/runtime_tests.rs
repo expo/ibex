@@ -98,6 +98,51 @@ pub async fn run_all(cli: &Cli) -> Result<()> {
             "async host-call reject path",
         )
         .await?;
+
+        // ENG-22885: raw callers pass objects (not pre-stringified JSON) and
+        // omit args entirely; the bridge must coerce instead of throwing
+        // synchronously before the promise exists.
+        expect_eval(
+            &runtime,
+            "globalThis.__hcAsyncObjArgs = 'pending'; \
+             __hostCallAsync('selftest.echoArgs', { a: 1, b: 'two' }).then(\
+                 function(r) { globalThis.__hcAsyncObjArgs = r && r.received; },\
+                 function(e) { globalThis.__hcAsyncObjArgs = 'rejected:' + (e && e.message); }); 'kicked'",
+            "kicked",
+            "async host-call object-args kickoff",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__hcAsyncObjArgs",
+            "{\"a\":1,\"b\":\"two\"}",
+            "async host-call object args are JSON.stringify'd",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__hcAsyncNoArgs = 'pending'; \
+             __hostCallAsync('selftest.echoArgs').then(\
+                 function(r) { globalThis.__hcAsyncNoArgs = r && r.received; },\
+                 function(e) { globalThis.__hcAsyncNoArgs = 'rejected:' + (e && e.message); }); 'kicked'",
+            "kicked",
+            "async host-call omitted-args kickoff",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__hcAsyncNoArgs",
+            "{}",
+            "async host-call omitted args default to {}",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "(function(){ try { var r = __hostCall('selftest.echoArgs', { sync: true }); return r && r.received; } catch (e) { return 'threw:' + (e && e.message); } })()",
+            "{\"sync\":true}",
+            "sync host-call object args are JSON.stringify'd",
+        )
+        .await?;
     }
 
     eprintln!("ibex self-test OK");
