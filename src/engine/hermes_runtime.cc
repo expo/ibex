@@ -714,8 +714,15 @@ extern "C" void ex_hermes_notify_callback();
 void pushRuntimeCallback(ExactHermesRuntime* runtime,
                           std::function<void(facebook::jsi::Runtime&)> fn) {
     if (!runtimeIsAlive(runtime)) return;
-    std::lock_guard<std::mutex> lock(runtime->callbackMutex);
-    runtime->callbackQueue.push_back(std::move(fn));
+    {
+        std::lock_guard<std::mutex> lock(runtime->callbackMutex);
+        runtime->callbackQueue.push_back(std::move(fn));
+    }
+    // Notify outside callbackMutex: the host wake hook (exact LLP 0297
+    // W4b/B8) takes its executor lock inside the notify, and the host's
+    // idle-plan probes call ex_hermes_callback_backlog (which takes
+    // callbackMutex) — notifying under the mutex inverts that order and
+    // deadlocks the two threads against each other.
     ex_hermes_notify_callback();
 }
 
