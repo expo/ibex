@@ -1046,7 +1046,7 @@ var runtimeModuleManifest = (/* @__PURE__ */ __commonJSMin(((exports, module) =>
 		"worker_threads",
 		"zlib"
 	]);
-	const moduleBuiltinList = Object.freeze([...nodeBuiltins, ...reservedNodeOnlyBuiltins]);
+	const moduleBuiltinList = Object.freeze([...nodeBuiltins]);
 	const nodeOnlyBuiltinModules = Object.freeze([...publicBuiltins.filter((entry) => entry.nodeOnly).map((entry) => entry.name), ...reservedNodeOnlyBuiltins]);
 	const moduleBuiltinRuntimeSpecifiers = Object.freeze(registryEntries.filter((entry) => entry.moduleBuiltin).map((entry) => entry.specifier));
 	const bundlerExternalModules = Object.freeze(registryEntries.filter((entry) => entry.bundleExternal).map((entry) => entry.specifier));

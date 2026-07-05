@@ -1050,7 +1050,9 @@ const runtimeGatedNodeBuiltins = Object.freeze([
   "worker_threads",
   "zlib"
 ]);
-const moduleBuiltinList = Object.freeze([...nodeBuiltins, ...reservedNodeOnlyBuiltins]);
+// Only requirable builtins are advertised via module.builtinModules so it agrees
+// with Module.isBuiltin; reservedNodeOnly names stay in nodeOnlyBuiltinModules. (ENG-22981)
+const moduleBuiltinList = Object.freeze([...nodeBuiltins]);
 const nodeOnlyBuiltinModules = Object.freeze(
   [
     ...publicBuiltins.filter((entry) => entry.nodeOnly).map((entry) => entry.name),

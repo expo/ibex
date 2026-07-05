@@ -4958,6 +4958,34 @@
         "Import denied: '" + specifier + "' is not permitted for this package (LLP 0013 import policy)");
     }
   }
+  // Builtin module identity: the native resolver emits one registry record per
+  // alias (`fs`, `node:fs`, `bun:fs`, `util`/`sys`, ...) with `id` set to the
+  // raw specifier, so caching by `id` re-evaluated each builtin once per alias
+  // and forked its state — distinct EventEmitter classes, fs watch registries,
+  // http globalAgent — and paid double eval time/memory. Canonicalize builtin
+  // cache keys so every alias of one builtin shares a single instance. Aliases
+  // cannot be merged by NAME — `exact:http` vs `http`, and `node:url` vs `url`,
+  // resolve to DIFFERENT source modules — so dedupe on the resolved source text,
+  // which is byte-identical across an alias group and distinct across modules.
+  // Re-export aliases (`path/posix` -> `require('path').posix`) get their own
+  // key but already share identity through the re-exported value. (ENG-22981)
+  var __builtinCanonicalByAlias = Object.create(null);
+  var __builtinCanonicalBySource = Object.create(null);
+  function builtinCacheKeyFor(id, source) {
+    var memo = __builtinCanonicalByAlias[id];
+    if (typeof memo === 'string') {
+      return memo;
+    }
+    var src = typeof source === 'string' ? source : '';
+    var canonical = __builtinCanonicalBySource[src];
+    if (typeof canonical !== 'string') {
+      // First alias seen for this source defines the shared cache key.
+      canonical = id;
+      __builtinCanonicalBySource[src] = canonical;
+    }
+    __builtinCanonicalByAlias[id] = canonical;
+    return canonical;
+  }
   function load(specifier, referrer, parent) {
     __exactPinProcessStreams();
 
@@ -5116,9 +5144,14 @@
       }
     }
     const id = record.id || resolvedSpecifier;
+    // Builtins share one instance across all their aliases; user modules stay
+    // keyed by their (path-based) id. (ENG-22981)
+    const cacheKey = record.kind === 'builtin'
+      ? builtinCacheKeyFor(id, record.source)
+      : id;
     var moduleId = idToModuleId(id);
-    if (cache[id]) {
-      return cache[id].exports;
+    if (cache[cacheKey]) {
+      return cache[cacheKey].exports;
     }
     const kind = record.kind || "cjs";
     const source = normalizeHashbang(record.source || "");
@@ -5154,7 +5187,7 @@
       children: [],
       paths: modulePaths,
     };
-    cache[id] = module;
+    cache[cacheKey] = module;
     if (!parent && !mainModule) {
       mainModule = module;
     }
@@ -5169,7 +5202,7 @@
       try {
         module.exports = JSON.parse(source || "null");
       } catch (err) {
-        delete cache[id];
+        delete cache[cacheKey];
         throw err;
       }
       module.loaded = true;
@@ -5474,7 +5507,7 @@
         }
       }
     } catch (err) {
-      delete cache[id];
+      delete cache[cacheKey];
       var moduleErrorPrefix = 'While evaluating module "' + id + '": ';
       if (err && (typeof err === 'object' || typeof err === 'function')) {
         // Annotate and rethrow the original error so its stack, cause, and

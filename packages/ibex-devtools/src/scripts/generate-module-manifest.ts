@@ -138,7 +138,14 @@ function normalizeManifest(): NormalizedManifest {
       ...(meta.runtimeGatedNodeBuiltinRoots ?? []),
     ]),
   ].sort();
-  const moduleBuiltinList = [...nodeBuiltins, ...reservedNodeOnlyBuiltins];
+  // `moduleBuiltinList` feeds `module.builtinModules` and must only advertise
+  // names that are actually requirable, so it agrees with `Module.isBuiltin`
+  // (which is registry-backed via `moduleBuiltinRuntimeSpecifiers`). The
+  // `reservedNodeOnly` names (`sqlite`, `sea`) have no registry entry — bare
+  // `require('node:sqlite')` throws "Unsupported node builtin" — so advertising
+  // them made bundlers leave those specifiers external and crash at runtime.
+  // Reserved names are still exported via `nodeOnlyBuiltinModules`. (ENG-22981)
+  const moduleBuiltinList = [...nodeBuiltins];
   const nodeOnlyBuiltinModules = [
     ...normalizedPublicBuiltins
       .filter((entry) => entry.nodeOnly)
@@ -186,7 +193,9 @@ const staticBootstrapInternalModules = Object.freeze(${renderJsValue(manifest.st
 
 const nodeBuiltins = Object.freeze(publicBuiltins.map((entry) => entry.name));
 const runtimeGatedNodeBuiltins = Object.freeze(${renderJsValue(manifest.runtimeGatedNodeBuiltins)});
-const moduleBuiltinList = Object.freeze([...nodeBuiltins, ...reservedNodeOnlyBuiltins]);
+// Only requirable builtins are advertised via module.builtinModules so it agrees
+// with Module.isBuiltin; reservedNodeOnly names stay in nodeOnlyBuiltinModules. (ENG-22981)
+const moduleBuiltinList = Object.freeze([...nodeBuiltins]);
 const nodeOnlyBuiltinModules = Object.freeze(
   [
     ...publicBuiltins.filter((entry) => entry.nodeOnly).map((entry) => entry.name),
