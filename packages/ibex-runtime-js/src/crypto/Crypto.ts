@@ -440,21 +440,24 @@ export class SubtleCrypto {
           return native.hmacSign(hash, (key as ExactCryptoKey)._keyData, bytes);
         }
 
-        if (typeof __exactHmacSync === 'function') {
-          // __exactHmacSync takes (algorithm, keyString, dataString) and returns a hex string
-          const keyData = (key as ExactCryptoKey)._keyData;
-          const keyStr = uint8ArrayToString(keyData);
-          const dataStr = uint8ArrayToString(bytes);
-          const hashAlgo = hash.toLowerCase().replace('-', '');
-          const hex = __exactHmacSync(hashAlgo, keyStr, dataStr);
-          return hexStringToArrayBuffer(hex);
-        }
-
+        // Byte-accurate HMAC. The legacy __exactHmacSync bridge round-tripped the
+        // key and data through JS strings that the native side re-encoded as
+        // UTF-8, corrupting every byte >= 0x80 (so e.g. an HS256 JWT signed
+        // elsewhere failed to verify). jsHmac operates on the raw bytes and
+        // needs only a digest, so it is correct on every platform (ENG-22983).
         return jsHmac((key as ExactCryptoKey)._keyData, bytes, hash);
       }
 
       case 'RSASSA-PKCS1-V1_5': {
         const hash = (key.algorithm as RsaHashedKeyAlgorithm).hash.name;
+
+        // Prefer a real WebCrypto implementation when the host provides one: it
+        // signs the raw message bytes (the __exactSignSync bridge re-encodes the
+        // message as UTF-8, corrupting bytes >= 0x80 — ENG-22983).
+        const viaPlatform = await platformRsaSign(
+          'RSASSA-PKCS1-v1_5', hash, undefined, key as ExactCryptoKey, bytes
+        );
+        if (viaPlatform) return viaPlatform;
 
         if (typeof __exactSignSync === 'function') {
           try {
@@ -469,6 +472,17 @@ export class SubtleCrypto {
 
       case 'RSA-PSS': {
         const hash = (key.algorithm as RsaHashedKeyAlgorithm).hash.name;
+        const saltLength = (algorithm as RsaPssParams).saltLength;
+
+        // The __exactSignSync bridge only maps RSA keys to PKCS#1 v1.5 and never
+        // receives the PSS scheme or saltLength, so it silently produced a v1.5
+        // signature for RSA-PSS. Route through a real WebCrypto (which honours
+        // the PSS scheme + saltLength and signs raw bytes) when available.
+        // The native bridge fallback remains v1.5-only on-device (ENG-22983).
+        const viaPlatform = await platformRsaSign(
+          'RSA-PSS', hash, saltLength, key as ExactCryptoKey, bytes
+        );
+        if (viaPlatform) return viaPlatform;
 
         if (typeof __exactSignSync === 'function') {
           try {
@@ -489,7 +503,11 @@ export class SubtleCrypto {
         if (typeof __exactEcdsaSign === 'function') {
           try {
             const result = __exactEcdsaSign(curve, hash, (key as ExactCryptoKey)._keyData, bytes);
-            return uint8ArrayToArrayBuffer(result);
+            // The native bridge (OpenSSL EVP) returns an X9.62 DER signature, but
+            // WebCrypto mandates the raw fixed-length IEEE P1363 r||s form
+            // (64 bytes for P-256), so convert at the boundary (ENG-22983).
+            const p1363 = derToP1363(toUint8Array(result), getEcCoordSize(curve));
+            return uint8ArrayToArrayBuffer(p1363);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
         throw new DOMException('Native crypto not available for ECDSA', 'NotSupportedError');
@@ -538,26 +556,19 @@ export class SubtleCrypto {
           return native.hmacVerify(hash, (key as ExactCryptoKey)._keyData, signatureBytes, dataBytes);
         }
 
-        if (typeof __exactHmacSync === 'function') {
-          // Compute HMAC and compare with provided signature
-          const keyData = (key as ExactCryptoKey)._keyData;
-          const keyStr = uint8ArrayToString(keyData);
-          const dataStr = uint8ArrayToString(dataBytes);
-          const hashAlgo = hash.toLowerCase().replace('-', '');
-          const hex = __exactHmacSync(hashAlgo, keyStr, dataStr);
-          const expectedSig = new Uint8Array(hex.length / 2);
-          for (let i = 0; i < hex.length; i += 2) {
-            expectedSig[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-          }
-          return constantTimeCompare(expectedSig, signatureBytes);
-        }
-
+        // Byte-accurate HMAC (see the sign() path); avoids the __exactHmacSync
+        // UTF-8 round-trip that mangled bytes >= 0x80 (ENG-22983).
         const expectedSig = await jsHmac((key as ExactCryptoKey)._keyData, dataBytes, hash);
         return constantTimeCompare(new Uint8Array(expectedSig), signatureBytes);
       }
 
       case 'RSASSA-PKCS1-V1_5': {
         const hash = (key.algorithm as RsaHashedKeyAlgorithm).hash.name;
+
+        const viaPlatform = await platformRsaVerify(
+          'RSASSA-PKCS1-v1_5', hash, undefined, key as ExactCryptoKey, signatureBytes, dataBytes
+        );
+        if (viaPlatform !== null) return viaPlatform;
 
         if (typeof __exactVerifySync === 'function') {
           try {
@@ -571,6 +582,14 @@ export class SubtleCrypto {
 
       case 'RSA-PSS': {
         const hash = (key.algorithm as RsaHashedKeyAlgorithm).hash.name;
+        const saltLength = (algorithm as RsaPssParams).saltLength;
+
+        // A real WebCrypto verifies genuine PSS signatures (with saltLength) that
+        // the v1.5-only __exactVerifySync bridge rejects (ENG-22983).
+        const viaPlatform = await platformRsaVerify(
+          'RSA-PSS', hash, saltLength, key as ExactCryptoKey, signatureBytes, dataBytes
+        );
+        if (viaPlatform !== null) return viaPlatform;
 
         if (typeof __exactVerifySync === 'function') {
           try {
@@ -589,7 +608,10 @@ export class SubtleCrypto {
 
         if (typeof __exactEcdsaVerify === 'function') {
           try {
-            return __exactEcdsaVerify(curve, hash, (key as ExactCryptoKey)._keyData, signatureBytes, dataBytes);
+            // WebCrypto passes the raw fixed-length P1363 r||s signature, but the
+            // native verifier (OpenSSL EVP) expects X9.62 DER (ENG-22983).
+            const derSig = p1363ToDer(signatureBytes, getEcCoordSize(curve));
+            return __exactEcdsaVerify(curve, hash, (key as ExactCryptoKey)._keyData, derSig, dataBytes);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
         throw new DOMException('Native crypto not available for ECDSA', 'NotSupportedError');
@@ -656,8 +678,11 @@ export class SubtleCrypto {
       case 'HMAC': {
         const params = algorithm as HmacKeyGenParams;
         const hash = normalizeHashName(typeof params.hash === 'string' ? params.hash : params.hash.name);
-        const length = params.length ?? getHashLength(hash);
-        
+        // Spec default for an omitted HMAC length is the hash *block* size
+        // (512 for SHA-1/224/256, 1024 for SHA-384/512), not the digest size —
+        // getHashLength returned the latter, halving the key (ENG-22983).
+        const length = params.length ?? getHmacBlockSize(hash);
+
         const keyData = new Uint8Array(length / 8);
         crypto.getRandomValues(keyData);
         
@@ -680,8 +705,11 @@ export class SubtleCrypto {
           try {
             const result = __exactGenerateKeyPairSync('rsa', {
               modulusLength: params.modulusLength,
+              // WebCrypto publicExponent is a big-endian BigInteger of arbitrary
+              // length; the canonical value new Uint8Array([1,0,1]) is 3 bytes, so
+              // reading a fixed 4-byte word threw RangeError (ENG-22983).
               publicExponent: params.publicExponent instanceof Uint8Array
-                ? new DataView(params.publicExponent.buffer, params.publicExponent.byteOffset, params.publicExponent.byteLength).getUint32(params.publicExponent.byteLength - 4, false)
+                ? bigEndianBytesToNumber(params.publicExponent)
                 : 65537,
             });
 
@@ -1512,7 +1540,8 @@ export class SubtleCrypto {
     } else if (derivedAlg.name.toUpperCase() === 'HMAC') {
       const params = derivedKeyAlgorithm as HmacKeyGenParams;
       const hash = normalizeHashName(typeof params.hash === 'string' ? params.hash : params.hash.name);
-      length = params.length ?? getHashLength(hash);
+      // HMAC default length is the hash block size, not the digest size (ENG-22983).
+      length = params.length ?? getHmacBlockSize(hash);
     } else {
       throw new DOMException(`Unsupported derived key algorithm: ${derivedAlg.name}`, 'NotSupportedError');
     }
@@ -2044,6 +2073,42 @@ function getHashLength(hash: string): number {
   }
 }
 
+/**
+ * Get the HMAC key block size in bits for a hash. Per the WebCrypto spec this is
+ * the default HMAC key length when none is supplied: 512 bits for SHA-1/224/256
+ * and 1024 bits for SHA-384/512 (the hash's internal block size, NOT its digest
+ * size).
+ */
+function getHmacBlockSize(hash: string): number {
+  switch (normalizeHashName(hash)) {
+    case "SHA-1":
+    case "SHA-224":
+    case "SHA-256":
+      return 512;
+    case "SHA-384":
+    case "SHA-512":
+      return 1024;
+    default:
+      throw new DOMException(`Unsupported hash algorithm: ${hash}`, "NotSupportedError");
+  }
+}
+
+/**
+ * Interpret a big-endian byte array as an unsigned integer. WebCrypto's
+ * publicExponent is a variable-length big-endian BigInteger (BufferSource); the
+ * canonical value [0x01,0x00,0x01] is only 3 bytes.
+ */
+function bigEndianBytesToNumber(bytes: Uint8Array): number {
+  let value = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    value = value * 256 + bytes[i];
+    if (!Number.isSafeInteger(value)) {
+      throw new DOMException("publicExponent is too large", "OperationError");
+    }
+  }
+  return value;
+}
+
 function normalizeRequiredHash(hash: string | { name: string } | undefined): string {
   if (typeof hash === 'string') {
     return normalizeHashName(hash);
@@ -2325,30 +2390,61 @@ async function jsSHA512(data: Uint8Array): Promise<ArrayBuffer> {
 }
 
 /**
- * Generic HMAC fallback used when native bridge callbacks are unavailable.
+ * Return the pure-JS digest function for a hash (works without native/platform).
+ */
+function getJsDigest(hash: string): (data: Uint8Array) => Promise<ArrayBuffer> {
+  switch (normalizeHashName(hash)) {
+    case "SHA-1":
+      return jsSHA1;
+    case "SHA-256":
+      return jsSHA256;
+    case "SHA-384":
+      return jsSHA384;
+    case "SHA-512":
+      return jsSHA512;
+    default:
+      throw new DOMException(`Unsupported hash algorithm for HMAC: ${hash}`, "NotSupportedError");
+  }
+}
+
+/**
+ * Byte-accurate HMAC (RFC 2104) built on the pure-JS digests. Operates on the
+ * raw key/data bytes so it is correct for arbitrary binary on every platform —
+ * unlike the __exactHmacSync bridge, which corrupted bytes >= 0x80 (ENG-22983).
  */
 async function jsHmac(key: Uint8Array, data: Uint8Array, hash: string): Promise<ArrayBuffer> {
   const normalizedHash = normalizeHashName(hash);
-  if (normalizedHash === "SHA-256") {
-    return jsHmacSha256(key, data);
+  const digest = getJsDigest(normalizedHash);
+  const blockSize = getHmacBlockSize(normalizedHash) / 8; // 64 (SHA-1/256) or 128 (SHA-384/512) bytes
+
+  // If the key is longer than the block size, hash it down first.
+  let keyBytes = key;
+  if (keyBytes.length > blockSize) {
+    keyBytes = new Uint8Array(await digest(keyBytes));
   }
 
-  const subtle = getPlatformSubtle();
-  if (!subtle?.importKey || !subtle?.sign) {
-    throw new DOMException(
-      `Native crypto module not available for HMAC: ${normalizedHash}`,
-      "NotSupportedError"
-    );
+  const paddedKey = new Uint8Array(blockSize);
+  paddedKey.set(keyBytes);
+
+  const ipad = new Uint8Array(blockSize);
+  const opad = new Uint8Array(blockSize);
+  for (let i = 0; i < blockSize; i++) {
+    ipad[i] = paddedKey[i] ^ 0x36;
+    opad[i] = paddedKey[i] ^ 0x5c;
   }
 
-  const importedKey = await subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: { name: normalizedHash } },
-    false,
-    ["sign"]
-  );
-  return subtle.sign({ name: "HMAC" }, importedKey, data);
+  // Inner: H(ipad || data)
+  const innerData = new Uint8Array(blockSize + data.length);
+  innerData.set(ipad);
+  innerData.set(data, blockSize);
+  const innerHash = new Uint8Array(await digest(innerData));
+
+  // Outer: H(opad || innerHash)
+  const outerData = new Uint8Array(blockSize + innerHash.length);
+  outerData.set(opad);
+  outerData.set(innerHash, blockSize);
+
+  return digest(outerData);
 }
 
 /**
@@ -2406,17 +2502,6 @@ function uint8ArrayToString(data: Uint8Array): string {
     str += String.fromCharCode(data[i]);
   }
   return str;
-}
-
-/**
- * Convert a hex string to an ArrayBuffer
- */
-function hexStringToArrayBuffer(hex: string): ArrayBuffer {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes.buffer;
 }
 
 /**
@@ -2592,6 +2677,145 @@ function base64Decode(str: string): Uint8Array {
  */
 function base64Encode(data: Uint8Array): string {
   return btoa(String.fromCharCode(...data));
+}
+
+/**
+ * Decode a PEM-wrapped key (as stored in ExactCryptoKey._keyData) to its raw
+ * DER bytes as an ArrayBuffer, for handing to a platform WebCrypto importKey.
+ */
+function pemToDer(pem: string): ArrayBuffer {
+  const b64 = pem.replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, "");
+  const der = base64Decode(b64);
+  return der.buffer.slice(der.byteOffset, der.byteOffset + der.byteLength);
+}
+
+/**
+ * Sign an RSA message through a real platform WebCrypto when the host exposes
+ * one, honouring the PSS scheme + saltLength and signing the raw message bytes.
+ * Returns null when no platform subtle is available (caller falls back to the
+ * native bridge). RSA keys are always stored as PKCS#8 PEM in _keyData.
+ * (ENG-22983)
+ */
+async function platformRsaSign(
+  scheme: "RSASSA-PKCS1-v1_5" | "RSA-PSS",
+  hash: string,
+  saltLength: number | undefined,
+  key: ExactCryptoKey,
+  data: Uint8Array
+): Promise<ArrayBuffer | null> {
+  const subtle = getPlatformSubtle();
+  if (!subtle?.importKey || !subtle?.sign) return null;
+  try {
+    const der = pemToDer(uint8ArrayToString(key._keyData));
+    const cryptoKey = await subtle.importKey(
+      "pkcs8",
+      der,
+      { name: scheme, hash: { name: normalizeHashName(hash) } },
+      false,
+      ["sign"]
+    );
+    const signAlg = scheme === "RSA-PSS"
+      ? { name: "RSA-PSS", saltLength: saltLength as number }
+      : { name: "RSASSA-PKCS1-v1_5" };
+    return await subtle.sign(signAlg, cryptoKey, data);
+  } catch (e) {
+    throw wrapNativeError(e, "OperationError");
+  }
+}
+
+/**
+ * Verify an RSA signature through a real platform WebCrypto when available.
+ * Returns null when no platform subtle is available (caller falls back to the
+ * native bridge). Public RSA keys are stored as SPKI PEM in _keyData.
+ * (ENG-22983)
+ */
+async function platformRsaVerify(
+  scheme: "RSASSA-PKCS1-v1_5" | "RSA-PSS",
+  hash: string,
+  saltLength: number | undefined,
+  key: ExactCryptoKey,
+  signature: Uint8Array,
+  data: Uint8Array
+): Promise<boolean | null> {
+  const subtle = getPlatformSubtle();
+  if (!subtle?.importKey || !subtle?.verify) return null;
+  try {
+    const der = pemToDer(uint8ArrayToString(key._keyData));
+    const cryptoKey = await subtle.importKey(
+      "spki",
+      der,
+      { name: scheme, hash: { name: normalizeHashName(hash) } },
+      false,
+      ["verify"]
+    );
+    const verifyAlg = scheme === "RSA-PSS"
+      ? { name: "RSA-PSS", saltLength: saltLength as number }
+      : { name: "RSASSA-PKCS1-v1_5" };
+    return await subtle.verify(verifyAlg, cryptoKey, signature, data);
+  } catch (e) {
+    throw wrapNativeError(e, "OperationError");
+  }
+}
+
+/**
+ * ECDSA coordinate size in bytes for a named curve (r and s are each this wide
+ * in the IEEE P1363 encoding).
+ */
+function getEcCoordSize(curve: string): number {
+  switch (curve) {
+    case "P-256":
+    case "K-256":
+    case "secp256k1":
+      return 32;
+    case "P-384":
+      return 48;
+    case "P-521":
+      return 66;
+    default:
+      throw new DOMException(`Unsupported curve: ${curve}`, "NotSupportedError");
+  }
+}
+
+/**
+ * Strip all leading zero bytes, leaving at least one byte.
+ */
+function stripLeadingZeros(data: Uint8Array): Uint8Array {
+  let i = 0;
+  while (i < data.length - 1 && data[i] === 0) i++;
+  return data.slice(i);
+}
+
+/**
+ * Convert an X9.62 DER ECDSA signature (SEQUENCE { INTEGER r, INTEGER s }) to
+ * the raw fixed-length IEEE P1363 form r||s that WebCrypto uses (ENG-22983).
+ */
+function derToP1363(der: Uint8Array, coordSize: number): Uint8Array {
+  const seq = parseAsn1(der, 0);
+  if (seq.tag !== 0x30 || !seq.children || seq.children.length < 2) {
+    throw new DOMException("Invalid DER ECDSA signature", "DataError");
+  }
+  const r = stripLeadingZeros(seq.children[0].value);
+  const s = stripLeadingZeros(seq.children[1].value);
+  if (r.length > coordSize || s.length > coordSize) {
+    throw new DOMException("ECDSA signature component too large for curve", "DataError");
+  }
+  const out = new Uint8Array(coordSize * 2);
+  out.set(r, coordSize - r.length);
+  out.set(s, coordSize * 2 - s.length);
+  return out;
+}
+
+/**
+ * Convert a raw fixed-length IEEE P1363 ECDSA signature (r||s) to X9.62 DER
+ * (SEQUENCE { INTEGER r, INTEGER s }) for the native verifier (ENG-22983).
+ */
+function p1363ToDer(sig: Uint8Array, coordSize: number): Uint8Array {
+  if (sig.length !== coordSize * 2) {
+    throw new DOMException("Invalid P1363 ECDSA signature length", "DataError");
+  }
+  const r = encodeAsn1Integer(addLeadingZero(stripLeadingZeros(sig.slice(0, coordSize))));
+  const s = encodeAsn1Integer(addLeadingZero(stripLeadingZeros(sig.slice(coordSize))));
+  return encodeAsn1Sequence(concatUint8Arrays([r, s]));
 }
 
 /**

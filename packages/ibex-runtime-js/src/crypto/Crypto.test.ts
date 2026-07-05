@@ -1,0 +1,310 @@
+// ENG-22983 — WebCrypto conformance regression tests for SubtleCrypto.
+//
+// Covers six interop bugs where signatures/MACs round-tripped inside ibex but
+// failed against any spec-compliant implementation:
+//   1. RSA generateKey threw for the canonical 3-byte publicExponent.
+//   2. HMAC sign/verify corrupted key/data bytes >= 0x80 (UTF-8 round-trip).
+//   3. RSA sign/verify signed the UTF-8 re-encoding of the message.
+//   4. RSA-PSS silently produced a PKCS#1 v1.5 signature.
+//   5. ECDSA emitted X9.62 DER instead of raw IEEE P1363 r||s.
+//   6. HMAC generate/deriveKey defaulted length to the digest size, not the
+//      hash block size.
+//
+// Node's WebCrypto (node:crypto webcrypto) and node:crypto's DER signer are used
+// as independent oracles. Run with: bun test.
+
+import { expect, test, beforeAll, afterEach } from "bun:test";
+import { webcrypto, createSign, createVerify, createPrivateKey, createPublicKey } from "node:crypto";
+import { SubtleCrypto } from "./Crypto.ts";
+import { enableTestMode, Capabilities } from "../security/Capabilities.ts";
+
+const nodeSubtle = webcrypto.subtle as any;
+const ibex = new SubtleCrypto();
+
+beforeAll(() => {
+  (globalThis as any).__EXACT_TEST_MODE__ = true; // allow insecure getRandomValues fallback
+  enableTestMode({
+    grants: [Capabilities.CRYPTO_SUBTLE, Capabilities.CRYPTO_RANDOM, "*"],
+    silent: true,
+  });
+});
+
+afterEach(() => {
+  delete (globalThis as any).__exactGenerateKeyPairSync;
+});
+
+const enc = (s: string) => new TextEncoder().encode(s);
+const bytesOf = (b: ArrayBuffer | Uint8Array) =>
+  b instanceof Uint8Array ? b : new Uint8Array(b);
+const hex = (b: ArrayBuffer | Uint8Array) =>
+  Array.from(bytesOf(b), (x) => x.toString(16).padStart(2, "0")).join("");
+
+// ---------------------------------------------------------------------------
+// Bug 6 — HMAC default key length is the hash block size, not the digest size
+// ---------------------------------------------------------------------------
+test("HMAC generateKey default length is the hash block size (bug 6)", async () => {
+  for (const [hash, expectedBits] of [
+    ["SHA-1", 512],
+    ["SHA-256", 512],
+    ["SHA-384", 1024],
+    ["SHA-512", 1024],
+  ] as const) {
+    const key: any = await ibex.generateKey({ name: "HMAC", hash }, true, ["sign", "verify"]);
+    expect(key.algorithm.length).toBe(expectedBits);
+    const raw = await ibex.exportKey("raw", key);
+    expect((raw as ArrayBuffer).byteLength * 8).toBe(expectedBits);
+
+    // Oracle: Node produces the same default length.
+    const nodeKey = await nodeSubtle.generateKey({ name: "HMAC", hash }, true, ["sign"]);
+    const nodeRaw = await nodeSubtle.exportKey("raw", nodeKey);
+    expect(nodeRaw.byteLength * 8).toBe(expectedBits);
+  }
+});
+
+test("HMAC generateKey honours an explicit length (bug 6)", async () => {
+  const key: any = await ibex.generateKey(
+    { name: "HMAC", hash: "SHA-256", length: 128 },
+    true,
+    ["sign"]
+  );
+  expect(key.algorithm.length).toBe(128);
+  expect((await ibex.exportKey("raw", key) as ArrayBuffer).byteLength).toBe(16);
+});
+
+// ---------------------------------------------------------------------------
+// Bug 1 — RSA generateKey accepts the canonical 3-byte publicExponent
+// ---------------------------------------------------------------------------
+test("RSA generateKey accepts the canonical 3-byte publicExponent (bug 1)", async () => {
+  let captured: any = null;
+  (globalThis as any).__exactGenerateKeyPairSync = (type: string, opts: any) => {
+    captured = { type, opts };
+    // Return dummy PEMs; this test only asserts the exponent was parsed.
+    return {
+      publicKey: "-----BEGIN PUBLIC KEY-----\nAA==\n-----END PUBLIC KEY-----\n",
+      privateKey: "-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----\n",
+    };
+  };
+
+  // The canonical exponent 65537 as the standard 3-byte array — used to throw
+  // RangeError -> OperationError.
+  const pair: any = await ibex.generateKey(
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+      hash: "SHA-256",
+    },
+    true,
+    ["sign", "verify"]
+  );
+  expect(pair.publicKey).toBeDefined();
+  expect(captured.opts.publicExponent).toBe(65537);
+
+  // A single-byte exponent (3) must also parse.
+  await ibex.generateKey(
+    { name: "RSA-PSS", modulusLength: 2048, publicExponent: new Uint8Array([0x03]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"]
+  );
+  expect(captured.opts.publicExponent).toBe(3);
+});
+
+// ---------------------------------------------------------------------------
+// Bug 2 — HMAC is byte-accurate for non-ASCII key/data (bytes >= 0x80)
+// ---------------------------------------------------------------------------
+test("HMAC signs raw bytes >= 0x80 and matches Node (bug 2)", async () => {
+  const rawKey = new Uint8Array([0x00, 0x80, 0xff, 0xa5, 0x10, 0xc3, 0x7f, 0x81]);
+  const data = new Uint8Array([0x80, 0x81, 0xfe, 0xff, 0x00, 0x41]);
+
+  for (const hash of ["SHA-1", "SHA-256", "SHA-384", "SHA-512"] as const) {
+    const ibexKey: any = await ibex.importKey("raw", rawKey, { name: "HMAC", hash }, false, [
+      "sign",
+      "verify",
+    ]);
+    const sig = await ibex.sign({ name: "HMAC" }, ibexKey, data);
+
+    const nodeKey = await nodeSubtle.importKey("raw", rawKey, { name: "HMAC", hash }, false, ["sign"]);
+    const nodeSig = await nodeSubtle.sign({ name: "HMAC" }, nodeKey, data);
+
+    expect(hex(sig)).toBe(hex(nodeSig));
+
+    // Cross-verify: a signature produced by Node must verify in ibex.
+    const ok = await ibex.verify({ name: "HMAC" }, ibexKey, new Uint8Array(nodeSig), data);
+    expect(ok).toBe(true);
+    // A tampered signature must fail.
+    const bad = new Uint8Array(nodeSig);
+    bad[0] ^= 0xff;
+    expect(await ibex.verify({ name: "HMAC" }, ibexKey, bad, data)).toBe(false);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Bugs 3 & 4 — RSA sign/verify is byte-accurate and PSS != PKCS#1 v1.5
+// ---------------------------------------------------------------------------
+async function rsaJwksForIbex(scheme: "RSASSA-PKCS1-v1_5" | "RSA-PSS", hash: string) {
+  const pair = await nodeSubtle.generateKey(
+    { name: scheme, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash },
+    true,
+    ["sign", "verify"]
+  );
+  const privJwk = await nodeSubtle.exportKey("jwk", pair.privateKey);
+  const pubJwk = await nodeSubtle.exportKey("jwk", pair.publicKey);
+  return { pair, privJwk, pubJwk };
+}
+
+test("RSASSA-PKCS1-v1_5 sign/verify round-trips with binary data and Node (bug 3)", async () => {
+  const { privJwk, pubJwk } = await rsaJwksForIbex("RSASSA-PKCS1-v1_5", "SHA-256");
+  const data = new Uint8Array([0x80, 0xff, 0x00, 0x7f, 0xc2, 0xa9]); // includes bytes >= 0x80
+
+  const ibexPriv: any = await ibex.importKey(
+    "jwk", privJwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await ibex.sign({ name: "RSASSA-PKCS1-v1_5" }, ibexPriv, data);
+
+  // Node (an independent implementation) must accept the ibex signature over the
+  // exact byte string — the old UTF-8 round-trip corrupted 0x80/0xff/0xc2.
+  const nodePub = await nodeSubtle.importKey(
+    "jwk", pubJwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]
+  );
+  expect(await nodeSubtle.verify({ name: "RSASSA-PKCS1-v1_5" }, nodePub, sig, data)).toBe(true);
+
+  // And ibex must verify a Node-produced signature.
+  const nodePriv = await nodeSubtle.importKey(
+    "jwk", privJwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]
+  );
+  const nodeSig = await nodeSubtle.sign({ name: "RSASSA-PKCS1-v1_5" }, nodePriv, data);
+  const ibexPub: any = await ibex.importKey(
+    "jwk", pubJwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]
+  );
+  expect(await ibex.verify({ name: "RSASSA-PKCS1-v1_5" }, ibexPub, new Uint8Array(nodeSig), data)).toBe(true);
+});
+
+test("RSA-PSS produces a genuine PSS signature, not PKCS#1 v1.5 (bug 4)", async () => {
+  const { privJwk, pubJwk } = await rsaJwksForIbex("RSA-PSS", "SHA-256");
+  const data = new Uint8Array([0x81, 0x00, 0xaa, 0xff]);
+  const saltLength = 32;
+
+  const ibexPriv: any = await ibex.importKey(
+    "jwk", privJwk, { name: "RSA-PSS", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await ibex.sign({ name: "RSA-PSS", saltLength }, ibexPriv, data);
+
+  // A genuine PSS verifier accepts it...
+  const pssPub = await nodeSubtle.importKey(
+    "jwk", pubJwk, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]
+  );
+  expect(await nodeSubtle.verify({ name: "RSA-PSS", saltLength }, pssPub, sig, data)).toBe(true);
+
+  // ...and a PKCS#1 v1.5 verifier rejects it (proving it isn't silently v1.5).
+  // Reimport the same modulus/exponent under the PKCS1 algorithm.
+  const v15Pub = await nodeSubtle.importKey(
+    "jwk",
+    { kty: pubJwk.kty, n: pubJwk.n, e: pubJwk.e },
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+  expect(await nodeSubtle.verify({ name: "RSASSA-PKCS1-v1_5" }, v15Pub, sig, data)).toBe(false);
+
+  // ibex verifies a Node PSS signature.
+  const nodePriv = await nodeSubtle.importKey(
+    "jwk", privJwk, { name: "RSA-PSS", hash: "SHA-256" }, false, ["sign"]
+  );
+  const nodeSig = await nodeSubtle.sign({ name: "RSA-PSS", saltLength }, nodePriv, data);
+  const ibexPub: any = await ibex.importKey(
+    "jwk", pubJwk, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]
+  );
+  expect(await ibex.verify({ name: "RSA-PSS", saltLength }, ibexPub, new Uint8Array(nodeSig), data)).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Bug 5 — ECDSA DER <-> P1363 conversion at the native bridge boundary
+// ---------------------------------------------------------------------------
+// The conversion is exercised by feeding the native bridge shims a DER blob (as
+// the OpenSSL EVP bridge would return) and asserting the boundary yields raw
+// P1363, cross-checked against Node's DER signer and Node's P1363 WebCrypto.
+async function ecKeyMaterial(curve: string, nodeCurveName: string) {
+  const pair = await nodeSubtle.generateKey({ name: "ECDSA", namedCurve: curve }, true, [
+    "sign",
+    "verify",
+  ]);
+  const privJwk = await nodeSubtle.exportKey("jwk", pair.privateKey);
+  const pubJwk = await nodeSubtle.exportKey("jwk", pair.publicKey);
+  const privPem = createPrivateKey({ key: privJwk, format: "jwk" });
+  const pubPem = createPublicKey({ key: pubJwk, format: "jwk" });
+  return { pair, privJwk, pubJwk, privPem, pubPem };
+}
+
+test("ECDSA sign output is converted DER->P1363 and verifies under Node (bug 5)", async () => {
+  const coordSize = 32; // P-256
+  const { pair, privPem, pubJwk } = await ecKeyMaterial("P-256", "prime256v1");
+  const data = new Uint8Array([1, 2, 3, 0x80, 0xff, 4]);
+
+  // The native ECDSA bridge returns X9.62 DER; emulate it, then let ibex's
+  // sign() boundary convert to P1363.
+  const derSig = createSign("SHA256").update(data).sign(privPem); // DER
+  (globalThis as any).__exactEcdsaSign = () => new Uint8Array(derSig);
+  try {
+    const ibexKey: any = {
+      type: "private",
+      extractable: false,
+      algorithm: { name: "ECDSA", namedCurve: "P-256" },
+      usages: ["sign"],
+      _keyData: new Uint8Array(0),
+    };
+    const p1363 = bytesOf(await ibex.sign({ name: "ECDSA", hash: "SHA-256" }, ibexKey, data));
+    expect(p1363.length).toBe(coordSize * 2); // 64 bytes, raw r||s
+
+    // Node's P1363 WebCrypto verifier accepts the converted signature.
+    const nodePub = await nodeSubtle.importKey(
+      "jwk", pubJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]
+    );
+    expect(await nodeSubtle.verify({ name: "ECDSA", hash: "SHA-256" }, nodePub, p1363, data)).toBe(true);
+    void pair;
+  } finally {
+    delete (globalThis as any).__exactEcdsaSign;
+  }
+});
+
+test("ECDSA verify converts P1363->DER for the native bridge (bug 5)", async () => {
+  const { privJwk, pubPem } = await ecKeyMaterial("P-256", "prime256v1");
+  const data = new Uint8Array([9, 8, 7, 0xfe]);
+
+  // Node WebCrypto produces a raw P1363 signature (what a browser/Chrome emits).
+  const nodePriv = await nodeSubtle.importKey(
+    "jwk", privJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]
+  );
+  const p1363 = new Uint8Array(await nodeSubtle.sign({ name: "ECDSA", hash: "SHA-256" }, nodePriv, data));
+  expect(p1363.length).toBe(64);
+
+  // ibex's verify() boundary must convert P1363->DER before the native verifier
+  // (emulated here with node:crypto's DER verifier) sees it.
+  let derSeenByBridge: Uint8Array | null = null;
+  (globalThis as any).__exactEcdsaVerify = (
+    _curve: string,
+    _hash: string,
+    _pub: Uint8Array,
+    sig: Uint8Array,
+    d: Uint8Array
+  ) => {
+    derSeenByBridge = sig;
+    return createVerify("SHA256").update(d).verify(pubPem, sig); // expects DER
+  };
+  try {
+    const ibexKey: any = {
+      type: "public",
+      extractable: true,
+      algorithm: { name: "ECDSA", namedCurve: "P-256" },
+      usages: ["verify"],
+      _keyData: new Uint8Array(0),
+    };
+    const ok = await ibex.verify({ name: "ECDSA", hash: "SHA-256" }, ibexKey, p1363, data);
+    expect(ok).toBe(true);
+    // The bridge saw a DER SEQUENCE (0x30 ...), not the raw 64-byte P1363.
+    expect(derSeenByBridge).not.toBeNull();
+    expect(derSeenByBridge![0]).toBe(0x30);
+    expect(derSeenByBridge!.length).not.toBe(64);
+  } finally {
+    delete (globalThis as any).__exactEcdsaVerify;
+  }
+});
