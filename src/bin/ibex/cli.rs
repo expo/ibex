@@ -104,6 +104,15 @@ pub struct Cli {
     #[arg(long)]
     pub allow_env_endowments: bool,
 
+    /// Let `--capsec enforce` proceed even when a hard attribution prerequisite
+    /// is missing (frame-derived attribution compiled out of the linked engine,
+    /// or per-package isolation explicitly disabled). Capability decisions still
+    /// run, but attribution is ADVISORY: a dependency's access may be attributed
+    /// to the trusted root. Also honored via `IBEX_CAPSEC_ALLOW_ADVISORY=1`.
+    /// @ref LLP 0013#mechanism-3 (ENG-22884)
+    #[arg(long)]
+    pub capsec_allow_advisory: bool,
+
     /// Watch for file changes and auto-restart
     #[arg(long)]
     pub watch: bool,

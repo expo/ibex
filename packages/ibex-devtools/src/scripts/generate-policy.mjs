@@ -13,6 +13,7 @@
  *   generate-policy.mjs --entry <file> [--out <file>] --check
  */
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
 import {
   createRolldownConfig,
@@ -29,6 +30,7 @@ import {
   resolveCascade,
   deriveSurfaces,
   diffBuiltinAxis,
+  bareNameOf,
 } from './import-grants.mjs';
 
 const args = process.argv.slice(2);
@@ -78,6 +80,46 @@ const edgeTargets = new Set(); // package selectors reached by import edges
 const edges = new Set(); // "fromPkg\0toPkg" ("" = root principal)
 const observedBuiltins = new Map(); // package identity -> Set<node:builtin>
 
+// Resolve an import edge's target to its version-qualified identity by walking
+// the importer's node_modules chain, exactly as the bundler's resolver does.
+// Edges must carry `fromIdentity -> toIdentity` (not bare names) so a delegate
+// declared by one installed version can never flow along another installed
+// version's import edge. @ref LLP 0014#generator (ENG-22818)
+const __targetIdentityMemo = new Map();
+function resolveTargetIdentity(fromModuleId, bareTarget) {
+  // A root-principal importer (no node_modules ancestor) resolves from the app
+  // root's node_modules.
+  const start = fromModuleId
+    ? path.dirname(String(fromModuleId).replace(/\\/g, '/'))
+    : root;
+  const memoKey = `${start}\u0000${bareTarget}`;
+  if (__targetIdentityMemo.has(memoKey)) return __targetIdentityMemo.get(memoKey);
+  let dir = start;
+  let result = bareTarget;
+  for (;;) {
+    const candidate = path.join(dir, 'node_modules', bareTarget);
+    if (existsSync(path.join(candidate, 'package.json'))) {
+      result = packageIdentityOfModuleId(path.join(candidate, 'index.js')) || bareTarget;
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  __targetIdentityMemo.set(memoKey, result);
+  return result;
+}
+
+// Record a package-level import edge as `fromIdentity -> toIdentity`. Root
+// edges (no node_modules ancestor) carry `''` on the from side and are dropped
+// before the cascade — they grant via rootGrants, not delegates.
+function recordEdge(fromModuleId, bareTarget) {
+  edgeTargets.add(bareTarget);
+  const fromIdentity = packageIdentityOfModuleId(fromModuleId) || '';
+  const toIdentity = resolveTargetIdentity(fromModuleId, bareTarget);
+  if (fromIdentity !== toIdentity) edges.add(`${fromIdentity}\u0000${toIdentity}`);
+}
+
 // @ref LLP 0014#the-grant-channel — grants are honored only in modules that
 // belong to the trusted root principal (no node_modules ancestor). The same
 // syntax inside a package confers nothing and is surfaced loudly.
@@ -99,9 +141,7 @@ const graphPlugin = {
     if (!importer) return null;
     const to = packageNameOfSpecifier(specifier);
     if (!to) return null;
-    edgeTargets.add(to);
-    const from = packageOfModuleId(importer);
-    if (from !== to) edges.add(`${from ?? ''}\u0000${to}`);
+    recordEdge(importer, to);
     return null; // observe only; default resolution proceeds
   },
   transform(code, id) {
@@ -118,11 +158,7 @@ const graphPlugin = {
     }
     for (const spec of extracted.specifiers) {
       const to = packageNameOfSpecifier(spec);
-      if (to) {
-        edgeTargets.add(to);
-        const from = pkg ?? '';
-        if (from !== to) edges.add(`${from}\u0000${to}`);
-      }
+      if (to) recordEdge(id, to);
     }
     if (pkg) {
       const identity = packageIdentityOfModuleId(id) || pkg;
@@ -198,9 +234,12 @@ if (generationErrors.length) {
 // Requests: `ibex` manifests from every reachable package (LLP 0013 cascade).
 // ---------------------------------------------------------------------------
 
-const requests = new Map(); // pkg -> { capabilities: [], delegates: { dep: [caps] } }
+// @ref LLP 0013#delegation-and-authority-flow — each installed version's `ibex`
+// manifest is recorded under its own identity, NOT merged under the bare name,
+// so one version's `delegates` can never flow along another version's import
+// edge (the ENG-22818 defect). (ENG-22818)
+const requests = new Map(); // identity -> { capabilities: [], delegates: { dep: [caps] } }
 for (const [pkg, dirs] of packageDirs) {
-  const merged = { capabilities: [], delegates: {} };
   for (const dir of dirs) {
     let manifest;
     try {
@@ -210,21 +249,29 @@ for (const [pkg, dirs] of packageDirs) {
     }
     const ibex = manifest?.ibex;
     if (!ibex || typeof ibex !== 'object') continue;
+    const identity = packageIdentityOfModuleId(path.join(dir, 'index.js')) || pkg;
+    let entry = requests.get(identity);
+    if (!entry) {
+      entry = { capabilities: [], delegates: {} };
+      requests.set(identity, entry);
+    }
     if (Array.isArray(ibex.capabilities)) {
-      merged.capabilities.push(...ibex.capabilities.filter((c) => typeof c === 'string'));
+      entry.capabilities.push(...ibex.capabilities.filter((c) => typeof c === 'string'));
     }
     if (ibex.delegates && typeof ibex.delegates === 'object') {
       for (const [dep, caps] of Object.entries(ibex.delegates)) {
         if (!Array.isArray(caps)) continue;
-        merged.delegates[dep] = [
-          ...(merged.delegates[dep] || []),
+        entry.delegates[dep] = [
+          ...(entry.delegates[dep] || []),
           ...caps.filter((c) => typeof c === 'string'),
         ];
       }
     }
   }
-  if (merged.capabilities.length || Object.keys(merged.delegates).length) {
-    requests.set(pkg, merged);
+}
+for (const [identity, entry] of [...requests]) {
+  if (!entry.capabilities.length && !Object.keys(entry.delegates).length) {
+    requests.delete(identity);
   }
 }
 
@@ -270,7 +317,55 @@ const sortedEdges = [...edges]
   .filter(([from]) => from !== '') // root edges carry grants via rootGrants, not delegates
   .map(([from, to]) => [from, to]);
 
-const effective = resolveCascade({ rootGrants, edges: sortedEdges, requests });
+// Seed each bare import-site grant into every installed identity of that name:
+// an import-site grant is app-wide for the package it names, so any version may
+// carry it (and, if that version declares a matching edge + delegate, forward
+// it). The cascade then runs entirely on identities; delegate dictionaries stay
+// bare-keyed (that is how a manifest authors them), so `bareNameOf` maps an
+// identity edge target back to the delegate name. (ENG-22818)
+const identitiesByName = new Map();
+for (const id of packageIdentities) {
+  const bare = bareNameOf(id);
+  if (!identitiesByName.has(bare)) identitiesByName.set(bare, new Set());
+  identitiesByName.get(bare).add(id);
+}
+const rootGrantsByIdentity = new Map();
+for (const [pkg, grants] of rootGrants) {
+  const ids = identitiesByName.get(pkg);
+  if (ids && ids.size) {
+    for (const id of ids) rootGrantsByIdentity.set(id, grants);
+  } else {
+    // An `also:` target that is never imported has no analyzed module (hence no
+    // identity); keep its grant under the bare name it was authored with.
+    rootGrantsByIdentity.set(pkg, grants);
+  }
+}
+
+const effectiveByHolder = resolveCascade({
+  rootGrants: rootGrantsByIdentity,
+  edges: sortedEdges,
+  requests,
+  bareOf: bareNameOf,
+});
+
+// Route each resolved capability to the selector it is emitted under. An
+// import-site/root grant (site provenance) is app-wide and belongs under the
+// bare name — matching the runtime's bare-name fall-through. A delegated
+// capability (delegate provenance) is version-scoped and belongs under the
+// receiving identity, so it cannot leak to a coexisting version of the same
+// dependency. (ENG-22818)
+const effective = new Map(); // outputKey -> Map<capability, provenance>
+for (const [holder, caps] of effectiveByHolder) {
+  for (const [cap, why] of caps) {
+    const key = why && why.delegate !== undefined ? holder : bareNameOf(holder);
+    let m = effective.get(key);
+    if (!m) {
+      m = new Map();
+      effective.set(key, m);
+    }
+    if (!m.has(cap)) m.set(cap, why);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Artifact assembly (reproducible: sorted keys, relative paths, no timestamps).

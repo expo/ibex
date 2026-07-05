@@ -233,9 +233,9 @@ Socket.prototype.connect = function(port, address, callback) {
 			this._bindState = 2;
 			this._address = bindInfo;
 			this._startRecv();
-		} catch (e) {}
-		this._bound = true;
-		this._bindState = 2;
+		} catch (e) {
+			this._bindState = 0;
+		}
 	}
 	this._connected = true;
 	this._connectPort = port;

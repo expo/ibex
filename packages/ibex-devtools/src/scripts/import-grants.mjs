@@ -398,6 +398,22 @@ export function capabilityUnion(caps) {
   return list.filter((c) => !list.some((o) => o !== c && capabilitySubsumes(o, c)));
 }
 
+/**
+ * The bare package name of a version-qualified identity: `shared-pkg@2.0.0` →
+ * `shared-pkg`, `@scope/name@1.0.0` → `@scope/name`. A bare name (no `@version`)
+ * or a lone scope prefix is returned unchanged. This is the generated-policy
+ * counterpart to the runtime's native `bareNameOf`/`__ibexBarePackageName`
+ * (`src/engine/hermes_runtime.cc`); it maps an identity back to the selector the
+ * runtime falls through to. @ref LLP 0013#resolved-questions (ENG-22818)
+ */
+export function bareNameOf(identity) {
+  if (typeof identity !== 'string') return identity;
+  const at = identity.lastIndexOf('@');
+  // `at <= 0` covers a bare name (`-1`) and a leading scope `@` at index 0
+  // (`@scope/name` with no version) — neither has a version segment to strip.
+  return at <= 0 ? identity : identity.slice(0, at);
+}
+
 // ===========================================================================
 // Delegation cascade
 // ===========================================================================
@@ -418,12 +434,22 @@ export function capabilityUnion(caps) {
  *  - rootGrants: Map pkg → [{ capability, site, via? }]
  *  - edges:      [[fromPkg, toPkg], ...] package-level import edges
  *  - requests:   Map pkg → { capabilities?: [], delegates?: { dep: [caps] } }
+ *  - bareOf:     maps an edge target key to the name a manifest's `delegates`
+ *                dictionary is authored under. Identity: bare-keyed callers are
+ *                unaffected. The generated policy passes `bareNameOf` so an
+ *                identity edge target (`helper-pkg@1.0.0`) still matches a
+ *                manifest that delegates to the bare `helper-pkg`. (ENG-22818)
  *
  * Returns Map pkg → Map capability → provenance
  * (provenance: { site, via? } for root grants; { via: fromPkg, delegate } for
  * cascaded ones — the chain that produced each capability).
  */
-export function resolveCascade({ rootGrants = new Map(), edges = [], requests = new Map() } = {}) {
+export function resolveCascade({
+  rootGrants = new Map(),
+  edges = [],
+  requests = new Map(),
+  bareOf = (x) => x,
+} = {}) {
   const effective = new Map();
   const add = (pkg, cap, why) => {
     let caps = effective.get(pkg);
@@ -450,7 +476,7 @@ export function resolveCascade({ rootGrants = new Map(), edges = [], requests = 
   while (changed) {
     changed = false;
     for (const [from, to] of edges) {
-      const delegated = requests.get(from)?.delegates?.[to];
+      const delegated = requests.get(from)?.delegates?.[bareOf(to)];
       const fromCaps = effective.get(from);
       if (!delegated || !fromCaps) continue;
       for (const d of delegated) {

@@ -26,9 +26,17 @@ struct RunOutput {
 
 /// Run the ibex binary with the given args + extra env, returning captured
 /// output. `cwd` defaults to the manifest dir.
+///
+/// The advisory hatch is on by default: these suites exercise capability
+/// *decision* logic and must keep running on checkouts whose Hermes lacks the
+/// frame-attribution bridge, where `--capsec enforce` now fails closed
+/// (ENG-22884). The fail-closed gate itself is covered by
+/// `capsec_enforce_fails_closed_on_missing_attribution_prerequisites`, which
+/// overrides this default. Caller env wins (applied after this).
 fn run_ibex(args: &[&str], envs: &[(&str, &str)], cwd: Option<&Path>) -> RunOutput {
     let mut cmd = Command::new(IBEX);
     cmd.args(args);
+    cmd.env("IBEX_CAPSEC_ALLOW_ADVISORY", "1");
     for (k, v) in envs {
         cmd.env(k, v);
     }
@@ -656,6 +664,70 @@ fn committed_grants_artifact_is_in_sync() {
         "package self-grant should be reported:\n{}",
         out.stderr
     );
+}
+
+// @ref LLP 0014#generator (ENG-22818) — the generated cascade operates on
+// version-qualified identities, so a delegate declared by one installed version
+// cannot flow along a coexisting version's import edge. Fixture: top-level
+// shared-pkg@2.0.0 imports helper-pkg but declares no delegates; nested
+// shared-pkg@1.0.0 delegates fs:read to helper-pkg but never imports it. No
+// single version both imports helper-pkg and delegates to it, so no grant may
+// reach helper-pkg (the bare-name merge that this test guards against would have
+// handed it fs:read).
+#[test]
+fn generated_policy_keeps_delegation_version_local() {
+    if !have_js_runner() {
+        eprintln!("skipping: generator (bun/node) not available");
+        return;
+    }
+    // Own copy: the bundle cache is keyed by entry path.
+    let dir = unique_dir("versioned-deleg");
+    copy_dir_recursive(&fixtures_dir().join("versioned-delegation"), &dir);
+    let policy = dir.join("ibex-policy.json");
+    let out = run_ibex(
+        &[
+            "policy",
+            "generate",
+            "--entry",
+            dir.join("app.mjs").to_str().unwrap(),
+            "--out",
+            policy.to_str().unwrap(),
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(
+        out.status, 0,
+        "policy generation should succeed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&policy).unwrap()).unwrap();
+    let packages = artifact
+        .get("packages")
+        .and_then(|p| p.as_object())
+        .expect("packages object");
+    // No helper-pkg selector (bare or identity) may carry a capability.
+    for key in ["helper-pkg", "helper-pkg@1.0.0"] {
+        let entry = packages
+            .get(key)
+            .unwrap_or_else(|| panic!("expected {key} in the analyzed graph"));
+        assert!(
+            entry.get("capabilities").is_none(),
+            "cross-version delegation leak: {key} received a capability:\n{}",
+            serde_json::to_string_pretty(&artifact).unwrap()
+        );
+    }
+    // The app-wide import-site grant still reaches shared-pkg under the bare name.
+    assert!(
+        packages
+            .get("shared-pkg")
+            .and_then(|e| e.get("capabilities"))
+            .is_some(),
+        "the import-site grant on shared-pkg must survive:\n{}",
+        serde_json::to_string_pretty(&artifact).unwrap()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -2606,6 +2678,116 @@ exports.run = async function() {
     );
 }
 
+// @ref LLP 0013#policy (ENG-22819) — a UDP socket handle created by a package is
+// authority-bearing:
+// receiving datagrams, reading the (implicitly-bound) local address, and exporting
+// the raw fd are all listening-side authority. A package holding only
+// `network:connect` to one endpoint must not gain any of them by connecting and
+// sending — that would hand it an ephemeral listening socket with no
+// `network:listen` grant. The probe runs at module-evaluation time so its host
+// calls are attributed to the `udp-probe` principal even without the
+// frame-attribution patch.
+#[cfg(unix)]
+#[test]
+fn udp_connect_only_socket_cannot_receive_or_expose_fd_without_listen() {
+    fn probe_source() -> &'static str {
+        r#"
+var out = [];
+var dgram = require("dgram");
+var s = dgram.createSocket("udp4");
+try { s.connect(9, "127.0.0.1"); out.push("connect-returned"); }
+catch (e) { out.push("connect-threw"); }
+try { s.send("x"); out.push("send-returned"); }
+catch (e) { out.push("send-threw"); }
+try {
+  var a = s.address();
+  out.push("address:" + (a && typeof a === "object" ? (a.address + ":" + a.port) : String(a)));
+} catch (e) { out.push("address:DENIED"); }
+try {
+  var fd = s._getFd();
+  out.push("fd:" + (typeof fd === "number" && fd >= 0 ? "EXPOSED" : "HIDDEN"));
+} catch (e) { out.push("fd:DENIED"); }
+try { s.close(); } catch (_) {}
+exports.result = out.join(" ");
+"#
+    }
+
+    let run_probe = |label: &str, capabilities: serde_json::Value| {
+        let dir = unique_dir(label);
+        let pkg = dir.join("node_modules").join("udp-probe");
+        write_text(
+            &pkg.join("package.json"),
+            r#"{"name":"udp-probe","version":"1.0.0","main":"index.js"}"#,
+        );
+        write_text(&pkg.join("index.js"), probe_source());
+        write_text(
+            &dir.join("app.js"),
+            r#"console.log(require("udp-probe").result);"#,
+        );
+        let policy = serde_json::json!({
+            "mode": "enforce",
+            "packages": {
+                "udp-probe": {
+                    "capabilities": capabilities,
+                    "builtins": ["node:dgram", "node:events", "node:buffer"]
+                }
+            }
+        });
+        write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+        run_ibex(
+            &[
+                "--capsec",
+                "enforce",
+                "--policy",
+                &dir.join("ibex-policy.json").to_string_lossy(),
+                "run",
+                "app.js",
+            ],
+            &[("EXACT_COMPAT_TEST", "1")],
+            Some(&dir),
+        )
+    };
+
+    // Connect-only: send is allowed (per-datagram network:connect), but the
+    // ephemeral bound address, the raw fd, and receiving must all be denied.
+    let connect_only = run_probe(
+        "udp-connect-only",
+        serde_json::json!(["network:connect:127.0.0.1:9"]),
+    );
+    assert!(
+        connect_only.stdout.contains("send-returned"),
+        "connect-only send must still work:\nstdout:\n{}\nstderr:\n{}",
+        connect_only.stdout,
+        connect_only.stderr
+    );
+    assert!(
+        !connect_only.stdout.contains("fd:EXPOSED"),
+        "connect-only UDP socket must not expose its fd without network:listen:\nstdout:\n{}\nstderr:\n{}",
+        connect_only.stdout,
+        connect_only.stderr
+    );
+    assert!(
+        !connect_only.stdout.contains("address:127.0.0.1")
+            && !connect_only.stdout.contains("address:0.0.0.0"),
+        "connect-only UDP socket must not reveal its bound address without network:listen:\nstdout:\n{}\nstderr:\n{}",
+        connect_only.stdout,
+        connect_only.stderr
+    );
+
+    // Control: granting network:listen too makes the same operations succeed,
+    // proving the gate above is load-bearing (not a general breakage).
+    let with_listen = run_probe(
+        "udp-with-listen",
+        serde_json::json!(["network:connect:127.0.0.1:9", "network:listen"]),
+    );
+    assert!(
+        with_listen.stdout.contains("fd:EXPOSED"),
+        "with network:listen the fd should be reachable (control):\nstdout:\n{}\nstderr:\n{}",
+        with_listen.stdout,
+        with_listen.stderr
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn fetch_endpoint_capabilities_are_host_scoped() {
@@ -3313,4 +3495,97 @@ fn host_scheduled_detached_deputy_control_permissive_leaks() {
             out.stderr
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// ENG-22884 — capsec readiness: enforce must not silently proceed as
+// full-strength capsec when an attribution prerequisite is missing. An explicit
+// IBEX_PER_PACKAGE_CHUNKS=0 collapses bundled dependencies into the trusted
+// root principal on EVERY engine, so this exercises the fail-closed gate
+// deterministically (no dependence on the checkout's Hermes patch level). The
+// advisory hatch that run_ibex defaults on is overridden off here.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn capsec_enforce_fails_closed_on_missing_attribution_prerequisites() {
+    // Enforce + operator-disabled package isolation, no hatch: refuse to run.
+    let denied = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+            ("IBEX_CAPSEC_ALLOW_ADVISORY", "0"),
+        ],
+        None,
+    );
+    assert_ne!(
+        denied.status, 0,
+        "enforce with IBEX_PER_PACKAGE_CHUNKS=0 must fail closed:\nstdout:\n{}\nstderr:\n{}",
+        denied.stdout, denied.stderr
+    );
+    assert!(
+        denied.stderr.contains("per-package principal isolation")
+            && denied.stderr.contains("--capsec-allow-advisory"),
+        "the refusal must name the missing prerequisite and the escape hatch:\nstderr:\n{}",
+        denied.stderr
+    );
+
+    // Same run with the hatch: proceeds, but reports advisory attribution and
+    // the readiness line loudly.
+    let advisory = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+            ("IBEX_CAPSEC_ALLOW_ADVISORY", "1"),
+        ],
+        None,
+    );
+    assert_eq!(
+        advisory.status, 0,
+        "the advisory hatch must let the run proceed:\nstdout:\n{}\nstderr:\n{}",
+        advisory.stdout, advisory.stderr
+    );
+    assert!(
+        advisory.stderr.contains("ADVISORY")
+            && advisory.stderr.contains("capsec readiness:")
+            && advisory
+                .stderr
+                .contains("package-isolation=disabled(IBEX_PER_PACKAGE_CHUNKS=0)"),
+        "advisory enforce must report readiness conspicuously:\nstderr:\n{}",
+        advisory.stderr
+    );
+
+    // Audit is advisory by design: proceeds without the hatch, but warns.
+    let audit = run_ibex(
+        &[
+            "--capsec",
+            "audit",
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+            ("IBEX_CAPSEC_ALLOW_ADVISORY", "0"),
+        ],
+        None,
+    );
+    assert_eq!(
+        audit.status, 0,
+        "audit must proceed with advisory attribution:\nstdout:\n{}\nstderr:\n{}",
+        audit.stdout, audit.stderr
+    );
+    assert!(
+        audit.stderr.contains("ADVISORY") && audit.stderr.contains("capsec readiness:"),
+        "audit must still report the readiness fields:\nstderr:\n{}",
+        audit.stderr
+    );
 }

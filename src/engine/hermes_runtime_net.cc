@@ -68,10 +68,18 @@ int registerSocketHandle(int fd, const std::string& capability, uint64_t owner =
   return handle;
 }
 
+// @ref LLP 0013#policy (ENG-22819) — `requireCapability` is set by authority-bearing operations
+// (UDP recv / address / getFd). A socket handle registered with an empty
+// capability carries no stored network authority of its own; that is legitimate
+// only for principals trusted to hold raw sockets (root / runtime). A datagram
+// send is gated per-message against `network:connect` and takes the handle with
+// `requireCapability=false`, so a connect-only UDP socket can still send without
+// silently acquiring the receive/introspection authority of a listening socket.
 SocketEntry requireSocketHandle(
     facebook::jsi::Runtime& runtime,
     int handle,
-    const char* syscall) {
+    const char* syscall,
+    bool requireCapability = false) {
   SocketEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_socket_mutex);
@@ -85,7 +93,11 @@ SocketEntry requireSocketHandle(
     if (entry.owner != currentPrincipalId()) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
-    if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+    if (entry.capability.empty()) {
+      if (requireCapability && !principalMayAdoptRawSocket(currentPrincipalId())) {
+        throw facebook::jsi::JSError(runtime, "Permission denied");
+      }
+    } else if (!checkCapability(entry.capability)) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
   }
@@ -96,9 +108,10 @@ bool trySocketHandle(
     facebook::jsi::Runtime& runtime,
     int handle,
     const char* syscall,
-    SocketEntry& entry) {
+    SocketEntry& entry,
+    bool requireCapability = false) {
   try {
-    entry = requireSocketHandle(runtime, handle, syscall);
+    entry = requireSocketHandle(runtime, handle, syscall, requireCapability);
     return true;
   } catch (const facebook::jsi::JSError&) {
     return false;
@@ -933,7 +946,12 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactUdpRecv: handle required");
           }
           int handle = static_cast<int>(args[0].asNumber());
-          int fd = requireSocketHandle(runtime, handle, "__exactUdpRecv").fd;
+          // @ref LLP 0013#policy (ENG-22819) — receiving datagrams is listening authority; a
+          // connect-only/unbound handle (empty capability) must not receive for
+          // a third-party principal.
+          int fd =
+              requireSocketHandle(runtime, handle, "__exactUdpRecv", /*requireCapability=*/true)
+                  .fd;
           uint8_t buf[65536];
           struct sockaddr_storage from; socklen_t fromLen = sizeof(from);
           ssize_t n = ::recvfrom(fd, buf, sizeof(buf), 0,
@@ -990,7 +1008,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::null();
           int handle = static_cast<int>(args[0].asNumber());
           SocketEntry entry;
-          if (!trySocketHandle(runtime, handle, "__exactUdpAddress", entry)) {
+          // @ref LLP 0013#policy (ENG-22819) — the bound address (incl. an implicitly-assigned
+          // ephemeral port) is not exposed for a capability-less handle.
+          if (!trySocketHandle(runtime, handle, "__exactUdpAddress", entry,
+                               /*requireCapability=*/true)) {
             return facebook::jsi::Value::null();
           }
           int fd = entry.fd;
@@ -1036,7 +1057,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value(-1);
           int handle = static_cast<int>(args[0].asNumber());
           SocketEntry entry;
-          if (!trySocketHandle(runtime, handle, "__exactUdpGetFd", entry)) {
+          // @ref LLP 0013#policy (ENG-22819) — the raw fd is authority (it can be exported over
+          // IPC / operated on directly), so it is withheld for a capability-less
+          // handle held by a third-party principal.
+          if (!trySocketHandle(runtime, handle, "__exactUdpGetFd", entry,
+                               /*requireCapability=*/true)) {
             return facebook::jsi::Value(-1);
           }
           return facebook::jsi::Value(entry.fd);
