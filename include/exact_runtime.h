@@ -155,6 +155,27 @@ void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json));
 
+/// Install the async `__hostCallAsync(op, argsJson)` bridge in JavaScript
+/// (LLP 0297 W3). `__hostCallAsync` returns a Promise; the callback receives
+/// the owning runtime, a call id, and the op/args, and must eventually
+/// complete the call with ex_hermes_resolve_host_call — synchronously inline
+/// or later from any thread. Payload sigils match `__hostCall`: `+json`
+/// resolves with the parsed JSON, `-message` rejects with an Error.
+void ex_hermes_set_host_call_async(
+    ExactHermesRuntime* runtime,
+    void (*callback)(ExactHermesRuntime* runtime,
+                     uint64_t call_id,
+                     const char* op,
+                     const char* args_json));
+
+/// Complete a pending `__hostCallAsync` call. Safe to invoke from any thread;
+/// resolution is delivered on the runtime's thread via the callback queue.
+/// Unknown / already-completed call ids and dead runtimes are ignored.
+void ex_hermes_resolve_host_call(
+    ExactHermesRuntime* runtime,
+    uint64_t call_id,
+    const char* payload);
+
 /// Attach the Exact kernel handle so the runtime can expose kernel-backed
 /// state-mirror snapshots and module metadata through the `exact` global.
 void ex_hermes_set_kernel_handle(

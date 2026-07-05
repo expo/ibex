@@ -2579,6 +2579,40 @@ extern "C" int ex_hermes_eval(
 
 // --- Valet host-call bridge ---
 
+namespace {
+
+// Shared '+json' / '-error' sigil decode for the sync and async host-call
+// bridges. Returns true and writes `out` on success; returns false and
+// writes `error_message` for a '-' payload. Empty / "null" / "undefined"
+// payloads decode to JS null, matching the historical sync behavior.
+bool decodeHostCallPayload(facebook::jsi::Runtime& rt,
+                           const std::string& payload,
+                           facebook::jsi::Value& out,
+                           std::string& error_message) {
+  if (payload.empty()) {
+    out = facebook::jsi::Value::null();
+    return true;
+  }
+
+  if (payload[0] == '-') {
+    error_message = payload.substr(1);
+    return false;
+  }
+
+  std::string json = (payload[0] == '+') ? payload.substr(1) : payload;
+  if (json.empty() || json == "null" || json == "undefined") {
+    out = facebook::jsi::Value::null();
+    return true;
+  }
+
+  auto jsonGlobal = rt.global().getPropertyAsObject(rt, "JSON");
+  auto parseFn = jsonGlobal.getPropertyAsFunction(rt, "parse");
+  out = parseFn.call(rt, facebook::jsi::String::createFromUtf8(rt, json));
+  return true;
+}
+
+}  // namespace
+
 extern "C" void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json)) {
@@ -2608,32 +2642,123 @@ extern "C" void ex_hermes_set_host_call(
           return facebook::jsi::Value::null();
         }
 
-        // Parse the result — first char indicates success/error:
-        // '+' prefix = success, result JSON follows
-        // '-' prefix = error, error message follows
+        // Result is '+json' (success) / '-message' (error), decoded by the
+        // shared sigil helper.
         std::string resultStr(result);
         free(result);
 
-        if (resultStr.empty()) {
-          return facebook::jsi::Value::null();
+        facebook::jsi::Value value;
+        std::string errorMessage;
+        if (!decodeHostCallPayload(rt, resultStr, value, errorMessage)) {
+          throw facebook::jsi::JSError(rt, errorMessage);
         }
-
-        if (resultStr[0] == '-') {
-          throw facebook::jsi::JSError(rt, resultStr.substr(1));
-        }
-
-        // Parse the JSON result (skip '+' prefix)
-        std::string json = (resultStr[0] == '+') ? resultStr.substr(1) : resultStr;
-        if (json.empty() || json == "null" || json == "undefined") {
-          return facebook::jsi::Value::null();
-        }
-
-        // Use JSON.parse to convert
-        auto jsonGlobal = rt.global().getPropertyAsObject(rt, "JSON");
-        auto parseFn = jsonGlobal.getPropertyAsFunction(rt, "parse");
-        return parseFn.call(rt, facebook::jsi::String::createFromUtf8(rt, json));
+        return value;
       });
   rt.global().setProperty(rt, "__hostCall", std::move(hostCallFn));
+}
+
+// LLP 0297 W3 (exact repo): the async host-call channel. `__hostCallAsync(op,
+// argsJson)` returns a Promise; the registered native callback receives a
+// call id and later completes it — from any thread — via
+// ex_hermes_resolve_host_call, which delivers resolution on the runtime
+// thread through pushRuntimeCallback (the same discipline as fetch).
+extern "C" void ex_hermes_set_host_call_async(
+    ExactHermesRuntime* runtime,
+    void (*callback)(ExactHermesRuntime* runtime,
+                     uint64_t call_id,
+                     const char* op,
+                     const char* args_json)) {
+  if (!runtime) return;
+  // Restricted worklet runtimes never get __hostCallAsync (LLP 0297 §4.3).
+  if (runtime->restricted) return;
+  runtime->host_call_async_fn = callback;
+
+  auto& rt = *runtime->runtime;
+  auto hostCallAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__hostCallAsync"),
+      2,
+      [runtime](facebook::jsi::Runtime& rt,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->host_call_async_fn || count < 2) {
+          throw facebook::jsi::JSError(
+              rt, "__hostCallAsync: no callback registered or wrong arity");
+        }
+        auto op = std::make_shared<std::string>(args[0].asString(rt).utf8(rt));
+        auto argsJson = std::make_shared<std::string>(args[1].asString(rt).utf8(rt));
+
+        auto promiseCtor = rt.global().getPropertyAsFunction(rt, "Promise");
+        auto executor = facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(rt, "executor"),
+            2,
+            [runtime, op, argsJson](facebook::jsi::Runtime& rt,
+                                    const facebook::jsi::Value&,
+                                    const facebook::jsi::Value* args,
+                                    size_t count) -> facebook::jsi::Value {
+              if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
+                throw facebook::jsi::JSError(
+                    rt, "__hostCallAsync: malformed executor invocation");
+              }
+              auto resolve = std::make_shared<facebook::jsi::Function>(
+                  args[0].asObject(rt).asFunction(rt));
+              auto reject = std::make_shared<facebook::jsi::Function>(
+                  args[1].asObject(rt).asFunction(rt));
+
+              uint64_t callId = 0;
+              {
+                std::lock_guard<std::mutex> lock(runtime->hostCallAsyncMutex);
+                callId = runtime->nextHostCallAsyncId++;
+                runtime->hostCallAsyncCallbacks[callId] = {std::move(resolve),
+                                                           std::move(reject)};
+              }
+              runtime->host_call_async_fn(runtime, callId, op->c_str(), argsJson->c_str());
+              return facebook::jsi::Value::undefined();
+            });
+        return promiseCtor.callAsConstructor(rt, executor);
+      });
+  rt.global().setProperty(rt, "__hostCallAsync", std::move(hostCallAsyncFn));
+}
+
+extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
+                                            uint64_t call_id,
+                                            const char* payload) {
+  if (!runtime || !runtimeIsAlive(runtime)) return;
+
+  std::shared_ptr<facebook::jsi::Function> resolve;
+  std::shared_ptr<facebook::jsi::Function> reject;
+  {
+    std::lock_guard<std::mutex> lock(runtime->hostCallAsyncMutex);
+    auto it = runtime->hostCallAsyncCallbacks.find(call_id);
+    if (it == runtime->hostCallAsyncCallbacks.end()) return;
+    resolve = std::move(it->second.resolve);
+    reject = std::move(it->second.reject);
+    runtime->hostCallAsyncCallbacks.erase(it);
+  }
+  if (!resolve || !reject) return;
+
+  std::string payloadCopy = payload ? payload : "";
+  pushRuntimeCallback(
+      runtime,
+      [resolve, reject, payloadCopy](facebook::jsi::Runtime& rt) {
+        try {
+          facebook::jsi::Value value;
+          std::string errorMessage;
+          if (decodeHostCallPayload(rt, payloadCopy, value, errorMessage)) {
+            resolve->call(rt, value);
+          } else {
+            reject->call(rt, facebook::jsi::JSError(rt, errorMessage).value());
+          }
+        } catch (const std::exception& e) {
+          try {
+            reject->call(rt, facebook::jsi::JSError(rt, e.what()).value());
+          } catch (...) {
+          }
+        } catch (...) {
+        }
+      });
 }
 
 extern "C" void ex_hermes_free_string(char* value) {

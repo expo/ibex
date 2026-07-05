@@ -62,6 +62,20 @@ extern "C" {
             args_json: *const std::os::raw::c_char,
         ) -> *mut std::os::raw::c_char,
     );
+    fn ex_hermes_set_host_call_async(
+        runtime: *mut HermesRuntimeOpaque,
+        callback: extern "C" fn(
+            runtime: *mut HermesRuntimeOpaque,
+            call_id: u64,
+            op: *const std::os::raw::c_char,
+            args_json: *const std::os::raw::c_char,
+        ),
+    );
+    fn ex_hermes_resolve_host_call(
+        runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        payload: *const std::os::raw::c_char,
+    );
     fn ex_hermes_eval(
         runtime: *mut HermesRuntimeOpaque,
         data: *const u8,
@@ -166,6 +180,40 @@ extern "C" fn exact_agent_host_call(
         Ok(json) => host_call_response(format!("+{json}")),
         Err(message) => host_call_response(format!("-{message}")),
     }
+}
+
+/// Async host-call handler (LLP 0297 W3). The CLI host has no cross-thread
+/// hop to make, so it services the same op table as the sync bridge and
+/// resolves inline; resolution still flows through the runtime callback
+/// queue, exercising the real `__hostCallAsync` promise path end to end.
+extern "C" fn exact_agent_host_call_async(
+    runtime: *mut HermesRuntimeOpaque,
+    call_id: u64,
+    op: *const std::os::raw::c_char,
+    args_json: *const std::os::raw::c_char,
+) {
+    let payload = if op.is_null() {
+        "-Missing host call operation".to_string()
+    } else {
+        let operation = unsafe { CStr::from_ptr(op) }.to_string_lossy().into_owned();
+        let args = if args_json.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(args_json) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        match crate::agent_logs::handle_host_call(&operation, &args) {
+            Ok(json) => format!("+{json}"),
+            Err(message) => format!("-{message}"),
+        }
+    };
+
+    let payload_c = CString::new(payload).unwrap_or_else(|_| {
+        CString::new("-Host call response contained interior nulls")
+            .expect("valid fallback host-call error")
+    });
+    unsafe { ex_hermes_resolve_host_call(runtime, call_id, payload_c.as_ptr()) };
 }
 
 fn workspace_root_from(start: &Path) -> Option<PathBuf> {
@@ -375,6 +423,7 @@ impl SharedRuntime {
         }
         unsafe {
             ex_hermes_set_host_call(raw, exact_agent_host_call);
+            ex_hermes_set_host_call_async(raw, exact_agent_host_call_async);
         }
         Ok(Self {
             raw: AtomicPtr::new(raw),
@@ -1655,6 +1704,51 @@ mod tests {
         assert!(bootstrap_surface.contains(r#""text":"hi""#));
         assert!(bootstrap_surface.contains(r#""hasGetRandomValues":true"#));
         assert!(bootstrap_surface.contains(r#""hasRandomUUID":true"#));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn host_call_async_resolves_and_rejects_through_the_promise_channel() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+
+        let kicked = engine
+            .eval_immediate(
+                r#"(function() {
+                    globalThis.__hcAsync = { resolve: 'pending', reject: 'pending' };
+                    __hostCallAsync('agent.captureScreenshot', '{}').then(
+                      function(r) {
+                        globalThis.__hcAsync.resolve =
+                          'ok:' + (r && typeof r.error === 'string');
+                      },
+                      function() { globalThis.__hcAsync.resolve = 'rejected'; });
+                    __hostCallAsync('selftest.unknown-op', '{}').then(
+                      function() { globalThis.__hcAsync.reject = 'resolved'; },
+                      function(e) {
+                        globalThis.__hcAsync.reject =
+                          (e && typeof e.message === 'string' &&
+                           e.message.indexOf('Unknown host call') !== -1)
+                            ? 'rejected-with-message' : 'rejected-odd';
+                      });
+                    return 'kicked';
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap_or_default();
+        assert_eq!(kicked.trim(), "kicked");
+
+        engine.drive_event_loop().await.unwrap();
+
+        let outcome = engine
+            .eval_immediate("JSON.stringify(globalThis.__hcAsync)")
+            .await
+            .unwrap()
+            .unwrap_or_default();
+        assert!(outcome.contains(r#""resolve":"ok:true""#), "{outcome}");
+        assert!(
+            outcome.contains(r#""reject":"rejected-with-message""#),
+            "{outcome}"
+        );
     }
 
     #[cfg(feature = "host-http-server")]

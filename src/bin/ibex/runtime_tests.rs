@@ -53,6 +53,51 @@ pub async fn run_all(cli: &Cli) -> Result<()> {
             "node:events builtin",
         )
         .await?;
+
+        // LLP 0297 W3: the async host-call channel. Kick each promise off in
+        // one eval (whose event-loop drive delivers the resolution) and read
+        // the settled outcome in the next.
+        expect_eval(
+            &runtime,
+            "typeof __hostCallAsync === 'function' ? 'true' : 'false'",
+            "true",
+            "__hostCallAsync installed",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__hcAsyncResolve = 'pending'; \
+             __hostCallAsync('agent.captureScreenshot', '{}').then(\
+                 function(r) { globalThis.__hcAsyncResolve = 'ok:' + (r && typeof r.error === 'string'); },\
+                 function() { globalThis.__hcAsyncResolve = 'rejected'; }); 'kicked'",
+            "kicked",
+            "async host-call resolve kickoff",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__hcAsyncResolve",
+            "ok:true",
+            "async host-call resolve path",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__hcAsyncReject = 'pending'; \
+             __hostCallAsync('selftest.unknown-op', '{}').then(\
+                 function() { globalThis.__hcAsyncReject = 'resolved'; },\
+                 function(e) { globalThis.__hcAsyncReject = (e && typeof e.message === 'string' && e.message.indexOf('Unknown host call') !== -1) ? 'rejected-with-message' : 'rejected-odd'; }); 'kicked'",
+            "kicked",
+            "async host-call reject kickoff",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__hcAsyncReject",
+            "rejected-with-message",
+            "async host-call reject path",
+        )
+        .await?;
     }
 
     eprintln!("ibex self-test OK");

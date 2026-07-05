@@ -73,6 +73,13 @@ struct FetchCallbackEntry {
   std::chrono::steady_clock::time_point deadline;
 };
 
+// LLP 0297 W3 (exact repo): pending `__hostCallAsync` promise, resolved from
+// any thread via ex_hermes_resolve_host_call → pushRuntimeCallback.
+struct HostCallAsyncEntry {
+  std::shared_ptr<facebook::jsi::Function> resolve;
+  std::shared_ptr<facebook::jsi::Function> reject;
+};
+
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
@@ -96,6 +103,9 @@ struct ExactHermesRuntime {
   std::mutex fetchMutex;
   uint32_t nextFetchId{1};
   std::unordered_map<uint32_t, FetchCallbackEntry> fetchCallbacks;
+  std::mutex hostCallAsyncMutex;
+  uint64_t nextHostCallAsyncId{1};
+  std::unordered_map<uint64_t, HostCallAsyncEntry> hostCallAsyncCallbacks;
   std::mutex callbackMutex;
   std::deque<std::function<void(facebook::jsi::Runtime&)>> callbackQueue;
 
@@ -137,6 +147,10 @@ struct ExactHermesRuntime {
   bool http_functions_loaded = false;
 
   char* (*host_call_fn)(const char* op, const char* args_json) = nullptr;
+  void (*host_call_async_fn)(ExactHermesRuntime* runtime,
+                             uint64_t call_id,
+                             const char* op,
+                             const char* args_json) = nullptr;
 };
 
 struct NativeWebSocketCallbackContext {
