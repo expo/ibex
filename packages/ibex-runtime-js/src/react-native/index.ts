@@ -135,9 +135,19 @@ function normalizeDimensions(next?: Partial<DimensionsValue>): DimensionsValue {
 
 const dimensionsListeners = new Set<DimensionsChangeHandler>();
 let lastDimensions = currentDimensions();
+// Whether the host has pushed a dimensions payload through notifyDimensions.
+// Until it has, Dimensions.get() mirrors the live native screen info; once it
+// has, that pushed payload is authoritative so the getter and the change
+// listeners report the same values instead of silently diverging (ENG-22979).
+let hasHostPushedDimensions = false;
+
+function activeDimensions(): DimensionsValue {
+  return hasHostPushedDimensions ? lastDimensions : currentDimensions();
+}
 
 function notifyDimensions(next?: Partial<DimensionsValue>): void {
   lastDimensions = normalizeDimensions(next);
+  hasHostPushedDimensions = true;
   const payload: DimensionsChangePayload = {
     window: { ...lastDimensions.window },
     screen: { ...lastDimensions.screen },
@@ -151,7 +161,7 @@ globalThis.__exactReactNativeNotifyDimensionsChange = notifyDimensions;
 
 export const Dimensions = {
   get(dimension: 'window' | 'screen'): ScaledSize {
-    const dimensions = currentDimensions();
+    const dimensions = activeDimensions();
     return { ...dimensions[dimension] };
   },
   addEventListener(
@@ -348,12 +358,17 @@ export const Linking = {
     return /^(exact|https?|mailto|tel|sms):/i.test(url);
   },
   async openURL(url: string): Promise<void> {
+    // openURL is an OUTBOUND open (external http/mailto/tel, or a link the host
+    // routes elsewhere). It must NOT emit the app's incoming-link 'url' event:
+    // that event is reserved for links the OS delivers INTO the app via
+    // __exactReactNativeNotifyURL. Firing it here produced a spurious deep-link
+    // for external opens and a duplicate for in-app links the host already
+    // notified (ENG-22979).
     if (typeof globalThis.__exactOpenURL === 'function') {
       await globalThis.__exactOpenURL(url);
     } else {
       exactWindow.location.assign(normalizeURL(url));
     }
-    notifyURL(normalizeURL(url));
   },
   async getInitialURL(): Promise<string | null> {
     return globalThis.__exactInitialURL ?? null;

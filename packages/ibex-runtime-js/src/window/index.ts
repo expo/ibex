@@ -233,6 +233,19 @@ function createLocation(): LocationInfo {
     }
   };
 
+  // Resolve a possibly-relative URL against the current href so that
+  // assign('/profile?tab=2') updates pathname/search (not just href). Without
+  // resolution the raw string is stored and parseUrl's catch-branch reports
+  // pathname '/' and empty search, stranding routers that key off them
+  // (ENG-22979).
+  const resolveHref = (url: string): string => {
+    try {
+      return new URL(url, currentHref).href;
+    } catch {
+      return url;
+    }
+  };
+
   const location: LocationInfo = {
     get href() { return parseUrl(currentHref).href; },
     get protocol() { return parseUrl(currentHref).protocol; },
@@ -249,10 +262,10 @@ function createLocation(): LocationInfo {
       console.warn('location.reload() is not supported in Ibex runtime');
     },
     replace: (url: string) => {
-      currentHref = url;
+      currentHref = resolveHref(url);
     },
     assign: (url: string) => {
-      currentHref = url;
+      currentHref = resolveHref(url);
     },
   };
 
@@ -264,7 +277,39 @@ interface AppearanceState {
   reducedMotion: boolean;
 }
 
-const mediaQueryLists = new Set<MediaQueryList>();
+// Registry of live MediaQueryList instances so appearance/resize changes can
+// re-evaluate them. Instances are held WEAKLY: a matchMedia() result the app
+// has dropped (e.g. an unmounted useColorScheme hook that no longer references
+// its MediaQueryList) must be collectable instead of leaking for the lifetime
+// of the runtime and being re-evaluated on every appearance/resize change
+// (ENG-22979). Where WeakRef/FinalizationRegistry are unavailable we fall back
+// to strong references — correct, just not leak-free.
+const supportsWeakRef = typeof WeakRef === 'function';
+const mediaQueryLists = new Set<WeakRef<MediaQueryList> | MediaQueryList>();
+const mediaQueryFinalization =
+  typeof FinalizationRegistry === 'function'
+    ? new FinalizationRegistry<WeakRef<MediaQueryList>>((ref) => {
+        mediaQueryLists.delete(ref);
+      })
+    : null;
+
+function registerMediaQueryList(mql: MediaQueryList): void {
+  if (supportsWeakRef) {
+    const ref = new WeakRef(mql);
+    mediaQueryLists.add(ref);
+    mediaQueryFinalization?.register(mql, ref);
+  } else {
+    mediaQueryLists.add(mql);
+  }
+}
+
+function derefMediaQueryList(
+  entry: WeakRef<MediaQueryList> | MediaQueryList,
+): MediaQueryList | undefined {
+  return supportsWeakRef
+    ? (entry as WeakRef<MediaQueryList>).deref()
+    : (entry as MediaQueryList);
+}
 
 function normalizeAppearanceState(value: unknown): AppearanceState {
   const candidate =
@@ -283,14 +328,18 @@ let appearanceState = normalizeAppearanceState(globalThis.__exactAppearanceState
 function updateAppearanceState(next: unknown): void {
   appearanceState = normalizeAppearanceState(next);
   globalThis.__exactAppearanceState = { ...appearanceState };
-  for (const mediaQueryList of mediaQueryLists) {
-    mediaQueryList._syncFromAppearance();
-  }
+  syncMediaQueries();
 }
 
 function syncMediaQueries(): void {
-  for (const mediaQueryList of mediaQueryLists) {
-    mediaQueryList._syncFromAppearance();
+  for (const entry of mediaQueryLists) {
+    const mediaQueryList = derefMediaQueryList(entry);
+    if (mediaQueryList) {
+      mediaQueryList._syncFromAppearance();
+    } else {
+      // The instance was garbage-collected; drop its now-empty weak reference.
+      mediaQueryLists.delete(entry);
+    }
   }
 }
 
@@ -333,10 +382,18 @@ function applyAndroidPlatformState(
     globalThis.__exactLocaleChanged?.(state.locale);
   }
 
+  // Accessibility and appearance are independent payloads — a single platform
+  // event can carry both, so handle them separately rather than as an
+  // either/or (ENG-22979). Apply appearance AFTER accessibility: the
+  // accessibility handler mirrors its own colorScheme into
+  // __exactAppearanceState (defaulting to 'light' when the record omits it), so
+  // an explicit state.appearance must win to avoid reverting a pushed dark
+  // value.
   if (state?.accessibility) {
     globalThis.__exactAccessibilitySnapshot = state.accessibility;
     globalThis.__exactAccessibilityChanged?.(state.accessibility);
-  } else if (state?.appearance) {
+  }
+  if (state?.appearance) {
     updateAppearanceState(state.appearance);
   }
 
@@ -405,59 +462,101 @@ export class MediaQueryList extends EventTarget {
     super();
     this.media = media;
     this._matches = this._evaluate(media);
-    mediaQueryLists.add(this);
+    registerMediaQueryList(this);
   }
 
   get matches(): boolean {
     return this._matches;
   }
 
+  // Supports comma-separated query lists (logical OR), `and`-joined feature
+  // conjunctions (logical AND), leading `not`/`only` modifiers, and the
+  // features (min/max-width, min/max-height, orientation, prefers-color-scheme,
+  // prefers-reduced-motion). Previously this returned on the FIRST recognized
+  // feature, so a compound query like
+  // `(min-width: 768px) and (max-width: 1024px)` matched on min-width alone and
+  // stayed active well past 1024px (ENG-22979).
   private _evaluate(query: string): boolean {
+    // A comma-separated list matches when ANY of its queries matches.
+    return query.split(',').some((part) => this._evaluateQuery(part));
+  }
+
+  private _evaluateQuery(query: string): boolean {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      return false;
+    }
+
+    // An optional leading `not`/`only` modifier applies to the whole query.
+    // `only` is a legacy no-op used to hide queries from old parsers.
+    let negate = false;
+    let rest = trimmed;
+    const modifierMatch = rest.match(/^(not|only)\s+/i);
+    if (modifierMatch) {
+      if (modifierMatch[1].toLowerCase() === 'not') {
+        negate = true;
+      }
+      rest = rest.slice(modifierMatch[0].length).trim();
+    }
+
+    // `and`-joined features must ALL match.
+    const result = rest
+      .split(/\s+and\s+/i)
+      .every((feature) => this._evaluateFeature(feature.trim()));
+
+    return negate ? !result : result;
+  }
+
+  private _evaluateFeature(feature: string): boolean {
     const dims = getScreenDimensions();
-    
-    // Simple media query parser
-    // Supports: (min-width: Xpx), (max-width: Xpx), (orientation: portrait/landscape)
-    // and (prefers-color-scheme: dark/light)
-    
-    const minWidthMatch = query.match(/\(min-width:\s*(\d+)px\)/);
+
+    // A bare media type (e.g. `screen`, `all`, `print`) rather than a
+    // parenthesized `(feature: value)` expression. The native runtime behaves
+    // like an on-screen context.
+    if (!feature.startsWith('(')) {
+      const type = feature.toLowerCase();
+      return type === 'screen' || type === 'all';
+    }
+
+    const minWidthMatch = feature.match(/\(min-width:\s*(\d+)px\)/);
     if (minWidthMatch) {
       return dims.width >= parseInt(minWidthMatch[1], 10);
     }
-    
-    const maxWidthMatch = query.match(/\(max-width:\s*(\d+)px\)/);
+
+    const maxWidthMatch = feature.match(/\(max-width:\s*(\d+)px\)/);
     if (maxWidthMatch) {
       return dims.width <= parseInt(maxWidthMatch[1], 10);
     }
-    
-    const minHeightMatch = query.match(/\(min-height:\s*(\d+)px\)/);
+
+    const minHeightMatch = feature.match(/\(min-height:\s*(\d+)px\)/);
     if (minHeightMatch) {
       return dims.height >= parseInt(minHeightMatch[1], 10);
     }
-    
-    const maxHeightMatch = query.match(/\(max-height:\s*(\d+)px\)/);
+
+    const maxHeightMatch = feature.match(/\(max-height:\s*(\d+)px\)/);
     if (maxHeightMatch) {
       return dims.height <= parseInt(maxHeightMatch[1], 10);
     }
-    
-    const orientationMatch = query.match(/\(orientation:\s*(portrait|landscape)\)/);
+
+    const orientationMatch = feature.match(/\(orientation:\s*(portrait|landscape)\)/);
     if (orientationMatch) {
       const isPortrait = dims.height > dims.width;
       return orientationMatch[1] === 'portrait' ? isPortrait : !isPortrait;
     }
-    
-    const colorSchemeMatch = query.match(/\(prefers-color-scheme:\s*(dark|light)\)/);
+
+    const colorSchemeMatch = feature.match(/\(prefers-color-scheme:\s*(dark|light)\)/);
     if (colorSchemeMatch) {
       return appearanceState.colorScheme === colorSchemeMatch[1];
     }
-    
-    const reducedMotionMatch = query.match(/\(prefers-reduced-motion:\s*(reduce|no-preference)\)/);
+
+    const reducedMotionMatch = feature.match(/\(prefers-reduced-motion:\s*(reduce|no-preference)\)/);
     if (reducedMotionMatch) {
       return reducedMotionMatch[1] === 'reduce'
         ? appearanceState.reducedMotion
         : !appearanceState.reducedMotion;
     }
-    
-    // Unknown query - return false
+
+    // Unknown feature - does not match.
     return false;
   }
 
