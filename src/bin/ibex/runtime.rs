@@ -1514,6 +1514,14 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     let mode = resolve_security_mode(cli, policy_path.as_deref())?;
 
     enable_isolation_prerequisites(mode);
+    for line in check_capsec_readiness(
+        mode,
+        CapsecStage::Run,
+        capsec_readiness(cli, policy_path.as_deref()),
+        capsec_advisory_allowed(cli),
+    )? {
+        eprintln!("{line}");
+    }
     apply_policy_endowments(policy_path.as_deref(), mode, cli.allow_env_endowments);
 
     Ok(HostConfig {
@@ -1608,7 +1616,192 @@ pub(crate) fn apply_build_isolation(cli: &Cli) -> Result<crate::host::SecurityMo
     let policy_path = resolve_policy_path(cli);
     let mode = resolve_security_mode(cli, policy_path.as_deref())?;
     enable_isolation_prerequisites(mode);
+    for line in check_capsec_readiness(
+        mode,
+        CapsecStage::Build,
+        capsec_readiness(cli, policy_path.as_deref()),
+        capsec_advisory_allowed(cli),
+    )? {
+        eprintln!("{line}");
+    }
     Ok(mode)
+}
+
+/// Snapshot of the attribution prerequisites behind the capsec model at the
+/// moment a run/build resolves its security mode (ENG-22884). Selecting
+/// `enforce`/`audit` only changes host-boundary *decision* logic; whether those
+/// decisions bind to real per-package principals depends on these
+/// prerequisites, and nothing previously reported when they were missing.
+/// @ref LLP 0013#mechanism-3
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CapsecReadiness {
+    /// Frame-derived attribution is compiled in: the linked Hermes exports
+    /// `ex_hermes_vm_current_package_id`, so build.rs defined
+    /// `EXACT_HAVE_FRAME_ATTRIBUTION` (cfg `exact_frame_attribution`). When
+    /// false the engine falls back to native-callback / thread-local module-id
+    /// attribution, which stored callbacks and patched prototypes can defeat.
+    frame_attribution: bool,
+    /// Per-package principal isolation state after
+    /// `enable_isolation_prerequisites` has applied the enforce/audit default.
+    package_isolation: PackageIsolation,
+    /// Reachability hardening (Mechanism 1 lockdown / Mechanism 2 compartment
+    /// withholding) requested for this process.
+    lockdown: bool,
+    /// The policy artifact declares a runtime-grant ceiling for dynamic
+    /// permission prompts.
+    dynamic_ceiling: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PackageIsolation {
+    /// Per-package chunking is on (the enforce/audit default): each bundled
+    /// npm package gets its own chunk → Domain → principal.
+    Enabled,
+    /// The operator explicitly set `IBEX_PER_PACKAGE_CHUNKS=0`: bundled
+    /// dependencies collapse into the trusted root principal, so the
+    /// capability gate never fires for them. Only the unbundled loader path
+    /// still attributes per package.
+    DisabledByOperator,
+}
+
+/// Which pipeline stage is consulting readiness. A missing frame-attribution
+/// bridge is a property of the *executing* engine, and a built `.hbc` may run
+/// under a different (patched) engine — so it hard-fails only `Run` and warns
+/// on `Build`. An explicitly disabled package layout is baked into the built
+/// artifact, so it is a hard prerequisite at both stages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CapsecStage {
+    Run,
+    Build,
+}
+
+/// Gather the live readiness snapshot. Call after
+/// `enable_isolation_prerequisites` so `IBEX_PER_PACKAGE_CHUNKS` reflects the
+/// enforce/audit default; a remaining `0` is an explicit operator opt-out.
+fn capsec_readiness(cli: &Cli, policy_path: Option<&Path>) -> CapsecReadiness {
+    let package_isolation = match std::env::var("IBEX_PER_PACKAGE_CHUNKS") {
+        Ok(v) if v.trim() == "0" => PackageIsolation::DisabledByOperator,
+        _ => PackageIsolation::Enabled,
+    };
+    let dynamic_ceiling = policy_path
+        .filter(|p| p.exists())
+        .and_then(|p| crate::host::policy::PolicyFile::load(p).ok())
+        .map(|policy| !policy.ceiling.is_empty())
+        .unwrap_or(false);
+    CapsecReadiness {
+        frame_attribution: cfg!(exact_frame_attribution),
+        package_isolation,
+        lockdown: cli.lockdown
+            || crate::env_flag_enabled("IBEX_LOCKDOWN")
+            || crate::env_flag_enabled("IBEX_COMPARTMENTS"),
+        dynamic_ceiling,
+    }
+}
+
+/// The operator explicitly accepted advisory attribution under enforce
+/// (`--capsec-allow-advisory`, or `IBEX_CAPSEC_ALLOW_ADVISORY=1` for spawned
+/// children and wrapper scripts).
+fn capsec_advisory_allowed(cli: &Cli) -> bool {
+    cli.capsec_allow_advisory || crate::env_flag_enabled("IBEX_CAPSEC_ALLOW_ADVISORY")
+}
+
+/// ENG-22884 — decide whether the resolved capsec mode may proceed with the
+/// observed readiness, and produce the stderr report lines. Enforce fails
+/// closed when a hard attribution prerequisite is missing unless the operator
+/// passed the advisory escape hatch; audit always proceeds but reports
+/// conspicuously; permissive stays silent (capsec is not being claimed).
+fn check_capsec_readiness(
+    mode: crate::host::SecurityMode,
+    stage: CapsecStage,
+    readiness: CapsecReadiness,
+    allow_advisory: bool,
+) -> Result<Vec<String>> {
+    use crate::host::SecurityMode;
+    if mode == SecurityMode::Permissive {
+        return Ok(Vec::new());
+    }
+
+    let report = format!(
+        "capsec readiness: frame-attribution={} package-isolation={} lockdown={} dynamic-ceiling={}",
+        if readiness.frame_attribution {
+            "present"
+        } else {
+            "missing"
+        },
+        match readiness.package_isolation {
+            PackageIsolation::Enabled => "per-package",
+            PackageIsolation::DisabledByOperator => "disabled(IBEX_PER_PACKAGE_CHUNKS=0)",
+        },
+        if readiness.lockdown { "on" } else { "off" },
+        if readiness.dynamic_ceiling {
+            "configured"
+        } else {
+            "not-configured"
+        },
+    );
+
+    // Hard prerequisites: enforce refuses to proceed without them (absent the
+    // advisory escape hatch). Soft: always warn, never fail.
+    let mut hard: Vec<String> = Vec::new();
+    let mut soft: Vec<String> = Vec::new();
+    if !readiness.frame_attribution {
+        let detail = "frame-derived attribution (the linked Hermes engine lacks the \
+                      ex_hermes_vm_current_package_id bridge, so attribution falls back to a \
+                      forgeable thread-local module id)";
+        match stage {
+            CapsecStage::Run => hard.push(detail.to_string()),
+            CapsecStage::Build => soft.push(format!(
+                "this engine build lacks {detail}; running the built artifact under this \
+                 engine's enforce mode will fail closed"
+            )),
+        }
+    }
+    if readiness.package_isolation == PackageIsolation::DisabledByOperator {
+        hard.push(
+            "per-package principal isolation (IBEX_PER_PACKAGE_CHUNKS=0: bundled dependencies \
+             collapse into the trusted root principal)"
+                .to_string(),
+        );
+    }
+
+    if hard.is_empty() && soft.is_empty() {
+        return Ok(vec![report]);
+    }
+
+    if mode == SecurityMode::Enforce && !hard.is_empty() && !allow_advisory {
+        anyhow::bail!(
+            "capsec enforce requires attribution prerequisites this {} does not satisfy:\n  - {}\n{}\n\
+             Refusing to present advisory attribution as enforcement. Pass --capsec-allow-advisory \
+             (or set IBEX_CAPSEC_ALLOW_ADVISORY=1) to proceed anyway, or use --capsec audit.",
+            match stage {
+                CapsecStage::Run => "run",
+                CapsecStage::Build => "build",
+            },
+            hard.join("\n  - "),
+            report,
+        );
+    }
+
+    let mode_label = if mode == SecurityMode::Enforce {
+        "enforce"
+    } else {
+        "audit"
+    };
+    let mut lines = Vec::new();
+    if !hard.is_empty() {
+        lines.push(format!(
+            "warning: capsec {mode_label} is proceeding with ADVISORY attribution — capability \
+             decisions may attribute a dependency's access to the trusted root:"
+        ));
+        for item in &hard {
+            lines.push(format!("warning:   missing prerequisite: {item}"));
+        }
+    }
+    for item in soft {
+        lines.push(format!("warning: {item}"));
+    }
+    lines.push(report);
+    Ok(lines)
 }
 
 /// Enable the per-package **attribution** prerequisite that enforce/audit mode
@@ -3101,6 +3294,95 @@ mod tests {
             resolve_security_mode(&allow_all, Some(enforce.as_path())).unwrap(),
             SecurityMode::Permissive,
         );
+    }
+
+    // ENG-22884 — enforce must not silently proceed as full-strength capsec when
+    // an attribution prerequisite is missing. The readiness snapshot is passed
+    // as data so the missing-EXACT_HAVE_FRAME_ATTRIBUTION and
+    // IBEX_PER_PACKAGE_CHUNKS=0 shapes are simulated without recompiling or
+    // mutating process-global env.
+    #[test]
+    fn capsec_enforce_fails_closed_without_attribution_prerequisites() {
+        use crate::host::SecurityMode;
+
+        let ready = CapsecReadiness {
+            frame_attribution: true,
+            package_isolation: PackageIsolation::Enabled,
+            lockdown: false,
+            dynamic_ceiling: false,
+        };
+
+        // Fully-ready enforce proceeds and emits exactly the readiness report.
+        let lines =
+            check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Run, ready, false).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("frame-attribution=present"));
+        assert!(lines[0].contains("package-isolation=per-package"));
+
+        // Missing frame attribution (an engine built without
+        // EXACT_HAVE_FRAME_ATTRIBUTION): an enforce run fails closed with the
+        // escape hatch named in the error...
+        let advisory = CapsecReadiness {
+            frame_attribution: false,
+            ..ready
+        };
+        let err = check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Run, advisory, false)
+            .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("frame-derived attribution"));
+        assert!(msg.contains("--capsec-allow-advisory"));
+
+        // ...unless the operator explicitly opts into advisory attribution, which
+        // still reports loudly.
+        let lines = check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Run, advisory, true)
+            .unwrap();
+        assert!(lines.iter().any(|l| l.contains("ADVISORY")));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("frame-attribution=missing")));
+
+        // An explicit IBEX_PER_PACKAGE_CHUNKS=0 collapses bundled dependencies
+        // into the root principal — hard prerequisite at run AND build stage
+        // (the flat layout is baked into the built artifact).
+        let collapsed = CapsecReadiness {
+            package_isolation: PackageIsolation::DisabledByOperator,
+            ..ready
+        };
+        assert!(
+            check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Run, collapsed, false)
+                .is_err()
+        );
+        assert!(check_capsec_readiness(
+            SecurityMode::Enforce,
+            CapsecStage::Build,
+            collapsed,
+            false
+        )
+        .is_err());
+
+        // Building with an attribution-less engine proceeds (the artifact may
+        // run under a patched engine) but warns instead of staying silent.
+        let lines =
+            check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Build, advisory, false)
+                .unwrap();
+        assert!(lines.iter().any(|l| l.starts_with("warning:")));
+
+        // Audit never fails closed but must be conspicuous about advisory
+        // attribution.
+        let lines =
+            check_capsec_readiness(SecurityMode::Audit, CapsecStage::Run, advisory, false).unwrap();
+        assert!(lines.iter().any(|l| l.contains("ADVISORY")));
+        assert!(lines.iter().any(|l| l.contains("audit")));
+
+        // Permissive claims no capsec, so it stays silent.
+        assert!(check_capsec_readiness(
+            SecurityMode::Permissive,
+            CapsecStage::Run,
+            advisory,
+            false
+        )
+        .unwrap()
+        .is_empty());
     }
 
     #[tokio::test]

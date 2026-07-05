@@ -26,9 +26,17 @@ struct RunOutput {
 
 /// Run the ibex binary with the given args + extra env, returning captured
 /// output. `cwd` defaults to the manifest dir.
+///
+/// The advisory hatch is on by default: these suites exercise capability
+/// *decision* logic and must keep running on checkouts whose Hermes lacks the
+/// frame-attribution bridge, where `--capsec enforce` now fails closed
+/// (ENG-22884). The fail-closed gate itself is covered by
+/// `capsec_enforce_fails_closed_on_missing_attribution_prerequisites`, which
+/// overrides this default. Caller env wins (applied after this).
 fn run_ibex(args: &[&str], envs: &[(&str, &str)], cwd: Option<&Path>) -> RunOutput {
     let mut cmd = Command::new(IBEX);
     cmd.args(args);
+    cmd.env("IBEX_CAPSEC_ALLOW_ADVISORY", "1");
     for (k, v) in envs {
         cmd.env(k, v);
     }
@@ -3371,4 +3379,97 @@ fn host_scheduled_detached_deputy_control_permissive_leaks() {
             out.stderr
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// ENG-22884 — capsec readiness: enforce must not silently proceed as
+// full-strength capsec when an attribution prerequisite is missing. An explicit
+// IBEX_PER_PACKAGE_CHUNKS=0 collapses bundled dependencies into the trusted
+// root principal on EVERY engine, so this exercises the fail-closed gate
+// deterministically (no dependence on the checkout's Hermes patch level). The
+// advisory hatch that run_ibex defaults on is overridden off here.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn capsec_enforce_fails_closed_on_missing_attribution_prerequisites() {
+    // Enforce + operator-disabled package isolation, no hatch: refuse to run.
+    let denied = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+            ("IBEX_CAPSEC_ALLOW_ADVISORY", "0"),
+        ],
+        None,
+    );
+    assert_ne!(
+        denied.status, 0,
+        "enforce with IBEX_PER_PACKAGE_CHUNKS=0 must fail closed:\nstdout:\n{}\nstderr:\n{}",
+        denied.stdout, denied.stderr
+    );
+    assert!(
+        denied.stderr.contains("per-package principal isolation")
+            && denied.stderr.contains("--capsec-allow-advisory"),
+        "the refusal must name the missing prerequisite and the escape hatch:\nstderr:\n{}",
+        denied.stderr
+    );
+
+    // Same run with the hatch: proceeds, but reports advisory attribution and
+    // the readiness line loudly.
+    let advisory = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+            ("IBEX_CAPSEC_ALLOW_ADVISORY", "1"),
+        ],
+        None,
+    );
+    assert_eq!(
+        advisory.status, 0,
+        "the advisory hatch must let the run proceed:\nstdout:\n{}\nstderr:\n{}",
+        advisory.stdout, advisory.stderr
+    );
+    assert!(
+        advisory.stderr.contains("ADVISORY")
+            && advisory.stderr.contains("capsec readiness:")
+            && advisory
+                .stderr
+                .contains("package-isolation=disabled(IBEX_PER_PACKAGE_CHUNKS=0)"),
+        "advisory enforce must report readiness conspicuously:\nstderr:\n{}",
+        advisory.stderr
+    );
+
+    // Audit is advisory by design: proceeds without the hatch, but warns.
+    let audit = run_ibex(
+        &[
+            "--capsec",
+            "audit",
+            "run",
+            &fixture("compartment-endowment.js"),
+        ],
+        &[
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+            ("IBEX_CAPSEC_ALLOW_ADVISORY", "0"),
+        ],
+        None,
+    );
+    assert_eq!(
+        audit.status, 0,
+        "audit must proceed with advisory attribution:\nstdout:\n{}\nstderr:\n{}",
+        audit.stdout, audit.stderr
+    );
+    assert!(
+        audit.stderr.contains("ADVISORY") && audit.stderr.contains("capsec readiness:"),
+        "audit must still report the readiness fields:\nstderr:\n{}",
+        audit.stderr
+    );
 }
