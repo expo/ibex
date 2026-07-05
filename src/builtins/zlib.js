@@ -377,16 +377,32 @@ function brotliDecompressSync(data, options) {
 }
 
 // ---------------------------------------------------------------------------
-// Zstd (placeholder - uses deflate/inflate under the hood)
+// Zstd
+//
+// The host ABI registers only deflate/inflate/brotli one-shot codecs (see
+// hermes_runtime_crypto.cc) — there is NO native zstd backend. The previous
+// implementation silently fell back to raw zlib-deflate output labelled as
+// zstd: bytes produced by zstdCompressSync failed in any real zstd decoder
+// ("unknown frame descriptor"), and the empty-input special case emitted a
+// genuine zstd frame that the inflate fallback then couldn't parse
+// (zstdDecompressSync(zstdCompressSync(Buffer.alloc(0))) threw). Rather than
+// emit wrong-format data with no error, we surface ENOSYS until a real native
+// zstd bridge is wired up. The `typeof __exactZstd*Sync === 'function'` guards
+// remain so registering that bridge later transparently enables zstd.
 // ---------------------------------------------------------------------------
+
+function zstdNotSupported(op) {
+  var err = new Error(
+    'zstd ' + op + ' is not supported: this runtime has no native zstd backend registered');
+  err.code = 'ENOSYS';
+  return err;
+}
 
 function zstdCompressSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
-  if (bytes.length === 0) {
-    var emptyFrame = toBuffer(new Uint8Array([0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x01, 0x00, 0x00, 0x00]));
-    if (options && options.info) return { engine: new ZstdCompress(options), buffer: emptyFrame }; // eslint-disable-line no-use-before-define
-    return emptyFrame;
+  if (typeof __exactZstdCompressSync !== 'function') {
+    throw zstdNotSupported('compression');
   }
   var level = -1;
   if (options && options.level !== undefined) {
@@ -394,13 +410,7 @@ function zstdCompressSync(data, options) {
   } else if (options && options.params && options.params[100] !== undefined) {
     level = options.params[100];
   }
-  var buf;
-  if (typeof __exactZstdCompressSync === 'function') {
-    buf = toBuffer(__exactZstdCompressSync(bytes, level));
-  } else {
-    // Fallback: use deflate as placeholder
-    buf = toBuffer(__exactDeflateSync(bytes, level, 0));
-  }
+  var buf = toBuffer(__exactZstdCompressSync(bytes, level));
   if (options && options.info) return { engine: new ZstdCompress(options), buffer: buf }; // eslint-disable-line no-use-before-define
   return buf;
 }
@@ -408,13 +418,10 @@ function zstdCompressSync(data, options) {
 function zstdDecompressSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
-  var buf;
-  if (typeof __exactZstdDecompressSync === 'function') {
-    buf = toBuffer(__exactZstdDecompressSync(bytes));
-  } else {
-    // Fallback: use inflate as placeholder
-    buf = toBuffer(__exactInflateSync(bytes, 0));
+  if (typeof __exactZstdDecompressSync !== 'function') {
+    throw zstdNotSupported('decompression');
   }
+  var buf = toBuffer(__exactZstdDecompressSync(bytes));
   if (options && options.info) return { engine: new ZstdDecompress(options), buffer: buf }; // eslint-disable-line no-use-before-define
   return buf;
 }
@@ -992,75 +999,33 @@ ZlibTransform.prototype.flush = function(kind, callback) {
     kind = undefined;
   }
   var flushCallback = typeof callback === 'function' ? callback : null;
-  var state = this._transformState || (this._transformState = {});
 
-  if (state._flushing || (this._writableState && this._writableState.writing)) {
-    state._flushQueue = state._flushQueue || [];
-    state._flushQueue.push([kind, flushCallback || function() {}]);
-    return this;
-  }
-
-  // For decoders: just call the callback immediately without inflating partial data.
-  // Decompression happens at stream end (_final).
-  if (this._isDecoder) {
-    if (typeof flushCallback === 'function') {
+  // flush() must NOT finalize the stream. The host ABI exposes only a one-shot
+  // deflate/inflate that terminates every stream with Z_FINISH; there is no
+  // incremental/partial (Z_SYNC_FLUSH-style) codec, so we cannot emit a
+  // mid-stream flush boundary the way Node does. The previous implementation
+  // worked around this by, on each encoder flush(), compressing everything
+  // buffered so far into a *complete* Z_FINISH-terminated member, setting
+  // `_flushed = true`, and clearing `_chunks`. That silently dropped any data
+  // written after the flush:
+  //     gz.write('hello');
+  //     gz.flush(() => gz.end('world'));   // 'world' was lost
+  // because `_transform` kept appending post-flush writes to `_chunks` while
+  // `_final` short-circuited on `_flushed` and never compressed them (and for
+  // deflate/raw a second member wouldn't be decodable anyway).
+  //
+  // Instead, flush() is a deferred no-op for BOTH encoders and decoders: all
+  // (de)compression happens exactly once in `_final`, over the full input, so
+  // the whole stream round-trips as one valid member and no bytes are lost.
+  // This mirrors what the decoder path already did. (True mid-stream flushing
+  // would require an incremental native codec the host does not provide.)
+  if (flushCallback) {
+    if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
+      process.nextTick(flushCallback);
+    } else {
       setTimeout(flushCallback, 0);
     }
-    // Drain any queued flushes
-    if (state._flushQueue && state._flushQueue.length > 0) {
-      var nextD = state._flushQueue.shift();
-      if (nextD && typeof nextD[1] === 'function') {
-        setTimeout(nextD[1], 0);
-      }
-    }
-    return this;
   }
-
-  if (!this._chunks || this._chunks.length === 0) {
-    if (typeof flushCallback === 'function') {
-      setTimeout(flushCallback, 0);
-    }
-    return this;
-  }
-
-  state._flushing = true;
-  var self = this;
-  var writableState = self._writableState || {};
-  this._flush(function(err) {
-    state._flushing = false;
-    var shouldEmitDrain = false;
-    if (!err) {
-      shouldEmitDrain = self._needDrain || self.writableNeedDrain || writableState.needDrain;
-      if (shouldEmitDrain) {
-        self._needDrain = false;
-        self.writableNeedDrain = false;
-        writableState.needDrain = false;
-      }
-    }
-    if (!err) {
-      self._chunks = [];
-    }
-    if (typeof flushCallback === 'function') {
-      flushCallback(err);
-    }
-    if (
-      shouldEmitDrain && !err && !self._destroyed && !writableState.writing &&
-      (writableState.writableLength == null || writableState.writableLength < writableState.highWaterMark)
-    ) {
-      var drain = function() { self.emit('drain'); };
-      if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
-        process.nextTick(drain);
-      } else {
-        setTimeout(drain, 0);
-      }
-    }
-    if (state._flushQueue && state._flushQueue.length > 0) {
-      var next = state._flushQueue.shift();
-      if (next && typeof self._flush === 'function') {
-        self._flush(next[1] || function() {});
-      }
-    }
-  });
   return this;
 };
 
@@ -1205,28 +1170,25 @@ function BrotliDecompress(opts) {
 BrotliDecompress.prototype = Object.create(ZlibTransform.prototype);
 BrotliDecompress.prototype.constructor = BrotliDecompress;
 
-// Zstd stream classes
-// Minimal valid zstd empty frame (9 bytes): magic + frame header + empty last block
-var _ZSTD_EMPTY_FRAME = new Uint8Array([0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x01, 0x00, 0x00, 0x00]);
+// Zstd stream classes. Like the sync entry points, these surface ENOSYS rather
+// than emitting zlib-deflate bytes mislabelled as zstd (see the Zstd section
+// above). The error propagates through _flush as a stream 'error' event.
 
 function ZstdCompress(opts) {
   if (!(this instanceof ZstdCompress)) return new ZstdCompress(opts);
   var _opts = opts;
   ZlibTransform.call(this, function(buf) {
-    var bytes = toBytes(buf);
-    if (bytes.length === 0) {
-      return toBuffer(_ZSTD_EMPTY_FRAME);
+    if (typeof __exactZstdCompressSync !== 'function') {
+      throw zstdNotSupported('compression');
     }
+    var bytes = toBytes(buf);
     var level = -1;
     if (_opts && _opts.level !== undefined) {
       level = _opts.level;
     } else if (_opts && _opts.params && _opts.params[100] !== undefined) {
       level = _opts.params[100];
     }
-    if (typeof __exactZstdCompressSync === 'function') {
-      return toBuffer(__exactZstdCompressSync(bytes, level));
-    }
-    return toBuffer(__exactDeflateSync(bytes, level, 0));
+    return toBuffer(__exactZstdCompressSync(bytes, level));
   }, opts, false);
 }
 ZstdCompress.prototype = Object.create(ZlibTransform.prototype);
@@ -1235,13 +1197,12 @@ ZstdCompress.prototype.constructor = ZstdCompress;
 function ZstdDecompress(opts) {
   if (!(this instanceof ZstdDecompress)) return new ZstdDecompress(opts);
   ZlibTransform.call(this, function(buf) {
-    var bytes = toBytes(buf);
-    if (typeof __exactZstdDecompressSync === 'function') {
-      var r = __exactZstdDecompressSync(bytes);
-      return { output: toBuffer(r), consumed: bytes.length };
+    if (typeof __exactZstdDecompressSync !== 'function') {
+      throw zstdNotSupported('decompression');
     }
-    var r2 = inflateSyncConsumed(bytes, 0);
-    return { output: r2[0], consumed: r2[1] };
+    var bytes = toBytes(buf);
+    var r = __exactZstdDecompressSync(bytes);
+    return { output: toBuffer(r), consumed: bytes.length };
   }, opts, true);
 }
 ZstdDecompress.prototype = Object.create(ZlibTransform.prototype);

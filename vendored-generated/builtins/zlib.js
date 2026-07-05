@@ -316,33 +316,19 @@ function brotliDecompressSync(data, options) {
 	};
 	return buf;
 }
+function zstdNotSupported(op) {
+	var err = /* @__PURE__ */ new Error("zstd " + op + " is not supported: this runtime has no native zstd backend registered");
+	err.code = "ENOSYS";
+	return err;
+}
 function zstdCompressSync(data, options) {
 	validateInput(data);
 	var bytes = toBytes(data);
-	if (bytes.length === 0) {
-		var emptyFrame = toBuffer(new Uint8Array([
-			40,
-			181,
-			47,
-			253,
-			32,
-			1,
-			0,
-			0,
-			0
-		]));
-		if (options && options.info) return {
-			engine: new ZstdCompress(options),
-			buffer: emptyFrame
-		};
-		return emptyFrame;
-	}
+	if (typeof __exactZstdCompressSync !== "function") throw zstdNotSupported("compression");
 	var level = -1;
 	if (options && options.level !== void 0) level = options.level;
 	else if (options && options.params && options.params[100] !== void 0) level = options.params[100];
-	var buf;
-	if (typeof __exactZstdCompressSync === "function") buf = toBuffer(__exactZstdCompressSync(bytes, level));
-	else buf = toBuffer(__exactDeflateSync(bytes, level, 0));
+	var buf = toBuffer(__exactZstdCompressSync(bytes, level));
 	if (options && options.info) return {
 		engine: new ZstdCompress(options),
 		buffer: buf
@@ -352,9 +338,8 @@ function zstdCompressSync(data, options) {
 function zstdDecompressSync(data, options) {
 	validateInput(data);
 	var bytes = toBytes(data);
-	var buf;
-	if (typeof __exactZstdDecompressSync === "function") buf = toBuffer(__exactZstdDecompressSync(bytes));
-	else buf = toBuffer(__exactInflateSync(bytes, 0));
+	if (typeof __exactZstdDecompressSync !== "function") throw zstdNotSupported("decompression");
+	var buf = toBuffer(__exactZstdDecompressSync(bytes));
 	if (options && options.info) return {
 		engine: new ZstdDecompress(options),
 		buffer: buf
@@ -828,52 +813,8 @@ ZlibTransform.prototype.flush = function(kind, callback) {
 		kind = void 0;
 	}
 	var flushCallback = typeof callback === "function" ? callback : null;
-	var state = this._transformState || (this._transformState = {});
-	if (state._flushing || this._writableState && this._writableState.writing) {
-		state._flushQueue = state._flushQueue || [];
-		state._flushQueue.push([kind, flushCallback || function() {}]);
-		return this;
-	}
-	if (this._isDecoder) {
-		if (typeof flushCallback === "function") setTimeout(flushCallback, 0);
-		if (state._flushQueue && state._flushQueue.length > 0) {
-			var nextD = state._flushQueue.shift();
-			if (nextD && typeof nextD[1] === "function") setTimeout(nextD[1], 0);
-		}
-		return this;
-	}
-	if (!this._chunks || this._chunks.length === 0) {
-		if (typeof flushCallback === "function") setTimeout(flushCallback, 0);
-		return this;
-	}
-	state._flushing = true;
-	var self = this;
-	var writableState = self._writableState || {};
-	this._flush(function(err) {
-		state._flushing = false;
-		var shouldEmitDrain = false;
-		if (!err) {
-			shouldEmitDrain = self._needDrain || self.writableNeedDrain || writableState.needDrain;
-			if (shouldEmitDrain) {
-				self._needDrain = false;
-				self.writableNeedDrain = false;
-				writableState.needDrain = false;
-			}
-		}
-		if (!err) self._chunks = [];
-		if (typeof flushCallback === "function") flushCallback(err);
-		if (shouldEmitDrain && !err && !self._destroyed && !writableState.writing && (writableState.writableLength == null || writableState.writableLength < writableState.highWaterMark)) {
-			var drain = function() {
-				self.emit("drain");
-			};
-			if (typeof process === "object" && process && typeof process.nextTick === "function") process.nextTick(drain);
-			else setTimeout(drain, 0);
-		}
-		if (state._flushQueue && state._flushQueue.length > 0) {
-			var next = state._flushQueue.shift();
-			if (next && typeof self._flush === "function") self._flush(next[1] || function() {});
-		}
-	});
+	if (flushCallback) if (typeof process === "object" && process && typeof process.nextTick === "function") process.nextTick(flushCallback);
+	else setTimeout(flushCallback, 0);
 	return this;
 };
 ZlibTransform.prototype.reset = function() {
@@ -1011,28 +952,16 @@ function BrotliDecompress(opts) {
 }
 BrotliDecompress.prototype = Object.create(ZlibTransform.prototype);
 BrotliDecompress.prototype.constructor = BrotliDecompress;
-var _ZSTD_EMPTY_FRAME = new Uint8Array([
-	40,
-	181,
-	47,
-	253,
-	32,
-	1,
-	0,
-	0,
-	0
-]);
 function ZstdCompress(opts) {
 	if (!(this instanceof ZstdCompress)) return new ZstdCompress(opts);
 	var _opts = opts;
 	ZlibTransform.call(this, function(buf) {
+		if (typeof __exactZstdCompressSync !== "function") throw zstdNotSupported("compression");
 		var bytes = toBytes(buf);
-		if (bytes.length === 0) return toBuffer(_ZSTD_EMPTY_FRAME);
 		var level = -1;
 		if (_opts && _opts.level !== void 0) level = _opts.level;
 		else if (_opts && _opts.params && _opts.params[100] !== void 0) level = _opts.params[100];
-		if (typeof __exactZstdCompressSync === "function") return toBuffer(__exactZstdCompressSync(bytes, level));
-		return toBuffer(__exactDeflateSync(bytes, level, 0));
+		return toBuffer(__exactZstdCompressSync(bytes, level));
 	}, opts, false);
 }
 ZstdCompress.prototype = Object.create(ZlibTransform.prototype);
@@ -1040,15 +969,11 @@ ZstdCompress.prototype.constructor = ZstdCompress;
 function ZstdDecompress(opts) {
 	if (!(this instanceof ZstdDecompress)) return new ZstdDecompress(opts);
 	ZlibTransform.call(this, function(buf) {
+		if (typeof __exactZstdDecompressSync !== "function") throw zstdNotSupported("decompression");
 		var bytes = toBytes(buf);
-		if (typeof __exactZstdDecompressSync === "function") return {
+		return {
 			output: toBuffer(__exactZstdDecompressSync(bytes)),
 			consumed: bytes.length
-		};
-		var r2 = inflateSyncConsumed(bytes, 0);
-		return {
-			output: r2[0],
-			consumed: r2[1]
 		};
 	}, opts, true);
 }
