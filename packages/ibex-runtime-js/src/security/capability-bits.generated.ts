@@ -58,6 +58,7 @@ export const CapabilityBit = {
   "time:now": 53,
   "time:highres": 54,
   "ipc:channel": 55,
+  "network:resolve": 56,
 } as const satisfies Record<string, number>;
 
 export type CapabilityBitName = keyof typeof CapabilityBit;

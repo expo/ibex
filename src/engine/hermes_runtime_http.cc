@@ -127,6 +127,29 @@ void unregisterHttpServer(uint32_t server_id) {
   g_http_servers.erase(server_id);
 }
 
+uint32_t extractOptionalHttpBody(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value* args,
+    size_t count,
+    size_t index,
+    const uint8_t*& body) {
+  body = nullptr;
+  if (count <= index || args[index].isNull() || args[index].isUndefined()) {
+    return 0;
+  }
+  if (!args[index].isObject()) {
+    return 0;
+  }
+  auto bodyObj = args[index].asObject(runtime);
+  const uint8_t* data = nullptr;
+  size_t length = 0;
+  if (!extractArrayBufferView(runtime, bodyObj, data, length)) {
+    return 0;
+  }
+  body = length == 0 ? nullptr : data;
+  return exactUint32FromSize(runtime, length, "body length");
+}
+
 } // namespace
 
 void installHttpHostFunctions(ExactHermesRuntime* handle) {
@@ -229,10 +252,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactHttpDrain", std::move(httpDrainFn));
 
   // __exactHttpWait(serverId, timeoutMs) -> Promise(JSON string | null)
-  // Waits can stay parked for a long time, so a fixed-size worker pool is
-  // incorrect here: one native server can legitimately keep multiple waits
-  // outstanding, which can starve unrelated waits forever. Keep an adaptive
-  // reusable pool instead so each concurrent wait gets a worker.
+  // Waits can stay parked for a long time, so this bridge uses a reusable pool
+  // with a hard process-wide cap. Excess concurrent waits reject instead of
+  // spawning detached native threads without bound.
   auto httpWaitFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactHttpWait"),
@@ -248,7 +270,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t timeout_ms = 0;
         if (count > 1 && args[1].isNumber()) {
-          timeout_ms = static_cast<uint32_t>(args[1].asNumber());
+          timeout_ms = exactUint32FromValue(runtime, args[1], "timeoutMs", 0);
         }
         if (!requireHttpServerOwner(runtime, server_id, "__exactHttpWait")) {
           return facebook::jsi::Value::null();
@@ -297,17 +319,25 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 std::shared_ptr<facebook::jsi::Function> reject;
               };
 
+              constexpr size_t kMaxWaitWorkers = 16;
+              constexpr size_t kMaxWaitQueue = 128;
+
               struct WaitWorkerPool {
                 std::mutex mutex;
                 std::condition_variable cv;
                 std::deque<WaitTask> queue;
                 size_t idle_workers{0};
+                size_t total_workers{0};
 
                 void spawnWorkerIfNeededLocked() {
                   if (idle_workers > 0) {
                     return;
                   }
+                  if (total_workers >= kMaxWaitWorkers) {
+                    return;
+                  }
 
+                  total_workers += 1;
                   std::thread([this]() {
                     while (true) {
                       WaitTask t;
@@ -356,20 +386,34 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                   }).detach();
                 }
 
-                void enqueue(WaitTask task) {
+                bool enqueue(WaitTask task, std::string& error) {
                   {
                     std::lock_guard<std::mutex> lock(mutex);
+                    if (idle_workers == 0 && total_workers >= kMaxWaitWorkers) {
+                      error = "__exactHttpWait worker limit reached";
+                      return false;
+                    }
+                    if (queue.size() >= kMaxWaitQueue) {
+                      error = "__exactHttpWait queue limit reached";
+                      return false;
+                    }
                     spawnWorkerIfNeededLocked();
                     queue.push_back(std::move(task));
                   }
                   cv.notify_one();
+                  return true;
                 }
               };
 
               static WaitWorkerPool workerPool;
 
               auto task = WaitTask{handle, server_id, timeout_ms, waitPrincipal, resolve, reject};
-              workerPool.enqueue(std::move(task));
+              std::string enqueueError;
+              if (!workerPool.enqueue(std::move(task), enqueueError)) {
+                reject->call(
+                    runtime,
+                    facebook::jsi::JSError(runtime, enqueueError.c_str()).value());
+              }
 
               return facebook::jsi::Value::undefined();
             });
@@ -434,24 +478,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
 
         // Body as Uint8Array
         const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        if (count > 4 && !args[4].isNull() && !args[4].isUndefined() && args[4].isObject()) {
-          auto bodyObj = args[4].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body = buf.data(runtime) + offset;
-              body_len = static_cast<uint32_t>(length);
-            }
-          }
-        }
+        uint32_t body_len = extractOptionalHttpBody(runtime, args, count, 4, body);
 
         int32_t result = ex_host_http_respond(
             server_id, request_id, status, headers_json, body, body_len);
@@ -479,24 +506,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
 
         const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        if (count > 3 && !args[3].isNull() && !args[3].isUndefined() && args[3].isObject()) {
-          auto bodyObj = args[3].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body = buf.data(runtime) + offset;
-              body_len = static_cast<uint32_t>(length);
-            }
-          }
-        }
+        uint32_t body_len = extractOptionalHttpBody(runtime, args, count, 3, body);
 
         int32_t result = ex_host_http_respond_text(
             server_id, request_id, status, body, body_len);
@@ -524,24 +534,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
 
         const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        if (count > 3 && !args[3].isNull() && !args[3].isUndefined() && args[3].isObject()) {
-          auto bodyObj = args[3].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body = buf.data(runtime) + offset;
-              body_len = static_cast<uint32_t>(length);
-            }
-          }
-        }
+        uint32_t body_len = extractOptionalHttpBody(runtime, args, count, 3, body);
 
         int32_t result = ex_host_http_respond_json(
             server_id, request_id, status, body, body_len);
@@ -585,7 +578,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         if (count > 4 && args[4].isString()) {
           body_str = args[4].toString(runtime).utf8(runtime);
           body = reinterpret_cast<const uint8_t*>(body_str.data());
-          body_len = static_cast<uint32_t>(body_str.size());
+          body_len = exactUint32FromSize(runtime, body_str.size(), "body length");
         }
 
         int32_t result = ex_host_http_respond_string(
@@ -645,24 +638,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
 
         const uint8_t* body = nullptr;
-        uint32_t body_len = 0;
-        if (count > 2 && !args[2].isNull() && !args[2].isUndefined() && args[2].isObject()) {
-          auto bodyObj = args[2].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body = buf.data(runtime) + offset;
-              body_len = static_cast<uint32_t>(length);
-            }
-          }
-        }
+        uint32_t body_len = extractOptionalHttpBody(runtime, args, count, 2, body);
 
         int32_t result = ex_host_http_respond_chunk(
             server_id, request_id, body, body_len);

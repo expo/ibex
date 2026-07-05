@@ -229,6 +229,14 @@ void exactRequireTransferableFd(facebook::jsi::Runtime& runtime, int fd, const c
   }
 }
 
+void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  requireFdRead(runtime, fd, syscall);
+}
+
+void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  requireFdWrite(runtime, fd, syscall);
+}
+
 static bool parseIoVecArguments(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::Value& value,

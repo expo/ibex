@@ -806,6 +806,9 @@ function getApiCapabilityMap(): Record<string, Capability[]> {
     
     // WebSocket
     'WebSocket': ['network:connect'],
+    'dns.lookup': ['network:resolve'],
+    'dns.resolve': ['network:resolve'],
+    'dns.reverse': ['network:resolve'],
     
     // Storage
     'localStorage': ['storage:local'],
@@ -845,6 +848,7 @@ function getCapabilityDescription(capability: Capability): string {
   const descriptions: Record<string, string> = {
     'network:fetch': 'Make network requests to remote servers',
     'network:connect': 'Establish persistent network connections',
+    'network:resolve': 'Resolve hostnames with DNS',
     'network:local': 'Access devices on your local network',
     'storage:local': 'Store data locally on your device',
     'storage:session': 'Store temporary session data',
@@ -1045,6 +1049,7 @@ export const Capabilities = {
   // Network
   NETWORK_FETCH: 'network:fetch',
   NETWORK_CONNECT: 'network:connect',
+  NETWORK_RESOLVE: 'network:resolve',
   NETWORK_LISTEN: 'network:listen',
   NETWORK_LOCAL: 'network:local', // Local network access (mDNS, Bonjour)
   

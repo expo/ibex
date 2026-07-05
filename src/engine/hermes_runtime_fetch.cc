@@ -35,6 +35,63 @@ namespace {
   // @ref LLP 0008#linux-networking
 constexpr uint32_t EXACT_FETCH_NO_TIMEOUT_MS = 0;
 
+bool isFetchHeaderNameChar(unsigned char c) {
+  return std::isalnum(c) || c == '!' || c == '#' || c == '$' || c == '%' || c == '&' ||
+      c == '\'' || c == '*' || c == '+' || c == '-' || c == '.' || c == '^' || c == '_' ||
+      c == '`' || c == '|' || c == '~';
+}
+
+void appendFetchHeader(
+    facebook::jsi::Runtime& runtime,
+    std::string& headers,
+    const std::string& name,
+    const std::string& value) {
+  if (name.empty()) {
+    throw facebook::jsi::JSError(runtime, "__nativeFetch: invalid empty header name");
+  }
+  for (unsigned char c : name) {
+    if (!isFetchHeaderNameChar(c)) {
+      throw facebook::jsi::JSError(runtime, "__nativeFetch: invalid header name");
+    }
+  }
+  for (unsigned char c : value) {
+    if (c <= 0x1f || c == 0x7f) {
+      throw facebook::jsi::JSError(runtime, "__nativeFetch: invalid header value");
+    }
+  }
+  headers += name + ": " + value + "\r\n";
+}
+
+std::string buildFetchHeaders(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Object& init) {
+  std::string headers;
+  if (!init.hasProperty(runtime, "headers")) {
+    return headers;
+  }
+  auto headersVal = init.getProperty(runtime, "headers");
+  if (!headersVal.isObject()) {
+    return headers;
+  }
+  auto headersObj = headersVal.asObject(runtime);
+  if (!headersObj.isArray(runtime)) {
+    return headers;
+  }
+  auto headersArray = headersObj.getArray(runtime);
+  for (size_t i = 0; i < headersArray.size(runtime); i++) {
+    auto tuple = headersArray.getValueAtIndex(runtime, i);
+    if (tuple.isObject() && tuple.asObject(runtime).isArray(runtime)) {
+      auto pair = tuple.asObject(runtime).getArray(runtime);
+      if (pair.size(runtime) >= 2) {
+        auto name = pair.getValueAtIndex(runtime, 0).toString(runtime).utf8(runtime);
+        auto value = pair.getValueAtIndex(runtime, 1).toString(runtime).utf8(runtime);
+        appendFetchHeader(runtime, headers, name, value);
+      }
+    }
+  }
+  return headers;
+}
+
 #if defined(_WIN32)
 struct SyncFetchResult {
   std::mutex mutex;
@@ -87,28 +144,8 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           }
         }
 
-        std::string headers;
+        std::string headers = buildFetchHeaders(runtime, init);
         bool decompress = true;
-        if (init.hasProperty(runtime, "headers")) {
-          auto headersVal = init.getProperty(runtime, "headers");
-          if (headersVal.isObject()) {
-            auto headersObj = headersVal.asObject(runtime);
-            if (headersObj.isArray(runtime)) {
-              auto headersArray = headersObj.getArray(runtime);
-              for (size_t i = 0; i < headersArray.size(runtime); i++) {
-                auto tuple = headersArray.getValueAtIndex(runtime, i);
-                if (tuple.isObject() && tuple.asObject(runtime).isArray(runtime)) {
-                  auto pair = tuple.asObject(runtime).getArray(runtime);
-                  if (pair.size(runtime) >= 2) {
-                    auto name = pair.getValueAtIndex(runtime, 0).toString(runtime).utf8(runtime);
-                    auto value = pair.getValueAtIndex(runtime, 1).toString(runtime).utf8(runtime);
-                    headers += name + ": " + value + "\r\n";
-                  }
-                }
-              }
-            }
-          }
-        }
         if (init.hasProperty(runtime, "decompress")) {
           auto decompressVal = init.getProperty(runtime, "decompress");
           if (decompressVal.isBool()) {
@@ -120,10 +157,8 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         if (init.hasProperty(runtime, "timeout")) {
           auto timeoutVal = init.getProperty(runtime, "timeout");
           if (timeoutVal.isNumber()) {
-            auto timeoutNumber = timeoutVal.asNumber();
-            if (timeoutNumber > 0 && timeoutNumber <= 4294967295.0) {
-              timeout_ms = static_cast<uint32_t>(timeoutNumber);
-            }
+            timeout_ms = exactUint32FromValue(
+                runtime, timeoutVal, "timeout", EXACT_FETCH_NO_TIMEOUT_MS);
           }
         }
 
@@ -131,18 +166,10 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         if (count > 2 && !args[2].isNull() && !args[2].isUndefined()) {
           if (args[2].isObject()) {
             auto bodyObj = args[2].asObject(runtime);
-            if (bodyObj.hasProperty(runtime, "buffer")) {
-              auto bufVal = bodyObj.getProperty(runtime, "buffer");
-              if (bufVal.isObject()) {
-                auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-                auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                    ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                    : 0;
-                auto length = bodyObj.hasProperty(runtime, "byteLength")
-                    ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                    : buf.size(runtime) - offset;
-                body.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
-              }
+            const uint8_t* data = nullptr;
+            size_t length = 0;
+            if (extractArrayBufferView(runtime, bodyObj, data, length) && data && length > 0) {
+              body.assign(data, data + length);
             }
           }
         }
@@ -396,28 +423,8 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           }
         }
 
-        std::string headers;
+        std::string headers = buildFetchHeaders(runtime, init);
         bool decompress = true;
-        if (init.hasProperty(runtime, "headers")) {
-          auto headersVal = init.getProperty(runtime, "headers");
-          if (headersVal.isObject()) {
-            auto headersObj = headersVal.asObject(runtime);
-            if (headersObj.isArray(runtime)) {
-              auto headersArray = headersObj.getArray(runtime);
-              for (size_t i = 0; i < headersArray.size(runtime); i++) {
-                auto tuple = headersArray.getValueAtIndex(runtime, i);
-                if (tuple.isObject() && tuple.asObject(runtime).isArray(runtime)) {
-                  auto pair = tuple.asObject(runtime).getArray(runtime);
-                  if (pair.size(runtime) >= 2) {
-                    auto name = pair.getValueAtIndex(runtime, 0).toString(runtime).utf8(runtime);
-                    auto value = pair.getValueAtIndex(runtime, 1).toString(runtime).utf8(runtime);
-                    headers += name + ": " + value + "\r\n";
-                  }
-                }
-              }
-            }
-          }
-        }
         if (init.hasProperty(runtime, "decompress")) {
           auto decompressVal = init.getProperty(runtime, "decompress");
           if (decompressVal.isBool()) {
@@ -429,28 +436,18 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         if (init.hasProperty(runtime, "timeout")) {
           auto timeoutVal = init.getProperty(runtime, "timeout");
           if (timeoutVal.isNumber()) {
-            auto timeoutNumber = timeoutVal.asNumber();
-            if (timeoutNumber > 0 && timeoutNumber <= 4294967295.0) {
-              timeout_ms = static_cast<uint32_t>(timeoutNumber);
-            }
+            timeout_ms = exactUint32FromValue(
+                runtime, timeoutVal, "timeout", EXACT_FETCH_NO_TIMEOUT_MS);
           }
         }
 
         std::vector<uint8_t> body;
         if (count > 2 && !args[2].isNull() && !args[2].isUndefined() && args[2].isObject()) {
           auto bodyObj = args[2].asObject(runtime);
-          if (bodyObj.hasProperty(runtime, "buffer")) {
-            auto bufVal = bodyObj.getProperty(runtime, "buffer");
-            if (bufVal.isObject()) {
-              auto buf = bufVal.asObject(runtime).getArrayBuffer(runtime);
-              auto offset = bodyObj.hasProperty(runtime, "byteOffset")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteOffset").asNumber())
-                  : 0;
-              auto length = bodyObj.hasProperty(runtime, "byteLength")
-                  ? static_cast<size_t>(bodyObj.getProperty(runtime, "byteLength").asNumber())
-                  : buf.size(runtime) - offset;
-              body.assign(buf.data(runtime) + offset, buf.data(runtime) + offset + length);
-            }
+          const uint8_t* data = nullptr;
+          size_t length = 0;
+          if (extractArrayBufferView(runtime, bodyObj, data, length) && data && length > 0) {
+            body.assign(data, data + length);
           }
         }
 

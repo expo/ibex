@@ -4600,36 +4600,9 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
 
         auto obj = args[0].asObject(runtime);
-        if (obj.isArrayBuffer(runtime)) {
-          auto ab = obj.getArrayBuffer(runtime);
-          ptr = ab.data(runtime);
-          length = ab.size(runtime);
-        } else {
-          auto bufferValue = obj.getProperty(runtime, "buffer");
-          if (!bufferValue.isObject() || !bufferValue.asObject(runtime).isArrayBuffer(runtime)) {
-            throw facebook::jsi::JSError(runtime, "__exactBytesToUtf8String: expected ArrayBuffer-backed view");
-          }
-          auto ab = bufferValue.asObject(runtime).getArrayBuffer(runtime);
-          size_t offset = 0;
-          size_t byteLength = ab.size(runtime);
-          auto offsetValue = obj.getProperty(runtime, "byteOffset");
-          if (offsetValue.isNumber()) {
-            offset = static_cast<size_t>(offsetValue.asNumber());
-          }
-          auto lengthValue = obj.getProperty(runtime, "byteLength");
-          if (lengthValue.isNumber()) {
-            byteLength = static_cast<size_t>(lengthValue.asNumber());
-          } else if (offset <= ab.size(runtime)) {
-            byteLength = ab.size(runtime) - offset;
-          }
-          if (offset > ab.size(runtime)) {
-            offset = ab.size(runtime);
-          }
-          if (offset + byteLength > ab.size(runtime)) {
-            byteLength = ab.size(runtime) - offset;
-          }
-          ptr = ab.data(runtime) + offset;
-          length = byteLength;
+        if (!extractArrayBufferView(runtime, obj, ptr, length)) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactBytesToUtf8String: expected ArrayBuffer-backed view");
         }
 
         return facebook::jsi::String::createFromUtf8(runtime, ptr, length);

@@ -36,6 +36,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactDnsLookup: hostname required");
         }
         auto hostname = args[0].asString(runtime).utf8(runtime);
+        requireNetworkResolveCapability(runtime, hostname, "__exactDnsLookup");
         int family = 0;  // 0 = any, 4 = IPv4, 6 = IPv6
         if (count > 1 && args[1].isNumber()) {
           family = static_cast<int>(args[1].asNumber());
@@ -106,6 +107,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactDnsResolve requires hostname and rrtype");
         }
         auto hostname = args[0].asString(runtime).utf8(runtime);
+        requireNetworkResolveCapability(runtime, hostname, "__exactDnsResolve");
         auto rrtype = args[1].asString(runtime).utf8(runtime);
         int qtype = 0;
         if (rrtype == "MX") {
@@ -437,6 +439,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
         } else {
           throw facebook::jsi::JSError(runtime, ("invalid IP address: " + ip).c_str());
         }
+        requireNetworkResolveCapability(runtime, ip, "__exactDnsReverse");
         char host[NI_MAXHOST];
         int ret = getnameinfo(
             reinterpret_cast<struct sockaddr*>(&sa),

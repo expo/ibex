@@ -1656,6 +1656,26 @@ mod tests {
         LOCK.get_or_init(Mutex::default)
     }
 
+    struct HostResetGuard;
+
+    impl Drop for HostResetGuard {
+        fn drop(&mut self) {
+            crate::host::abi::install_host(crate::host::Host::strict());
+        }
+    }
+
+    fn install_test_host_with_allow(allow: &[&str]) -> HostResetGuard {
+        crate::host::abi::install_host(crate::host::Host::new(crate::host::HostConfig {
+            mode: crate::host::SecurityMode::Enforce,
+            allow: allow
+                .iter()
+                .map(|capability| capability.to_string())
+                .collect(),
+            ..Default::default()
+        }));
+        HostResetGuard
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn fresh_runtime_preinstalls_shared_runtime_bundle() {
         // The C Hermes host callbacks are process-global in the test binary.
@@ -1707,6 +1727,86 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn native_byte_and_fetch_boundaries_reject_forged_inputs() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let _host_guard = install_test_host_with_allow(&["network:fetch:127.0.0.1"]);
+        let engine = HermesEngine::new().unwrap();
+
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                    var out = [];
+                    var forged = { buffer: new ArrayBuffer(4), byteOffset: 3, byteLength: 4 };
+                    try {
+                      __nativeFetch('http://127.0.0.1:9/', {
+                        headers: [['x-test', 'ok\r\nInjected: yes']]
+                      });
+                      out.push('headers:ALLOWED');
+                    } catch (e) {
+                      out.push(String(e && e.message || e).indexOf('invalid header') !== -1
+                        ? 'headers:DENIED' : 'headers:ERR');
+                    }
+                    try {
+                      __exactBytesToUtf8String(forged);
+                      out.push('utf8:ALLOWED');
+                    } catch (e) {
+                      out.push(String(e && e.message || e).indexOf('out of bounds') !== -1
+                        ? 'utf8:DENIED' : 'utf8:ERR');
+                    }
+                    try {
+                      __nativeFetch('http://127.0.0.1:9/', { method: 'POST', headers: [] }, forged);
+                      out.push('fetch-body:ALLOWED');
+                    } catch (e) {
+                      out.push(String(e && e.message || e).indexOf('out of bounds') !== -1
+                        ? 'fetch-body:DENIED' : 'fetch-body:ERR');
+                    }
+                    return out.join(' ');
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap_or_default();
+
+        assert_eq!(
+            outcome.trim(),
+            "headers:DENIED utf8:DENIED fetch-body:DENIED"
+        );
+    }
+
+    #[cfg(feature = "host-http-server")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn native_http_response_body_rejects_forged_view_bounds() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let _host_guard = install_test_host_with_allow(&["network:listen:127.0.0.1:0"]);
+        let engine = HermesEngine::new().unwrap();
+
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                    __exactEnsureHttp();
+                    var server = JSON.parse(__exactHttpServe(0, '127.0.0.1'));
+                    if (server.error) return 'setup:' + server.error;
+                    __exactHttpSetRef(server.id, 0);
+                    var forged = { buffer: new ArrayBuffer(4), byteOffset: 3, byteLength: 4 };
+                    try {
+                      __exactHttpRespond(server.id, 1, 200, '[]', forged);
+                      return 'http-body:ALLOWED';
+                    } catch (e) {
+                      return String(e && e.message || e).indexOf('out of bounds') !== -1
+                        ? 'http-body:DENIED' : 'http-body:ERR';
+                    } finally {
+                      __exactHttpClose(server.id, 1);
+                    }
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap_or_default();
+
+        assert_eq!(outcome.trim(), "http-body:DENIED");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn host_call_async_resolves_and_rejects_through_the_promise_channel() {
         let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().unwrap();
@@ -1755,6 +1855,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn http_wait_timeout_is_not_starved_by_existing_waiters() {
         let _guard = hermes_engine_test_lock().lock().await;
+        let _host_guard = install_test_host_with_allow(&["network:listen:127.0.0.1:0"]);
         let engine = HermesEngine::new().unwrap();
 
         let setup = eval_json(
@@ -1804,6 +1905,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn native_http_bridge_round_trips_wait_request_and_response() {
         let _guard = hermes_engine_test_lock().lock().await;
+        let _host_guard = install_test_host_with_allow(&["network:listen:127.0.0.1:0"]);
         let engine = HermesEngine::new().unwrap();
 
         let setup = eval_json(

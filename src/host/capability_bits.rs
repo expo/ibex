@@ -67,6 +67,7 @@ pub const CAPABILITY_BIT_DEFINITIONS: &[CapabilityBitDefinition] = &[
     CapabilityBitDefinition { capability: "time:now", bit: 53 },
     CapabilityBitDefinition { capability: "time:highres", bit: 54 },
     CapabilityBitDefinition { capability: "ipc:channel", bit: 55 },
+    CapabilityBitDefinition { capability: "network:resolve", bit: 56 },
 ];
 
 #[cfg(test)]

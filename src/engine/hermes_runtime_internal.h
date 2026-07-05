@@ -156,6 +156,8 @@ struct ExactHermesRuntime {
 struct NativeWebSocketCallbackContext {
   ExactHermesRuntime* runtime;
   std::shared_ptr<facebook::jsi::Object> ws_instance;
+  uint64_t principal;
+  std::string capability;
   std::atomic<uint32_t> ref_count{1};
 };
 
@@ -290,15 +292,7 @@ class VectorBuffer : public facebook::jsi::MutableBuffer {
 #endif
 
 inline bool isAllowAll() {
-#ifdef _WIN32
   return ex_host_is_allow_all() != 0;
-#else
-  static int cached = -1;
-  if (cached < 0) {
-    cached = ex_host_is_allow_all();
-  }
-  return cached != 0;
-#endif
 }
 
 // Whether any deputy capability classes are configured (Phase 5 opt-in). NOT
@@ -426,6 +420,18 @@ inline std::string asciiLower(std::string value) {
     return static_cast<char>(std::tolower(c));
   });
   return value;
+}
+
+inline void requireNetworkResolveCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& target,
+    const char* syscall) {
+  auto capability = "network:resolve:" + asciiLower(target);
+  if (!checkCapability(capability)) {
+    throw facebook::jsi::JSError(
+        runtime,
+        std::string("Permission denied: ") + syscall + " requires " + capability);
+  }
 }
 
 inline int defaultPortForNetworkScheme(const std::string& scheme) {
@@ -556,6 +562,26 @@ inline bool exactByteLengthFromValue(
   }
   out = static_cast<size_t>(n);
   return true;
+}
+
+inline uint32_t exactUint32FromSize(
+    facebook::jsi::Runtime& runtime,
+    size_t length,
+    const char* propertyName) {
+  if (length > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+    throw facebook::jsi::JSError(runtime, std::string(propertyName) + " exceeds uint32 range");
+  }
+  return static_cast<uint32_t>(length);
+}
+
+inline uint32_t exactUint32FromValue(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    const char* propertyName,
+    uint32_t defaultValue) {
+  size_t parsed = defaultValue;
+  exactByteLengthFromValue(runtime, value, propertyName, defaultValue, parsed);
+  return exactUint32FromSize(runtime, parsed, propertyName);
 }
 
 inline bool extractArrayBufferView(
@@ -725,6 +751,9 @@ void emitNewScripts(ExactHermesRuntime* runtime,
 
 void pushRuntimeCallback(ExactHermesRuntime* runtime,
                          std::function<void(facebook::jsi::Runtime&)> fn);
+
+void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
+void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 
 extern const char* g_streamEnhanceJS;
 extern const char* g_webCryptoJS;

@@ -1900,7 +1900,10 @@ fn enforce_rejects_disabled_package_isolation_without_advisory_flag() {
 
     let out = run_ibex(
         &["--policy", "ibex-policy.json", "run", "app.js"],
-        &[("IBEX_PER_PACKAGE_CHUNKS", "0")],
+        &[
+            ("IBEX_PER_PACKAGE_CHUNKS", "0"),
+            ("IBEX_CAPSEC_ALLOW_ADVISORY", "0"),
+        ],
         Some(&dir),
     );
 
@@ -2438,6 +2441,13 @@ fn enforce_closes_runtime_capability_escapes() {
         enforced.stdout,
         enforced.stderr
     );
+    // ENG-22906: process:spawn authority does not imply raw stdio fd authority.
+    assert!(
+        enforced.stdout.contains("spawnstdio: GATED"),
+        "child_process stdio fd:N redirects must be gated by fd ownership under enforce:\nstdout:\n{}\nstderr:\n{}",
+        enforced.stdout,
+        enforced.stderr
+    );
     assert!(
         !enforced.stdout.contains("STOLEN") && !enforced.stdout.contains("IMPORTED"),
         "no escape channel may succeed under enforce:\nstdout:\n{}\nstderr:\n{}",
@@ -2477,6 +2487,12 @@ fn enforce_closes_runtime_capability_escapes() {
             .stdout
             .contains("ipcfds: send=SYSCALL recv=SYSCALL"),
         "permissive IPC helpers must reach the syscall (gate skipped):\nstdout:\n{}\nstderr:\n{}",
+        permissive.stdout,
+        permissive.stderr
+    );
+    assert!(
+        permissive.stdout.contains("spawnstdio: SYSCALL"),
+        "permissive stdio fd:N redirect must reach fork/exec (gate skipped):\nstdout:\n{}\nstderr:\n{}",
         permissive.stdout,
         permissive.stderr
     );
@@ -2981,6 +2997,104 @@ server.listen(0, "127.0.0.1", async function() {
         out.stdout,
         out.stderr
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn dns_requires_network_resolve_capability() {
+    let dir = unique_dir("dns-resolve-gate");
+    write_text(
+        &dir.join("node_modules/dns-probe/package.json"),
+        r#"{ "name": "dns-probe", "version": "1.0.0", "main": "index.js" }"#,
+    );
+    write_text(
+        &dir.join("node_modules/dns-probe/index.js"),
+        r#"
+var dns = require("node:dns");
+exports.run = function run(label) {
+  try {
+    __exactDnsLookup("localhost", 4);
+    console.log(label + ":native:OK");
+  } catch (e) {
+    console.log(label + ":native:DENIED:" + String(e && e.message || e));
+  }
+  dns.lookup("localhost", { family: 4 }, function(err, address) {
+    console.log(label + ":api:" + (err ? "DENIED" : ("OK:" + !!address)));
+  });
+};
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        r#"
+var probe = require("dns-probe");
+probe.run("dns");
+"#,
+    );
+
+    let denied_policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "dns-probe": {
+                "capabilities": [],
+                "builtins": ["node:dns", "buffer"]
+            }
+        }
+    });
+    write_text(&dir.join("denied-policy.json"), &denied_policy.to_string());
+    let denied = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("denied-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        denied.stdout.contains("dns:native:DENIED")
+            && denied.stdout.contains("network:resolve:localhost")
+            && denied.stdout.contains("dns:api:DENIED"),
+        "node:dns lookup must be denied without network:resolve:\nstdout:\n{}\nstderr:\n{}",
+        denied.stdout,
+        denied.stderr
+    );
+
+    let granted_policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "dns-probe": {
+                "capabilities": ["network:resolve:localhost"],
+                "builtins": ["node:dns", "buffer"]
+            }
+        }
+    });
+    write_text(
+        &dir.join("granted-policy.json"),
+        &granted_policy.to_string(),
+    );
+    let granted = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &dir.join("granted-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+    assert!(
+        granted.stdout.contains("dns:native:OK") && granted.stdout.contains("dns:api:OK:true"),
+        "network:resolve:localhost should allow localhost lookup:\nstdout:\n{}\nstderr:\n{}",
+        granted.stdout,
+        granted.stderr
+    );
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 

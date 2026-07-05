@@ -4,10 +4,12 @@
 // cannot, but it can still see the installed natives, which is the point of the
 // ownership gate.
 require("fs");
+require("child_process");
 var evil = require("evil-pkg");
 console.log("selfgrant: " + evil.selfGrant(process.env.SECRETPATH));
 console.log("aliases: " + evil.aliases());
 console.log("ipcfds: " + evil.ipcFds());
+console.log("spawnstdio: " + evil.spawnStdioFd());
 evil.detachedRequire().then(function (r) {
   console.log("detached: " + r);
 });

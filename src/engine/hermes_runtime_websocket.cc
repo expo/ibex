@@ -3,6 +3,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 typedef void (*NativeWsOpenCallback)(
@@ -26,6 +27,57 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
 extern "C" void native_ws_pause(uint32_t ws_id);
 extern "C" void native_ws_resume(uint32_t ws_id);
 extern "C" void native_ws_set_flow_controlled(uint32_t ws_id, int enabled);
+
+namespace {
+
+struct WebSocketEntry {
+  uint64_t owner;
+  std::string capability;
+};
+
+static std::mutex g_websocket_mutex;
+static std::unordered_map<uint32_t, WebSocketEntry> g_websockets;
+
+void registerWebSocket(uint32_t ws_id, uint64_t owner, const std::string& capability) {
+  if (ws_id == 0 || isAllowAll()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_websocket_mutex);
+  g_websockets[ws_id] = WebSocketEntry{owner, capability};
+}
+
+WebSocketEntry requireWebSocketOwner(
+    facebook::jsi::Runtime& runtime,
+    uint32_t ws_id,
+    const char* syscall) {
+  if (isAllowAll()) {
+    return WebSocketEntry{currentPrincipalId(), ""};
+  }
+  WebSocketEntry entry;
+  {
+    std::lock_guard<std::mutex> lock(g_websocket_mutex);
+    auto it = g_websockets.find(ws_id);
+    if (it == g_websockets.end()) {
+      throw facebook::jsi::JSError(runtime, std::string(syscall) + ": unknown WebSocket");
+    }
+    entry = it->second;
+  }
+  if (entry.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(syscall) + ": WebSocket belongs to a different principal");
+  }
+  if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+    throw facebook::jsi::JSError(runtime, std::string("Permission denied: ") + syscall);
+  }
+  return entry;
+}
+
+void unregisterWebSocket(uint32_t ws_id) {
+  std::lock_guard<std::mutex> lock(g_websocket_mutex);
+  g_websockets.erase(ws_id);
+}
+
+} // namespace
 
 void installWebSocketGlobals(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
@@ -52,13 +104,16 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
         }
         // @ref LLP 0013#policy — WebSocket native I/O is the security boundary;
         // endpoint-scoped grants must authorize the concrete peer, not just JS.
-        if (!checkCapability(
-                "network:connect:" + parsedUrl.host + ":" + std::to_string(parsedUrl.port))) {
+        std::string connectCapability =
+            "network:connect:" + parsedUrl.host + ":" + std::to_string(parsedUrl.port);
+        if (!checkCapability(connectCapability)) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: network:connect capability required");
         }
+        auto wsPrincipal = currentPrincipalId();
         auto wsInstance = std::make_shared<facebook::jsi::Object>(args[2].asObject(runtime));
-        auto* callbackContext = new NativeWebSocketCallbackContext{handle, wsInstance, 1};
+        auto* callbackContext =
+            new NativeWebSocketCallbackContext{handle, wsInstance, wsPrincipal, connectCapability, 1};
 
         auto wsId = native_ws_connect(
             url.c_str(),
@@ -70,6 +125,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               }
               auto runtime = context->runtime;
               auto wsObj = context->ws_instance;
+              auto principal = context->principal;
               auto protoCopy = std::string(protocol ? protocol : "");
               auto extCopy = std::string(extensions ? extensions : "");
               native_ws_retain_context(context);
@@ -80,7 +136,9 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                   [wsObj,
                    protoCopy,
                    extCopy,
+                   principal,
                    context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                    ScopedNativePrincipal nativePrincipal(principal);
                     auto fn = wsObj->getPropertyAsFunction(rt, "_handleOpen");
                     fn.call(rt,
                             facebook::jsi::String::createFromUtf8(rt, protoCopy),
@@ -94,6 +152,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               }
               auto runtime = context->runtime;
               auto wsObj = context->ws_instance;
+              auto principal = context->principal;
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               if (is_text) {
@@ -102,7 +161,9 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                     runtime,
                     [wsObj,
                      textCopy,
+                     principal,
                      context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                      ScopedNativePrincipal nativePrincipal(principal);
                       auto fn = wsObj->getPropertyAsFunction(rt, "_handleMessage");
                       fn.call(rt, facebook::jsi::String::createFromUtf8(rt, textCopy));
                     });
@@ -112,10 +173,12 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                     runtime,
                     [wsObj,
                      dataCopy,
+                     principal,
                      context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                      ScopedNativePrincipal nativePrincipal(principal);
                       auto ab = rt.global()
                                     .getPropertyAsFunction(rt, "ArrayBuffer")
-                                    .callAsConstructor(rt, static_cast<int>(dataCopy->size()))
+                                    .callAsConstructor(rt, static_cast<double>(dataCopy->size()))
                                     .asObject(rt)
                                     .getArrayBuffer(rt);
                       memcpy(ab.data(rt), dataCopy->data(), dataCopy->size());
@@ -124,16 +187,18 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                     });
               }
             },
-            [](uint32_t, uint16_t code, const char* reason, int was_clean, void* ctx) {
+            [](uint32_t ws_id, uint16_t code, const char* reason, int was_clean, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
               if (!context || !context->runtime || !context->ws_instance) {
                 return;
               }
               auto runtime = context->runtime;
               auto wsObj = context->ws_instance;
+              auto principal = context->principal;
               auto reasonCopy = std::string(reason ? reason : "");
               auto codeCopy = code;
               auto cleanCopy = was_clean;
+              unregisterWebSocket(ws_id);
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
@@ -142,7 +207,9 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                    codeCopy,
                    reasonCopy,
                    cleanCopy,
+                   principal,
                    context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                    ScopedNativePrincipal nativePrincipal(principal);
                     auto fn = wsObj->getPropertyAsFunction(rt, "_handleClose");
                     fn.call(rt,
                             facebook::jsi::Value(static_cast<int>(codeCopy)),
@@ -150,21 +217,25 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                             facebook::jsi::Value(cleanCopy != 0));
                   });
             },
-            [](uint32_t, const char* message, void* ctx) {
+            [](uint32_t ws_id, const char* message, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
               if (!context || !context->runtime || !context->ws_instance) {
                 return;
               }
               auto runtime = context->runtime;
               auto wsObj = context->ws_instance;
+              auto principal = context->principal;
               auto msgCopy = std::string(message ? message : "Unknown error");
+              unregisterWebSocket(ws_id);
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
                   runtime,
                   [wsObj,
                    msgCopy,
+                   principal,
                    context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                    ScopedNativePrincipal nativePrincipal(principal);
                     auto fn = wsObj->getPropertyAsFunction(rt, "_handleError");
                     fn.call(rt, facebook::jsi::String::createFromUtf8(rt, msgCopy));
                   });
@@ -176,6 +247,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               }
               auto runtime = context->runtime;
               auto wsObj = context->ws_instance;
+              auto principal = context->principal;
               auto sentCopy = bytes_sent;
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
@@ -183,7 +255,9 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                   runtime,
                   [wsObj,
                    sentCopy,
+                   principal,
                    context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
+                    ScopedNativePrincipal nativePrincipal(principal);
                     auto fn = wsObj->getPropertyAsFunction(rt, "_handleBytesSent");
                     fn.call(rt, facebook::jsi::Value(static_cast<int>(sentCopy)));
                   });
@@ -193,6 +267,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
           native_ws_release_context(callbackContext);
           return facebook::jsi::Value::undefined();
         }
+        registerWebSocket(wsId, wsPrincipal, connectCapability);
         return facebook::jsi::Value(static_cast<int>(wsId));
       });
   rt.global().setProperty(rt, "__exactWsConnect", std::move(wsConnectFn));
@@ -207,6 +282,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        (void)requireWebSocketOwner(runtime, ws_id, "__exactWsSend");
         if (args[1].isString()) {
           auto text = args[1].toString(runtime).utf8(runtime);
           native_ws_send(
@@ -236,11 +312,13 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        (void)requireWebSocketOwner(runtime, ws_id, "__exactWsClose");
         uint16_t code =
             count > 1 && args[1].isNumber() ? static_cast<uint16_t>(args[1].asNumber()) : 1005;
         std::string reason =
             count > 2 && args[2].isString() ? args[2].toString(runtime).utf8(runtime) : "";
         native_ws_close(ws_id, code, reason.c_str());
+        unregisterWebSocket(ws_id);
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactWsClose", std::move(wsCloseFn));
@@ -249,12 +327,13 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactWsPause"),
       1,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        (void)requireWebSocketOwner(runtime, ws_id, "__exactWsPause");
         native_ws_pause(ws_id);
         return facebook::jsi::Value::undefined();
       });
@@ -264,12 +343,13 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactWsResume"),
       1,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        (void)requireWebSocketOwner(runtime, ws_id, "__exactWsResume");
         native_ws_resume(ws_id);
         return facebook::jsi::Value::undefined();
       });
@@ -279,12 +359,13 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactWsSetFlowControlled"),
       2,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
+        (void)requireWebSocketOwner(runtime, ws_id, "__exactWsSetFlowControlled");
         int enabled = args[1].isBool() ? (args[1].getBool() ? 1 : 0) : 0;
         native_ws_set_flow_controlled(ws_id, enabled);
         return facebook::jsi::Value::undefined();

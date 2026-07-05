@@ -1021,6 +1021,64 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         stdoutFdRedirect = parseFdMode(stdioModes[1]);
         stderrFdRedirect = parseFdMode(stdioModes[2]);
 
+        auto currentPrincipalOwnsSpawnFd = [](int fd, bool needsRead, bool needsWrite) {
+          if (fd < 0) {
+            return false;
+          }
+          auto principal = currentPrincipalId();
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          for (const auto& pair : s_spawnedProcesses) {
+            const auto& proc = pair.second;
+            if (!isAllowAll() && proc.owner != principal) {
+              continue;
+            }
+            if (fd == proc.stdinFd) {
+              if (needsRead) return false;
+              if (needsWrite) return true;
+            }
+            if (fd == proc.stdoutFd || fd == proc.stderrFd) {
+              if (needsWrite) return false;
+              if (needsRead) return true;
+            }
+            if (fd == proc.ipcFd) {
+              return true;
+            }
+            for (int extraFd : proc.extraFds) {
+              if (fd == extraFd) {
+                return true;
+              }
+            }
+          }
+          return false;
+        };
+
+        auto requireRedirectFd = [&](int fd, bool needsRead, bool needsWrite, const char* syscall) {
+          if (fd < 0 || isAllowAll()) {
+            return;
+          }
+          if (currentPrincipalOwnsSpawnFd(fd, needsRead, needsWrite)) {
+            return;
+          }
+          try {
+            if (needsRead) {
+              exactRequireFdReadable(runtime, fd, syscall);
+            }
+            if (needsWrite) {
+              exactRequireFdWritable(runtime, fd, syscall);
+            }
+          } catch (const facebook::jsi::JSError&) {
+            throw facebook::jsi::JSError(
+                runtime, std::string(syscall) + ": fd is not owned by this principal");
+          }
+        };
+
+        // @ref LLP 0013#policy — raw fd integers are forgeable. Validate every
+        // fd:N stdio redirect before fork so process:spawn cannot smuggle an
+        // unowned host/internal descriptor into the child.
+        requireRedirectFd(stdinFdRedirect, true, false, "__exactSpawn stdio[0]");
+        requireRedirectFd(stdoutFdRedirect, false, true, "__exactSpawn stdio[1]");
+        requireRedirectFd(stderrFdRedirect, false, true, "__exactSpawn stdio[2]");
+
         // Create pipes for stdin, stdout, stderr
         int stdinPipeFd[2] = {-1, -1};
         int stdoutPipeFd[2] = {-1, -1};

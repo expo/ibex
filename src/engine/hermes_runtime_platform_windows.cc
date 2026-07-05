@@ -199,30 +199,10 @@ std::vector<uint8_t> jsiValueToBytes(
   }
   if (value.isObject()) {
     auto obj = value.asObject(runtime);
-    if (obj.isArrayBuffer(runtime)) {
-      auto ab = obj.getArrayBuffer(runtime);
-      const uint8_t* data = ab.data(runtime);
-      return std::vector<uint8_t>(data, data + ab.size(runtime));
-    }
-    auto bufferProp = obj.getProperty(runtime, "buffer");
-    auto byteLengthProp = obj.getProperty(runtime, "byteLength");
-    auto byteOffsetProp = obj.getProperty(runtime, "byteOffset");
-    if (bufferProp.isObject() &&
-        bufferProp.asObject(runtime).isArrayBuffer(runtime) &&
-        byteLengthProp.isNumber()) {
-      auto ab = bufferProp.asObject(runtime).getArrayBuffer(runtime);
-      size_t offset = byteOffsetProp.isNumber()
-          ? static_cast<size_t>(byteOffsetProp.asNumber())
-          : 0;
-      size_t length = static_cast<size_t>(byteLengthProp.asNumber());
-      if (offset > ab.size(runtime)) {
-        throw facebook::jsi::JSError(runtime, "invalid byteOffset");
-      }
-      if (offset + length > ab.size(runtime)) {
-        length = ab.size(runtime) - offset;
-      }
-      const uint8_t* data = ab.data(runtime) + offset;
-      return std::vector<uint8_t>(data, data + length);
+    const uint8_t* data = nullptr;
+    size_t length = 0;
+    if (extractArrayBufferView(runtime, obj, data, length)) {
+      return data ? std::vector<uint8_t>(data, data + length) : std::vector<uint8_t>();
     }
   }
   std::string data = value.toString(runtime).utf8(runtime);
@@ -944,6 +924,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
         }
         ensureWinsock();
         std::string hostname = args[0].toString(runtime).utf8(runtime);
+        requireNetworkResolveCapability(runtime, hostname, "__exactDnsLookup");
         int family = 0;
         if (count > 1 && args[1].isNumber()) {
           family = static_cast<int>(args[1].asNumber());
@@ -996,6 +977,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
         }
         ensureWinsock();
         std::string hostname = args[0].toString(runtime).utf8(runtime);
+        requireNetworkResolveCapability(runtime, hostname, "__exactDnsResolve");
         std::string rrtype = "A";
         if (count > 1 && args[1].isString()) {
           rrtype = args[1].toString(runtime).utf8(runtime);

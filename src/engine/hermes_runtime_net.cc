@@ -307,32 +307,13 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             written = ::write(fd, data.data(), data.size());
           } else if (args[1].isObject()) {
             auto obj = args[1].asObject(runtime);
-            if (obj.isArrayBuffer(runtime)) {
-              auto ab = obj.getArrayBuffer(runtime);
-              written = ::write(fd, ab.data(runtime), ab.size(runtime));
+            const uint8_t* data = nullptr;
+            size_t length = 0;
+            if (extractArrayBufferView(runtime, obj, data, length)) {
+              written = length == 0 ? 0 : ::write(fd, data, length);
             } else {
-              auto bufProp = obj.getProperty(runtime, "buffer");
-              auto byteLenProp = obj.getProperty(runtime, "byteLength");
-              auto byteOffProp = obj.getProperty(runtime, "byteOffset");
-              if (bufProp.isObject() && bufProp.asObject(runtime).isArrayBuffer(runtime)) {
-                auto ab = bufProp.asObject(runtime).getArrayBuffer(runtime);
-                size_t offset = byteOffProp.isNumber() ? static_cast<size_t>(byteOffProp.asNumber()) : 0;
-                size_t len = byteLenProp.isNumber() ? static_cast<size_t>(byteLenProp.asNumber()) : ab.size(runtime) - offset;
-                if (offset > ab.size(runtime)) {
-                  throw facebook::jsi::JSError(runtime, "__exactTcpWrite: invalid byteOffset");
-                }
-                if (offset + len > ab.size(runtime)) {
-                  len = ab.size(runtime) - offset;
-                }
-                if (len == 0) {
-                  written = 0;
-                } else {
-                  written = ::write(fd, ab.data(runtime) + offset, len);
-                }
-              } else {
-                std::string data = args[1].toString(runtime).utf8(runtime);
-                written = ::write(fd, data.data(), data.size());
-              }
+              std::string text = args[1].toString(runtime).utf8(runtime);
+              written = ::write(fd, text.data(), text.size());
             }
           } else {
             std::string data = args[1].toString(runtime).utf8(runtime);
@@ -893,21 +874,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             dataLen = strData.size();
           } else if (args[1].isObject()) {
             auto obj = args[1].asObject(runtime);
-            if (obj.isArrayBuffer(runtime)) {
-              auto ab = obj.getArrayBuffer(runtime);
-              dataPtr = ab.data(runtime);
-              dataLen = ab.size(runtime);
-            } else {
-              // Try as TypedArray (Uint8Array, Buffer)
-              auto bufProp = obj.getProperty(runtime, "buffer");
-              auto byteLenProp = obj.getProperty(runtime, "byteLength");
-              auto byteOffProp = obj.getProperty(runtime, "byteOffset");
-              if (bufProp.isObject() && byteLenProp.isNumber()) {
-                auto ab = bufProp.asObject(runtime).getArrayBuffer(runtime);
-                size_t offset = byteOffProp.isNumber() ? static_cast<size_t>(byteOffProp.asNumber()) : 0;
-                dataLen = static_cast<size_t>(byteLenProp.asNumber());
-                dataPtr = ab.data(runtime) + offset;
-              }
+            if (extractArrayBufferView(runtime, obj, dataPtr, dataLen)) {
+              // dataPtr/dataLen filled by the shared bounds-checked extractor.
             }
           }
           if (!dataPtr || dataLen == 0) {
