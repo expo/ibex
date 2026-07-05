@@ -845,17 +845,31 @@ type DOMHighResTimeStamp = number;
 // issue was fixed by having Navigator use inline detection functions
 export const window = new Window();
 
+// A second copy of this module can evaluate in the same runtime (the embedded
+// runtime bundle boots one; a bundled agent/app bootstrap can evaluate
+// another). `globalThis.matchMedia` stays lazily bound to whichever copy
+// defined it first while each copy owns its own mediaQueryLists registry, so
+// these host notify hooks must CHAIN to any previously installed hook instead
+// of clobbering it — otherwise the first copy's registry goes permanently deaf
+// to host appearance/resize notifications (ENG-22805, root cause of
+// ENG-22789's broken macOS system-appearance propagation).
+const previousNotifyMediaChange = globalThis.__exactWindowNotifyMediaChange;
 globalThis.__exactWindowNotifyMediaChange = (next) => {
+  previousNotifyMediaChange?.(next);
   updateAppearanceState(next);
 };
 
+const previousNotifyResize = globalThis.__exactWindowNotifyResize;
 globalThis.__exactWindowNotifyResize = () => {
+  previousNotifyResize?.();
   syncMediaQueries();
   dispatchWindowEvent(new Event('resize'));
   dispatchWindowEvent(new Event('orientationchange'));
 };
 
+const previousAndroidDispatchPlatformEvent = globalThis.__exactAndroidDispatchPlatformEvent;
 globalThis.__exactAndroidDispatchPlatformEvent = (event, state) => {
+  previousAndroidDispatchPlatformEvent?.(event, state);
   applyAndroidPlatformState(normalizeAndroidPlatformEvent(event), state);
 };
 
