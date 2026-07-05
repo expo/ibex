@@ -16,6 +16,7 @@ import {
   resolveCascade,
   deriveSurfaces,
   createImportGrantsPlugin,
+  bareNameOf,
 } from './import-grants.mjs';
 import { runtimeGatedNodeBuiltins } from './builtin-manifest.mjs';
 
@@ -336,6 +337,53 @@ test('cascade: union across importers delegating different scopes', () => {
     'fs:read:/p/**',
     'fs:read:/q/**',
   ]);
+});
+
+test('bareNameOf strips the version, preserving scoped names and bare names', () => {
+  expect(bareNameOf('shared-pkg@2.0.0')).toBe('shared-pkg');
+  expect(bareNameOf('@scope/name@1.0.0')).toBe('@scope/name');
+  expect(bareNameOf('shared-pkg')).toBe('shared-pkg');
+  expect(bareNameOf('@scope/name')).toBe('@scope/name');
+});
+
+// @ref LLP 0013 (ENG-22818) — with an identity-keyed cascade a delegate declared
+// by one installed version must not flow along a DIFFERENT version's import edge.
+// Mirrors tests/fixtures/llp0013/versioned-delegation.
+test('cascade: a delegate is not honored along a coexisting version edge', () => {
+  const effective = resolveCascade({
+    // The bare import-site grant is app-wide → seeded into both identities.
+    rootGrants: new Map([
+      ['shared-pkg@1.0.0', [{ capability: 'fs:read:/allowed/**', site: 'app:1' }]],
+      ['shared-pkg@2.0.0', [{ capability: 'fs:read:/allowed/**', site: 'app:1' }]],
+    ]),
+    // Only v2 imports helper-pkg (edge); only v1 delegates to it (request).
+    edges: [['shared-pkg@2.0.0', 'helper-pkg@1.0.0']],
+    requests: new Map([
+      ['shared-pkg@1.0.0', { delegates: { 'helper-pkg': ['fs:read'] } }],
+    ]),
+    bareOf: bareNameOf,
+  });
+  // No single version both imports helper-pkg AND delegates to it.
+  expect(effective.has('helper-pkg@1.0.0')).toBe(false);
+});
+
+test('cascade: a delegate IS honored when the same version has the edge', () => {
+  const effective = resolveCascade({
+    rootGrants: new Map([
+      ['shared-pkg@2.0.0', [{ capability: 'fs:read:/allowed/**', site: 'app:1' }]],
+    ]),
+    edges: [['shared-pkg@2.0.0', 'helper-pkg@1.0.0']],
+    requests: new Map([
+      // v2 both imports helper-pkg and delegates to it.
+      ['shared-pkg@2.0.0', { delegates: { 'helper-pkg': ['fs:read'] } }],
+    ]),
+    bareOf: bareNameOf,
+  });
+  expect([...effective.get('helper-pkg@1.0.0').keys()]).toEqual(['fs:read:/allowed/**']);
+  expect(effective.get('helper-pkg@1.0.0').get('fs:read:/allowed/**')).toEqual({
+    via: 'shared-pkg@2.0.0',
+    delegate: 'fs:read',
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -25,12 +25,12 @@
       "builtins": []
     },
     "fast-codec": {
-      "capabilities": [
-        "fs:read:/tmp/ibex-llp0013/**"
-      ],
       "builtins": []
     },
     "fast-codec@1.0.0": {
+      "capabilities": [
+        "fs:read:/tmp/ibex-llp0013/**"
+      ],
       "builtins": []
     },
     "image-lib": {
@@ -68,10 +68,10 @@
         "site": "app.mjs:5"
       }
     ],
-    "fast-codec": [
+    "fast-codec@1.0.0": [
       {
         "capability": "fs:read:/tmp/ibex-llp0013/**",
-        "via": "image-lib",
+        "via": "image-lib@1.0.0",
         "delegate": "fs:read"
       }
     ],

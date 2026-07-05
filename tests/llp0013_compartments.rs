@@ -658,6 +658,70 @@ fn committed_grants_artifact_is_in_sync() {
     );
 }
 
+// @ref LLP 0014#generator (ENG-22818) — the generated cascade operates on
+// version-qualified identities, so a delegate declared by one installed version
+// cannot flow along a coexisting version's import edge. Fixture: top-level
+// shared-pkg@2.0.0 imports helper-pkg but declares no delegates; nested
+// shared-pkg@1.0.0 delegates fs:read to helper-pkg but never imports it. No
+// single version both imports helper-pkg and delegates to it, so no grant may
+// reach helper-pkg (the bare-name merge that this test guards against would have
+// handed it fs:read).
+#[test]
+fn generated_policy_keeps_delegation_version_local() {
+    if !have_js_runner() {
+        eprintln!("skipping: generator (bun/node) not available");
+        return;
+    }
+    // Own copy: the bundle cache is keyed by entry path.
+    let dir = unique_dir("versioned-deleg");
+    copy_dir_recursive(&fixtures_dir().join("versioned-delegation"), &dir);
+    let policy = dir.join("ibex-policy.json");
+    let out = run_ibex(
+        &[
+            "policy",
+            "generate",
+            "--entry",
+            dir.join("app.mjs").to_str().unwrap(),
+            "--out",
+            policy.to_str().unwrap(),
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(
+        out.status, 0,
+        "policy generation should succeed:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&policy).unwrap()).unwrap();
+    let packages = artifact
+        .get("packages")
+        .and_then(|p| p.as_object())
+        .expect("packages object");
+    // No helper-pkg selector (bare or identity) may carry a capability.
+    for key in ["helper-pkg", "helper-pkg@1.0.0"] {
+        let entry = packages
+            .get(key)
+            .unwrap_or_else(|| panic!("expected {key} in the analyzed graph"));
+        assert!(
+            entry.get("capabilities").is_none(),
+            "cross-version delegation leak: {key} received a capability:\n{}",
+            serde_json::to_string_pretty(&artifact).unwrap()
+        );
+    }
+    // The app-wide import-site grant still reaches shared-pkg under the bare name.
+    assert!(
+        packages
+            .get("shared-pkg")
+            .and_then(|e| e.get("capabilities"))
+            .is_some(),
+        "the import-site grant on shared-pkg must survive:\n{}",
+        serde_json::to_string_pretty(&artifact).unwrap()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn policy_check_reports_capability_expansion_on_drift() {
     if !have_js_runner() {
