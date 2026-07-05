@@ -1814,7 +1814,9 @@ mod tests {
         let kicked = engine
             .eval_immediate(
                 r#"(function() {
-                    globalThis.__hcAsync = { resolve: 'pending', reject: 'pending' };
+                    globalThis.__hcAsync = {
+                      resolve: 'pending', reject: 'pending', numOp: 'pending'
+                    };
                     __hostCallAsync('agent.captureScreenshot', '{}').then(
                       function(r) {
                         globalThis.__hcAsync.resolve =
@@ -1829,6 +1831,22 @@ mod tests {
                            e.message.indexOf('Unknown host call') !== -1)
                             ? 'rejected-with-message' : 'rejected-odd';
                       });
+                    // ENG-22982: a non-string op must not sync-throw before the
+                    // promise exists. It is coerced (12345 -> "12345"), reaches
+                    // the host, and settles as a rejection like any unknown op —
+                    // the kick itself must NOT throw.
+                    try {
+                      __hostCallAsync(12345, '{}').then(
+                        function() { globalThis.__hcAsync.numOp = 'resolved'; },
+                        function(e) {
+                          globalThis.__hcAsync.numOp =
+                            (e && typeof e.message === 'string' &&
+                             e.message.indexOf('Unknown host call') !== -1)
+                              ? 'rejected-with-message' : 'rejected-odd';
+                        });
+                    } catch (e) {
+                      globalThis.__hcAsync.numOp = 'threw:' + (e && e.message);
+                    }
                     return 'kicked';
                 })()"#,
             )
@@ -1849,6 +1867,66 @@ mod tests {
             outcome.contains(r#""reject":"rejected-with-message""#),
             "{outcome}"
         );
+        assert!(
+            outcome.contains(r#""numOp":"rejected-with-message""#),
+            "{outcome}"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fs_positional_read_does_not_move_the_file_offset() {
+        // ENG-22982: __exactFsRead with a numeric position is a *positional*
+        // read (pread) that leaves the fd's current offset unchanged, matching
+        // Node's readSync. The old lseek+read moved the cursor, so a fixed
+        // header read followed by a sequential read returned the wrong bytes.
+        let _guard = hermes_engine_test_lock().lock().await;
+
+        let path = std::env::temp_dir().join(format!(
+            "ibex-eng-22982-positional-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&path, b"abcdefghij").unwrap();
+        let path_str = path.to_str().unwrap().to_string();
+        let cap = format!("fs:read:{path_str}");
+        let _host_guard = install_test_host_with_allow(&[cap.as_str()]);
+
+        let engine = HermesEngine::new().unwrap();
+
+        let script = format!(
+            r#"(function() {{
+                function b2s(a) {{ return String.fromCharCode.apply(null, a); }}
+                // The POSIX fs bridge is installed lazily on first use.
+                __exactEnsureFs();
+                var fd = __exactFsOpen({path_str:?}, 'r');
+                // Positional read at offset 5 -> "fg". This must NOT advance the
+                // fd cursor, so the following sequential read starts from 0.
+                var positional = b2s(__exactFsRead(fd, 2, 5));
+                var sequential = b2s(__exactFsRead(fd, 2, -1));
+                __exactFsClose(fd);
+                return JSON.stringify({{
+                    positional: positional, sequential: sequential
+                }});
+            }})()"#
+        );
+
+        let outcome = engine
+            .eval_immediate(&script)
+            .await
+            .unwrap()
+            .unwrap_or_default();
+
+        let _ = fs::remove_file(&path);
+
+        let parsed: serde_json::Value = serde_json::from_str(&outcome)
+            .unwrap_or_else(|_| panic!("fs positional read eval returned non-JSON: {outcome}"));
+        assert_eq!(parsed["positional"], "fg", "{outcome}");
+        // Pre-fix (lseek+read) this returned "hi" because the positional read
+        // moved the cursor to offset 7; pread leaves it at 0 -> "ab".
+        assert_eq!(parsed["sequential"], "ab", "{outcome}");
     }
 
     #[cfg(feature = "host-http-server")]

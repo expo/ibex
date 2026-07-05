@@ -428,10 +428,28 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "Failed to open file for writing");
         }
         if (length > 0 && dataPtr) {
-          int32_t written = ex_host_fs_write(handle, dataPtr, static_cast<uint32_t>(length));
-          if (written < 0) {
-            ex_host_fs_close(handle);
-            throw facebook::jsi::JSError(runtime, "Failed to write file");
+          // ex_host_fs_write is a single std::io::Write::write, which may write
+          // FEWER bytes than requested (nearly-full disk, RLIMIT_FSIZE, a large
+          // buffer). A single call that ignores the returned count silently
+          // truncates the file while reporting success, so loop until every byte
+          // is written (mirroring the fd-based _writeAllSync path in fs.js).
+          size_t totalWritten = 0;
+          while (totalWritten < length) {
+            size_t remaining = length - totalWritten;
+            uint32_t chunk = remaining > 0xFFFFFFFFu
+                ? 0xFFFFFFFFu
+                : static_cast<uint32_t>(remaining);
+            int32_t written = ex_host_fs_write(handle, dataPtr + totalWritten, chunk);
+            if (written < 0) {
+              ex_host_fs_close(handle);
+              throw facebook::jsi::JSError(runtime, "Failed to write file");
+            }
+            if (written == 0) {
+              // No progress and no error: refuse to spin forever.
+              ex_host_fs_close(handle);
+              throw facebook::jsi::JSError(runtime, "Failed to write file: short write");
+            }
+            totalWritten += static_cast<size_t>(written);
           }
         }
         ex_host_fs_close(handle);
@@ -953,18 +971,17 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         size_t length = static_cast<size_t>(args[1].asNumber());
         requireFdRead(runtime, fd, "read");
 
-        // If position is provided and not -1 / null / undefined, seek first
-        if (count > 2 && args[2].isNumber()) {
-          double pos = args[2].asNumber();
-          if (pos >= 0) {
-            if (::lseek(fd, static_cast<off_t>(pos), SEEK_SET) < 0) {
-              throwFsError(runtime, "read");
-            }
-          }
-        }
-
         std::vector<uint8_t> data(length);
-        ssize_t bytesRead = ::read(fd, data.data(), length);
+        // A numeric position is a *positional* read: Node's readSync leaves the
+        // fd's current file offset unchanged when `position` is a number, so use
+        // pread rather than lseek+read (which permanently moves the cursor and
+        // corrupts subsequent sequential reads — e.g. a header read at a fixed
+        // offset followed by streaming). position < 0 / null / undefined means
+        // "read at the current position" and keeps the plain read path.
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
+        ssize_t bytesRead = positioned
+            ? ::pread(fd, data.data(), length, static_cast<off_t>(args[2].asNumber()))
+            : ::read(fd, data.data(), length);
         if (bytesRead < 0) {
           if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // Non-blocking fd with no data available — return empty array
@@ -1169,17 +1186,16 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         // Extract data bytes
         auto dataBytes = extractBytes(runtime, args[1]);
 
-        // If position is provided and not -1 / null / undefined, seek first
-        if (count > 2 && args[2].isNumber()) {
-          double pos = args[2].asNumber();
-          if (pos >= 0) {
-            if (::lseek(fd, static_cast<off_t>(pos), SEEK_SET) < 0) {
-              throwFsError(runtime, "write");
-            }
-          }
-        }
-
-        ssize_t bytesWritten = ::write(fd, dataBytes.data(), dataBytes.size());
+        // A numeric position is a *positional* write: Node's writeSync leaves the
+        // fd's current offset unchanged when `position` is a number, so use pwrite
+        // rather than lseek+write (which permanently moves the cursor). position <
+        // 0 / null / undefined means "write at the current position". (For an
+        // O_APPEND fd pwrite still appends, ignoring the offset, matching Node.)
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
+        ssize_t bytesWritten = positioned
+            ? ::pwrite(fd, dataBytes.data(), dataBytes.size(),
+                       static_cast<off_t>(args[2].asNumber()))
+            : ::write(fd, dataBytes.data(), dataBytes.size());
         if (bytesWritten < 0) {
           normalizeWriteErrno(fd);
           throwFsError(runtime, "write");

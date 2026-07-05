@@ -2634,6 +2634,38 @@ std::string hostCallArgsToJson(facebook::jsi::Runtime& rt,
   return "{}";
 }
 
+// Coerce the host-call `op` (args[0]) to a std::string without a synchronous
+// JSI throw (ENG-22982). The async bridge does not construct its Promise until
+// AFTER this runs, so an `asString()` on a non-string op (number, object) threw
+// before the promise existed — kick-then-poll callers saw a call that "never
+// settles" instead of a rejected promise; the sync bridge had the same
+// asymmetry (args were coerced but op was not). Mirror hostCallArgsToJson's
+// coerce-don't-throw contract: strings pass through; anything else goes through
+// the global String() (which, unlike ToString, tolerates symbols), and any
+// residual throw (a pathological object toString) is swallowed to a sentinel so
+// the caller reaches the host and gets a normal "Unknown host call" rejection
+// rather than a synchronous throw.
+std::string hostCallOpToString(facebook::jsi::Runtime& rt,
+                               const facebook::jsi::Value* args,
+                               size_t count) {
+  if (count < 1) {
+    return "";
+  }
+  if (args[0].isString()) {
+    return args[0].asString(rt).utf8(rt);
+  }
+  try {
+    auto stringCtor = rt.global().getPropertyAsFunction(rt, "String");
+    auto coerced = stringCtor.call(rt, args[0]);
+    if (coerced.isString()) {
+      return coerced.asString(rt).utf8(rt);
+    }
+  } catch (const facebook::jsi::JSIException&) {
+    // Fall through to the sentinel below.
+  }
+  return "";
+}
+
 // Shared '+json' / '-error' sigil decode for the sync and async host-call
 // bridges. Returns true and writes `out` on success; returns false and
 // writes `error_message` for a '-' payload. Empty / "null" / "undefined"
@@ -2687,7 +2719,7 @@ extern "C" void ex_hermes_set_host_call(
         if (!runtime->host_call_fn || count < 1) {
           throw facebook::jsi::JSError(rt, "__hostCall: no callback registered or wrong arity");
         }
-        auto op = args[0].asString(rt).utf8(rt);
+        auto op = hostCallOpToString(rt, args, count);
         auto argsJson = hostCallArgsToJson(rt, args, count);
 
         char* result = runtime->host_call_fn(op.c_str(), argsJson.c_str());
@@ -2739,7 +2771,7 @@ extern "C" void ex_hermes_set_host_call_async(
           throw facebook::jsi::JSError(
               rt, "__hostCallAsync: no callback registered or wrong arity");
         }
-        auto op = std::make_shared<std::string>(args[0].asString(rt).utf8(rt));
+        auto op = std::make_shared<std::string>(hostCallOpToString(rt, args, count));
         auto argsJson =
             std::make_shared<std::string>(hostCallArgsToJson(rt, args, count));
 
