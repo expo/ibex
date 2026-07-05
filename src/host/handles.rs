@@ -46,14 +46,48 @@ fn grant_covers(grant: &str, request: &str) -> bool {
     if g_res.is_empty() || g_res == "*" {
         return true; // whole scope:action
     }
-    let base = g_res.trim_end_matches("/**").trim_end_matches('/');
-    if r_res == base {
+    let base = normalize_handle_resource_for_match(trim_resource_pattern_suffix(g_res));
+    let request = normalize_handle_resource_for_match(r_res);
+    if request == base {
         return true;
     }
+    if base == "/" {
+        return request.starts_with('/');
+    }
     let mut prefix = String::with_capacity(base.len() + 1);
-    prefix.push_str(base);
-    prefix.push('/');
-    r_res.starts_with(&prefix)
+    prefix.push_str(&base);
+    if !prefix.ends_with('/') {
+        prefix.push('/');
+    }
+    request.starts_with(&prefix)
+}
+
+fn trim_resource_pattern_suffix(resource: &str) -> &str {
+    resource
+        .strip_suffix("/**")
+        .or_else(|| resource.strip_suffix("\\**"))
+        .unwrap_or(resource)
+}
+
+fn normalize_handle_resource_for_match(resource: &str) -> String {
+    let mut normalized = String::with_capacity(resource.len());
+    let mut previous_was_separator = false;
+    for ch in resource.chars() {
+        let ch = if ch == '\\' { '/' } else { ch };
+        if ch == '/' {
+            if !previous_was_separator {
+                normalized.push('/');
+            }
+            previous_was_separator = true;
+        } else {
+            normalized.push(ch);
+            previous_was_separator = false;
+        }
+    }
+    while normalized.len() > 1 && normalized.ends_with('/') && !normalized.ends_with(":/") {
+        normalized.pop();
+    }
+    normalized
 }
 
 /// Intersect a parent grant with a `narrower` argument. `narrower` may be a full
@@ -69,14 +103,19 @@ fn narrow(parent_cap: &str, narrower: &str) -> Option<String> {
         if p.len() < 2 {
             return None;
         }
-        let base = p.get(2).copied().unwrap_or("").trim_end_matches("/**");
-        let base = base.trim_end_matches('/');
-        let sub = narrower.trim_start_matches('/');
-        let child = if base.is_empty() {
-            format!("{}:{}:{}", p[0], p[1], sub)
+        let base = trim_resource_pattern_suffix(p.get(2).copied().unwrap_or(""));
+        let base = normalize_handle_resource_for_match(base);
+        let sub = narrower.trim_start_matches(['/', '\\']);
+        let child_resource = if base.is_empty() {
+            sub.to_string()
+        } else if sub.is_empty() {
+            base
+        } else if base.ends_with('/') {
+            format!("{}{}", base, sub)
         } else {
-            format!("{}:{}:{}/{}", p[0], p[1], base, sub)
+            format!("{}/{}", base, sub)
         };
+        let child = format!("{}:{}:{}", p[0], p[1], child_resource);
         normalize_capability(&child)
     };
     // Both branches converge here: a child grant is valid only if the parent
@@ -249,6 +288,38 @@ mod tests {
         assert!(r.check(h, "fs:read:/app/images"));
         assert!(!r.check(h, "fs:read:/etc/passwd"));
         assert!(!r.check(h, "fs:write:/app/images/x")); // action mismatch
+    }
+
+    #[test]
+    fn grant_covers_accepts_platform_native_path_separators() {
+        assert!(grant_covers(
+            "fs:read:C:\\workspace\\app\\images",
+            "fs:read:C:\\workspace\\app\\images\\logo.png"
+        ));
+        assert!(grant_covers(
+            "fs:read:C:\\workspace\\app\\images",
+            "fs:read:C:/workspace/app/images/logo.png"
+        ));
+        assert!(grant_covers(
+            "fs:read:C:\\workspace\\app\\images\\**",
+            "fs:read:C:/workspace/app/images/cache/logo.png"
+        ));
+        assert!(!grant_covers(
+            "fs:read:C:\\workspace\\app\\images",
+            "fs:read:C:\\workspace\\app\\images2\\logo.png"
+        ));
+    }
+
+    #[test]
+    fn scoped_handles_accept_platform_native_path_separators() {
+        let r = HandleRegistry::new();
+        let h = r.create("fs:read:C:\\workspace\\app\\images");
+        assert_ne!(h, 0);
+        let child = r.scoped(h, "cache\\logo.png");
+        assert_ne!(child, 0);
+        assert!(r.check(child, "fs:read:C:\\workspace\\app\\images\\cache\\logo.png"));
+        assert!(r.check(child, "fs:read:C:/workspace/app/images/cache/logo.png"));
+        assert!(!r.check(child, "fs:read:C:\\workspace\\app\\images2\\cache\\logo.png"));
     }
 
     #[test]
