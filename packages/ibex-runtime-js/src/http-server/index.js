@@ -461,8 +461,11 @@ function serve(options) {
         }
       }
 
-      // Use fast text/json path if only content-type (and maybe content-length) headers
-      if (contentType && headerCount <= 2) {
+      // Use fast text/json path ONLY when the sole headers are content-type and
+      // (optionally) content-length. The fast host calls send just those two, so
+      // any other header (cache-control, etag, set-cookie, ...) would be silently
+      // dropped. When two headers are present, the second must be content-length.
+      if (contentType && headerCount <= 2 && (headerCount < 2 || hasContentLength)) {
         var isText = hasRespondText && contentType.indexOf("text/plain") === 0;
         var isJson = hasRespondJson && (contentType.indexOf("application/json") === 0);
 

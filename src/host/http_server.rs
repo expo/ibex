@@ -35,7 +35,7 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::cdp::network as cdp_network;
@@ -94,6 +94,14 @@ const HTTP_SHUTDOWN_POLL_MS: u64 = 50;
 const HTTP_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const HTTP_REQUEST_BODY_TIMEOUT_MS: u64 = 20_000;
 const HTTP_REQUEST_BODY_IDLE_TIMEOUT_MS: u64 = 2_500;
+/// Longest a single streamed response chunk may wait for room in the bounded
+/// body channel before the client is treated as wedged. Backpressure (rather
+/// than dropping the chunk) is what prevents silent truncation of a slow but
+/// still-draining client; this ceiling only guards against a peer that has
+/// stopped reading entirely without closing the connection.
+const HTTP_RESPONSE_CHUNK_SEND_TIMEOUT_MS: u64 = 30_000;
+/// Poll cadence while a streamed response chunk is blocked on a full channel.
+const HTTP_RESPONSE_CHUNK_SEND_POLL_MS: u64 = 2;
 const HTTP_REQUEST_URI_MAX_BYTES: usize = 2048;
 const MAX_REQUEST_HEADER_BYTES: usize = 16 * 1024;
 const MAX_REQUEST_HEADER_COUNT: usize = 128;
@@ -103,7 +111,6 @@ const HEADER_TEXT_PLAIN: &str = "text/plain; charset=utf-8";
 const HEADER_JSON: &str = "application/json; charset=utf-8";
 const HEADER_CONTENT_LENGTH: &str = "content-length";
 const HEADER_TRANSFER_ENCODING: &str = "transfer-encoding";
-const HEADER_CONNECTION: &str = "connection";
 
 struct ServerState {
     /// Identifier for map removal and lifecycle operations.
@@ -235,12 +242,13 @@ pub fn start_server(port: u16, hostname: &str) -> Result<(u32, u16)> {
 
     let state_clone = state.clone();
     let join = thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(
-                std::thread::available_parallelism()
-                    .map(|n| n.get())
-                    .unwrap_or(4),
-            )
+        // One dedicated thread per serve() running a current_thread runtime, as
+        // documented in this module's header. The workload is bottlenecked on
+        // the single JS event loop, so a multi-threaded runtime would only spawn
+        // N mostly-idle worker threads per server (N servers => O(N * cores)
+        // threads) for no throughput gain. Connection tasks are spawned onto
+        // this same runtime and driven cooperatively at the loop's .await points.
+        let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
         {
@@ -618,12 +626,13 @@ fn sanitize_no_content_headers(status: StatusCode, headers: &mut Vec<(String, St
         headers.push((HEADER_CONTENT_LENGTH.to_string(), "0".to_string()));
     }
 
-    if !headers
-        .iter()
-        .any(|(name, _)| name.eq_ignore_ascii_case(HEADER_CONNECTION))
-    {
-        headers.push(("Connection".to_string(), "close".to_string()));
-    }
+    // NOTE: do not force `Connection: close` here. `Content-Length: 0` already
+    // delimits these bodyless responses, so keep-alive is safe — and 204/304
+    // are the hottest steady-state responses (conditional-GET polling), where
+    // closing the connection per request destroys keep-alive. `Connection` is
+    // also a hop-by-hop HTTP/1 header that is malformed under h2c on this
+    // auto-detecting server. Any explicit `Connection` header the caller set is
+    // left untouched.
 }
 
 fn send_response(
@@ -806,11 +815,37 @@ fn send_response_chunk(state: &Arc<ServerState>, request_id: u32, chunk: Request
         None => return false,
     };
 
-    match sender.try_send(chunk) {
-        Ok(_) => true,
-        Err(_) => {
-            clear_response_body(state, request_id);
-            false
+    // The body channel is bounded, so a fast producer (JS) can outrun a slow
+    // consumer (hyper draining to a slow client). A full channel is NOT fatal:
+    // dropping the pipe here would end the unfold stream *cleanly*, so hyper
+    // would emit a valid chunked terminator and the client would receive a
+    // truncated body that looks complete. Instead we apply backpressure —
+    // block the calling (JS) thread until the consumer drains a slot — so the
+    // client receives every byte. `Closed` (the receiver/connection is gone) is
+    // the only genuinely fatal outcome and is reported distinctly from `Full`.
+    //
+    // This runs only on the JS thread (via the `ex_host_http_respond*` FFI), not
+    // inside the tokio runtime, so blocking here cannot stall connection I/O.
+    let deadline = Instant::now() + Duration::from_millis(HTTP_RESPONSE_CHUNK_SEND_TIMEOUT_MS);
+    let mut pending = chunk;
+    loop {
+        match sender.try_send(pending) {
+            Ok(_) => return true,
+            Err(TrySendError::Closed(_)) => {
+                clear_response_body(state, request_id);
+                return false;
+            }
+            Err(TrySendError::Full(returned)) => {
+                if Instant::now() >= deadline {
+                    // The peer has stopped reading without closing; the
+                    // connection is effectively dead. Abort rather than block
+                    // the JS event loop indefinitely.
+                    clear_response_body(state, request_id);
+                    return false;
+                }
+                pending = returned;
+                thread::sleep(Duration::from_millis(HTTP_RESPONSE_CHUNK_SEND_POLL_MS));
+            }
         }
     }
 }
@@ -978,11 +1013,23 @@ async fn handle_request(
         body_bytes.as_deref(),
     );
 
+    // Reserve the in-flight slot BEFORE checking the lifecycle. Under SeqCst,
+    // this closes a graceful-close drain race: if a concurrent close reads
+    // active_requests after this increment it sees this request and waits for
+    // it; if it read before, then its lifecycle store to CLOSING is ordered
+    // before our load below, so we observe the shutdown and reject promptly.
+    // Otherwise close could transition CLOSING->CLOSED while this request sat
+    // queued, and the client would hang the full request timeout into a 504
+    // instead of getting a prompt 503. Every path from here must release the
+    // slot via finish_active_request.
+    state.active_requests.fetch_add(1, Ordering::SeqCst);
+
     // If server is closed or draining, reject new requests.
     if state.lifecycle.load(Ordering::SeqCst) != HTTP_SERVER_LISTENING {
         clear_request_body(&state, request_id);
         clear_response_body(&state, request_id);
         cdp_network::cleanup_request(request_id);
+        finish_active_request(&state);
         return Ok(simple_response(
             StatusCode::SERVICE_UNAVAILABLE,
             b"Server is shutting down",
@@ -1015,14 +1062,13 @@ async fn handle_request(
         clear_request_body(&state, request_id);
         clear_response_body(&state, request_id);
         cdp_network::cleanup_request(request_id);
+        finish_active_request(&state);
         return Ok(simple_response(
             StatusCode::SERVICE_UNAVAILABLE,
             b"Service Unavailable",
         ));
     }
     notify_request_available(&state);
-
-    state.active_requests.fetch_add(1, Ordering::SeqCst);
 
     // Wait for JS to respond.
     let response =
@@ -1963,5 +2009,141 @@ mod tests {
 
         assert_eq!(state.active_requests.load(Ordering::SeqCst), 0);
         assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn send_response_chunk_applies_backpressure_when_channel_is_full() {
+        // A full channel must NOT drop the chunk (which would silently truncate
+        // the response); it must block until the consumer drains a slot.
+        let server_id = 90_005u32;
+        let request_id = 105u32;
+        let state = register_test_server(server_id);
+
+        let (body_tx, body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                total_bytes: AtomicUsize::new(0),
+            },
+        );
+
+        // Fill the single slot.
+        assert!(send_response_chunk(
+            &state,
+            request_id,
+            RequestBodyChunk::Data(b"first".to_vec())
+        ));
+
+        // Drain after a delay so the next send is forced to wait.
+        let drainer = std::thread::spawn(move || {
+            let mut body_rx = body_rx;
+            std::thread::sleep(Duration::from_millis(50));
+            assert!(matches!(
+                body_rx.blocking_recv(),
+                Some(RequestBodyChunk::Data(ref bytes)) if bytes.as_slice() == b"first"
+            ));
+            assert!(matches!(
+                body_rx.blocking_recv(),
+                Some(RequestBodyChunk::Data(ref bytes)) if bytes.as_slice() == b"second"
+            ));
+        });
+
+        let start = Instant::now();
+        let ok = send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"second".to_vec()));
+        assert!(ok, "a full channel must apply backpressure and then succeed");
+        assert!(
+            start.elapsed() >= Duration::from_millis(40),
+            "send should have blocked until a slot was drained"
+        );
+
+        drainer.join().expect("drainer thread should not panic");
+
+        // A successful send leaves the pipe in place for further chunks.
+        assert!(lock_or_recover(&state.response_bodies).contains_key(&request_id));
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn send_response_chunk_reports_closed_channel_distinctly() {
+        // A closed receiver (client/connection gone) is the only fatal case and
+        // must fail promptly and clear the pipe.
+        let server_id = 90_006u32;
+        let request_id = 106u32;
+        let state = register_test_server(server_id);
+
+        let (body_tx, body_rx) = mpsc::channel::<RequestBodyChunk>(8);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                total_bytes: AtomicUsize::new(0),
+            },
+        );
+        drop(body_rx);
+
+        let start = Instant::now();
+        let ok = send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"x".to_vec()));
+        assert!(!ok, "a closed channel must fail");
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "closed must be detected immediately, not treated as backpressure"
+        );
+        assert!(!lock_or_recover(&state.response_bodies).contains_key(&request_id));
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn sanitize_no_content_headers_preserves_keep_alive() {
+        // 304/204 are the hottest keep-alive responses; we must not force
+        // Connection: close on them.
+        let mut headers = vec![("ETag".to_string(), "\"abc\"".to_string())];
+        sanitize_no_content_headers(StatusCode::NOT_MODIFIED, &mut headers);
+
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| name.eq_ignore_ascii_case("content-length") && value == "0"),
+            "content-length: 0 delimits the bodyless response"
+        );
+        assert!(
+            !headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("connection")),
+            "must not inject Connection: close"
+        );
+        assert!(headers
+            .iter()
+            .any(|(name, value)| name == "ETag" && value == "\"abc\""));
+    }
+
+    #[test]
+    fn sanitize_no_content_headers_strips_te_and_keeps_explicit_connection() {
+        let mut headers = vec![
+            ("Transfer-Encoding".to_string(), "chunked".to_string()),
+            ("Connection".to_string(), "close".to_string()),
+        ];
+        sanitize_no_content_headers(StatusCode::NO_CONTENT, &mut headers);
+
+        assert!(
+            !headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("transfer-encoding")),
+            "transfer-encoding is invalid on a no-content response"
+        );
+        // An explicit Connection header set by the caller is left untouched.
+        assert!(headers
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case("connection") && value == "close"));
+    }
+
+    #[test]
+    fn sanitize_no_content_headers_ignores_normal_status() {
+        let mut headers = vec![("content-type".to_string(), "text/plain".to_string())];
+        sanitize_no_content_headers(StatusCode::OK, &mut headers);
+        assert_eq!(
+            headers,
+            vec![("content-type".to_string(), "text/plain".to_string())]
+        );
     }
 }
