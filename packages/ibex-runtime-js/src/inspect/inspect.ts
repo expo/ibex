@@ -2,6 +2,16 @@
  * Object inspection utility (similar to Node's util.inspect, Bun.inspect, Deno.inspect)
  *
  * Pretty-prints objects with colors, depth limiting, and smart formatting.
+ *
+ * Because this backs `console.log`, three properties are load-bearing (ENG-22980):
+ *   1. It must NEVER throw. Reading an object's members can trigger arbitrary
+ *      user code (accessor getters, Proxy traps, module-namespace TDZ bindings).
+ *      Such reads are either avoided (own accessors are described, not invoked)
+ *      or wrapped so a throw is reported inline instead of escaping console.log.
+ *   2. It must not silently invoke accessor getters as a logging side effect —
+ *      own accessors render as `[Getter]`/`[Setter]`/`[Getter/Setter]` like Node.
+ *   3. It must not be able to run unbounded: a cumulative output budget caps the
+ *      total work so a huge/DAG-shaped value cannot hang the event loop or OOM.
  */
 
 export interface InspectOptions {
@@ -17,6 +27,12 @@ export interface InspectOptions {
   maxStringLength?: number;
   /** Compact mode (less whitespace) */
   compact?: boolean;
+  /**
+   * Maximum cumulative output length (characters) across the whole tree before
+   * truncation. Bounds total work so large/shared/cyclic structures cannot hang
+   * the event loop or exhaust memory.
+   */
+  maxOutputLength?: number;
 }
 
 const DEFAULT_OPTIONS: Required<InspectOptions> = {
@@ -26,7 +42,20 @@ const DEFAULT_OPTIONS: Required<InspectOptions> = {
   maxArrayLength: 100,
   maxStringLength: 10000,
   compact: true,
+  // ~1M chars is far above any legitimate console.log while still bounding the
+  // pathological ~10^8-visit / multi-MB case that would otherwise stall or OOM.
+  maxOutputLength: 1_000_000,
 };
+
+/**
+ * Shared, mutable output budget threaded through a single inspect() call.
+ * `remaining` counts down as output is produced; once it reaches zero, further
+ * values render as an ellipsis and traversal stops.
+ */
+interface Budget {
+  remaining: number;
+  truncated: boolean;
+}
 
 // ANSI color codes
 const colors = {
@@ -51,6 +80,30 @@ const colors = {
 
 function colorize(text: string, color: string, useColors: boolean): string {
   return useColors ? color + text + colors.reset : text;
+}
+
+/**
+ * Read a property without letting a throwing accessor or Proxy trap escape.
+ * Used only for structural duck-typing checks (Date/Map/Promise/... detection),
+ * where we need the live value but must tolerate revoked Proxies and TDZ.
+ */
+function safeGet(obj: any, key: PropertyKey): any {
+  try {
+    return obj[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function errorMessage(err: unknown): string {
+  try {
+    if (err instanceof Error && typeof err.message === 'string') {
+      return err.message;
+    }
+    return String(err);
+  } catch {
+    return 'error';
+  }
 }
 
 function inspectPrimitive(value: any, opts: Required<InspectOptions>): string {
@@ -84,14 +137,13 @@ function inspectPrimitive(value: any, opts: Required<InspectOptions>): string {
 
   if (typeof value === 'function') {
     const name = value.name || 'anonymous';
-    const params = 'a0, a1, a2'; // Simplified - we don't have access to Function.length easily
     return colorize(`[Function: ${name}]`, colors.function, opts.colors);
   }
 
   return String(value);
 }
 
-function inspectArray(arr: any[], depth: number, opts: Required<InspectOptions>, seen: Set<any>): string {
+function inspectArray(arr: any[], depth: number, opts: Required<InspectOptions>, seen: Set<any>, budget: Budget): string {
   if (depth >= opts.depth) {
     return colorize('[Array]', colors.special, opts.colors);
   }
@@ -99,12 +151,18 @@ function inspectArray(arr: any[], depth: number, opts: Required<InspectOptions>,
   const items: string[] = [];
   const limit = Math.min(arr.length, opts.maxArrayLength);
 
-  for (let i = 0; i < limit; i++) {
-    items.push(inspectValue(arr[i], depth + 1, opts, seen));
+  let i = 0;
+  for (; i < limit; i++) {
+    if (budget.remaining <= 0) {
+      budget.truncated = true;
+      break;
+    }
+    items.push(inspectValue(arr[i], depth + 1, opts, seen, budget));
   }
 
-  if (arr.length > opts.maxArrayLength) {
-    items.push(colorize(`... ${arr.length - opts.maxArrayLength} more items`, colors.dim, opts.colors));
+  const hidden = arr.length - i;
+  if (hidden > 0) {
+    items.push(colorize(`... ${hidden} more items`, colors.dim, opts.colors));
   }
 
   const open = colorize('[', colors.bracket, opts.colors);
@@ -122,13 +180,17 @@ function indentMultiline(text: string, prefix: string): string {
 }
 
 function isURLSearchParamsLike(value: any): boolean {
-  return !!value &&
-    typeof value === 'object' &&
-    typeof value.append === 'function' &&
-    typeof value.get === 'function' &&
-    typeof value.getAll === 'function' &&
-    typeof value.entries === 'function' &&
-    typeof value.toString === 'function';
+  try {
+    return !!value &&
+      typeof value === 'object' &&
+      typeof value.append === 'function' &&
+      typeof value.get === 'function' &&
+      typeof value.getAll === 'function' &&
+      typeof value.entries === 'function' &&
+      typeof value.toString === 'function';
+  } catch {
+    return false;
+  }
 }
 
 function inspectURLSearchParamsLike(value: any): string | null {
@@ -165,27 +227,31 @@ function inspectURLSearchParamsLike(value: any): string | null {
 }
 
 function isURLLike(value: any): boolean {
-  return !!value &&
-    typeof value === 'object' &&
-    typeof value.href === 'string' &&
-    typeof value.origin === 'string' &&
-    typeof value.protocol === 'string' &&
-    typeof value.username === 'string' &&
-    typeof value.password === 'string' &&
-    typeof value.host === 'string' &&
-    typeof value.hostname === 'string' &&
-    typeof value.port === 'string' &&
-    typeof value.pathname === 'string' &&
-    typeof value.hash === 'string' &&
-    typeof value.search === 'string' &&
-    value.searchParams &&
-    typeof value.searchParams === 'object' &&
-    typeof value.toJSON === 'function' &&
-    typeof value.toString === 'function';
+  try {
+    return !!value &&
+      typeof value === 'object' &&
+      typeof value.href === 'string' &&
+      typeof value.origin === 'string' &&
+      typeof value.protocol === 'string' &&
+      typeof value.username === 'string' &&
+      typeof value.password === 'string' &&
+      typeof value.host === 'string' &&
+      typeof value.hostname === 'string' &&
+      typeof value.port === 'string' &&
+      typeof value.pathname === 'string' &&
+      typeof value.hash === 'string' &&
+      typeof value.search === 'string' &&
+      value.searchParams &&
+      typeof value.searchParams === 'object' &&
+      typeof value.toJSON === 'function' &&
+      typeof value.toString === 'function';
+  } catch {
+    return false;
+  }
 }
 
-function inspectURLLike(obj: any, depth: number, opts: Required<InspectOptions>, seen: Set<any>): string {
-  const searchParams = indentMultiline(inspectValue(obj.searchParams, depth + 1, opts, seen), '  ');
+function inspectURLLike(obj: any, depth: number, opts: Required<InspectOptions>, seen: Set<any>, budget: Budget): string {
+  const searchParams = indentMultiline(inspectValue(obj.searchParams, depth + 1, opts, seen, budget), '  ');
 
   return `URL {
   href: ${JSON.stringify(obj.href)},
@@ -205,12 +271,14 @@ function inspectURLLike(obj: any, depth: number, opts: Required<InspectOptions>,
 }`;
 }
 
-function inspectObject(obj: any, depth: number, opts: Required<InspectOptions>, seen: Set<any>): string {
+function inspectObject(obj: any, depth: number, opts: Required<InspectOptions>, seen: Set<any>, budget: Budget): string {
   if (depth >= opts.depth) {
     return colorize('[Object]', colors.special, opts.colors);
   }
 
-  // Special cases - use duck typing instead of instanceof for cross-realm compatibility
+  // Special cases - use duck typing instead of instanceof for cross-realm
+  // compatibility. Every probe below goes through safeGet so a revoked Proxy or
+  // TDZ binding can't throw out of console.log (ENG-22980).
   if (isURLSearchParamsLike(obj)) {
     const inspected = inspectURLSearchParamsLike(obj);
     if (inspected !== null) {
@@ -219,10 +287,10 @@ function inspectObject(obj: any, depth: number, opts: Required<InspectOptions>, 
   }
 
   if (isURLLike(obj)) {
-    return inspectURLLike(obj, depth, opts, seen);
+    return inspectURLLike(obj, depth, opts, seen, budget);
   }
 
-  if (typeof obj.toISOString === 'function' && typeof obj.getMonth === 'function') {
+  if (typeof safeGet(obj, 'toISOString') === 'function' && typeof safeGet(obj, 'getMonth') === 'function') {
     // Date object
     try {
       return colorize(obj.toISOString(), colors.special, opts.colors);
@@ -231,26 +299,28 @@ function inspectObject(obj: any, depth: number, opts: Required<InspectOptions>, 
     }
   }
 
-  if (typeof obj.test === 'function' && typeof obj.exec === 'function' && obj.source !== undefined) {
+  if (typeof safeGet(obj, 'test') === 'function' && typeof safeGet(obj, 'exec') === 'function' && safeGet(obj, 'source') !== undefined) {
     // RegExp object
     return colorize(String(obj), colors.special, opts.colors);
   }
 
-  if (obj.name && obj.message && obj.stack) {
+  const errName = safeGet(obj, 'name');
+  const errMsg = safeGet(obj, 'message');
+  if (errName && errMsg && safeGet(obj, 'stack')) {
     // Error object
-    return colorize(`${obj.name}: ${obj.message}`, colors.special, opts.colors);
+    return colorize(`${errName}: ${errMsg}`, colors.special, opts.colors);
   }
 
-  if (typeof obj.get === 'function' && typeof obj.set === 'function' && typeof obj.has === 'function' && typeof obj.entries === 'function' && obj.size !== undefined) {
+  if (typeof safeGet(obj, 'get') === 'function' && typeof safeGet(obj, 'set') === 'function' && typeof safeGet(obj, 'has') === 'function' && typeof safeGet(obj, 'entries') === 'function' && safeGet(obj, 'size') !== undefined) {
     // Map object
     try {
       const entries: string[] = [];
       let count = 0;
       for (const [key, value] of obj.entries()) {
-        if (count++ >= opts.maxArrayLength) break;
+        if (count++ >= opts.maxArrayLength || budget.remaining <= 0) break;
         entries.push(
-          inspectValue(key, depth + 1, opts, seen) + ' => ' +
-          inspectValue(value, depth + 1, opts, seen)
+          inspectValue(key, depth + 1, opts, seen, budget) + ' => ' +
+          inspectValue(value, depth + 1, opts, seen, budget)
         );
       }
       if (obj.size > opts.maxArrayLength) {
@@ -262,14 +332,14 @@ function inspectObject(obj: any, depth: number, opts: Required<InspectOptions>, 
     }
   }
 
-  if (typeof obj.has === 'function' && typeof obj.add === 'function' && typeof obj.values === 'function' && obj.size !== undefined) {
+  if (typeof safeGet(obj, 'has') === 'function' && typeof safeGet(obj, 'add') === 'function' && typeof safeGet(obj, 'values') === 'function' && safeGet(obj, 'size') !== undefined) {
     // Set object
     try {
       const values: string[] = [];
       let count = 0;
       for (const value of obj.values()) {
-        if (count++ >= opts.maxArrayLength) break;
-        values.push(inspectValue(value, depth + 1, opts, seen));
+        if (count++ >= opts.maxArrayLength || budget.remaining <= 0) break;
+        values.push(inspectValue(value, depth + 1, opts, seen, budget));
       }
       if (obj.size > opts.maxArrayLength) {
         values.push(colorize(`... ${obj.size - opts.maxArrayLength} more items`, colors.dim, opts.colors));
@@ -280,28 +350,8 @@ function inspectObject(obj: any, depth: number, opts: Required<InspectOptions>, 
     }
   }
 
-  // Module object (check for CommonJS/ES module markers)
-  // CommonJS modules often have __esModule or are returned from require()
-  if (obj.__esModule || obj.default !== undefined || obj.exports !== undefined) {
-    // Show as Module with exported names
-    const keys = Object.keys(obj).filter(k => k !== '__esModule');
-    if (keys.length === 0) {
-      return colorize('Module { }', colors.special, opts.colors);
-    } else if (keys.length <= 5) {
-      const exports = keys.map(k => colorize(k, colors.key, opts.colors)).join(', ');
-      return colorize('Module { ', colors.special, opts.colors) + exports + colorize(' }', colors.special, opts.colors);
-    } else {
-      const firstFive = keys.slice(0, 5).map(k => colorize(k, colors.key, opts.colors)).join(', ');
-      const remaining = keys.length - 5;
-      return colorize('Module { ', colors.special, opts.colors) +
-             firstFive +
-             colorize(`, ...${remaining} more`, colors.dim, opts.colors) +
-             colorize(' }', colors.special, opts.colors);
-    }
-  }
-
   // Promise object (check for .then method)
-  if (typeof obj.then === 'function' && typeof obj.catch === 'function') {
+  if (typeof safeGet(obj, 'then') === 'function' && typeof safeGet(obj, 'catch') === 'function') {
     try {
       // Try to inspect Hermes promise internals for state
       // _x: 0 = pending, 1 = fulfilled, 2 = rejected
@@ -314,12 +364,12 @@ function inspectObject(obj: any, depth: number, opts: Required<InspectOptions>, 
       if (value !== undefined && value !== null && state !== 2) {
         return colorize('Promise { ', colors.special, opts.colors) +
                colorize('<fulfilled>', colors.dim, opts.colors) + ': ' +
-               inspectValue(value, depth + 1, opts, seen) +
+               inspectValue(value, depth + 1, opts, seen, budget) +
                colorize(' }', colors.special, opts.colors);
       } else if (state === 2) {
         return colorize('Promise { ', colors.special, opts.colors) +
                colorize('<rejected>', colors.dim, opts.colors) + ': ' +
-               inspectValue(value, depth + 1, opts, seen) +
+               inspectValue(value, depth + 1, opts, seen, budget) +
                colorize(' }', colors.special, opts.colors);
       } else {
         // Truly pending (no value yet)
@@ -333,38 +383,86 @@ function inspectObject(obj: any, depth: number, opts: Required<InspectOptions>, 
     }
   }
 
-  // Regular object
-  const keys = opts.showHidden
-    ? Object.getOwnPropertyNames(obj)
-    : Object.keys(obj);
+  // Genuine ES module namespace objects carry Symbol.toStringTag === 'Module'.
+  // We deliberately do NOT infer "module" from plain `default`/`exports`/
+  // `__esModule` keys: an ordinary object like `{ default: 'dark', options: [...] }`
+  // must render with its values, not as a value-less `Module { ... }` (ENG-22980).
+  const isModule = safeGet(obj, Symbol.toStringTag) === 'Module';
+  const label = isModule ? colorize('Module ', colors.special, opts.colors) : '';
+
+  // Regular object (module namespaces fall through here so their values show).
+  let keys: string[];
+  try {
+    keys = opts.showHidden
+      ? Object.getOwnPropertyNames(obj)
+      : Object.keys(obj);
+  } catch (err) {
+    // Enumerating own keys ran a Proxy ownKeys/getOwnPropertyDescriptor trap
+    // that threw (e.g. a revoked Proxy). Report it safely instead of throwing
+    // or pretending the object was empty (ENG-22980).
+    return label + colorize(`[unlistable: ${errorMessage(err)}]`, colors.special, opts.colors);
+  }
 
   if (keys.length === 0) {
-    return '{}';
+    return label + '{}';
   }
 
   const pairs: string[] = [];
   const limit = Math.min(keys.length, opts.maxArrayLength);
 
-  for (let i = 0; i < limit; i++) {
+  let i = 0;
+  for (; i < limit; i++) {
+    if (budget.remaining <= 0) {
+      budget.truncated = true;
+      break;
+    }
     const key = keys[i];
     const needsQuotes = !/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key);
     const keyStr = needsQuotes ? JSON.stringify(key) : key;
     const coloredKey = colorize(keyStr, colors.key, opts.colors);
-    const value = inspectValue(obj[key], depth + 1, opts, seen);
-    pairs.push(coloredKey + ': ' + value);
+
+    // Describe accessors instead of invoking them: matches Node, avoids running
+    // arbitrary getters as a logging side effect, and can't throw (ENG-22980).
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(obj, key);
+    } catch {
+      descriptor = undefined;
+    }
+
+    let valueStr: string;
+    if (descriptor && (descriptor.get || descriptor.set)) {
+      const accessor = descriptor.get && descriptor.set
+        ? '[Getter/Setter]'
+        : descriptor.get ? '[Getter]' : '[Setter]';
+      valueStr = colorize(accessor, colors.special, opts.colors);
+    } else if (descriptor) {
+      valueStr = inspectValue(descriptor.value, depth + 1, opts, seen, budget);
+    } else {
+      // No descriptor (property vanished, or a Proxy trap hid it) — read
+      // defensively so a throwing trap is reported inline, not propagated.
+      try {
+        valueStr = inspectValue((obj as any)[key], depth + 1, opts, seen, budget);
+      } catch (err) {
+        valueStr = colorize(`[Thrown: ${errorMessage(err)}]`, colors.special, opts.colors);
+      }
+    }
+
+    pairs.push(coloredKey + ': ' + valueStr);
   }
 
-  if (keys.length > opts.maxArrayLength) {
-    pairs.push(colorize(`... ${keys.length - opts.maxArrayLength} more keys`, colors.dim, opts.colors));
+  const hidden = keys.length - i;
+  if (hidden > 0) {
+    pairs.push(colorize(`... ${hidden} more keys`, colors.dim, opts.colors));
   }
 
   const open = colorize('{', colors.bracket, opts.colors);
   const close = colorize('}', colors.bracket, opts.colors);
 
   if (opts.compact) {
-    return open + ' ' + pairs.join(', ') + ' ' + close;
+    return label + open + ' ' + pairs.join(', ') + ' ' + close;
   } else {
-    return open + '\n  ' + pairs.join(',\n  ') + '\n' + close;
+    return label + open + '\n  ' + pairs.join(',\n  ') + '\n' + close;
   }
 }
 
@@ -398,36 +496,55 @@ function inspectTypedArray(value: { length: number; [index: number]: number; con
   return `${typeName}(${value.length}) [ ${items.join(', ')}${truncated} ]`;
 }
 
-function inspectValue(value: any, depth: number, opts: Required<InspectOptions>, seen: Set<any>): string {
+function inspectValue(value: any, depth: number, opts: Required<InspectOptions>, seen: Set<any>, budget: Budget): string {
+  // Cumulative output budget: stop producing output once exhausted so a huge or
+  // heavily-shared (DAG) structure can't stall the event loop or OOM.
+  if (budget.remaining <= 0) {
+    budget.truncated = true;
+    return colorize('...', colors.dim, opts.colors);
+  }
+
   const type = typeof value;
 
   // Primitives and functions
   if (type !== 'object' || value === null) {
-    return inspectPrimitive(value, opts);
+    const primitive = inspectPrimitive(value, opts);
+    budget.remaining -= primitive.length;
+    return primitive;
   }
 
   // Circular reference detection
   if (seen.has(value)) {
-    return colorize('[Circular]', colors.special, opts.colors);
+    const circular = colorize('[Circular]', colors.special, opts.colors);
+    budget.remaining -= circular.length;
+    return circular;
   }
   seen.add(value);
 
+  let result: string;
   try {
     // Buffer / TypedArray - show hex bytes like Node.js
     if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
-      return inspectTypedArray(value as any, depth, opts);
+      result = inspectTypedArray(value as any, depth, opts);
+    } else if (Array.isArray(value)) {
+      // Arrays
+      result = inspectArray(value, depth, opts, seen, budget);
+    } else {
+      // Objects (including special types)
+      result = inspectObject(value, depth, opts, seen, budget);
     }
-
-    // Arrays
-    if (Array.isArray(value)) {
-      return inspectArray(value, depth, opts, seen);
-    }
-
-    // Objects (including special types)
-    return inspectObject(value, depth, opts, seen);
+  } catch (err) {
+    // Last-resort guard: inspection must never throw out of console.log.
+    result = colorize(`[uninspectable: ${errorMessage(err)}]`, colors.special, opts.colors);
   } finally {
     seen.delete(value);
   }
+
+  // Charge the produced output against the budget. Container output includes
+  // its children (already charged), so this over-counts by roughly the depth
+  // factor — intentionally conservative: pathological trees truncate sooner.
+  budget.remaining -= result.length;
+  return result;
 }
 
 /**
@@ -440,7 +557,8 @@ export function inspect(value: any, options?: InspectOptions): string {
     ...options,
   };
 
-  return inspectValue(value, 0, opts, new Set());
+  const budget: Budget = { remaining: opts.maxOutputLength, truncated: false };
+  return inspectValue(value, 0, opts, new Set(), budget);
 }
 
 // Install on the Exact global — defensively: hosts may already provide an
