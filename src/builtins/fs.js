@@ -1,10 +1,6 @@
 var g = globalThis;
 var _exactFsInitialized = false;
 var _streamModule = null;
-var _readdirSyncBurstCount = 0;
-var _readdirSyncBurstPath = null;
-var _readdirSyncBurstResetScheduled = false;
-var MAX_READDIR_SYNC_RECURSION_DEPTH = 256;
 function ensureExactFs() {
   if (_exactFsInitialized) return;
   if (typeof g.__exactEnsureFs === 'function') {
@@ -17,26 +13,6 @@ function _getStreamModule() {
   if (_streamModule) return _streamModule;
   _streamModule = require('node:stream');
   return _streamModule;
-}
-
-function _trackReaddirSyncBurst(path) {
-  if (!_readdirSyncBurstResetScheduled) {
-    _readdirSyncBurstResetScheduled = true;
-    _deferFsCallback(function() {
-      _readdirSyncBurstCount = 0;
-      _readdirSyncBurstPath = null;
-      _readdirSyncBurstResetScheduled = false;
-    });
-  }
-  if (_readdirSyncBurstPath === path) {
-    _readdirSyncBurstCount += 1;
-  } else {
-    _readdirSyncBurstPath = path;
-    _readdirSyncBurstCount = 1;
-  }
-  if (_readdirSyncBurstCount > MAX_READDIR_SYNC_RECURSION_DEPTH) {
-    throw new RangeError('Maximum call stack size exceeded');
-  }
 }
 
 // Argument validation helpers (match Node.js ERR_INVALID_ARG_TYPE format)
@@ -816,6 +792,14 @@ function _makeFsError(err, syscall, path, dest) {
     fsErr.errno = -_uvErrnoMap.UNKNOWN;
   }
   return fsErr;
+}
+
+// Node-accurate ENOSYS for syscalls whose native host hook is unavailable.
+// Silently returning success (the previous behavior for fsync/fdatasync/
+// ftruncate/futimes/chown/utimes) reports false durability and lets
+// truncate-then-append corrupt output; Node raises ENOSYS instead.
+function _makeUnsupportedFsError(syscall, path) {
+  return _makeFsError({ code: 'ENOSYS' }, syscall, path);
 }
 
 function _parseFsOpenFlags(flags) {
@@ -2058,7 +2042,6 @@ function readdirSync(path, options) {
   ensureExactFs();
   try {
     var p = _pathToString(path);
-    _trackReaddirSyncBurst(p);
     var opts = typeof options === 'string' ? { encoding: options } : (options || {});
     var withFileTypes = !!opts.withFileTypes;
     var recursive = !!opts.recursive;
@@ -2194,13 +2177,19 @@ function cpSync(src, dest, options) {
       return;
     }
     if (st.isFile()) {
-      if (errorOnExist && !force && existsSync(destination)) {
-        var alreadyErr = new Error('EEXIST: file already exists, copyFile \'' + source + '\' -> \'' + destination + '\'');
-        alreadyErr.code = 'EEXIST';
-        alreadyErr.errno = _uvErrnoMap.EEXIST;
-        throw alreadyErr;
+      var destExists = existsSync(destination);
+      if (!force && destExists) {
+        // Node leaves an existing destination untouched when force is false;
+        // with errorOnExist it turns the collision into a hard error instead.
+        if (errorOnExist) {
+          var alreadyErr = new Error('EEXIST: file already exists, copyFile \'' + source + '\' -> \'' + destination + '\'');
+          alreadyErr.code = 'EEXIST';
+          alreadyErr.errno = _uvErrnoMap.EEXIST;
+          throw alreadyErr;
+        }
+        return;
       }
-      if (existsSync(destination) && force) {
+      if (destExists && force) {
         unlinkSync(destination);
       }
       if (preserveTimestamps) {
@@ -3395,11 +3384,14 @@ function _initReadStream(rs, path, options) {
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
   var fsModule = opts.fs || require('fs');
   var useSyncReadFastPath = opts.fs === undefined;
-  var allowGrowingSource = opts.start !== undefined && end === undefined;
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'read']);
   var encoding = opts.encoding || null;
   var start = 0;
   var end = opts.end;
+  // Must be computed AFTER `end` is assigned: with `var` hoisting `end` was
+  // still undefined here, so tail-follow growth was (wrongly) enabled for every
+  // {start} stream even when an explicit {end} was provided.
+  var allowGrowingSource = opts.start !== undefined && end === undefined;
 
   if (opts.start !== undefined) {
     if (typeof opts.start !== 'number') throw _fsInvalidArgType('start', 'number', opts.start);
@@ -3531,7 +3523,9 @@ function _initReadStream(rs, path, options) {
   if (rs._opened) {
     rs.pending = false;
     rs._readyEmitted = true;
-    rs.emit('ready');
+    // Emit asynchronously: a 'ready' listener attached synchronously right
+    // after createReadStream(...) returns must still observe the event.
+    _deferFsCallback(function() { rs.emit('ready'); });
   }
 
   function markReady() {
@@ -4442,29 +4436,19 @@ function buildWatchDirState(dirname, recursive, prefix) {
   }
   return entries;
 }
-function _watchFileSignature(data) {
-  if (!data) return '0:0';
-  var bytes = data;
-  if (!(bytes instanceof Uint8Array)) {
-    bytes = toUint8Array(bytes);
-  }
-  var sum = 0;
-  var xor = 0;
-  for (var i = 0; i < bytes.length; i++) {
-    var value = bytes[i];
-    sum = (sum + value) >>> 0;
-    xor = xor ^ ((value << (i % 8)) >>> 0);
-  }
-  return bytes.length + ':' + sum + ':' + xor;
-}
 function buildWatchFileState(filename) {
   try {
+    // Detect changes from stat metadata only. The previous implementation
+    // readFileSync'd the whole file and checksummed every byte on each poll
+    // (default 25ms) — watching a large log re-read/hashed it continuously.
+    // Node's watchers are stat-based; mtime + ctime + size + ino catch content
+    // and metadata edits as well as replace-in-place without touching content.
     var stat = statSync(filename);
-    var data = readFileSync(filename);
     return {
       mtime: stat.mtimeMs || 0,
+      ctime: stat.ctimeMs || 0,
       size: stat.size || 0,
-      signature: _watchFileSignature(data)
+      ino: Number(stat.ino) || 0
     };
   } catch (e) {
     return null;
@@ -4620,8 +4604,9 @@ function watch(filename, options, listener) {
       }
       if (!lastFileState ||
           nextFileState.mtime !== lastFileState.mtime ||
+          nextFileState.ctime !== lastFileState.ctime ||
           nextFileState.size !== lastFileState.size ||
-          nextFileState.signature !== lastFileState.signature) {
+          nextFileState.ino !== lastFileState.ino) {
         lastFileState = nextFileState;
         watcher.emit('change', 'change', watchFilename(pathBasename(watcher._filename), encoding));
       }
@@ -4932,6 +4917,7 @@ function chownSync(path, uid, gid) {
   try {
     if (typeof g.__exactChown === 'function') return g.__exactChown(p, uid, gid);
   } catch(e) { throw _makeFsError(e, 'chown', p); }
+  throw _makeUnsupportedFsError('chown', p);
 }
 function chown(path, uid, gid, cb) {
   _validateCallback(cb);
@@ -4981,6 +4967,7 @@ function utimesSync(path, atime, mtime) {
   try {
     if (typeof g.__exactUtimes === 'function') return g.__exactUtimes(p, at, mt);
   } catch(e) { throw _makeFsError(e, 'utime', p); }
+  throw _makeUnsupportedFsError('utime', p);
 }
 function utimes(path, atime, mtime, cb) {
   _validateCallback(cb);
@@ -5538,6 +5525,7 @@ function ftruncateSync(fd, len) {
       return g.__exactFsFtruncateSync(fd, len);
     }
   } catch(e) { throw _makeFsError(e, 'ftruncate'); }
+  throw _makeUnsupportedFsError('ftruncate');
 }
 
 // fdatasync/fdatasyncSync
@@ -5546,7 +5534,7 @@ function fdatasync(fd, callback) {
   _validateCallback(callback);
   ensureExactFs();
   try {
-    if (typeof g.__exactFsFdatasyncSync === 'function') g.__exactFsFdatasyncSync(fd);
+    fdatasyncSync(fd);
     _deferFsCallback(function() { callback(null); });
   } catch(e) {
     var err = _makeFsError(e, 'fdatasync');
@@ -5557,8 +5545,9 @@ function fdatasyncSync(fd) {
   _validateFd(fd);
   ensureExactFs();
   try {
-    if (typeof g.__exactFsFdatasyncSync === 'function') g.__exactFsFdatasyncSync(fd);
+    if (typeof g.__exactFsFdatasyncSync === 'function') return g.__exactFsFdatasyncSync(fd);
   } catch(e) { throw _makeFsError(e, 'fdatasync'); }
+  throw _makeUnsupportedFsError('fdatasync');
 }
 
 // fsync/fsyncSync
@@ -5567,7 +5556,7 @@ function fsync(fd, callback) {
   _validateCallback(callback);
   ensureExactFs();
   try {
-    if (typeof g.__exactFsFsyncSync === 'function') g.__exactFsFsyncSync(fd);
+    fsyncSync(fd);
     _deferFsCallback(function() { callback(null); });
   } catch(e) {
     var err = _makeFsError(e, 'fsync');
@@ -5578,8 +5567,9 @@ function fsyncSync(fd) {
   _validateFd(fd);
   ensureExactFs();
   try {
-    if (typeof g.__exactFsFsyncSync === 'function') g.__exactFsFsyncSync(fd);
+    if (typeof g.__exactFsFsyncSync === 'function') return g.__exactFsFsyncSync(fd);
   } catch(e) { throw _makeFsError(e, 'fsync'); }
+  throw _makeUnsupportedFsError('fsync');
 }
 
 // fstat/fstatSync
@@ -5636,6 +5626,7 @@ function futimesSync(fd, atime, mtime) {
       var at = _toUnixTimestamp(atime);
       var mt = _toUnixTimestamp(mtime);
       g.__exactFsFutimesSync(fd, at, mt);
+      return;
     }
   } catch(e) {
     var err = _makeFsError(e, 'futime');
@@ -5644,6 +5635,7 @@ function futimesSync(fd, atime, mtime) {
     }
     throw err;
   }
+  throw _makeUnsupportedFsError('futime');
 }
 
 // lchmod/lchmodSync

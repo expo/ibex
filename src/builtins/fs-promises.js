@@ -97,13 +97,31 @@ FileHandle.prototype.read = function(buffer, offset, length, position, callback)
   if (typeof callback === 'function') {
     return fs.read(fd, buffer, offset, length, position, callback);
   }
-  if (arguments.length === 1) {
-    var out = new Uint8Array(offset || 0);
-    offset = 0;
-    length = out.length;
-    position = null;
-    buffer = out;
+  // Node supports read(buffer[, options]) and read([options]) in addition to
+  // the positional read(buffer, offset, length, position) form. Detect the
+  // options-object variants; a real buffer is an ArrayBuffer view, an options
+  // bag is a plain object.
+  if (buffer != null && typeof buffer === 'object' && !ArrayBuffer.isView(buffer)) {
+    var readOpts = buffer;
+    buffer = readOpts.buffer;
+    offset = readOpts.offset;
+    length = readOpts.length;
+    position = readOpts.position;
+  } else if (offset != null && typeof offset === 'object') {
+    var readOpts2 = offset;
+    offset = readOpts2.offset;
+    length = readOpts2.length;
+    position = readOpts2.position;
   }
+  if (buffer === undefined || buffer === null) {
+    buffer = new Uint8Array(16384);
+  }
+  if (offset === undefined || offset === null) offset = 0;
+  if (length === undefined || length === null) {
+    var capacity = buffer.byteLength !== undefined ? buffer.byteLength : buffer.length;
+    length = capacity - offset;
+  }
+  if (position === undefined) position = null;
   return new Promise(function(resolve, reject) {
     fs.read(fd, buffer, offset, length, position, function(err, bytesRead, data) {
       if (err) {
@@ -245,29 +263,36 @@ var promises = {
     });
   },
   writeFile: function(filePath, data, options) {
-    return withHandle(filePath, 'w', 0, function(handle) {
-      var fd = handle.fd;
-      fs.writeFileSync(filePath, data);
-      return null;
-    });
+    // Forward options ({encoding, mode, flag}) straight to writeFileSync. The
+    // previous implementation opened the file first with mode 0 (permission
+    // 000) via withHandle, then wrote with no options, so {flag:'a'} truncated,
+    // {flag:'wx'} never raised EEXIST, and new files landed with mode 000.
+    try {
+      fs.writeFileSync(filePath, data, options);
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(handleError(err));
+    }
   },
   truncate: function(filePath, len) {
-    return withHandle(filePath, 'r', 0, function(handle) {
-      var fd = handle.fd;
+    try {
       fs.truncateSync(filePath, len);
-      return null;
-    });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(handleError(err));
+    }
   },
   lchmod: function(filePath, mode) {
-    return withHandle(filePath, 'r', 0, function(handle) {
-      var fd = handle.fd;
+    try {
       if (typeof fs.lchmodSync === 'function') {
         fs.lchmodSync(filePath, mode);
       } else if (typeof fs.chmodSync === 'function') {
         fs.chmodSync(filePath, mode);
       }
-      return null;
-    });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(handleError(err));
+    }
   },
   open: function(filePath, flags, mode) {
     return new Promise(function(resolve, reject) {

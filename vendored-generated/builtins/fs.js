@@ -2,10 +2,6 @@
 var g = globalThis;
 var _exactFsInitialized = false;
 var _streamModule = null;
-var _readdirSyncBurstCount = 0;
-var _readdirSyncBurstPath = null;
-var _readdirSyncBurstResetScheduled = false;
-var MAX_READDIR_SYNC_RECURSION_DEPTH = 256;
 function ensureExactFs() {
 	if (_exactFsInitialized) return;
 	if (typeof g.__exactEnsureFs === "function") try {
@@ -17,22 +13,6 @@ function _getStreamModule() {
 	if (_streamModule) return _streamModule;
 	_streamModule = require("node:stream");
 	return _streamModule;
-}
-function _trackReaddirSyncBurst(path) {
-	if (!_readdirSyncBurstResetScheduled) {
-		_readdirSyncBurstResetScheduled = true;
-		_deferFsCallback(function() {
-			_readdirSyncBurstCount = 0;
-			_readdirSyncBurstPath = null;
-			_readdirSyncBurstResetScheduled = false;
-		});
-	}
-	if (_readdirSyncBurstPath === path) _readdirSyncBurstCount += 1;
-	else {
-		_readdirSyncBurstPath = path;
-		_readdirSyncBurstCount = 1;
-	}
-	if (_readdirSyncBurstCount > MAX_READDIR_SYNC_RECURSION_DEPTH) throw new RangeError("Maximum call stack size exceeded");
 }
 function _fsInvalidArgType(name, expected, actual) {
 	var received;
@@ -583,6 +563,9 @@ function _makeFsError(err, syscall, path, dest) {
 	else if (err.code && _uvErrnoMap[err.code] !== void 0) fsErr.errno = -_uvErrnoMap[err.code];
 	else fsErr.errno = -_uvErrnoMap.UNKNOWN;
 	return fsErr;
+}
+function _makeUnsupportedFsError(syscall, path) {
+	return _makeFsError({ code: "ENOSYS" }, syscall, path);
 }
 function _parseFsOpenFlags(flags) {
 	if (typeof flags !== "string") {
@@ -1634,7 +1617,6 @@ function readdirSync(path, options) {
 	ensureExactFs();
 	try {
 		var p = _pathToString(path);
-		_trackReaddirSyncBurst(p);
 		var opts = typeof options === "string" ? { encoding: options } : options || {};
 		var withFileTypes = !!opts.withFileTypes;
 		var recursive = !!opts.recursive;
@@ -1752,13 +1734,17 @@ function cpSync(src, dest, options) {
 			return;
 		}
 		if (st.isFile()) {
-			if (errorOnExist && !force && existsSync(destination)) {
-				var alreadyErr = /* @__PURE__ */ new Error("EEXIST: file already exists, copyFile '" + source + "' -> '" + destination + "'");
-				alreadyErr.code = "EEXIST";
-				alreadyErr.errno = _uvErrnoMap.EEXIST;
-				throw alreadyErr;
+			var destExists = existsSync(destination);
+			if (!force && destExists) {
+				if (errorOnExist) {
+					var alreadyErr = /* @__PURE__ */ new Error("EEXIST: file already exists, copyFile '" + source + "' -> '" + destination + "'");
+					alreadyErr.code = "EEXIST";
+					alreadyErr.errno = _uvErrnoMap.EEXIST;
+					throw alreadyErr;
+				}
+				return;
 			}
-			if (existsSync(destination) && force) unlinkSync(destination);
+			if (destExists && force) unlinkSync(destination);
 			if (preserveTimestamps) writeFileSync(destination, readFileSync(source));
 			else {
 				var fd = openSync(source, "r");
@@ -2909,7 +2895,6 @@ function _initReadStream(rs, path, options) {
 	var opts = typeof options === "string" ? { encoding: options } : options || {};
 	var fsModule = opts.fs || require("fs");
 	var useSyncReadFastPath = opts.fs === void 0;
-	var allowGrowingSource = opts.start !== void 0 && end === void 0;
 	_validateFsOptions("options.fs", opts.fs, [
 		"open",
 		"close",
@@ -2918,6 +2903,7 @@ function _initReadStream(rs, path, options) {
 	var encoding = opts.encoding || null;
 	var start = 0;
 	var end = opts.end;
+	var allowGrowingSource = opts.start !== void 0 && end === void 0;
 	if (opts.start !== void 0) {
 		if (typeof opts.start !== "number") throw _fsInvalidArgType("start", "number", opts.start);
 		_validateInt("start", opts.start, 0, Number.MAX_SAFE_INTEGER);
@@ -3033,7 +3019,9 @@ function _initReadStream(rs, path, options) {
 	if (rs._opened) {
 		rs.pending = false;
 		rs._readyEmitted = true;
-		rs.emit("ready");
+		_deferFsCallback(function() {
+			rs.emit("ready");
+		});
 	}
 	function markReady() {
 		if (!rs.pending) return;
@@ -3867,27 +3855,14 @@ function buildWatchDirState(dirname, recursive, prefix) {
 	}
 	return entries;
 }
-function _watchFileSignature(data) {
-	if (!data) return "0:0";
-	var bytes = data;
-	if (!(bytes instanceof Uint8Array)) bytes = toUint8Array(bytes);
-	var sum = 0;
-	var xor = 0;
-	for (var i = 0; i < bytes.length; i++) {
-		var value = bytes[i];
-		sum = sum + value >>> 0;
-		xor = xor ^ value << i % 8 >>> 0;
-	}
-	return bytes.length + ":" + sum + ":" + xor;
-}
 function buildWatchFileState(filename) {
 	try {
 		var stat = statSync(filename);
-		var data = readFileSync(filename);
 		return {
 			mtime: stat.mtimeMs || 0,
+			ctime: stat.ctimeMs || 0,
 			size: stat.size || 0,
-			signature: _watchFileSignature(data)
+			ino: Number(stat.ino) || 0
 		};
 	} catch (e) {
 		return null;
@@ -4024,7 +3999,7 @@ function watch(filename, options, listener) {
 				}
 				return;
 			}
-			if (!lastFileState || nextFileState.mtime !== lastFileState.mtime || nextFileState.size !== lastFileState.size || nextFileState.signature !== lastFileState.signature) {
+			if (!lastFileState || nextFileState.mtime !== lastFileState.mtime || nextFileState.ctime !== lastFileState.ctime || nextFileState.size !== lastFileState.size || nextFileState.ino !== lastFileState.ino) {
 				lastFileState = nextFileState;
 				watcher.emit("change", "change", watchFilename(pathBasename(watcher._filename), encoding));
 			}
@@ -4335,6 +4310,7 @@ function chownSync(path, uid, gid) {
 	} catch (e) {
 		throw _makeFsError(e, "chown", p);
 	}
+	throw _makeUnsupportedFsError("chown", p);
 }
 function chown(path, uid, gid, cb) {
 	_validateCallback(cb);
@@ -4382,6 +4358,7 @@ function utimesSync(path, atime, mtime) {
 	} catch (e) {
 		throw _makeFsError(e, "utime", p);
 	}
+	throw _makeUnsupportedFsError("utime", p);
 }
 function utimes(path, atime, mtime, cb) {
 	_validateCallback(cb);
@@ -5074,13 +5051,14 @@ function ftruncateSync(fd, len) {
 	} catch (e) {
 		throw _makeFsError(e, "ftruncate");
 	}
+	throw _makeUnsupportedFsError("ftruncate");
 }
 function fdatasync(fd, callback) {
 	_validateFd(fd);
 	_validateCallback(callback);
 	ensureExactFs();
 	try {
-		if (typeof g.__exactFsFdatasyncSync === "function") g.__exactFsFdatasyncSync(fd);
+		fdatasyncSync(fd);
 		_deferFsCallback(function() {
 			callback(null);
 		});
@@ -5095,17 +5073,18 @@ function fdatasyncSync(fd) {
 	_validateFd(fd);
 	ensureExactFs();
 	try {
-		if (typeof g.__exactFsFdatasyncSync === "function") g.__exactFsFdatasyncSync(fd);
+		if (typeof g.__exactFsFdatasyncSync === "function") return g.__exactFsFdatasyncSync(fd);
 	} catch (e) {
 		throw _makeFsError(e, "fdatasync");
 	}
+	throw _makeUnsupportedFsError("fdatasync");
 }
 function fsync(fd, callback) {
 	_validateFd(fd);
 	_validateCallback(callback);
 	ensureExactFs();
 	try {
-		if (typeof g.__exactFsFsyncSync === "function") g.__exactFsFsyncSync(fd);
+		fsyncSync(fd);
 		_deferFsCallback(function() {
 			callback(null);
 		});
@@ -5120,10 +5099,11 @@ function fsyncSync(fd) {
 	_validateFd(fd);
 	ensureExactFs();
 	try {
-		if (typeof g.__exactFsFsyncSync === "function") g.__exactFsFsyncSync(fd);
+		if (typeof g.__exactFsFsyncSync === "function") return g.__exactFsFsyncSync(fd);
 	} catch (e) {
 		throw _makeFsError(e, "fsync");
 	}
+	throw _makeUnsupportedFsError("fsync");
 }
 function fstat(fd, opts, callback) {
 	if (typeof opts === "function") {
@@ -5184,12 +5164,14 @@ function futimesSync(fd, atime, mtime) {
 			var at = _toUnixTimestamp(atime);
 			var mt = _toUnixTimestamp(mtime);
 			g.__exactFsFutimesSync(fd, at, mt);
+			return;
 		}
 	} catch (e) {
 		var err = _makeFsError(e, "futime");
 		if (err && typeof err.message === "string") err.message = err.message.replace("futimes", "futime");
 		throw err;
 	}
+	throw _makeUnsupportedFsError("futime");
 }
 function lchmod(path, mode, callback) {
 	_validatePath(path);
