@@ -176,7 +176,7 @@ export class IDBFactory {
           );
         }
 
-        const db = new IDBDatabase(name, resolvedVersion, sqliteDb);
+        const db = new IDBDatabase(name, resolvedVersion, sqliteDb, this);
 
         // Set the result on the request before upgradeneeded fires,
         // because onupgradeneeded handlers access event.target.result
@@ -191,26 +191,42 @@ export class IDBFactory {
           const upgradeTxn = new IDBTransaction(db, storeNames, 'versionchange');
           db._upgradeTransaction = upgradeTxn;
 
-          // Fire onupgradeneeded synchronously
-          if (request.onupgradeneeded) {
-            const event = {
-              type: 'upgradeneeded',
-              target: request,
-              oldVersion,
-              newVersion: resolvedVersion,
-            };
-            // During upgradeneeded, the database is in a special state
-            // where createObjectStore/deleteObjectStore can be called
-            request.onupgradeneeded(event);
-          }
+          // Wrap the whole upgrade (schema changes + version bump) in a single
+          // SQLite transaction. If onupgradeneeded throws after creating some
+          // object stores, we roll everything back so the database can be
+          // reopened and the upgrade retried, rather than being permanently
+          // wedged (a re-run would hit ConstraintError re-creating store A).
+          upgradeTxn._beginVersionChange();
+          try {
+            // Fire onupgradeneeded synchronously
+            if (request.onupgradeneeded) {
+              const event = {
+                type: 'upgradeneeded',
+                target: request,
+                oldVersion,
+                newVersion: resolvedVersion,
+              };
+              // During upgradeneeded, the database is in a special state
+              // where createObjectStore/deleteObjectStore can be called
+              request.onupgradeneeded(event);
+            }
 
-          // Clear the upgrade transaction after upgradeneeded completes
-          db._upgradeTransaction = null;
+            // Clear the upgrade transaction after upgradeneeded completes
+            db._upgradeTransaction = null;
+            writeStoredVersion(sqliteDb, resolvedVersion);
+            upgradeTxn._commitVersionChange();
+          } catch (upgradeError: any) {
+            db._upgradeTransaction = null;
+            upgradeTxn._abortVersionChange();
+            throw upgradeError;
+          }
+        } else {
+          writeStoredVersion(sqliteDb, resolvedVersion);
         }
 
-        // Store the database reference
+        // Store the database reference (only reached once the upgrade, if any,
+        // has committed successfully).
         this._databases.set(name, { version: resolvedVersion, sqliteDb });
-        writeStoredVersion(sqliteDb, resolvedVersion);
 
         // Fire onsuccess
         request._resolveSync(db);
@@ -220,6 +236,21 @@ export class IDBFactory {
     });
 
     return request;
+  }
+
+  /**
+   * @internal - Evict a cached connection when its IDBDatabase.close() runs.
+   *
+   * open() reuses a cached sqliteDb handle for a name; without eviction, once a
+   * connection is closed the cache would keep handing out the dead handle and
+   * every subsequent open() would fail. Eviction lets the next open() create a
+   * fresh handle from the persisted SQLite file.
+   */
+  _handleConnectionClose(name: string, sqliteDb: any): void {
+    const entry = this._databases.get(name);
+    if (entry && entry.sqliteDb === sqliteDb) {
+      this._databases.delete(name);
+    }
   }
 
   /**

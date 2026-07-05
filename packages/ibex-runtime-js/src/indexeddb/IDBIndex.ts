@@ -45,8 +45,10 @@ export class IDBIndex {
    * Retrieve the first record matching a key or key range from this index.
    */
   get(query: any): IDBRequest {
+    this._objectStore._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
+    request.transaction = this._objectStore._transaction;
     try {
       const records = this._getMatchingRecords(query);
       request._resolve(records.length > 0 ? records[0].value : undefined);
@@ -60,8 +62,10 @@ export class IDBIndex {
    * Retrieve the key of the first record matching from this index.
    */
   getKey(query: any): IDBRequest {
+    this._objectStore._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
+    request.transaction = this._objectStore._transaction;
     try {
       const records = this._getMatchingRecords(query);
       request._resolve(records.length > 0 ? records[0].primaryKey : undefined);
@@ -75,8 +79,10 @@ export class IDBIndex {
    * Retrieve all records matching from this index.
    */
   getAll(query?: any, count?: number): IDBRequest {
+    this._objectStore._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
+    request.transaction = this._objectStore._transaction;
     try {
       let records = this._getMatchingRecords(query);
       if (count !== undefined && count >= 0) {
@@ -93,8 +99,10 @@ export class IDBIndex {
    * Retrieve all keys matching from this index.
    */
   getAllKeys(query?: any, count?: number): IDBRequest {
+    this._objectStore._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
+    request.transaction = this._objectStore._transaction;
     try {
       let records = this._getMatchingRecords(query);
       if (count !== undefined && count >= 0) {
@@ -111,8 +119,10 @@ export class IDBIndex {
    * Count records matching a key or range in this index.
    */
   count(query?: any): IDBRequest {
+    this._objectStore._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
+    request.transaction = this._objectStore._transaction;
     try {
       const records = this._getMatchingRecords(query);
       request._resolve(records.length);
@@ -126,8 +136,10 @@ export class IDBIndex {
    * Open a cursor over the index's records.
    */
   openCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
+    this._objectStore._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
+    request.transaction = this._objectStore._transaction;
     try {
       const records = this._getMatchingRecords(query);
       if (records.length === 0) {

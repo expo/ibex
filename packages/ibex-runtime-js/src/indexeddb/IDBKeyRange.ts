@@ -69,41 +69,89 @@ export class IDBKeyRange {
   }
 }
 
+/** Whether a value is a valid IndexedDB binary key (ArrayBuffer or a view). */
+function isBinaryKey(v: any): boolean {
+  return v instanceof ArrayBuffer || ArrayBuffer.isView(v);
+}
+
+/**
+ * Whether a value is a valid IndexedDB key: a number (not NaN), a string, a
+ * valid Date, binary data, or an array of valid keys. Booleans, null,
+ * undefined and plain objects are not keys.
+ */
+export function isValidKey(v: any): boolean {
+  if (Array.isArray(v)) return v.every(isValidKey);
+  if (isBinaryKey(v)) return true;
+  if (typeof v === 'string') return true;
+  if (v instanceof Date) return !Number.isNaN(v.getTime());
+  if (typeof v === 'number') return !Number.isNaN(v);
+  return false;
+}
+
+/** Raw bytes of a binary key, for byte-wise comparison. */
+function binaryBytes(v: any): Uint8Array {
+  if (v instanceof ArrayBuffer) return new Uint8Array(v);
+  return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+}
+
+/**
+ * Rank of a key's type in the spec ordering (ascending):
+ * Number < Date < String < Binary < Array. Throws DataError for anything that
+ * is not a valid key (boolean, null, undefined, NaN, plain object, ...).
+ */
+function keyTypeOrder(v: any): number {
+  if (Array.isArray(v)) return 5;
+  if (isBinaryKey(v)) return 4;
+  if (typeof v === 'string') return 3;
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) {
+      throw new DOMException('Invalid Date key', 'DataError');
+    }
+    return 2;
+  }
+  if (typeof v === 'number' && !Number.isNaN(v)) return 1;
+  throw new DOMException(
+    'The parameter is not a valid key.',
+    'DataError',
+  );
+}
+
 /**
  * Compare two IndexedDB keys per the spec ordering.
  * Returns negative if a < b, positive if a > b, 0 if equal.
+ * Throws a DataError DOMException if either argument is not a valid key.
  */
 export function compareKeys(a: any, b: any): number {
-  // Type order: Array > String > Date > Number
-  const typeOrder = (v: any): number => {
-    if (Array.isArray(v)) return 4;
-    if (typeof v === 'string') return 3;
-    if (v instanceof Date) return 2;
-    if (typeof v === 'number') return 1;
-    return 0;
-  };
-
-  const ta = typeOrder(a);
-  const tb = typeOrder(b);
+  const ta = keyTypeOrder(a);
+  const tb = keyTypeOrder(b);
   if (ta !== tb) return ta - tb;
 
-  if (typeof a === 'number' && typeof b === 'number') {
-    return a - b;
-  }
-  if (typeof a === 'string' && typeof b === 'string') {
-    return a < b ? -1 : a > b ? 1 : 0;
-  }
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() - b.getTime();
-  }
-  if (Array.isArray(a) && Array.isArray(b)) {
-    const len = Math.min(a.length, b.length);
-    for (let i = 0; i < len; i++) {
-      const c = compareKeys(a[i], b[i]);
-      if (c !== 0) return c;
+  switch (ta) {
+    case 1: // Number
+      return a - b;
+    case 2: // Date
+      return a.getTime() - b.getTime();
+    case 3: // String
+      return a < b ? -1 : a > b ? 1 : 0;
+    case 4: { // Binary
+      const ba = binaryBytes(a);
+      const bb = binaryBytes(b);
+      const len = Math.min(ba.length, bb.length);
+      for (let i = 0; i < len; i++) {
+        if (ba[i] !== bb[i]) return ba[i] - bb[i];
+      }
+      return ba.length - bb.length;
     }
-    return a.length - b.length;
+    case 5: { // Array
+      const len = Math.min(a.length, b.length);
+      for (let i = 0; i < len; i++) {
+        const c = compareKeys(a[i], b[i]);
+        if (c !== 0) return c;
+      }
+      return a.length - b.length;
+    }
+    default:
+      return 0;
   }
-  return 0;
 }
 

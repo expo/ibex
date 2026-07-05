@@ -20,8 +20,23 @@ export class IDBTransaction {
   private _committed = false;
   private _aborted = false;
   private _error: DOMException | null = null;
-  /** @internal */
-  _state: 'active' | 'inactive' | 'committing' | 'finished' = 'active';
+  /**
+   * @internal - Lifecycle state.
+   *  - `active`: operations may be issued (during the creating task and while a
+   *     bound request is dispatching its success/error event).
+   *  - `inactive`: control has returned to the event loop; issuing an operation
+   *     throws TransactionInactiveError until a bound event reactivates it.
+   *  - `finished`: committed or aborted; terminal.
+   */
+  _state: 'active' | 'inactive' | 'finished' = 'active';
+  /**
+   * @internal - Count of requests bound to this transaction whose success/error
+   * event has been scheduled but not yet finished dispatching. The transaction
+   * auto-commits only when this reaches zero and it is no longer active, so
+   * requests chained through nested onsuccess handlers all execute inside a
+   * single SQLite BEGIN/COMMIT.
+   */
+  _pending = 0;
   /** @internal - Whether a SQLite BEGIN has been issued for this transaction */
   private _sqliteBegan = false;
   /** @internal - EventTarget listeners keyed by event type */
@@ -36,9 +51,22 @@ export class IDBTransaction {
     this._storeNames = storeNames;
     this._mode = mode;
 
-    // Begin a SQLite transaction for readwrite transactions to enable rollback
+    // Begin a SQLite transaction for readwrite so writes can roll back on
+    // abort. versionchange transactions are begun explicitly by IDBFactory.open
+    // via _beginVersionChange() so schema changes roll back if upgrade throws.
     if (mode === 'readwrite') {
       this._beginSqlite();
+    }
+
+    // A readonly/readwrite transaction is active for the duration of the task
+    // that created it, then goes inactive at the microtask checkpoint. Each
+    // bound request reactivates it while its event handler runs. Auto-commit
+    // fires once it is idle (no in-flight requests) and no longer active.
+    if (mode !== 'versionchange') {
+      queueMicrotask(() => {
+        if (this._state === 'active') this._state = 'inactive';
+        this._maybeAutoCommit();
+      });
     }
   }
 
@@ -82,16 +110,16 @@ export class IDBTransaction {
    * Get an object store from this transaction.
    */
   objectStore(name: string): IDBObjectStore {
+    if (this._state === 'finished') {
+      throw new DOMException(
+        'The transaction has finished.',
+        'InvalidStateError',
+      );
+    }
     if (!this._storeNames.includes(name)) {
       throw new DOMException(
         `Object store "${name}" is not in this transaction's scope`,
         'NotFoundError',
-      );
-    }
-    if (this._aborted) {
-      throw new DOMException(
-        'Transaction has been aborted',
-        'InvalidStateError',
       );
     }
 
@@ -161,16 +189,78 @@ export class IDBTransaction {
     });
   }
 
-  /** @internal - Auto-commit if no abort was called (called after all microtasks drain) */
-  _autoCommit(): void {
-    if (!this._committed && !this._aborted) {
-      this.commit();
+  // ================================================================
+  // Lifecycle: active-state gating and idle-driven auto-commit
+  // ================================================================
+
+  /**
+   * @internal - Throw if an operation may not be issued right now. Matches the
+   * spec requirement that add/put/get/... raise TransactionInactiveError when
+   * the transaction is not active, rather than silently running SQL after the
+   * transaction has committed.
+   */
+  _assertActive(): void {
+    if (this._state !== 'active') {
+      throw new DOMException(
+        this._state === 'finished'
+          ? 'The transaction has finished.'
+          : 'The transaction is not active.',
+        'TransactionInactiveError',
+      );
     }
+  }
+
+  /** @internal - A bound request's event is about to be dispatched. */
+  _beginEventDispatch(): void {
+    if (this._state === 'inactive') this._state = 'active';
+  }
+
+  /** @internal - A bound request's event finished dispatching. */
+  _endEventDispatch(): void {
+    if (this._state === 'active') this._state = 'inactive';
+  }
+
+  /** @internal - A bound request has scheduled a success/error event. */
+  _retain(): void {
+    this._pending++;
+  }
+
+  /** @internal - A bound request's success/error event finished dispatching. */
+  _release(): void {
+    if (this._pending > 0) this._pending--;
+    this._maybeAutoCommit();
+  }
+
+  /** @internal - Commit once no requests are in flight and control has yielded. */
+  private _maybeAutoCommit(): void {
+    if (this._state !== 'inactive') return;
+    if (this._mode === 'versionchange') return;
+    if (this._pending > 0) return;
+    this.commit();
   }
 
   // ================================================================
   // SQLite transaction wrapping
   // ================================================================
+
+  /** @internal - Begin the SQLite transaction backing a versionchange upgrade. */
+  _beginVersionChange(): void {
+    this._beginSqlite();
+  }
+
+  /** @internal - Commit a versionchange upgrade's schema/data changes. */
+  _commitVersionChange(): void {
+    this._committed = true;
+    this._state = 'finished';
+    this._commitSqlite();
+  }
+
+  /** @internal - Roll back a versionchange upgrade whose onupgradeneeded threw. */
+  _abortVersionChange(): void {
+    this._aborted = true;
+    this._state = 'finished';
+    this._rollbackSqlite();
+  }
 
   /** @internal - Begin a SQLite transaction */
   private _beginSqlite(): void {

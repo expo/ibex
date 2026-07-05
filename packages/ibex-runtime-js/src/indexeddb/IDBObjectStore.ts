@@ -8,8 +8,9 @@
 
 import { IDBRequest } from './IDBRequest';
 import { IDBIndex, type IDBIndexParameters, extractKeyPath } from './IDBIndex';
-import { IDBKeyRange, compareKeys } from './IDBKeyRange';
+import { IDBKeyRange, compareKeys, isValidKey } from './IDBKeyRange';
 import { IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
+import { serializeKey, deserializeKey, serializeValue, deserializeValue } from './serialization';
 import { DOMException, sanitizeName } from './utils';
 
 export interface IDBObjectStoreParameters {
@@ -28,8 +29,6 @@ export class IDBObjectStore {
   _db: any; // The SQLite-backed database reference
   /** @internal */
   _indexes: Map<string, IDBIndex> = new Map();
-  /** @internal */
-  _autoIncrementValue: number = 0;
   /** @internal */
   _tableName: string;
 
@@ -62,6 +61,7 @@ export class IDBObjectStore {
    * Add a record to the store. Fails if a record with the same key exists.
    */
   add(value: any, key?: any): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -85,6 +85,7 @@ export class IDBObjectStore {
    * Add or update a record in the store.
    */
   put(value: any, key?: any): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -102,6 +103,7 @@ export class IDBObjectStore {
    * Retrieve a record by key.
    */
   get(query: any): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -124,14 +126,15 @@ export class IDBObjectStore {
    * Retrieve the key of the first record matching.
    */
   getKey(query: any): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
     try {
       if (query instanceof IDBKeyRange) {
-        const records = this._getAllRecords();
-        const match = records.find((r: any) => query.includes(r.key));
-        request._resolve(match ? match.key : undefined);
+        const keys = this._getAllKeys();
+        const match = keys.find((k: any) => query.includes(k));
+        request._resolve(match !== undefined ? match : undefined);
       } else {
         const value = this._getRecord(query);
         request._resolve(value !== undefined ? query : undefined);
@@ -146,6 +149,7 @@ export class IDBObjectStore {
    * Retrieve all records, optionally filtered by key range.
    */
   getAll(query?: any, count?: number): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -169,19 +173,21 @@ export class IDBObjectStore {
    * Retrieve all keys, optionally filtered.
    */
   getAllKeys(query?: any, count?: number): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
     try {
-      let records = this._getAllRecords();
+      // Only the keys are needed, so avoid deserializing every record value.
+      let keys = this._getAllKeys();
       if (query !== undefined && query !== null) {
         const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-        records = records.filter((r: any) => range.includes(r.key));
+        keys = keys.filter((k: any) => range.includes(k));
       }
       if (count !== undefined && count >= 0) {
-        records = records.slice(0, count);
+        keys = keys.slice(0, count);
       }
-      request._resolve(records.map((r: any) => r.key));
+      request._resolve(keys);
     } catch (e: any) {
       request._reject(e);
     }
@@ -192,17 +198,16 @@ export class IDBObjectStore {
    * Delete a record by key or key range.
    */
   delete(query: any): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
     try {
       if (query instanceof IDBKeyRange) {
-        const records = this._getAllRecords();
-        for (const r of records) {
-          if (query.includes(r.key)) {
-            this._deleteRecord(r.key);
-          }
-        }
+        // Find matching keys (no value deserialization) and delete them in one
+        // statement rather than issuing a DELETE per key.
+        const matches = this._getAllKeys().filter((k: any) => query.includes(k));
+        this._deleteRecords(matches);
       } else {
         this._deleteRecord(query);
       }
@@ -217,6 +222,7 @@ export class IDBObjectStore {
    * Delete all records in the store.
    */
   clear(): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -233,6 +239,7 @@ export class IDBObjectStore {
    * Count records, optionally filtered.
    */
   count(query?: any): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -241,8 +248,9 @@ export class IDBObjectStore {
         request._resolve(this._countRecords());
       } else {
         const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-        const records = this._getAllRecords();
-        request._resolve(records.filter((r: any) => range.includes(r.key)).length);
+        // Count over keys only; no value deserialization.
+        const keys = this._getAllKeys();
+        request._resolve(keys.filter((k: any) => range.includes(k)).length);
       }
     } catch (e: any) {
       request._reject(e);
@@ -301,6 +309,7 @@ export class IDBObjectStore {
    * Open a cursor over the object store.
    */
   openCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
+    this._transaction._assertActive();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -343,39 +352,38 @@ export class IDBObjectStore {
     this._db._exec(
       `CREATE TABLE IF NOT EXISTS "${this._tableName}" (key TEXT PRIMARY KEY, value TEXT)`
     );
-    // Load auto-increment counter by scanning all keys in JS.
-    // We cannot rely on SQLite's typeof() or CAST() on JSON-encoded text keys,
-    // so we parse them in JS and find the max numeric key.
-    if (this.autoIncrement) {
-      const rows = this._db._all(`SELECT key FROM "${this._tableName}"`);
-      let maxKey = 0;
-      for (const row of rows) {
-        try {
-          const parsed = JSON.parse(row.key);
-          if (typeof parsed === 'number' && !isNaN(parsed) && parsed > maxKey) {
-            maxKey = parsed;
-          }
-        } catch (_) {
-          // Skip non-parseable keys
-        }
-      }
-      this._autoIncrementValue = maxKey;
-    }
+    // The autoIncrement key generator is computed lazily and cached at the
+    // database level (see IDBDatabase._nextAutoIncrement); it is intentionally
+    // NOT recomputed here, so constructing a store per transaction no longer
+    // scans and parses every key.
   }
 
   /** @internal */
   _resolveKey(value: any, explicitKey?: any): any {
     if (explicitKey !== undefined) {
+      if (!isValidKey(explicitKey)) {
+        throw new DOMException('The parameter is not a valid key.', 'DataError');
+      }
+      if (this.autoIncrement) {
+        this._db._noteExplicitKey(this.name, explicitKey);
+      }
       return explicitKey;
     }
     if (this.keyPath !== null) {
       const key = extractKeyPath(value, this.keyPath);
-      if (key !== undefined) return key;
+      if (key !== undefined) {
+        if (!isValidKey(key)) {
+          throw new DOMException('The keyPath value is not a valid key.', 'DataError');
+        }
+        if (this.autoIncrement) {
+          this._db._noteExplicitKey(this.name, key);
+        }
+        return key;
+      }
     }
     if (this.autoIncrement) {
-      this._autoIncrementValue++;
-      const newKey = this._autoIncrementValue;
-      // If keyPath exists, set the key on the value
+      const newKey = this._db._nextAutoIncrement(this.name, this._tableName);
+      // If keyPath exists, set the generated key on the value
       if (this.keyPath !== null && typeof this.keyPath === 'string' && typeof value === 'object' && value !== null) {
         setKeyPath(value, this.keyPath, newKey);
       }
@@ -391,18 +399,18 @@ export class IDBObjectStore {
   _hasRecord(key: any): boolean {
     const row = this._db._get(
       `SELECT 1 FROM "${this._tableName}" WHERE key = ?`,
-      [JSON.stringify(key)]
+      [serializeKey(key)]
     );
     return !!row;
   }
 
   /** @internal */
   _putRecord(key: any, value: any): void {
-    const serializedKey = JSON.stringify(key);
-    const serializedValue = JSON.stringify(value);
+    // Structured (tagged) serialization preserves Date/TypedArray/ArrayBuffer/
+    // Map/Set/undefined that plain JSON silently corrupts.
     this._db._exec(
       `INSERT OR REPLACE INTO "${this._tableName}" (key, value) VALUES (?, ?)`,
-      [serializedKey, serializedValue]
+      [serializeKey(key), serializeValue(value)]
     );
   }
 
@@ -410,16 +418,26 @@ export class IDBObjectStore {
   _getRecord(key: any): any {
     const row = this._db._get(
       `SELECT value FROM "${this._tableName}" WHERE key = ?`,
-      [JSON.stringify(key)]
+      [serializeKey(key)]
     );
-    return row ? JSON.parse(row.value) : undefined;
+    return row ? deserializeValue(row.value) : undefined;
   }
 
   /** @internal */
   _deleteRecord(key: any): void {
     this._db._exec(
       `DELETE FROM "${this._tableName}" WHERE key = ?`,
-      [JSON.stringify(key)]
+      [serializeKey(key)]
+    );
+  }
+
+  /** @internal - Delete a batch of keys in a single statement. */
+  _deleteRecords(keys: any[]): void {
+    if (keys.length === 0) return;
+    const placeholders = keys.map(() => '?').join(', ');
+    this._db._exec(
+      `DELETE FROM "${this._tableName}" WHERE key IN (${placeholders})`,
+      keys.map((k) => serializeKey(k))
     );
   }
 
@@ -427,7 +445,7 @@ export class IDBObjectStore {
   _clearRecords(): void {
     this._db._exec(`DELETE FROM "${this._tableName}"`);
     if (this.autoIncrement) {
-      this._autoIncrementValue = 0;
+      this._db._resetAutoIncrement(this.name);
     }
   }
 
@@ -437,15 +455,23 @@ export class IDBObjectStore {
     return row ? row.cnt : 0;
   }
 
+  /** @internal - Deserialize and sort just the keys (no record values). */
+  _getAllKeys(): any[] {
+    const rows = this._db._all(`SELECT key FROM "${this._tableName}"`);
+    const keys = rows.map((r: any) => deserializeKey(r.key));
+    keys.sort((a: any, b: any) => compareKeys(a, b));
+    return keys;
+  }
+
   /** @internal */
   _getAllRecords(): Array<{ key: any; value: any }> {
     const rows = this._db._all(`SELECT key, value FROM "${this._tableName}"`);
     const records = rows.map((r: any) => ({
-      key: JSON.parse(r.key),
-      value: JSON.parse(r.value),
+      key: deserializeKey(r.key),
+      value: deserializeValue(r.value),
     }));
-    // Sort in JS using IndexedDB key comparison (number < string < Date < Array)
-    // to avoid lexicographic issues with SQLite text-based ORDER BY.
+    // Sort in JS using IndexedDB key comparison (number < date < string <
+    // binary < array) to avoid lexicographic issues with SQLite text ORDER BY.
     records.sort((a: any, b: any) => compareKeys(a.key, b.key));
     return records;
   }
@@ -465,4 +491,3 @@ function setKeyPath(obj: any, keyPath: string, value: any): void {
   }
   current[parts[parts.length - 1]] = value;
 }
-

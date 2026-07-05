@@ -99,18 +99,29 @@ export class IDBRequest<T = any> {
     // Check onsuccess inside the microtask so handlers set after
     // _resolve() is called (but before the microtask runs) still fire.
     const event = { type: 'success', target: this };
+    const tx = this._transaction;
+    // Keep the owning transaction alive until this event has finished
+    // dispatching, so a request issued from the onsuccess handler still runs
+    // inside the same transaction (see IDBTransaction lifecycle notes).
+    if (tx && tx._retain) tx._retain();
     queueMicrotask(() => {
-      if (this.onsuccess) {
-        try {
-          this.onsuccess(event);
-        } catch (e) {
-          // Errors in handlers propagate to transaction
-          if (this._transaction && this._transaction._handleError) {
-            this._transaction._handleError(e);
+      if (tx && tx._beginEventDispatch) tx._beginEventDispatch();
+      try {
+        if (this.onsuccess) {
+          try {
+            this.onsuccess(event);
+          } catch (e) {
+            // Errors in handlers propagate to transaction
+            if (tx && tx._handleError) {
+              tx._handleError(e);
+            }
           }
         }
+        this._fireListeners('success', event);
+      } finally {
+        if (tx && tx._endEventDispatch) tx._endEventDispatch();
+        if (tx && tx._release) tx._release();
       }
-      this._fireListeners('success', event);
     });
   }
 
@@ -122,11 +133,19 @@ export class IDBRequest<T = any> {
       : new DOMException(error.message, 'UnknownError');
     this._result = undefined as any;
     const event = { type: 'error', target: this };
+    const tx = this._transaction;
+    if (tx && tx._retain) tx._retain();
     queueMicrotask(() => {
-      if (this.onerror) {
-        this.onerror(event);
+      if (tx && tx._beginEventDispatch) tx._beginEventDispatch();
+      try {
+        if (this.onerror) {
+          this.onerror(event);
+        }
+        this._fireListeners('error', event);
+      } finally {
+        if (tx && tx._endEventDispatch) tx._endEventDispatch();
+        if (tx && tx._release) tx._release();
       }
-      this._fireListeners('error', event);
     });
   }
 

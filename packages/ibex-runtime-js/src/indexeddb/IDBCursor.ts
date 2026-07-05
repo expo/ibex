@@ -80,6 +80,8 @@ export class IDBCursor {
    * Advances the cursor to the next position.
    */
   continue(key?: any): void {
+    const tx = this._request.transaction;
+    if (tx && tx._assertActive) tx._assertActive();
     this._position++;
     if (key !== undefined) {
       // Skip to the first record with key >= given key (or <= for prev)
@@ -110,6 +112,8 @@ export class IDBCursor {
     if (count <= 0) {
       throw new TypeError('count must be greater than 0');
     }
+    const tx = this._request.transaction;
+    if (tx && tx._assertActive) tx._assertActive();
     this._position += count;
     if (this._position < this._records.length) {
       this._gotValue = true;
@@ -120,11 +124,19 @@ export class IDBCursor {
     }
   }
 
+  /** @internal - The object store backing this cursor's source. */
+  private _store(): any {
+    return this._source._objectStore || this._source;
+  }
+
   /**
    * Updates the value at the current cursor position.
    */
   update(value: any): IDBRequest {
+    const store = this._store();
+    store._transaction._assertActive();
     const request = new IDBRequest();
+    request.transaction = store._transaction;
     if (!this._gotValue || this._position >= this._records.length) {
       request._reject(new Error('Cursor is not pointing to a record'));
       return request;
@@ -132,7 +144,6 @@ export class IDBCursor {
     const record = this._records[this._position];
     // Update via the source's object store
     try {
-      const store = this._source._objectStore || this._source;
       store._putRecord(record.primaryKey, value);
       record.value = value;
       request._resolve(record.primaryKey);
@@ -146,14 +157,16 @@ export class IDBCursor {
    * Deletes the record at the current cursor position.
    */
   delete(): IDBRequest {
+    const store = this._store();
+    store._transaction._assertActive();
     const request = new IDBRequest();
+    request.transaction = store._transaction;
     if (!this._gotValue || this._position >= this._records.length) {
       request._reject(new Error('Cursor is not pointing to a record'));
       return request;
     }
     const record = this._records[this._position];
     try {
-      const store = this._source._objectStore || this._source;
       store._deleteRecord(record.primaryKey);
       request._resolve(undefined);
     } catch (e: any) {

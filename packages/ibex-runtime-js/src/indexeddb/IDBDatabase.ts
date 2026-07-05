@@ -14,10 +14,12 @@ import { DOMException, makeDOMStringList, sanitizeName } from './utils';
 export class IDBDatabase {
   readonly name: string;
   private _version: number;
-  private _objectStores: Map<string, { options: IDBObjectStoreParameters; indexes: Map<string, any> }> = new Map();
+  private _objectStores: Map<string, { options: IDBObjectStoreParameters; indexes: Map<string, any>; autoIncrementValue?: number }> = new Map();
   private _closed = false;
   /** @internal - SQLite database wrapper */
   _sqliteDb: any;
+  /** @internal - Owning IDBFactory, notified on close() so it can evict its cache */
+  _factory: any = null;
   /** @internal - The active versionchange transaction during upgradeneeded, if any */
   _upgradeTransaction: IDBTransaction | null = null;
   /** @internal - EventTarget listeners keyed by event type */
@@ -28,10 +30,11 @@ export class IDBDatabase {
   onerror: ((event: any) => void) | null = null;
   onabort: ((event: any) => void) | null = null;
 
-  constructor(name: string, version: number, sqliteDb: any) {
+  constructor(name: string, version: number, sqliteDb: any, factory?: any) {
     this.name = name;
     this._version = version;
     this._sqliteDb = sqliteDb;
+    this._factory = factory ?? null;
 
     // Initialize meta tables
     this._initMeta();
@@ -145,16 +148,11 @@ export class IDBDatabase {
       }
     }
 
-    const txn = new IDBTransaction(this, names, mode ?? 'readonly');
-
-    // Auto-commit after microtasks settle
-    queueMicrotask(() => {
-      queueMicrotask(() => {
-        txn._autoCommit();
-      });
-    });
-
-    return txn;
+    // The transaction manages its own lifecycle: it stays active through the
+    // creating task and each bound request's event dispatch, then auto-commits
+    // once idle (see IDBTransaction). This keeps requests chained through nested
+    // onsuccess handlers inside a single BEGIN/COMMIT.
+    return new IDBTransaction(this, names, mode ?? 'readonly');
   }
 
   /**
@@ -165,6 +163,12 @@ export class IDBDatabase {
     this._closed = true;
     if (this._sqliteDb && this._sqliteDb.close) {
       this._sqliteDb.close();
+    }
+    // Evict the factory's cache entry for this connection. Without this, a
+    // later open() would reuse the now-closed SQLite handle and fail on every
+    // statement until the process restarts.
+    if (this._factory && this._factory._handleConnectionClose) {
+      this._factory._handleConnectionClose(this.name, this._sqliteDb);
     }
     if (this.onclose) {
       const event = { type: 'close', target: this };
@@ -282,6 +286,64 @@ export class IDBDatabase {
     }
 
     return store;
+  }
+
+  /**
+   * @internal - Allocate the next autoIncrement key for a store.
+   *
+   * The current key-generator value is computed once (lazily, from the table's
+   * existing keys) and then cached on the store definition, which outlives
+   * individual transactions. This avoids re-scanning every key on each
+   * `transaction.objectStore()` call.
+   */
+  _nextAutoIncrement(name: string, tableName: string): number {
+    const info = this._objectStores.get(name);
+    if (!info) return 1;
+    if (info.autoIncrementValue === undefined) {
+      info.autoIncrementValue = this._computeAutoIncrementBase(tableName);
+    }
+    info.autoIncrementValue += 1;
+    return info.autoIncrementValue;
+  }
+
+  /**
+   * @internal - Keep the key generator at least as large as an explicit numeric
+   * key, so a later generated key cannot collide with it (per spec).
+   */
+  _noteExplicitKey(name: string, key: any): void {
+    if (typeof key !== 'number' || !Number.isFinite(key)) return;
+    const info = this._objectStores.get(name);
+    if (!info) return;
+    if (info.autoIncrementValue === undefined) {
+      info.autoIncrementValue = this._computeAutoIncrementBase(
+        `idb_store_${sanitizeName(name)}`,
+      );
+    }
+    info.autoIncrementValue = Math.max(info.autoIncrementValue, Math.floor(key));
+  }
+
+  /** @internal - Reset a store's cached key generator (after clear()). */
+  _resetAutoIncrement(name: string): void {
+    const info = this._objectStores.get(name);
+    if (info) info.autoIncrementValue = 0;
+  }
+
+  /**
+   * @internal - Largest numeric key currently in the table. Numeric keys are
+   * serialized as bare JSON numbers (e.g. `5`), so the `GLOB '[-0-9]*'` filter
+   * selects only them and `MAX(CAST(... AS REAL))` finds the largest without
+   * loading and parsing every key in JS.
+   */
+  _computeAutoIncrementBase(tableName: string): number {
+    try {
+      const row = this._get(
+        `SELECT MAX(CAST(key AS REAL)) AS m FROM "${tableName}" WHERE key GLOB '[-0-9]*'`,
+      );
+      const m = row && row.m != null ? Number(row.m) : 0;
+      return Number.isFinite(m) && m > 0 ? Math.floor(m) : 0;
+    } catch (_) {
+      return 0;
+    }
   }
 
   /** @internal */
