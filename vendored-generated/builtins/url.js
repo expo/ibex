@@ -139,7 +139,7 @@
 				typeErr.code = "ERR_INVALID_ARG_TYPE";
 				throw typeErr;
 			}
-			if (typeof path === "string" && !path.startsWith("file:") && !path.startsWith("http:") && !path.startsWith("https:")) return path;
+			if (typeof path === "string" && !path.startsWith("file:") && !/^[A-Za-z][A-Za-z0-9+.-]+:/.test(path)) return path;
 			var url = _coerceUrl(path);
 			if (url && url.protocol && url.protocol !== "file:") {
 				var schemeErr = /* @__PURE__ */ new TypeError("The URL must be of scheme file");
@@ -164,12 +164,9 @@
 		}
 		function pathToFileURL(path) {
 			if (path == null) throw new TypeError("Path is required");
-			var pathValue = String(path);
-			if (pathValue.indexOf("%") !== -1) pathValue = decodeURIComponent(pathValue);
-			pathValue = pathValue.replace(/\\/g, "/");
-			if (pathValue.charAt(0) === "/") return new URLExport("file://" + pathValue);
-			if (/^[A-Za-z]:/.test(pathValue)) return new URLExport("file:///" + pathValue);
-			return new URLExport("file:///" + pathValue);
+			var pathValue = String(path).replace(/\\/g, "/");
+			if (pathValue.charAt(0) === "/") return new URLExport("file://" + _encodeFileURLPath(pathValue));
+			return new URLExport("file:///" + _encodeFileURLPath(pathValue));
 		}
 		function format(urlObj, options) {
 			if (options !== void 0 && options !== null && typeof options !== "object") {
@@ -996,6 +993,10 @@
 		var isUndefined = typeof input === "undefined";
 		var url;
 		this._hasEmptyAuthority = false;
+		this._username = "";
+		this._password = "";
+		this._hostname = "";
+		this._port = "";
 		if (isUndefined) {
 			if (!base) throw _makeURLError(input, baseStr);
 			if (base._isOpaque) if (typeof base.pathname === "string" && base.pathname.charAt(0) === "/" && base.pathname.lastIndexOf("/") !== -1) url = base.pathname.slice(0, base.pathname.lastIndexOf("/") + 1) + "undefined";
@@ -1045,7 +1046,7 @@
 		var isSpecialNoFile = isSpecial && this._protocol !== "file:";
 		var startsWithSpecialAuthority = url.slice(0, 2) === "//" && (isSpecial || url.charAt(2) !== "/");
 		var startsWithEmptyNonSpecialAuthority = !isSpecial && url.slice(0, 3) === "///" && (hasScheme || !!base);
-		var hasAuthority = startsWithSpecialAuthority || startsWithEmptyNonSpecialAuthority || isSpecialNoFile && hasScheme && (!base || this._protocol !== "http:") && url.slice(0, 2) !== "//";
+		var hasAuthority = startsWithSpecialAuthority || startsWithEmptyNonSpecialAuthority || isSpecialNoFile && hasScheme && (!base || base.protocol !== this._protocol) && url.slice(0, 2) !== "//";
 		if (hasAuthority) {
 			if (url.slice(0, 2) === "//") url = url.slice(2);
 			else if (url.charAt(0) === "/") url = url.slice(1);

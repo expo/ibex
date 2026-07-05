@@ -195,8 +195,16 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
       typeErr.code = 'ERR_INVALID_ARG_TYPE';
       throw typeErr;
     }
-    // If already a plain filesystem path (not a URL), return it directly
-    if (typeof path === 'string' && !path.startsWith('file:') && !path.startsWith('http:') && !path.startsWith('https:')) {
+    // If already a plain filesystem path (not a URL), return it directly. A
+    // string carrying a URL scheme other than file: must instead flow through
+    // to the scheme check below and throw like Node, rather than being returned
+    // verbatim. A single leading letter+colon is treated as a Windows drive
+    // letter (a path), not a URL scheme. (ENG-22969)
+    if (
+      typeof path === 'string' &&
+      !path.startsWith('file:') &&
+      !/^[A-Za-z][A-Za-z0-9+.-]+:/.test(path)
+    ) {
       return path;
     }
     var url = _coerceUrl(path);
@@ -230,21 +238,18 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
       throw new TypeError("Path is required");
     }
 
-    var pathValue = String(path);
-    if (pathValue.indexOf("%") !== -1) {
-      pathValue = decodeURIComponent(pathValue);
-    }
-    pathValue = pathValue.replace(/\\/g, "/");
+    // Node percent-ENCODES reserved path characters ("%" -> "%25", "?" -> "%3F",
+    // "#" -> "%23", spaces, control chars, ...) and never decodes. Decoding here
+    // corrupted filenames (a%2Fb -> a/b), threw URIError on a bare "%", and left
+    // "?"/"#" to be reparsed as query/fragment. Encode instead, via the shared
+    // file-path encoder. (ENG-22969)
+    var pathValue = String(path).replace(/\\/g, "/");
 
     if (pathValue.charAt(0) === "/") {
-      return new URLExport("file://" + pathValue);
+      return new URLExport("file://" + _encodeFileURLPath(pathValue));
     }
 
-    if (/^[A-Za-z]:/.test(pathValue)) {
-      return new URLExport("file:///" + pathValue);
-    }
-
-    return new URLExport("file:///" + pathValue);
+    return new URLExport("file:///" + _encodeFileURLPath(pathValue));
   }
 
   function format(urlObj, options) {
@@ -1690,6 +1695,15 @@ URL.prototype._parse = function(input, base, baseStr) {
   var isUndefined = typeof input === "undefined";
   var url;
   this._hasEmptyAuthority = false;
+  // Reset the authority components before each parse. _parse runs both from the
+  // constructor (fields already empty) and from the `href` setter on a
+  // populated instance; without this reset, assigning a new href kept the old
+  // host's username/password/hostname/port whenever the new authority omitted
+  // them, e.g. leaking user:pass onto a different origin. (ENG-22969)
+  this._username = "";
+  this._password = "";
+  this._hostname = "";
+  this._port = "";
   if (isUndefined) {
     if (!base) {
       throw _makeURLError(input, baseStr);
@@ -1784,7 +1798,11 @@ URL.prototype._parse = function(input, base, baseStr) {
     (startsWithEmptyNonSpecialAuthority) ||
     (isSpecialNoFile &&
       hasScheme &&
-      (!base || this._protocol !== "http:") &&
+      // WHATWG "special authority slashes"/relative states: with a base, the
+      // remainder is an authority only when the schemes DIFFER; equal schemes
+      // parse relative to the base. The old literal "http:" check was wrong in
+      // both directions for every other special scheme. (ENG-22969)
+      (!base || base.protocol !== this._protocol) &&
       url.slice(0, 2) !== "//");
   if (hasAuthority) {
     if (url.slice(0, 2) === "//") {
