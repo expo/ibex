@@ -177,7 +177,10 @@ export class Blob {
       return new Uint8Array(0);
     }
     if (this.#parts.length === 1) {
-      return this.#parts[0];
+      // Return a copy, never the internal part array: bytes()/_getBytes()/text()
+      // hand this out to callers, and a Blob is immutable — leaking the backing
+      // store would let `(await b.bytes())[0] = 0` corrupt the Blob.
+      return this.#parts[0].slice();
     }
 
     const result = new Uint8Array(this.#size);
@@ -242,15 +245,19 @@ function convertToBytes(part: BlobPart, endings: 'transparent' | 'native'): Uint
   }
 
   if (part instanceof Blob) {
+    // _getBytes() already returns a fresh copy of the Blob's bytes.
     return part._getBytes();
   }
 
+  // Per the File API, the Blob constructor takes a *snapshot* of each part's
+  // bytes. Copy out of the caller's ArrayBuffer/view so that later mutation of
+  // the source (`const b = new Blob([u]); u[0] = 9;`) does not change the Blob.
   if (part instanceof ArrayBuffer) {
-    return new Uint8Array(part);
+    return new Uint8Array(part.slice(0));
   }
 
   if (ArrayBuffer.isView(part)) {
-    return new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
+    return new Uint8Array(part.buffer, part.byteOffset, part.byteLength).slice();
   }
 
   throw new TypeError('Invalid blob part type');

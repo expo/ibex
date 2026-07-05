@@ -21,7 +21,7 @@ const portPairs = new WeakMap<MessagePort, MessagePort>();
 export class MessagePort extends EventTarget {
   #started = false;
   #closed = false;
-  #queue: Array<{ data: any; transfer: Transferable[] }> = [];
+  #queue: Array<{ data: any; ports: MessagePort[] }> = [];
   #onmessage: ((this: MessagePort, ev: MessageEvent) => any) | null = null;
   #onmessageerror: ((this: MessagePort, ev: MessageEvent) => any) | null = null;
 
@@ -68,14 +68,33 @@ export class MessagePort extends EventTarget {
       return; // No paired port, message is lost
     }
 
+    // Partition the transfer list: MessagePorts are surfaced to the receiver as
+    // MessageEvent.ports; other transferables (ArrayBuffers) move via the clone.
+    // The canonical `port.postMessage(msg, [channel.port2])` pattern lists the
+    // port only in the transfer list, so it must be transferred and delivered as
+    // event.ports here rather than through the structured-clone graph walk.
+    // @see https://html.spec.whatwg.org/multipage/web-messaging.html#message-port-post-message-steps
+    const bufferTransfers: Transferable[] = [];
+    const portsToTransfer: MessagePort[] = [];
+    for (const item of transfer) {
+      if (item instanceof MessagePort) {
+        portsToTransfer.push(item);
+      } else {
+        bufferTransfers.push(item);
+      }
+    }
+
     // Clone the message
-    const clonedMessage = structuredClone(message, { transfer });
+    const clonedMessage = structuredClone(message, { transfer: bufferTransfers });
+    const transferredPorts = portsToTransfer.map(
+      (port) => port[structuredCloneTransferSymbol]() as MessagePort
+    );
 
     // Queue or deliver the message
     if (otherPort.#started) {
-      otherPort._deliverMessage(clonedMessage, []);
+      otherPort._deliverMessage(clonedMessage, transferredPorts);
     } else {
-      otherPort.#queue.push({ data: clonedMessage, transfer: [] });
+      otherPort.#queue.push({ data: clonedMessage, ports: transferredPorts });
     }
   }
 
@@ -94,8 +113,8 @@ export class MessagePort extends EventTarget {
     const queue = this.#queue;
     this.#queue = [];
 
-    for (const { data, transfer } of queue) {
-      this._deliverMessage(data, transfer);
+    for (const { data, ports } of queue) {
+      this._deliverMessage(data, ports);
     }
   }
 

@@ -288,8 +288,21 @@ function cloneInternal<T>(
   if (ArrayBuffer.isView(obj) && !(obj instanceof DataView)) {
     const TypedArrayConstructor = obj.constructor as new (buffer: ArrayBuffer, byteOffset: number, length: number) => typeof obj;
     const sourceBuffer = obj.buffer as ArrayBuffer;
-    
-    // Clone the buffer portion
+
+    // Per StructuredSerialize, a view serializes its *entire* underlying buffer
+    // plus (byteOffset, length). Clone the whole buffer through cloneInternal so
+    // it is memoized in cloneMap: every view over the same source buffer then
+    // shares one cloned buffer with preserved offsets (aliasing survives) instead
+    // of each getting a private offset-0 copy.
+    // @see https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializeinternal
+    if (sourceBuffer instanceof ArrayBuffer) {
+      const clonedBuffer = cloneInternal(sourceBuffer, cloneMap, transferSet) as ArrayBuffer;
+      const clone = new TypedArrayConstructor(clonedBuffer, obj.byteOffset, (obj as any).length);
+      cloneMap.set(obj, clone);
+      return clone as T;
+    }
+    // Non-ArrayBuffer backing (e.g. SharedArrayBuffer, which is unsupported for
+    // real transfer/aliasing): fall back to cloning just the viewed portion.
     const clonedBuffer = sourceBuffer.slice(obj.byteOffset, obj.byteOffset + obj.byteLength);
     const clone = new TypedArrayConstructor(clonedBuffer, 0, (obj as any).length);
     cloneMap.set(obj, clone);
@@ -298,7 +311,17 @@ function cloneInternal<T>(
 
   if (obj instanceof DataView) {
     const sourceBuffer = obj.buffer as ArrayBuffer;
-    // Per spec: clone the entire underlying buffer and preserve byteOffset
+    // Clone the entire underlying buffer through cloneInternal (memoized) so the
+    // DataView shares the one cloned buffer with any sibling views and preserves
+    // byteOffset.
+    if (sourceBuffer instanceof ArrayBuffer) {
+      const clonedBuffer = cloneInternal(sourceBuffer, cloneMap, transferSet) as ArrayBuffer;
+      const clone = new DataView(clonedBuffer, obj.byteOffset, obj.byteLength);
+      cloneMap.set(obj, clone);
+      return clone as T;
+    }
+    // Non-ArrayBuffer backing (e.g. SharedArrayBuffer): clone the whole buffer
+    // directly, preserving byteOffset.
     const clonedBuffer = sourceBuffer.slice(0);
     const clone = new DataView(clonedBuffer, obj.byteOffset, obj.byteLength);
     cloneMap.set(obj, clone);

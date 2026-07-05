@@ -36,8 +36,8 @@ export class MessagePort extends EventTarget {
   /** Whether `close()` has been called. */
   #closed = false;
 
-  /** Messages received before `start()` was called. */
-  #queue: unknown[] = [];
+  /** Messages received before `start()` was called (with any transferred ports). */
+  #queue: Array<{ data: unknown; ports: MessagePort[] }> = [];
 
   /** Backing field for the `onmessage` property. */
   #onmessage: ((this: MessagePort, ev: MessageEvent) => any) | null = null;
@@ -89,10 +89,35 @@ export class MessagePort extends EventTarget {
       return; // No entangled port or remote is closed
     }
 
+    // Partition the transfer list: MessagePorts are transferred and surfaced to
+    // the receiver as `MessageEvent.ports`; everything else (ArrayBuffers) is
+    // handed to structuredClone so its bytes move and the source is detached.
+    // The canonical `port.postMessage(msg, [channel.port2])` pattern lists the
+    // port only in the transfer list (not the message graph), so the transfer of
+    // the port and the population of event.ports must happen here, not inside the
+    // structured-clone graph walk.
+    // @see https://html.spec.whatwg.org/multipage/web-messaging.html#message-port-post-message-steps
+    const bufferTransfers: Transferable[] = [];
+    const portsToTransfer: MessagePort[] = [];
+    if (transferList) {
+      for (const item of transferList) {
+        if (item instanceof MessagePort) {
+          portsToTransfer.push(item);
+        } else {
+          bufferTransfers.push(item);
+        }
+      }
+    }
+
     // Clone the message data
     let clonedData: unknown;
+    let transferredPorts: MessagePort[];
     try {
-      clonedData = structuredClone(value, { transfer: transferList as ArrayBuffer[] | undefined });
+      clonedData = structuredClone(value, { transfer: bufferTransfers as ArrayBuffer[] });
+      // Transfer (neuter) each listed port after the message clone succeeds; the
+      // returned instance is entangled with the original's remote and is what the
+      // receiver observes in event.ports.
+      transferredPorts = portsToTransfer.map((port) => port[structuredCloneTransferSymbol]());
     } catch (err) {
       // Cloning failed — dispatch messageerror on the remote port
       queueMicrotask(() => {
@@ -107,12 +132,12 @@ export class MessagePort extends EventTarget {
     if (remote.#started) {
       queueMicrotask(() => {
         if (!remote.#closed) {
-          remote.#dispatchMessage(clonedData);
+          remote.#dispatchMessage(clonedData, transferredPorts);
         }
       });
     } else {
       // Queue the message until the remote port is started
-      remote.#queue.push(clonedData);
+      remote.#queue.push({ data: clonedData, ports: transferredPorts });
     }
   }
 
@@ -130,10 +155,10 @@ export class MessagePort extends EventTarget {
     // Flush any queued messages
     if (this.#queue.length > 0) {
       const pending = this.#queue.splice(0);
-      for (const data of pending) {
+      for (const { data, ports } of pending) {
         queueMicrotask(() => {
           if (!this.#closed) {
-            this.#dispatchMessage(data);
+            this.#dispatchMessage(data, ports);
           }
         });
       }
@@ -183,8 +208,8 @@ export class MessagePort extends EventTarget {
 
   // -- Private helpers ------------------------------------------------------
 
-  #dispatchMessage(data: unknown): void {
-    const event = new MessageEvent('message', { data });
+  #dispatchMessage(data: unknown, ports: MessagePort[] = []): void {
+    const event = new MessageEvent('message', { data, ports });
 
     // Call the IDL onmessage handler first
     if (this.#onmessage) {
