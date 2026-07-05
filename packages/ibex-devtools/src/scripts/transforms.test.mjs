@@ -600,7 +600,18 @@ const hermesBin =
     path.resolve(testDir, '../../../../../../tools/hermes/hermes'),
   ].find((candidate) => candidate && existsSync(candidate)) ?? '';
 
-describe.skipIf(!existsSync(hermesBin))('fixForOfScoping on Hermes', () => {
+const canRunHermes = (candidate) => {
+  if (!candidate || !existsSync(candidate)) {
+    return false;
+  }
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'ibex-forof-hermes-probe-'));
+  const file = path.join(dir, 'fixture.js');
+  writeFileSync(file, 'print("ok");\n');
+  const result = spawnSync(candidate, [file], { encoding: 'utf8', timeout: 30000 });
+  return result.status === 0 && result.stdout.trim() === 'ok';
+};
+
+describe.skipIf(!canRunHermes(hermesBin))('fixForOfScoping on Hermes', () => {
   const runV8 = (code) => {
     const lines = [];
     new Function('print', code)((value) => lines.push(String(value)));
@@ -612,7 +623,10 @@ describe.skipIf(!existsSync(hermesBin))('fixForOfScoping on Hermes', () => {
     const file = path.join(dir, 'fixture.js');
     writeFileSync(file, code);
     const result = spawnSync(hermesBin, [file], { encoding: 'utf8', timeout: 30000 });
-    expect(result.status, `hermes failed: ${result.stderr}`).toBe(0);
+    expect(
+      result.status,
+      `hermes failed: signal=${result.signal ?? 'none'} error=${result.error?.message ?? 'none'} stderr=${result.stderr}`,
+    ).toBe(0);
     return result.stdout.trim();
   };
 
