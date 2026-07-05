@@ -387,11 +387,7 @@ Hash.prototype.update = function(data, encoding) {
 	}
 	if (data === void 0) throw _errInvalidArgType("data", "of type string or an instance of Buffer, TypedArray, or DataView", data);
 	if (typeof data === "string") this._chunks.push(_toByteStringWithEncoding(data, encoding || "utf8"));
-	else if (data && data.length !== void 0) {
-		var str = "";
-		for (var i = 0; i < data.length; i++) str += String.fromCharCode(data[i]);
-		this._chunks.push(str);
-	}
+	else if (data instanceof ArrayBuffer || typeof SharedArrayBuffer !== "undefined" && data instanceof SharedArrayBuffer || typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(data) || data && data.length !== void 0) this._chunks.push(_toByteString(data));
 	return this;
 };
 Hash.prototype.digest = function(encoding) {
@@ -503,25 +499,66 @@ function _validateDigestAlgorithm(algorithm) {
 	var algos = _getValidDigestAlgos();
 	if (!algos[normalized] && !algos[algorithm.toLowerCase()]) throw new Error("Digest method not supported");
 }
+var _hmacBlockSizes = {
+	md5: 64,
+	sha1: 64,
+	sha224: 64,
+	sha256: 64,
+	sha384: 128,
+	sha512: 128,
+	sha3224: 144,
+	sha3256: 136,
+	sha3384: 104,
+	sha3512: 72
+};
+function _rawHash(algo, bytes) {
+	var input = _bytesToBufferLike(bytes);
+	if (typeof __exactHashRaw === "function") {
+		var raw = __exactHashRaw(algo, input);
+		return raw instanceof Uint8Array ? raw : _toBytes(raw);
+	}
+	if (typeof __exactHashSync === "function") {
+		var hex = __exactHashSync(algo, input);
+		var out = new Uint8Array(hex.length >> 1);
+		for (var i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+		return out;
+	}
+	throw new Error("Native hash not available");
+}
+function _computeHmac(algo, keyBytes, dataBytes) {
+	var blockSize = _hmacBlockSizes[algo];
+	if (blockSize === void 0) {
+		if (typeof __exactHmacSync === "function") {
+			var hexMac = __exactHmacSync(algo, _bytesToString(keyBytes), _bytesToString(dataBytes));
+			var nm = new Uint8Array(hexMac.length >> 1);
+			for (var q = 0; q < nm.length; q++) nm[q] = parseInt(hexMac.substr(q * 2, 2), 16);
+			return nm;
+		}
+		throw new Error("Unsupported HMAC algorithm: " + algo);
+	}
+	var key = keyBytes;
+	if (key.length > blockSize) key = _rawHash(algo, key);
+	var kx = new Uint8Array(blockSize);
+	kx.set(key);
+	var inner = new Uint8Array(blockSize + dataBytes.length);
+	for (var i = 0; i < blockSize; i++) inner[i] = kx[i] ^ 54;
+	inner.set(dataBytes, blockSize);
+	var innerDigest = _rawHash(algo, inner);
+	var outer = new Uint8Array(blockSize + innerDigest.length);
+	for (var j = 0; j < blockSize; j++) outer[j] = kx[j] ^ 92;
+	outer.set(innerDigest, blockSize);
+	return _rawHash(algo, outer);
+}
 function Hmac(algorithm, key) {
 	if (!(this instanceof Hmac)) return new Hmac(algorithm, key);
 	if (_CipherStreamTransform) _CipherStreamTransform.call(this);
 	if (typeof algorithm !== "string") throw _errInvalidArgType("hmac", "of type string", algorithm);
 	if (key === null || key === void 0) throw _errInvalidArgType("key", "of type string or an instance of Buffer, TypedArray, DataView, or KeyObject", key);
 	_validateDigestAlgorithm(algorithm);
-	this._algo = algorithm.toLowerCase().replace("-", "");
-	this._key = typeof key === "string" ? key : "";
-	if (typeof key !== "string" && key && key.length !== void 0) {
-		var str = "";
-		for (var i = 0; i < key.length; i++) str += String.fromCharCode(key[i]);
-		this._key = str;
-	}
-	if (key && key instanceof KeyObject && key._type === "secret") {
-		var keyData = key._data;
-		var keyStr = "";
-		for (var j = 0; j < keyData.length; j++) keyStr += String.fromCharCode(keyData[j]);
-		this._key = keyStr;
-	}
+	this._algo = algorithm.toLowerCase().replace(/-/g, "");
+	if (typeof key === "string") this._key = _toByteStringWithEncoding(key, "utf8");
+	else if (key && key instanceof KeyObject && key._type === "secret") this._key = _toByteString(key._data);
+	else this._key = _toByteString(key);
 	this._chunks = [];
 	this._finalized = false;
 }
@@ -566,16 +603,8 @@ if (_CipherStreamTransform) {
 }
 Hmac.prototype.update = function(data, encoding) {
 	if (this._finalized) throw new Error("Digest already called");
-	if (typeof data === "string") if (encoding === "hex") {
-		var hexStr = "";
-		for (var hi = 0; hi < data.length; hi += 2) hexStr += String.fromCharCode(parseInt(data.substr(hi, 2), 16));
-		this._chunks.push(hexStr);
-	} else this._chunks.push(data);
-	else if (data && data.length !== void 0) {
-		var str = "";
-		for (var i = 0; i < data.length; i++) str += String.fromCharCode(data[i]);
-		this._chunks.push(str);
-	}
+	if (typeof data === "string") this._chunks.push(_toByteStringWithEncoding(data, encoding || "utf8"));
+	else if (data instanceof ArrayBuffer || typeof SharedArrayBuffer !== "undefined" && data instanceof SharedArrayBuffer || typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(data) || data && data.length !== void 0) this._chunks.push(_toByteString(data));
 	return this;
 };
 Hmac.prototype.digest = function(encoding) {
@@ -587,33 +616,21 @@ Hmac.prototype.digest = function(encoding) {
 	}
 	this._finalized = true;
 	var joined = this._chunks.join("");
-	if (typeof __exactHmacSync === "function") {
-		var hex = __exactHmacSync(this._algo, this._key, joined);
-		if (encoding === "hex") return hex;
-		if (encoding === "base64") {
-			var bytes = [];
-			for (var i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
-			if (typeof btoa === "function") {
-				var str = "";
-				for (var j = 0; j < bytes.length; j++) str += String.fromCharCode(bytes[j]);
-				return btoa(str);
-			}
+	var macBytes = _computeHmac(this._algo, _toBytes(this._key), _toBytes(joined));
+	if (encoding === "hex") return _toHex(macBytes);
+	if (encoding === "base64" || encoding === "base64url") {
+		if (typeof Buffer !== "undefined" && Buffer.from) return Buffer.from(macBytes).toString(encoding);
+		if (typeof btoa === "function") {
+			var b64 = btoa(_bytesToString(macBytes));
+			if (encoding === "base64url") b64 = b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+			return b64;
 		}
-		if (encoding === "buffer" || !encoding) {
-			var bytes2 = [];
-			for (var k = 0; k < hex.length; k += 2) bytes2.push(parseInt(hex.substr(k, 2), 16));
-			return _bytesToBufferLike(bytes2);
-		}
-		if (encoding === "latin1" || encoding === "binary") {
-			var bytes3 = [];
-			for (var m = 0; m < hex.length; m += 2) bytes3.push(parseInt(hex.substr(m, 2), 16));
-			var latin = "";
-			for (var n = 0; n < bytes3.length; n++) latin += String.fromCharCode(bytes3[n]);
-			return latin;
-		}
-		return hex;
+		return _toHex(macBytes);
 	}
-	throw new Error("Native HMAC not available");
+	if (encoding === "buffer" || !encoding) return _bytesToBufferLike(macBytes);
+	if (encoding === "latin1" || encoding === "binary") return _bytesToString(macBytes);
+	if (typeof Buffer !== "undefined" && Buffer.from) return Buffer.from(macBytes).toString(encoding);
+	return _toHex(macBytes);
 };
 Hmac.prototype[Symbol.toStringTag] = "Hmac";
 function createHmac(algorithm, key) {
@@ -1114,11 +1131,13 @@ function getCipherInfo(nameOrNid, options) {
 	};
 }
 function timingSafeEqual(a, b) {
-	if (!_isStringOrBuffer(a)) throw _errInvalidArgType("buf1", "an instance of Buffer, TypedArray, or DataView", a);
-	if (!_isStringOrBuffer(b)) throw _errInvalidArgType("buf2", "an instance of Buffer, TypedArray, or DataView", b);
-	if (a.length !== b.length) throw new RangeError("Input buffers must have the same byte length");
+	if (typeof a === "string" || !_isStringOrBuffer(a)) throw _errInvalidArgType("buf1", "an instance of ArrayBuffer, Buffer, TypedArray, or DataView", a);
+	if (typeof b === "string" || !_isStringOrBuffer(b)) throw _errInvalidArgType("buf2", "an instance of ArrayBuffer, Buffer, TypedArray, or DataView", b);
+	var ab = _toBytes(a);
+	var bb = _toBytes(b);
+	if (ab.length !== bb.length) throw new RangeError("Input buffers must have the same byte length");
 	var result = 0;
-	for (var i = 0; i < a.length; i++) result |= a[i] ^ b[i];
+	for (var i = 0; i < ab.length; i++) result |= ab[i] ^ bb[i];
 	return result === 0;
 }
 function randomUUID(options) {
@@ -1192,7 +1211,7 @@ function randomFillSync(buf, offset, size) {
 	if (buf instanceof ArrayBuffer || typeof SharedArrayBuffer !== "undefined" && buf instanceof SharedArrayBuffer) {
 		target = new Uint8Array(buf, offset, size);
 		offset = 0;
-	} else if (buf instanceof DataView) {
+	} else if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(buf)) {
 		target = new Uint8Array(buf.buffer, buf.byteOffset + offset, size);
 		offset = 0;
 	} else target = buf;
