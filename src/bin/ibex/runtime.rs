@@ -3690,4 +3690,124 @@ console.log("kept");
             .unwrap_or_default();
         assert_eq!(entry_result.trim(), "true");
     }
+
+    #[tokio::test]
+    async fn module_loader_preserves_nested_syntax_error_after_partial_exports() {
+        let dir = tempdir().expect("temp dir");
+        let parent_file = dir.path().join("parent.mjs");
+        let child_file = dir.path().join("child.js");
+
+        std::fs::write(
+            &child_file,
+            "var err = new SyntaxError('nested syntax root');\nthrow err;\n",
+        )
+        .expect("write child module");
+        std::fs::write(
+            &parent_file,
+            r#"
+function _export(target, all) {
+  for (var name in all) {
+    Object.defineProperty(target, name, { enumerable: true, get: all[name] });
+  }
+}
+var value = "parent export";
+_export(module.exports, { value: function() { return value; } });
+require("./child.js");
+"#,
+        )
+        .expect("write parent module");
+
+        let cli = Cli::parse_from([
+            "ibex".to_string(),
+            parent_file.to_string_lossy().to_string(),
+        ]);
+        let runtime = Runtime::from_cli(&cli).expect("runtime");
+        runtime.load_runtime().await.expect("load runtime");
+
+        let parent_json = serde_json::to_string(&parent_file.to_string_lossy().to_string())
+            .expect("serialize parent path");
+        let err = runtime
+            .eval(&format!("require({});", parent_json))
+            .await
+            .expect_err("nested SyntaxError should be preserved");
+        let message = format!("{err:#}");
+
+        assert!(
+            message.contains("nested syntax root"),
+            "root nested error should survive: {message}"
+        );
+        assert!(
+            !message.contains("property is not configurable")
+                && !message.contains("Cannot redefine property"),
+            "partial parent module must not be rerun and mask the root error: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn module_loader_async_fn_await_import_stays_on_direct_path() {
+        // Guard against over-broad await-fallback routing (ENG-22811 review):
+        // a module whose only `await import()` lives inside an ordinary async
+        // function must load on the direct path — its top-level throws stay
+        // synchronous errors instead of being swallowed as promise rejections
+        // by an async wrapper, and its exports must not be ESM-shimmed.
+        let dir = tempdir().expect("temp dir");
+        let dep_file = dir.path().join("dep.js");
+        let ok_file = dir.path().join("ok.js");
+        let throwing_file = dir.path().join("throwing.js");
+
+        std::fs::write(&dep_file, "module.exports = { ok: true };\n").expect("write dep module");
+        std::fs::write(
+            &ok_file,
+            r#"
+async function lazy() {
+  var mod = await import("./dep.js");
+  return mod.ok;
+}
+module.exports.lazy = lazy;
+"#,
+        )
+        .expect("write ok module");
+        std::fs::write(
+            &throwing_file,
+            r#"
+async function lazy() {
+  return await import("./dep.js");
+}
+module.exports.lazy = lazy;
+throw new Error("sync-throw-marker");
+"#,
+        )
+        .expect("write throwing module");
+
+        let cli = Cli::parse_from(["ibex".to_string(), ok_file.to_string_lossy().to_string()]);
+        let runtime = Runtime::from_cli(&cli).expect("runtime");
+        runtime.load_runtime().await.expect("load runtime");
+
+        let ok_json = serde_json::to_string(&ok_file.to_string_lossy().to_string())
+            .expect("serialize ok path");
+        let direct_result = runtime
+            .eval(&format!(
+                "(function() {{ var m = require({ok_json}); return (typeof m.lazy === 'function') && m.__esmShimmed === undefined; }})();"
+            ))
+            .await
+            .expect("async-fn await module should load directly")
+            .unwrap_or_default();
+        assert_eq!(
+            direct_result.trim(),
+            "true",
+            "module with await inside an async function must not be routed through the fallback"
+        );
+
+        let throwing_json = serde_json::to_string(&throwing_file.to_string_lossy().to_string())
+            .expect("serialize throwing path");
+        let err = runtime
+            .eval(&format!("require({throwing_json});"))
+            .await
+            .expect_err("top-level throw must stay a synchronous require error");
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("sync-throw-marker"),
+            "synchronous top-level throw should propagate, not become a rejection: {message}"
+        );
+    }
 }

@@ -5241,6 +5241,23 @@
     const wrapAsyncModule = function(text) {
       return "(async function() {\n" + String(text || "") + "\n})();";
     };
+    const isOwnBodyAwaitReferenceError = function(err) {
+      // An invocation-time "await is not defined" ReferenceError means THIS
+      // module's own top-level code used a sloppy-mode-parsable await form
+      // (e.g. `await (expr)` / `await.x`, typically minified top-level await),
+      // so the body genuinely needs the async-wrapped fallback. A propagated
+      // error from a nested require() carries the 'While evaluating module'
+      // annotation added by load()'s catch and must NOT retry this body.
+      if (!err || err.name !== "ReferenceError") {
+        return false;
+      }
+      var message = String(err.message || "");
+      if (message.indexOf('While evaluating module "') !== -1) {
+        return false;
+      }
+      return message.indexOf("await is not defined") !== -1 ||
+        message.indexOf("Property 'await'") !== -1;
+    };
     var localRequire = function(next) {
       // Pass the enclosing module's principal as the fallback hint so the gate
       // still enforces on non-frame-attribution builds. (ENG-22618 review)
@@ -5432,28 +5449,52 @@
         runtimeSource = injectEvalShimPreamble(runtimeSource) +
           "\n//# sourceURL=" + filename;
         let wrappedRuntimeForAwait = false;
-        const runFallbackSource = function(sourceText) {
-          const fallbackFn = compileModuleBody(module.__exactPackageId, module.__exactCompartment, sourceText);
+        const compileFallbackSource = function(sourceText) {
+          return compileModuleBody(module.__exactPackageId, module.__exactCompartment, sourceText);
+        };
+        const invokeFallbackSource = function(fallbackFn) {
           g.__filename = filename;
           g.__dirname = dir;
           fallbackFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
         };
+        if (reason === "await-syntax") {
+          runtimeSource = wrapAsyncModule(runtimeSource);
+          wrappedRuntimeForAwait = true;
+        }
+        let fallbackFn;
         try {
           g.__exactDebugModuleSource = runtimeSource;
-          // Always try the transformed fallback without an async wrapper first.
-          // The direct-source syntax error is often just `import`/`export`.
-          // Wrapping every module that mentions `await` breaks ordinary async
-          // functions on native because the bundle starts looking "async" even
-          // when it has no real top-level await.
-          runFallbackSource(runtimeSource);
+          // Try the transformed fallback in script form unless we already know
+          // it needs async wrapping. Construction-time await syntax is still
+          // recoverable here because the module body has not run yet.
+          fallbackFn = compileFallbackSource(runtimeSource);
         } catch (fallbackErr) {
-          if (!isAwaitSyntaxFailure(fallbackErr)) {
+          if (wrappedRuntimeForAwait || !isAwaitSyntaxFailure(fallbackErr)) {
             throw fallbackErr;
           }
           runtimeSource = wrapAsyncModule(runtimeSource);
           wrappedRuntimeForAwait = true;
           g.__exactDebugModuleSource = runtimeSource;
-          runFallbackSource(runtimeSource);
+          fallbackFn = compileFallbackSource(runtimeSource);
+        }
+        try {
+          invokeFallbackSource(fallbackFn);
+        } catch (invokeErr) {
+          // Invocation-time errors must not re-run the body — except the
+          // narrow own-body top-level-await ReferenceError, where the async
+          // retry gets a FRESH exports object rebound into the cache entry so
+          // it cannot trip over non-configurable getters the first pass
+          // defined. The prefix before the failing await runs twice; that
+          // double execution is a deliberate trade for keeping minified
+          // top-level-await modules loadable. (ENG-22811)
+          if (wrappedRuntimeForAwait || !isOwnBodyAwaitReferenceError(invokeErr)) {
+            throw invokeErr;
+          }
+          runtimeSource = wrapAsyncModule(runtimeSource);
+          wrappedRuntimeForAwait = true;
+          g.__exactDebugModuleSource = runtimeSource;
+          module.exports = {};
+          invokeFallbackSource(compileFallbackSource(runtimeSource));
         }
         pushDebugModuleSource({
           id: id,
@@ -5474,11 +5515,9 @@
       } else {
         pushDebugModuleSource({ id: id, filename: filename, source: directSource.slice(0, 2000) });
         g.__exactDebugModuleSource = directSource;
+        let directFn;
         try {
-          g.__filename = filename;
-          g.__dirname = dir;
-          const directFn = compileModuleBody(module.__exactPackageId, module.__exactCompartment, directSource);
-          directFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+          directFn = compileModuleBody(module.__exactPackageId, module.__exactCompartment, directSource);
         } catch (err) {
           const needsAsyncFallback = isAwaitSyntaxFailure(err);
           const shouldFallback = (
@@ -5496,6 +5535,33 @@
             throw err;
           }
           runFallbackModule(needsAsyncFallback ? "await-syntax" : "direct-syntax-error");
+          directFn = null;
+        }
+        if (directFn) {
+          // Only construction-time syntax failures are safe to retry through
+          // the transformed fallback. Once invocation starts, the module body
+          // may have mutated exports or globals, so nested errors (including
+          // propagated nested SyntaxErrors) must bubble instead of re-running
+          // a partially-executed body against the same exports.
+          // @ref LLP 0006#degrade-diagnostics-never-the-caller
+          g.__filename = filename;
+          g.__dirname = dir;
+          try {
+            directFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+          } catch (err) {
+            if (!isOwnBodyAwaitReferenceError(err)) {
+              throw err;
+            }
+            // Own-body top-level await parsed as a sloppy-mode identifier and
+            // only failed at invocation. Retry through the async-wrapped
+            // fallback with a FRESH exports object rebound into the cache
+            // entry (the cache holds `module`, so callers see the new object)
+            // so the re-run cannot hit "property is not configurable" from
+            // getters the first pass defined. The prefix before the failing
+            // await deliberately runs twice. (ENG-22811)
+            module.exports = {};
+            runFallbackModule("await-syntax");
+          }
         }
       }
     } catch (err) {
