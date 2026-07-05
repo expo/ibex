@@ -1411,42 +1411,106 @@ function _errorTypeName(err) {
   return _inspect(err);
 }
 
-function _deepEqual(a, b, aSeen, bSeen, strict) {
-  if (a === b) return true;
-  if (a === null || b === null) {
-    // In loose mode, null == undefined is true
-    if (!strict && a == b) return true;
-    return false;
+function _isBoxedPrimitiveTag(tag) {
+  return tag === '[object Number]' || tag === '[object String]' ||
+    tag === '[object Boolean]' || tag === '[object BigInt]' ||
+    tag === '[object Symbol]';
+}
+
+// Unwrap two boxed primitives (already known to share `tag`) and compare their
+// wrapped values. Throws if either object is not a genuine boxed primitive
+// (e.g. a plain object with a spoofed Symbol.toStringTag), letting the caller
+// fall through to the ordinary object comparison. (ENG-22968)
+function _boxedPrimitivesEqual(a, b, tag) {
+  if (tag === '[object Number]') {
+    // Object.is so boxed NaN is equal and boxed +0/-0 stay distinct.
+    return Object.is(Number.prototype.valueOf.call(a), Number.prototype.valueOf.call(b));
   }
+  if (tag === '[object String]') {
+    return String.prototype.valueOf.call(a) === String.prototype.valueOf.call(b);
+  }
+  if (tag === '[object Boolean]') {
+    return Boolean.prototype.valueOf.call(a) === Boolean.prototype.valueOf.call(b);
+  }
+  if (tag === '[object BigInt]') {
+    return BigInt.prototype.valueOf.call(a) === BigInt.prototype.valueOf.call(b);
+  }
+  return Symbol.prototype.valueOf.call(a) === Symbol.prototype.valueOf.call(b);
+}
+
+function _deepEqual(a, b, aSeen, bSeen, strict) {
   if (strict === undefined) strict = false;
 
-  // Handle NaN
-  if (typeof a === 'number' && isNaN(a) && isNaN(b)) return true;
-
-  // For primitives with different types
-  if (typeof a !== typeof b) {
-    if (strict) return false;
-    // In loose mode, both must be objects or both must coerce-equal
-    if (typeof a !== 'object' && typeof b !== 'object') {
-      // Use == for loose primitive comparison (e.g., "1" == 1)
-      return a == b;
-    }
-    // One is object, one is primitive - not equal in deep comparison
-    return false;
+  // Identical by === is deep-equal, with one exception: in strict mode +0 and
+  // -0 are distinct values (they are ===, but Object.is separates them), so
+  // deepStrictEqual(0, -0) must fail the way Node's does. (ENG-22968)
+  if (a === b) {
+    if (a !== 0) return true;
+    return strict ? Object.is(a, b) : true;
   }
 
-  if (typeof a !== 'object') return false;
+  // Primitive / null comparison, mirroring Node's comparator. NaN is the only
+  // non-=== primitive that is deep-equal to itself; Number.isNaN does NOT
+  // coerce, so a real NaN is never equal to 'foo'/undefined/{} the way the old
+  // global isNaN() made it. (ENG-22968)
+  if (strict) {
+    if (a === null || typeof a !== 'object') {
+      return typeof a === 'number' && Number.isNaN(a) && Number.isNaN(b);
+    }
+    if (b === null || typeof b !== 'object') {
+      return false;
+    }
+  } else {
+    if (a === null || typeof a !== 'object') {
+      if (b === null || typeof b !== 'object') {
+        // Loose primitive comparison: == plus NaN/NaN (0 == -0 is already true).
+        return a == b || (Number.isNaN(a) && Number.isNaN(b));
+      }
+      return false;
+    }
+    if (b === null || typeof b !== 'object') {
+      return false;
+    }
+  }
 
+  // Both a and b are non-null objects from here on.
   if (aSeen === undefined) aSeen = [];
   if (bSeen === undefined) bSeen = [];
   if (_hasSeenPair(aSeen, bSeen, a, b)) return true;
   aSeen.push(a);
   bSeen.push(b);
+  var deepEqualResult = _deepEqualObjects(a, b, aSeen, bSeen, strict);
+  // Pop unconditionally so the seen-stacks hold only the current recursion path
+  // (that is what makes them correct cycle-detection). The old code pushed but
+  // never popped: a failed Set/Map candidate pair lingered and made a later
+  // comparison short-circuit to true, and the stacks grew O(n) making
+  // _hasSeenPair's linear scan O(n^2). (ENG-22968)
+  aSeen.pop();
+  bSeen.pop();
+  return deepEqualResult;
+}
 
+function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
   // Handle Date - use toString tag check to avoid calling getTime on non-Date objects
   var aTag = Object.prototype.toString.call(a);
   var bTag = Object.prototype.toString.call(b);
   if (aTag !== bTag) return false;
+
+  // Boxed primitives (new Number/String/Boolean/BigInt/Symbol) share their tag,
+  // constructor, and (usually empty) key set, so the generic object path below
+  // declared new Number(1) equal to new Number(2). Unwrap and compare the
+  // wrapped value first; on match fall through to also compare any extra own
+  // enumerable properties. (ENG-22968)
+  if (_isBoxedPrimitiveTag(aTag)) {
+    var boxedEqual;
+    try {
+      boxedEqual = _boxedPrimitivesEqual(a, b, aTag);
+    } catch (e) {
+      // Not genuine boxed primitives (spoofed toStringTag); compare as objects.
+      boxedEqual = undefined;
+    }
+    if (boxedEqual === false) return false;
+  }
 
   if (aTag === '[object Date]') {
     if (!(a instanceof Date) || !(b instanceof Date)) {
@@ -1666,7 +1730,10 @@ function ok(value, message) {
 }
 
 function equal(actual, expected, message) {
-  if (actual != expected) {
+  // Loose (==) comparison, but treat NaN as equal to NaN like Node does, so
+  // assert.equal(NaN, NaN) passes instead of throwing on the bare `!=`.
+  // (ENG-22968)
+  if (actual != expected && (!Number.isNaN(actual) || !Number.isNaN(expected))) {
     throw new AssertionError({
       message: message,
       actual: actual,
@@ -1678,7 +1745,9 @@ function equal(actual, expected, message) {
 }
 
 function notEqual(actual, expected, message) {
-  if (actual == expected) {
+  // Loose (!=) comparison, but treat NaN as equal to NaN like Node does, so
+  // assert.notEqual(NaN, NaN) throws instead of silently passing. (ENG-22968)
+  if (actual == expected || (Number.isNaN(actual) && Number.isNaN(expected))) {
     throw new AssertionError({
       message: message,
       actual: actual,
@@ -1759,6 +1828,13 @@ function notDeepStrictEqual(actual, expected, message) {
       stackStartFn: notDeepStrictEqual
     });
   }
+}
+
+// Non-throwing strict deep-equality predicate. Exposed so util.isDeepStrictEqual
+// reuses this exact comparator instead of maintaining a separate naive copy.
+// (ENG-22968)
+function _isDeepStrictEqual(a, b) {
+  return _deepEqual(a, b, undefined, undefined, true);
 }
 
 function _callTrackerTypeLabel(value) {
@@ -2472,6 +2548,8 @@ assert.doesNotMatch = doesNotMatch;
 assert.partialDeepStrictEqual = partialDeepStrictEqual;
 assert.AssertionError = AssertionError;
 assert.CallTracker = CallTracker;
+// Internal: shared by util.isDeepStrictEqual (ENG-22968). Not a Node public API.
+assert._isDeepStrictEqual = _isDeepStrictEqual;
 
 // Build assert.strict as a separate facade that defaults to strict methods
 var strict = function strict(value, message) {
@@ -2539,3 +2617,4 @@ module.exports.partialDeepStrictEqual = partialDeepStrictEqual;
 module.exports.AssertionError = AssertionError;
 module.exports.CallTracker = CallTracker;
 module.exports.strict = strict;
+module.exports._isDeepStrictEqual = _isDeepStrictEqual;

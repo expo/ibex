@@ -464,25 +464,15 @@ var util = {
 		};
 	},
 	isDeepStrictEqual: function(a, b) {
-		if (a === b) return true;
-		if (typeof a !== typeof b) return false;
-		if (a === null || b === null) return false;
-		if (Array.isArray(a) && Array.isArray(b)) {
-			if (a.length !== b.length) return false;
-			for (var i = 0; i < a.length; i++) if (!util.isDeepStrictEqual(a[i], b[i])) return false;
+		var assertMod = require("assert");
+		if (typeof assertMod._isDeepStrictEqual === "function") return assertMod._isDeepStrictEqual(a, b);
+		try {
+			assertMod.deepStrictEqual(a, b);
 			return true;
+		} catch (e) {
+			if (e && e.code === "ERR_ASSERTION") return false;
+			throw e;
 		}
-		if (typeof a === "object") {
-			var aKeys = Object.keys(a);
-			var bKeys = Object.keys(b);
-			if (aKeys.length !== bKeys.length) return false;
-			for (var j = 0; j < aKeys.length; j++) {
-				if (!Object.prototype.hasOwnProperty.call(b, aKeys[j])) return false;
-				if (!util.isDeepStrictEqual(a[aKeys[j]], b[aKeys[j]])) return false;
-			}
-			return true;
-		}
-		return false;
 	}
 };
 util.promisify.custom = kCustomPromisifiedSymbol;

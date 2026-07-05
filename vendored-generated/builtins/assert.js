@@ -1070,28 +1070,55 @@ function _errorTypeName(err) {
 	if (_typeof(err) === "object" && err.name) return String(err.name);
 	return _inspect(err);
 }
+function _isBoxedPrimitiveTag(tag) {
+	return tag === "[object Number]" || tag === "[object String]" || tag === "[object Boolean]" || tag === "[object BigInt]" || tag === "[object Symbol]";
+}
+function _boxedPrimitivesEqual(a, b, tag) {
+	if (tag === "[object Number]") return Object.is(Number.prototype.valueOf.call(a), Number.prototype.valueOf.call(b));
+	if (tag === "[object String]") return String.prototype.valueOf.call(a) === String.prototype.valueOf.call(b);
+	if (tag === "[object Boolean]") return Boolean.prototype.valueOf.call(a) === Boolean.prototype.valueOf.call(b);
+	if (tag === "[object BigInt]") return BigInt.prototype.valueOf.call(a) === BigInt.prototype.valueOf.call(b);
+	return Symbol.prototype.valueOf.call(a) === Symbol.prototype.valueOf.call(b);
+}
 function _deepEqual(a, b, aSeen, bSeen, strict) {
-	if (a === b) return true;
-	if (a === null || b === null) {
-		if (!strict && a == b) return true;
-		return false;
-	}
 	if (strict === void 0) strict = false;
-	if (typeof a === "number" && isNaN(a) && isNaN(b)) return true;
-	if (typeof a !== typeof b) {
-		if (strict) return false;
-		if (typeof a !== "object" && typeof b !== "object") return a == b;
-		return false;
+	if (a === b) {
+		if (a !== 0) return true;
+		return strict ? Object.is(a, b) : true;
 	}
-	if (typeof a !== "object") return false;
+	if (strict) {
+		if (a === null || typeof a !== "object") return typeof a === "number" && Number.isNaN(a) && Number.isNaN(b);
+		if (b === null || typeof b !== "object") return false;
+	} else {
+		if (a === null || typeof a !== "object") {
+			if (b === null || typeof b !== "object") return a == b || Number.isNaN(a) && Number.isNaN(b);
+			return false;
+		}
+		if (b === null || typeof b !== "object") return false;
+	}
 	if (aSeen === void 0) aSeen = [];
 	if (bSeen === void 0) bSeen = [];
 	if (_hasSeenPair(aSeen, bSeen, a, b)) return true;
 	aSeen.push(a);
 	bSeen.push(b);
+	var deepEqualResult = _deepEqualObjects(a, b, aSeen, bSeen, strict);
+	aSeen.pop();
+	bSeen.pop();
+	return deepEqualResult;
+}
+function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 	var aTag = Object.prototype.toString.call(a);
 	var bTag = Object.prototype.toString.call(b);
 	if (aTag !== bTag) return false;
+	if (_isBoxedPrimitiveTag(aTag)) {
+		var boxedEqual;
+		try {
+			boxedEqual = _boxedPrimitivesEqual(a, b, aTag);
+		} catch (e) {
+			boxedEqual = void 0;
+		}
+		if (boxedEqual === false) return false;
+	}
 	if (aTag === "[object Date]") {
 		if (!(a instanceof Date) || !(b instanceof Date)) return false;
 		var aTime, bTime;
@@ -1239,7 +1266,7 @@ function ok(value, message) {
 	}
 }
 function equal(actual, expected, message) {
-	if (actual != expected) throw new AssertionError({
+	if (actual != expected && (!Number.isNaN(actual) || !Number.isNaN(expected))) throw new AssertionError({
 		message,
 		actual,
 		expected,
@@ -1248,7 +1275,7 @@ function equal(actual, expected, message) {
 	});
 }
 function notEqual(actual, expected, message) {
-	if (actual == expected) throw new AssertionError({
+	if (actual == expected || Number.isNaN(actual) && Number.isNaN(expected)) throw new AssertionError({
 		message,
 		actual,
 		expected,
@@ -1309,6 +1336,9 @@ function notDeepStrictEqual(actual, expected, message) {
 		operator: "notDeepStrictEqual",
 		stackStartFn: notDeepStrictEqual
 	});
+}
+function _isDeepStrictEqual(a, b) {
+	return _deepEqual(a, b, void 0, void 0, true);
 }
 function _callTrackerTypeLabel(value) {
 	if (value === null) return "null";
@@ -1863,6 +1893,7 @@ assert.doesNotMatch = doesNotMatch;
 assert.partialDeepStrictEqual = partialDeepStrictEqual;
 assert.AssertionError = AssertionError;
 assert.CallTracker = CallTracker;
+assert._isDeepStrictEqual = _isDeepStrictEqual;
 var strict = function strict(value, message) {
 	if (!value) {
 		var defaultMessage = "The expression evaluated to a falsy value";
@@ -1921,4 +1952,5 @@ module.exports.partialDeepStrictEqual = partialDeepStrictEqual;
 module.exports.AssertionError = AssertionError;
 module.exports.CallTracker = CallTracker;
 module.exports.strict = strict;
+module.exports._isDeepStrictEqual = _isDeepStrictEqual;
 //#endregion
