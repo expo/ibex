@@ -125,7 +125,11 @@ cluster.fork = function(env) {
     execPath: cluster.settings.execPath || (typeof process !== 'undefined' ? process.execPath : undefined),
     execArgv: cluster.settings.execArgv || (typeof process !== 'undefined' ? process.execArgv : []),
     env: clusterEnv,
-    silent: true,
+    // Honor cluster.settings.silent; Node defaults to silent:false so worker
+    // stdout/stderr are inherited by the parent instead of piped into unread
+    // (memory-accumulating) Readable buffers. cp.fork wires stdio to 'inherit'
+    // when silent is false.
+    silent: cluster.settings.silent === true,
     detached: cluster.settings.detached
   });
 

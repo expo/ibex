@@ -812,7 +812,11 @@ var _signalMap = {
   SIGWINCH: 28, SIGIO: 23, SIGINFO: 29, SIGSYS: 12
 };
 var _signalNumbers = {};
-for (var _sk in _signalMap) _signalNumbers[_signalMap[_sk]] = _sk;
+// First-wins so aliased numbers resolve to the canonical name Node reports for
+// an exit (e.g. signal 6 -> SIGABRT, not SIGIOT).
+for (var _sk in _signalMap) {
+  if (_signalNumbers[_signalMap[_sk]] === undefined) _signalNumbers[_signalMap[_sk]] = _sk;
+}
 
 function _isValidSignal(signal) {
   if (typeof signal === 'number') {
@@ -2141,18 +2145,14 @@ function _writeSpawnStream(handle, streamName, data, callback) {
   step();
 }
 
-// Signal name to number mapping
-var signalMap = {
-  'SIGHUP': 1, 'SIGINT': 2, 'SIGQUIT': 3, 'SIGILL': 4, 'SIGTRAP': 5,
-  'SIGABRT': 6, 'SIGBUS': 7, 'SIGFPE': 8, 'SIGKILL': 9, 'SIGUSR1': 10,
-  'SIGSEGV': 11, 'SIGUSR2': 12, 'SIGPIPE': 13, 'SIGALRM': 14, 'SIGTERM': 15
-};
-
-// Signal number to name mapping
-var signalNames = {};
-for (var sn in signalMap) {
-  if (signalMap.hasOwnProperty(sn)) signalNames[signalMap[sn]] = sn;
-}
+// Signal name<->number maps for the async spawn path. Reuse the canonical
+// Darwin maps defined above (_signalMap / _signalNumbers) rather than a second,
+// divergent copy: the previous literal here used Linux numbering, so on macOS/iOS
+// kill('SIGUSR1') sent signal 10 (= SIGBUS, killing the child) and the reverse
+// map misreported exit signals. It was also truncated to 15 entries, throwing
+// ERR_UNKNOWN_SIGNAL for signals Node accepts (SIGCHLD, SIGCONT, SIGSTOP, ...).
+var signalMap = _signalMap;
+var signalNames = _signalNumbers;
 if (typeof globalThis.__exactSpawnProcesses !== 'object') {
   globalThis.__exactSpawnProcesses = Object.create(null);
 }
@@ -2854,7 +2854,9 @@ ChildProcess.prototype.spawn = function(options) {
   self3._useNativePump = typeof globalThis.__exactSpawnRead === 'function';
   var pollInterval = 2;
 
-  var signalNames2 = { 1: 'SIGHUP', 2: 'SIGINT', 3: 'SIGQUIT', 6: 'SIGABRT', 9: 'SIGKILL', 14: 'SIGALRM', 15: 'SIGTERM' };
+  // Reuse the canonical reverse map so exit-signal reporting covers every signal
+  // (the previous 7-entry literal returned null for e.g. SIGBUS/SIGSEGV/SIGUSR1).
+  var signalNames2 = _signalNumbers;
 
   // IPC message handling for prototype.spawn path
   var _ipcBuffer2 = '';

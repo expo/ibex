@@ -701,7 +701,7 @@ var _signalMap = {
 	SIGSYS: 12
 };
 var _signalNumbers = {};
-for (var _sk in _signalMap) _signalNumbers[_signalMap[_sk]] = _sk;
+for (var _sk in _signalMap) if (_signalNumbers[_signalMap[_sk]] === void 0) _signalNumbers[_signalMap[_sk]] = _sk;
 function _isValidSignal(signal) {
 	if (typeof signal === "number") return Number.isInteger(signal) && signal > 0 && _signalNumbers[signal] !== void 0;
 	if (typeof signal === "string") return _signalMap[signal.toUpperCase()] !== void 0;
@@ -1733,25 +1733,8 @@ function _writeSpawnStream(handle, streamName, data, callback) {
 	}
 	step();
 }
-var signalMap = {
-	"SIGHUP": 1,
-	"SIGINT": 2,
-	"SIGQUIT": 3,
-	"SIGILL": 4,
-	"SIGTRAP": 5,
-	"SIGABRT": 6,
-	"SIGBUS": 7,
-	"SIGFPE": 8,
-	"SIGKILL": 9,
-	"SIGUSR1": 10,
-	"SIGSEGV": 11,
-	"SIGUSR2": 12,
-	"SIGPIPE": 13,
-	"SIGALRM": 14,
-	"SIGTERM": 15
-};
-var signalNames = {};
-for (var sn in signalMap) if (signalMap.hasOwnProperty(sn)) signalNames[signalMap[sn]] = sn;
+var signalMap = _signalMap;
+var signalNames = _signalNumbers;
 if (typeof globalThis.__exactSpawnProcesses !== "object") globalThis.__exactSpawnProcesses = Object.create(null);
 if (typeof globalThis.__exactSpawnPump !== "function") globalThis.__exactSpawnPump = function(handle) {
 	if (!globalThis.__exactSpawnProcesses) return;
@@ -2312,15 +2295,7 @@ ChildProcess.prototype.spawn = function(options) {
 	self3._ref = true;
 	self3._useNativePump = typeof globalThis.__exactSpawnRead === "function";
 	var pollInterval = 2;
-	var signalNames2 = {
-		1: "SIGHUP",
-		2: "SIGINT",
-		3: "SIGQUIT",
-		6: "SIGABRT",
-		9: "SIGKILL",
-		14: "SIGALRM",
-		15: "SIGTERM"
-	};
+	var signalNames2 = _signalNumbers;
 	var _ipcBuffer2 = "";
 	var _pendingRecvFd2 = -1;
 	function emitDisconnect2() {

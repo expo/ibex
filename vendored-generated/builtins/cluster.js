@@ -83,7 +83,7 @@ cluster.fork = function(env) {
 		execPath: cluster.settings.execPath || (typeof process !== "undefined" ? process.execPath : void 0),
 		execArgv: cluster.settings.execArgv || (typeof process !== "undefined" ? process.execArgv : []),
 		env: clusterEnv,
-		silent: true,
+		silent: cluster.settings.silent === true,
 		detached: cluster.settings.detached
 	});
 	if (cluster.settings.detached) child.unref();

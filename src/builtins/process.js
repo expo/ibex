@@ -20,15 +20,37 @@ function _normalizeCwdPath(value) {
   return "/" + path;
 }
 
+// Collapse '.', '..' and duplicate slashes in an absolute POSIX path so that
+// e.g. chdir('..') from /data/app makes cwd() return /data rather than the
+// literal '/data/app/..'. A leading '..' at the root is dropped (POSIX: /.. == /).
+function _collapsePosixPath(path) {
+  var parts = path.split('/');
+  var stack = [];
+  for (var i = 0; i < parts.length; i++) {
+    var seg = parts[i];
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (stack.length > 0) stack.pop();
+      continue;
+    }
+    stack.push(seg);
+  }
+  return '/' + stack.join('/');
+}
+
 function _resolveCwd(path) {
-  if (typeof path === 'string' && (path.charAt(0) === '/' || /^[A-Za-z]:[\\/]/.test(path))) {
+  // Leave Windows drive-absolute paths for the native layer to normalize.
+  if (typeof path === 'string' && /^[A-Za-z]:[\\/]/.test(path)) {
     return path;
   }
-  var cwd = typeof process === 'object' && process && typeof process.cwd === 'function' ? process.cwd() : "/";
-  if (cwd.charAt(cwd.length - 1) !== '/') {
-    return cwd + "/" + path;
+  var joined;
+  if (typeof path === 'string' && path.charAt(0) === '/') {
+    joined = path;
+  } else {
+    var cwd = typeof process === 'object' && process && typeof process.cwd === 'function' ? process.cwd() : "/";
+    joined = (cwd.charAt(cwd.length - 1) !== '/') ? cwd + "/" + path : cwd + path;
   }
-  return cwd + path;
+  return _collapsePosixPath(joined);
 }
 
 function _readNativeCwd() {
