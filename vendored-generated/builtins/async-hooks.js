@@ -26,6 +26,7 @@ function _restoreContext(ctx) {
 var _fnApply = Function.prototype.apply;
 function _wrapCallback(fn) {
 	if (typeof fn !== "function") return fn;
+	if (_allInstances.length === 0) return fn;
 	var captured = _captureContext();
 	return function() {
 		var prev = _restoreContext(captured);
@@ -38,6 +39,7 @@ function _wrapCallback(fn) {
 }
 function _wrapPromiseCallback(fn) {
 	if (typeof fn !== "function") return fn;
+	if (_allInstances.length === 0) return fn;
 	var captured = _captureContext();
 	return function() {
 		var prev = _restoreContext(captured);

@@ -1538,72 +1538,83 @@ Interface.prototype[Symbol.asyncIterator] = function() {
 	var done = false;
 	var error = null;
 	var queue = [];
-	var resolve = null;
-	var reject = null;
-	function emitResult() {
-		if (resolve === null) return;
-		if (error !== null) {
-			var pendingReject = reject;
-			resolve = null;
-			reject = null;
-			pendingReject(error);
-			return;
-		}
-		if (done) {
-			var pendingResolve = resolve;
-			resolve = null;
-			reject = null;
-			pendingResolve({
+	var pending = [];
+	var listenersAttached = false;
+	function settleAllDone() {
+		while (pending.length > 0) {
+			var p = pending.shift();
+			if (error !== null) p.reject(error);
+			else p.resolve({
 				value: void 0,
 				done: true
 			});
-			return;
-		}
-		if (queue.length > 0) {
-			var pendingResolve = resolve;
-			resolve = null;
-			pendingResolve({
-				value: queue.shift(),
-				done: false
-			});
 		}
 	}
-	self.on("line", function(line) {
-		if (resolve) {
-			var r = resolve;
-			resolve = null;
-			r({
-				value: line,
-				done: false
-			});
-		} else queue.push(line);
-	});
-	self.on("error", function(err) {
+	function onLine(line) {
+		if (pending.length > 0) pending.shift().resolve({
+			value: line,
+			done: false
+		});
+		else queue.push(line);
+	}
+	function onError(err) {
 		if (done) return;
 		done = true;
 		error = err;
-		emitResult();
-	});
-	self.on("close", function() {
+		settleAllDone();
+	}
+	function onClose() {
 		if (done) return;
 		done = true;
-		emitResult();
-	});
-	return { next: function() {
-		if (queue.length > 0) return Promise.resolve({
-			value: queue.shift(),
-			done: false
-		});
-		if (error !== null) return Promise.reject(error);
-		if (done) return Promise.resolve({
-			value: void 0,
-			done: true
-		});
-		return new Promise(function(r, rej) {
-			resolve = r;
-			reject = rej;
-		});
-	} };
+		settleAllDone();
+	}
+	function detach() {
+		if (!listenersAttached) return;
+		listenersAttached = false;
+		self.removeListener("line", onLine);
+		self.removeListener("error", onError);
+		self.removeListener("close", onClose);
+	}
+	self.on("line", onLine);
+	self.on("error", onError);
+	self.on("close", onClose);
+	listenersAttached = true;
+	return {
+		next: function() {
+			if (queue.length > 0) return Promise.resolve({
+				value: queue.shift(),
+				done: false
+			});
+			if (error !== null) return Promise.reject(error);
+			if (done) return Promise.resolve({
+				value: void 0,
+				done: true
+			});
+			return new Promise(function(r, rej) {
+				pending.push({
+					resolve: r,
+					reject: rej
+				});
+			});
+		},
+		return: function(value) {
+			done = true;
+			detach();
+			queue.length = 0;
+			while (pending.length > 0) pending.shift().resolve({
+				value: void 0,
+				done: true
+			});
+			if (!self.closed && typeof self.close === "function") self.close();
+			return Promise.resolve({
+				value,
+				done: true
+			});
+		},
+		[Symbol.asyncIterator]: function() {
+			return this;
+		}
+	};
 };
 function PromiseInterface() {
 	if (!(this instanceof PromiseInterface)) return new PromiseInterface(arguments[0], arguments[1], arguments[2], arguments[3]);

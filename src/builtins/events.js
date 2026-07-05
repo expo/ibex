@@ -708,6 +708,11 @@ function once(emitter, eventName, options) {
 
     var signal = options && options.signal;
     var removeSignalListener = null;
+    // Declared here so it is scoped per once() call. Without a declaration this
+    // is an implicit global shared by every concurrent once(), so the first
+    // call to resolve would run cleanup() and detach a different call's 'error'
+    // listener. (ENG-22970)
+    var removeErrorListener = null;
     var cleanup = function() {
       if (typeof removeEventListenerFromEmitter === 'function') {
         removeEventListenerFromEmitter();

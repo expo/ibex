@@ -35,6 +35,14 @@ var _fnApply = Function.prototype.apply;
 
 function _wrapCallback(fn) {
   if (typeof fn !== 'function') return fn;
+  // Fast path: with no AsyncLocalStorage instances active there is no context
+  // to snapshot or restore, so wrapping would capture an empty context and
+  // restore nothing — a functional no-op. Return fn unwrapped to skip the
+  // closure allocation, the capture array, and the try/finally on every
+  // callback. This matters because async-hooks patches Promise/timers globally
+  // and is pulled in by events.js, so the wrapper is otherwise always on the
+  // hot path. (ENG-22970)
+  if (_allInstances.length === 0) return fn;
   var captured = _captureContext();
   return function() {
     var prev = _restoreContext(captured);
@@ -48,6 +56,10 @@ function _wrapCallback(fn) {
 
 function _wrapPromiseCallback(fn) {
   if (typeof fn !== 'function') return fn;
+  // Fast path: no ALS instances => wrapping is a no-op. Every awaited
+  // continuation (then/catch/finally reactions) hits this, so skipping the
+  // wrapper avoids ~4 allocations + a try/finally per reaction. (ENG-22970)
+  if (_allInstances.length === 0) return fn;
   var captured = _captureContext();
   return function() {
     var prev = _restoreContext(captured);

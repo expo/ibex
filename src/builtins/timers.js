@@ -46,6 +46,10 @@ function Timeout(callback, delay, args, isRepeat) {
   this._repeat = isRepeat ? this._delay : null;
   this._refed = true;
   this._destroyed = false;
+  // Distinct from _destroyed: _closed means the timer was cleared/closed and
+  // must stay dead; _destroyed alone means the callback already fired and the
+  // timer can still be reactivated via refresh(). (ENG-22970)
+  this._closed = false;
   this._idleTimeout = this._delay;
   this._idleStart = Date.now();
   this._id = _nextTimerId++;
@@ -94,12 +98,21 @@ Timeout.prototype.hasRef = function() {
 };
 
 Timeout.prototype.refresh = function() {
-  if (this._destroyed) return this;
-  // Clear old timer and create new one
-  if (this._isRepeat) {
-    _clearInterval(this._nativeHandle);
+  // A cleared/closed timer stays dead (matches Node, where clearTimeout sets
+  // _idleTimeout = -1 so refresh() cannot reschedule). (ENG-22970)
+  if (this._closed) return this;
+  if (this._destroyed) {
+    // The callback already fired. Node's refresh() reactivates such a timer;
+    // re-register it in the id map and reschedule from scratch. (ENG-22970)
+    this._destroyed = false;
+    _timerById.set(this._id, this);
   } else {
-    _clearTimeout(this._nativeHandle);
+    // Still pending: cancel the in-flight native timer before rescheduling.
+    if (this._isRepeat) {
+      _clearInterval(this._nativeHandle);
+    } else {
+      _clearTimeout(this._nativeHandle);
+    }
   }
   this._scheduleNative();
   return this;
@@ -112,6 +125,7 @@ Timeout.prototype.close = function() {
     _clearTimeout(this._nativeHandle);
   }
   this._destroyed = true;
+  this._closed = true;
   _timerById.delete(this._id);
   return this;
 };

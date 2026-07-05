@@ -34,6 +34,7 @@ function Timeout(callback, delay, args, isRepeat) {
 	this._repeat = isRepeat ? this._delay : null;
 	this._refed = true;
 	this._destroyed = false;
+	this._closed = false;
 	this._idleTimeout = this._delay;
 	this._idleStart = Date.now();
 	this._id = _nextTimerId++;
@@ -67,8 +68,11 @@ Timeout.prototype.hasRef = function() {
 	return this._refed;
 };
 Timeout.prototype.refresh = function() {
-	if (this._destroyed) return this;
-	if (this._isRepeat) _clearInterval(this._nativeHandle);
+	if (this._closed) return this;
+	if (this._destroyed) {
+		this._destroyed = false;
+		_timerById.set(this._id, this);
+	} else if (this._isRepeat) _clearInterval(this._nativeHandle);
 	else _clearTimeout(this._nativeHandle);
 	this._scheduleNative();
 	return this;
@@ -77,6 +81,7 @@ Timeout.prototype.close = function() {
 	if (this._isRepeat) _clearInterval(this._nativeHandle);
 	else _clearTimeout(this._nativeHandle);
 	this._destroyed = true;
+	this._closed = true;
 	_timerById.delete(this._id);
 	return this;
 };

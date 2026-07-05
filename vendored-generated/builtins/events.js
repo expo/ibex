@@ -474,6 +474,7 @@ function once(emitter, eventName, options) {
 		}
 		var signal = options && options.signal;
 		var removeSignalListener = null;
+		var removeErrorListener = null;
 		var cleanup = function() {
 			if (typeof removeEventListenerFromEmitter === "function") removeEventListenerFromEmitter();
 			if (typeof removeErrorListener === "function") removeErrorListener();

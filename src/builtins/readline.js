@@ -1501,52 +1501,76 @@ Interface.prototype[Symbol.asyncIterator] = function() {
   var done = false;
   var error = null;
   var queue = [];
-  var resolve = null;
-  var reject = null;
-  function emitResult() {
-    if (resolve === null) return;
-    if (error !== null) {
-      var pendingReject = reject;
-      resolve = null;
-      reject = null;
-      pendingReject(error);
-      return;
-    }
-    if (done) {
-      var pendingResolve = resolve;
-      resolve = null;
-      reject = null;
-      pendingResolve({ value: undefined, done: true });
-      return;
-    }
-    if (queue.length > 0) {
-      var pendingResolve = resolve;
-      resolve = null;
-      pendingResolve({ value: queue.shift(), done: false });
+  // A FIFO of pending { resolve, reject } settlers. Using a queue (rather than a
+  // single slot) means concurrent next() calls each get their own promise
+  // instead of clobbering one another and leaving a promise unsettled. (ENG-22970)
+  var pending = [];
+  var listenersAttached = false;
+
+  function settleAllDone() {
+    while (pending.length > 0) {
+      var p = pending.shift();
+      if (error !== null) p.reject(error);
+      else p.resolve({ value: undefined, done: true });
     }
   }
-  self.on('line', function(line) {
-    if (resolve) { var r = resolve; resolve = null; r({ value: line, done: false }); }
-    else queue.push(line);
-  });
-  self.on('error', function(err) {
+  function onLine(line) {
+    if (pending.length > 0) {
+      pending.shift().resolve({ value: line, done: false });
+    } else {
+      queue.push(line);
+    }
+  }
+  function onError(err) {
     if (done) return;
     done = true;
     error = err;
-    emitResult();
-  });
-  self.on('close', function() {
+    settleAllDone();
+  }
+  function onClose() {
     if (done) return;
     done = true;
-    emitResult();
-  });
+    settleAllDone();
+  }
+  function detach() {
+    if (!listenersAttached) return;
+    listenersAttached = false;
+    self.removeListener('line', onLine);
+    self.removeListener('error', onError);
+    self.removeListener('close', onClose);
+  }
+
+  self.on('line', onLine);
+  self.on('error', onError);
+  self.on('close', onClose);
+  listenersAttached = true;
+
   return {
     next: function() {
       if (queue.length > 0) return Promise.resolve({ value: queue.shift(), done: false });
       if (error !== null) return Promise.reject(error);
       if (done) return Promise.resolve({ value: undefined, done: true });
-      return new Promise(function(r, rej) { resolve = r; reject = rej; });
-    }
+      return new Promise(function(r, rej) { pending.push({ resolve: r, reject: rej }); });
+    },
+    // Called when the consumer breaks out of `for await (const line of rl)`.
+    // Without this, the 'line'/'close' listeners stayed attached, raw mode
+    // stayed on, and future input piled up in a queue nobody drained. Detach
+    // our listeners and close the underlying interface. (ENG-22970)
+    return: function(value) {
+      done = true;
+      detach();
+      // Drop any buffered-but-unconsumed lines: the consumer asked to stop.
+      queue.length = 0;
+      while (pending.length > 0) {
+        pending.shift().resolve({ value: undefined, done: true });
+      }
+      if (!self.closed && typeof self.close === 'function') {
+        self.close();
+      }
+      return Promise.resolve({ value: value, done: true });
+    },
+    // Make the iterator itself iterable so it composes with for-await/spread.
+    [Symbol.asyncIterator]: function() { return this; }
   };
 };
 
