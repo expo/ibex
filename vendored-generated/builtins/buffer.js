@@ -445,7 +445,51 @@ function coerceEncoding(encoding) {
 	if (normalized === "utf-8") return "utf8";
 	return normalized;
 }
+function hexNibble(code) {
+	if (code >= 48 && code <= 57) return code - 48;
+	if (code >= 97 && code <= 102) return code - 97 + 10;
+	if (code >= 65 && code <= 70) return code - 65 + 10;
+	return -1;
+}
+var _fromCharCode = String.fromCharCode;
+var BINARY_STRING_CHUNK = 8192;
+function bytesToBinaryString(bytes) {
+	var len = bytes.length;
+	if (len === 0) return "";
+	if (len <= BINARY_STRING_CHUNK) return _fromCharCode.apply(null, bytes);
+	var out = "";
+	for (var offset = 0; offset < len; offset += BINARY_STRING_CHUNK) {
+		var end = offset + BINARY_STRING_CHUNK;
+		if (end > len) end = len;
+		out += _fromCharCode.apply(null, Uint8Array.prototype.subarray.call(bytes, offset, end));
+	}
+	return out;
+}
+var _utf8FatalDecoder;
+var _utf8FatalDecoderChecked = false;
+function getUtf8FatalDecoder() {
+	if (!_utf8FatalDecoderChecked) {
+		_utf8FatalDecoderChecked = true;
+		_utf8FatalDecoder = null;
+		if (typeof TextDecoder === "function") try {
+			_utf8FatalDecoder = new TextDecoder("utf-8", {
+				fatal: true,
+				ignoreBOM: true
+			});
+		} catch (decoderErr) {
+			_utf8FatalDecoder = null;
+		}
+	}
+	return _utf8FatalDecoder;
+}
 function decodeUtf8Bytes(bytes) {
+	var fatalDecoder = getUtf8FatalDecoder();
+	if (fatalDecoder) {
+		var decodeView = bytes && bytes.__isExactBuffer ? new Uint8Array(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength) : bytes;
+		try {
+			return fatalDecoder.decode(decodeView);
+		} catch (invalidUtf8Err) {}
+	}
 	var result = "";
 	var i = 0;
 	var len = bytes.length;
@@ -514,21 +558,17 @@ function decodeBytes(bytes, encoding, start, end) {
 		return out;
 	}
 	if (enc === "base64" || enc === "base64url") {
-		var binary = "";
-		for (var i = 0; i < slice.length; i++) binary += String.fromCharCode(slice[i]);
+		var binary = bytesToBinaryString(slice);
 		var b64 = typeof btoa === "function" ? btoa(binary) : "";
 		if (enc === "base64url") return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 		return b64;
 	}
-	if (enc === "latin1" || enc === "binary") {
-		var result = "";
-		for (var i = 0; i < slice.length; i++) result += String.fromCharCode(slice[i]);
-		return result;
-	}
+	if (enc === "latin1" || enc === "binary") return bytesToBinaryString(slice);
 	if (enc === "ascii") {
-		var result = "";
-		for (var i = 0; i < slice.length; i++) result += String.fromCharCode(slice[i] & 127);
-		return result;
+		var asciiLen = slice.length;
+		var asciiBytes = new Uint8Array(asciiLen);
+		for (var a = 0; a < asciiLen; a++) asciiBytes[a] = slice[a] & 127;
+		return bytesToBinaryString(asciiBytes);
 	}
 	if (enc === "utf16le" || enc === "ucs2" || enc === "ucs-2" || enc === "utf-16le") {
 		var result = "";
@@ -547,15 +587,16 @@ function encodeString(value, encoding) {
 	var enc = coerceEncoding(encoding || "utf8");
 	var str = String(value);
 	if (enc === "hex") {
-		var values = [];
-		for (var i = 0; i < str.length - 1; i += 2) {
-			var byte = parseInt(str.substr(i, 2), 16);
-			if (isNaN(byte)) break;
-			values.push(byte);
+		var maxBytes = str.length >>> 1;
+		var bytes = new Uint8Array(maxBytes);
+		var count = 0;
+		for (var i = 0; i < maxBytes; i++) {
+			var hi = hexNibble(str.charCodeAt(i * 2));
+			var lo = hexNibble(str.charCodeAt(i * 2 + 1));
+			if (hi < 0 || lo < 0) break;
+			bytes[count++] = hi << 4 | lo;
 		}
-		var bytes = new Uint8Array(values.length);
-		for (var j = 0; j < values.length; j++) bytes[j] = values[j];
-		return bytes;
+		return count === maxBytes ? bytes : bytes.subarray(0, count);
 	}
 	if (enc === "base64" || enc === "base64url") return decodeBase64Bytes(str);
 	if (enc === "latin1" || enc === "binary") {
@@ -749,8 +790,14 @@ Buffer.concat = function(list, totalLength) {
 	var result = Buffer.alloc(total);
 	var offset = 0;
 	for (var k = 0; k < list.length; k++) {
+		if (offset >= total) break;
 		var buf = list[k];
-		for (var m = 0; m < buf.length && offset < total; m++) result[offset++] = buf[m];
+		var copyLength = buf.length;
+		if (copyLength > total - offset) copyLength = total - offset;
+		if (copyLength > 0) {
+			result.set(copyLength === buf.length ? buf : Uint8Array.prototype.subarray.call(buf, 0, copyLength), offset);
+			offset += copyLength;
+		}
 	}
 	return result;
 };
@@ -987,11 +1034,7 @@ BufferProto.copy = function(target, targetStart, sourceStart, sourceEnd) {
 	if (sourceEnd > this.length) sourceEnd = this.length;
 	if (sourceEnd <= sourceStart || targetStart >= targetBytes.length) return 0;
 	var length = Math.min(sourceEnd - sourceStart, targetBytes.length - targetStart);
-	if (this.buffer === targetBytes.buffer && sourceStart < targetStart && targetStart < sourceStart + length) {
-		for (var i = length - 1; i >= 0; i--) targetBytes[targetStart + i] = this[sourceStart + i];
-		return length;
-	}
-	for (var i = 0; i < length; i++) targetBytes[targetStart + i] = this[sourceStart + i];
+	targetBytes.set(Uint8Array.prototype.subarray.call(this, sourceStart, sourceStart + length), targetStart);
 	return length;
 };
 function encodeUtf16beString(value) {
