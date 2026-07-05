@@ -9,11 +9,48 @@
 
 pub mod sourcemap;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// Flag set when a background callback is pushed.
 /// iOS polls this to know when to wake up the event loop.
 static CALLBACK_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Host wake hook (exact LLP 0297 W4b/B8): a wake-driven host executor
+/// parks its runtime thread on a condition variable instead of polling the
+/// pending flag, so it needs a push notification when a cross-thread
+/// callback lands. Stored as raw words so invocation from arbitrary
+/// threads is lock-free. Registration is expected once at host boot;
+/// re-registration is not synchronized against a concurrent notify (a
+/// racing reader may pair the new fn with the old context).
+static HOST_WAKE_HOOK_FN: AtomicUsize = AtomicUsize::new(0);
+static HOST_WAKE_HOOK_CTX: AtomicUsize = AtomicUsize::new(0);
+
+/// Register (or clear, with `None`) the host wake hook invoked whenever a
+/// background thread pushes a runtime callback. The hook runs on the
+/// pushing thread and must only do cheap, bounded work (enqueue + signal a
+/// condvar). Only the default (non-`cli-notify`) notify path invokes it —
+/// the CLI's tokio-based notify has its own wake mechanism.
+#[no_mangle]
+pub extern "C" fn ex_hermes_set_host_wake_hook(
+    hook: Option<extern "C" fn(*mut std::ffi::c_void)>,
+    context: *mut std::ffi::c_void,
+) {
+    HOST_WAKE_HOOK_CTX.store(context as usize, Ordering::Release);
+    HOST_WAKE_HOOK_FN.store(hook.map_or(0, |f| f as usize), Ordering::Release);
+}
+
+fn invoke_host_wake_hook() {
+    let raw_fn = HOST_WAKE_HOOK_FN.load(Ordering::Acquire);
+    if raw_fn == 0 {
+        return;
+    }
+    let context = HOST_WAKE_HOOK_CTX.load(Ordering::Acquire) as *mut std::ffi::c_void;
+    // SAFETY: raw_fn was stored from a valid `extern "C" fn(*mut c_void)`
+    // in ex_hermes_set_host_wake_hook and is only transmuted back to that
+    // exact type.
+    let hook: extern "C" fn(*mut std::ffi::c_void) = unsafe { std::mem::transmute(raw_fn) };
+    hook(context);
+}
 
 /// Default implementation of ex_hermes_notify_callback for iOS/standalone use.
 /// This is called from C++ (hermes_runtime.cc) when async callbacks are pushed
@@ -34,6 +71,7 @@ static CALLBACK_PENDING: AtomicBool = AtomicBool::new(false);
 #[no_mangle]
 pub extern "C" fn ex_hermes_notify_callback() {
     CALLBACK_PENDING.store(true, Ordering::Release);
+    invoke_host_wake_hook();
 }
 
 /// Check and clear the callback pending flag.

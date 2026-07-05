@@ -90,6 +90,15 @@ uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
 /// Called automatically by the runtime when async operations complete.
 void ex_hermes_notify_callback(void);
 
+/// Register (or clear, with NULL) a host wake hook invoked whenever a
+/// background thread pushes a runtime callback (exact LLP 0297 W4b/B8).
+/// Lets a wake-driven host executor park instead of polling the pending
+/// flag. The hook runs on the pushing thread: do only cheap, bounded work
+/// (enqueue + signal). Register once at host boot, before runtime traffic.
+void ex_hermes_set_host_wake_hook(
+    void (*hook)(void* context),
+    void* context);
+
 /// Queue a lightweight watchdog callback onto the cross-thread callback queue.
 /// The callback executes during the next poll on the runtime-owning thread.
 void ex_hermes_schedule_watchdog_heartbeat(
