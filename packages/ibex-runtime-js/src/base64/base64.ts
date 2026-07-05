@@ -155,7 +155,19 @@ export function atob(data: string): string {
     }
   }
 
-  return String.fromCharCode(...result);
+  // Build the output in bounded chunks. Spreading the whole byte array into
+  // String.fromCharCode(...result) blows the engine's argument-count limit
+  // (~64-125K args) and throws RangeError on valid inputs above ~100KB of
+  // base64 (e.g. data: URLs with embedded images/wasm).
+  const CHUNK_SIZE = 8192;
+  let output = "";
+  for (let start = 0; start < result.length; start += CHUNK_SIZE) {
+    output += String.fromCharCode.apply(
+      null,
+      result.slice(start, start + CHUNK_SIZE),
+    );
+  }
+  return output;
 }
 
 // DOMException for this module (avoid circular dependency)

@@ -270,9 +270,13 @@ export class Cache {
       throw new TypeError('Cannot cache partial (206) responses');
     }
 
-    // Remove any existing entry with the same URL
+    // Per the Cache "Batch Cache Operations" put step, replace only entries the
+    // new request would match via Query Cache — which honors each stored
+    // response's Vary header — not every entry that merely shares the URL.
+    // Storing a French variant must not evict a cached English one whose
+    // response carried `Vary: Accept-Language`.
     this._entries = this._entries.filter(
-      (entry) => entry.request.url !== req.url
+      (entry) => !this._requestMatches(entry.request, req)
     );
 
     // Clone request and response so the caller retains ownership of the originals.

@@ -140,16 +140,18 @@ export class EventSource extends EventTarget {
           return;
         }
 
-        // Check for successful response
-        if (!response.ok) {
-          this.#failConnection('HTTP error: ' + response.status);
+        // Per the SSE spec a non-200 status must fail the connection
+        // permanently. `response.ok` also accepts 201-299, which the spec
+        // treats as failure, so check for exactly 200.
+        if (response.status !== 200) {
+          this.#failConnection();
           return;
         }
 
-        // Check content type
+        // A missing or incorrect Content-Type must also fail permanently.
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('text/event-stream')) {
-          this.#failConnection('Invalid content type: ' + contentType);
+          this.#failConnection();
           return;
         }
 
@@ -176,7 +178,8 @@ export class EventSource extends EventTarget {
           return;
         }
 
-        this.#failConnection(error?.message || 'Connection failed');
+        // A network-level failure is transient: reconnect per the spec.
+        this.#reestablishConnection();
       });
   }
 
@@ -186,7 +189,7 @@ export class EventSource extends EventTarget {
   async #readStream(response: Response): Promise<void> {
     const body = response.body;
     if (!body) {
-      this.#failConnection('Response body is null');
+      this.#reestablishConnection();
       return;
     }
 
@@ -312,15 +315,47 @@ export class EventSource extends EventTarget {
         return;
       }
 
-      // Stream read error - attempt reconnect
-      this.#failConnection(error?.message || 'Stream read error');
+      // Stream read error - transient, attempt reconnect
+      this.#reestablishConnection();
     }
   }
 
   /**
-   * Handle a connection failure: fire error event and schedule reconnect.
+   * Permanently fail the connection: set readyState to CLOSED, fire a single
+   * error event, and never reconnect. Per the SSE spec this is required when
+   * the server responds with a non-200 status or a wrong/absent Content-Type.
    */
-  #failConnection(message: string): void {
+  #failConnection(): void {
+    if (this.#readyState === CLOSED) {
+      return;
+    }
+
+    this.#readyState = CLOSED;
+
+    // Abort the in-flight fetch and cancel any pending reconnect.
+    if (this.#abortController) {
+      this.#abortController.abort();
+      this.#abortController = null;
+    }
+    if (this.#reconnectTimer !== null) {
+      clearTimeout(this.#reconnectTimer);
+      this.#reconnectTimer = null;
+    }
+
+    const errorEvent = new Event('error');
+    if (this.onerror) {
+      this.onerror.call(this, errorEvent);
+    }
+    this.dispatchEvent(errorEvent);
+  }
+
+  /**
+   * Reestablish the connection after a transient failure (network error, null
+   * body, or a stream read error): fire an error event, then schedule a
+   * reconnect with backoff. Unlike failing the connection, the EventSource
+   * stays alive and keeps trying.
+   */
+  #reestablishConnection(): void {
     if (this.#readyState === CLOSED) {
       return;
     }

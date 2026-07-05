@@ -92,6 +92,18 @@ export class URLSearchParams {
     this._url = url;
   }
 
+  /**
+   * Replace this instance's list in place from a URL query string. Used by the
+   * URL search/href setters so the single per-URL URLSearchParams object is
+   * re-filled rather than replaced. Does not call `_update()` — the owning URL
+   * has already set its serialized `search`, which stays authoritative.
+   * @internal
+   */
+  _resetFromSearch(search: string): void {
+    this._params = [];
+    this._parseString(search);
+  }
+
   append(name: string, value: string): void {
     this._params.push([String(name), String(value)]);
     this._update();

@@ -92,6 +92,71 @@ function toHex(code: number): string {
   return hex.length === 1 ? `0${hex}` : hex;
 }
 
+// WHATWG percent-encode sets (https://url.spec.whatwg.org/#percent-encoded-bytes).
+// The C0 control set is the base; the fragment/query/path sets extend it. Code
+// points > 0x7F are always UTF-8 percent-encoded, so these predicates only need
+// to classify the ASCII range.
+function inC0ControlPercentEncodeSet(code: number): boolean {
+  return code <= 0x1f || code > 0x7e;
+}
+function inFragmentPercentEncodeSet(code: number): boolean {
+  return (
+    inC0ControlPercentEncodeSet(code) ||
+    code === 0x20 || // space
+    code === 0x22 || // "
+    code === 0x3c || // <
+    code === 0x3e || // >
+    code === 0x60 //    `
+  );
+}
+function inQueryPercentEncodeSet(code: number): boolean {
+  return (
+    inC0ControlPercentEncodeSet(code) ||
+    code === 0x20 || // space
+    code === 0x22 || // "
+    code === 0x23 || // #
+    code === 0x3c || // <
+    code === 0x3e //    >
+  );
+}
+function inSpecialQueryPercentEncodeSet(code: number): boolean {
+  return inQueryPercentEncodeSet(code) || code === 0x27; // '
+}
+function inPathPercentEncodeSet(code: number): boolean {
+  return (
+    inQueryPercentEncodeSet(code) ||
+    code === 0x3f || // ?
+    code === 0x60 || // `
+    code === 0x7b || // {
+    code === 0x7d //    }
+  );
+}
+
+/**
+ * UTF-8 percent-encode `input`, encoding every code point that falls in
+ * `inSet` plus every non-ASCII code point. Other characters pass through
+ * unchanged; note `%` is in none of the URL sets, so existing %XX escapes are
+ * preserved rather than double-encoded.
+ */
+function percentEncode(input: string, inSet: (code: number) => boolean): string {
+  let out = "";
+  for (const ch of input) {
+    const code = ch.codePointAt(0)!;
+    if (code > 0x7f) {
+      try {
+        out += encodeURIComponent(ch);
+      } catch {
+        out += "%EF%BF%BD"; // U+FFFD replacement for lone surrogates
+      }
+    } else if (inSet(code)) {
+      out += `%${toHex(code)}`;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
 function canonicalizeHost(value: string, protocol: string): string {
   const isSpecial = protocol && SPECIAL_SCHEMES.has(protocol.slice(0, -1));
   if (isSpecial) {
@@ -552,8 +617,9 @@ export class URL {
     this._pathname = newURL._pathname;
     this._search = newURL._search;
     this._hash = newURL._hash;
-    this._searchParams = new URLSearchParams(this._search);
-    this._searchParams._setURL(this);
+    // Per the spec there is exactly one URLSearchParams object per URL for its
+    // lifetime; re-fill the existing instance rather than vending a new one.
+    this._searchParams._resetFromSearch(this._search);
   }
 
   get origin(): string {
@@ -723,12 +789,29 @@ export class URL {
   }
 
   set port(value: string) {
-    const port = String(value);
-    if (port === "" || port === DEFAULT_PORTS[this._protocol.slice(0, -1)]) {
-      this._port = "";
-    } else {
-      this._port = port;
+    // file: URLs cannot carry a port (matches the protocol/username setters).
+    if (this._protocol === "file:") {
+      return;
     }
+    const port = String(value);
+    if (port === "") {
+      this._port = "";
+      return;
+    }
+    // Per the WHATWG port state, consume the leading ASCII digits. If there are
+    // none, or the value overflows 2^16-1, the setter is a no-op rather than
+    // storing a non-numeric string that would make the serialized href
+    // unparseable.
+    const match = port.match(/^[0-9]+/);
+    if (!match) {
+      return;
+    }
+    if (Number(match[0]) > 65535) {
+      return;
+    }
+    const normalized = normalizePort(port);
+    this._port =
+      normalized === DEFAULT_PORTS[this._protocol.slice(0, -1)] ? "" : normalized;
   }
 
   get pathname(): string {
@@ -736,7 +819,13 @@ export class URL {
   }
 
   set pathname(value: string) {
-    this._pathname = this._normalizePath(String(value));
+    // Normalize dot segments, then percent-encode with the path set so control
+    // characters, spaces and query/fragment delimiters can't leak into the
+    // authority-less serialization.
+    this._pathname = percentEncode(
+      this._normalizePath(String(value)),
+      inPathPercentEncodeSet,
+    );
   }
 
   get search(): string {
@@ -745,12 +834,22 @@ export class URL {
 
   set search(value: string) {
     let search = String(value);
-    if (search && !search.startsWith("?")) {
-      search = "?" + search;
+    if (search === "") {
+      this._search = "";
+    } else {
+      if (search.startsWith("?")) {
+        search = search.slice(1);
+      }
+      // Percent-encode with the query set (special schemes also encode '), so a
+      // '#' or space in the query can't round-trip through href as a fragment.
+      const encodeSet = SPECIAL_SCHEMES.has(this._protocol.slice(0, -1))
+        ? inSpecialQueryPercentEncodeSet
+        : inQueryPercentEncodeSet;
+      this._search = "?" + percentEncode(search, encodeSet);
     }
-    this._search = search;
-    this._searchParams = new URLSearchParams(search);
-    this._searchParams._setURL(this);
+    // Re-fill the persistent searchParams instance instead of replacing it, so
+    // any previously vended reference keeps observing this URL.
+    this._searchParams._resetFromSearch(this._search);
   }
 
   get searchParams(): URLSearchParams {
@@ -763,10 +862,16 @@ export class URL {
 
   set hash(value: string) {
     let hash = String(value);
-    if (hash && !hash.startsWith("#")) {
-      hash = "#" + hash;
+    if (hash === "") {
+      this._hash = "";
+      return;
     }
-    this._hash = hash;
+    if (hash.startsWith("#")) {
+      hash = hash.slice(1);
+    }
+    // Percent-encode with the fragment set so spaces and control characters
+    // survive an href round-trip.
+    this._hash = "#" + percentEncode(hash, inFragmentPercentEncodeSet);
   }
 
   toString(): string {

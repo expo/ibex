@@ -54,7 +54,7 @@ export interface StreamPipeOptions {
   signal?: AbortSignal;
 }
 
-type WritableStreamState = 'writable' | 'closing' | 'closed' | 'errored';
+type WritableStreamState = 'writable' | 'erroring' | 'closing' | 'closed' | 'errored';
 type PromiseState = 'pending' | 'fulfilled' | 'rejected';
 type PromiseRecord<T> = {
   promise: Promise<T>;
@@ -334,7 +334,7 @@ export class WritableStreamDefaultWriter<W = any> {
       throw this._releasedError ?? createReleasedWriterError();
     }
     const state = this._stream._state;
-    if (state === 'errored') return null;
+    if (state === 'errored' || state === 'erroring') return null;
     if (state === 'closed' || state === 'closing') return 0;
     return this._stream._strategyHWM - (this._stream._queueTotalSize + this._stream._inFlightWriteSize);
   }
@@ -344,7 +344,7 @@ export class WritableStreamDefaultWriter<W = any> {
       return createHandledRejectedPromise(this._releasedError ?? createReleasedWriterError());
     }
     if (this._stream._state !== 'writable') {
-      if (this._stream._state === 'errored') {
+      if (this._stream._state === 'errored' || this._stream._state === 'erroring') {
         return createHandledRejectedPromise(this._stream._storedError);
       }
       return createHandledRejectedPromise(new TypeError('The stream is not in the writable state and cannot be written to'));
@@ -429,6 +429,8 @@ export class WritableStream<W = any> {
   /** @internal */
   _writing: boolean = false;
   /** @internal */
+  _closeAlgorithmRunning: boolean = false;
+  /** @internal */
   _inFlightWriteRequest: {
     resolve: () => void;
     reject: (reason: any) => void;
@@ -449,13 +451,13 @@ export class WritableStream<W = any> {
   /** @internal */
   _pendingAbortRequest: {
     reason: any;
+    wasAlreadyErroring: boolean;
+    promise: Promise<void>;
     resolve: () => void;
     reject: (reason: any) => void;
   } | undefined;
   /** @internal */
   _backpressure: boolean = false;
-  /** @internal */
-  _aborting: boolean = false;
   /** @internal */
   _strategyHWM: number;
   /** @internal */
@@ -535,9 +537,11 @@ export class WritableStream<W = any> {
       } catch (startError) {
         // Per spec: if start throws synchronously, the stream transitions to
         // errored state asynchronously — the constructor must NOT throw.
+        // Route through the erroring machine so an abort() that raced start
+        // still settles once start is marked done.
         promiseThen(originalPromiseResolve(), function () {
           self._started = true;
-          self._errorStream(startError);
+          self._dealWithRejection(startError);
         });
         return;
       }
@@ -548,7 +552,7 @@ export class WritableStream<W = any> {
         },
         function (e) {
           self._started = true;
-          self._errorStream(e);
+          self._dealWithRejection(e);
         }
       );
     } else {
@@ -637,60 +641,157 @@ export class WritableStream<W = any> {
     });
   }
 
-  /** @internal */
-  async _abortStream(reason?: any): Promise<void> {
+  /**
+   * @internal
+   * Implements WritableStreamAbort. The abort algorithm (sink.abort) must NOT
+   * run until any in-flight write/close (or a pending start) settles — running
+   * it concurrently would let sink.abort race a still-executing sink.write and
+   * spuriously reject a write whose bytes were actually flushed. A second abort
+   * while one is pending returns the first abort's promise rather than
+   * resolving to undefined.
+   */
+  _abortStream(reason?: any): Promise<void> {
     if (this._state === 'closed' || this._state === 'errored') {
-      return;
+      return originalPromiseResolve();
     }
-    if (this._aborting) {
-      return;
-    }
-    this._aborting = true;
 
-    // Signal abort on controller
+    // A concurrent abort returns the in-flight abort's promise.
+    if (this._pendingAbortRequest !== undefined) {
+      return this._pendingAbortRequest.promise;
+    }
+
+    // Signal abort on the controller so sink code observing the signal can bail.
     this._controller._abortReason = reason;
     this._controller._abortController.abort(reason);
 
-    if (this._state === 'closing') {
-      const inFlightCloseRequest = this._inFlightCloseRequest;
-      if (inFlightCloseRequest) {
-        inFlightCloseRequest.reject(reason);
-        this._inFlightCloseRequest = undefined;
-      }
+    const wasAlreadyErroring = this._state === 'erroring';
+    if (wasAlreadyErroring) {
+      // A stream already erroring ignores the new reason (spec).
+      reason = undefined;
     }
 
-    // Reject all pending write requests
-    const inFlightWriteRequest = this._inFlightWriteRequest;
-    if (inFlightWriteRequest) {
-      inFlightWriteRequest.reject(reason);
-      this._inFlightWriteRequest = undefined;
+    const record = createDeferred<void>();
+    markPromiseHandled(record.promise);
+    this._pendingAbortRequest = {
+      reason: reason,
+      wasAlreadyErroring: wasAlreadyErroring,
+      promise: record.promise,
+      resolve: record.resolve as () => void,
+      reject: record.reject,
+    };
+
+    if (!wasAlreadyErroring) {
+      this._startErroring(reason);
     }
-    this._inFlightWriteSize = 0;
-    this._writing = false;
-    for (var i = 0; i < this._writeRequests.length; i++) {
-      this._writeRequests[i].reject(reason);
+
+    return record.promise;
+  }
+
+  /** @internal Whether a write or close operation is still in flight. */
+  _hasOperationInFlight(): boolean {
+    return this._inFlightWriteRequest !== undefined || this._closeAlgorithmRunning;
+  }
+
+  /**
+   * @internal
+   * WritableStreamStartErroring: transition to the transient 'erroring' state.
+   * FinishErroring (which runs sink.abort and settles the abort promise) is
+   * deferred until any in-flight operation settles and start() has resolved.
+   */
+  _startErroring(reason: any): void {
+    this._state = 'erroring';
+    this._storedError = reason;
+
+    const writer = this._writer;
+    if (writer) {
+      writer._ensureReadyPromiseRejected(reason);
     }
-    this._writeRequests = [];
+
+    if (!this._hasOperationInFlight() && this._started) {
+      this._finishErroring();
+    }
+  }
+
+  /**
+   * @internal
+   * WritableStreamFinishErroring: move to 'errored', reject queued writes, then
+   * run the abort algorithm (if this erroring was triggered by abort) and
+   * settle the pending abort promise on its completion.
+   */
+  _finishErroring(): void {
+    this._state = 'errored';
+
+    // ErrorSteps: discard the queue.
     this._queue = [];
     this._queueTotalSize = 0;
 
-    // Run the abort algorithm
-    if (this._abortAlgorithm) {
-      try {
-        await this._abortAlgorithm(reason);
-      } catch (e) {
-        this._aborting = false;
-        this._state = 'errored';
-        this._storedError = e;
-        this._notifyWriterError(e);
-        throw e;
-      }
+    const storedError = this._storedError;
+    const writeRequests = this._writeRequests;
+    this._writeRequests = [];
+    for (var i = 0; i < writeRequests.length; i++) {
+      writeRequests[i].reject(storedError);
     }
 
-    this._aborting = false;
-    this._state = 'errored';
-    this._storedError = reason;
-    this._notifyWriterError(reason);
+    const abortRequest = this._pendingAbortRequest;
+    if (abortRequest === undefined) {
+      this._rejectClosedPromiseIfNeeded();
+      return;
+    }
+    this._pendingAbortRequest = undefined;
+
+    if (abortRequest.wasAlreadyErroring) {
+      abortRequest.reject(storedError);
+      this._rejectClosedPromiseIfNeeded();
+      return;
+    }
+
+    const self = this;
+    const abortAlgorithm = this._abortAlgorithm;
+    const promise = abortAlgorithm
+      ? abortAlgorithm(abortRequest.reason)
+      : originalPromiseResolve();
+    promiseThen(promise,
+      function () {
+        abortRequest.resolve();
+        self._rejectClosedPromiseIfNeeded();
+      },
+      function (r) {
+        abortRequest.reject(r);
+        self._rejectClosedPromiseIfNeeded();
+      }
+    );
+  }
+
+  /**
+   * @internal
+   * WritableStreamDealWithRejection: routes a rejected write into the erroring
+   * machine — start erroring from a live state, or finish an in-progress one.
+   */
+  _dealWithRejection(reason: any): void {
+    const state = this._state;
+    if (state === 'writable' || state === 'closing') {
+      this._startErroring(reason);
+      return;
+    }
+    if (state === 'erroring') {
+      // The in-flight operation that was blocking FinishErroring has settled.
+      this._finishErroring();
+    }
+    // 'errored'/'closed': already terminal, nothing to do.
+  }
+
+  /** @internal WritableStreamRejectCloseAndClosedPromiseIfNeeded. */
+  _rejectClosedPromiseIfNeeded(): void {
+    const storedError = this._storedError;
+    const inFlightCloseRequest = this._inFlightCloseRequest;
+    if (inFlightCloseRequest) {
+      inFlightCloseRequest.reject(storedError);
+      this._inFlightCloseRequest = undefined;
+    }
+    const writer = this._writer;
+    if (writer) {
+      writer._ensureClosedPromiseRejected(storedError);
+    }
   }
 
   /** @internal */
@@ -738,7 +839,12 @@ export class WritableStream<W = any> {
   _advanceQueueIfNeeded(): void {
     if (!this._started) return;
     if (this._writing) return;
-    if (this._aborting) return;
+
+    // A deferred abort/error can now finish because no write is in flight.
+    if (this._state === 'erroring') {
+      this._finishErroring();
+      return;
+    }
 
     if (this._state === 'errored') {
       return;
@@ -770,6 +876,9 @@ export class WritableStream<W = any> {
 
     promiseThen(writePromise,
       function () {
+        // The bytes were written: resolve the write request even if an abort
+        // arrived mid-flight. _advanceQueueIfNeeded then runs the deferred
+        // FinishErroring when the stream is erroring.
         self._writing = false;
         self._inFlightWriteSize = 0;
         const inFlightWriteRequest = self._inFlightWriteRequest;
@@ -788,7 +897,8 @@ export class WritableStream<W = any> {
         if (inFlightWriteRequest) {
           inFlightWriteRequest.reject(reason);
         }
-        self._errorStream(reason);
+        // Route through the erroring machine so a pending abort still settles.
+        self._dealWithRejection(reason);
       }
     );
   }
@@ -796,6 +906,9 @@ export class WritableStream<W = any> {
   /** @internal */
   _finishClose(): void {
     const closeAlgorithm = this._closeAlgorithm;
+    // Mark the close algorithm as in flight so a concurrent abort defers its
+    // FinishErroring until the close settles.
+    this._closeAlgorithmRunning = true;
     let closePromise: Promise<void>;
     try {
       closePromise = closeAlgorithm ? closeAlgorithm() : originalPromiseResolve();
@@ -807,33 +920,53 @@ export class WritableStream<W = any> {
     const self = this;
     promiseThen(closePromise,
       function () {
-        if (self._state !== 'closing') {
+        self._closeAlgorithmRunning = false;
+        if (self._state !== 'closing' && self._state !== 'erroring') {
           return;
         }
-        self._state = 'closed';
 
         const closeRequest = self._inFlightCloseRequest;
+        self._inFlightCloseRequest = undefined;
         if (closeRequest) {
           closeRequest.resolve();
-          self._inFlightCloseRequest = undefined;
         }
 
+        if (self._state === 'erroring') {
+          // The close already flushed successfully, so a concurrent abort
+          // resolves and the stream closes cleanly without running sink.abort.
+          self._storedError = undefined;
+          const abortRequest = self._pendingAbortRequest;
+          if (abortRequest) {
+            self._pendingAbortRequest = undefined;
+            abortRequest.resolve();
+          }
+        }
+
+        self._state = 'closed';
         const writer = self._writer;
         if (writer) {
           writer._closedResolve?.(undefined);
         }
       },
       function (e) {
-        if (self._state !== 'closing') {
+        self._closeAlgorithmRunning = false;
+        if (self._state !== 'closing' && self._state !== 'erroring') {
           return;
         }
+
+        const closeRequest = self._inFlightCloseRequest;
+        self._inFlightCloseRequest = undefined;
+        const abortRequest = self._pendingAbortRequest;
+        self._pendingAbortRequest = undefined;
+
         self._state = 'errored';
         self._storedError = e;
 
-        const closeRequest = self._inFlightCloseRequest;
         if (closeRequest) {
           closeRequest.reject(e);
-          self._inFlightCloseRequest = undefined;
+        }
+        if (abortRequest) {
+          abortRequest.reject(e);
         }
 
         self._notifyWriterError(e);
