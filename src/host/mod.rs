@@ -226,6 +226,12 @@ impl Host {
         self.capability_manager.check(module_id, capability)
     }
 
+    /// Check whether a principal may mint a passable authority-bearing handle.
+    pub fn check_handle_mint(&self, module_id: &str, capability: &str) -> bool {
+        self.capability_manager
+            .check_handle_mint(module_id, capability)
+    }
+
     /// Check a capability for a symlink-owning filesystem operation. This uses
     /// no-follow-final normalization while preserving normal audit/enforce
     /// semantics.

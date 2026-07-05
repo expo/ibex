@@ -109,7 +109,9 @@ fn narrow(parent_cap: &str, narrower: &str) -> Option<String> {
         // Full capability string.
         normalize_capability(narrower)
     } else {
-        // Bare sub-path: append to the parent's resource.
+        // Bare sub-path: append to the parent's resource. Preserve subtree
+        // semantics when scoping a subtree handle; exact handles remain exact and
+        // will be rejected below if the appended child is not covered.
         let p: Vec<&str> = parent_cap.splitn(3, ':').collect();
         if p.len() < 2 {
             return None;
@@ -310,11 +312,16 @@ mod tests {
     #[test]
     fn handle_covers_within_grant_only() {
         let r = HandleRegistry::new();
-        let h = r.create("fs:read:/app/images/**");
-        assert!(r.check(h, "fs:read:/app/images/logo.png"));
+        let h = r.create("fs:read:/app/images");
         assert!(r.check(h, "fs:read:/app/images"));
+        assert!(!r.check(h, "fs:read:/app/images/logo.png"));
         assert!(!r.check(h, "fs:read:/etc/passwd"));
         assert!(!r.check(h, "fs:write:/app/images/x")); // action mismatch
+
+        let subtree = r.create("fs:read:/app/images/**");
+        assert!(r.check(subtree, "fs:read:/app/images/logo.png"));
+        assert!(r.check(subtree, "fs:read:/app/images"));
+        assert!(!r.check(subtree, "fs:read:/app/images-evil/logo.png"));
     }
 
     #[test]
@@ -401,6 +408,14 @@ mod tests {
         assert!(r.check(exact, "fs:read:/app/images/cache/logo.png"));
         assert!(!r.check(exact, "fs:read:/app/images/cache/logo.png.bak"));
         assert!(!r.check(exact, "fs:read:/app/images/cache/logo.png/x"));
+    }
+
+    #[test]
+    fn exact_handle_cannot_scope_to_child_resource() {
+        let r = HandleRegistry::new();
+        let h = r.create("fs:read:/app/images");
+        assert_eq!(r.scoped(h, "cache"), 0);
+        assert_eq!(r.scoped(h, "fs:read:/app/images/cache"), 0);
     }
 
     #[test]

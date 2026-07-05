@@ -830,6 +830,9 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     if cli.allow_env_endowments {
         flags.push("--allow-env-endowments".into());
     }
+    if cli.capsec_allow_advisory {
+        flags.push("--capsec-allow-advisory".into());
+    }
     if cli.bundle_format != cli::BundleFormat::Esm {
         flags.extend(["--bundle-format".into(), cli.bundle_format.as_str().into()]);
     }
@@ -1357,10 +1360,15 @@ mod tests {
             "--capsec",
             "enforce",
             "--allow-env-endowments",
+            "--capsec-allow-advisory",
             "app.ts",
         ]);
         let joined = watch_child_args(&cli).join(" ");
         assert!(joined.contains("--allow-env-endowments"), "flags: {joined}");
+        assert!(
+            joined.contains("--capsec-allow-advisory"),
+            "flags: {joined}"
+        );
         // Not passed → not forwarded.
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "enforce", "app.ts"]);
         assert!(
@@ -1368,6 +1376,12 @@ mod tests {
                 .join(" ")
                 .contains("--allow-env-endowments"),
             "should not forward the hatch when it wasn't set"
+        );
+        assert!(
+            !watch_child_args(&cli)
+                .join(" ")
+                .contains("--capsec-allow-advisory"),
+            "should not forward the advisory hatch when it wasn't set"
         );
 
         // review R1: opt-in compat surfaces ride along too.

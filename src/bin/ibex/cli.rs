@@ -108,9 +108,10 @@ pub struct Cli {
     /// is missing (frame-derived attribution compiled out of the linked engine,
     /// or per-package isolation explicitly disabled). Capability decisions still
     /// run, but attribution is ADVISORY: a dependency's access may be attributed
-    /// to the trusted root. Also honored via `IBEX_CAPSEC_ALLOW_ADVISORY=1`.
+    /// to the trusted root. Also honored via `IBEX_CAPSEC_ALLOW_ADVISORY=1`;
+    /// `--allow-advisory-attribution` is accepted as a hidden compatibility alias.
     /// @ref LLP 0013#mechanism-3 (ENG-22884)
-    #[arg(long)]
+    #[arg(long, alias = "allow-advisory-attribution")]
     pub capsec_allow_advisory: bool,
 
     /// Watch for file changes and auto-restart
@@ -450,11 +451,19 @@ mod tests {
             "--deny",
             "net",
             "--allow-all",
+            "--capsec-allow-advisory",
             "test.js",
         ]);
         assert_eq!(cli.allow, vec!["fs:read:/tmp".to_string()]);
         assert_eq!(cli.deny, vec!["net".to_string()]);
         assert!(cli.allow_all);
+        assert!(cli.capsec_allow_advisory);
+    }
+
+    #[test]
+    fn advisory_attribution_alias_parses() {
+        let cli = Cli::parse_from(["ibex", "--allow-advisory-attribution", "test.js"]);
+        assert!(cli.capsec_allow_advisory);
     }
 
     #[test]

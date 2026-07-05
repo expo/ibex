@@ -68,10 +68,12 @@ struct FdEntry {
   std::string path;
   bool canRead;
   bool canWrite;
+  bool processIpc;
 };
 
 static std::mutex g_fd_registry_mutex;
 static std::unordered_map<int, FdEntry> g_fd_registry;
+static std::unordered_map<int, uint64_t> g_transferable_fds;
 
 static bool principalMayUseUnknownFd(uint64_t principal) {
   if (principal == 0) {
@@ -90,12 +92,26 @@ static void registerFd(int fd, const std::string& path, bool canRead, bool canWr
     return;
   }
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
-  g_fd_registry[fd] = FdEntry{currentPrincipalId(), path, canRead, canWrite};
+  g_fd_registry[fd] = FdEntry{currentPrincipalId(), path, canRead, canWrite, false};
+}
+
+void exactRegisterProcessIpcFd(int fd) {
+  if (fd < 0 || isAllowAll()) {
+    return;
+  }
+  uint64_t owner = 0;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  owner = static_cast<uint64_t>(kRuntimePrincipalId);
+#endif
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  g_fd_registry[fd] =
+      FdEntry{owner, std::string("/dev/fd/") + std::to_string(fd), true, true, true};
 }
 
 static void unregisterFd(int fd) {
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   g_fd_registry.erase(fd);
+  g_transferable_fds.erase(fd);
 }
 
 static std::optional<FdEntry> lookupFdEntry(int fd) {
@@ -112,7 +128,7 @@ static FdEntry requireOwnedFd(facebook::jsi::Runtime& runtime, int fd, const cha
   auto entry = lookupFdEntry(fd);
   if (!entry) {
     if (principalMayUseUnknownFd(principal) || isAllowAll()) {
-      return FdEntry{principal, std::string("/dev/fd/") + std::to_string(fd), true, true};
+      return FdEntry{principal, std::string("/dev/fd/") + std::to_string(fd), true, true, false};
     }
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
   }
@@ -155,6 +171,61 @@ static void requireFdMetadataWrite(facebook::jsi::Runtime& runtime, int fd, cons
   auto entry = requireOwnedFd(runtime, fd, syscall);
   if (!checkCapability("fs:write:" + entry.path)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+}
+
+void exactRegisterTransferableFd(int fd, uint64_t owner) {
+  if (fd < 0 || isAllowAll()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  g_transferable_fds[fd] = owner;
+}
+
+void exactRegisterReceivedFdForCurrentPrincipal(int fd) {
+  exactRegisterTransferableFd(fd, currentPrincipalId());
+}
+
+bool exactConsumeTransferableFdForCurrentPrincipal(int fd) {
+  if (fd < 0) {
+    return false;
+  }
+  if (isAllowAll()) {
+    return true;
+  }
+  auto principal = currentPrincipalId();
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  auto it = g_transferable_fds.find(fd);
+  if (it == g_transferable_fds.end() || it->second != principal) {
+    return false;
+  }
+  g_transferable_fds.erase(it);
+  return true;
+}
+
+void exactRequireOwnedIpcFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  if (isAllowAll()) {
+    return;
+  }
+  struct stat st = {};
+  if (::fstat(fd, &st) != 0 || !S_ISSOCK(st.st_mode)) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
+  }
+  auto entry = lookupFdEntry(fd);
+  if (!entry) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
+  }
+  if (!entry->processIpc) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+}
+
+void exactRequireTransferableFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  if (isAllowAll()) {
+    return;
+  }
+  if (!exactConsumeTransferableFdForCurrentPrincipal(fd)) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": Permission denied");
   }
 }
 
@@ -949,21 +1020,15 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactIpcSendMsg: socketFd and data required");
         }
         int sockFd = static_cast<int>(args[0].asNumber());
-        auto dataBytes = extractBytes(runtime, args[1]);
         int sendFd = -1;
         if (count > 2 && args[2].isNumber()) {
           sendFd = static_cast<int>(args[2].asNumber());
         }
-        // Raw fd integers are forgeable: the caller must own the socket it
-        // writes to, and passing a descriptor via SCM_RIGHTS is an authority
-        // transfer, so the caller must own the descriptor it gives away too.
-        // (ENG-22883, same model as ENG-22707)
-        if (!isAllowAll()) {
-          (void)requireOwnedFd(runtime, sockFd, "sendmsg");
-          if (sendFd >= 0) {
-            (void)requireOwnedFd(runtime, sendFd, "sendmsg");
-          }
+        exactRequireOwnedIpcFd(runtime, sockFd, "__exactIpcSendMsg");
+        if (sendFd >= 0) {
+          exactRequireTransferableFd(runtime, sendFd, "__exactIpcSendMsg");
         }
+        auto dataBytes = extractBytes(runtime, args[1]);
 
         struct iovec iov;
         iov.iov_base = const_cast<uint8_t*>(dataBytes.data());
@@ -1020,11 +1085,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int sockFd = static_cast<int>(args[0].asNumber());
         int bufSize = static_cast<int>(args[1].asNumber());
         if (bufSize <= 0) bufSize = 65536;
-        // Ownership gate on the socket a caller drains: a guessed/inherited
-        // fd int must not become a read channel. (ENG-22883)
-        if (!isAllowAll()) {
-          (void)requireOwnedFd(runtime, sockFd, "recvmsg");
-        }
+        exactRequireOwnedIpcFd(runtime, sockFd, "__exactIpcRecvMsg");
 
         std::vector<uint8_t> buf(static_cast<size_t>(bufSize));
 
@@ -1066,17 +1127,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             // Set CLOEXEC on received fd
             if (recvFd >= 0) {
               fcntl(recvFd, F_SETFD, FD_CLOEXEC);
-              // A descriptor imported over SCM_RIGHTS enters the fd-registry
-              // authority model owned by the receiving principal, instead of
-              // floating outside it; later fs ops on it still pass through
-              // the ambient capability checks on the synthetic /dev/fd path,
-              // and socket adoption stays gated by
-              // requireRawSocketAdoptionAllowed. (ENG-22883)
-              registerFd(
-                  recvFd,
-                  std::string("/dev/fd/") + std::to_string(recvFd),
-                  /*canRead=*/true,
-                  /*canWrite=*/true);
+              exactRegisterReceivedFdForCurrentPrincipal(recvFd);
             }
             break;
           }

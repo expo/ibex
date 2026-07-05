@@ -52,13 +52,17 @@ bool principalMayAdoptRawSocket(uint64_t principal) {
   return false;
 }
 
-void requireRawSocketAdoptionAllowed(facebook::jsi::Runtime& runtime, const char* syscall) {
+void requireRawSocketAdoptionAllowed(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
   if (isAllowAll()) {
     return;
   }
-  if (!principalMayAdoptRawSocket(currentPrincipalId())) {
-    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": Permission denied");
+  if (principalMayAdoptRawSocket(currentPrincipalId())) {
+    return;
   }
+  if (exactConsumeTransferableFdForCurrentPrincipal(fd)) {
+    return;
+  }
+  throw facebook::jsi::JSError(runtime, std::string(syscall) + ": Permission denied");
 }
 
 int registerSocketHandle(int fd, const std::string& capability, uint64_t owner = currentPrincipalId()) {
@@ -370,7 +374,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (fd < 0) {
             throw facebook::jsi::JSError(runtime, "__exactTcpFromFd: invalid fd");
           }
-          requireRawSocketAdoptionAllowed(runtime, "__exactTcpFromFd");
+          requireRawSocketAdoptionAllowed(runtime, fd, "__exactTcpFromFd");
           // Set non-blocking mode
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
@@ -394,6 +398,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (!trySocketHandle(runtime, handle, "__exactTcpGetFd", entry)) {
             return facebook::jsi::Value(-1);
           }
+          exactRegisterTransferableFd(entry.fd, entry.owner);
           return facebook::jsi::Value(entry.fd);
         });
     rt.global().setProperty(rt, "__exactTcpGetFd", std::move(tcpGetFdFn));
@@ -1041,7 +1046,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactUdpFromFd: fd required");
           int fd = static_cast<int>(args[0].asNumber());
           if (fd < 0) throw facebook::jsi::JSError(runtime, "__exactUdpFromFd: invalid fd");
-          requireRawSocketAdoptionAllowed(runtime, "__exactUdpFromFd");
+          requireRawSocketAdoptionAllowed(runtime, fd, "__exactUdpFromFd");
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
           int handle = registerSocketHandle(fd, "");
@@ -1064,6 +1069,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
                                /*requireCapability=*/true)) {
             return facebook::jsi::Value(-1);
           }
+          exactRegisterTransferableFd(entry.fd, entry.owner);
           return facebook::jsi::Value(entry.fd);
         });
     rt.global().setProperty(rt, "__exactUdpGetFd", std::move(udpGetFdFn));

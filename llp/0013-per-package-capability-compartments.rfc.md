@@ -1243,8 +1243,9 @@ network access is silently attributed to root. So enforce **and** audit now set
 `IBEX_PER_PACKAGE_CHUNKS` by default (`enable_isolation_prerequisites` in
 `src/bin/ibex/runtime.rs`); `IBEX_PER_PACKAGE_CHUNKS=0` is the explicit opt-out (all
 three read sites use the shared truthiness parse so `=0` is honored — ENG-22634),
-and the unbundled loader path (or an unavailable bundler) already attributes per
-package, so this never hard-fails a run. Reachability hardening (Mechanism 1
+but enforce now treats that opt-out as advisory and fails closed unless the
+operator also passes `--capsec-allow-advisory`. Audit emits the same
+readiness report and warning but continues. Reachability hardening (Mechanism 1
 lockdown + Mechanism 2 withholding) stays **opt-in** under `--lockdown`: freezing
 intrinsics is the RFC's documented top compat risk (Risks §1) and is orthogonal to
 the attribution footgun this closes — an ungranted dependency's dangerous op is

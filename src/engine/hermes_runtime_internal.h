@@ -163,6 +163,8 @@ extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" int32_t ex_host_check_capability_no_follow_final(uint64_t module_id,
                                                             const char* capability);
+extern "C" int32_t ex_host_check_handle_mint(uint64_t module_id,
+                                             const char* capability);
 extern "C" void ex_host_log_event(const char* event_type,
                                   uint64_t module_id,
                                   const char* capability,
@@ -401,6 +403,17 @@ inline bool checkCapability(const std::string& capability) {
 inline bool checkCapabilityNoFollowFinal(const std::string& capability) {
   return checkCapabilityWithFsMode(capability, true);
 }
+
+// POSIX SCM_RIGHTS crosses subsystem boundaries: network/process code may need
+// to transfer a raw fd, while fs.cc owns the registry that keeps raw integers
+// from becoming ambient authority. These helpers are implemented in
+// hermes_runtime_fs.cc and intentionally expose only narrow checked operations.
+void exactRegisterTransferableFd(int fd, uint64_t owner);
+void exactRegisterProcessIpcFd(int fd);
+void exactRegisterReceivedFdForCurrentPrincipal(int fd);
+bool exactConsumeTransferableFdForCurrentPrincipal(int fd);
+void exactRequireOwnedIpcFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
+void exactRequireTransferableFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 
 struct ParsedNetworkUrl {
   std::string scheme;

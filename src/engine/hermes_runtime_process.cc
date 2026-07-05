@@ -1623,6 +1623,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         if (count > 2 && args[2].isNumber()) {
           sendFd = static_cast<int>(args[2].asNumber());
         }
+        if (sendFd >= 0) {
+          exactRequireTransferableFd(runtime, sendFd, "__exactSpawnSendMsg");
+        }
 
         int ipcFd = -1;
         {
@@ -1717,7 +1720,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         while (cmsg != nullptr) {
           if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
             memcpy(&recvFd, CMSG_DATA(cmsg), sizeof(int));
-            if (recvFd >= 0) fcntl(recvFd, F_SETFD, FD_CLOEXEC);
+            if (recvFd >= 0) {
+              fcntl(recvFd, F_SETFD, FD_CLOEXEC);
+              exactRegisterReceivedFdForCurrentPrincipal(recvFd);
+            }
             break;
           }
           cmsg = CMSG_NXTHDR(&msg, cmsg);

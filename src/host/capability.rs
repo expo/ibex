@@ -424,6 +424,52 @@ impl CapabilityManager {
         }
     }
 
+    fn explicit_policy_decision(
+        &self,
+        module_id: &str,
+        capability: &str,
+        fs_mode: FsNormalizationMode,
+    ) -> Option<bool> {
+        // Module-specific (numeric id) grants first.
+        if let Ok(grants) = self.grants.read() {
+            if matches_denials(grants.get(module_id), capability, fs_mode) {
+                return Some(false);
+            }
+            if matches_grants(grants.get(module_id), capability, fs_mode) {
+                return Some(true);
+            }
+        }
+
+        // Package-selector grants next. Consult the version/locator-specific
+        // selector before the bare name so a policy can pin a coexisting version
+        // (RFC Resolved Q1); the first selector with a matching deny/grant wins.
+        // (ENG-22621)
+        if let Some(principal) = self.principal_for(module_id) {
+            if let Ok(grants) = self.package_grants.read() {
+                for selector in principal.selectors() {
+                    if matches_denials(grants.get(selector), capability, fs_mode) {
+                        return Some(false);
+                    }
+                    if matches_grants(grants.get(selector), capability, fs_mode) {
+                        return Some(true);
+                    }
+                }
+            }
+        }
+
+        // Global grants last.
+        if let Ok(grants) = self.grants.read() {
+            if matches_denials(grants.get("*"), capability, fs_mode) {
+                return Some(false);
+            }
+            if matches_grants(grants.get("*"), capability, fs_mode) {
+                return Some(true);
+            }
+        }
+
+        None
+    }
+
     /// The real policy decision, independent of mode gating. Precedence:
     /// always-allowed → module deny/allow → package deny/allow → global
     /// deny/allow → default-deny.
@@ -450,41 +496,8 @@ impl CapabilityManager {
             return true;
         }
 
-        // Module-specific (numeric id) grants first.
-        if let Ok(grants) = self.grants.read() {
-            if matches_denials(grants.get(module_id), capability, fs_mode) {
-                return false;
-            }
-            if matches_grants(grants.get(module_id), capability, fs_mode) {
-                return true;
-            }
-        }
-
-        // Package-selector grants next. Consult the version/locator-specific
-        // selector before the bare name so a policy can pin a coexisting version
-        // (RFC Resolved Q1); the first selector with a matching deny/grant wins.
-        // (ENG-22621)
-        if let Some(principal) = self.principal_for(module_id) {
-            if let Ok(grants) = self.package_grants.read() {
-                for selector in principal.selectors() {
-                    if matches_denials(grants.get(selector), capability, fs_mode) {
-                        return false;
-                    }
-                    if matches_grants(grants.get(selector), capability, fs_mode) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // Global grants last.
-        if let Ok(grants) = self.grants.read() {
-            if matches_denials(grants.get("*"), capability, fs_mode) {
-                return false;
-            }
-            if matches_grants(grants.get("*"), capability, fs_mode) {
-                return true;
-            }
+        if let Some(decision) = self.explicit_policy_decision(module_id, capability, fs_mode) {
+            return decision;
         }
 
         // The first-party root principal carries the app's own authority: absent
@@ -503,6 +516,28 @@ impl CapabilityManager {
 
         // Default deny in enforce/audit mode.
         false
+    }
+
+    /// Check whether the calling principal may mint an authority-bearing handle
+    /// carrying `capability`. This intentionally requires an explicit policy
+    /// grant and bypasses root's ambient fallback: root may perform its own
+    /// operations, but turning an operation into a passable possession token must
+    /// not widen an exact grant into subtree authority. @ref LLP 0013#delegation-and-authority-flow
+    pub fn check_handle_mint(&self, module_id: &str, capability_str: &str) -> bool {
+        let normalized = normalize_capability_value_with_fs_mode(
+            capability_str,
+            FsNormalizationMode::FollowFinal,
+        );
+        let decision = self.mode == SecurityMode::Permissive
+            || (module_id != NO_USER_PRINCIPAL
+                && self
+                    .explicit_policy_decision(
+                        module_id,
+                        &normalized,
+                        FsNormalizationMode::FollowFinal,
+                    )
+                    .unwrap_or(false));
+        self.gate_and_record(module_id, normalized, decision)
     }
 
     /// Import-graph gate. Returns whether the load proceeds under the active
@@ -1691,6 +1726,19 @@ mod tests {
         // … but a registered third-party package with no grant is still denied.
         manager.register_module_package("7", "evil-pkg", None);
         assert!(!manager.check("7", "fs:write:/app/out"));
+    }
+
+    #[test]
+    fn handle_mint_requires_explicit_grant_even_for_root() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant("0", "fs:read:/app/data", None);
+        assert!(manager.check("0", "fs:read:/app/data/child.txt"));
+        assert!(manager.check_handle_mint("0", "fs:read:/app/data"));
+        assert!(!manager.check_handle_mint("0", "fs:read:/app/data/**"));
+
+        manager.grant("0", "fs:read:/app/sub/**", None);
+        assert!(manager.check_handle_mint("0", "fs:read:/app/sub/**"));
+        assert!(!manager.check_handle_mint("0", "fs:read:/app/sub2/**"));
     }
 
     // Ibex's module loader reads module files under a synthetic principal that is

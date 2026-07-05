@@ -792,6 +792,28 @@ pub extern "C" fn ex_host_check_capability_no_follow_final(
     }
 }
 
+/// Handle minting is stricter than ordinary root operations: the caller must
+/// have an explicit grant for the exact capability carried by the handle, so an
+/// ambient trusted root operation cannot mint a passable subtree token.
+#[no_mangle]
+pub extern "C" fn ex_host_check_handle_mint(module_id: u64, capability: *const c_char) -> i32 {
+    if capability.is_null() {
+        return 0;
+    }
+
+    let cap = unsafe { CStr::from_ptr(capability) }
+        .to_string_lossy()
+        .to_string();
+
+    let module = module_id.to_string();
+    let allowed = with_host(|host| host.check_handle_mint(&module, &cap), false);
+    if allowed {
+        1
+    } else {
+        0
+    }
+}
+
 /// Stack-intersection capability check for deputy-sensitive classes (Phase 5).
 /// `module_ids` is the distinct principal stack, innermost-first, from
 /// frame-derived attribution; the effective grant is the AND over the stack for

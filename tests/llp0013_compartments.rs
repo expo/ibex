@@ -491,10 +491,12 @@ fn generated_policy_endows_granted_package_and_contains_the_rest() {
     // `process:env` import grant does not confer (that per-principal gating is
     // covered by env_reads_are_gated_with_no_plain_snapshot_bypass and
     // capability.rs::env_read_is_gated_per_principal). Pin the flat bundle here
-    // so this test stays about endowment reachability, not env-read gating.
+    // with the explicit advisory hatch so this test stays about endowment
+    // reachability, not env-read gating.
     let out = run_ibex(
         &[
             "--lockdown",
+            "--capsec-allow-advisory",
             "--policy",
             dir.join("ibex-policy.json").to_str().unwrap(),
             "run",
@@ -1796,9 +1798,19 @@ fn per_package_chunks_give_bundled_apps_frame_attribution() {
     // Control: a flat bundle collapses to one Domain, so the dependency's read is
     // attributed to root and succeeds (proving the chunking is what separates it).
     // Enforce auto-enables chunking (ENG-22681), so the flat control must opt out
-    // explicitly with IBEX_PER_PACKAGE_CHUNKS=0.
+    // explicitly with IBEX_PER_PACKAGE_CHUNKS=0 and acknowledge the advisory
+    // attribution downgrade.
+    let flat_args = [
+        "--capsec",
+        "enforce",
+        "--capsec-allow-advisory",
+        "--policy",
+        &policy.to_string_lossy() as &str,
+        "run",
+        "app.js",
+    ];
     let flat = run_ibex(
-        &args,
+        &flat_args,
         &[
             ("SECRETPATH", &secret.to_string_lossy()),
             ("IBEX_PER_PACKAGE_CHUNKS", "0"),
@@ -1819,8 +1831,9 @@ fn per_package_chunks_give_bundled_apps_frame_attribution() {
 // `ibex run --policy <mode:enforce>` (no --capsec, no IBEX_* env) must not leave
 // a bundled dependency attributed to root: enforce implies per-package chunking,
 // so the dependency loads into its own Domain and its ungranted read is denied.
-// The explicit `IBEX_PER_PACKAGE_CHUNKS=0` opt-out restores the flat behavior
-// (proving the auto-enable is what contains it).
+// The explicit `IBEX_PER_PACKAGE_CHUNKS=0` opt-out plus
+// `--capsec-allow-advisory` restores the flat behavior (proving the
+// auto-enable is what contains it).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1856,7 +1869,13 @@ fn policy_declared_enforce_auto_enables_bundled_attribution() {
 
     // Opt out: the flat bundle collapses to root again (control for the auto-enable).
     let opt_out = run_ibex(
-        &["--policy", &policy.to_string_lossy(), "run", "app.js"],
+        &[
+            "--capsec-allow-advisory",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
         &[
             ("SECRETPATH", &secret.to_string_lossy()),
             ("IBEX_PER_PACKAGE_CHUNKS", "0"),
@@ -1868,6 +1887,75 @@ fn policy_declared_enforce_auto_enables_bundled_attribution() {
         "IBEX_PER_PACKAGE_CHUNKS=0 must restore the flat (root-attributed) behavior:\nstdout:\n{}\nstderr:\n{}",
         opt_out.stdout,
         opt_out.stderr
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn enforce_rejects_disabled_package_isolation_without_advisory_flag() {
+    let dir = unique_dir("advisory-readiness-deny");
+    write_text(&dir.join("app.js"), "console.log('READYNESS-APP-RAN');\n");
+    write_text(&dir.join("ibex-policy.json"), r#"{"mode":"enforce"}"#);
+
+    let out = run_ibex(
+        &["--policy", "ibex-policy.json", "run", "app.js"],
+        &[("IBEX_PER_PACKAGE_CHUNKS", "0")],
+        Some(&dir),
+    );
+
+    assert_ne!(
+        out.status, 0,
+        "enforce must fail when package isolation is explicitly disabled:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert!(
+        out.stderr
+            .contains("capsec enforce requires attribution prerequisites")
+            && out.stderr.contains("per-package principal isolation")
+            && out.stderr.contains("--capsec-allow-advisory")
+            && !out.stdout.contains("READYNESS-APP-RAN"),
+        "failure should name the advisory-attribution hatch and stop before app code:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn advisory_attribution_flag_makes_downgrade_explicit() {
+    let dir = unique_dir("advisory-readiness-allow");
+    write_text(&dir.join("app.js"), "console.log('READINESS-APP-RAN');\n");
+    write_text(&dir.join("ibex-policy.json"), r#"{"mode":"enforce"}"#);
+
+    let out = run_ibex(
+        &[
+            "--capsec-allow-advisory",
+            "--policy",
+            "ibex-policy.json",
+            "run",
+            "app.js",
+        ],
+        &[("IBEX_PER_PACKAGE_CHUNKS", "0")],
+        Some(&dir),
+    );
+
+    assert_eq!(
+        out.status, 0,
+        "explicit advisory attribution should allow the downgraded run:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert!(
+        out.stdout.contains("READINESS-APP-RAN")
+            && out.stderr.contains("capsec readiness:")
+            && out
+                .stderr
+                .contains("package-isolation=disabled(IBEX_PER_PACKAGE_CHUNKS=0)")
+            && out.stderr.contains("ADVISORY attribution"),
+        "downgraded run should be reported loudly:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
     );
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -2971,6 +3059,83 @@ server.listen(0, "127.0.0.1", function() {
     assert!(
         out.stdout.contains("steal-attempted") && out.stdout.contains("server:ok"),
         "a package must not be able to close another principal's native TCP handle:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn raw_ipc_helpers_reject_unowned_file_descriptors() {
+    let dir = unique_dir("ipc-fd-owner");
+    let pkg = dir.join("node_modules").join("ipc-probe");
+    write_text(
+        &pkg.join("package.json"),
+        r#"{"name":"ipc-probe","version":"1.0.0","main":"index.js"}"#,
+    );
+    write_text(
+        &pkg.join("index.js"),
+        r#"
+function classify(fn) {
+  try {
+    fn();
+    return "ALLOWED";
+  } catch (e) {
+    var msg = String(e && e.message || e);
+    if (msg.indexOf("Permission denied") !== -1 ||
+        msg.indexOf("bad file descriptor") !== -1) {
+      return "DENIED";
+    }
+    return "SYSCALL";
+  }
+}
+exports.run = function() {
+  var data = "x";
+  return [
+    "sendfd=" + (typeof globalThis.__exactIpcSendMsg === "function"
+      ? classify(function() { globalThis.__exactIpcSendMsg(1, data, 1); })
+      : "UNAVAILABLE"),
+    "recv=" + (typeof globalThis.__exactIpcRecvMsg === "function"
+      ? classify(function() { globalThis.__exactIpcRecvMsg(1, 1); })
+      : "UNAVAILABLE")
+  ].join(" ");
+};
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        r#"console.log(require("ipc-probe").run());"#,
+    );
+    let policy = serde_json::json!({
+        "mode": "enforce",
+        "packages": {
+            "ipc-probe": {
+                "capabilities": [],
+                "builtins": []
+            }
+        }
+    });
+    write_text(&dir.join("ibex-policy.json"), &policy.to_string());
+
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--capsec-allow-advisory",
+            "--policy",
+            &dir.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("EXACT_COMPAT_TEST", "1")],
+        Some(&dir),
+    );
+
+    assert!(
+        (out.stdout.contains("sendfd=DENIED") || out.stdout.contains("sendfd=UNAVAILABLE"))
+            && (out.stdout.contains("recv=DENIED") || out.stdout.contains("recv=UNAVAILABLE")),
+        "raw IPC helpers must deny unowned fd integers before syscalls:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );

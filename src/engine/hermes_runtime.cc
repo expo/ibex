@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <climits>
 #include <cstdlib>
 #include <cstring>
 #if defined(__APPLE__)
@@ -219,6 +220,7 @@ bool env_flag_enabled(const char* env_name) {
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
+extern "C" int32_t ex_host_check_handle_mint(uint64_t module_id, const char* capability);
 extern "C" void ex_host_grant_capability(uint64_t module_id, const char* capability);
 extern "C" void ex_host_log_event(const char* event_type,
                                   uint64_t module_id,
@@ -1127,8 +1129,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           return facebook::jsi::Value(0.0);
         }
         auto cap = args[0].asString(runtime).utf8(runtime);
-        // Minting requires the calling frame to actually hold the capability.
-        if (!checkCapability(cap)) {
+        // Minting a passable authority token is stricter than ordinary root
+        // operations: the calling frame must have an explicit grant for this
+        // exact handle capability shape. @ref LLP 0013#delegation-and-authority-flow
+        if (!isAllowAll() && ex_host_check_handle_mint(currentPrincipalId(), cap.c_str()) == 0) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: cannot mint a handle for " + cap);
         }
@@ -2261,6 +2265,14 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
 
   TRACE_START(install_globals);
   installGlobals(handle);
+  if (const char* ipcFdEnv = std::getenv("EXACT_IPC_FD")) {
+    char* end = nullptr;
+    errno = 0;
+    long ipcFd = std::strtol(ipcFdEnv, &end, 10);
+    if (end != ipcFdEnv && *end == '\0' && errno == 0 && ipcFd >= 0 && ipcFd <= INT_MAX) {
+      exactRegisterProcessIpcFd(static_cast<int>(ipcFd));
+    }
+  }
   TRACE_END(install_globals);
 
   // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream).

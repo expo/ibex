@@ -1772,7 +1772,8 @@ fn check_capsec_readiness(
         anyhow::bail!(
             "capsec enforce requires attribution prerequisites this {} does not satisfy:\n  - {}\n{}\n\
              Refusing to present advisory attribution as enforcement. Pass --capsec-allow-advisory \
-             (or set IBEX_CAPSEC_ALLOW_ADVISORY=1) to proceed anyway, or use --capsec audit.",
+             (or hidden alias --allow-advisory-attribution), set IBEX_CAPSEC_ALLOW_ADVISORY=1 \
+             to proceed anyway, or use --capsec audit.",
             match stage {
                 CapsecStage::Run => "run",
                 CapsecStage::Build => "build",
@@ -1815,13 +1816,15 @@ fn check_capsec_readiness(
 /// while a dependency's `fs`/`env`/network access is attributed to root.
 ///
 /// So under enforce **and** audit we turn on per-package chunking (each npm
-/// package becomes its own chunk → its own Domain → its own principal), unless
-/// the operator explicitly opted out with `IBEX_PER_PACKAGE_CHUNKS=0`. This is
-/// the attribution prerequisite the RFC's Mechanism 3 needs for a bundled app;
-/// the unbundled loader path already attributes per package, and a bundler that
-/// is unavailable degrades to that path, so this never hard-fails a run. Set as
-/// an env var (before engine boot and before bundling) so it reaches the
-/// bundler, the bundle-cache key, and any spawned children uniformly.
+/// package becomes its own chunk → its own Domain → its own principal). An
+/// explicit `IBEX_PER_PACKAGE_CHUNKS=0` is treated as advisory attribution by
+/// `check_capsec_readiness`: audit warns, and enforce fails closed unless the
+/// operator also passes `--capsec-allow-advisory`. This is the attribution
+/// prerequisite the RFC's Mechanism 3 needs for a bundled app; the unbundled
+/// loader path already attributes per package, and a bundler that is unavailable
+/// degrades to that path, so this never hard-fails a run on its own. Set as an
+/// env var (before engine boot and before bundling) so it reaches the bundler,
+/// the bundle-cache key, and any spawned children uniformly.
 ///
 /// Reachability hardening (Mechanism 1 lockdown + Mechanism 2 compartment
 /// withholding) stays **opt-in** via `--lockdown`: freezing intrinsics is the
@@ -1834,8 +1837,8 @@ fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
     if !matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) {
         return;
     }
-    // Respect an explicit operator choice either way: `=1` (already on) or `=0`
-    // (opt out). We only supply the default when the var is absent.
+    // Respect an explicit operator choice here; the readiness gate decides
+    // whether that choice is acceptable for the selected capsec mode.
     if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_none() {
         std::env::set_var("IBEX_PER_PACKAGE_CHUNKS", "1");
         eprintln!(
