@@ -573,7 +573,6 @@ Stream.prototype._undestroy = function() {
   this.writableLength = 0;
   this.writableNeedDrain = false;
   this._needDrain = false;
-  this._written = [];
   this._writeQueue = [];
   this._pipeCleanups = null;
   this.errored = null;
@@ -4108,54 +4107,81 @@ Readable.from = function(iterable, options) {
     }
     return readable;
   }
-  // Sync iterable - store data in buffer without emitting events
-  // Events will be emitted when consumers start listening
+  // Sync iterable - read lazily via _read() rather than draining the whole
+  // iterable at from() time.  Draining eagerly buffered every element (ignoring
+  // highWaterMark) and hung forever on an infinite generator; Node pulls one
+  // element at a time on demand, honouring backpressure.
   if (typeof iterable[Symbol.iterator] === 'function') {
-    var iterator = null;
-    var hasSyncIterableData = false;
+    var syncIterator = null;
     try {
-      iterator = iterable[Symbol.iterator]();
+      syncIterator = iterable[Symbol.iterator]();
     } catch (err) {
       if (!readable._destroyed) {
         _destroyStreamWithError(readable, err);
       }
       return readable;
     }
+
+    // Prefetch a single element so callers can distinguish an empty iterable
+    // from a non-empty one synchronously (e.g. the pipeline source-return
+    // validation that reads _syncIterableHasData) without draining more than
+    // one element of a large/infinite iterable.
+    var syncPrefetch = null;
+    var syncPrefetchConsumed = false;
     try {
-      var next = iterator.next();
-      while (!next.done) {
-        hasSyncIterableData = true;
-        if (next.value === null) {
-          var nullErr = new TypeError('May not write null values to stream');
-          nullErr.code = 'ERR_STREAM_NULL_VALUES';
-          if (!readableStream._destroyed) {
-            _destroyStreamWithError(readableStream, nullErr);
-          }
-          _safelyReturnAsyncIterator(iterator);
-          return readable;
-        }
-        readableStream._data.push(next.value);
-        readableStream._updateReadableLength(
-          readableStateChunkLength(next.value, readableStream._readableState.objectMode)
-        );
-        next = iterator.next();
-      }
+      syncPrefetch = syncIterator.next();
     } catch (err) {
-      if (!readableStream._destroyed) {
-        _destroyStreamWithError(readableStream, err);
+      if (!readable._destroyed) {
+        _destroyStreamWithError(readable, err);
       }
-      if (iterator) {
-        _safelyReturnAsyncIterator(iterator);
-      }
+      _safelyReturnAsyncIterator(syncIterator);
       return readable;
     }
-    readableStream._syncIterableHasData = hasSyncIterableData;
-    readableStream._syncReadableState();
-    readableStream._ended = true;
-    readableStream._readableState.ended = true;
-    readableStream._readableState.needReadable = true;
-    // Mark as needing replay when consumers attach
-    readableStream._needsReplay = true;
+    readableStream._syncIterableHasData = !syncPrefetch.done;
+
+    readable._read = function() {
+      if (!readableStream || readableStream._destroyed) return;
+      var step;
+      try {
+        if (!syncPrefetchConsumed) {
+          step = syncPrefetch;
+          syncPrefetch = null;
+          syncPrefetchConsumed = true;
+        } else {
+          step = syncIterator.next();
+        }
+      } catch (err) {
+        if (!readableStream._destroyed) {
+          _destroyStreamWithError(readableStream, err);
+        }
+        return;
+      }
+      if (step.done) {
+        readableStream.push(null);
+        return;
+      }
+      if (step.value === null) {
+        var nullErr = new TypeError('May not write null values to stream');
+        nullErr.code = 'ERR_STREAM_NULL_VALUES';
+        _safelyReturnAsyncIterator(syncIterator);
+        if (!readableStream._destroyed) {
+          _destroyStreamWithError(readableStream, nullErr);
+        }
+        return;
+      }
+      // Push exactly one element per _read(); the readable machinery invokes
+      // _read() again (respecting highWaterMark) when it wants more, keeping
+      // memory bounded and letting an infinite iterable stream incrementally.
+      readableStream.push(step.value);
+    };
+
+    readable._destroy = function(err, cb) {
+      // Release the iterator when the consumer aborts early (Node calls
+      // iterator.return()).
+      _safelyReturnAsyncIterator(syncIterator);
+      cb(err || null);
+    };
+
     return readable;
   }
   // Promise
@@ -4345,7 +4371,6 @@ function Writable(options) {
   }
   this.writable = true;
   this.errored = null;
-  this._written = [];
   this._writeQueue = [];
   this._pipeCleanups = null;
   this._needDrain = false;
@@ -4753,7 +4778,9 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 
   var chunkLen = 0;
   if (chunk !== undefined) {
-    this._written.push(chunk);
+    // Note: written chunks are intentionally NOT retained. Node keeps only
+    // pending/buffered writes; holding every accepted chunk for the lifetime of
+    // the stream would turn constant-memory piping into an unbounded leak.
     chunkLen = readableStateChunkLength(chunk, this.writableObjectMode || (state && state.objectMode));
     this.writableLength += chunkLen;
   }
@@ -4785,6 +4812,13 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   var hadNeedDrain = this._needDrain || this.writableNeedDrain;
   var callbackCalled = false;
   var self = this;
+  // When self._write() invokes its callback synchronously, Node defers the
+  // "afterWrite" work (emitting 'drain' and calling the write callback) to a
+  // nextTick so that neither fires before write() returns. Without this, the
+  // canonical `if (!w.write(x)) w.once('drain', pump)` backpressure loop
+  // deadlocks: 'drain' would be emitted synchronously inside write(), before
+  // the caller has a chance to attach the 'drain' listener.
+  var writeSync = true;
   var onWriteComplete = function(err) {
     if (callbackCalled) return;
     callbackCalled = true;
@@ -4812,47 +4846,64 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     }
 
     if (err) {
+      // Record the error synchronously (as Node does inside onwrite) so that
+      // write()'s return value below reflects it even when the callback and
+      // error emission are deferred to a nextTick for a synchronous _write.
       if (!self.errored) self.errored = err;
       if (state && !state.errored) state.errored = err;
       self.writable = false;
       state.writable = false;
-      // Call the write callback first, then emit error (Node.js guarantees callback before error event)
-      if (typeof queued.callback === 'function') {
-        queued.callback(err);
-      }
-      _drainPendingEnd(self, err);
-      // When the stream is already destroyed (error came from the destroy
-      // path or is a synthetic ERR_STREAM_DESTROYED), do not re-emit the
-      // error – destroy() already handled error emission.
-      if (!(self._destroyed || self.destroyed)) {
-        _nextTick(function() {
-          if (state.autoDestroy && !self._destroyed) {
-            self.destroy(err);
-          } else if (!state.errorEmitted) {
-            state.errorEmitted = true;
-            self.emit('error', err);
-          }
-        });
-      }
-      return;
     }
 
-    var shouldEmitDrain = (hadNeedDrain || shouldNeedDrain) &&
-                          !(state && state.ending) &&
-                          !self._destroyed &&
-                          self.writableLength < self.writableHighWaterMark;
-    if (shouldEmitDrain) {
-      self._needDrain = false;
-      self.writableNeedDrain = false;
-      state.needDrain = false;
-      _scheduleDrain(self);
-    }
+    var afterWrite = function() {
+      if (err) {
+        // Call the write callback first, then emit error (Node.js guarantees callback before error event)
+        if (typeof queued.callback === 'function') {
+          queued.callback(err);
+        }
+        _drainPendingEnd(self, err);
+        // When the stream is already destroyed (error came from the destroy
+        // path or is a synthetic ERR_STREAM_DESTROYED), do not re-emit the
+        // error – destroy() already handled error emission.
+        if (!(self._destroyed || self.destroyed)) {
+          _nextTick(function() {
+            if (state.autoDestroy && !self._destroyed) {
+              self.destroy(err);
+            } else if (!state.errorEmitted) {
+              state.errorEmitted = true;
+              self.emit('error', err);
+            }
+          });
+        }
+        return;
+      }
 
-    if (typeof queued.callback === 'function') queued.callback(null);
-    if (self._writeQueue && self._writeQueue.length) {
-      self._flushWriteQueue();
+      var shouldEmitDrain = (hadNeedDrain || shouldNeedDrain) &&
+                            !(state && state.ending) &&
+                            !self._destroyed &&
+                            self.writableLength < self.writableHighWaterMark;
+      if (shouldEmitDrain) {
+        self._needDrain = false;
+        self.writableNeedDrain = false;
+        state.needDrain = false;
+        _scheduleDrain(self);
+      }
+
+      if (typeof queued.callback === 'function') queued.callback(null);
+      if (self._writeQueue && self._writeQueue.length) {
+        self._flushWriteQueue();
+      }
+      _drainPendingEnd(self);
+    };
+
+    // Synchronous _write callback → defer afterWrite; asynchronous → run it now
+    // (in which case 'drain' still fires synchronously relative to the async
+    // write callback, matching Node's afterWrite behaviour).
+    if (writeSync) {
+      _nextTick(afterWrite);
+    } else {
+      afterWrite();
     }
-    _drainPendingEnd(self);
   };
 
   if (shouldNeedDrain) {
@@ -4869,6 +4920,9 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     }
     throw err;
   }
+  // Any onWriteComplete call after this point is an asynchronous _write
+  // callback; run its afterWrite work immediately rather than deferring.
+  writeSync = false;
   if (callbackCalled && state.errored) {
     return false;
   }
@@ -7092,7 +7146,11 @@ function finished(stream, options, callback) {
       return;
     }
     if (readableDone && writableDone) {
-      done(null);
+      // A late 'finish'/'end' must not resolve finished() as a clean success
+      // when the stream has already emitted an error (stored by onError while
+      // it waited for a 'close' that may never arrive) — deliver the error.
+      var pendingFinishErr = getCurrentError();
+      done(pendingFinishErr || null);
     }
   };
   var onEnd = function() { onFinish(); };
@@ -7100,13 +7158,20 @@ function finished(stream, options, callback) {
     aborted = true;
   };
   var onError = function(err) {
-    if (shouldEmitError) {
-      if (!suppressClose && !(stream._closed || stream.closed)) {
-        error = err || error;
-        return;
-      }
-      done(err);
+    if (!shouldEmitError) return;
+    error = err || error;
+    if (!suppressClose && !(stream._closed || stream.closed)) {
+      // Node's end-of-stream settles on 'error' rather than waiting for a
+      // 'close' that may never arrive (e.g. autoDestroy:false with a bare
+      // emit('error')).  Defer one tick so a 'close' that does follow can run
+      // its own cleanup ordering first, but guarantee the callback settles
+      // even when the stream errors without ever closing.
+      _nextTick(function() {
+        if (!called) done(error);
+      });
+      return;
     }
+    done(err);
   };
   var closeQueued = false;
   var onClose = function() {

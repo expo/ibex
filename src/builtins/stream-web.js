@@ -62,24 +62,70 @@ if (cachedModule) {
   }
 
   function toWeb(nodeReadable) {
+    // Node readables emit both 'end' and (after auto-destroy) 'close', so the
+    // controller must be closed at most once — calling controller.close() a
+    // second time throws a TypeError synchronously out of the teardown path.
+    var closed = false;
+    var errored = false;
+    function closeController(controller) {
+      if (closed || errored) return;
+      closed = true;
+      try {
+        controller.close();
+      } catch (e) {
+        // Controller may already be closed/errored; the source is drained.
+      }
+    }
     return new ReadableStream({
       start: function(controller) {
         if (!nodeReadable || typeof nodeReadable.on !== 'function') {
+          closed = true;
           controller.close();
           return;
         }
         nodeReadable.on('data', function(chunk) {
-          controller.enqueue(chunk);
+          if (closed || errored) return;
+          try {
+            controller.enqueue(chunk);
+          } catch (e) {
+            return;
+          }
+          // Backpressure: once the consumer's queue is full, pause the source
+          // and let pull() resume it, instead of buffering the entire stream
+          // for a slow web-side consumer.
+          if (
+            typeof controller.desiredSize === 'number' &&
+            controller.desiredSize <= 0 &&
+            typeof nodeReadable.pause === 'function'
+          ) {
+            nodeReadable.pause();
+          }
         });
         nodeReadable.on('end', function() {
-          controller.close();
+          closeController(controller);
         });
         nodeReadable.on('error', function(err) {
-          controller.error(err);
+          if (closed || errored) return;
+          errored = true;
+          try {
+            controller.error(err);
+          } catch (e) {
+            // ignore double-error
+          }
         });
         nodeReadable.on('close', function() {
-          controller.close();
+          closeController(controller);
         });
+      },
+      pull: function() {
+        if (nodeReadable && typeof nodeReadable.resume === 'function') {
+          nodeReadable.resume();
+        }
+      },
+      cancel: function(reason) {
+        if (nodeReadable && typeof nodeReadable.destroy === 'function') {
+          nodeReadable.destroy(reason);
+        }
       }
     });
   }

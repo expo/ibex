@@ -40,24 +40,52 @@ else {
 		return nodeReadable;
 	}
 	function toWeb(nodeReadable) {
-		return new ReadableStream({ start: function(controller) {
-			if (!nodeReadable || typeof nodeReadable.on !== "function") {
+		var closed = false;
+		var errored = false;
+		function closeController(controller) {
+			if (closed || errored) return;
+			closed = true;
+			try {
 				controller.close();
-				return;
+			} catch (e) {}
+		}
+		return new ReadableStream({
+			start: function(controller) {
+				if (!nodeReadable || typeof nodeReadable.on !== "function") {
+					closed = true;
+					controller.close();
+					return;
+				}
+				nodeReadable.on("data", function(chunk) {
+					if (closed || errored) return;
+					try {
+						controller.enqueue(chunk);
+					} catch (e) {
+						return;
+					}
+					if (typeof controller.desiredSize === "number" && controller.desiredSize <= 0 && typeof nodeReadable.pause === "function") nodeReadable.pause();
+				});
+				nodeReadable.on("end", function() {
+					closeController(controller);
+				});
+				nodeReadable.on("error", function(err) {
+					if (closed || errored) return;
+					errored = true;
+					try {
+						controller.error(err);
+					} catch (e) {}
+				});
+				nodeReadable.on("close", function() {
+					closeController(controller);
+				});
+			},
+			pull: function() {
+				if (nodeReadable && typeof nodeReadable.resume === "function") nodeReadable.resume();
+			},
+			cancel: function(reason) {
+				if (nodeReadable && typeof nodeReadable.destroy === "function") nodeReadable.destroy(reason);
 			}
-			nodeReadable.on("data", function(chunk) {
-				controller.enqueue(chunk);
-			});
-			nodeReadable.on("end", function() {
-				controller.close();
-			});
-			nodeReadable.on("error", function(err) {
-				controller.error(err);
-			});
-			nodeReadable.on("close", function() {
-				controller.close();
-			});
-		} });
+		});
 	}
 	cachedModule = {
 		ReadableStream,
