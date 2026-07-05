@@ -9,6 +9,20 @@
  * - Array.fromAsync()
  */
 
+/**
+ * ToIntegerOrInfinity (ES abstract operation): coerce to a number, map NaN/±0 to
+ * 0, preserve ±Infinity, and otherwise truncate toward zero. Array index/count
+ * arguments are defined in terms of this, so a fractional index like 1.5 must
+ * truncate to 1 (not stay 1.5 and silently fail every integer comparison).
+ * (ENG-22984)
+ */
+function toIntegerOrInfinity(value: any): number {
+  const n = Number(value);
+  if (Number.isNaN(n)) return 0;
+  if (n === Infinity || n === -Infinity) return n;
+  return Math.trunc(n);
+}
+
 export function installArrayPolyfills(): void {
   // --------------------------------------------------------------------------
   // Array.prototype.toSorted (ES2023)
@@ -74,7 +88,7 @@ export function installArrayPolyfills(): void {
         }
         const o = Object(this);
         const len = o.length >>> 0;
-        const relativeIndex = Number(index);
+        const relativeIndex = toIntegerOrInfinity(index);
         const actualIndex = relativeIndex < 0 ? len + relativeIndex : relativeIndex;
         if (actualIndex < 0 || actualIndex >= len) {
           throw new RangeError(`Invalid index : ${index}`);
@@ -109,23 +123,25 @@ export function installArrayPolyfills(): void {
         const o = Object(this);
         const len = o.length >>> 0;
 
-        // Normalize start
-        const relativeStart = Number(start) || 0;
+        // Normalize start (ToIntegerOrInfinity — truncate fractional indices)
+        const relativeStart = toIntegerOrInfinity(start);
         let actualStart: number;
-        if (relativeStart < 0) {
+        if (relativeStart === -Infinity) {
+          actualStart = 0;
+        } else if (relativeStart < 0) {
           actualStart = Math.max(len + relativeStart, 0);
         } else {
           actualStart = Math.min(relativeStart, len);
         }
 
-        // Normalize deleteCount
+        // Normalize deleteCount (ToIntegerOrInfinity, then clamp to [0, len-start])
         let actualDeleteCount: number;
         if (deleteCount === undefined && items.length === 0) {
           // If called with only start, delete everything from start
           actualDeleteCount = len - actualStart;
         } else {
           actualDeleteCount = Math.min(
-            Math.max(Number(deleteCount) || 0, 0),
+            Math.max(toIntegerOrInfinity(deleteCount), 0),
             len - actualStart,
           );
         }

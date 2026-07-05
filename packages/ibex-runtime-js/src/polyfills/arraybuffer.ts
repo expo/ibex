@@ -10,9 +10,18 @@ import { markDetachedArrayBuffer } from "../arraybuffer-detach";
 
 export function installArrayBufferPolyfills(): void {
   const NativeArrayBuffer = ArrayBuffer;
-  const resizableBuffers = new WeakSet<ArrayBuffer>();
-  const maxByteLengthByBuffer = new WeakMap<ArrayBuffer, number>();
 
+  // Resizable ArrayBuffers cannot be faithfully polyfilled in pure JS: growing a
+  // buffer in place would require reallocating its backing store and rewiring
+  // every existing TypedArray/DataView view to the new store, which the language
+  // does not expose. A previous version advertised `resizable: true` (and a
+  // matching `maxByteLength`) plus a `resize()` that ran every range check but
+  // then returned without reallocating, copying, or updating any length — so
+  // feature-detecting code (incremental parsers, growable-buffer logic) saw a
+  // working growable buffer and silently corrupted data. We now refuse to
+  // advertise a capability we cannot deliver: every buffer is reported as
+  // fixed-length and `resize()` throws, matching the spec's behavior for
+  // `resize()` on a non-resizable ArrayBuffer. (ENG-22984)
   if (!(NativeArrayBuffer as any).__exactResizableWrapped) {
     const WrappedArrayBuffer = function ArrayBuffer(
       this: ArrayBuffer,
@@ -21,12 +30,13 @@ export function installArrayBufferPolyfills(): void {
     ): ArrayBuffer {
       const buffer = new NativeArrayBuffer(length);
       if (options && typeof options === 'object' && options.maxByteLength !== undefined) {
+        // Validate the option the way the spec constructor would (a bad
+        // maxByteLength must still throw), then discard it: we degrade to a
+        // fixed-length buffer, which honestly reports `resizable === false`.
         const maxByteLength = Number(options.maxByteLength);
         if (!Number.isFinite(maxByteLength) || maxByteLength < buffer.byteLength) {
           throw new RangeError('Invalid array buffer max length');
         }
-        resizableBuffers.add(buffer);
-        maxByteLengthByBuffer.set(buffer, maxByteLength);
       }
       return buffer;
     } as unknown as typeof ArrayBuffer;
@@ -46,7 +56,8 @@ export function installArrayBufferPolyfills(): void {
         if (!(this instanceof ArrayBuffer)) {
           throw new TypeError('resizable called on non-ArrayBuffer');
         }
-        return resizableBuffers.has(this);
+        // Pure-JS ArrayBuffers are never resizable (see note above).
+        return false;
       },
       enumerable: false,
       configurable: true,
@@ -59,7 +70,8 @@ export function installArrayBufferPolyfills(): void {
         if (!(this instanceof ArrayBuffer)) {
           throw new TypeError('maxByteLength called on non-ArrayBuffer');
         }
-        return maxByteLengthByBuffer.get(this) ?? this.byteLength;
+        // For a non-resizable buffer, maxByteLength === byteLength.
+        return this.byteLength;
       },
       enumerable: false,
       configurable: true,
@@ -68,20 +80,17 @@ export function installArrayBufferPolyfills(): void {
 
   if (typeof (ArrayBuffer.prototype as any).resize !== 'function') {
     Object.defineProperty(ArrayBuffer.prototype, 'resize', {
-      value: function resize(this: ArrayBuffer, newLength: number): void {
+      value: function resize(this: ArrayBuffer, _newLength: number): void {
         if (!(this instanceof ArrayBuffer)) {
           throw new TypeError('resize called on non-ArrayBuffer');
         }
-        if (!resizableBuffers.has(this)) {
-          throw new TypeError('Cannot resize a fixed-length ArrayBuffer');
-        }
-        const targetLength = Number(newLength);
-        if (!Number.isFinite(targetLength) || targetLength < 0) {
-          throw new RangeError('Invalid array buffer length');
-        }
-        if (targetLength > (maxByteLengthByBuffer.get(this) ?? this.byteLength)) {
-          throw new RangeError('Invalid array buffer length');
-        }
+        // Every buffer this polyfill produces is fixed-length; resizing in place
+        // is not expressible in pure JS. Throw rather than silently no-op (which
+        // would desync byteLength from the buffer's views and corrupt data).
+        throw new TypeError(
+          'ArrayBuffer.prototype.resize called on a non-resizable ArrayBuffer ' +
+            '(resizable ArrayBuffers are not supported by this runtime)',
+        );
       },
       writable: true,
       enumerable: false,

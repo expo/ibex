@@ -771,7 +771,9 @@ export function installIntlPolyfills(): void {
           if (mod10 === 3 && mod100 !== 13) return 'few';
           return 'other';
         }
-        if (i === 1 && n === 1) return 'one';
+        // CLDR operands are absolute-value based, so -1 is 'one' (not 'other').
+        // Math.abs(n) === 1 keeps fractions like 1.5 as 'other'. (ENG-22984)
+        if (i === 1 && Math.abs(n) === 1) return 'one';
         return 'other';
       },
 
@@ -788,14 +790,17 @@ export function installIntlPolyfills(): void {
       de: (n: number, type: string): string => {
         if (type === 'ordinal') return 'other';
         const i = Math.floor(Math.abs(n));
-        if (i === 1 && n === 1) return 'one';
+        // CLDR operands are absolute-value based, so -1 is 'one' (not 'other').
+        // Math.abs(n) === 1 keeps fractions like 1.5 as 'other'. (ENG-22984)
+        if (i === 1 && Math.abs(n) === 1) return 'one';
         return 'other';
       },
 
       // Spanish: 1 = one, many for large even, else other (simplified: 1 = one, else other)
       es: (n: number, type: string): string => {
         if (type === 'ordinal') return 'other';
-        return n === 1 ? 'one' : 'other';
+        // Absolute-value operand: -1 is 'one', 1.5 stays 'other'. (ENG-22984)
+        return Math.abs(n) === 1 ? 'one' : 'other';
       },
 
       // Portuguese: cardinal: 0 and 1 are "one" (Brazilian), else "other"
@@ -813,7 +818,9 @@ export function installIntlPolyfills(): void {
           if (i === 8 || i === 11 || i === 80 || i === 800) return 'many';
           return 'other';
         }
-        if (i === 1 && n === 1) return 'one';
+        // CLDR operands are absolute-value based, so -1 is 'one' (not 'other').
+        // Math.abs(n) === 1 keeps fractions like 1.5 as 'other'. (ENG-22984)
+        if (i === 1 && Math.abs(n) === 1) return 'one';
         return 'other';
       },
 
@@ -872,14 +879,17 @@ export function installIntlPolyfills(): void {
       // Turkish: cardinal: 1 = "one", else "other"; ordinal: all other
       tr: (n: number, type: string): string => {
         if (type === 'ordinal') return 'other';
-        return n === 1 ? 'one' : 'other';
+        // Absolute-value operand: -1 is 'one', 1.5 stays 'other'. (ENG-22984)
+        return Math.abs(n) === 1 ? 'one' : 'other';
       },
 
       // Dutch: same as English cardinal (1 = one, else other); ordinal all other
       nl: (n: number, type: string): string => {
         if (type === 'ordinal') return 'other';
         const i = Math.floor(Math.abs(n));
-        if (i === 1 && n === 1) return 'one';
+        // CLDR operands are absolute-value based, so -1 is 'one' (not 'other').
+        // Math.abs(n) === 1 keeps fractions like 1.5 as 'other'. (ENG-22984)
+        if (i === 1 && Math.abs(n) === 1) return 'one';
         return 'other';
       },
 
@@ -892,7 +902,9 @@ export function installIntlPolyfills(): void {
           if ((mod10 === 1 || mod10 === 2) && mod100 !== 11 && mod100 !== 12) return 'one';
           return 'other';
         }
-        if (i === 1 && n === 1) return 'one';
+        // CLDR operands are absolute-value based, so -1 is 'one' (not 'other').
+        // Math.abs(n) === 1 keeps fractions like 1.5 as 'other'. (ENG-22984)
+        if (i === 1 && Math.abs(n) === 1) return 'one';
         return 'other';
       },
     };
@@ -1408,17 +1420,34 @@ export function installIntlPolyfills(): void {
     class SegmentsPolyfill {
       private _input: string;
       private _granularity: string;
+      // Segmenting the whole input is O(n); cache it so repeated containing()/
+      // iteration don't re-segment. The input is immutable, so the cache is
+      // always valid once computed. (ENG-22984)
+      private _segments: Array<{segment: string; index: number; input: string; isWordLike?: boolean}> | null;
 
       constructor(input: string, granularity: string) {
         this._input = input;
         this._granularity = granularity;
+        this._segments = null;
       }
 
       containing(index: number): {segment: string; index: number; input: string; isWordLike?: boolean} | undefined {
         if (index < 0 || index >= this._input.length) return undefined;
         const segments = this._getSegments();
-        for (const seg of segments) {
-          if (index >= seg.index && index < seg.index + seg.segment.length) {
+        // Segments partition the input and are sorted by ascending index, so a
+        // binary search locates the containing segment in O(log n) instead of
+        // scanning every segment. The cursor-movement pattern (containing(i) for
+        // each index) is thus O(n log n) overall, not O(n^2). (ENG-22984)
+        let lo = 0;
+        let hi = segments.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >>> 1;
+          const seg = segments[mid];
+          if (index < seg.index) {
+            hi = mid - 1;
+          } else if (index >= seg.index + seg.segment.length) {
+            lo = mid + 1;
+          } else {
             return seg;
           }
         }
@@ -1437,6 +1466,13 @@ export function installIntlPolyfills(): void {
       }
 
       private _getSegments(): Array<{segment: string; index: number; input: string; isWordLike?: boolean}> {
+        if (this._segments === null) {
+          this._segments = this._computeSegments();
+        }
+        return this._segments;
+      }
+
+      private _computeSegments(): Array<{segment: string; index: number; input: string; isWordLike?: boolean}> {
         const input = this._input;
         const results: Array<{segment: string; index: number; input: string; isWordLike?: boolean}> = [];
 

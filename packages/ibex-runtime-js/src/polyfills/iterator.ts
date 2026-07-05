@@ -15,6 +15,25 @@
  * - Iterator.from()
  */
 
+/**
+ * Coerce a take()/drop() limit per the spec: ToNumber, reject NaN with a
+ * RangeError, then ToIntegerOrInfinity (preserve +Infinity, truncate fractions
+ * toward zero) and reject negatives. Crucially `Infinity` — the standard
+ * "no limit" idiom for take/drop — and fractional limits are *valid* and must
+ * not throw. (ENG-22984)
+ */
+function toLimitIntegerOrInfinity(value: unknown, argName: string): number {
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    throw new RangeError(`${argName} argument must not be NaN`);
+  }
+  const n = num === Infinity ? Infinity : Math.trunc(num);
+  if (n < 0) {
+    throw new RangeError(`${argName} argument must be a non-negative integer`);
+  }
+  return n;
+}
+
 export function installIteratorPolyfills(): void {
   const g = globalThis as any;
 
@@ -154,10 +173,7 @@ export function installIteratorPolyfills(): void {
   if (typeof IteratorProto.take !== 'function') {
     Object.defineProperty(IteratorProto, 'take', {
       value: function take(this: any, limit: number): any {
-        const n = Number(limit);
-        if (!Number.isInteger(n) || n < 0) {
-          throw new RangeError('take argument must be a non-negative integer');
-        }
+        const n = toLimitIntegerOrInfinity(limit, 'take');
         const source = this;
         let remaining = n;
         return createIteratorHelper(
@@ -188,10 +204,7 @@ export function installIteratorPolyfills(): void {
   if (typeof IteratorProto.drop !== 'function') {
     Object.defineProperty(IteratorProto, 'drop', {
       value: function drop(this: any, count: number): any {
-        const n = Number(count);
-        if (!Number.isInteger(n) || n < 0) {
-          throw new RangeError('drop argument must be a non-negative integer');
-        }
+        const n = toLimitIntegerOrInfinity(count, 'drop');
         const source = this;
         let dropped = false;
         return createIteratorHelper(

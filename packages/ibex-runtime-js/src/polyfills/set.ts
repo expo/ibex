@@ -22,6 +22,10 @@ function getSetLikeSize(other: any): number {
 
 /**
  * Helper: ensure a Set-like has the minimum required interface.
+ *
+ * Per GetSetRecord, a Set-like must expose a numeric `size`, a callable `has`,
+ * AND a callable `keys`. The `keys` method was previously never validated.
+ * (ENG-22984)
  */
 function requireSetLike(other: any): void {
   if (other == null || typeof other !== 'object') {
@@ -29,6 +33,38 @@ function requireSetLike(other: any): void {
   }
   if (typeof other.has !== 'function') {
     throw new TypeError('Set-like object must have a has method');
+  }
+  if (typeof other.keys !== 'function') {
+    throw new TypeError('Set-like object must have a keys method');
+  }
+}
+
+/**
+ * Iterate a Set-like's elements via its `keys()` method (the [[Keys]] slot of
+ * the Set Record), NOT via `Symbol.iterator`/`forEach`. These differ for the
+ * canonical set-like — a Map — whose default iterator yields `[key, value]`
+ * pairs while `keys()` yields the bare keys the set operations must consume.
+ * The callback may return `false` to stop iteration early (the keys iterator is
+ * then closed). (ENG-22984)
+ */
+function forEachSetLikeKey(other: any, callback: (value: any) => boolean | void): void {
+  const iterator = other.keys();
+  if (iterator == null || typeof iterator.next !== 'function') {
+    throw new TypeError('Set-like keys() method must return an iterator');
+  }
+  while (true) {
+    const step = iterator.next();
+    if (step == null || step.done) break;
+    if (callback(step.value) === false) {
+      if (typeof iterator.return === 'function') {
+        try {
+          iterator.return();
+        } catch {
+          /* ignore errors from closing the iterator */
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -42,15 +78,9 @@ export function installSetPolyfills(): void {
       value: function union<T>(this: Set<T>, other: Set<T>): Set<T> {
         requireSetLike(other);
         const result = new Set<T>(this);
-        if (typeof other[Symbol.iterator] === 'function') {
-          for (const value of other) {
-            result.add(value);
-          }
-        } else if (typeof other.forEach === 'function') {
-          other.forEach((value: T) => result.add(value));
-        } else {
-          throw new TypeError('Set-like object must be iterable or have forEach');
-        }
+        forEachSetLikeKey(other, (value: T) => {
+          result.add(value);
+        });
         return result;
       },
       writable: true,
@@ -78,19 +108,11 @@ export function installSetPolyfills(): void {
             }
           }
         } else {
-          if (typeof other[Symbol.iterator] === 'function') {
-            for (const value of other) {
-              if (this.has(value)) {
-                result.add(value);
-              }
+          forEachSetLikeKey(other, (value: T) => {
+            if (this.has(value)) {
+              result.add(value);
             }
-          } else if (typeof other.forEach === 'function') {
-            other.forEach((value: T) => {
-              if (this.has(value)) {
-                result.add(value);
-              }
-            });
-          }
+          });
         }
 
         return result;
@@ -132,23 +154,15 @@ export function installSetPolyfills(): void {
       value: function symmetricDifference<T>(this: Set<T>, other: Set<T>): Set<T> {
         requireSetLike(other);
         const result = new Set<T>(this);
-        if (typeof other[Symbol.iterator] === 'function') {
-          for (const value of other) {
-            if (result.has(value)) {
-              result.delete(value);
-            } else {
-              result.add(value);
-            }
+        // Membership is decided against the original `this` (not the evolving
+        // result) so duplicate keys from a set-like toggle correctly.
+        forEachSetLikeKey(other, (value: T) => {
+          if (this.has(value)) {
+            result.delete(value);
+          } else {
+            result.add(value);
           }
-        } else if (typeof other.forEach === 'function') {
-          other.forEach((value: T) => {
-            if (result.has(value)) {
-              result.delete(value);
-            } else {
-              result.add(value);
-            }
-          });
-        }
+        });
         return result;
       },
       writable: true,
@@ -188,18 +202,15 @@ export function installSetPolyfills(): void {
         requireSetLike(other);
         const otherSize = getSetLikeSize(other);
         if (this.size < otherSize) return false;
-        if (typeof other[Symbol.iterator] === 'function') {
-          for (const value of other) {
-            if (!this.has(value)) return false;
+        let isSuperset = true;
+        forEachSetLikeKey(other, (value: T) => {
+          if (!this.has(value)) {
+            isSuperset = false;
+            return false; // stop iterating
           }
-        } else if (typeof other.forEach === 'function') {
-          let allPresent = true;
-          other.forEach((value: T) => {
-            if (!this.has(value)) allPresent = false;
-          });
-          return allPresent;
-        }
-        return true;
+          return true;
+        });
+        return isSuperset;
       },
       writable: true,
       enumerable: false,
@@ -223,17 +234,15 @@ export function installSetPolyfills(): void {
             if (other.has(value)) return false;
           }
         } else {
-          if (typeof other[Symbol.iterator] === 'function') {
-            for (const value of other) {
-              if (this.has(value)) return false;
+          let disjoint = true;
+          forEachSetLikeKey(other, (value: T) => {
+            if (this.has(value)) {
+              disjoint = false;
+              return false; // stop iterating
             }
-          } else if (typeof other.forEach === 'function') {
-            let disjoint = true;
-            other.forEach((value: T) => {
-              if (this.has(value)) disjoint = false;
-            });
-            return disjoint;
-          }
+            return true;
+          });
+          return disjoint;
         }
         return true;
       },
