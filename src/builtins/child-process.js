@@ -946,6 +946,7 @@ function _validateSpawnSyncOptions(options) {
       nativeOpts.env = _flattenEnv(opts.env);
     }
     if (opts.input !== undefined) nativeOpts.input = opts.input;
+    if (opts.inputEncoding !== undefined) nativeOpts.inputEncoding = opts.inputEncoding;
     if (opts.argv0 && typeof opts.argv0 === 'string') nativeOpts.argv0 = opts.argv0;
     // Pass stdio mode to native layer
     if (opts.stdio) {
@@ -981,6 +982,18 @@ function _validateSpawnSyncOptions(options) {
       result = JSON.parse(resultJson);
     } catch (e) {
       result = { error: e.message || 'spawnSync failed', status: null, stdout: '', stderr: '' };
+    }
+    // (ENG-23009) Native returns stdout/stderr base64-encoded so binary output
+    // round-trips exactly; decode to Buffers (byte-accurate) here.
+    if (result && result.stdioEncoding === 'base64') {
+      var B = _childProcessBufferCtor();
+      if (B) {
+        result.stdout = B.from(result.stdout || '', 'base64');
+        result.stderr = B.from(result.stderr || '', 'base64');
+      } else {
+        result.stdout = _ipcBase64ToByteArray(result.stdout || '');
+        result.stderr = _ipcBase64ToByteArray(result.stderr || '');
+      }
     }
     return result;
   }
@@ -1070,15 +1083,28 @@ function _validateSpawnSyncOptions(options) {
     stdio: options.stdio,
   };
 
-  // Pass input
+  // Pass input. (ENG-23009) Encode as base64 so binary bytes reach the child's
+  // stdin exactly (a string char >= 0x80 would be UTF-8 re-encoded through the
+  // JSON boundary otherwise); the native side base64-decodes before writing.
   if (options.input != null) {
-    if (typeof options.input === 'string') {
+    var _inB = _childProcessBufferCtor();
+    var _inputBuf = null;
+    if (_inB) {
+      if (typeof _inB.isBuffer === 'function' && _inB.isBuffer(options.input)) {
+        _inputBuf = options.input;
+      } else if (typeof options.input === 'string') {
+        _inputBuf = _inB.from(options.input, 'utf8');
+      } else if (ArrayBuffer.isView(options.input)) {
+        _inputBuf = _inB.from(options.input.buffer, options.input.byteOffset, options.input.byteLength);
+      } else if (options.input instanceof ArrayBuffer) {
+        _inputBuf = _inB.from(new Uint8Array(options.input));
+      }
+    }
+    if (_inputBuf) {
+      internalOpts.input = _inputBuf.toString('base64');
+      internalOpts.inputEncoding = 'base64';
+    } else if (typeof options.input === 'string') {
       internalOpts.input = options.input;
-    } else if (ArrayBuffer.isView(options.input)) {
-      var inputBytes = new Uint8Array(options.input.buffer, options.input.byteOffset, options.input.byteLength);
-      var inputStr = '';
-      for (var ib = 0; ib < inputBytes.length; ib++) inputStr += String.fromCharCode(inputBytes[ib]);
-      internalOpts.input = inputStr;
     }
   }
 
@@ -1095,17 +1121,27 @@ function _validateSpawnSyncOptions(options) {
 
   var encoding = (options && options.encoding !== undefined) ? options.encoding : 'buffer';
 
-  var stdoutOutput = result.stdout || '';
-  var stderrOutput = result.stderr || '';
-
   var _Buffer = _childProcessBufferCtor();
 
-  if (_Buffer && (encoding === 'buffer' || encoding === null)) {
-    stdoutOutput = typeof stdoutOutput === 'string' ? _Buffer.from(stdoutOutput, 'utf8') : _Buffer.from(stdoutOutput || '');
-    stderrOutput = typeof stderrOutput === 'string' ? _Buffer.from(stderrOutput, 'utf8') : _Buffer.from(stderrOutput || '');
-  } else if (encoding && encoding !== 'utf8' && encoding !== 'utf-8') {
-    // For other encodings, keep as string (best effort)
+  // (ENG-23009) result.stdout/stderr arrive as Buffers (byte-accurate) from the
+  // native base64 channel. Convert to the requested encoding directly instead of
+  // the old string->Buffer('utf8') round-trip that discarded bytes >= 0x80.
+  function _decodeSyncOutput(val) {
+    if (_Buffer) {
+      var buf;
+      if (typeof _Buffer.isBuffer === 'function' && _Buffer.isBuffer(val)) buf = val;
+      else if (val == null) buf = _Buffer.alloc(0);
+      else if (typeof val === 'string') buf = _Buffer.from(val, 'utf8');
+      else buf = _Buffer.from(val);
+      if (encoding === 'buffer' || encoding === null || encoding === undefined) return buf;
+      return buf.toString(encoding === 'utf-8' ? 'utf8' : encoding);
+    }
+    if (encoding === 'buffer' || encoding === null || encoding === undefined) return val;
+    return typeof val === 'string' ? val : _toUtf8String(val);
   }
+
+  var stdoutOutput = _decodeSyncOutput(result.stdout);
+  var stderrOutput = _decodeSyncOutput(result.stderr);
 
   var output = [null, stdoutOutput, stderrOutput];
 
@@ -2081,6 +2117,50 @@ function _toUint8String(value) {
   return str;
 }
 
+// (ENG-23009) Convert raw bytes coming back from the native spawn bridge (now a
+// Uint8Array) into a Buffer before pushing to a Readable, so bytes are not
+// re-encoded as UTF-8 by the stream layer. Falls back to string handling if the
+// native side ever returns a legacy string.
+function _bytesToBuffer(value) {
+  var B = _childProcessBufferCtor();
+  if (B) {
+    if (typeof B.isBuffer === 'function' && B.isBuffer(value)) return value;
+    if (typeof value === 'string') return B.from(value, 'utf8');
+    return B.from(value);
+  }
+  return value;
+}
+
+// (ENG-23009) Normalize any writable payload (Buffer, string, TypedArray,
+// ArrayBuffer, byte array) into a Uint8Array of the exact bytes to hand to the
+// byte-accurate native write bridge.
+function _toByteArray(data) {
+  if (data == null) return new Uint8Array(0);
+  var B = _childProcessBufferCtor();
+  if (B && typeof B.isBuffer === 'function' && B.isBuffer(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (typeof data === 'string') {
+    if (B) {
+      var b = B.from(data, 'utf8');
+      return new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+    }
+    var arr = new Uint8Array(data.length);
+    for (var i = 0; i < data.length; i++) arr[i] = data.charCodeAt(i) & 0xff;
+    return arr;
+  }
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+  var len = data.length || 0;
+  var out = new Uint8Array(len);
+  for (var j = 0; j < len; j++) out[j] = data[j] & 0xff;
+  return out;
+}
+
 var _spawnWriteChunkSize = 32768;
 
 // Break large stdio writes into smaller async chunks so chained child pipes
@@ -2093,7 +2173,9 @@ function _writeSpawnStream(handle, streamName, data, callback) {
     callback(new Error('write failed'));
     return;
   }
-  var payload = _toUint8String(data);
+  // (ENG-23009) Send raw bytes (Uint8Array) rather than a latin1 string so the
+  // native bridge does not UTF-8 re-encode bytes >= 0x80 on the way to the pipe.
+  var payload = _toByteArray(data);
   var offset = 0;
 
   function step() {
@@ -2102,7 +2184,7 @@ function _writeSpawnStream(handle, streamName, data, callback) {
       return;
     }
     var nextOffset = offset + _spawnWriteChunkSize;
-    var chunk = payload.slice(offset, nextOffset);
+    var chunk = payload.subarray(offset, nextOffset);
     var written = 0;
     try {
       written = globalThis.__exactSpawnWrite(handle, chunk, streamName);
@@ -2387,13 +2469,15 @@ function ChildProcess(handle, pid, stdioModes) {
   function pushStreamData(kind, value, streamMode) {
     if (!value || !value.length) return;
     if (streamMode === 'pipe') {
-      if (kind === 'stdout' && self.stdout) self.stdout.push(_toUint8String(value));
-      if (kind === 'stderr' && self.stderr) self.stderr.push(_toUint8String(value));
+      // (ENG-23009) Push a Buffer of the raw bytes; pushing a string here would
+      // let the Readable re-encode bytes >= 0x80 as UTF-8 and corrupt binary output.
+      if (kind === 'stdout' && self.stdout) self.stdout.push(_bytesToBuffer(value));
+      if (kind === 'stderr' && self.stderr) self.stderr.push(_bytesToBuffer(value));
       return;
     }
     if (streamMode === 'inherit') {
-      if (kind === 'stdout' && typeof process !== 'undefined' && process.stdout) process.stdout.write(value);
-      if (kind === 'stderr' && typeof process !== 'undefined' && process.stderr && process.stderr.write) process.stderr.write(value);
+      if (kind === 'stdout' && typeof process !== 'undefined' && process.stdout) process.stdout.write(_bytesToBuffer(value));
+      if (kind === 'stderr' && typeof process !== 'undefined' && process.stderr && process.stderr.write) process.stderr.write(_bytesToBuffer(value));
     }
   }
 
@@ -2943,7 +3027,7 @@ ChildProcess.prototype.spawn = function(options) {
         var out = globalThis.__exactSpawnRead(self3._handle, 1);
         if (out && out.length > 0) {
           hadActivity = true;
-          self3.stdout.push(out);
+          self3.stdout.push(_bytesToBuffer(out)); // (ENG-23009) preserve binary bytes
         }
       } catch(e) {}
     }
@@ -2953,7 +3037,7 @@ ChildProcess.prototype.spawn = function(options) {
         var errOut = globalThis.__exactSpawnRead(self3._handle, 2);
         if (errOut && errOut.length > 0) {
           hadActivity = true;
-          self3.stderr.push(errOut);
+          self3.stderr.push(_bytesToBuffer(errOut)); // (ENG-23009) preserve binary bytes
         }
       } catch(e) {}
     }
@@ -2983,13 +3067,13 @@ ChildProcess.prototype.spawn = function(options) {
             if (!self3._exactSuppressStdoutPump) {
               try {
                 var finalOut = globalThis.__exactSpawnRead(self3._handle, 1);
-                if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(finalOut);
+                if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(_bytesToBuffer(finalOut));
               } catch(e) {}
             }
             if (!self3._exactSuppressStderrPump) {
               try {
                 var finalErr = globalThis.__exactSpawnRead(self3._handle, 2);
-                if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(finalErr);
+                if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(_bytesToBuffer(finalErr));
               } catch(e) {}
             }
           }

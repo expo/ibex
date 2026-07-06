@@ -782,6 +782,7 @@ function _internalSpawnSync(opts) {
 		nativeOpts.env = envObj;
 	} else if (opts.env) nativeOpts.env = _flattenEnv(opts.env);
 	if (opts.input !== void 0) nativeOpts.input = opts.input;
+	if (opts.inputEncoding !== void 0) nativeOpts.inputEncoding = opts.inputEncoding;
 	if (opts.argv0 && typeof opts.argv0 === "string") nativeOpts.argv0 = opts.argv0;
 	if (opts.stdio) {
 		if (typeof opts.stdio === "string") nativeOpts.stdio = opts.stdio;
@@ -812,6 +813,16 @@ function _internalSpawnSync(opts) {
 			stdout: "",
 			stderr: ""
 		};
+	}
+	if (result && result.stdioEncoding === "base64") {
+		var B = _childProcessBufferCtor();
+		if (B) {
+			result.stdout = B.from(result.stdout || "", "base64");
+			result.stderr = B.from(result.stderr || "", "base64");
+		} else {
+			result.stdout = _ipcBase64ToByteArray(result.stdout || "");
+			result.stderr = _ipcBase64ToByteArray(result.stderr || "");
+		}
 	}
 	return result;
 }
@@ -884,13 +895,18 @@ cp.spawnSync = function spawnSync(command, args, options) {
 		stdio: options.stdio
 	};
 	if (options.input != null) {
-		if (typeof options.input === "string") internalOpts.input = options.input;
-		else if (ArrayBuffer.isView(options.input)) {
-			var inputBytes = new Uint8Array(options.input.buffer, options.input.byteOffset, options.input.byteLength);
-			var inputStr = "";
-			for (var ib = 0; ib < inputBytes.length; ib++) inputStr += String.fromCharCode(inputBytes[ib]);
-			internalOpts.input = inputStr;
+		var _inB = _childProcessBufferCtor();
+		var _inputBuf = null;
+		if (_inB) {
+			if (typeof _inB.isBuffer === "function" && _inB.isBuffer(options.input)) _inputBuf = options.input;
+			else if (typeof options.input === "string") _inputBuf = _inB.from(options.input, "utf8");
+			else if (ArrayBuffer.isView(options.input)) _inputBuf = _inB.from(options.input.buffer, options.input.byteOffset, options.input.byteLength);
+			else if (options.input instanceof ArrayBuffer) _inputBuf = _inB.from(new Uint8Array(options.input));
 		}
+		if (_inputBuf) {
+			internalOpts.input = _inputBuf.toString("base64");
+			internalOpts.inputEncoding = "base64";
+		} else if (typeof options.input === "string") internalOpts.input = options.input;
 	}
 	var _internalFn = _internalSpawnSync;
 	try {
@@ -905,13 +921,22 @@ cp.spawnSync = function spawnSync(command, args, options) {
 		pid: 0
 	};
 	var encoding = options && options.encoding !== void 0 ? options.encoding : "buffer";
-	var stdoutOutput = result.stdout || "";
-	var stderrOutput = result.stderr || "";
 	var _Buffer = _childProcessBufferCtor();
-	if (_Buffer && (encoding === "buffer" || encoding === null)) {
-		stdoutOutput = typeof stdoutOutput === "string" ? _Buffer.from(stdoutOutput, "utf8") : _Buffer.from(stdoutOutput || "");
-		stderrOutput = typeof stderrOutput === "string" ? _Buffer.from(stderrOutput, "utf8") : _Buffer.from(stderrOutput || "");
-	} else if (encoding && encoding !== "utf8" && encoding !== "utf-8") {}
+	function _decodeSyncOutput(val) {
+		if (_Buffer) {
+			var buf;
+			if (typeof _Buffer.isBuffer === "function" && _Buffer.isBuffer(val)) buf = val;
+			else if (val == null) buf = _Buffer.alloc(0);
+			else if (typeof val === "string") buf = _Buffer.from(val, "utf8");
+			else buf = _Buffer.from(val);
+			if (encoding === "buffer" || encoding === null || encoding === void 0) return buf;
+			return buf.toString(encoding === "utf-8" ? "utf8" : encoding);
+		}
+		if (encoding === "buffer" || encoding === null || encoding === void 0) return val;
+		return typeof val === "string" ? val : _toUtf8String(val);
+	}
+	var stdoutOutput = _decodeSyncOutput(result.stdout);
+	var stderrOutput = _decodeSyncOutput(result.stderr);
 	var output = [
 		null,
 		stdoutOutput,
@@ -1675,18 +1700,34 @@ function _toUtf8String(bytes) {
 	for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
 	return out;
 }
-function _toUint8String(value) {
-	if (value === null || value === void 0) return "";
-	if (typeof value === "string") return value;
-	var str = "";
-	var i = 0;
-	var len = value.length || 0;
-	for (; i < len; i++) {
-		var ch = value[i];
-		if (typeof ch === "number") str += String.fromCharCode(ch & 255);
-		else if (typeof ch === "string") str += ch;
+function _bytesToBuffer(value) {
+	var B = _childProcessBufferCtor();
+	if (B) {
+		if (typeof B.isBuffer === "function" && B.isBuffer(value)) return value;
+		if (typeof value === "string") return B.from(value, "utf8");
+		return B.from(value);
 	}
-	return str;
+	return value;
+}
+function _toByteArray(data) {
+	if (data == null) return new Uint8Array(0);
+	var B = _childProcessBufferCtor();
+	if (B && typeof B.isBuffer === "function" && B.isBuffer(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+	if (typeof data === "string") {
+		if (B) {
+			var b = B.from(data, "utf8");
+			return new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+		}
+		var arr = new Uint8Array(data.length);
+		for (var i = 0; i < data.length; i++) arr[i] = data.charCodeAt(i) & 255;
+		return arr;
+	}
+	if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+	if (typeof ArrayBuffer !== "undefined" && data instanceof ArrayBuffer) return new Uint8Array(data);
+	var len = data.length || 0;
+	var out = new Uint8Array(len);
+	for (var j = 0; j < len; j++) out[j] = data[j] & 255;
+	return out;
 }
 var _spawnWriteChunkSize = 32768;
 function _writeSpawnStream(handle, streamName, data, callback) {
@@ -1695,7 +1736,7 @@ function _writeSpawnStream(handle, streamName, data, callback) {
 		callback(/* @__PURE__ */ new Error("write failed"));
 		return;
 	}
-	var payload = _toUint8String(data);
+	var payload = _toByteArray(data);
 	var offset = 0;
 	function step() {
 		if (offset >= payload.length) {
@@ -1703,7 +1744,7 @@ function _writeSpawnStream(handle, streamName, data, callback) {
 			return;
 		}
 		var nextOffset = offset + _spawnWriteChunkSize;
-		var chunk = payload.slice(offset, nextOffset);
+		var chunk = payload.subarray(offset, nextOffset);
 		var written = 0;
 		try {
 			written = globalThis.__exactSpawnWrite(handle, chunk, streamName);
@@ -1948,13 +1989,13 @@ function ChildProcess(handle, pid, stdioModes) {
 	function pushStreamData(kind, value, streamMode) {
 		if (!value || !value.length) return;
 		if (streamMode === "pipe") {
-			if (kind === "stdout" && self.stdout) self.stdout.push(_toUint8String(value));
-			if (kind === "stderr" && self.stderr) self.stderr.push(_toUint8String(value));
+			if (kind === "stdout" && self.stdout) self.stdout.push(_bytesToBuffer(value));
+			if (kind === "stderr" && self.stderr) self.stderr.push(_bytesToBuffer(value));
 			return;
 		}
 		if (streamMode === "inherit") {
-			if (kind === "stdout" && typeof process !== "undefined" && process.stdout) process.stdout.write(value);
-			if (kind === "stderr" && typeof process !== "undefined" && process.stderr && process.stderr.write) process.stderr.write(value);
+			if (kind === "stdout" && typeof process !== "undefined" && process.stdout) process.stdout.write(_bytesToBuffer(value));
+			if (kind === "stderr" && typeof process !== "undefined" && process.stderr && process.stderr.write) process.stderr.write(_bytesToBuffer(value));
 		}
 	}
 	this.stdio = [
@@ -2368,14 +2409,14 @@ ChildProcess.prototype.spawn = function(options) {
 			var out = globalThis.__exactSpawnRead(self3._handle, 1);
 			if (out && out.length > 0) {
 				hadActivity = true;
-				self3.stdout.push(out);
+				self3.stdout.push(_bytesToBuffer(out));
 			}
 		} catch (e) {}
 		if (self3.stderr && self3._useNativePump && !self3._exactSuppressStderrPump) try {
 			var errOut = globalThis.__exactSpawnRead(self3._handle, 2);
 			if (errOut && errOut.length > 0) {
 				hadActivity = true;
-				self3.stderr.push(errOut);
+				self3.stderr.push(_bytesToBuffer(errOut));
 			}
 		} catch (e) {}
 		if (self3._ipcMode && !self3._disconnectPending) if (typeof globalThis.__exactSpawnRecvMsg === "function") {
@@ -2396,11 +2437,11 @@ ChildProcess.prototype.spawn = function(options) {
 				if (self3._useNativePump) {
 					if (!self3._exactSuppressStdoutPump) try {
 						var finalOut = globalThis.__exactSpawnRead(self3._handle, 1);
-						if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(finalOut);
+						if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(_bytesToBuffer(finalOut));
 					} catch (e) {}
 					if (!self3._exactSuppressStderrPump) try {
 						var finalErr = globalThis.__exactSpawnRead(self3._handle, 2);
-						if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(finalErr);
+						if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(_bytesToBuffer(finalErr));
 					} catch (e) {}
 				}
 				if (self3._ipcMode) {

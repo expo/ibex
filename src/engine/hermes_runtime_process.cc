@@ -439,6 +439,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         std::vector<std::string> envEntries;
         std::string stdinInput;
         bool hasStdinInput = false;
+        bool inputIsBase64 = false;
         std::string argv0;
         std::string syncStdioMode = "pipe"; // default: pipe stdout/stderr
 
@@ -499,6 +500,11 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             stdinInput = inputStr;
             hasStdinInput = true;
           }
+          // (ENG-23009) When JS marks the stdin payload as base64 the raw bytes
+          // were preserved across the JSON boundary; decode below before writing.
+          if (optsJson.find("\"inputEncoding\":\"base64\"") != std::string::npos) {
+            inputIsBase64 = true;
+          }
           // Parse argv0 option for custom process.argv[0]
           auto argv0Pos = optsJson.find("\"argv0\":\"");
           if (argv0Pos != std::string::npos) {
@@ -550,6 +556,73 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }
           return result;
         };
+
+        // (ENG-23009) Base64 transport for binary stdout/stderr/stdin. JSON
+        // strings must be valid UTF-8 for createFromUtf8, but child output is
+        // arbitrary bytes; base64 (ASCII) is a byte-preserving, JSON-safe
+        // channel that survives the native->JS boundary without corruption.
+        auto base64Encode = [](const std::string& in) -> std::string {
+          static const char* tbl =
+              "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+          std::string out;
+          out.reserve(((in.size() + 2) / 3) * 4);
+          size_t i = 0;
+          while (i + 2 < in.size()) {
+            uint32_t n = (static_cast<uint8_t>(in[i]) << 16) |
+                         (static_cast<uint8_t>(in[i + 1]) << 8) |
+                         static_cast<uint8_t>(in[i + 2]);
+            out.push_back(tbl[(n >> 18) & 63]);
+            out.push_back(tbl[(n >> 12) & 63]);
+            out.push_back(tbl[(n >> 6) & 63]);
+            out.push_back(tbl[n & 63]);
+            i += 3;
+          }
+          size_t rem = in.size() - i;
+          if (rem == 1) {
+            uint32_t n = static_cast<uint8_t>(in[i]) << 16;
+            out.push_back(tbl[(n >> 18) & 63]);
+            out.push_back(tbl[(n >> 12) & 63]);
+            out.push_back('=');
+            out.push_back('=');
+          } else if (rem == 2) {
+            uint32_t n = (static_cast<uint8_t>(in[i]) << 16) |
+                         (static_cast<uint8_t>(in[i + 1]) << 8);
+            out.push_back(tbl[(n >> 18) & 63]);
+            out.push_back(tbl[(n >> 12) & 63]);
+            out.push_back(tbl[(n >> 6) & 63]);
+            out.push_back('=');
+          }
+          return out;
+        };
+        auto base64Decode = [](const std::string& in) -> std::string {
+          auto dec = [](char c) -> int {
+            if (c >= 'A' && c <= 'Z') return c - 'A';
+            if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+            if (c >= '0' && c <= '9') return c - '0' + 52;
+            if (c == '+') return 62;
+            if (c == '/') return 63;
+            return -1;
+          };
+          std::string out;
+          out.reserve((in.size() / 4) * 3);
+          int buffer = 0;
+          int bits = 0;
+          for (char c : in) {
+            if (c == '=' || c == '\n' || c == '\r' || c == ' ') continue;
+            int v = dec(c);
+            if (v < 0) continue;
+            buffer = (buffer << 6) | v;
+            bits += 6;
+            if (bits >= 8) {
+              bits -= 8;
+              out.push_back(static_cast<char>((buffer >> bits) & 0xff));
+            }
+          }
+          return out;
+        };
+        if (inputIsBase64 && hasStdinInput) {
+          stdinInput = base64Decode(stdinInput);
+        }
 
         // Create pipes for stdout, stderr, and optionally stdin
         int stdoutPipe[2] = {-1, -1}, stderrPipe[2] = {-1, -1}, stdinPipe[2] = {-1, -1};
@@ -697,7 +770,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             } else if (childErrno != ENOENT) {
               errorStr = std::string("exec failed: ") + std::strerror(childErrno);
             }
-            std::string resultJson = "{\"stdout\":\"\",\"stderr\":\"\",\"status\":127,\"pid\":"
+            std::string resultJson = "{\"stdout\":\"\",\"stderr\":\"\",\"stdioEncoding\":\"base64\",\"status\":127,\"pid\":"
                 + std::to_string(static_cast<int>(pid))
                 + ",\"error\":\"" + jsonEscape(errorStr) + "\"}";
             return facebook::jsi::Value(
@@ -774,9 +847,11 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           errorStr = "Command not found: " + file;
         }
 
-        std::string resultJson = "{\"stdout\":\"" + jsonEscape(stdoutStr)
-            + "\",\"stderr\":\"" + jsonEscape(stderrStr)
-            + "\",\"status\":" + std::to_string(exitStatus)
+        // (ENG-23009) stdout/stderr are emitted base64 so binary output round-
+        // trips exactly; JS decodes back to a Buffer.
+        std::string resultJson = "{\"stdout\":\"" + base64Encode(stdoutStr)
+            + "\",\"stderr\":\"" + base64Encode(stderrStr)
+            + "\",\"stdioEncoding\":\"base64\",\"status\":" + std::to_string(exitStatus)
             + ",\"pid\":" + std::to_string(static_cast<int>(pid));
         if (!errorStr.empty()) {
           resultJson += ",\"error\":\"" + jsonEscape(errorStr) + "\"";
@@ -1446,8 +1521,12 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactSpawn", std::move(spawnFn));
 
-  // __exactSpawnRead(handle, stream) -> string (data read, empty if nothing available)
-  // stream is "stdout", "stderr", or "ipc". Non-blocking read.
+  // __exactSpawnRead(handle, stream) -> Uint8Array (raw bytes read, empty if
+  // nothing available). stream is "stdout", "stderr", or "ipc". Non-blocking.
+  // (ENG-23009) The data channel is byte-accurate: child output is handed to JS
+  // as raw bytes rather than a UTF-8 string, so bytes >= 0x80 and NULs survive
+  // the native->JS boundary instead of being mangled by createFromUtf8/U+FFFD.
+  // IPC callers UTF-8 decode the bytes themselves (packets are ASCII/UTF-8 JSON).
   auto spawnReadFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRead"),
@@ -1457,11 +1536,11 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[0].isNumber()) {
-          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
+          return makeUint8Array(runtime, {});
         }
         int handle = static_cast<int>(args[0].asNumber());
         if (!trySpawnHandle(runtime, handle, "__exactSpawnRead")) {
-          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
+          return makeUint8Array(runtime, {});
         }
         std::string streamName;
         if (args[1].isString()) {
@@ -1478,12 +1557,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               streamName = "ipc";
               break;
             default:
-              return facebook::jsi::Value(
-                  facebook::jsi::String::createFromUtf8(runtime, ""));
+              return makeUint8Array(runtime, {});
           }
         } else {
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, ""));
+          return makeUint8Array(runtime, {});
         }
 
         int fd = -1;
@@ -1491,7 +1568,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           std::lock_guard<std::mutex> lock(s_spawnMutex);
           auto it = s_spawnedProcesses.find(handle);
           if (it == s_spawnedProcesses.end()) {
-            return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
+            return makeUint8Array(runtime, {});
           }
           if (streamName == "stdout") {
             fd = it->second.stdoutFd;
@@ -1506,16 +1583,16 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (streamName == "ipc" && startup_trace_enabled()) {
             fprintf(stderr, "[spawn_read] ipc fd=-1 for handle %d\n", handle);
           }
-          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, ""));
+          return makeUint8Array(runtime, {});
         }
 
         // Non-blocking read
         char buf[65536];
-        std::string result;
+        std::vector<uint8_t> result;
         while (true) {
           ssize_t n = read(fd, buf, sizeof(buf));
           if (n > 0) {
-            result.append(buf, static_cast<size_t>(n));
+            result.insert(result.end(), buf, buf + n);
           } else {
             if (streamName == "ipc" && startup_trace_enabled() && n < 0) {
               fprintf(stderr, "[spawn_read] ipc fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
@@ -1525,11 +1602,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         if (!result.empty() && streamName == "ipc" && startup_trace_enabled()) {
-          fprintf(stderr, "[spawn_read] ipc fd=%d got %zu bytes: %.80s\n", fd, result.size(), result.c_str());
+          fprintf(stderr, "[spawn_read] ipc fd=%d got %zu bytes\n", fd, result.size());
         }
 
-        return facebook::jsi::Value(
-            facebook::jsi::String::createFromUtf8(runtime, result));
+        return makeUint8Array(runtime, std::move(result));
       });
   rt.global().setProperty(rt, "__exactSpawnRead", std::move(spawnReadFn));
 
@@ -1574,6 +1650,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   // __exactSpawnWrite(handle, data, stream?) -> number
   // For stdio pipes this returns the number of bytes written (0 on EAGAIN).
   // IPC writes still attempt to write the full payload and return bytes written.
+  // (ENG-23009) `data` may be a Uint8Array/ArrayBuffer (byte-accurate, used for
+  // stdin/relay writes so bytes >= 0x80 are not UTF-8 re-encoded) or a string
+  // (used by the IPC JSON packet path, which is ASCII/UTF-8 already).
   auto spawnWriteFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnWrite"),
@@ -1582,14 +1661,29 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+        if (count < 2 || !args[0].isNumber()) {
           return facebook::jsi::Value(-1);
         }
         int handle = static_cast<int>(args[0].asNumber());
         if (!trySpawnHandle(runtime, handle, "__exactSpawnWrite")) {
           return facebook::jsi::Value(-1);
         }
-        auto data = args[1].toString(runtime).utf8(runtime);
+        // Collect the payload as raw bytes from either a string or a byte view.
+        std::string strHolder;
+        const uint8_t* payload = nullptr;
+        size_t payloadLen = 0;
+        if (args[1].isString()) {
+          strHolder = args[1].toString(runtime).utf8(runtime);
+          payload = reinterpret_cast<const uint8_t*>(strHolder.data());
+          payloadLen = strHolder.size();
+        } else if (args[1].isObject()) {
+          auto obj = args[1].asObject(runtime);
+          if (!extractArrayBufferView(runtime, obj, payload, payloadLen)) {
+            return facebook::jsi::Value(-1);
+          }
+        } else {
+          return facebook::jsi::Value(-1);
+        }
         auto streamName = std::string("stdin");
         if (count > 2 && args[2].isString()) {
           streamName = args[2].toString(runtime).utf8(runtime);
@@ -1622,12 +1716,12 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         if (streamName == "ipc" && startup_trace_enabled()) {
-          fprintf(stderr, "[spawn_write] ipc fd=%d data_len=%zu: %.80s\n", fd, data.size(), data.c_str());
+          fprintf(stderr, "[spawn_write] ipc fd=%d data_len=%zu\n", fd, payloadLen);
         }
 
         if (streamName != "ipc") {
           while (true) {
-            ssize_t n = write(fd, data.c_str(), data.size());
+            ssize_t n = write(fd, payload, payloadLen);
             if (n < 0) {
               if (errno == EINTR) continue;
               if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -1640,8 +1734,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         size_t totalWritten = 0;
-        while (totalWritten < data.size()) {
-          ssize_t n = write(fd, data.c_str() + totalWritten, data.size() - totalWritten);
+        while (totalWritten < payloadLen) {
+          ssize_t n = write(fd, payload + totalWritten, payloadLen - totalWritten);
           if (n < 0) {
             if (errno == EINTR) continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
