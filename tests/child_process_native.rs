@@ -268,3 +268,126 @@ console.log('RESULT|captured=' + captured);
         run.stdout
     );
 }
+
+// ENG-23032 -----------------------------------------------------------------
+
+/// `detached: true` was a no-op in native (grep: no setsid/setpgid), so the
+/// child stayed in the parent's process group. With the fix the child calls
+/// setsid() and becomes the leader of its own group (pgid == pid), which we
+/// observe via process.kill(-pid, 0): a process group whose id equals the
+/// child's pid exists only when the child made itself leader.
+#[test]
+fn spawn_detached_starts_new_process_group() {
+    let app = r#"
+const cp = require('child_process');
+const c = cp.spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
+const pid = c.pid;
+setTimeout(function () {
+  let groupExists;
+  try { process.kill(-pid, 0); groupExists = true; }
+  catch (e) { groupExists = false; }
+  console.log('RESULT|groupExists=' + groupExists);
+  // Clean up: reap the detached group (and the child) so no sleep lingers.
+  try { process.kill(-pid, 'SIGKILL'); } catch (e) {}
+  try { process.kill(pid, 'SIGKILL'); } catch (e) {}
+}, 300);
+"#;
+    let run = run_app("detached", app, Duration::from_secs(15));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "groupExists="),
+        Some("true"),
+        "detached child did not become its own process-group leader (setsid missing): {line}"
+    );
+}
+
+/// The native spawn hardcoded `execl("/bin/sh", ...)` and ignored the `shell`
+/// string. With the fix a custom shell binary is exec'd. The helper shell script
+/// ignores its `-c` argument and prints a sentinel, so the sentinel appears only
+/// when the requested shell actually ran (cross-platform, not dialect-dependent).
+#[test]
+fn spawn_honors_custom_shell_binary() {
+    let dir = unique_dir("customshell");
+    let shell = dir.join("myshell.sh");
+    write_text(&shell, "#!/bin/sh\necho MYSHELL_RAN\n");
+    let mut perms = std::fs::metadata(&shell).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&shell, perms).unwrap();
+
+    let app = format!(
+        r#"
+const cp = require('child_process');
+const c = cp.spawn('echo', ['ignored'], {{ shell: {shell_json}, stdio: ['ignore', 'pipe', 'ignore'] }});
+let out = '';
+c.stdout.on('data', function (d) {{ out += d; }});
+c.on('close', function () {{ console.log('RESULT|out=' + out.trim()); }});
+c.on('error', function (e) {{ console.log('RESULT|error=' + (e && e.message)); }});
+"#,
+        shell_json = serde_json_string(&shell.to_string_lossy())
+    );
+    let run = run_app_in(&dir, &app, Duration::from_secs(15));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "out="),
+        Some("MYSHELL_RAN"),
+        "custom shell binary was not exec'd (fell back to /bin/sh): {line}"
+    );
+}
+
+/// Exit-signal names must be sourced from the running platform's signal numbers.
+/// A child that raises SIGUSR1 exits with WTERMSIG = 30 on Darwin but 10 on
+/// Linux; the old fixed Darwin table reported signal 10 as 'SIGBUS' on Linux.
+/// The platform-branched table reports 'SIGUSR1' on both.
+#[test]
+fn spawn_reports_platform_correct_exit_signal() {
+    let app = r#"
+const cp = require('child_process');
+const c = cp.spawn('sh', ['-c', 'kill -USR1 $$']);
+c.on('close', function (code, signal) { console.log('RESULT|code=' + code + '|signal=' + signal); });
+c.on('error', function (e) { console.log('RESULT|error=' + (e && e.message)); });
+"#;
+    let run = run_app("signal", app, Duration::from_secs(15));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "signal="),
+        Some("SIGUSR1"),
+        "child killed by SIGUSR1 was not reported as SIGUSR1 (platform signal table wrong): {line}"
+    );
+}
+
+/// A child that emits its output only after an idle gap must still be captured
+/// once the poller has backed off — proving the ENG-23032 idle backoff stays
+/// responsive when bytes finally flow.
+#[test]
+fn spawn_backoff_still_captures_delayed_output() {
+    let app = r#"
+const cp = require('child_process');
+const c = cp.spawn('sh', ['-c', 'sleep 0.3; echo LATE_OUTPUT']);
+let out = '';
+c.stdout.on('data', function (d) { out += d; });
+c.on('close', function () { console.log('RESULT|out=' + out.trim()); });
+"#;
+    let run = run_app("backoff", app, Duration::from_secs(15));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "out="),
+        Some("LATE_OUTPUT"),
+        "delayed child output lost after idle poll backoff: {line}"
+    );
+}
+
+/// Minimal JSON string encoder (avoids pulling serde into this test).
+fn serde_json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}

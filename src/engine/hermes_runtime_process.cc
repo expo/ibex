@@ -435,6 +435,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Parse options
         std::string cwd;
         bool useShell = false;
+        std::string shellPath; // (ENG-23032) custom shell binary; empty -> /bin/sh
         uint32_t timeout_ms = 0;
         // (ENG-23008) maxBuffer is now enforced here (byte-counted, child killed
         // on exceed) instead of post-hoc in JS. Default matches Node (1MB); a
@@ -472,6 +473,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           auto shellPos = optsJson.find("\"shell\":\"");
           if (shellPos != std::string::npos) {
             useShell = true;
+            // (ENG-23032) Extract the requested shell binary instead of always
+            // exec'ing /bin/sh. A path never contains a JSON quote, so scan to
+            // the next '"' (same shape as the cwd parse above).
+            auto sstart = shellPos + 9;
+            auto send = optsJson.find("\"", sstart);
+            if (send != std::string::npos) {
+              shellPath = optsJson.substr(sstart, send - sstart);
+            }
           }
           auto timeoutPos = optsJson.find("\"timeout\":");
           if (timeoutPos != std::string::npos) {
@@ -792,7 +801,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             for (auto& a : spawnArgs) {
               fullCmd += " " + a;
             }
-            execl("/bin/sh", "sh", "-c", fullCmd.c_str(), nullptr);
+            // (ENG-23032) Honor a custom `shell` binary; fall back to /bin/sh.
+            const char* shBin = shellPath.empty() ? "/bin/sh" : shellPath.c_str();
+            execl(shBin, shBin, "-c", fullCmd.c_str(), nullptr);
           } else {
             std::vector<char*> argv;
             // Use custom argv0 if provided, otherwise use file as argv[0]
@@ -1151,6 +1162,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Parse options
         std::string cwd;
         bool useShell = false;
+        std::string shellPath; // (ENG-23032) custom shell binary; empty -> /bin/sh
+        bool detached = false; // (ENG-23032) start child in a new session/pgroup
         std::vector<std::string> stdioModes = {"pipe", "pipe", "pipe", "pipe"};
         std::vector<std::string> envEntries;
 
@@ -1211,6 +1224,21 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           auto shellPos = optsJson.find("\"shell\":\"");
           if (shellPos != std::string::npos) {
             useShell = true;
+            // (ENG-23032) Extract the requested shell binary; the async JS path
+            // forwards options.shell verbatim, so honor a custom shell string
+            // here instead of always exec'ing /bin/sh.
+            auto sstart = shellPos + 9;
+            auto send = optsJson.find("\"", sstart);
+            if (send != std::string::npos) {
+              shellPath = optsJson.substr(sstart, send - sstart);
+            }
+          }
+          // (ENG-23032) `detached` was never parsed, so JS honored it only via
+          // child.unref(): the child stayed in the parent's process group and
+          // session, so process.kill(-pid) missed it and terminal SIGINT still
+          // reached it. Plumb it through and setsid() in the child below.
+          if (optsJson.find("\"detached\":true") != std::string::npos) {
+            detached = true;
           }
 
           auto stdioPos = optsJson.find("\"stdio\":");
@@ -1452,6 +1480,17 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         if (pid == 0) {
           // Child process
           close(execErrPipe[0]); // close read end in child
+          // (ENG-23032) When detached, start a new session so the child becomes
+          // the leader of its own process group (pgid == pid). This makes
+          // process.kill(-pid) target the child's group and detaches it from the
+          // controlling terminal's signal delivery (Node's detached behavior).
+          // A freshly forked child is never already a group leader, so setsid()
+          // succeeds; guard with setpgid as a defensive fallback.
+          if (detached) {
+            if (setsid() < 0) {
+              setpgid(0, 0);
+            }
+          }
           if (stdinPipeRequested) {
             close(stdinPipeFd[1]);
             dup2(stdinPipeFd[0], STDIN_FILENO);
@@ -1598,7 +1637,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             for (auto& a : spawnArgs) {
               fullCmd += " " + a;
             }
-            execl("/bin/sh", "sh", "-c", fullCmd.c_str(), nullptr);
+            // (ENG-23032) Honor a custom `shell` binary; fall back to /bin/sh.
+            const char* shBin = shellPath.empty() ? "/bin/sh" : shellPath.c_str();
+            execl(shBin, shBin, "-c", fullCmd.c_str(), nullptr);
           } else {
             std::vector<char*> argv;
             argv.push_back(const_cast<char*>(file.c_str()));

@@ -666,7 +666,7 @@ function _validateSignalOption(signal) {
 		}
 	}
 }
-var _signalMap = {
+var _signalMapDarwin = {
 	SIGHUP: 1,
 	SIGINT: 2,
 	SIGQUIT: 3,
@@ -699,6 +699,43 @@ var _signalMap = {
 	SIGINFO: 29,
 	SIGSYS: 12
 };
+var _signalMapLinux = {
+	SIGHUP: 1,
+	SIGINT: 2,
+	SIGQUIT: 3,
+	SIGILL: 4,
+	SIGTRAP: 5,
+	SIGABRT: 6,
+	SIGIOT: 6,
+	SIGBUS: 7,
+	SIGFPE: 8,
+	SIGKILL: 9,
+	SIGUSR1: 10,
+	SIGSEGV: 11,
+	SIGUSR2: 12,
+	SIGPIPE: 13,
+	SIGALRM: 14,
+	SIGTERM: 15,
+	SIGSTKFLT: 16,
+	SIGCHLD: 17,
+	SIGCONT: 18,
+	SIGSTOP: 19,
+	SIGTSTP: 20,
+	SIGTTIN: 21,
+	SIGTTOU: 22,
+	SIGURG: 23,
+	SIGXCPU: 24,
+	SIGXFSZ: 25,
+	SIGVTALRM: 26,
+	SIGPROF: 27,
+	SIGWINCH: 28,
+	SIGIO: 29,
+	SIGPOLL: 29,
+	SIGPWR: 30,
+	SIGSYS: 31
+};
+var _signalPlatform = typeof process !== "undefined" && process.platform || "darwin";
+var _signalMap = _signalPlatform === "linux" || _signalPlatform === "android" ? _signalMapLinux : _signalMapDarwin;
 var _signalNumbers = {};
 for (var _sk in _signalMap) if (_signalNumbers[_signalMap[_sk]] === void 0) _signalNumbers[_signalMap[_sk]] = _sk;
 function _isValidSignal(signal) {
@@ -1783,6 +1820,17 @@ if (typeof globalThis.__exactSpawnDispose !== "function") globalThis.__exactSpaw
 	if (!globalThis.__exactSpawnProcesses) return;
 	delete globalThis.__exactSpawnProcesses[String(handle)];
 };
+var _SPAWN_POLL_MIN_MS = 2;
+var _SPAWN_POLL_MAX_MS = 32;
+function _nextSpawnPollDelay(proc, hadActivity) {
+	if (hadActivity) {
+		proc._pollBackoff = _SPAWN_POLL_MIN_MS;
+		return 0;
+	}
+	var cur = proc._pollBackoff || _SPAWN_POLL_MIN_MS;
+	proc._pollBackoff = Math.min(cur * 2, _SPAWN_POLL_MAX_MS);
+	return cur;
+}
 function _validateNullBytes(value, name) {
 	if (typeof value === "string" && value.indexOf("\0") !== -1) {
 		var err = /* @__PURE__ */ new TypeError("The value of \"" + name + "\" is invalid. Received " + JSON.stringify(value));
@@ -2067,7 +2115,6 @@ function ChildProcess(handle, pid, stdioModes) {
 			} else if (packet.type === "disconnect") closeIpcChannel();
 		}
 	}
-	var pollInterval = 2;
 	var stdoutEnded = false;
 	var stderrEnded = false;
 	function closeStreams() {
@@ -2166,7 +2213,8 @@ function ChildProcess(handle, pid, stdioModes) {
 				return;
 			}
 		}
-		if (!self._useNativePump && self._ref) self._pollTimer = setTimeout(pollStreams, hadActivity ? 0 : pollInterval);
+		self._lastPollActivity = hadActivity;
+		if (!self._useNativePump && self._ref) self._pollTimer = setTimeout(pollStreams, _nextSpawnPollDelay(self, hadActivity));
 		self._pumpInProgress = false;
 	}
 	this.__pumpFromNative = pollStreams;
@@ -2174,7 +2222,7 @@ function ChildProcess(handle, pid, stdioModes) {
 		var nativePollFallback = function() {
 			if (self._exited) return;
 			if (typeof self.__pumpFromNative === "function") self.__pumpFromNative();
-			if (!self._exited && self._ref) self._pollTimer = setTimeout(nativePollFallback, pollInterval);
+			if (!self._exited && self._ref) self._pollTimer = setTimeout(nativePollFallback, _nextSpawnPollDelay(self, self._lastPollActivity));
 		};
 		if (self._handle >= 0) self._pollTimer = setTimeout(function() {
 			if (self._exited) return;
@@ -2187,7 +2235,7 @@ function ChildProcess(handle, pid, stdioModes) {
 	} else {
 		var fallbackPoll = function() {
 			pollStreams();
-			if (!self._exited && self._ref) self._pollTimer = setTimeout(fallbackPoll, pollInterval);
+			if (!self._exited && self._ref) self._pollTimer = setTimeout(fallbackPoll, _nextSpawnPollDelay(self, self._lastPollActivity));
 		};
 		if (self._handle >= 0) self._pollTimer = setTimeout(function() {
 			if (self._exited) return;
@@ -2331,7 +2379,6 @@ ChildProcess.prototype.spawn = function(options) {
 	self3._exited = false;
 	self3._ref = true;
 	self3._useNativePump = typeof globalThis.__exactSpawnRead === "function";
-	var pollInterval = 2;
 	var signalNames2 = _signalNumbers;
 	var _ipcBuffer2 = "";
 	var _pendingRecvFd2 = -1;
@@ -2465,7 +2512,7 @@ ChildProcess.prototype.spawn = function(options) {
 				return;
 			}
 		} catch (e) {}
-		if (!self3._exited && self3._ref) self3._pollTimer = setTimeout(pollStreams2, hadActivity ? 0 : pollInterval);
+		if (!self3._exited && self3._ref) self3._pollTimer = setTimeout(pollStreams2, _nextSpawnPollDelay(self3, hadActivity));
 	}
 	setTimeout(function() {
 		self3.emit("spawn");

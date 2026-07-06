@@ -803,7 +803,14 @@ function _validateSignalOption(signal) {
   }
 }
 
-var _signalMap = {
+// (ENG-23032) Signal numbers are platform-specific, and they diverge for the
+// common ones: e.g. SIGUSR1 is 30 on Darwin but 10 on Linux, SIGBUS is 10 on
+// Darwin but 7 on Linux. A single Darwin table (see ENG-22965) makes both
+// child.kill('SIGUSR1') send the wrong signal on Linux and a Linux-signaled
+// child (WTERMSIG=10) get reported as the wrong name. Linux is a target
+// platform (LLP 0001), so branch on process.platform at load time. Android runs
+// on the Linux kernel, so it uses the Linux numbers.
+var _signalMapDarwin = {
   SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
   SIGIOT: 6, SIGBUS: 10, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 30, SIGSEGV: 11,
   SIGUSR2: 31, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGCHLD: 20,
@@ -811,6 +818,18 @@ var _signalMap = {
   SIGURG: 16, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27,
   SIGWINCH: 28, SIGIO: 23, SIGINFO: 29, SIGSYS: 12
 };
+var _signalMapLinux = {
+  SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
+  SIGIOT: 6, SIGBUS: 7, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 10, SIGSEGV: 11,
+  SIGUSR2: 12, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGSTKFLT: 16,
+  SIGCHLD: 17, SIGCONT: 18, SIGSTOP: 19, SIGTSTP: 20, SIGTTIN: 21, SIGTTOU: 22,
+  SIGURG: 23, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27,
+  SIGWINCH: 28, SIGIO: 29, SIGPOLL: 29, SIGPWR: 30, SIGSYS: 31
+};
+var _signalPlatform = (typeof process !== 'undefined' && process.platform) || 'darwin';
+var _signalMap = (_signalPlatform === 'linux' || _signalPlatform === 'android')
+  ? _signalMapLinux
+  : _signalMapDarwin;
 var _signalNumbers = {};
 // First-wins so aliased numbers resolve to the canonical name Node reports for
 // an exit (e.g. signal 6 -> SIGABRT, not SIGIOT).
@@ -2269,6 +2288,25 @@ if (typeof globalThis.__exactSpawnDispose !== 'function') {
   };
 }
 
+// (ENG-23032) Idle backoff for the stdout/stderr/exit poller. Without a native
+// readiness callback (__exactSpawnPump is a stub) each live child re-polled
+// every 2ms for its whole lifetime — ~3 JSI host calls + 2 read() syscalls,
+// ~500x/s per child, even when idle, where Node/kqueue is ~0 CPU. Poll fast
+// (0ms) immediately after activity, then grow the idle interval geometrically
+// up to a cap so an idle child costs little while staying responsive the moment
+// bytes flow or it exits.
+var _SPAWN_POLL_MIN_MS = 2;
+var _SPAWN_POLL_MAX_MS = 32;
+function _nextSpawnPollDelay(proc, hadActivity) {
+  if (hadActivity) {
+    proc._pollBackoff = _SPAWN_POLL_MIN_MS;
+    return 0;
+  }
+  var cur = proc._pollBackoff || _SPAWN_POLL_MIN_MS;
+  proc._pollBackoff = Math.min(cur * 2, _SPAWN_POLL_MAX_MS);
+  return cur;
+}
+
 // Validation helpers
 function _validateNullBytes(value, name) {
   if (typeof value === 'string' && value.indexOf('\0') !== -1) {
@@ -2737,8 +2775,10 @@ function ChildProcess(handle, pid, stdioModes) {
       }
     }
 
+    // (ENG-23032) Record activity so the driver loops below back off when idle.
+    self._lastPollActivity = hadActivity;
     if (!self._useNativePump && self._ref) {
-      self._pollTimer = setTimeout(pollStreams, hadActivity ? 0 : pollInterval);
+      self._pollTimer = setTimeout(pollStreams, _nextSpawnPollDelay(self, hadActivity));
     }
     self._pumpInProgress = false;
   }
@@ -2754,7 +2794,7 @@ function ChildProcess(handle, pid, stdioModes) {
         self.__pumpFromNative();
       }
       if (!self._exited && self._ref) {
-        self._pollTimer = setTimeout(nativePollFallback, pollInterval);
+        self._pollTimer = setTimeout(nativePollFallback, _nextSpawnPollDelay(self, self._lastPollActivity));
       }
     };
     // Keep the JS event loop alive until the spawn settles for top-level await cases
@@ -2771,7 +2811,7 @@ function ChildProcess(handle, pid, stdioModes) {
     var fallbackPoll = function() {
       pollStreams();
       if (!self._exited && self._ref) {
-        self._pollTimer = setTimeout(fallbackPoll, pollInterval);
+        self._pollTimer = setTimeout(fallbackPoll, _nextSpawnPollDelay(self, self._lastPollActivity));
       }
     };
     if (self._handle >= 0) {
@@ -3122,7 +3162,7 @@ ChildProcess.prototype.spawn = function(options) {
       } catch(e) {}
     }
     if (!self3._exited && self3._ref) {
-      self3._pollTimer = setTimeout(pollStreams2, hadActivity ? 0 : pollInterval);
+      self3._pollTimer = setTimeout(pollStreams2, _nextSpawnPollDelay(self3, hadActivity)); // (ENG-23032) back off when idle
     }
   }
 
