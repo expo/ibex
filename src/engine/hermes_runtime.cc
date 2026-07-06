@@ -790,7 +790,26 @@ void pushRuntimeCallback(ExactHermesRuntime* runtime,
         // concurrent free. Lock order registry -> callbackMutex; destroy never
         // locks callbackMutex, so there is no inversion.
         std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-        if (!runtimeIsRegisteredLocked(runtime)) return;
+        if (!runtimeIsRegisteredLocked(runtime)) {
+            // ENG-23033: the runtime is already destroyed (or mid-destroy on its
+            // own thread). `fn` routinely captures JSI handles by value —
+            // shared_ptr<jsi::Function>/<jsi::Object> for the fetch, DNS, HTTP,
+            // WebSocket and host-call completions. Letting `fn` be destructed
+            // here would run ~Function/~Object on THIS thread (a worker/network
+            // thread, since the runtime thread is gone), and PointerValue::
+            // invalidate() dereferences the freed HermesRuntime's value table —
+            // a use-after-free. There is no live runtime thread left to marshal
+            // the destruction to, so intentionally LEAK the callback (and its
+            // captures) rather than destroy JSI handles off-thread, mirroring the
+            // WebSocket ctx-release leak-on-dead-runtime fallback. Because every
+            // completion captures its handles by value, this leaked copy also
+            // pins the caller's own resolve/reject locals (refcount stays >= 1),
+            // so their drop at function return can't run ~Function off-thread
+            // either. The leak is bounded by the async work in flight at
+            // teardown; the runtime is being torn down regardless.
+            (void)new std::function<void(facebook::jsi::Runtime&)>(std::move(fn));
+            return;
+        }
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
         runtime->callbackQueue.push_back(std::move(fn));
     }
