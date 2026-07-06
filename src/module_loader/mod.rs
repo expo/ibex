@@ -1340,6 +1340,62 @@ mod tests {
             .ends_with("node_modules/exports-pkg/cjs.js"));
     }
 
+    // ENG-23007: `require.resolve` needs only the resolved path, so `resolve_meta`
+    // (which backs it over the ABI) must return the metadata WITHOUT reading or
+    // transpiling the module body. The differential proof is Node's own
+    // `require.resolve` semantics: resolving a module whose body is un-parseable
+    // still succeeds, because resolution never touches the body.
+    #[test]
+    fn resolve_meta_does_not_read_or_transpile_body() {
+        let dir = tempdir().unwrap();
+        // A .ts body that is a hard syntax error. The full loader would try to
+        // transpile it; resolve_meta must never open it.
+        let file = dir.path().join("broken.ts");
+        std::fs::write(&file, "export const x: = = 1 ((( not valid typescript $$$").unwrap();
+
+        let loader = test_loader();
+        let meta = loader
+            .resolve_meta("./broken", Some(&dir.path().join("entry.ts")))
+            .expect("resolve_meta must succeed for a syntactically-broken body");
+
+        assert_eq!(
+            meta.path.as_ref().unwrap().canonicalize().unwrap(),
+            file.canonicalize().unwrap()
+        );
+        // The proof the body was not read/transpiled: `source` is still unset.
+        // (The un-parseable body would fail transpile on the full load path.)
+        assert!(
+            meta.source.is_none(),
+            "resolve_meta must not load the module body"
+        );
+    }
+
+    // ENG-23007: the metadata-only path skips the load that the full resolve
+    // performs. For a VALID module, `resolve` populates `source` (read +
+    // transpiled) while `resolve_meta` leaves it `None` for the same path.
+    #[test]
+    fn resolve_meta_omits_source_that_full_resolve_loads() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("mod.ts");
+        std::fs::write(&file, "export const answer: number = 42;").unwrap();
+        let referrer = dir.path().join("entry.ts");
+
+        let loader = test_loader();
+        let meta = loader.resolve_meta("./mod", Some(&referrer)).unwrap();
+        assert!(
+            meta.source.is_none(),
+            "resolve_meta must not populate source"
+        );
+
+        let full = loader.resolve("./mod", Some(&referrer)).unwrap();
+        let source = full.source.expect("full resolve must load source");
+        // Transpiled TS: the `: number` annotation is stripped, proving the full
+        // path did the read + transpile work that resolve_meta skips.
+        assert!(source.contains("answer"));
+        assert!(!source.contains(": number"));
+        assert_eq!(meta.path, full.path);
+    }
+
     #[test]
     fn package_import_condition_prefers_import_over_default() {
         // `default` must be the lowest-priority fallback; with `import`

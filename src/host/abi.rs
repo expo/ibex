@@ -1147,13 +1147,14 @@ pub extern "C" fn ex_host_log_event(
     enqueue_stderr_line(payload.to_string());
 }
 
-#[no_mangle]
-pub extern "C" fn ex_host_module_resolve(
+/// Decode the `(specifier, referrer)` C-string pair the module-resolve bridges
+/// receive. Returns `None` when the specifier is null (caller returns null).
+fn module_resolve_args(
     specifier: *const c_char,
     referrer: *const c_char,
-) -> *mut c_char {
+) -> Option<(String, Option<String>)> {
     if specifier.is_null() {
-        return ptr::null_mut();
+        return None;
     }
     let spec = unsafe { CStr::from_ptr(specifier) }
         .to_string_lossy()
@@ -1167,6 +1168,49 @@ pub extern "C" fn ex_host_module_resolve(
                 .to_string(),
         )
     };
+    Some((spec, referrer))
+}
+
+/// The resolution-metadata fields shared by the full-resolve and metadata-only
+/// bridges: everything except the module `source`. `require.resolve` needs only
+/// these; the full `require`/`import` load path additionally attaches `source`.
+fn module_meta_json(module: &crate::module_loader::ResolvedModule) -> serde_json::Value {
+    json!({
+        "id": module.id,
+        "kind": match module.kind {
+            crate::module_loader::ModuleKind::Builtin => "builtin",
+            crate::module_loader::ModuleKind::CommonJs => "cjs",
+            crate::module_loader::ModuleKind::Json => "json",
+            crate::module_loader::ModuleKind::Esm => "esm",
+        },
+        "path": module.path.as_ref().map(|p| p.to_string_lossy().to_string()),
+        // Resolver-owned package metadata. The JS loader must not decide
+        // root-vs-package trust solely from the path shape because symlinked
+        // and realpathed dependencies can live outside `node_modules`.
+        "pkgName": module.package_name,
+        "pkgRoot": module.package_root.as_ref().map(|p| p.to_string_lossy().to_string()),
+        // The resolved package's own version (node_modules packages only),
+        // so the loader can form the `name@version` runtime identity for
+        // version-distinguished principals/compartments. (ENG-22621)
+        "pkgVersion": module.package_version,
+    })
+}
+
+fn module_resolve_cstring(payload: &serde_json::Value) -> *mut c_char {
+    match std::ffi::CString::new(payload.to_string()) {
+        Ok(cstr) => cstr.into_raw(),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_module_resolve(
+    specifier: *const c_char,
+    referrer: *const c_char,
+) -> *mut c_char {
+    let Some((spec, referrer)) = module_resolve_args(specifier, referrer) else {
+        return ptr::null_mut();
+    };
 
     let resolved = with_host(
         |host| {
@@ -1177,35 +1221,50 @@ pub extern "C" fn ex_host_module_resolve(
     );
 
     let payload = match resolved {
-        Ok(module) => json!({
-            "id": module.id,
-            "kind": match module.kind {
-                crate::module_loader::ModuleKind::Builtin => "builtin",
-                crate::module_loader::ModuleKind::CommonJs => "cjs",
-                crate::module_loader::ModuleKind::Json => "json",
-                crate::module_loader::ModuleKind::Esm => "esm",
-            },
-            "path": module.path.as_ref().map(|p| p.to_string_lossy().to_string()),
-            // Resolver-owned package metadata. The JS loader must not decide
-            // root-vs-package trust solely from the path shape because symlinked
-            // and realpathed dependencies can live outside `node_modules`.
-            "pkgName": module.package_name,
-            "pkgRoot": module.package_root.as_ref().map(|p| p.to_string_lossy().to_string()),
-            // The resolved package's own version (node_modules packages only),
-            // so the loader can form the `name@version` runtime identity for
-            // version-distinguished principals/compartments. (ENG-22621)
-            "pkgVersion": module.package_version,
-            "source": module.source.unwrap_or_default()
-        }),
+        Ok(module) => {
+            let mut record = module_meta_json(&module);
+            record["source"] = json!(module.source.unwrap_or_default());
+            record
+        }
         Err(err) => json!({
             "error": err.to_string()
         }),
     };
 
-    match std::ffi::CString::new(payload.to_string()) {
-        Ok(cstr) => cstr.into_raw(),
-        Err(_) => ptr::null_mut(),
-    }
+    module_resolve_cstring(&payload)
+}
+
+/// Metadata-only resolve: returns just the resolution record (id/kind/path/pkg
+/// fields, no `source`) so `require.resolve` can get the resolved path without
+/// the full-resolve bridge reading + transpiling + JSON-escaping the entire
+/// module body only for the loader to discard it. (ENG-23007)
+///
+/// Caller must free the returned string with `ex_host_free_string`.
+#[no_mangle]
+pub extern "C" fn ex_host_module_resolve_meta(
+    specifier: *const c_char,
+    referrer: *const c_char,
+) -> *mut c_char {
+    let Some((spec, referrer)) = module_resolve_args(specifier, referrer) else {
+        return ptr::null_mut();
+    };
+
+    let resolved = with_host(
+        |host| {
+            let path = referrer.as_ref().map(std::path::PathBuf::from);
+            host.resolve_module_meta(&spec, path.as_deref())
+        },
+        Err(anyhow::anyhow!("Host not initialized")),
+    );
+
+    let payload = match resolved {
+        Ok(module) => module_meta_json(&module),
+        Err(err) => json!({
+            "error": err.to_string()
+        }),
+    };
+
+    module_resolve_cstring(&payload)
 }
 
 #[no_mangle]

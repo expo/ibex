@@ -260,6 +260,9 @@ extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint
 extern "C" int64_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 extern "C" char* ex_host_module_resolve(const char* specifier, const char* referrer);
+// Metadata-only resolve for require.resolve: resolved path + package fields, no
+// module body read/transpile. (ENG-23007)
+extern "C" char* ex_host_module_resolve_meta(const char* specifier, const char* referrer);
 extern "C" void ex_host_free_string(char* value);
 extern "C" int32_t exact_get_state_mirror_buffer(
     void* handle,
@@ -1519,6 +1522,44 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto resolveModuleValue = facebook::jsi::Value(rt, resolveModuleFn);
   rt.global().setProperty(rt, "__exactModuleResolve", resolveModuleValue);
   rt.global().setProperty(rt, "__exactNativeModuleResolve", resolveModuleValue);
+
+  // Metadata-only resolve for require.resolve: returns the resolved path +
+  // package fields WITHOUT reading/transpiling/JSON-escaping the module body,
+  // which the full bridge above does and require.resolve then discards.
+  // Registered under both the canonical name and a stable native-fallback alias,
+  // mirroring the dual-registration pattern above so a future dev-server
+  // override can replace __exactModuleResolveMeta and still reach the native
+  // impl. (ENG-23007)
+  auto resolveModuleMetaFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactModuleResolveMeta"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isString()) {
+          return facebook::jsi::Value::null();
+        }
+        auto spec = args[0].toString(runtime).utf8(runtime);
+        std::string referrer;
+        if (count > 1 && args[1].isString()) {
+          referrer = args[1].toString(runtime).utf8(runtime);
+        }
+        char* json = ex_host_module_resolve_meta(
+            spec.c_str(),
+            referrer.empty() ? nullptr : referrer.c_str());
+        if (!json) {
+          return facebook::jsi::Value::null();
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, json);
+        ex_host_free_string(json);
+        return result;
+      });
+  auto resolveModuleMetaValue = facebook::jsi::Value(rt, resolveModuleMetaFn);
+  rt.global().setProperty(rt, "__exactModuleResolveMeta", resolveModuleMetaValue);
+  rt.global().setProperty(
+      rt, "__exactNativeModuleResolveMeta", resolveModuleMetaValue);
   installFetchGlobals(handle);
 
   // Deferred: Http host functions (registered lazily on first use)

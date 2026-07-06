@@ -292,6 +292,28 @@ impl Host {
         specifier: &str,
         referrer: Option<&std::path::Path>,
     ) -> anyhow::Result<ResolvedModule> {
+        let meta = self.resolve_module_meta(specifier, referrer)?;
+        self.module_loader.load_source(meta)
+    }
+
+    /// Resolve a module to its metadata only — the resolved absolute path plus
+    /// package fields — WITHOUT reading or transpiling the module body. Backs
+    /// `require.resolve`, which needs only the path and discards the source: the
+    /// full `resolve_module` used to read the target off disk, transpile it,
+    /// JSON-escape the entire body, and hand it to JS just for the loader to
+    /// throw it away and keep `rec.path`. This skips that per-resolve read +
+    /// transpile + alloc churn on hot plugin/config-discovery paths. (ENG-23007)
+    ///
+    /// The `fs:read:<path>` capability gate is preserved so a metadata-only
+    /// resolve carries the same authority as the full load path — this is a pure
+    /// performance optimization, not a loosening of the capability model. The
+    /// resolution itself (statting, reading `package.json`) already runs here
+    /// exactly as it did inside `resolve_module` before `load_source`.
+    pub fn resolve_module_meta(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+    ) -> anyhow::Result<ResolvedModule> {
         let meta = self.module_loader.resolve_meta(specifier, referrer)?;
         if let Some(path) = meta.path.as_ref() {
             let cap = format!("fs:read:{}", path.to_string_lossy());
@@ -299,6 +321,6 @@ impl Host {
                 anyhow::bail!("Permission denied for {}", path.display());
             }
         }
-        self.module_loader.load_source(meta)
+        Ok(meta)
     }
 }

@@ -39,6 +39,12 @@ specifier in this order `[observed]`:
 
 `resolve_module` on `Host` additionally enforces an `fs:read:<path>` capability
 before loading a resolved file path (`src/host/mod.rs:161-174`) `[observed]`.
+`Host::resolve_module_meta` runs the same resolution + `fs:read:<path>` gate but
+stops before `load_source`, returning only the metadata (path + package fields,
+no `source`); `resolve_module` is now `resolve_module_meta` + `load_source`. This
+backs `require.resolve`, which needs only the path and previously paid a full
+read + transpile + JSON-escape of the whole body just to discard it (ENG-23007)
+`[observed]`.
 
 ### The oxc_resolver configuration
 
@@ -117,6 +123,12 @@ The transformed builtin JS files are committed under
   `src/host/abi.rs:730-779`) `[observed]`. The Rust side returns a JSON object
   carrying `id`, `kind` (`builtin`/`cjs`/`json`/`esm`), `path`, and `source`
   `[observed]` (`src/host/abi.rs:758-769`).
+- `require.resolve` instead uses the metadata-only bridge
+  `__exactModuleResolveMeta` / `__exactNativeModuleResolveMeta` ->
+  `ex_host_module_resolve_meta`, which returns the identical record minus
+  `source` so no body is read/transpiled (ENG-23007) `[observed]`. The loader
+  prefers it and falls back to the full bridge when the meta binding is absent
+  (older embedded runtimes / tests).
 - The JS module-loader bootstrap (`src/engine/bootstrap/module-loader.js`)
   drives `require`/`import` against this resolve function `[observed]`
   (`src/engine/hermes_bootstrap.cc:193-204`).

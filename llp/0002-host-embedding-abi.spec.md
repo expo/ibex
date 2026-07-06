@@ -130,7 +130,9 @@ getrandom: filesystem ops (`ex_host_fs_*`, `src/host/abi.rs:601-1262`), SQLite
 (open/prepare/all/get/run/exec, `src/host/abi.rs:1264-1698`), env/time/random
 (`src/host/abi.rs:1700-1737`), console mirroring (`ex_host_console_log`,
 `src/host/abi.rs:1739`), capability check/grant/log
-(`src/host/abi.rs:661-727`), and module resolution (`ex_host_module_resolve`,
+(`src/host/abi.rs:661-727`), and module resolution (`ex_host_module_resolve`
+plus the metadata-only `ex_host_module_resolve_meta` that backs `require.resolve`
+without reading/transpiling the body, ENG-23007,
 `src/host/abi.rs:730-779` — see [LLP 0004](./0004-module-loading-and-builtins.explainer.md)).
 Strings returned to C are malloc'd via `CString::into_raw` and freed by
 `ex_host_free_string`/`ex_host_free_buffer` `[observed]`

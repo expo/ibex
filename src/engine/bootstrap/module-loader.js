@@ -5273,15 +5273,7 @@
       return exports;
     };
     localRequire.resolve = function(specifier) {
-      var json = __exactModuleResolve(specifier, filename || "");
-      if (!json) {
-        throw new Error("Cannot find module '" + specifier + "'");
-      }
-      var rec = JSON.parse(json);
-      if (rec.error) {
-        throw new Error("Cannot find module '" + specifier + "'");
-      }
-      return rec.path || rec.id || specifier;
+      return __exactResolvePath(specifier, filename || "");
     };
     localRequire.resolve.paths = function(specifier) {
       return null;
@@ -5584,8 +5576,17 @@
     return load(specifier, "");
   };
   globalThis.require.cache = cache;
-  globalThis.require.resolve = function(specifier) {
-    var json = __exactModuleResolve(specifier, "");
+  // require.resolve needs only the resolved path, so prefer the metadata-only
+  // bridge that skips the full resolver's read + transpile + JSON-escape of the
+  // module body (which require.resolve then discards). Fall back to the full
+  // resolve bridge in runtimes/tests that don't expose the meta binding — the
+  // record shape is identical apart from the omitted `source`. Hoisted, so the
+  // localRequire.resolve closure above can reach it. (ENG-23007)
+  function __exactResolvePath(specifier, referrer) {
+    var resolveMeta = (typeof __exactModuleResolveMeta === 'function')
+      ? __exactModuleResolveMeta
+      : __exactModuleResolve;
+    var json = resolveMeta(specifier, referrer || "");
     if (!json) {
       throw new Error("Cannot find module '" + specifier + "'");
     }
@@ -5594,6 +5595,9 @@
       throw new Error("Cannot find module '" + specifier + "'");
     }
     return record.path || record.id || specifier;
+  }
+  globalThis.require.resolve = function(specifier) {
+    return __exactResolvePath(specifier, "");
   };
   globalThis.require.resolve.paths = function(specifier) {
     return null;
