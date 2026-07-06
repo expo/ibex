@@ -2,7 +2,7 @@
 import { DOMException } from '../events/DOMException';
 import { ReadableStream, ReadableStreamDefaultController, WritableStream } from '../streams';
 import { WebSocket } from './WebSocket';
-import { WebSocketError } from './WebSocketError';
+import { WebSocketError, createWireWebSocketError } from './WebSocketError';
 
 export interface WebSocketStreamOptions {
   protocols?: string[];
@@ -135,11 +135,12 @@ function normalizeClosedInfo(code: number, reason: string): ClosedInfo {
 }
 
 function createWebSocketCloseError(message: string, code: number, reason: string): WebSocketError {
+  // Wire close codes are peer-controlled (1001/1011/... are all conforming),
+  // so this must go through the non-validating wire factory: a throwing
+  // constructor here would kill the close listener and leave opened/closed
+  // pending forever (ENG-23133).
   const closeCode = code === 1005 ? null : code;
-  return new WebSocketError(message, {
-    closeCode: closeCode === undefined ? null : closeCode,
-    reason,
-  });
+  return createWireWebSocketError(message, closeCode === undefined ? null : closeCode, reason);
 }
 
 function getMonotonicNow(): number {

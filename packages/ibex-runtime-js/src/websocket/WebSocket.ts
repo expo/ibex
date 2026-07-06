@@ -148,6 +148,16 @@ export class WebSocket extends EventTarget {
       );
     }
 
+    // Per spec, a WebSocket URL must not include credentials; proceeding
+    // would silently send userinfo on the wire.
+    // https://websockets.spec.whatwg.org/#dom-websocket-websocket
+    if (parsedUrl.username !== '' || parsedUrl.password !== '') {
+      throw new DOMException(
+        'The URL contains embedded credentials, which is not allowed in WebSocket URLs.',
+        'SyntaxError'
+      );
+    }
+
     if (isSecureContextForWebSocket() && parsedUrl.protocol === 'ws:') {
       throw new DOMException(
         'Cannot construct an insecure WebSocket from a secure context.',
@@ -270,10 +280,33 @@ export class WebSocket extends EventTarget {
       while (this._eventQueue.length > 0) {
         const next = this._eventQueue.shift();
         if (next) {
-          next();
+          try {
+            next();
+          } catch (error) {
+            // A throwing task must not abort the drain: later queued events
+            // (e.g. the 'close' behind a 'message') would be dropped forever,
+            // leaving readyState stuck at CLOSING (ENG-23133).
+            console.error('Error in WebSocket event handler:', error);
+          }
         }
       }
     }, 0);
+  }
+
+  /**
+   * Invoke an onX attribute handler with EventTarget's per-listener error
+   * semantics: report the exception and continue, so a throwing handler
+   * cannot break event delivery for the rest of the task (ENG-23133).
+   */
+  _callEventHandler(handler: ((this: WebSocket, ev: any) => any) | null, event: any): void {
+    if (!handler) {
+      return;
+    }
+    try {
+      handler.call(this, event);
+    } catch (error) {
+      console.error('Error in event listener:', error);
+    }
   }
 
   /**
@@ -552,9 +585,7 @@ export class WebSocket extends EventTarget {
         origin: new URL(this.url).origin,
       });
 
-      if (this._onmessage) {
-        this._onmessage.call(this, event);
-      }
+      this._callEventHandler(this._onmessage, event);
       this.dispatchEvent(event);
     });
   }
@@ -573,9 +604,7 @@ export class WebSocket extends EventTarget {
     this._enqueueEventTask(() => {
       const event = new Event('open');
 
-      if (this._onopen) {
-        this._onopen.call(this, event);
-      }
+      this._callEventHandler(this._onopen, event);
       this.dispatchEvent(event);
     });
   }
@@ -589,9 +618,7 @@ export class WebSocket extends EventTarget {
         message,
       });
 
-      if (this._onerror) {
-        this._onerror.call(this, event);
-      }
+      this._callEventHandler(this._onerror, event);
       this.dispatchEvent(event);
     });
   }
@@ -626,9 +653,7 @@ export class WebSocket extends EventTarget {
           wasClean,
         });
 
-        if (this._onclose) {
-          this._onclose.call(this, event);
-        }
+        this._callEventHandler(this._onclose, event);
         this.dispatchEvent(event);
       });
     }, 0);
