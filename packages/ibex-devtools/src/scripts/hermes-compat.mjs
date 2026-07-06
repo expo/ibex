@@ -1,5 +1,5 @@
 /**
- * Canonical Hermes-compat source transforms (LLP 0312).
+ * Canonical Hermes-compat source transforms (LLP 0019).
  *
  * This module is the single source of truth for the Hermes-compat bundle-time
  * transforms shared across Ibex build tooling and, via the vendored submodule,
@@ -24,14 +24,17 @@ import { parseModuleOrScript } from './parse-js.mjs';
 
 const compatExponentMarker = '__exactCompatPow__';
 
-// DUPLICATION SEAM (ENG-22559 / ENG-22558): this AST-based fixForOfScoping
-// has two independent siblings solving the same Hermes function-scoped-const
-// closure pitfall — the string-scanner twin in
-// vendor/ibex/src/engine/bootstrap/module-loader.js (nested-loop fix in ibex
-// 6c83354, ENG-22558) and a byte-identical AST copy in
-// vendor/ibex/packages/ibex-devtools/src/scripts/transforms.mjs. The
-// implementations have demonstrably drifted before; keep behavior fixes in
-// sync across all three until they are consolidated.
+// @ref LLP 0019#decision — this is the CANONICAL AST authority for the
+// Hermes-compat for-of rewrite (tier 1 of the documented two-tier split).
+// The former byte-identical copy in ./transforms.mjs is now a re-export
+// (ENG-22987); the string-scanner mirror in
+// src/engine/bootstrap/module-loader.js (tier 2) converged on this output
+// shape in ENG-22990 and is held to it by the shared corpus running through
+// the real binary (run-hermes-compat-loader.mjs). Behavior changes land HERE
+// first, with corpus fixtures; the scanner follows as far as its
+// no-parser-in-bootstrap constraints allow. The exact-devtools sibling is the
+// remaining independent copy until exact consolidates onto this file via the
+// vendored ibex pin (ENG-22567).
 export function fixForOfScoping(source) {
   if (!source || source.indexOf(' of ') === -1) {
     return source;

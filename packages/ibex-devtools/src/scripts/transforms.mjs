@@ -38,7 +38,7 @@ export const runtimeImportMetaDefine = Object.freeze({
   'import.meta.require': 'require',
 });
 
-// Canonical Hermes-compat transforms now live in ./hermes-compat.mjs (LLP 0312,
+// Canonical Hermes-compat transforms now live in ./hermes-compat.mjs (LLP 0019,
 // ENG-22987). They are imported here for internal use (createHermesCompatPlugin)
 // and re-exported so existing consumers of @ibex/devtools/scripts/transforms keep
 // working unchanged.

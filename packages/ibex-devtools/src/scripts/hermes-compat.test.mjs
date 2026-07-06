@@ -21,7 +21,7 @@ async function runAsyncFixture(source) {
 }
 
 // The canonical Hermes-compat module exposes the transform surface directly,
-// independent of the broader ibex-devtools bundler module (LLP 0312).
+// independent of the broader ibex-devtools bundler module (LLP 0019).
 describe('hermes-compat module surface', () => {
   it('exports the canonical transform functions', () => {
     for (const fn of [

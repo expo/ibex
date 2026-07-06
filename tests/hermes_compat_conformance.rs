@@ -1,6 +1,10 @@
 //! Hermes-compat conformance runners, enforced through `cargo test` /
 //! `scripts/run-tests.sh` (ENG-22989).
 //!
+//! @ref LLP 0019#the-enforced-conformance-seam — this is what makes the
+//! documented two-tier split (canonical AST authority + constrained loader
+//! scanner) safe: both tiers run the same corpus on every test run.
+//!
 //! Two runners share one corpus (`hermes-compat-corpus.mjs`) and one V8/Node
 //! oracle:
 //!

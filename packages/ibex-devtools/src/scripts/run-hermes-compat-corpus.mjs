@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Standalone Hermes-compat conformance runner (LLP 0312, ENG-22987).
+ * Standalone Hermes-compat conformance runner (LLP 0019, ENG-22987).
  *
  * Runs the shared for-of scoping corpus against the canonical AST transform and
  * the V8/Node spec oracle, and — when a Hermes binary is available — against the

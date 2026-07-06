@@ -2525,7 +2525,7 @@ fn bundler_cache_input_paths() -> Vec<PathBuf> {
             .join("src")
             .join("scripts")
             .join("transforms.mjs"),
-        // @ref LLP 0312 (ENG-22987) — the canonical Hermes-compat transforms
+        // @ref LLP 0019#consequences — ENG-22987: the canonical Hermes-compat transforms
         // (for-of scoping, exponentiation, BigInt, async generators) moved out
         // of transforms.mjs into hermes-compat.mjs, which transforms.mjs now
         // re-exports. The bundle cache must hash the file the logic actually
@@ -3592,7 +3592,7 @@ mod tests {
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/transforms.mjs")));
-        // @ref LLP 0312 (ENG-22987) — the extracted canonical transform source.
+        // @ref LLP 0019#decision — ENG-22987: the extracted canonical transform source.
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/hermes-compat.mjs")));

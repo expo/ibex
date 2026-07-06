@@ -1,5 +1,5 @@
 /**
- * Shared, implementation-neutral Hermes-compat conformance corpus (LLP 0312,
+ * Shared, implementation-neutral Hermes-compat conformance corpus (LLP 0019,
  * ENG-22569 / ENG-22987).
  *
  * These are the engine-honest `for...of` scoping fixtures promoted out of the

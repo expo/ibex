@@ -3237,6 +3237,16 @@
     }
   }
   function fixForOfScoping(source) {
+    // @ref LLP 0019#tier-2-the-embedded-loader-string-scanner — constrained
+    // mirror of the canonical AST transform in
+    // packages/ibex-devtools/src/scripts/hermes-compat.mjs: it runs inside
+    // the Hermes bootstrap with no parser, so it approximates the authority's
+    // rewrite set with line-based analysis (bails must stay coarser, never
+    // looser) while emitting the same iterator-protocol output shape.
+    // Behavioral agreement with the AST tier is enforced by the shared corpus
+    // through the real binary (run-hermes-compat-loader.mjs, ENG-22989);
+    // divergences must be encoded there explicitly.
+    //
     // Fast-path gate (ENG-22546): presence checks only. The old single-regex
     // gate matched the whole header with [^)]*, so a ")" inside a string or
     // regex literal in the binding (for (const { label = "(none)" } of xs))

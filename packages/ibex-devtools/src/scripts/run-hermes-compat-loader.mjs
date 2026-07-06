@@ -3,6 +3,11 @@
  * Hermes-compat conformance runner for the REAL Ibex module-loader path
  * (ENG-22989, follow-up to ENG-22987's AST-path runner).
  *
+ * @ref LLP 0019#the-enforced-conformance-seam — this runner is the
+ * cross-implementation differential test holding the loader scanner (tier 2)
+ * to the canonical AST authority's behavior (tier 1); loaderExpectations is
+ * the only sanctioned place to record a tier divergence.
+ *
  * Drives the shared for-of scoping corpus (hermes-compat-corpus.mjs) through
  * the actual built `ibex` binary. Each fixture is written as a module file and
  * loaded via `require()` from a generated entry, with `EXACT_COMPAT_TEST=1` so
