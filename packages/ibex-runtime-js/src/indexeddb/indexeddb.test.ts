@@ -11,6 +11,7 @@ import { join } from 'node:path';
 
 import { IDBFactory } from './IDBFactory';
 import { IDBKeyRange, compareKeys } from './IDBKeyRange';
+import { encodeOrderedKey, serializeKey, serializeValue } from './serialization';
 
 // ---------------------------------------------------------------------------
 // Test harness: a file-backed SQLite provider (real persistence across opens).
@@ -18,22 +19,43 @@ import { IDBKeyRange, compareKeys } from './IDBKeyRange';
 
 const tmpDirs: string[] = [];
 
-function makeFactory(): IDBFactory {
-  const dir = mkdtempSync(join(tmpdir(), 'idb-eng22974-'));
-  tmpDirs.push(dir);
-  const provider = {
+function dbPath(dir: string, name: string): string {
+  return join(dir, encodeURIComponent(name) + '.sqlite');
+}
+
+function makeProvider(dir: string, onSql?: (sql: string) => void) {
+  return {
     create(name: string) {
-      return new Database(join(dir, encodeURIComponent(name) + '.sqlite'));
+      const real = new Database(dbPath(dir, name));
+      if (!onSql) return real;
+      // Record every SQL string so tests can assert range/order pushdown.
+      const rec = (sql: string) => onSql(sql);
+      return {
+        query(sql: string) { rec(sql); return real.query(sql); },
+        exec(sql: string, ...p: any[]) { rec(sql); return (real as any).exec(sql, ...p); },
+        run(sql: string, ...p: any[]) { rec(sql); return (real as any).run(sql, ...p); },
+        prepare(sql: string) { rec(sql); return (real as any).prepare(sql); },
+        close() { return real.close(); },
+      };
     },
     delete(name: string) {
       for (const suffix of ['', '-wal', '-shm', '-journal']) {
         try {
-          rmSync(join(dir, encodeURIComponent(name) + '.sqlite' + suffix));
+          rmSync(dbPath(dir, name) + suffix);
         } catch (_) {}
       }
     },
   };
-  return new IDBFactory(provider as any);
+}
+
+function makeDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'idb-eng22974-'));
+  tmpDirs.push(dir);
+  return dir;
+}
+
+function makeFactory(): IDBFactory {
+  return new IDBFactory(makeProvider(makeDir()) as any);
 }
 
 afterAll(() => {
@@ -403,6 +425,258 @@ describe('finding 5: autoIncrement counter & key-only paths', () => {
 
     const atx = db.transaction('s', 'readonly');
     expect(await reqDone(atx.objectStore('s').getAllKeys())).toEqual([1, 2, 8, 9, 10]);
+    db.close();
+  });
+});
+
+// ===========================================================================
+// ENG-22999 — order-preserving key encoding + SQL range/order pushdown.
+// ===========================================================================
+
+describe('ENG-22999: ordered key encoding', () => {
+  test('encoded byte order matches compareKeys order for random keys', () => {
+    const strcmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    const sgn = (n: number) => (n < 0 ? -1 : n > 0 ? 1 : 0);
+
+    const randKey = (depth: number): any => {
+      const r = Math.random();
+      if (depth > 0 && r < 0.2) {
+        const len = Math.floor(Math.random() * 4);
+        return Array.from({ length: len }, () => randKey(depth - 1));
+      }
+      switch (Math.floor(Math.random() * 4)) {
+        case 0: {
+          // Finite numbers only: compareKeys(a,b) = a-b is NaN for equal
+          // infinities, so ±Infinity is a compareKeys quirk, not an encoding one.
+          const picks = [0, -0, 1, -1, 3.5, -3.5, 42, 41.9999, 255, 256, 1e12, -1e12];
+          return Math.random() < 0.5
+            ? picks[Math.floor(Math.random() * picks.length)]
+            : (Math.random() - 0.5) * 10 ** (Math.floor(Math.random() * 16) - 6);
+        }
+        case 1:
+          return new Date(Math.floor((Math.random() - 0.5) * 4e12));
+        case 2: {
+          const words = ['', 'a', 'b', 'ab', 'abc', 'app', 'apple', 'apply', 'Z', 'z', 'é', '😀'];
+          if (Math.random() < 0.6) return words[Math.floor(Math.random() * words.length)];
+          let s = '';
+          for (let i = 0, n = Math.floor(Math.random() * 4); i < n; i++) {
+            s += String.fromCharCode(Math.floor(Math.random() * 400));
+          }
+          return s;
+        }
+        default: {
+          const n = Math.floor(Math.random() * 4);
+          const bytes = new Uint8Array(n);
+          for (let i = 0; i < n; i++) bytes[i] = Math.floor(Math.random() * 256);
+          return bytes;
+        }
+      }
+    };
+
+    for (let i = 0; i < 20000; i++) {
+      const a = randKey(2);
+      const b = randKey(2);
+      const raw = compareKeys(a, b);
+      const enc = strcmp(encodeOrderedKey(a), encodeOrderedKey(b));
+      expect(sgn(raw)).toBe(enc);
+    }
+  });
+
+  test('encoding is deterministic and collates -0 equal to 0', () => {
+    expect(encodeOrderedKey(0)).toBe(encodeOrderedKey(-0));
+    expect(encodeOrderedKey([1, 'a'])).toBe(encodeOrderedKey([1, 'a']));
+    // Cross-type: every number sorts before every date before every string
+    // before binary before array, regardless of value.
+    expect(encodeOrderedKey(1e300) < encodeOrderedKey(new Date(0))).toBe(true);
+    expect(encodeOrderedKey(new Date(8e12)) < encodeOrderedKey('')).toBe(true);
+    expect(encodeOrderedKey('￿') < encodeOrderedKey(new Uint8Array([0]))).toBe(true);
+    expect(encodeOrderedKey(new Uint8Array([255])) < encodeOrderedKey([])).toBe(true);
+  });
+});
+
+describe('ENG-22999: SQL range/order pushdown', () => {
+  test('ranged reads/count/delete return correct results on a large mixed store', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'p1', 1, (d) => d.createObjectStore('s'));
+
+    const wtx = db.transaction('s', 'readwrite');
+    const ws = wtx.objectStore('s');
+    for (let i = 0; i < 500; i++) ws.put(`v${i}`, i);
+    await txDone(wtx);
+
+    // getAll(range) ordered + bounded.
+    let tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getAll(IDBKeyRange.bound(100, 104))))
+      .toEqual(['v100', 'v101', 'v102', 'v103', 'v104']);
+
+    // Open-ended + count limit.
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getAll(IDBKeyRange.lowerBound(490), 3)))
+      .toEqual(['v490', 'v491', 'v492']);
+
+    // getAllKeys(range) and count(range).
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getAllKeys(IDBKeyRange.bound(10, 12, true, false))))
+      .toEqual([11, 12]);
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').count(IDBKeyRange.bound(200, 299)))).toBe(100);
+
+    // get(range) / getKey(range) return the first (smallest) match.
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').get(IDBKeyRange.lowerBound(300)))).toBe('v300');
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getKey(IDBKeyRange.bound(42, 99)))).toBe(42);
+
+    // delete(range) removes exactly the range.
+    const dtx = db.transaction('s', 'readwrite');
+    dtx.objectStore('s').delete(IDBKeyRange.bound(0, 449));
+    await txDone(dtx);
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').count())).toBe(50);
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getKey(IDBKeyRange.lowerBound(0)))).toBe(450);
+    db.close();
+  });
+
+  test('mixed key types sort per spec (number < date < string < binary < array)', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'p2', 1, (d) => d.createObjectStore('s'));
+
+    const keys: any[] = [
+      [2, 'b'], [1], 'zzz', 'a', new Date(1000), new Date(0), 5, -3,
+      new Uint8Array([0, 1]), new Uint8Array([0]),
+    ];
+    const wtx = db.transaction('s', 'readwrite');
+    const ws = wtx.objectStore('s');
+    keys.forEach((k, i) => ws.put(i, k));
+    await txDone(wtx);
+
+    const sorted = [...keys].sort(compareKeys);
+    const tx = db.transaction('s', 'readonly');
+    const gotKeys = await reqDone<any[]>(tx.objectStore('s').getAllKeys());
+    // getAllKeys returns keys already in IndexedDB order via ORDER BY keyenc.
+    // Normalize binary keys (which deserialize back to Uint8Array) for compare.
+    const norm = (k: any) =>
+      ArrayBuffer.isView(k) ? { bin: Array.from(k as any) } : k instanceof Date ? { ms: k.getTime() } : k;
+    expect(gotKeys.map(norm)).toEqual(sorted.map(norm));
+    db.close();
+  });
+
+  test('openCursor streams only the matching range, in both directions', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'p3', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    const ws = wtx.objectStore('s');
+    for (let i = 0; i < 50; i++) ws.put(`v${i}`, i);
+    await txDone(wtx);
+
+    const collect = (store: any, range: any, dir: any) =>
+      new Promise<any[]>((resolve, reject) => {
+        const out: any[] = [];
+        const req = store.openCursor(range, dir);
+        req.onsuccess = () => {
+          const cur = req.result;
+          if (!cur) return resolve(out);
+          out.push([cur.key, cur.value]);
+          cur.continue();
+        };
+        req.onerror = () => reject(req.error);
+      });
+
+    let tx = db.transaction('s', 'readonly');
+    expect(await collect(tx.objectStore('s'), IDBKeyRange.bound(5, 8), 'next'))
+      .toEqual([[5, 'v5'], [6, 'v6'], [7, 'v7'], [8, 'v8']]);
+
+    tx = db.transaction('s', 'readonly');
+    expect(await collect(tx.objectStore('s'), IDBKeyRange.bound(5, 8), 'prev'))
+      .toEqual([[8, 'v8'], [7, 'v7'], [6, 'v6'], [5, 'v5']]);
+
+    // Cursor write-loop: mutate every record in a range via cursor.update.
+    const utx = db.transaction('s', 'readwrite');
+    await new Promise<void>((resolve, reject) => {
+      const req = utx.objectStore('s').openCursor(IDBKeyRange.bound(10, 12));
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return;
+        cur.update(`U${cur.key}`);
+        cur.continue();
+      };
+      req.onerror = () => reject(req.error);
+      utx.oncomplete = () => resolve();
+    });
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getAll(IDBKeyRange.bound(10, 12))))
+      .toEqual(['U10', 'U11', 'U12']);
+    db.close();
+  });
+
+  test('count(range) and getAll(range) push filtering into SQL (no full-table scan)', async () => {
+    const seen: string[] = [];
+    const dir = makeDir();
+    const factory = new IDBFactory(makeProvider(dir, (sql) => seen.push(sql)) as any);
+    const db = await openDb(factory, 'p4', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 100; i++) wtx.objectStore('s').put(`v${i}`, i);
+    await txDone(wtx);
+
+    // count(range): a COUNT with a keyenc WHERE, and no full row materialization.
+    seen.length = 0;
+    const ctx = db.transaction('s', 'readonly');
+    await reqDone(ctx.objectStore('s').count(IDBKeyRange.bound(10, 20)));
+    expect(seen.some((s) => /COUNT\(\*\)/.test(s) && /WHERE keyenc/.test(s))).toBe(true);
+    expect(seen.some((s) => /SELECT key, value FROM/.test(s))).toBe(false);
+
+    // getAll(range): a WHERE keyenc + ORDER BY keyenc; only matching rows read.
+    seen.length = 0;
+    const gtx = db.transaction('s', 'readonly');
+    await reqDone(gtx.objectStore('s').getAll(IDBKeyRange.bound(10, 20)));
+    expect(seen.some((s) => /WHERE keyenc/.test(s) && /ORDER BY keyenc/.test(s))).toBe(true);
+    db.close();
+  });
+
+  test('legacy store without keyenc is migrated (ALTER + backfill) and range-queryable', async () => {
+    const dir = makeDir();
+    const name = 'legacy';
+
+    // Hand-build a database in the pre-ENG-22999 on-disk shape: a store table
+    // with only (key, value) and no keyenc column/index.
+    const raw = new Database(dbPath(dir, name));
+    raw.run(`CREATE TABLE _idb_meta (key TEXT PRIMARY KEY, value TEXT)`);
+    raw.run(`INSERT INTO _idb_meta(key, value) VALUES ('version', '1')`);
+    raw.run(`CREATE TABLE _idb_stores (store_name TEXT PRIMARY KEY, key_path TEXT, auto_increment INTEGER DEFAULT 0)`);
+    raw.run(`INSERT INTO _idb_stores(store_name, key_path, auto_increment) VALUES ('s', 'null', 0)`);
+    raw.run(`CREATE TABLE _idb_indexes (store_name TEXT, index_name TEXT, key_path TEXT, unique_flag INTEGER DEFAULT 0, multi_entry INTEGER DEFAULT 0, PRIMARY KEY (store_name, index_name))`);
+    raw.run(`CREATE TABLE "idb_store_s" (key TEXT PRIMARY KEY, value TEXT)`);
+    for (let i = 1; i <= 10; i++) {
+      raw.run(
+        `INSERT INTO "idb_store_s" (key, value) VALUES (?, ?)`,
+        serializeKey(i),
+        serializeValue(`v${i}`),
+      );
+    }
+    raw.close();
+
+    const factory = new IDBFactory(makeProvider(dir) as any);
+    const db = await openDb(factory, name, undefined);
+    expect(db.version).toBe(1);
+
+    // Range/order queries work on the migrated data (backfilled keyenc).
+    let tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getAllKeys()))
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getAll(IDBKeyRange.bound(3, 7))))
+      .toEqual(['v3', 'v4', 'v5', 'v6', 'v7']);
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').count(IDBKeyRange.lowerBound(8)))).toBe(3);
+
+    // New writes keep keyenc in sync and remain range-queryable.
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put('v11', 11);
+    await txDone(wtx);
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getAll(IDBKeyRange.lowerBound(9))))
+      .toEqual(['v9', 'v10', 'v11']);
     db.close();
   });
 });

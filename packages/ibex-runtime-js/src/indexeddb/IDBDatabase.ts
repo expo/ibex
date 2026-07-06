@@ -9,6 +9,7 @@
 import { IDBTransaction, type IDBTransactionMode } from './IDBTransaction';
 import { IDBObjectStore, type IDBObjectStoreParameters } from './IDBObjectStore';
 import { IDBIndex } from './IDBIndex';
+import { deserializeKey, encodeOrderedKey } from './serialization';
 import { DOMException, makeDOMStringList, sanitizeName } from './utils';
 
 export class IDBDatabase {
@@ -24,6 +25,13 @@ export class IDBDatabase {
   _upgradeTransaction: IDBTransaction | null = null;
   /** @internal - EventTarget listeners keyed by event type */
   private _listeners: Record<string, Function[]> = {};
+  /**
+   * @internal - Store tables whose order-preserving `keyenc` column + index
+   * have already been ensured/backfilled on this connection, so the check runs
+   * at most once per store per open rather than on every objectStore() call.
+   * (ENG-22999)
+   */
+  private _keyencReady: Set<string> = new Set();
 
   onclose: ((event: any) => void) | null = null;
   onversionchange: ((event: any) => void) | null = null;
@@ -326,6 +334,37 @@ export class IDBDatabase {
   _resetAutoIncrement(name: string): void {
     const info = this._objectStores.get(name);
     if (info) info.autoIncrementValue = 0;
+  }
+
+  /**
+   * @internal - Ensure the order-preserving `keyenc` column and its index exist
+   * on a store table, migrating (ALTER + backfill) any store created before
+   * this column was introduced. The result is memoized per connection so the
+   * PRAGMA check is paid at most once per store per open, keeping it off the
+   * hot path (mirrors the autoIncrement caching above). Freshly created tables
+   * already declare `keyenc`, so they only pay the CREATE INDEX. (ENG-22999)
+   */
+  _ensureKeyEnc(tableName: string): void {
+    if (this._keyencReady.has(tableName)) return;
+
+    const cols = this._all(`PRAGMA table_info("${tableName}")`);
+    const hasKeyenc = cols.some((c: any) => c.name === 'keyenc');
+    if (!hasKeyenc) {
+      this._exec(`ALTER TABLE "${tableName}" ADD COLUMN keyenc TEXT`);
+      // Backfill the ordered encoding for every pre-existing row. One-time O(n)
+      // cost on first open of a legacy store; afterwards all writes maintain it.
+      const rows = this._all(`SELECT key FROM "${tableName}"`);
+      for (const r of rows) {
+        this._exec(
+          `UPDATE "${tableName}" SET keyenc = ? WHERE key = ?`,
+          [encodeOrderedKey(deserializeKey(r.key)), r.key],
+        );
+      }
+    }
+    this._exec(
+      `CREATE INDEX IF NOT EXISTS "${tableName}_keyenc" ON "${tableName}"(keyenc)`,
+    );
+    this._keyencReady.add(tableName);
   }
 
   /**

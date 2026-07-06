@@ -24,30 +24,39 @@ export class IDBCursor {
     direction: IDBCursorDirection,
     records: Array<{ key: any; primaryKey: any; value: any }>,
     request: IDBRequest,
+    presorted: boolean = false,
   ) {
     this._source = source;
     this._direction = direction;
     this._request = request;
 
-    // Sort records based on direction
-    const sorted = [...records];
-    if (direction === 'prev' || direction === 'prevunique') {
-      sorted.sort((a, b) => compareKeys(b.key, a.key));
+    if (presorted) {
+      // The caller already ordered the rows by direction in SQL and guarantees
+      // unique keys (object-store cursors), so no JS sort or dedup is needed —
+      // this is what lets a ranged/unbounded object-store cursor avoid the
+      // O(n log n) re-sort the old path always paid. (ENG-22999)
+      this._records = records;
     } else {
-      sorted.sort((a, b) => compareKeys(a.key, b.key));
-    }
+      // Sort records based on direction
+      const sorted = [...records];
+      if (direction === 'prev' || direction === 'prevunique') {
+        sorted.sort((a, b) => compareKeys(b.key, a.key));
+      } else {
+        sorted.sort((a, b) => compareKeys(a.key, b.key));
+      }
 
-    // For unique directions, deduplicate by key
-    if (direction === 'nextunique' || direction === 'prevunique') {
-      const seen = new Set<string>();
-      this._records = sorted.filter(r => {
-        const keyStr = JSON.stringify(r.key);
-        if (seen.has(keyStr)) return false;
-        seen.add(keyStr);
-        return true;
-      });
-    } else {
-      this._records = sorted;
+      // For unique directions, deduplicate by key
+      if (direction === 'nextunique' || direction === 'prevunique') {
+        const seen = new Set<string>();
+        this._records = sorted.filter(r => {
+          const keyStr = JSON.stringify(r.key);
+          if (seen.has(keyStr)) return false;
+          seen.add(keyStr);
+          return true;
+        });
+      } else {
+        this._records = sorted;
+      }
     }
 
     this._position = 0;
@@ -187,8 +196,9 @@ export class IDBCursorWithValue extends IDBCursor {
     direction: IDBCursorDirection,
     records: Array<{ key: any; primaryKey: any; value: any }>,
     request: IDBRequest,
+    presorted: boolean = false,
   ) {
-    super(source, direction, records, request);
+    super(source, direction, records, request, presorted);
     this._valueRecords = (this as any)._records;
   }
 

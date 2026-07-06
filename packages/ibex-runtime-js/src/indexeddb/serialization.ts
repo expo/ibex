@@ -13,7 +13,17 @@
  * The encoding wraps special types in an object carrying a reserved tag key.
  * User objects that happen to contain that key are escaped so they round-trip
  * unambiguously.
+ *
+ * Separately, `encodeOrderedKey` produces an *order-preserving* text encoding
+ * of a key (see the block at the bottom of this file). The tagged-JSON key
+ * above is deterministic and reversible but does NOT sort lexicographically, so
+ * range/order queries had to scan the whole table and filter/sort in JS. The
+ * ordered encoding lets SQLite do `WHERE keyenc BETWEEN ? AND ?` and
+ * `ORDER BY keyenc` in the same order IndexedDB's compareKeys() defines, so the
+ * filtering and ordering push down into SQL (ENG-22999).
  */
+
+import { DOMException } from './utils';
 
 const TAG = '__idb_tag__';
 
@@ -155,4 +165,149 @@ export function serializeKey(key: any): string {
  */
 export function deserializeKey(text: string): any {
   return decode(JSON.parse(text));
+}
+
+// ===========================================================================
+// Order-preserving key encoding (ENG-22999)
+//
+// Produces a text string whose default SQLite (BINARY / memcmp) ordering equals
+// the IndexedDB key ordering that compareKeys() implements:
+//   Number < Date < String < Binary < Array
+// and, within each type, the spec ordering (numeric, ms, UTF-16 code units,
+// unsigned byte-wise, element-wise). This is stored in a separate `keyenc`
+// column so range predicates and ORDER BY can run in SQL instead of a full JS
+// scan+sort. It is intentionally NOT reversible: keys are always reconstructed
+// from the tagged-JSON `key` column, so the encoding only needs to be a total,
+// deterministic, order-preserving embedding — never decoded.
+//
+// The alphabet of a scalar (non-array) encoding is a leading type tag digit
+// ('1'..'5') plus lowercase hex, i.e. only bytes >= 0x30. Arrays additionally
+// use three control bytes that all sort BELOW 0x30:
+//   ORD_END (0x01) terminates an array, ORD_SEP (0x02) precedes each element,
+//   ORD_ESC (0x03) escapes any control byte that appears inside a nested
+//   element's encoding (so a nested array's structure can't collide with its
+//   parent's separators). With escaping, an element's bytes are all >= ORD_ESC,
+//   so ORD_END < ORD_SEP < every element byte — which is exactly what makes the
+//   element-wise + shorter-is-smaller array ordering fall out of memcmp.
+// ===========================================================================
+
+const ORD_TAG_NUMBER = '1';
+const ORD_TAG_DATE = '2';
+const ORD_TAG_STRING = '3';
+const ORD_TAG_BINARY = '4';
+const ORD_TAG_ARRAY = '5';
+
+const ORD_END = '\x01';
+const ORD_SEP = '\x02';
+const ORD_ESC = '\x03';
+
+// Reused scratch view so the double->ordered-bits transform allocates nothing.
+const _ordDataView = new DataView(new ArrayBuffer(8));
+
+function hex8(n: number): string {
+  return (n >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Map an IEEE-754 double onto a 64-bit unsigned integer whose ordering matches
+ * the numeric ordering of the doubles, rendered as 16 fixed-width hex chars.
+ * Positive numbers get the sign bit set; negatives are fully inverted. -0 is
+ * normalized to +0 so it collates equal to 0 (compareKeys treats them equal).
+ *
+ * Done with two 32-bit halves rather than BigInt/getBigUint64 so it does not
+ * depend on BigInt DataView methods being present in the host engine.
+ */
+function encodeDoubleOrdered(value: number): string {
+  let v = value;
+  if (Object.is(v, -0)) v = 0;
+  _ordDataView.setFloat64(0, v, false); // big-endian, platform-independent
+  let hi = _ordDataView.getUint32(0, false);
+  let lo = _ordDataView.getUint32(4, false);
+  if (hi & 0x80000000) {
+    // Negative: invert every bit so more-negative sorts smaller.
+    hi = ~hi >>> 0;
+    lo = ~lo >>> 0;
+  } else {
+    // Positive / +0: set the sign bit so it sorts above all negatives.
+    hi = (hi | 0x80000000) >>> 0;
+  }
+  return hex8(hi) + hex8(lo);
+}
+
+function ordBinaryBytes(v: any): Uint8Array {
+  if (v instanceof ArrayBuffer) return new Uint8Array(v);
+  return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+}
+
+/**
+ * Escape the array control bytes (ORD_END/ORD_SEP/ORD_ESC) inside a nested
+ * element's encoding so they can't be confused with the enclosing array's
+ * structure. Each control byte c (0x01..0x03) becomes ORD_ESC + (c + 0x30),
+ * a two-char sequence beginning with 0x03; this per-symbol code is prefix-free
+ * and order-preserving, so it preserves both ordering and the prefix relation.
+ */
+function ordEscape(s: string): string {
+  // Fast path: scalar element encodings never contain control bytes.
+  if (!/[\x01\x02\x03]/.test(s)) return s;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 1 && c <= 3) {
+      out += ORD_ESC + String.fromCharCode(c + 0x30);
+    } else {
+      out += s[i];
+    }
+  }
+  return out;
+}
+
+function ordThrowInvalid(): never {
+  throw new DOMException('The parameter is not a valid key.', 'DataError');
+}
+
+function encodeOrderedRaw(key: any): string {
+  if (typeof key === 'number') {
+    if (Number.isNaN(key)) ordThrowInvalid();
+    return ORD_TAG_NUMBER + encodeDoubleOrdered(key);
+  }
+  if (key instanceof Date) {
+    const t = key.getTime();
+    if (Number.isNaN(t)) ordThrowInvalid();
+    return ORD_TAG_DATE + encodeDoubleOrdered(t);
+  }
+  if (typeof key === 'string') {
+    // One fixed-width (4 hex) group per UTF-16 code unit, matching the
+    // code-unit comparison compareKeys() uses for strings.
+    let out = ORD_TAG_STRING;
+    for (let i = 0; i < key.length; i++) {
+      out += key.charCodeAt(i).toString(16).padStart(4, '0');
+    }
+    return out;
+  }
+  if (key instanceof ArrayBuffer || ArrayBuffer.isView(key)) {
+    const bytes = ordBinaryBytes(key);
+    let out = ORD_TAG_BINARY;
+    for (let i = 0; i < bytes.length; i++) {
+      out += bytes[i].toString(16).padStart(2, '0');
+    }
+    return out;
+  }
+  if (Array.isArray(key)) {
+    let out = ORD_TAG_ARRAY;
+    for (const el of key) {
+      out += ORD_SEP + ordEscape(encodeOrderedRaw(el));
+    }
+    out += ORD_END;
+    return out;
+  }
+  ordThrowInvalid();
+}
+
+/**
+ * Encode an IndexedDB key to an order-preserving text form (see block comment
+ * above). Throws a DataError DOMException for anything that is not a valid key,
+ * mirroring compareKeys().
+ */
+export function encodeOrderedKey(key: any): string {
+  return encodeOrderedRaw(key);
 }

@@ -8,9 +8,9 @@
 
 import { IDBRequest } from './IDBRequest';
 import { IDBIndex, type IDBIndexParameters, extractKeyPath } from './IDBIndex';
-import { IDBKeyRange, compareKeys, isValidKey } from './IDBKeyRange';
+import { IDBKeyRange, isValidKey } from './IDBKeyRange';
 import { IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
-import { serializeKey, deserializeKey, serializeValue, deserializeValue } from './serialization';
+import { serializeKey, deserializeKey, serializeValue, deserializeValue, encodeOrderedKey } from './serialization';
 import { DOMException, sanitizeName } from './utils';
 
 export interface IDBObjectStoreParameters {
@@ -109,9 +109,11 @@ export class IDBObjectStore {
     request.transaction = this._transaction;
     try {
       if (query instanceof IDBKeyRange) {
-        const records = this._getAllRecords();
-        const match = records.find((r: any) => query.includes(r.key));
-        request._resolve(match ? match.value : undefined);
+        // Push the range + "first match" into SQL: only the smallest matching
+        // row is fetched and deserialized, not the whole table. (ENG-22999)
+        const { sql, params } = this._selectRange('value', query, 'asc', 1);
+        const row = this._db._get(sql, params);
+        request._resolve(row ? deserializeValue(row.value) : undefined);
       } else {
         const value = this._getRecord(query);
         request._resolve(value);
@@ -132,9 +134,10 @@ export class IDBObjectStore {
     request.transaction = this._transaction;
     try {
       if (query instanceof IDBKeyRange) {
-        const keys = this._getAllKeys();
-        const match = keys.find((k: any) => query.includes(k));
-        request._resolve(match !== undefined ? match : undefined);
+        // Smallest matching key only — filtered and ordered in SQL. (ENG-22999)
+        const { sql, params } = this._selectRange('key', query, 'asc', 1);
+        const row = this._db._get(sql, params);
+        request._resolve(row ? deserializeKey(row.key) : undefined);
       } else {
         const value = this._getRecord(query);
         request._resolve(value !== undefined ? query : undefined);
@@ -154,15 +157,13 @@ export class IDBObjectStore {
     request.source = this;
     request.transaction = this._transaction;
     try {
-      let records = this._getAllRecords();
-      if (query !== undefined && query !== null) {
-        const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-        records = records.filter((r: any) => range.includes(r.key));
-      }
-      if (count !== undefined && count >= 0) {
-        records = records.slice(0, count);
-      }
-      request._resolve(records.map((r: any) => r.value));
+      // Filter, order and limit in SQL so only the matching values are read
+      // and deserialized instead of the entire table. (ENG-22999)
+      const range = this._queryRange(query);
+      const limit = count !== undefined && count >= 0 ? count : undefined;
+      const { sql, params } = this._selectRange('value', range, 'asc', limit);
+      const rows = this._db._all(sql, params);
+      request._resolve(rows.map((r: any) => deserializeValue(r.value)));
     } catch (e: any) {
       request._reject(e);
     }
@@ -178,16 +179,12 @@ export class IDBObjectStore {
     request.source = this;
     request.transaction = this._transaction;
     try {
-      // Only the keys are needed, so avoid deserializing every record value.
-      let keys = this._getAllKeys();
-      if (query !== undefined && query !== null) {
-        const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-        keys = keys.filter((k: any) => range.includes(k));
-      }
-      if (count !== undefined && count >= 0) {
-        keys = keys.slice(0, count);
-      }
-      request._resolve(keys);
+      // Key column only, filtered/ordered/limited in SQL. (ENG-22999)
+      const range = this._queryRange(query);
+      const limit = count !== undefined && count >= 0 ? count : undefined;
+      const { sql, params } = this._selectRange('key', range, 'asc', limit);
+      const rows = this._db._all(sql, params);
+      request._resolve(rows.map((r: any) => deserializeKey(r.key)));
     } catch (e: any) {
       request._reject(e);
     }
@@ -204,10 +201,10 @@ export class IDBObjectStore {
     request.transaction = this._transaction;
     try {
       if (query instanceof IDBKeyRange) {
-        // Find matching keys (no value deserialization) and delete them in one
-        // statement rather than issuing a DELETE per key.
-        const matches = this._getAllKeys().filter((k: any) => query.includes(k));
-        this._deleteRecords(matches);
+        // Delete the matching range directly in SQL — no scan, no per-row key
+        // deserialization, a single statement. (ENG-22999)
+        const { where, params } = this._rangeConds(query);
+        this._db._exec(`DELETE FROM "${this._tableName}"${where}`, params);
       } else {
         this._deleteRecord(query);
       }
@@ -247,10 +244,15 @@ export class IDBObjectStore {
       if (query === undefined || query === null) {
         request._resolve(this._countRecords());
       } else {
+        // COUNT(*) with the range pushed into a keyenc WHERE clause — no rows
+        // are materialized in JS at all. (ENG-22999)
         const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-        // Count over keys only; no value deserialization.
-        const keys = this._getAllKeys();
-        request._resolve(keys.filter((k: any) => range.includes(k)).length);
+        const { where, params } = this._rangeConds(range);
+        const row = this._db._get(
+          `SELECT COUNT(*) as cnt FROM "${this._tableName}"${where}`,
+          params,
+        );
+        request._resolve(row ? row.cnt : 0);
       }
     } catch (e: any) {
       request._reject(e);
@@ -314,20 +316,24 @@ export class IDBObjectStore {
     request.source = this;
     request.transaction = this._transaction;
     try {
-      let records = this._getAllRecords();
-      if (query !== undefined && query !== null) {
-        const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-        records = records.filter((r: any) => range.includes(r.key));
-      }
-      if (records.length === 0) {
+      // Select only the matching rows, already ordered by the cursor's
+      // direction in SQL, so the cursor never scans/deserializes the whole
+      // table or re-sorts in JS. Object-store keys are unique, so the ordered
+      // rows can be handed to the cursor pre-sorted (nextunique/prevunique are
+      // equivalent to next/prev here). (ENG-22999)
+      const dir = direction ?? 'next';
+      const range = this._queryRange(query);
+      const sqlDir = dir === 'prev' || dir === 'prevunique' ? 'desc' : 'asc';
+      const { sql, params } = this._selectRange('key, value', range, sqlDir);
+      const rows = this._db._all(sql, params);
+      if (rows.length === 0) {
         request._resolve(null);
       } else {
-        const cursorRecords = records.map((r: any) => ({
-          key: r.key,
-          primaryKey: r.key,
-          value: r.value,
-        }));
-        const cursor = new IDBCursorWithValue(this, direction ?? 'next', cursorRecords, request);
+        const cursorRecords = rows.map((r: any) => {
+          const key = deserializeKey(r.key);
+          return { key, primaryKey: key, value: deserializeValue(r.value) };
+        });
+        const cursor = new IDBCursorWithValue(this, dir, cursorRecords, request, true);
         request._resolve(cursor);
       }
     } catch (e: any) {
@@ -350,12 +356,66 @@ export class IDBObjectStore {
   /** @internal */
   _ensureTable(): void {
     this._db._exec(
-      `CREATE TABLE IF NOT EXISTS "${this._tableName}" (key TEXT PRIMARY KEY, value TEXT)`
+      `CREATE TABLE IF NOT EXISTS "${this._tableName}" (key TEXT PRIMARY KEY, value TEXT, keyenc TEXT)`
     );
+    // Ensure the order-preserving `keyenc` column + index exist and backfill
+    // any store that predates it. Cached per-connection so this is off the hot
+    // path (see IDBDatabase._ensureKeyEnc). (ENG-22999)
+    this._db._ensureKeyEnc(this._tableName);
     // The autoIncrement key generator is computed lazily and cached at the
     // database level (see IDBDatabase._nextAutoIncrement); it is intentionally
     // NOT recomputed here, so constructing a store per transaction no longer
     // scans and parses every key.
+  }
+
+  /**
+   * @internal - Normalize a get/getAll/openCursor query argument into an
+   * IDBKeyRange, or null when the query selects the whole store.
+   */
+  _queryRange(query: any): IDBKeyRange | null {
+    if (query === undefined || query === null) return null;
+    return query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
+  }
+
+  /**
+   * @internal - Build a `keyenc` WHERE clause (and its bound params) for a
+   * range. Because encodeOrderedKey() is an order-preserving embedding,
+   * `compareKeys(k, bound) >= 0` iff `keyenc(k) >= keyenc(bound)`, so the range
+   * membership test becomes a plain SQL comparison. (ENG-22999)
+   */
+  _rangeConds(range: IDBKeyRange): { where: string; params: any[] } {
+    const conds: string[] = [];
+    const params: any[] = [];
+    if (range.lower !== undefined) {
+      conds.push(range.lowerOpen ? 'keyenc > ?' : 'keyenc >= ?');
+      params.push(encodeOrderedKey(range.lower));
+    }
+    if (range.upper !== undefined) {
+      conds.push(range.upperOpen ? 'keyenc < ?' : 'keyenc <= ?');
+      params.push(encodeOrderedKey(range.upper));
+    }
+    return { where: conds.length ? ' WHERE ' + conds.join(' AND ') : '', params };
+  }
+
+  /**
+   * @internal - Build a SELECT that filters by an optional range, orders by
+   * `keyenc` in the given direction, and optionally limits the row count. All
+   * three push into SQL. (ENG-22999)
+   */
+  _selectRange(
+    columns: string,
+    range: IDBKeyRange | null,
+    dir: 'asc' | 'desc' | null,
+    limit?: number,
+  ): { sql: string; params: any[] } {
+    const { where, params } = range ? this._rangeConds(range) : { where: '', params: [] as any[] };
+    let sql = `SELECT ${columns} FROM "${this._tableName}"${where}`;
+    if (dir) sql += ` ORDER BY keyenc ${dir === 'desc' ? 'DESC' : 'ASC'}`;
+    if (limit !== undefined && limit >= 0) {
+      sql += ' LIMIT ?';
+      params.push(limit);
+    }
+    return { sql, params };
   }
 
   /** @internal */
@@ -407,10 +467,11 @@ export class IDBObjectStore {
   /** @internal */
   _putRecord(key: any, value: any): void {
     // Structured (tagged) serialization preserves Date/TypedArray/ArrayBuffer/
-    // Map/Set/undefined that plain JSON silently corrupts.
+    // Map/Set/undefined that plain JSON silently corrupts. The `keyenc` column
+    // holds the order-preserving encoding used for range/ORDER BY. (ENG-22999)
     this._db._exec(
-      `INSERT OR REPLACE INTO "${this._tableName}" (key, value) VALUES (?, ?)`,
-      [serializeKey(key), serializeValue(value)]
+      `INSERT OR REPLACE INTO "${this._tableName}" (key, value, keyenc) VALUES (?, ?, ?)`,
+      [serializeKey(key), serializeValue(value), encodeOrderedKey(key)]
     );
   }
 
@@ -431,16 +492,6 @@ export class IDBObjectStore {
     );
   }
 
-  /** @internal - Delete a batch of keys in a single statement. */
-  _deleteRecords(keys: any[]): void {
-    if (keys.length === 0) return;
-    const placeholders = keys.map(() => '?').join(', ');
-    this._db._exec(
-      `DELETE FROM "${this._tableName}" WHERE key IN (${placeholders})`,
-      keys.map((k) => serializeKey(k))
-    );
-  }
-
   /** @internal */
   _clearRecords(): void {
     this._db._exec(`DELETE FROM "${this._tableName}"`);
@@ -455,25 +506,19 @@ export class IDBObjectStore {
     return row ? row.cnt : 0;
   }
 
-  /** @internal - Deserialize and sort just the keys (no record values). */
-  _getAllKeys(): any[] {
-    const rows = this._db._all(`SELECT key FROM "${this._tableName}"`);
-    const keys = rows.map((r: any) => deserializeKey(r.key));
-    keys.sort((a: any, b: any) => compareKeys(a, b));
-    return keys;
-  }
-
-  /** @internal */
+  /**
+   * @internal - All records ordered by IndexedDB key order. The ordering is
+   * done in SQL via the `keyenc` column, so no JS sort is needed. Still a full
+   * scan; used only by IDBIndex, which re-sorts by the index key anyway.
+   */
   _getAllRecords(): Array<{ key: any; value: any }> {
-    const rows = this._db._all(`SELECT key, value FROM "${this._tableName}"`);
-    const records = rows.map((r: any) => ({
+    const rows = this._db._all(
+      `SELECT key, value FROM "${this._tableName}" ORDER BY keyenc`,
+    );
+    return rows.map((r: any) => ({
       key: deserializeKey(r.key),
       value: deserializeValue(r.value),
     }));
-    // Sort in JS using IndexedDB key comparison (number < date < string <
-    // binary < array) to avoid lexicographic issues with SQLite text ORDER BY.
-    records.sort((a: any, b: any) => compareKeys(a.key, b.key));
-    return records;
   }
 }
 
