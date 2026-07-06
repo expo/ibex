@@ -32,6 +32,39 @@ function toByteArray(view: ArrayBufferView): number[] {
   return Array.from(bytes);
 }
 
+/**
+ * Whether a value duck-types as a Blob/File. Detection is structural (tag +
+ * size/type) rather than `instanceof` against the runtime Blob classes:
+ * importing blob/Blob from here would drag this module into the
+ * blob → streams → structuredClone → blob import cycle (File extends Blob
+ * hits the TDZ), and it also keeps host-provided Blobs recognizable.
+ * (ENG-23134)
+ */
+function blobLikeTag(value: any): 'Blob' | 'File' | null {
+  const tag = value?.[Symbol.toStringTag];
+  if (tag !== 'Blob' && tag !== 'File') return null;
+  if (typeof value.size !== 'number' || typeof value.type !== 'string') return null;
+  return tag;
+}
+
+/**
+ * Sync byte access for a Blob-like value. The Ibex runtime Blob exposes the
+ * internal `_getBytes()` accessor (the same hook structuredClone uses); a
+ * foreign host Blob without it cannot be read synchronously and must be
+ * refused loudly rather than silently stored as `{}`. (ENG-23134)
+ */
+function blobBytes(value: any): number[] | null {
+  if (typeof value._getBytes === 'function') {
+    return Array.from(value._getBytes() as Uint8Array);
+  }
+  return null;
+}
+
+const ERROR_CTORS: Record<string, ErrorConstructor> = Object.create(null);
+for (const Ctor of [Error, EvalError, RangeError, ReferenceError, SyntaxError, TypeError, URIError]) {
+  ERROR_CTORS[Ctor.name] = Ctor as ErrorConstructor;
+}
+
 /** Convert a value into a JSON-safe representation, tagging non-JSON types. */
 function encode(value: any): any {
   if (value === undefined) return { [TAG]: 'undefined' };
@@ -71,6 +104,62 @@ function encode(value: any): any {
   }
 
   if (t === 'object') {
+    // Blob/File have getters and no own enumerable keys, so the generic
+    // object walk below silently stored a camera Blob as `{}` — the payload
+    // was lost while put() reported success. (ENG-23134)
+    const blobTag = blobLikeTag(value);
+    if (blobTag !== null) {
+      const bytes = blobBytes(value);
+      if (bytes === null) {
+        throw new DOMException(
+          `${blobTag} value could not be serialized: no synchronous byte access.`,
+          'DataCloneError',
+        );
+      }
+      if (blobTag === 'File') {
+        return {
+          [TAG]: 'File',
+          bytes,
+          name: String(value.name),
+          mime: String(value.type),
+          lastModified: Number(value.lastModified),
+        };
+      }
+      return { [TAG]: 'Blob', bytes, mime: String(value.type) };
+    }
+
+    // Error objects (structured clone serializes name/message/stack/cause);
+    // previously these also collapsed to `{}`. (ENG-23134)
+    if (value instanceof Error) {
+      const out: Record<string, any> = {
+        [TAG]: 'Error',
+        name: String(value.name),
+        message: String(value.message),
+      };
+      if (typeof value.stack === 'string') out.stack = value.stack;
+      if ('cause' in value) out.cause = encode((value as any).cause);
+      return out;
+    }
+
+    // Boxed primitives are structured-clone-able ([[BooleanData]] etc.).
+    // (ENG-23134)
+    if (value instanceof Number || value instanceof String || value instanceof Boolean) {
+      return { [TAG]: 'Boxed', v: encode(value.valueOf()) };
+    }
+
+    // Types structured clone explicitly refuses — fail loudly instead of
+    // storing an empty object. (ENG-23134)
+    if (
+      (typeof Promise !== 'undefined' && value instanceof Promise) ||
+      (typeof WeakMap !== 'undefined' && value instanceof WeakMap) ||
+      (typeof WeakSet !== 'undefined' && value instanceof WeakSet)
+    ) {
+      throw new DOMException(
+        `${value.constructor?.name ?? 'This object'} could not be cloned.`,
+        'DataCloneError',
+      );
+    }
+
     const out: Record<string, any> = {};
     for (const k of Object.keys(value)) {
       out[k] = encode(value[k]);
@@ -83,8 +172,8 @@ function encode(value: any): any {
     return out;
   }
 
-  // functions / symbols are not structured-cloneable.
-  throw new TypeError(`Value of type ${t} could not be cloned.`);
+  // functions / symbols are not structured-cloneable (spec: DataCloneError).
+  throw new DOMException(`Value of type ${t} could not be cloned.`, 'DataCloneError');
 }
 
 function decodePlainObject(obj: Record<string, any>): Record<string, any> {
@@ -125,6 +214,36 @@ function decode(value: any): any {
         return new Map(value.entries.map(([k, v]: [any, any]) => [decode(k), decode(v)]));
       case 'Set':
         return new Set(value.values.map(decode));
+      case 'Blob': {
+        // Reconstruct with the environment's Blob (the runtime bootstrap
+        // installs the Ibex Blob there — see blobLikeTag for why this module
+        // does not import it directly).
+        const BlobCtor = (globalThis as any).Blob;
+        if (!BlobCtor) {
+          throw new DOMException('Blob is not available in this environment.', 'DataError');
+        }
+        return new BlobCtor([Uint8Array.from(value.bytes)], { type: value.mime });
+      }
+      case 'File': {
+        const FileCtor = (globalThis as any).File;
+        if (!FileCtor) {
+          throw new DOMException('File is not available in this environment.', 'DataError');
+        }
+        return new FileCtor([Uint8Array.from(value.bytes)], value.name, {
+          type: value.mime,
+          lastModified: value.lastModified,
+        });
+      }
+      case 'Error': {
+        const Ctor = ERROR_CTORS[value.name] ?? Error;
+        const err: any = new Ctor(value.message);
+        err.name = value.name;
+        if (typeof value.stack === 'string') err.stack = value.stack;
+        if ('cause' in value) err.cause = decode(value.cause);
+        return err;
+      }
+      case 'Boxed':
+        return Object(decode(value.v));
       case 'object':
         // Escaped user object — decode its properties as a plain object.
         return decodePlainObject(value.props);
@@ -151,13 +270,33 @@ export function deserializeValue(text: string): any {
 }
 
 /**
+ * Canonicalize an IndexedDB key: the spec compares binary keys by their byte
+ * sequences, so an ArrayBuffer and a typed-array view over the same bytes are
+ * the SAME key. Serializing them with different tags made `get(buffer)` miss
+ * a record `put()` with a view of identical bytes — and `add()` created a
+ * duplicate row with an identical `keyenc`. Views fold to a bytes-only
+ * ArrayBuffer before encoding, which also matches what the spec's "convert a
+ * key to a value" hands back to script for binary keys. Arrays recurse.
+ * (ENG-23134)
+ */
+export function canonicalizeKey(key: any): any {
+  if (ArrayBuffer.isView(key)) {
+    const bytes = new Uint8Array(key.buffer, key.byteOffset, key.byteLength);
+    return bytes.slice().buffer;
+  }
+  if (Array.isArray(key)) return key.map(canonicalizeKey);
+  return key;
+}
+
+/**
  * Serialize an IndexedDB key to a canonical text form usable as a SQLite
- * primary-key column. Deterministic: equal keys always produce identical text
- * (so `WHERE key = ?` equality works), and deserializeKey() restores the key's
- * real type so compareKeys() can order it.
+ * primary-key column. Deterministic: keys the spec defines as equal always
+ * produce identical text (so `WHERE key = ?` equality works — see
+ * canonicalizeKey for binary keys), and deserializeKey() restores the key so
+ * compareKeys() can order it.
  */
 export function serializeKey(key: any): string {
-  return JSON.stringify(encode(key));
+  return JSON.stringify(encode(canonicalizeKey(key)));
 }
 
 /**

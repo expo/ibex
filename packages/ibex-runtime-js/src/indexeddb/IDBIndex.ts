@@ -9,6 +9,8 @@
 
 import { IDBRequest } from './IDBRequest';
 import { IDBCursor, IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
+import { IDBKeyRange, isValidKey } from './IDBKeyRange';
+import { DOMException } from './utils';
 
 export interface IDBIndexParameters {
   unique?: boolean;
@@ -50,6 +52,14 @@ export class IDBIndex {
    */
   get(query: any): IDBRequest {
     this._objectStore._transaction._assertActive();
+    // Spec: get() requires a key or key range; undefined/invalid keys are a
+    // DataError. Previously undefined fell through to the "whole store" range
+    // and returned an arbitrary first record — e.g. index.get(user.email)
+    // with an accidentally-undefined email returned the wrong user.
+    // (ENG-23134)
+    if (!(query instanceof IDBKeyRange) && !isValidKey(query)) {
+      throw new DOMException('The parameter is not a valid key.', 'DataError');
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
@@ -73,6 +83,10 @@ export class IDBIndex {
    */
   getKey(query: any): IDBRequest {
     this._objectStore._transaction._assertActive();
+    // Spec: DataError for undefined/invalid keys (see get()). (ENG-23134)
+    if (!(query instanceof IDBKeyRange) && !isValidKey(query)) {
+      throw new DOMException('The parameter is not a valid key.', 'DataError');
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
@@ -164,6 +178,12 @@ export class IDBIndex {
 
   /**
    * Open a cursor over the index's records.
+   *
+   * Streams in bounded batches over the companion index-key table (composite
+   * (keyenc, pkenc) keyset pagination; GROUP BY for the *unique directions),
+   * re-querying live data per batch — mutations made mid-iteration inside the
+   * same transaction are observed, matching store-cursor semantics, instead
+   * of iterating a stale materialized snapshot. (ENG-23134)
    */
   openCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
     this._objectStore._transaction._assertActive();
@@ -172,17 +192,18 @@ export class IDBIndex {
     request.transaction = this._objectStore._transaction;
     this._objectStore._transaction._enqueueOp(request, () => {
       try {
-        const records = this._objectStore._indexRecords(
+        const dir = direction ?? 'next';
+        const stream = this._objectStore._indexCursorStreamer(
           this.name,
           this._objectStore._queryRange(query),
+          dir,
+          true,
         );
-        if (records.length === 0) {
+        const first = stream.fetch(null, null);
+        if (first.length === 0) {
           request._resolve(null);
         } else {
-          // Index keys are not unique, so the cursor re-orders for its direction
-          // and de-dupes for the *unique variants (records arrive in ascending
-          // index-key order from SQL).
-          const cursor = new IDBCursorWithValue(this, direction ?? 'next', records, request);
+          const cursor = new IDBCursorWithValue(this, dir, first, request, stream);
           request._resolve(cursor);
         }
       } catch (e: any) {
@@ -202,17 +223,21 @@ export class IDBIndex {
     request.transaction = this._objectStore._transaction;
     this._objectStore._transaction._enqueueOp(request, () => {
       try {
-        const records = this._objectStore._indexRecords(
+        // A key cursor exposes only key/primaryKey and never a value: stream
+        // the index table alone (no store JOIN, no value deserialization) and
+        // yield a plain IDBCursor. (ENG-23026 / ENG-23134)
+        const dir = direction ?? 'next';
+        const stream = this._objectStore._indexCursorStreamer(
           this.name,
           this._objectStore._queryRange(query),
+          dir,
+          false,
         );
-        if (records.length === 0) {
+        const first = stream.fetch(null, null);
+        if (first.length === 0) {
           request._resolve(null);
         } else {
-          // A key cursor exposes only key/primaryKey and never a value: yield a
-          // plain IDBCursor (not IDBCursorWithValue) and drop the values. (ENG-23026)
-          const keyRecords = records.map(r => ({ key: r.key, primaryKey: r.primaryKey, value: undefined }));
-          const cursor = new IDBCursor(this, direction ?? 'next', keyRecords, request);
+          const cursor = new IDBCursor(this, dir, first, request, stream);
           request._resolve(cursor);
         }
       } catch (e: any) {

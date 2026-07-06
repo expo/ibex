@@ -10,8 +10,14 @@ import { IDBRequest } from './IDBRequest';
 import { IDBIndex, type IDBIndexParameters, extractKeyPath } from './IDBIndex';
 import { IDBKeyRange, isValidKey } from './IDBKeyRange';
 import { IDBCursor, IDBCursorWithValue, IDB_CURSOR_BATCH, type IDBCursorDirection, type CursorStream } from './IDBCursor';
-import { serializeKey, deserializeKey, serializeValue, deserializeValue, encodeOrderedKey } from './serialization';
-import { DOMException, sanitizeName } from './utils';
+import { serializeKey, deserializeKey, serializeValue, deserializeValue, encodeOrderedKey, canonicalizeKey } from './serialization';
+import {
+  DOMException,
+  storeTableName,
+  indexTableName,
+  legacyStoreTableName,
+  legacyIndexTableName,
+} from './utils';
 
 export interface IDBObjectStoreParameters {
   keyPath?: string | string[] | null;
@@ -43,7 +49,9 @@ export class IDBObjectStore {
     this.autoIncrement = options.autoIncrement ?? false;
     this._transaction = transaction;
     this._db = db;
-    this._tableName = `idb_store_${sanitizeName(name)}`;
+    // Collision-free encoding — distinct store names can never share a table.
+    // (ENG-23134)
+    this._tableName = storeTableName(name);
 
     // Create/migrate the SQLite table if needed. Deferred into the
     // transaction's operation queue: it must not run while an EARLIER
@@ -67,6 +75,14 @@ export class IDBObjectStore {
   add(value: any, key?: any): IDBRequest {
     this._transaction._assertActive();
     this._transaction._assertWritable();
+    // Spec: an explicit key argument on an in-line-key (keyPath) store is a
+    // DataError — previously it silently re-keyed the record. (ENG-23134)
+    if (key !== undefined && this.keyPath !== null) {
+      throw new DOMException(
+        'The object store uses in-line keys and the key parameter was provided.',
+        'DataError',
+      );
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -94,6 +110,14 @@ export class IDBObjectStore {
   put(value: any, key?: any): IDBRequest {
     this._transaction._assertActive();
     this._transaction._assertWritable();
+    // Spec: an explicit key argument on an in-line-key (keyPath) store is a
+    // DataError — previously it silently re-keyed the record. (ENG-23134)
+    if (key !== undefined && this.keyPath !== null) {
+      throw new DOMException(
+        'The object store uses in-line keys and the key parameter was provided.',
+        'DataError',
+      );
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -114,6 +138,11 @@ export class IDBObjectStore {
    */
   get(query: any): IDBRequest {
     this._transaction._assertActive();
+    // Spec: DataError for undefined/invalid keys (booleans, null, ...) —
+    // previously these silently no-opped. (ENG-23134)
+    if (!(query instanceof IDBKeyRange) && !isValidKey(query)) {
+      throw new DOMException('The parameter is not a valid key.', 'DataError');
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -141,6 +170,11 @@ export class IDBObjectStore {
    */
   getKey(query: any): IDBRequest {
     this._transaction._assertActive();
+    // Spec: DataError for undefined/invalid keys (booleans, null, ...) —
+    // previously these silently no-opped. (ENG-23134)
+    if (!(query instanceof IDBKeyRange) && !isValidKey(query)) {
+      throw new DOMException('The parameter is not a valid key.', 'DataError');
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -156,7 +190,7 @@ export class IDBObjectStore {
           // structured clone permits a stored `undefined`, so inferring absence
           // from `value === undefined` reported a real record as missing.
           // (ENG-23026)
-          request._resolve(this._hasRecord(query) ? query : undefined);
+          request._resolve(this._hasRecord(query) ? canonicalizeKey(query) : undefined);
         }
       } catch (e: any) {
         request._reject(e);
@@ -224,6 +258,11 @@ export class IDBObjectStore {
   delete(query: any): IDBRequest {
     this._transaction._assertActive();
     this._transaction._assertWritable();
+    // Spec: DataError for undefined/invalid keys (booleans, null, ...) —
+    // previously these silently no-opped. (ENG-23134)
+    if (!(query instanceof IDBKeyRange) && !isValidKey(query)) {
+      throw new DOMException('The parameter is not a valid key.', 'DataError');
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -402,7 +441,7 @@ export class IDBObjectStore {
         if (first.length === 0) {
           request._resolve(null);
         } else {
-          const cursor = new IDBCursorWithValue(this, dir, first, request, false, stream);
+          const cursor = new IDBCursorWithValue(this, dir, first, request, stream);
           request._resolve(cursor);
         }
       } catch (e: any) {
@@ -431,7 +470,7 @@ export class IDBObjectStore {
         if (first.length === 0) {
           request._resolve(null);
         } else {
-          const cursor = new IDBCursor(this, dir, first, request, false, stream);
+          const cursor = new IDBCursor(this, dir, first, request, stream);
           request._resolve(cursor);
         }
       } catch (e: any) {
@@ -485,7 +524,8 @@ export class IDBObjectStore {
           key,
           primaryKey: key,
           value: wantValue ? deserializeValue(r.value) : undefined,
-          keyenc: r.keyenc,
+          // Store keys are unique, so the keyenc alone is the keyset bookmark.
+          bookmark: r.keyenc,
         };
       });
     };
@@ -498,6 +538,7 @@ export class IDBObjectStore {
 
   /** @internal */
   _ensureTable(): void {
+    this._migrateLegacyTables();
     this._db._exec(
       `CREATE TABLE IF NOT EXISTS "${this._tableName}" (key TEXT PRIMARY KEY, value TEXT, keyenc TEXT)`
     );
@@ -509,6 +550,40 @@ export class IDBObjectStore {
     // database level (see IDBDatabase._nextAutoIncrement); it is intentionally
     // NOT recomputed here, so constructing a store per transaction no longer
     // scans and parses every key.
+  }
+
+  /**
+   * @internal - Move tables created by the old lossy sanitizer to this store's
+   * collision-free table names. Only names whose encoding changed (uppercase,
+   * punctuation, unicode, ...) take this path; a legacy table is left alone
+   * when it is (ambiguously) the CURRENT table of some other store — i.e. when
+   * the old encoding had already merged two stores, the safe-named store keeps
+   * the shared data. Runs inside the owning transaction's BEGIN when there is
+   * one, so an abort also rolls the rename back. (ENG-23134)
+   */
+  _migrateLegacyTables(): void {
+    const legacy = legacyStoreTableName(this.name);
+    if (legacy === this._tableName) return; // encoding unchanged for this name
+    if (this._db._keyencReady.has(this._tableName)) return; // already ensured
+
+    // lower(): SQLite identifiers are ASCII case-insensitive, so existence
+    // must be tested the way ALTER/DROP would resolve the name. (ENG-23134)
+    const tableExists = (t: string) =>
+      !!this._db._get(`SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = lower(?)`, [t]);
+
+    if (!tableExists(this._tableName) && tableExists(legacy) && !this._db._tableNameClaimed(legacy, this.name)) {
+      this._db._exec(`ALTER TABLE "${legacy}" RENAME TO "${this._tableName}"`);
+      // The keyenc index keeps its old name across a table rename; drop it so
+      // _ensureKeyEnc recreates it under the new table's name.
+      this._db._exec(`DROP INDEX IF EXISTS "${legacy}_keyenc"`);
+    }
+
+    const legacyIdx = legacyIndexTableName(this.name);
+    const idxTable = this._indexTableName();
+    if (!tableExists(idxTable) && tableExists(legacyIdx) && !this._db._tableNameClaimed(legacyIdx, this.name)) {
+      this._db._exec(`ALTER TABLE "${legacyIdx}" RENAME TO "${idxTable}"`);
+      this._db._exec(`DROP INDEX IF EXISTS "${legacyIdx}_lookup"`);
+    }
   }
 
   /**
@@ -570,7 +645,8 @@ export class IDBObjectStore {
       if (this.autoIncrement) {
         this._db._noteExplicitKey(this.name, explicitKey);
       }
-      return explicitKey;
+      // Binary keys resolve to their canonical (ArrayBuffer) form. (ENG-23134)
+      return canonicalizeKey(explicitKey);
     }
     if (this.keyPath !== null) {
       const key = extractKeyPath(value, this.keyPath);
@@ -581,7 +657,7 @@ export class IDBObjectStore {
         if (this.autoIncrement) {
           this._db._noteExplicitKey(this.name, key);
         }
-        return key;
+        return canonicalizeKey(key);
       }
     }
     if (this.autoIncrement) {
@@ -596,6 +672,15 @@ export class IDBObjectStore {
       'No key provided and no keyPath or autoIncrement configured',
       'DataError',
     );
+  }
+
+  /**
+   * @internal - The key an in-line-key store derives from a value, or
+   * undefined when the store is out-of-line or the value has none. Used by
+   * cursor.update() to reject values that would re-key the record. (ENG-23134)
+   */
+  _extractInlineKey(value: any): any {
+    return this.keyPath === null ? undefined : extractKeyPath(value, this.keyPath);
   }
 
   /** @internal */
@@ -686,7 +771,7 @@ export class IDBObjectStore {
 
   /** @internal - The store's companion index-key table name. */
   _indexTableName(): string {
-    return `idb_index_${sanitizeName(this.name)}`;
+    return indexTableName(this.name);
   }
 
   /**
@@ -869,21 +954,81 @@ export class IDBObjectStore {
   }
 
   /**
-   * @internal - Full {key, primaryKey, value} records for an index cursor, in
-   * ascending index-key (then primary-key) order; the cursor re-orders for its
-   * direction and de-dupes for the *unique variants.
+   * @internal - Build a bounded-memory streaming fetcher for an INDEX cursor.
+   * (ENG-23134)
+   *
+   * The previous implementation materialized every matching record up front
+   * and iterated the in-memory snapshot, so a record deleted mid-iteration
+   * within the same readwrite transaction was still delivered (with its stale
+   * value) and one inserted ahead was never visited — disagreeing with the
+   * store cursors, which re-query per batch. This streams the same way:
+   *
+   *  - Index keys are NOT unique, so `next`/`prev` paginate on the composite
+   *    (keyenc, pkenc) bookmark, ordered (and for `prev`, DESCENDING on the
+   *    primary key too — the spec's duplicate-key order, which the old
+   *    key-only JS sort got backwards).
+   *  - `nextunique`/`prevunique` GROUP BY keyenc taking MIN(pkenc) — the
+   *    spec's "first record of each key group" for BOTH unique directions —
+   *    and paginate on keyenc alone. This replaces the JSON.stringify dedupe
+   *    that collapsed all binary keys into one group.
+   *
+   * Like store cursors, each batch (IDB_CURSOR_BATCH rows) is a small window:
+   * liveness is per-batch, not per-row.
    */
-  _indexRecords(indexName: string, range: IDBKeyRange | null): Array<{ key: any; primaryKey: any; value: any }> {
-    this._ensureIndexData();
-    const { where, params } = this._indexWhere(indexName, range);
-    const sql =
-      `SELECT ix.ikey AS ikey, ix.pk AS pk, s.value AS value FROM "${this._indexTableName()}" ix ` +
-      `JOIN "${this._tableName}" s ON s.key = ix.pk${where} ORDER BY ix.keyenc ASC, ix.pkenc ASC`;
-    return this._db._all(sql, params).map((r: any) => ({
-      key: deserializeKey(r.ikey),
-      primaryKey: deserializeKey(r.pk),
-      value: deserializeValue(r.value),
-    }));
+  _indexCursorStreamer(
+    indexName: string,
+    range: IDBKeyRange | null,
+    dir: IDBCursorDirection,
+    wantValue: boolean,
+  ): CursorStream {
+    const desc = dir === 'prev' || dir === 'prevunique';
+    const unique = dir === 'nextunique' || dir === 'prevunique';
+    const fetch = (after: any, target: string | null) => {
+      this._ensureIndexData();
+      const { where, params } = this._indexWhere(indexName, range);
+      const conds: string[] = [];
+      if (after !== null && after !== undefined) {
+        if (unique) {
+          conds.push(desc ? 'ix.keyenc < ?' : 'ix.keyenc > ?');
+          params.push(after.k);
+        } else {
+          conds.push(desc
+            ? '(ix.keyenc < ? OR (ix.keyenc = ? AND ix.pkenc < ?))'
+            : '(ix.keyenc > ? OR (ix.keyenc = ? AND ix.pkenc > ?))');
+          params.push(after.k, after.k, after.p);
+        }
+      }
+      if (target !== null) {
+        conds.push(desc ? 'ix.keyenc <= ?' : 'ix.keyenc >= ?');
+        params.push(target);
+      }
+      const whereFull = where + (conds.length ? ' AND ' + conds.join(' AND ') : '');
+      const valueCol = wantValue ? ', s.value AS value' : '';
+      const from = wantValue
+        ? `"${this._indexTableName()}" ix JOIN "${this._tableName}" s ON s.key = ix.pk`
+        : `"${this._indexTableName()}" ix`;
+      const ord = desc ? 'DESC' : 'ASC';
+      let sql: string;
+      if (unique) {
+        // SQLite bare-column semantics: with a lone MIN() aggregate the other
+        // selected columns come from the row where the minimum was found.
+        sql =
+          `SELECT ix.ikey AS ikey, ix.pk AS pk, ix.keyenc AS keyenc, MIN(ix.pkenc) AS pkenc${valueCol} ` +
+          `FROM ${from}${whereFull} GROUP BY ix.keyenc ORDER BY ix.keyenc ${ord} LIMIT ?`;
+      } else {
+        sql =
+          `SELECT ix.ikey AS ikey, ix.pk AS pk, ix.keyenc AS keyenc, ix.pkenc AS pkenc${valueCol} ` +
+          `FROM ${from}${whereFull} ORDER BY ix.keyenc ${ord}, ix.pkenc ${ord} LIMIT ?`;
+      }
+      params.push(IDB_CURSOR_BATCH);
+      return this._db._all(sql, params).map((r: any) => ({
+        key: deserializeKey(r.ikey),
+        primaryKey: deserializeKey(r.pk),
+        value: wantValue ? deserializeValue(r.value) : undefined,
+        bookmark: { k: r.keyenc, p: r.pkenc },
+      }));
+    };
+    return { fetch, batchSize: IDB_CURSOR_BATCH };
   }
 }
 

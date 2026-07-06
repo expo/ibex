@@ -10,7 +10,14 @@ import { IDBTransaction, type IDBTransactionMode } from './IDBTransaction';
 import { IDBObjectStore, type IDBObjectStoreParameters } from './IDBObjectStore';
 import { IDBIndex } from './IDBIndex';
 import { deserializeKey, encodeOrderedKey } from './serialization';
-import { DOMException, makeDOMStringList, sanitizeName } from './utils';
+import {
+  DOMException,
+  makeDOMStringList,
+  storeTableName,
+  indexTableName,
+  legacyStoreTableName,
+  legacyIndexTableName,
+} from './utils';
 
 /**
  * @internal - State shared by every open connection (IDBDatabase) to one
@@ -282,10 +289,18 @@ export class IDBDatabase {
     }
 
     // Drop the SQLite table and its per-index companion table. (ENG-23016)
-    const tableName = `idb_store_${sanitizeName(name)}`;
-    const indexTableName = `idb_index_${sanitizeName(name)}`;
+    // Also drop the legacy-sanitizer locations for names whose encoding
+    // changed, in case the store was never accessed (hence never migrated)
+    // on this build. (ENG-23134)
+    const tableName = storeTableName(name);
+    const idxTableName = indexTableName(name);
     this._exec(`DROP TABLE IF EXISTS "${tableName}"`);
-    this._exec(`DROP TABLE IF EXISTS "${indexTableName}"`);
+    this._exec(`DROP TABLE IF EXISTS "${idxTableName}"`);
+    const legacyTable = legacyStoreTableName(name);
+    if (legacyTable !== tableName && !this._tableNameClaimed(legacyTable, name)) {
+      this._exec(`DROP TABLE IF EXISTS "${legacyTable}"`);
+      this._exec(`DROP TABLE IF EXISTS "${legacyIndexTableName(name)}"`);
+    }
 
     // Remove from meta
     this._exec(
@@ -299,7 +314,7 @@ export class IDBDatabase {
     this._exec(`DELETE FROM _idb_meta WHERE key = ?`, [`idxdata:${name}`]);
 
     this._shared.keyencReady.delete(tableName);
-    this._shared.indexDataReady.delete(indexTableName);
+    this._shared.indexDataReady.delete(idxTableName);
     // Deleting a store resets its key generator (per spec).
     this._shared.autoIncrementValues.delete(name);
     this._objectStores.delete(name);
@@ -530,9 +545,32 @@ export class IDBDatabase {
     if (typeof key !== 'number' || !Number.isFinite(key)) return;
     let value = this._shared.autoIncrementValues.get(name);
     if (value === undefined) {
-      value = this._computeAutoIncrementBase(`idb_store_${sanitizeName(name)}`);
+      value = this._computeAutoIncrementBase(storeTableName(name));
     }
     this._shared.autoIncrementValues.set(name, Math.max(value, Math.floor(key)));
+  }
+
+  /**
+   * @internal - Whether a SQLite table name is the CURRENT backing table of
+   * some other object store. Guards the legacy-table migration/cleanup paths:
+   * under the old lossy sanitizer, "user-data"'s table may be the very table
+   * that live store "user_data" still uses — renaming or dropping it for
+   * "user-data" would destroy "user_data". Compared case-insensitively,
+   * because SQLite treats ASCII identifiers case-insensitively (dropping
+   * "idb_store_Settings" would hit "idb_store_settings"). (ENG-23134)
+   */
+  _tableNameClaimed(tableName: string, exceptStoreName: string): boolean {
+    const wanted = tableName.toLowerCase();
+    for (const n of this._objectStores.keys()) {
+      if (n === exceptStoreName) continue;
+      if (
+        storeTableName(n).toLowerCase() === wanted ||
+        indexTableName(n).toLowerCase() === wanted
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -13,6 +13,12 @@ import { IDBFactory } from './IDBFactory';
 import { IDBKeyRange, compareKeys } from './IDBKeyRange';
 import { IDBCursorWithValue } from './IDBCursor';
 import { encodeOrderedKey, serializeKey, serializeValue } from './serialization';
+// File before Blob: evaluating blob/Blob first trips the
+// blob -> streams -> structuredClone -> blob/File import cycle at the
+// `class File extends Blob` TDZ; entering through File evaluates Blob fully
+// before File's class definition runs.
+import { File as IbexFile } from '../blob/File';
+import { Blob as IbexBlob } from '../blob/Blob';
 
 // ---------------------------------------------------------------------------
 // Test harness: a file-backed SQLite provider (real persistence across opens).
@@ -566,9 +572,17 @@ describe('ENG-22999: SQL range/order pushdown', () => {
     const tx = db.transaction('s', 'readonly');
     const gotKeys = await reqDone<any[]>(tx.objectStore('s').getAllKeys());
     // getAllKeys returns keys already in IndexedDB order via ORDER BY keyenc.
-    // Normalize binary keys (which deserialize back to Uint8Array) for compare.
+    // Normalize binary keys for compare: stored binary keys deserialize to
+    // canonical ArrayBuffers (ENG-23134) while `sorted` holds the original
+    // Uint8Array views.
     const norm = (k: any) =>
-      ArrayBuffer.isView(k) ? { bin: Array.from(k as any) } : k instanceof Date ? { ms: k.getTime() } : k;
+      k instanceof ArrayBuffer
+        ? { bin: Array.from(new Uint8Array(k)) }
+        : ArrayBuffer.isView(k)
+          ? { bin: Array.from(k as any) }
+          : k instanceof Date
+            ? { ms: k.getTime() }
+            : k;
     expect(gotKeys.map(norm)).toEqual(sorted.map(norm));
     db.close();
   });
@@ -1623,3 +1637,564 @@ describe('ENG-23117: rollback restores lazy-migration state', () => {
     db.close();
   });
 });
+
+// ===========================================================================
+// ENG-23134 — data correctness & cursors: binary key canonicalization,
+// collision-free store table names, Blob/File/Error value fidelity, live
+// streaming index cursors (direction ordering + unique dedupe), key
+// validation, and cursor/put argument validation.
+// ===========================================================================
+
+describe('ENG-23134: binary key canonicalization', () => {
+  test('a typed-array view key and an ArrayBuffer of the same bytes are the same key', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'bin1', 1, (d) => d.createObjectStore('s'));
+
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put('v', new Uint8Array([1, 2]));
+    await txDone(wtx);
+
+    // get() with a bare ArrayBuffer of the same bytes finds the record
+    // (pre-fix: undefined — views and buffers serialized under different tags).
+    const buf = Uint8Array.from([1, 2]).buffer;
+    expect(await reqDone(db.transaction('s', 'readonly').objectStore('s').get(buf))).toBe('v');
+
+    // add() with the buffer twin is a ConstraintError, not a duplicate row.
+    const atx = db.transaction('s', 'readwrite');
+    const dup = atx.objectStore('s').add('w', buf);
+    dup.onerror = (e: any) => e.preventDefault();
+    expect(await txSettled(atx)).toBe('complete');
+    expect(dup.error?.name).toBe('ConstraintError');
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(1);
+
+    // Binary keys come back in canonical ArrayBuffer form.
+    const keys = await reqDone<any[]>(db.transaction('s', 'readonly').objectStore('s').getAllKeys());
+    expect(keys.length).toBe(1);
+    expect(keys[0]).toBeInstanceOf(ArrayBuffer);
+    expect(Array.from(new Uint8Array(keys[0]))).toEqual([1, 2]);
+    const gotKey = await reqDone<any>(db.transaction('s', 'readonly').objectStore('s').getKey(new Uint8Array([1, 2])));
+    expect(gotKey).toBeInstanceOf(ArrayBuffer);
+
+    // delete() through a DataView twin removes the record.
+    const dtx = db.transaction('s', 'readwrite');
+    dtx.objectStore('s').delete(new DataView(Uint8Array.from([1, 2]).buffer));
+    await txDone(dtx);
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(0);
+    db.close();
+  });
+
+  test('array keys containing views match their buffer twins', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'bin2', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put('v', [1, new Uint8Array([7])]);
+    await txDone(wtx);
+    expect(await reqDone(
+      db.transaction('s', 'readonly').objectStore('s').get([1, Uint8Array.from([7]).buffer]),
+    )).toBe('v');
+    db.close();
+  });
+});
+
+describe('ENG-23134: collision-free store table names', () => {
+  test('stores whose names collide under the old sanitizer are isolated', async () => {
+    const factory = makeFactory();
+    const names = ['user-data', 'user_data', 'Settings', 'settings'];
+    const db = await openDb(factory, 'names1', 1, (d) => {
+      for (const n of names) d.createObjectStore(n);
+    });
+
+    const wtx = db.transaction(names, 'readwrite');
+    for (const n of names) wtx.objectStore(n).put(`from ${n}`, 'k');
+    await txDone(wtx);
+
+    // Pre-fix "user-data"/"user_data" (and, case-insensitively, "Settings"/
+    // "settings") shared one SQLite table: writes merged and reads leaked
+    // across stores.
+    for (const n of names) {
+      const tx = db.transaction(n, 'readonly');
+      expect(await reqDone<any[]>(tx.objectStore(n).getAll())).toEqual([`from ${n}`]);
+    }
+    db.close();
+
+    // Deleting one of the twins must not destroy the other's data
+    // (pre-fix: DROP TABLE on the shared table).
+    const db2 = await openDb(factory, 'names1', 2, (d) => {
+      d.deleteObjectStore('user-data');
+      d.deleteObjectStore('Settings');
+    });
+    expect(await reqDone<any[]>(db2.transaction('user_data', 'readonly').objectStore('user_data').getAll()))
+      .toEqual(['from user_data']);
+    expect(await reqDone<any[]>(db2.transaction('settings', 'readonly').objectStore('settings').getAll()))
+      .toEqual(['from settings']);
+    db2.close();
+  });
+
+  test('a legacy database with old-sanitizer table names is migrated on first access', async () => {
+    const dir = makeDir();
+    const name = 'legacy-names';
+    // Old builds stored store "user-data" in table idb_store_user_data.
+    const raw = new Database(dbPath(dir, name));
+    raw.run(`CREATE TABLE _idb_meta (key TEXT PRIMARY KEY, value TEXT)`);
+    raw.run(`INSERT INTO _idb_meta(key, value) VALUES ('version', '1')`);
+    raw.run(`CREATE TABLE _idb_stores (store_name TEXT PRIMARY KEY, key_path TEXT, auto_increment INTEGER DEFAULT 0)`);
+    raw.run(`INSERT INTO _idb_stores(store_name, key_path, auto_increment) VALUES ('user-data', 'null', 0)`);
+    raw.run(`CREATE TABLE _idb_indexes (store_name TEXT, index_name TEXT, key_path TEXT, unique_flag INTEGER DEFAULT 0, multi_entry INTEGER DEFAULT 0, PRIMARY KEY (store_name, index_name))`);
+    raw.run(`CREATE TABLE "idb_store_user_data" (key TEXT PRIMARY KEY, value TEXT, keyenc TEXT)`);
+    for (let i = 1; i <= 3; i++) {
+      raw.run(
+        `INSERT INTO "idb_store_user_data" (key, value, keyenc) VALUES (?, ?, ?)`,
+        serializeKey(i), serializeValue(`v${i}`), encodeOrderedKey(i),
+      );
+    }
+    raw.close();
+
+    const factory = new IDBFactory(makeProvider(dir) as any);
+    const db = await openDb(factory, name, undefined);
+    // First access renames the legacy table to the collision-free name.
+    expect(await reqDone<any[]>(db.transaction('user-data', 'readonly').objectStore('user-data').getAll()))
+      .toEqual(['v1', 'v2', 'v3']);
+    const wtx = db.transaction('user-data', 'readwrite');
+    wtx.objectStore('user-data').put('v4', 4);
+    await txDone(wtx);
+    db.close();
+
+    // Data survives reopen (the rename persisted).
+    const db2 = await openDb(factory, name, undefined);
+    expect(await reqDone<number>(db2.transaction('user-data', 'readonly').objectStore('user-data').count())).toBe(4);
+    db2.close();
+  });
+
+  test('a legacy table already claimed by a safe-named twin store is not stolen', async () => {
+    const dir = makeDir();
+    const name = 'legacy-claimed';
+    // Both "user-data" and "user_data" exist; under the old sanitizer they
+    // (ambiguously) shared idb_store_user_data — which is still the CURRENT
+    // table of "user_data". The migration must leave it with "user_data".
+    const raw = new Database(dbPath(dir, name));
+    raw.run(`CREATE TABLE _idb_meta (key TEXT PRIMARY KEY, value TEXT)`);
+    raw.run(`INSERT INTO _idb_meta(key, value) VALUES ('version', '1')`);
+    raw.run(`CREATE TABLE _idb_stores (store_name TEXT PRIMARY KEY, key_path TEXT, auto_increment INTEGER DEFAULT 0)`);
+    raw.run(`INSERT INTO _idb_stores(store_name, key_path, auto_increment) VALUES ('user-data', 'null', 0)`);
+    raw.run(`INSERT INTO _idb_stores(store_name, key_path, auto_increment) VALUES ('user_data', 'null', 0)`);
+    raw.run(`CREATE TABLE _idb_indexes (store_name TEXT, index_name TEXT, key_path TEXT, unique_flag INTEGER DEFAULT 0, multi_entry INTEGER DEFAULT 0, PRIMARY KEY (store_name, index_name))`);
+    raw.run(`CREATE TABLE "idb_store_user_data" (key TEXT PRIMARY KEY, value TEXT, keyenc TEXT)`);
+    raw.run(
+      `INSERT INTO "idb_store_user_data" (key, value, keyenc) VALUES (?, ?, ?)`,
+      serializeKey(1), serializeValue('merged'), encodeOrderedKey(1),
+    );
+    raw.close();
+
+    const factory = new IDBFactory(makeProvider(dir) as any);
+    const db = await openDb(factory, name, undefined);
+    expect(await reqDone<any[]>(db.transaction('user_data', 'readonly').objectStore('user_data').getAll()))
+      .toEqual(['merged']);
+    // "user-data" starts from a fresh (empty) table instead of stealing it.
+    expect(await reqDone<any[]>(db.transaction('user-data', 'readonly').objectStore('user-data').getAll()))
+      .toEqual([]);
+    db.close();
+  });
+});
+
+describe('ENG-23134: structured-clone value fidelity', () => {
+  test('Blob and File round-trip through put/get', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'vals1', 1, (d) => d.createObjectStore('s'));
+
+    const blob = new IbexBlob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
+    const file = new IbexFile([new Uint8Array([9, 8])], 'shot.jpg', { type: 'image/jpeg', lastModified: 123456 });
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put({ img: blob, f: file }, 'k');
+    expect(await txSettled(wtx)).toBe('complete');
+
+    const out: any = await reqDone(db.transaction('s', 'readonly').objectStore('s').get('k'));
+    // Pre-fix both stored as {} — the payload silently vanished. Values are
+    // reconstructed with the environment's Blob/File constructors.
+    expect(out.img).toBeInstanceOf((globalThis as any).Blob);
+    expect(out.img.type).toBe('image/png');
+    expect(Array.from(new Uint8Array(await out.img.arrayBuffer()))).toEqual([1, 2, 3]);
+    expect(out.f).toBeInstanceOf((globalThis as any).File);
+    expect(out.f.name).toBe('shot.jpg');
+    expect(out.f.lastModified).toBe(123456);
+    expect(Array.from(new Uint8Array(await out.f.arrayBuffer()))).toEqual([9, 8]);
+    db.close();
+  });
+
+  test('Error values round-trip with name/message/stack/cause', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'vals2', 1, (d) => d.createObjectStore('s'));
+    const err = new TypeError('bad thing');
+    (err as any).cause = new Error('root');
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put({ e: err }, 'k');
+    await txDone(wtx);
+    const out: any = await reqDone(db.transaction('s', 'readonly').objectStore('s').get('k'));
+    expect(out.e).toBeInstanceOf(TypeError);
+    expect(out.e.name).toBe('TypeError');
+    expect(out.e.message).toBe('bad thing');
+    expect(typeof out.e.stack).toBe('string');
+    expect(out.e.cause).toBeInstanceOf(Error);
+    expect(out.e.cause.message).toBe('root');
+    db.close();
+  });
+
+  test('boxed primitives round-trip as objects', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'vals3', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put({ n: new Number(42), s: new String('x'), b: new Boolean(false) }, 'k');
+    await txDone(wtx);
+    const out: any = await reqDone(db.transaction('s', 'readonly').objectStore('s').get('k'));
+    expect(typeof out.n).toBe('object');
+    expect(out.n.valueOf()).toBe(42);
+    expect(typeof out.s).toBe('object');
+    expect(out.s.valueOf()).toBe('x');
+    expect(typeof out.b).toBe('object');
+    expect(out.b.valueOf()).toBe(false);
+    db.close();
+  });
+
+  test('non-cloneable values reject with DataCloneError instead of storing {}', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'vals4', 1, (d) => d.createObjectStore('s'));
+
+    // A function value.
+    const t1 = db.transaction('s', 'readwrite');
+    const r1 = t1.objectStore('s').put({ fn: () => 1 }, 'k1');
+    r1.onerror = (e: any) => e.preventDefault();
+    expect(await txSettled(t1)).toBe('complete');
+    expect(r1.error?.name).toBe('DataCloneError');
+
+    // A host Blob with no synchronous byte access (bun's native Blob).
+    const t2 = db.transaction('s', 'readwrite');
+    const r2 = t2.objectStore('s').put({ b: new (globalThis as any).Blob(['x']) }, 'k2');
+    r2.onerror = (e: any) => e.preventDefault();
+    expect(await txSettled(t2)).toBe('complete');
+    expect(r2.error?.name).toBe('DataCloneError');
+
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(0);
+    db.close();
+  });
+});
+
+describe('ENG-23134: live streaming index cursors', () => {
+  test('records deleted mid-iteration are skipped and inserted ones visited (across batches)', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'live1', 1, (d) => {
+      const s = d.createObjectStore('s', { keyPath: 'id' });
+      s.createIndex('byV', 'v');
+    });
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 200; i++) wtx.objectStore('s').put({ id: i, v: i });
+    await txDone(wtx);
+
+    // Iterate the index inside a readwrite txn; on the FIRST record, delete a
+    // record ahead (v=150, in the second batch) and insert one ahead
+    // (v=140.5). Pre-fix the cursor iterated a snapshot: the deleted record
+    // was still delivered and the inserted one never visited.
+    const seen = await new Promise<any[]>((resolve, reject) => {
+      const acc: any[] = [];
+      const tx = db.transaction('s', 'readwrite');
+      const store = tx.objectStore('s');
+      const req = store.index('byV').openCursor();
+      let first = true;
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return resolve(acc);
+        if (first) {
+          first = false;
+          store.delete(150);
+          store.put({ id: 500, v: 140.5 });
+        }
+        acc.push(cur.key);
+        cur.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+    expect(seen.length).toBe(200); // 200 - deleted + inserted
+    expect(seen).not.toContain(150);
+    expect(seen).toContain(140.5);
+    // Still in index-key order.
+    expect(seen.indexOf(140.5)).toBe(seen.indexOf(141) - 1);
+    db.close();
+  });
+
+  test('prev direction visits duplicate-key records in descending primary-key order', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'live2', 1, (d) => {
+      const s = d.createObjectStore('s', { keyPath: 'id' });
+      s.createIndex('byAge', 'age');
+    });
+    const wtx = db.transaction('s', 'readwrite');
+    const ws = wtx.objectStore('s');
+    ws.put({ id: 1, age: 30 });
+    ws.put({ id: 2, age: 20 });
+    ws.put({ id: 5, age: 20 });
+    ws.put({ id: 9, age: 20 });
+    await txDone(wtx);
+
+    const pks = await new Promise<any[]>((resolve, reject) => {
+      const acc: any[] = [];
+      const req = db.transaction('s', 'readonly').objectStore('s').index('byAge').openCursor(null, 'prev');
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return resolve(acc);
+        acc.push(cur.primaryKey);
+        cur.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+    // Spec: descending index key, and DESCENDING primary key within a
+    // duplicate-key group (pre-fix: ascending — 2, 5, 9).
+    expect(pks).toEqual([1, 9, 5, 2]);
+    db.close();
+  });
+
+  test('nextunique/prevunique visit each key once with the lowest primary key, including binary keys', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'live3', 1, (d) => {
+      const s = d.createObjectStore('s', { keyPath: 'id' });
+      s.createIndex('byHash', 'hash');
+    });
+    const hashA = new Uint8Array([0xaa, 0x01]);
+    const hashB = new Uint8Array([0xbb, 0x02]);
+    const wtx = db.transaction('s', 'readwrite');
+    const ws = wtx.objectStore('s');
+    ws.put({ id: 2, hash: hashA });
+    ws.put({ id: 1, hash: hashA });
+    ws.put({ id: 3, hash: hashB });
+    await txDone(wtx);
+
+    const collect = (dir: any) => new Promise<any[]>((resolve, reject) => {
+      const acc: any[] = [];
+      const req = db.transaction('s', 'readonly').objectStore('s').index('byHash').openCursor(null, dir);
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return resolve(acc);
+        acc.push([Array.from(new Uint8Array(cur.key)), cur.primaryKey]);
+        cur.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    // Pre-fix the JSON.stringify dedupe stringified every binary key to '{}',
+    // collapsing all key groups into one.
+    expect(await collect('nextunique')).toEqual([
+      [[0xaa, 0x01], 1],
+      [[0xbb, 0x02], 3],
+    ]);
+    // prevunique iterates keys descending but still yields each group's
+    // LOWEST primary key (spec).
+    expect(await collect('prevunique')).toEqual([
+      [[0xbb, 0x02], 3],
+      [[0xaa, 0x01], 1],
+    ]);
+    db.close();
+  });
+});
+
+describe('ENG-23134: key validation', () => {
+  test('index.get/getKey with undefined or invalid keys throw DataError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'keyval1', 1, (d) => {
+      const s = d.createObjectStore('users', { keyPath: 'id' });
+      s.createIndex('byEmail', 'email');
+    });
+    const wtx = db.transaction('users', 'readwrite');
+    wtx.objectStore('users').put({ id: 1, email: 'a@x.com' });
+    await txDone(wtx);
+
+    const tx = db.transaction('users', 'readonly');
+    const idx = tx.objectStore('users').index('byEmail');
+    // Pre-fix index.get(undefined) returned the FIRST record — the wrong user.
+    for (const bad of [undefined, null, true, {}]) {
+      try { idx.get(bad); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+      try { idx.getKey(bad); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+    }
+    // getAll/count keep the "undefined means everything" behavior.
+    expect(await reqDone<number>(tx.objectStore('users').index('byEmail').count())).toBe(1);
+    db.close();
+  });
+
+  test('store get/getKey/delete with invalid keys throw DataError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'keyval2', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put('v', 'k');
+    await txDone(wtx);
+
+    const tx = db.transaction('s', 'readwrite');
+    const store = tx.objectStore('s');
+    for (const bad of [undefined, null, true, {}]) {
+      try { store.get(bad); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+      try { store.getKey(bad); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+      try { store.delete(bad); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+    }
+    tx.abort();
+    db.close();
+  });
+});
+
+describe('ENG-23134: cursor and put argument validation', () => {
+  test('advance() without a positive integer throws TypeError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'curval1', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 3; i++) wtx.objectStore('s').put(`v${i}`, i);
+    await txDone(wtx);
+
+    const errs = await new Promise<string[]>((resolve, reject) => {
+      const names: string[] = [];
+      const req = db.transaction('s', 'readonly').objectStore('s').openCursor();
+      req.onsuccess = () => {
+        const cur = req.result;
+        // Pre-fix advance() slid the position to NaN and silently ended the cursor.
+        for (const bad of [undefined, 0, -1, 1.5, '2']) {
+          try { cur.advance(bad as any); names.push('no-throw'); } catch (e: any) { names.push(e.constructor.name); }
+        }
+        resolve(names);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    expect(errs).toEqual(['TypeError', 'TypeError', 'TypeError', 'TypeError', 'TypeError']);
+    db.close();
+  });
+
+  test('continue(key) at or behind the position throws DataError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'curval2', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 10; i++) wtx.objectStore('s').put(`v${i}`, i);
+    await txDone(wtx);
+
+    const out = await new Promise<any>((resolve, reject) => {
+      const req = db.transaction('s', 'readonly').objectStore('s').openCursor(IDBKeyRange.lowerBound(5));
+      let checked = false;
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return resolve('ended');
+        if (!checked) {
+          checked = true;
+          expect(cur.key).toBe(5);
+          // Same key and an earlier key both violate iteration order.
+          try { cur.continue(5); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+          try { cur.continue(3); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+          try { cur.continue(false); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+          cur.continue(8); // forward is fine
+          return;
+        }
+        resolve(cur.key);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    expect(out).toBe(8);
+    db.close();
+  });
+
+  test('update/delete on a key cursor throw InvalidStateError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'curval3', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put('v', 1);
+    await txDone(wtx);
+
+    const names = await new Promise<string[]>((resolve, reject) => {
+      const acc: string[] = [];
+      const tx = db.transaction('s', 'readwrite');
+      const req = tx.objectStore('s').openKeyCursor();
+      req.onsuccess = () => {
+        const cur = req.result;
+        try { cur.update('x'); acc.push('no-throw'); } catch (e: any) { acc.push(e.name); }
+        try { cur.delete(); acc.push('no-throw'); } catch (e: any) { acc.push(e.name); }
+        resolve(acc);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    expect(names).toEqual(['InvalidStateError', 'InvalidStateError']);
+    // The record survived both attempts.
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(1);
+    db.close();
+  });
+
+  test('cursor.update with a mismatched inline key throws DataError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'curval4', 1, (d) => d.createObjectStore('s', { keyPath: 'id' }));
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put({ id: 1, v: 'a' });
+    await txDone(wtx);
+
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('s', 'readwrite');
+      const req = tx.objectStore('s').openCursor();
+      req.onsuccess = () => {
+        const cur = req.result;
+        // Pre-fix this silently re-keyed the record to id 2.
+        try { cur.update({ id: 2, v: 'hijack' }); reject(new Error('should throw')); return; } catch (e: any) { expect(e.name).toBe('DataError'); }
+        try { cur.update({ v: 'no-key' }); reject(new Error('should throw')); return; } catch (e: any) { expect(e.name).toBe('DataError'); }
+        cur.update({ id: 1, v: 'b' }); // matching key is fine
+        resolve();
+      };
+      req.onerror = () => reject(req.error);
+    });
+    const rec: any = await reqDone(db.transaction('s', 'readonly').objectStore('s').get(1));
+    expect(rec.v).toBe('b');
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(1);
+    db.close();
+  });
+
+  test('put/add with an explicit key on a keyPath store throw DataError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'curval5', 1, (d) => d.createObjectStore('s', { keyPath: 'id' }));
+    const tx = db.transaction('s', 'readwrite');
+    const store = tx.objectStore('s');
+    try { store.put({ id: 1 }, 99); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+    try { store.add({ id: 1 }, 99); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+    store.put({ id: 1 }); // in-line key still works
+    await txDone(tx);
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(1);
+    db.close();
+  });
+});
+
+describe('ENG-23134: failed upgrades do not leak SQLite handles', () => {
+  test('every handle opened by a failed upgrade is closed before rejecting', async () => {
+    const dir = makeDir();
+    const counts = { creates: 0, closes: 0 };
+    const provider = {
+      create(name: string) {
+        counts.creates++;
+        const real = new Database(dbPath(dir, name));
+        return {
+          query(sql: string) { return real.query(sql); },
+          exec(sql: string, ...p: any[]) { return (real as any).exec(sql, ...p); },
+          run(sql: string, ...p: any[]) { return (real as any).run(sql, ...p); },
+          close() { counts.closes++; return real.close(); },
+        };
+      },
+      delete(_: string) {},
+    };
+    const factory = new IDBFactory(provider as any);
+
+    // Three failed upgrade attempts (the retry-loop pattern from the finding).
+    for (let i = 0; i < 3; i++) {
+      let err: any;
+      try {
+        await openDb(factory, 'leak', 1, () => { throw new Error('upgrade boom'); });
+      } catch (e) { err = e; }
+      expect(err).toBeDefined();
+    }
+    // Pre-fix each attempt leaked one live handle (+ WAL locks).
+    expect(counts.creates).toBe(3);
+    expect(counts.closes).toBe(3);
+
+    // A subsequent successful open works from a fresh handle.
+    const db = await openDb(factory, 'leak', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put('v', 'k');
+    await txDone(wtx);
+    expect(await reqDone(db.transaction('s', 'readonly').objectStore('s').get('k'))).toBe('v');
+    db.close();
+    expect(counts.closes).toBe(4);
+  });
+});
+
