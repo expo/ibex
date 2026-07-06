@@ -1075,8 +1075,42 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           return env;
         }
 #if defined(_WIN32)
-        char **envp = nullptr;
-#elif defined(__APPLE__)
+        // ENG-23115 — populate from the REAL process environment. This was
+        // hardcoded to nullptr, so process.env enumeration ({...process.env},
+        // Object.keys, JSON.stringify) and child_process default env inheritance
+        // (`_flattenEnv` walks process.env) saw an empty environment on Windows
+        // (no PATH/SystemRoot). GetEnvironmentStringsW is always populated
+        // (independent of main/wmain) and returns UTF-16, converted to UTF-8 to
+        // match the POSIX branch below.
+        LPWCH envBlock = GetEnvironmentStringsW();
+        if (envBlock) {
+          auto toUtf8 = [](const std::wstring& w) -> std::string {
+            if (w.empty()) return std::string();
+            int n = WideCharToMultiByte(
+                CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+            if (n <= 0) return std::string();
+            std::string out(static_cast<size_t>(n), '\0');
+            WideCharToMultiByte(
+                CP_UTF8, 0, w.data(), static_cast<int>(w.size()), &out[0], n, nullptr, nullptr);
+            return out;
+          };
+          for (LPWCH p = envBlock; *p != L'\0';) {
+            std::wstring entry(p);  // wchar_t* -> length via char_traits, no wcslen
+            p += entry.size() + 1;
+            auto eq = entry.find(L'=');
+            // Windows exposes "=C:=..." drive-cwd pseudo-vars whose key is empty
+            // (the entry begins with '='); skip them, matching Node's process.env.
+            if (eq == std::wstring::npos || eq == 0) continue;
+            std::string key = toUtf8(entry.substr(0, eq));
+            std::string val = toUtf8(entry.substr(eq + 1));
+            env.setProperty(runtime,
+              facebook::jsi::PropNameID::forUtf8(runtime, key),
+              facebook::jsi::String::createFromUtf8(runtime, val));
+          }
+          FreeEnvironmentStringsW(envBlock);
+        }
+#else
+#if defined(__APPLE__)
         char **envp = *_NSGetEnviron();
 #else
         char **envp = ::environ;
@@ -1094,6 +1128,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             }
           }
         }
+#endif
         return env;
       });
   rt.global().setProperty(rt, "__exactGetAllEnv", std::move(getAllEnvFn));

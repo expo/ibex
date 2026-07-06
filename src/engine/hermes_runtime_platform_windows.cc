@@ -528,11 +528,83 @@ std::string windowsErrorMessage(DWORD error) {
   return out;
 }
 
+// ENG-23115 (mirrors the POSIX helpers in hermes_runtime_process.cc) — the
+// spawnSync stdio channel is base64 end-to-end (ENG-23009) so binary stdin/stdout
+// round-trips byte-accurately. The Windows native never adopted it, so stdin was
+// WriteFile'd raw (the literal base64 text the JS builtin sends) and stdout/stderr
+// were returned as a lossy UTF-8 string. These give it the same base64 channel.
+std::string base64Encode(const std::string& in) {
+  static const char* tbl =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve(((in.size() + 2) / 3) * 4);
+  size_t i = 0;
+  while (i + 2 < in.size()) {
+    uint32_t n = (static_cast<uint8_t>(in[i]) << 16) |
+                 (static_cast<uint8_t>(in[i + 1]) << 8) |
+                 static_cast<uint8_t>(in[i + 2]);
+    out.push_back(tbl[(n >> 18) & 63]);
+    out.push_back(tbl[(n >> 12) & 63]);
+    out.push_back(tbl[(n >> 6) & 63]);
+    out.push_back(tbl[n & 63]);
+    i += 3;
+  }
+  size_t rem = in.size() - i;
+  if (rem == 1) {
+    uint32_t n = static_cast<uint8_t>(in[i]) << 16;
+    out.push_back(tbl[(n >> 18) & 63]);
+    out.push_back(tbl[(n >> 12) & 63]);
+    out.push_back('=');
+    out.push_back('=');
+  } else if (rem == 2) {
+    uint32_t n = (static_cast<uint8_t>(in[i]) << 16) |
+                 (static_cast<uint8_t>(in[i + 1]) << 8);
+    out.push_back(tbl[(n >> 18) & 63]);
+    out.push_back(tbl[(n >> 12) & 63]);
+    out.push_back(tbl[(n >> 6) & 63]);
+    out.push_back('=');
+  }
+  return out;
+}
+
+std::string base64Decode(const std::string& in) {
+  auto dec = [](char c) -> int {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+  };
+  std::string out;
+  out.reserve((in.size() / 4) * 3);
+  int buffer = 0;
+  int bits = 0;
+  for (char c : in) {
+    if (c == '=' || c == '\n' || c == '\r' || c == ' ') continue;
+    int v = dec(c);
+    if (v < 0) continue;
+    buffer = (buffer << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(static_cast<char>((buffer >> bits) & 0xff));
+    }
+  }
+  return out;
+}
+
 void readPipeToString(HANDLE readHandle, std::string* out, uint32_t maxBuffer) {
   char buffer[4096];
   DWORD bytesRead = 0;
   while (ReadFile(readHandle, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
-    if (out->size() < maxBuffer) {
+    // ENG-23115 — maxBuffer == 0 means UNLIMITED (the JS builtin encodes
+    // Infinity that way, honored by the POSIX native). The old `out->size() <
+    // maxBuffer` guard is `size_t < 0` when maxBuffer == 0, which is never true,
+    // so it drained the pipe but captured nothing -> empty stdout/stderr.
+    if (maxBuffer == 0) {
+      out->append(buffer, buffer + bytesRead);
+    } else if (out->size() < maxBuffer) {
       size_t remaining = static_cast<size_t>(maxBuffer) - out->size();
       out->append(buffer, buffer + std::min<size_t>(remaining, bytesRead));
     }
@@ -552,6 +624,13 @@ std::string spawnSyncWindowsJson(
   parseJsonStringProperty(optsJson, "input", input);
   parseJsonStringProperty(optsJson, "argv0", argv0);
   parseJsonStringProperty(optsJson, "stdio", stdioMode);
+  // ENG-23115 — the JS builtin base64-encodes stdin and sets
+  // "inputEncoding":"base64" (ENG-23009). Decode it back to raw bytes before
+  // WriteFile, mirroring the POSIX native; without this the child received the
+  // literal base64 text ("aGVsbG8=" instead of "hello").
+  if (optsJson.find("\"inputEncoding\":\"base64\"") != std::string::npos) {
+    input = base64Decode(input);
+  }
   uint32_t timeoutMs = parseJsonUintProperty(optsJson, "timeout", 0);
   uint32_t maxBuffer = parseJsonUintProperty(optsJson, "maxBuffer", 1024 * 1024);
   auto envEntries = parseEnvFromOptionsJson(optsJson);
@@ -725,9 +804,14 @@ std::string spawnSyncWindowsJson(
   if (stderrThread.joinable()) stderrThread.join();
 
   int status = timedOut ? -1 : static_cast<int>(exitCode);
-  std::string result = "{\"stdout\":\"" + jsonEscape(stdoutStr)
-      + "\",\"stderr\":\"" + jsonEscape(stderrStr)
-      + "\",\"status\":" + std::to_string(status)
+  // ENG-23115 — return stdout/stderr base64-encoded and flag
+  // "stdioEncoding":"base64" so the JS builtin decodes them to byte-accurate
+  // Buffers (ENG-23009). The old raw jsonEscape'd string turned bytes >= 0x80
+  // into U+FFFD and yielded a JS string, not a Buffer. base64 output is pure
+  // [A-Za-z0-9+/=], none of which needs JSON escaping.
+  std::string result = "{\"stdout\":\"" + base64Encode(stdoutStr)
+      + "\",\"stderr\":\"" + base64Encode(stderrStr)
+      + "\",\"stdioEncoding\":\"base64\",\"status\":" + std::to_string(status)
       + ",\"pid\":" + std::to_string(static_cast<int>(processInfo.dwProcessId));
   if (timedOut) {
     result += ",\"error\":\"Command timed out\"";
