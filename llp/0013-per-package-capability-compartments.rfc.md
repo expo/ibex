@@ -1159,7 +1159,8 @@ The intrinsics freeze runs in userland by default (the SES `harden` graph walk);
 under `IBEX_NATIVE_LOCKDOWN=1` the harness instead freezes each intrinsic root
 with the native `__exactDeepFreeze` (patch 0006) — a transitive freeze that walks
 property *descriptors* (getters/setters read without invoking) and prototypes in
-C++ with a freeze-before-recurse cycle guard, retiring the JS walk. Both produce
+C++ via an iterative worklist with an explicit GC-safe visited set (distinct from
+the frozen bit, no recursion-depth cap), retiring the JS walk. Both produce
 an identically locked-down runtime; tested by
 `native_deep_freeze_freezes_a_graph_without_invoking_getters` and
 `native_lockdown_freezes_intrinsics_and_contains_redteam`.

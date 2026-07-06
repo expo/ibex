@@ -108,92 +108,113 @@ diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
 index b78ddb6ca..1bca3c449 100644
 --- a/lib/VM/JSLib/GlobalObject.cpp
 +++ b/lib/VM/JSLib/GlobalObject.cpp
-@@ -27,6 +27,7 @@
+@@ -27,6 +27,8 @@
  
  // @ref LLP 0013#mechanism-2 (Phase 3) — native compartment global binding.
  #include "hermes/VM/Domain.h"
 +#include "hermes/VM/JSArray.h"
++#include "llvh/ADT/SmallVector.h"
  #include "hermes/VM/RuntimeModule-inline.h"
  
  namespace hermes {
-@@ -71,6 +72,95 @@ CallResult<HermesValue> exactNativeFreeze(void *, Runtime &runtime) {
+@@ -71,6 +73,115 @@ CallResult<HermesValue> exactNativeFreeze(void *, Runtime &runtime) {
    return args.getArg(0);
  }
  
 +/// @ref LLP 0013#mechanism-1 (Phase 3) — native transitive deep-freeze. Freezes
-+/// the object graph reachable from \p obj, SES-style: each object is frozen
-+/// (shallow, via JSObject::freeze) and the walk recurses through property
++/// the object graph reachable from \p root, SES-style: every reachable object is
++/// frozen (shallow, via JSObject::freeze) and the walk follows property
 +/// *descriptors* — data values and accessor getter/setter functions, read
-+/// WITHOUT invoking getters — plus the prototype. Cycles and shared subgraphs
-+/// are handled by the isFrozen guard (freeze-before-recurse), with a depth bound
-+/// as a backstop. Lets the boot-time lockdown do the whole intrinsics freeze in
-+/// native code instead of a JS graph walk.
++/// WITHOUT invoking getters — plus the prototype. Lets the boot-time lockdown
++/// freeze the whole intrinsics graph in native code instead of a JS graph walk.
++///
++/// Correctness invariants (ENG-22946):
++///  * GC-safe. Every cell the walk will touch across an allocation is held
++///    through a GC-managed Handle first, so a moving young-gen collection never
++///    leaves a raw pointer dangling. In particular an accessor's getter and
++///    setter are snapshotted into handles BEFORE either is enqueued, because
++///    enqueuing allocates and can move the PropertyAccessor cell — reading the
++///    setter off a raw `accessor` after recursing into the getter would touch
++///    moved memory.
++///  * Visited set distinct from the frozen bit. Cycles and shared subgraphs are
++///    guarded by an explicit visited set, NOT by JSObject::isFrozen — so an
++///    object someone already (shallow-)froze is still descended into and
++///    deep-frozen, matching SES `harden`.
++///  * No silent truncation. The walk is iterative (an explicit worklist), so it
++///    has no native-recursion depth bound and freezes arbitrarily deep graphs
++///    completely, rather than freezing a node while skipping its children.
 +static ExecutionStatus
-+exactDeepFreezeRec(Runtime &runtime, Handle<JSObject> obj, unsigned depth) {
-+  if (JSObject::isFrozen(createPseudoHandle(obj.get()), runtime))
-+    return ExecutionStatus::RETURNED;
-+  if (LLVM_UNLIKELY(
-+          JSObject::freeze(obj, runtime) == ExecutionStatus::EXCEPTION))
-+    return ExecutionStatus::EXCEPTION;
-+  if (depth >= 512)
-+    return ExecutionStatus::RETURNED;
++exactDeepFreezeGraph(Runtime &runtime, Handle<JSObject> root) {
 +  GCScope gcScope{runtime};
-+  auto keysRes = JSObject::getOwnPropertyKeys(
-+      obj,
-+      runtime,
-+      OwnKeysFlags()
-+          .plusIncludeSymbols()
-+          .plusIncludeNonSymbols()
-+          .plusIncludeNonEnumerable());
-+  if (LLVM_UNLIKELY(keysRes == ExecutionStatus::EXCEPTION))
-+    return ExecutionStatus::EXCEPTION;
-+  Handle<JSArray> keys = *keysRes;
-+  uint32_t len = JSArray::getLength(*keys, runtime);
++  // Worklist of objects still to process, plus the visited set — both vectors of
++  // GC-rooted Handles minted from runtime.makeHandle, so the roots outlive the
++  // vector bookkeeping (until this GCScope closes) and the collector updates each
++  // slot on a move, keeping identity comparison via get() valid across the
++  // allocations the walk performs.
++  llvh::SmallVector<Handle<JSObject>, 64> visited;
++  llvh::SmallVector<Handle<JSObject>, 64> worklist;
++  auto enqueue = [&runtime, &visited, &worklist](JSObject *o) {
++    for (const Handle<JSObject> &seen : visited)
++      if (seen.get() == o)
++        return;
++    // Only the pointer-compare scan ran since `o` was read, so no allocation has
++    // moved it: it is still the live cell when makeHandle roots it here.
++    Handle<JSObject> h = runtime.makeHandle(o);
++    visited.push_back(h);
++    worklist.push_back(h);
++  };
++  enqueue(root.get());
++
 +  MutableHandle<> keyHandle{runtime};
 +  MutableHandle<> valueOrAccessor{runtime};
-+  MutableHandle<JSObject> child{runtime};
-+  GCScopeMarkerRAII marker{runtime};
-+  for (uint32_t i = 0; i < len; ++i) {
-+    marker.flush();
-+    keyHandle = keys->at(runtime, i).unboxToHV(runtime);
-+    ComputedPropertyDescriptor desc;
-+    auto found = JSObject::getOwnComputedDescriptor(
-+        obj, runtime, keyHandle, desc, valueOrAccessor);
-+    if (LLVM_UNLIKELY(found == ExecutionStatus::EXCEPTION)) {
-+      runtime.clearThrownValue();
-+      continue;
-+    }
-+    if (!*found)
-+      continue;
-+    if (desc.flags.accessor) {
-+      auto *accessor = vmcast<PropertyAccessor>(valueOrAccessor.getHermesValue());
-+      if (Callable *g = accessor->getter.get(runtime)) {
-+        child = g;
-+        if (exactDeepFreezeRec(runtime, child, depth + 1) ==
-+            ExecutionStatus::EXCEPTION)
-+          return ExecutionStatus::EXCEPTION;
-+      }
-+      if (Callable *s = accessor->setter.get(runtime)) {
-+        child = s;
-+        if (exactDeepFreezeRec(runtime, child, depth + 1) ==
-+            ExecutionStatus::EXCEPTION)
-+          return ExecutionStatus::EXCEPTION;
-+      }
-+    } else {
-+      HermesValue v = valueOrAccessor.getHermesValue();
-+      if (v.isObject()) {
-+        child = vmcast<JSObject>(v);
-+        if (exactDeepFreezeRec(runtime, child, depth + 1) ==
-+            ExecutionStatus::EXCEPTION)
-+          return ExecutionStatus::EXCEPTION;
-+      }
-+    }
-+  }
-+  if (JSObject *proto = obj->getParent(runtime)) {
-+    child = proto;
-+    if (exactDeepFreezeRec(runtime, child, depth + 1) ==
-+        ExecutionStatus::EXCEPTION)
++  MutableHandle<JSObject> getterHandle{runtime};
++  MutableHandle<JSObject> setterHandle{runtime};
++  while (!worklist.empty()) {
++    Handle<JSObject> obj = worklist.pop_back_val();
++    if (LLVM_UNLIKELY(
++            JSObject::freeze(obj, runtime) == ExecutionStatus::EXCEPTION))
 +      return ExecutionStatus::EXCEPTION;
++    auto keysRes = JSObject::getOwnPropertyKeys(
++        obj,
++        runtime,
++        OwnKeysFlags()
++            .plusIncludeSymbols()
++            .plusIncludeNonSymbols()
++            .plusIncludeNonEnumerable());
++    if (LLVM_UNLIKELY(keysRes == ExecutionStatus::EXCEPTION))
++      return ExecutionStatus::EXCEPTION;
++    Handle<JSArray> keys = *keysRes;
++    uint32_t len = JSArray::getLength(*keys, runtime);
++    for (uint32_t i = 0; i < len; ++i) {
++      keyHandle = keys->at(runtime, i).unboxToHV(runtime);
++      ComputedPropertyDescriptor desc;
++      auto found = JSObject::getOwnComputedDescriptor(
++          obj, runtime, keyHandle, desc, valueOrAccessor);
++      if (LLVM_UNLIKELY(found == ExecutionStatus::EXCEPTION)) {
++        runtime.clearThrownValue();
++        continue;
++      }
++      if (!*found)
++        continue;
++      if (desc.flags.accessor) {
++        auto *accessor =
++            vmcast<PropertyAccessor>(valueOrAccessor.getHermesValue());
++        // Snapshot getter AND setter into handles before enqueuing either, so
++        // the raw `accessor` is never dereferenced after an allocation.
++        getterHandle = accessor->getter.get(runtime);
++        setterHandle = accessor->setter.get(runtime);
++        if (JSObject *g = getterHandle.get())
++          enqueue(g);
++        if (JSObject *s = setterHandle.get())
++          enqueue(s);
++      } else {
++        HermesValue v = valueOrAccessor.getHermesValue();
++        if (v.isObject())
++          enqueue(vmcast<JSObject>(v));
++      }
++    }
++    if (JSObject *proto = obj->getParent(runtime))
++      enqueue(proto);
 +  }
 +  return ExecutionStatus::RETURNED;
 +}
@@ -203,7 +224,7 @@ index b78ddb6ca..1bca3c449 100644
 +  Handle<JSObject> obj = args.dyncastArg<JSObject>(0);
 +  if (obj) {
 +    if (LLVM_UNLIKELY(
-+            exactDeepFreezeRec(runtime, obj, 0) == ExecutionStatus::EXCEPTION))
++            exactDeepFreezeGraph(runtime, obj) == ExecutionStatus::EXCEPTION))
 +      return ExecutionStatus::EXCEPTION;
 +  }
 +  return args.getArg(0);
@@ -212,7 +233,7 @@ index b78ddb6ca..1bca3c449 100644
  /// ES5.1 15.1.2.4
  CallResult<HermesValue> isNaN(void *, Runtime &runtime) {
    NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
-@@ -782,12 +872,17 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
+@@ -782,12 +893,17 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
            runtime, createASCIIRef("__exactSetCompartmentFor")),
        exactSetCompartmentFor,
        2);
