@@ -113,7 +113,56 @@ const HOST_LIFECYCLE_ERROR_PREFIXES: &[&str] = &[
     "Failed to start HTTP server",
 ];
 
+/// Error carrying a package script's own exit status. `run_package_script`
+/// returns this on failure so `ibex` propagates the child's exit code — matching
+/// npm/bun — instead of collapsing every script failure to the generic 1.
+/// `exit_code_for_error` downcasts to it. (ENG-22958)
+#[derive(Debug)]
+struct PackageScriptExit {
+    script: String,
+    code: i32,
+}
+
+impl std::fmt::Display for PackageScriptExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "package script `{}` exited with code {}",
+            self.script, self.code
+        )
+    }
+}
+
+impl std::error::Error for PackageScriptExit {}
+
+/// Resolve a finished child's exit code the way a shell would: the explicit
+/// code when present, else `128 + signal` on Unix. Never returns 0 for a
+/// non-success status (so a propagated code always signals failure).
+fn package_script_exit_code(status: &std::process::ExitStatus) -> i32 {
+    if let Some(code) = status.code() {
+        if code != 0 {
+            return code;
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return 128 + signal;
+        }
+    }
+    1
+}
+
 fn exit_code_for_error(error: &anyhow::Error) -> i32 {
+    // A failing package script propagates its own exit code (e.g. eslint's 2),
+    // matching npm/bun, rather than collapsing to the generic 1. (ENG-22958)
+    if let Some(script_exit) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<PackageScriptExit>())
+    {
+        return script_exit.code;
+    }
     if error.chain().any(|cause| {
         if let Some(io) = cause.downcast_ref::<std::io::Error>() {
             return matches!(
@@ -480,11 +529,13 @@ async fn run_package_script(script: &str, args: &[String]) -> Result<()> {
         .await
         .with_context(|| format!("Failed to run package script `{script}`"))?;
     if !status.success() {
-        anyhow::bail!(
-            "package script `{}` exited with code {}",
-            script,
-            status.code().unwrap_or(1)
-        );
+        // Propagate the child's own exit code so `ibex check` mirrors npm/bun
+        // (e.g. an eslint script exiting 2 makes `ibex` exit 2, not 1). (ENG-22958)
+        return Err(PackageScriptExit {
+            script: script.to_string(),
+            code: package_script_exit_code(&status),
+        }
+        .into());
     }
 
     Ok(())
@@ -664,7 +715,7 @@ async fn run_file(
 
     if options.keep_alive || cli.keep_alive {
         eprintln!("Press Ctrl+C to exit.");
-        run_debug_loop().await;
+        run_debug_loop(&runtime).await;
     }
 
     let exit_code = read_process_exit_code(&runtime).await;
@@ -698,7 +749,7 @@ async fn read_process_exit_code(runtime: &runtime::Runtime) -> Option<i32> {
 /// Run a file in watch mode — re-run on file changes
 async fn run_watch(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
     use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
     use tokio::sync::mpsc;
 
     let file_path = std::path::Path::new(file)
@@ -714,6 +765,24 @@ async fn run_watch(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
     );
 
     let shutdown_timeout = watch_shutdown_timeout();
+    let debounce = Duration::from_millis(300);
+
+    // Create the watcher ONCE and keep it alive across restarts. The old code
+    // rebuilt the watcher + channel every iteration, so any change that landed
+    // between stopping the old child and re-arming the watcher was lost. (ENG-22958)
+    let (tx, mut rx) = mpsc::unbounded_channel::<Event>();
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                let _ = tx.send(event);
+            }
+        },
+        Config::default().with_poll_interval(Duration::from_millis(200)),
+    )
+    .context("Failed to create file watcher")?;
+    watcher
+        .watch(watch_dir, RecursiveMode::Recursive)
+        .context("Failed to watch directory")?;
 
     loop {
         // Run the file in a child process so we can kill it on change
@@ -732,67 +801,95 @@ async fn run_watch(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
 
         let mut child = cmd.spawn().context("Failed to spawn child process")?;
 
-        // Set up file watcher
-        let (tx, mut rx) = mpsc::unbounded_channel::<Event>();
-        let mut watcher = RecommendedWatcher::new(
-            move |res: Result<Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let _ = tx.send(event);
-                }
-            },
-            Config::default().with_poll_interval(Duration::from_millis(200)),
-        )
-        .context("Failed to create file watcher")?;
+        let should_continue = await_restart_trigger(&mut child, &mut rx, debounce).await;
+        // Always stop the (possibly still-running) child before restarting.
+        stop_watch_child(&mut child, shutdown_timeout).await?;
+        if !should_continue {
+            break;
+        }
+    }
 
-        watcher
-            .watch(watch_dir, RecursiveMode::Recursive)
-            .context("Failed to watch directory")?;
+    Ok(())
+}
 
-        // Wait for either child to exit or file change
-        let mut last_change = Instant::now();
-        let debounce = Duration::from_millis(300);
+/// Block until watch mode should restart the child.
+///
+/// Trailing-edge debounce (ENG-22958): after the first relevant change,
+/// coalesce further relevant changes and only restart once the filesystem has
+/// been quiet for `debounce`. The old leading-edge check *discarded* any change
+/// arriving within the window (`if last_change.elapsed() < debounce { continue }`),
+/// so a format-on-save write landing shortly after a restart left the new child
+/// running stale code until the next manual save. Here that trailing write is
+/// deferred, never dropped — each relevant change extends the quiet window, so
+/// the restarted child always sees the final file contents.
+///
+/// If the child exits on its own first, wait for the next relevant change before
+/// restarting. Returns `false` only if the watch channel closed (watcher gone),
+/// signalling the caller to stop watching.
+async fn await_restart_trigger(
+    child: &mut tokio::process::Child,
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<notify::Event>,
+    debounce: std::time::Duration,
+) -> bool {
+    use std::time::Instant;
 
-        loop {
-            tokio::select! {
-                status = child.wait() => {
-                    match status {
-                        Ok(status) => {
-                            let code = status.code().unwrap_or(0);
-                            if code != 0 {
-                                eprintln!("\x1b[31m[watch]\x1b[0m process exited with code {}", code);
-                            }
-                            eprintln!("\x1b[2m[watch]\x1b[0m waiting for changes...");
-                            while let Some(event) = rx.recv().await {
-                                if is_relevant_change(&event) {
-                                    break;
-                                }
-                            }
-                            break;
+    // Phase 1: wait for the first trigger — a relevant change or the child
+    // exiting on its own. `child_running` disables the exit arm after the child
+    // is reaped so we keep waiting for a change instead of re-polling `wait()`.
+    let mut child_running = true;
+    loop {
+        tokio::select! {
+            status = child.wait(), if child_running => {
+                child_running = false;
+                match status {
+                    Ok(status) => {
+                        let code = status.code().unwrap_or(0);
+                        if code != 0 {
+                            eprintln!(
+                                "\x1b[31m[watch]\x1b[0m process exited with code {}",
+                                code
+                            );
                         }
-                        Err(e) => {
-                            eprintln!("\x1b[31m[watch]\x1b[0m error: {}", e);
-                            break;
-                        }
+                        eprintln!("\x1b[2m[watch]\x1b[0m waiting for changes...");
+                        // Keep looping — the change arm below drives the restart.
+                    }
+                    Err(e) => {
+                        eprintln!("\x1b[31m[watch]\x1b[0m error: {}", e);
+                        return true;
                     }
                 }
-                maybe_event = rx.recv() => {
-                    let Some(event) = maybe_event else {
-                        break;
-                    };
-                    if !is_relevant_change(&event) {
-                        continue;
-                    }
-                    if last_change.elapsed() < debounce {
-                        continue;
-                    }
-                    last_change = Instant::now();
-                    eprintln!("\x1b[33m[watch]\x1b[0m change detected, restarting...");
-                    stop_watch_child(&mut child, shutdown_timeout).await?;
+            }
+            maybe_event = rx.recv() => {
+                let Some(event) = maybe_event else { return false; };
+                if is_relevant_change(&event) {
                     break;
                 }
             }
         }
     }
+
+    // Phase 2: a relevant change arrived. Coalesce a burst (format-on-save,
+    // multi-file writes) by extending a quiet window on each further relevant
+    // change; restart only once it elapses. Irrelevant events don't extend it.
+    let mut deadline = Instant::now() + debounce;
+    loop {
+        let now = Instant::now();
+        let Some(remaining) = deadline.checked_duration_since(now) else {
+            break;
+        };
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Some(event)) => {
+                if is_relevant_change(&event) {
+                    deadline = Instant::now() + debounce;
+                }
+            }
+            Ok(None) => break, // channel closed; restart once with what we have
+            Err(_) => break,   // quiet window elapsed
+        }
+    }
+
+    eprintln!("\x1b[33m[watch]\x1b[0m change detected, restarting...");
+    true
 }
 
 /// Reconstruct the global flag set for the watch child. The child previously
@@ -889,11 +986,15 @@ fn is_relevant_change(event: &notify::Event) -> bool {
     }
 }
 
-/// Run an event loop that allows debugger interactions while keeping the process alive.
-/// This polls periodically to allow CDP commands to be processed.
-async fn run_debug_loop() {
+/// Run an event loop that allows debugger interactions while keeping the process
+/// alive. It drives the runtime's event loop each tick so DevTools
+/// `Runtime.evaluate` and timers scheduled from DevTools actually run — the old
+/// loop only ticked a counter and never polled, so those hung. (ENG-22958)
+async fn run_debug_loop(runtime: &runtime::Runtime) {
     use tokio::sync::mpsc;
     use tokio::time::{interval, Duration, Instant};
+
+    let engine = runtime.engine();
 
     let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel::<()>();
 
@@ -934,6 +1035,13 @@ async fn run_debug_loop() {
     loop {
         tokio::select! {
             _ = ticker.tick() => {
+                // Drive the runtime's event loop so DevTools evaluations and
+                // timers scheduled from DevTools run while we stay alive.
+                if let Err(err) = engine.drive_ready_tasks().await {
+                    eprintln!("error: keep-alive event loop failed: {err:#}");
+                    stop_signal_watchers();
+                    break;
+                }
                 if shutdown_requests == 0 {
                     continue;
                 }
@@ -1120,7 +1228,7 @@ async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
 
     if cli.keep_alive {
         eprintln!("Press Ctrl+C to exit.");
-        run_debug_loop().await;
+        run_debug_loop(&runtime).await;
     }
 
     if let Some(code) = read_process_exit_code(&runtime).await {
@@ -1429,6 +1537,21 @@ mod tests {
         let error = anyhow::anyhow!("syntax error");
 
         assert_eq!(exit_code_for_error(&error), 1);
+    }
+
+    #[test]
+    fn exit_code_for_error_propagates_package_script_code() {
+        // A failing package script must surface its own exit code (eslint's 2),
+        // matching npm/bun, not the generic 1. (ENG-22958)
+        let error = anyhow::Error::new(super::PackageScriptExit {
+            script: "lint".to_string(),
+            code: 2,
+        });
+        assert_eq!(exit_code_for_error(&error), 2);
+
+        // The code survives extra context layered on top of the error.
+        let wrapped = error.context("running package script `lint`");
+        assert_eq!(exit_code_for_error(&wrapped), 2);
     }
 
     #[test]

@@ -38,6 +38,15 @@ pub trait Engine: Send + Sync {
         self.eval(code).await
     }
 
+    /// Execute all currently-ready event-loop work (due timers, drained
+    /// microtasks/callbacks, pending debugger interrupts) without blocking on
+    /// future timers. The keep-alive/debug loop calls this on its own cadence to
+    /// keep the runtime responsive to DevTools. Engines without an event loop
+    /// leave this a no-op. (ENG-22958)
+    async fn drive_ready_tasks(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Run a JavaScript file
     async fn run_file(&self, path: &str) -> Result<Option<String>>;
 

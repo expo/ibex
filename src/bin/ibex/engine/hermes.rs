@@ -12,7 +12,7 @@ use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use tokio::process::Command;
@@ -434,7 +434,28 @@ struct RuntimeHandle {
 
 struct SharedRuntime {
     raw: AtomicPtr<HermesRuntimeOpaque>,
+    // Serializes runtime-thread FFI (`ex_hermes_eval`/`ex_hermes_poll`) and
+    // gates destruction against it. CDP debugger ops deliberately do NOT take
+    // this lock — see `with_debugger`.
     ffi_lock: std::sync::Mutex<()>,
+    // Count of in-flight CDP debugger-thread FFI calls. Debugger ops run without
+    // `ffi_lock` (so they can't deadlock against a JS thread parked at a
+    // breakpoint while holding `ffi_lock`, or against the runtime thread they
+    // must interrupt); `shutdown` instead nulls the pointer and drains this
+    // counter before freeing, so no debugger op ever touches a freed runtime.
+    // (ENG-22958)
+    debugger_inflight: AtomicUsize,
+}
+
+/// Decrements the in-flight debugger counter on scope exit (incl. early return
+/// through `?`), so a bailing or failing debugger op can never leave `shutdown`
+/// spinning forever.
+struct DebuggerInflightGuard<'a>(&'a AtomicUsize);
+
+impl Drop for DebuggerInflightGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl SharedRuntime {
@@ -450,9 +471,12 @@ impl SharedRuntime {
         Ok(Self {
             raw: AtomicPtr::new(raw),
             ffi_lock: std::sync::Mutex::new(()),
+            debugger_inflight: AtomicUsize::new(0),
         })
     }
 
+    /// Runtime-thread FFI (eval/poll/enable). Serialized by `ffi_lock`; only
+    /// ever called from the runtime's owning thread.
     fn with_runtime<T>(&self, f: impl FnOnce(*mut HermesRuntimeOpaque) -> T) -> Result<T> {
         let _guard = match self.ffi_lock.lock() {
             Ok(guard) => guard,
@@ -465,12 +489,45 @@ impl SharedRuntime {
         Ok(f(raw))
     }
 
+    /// Debugger-thread FFI (CDP: pause/resume/eval/breakpoints/…). Runs WITHOUT
+    /// `ffi_lock`: the Hermes async debugger API is built to be driven from a
+    /// thread other than the runtime thread, and taking `ffi_lock` here would
+    /// deadlock — the JS thread holds it for the whole of `ex_hermes_eval` while
+    /// parked at a breakpoint, and some debugger ops interrupt the runtime
+    /// thread and wait for it (which itself needs `ffi_lock` to poll). Liveness
+    /// of `raw` is protected by the in-flight counter, which `shutdown` drains
+    /// before freeing. (ENG-22958)
+    fn with_debugger<T>(&self, f: impl FnOnce(*mut HermesRuntimeOpaque) -> T) -> Result<T> {
+        self.debugger_inflight.fetch_add(1, Ordering::SeqCst);
+        let _guard = DebuggerInflightGuard(&self.debugger_inflight);
+        // Load AFTER registering as in-flight: if the load sees a non-null
+        // pointer it was read before `shutdown`'s swap, so `shutdown` is
+        // guaranteed to observe this increment and wait for us before freeing.
+        let raw = self.raw.load(Ordering::SeqCst);
+        if raw.is_null() {
+            anyhow::bail!("Hermes runtime has been shut down");
+        }
+        Ok(f(raw))
+    }
+
     fn shutdown(&self) {
-        let _guard = match self.ffi_lock.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
+        // Null the pointer under `ffi_lock` so no runtime-thread op is mid-call
+        // and later runtime-thread ops bail instead of using a freed pointer.
+        let raw = {
+            let _guard = match self.ffi_lock.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            self.raw.swap(std::ptr::null_mut(), Ordering::SeqCst)
         };
-        let raw = self.raw.swap(std::ptr::null_mut(), Ordering::SeqCst);
+        // Drain in-flight debugger-thread ops WITHOUT holding `ffi_lock`, so a
+        // debugger op that needs the runtime thread to make progress can't
+        // deadlock against us. New debugger ops now observe null and bail. This
+        // is normally a no-op: the CDP thread is joined (stop_inspector) before
+        // the runtime is dropped, so no debugger op is in flight here.
+        while self.debugger_inflight.load(Ordering::SeqCst) != 0 {
+            std::thread::yield_now();
+        }
         if !raw.is_null() {
             unsafe {
                 ex_hermes_destroy(raw);
@@ -533,7 +590,7 @@ impl CdpBackend for HermesCdpBackend {
     fn get_scripts(&self) -> Result<Vec<ScriptInfo>> {
         let json = self
             .runtime
-            .with_runtime(|runtime| unsafe {
+            .with_debugger(|runtime| unsafe {
                 Self::take_c_string(ex_hermes_debugger_get_scripts(runtime))
             })?
             .unwrap_or_else(|| "[]".to_string());
@@ -559,7 +616,7 @@ impl CdpBackend for HermesCdpBackend {
 
     fn get_script_source(&self, script_id: &str) -> Result<Option<String>> {
         let id = script_id.parse::<u32>().unwrap_or(0);
-        self.runtime.with_runtime(|runtime| unsafe {
+        self.runtime.with_debugger(|runtime| unsafe {
             Self::take_c_string(ex_hermes_debugger_get_script_source(runtime, id))
         })
     }
@@ -575,7 +632,7 @@ impl CdpBackend for HermesCdpBackend {
         let condition_c = CString::new(condition)?;
         let json = self
             .runtime
-            .with_runtime(|runtime| unsafe {
+            .with_debugger(|runtime| unsafe {
                 Self::take_c_string(ex_hermes_debugger_set_breakpoint(
                     runtime,
                     script_id,
@@ -613,13 +670,13 @@ impl CdpBackend for HermesCdpBackend {
     }
 
     fn remove_breakpoint(&self, breakpoint_id: u64) {
-        let _ = self.runtime.with_runtime(|runtime| unsafe {
+        let _ = self.runtime.with_debugger(|runtime| unsafe {
             ex_hermes_debugger_remove_breakpoint(runtime, breakpoint_id);
         });
     }
 
     fn pause(&self) {
-        let _ = self.runtime.with_runtime(|runtime| unsafe {
+        let _ = self.runtime.with_debugger(|runtime| unsafe {
             ex_hermes_debugger_pause(runtime);
         });
     }
@@ -631,14 +688,14 @@ impl CdpBackend for HermesCdpBackend {
             DebugCommand::StepOver => 2,
             DebugCommand::StepOut => 3,
         };
-        let _ = self.runtime.with_runtime(|runtime| unsafe {
+        let _ = self.runtime.with_debugger(|runtime| unsafe {
             ex_hermes_debugger_resume(runtime, cmd);
         });
     }
 
     fn next_event(&self) -> Option<String> {
         self.runtime
-            .with_runtime(|runtime| unsafe {
+            .with_debugger(|runtime| unsafe {
                 Self::take_c_string(ex_hermes_debugger_next_event(runtime))
             })
             .ok()
@@ -649,7 +706,7 @@ impl CdpBackend for HermesCdpBackend {
         let expression_c = CString::new(expression)?;
         let json = self
             .runtime
-            .with_runtime(|runtime| unsafe {
+            .with_debugger(|runtime| unsafe {
                 Self::take_c_string(ex_hermes_debugger_eval(
                     runtime,
                     expression_c.as_ptr(),
@@ -963,6 +1020,41 @@ impl HermesEngine {
         Ok(())
     }
 
+    /// Execute all runtime work that is ready *right now* — timers already due,
+    /// drained microtasks/callbacks, and any pending debugger interrupts — then
+    /// return without blocking to wait for future timers.
+    ///
+    /// The keep-alive / inspector loop calls this on its own cadence so that a
+    /// `--keep-alive` (or `--inspect`) session actually pumps the event loop:
+    /// DevTools `Runtime.evaluate` needs the runtime thread to service its
+    /// interrupt, and timers scheduled from DevTools need the loop to run. The
+    /// old loop only ticked a counter and never polled, so both hung. Unlike
+    /// `drive_event_loop`, this never parks on a future timer, leaving the
+    /// caller in charge of the wait cadence and shutdown handling.
+    /// @ref LLP 0003#the-event-loop — the host drives Hermes by polling
+    /// `ex_hermes_poll`; the keep-alive loop must do so too. (ENG-22958)
+    async fn pump_ready_tasks(&self) -> Result<()> {
+        self.ensure_thread()?;
+        loop {
+            let executed = {
+                let runtime = self.runtime.lock().await;
+                let handle = match runtime.as_ref() {
+                    Some(handle) => handle,
+                    None => return Ok(()),
+                };
+                let now = current_time_ms();
+                handle.with_runtime(|raw| unsafe { ex_hermes_poll(raw, now) })?
+            };
+            if executed < 0 {
+                return Err(anyhow::anyhow!("Hermes task execution failed"));
+            }
+            if executed == 0 {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Try to apply source map to rewrite stack traces in error messages.
     /// Returns the rewritten message if a source map is found, otherwise the original.
     fn apply_source_map(message: &str, source_url: &str) -> String {
@@ -1205,8 +1297,17 @@ impl Drop for HermesEngine {
             Err(poisoned) => poisoned.into_inner(),
         };
 
+        // Do not block process teardown on background hermesc compiles. These
+        // threads only warm a next-startup bytecode cache and publish it via an
+        // atomic rename, so abandoning an in-flight compile can never leave a
+        // partial or corrupt `.hbc`. Reap any that already finished; detach the
+        // rest by dropping their handles, so a short-lived invocation
+        // (e.g. `ibex -e '1+1'`) exits immediately instead of stalling in Drop
+        // for the duration of the compile (up to the hermesc timeout). (ENG-22958)
         for handle in tasks.drain(..) {
-            let _ = handle.join();
+            if handle.is_finished() {
+                let _ = handle.join();
+            }
         }
     }
 }
@@ -1318,6 +1419,10 @@ impl Engine for HermesEngine {
     async fn eval_immediate(&self, code: &str) -> Result<Option<String>> {
         self.maybe_enable_debugger().await?;
         self.eval_str(code, "<eval>").await
+    }
+
+    async fn drive_ready_tasks(&self) -> Result<()> {
+        self.pump_ready_tasks().await
     }
 
     async fn run_file(&self, path: &str) -> Result<Option<String>> {
