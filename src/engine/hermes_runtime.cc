@@ -2196,6 +2196,39 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
 
+  // @ref LLP 0013#mechanism-1, ENG-23112 — remove the native freeze primitives
+  // from the global in ALL modes. `__exactDeepFreeze`/`__exactNativeFreeze` are
+  // installed unconditionally by Hermes patch 0006 and are the only escape-hatch
+  // natives the end-of-bootstrap capability seal above intentionally KEPT,
+  // because the lockdown pass consumes `__exactDeepFreeze` after that seal runs.
+  // That pass (if enabled) has now completed, so drop both here. Left reachable,
+  // package code in the default (non-lockdown) enforce/audit mode — where the
+  // compartment membrane that would withhold `__exact*` never runs — could call
+  // `globalThis.__exactDeepFreeze(x)` to freeze shared intrinsics or another
+  // package's object graph: an ungated native primitive while every other
+  // dangerous native is capability-gated. Acceptance criterion: escape-hatch
+  // globals unreachable in all modes.
+  {
+    static const char* kFreezeSealJS = R"JS((function () {
+  var g = globalThis;
+  var freezeHatches = ['__exactDeepFreeze', '__exactNativeFreeze'];
+  for (var i = 0; i < freezeHatches.length; i++) {
+    try { delete g[freezeHatches[i]]; } catch (e) {}
+  }
+})();
+)JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kFreezeSealJS);
+      handle->runtime->evaluateJavaScript(buffer, "<freeze-seal>");
+    } catch (const facebook::jsi::JSError& err) {
+      ex_host_console_log(
+          1, (std::string("Freeze seal error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("Freeze seal error: ") + err.what()).c_str());
+    }
+  }
+
   // @ref LLP 0013#mechanism-2 — per-package compartment registry. Package code
   // rewritten by the compartment transform resolves its bare globals against
   // `__compartments[<package>]` instead of the real global. Each compartment is
@@ -3215,14 +3248,28 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       }
     };
     try {
-      ScopedNativePrincipal nativePrincipal(it->second.principal);
-      if (it->second.args.empty()) {
-        it->second.callback.call(*runtime->runtime);
-      } else {
-        it->second.callback.call(
-            *runtime->runtime,
-            static_cast<const facebook::jsi::Value*>(it->second.args.data()),
-            it->second.args.size());
+      // @ref LLP 0013#phase-5, ENG-23112 — scope the native-principal override to
+      // JUST the timer callback invocation. Extending it over runNextTickQueue /
+      // drainMicrotasks would pin g_native_callback_principal_id to the timer
+      // owner while a *detached* deputy microtask drains — e.g. an ungranted
+      // dependency's `Promise.resolve(x).then(fs.readFileSync)` reaction that has
+      // no live user frame (the attribution walk reaches kNoUserPrincipal).
+      // currentPrincipalId would then fall back to the pinned owner and launder
+      // that reaction into the owner's authority. runNextTickQueue already
+      // re-scopes per entry (each nextTick carries its own captured principal), and
+      // the top-level poll drains microtasks with no override (line 3134) where the
+      // identical drain fails closed — match it so the detached-deputy drain
+      // resolves to kNoUserPrincipal, not the owner.
+      {
+        ScopedNativePrincipal nativePrincipal(it->second.principal);
+        if (it->second.args.empty()) {
+          it->second.callback.call(*runtime->runtime);
+        } else {
+          it->second.callback.call(
+              *runtime->runtime,
+              static_cast<const facebook::jsi::Value*>(it->second.args.data()),
+              it->second.args.size());
+        }
       }
       executed += 1;
       runNextTickQueue(runtime);

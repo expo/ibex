@@ -1148,6 +1148,27 @@ that leaks). Residual, out of scope by default: a deputy that itself re-schedule
 the op across a further async hop is "deputy by design" (RFC §What this does not
 attempt to solve).
 
+The `ScopedNativePrincipal` override must cover **only** the host callback's own
+invocation, never the queue drains that follow it. The timer fire loop originally
+scoped it over `runNextTickQueue` **and** `drainMicrotasks`, so while pending
+Promise microtasks drained, `g_native_callback_principal_id` stayed pinned to the
+timer owner. An ungranted dependency's *detached* deputy read — the fs deputy
+passed straight to `.then` (`Promise.resolve(SECRET).then(fs.readFileSync)`), which
+runs with no user frame so `getCurrentPackageId` reaches `kNoUserPrincipal` and the
+top-level poll denies it — then resolved, when scheduled inside the owner's timer
+callback, to that pinned owner via the `currentPrincipalId` `kNoUserPrincipal`
+fallback instead of failing closed. That laundered the read into the timer owner's
+authority in the **default** enforce mode with **no** `deputyClasses` configured (a
+capability escalation, distinct from the deputy-class host-queue laundering closed
+by ENG-22759). The identical read fails closed both at the top-level poll and when
+the ungranted dependency schedules it itself — proving the timer scope was the
+fault (ENG-23112, finding H). The fix restricts the override to just
+`callback.call(...)`; `runNextTickQueue` already re-scopes per entry, and the
+microtask drain now matches the top-level poll. Red-team:
+`tests/llp0013_compartments.rs::timer_microtask_drain_does_not_launder_detached_deputy_into_owner`
+(ungranted `evil-pkg` detached read contained at the top level and, post-fix,
+inside root's timer; the owner's own timer read is not false-denied).
+
 #### Mechanism 1
 
 Lockdown (`--lockdown` / `IBEX_LOCKDOWN`): at end-of-bootstrap the shared
@@ -1162,8 +1183,19 @@ property *descriptors* (getters/setters read without invoking) and prototypes in
 C++ via an iterative worklist with an explicit GC-safe visited set (distinct from
 the frozen bit, no recursion-depth cap), retiring the JS walk. Both produce
 an identically locked-down runtime; tested by
+`native_lockdown_freezes_intrinsics_and_contains_redteam`. The freeze primitives
+`__exactDeepFreeze`/`__exactNativeFreeze` are **internal**: the bootstrap lockdown
+pass is their only consumer. They were originally kept out of the end-of-bootstrap
+escape-hatch seal because that pass runs after the seal, but that left them
+reachable from package code in the default (non-lockdown) enforce/audit mode —
+where the compartment membrane that would withhold `__exact*` never runs — as
+ungated native integrity/DoS primitives (`globalThis.__exactDeepFreeze(x)` freezes
+shared intrinsics or another package's graph). A dedicated freeze seal now deletes
+both from the global in **all** modes, immediately after the lockdown pass
+consumes them, restoring the "escape-hatch globals unreachable in all modes"
+acceptance criterion (ENG-23112, finding L). Regression:
 `native_deep_freeze_freezes_a_graph_without_invoking_getters` and
-`native_lockdown_freezes_intrinsics_and_contains_redteam`.
+`native_freeze_primitive_freezes_objects` now assert the globals are sealed away.
 
 #### Mechanism 2
 

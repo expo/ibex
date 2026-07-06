@@ -2442,21 +2442,25 @@ fn native_deep_freeze_freezes_a_graph_without_invoking_getters() {
         eprintln!("skipping: native deep-freeze needs the patched Hermes engine");
         return;
     }
-    // The native transitive deep-freeze freezes the whole reachable graph
-    // (nested objects, array elements) via descriptors — without invoking the
-    // accessor getter (getterCalls stays 0).
-    let js = "var g = { a: { b: { c: 1 } }, arr: [ { x: 1 } ] }; var calls = 0; \
-              Object.defineProperty(g, 'acc', { get: function(){ calls++; return {}; }, configurable: true }); \
-              globalThis.__exactDeepFreeze(g); \
-              console.log('df: ' + Object.isFrozen(g) + ',' + Object.isFrozen(g.a) + ',' + \
-                Object.isFrozen(g.a.b) + ',' + Object.isFrozen(g.arr[0]) + ',' + calls);";
-    let dir = unique_dir("deepfreeze");
+    // @ref LLP 0013#mechanism-1 (ENG-23112 finding L) — `__exactDeepFreeze` is an
+    // INTERNAL primitive the bootstrap lockdown pass consumes; it must NOT stay
+    // reachable from package code after bootstrap. Left reachable in the default
+    // (non-lockdown) enforce/audit mode — where the compartment membrane that
+    // would withhold `__exact*` never runs — a package could call
+    // `globalThis.__exactDeepFreeze(x)` to transitively freeze shared intrinsics or
+    // another package's object graph: an ungated native integrity/DoS primitive
+    // while every other dangerous native is capability-gated. The end-of-bootstrap
+    // freeze seal deletes it in ALL modes; assert user script observes it as
+    // undefined. (The deep-freeze algorithm itself is still exercised via the
+    // internal lockdown consumer in native_lockdown_freezes_intrinsics_and_contains_redteam.)
+    let js = "console.log('deepfreeze-typeof: ' + typeof globalThis.__exactDeepFreeze);";
+    let dir = unique_dir("deepfreeze-sealed");
     let path = dir.join("df.js");
     std::fs::write(&path, js).unwrap();
     let out = run_ibex(&["run", &path.to_string_lossy()], &[], None);
     assert!(
-        out.stdout.contains("df: true,true,true,true,0"),
-        "deep-freeze should freeze the graph without invoking getters:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout.contains("deepfreeze-typeof: undefined"),
+        "__exactDeepFreeze must be sealed away from package code in all modes:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );
@@ -2509,18 +2513,18 @@ fn native_freeze_primitive_freezes_objects() {
         eprintln!("skipping: native freeze needs the patched Hermes engine");
         return;
     }
-    // @ref LLP 0013#mechanism-1 (Phase 3) — the native freeze primitive freezes
-    // an object and returns it; a subsequent write is a no-op.
-    let js = "var o = { a: 1 }; var r = globalThis.__exactNativeFreeze(o); \
-              try { o.a = 2; } catch (e) {} \
-              console.log('freeze: ' + Object.isFrozen(o) + ',' + o.a + ',' + (r === o));";
-    let dir = unique_dir("freeze");
+    // @ref LLP 0013#mechanism-1 (ENG-23112 finding L) — like `__exactDeepFreeze`,
+    // the shallow `__exactNativeFreeze` primitive must not remain reachable from
+    // package code after bootstrap. The end-of-bootstrap freeze seal deletes it in
+    // ALL modes; assert user script observes it as undefined.
+    let js = "console.log('nativefreeze-typeof: ' + typeof globalThis.__exactNativeFreeze);";
+    let dir = unique_dir("freeze-sealed");
     let path = dir.join("f.js");
     std::fs::write(&path, js).unwrap();
     let out = run_ibex(&["run", &path.to_string_lossy()], &[], None);
     assert!(
-        out.stdout.contains("freeze: true,1,true"),
-        "native freeze should freeze the object and return it:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout.contains("nativefreeze-typeof: undefined"),
+        "__exactNativeFreeze must be sealed away from package code in all modes:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );
@@ -3974,6 +3978,87 @@ fn host_scheduled_detached_deputy_control_permissive_leaks() {
             out.stderr
         );
     }
+}
+
+// ENG-23112 (finding H): the timer fire loop scoped its `ScopedNativePrincipal`
+// over `runNextTickQueue` AND `drainMicrotasks`, pinning
+// g_native_callback_principal_id to the timer owner while pending Promise
+// microtasks drained. The ungranted `evil-pkg` cannot read the secret itself — its
+// DETACHED read (the runtime fs deputy passed straight to `.then`, no user frame)
+// reaches kNoUserPrincipal and fails closed at the top-level poll. But when that
+// same detached read is scheduled INSIDE root's timer callback, the leaked scope
+// pinned root over the microtask drain, so the kNoUserPrincipal fallback resolved
+// to root's authority and the read leaked — an escalation reachable in the default
+// enforce mode with NO deputyClasses configured (distinct from the Phase 5
+// host-queue deputy-class laundering closed by ENG-22759). The fix restricts the
+// override to just the callback invocation so the microtask drain matches the
+// top-level poll. Needs frame attribution (the runtime-deputy skip that yields
+// kNoUserPrincipal lives in the patched engine); on an unpatched engine the whole
+// escalation is moot because there is no frame attribution to launder.
+#[test]
+fn timer_microtask_drain_does_not_launder_detached_deputy_into_owner() {
+    if !cfg!(exact_frame_attribution) {
+        eprintln!("skipping: detached-deputy attribution needs frame attribution");
+        return;
+    }
+    let dir = fixtures_dir().join("timer-microtask-launder");
+    let policy = dir.join("ibex-policy.json");
+    let secret = dir.join("secret.txt");
+    let out = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &policy.to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[
+            ("SECRETPATH", &secret.to_string_lossy()),
+            ("EXACT_COMPAT_TEST", "1"),
+        ],
+        Some(&dir),
+    );
+    // (A) Control: root's direct read is allowed — the file, grant, and path are
+    // wired, so a CONTAINED below is a real capability denial, not a broken read.
+    assert!(
+        out.stdout
+            .contains("direct: READ:TIMER-MICROTASK-SECRET-llp0013"),
+        "root's direct read should be allowed (control):\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (B) Baseline: the ungranted dependency's detached read fails closed at the
+    // top-level poll — it cannot read on its own, so a leak in (C) is laundering
+    // through the timer scope, not evil's own grant.
+    assert!(
+        out.stdout.contains("evil-top-detached: CONTAINED")
+            && !out.stdout.contains("evil-top-detached: STOLEN"),
+        "the ungranted dependency's detached read must fail closed at the top-level poll:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (C) The fix: the SAME ungranted detached read scheduled inside a root timer
+    // callback must ALSO fail closed — the leaked native-principal scope no longer
+    // pins root over the microtask drain. Pre-fix this laundered the read (STOLEN)
+    // into root's authority.
+    assert!(
+        out.stdout.contains("evil-timer-detached: CONTAINED")
+            && !out.stdout.contains("evil-timer-detached: STOLEN"),
+        "the timer microtask drain must not launder an ungranted detached deputy into the owner's authority:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // (D) No false-deny: root's OWN detached read scheduled across a timer stays
+    // allowed — the fix closes only the no-user laundering path, not legitimate
+    // timer-scheduled work by the granted owner.
+    assert!(
+        out.stdout
+            .contains("root-timer-detached: READ:TIMER-MICROTASK-SECRET-llp0013"),
+        "root's own timer-scheduled read must NOT be false-denied:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
 }
 
 // ---------------------------------------------------------------------------
