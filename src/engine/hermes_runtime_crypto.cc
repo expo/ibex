@@ -131,21 +131,34 @@ static void parseRsaSignScheme(
 }
 
 #if defined(__APPLE__) && !defined(EXACT_PLATFORM_IOS)
+// @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
 static std::string normalizeHashForNodeCrypto(const std::string& algorithm) {
   auto lowered = algorithm;
   for (auto& ch : lowered) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
   }
 
+  // Dash/underscore-stripped copy so a hyphenated WebCrypto hash name such as
+  // "SHA-384" matches the "sha384" tokens below. The substring fallbacks used to
+  // test `lowered` directly, but "sha-384" contains no "sha384" substring, so a
+  // dashed name missed every branch and silently fell through to the sha256
+  // default — SHA-1/SHA-384/SHA-512 were all computed over SHA-256 on-device
+  // (ENG-23024). Matching against the compact form fixes the digest selection.
+  std::string compact;
+  compact.reserve(lowered.size());
+  for (char ch : lowered) {
+    if (ch != '-' && ch != '_') compact.push_back(ch);
+  }
+
   if (lowered == "ecdsa" || lowered == "ecdsa-with-sha1") return "sha1";
   if (lowered == "ecdsa-with-sha256" || lowered == "rsa-sha256" || lowered == "sha256") return "sha256";
   if (lowered == "ecdsa-with-sha384" || lowered == "rsa-sha384" || lowered == "sha384") return "sha384";
   if (lowered == "ecdsa-with-sha512" || lowered == "rsa-sha512" || lowered == "sha512") return "sha512";
-  if (lowered.find("sha1") != std::string::npos) return "sha1";
-  if (lowered.find("sha256") != std::string::npos) return "sha256";
-  if (lowered.find("sha384") != std::string::npos) return "sha384";
-  if (lowered.find("sha512") != std::string::npos) return "sha512";
-  if (lowered.find("md5") != std::string::npos) return "md5";
+  if (compact.find("sha1") != std::string::npos) return "sha1";
+  if (compact.find("sha256") != std::string::npos) return "sha256";
+  if (compact.find("sha384") != std::string::npos) return "sha384";
+  if (compact.find("sha512") != std::string::npos) return "sha512";
+  if (compact.find("md5") != std::string::npos) return "md5";
   return "sha256";
 }
 
@@ -1029,21 +1042,34 @@ static const EVP_MD* selectDigestForCryptoAlgo(const std::string& algorithm) {
   return openSslDigestForAlgorithm(algorithm);
 }
 
+// @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
 static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
   auto lowered = algorithm;
   for (auto& ch : lowered) {
     ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
   }
 
+  // Dash/underscore-stripped copy so a hyphenated WebCrypto hash name such as
+  // "SHA-384" matches the "sha384" tokens below. The substring fallbacks used to
+  // test `lowered` directly, but "sha-384" contains no "sha384" substring, so a
+  // dashed name missed every branch and silently fell through to the sha256
+  // default — SHA-1/SHA-384/SHA-512 were all computed over SHA-256 on-device
+  // (ENG-23024). Matching against the compact form fixes the digest selection.
+  std::string compact;
+  compact.reserve(lowered.size());
+  for (char ch : lowered) {
+    if (ch != '-' && ch != '_') compact.push_back(ch);
+  }
+
   if (lowered == "ecdsa" || lowered == "ecdsa-with-sha1") return "sha1";
   if (lowered == "ecdsa-with-sha256" || lowered == "rsa-sha256" || lowered == "sha256") return "sha256";
   if (lowered == "ecdsa-with-sha384" || lowered == "rsa-sha384" || lowered == "sha384") return "sha384";
   if (lowered == "ecdsa-with-sha512" || lowered == "rsa-sha512" || lowered == "sha512") return "sha512";
-  if (lowered.find("sha1") != std::string::npos) return "sha1";
-  if (lowered.find("sha256") != std::string::npos) return "sha256";
-  if (lowered.find("sha384") != std::string::npos) return "sha384";
-  if (lowered.find("sha512") != std::string::npos) return "sha512";
-  if (lowered.find("md5") != std::string::npos) return "md5";
+  if (compact.find("sha1") != std::string::npos) return "sha1";
+  if (compact.find("sha256") != std::string::npos) return "sha256";
+  if (compact.find("sha384") != std::string::npos) return "sha384";
+  if (compact.find("sha512") != std::string::npos) return "sha512";
+  if (compact.find("md5") != std::string::npos) return "md5";
   return "sha256";
 }
 #endif
@@ -1106,6 +1132,31 @@ extern "C" int ex_crypto_test_rsa_verify(
   return opensslVerifyMessageCore(dataVec, sigVec, keyPem, md, use_pss != 0, salt_len, err);
 }
 #endif  // !EXACT_NO_OPENSSL
+
+// Test-only C ABI (ENG-23024): expose the node-crypto hash-name normalizer that
+// the on-device __exactSignSync/__exactVerifySync bridges run the requested hash
+// through, so a Rust unit test can prove that a hyphenated WebCrypto hash name
+// ("SHA-1"/"SHA-384"/"SHA-512") selects the requested digest instead of silently
+// collapsing to sha256. Writes the normalized name (NUL-terminated) into `out`
+// and returns its length, or -1 if the buffer is too small or no node-crypto
+// normalizer is compiled for this platform/profile.
+extern "C" int ex_crypto_test_node_hash_name(
+    const char* algorithm, char* out, size_t out_cap) {
+  std::string normalized;
+#if defined(__APPLE__) && !defined(EXACT_PLATFORM_IOS)
+  normalized = normalizeHashForNodeCrypto(algorithm ? std::string(algorithm) : std::string());
+#elif !defined(__APPLE__) && !defined(EXACT_NO_OPENSSL)
+  normalized = digestAlgorithmFromNodeCrypto(algorithm ? std::string(algorithm) : std::string());
+#else
+  (void)algorithm;
+  (void)out;
+  (void)out_cap;
+  return -1;
+#endif
+  if (out == nullptr || normalized.size() + 1 > out_cap) return -1;
+  std::memcpy(out, normalized.c_str(), normalized.size() + 1);
+  return static_cast<int>(normalized.size());
+}
 
 void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
