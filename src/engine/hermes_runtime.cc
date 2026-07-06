@@ -638,6 +638,21 @@ static bool runtimeIsRegisteredLocked(ExactHermesRuntime* runtime) {
   return runtime && g_activeRuntimes.find(runtime) != g_activeRuntimes.end();
 }
 
+// ENG-23028: cross-TU form of the ENG-22925 resolve_host_call pin. Holds
+// g_runtimeRegistryMutex across the membership test AND the synchronous body so
+// any-thread completion callbacks in sibling .cc files (fetch, ...) can close
+// the same check-then-lock TOCTOU without touching the file-local registry
+// primitives directly. ex_hermes_destroy holds the same mutex across its
+// delete, so the runtime cannot be freed while body runs. See the header for
+// the body contract (short, no registry re-entry, no destroy-held locks).
+bool withRuntimePinned(ExactHermesRuntime* runtime,
+                       const std::function<void()>& body) {
+  std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
+  if (!runtimeIsRegisteredLocked(runtime)) return false;
+  body();
+  return true;
+}
+
 bool hasPendingFetchCallbacks(ExactHermesRuntime* runtime) {
   if (!runtime) {
     return false;

@@ -241,7 +241,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                        size_t resp_body_length,
                        void* ctx) {
                       auto* wrapper = static_cast<ExactHermesRuntime*>(ctx);
-                      if (!wrapper || !runtimeIsAlive(wrapper)) return;
+                      if (!wrapper) return;
 
                       std::vector<uint8_t> bodyCopy;
                       if (resp_body && resp_body_length > 0) {
@@ -255,7 +255,20 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                       std::shared_ptr<facebook::jsi::Function> reject;
                       uint64_t principal = 0;
                       std::string requestUrl;
-                      {
+                      // @ref LLP 0003#the-event-loop — ENG-23028: this completion
+                      // fires on an NSURLSession/libcurl network thread. The old
+                      // `runtimeIsAlive(wrapper)` locked the registry, tested
+                      // membership, then RELEASED it before the fetchMutex deref
+                      // below — the exact check-then-lock TOCTOU that ENG-22925
+                      // (489bf65) removed from resolve_host_call. ex_hermes_destroy
+                      // runs on the runtime thread on dev-server reconnect and
+                      // frees the runtime under g_runtimeRegistryMutex, so a free
+                      // landing in that gap made `wrapper->fetchMutex` a UAF. Pin
+                      // the runtime across the liveness check AND the fetchCallbacks
+                      // extraction (registry -> fetchMutex; destroy never locks
+                      // fetchMutex, so no inversion). If it returns false the
+                      // wrapper is gone: drop without dereferencing it.
+                      bool alive = withRuntimePinned(wrapper, [&]() {
                         std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
                         auto it = wrapper->fetchCallbacks.find(req_id);
                         if (it == wrapper->fetchCallbacks.end()) return;
@@ -264,7 +277,8 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                         principal = it->second.principal;
                         requestUrl = std::move(it->second.url);
                         wrapper->fetchCallbacks.erase(it);
-                      }
+                      });
+                      if (!alive) return;
 
                       if (!resolve || !reject) {
                         return;
