@@ -3787,6 +3787,12 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
         tcpIncoming._socketTimeoutListener = null;
       }
       tcpIncoming._finishResponse();
+      // The full body has been delivered to the readable buffer; a socket left
+      // paused for backpressure here would be released to the agent paused and
+      // hang the next keep-alive request on it. @ref https://linear.app/expo/issue/ENG-23126
+      if (typeof tcpIncoming._resumeSocketAfterDrain === 'function') {
+        tcpIncoming._resumeSocketAfterDrain();
+      }
     }
     finishRequestWrite();
   }
@@ -4689,6 +4695,7 @@ function TcpIncomingMessage(statusCode, statusMessage, headers, rawHeaders) {
   this._manualFlowing = false;
   this._manualEnded = false;
   this._manualEndEmitted = false;
+  this._socketPausedForBackpressure = false;
 }
 
 function _abortIncomingMessageStream(message, err) {
@@ -4761,7 +4768,30 @@ Object.defineProperty(TcpIncomingMessage.prototype, 'readableHighWaterMark', {
   configurable: true
 });
 
-TcpIncomingMessage.prototype._read = function() {};
+// Read-side backpressure for client responses: the socket runs in flowing mode
+// ('data' -> _pushBodyChunk), so when push() signals a full readable buffer the
+// socket is paused and resumed only once the consumer drains (_read). Without
+// this, a consumer slower than the sender buffered the entire response in
+// memory (the server side already paused; the client omission was an
+// asymmetry). @ref https://linear.app/expo/issue/ENG-23126
+TcpIncomingMessage.prototype._pauseSocketForBackpressure = function() {
+  var socket = this.socket;
+  if (socket && !socket.destroyed && socket._paused !== true && typeof socket.pause === 'function') {
+    this._socketPausedForBackpressure = true;
+    socket.pause();
+  }
+};
+TcpIncomingMessage.prototype._resumeSocketAfterDrain = function() {
+  if (this._socketPausedForBackpressure !== true) return;
+  this._socketPausedForBackpressure = false;
+  var socket = this.socket;
+  if (socket && !socket.destroyed && socket._paused === true && typeof socket.resume === 'function') {
+    socket.resume();
+  }
+};
+TcpIncomingMessage.prototype._read = function() {
+  this._resumeSocketAfterDrain();
+};
 TcpIncomingMessage.prototype._emitHttpClose = function() {
   if (this._httpCloseEmitted) return;
   this._httpCloseEmitted = true;
@@ -4826,14 +4856,26 @@ TcpIncomingMessage.prototype._pushBodyChunk = function(chunk) {
   if (this.destroyed || this.aborted) return;
   var ReadableCtor = getReadableCtor();
   if (ReadableCtor && this._readableState && typeof this.push === 'function') {
-    this.push(chunk);
+    if (this.push(chunk) === false && chunk != null) {
+      this._pauseSocketForBackpressure();
+    }
     return;
   }
   if (this._encoding && typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
     chunk = chunk.toString(this._encoding);
   }
   this._manualChunks.push(chunk);
-  if (this._manualFlowing || (this.listenerCount && this.listenerCount('data') > 0)) {
+  var hasDataListeners = this.listenerCount && this.listenerCount('data') > 0;
+  if (this._paused || (!this._manualFlowing && !hasDataListeners)) {
+    var bufferedBytes = 0;
+    for (var i = 0; i < this._manualChunks.length; i++) {
+      bufferedBytes += _getOutgoingBodyPartLength(this._manualChunks[i]);
+    }
+    if (bufferedBytes >= this.readableHighWaterMark) {
+      this._pauseSocketForBackpressure();
+    }
+  }
+  if (this._manualFlowing || (hasDataListeners && !this._paused)) {
     this._flushManualData();
   } else {
     this._scheduleManualReadable();
@@ -4899,6 +4941,7 @@ TcpIncomingMessage.prototype.resume = function() {
     return ReadableCtor.prototype.resume.call(this);
   }
   this._flushManualData();
+  this._resumeSocketAfterDrain();
   return this;
 };
 TcpIncomingMessage.prototype._dump = function() {
@@ -4912,6 +4955,7 @@ TcpIncomingMessage.prototype.read = function(size) {
   }
   if (this._manualChunks.length === 0) {
     if (this._manualEnded) this._emitManualEnd();
+    else this._resumeSocketAfterDrain();
     return null;
   }
   var chunk = this._manualChunks.shift();
@@ -4920,6 +4964,8 @@ TcpIncomingMessage.prototype.read = function(size) {
     setTimeout(function() {
       self._emitManualEnd();
     }, 0);
+  } else if (!this._manualEnded && this._manualChunks.length === 0) {
+    this._resumeSocketAfterDrain();
   }
   return chunk;
 };
@@ -7336,6 +7382,15 @@ ServerIncomingMessage.prototype._finishBody = function() {
   if (this._manualEnded) return;
   this._manualEnded = true;
   this.complete = true;
+  // The body is complete, so a highWaterMark pause no longer serves this
+  // message — and any further socket data is the NEXT keep-alive/pipelined
+  // request (its parsing stays gated on parser._paused until the response
+  // closes). Leaving the socket paused here would strand that next request
+  // when the final body bytes arrived in the same chunk that crossed the
+  // highWaterMark. @ref https://linear.app/expo/issue/ENG-23126
+  if (this.socket && this.socket._paused === true && typeof this.socket.resume === 'function') {
+    this.socket.resume();
+  }
   if (this._manualFlowing || (this.listenerCount && this.listenerCount('data') > 0)) {
     this._flushManualData();
   } else if (this._manualChunks.length === 0) {
@@ -7365,9 +7420,30 @@ ServerIncomingMessage.prototype.resume = function() {
   this._flushManualData();
   return this;
 };
+// Counterpart to the highWaterMark pause in _pushBodyChunk: once a read()-based
+// consumer drains the manual buffer below the highWaterMark, the socket must be
+// resumed here — resume() only runs for 'data'-listener consumers, so without
+// this a 'readable'+read() consumer strands the socket paused, the rest of the
+// body never arrives, and the request hangs before 'end'. @ref https://linear.app/expo/issue/ENG-23126
+ServerIncomingMessage.prototype._maybeResumePausedSocket = function() {
+  if (this.destroyed) return;
+  var socket = this.socket;
+  if (!socket || socket._paused !== true || typeof socket.resume !== 'function') return;
+  var highWaterMark = this._readableState && typeof this._readableState.highWaterMark === 'number'
+    ? this._readableState.highWaterMark
+    : _defaultHttpHighWaterMark;
+  var bufferedBytes = 0;
+  for (var i = 0; i < this._manualChunks.length; i++) {
+    bufferedBytes += _getOutgoingBodyPartLength(this._manualChunks[i]);
+  }
+  if (bufferedBytes < highWaterMark) {
+    socket.resume();
+  }
+};
 ServerIncomingMessage.prototype.read = function() {
   if (this._manualChunks.length === 0) {
     if (this._manualEnded) this._emitManualEnd();
+    else this._maybeResumePausedSocket();
     return null;
   }
   var readBody = this._manualChunks.shift();
@@ -7376,6 +7452,9 @@ ServerIncomingMessage.prototype.read = function() {
     setTimeout(function() {
       self._emitManualEnd();
     }, 0);
+  }
+  if (!this._manualEnded) {
+    this._maybeResumePausedSocket();
   }
   return readBody;
 };

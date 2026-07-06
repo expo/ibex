@@ -96,6 +96,8 @@ var READY_CONNECTING = 0;
 var READY_OPEN = 1;
 var READY_CLOSING = 2;
 var READY_CLOSED = 3;
+var DEFAULT_MAX_PAYLOAD = 100 * 1024 * 1024;
+var CLOSE_CODE_MESSAGE_TOO_BIG = 1009;
 function hexToRaw(hex) {
 	var raw = "";
 	for (var i = 0; i < hex.length; i += 2) raw += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
@@ -207,8 +209,23 @@ function _parseFrame(bytes, start, end) {
 		next: start + totalLen
 	};
 }
-function WebSocketConnection(tcpHandle, req) {
-	if (!(this instanceof WebSocketConnection)) return new WebSocketConnection(tcpHandle, req);
+function _peekFramePayloadLength(bytes, start, end) {
+	var avail = end - start;
+	if (avail < 2) return null;
+	var payloadLen = bytes[start + 1] & 127;
+	if (payloadLen === 126) {
+		if (avail < 4) return null;
+		return bytes[start + 2] << 8 | bytes[start + 3];
+	}
+	if (payloadLen === 127) {
+		if (avail < 10) return null;
+		if (bytes[start + 2] * 16777216 + bytes[start + 3] * 65536 + bytes[start + 4] * 256 + bytes[start + 5] > 0) return Infinity;
+		return bytes[start + 6] * 16777216 + bytes[start + 7] * 65536 + bytes[start + 8] * 256 + bytes[start + 9];
+	}
+	return payloadLen;
+}
+function WebSocketConnection(tcpHandle, req, options) {
+	if (!(this instanceof WebSocketConnection)) return new WebSocketConnection(tcpHandle, req, options);
 	this._events = {};
 	this._handle = tcpHandle;
 	this._readyState = READY_OPEN;
@@ -217,7 +234,9 @@ function WebSocketConnection(tcpHandle, req) {
 	this._rend = 0;
 	this._pollTimer = null;
 	this._fragments = [];
+	this._fragmentsTotal = 0;
 	this._fragmentOpcode = 0;
+	this._maxPayload = options && typeof options.maxPayload === "number" ? options.maxPayload : DEFAULT_MAX_PAYLOAD;
 	this.protocol = "";
 	this.extensions = "";
 	this.bufferedAmount = 0;
@@ -317,6 +336,17 @@ WebSocketConnection.prototype._appendData = function(data) {
 WebSocketConnection.prototype._processBuffer = function() {
 	if (!this._rbuf) return;
 	while (this._rstart < this._rend) {
+		if (this._maxPayload > 0) {
+			var declared = _peekFramePayloadLength(this._rbuf, this._rstart, this._rend);
+			if (declared !== null) {
+				var projected = declared;
+				if ((this._rbuf[this._rstart] & 15) === OPCODE_CONTINUATION) projected += this._fragmentsTotal;
+				if (projected > this._maxPayload) {
+					this._exceedMaxPayload();
+					return;
+				}
+			}
+		}
 		var res = _parseFrame(this._rbuf, this._rstart, this._rend);
 		if (!res) break;
 		this._rstart = res.next;
@@ -332,16 +362,29 @@ WebSocketConnection.prototype._handleFrame = function(frame) {
 	switch (frame.opcode) {
 		case OPCODE_TEXT:
 		case OPCODE_BINARY:
+			if (this._maxPayload > 0 && frame.payload.length > this._maxPayload) {
+				this._exceedMaxPayload();
+				break;
+			}
 			if (frame.fin) {
-				if (this._fragments.length > 0) this._fragments = [];
+				if (this._fragments.length > 0) {
+					this._fragments = [];
+					this._fragmentsTotal = 0;
+				}
 				this._deliverMessage(frame.opcode, frame.payload);
 			} else {
 				this._fragments = [frame.payload];
+				this._fragmentsTotal = frame.payload.length;
 				this._fragmentOpcode = frame.opcode;
 			}
 			break;
 		case OPCODE_CONTINUATION:
+			if (this._maxPayload > 0 && this._fragmentsTotal + frame.payload.length > this._maxPayload) {
+				this._exceedMaxPayload();
+				break;
+			}
 			this._fragments.push(frame.payload);
+			this._fragmentsTotal += frame.payload.length;
 			if (frame.fin) {
 				var totalLen = 0;
 				for (var j = 0; j < this._fragments.length; j++) totalLen += this._fragments[j].length;
@@ -353,6 +396,7 @@ WebSocketConnection.prototype._handleFrame = function(frame) {
 				}
 				var op = this._fragmentOpcode;
 				this._fragments = [];
+				this._fragmentsTotal = 0;
 				this._fragmentOpcode = 0;
 				this._deliverMessage(op, combined);
 			}
@@ -411,6 +455,32 @@ WebSocketConnection.prototype._deliverMessage = function(opcode, payload) {
 	else if (this._binaryType === "fragments") this.emit("message", [payload], true);
 	else if (typeof Buffer !== "undefined" && Buffer.from) this.emit("message", Buffer.from(payload), true);
 	else this.emit("message", payload, true);
+};
+WebSocketConnection.prototype._exceedMaxPayload = function() {
+	if (this._readyState === READY_CLOSED) return;
+	this._fragments = [];
+	this._fragmentsTotal = 0;
+	this._fragmentOpcode = 0;
+	this._rbuf = null;
+	this._rstart = 0;
+	this._rend = 0;
+	var err = /* @__PURE__ */ new RangeError("Max payload size exceeded");
+	err.code = "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH";
+	if (typeof this.listenerCount === "function" && this.listenerCount("error") > 0) this.emit("error", err);
+	if (!this._closeFrameSent) {
+		this._sendFrame(OPCODE_CLOSE, [CLOSE_CODE_MESSAGE_TOO_BIG >> 8 & 255, CLOSE_CODE_MESSAGE_TOO_BIG & 255]);
+		this._closeFrameSent = true;
+	}
+	this._readyState = READY_CLOSED;
+	if (this._pollTimer != null) {
+		clearTimeout(this._pollTimer);
+		this._pollTimer = null;
+	}
+	try {
+		if (this._handle != null) __exactTcpClose(this._handle);
+	} catch (e) {}
+	this._handle = null;
+	this.emit("close", CLOSE_CODE_MESSAGE_TOO_BIG, "Max payload size exceeded");
 };
 WebSocketConnection.prototype._handleTransportClose = function() {
 	if (this._readyState === READY_CLOSED) return;
@@ -539,6 +609,7 @@ function WebSocketServer(options, callback) {
 	this._path = options.path || null;
 	this._noServer = options.noServer || false;
 	this._server = options.server || null;
+	this._maxPayload = typeof options.maxPayload === "number" ? options.maxPayload : DEFAULT_MAX_PAYLOAD;
 	this._handle = null;
 	this._acceptTimer = null;
 	this._port = options.port || 0;
@@ -680,7 +751,7 @@ WebSocketServer.prototype._completeUpgrade = function(tcpHandle, req, remainingD
 		} catch (e2) {}
 		return;
 	}
-	var ws = new WebSocketConnection(tcpHandle, req);
+	var ws = new WebSocketConnection(tcpHandle, req, { maxPayload: this._maxPayload });
 	if (remainingData && remainingData.length > 0) {
 		ws._appendData(remainingData);
 		ws._processBuffer();
@@ -724,7 +795,7 @@ WebSocketServer.prototype.handleUpgrade = function(req, socket, head, callback) 
 		if (typeof callback === "function") callback(null);
 		return;
 	}
-	var ws = new WebSocketConnection(tcpHandle, req);
+	var ws = new WebSocketConnection(tcpHandle, req, { maxPayload: this._maxPayload });
 	if (head && head.length > 0 && (typeof head === "string" || head instanceof Uint8Array || typeof Buffer !== "undefined" && Buffer.isBuffer && Buffer.isBuffer(head))) {
 		ws._appendData(head);
 		ws._processBuffer();
