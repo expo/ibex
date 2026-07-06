@@ -727,7 +727,12 @@ export class Request extends BodyMixin {
    * Creates a copy of the Request object.
    */
   clone(): Request {
-    if (this._bodyUsed) {
+    // Per spec, cloning must fail once the body has been read OR merely
+    // disturbed (e.g. via a reader that was read from and then released
+    // without setting the raw `_bodyUsed` flag, which only `_consumeBody()`
+    // sets). Gating on the `bodyUsed` getter — not the raw field — catches
+    // that case; `tee()` below still separately rejects a locked stream.
+    if (this.bodyUsed) {
       throw new TypeError('Cannot clone a Request whose body has already been used');
     }
 

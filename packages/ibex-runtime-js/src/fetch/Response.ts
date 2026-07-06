@@ -172,8 +172,11 @@ export class Response extends BodyMixin {
         this._body = createReadableStreamFromAsyncIterableBody(body, 'Response body');
       } else if (typeof body === 'string') {
         const bytes = getTextEncoder().encode(body);
+        // Only cache the buffer; `body` (the getter below) lazily builds the
+        // ReadableStream — arrayBuffer()/text()/json() read `_bodyBuffer`
+        // directly and never touch it, so eagerly building+copying here was
+        // pure waste unless the caller actually reads `.body`.
         this._bodyBuffer = bytes.buffer as ArrayBuffer;
-        this._body = createReadableStreamFromUint8Array(bytes);
 
         // Set default Content-Type for string bodies
         if (!this._headers.has('content-type')) {
@@ -181,23 +184,20 @@ export class Response extends BodyMixin {
         }
       } else if (body instanceof ArrayBuffer) {
         this._bodyBuffer = body.slice(0);
-        this._body = createReadableStreamFromUint8Array(new Uint8Array(this._bodyBuffer));
       } else if (ArrayBuffer.isView(body)) {
         this._bodyBuffer = body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength);
-        this._body = createReadableStreamFromUint8Array(new Uint8Array(this._bodyBuffer));
       } else if (body instanceof Blob) {
         // Try sync bytes extraction first (our custom Blob), then stream
         if (typeof (body as any)._getBytes === 'function') {
           const bytes = (body as any)._getBytes() as Uint8Array;
           this._bodyBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-          this._body = createReadableStreamFromUint8Array(bytes);
         } else if (typeof body.stream === 'function') {
           const stream = body.stream();
           if (stream) {
             this._body = stream;
           } else {
             // Fallback: bootstrap Blob.stream() returns null
-            this._body = createReadableStreamFromUint8Array(new Uint8Array(0));
+            this._bodyBuffer = new ArrayBuffer(0);
           }
         }
 
@@ -208,7 +208,6 @@ export class Response extends BodyMixin {
       } else if (body instanceof URLSearchParams) {
         const bytes = getTextEncoder().encode(body.toString());
         this._bodyBuffer = bytes.buffer as ArrayBuffer;
-        this._body = createReadableStreamFromUint8Array(bytes);
 
         if (!this._headers.has('content-type')) {
           this._headers.set('content-type', 'application/x-www-form-urlencoded;charset=UTF-8');
@@ -216,13 +215,38 @@ export class Response extends BodyMixin {
       } else if (isFormDataBody(body)) {
         const encoded = encodeFormData(body as FormData);
         this._bodyBuffer = encoded.body.buffer as ArrayBuffer;
-        this._body = createReadableStreamFromUint8Array(encoded.body);
 
         if (!this._headers.has('content-type')) {
           this._headers.set('content-type', encoded.contentType);
         }
       }
     }
+  }
+
+  /**
+   * A ReadableStream of the body contents.
+   * Lazily materialized from `_bodyBuffer` on first access — mirrors
+   * `Request.body` — so a caller that only ever calls arrayBuffer()/text()/
+   * json()/bytes() (which read `_bodyBuffer` directly) never pays for the
+   * ReadableStream allocation + full byte copy that `.body` requires.
+   */
+  override get body(): ReadableStream<Uint8Array> | null {
+    if (this._body) {
+      return this._body;
+    }
+    if (this._bodyBuffer) {
+      this._body = createReadableStreamFromUint8Array(new Uint8Array(this._bodyBuffer));
+      if (this._bodyUsed && this._body) {
+        // The buffered body was already consumed via text()/json()/
+        // arrayBuffer() before `.body` was ever touched. Reflect that on the
+        // now-materialized stream (lock it without reading through it —
+        // the bytes were already produced from `_bodyBuffer`) instead of
+        // handing back a fresh, readable stream for an already-used body.
+        (this._body as any)._disturbed = true;
+        try { this._body.getReader(); } catch {}
+      }
+    }
+    return this._body;
   }
 
   /**
@@ -324,7 +348,12 @@ export class Response extends BodyMixin {
    * Creates a copy of the Response object.
    */
   clone(): Response {
-    if (this._bodyUsed) {
+    // Per spec, cloning must fail once the body has been read OR merely
+    // disturbed (e.g. via a reader that was read from and then released
+    // without setting the raw `_bodyUsed` flag, which only `_consumeBody()`
+    // sets). Gating on the `bodyUsed` getter — not the raw field — catches
+    // that case; `tee()` below still separately rejects a locked stream.
+    if (this.bodyUsed) {
       throw new TypeError('Cannot clone a Response whose body has already been used');
     }
 
@@ -511,16 +540,16 @@ export class Response extends BodyMixin {
     response._ok = status >= 200 && status < 300;
     response._type = 'basic';
 
-    // Set body
+    // Set body. Only cache the buffer here — the lazy `body` getter builds
+    // the ReadableStream on demand. arrayBuffer()/text()/json()/bytes() read
+    // `_bodyBuffer` directly, so eagerly memcpy-ing the whole native body
+    // into a stream was wasted work (and peak memory) for callers that never
+    // touch `.body` (e.g. `await (await fetch(url)).json()`).
     if (!NULL_BODY_STATUS_CODES.includes(response._status)) {
       if (nativeResponse.body) {
-        const bytes = new Uint8Array(nativeResponse.body);
         response._bodyBuffer = nativeResponse.body;
-        response._body = createReadableStreamFromUint8Array(bytes);
       } else if (isBunCompatResponseTest()) {
-        const bytes = new Uint8Array(0);
-        response._bodyBuffer = bytes.buffer as ArrayBuffer;
-        response._body = createReadableStreamFromUint8Array(bytes);
+        response._bodyBuffer = new ArrayBuffer(0);
       }
     }
 

@@ -87,6 +87,27 @@ function markTrailingDataError(error: TypeError): TypeError {
   return error;
 }
 
+/**
+ * Normalize a `write()`-supplied chunk to a `Uint8Array` view over its exact
+ * bytes. The Compression Streams spec accepts any `BufferSource` (not just
+ * `Uint8Array`), and `chunk instanceof Uint8Array ? chunk : new
+ * Uint8Array(chunk)` is only correct for `Uint8Array`/`ArrayBuffer` inputs: a
+ * multi-byte typed-array view (`Uint16Array`, `Float64Array`, ...) fed to
+ * `new Uint8Array(typedArray)` gets element-wise *value* converted (e.g. each
+ * `Uint16` truncated to its low byte) instead of byte-for-byte reinterpreted,
+ * and a `DataView` — not array-like — silently produces an empty result.
+ */
+function normalizeDecompressionInputChunk(chunk: Uint8Array): Uint8Array {
+  if (chunk instanceof Uint8Array) {
+    return chunk;
+  }
+  const maybeView = chunk as unknown as ArrayBufferView | ArrayBuffer;
+  if (ArrayBuffer.isView(maybeView)) {
+    return new Uint8Array(maybeView.buffer, maybeView.byteOffset, maybeView.byteLength);
+  }
+  return new Uint8Array(maybeView as ArrayBuffer);
+}
+
 export class DecompressionStream {
   private _format: DecompressionFormat;
   private _readable: ReadableStream<Uint8Array>;
@@ -142,10 +163,10 @@ export class DecompressionStream {
     let inputLength = 0;
 
     const appendInput = (chunk: Uint8Array): void => {
-      if (chunk.length === 0) {
+      const view = normalizeDecompressionInputChunk(chunk);
+      if (view.byteLength === 0) {
         return;
       }
-      const view = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
       inputChunks.push(view);
       inputLength += view.length;
     };

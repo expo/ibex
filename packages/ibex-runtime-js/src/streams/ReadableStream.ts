@@ -3708,7 +3708,15 @@ export class ReadableStream<R = any> {
               }
             }
             if (!canceled2) {
-              let value2 = cloneChunkForTee(value);
+              // Per ReadableStreamDefaultTee, both branches of a *default*
+              // (non-byte) tee observe the same chunk reference — cloning is
+              // only spec'd for byte-stream tee (handled in the isByteStream
+              // branch above). Aliasing here preserves chunk identity for
+              // non-primitive values and avoids an O(n) copy per chunk.
+              // "Owning" streams are an Ibex-internal source type (not part
+              // of the tee() spec) that still needs an isolated copy per
+              // branch, so they keep the structuredClone path.
+              let value2 = value;
               if (isOwningStream) {
                 try {
                   value2 = structuredClone(value);
