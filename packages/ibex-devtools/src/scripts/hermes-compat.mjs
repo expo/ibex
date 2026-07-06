@@ -36,7 +36,12 @@ const compatExponentMarker = '__exactCompatPow__';
 // remaining independent copy until exact consolidates onto this file via the
 // vendored ibex pin (ENG-22567).
 export function fixForOfScoping(source) {
-  if (!source || source.indexOf(' of ') === -1) {
+  // Perf gate only — the AST walk below decides correctness. It must be
+  // `\bof\b`, not the literal ' of ': minifiers legally emit bracket-adjacent
+  // headers like `for(const[k,v]of xs)`, and a gate miss skips the WHOLE
+  // module/chunk, silently reintroducing capture-last closures on shipping
+  // Hermes (ENG-23137).
+  if (!source || !/\bof\b/.test(source)) {
     return source;
   }
 

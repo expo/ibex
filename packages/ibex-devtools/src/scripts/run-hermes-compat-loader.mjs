@@ -77,6 +77,23 @@ export const loaderExpectations = Object.freeze({
     matchesOracle: true,
     note: 'scanner bails on break/continue; the raw loop has no escaping closures, so raw Hermes output is spec-correct',
   },
+  'bailed-asi-bare-break-continue': {
+    matchesOracle: true,
+    note: 'ENG-23137: the scanner bails on bare keyword matches now, so an ASI bare break/continue leaves the loop raw (spec-correct without escaping closures) instead of moving the body into an arrow where break is illegal',
+  },
+  'bailed-labeled-continue': {
+    matchesOracle: true,
+    note: 'ENG-23137: labeled continue bails the same bare-keyword way; both loops stay raw and raw output is spec-correct without escaping closures',
+  },
+  'minified-destructured-header': {
+    matchesOracle: false,
+    stdout: '["b:2","b:2"]',
+    reason:
+      'ENG-23137: the loader scanner only rewrites pretty-printed single-line `for (const ... of ...) {` ' +
+      'headers by design (LLP 0019 accepted divergence — the scanner may bail where the AST authority ' +
+      'rewrites, never the reverse), so a minified braceless header stays raw and its escaping closures ' +
+      'keep capture-last behavior on non-block-scoping Hermes; the AST authority rewrites it',
+  },
   'bailed-yield-body': {
     matchesOracle: true,
     note: 'scanner bails on yield; raw generator for-of is spec-correct without escaping closures',

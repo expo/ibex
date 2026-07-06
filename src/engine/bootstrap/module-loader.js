@@ -3417,7 +3417,14 @@
         // allows; see packages/ibex-devtools/src/scripts/hermes-compat.mjs):
         // - return/continue/break/yield/await: moving the body into a
         //   per-iteration function would change control flow. Load-bearing
-        //   since before ENG-22546; deliberately unchanged.
+        //   since before ENG-22546. break/continue are bare keyword matches
+        //   like the others (ENG-23137): the old /\b(break|continue)\s*[;\n}]/
+        //   ran on split("\n") lines, so the \n alternative never matched and
+        //   an ASI bare `break` at end of line (or a labeled `break outer`)
+        //   did NOT bail — the body then moved into an arrow function where
+        //   break/continue are illegal, turning valid semicolon-free code
+        //   into a SyntaxError. Coarser matching only costs a bailed rewrite
+        //   (capture-last), the safe direction per LLP 0019.
         // - var declarations and line-leading function declarations: the body
         //   moves into a per-iteration function, so a `var` would no longer
         //   hoist to the enclosing function and a sloppy-mode function
@@ -3436,7 +3443,7 @@
           : null;
         for (var b = 0; b < bodyLines.length; b++) {
           var bl = bodyLines[b];
-          if (/\b(break|continue)\s*[;\n}]/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) {
+          if (/\b(break|continue)\b/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) {
             bailRewrite = true;
             break;
           }

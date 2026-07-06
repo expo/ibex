@@ -855,6 +855,47 @@ const literal = { __dirname: 1 };
     expect(replaceModuleDirnameBindings(source, './relative.js')).toBe(source);
     expect(replaceModuleDirnameBindings(source, '\u0000virtual')).toBe(source);
   });
+
+  // ENG-23137: default values in patterns are VALUE positions and must be
+  // inlined (the old blanket pattern-parent skip left them to resolve against
+  // the bundled chunk's __dirname — the wrong directory for any module in a
+  // subdirectory).
+  it('inlines __dirname used as a default value in params and patterns', () => {
+    const id = '/tmp/project/src/feature/example.js';
+    const dir = JSON.stringify(path.dirname(id));
+    const source = `
+function f(target = __dirname) {
+  return target;
+}
+const { base = __dirname } = options;
+const [first = __filename] = items;
+`;
+
+    const transformed = replaceModuleDirnameBindings(source, id);
+
+    expect(transformed).toContain(`function f(target = ${dir})`);
+    expect(transformed).toContain(`const { base = ${dir} } = options;`);
+    expect(transformed).toContain(`const [first = ${JSON.stringify(id)}] = items;`);
+    expectParses(transformed);
+  });
+
+  // ENG-23137: assignment targets and binding positions must NOT be rewritten
+  // (a string literal is not a valid assignment target or binding name).
+  it('skips assignment targets and destructuring bindings', () => {
+    const id = '/tmp/project/src/feature/example.js';
+    const source = `
+__dirname = computeDir();
+__dirname += "/suffix";
+__dirname++;
+for (__dirname of candidates) {}
+const { __dirname } = shadowSource;
+const { dir: __filename } = shadowSource;
+const [__dirname] = shadowList;
+const [...__filename] = shadowList;
+`;
+
+    expect(replaceModuleDirnameBindings(source, id)).toBe(source);
+  });
 });
 
 describe('runtimeImportMetaDefine', () => {

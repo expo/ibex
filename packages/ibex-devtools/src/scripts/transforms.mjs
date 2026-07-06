@@ -65,7 +65,7 @@ export {
 /** Node.js built-in module names shared between bundle and builtins scripts. */
 export { nodeBuiltins };
 
-function shouldSkipDirnameReplacement(parentNode, parentKey) {
+function shouldSkipDirnameReplacement(parentNode, parentKey, grandParentNode) {
   if (!parentNode) {
     return false;
   }
@@ -123,11 +123,44 @@ function shouldSkipDirnameReplacement(parentNode, parentKey) {
     return true;
   }
 
+  // Assignment targets (ENG-23137): rewriting the LHS of `__dirname = ...`,
+  // the operand of `__dirname++`, or a for-in/of assignment target would emit
+  // an invalid assignment to a string literal.
   if (
-    parentNode.type === 'ArrayPattern' ||
-    parentNode.type === 'ObjectPattern' ||
-    parentNode.type === 'RestElement' ||
-    parentNode.type === 'AssignmentPattern'
+    (parentNode.type === 'AssignmentExpression' ||
+      parentNode.type === 'ForInStatement' ||
+      parentNode.type === 'ForOfStatement') &&
+    parentKey === 'left'
+  ) {
+    return true;
+  }
+  if (parentNode.type === 'UpdateExpression' && parentKey === 'argument') {
+    return true;
+  }
+
+  // Destructuring/binding patterns: skip only TRUE binding positions — the
+  // element/target being bound. A default value (`AssignmentPattern.right`,
+  // e.g. `function f(dir = __dirname)`) is an ordinary expression and must be
+  // inlined; the old blanket pattern-parent skip left it to fall back to the
+  // bundled chunk's `__dirname`, a silently wrong path for modules in
+  // subdirectories (ENG-23137).
+  if (parentNode.type === 'ArrayPattern' && parentKey === 'elements') {
+    return true;
+  }
+  if (parentNode.type === 'RestElement' && parentKey === 'argument') {
+    return true;
+  }
+  if (parentNode.type === 'AssignmentPattern' && parentKey === 'left') {
+    return true;
+  }
+  // `const { __dirname } = o` / `const { x: __dirname } = o`: the identifier
+  // sits at Property.value inside an ObjectPattern — a binding, not a value
+  // (rewriting it emitted an invalid destructuring target).
+  if (
+    parentNode.type === 'Property' &&
+    parentKey === 'value' &&
+    grandParentNode &&
+    grandParentNode.type === 'ObjectPattern'
   ) {
     return true;
   }
@@ -153,14 +186,14 @@ export function replaceModuleDirnameBindings(source, id) {
   const moduleFile = JSON.stringify(id);
   const replacements = [];
 
-  const walk = (node, parentNode = null, parentKey = null) => {
+  const walk = (node, parentNode = null, parentKey = null, grandParentNode = null) => {
     if (!node || typeof node !== 'object') {
       return;
     }
 
     if (Array.isArray(node)) {
       for (const child of node) {
-        walk(child, parentNode, parentKey);
+        walk(child, parentNode, parentKey, grandParentNode);
       }
       return;
     }
@@ -170,7 +203,7 @@ export function replaceModuleDirnameBindings(source, id) {
     }
 
     if (node.type === 'Identifier' && (node.name === '__dirname' || node.name === '__filename')) {
-      if (!shouldSkipDirnameReplacement(parentNode, parentKey)) {
+      if (!shouldSkipDirnameReplacement(parentNode, parentKey, grandParentNode)) {
         const replacementText = node.name === '__dirname' ? moduleDir : moduleFile;
         if (
           parentNode &&
@@ -204,11 +237,11 @@ export function replaceModuleDirnameBindings(source, id) {
       if (Array.isArray(value)) {
         for (const child of value) {
           if (child && typeof child === 'object' && child.type) {
-            walk(child, node, key);
+            walk(child, node, key, parentNode);
           }
         }
       } else if (value.type) {
-        walk(value, node, key);
+        walk(value, node, key, parentNode);
       }
     }
   };

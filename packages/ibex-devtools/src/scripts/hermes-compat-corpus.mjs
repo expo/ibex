@@ -170,6 +170,53 @@ print(JSON.stringify(firstPositive([-1, 1, 2, 9, 3])));
 `,
   },
   {
+    id: 'bailed-asi-bare-break-continue',
+    rewrites: false,
+    note: 'ENG-23137: bare ASI break/continue (semicolon-free style, keyword at end of line) must bail in BOTH tiers — the loader line scanner’s old regex required ;/}/\\n after the keyword but ran on split lines, so it rewrote the body into an arrow function where break/continue are illegal (SyntaxError from a green build)',
+    source: `
+function firstFew(items) {
+  const out = []
+  for (const item of items) {
+    if (item < 0) continue
+    if (item > 3) break
+    out.push(item)
+  }
+  return out
+}
+print(JSON.stringify(firstFew([-1, 1, 2, 9, 3])));
+`,
+  },
+  {
+    id: 'bailed-labeled-continue',
+    rewrites: false,
+    note: 'ENG-23137: labeled break/continue (`continue outer`) must bail like bare ones — the old loader regex never matched a label after the keyword, so the rewrite emitted an illegal labeled continue inside the per-iteration arrow',
+    source: `
+function collect(matrix) {
+  const out = []
+  outer: for (const row of matrix) {
+    for (const cell of row) {
+      if (cell === 0) continue outer
+      out.push(cell)
+    }
+  }
+  return out
+}
+print(JSON.stringify(collect([[1, 2], [3, 0, 4], [5]])));
+`,
+  },
+  {
+    id: 'minified-destructured-header',
+    rewrites: true,
+    note: 'ENG-23137: a minified bracket-adjacent header (`for(const[k,v]of ...)`) has no literal " of ", so the AST authority’s old fast-path gate skipped the whole module and closures captured the last iteration on shipping Hermes; the gate is perf-only and must not decide correctness',
+    rawHermesCaptureLast: '["b:2","b:2"]',
+    source: `
+const o = { a: 1, b: 2 };
+const r = [];
+for(const[k,v]of Object.entries(o))r.push(()=>k+":"+v);
+print(JSON.stringify(r.map((f)=>f())));
+`,
+  },
+  {
     id: 'bailed-yield-body',
     rewrites: false,
     note: 'A `yield` in the body leaves the loop raw',
