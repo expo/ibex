@@ -472,20 +472,42 @@ fn main() {
     let update_vendored_generated = env_truthy("IBEX_UPDATE_VENDORED_GENERATED");
     let standalone = !regenerate_runtime && vendored_generated_dir.exists();
     if standalone {
-        eprintln!(
-            "cargo:warning=Ibex build: using vendored generated artifacts from {}",
-            vendored_generated_dir.display()
+        // Re-run this check when a generated *source* changes, so editing a
+        // builtin does not cache a green build over stale embedded bytes, and
+        // when the strict flag flips. @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
+        println!("cargo:rerun-if-env-changed=IBEX_FAIL_ON_STALE_VENDORED");
+        emit_rerun_for_tree(&manifest_dir.join("src").join("builtins"));
+        emit_rerun_for_tree(
+            &manifest_dir
+                .join("packages")
+                .join("ibex-runtime-js")
+                .join("src"),
         );
-        println!(
-            "cargo:rerun-if-changed={}",
-            vendored_generated_dir.display()
-        );
-        println!(
-            "cargo:rerun-if-changed={}",
-            vendored_generated_dir
-                .join("embedded_runtime_bundle.js")
-                .display()
-        );
+        emit_rerun_for_tree(&vendored_generated_dir);
+        emit_rerun_for_tree(&manifest_dir.join("src").join("identity_generated.rs"));
+
+        // Replaces the old always-on "using vendored generated artifacts"
+        // warning: fire a loud signal ONLY when a source is actually newer than
+        // its embedded output, so agents/humans do not learn to ignore a warning
+        // that prints on every build. Fatal under IBEX_FAIL_ON_STALE_VENDORED
+        // (set by scripts/run-tests.sh) so an agent's verification exits nonzero
+        // rather than testing stale bytes.
+        if let Some(why) = vendored_generated_stale(&manifest_dir, &vendored_generated_dir) {
+            let hint = "run `IBEX_REGENERATE_RUNTIME=1 cargo …` (iterate) or \
+                        `bun run regenerate:vendored` + `bun run check:drift` (commit)";
+            if env_truthy("IBEX_FAIL_ON_STALE_VENDORED") {
+                panic!(
+                    "Ibex build: embedded generated artifacts are STALE — {why}. \
+                     The build would run last-committed bytes, not your edit. {hint}."
+                );
+            }
+            // cargo:warning directives must go to STDOUT to be surfaced.
+            println!(
+                "cargo:warning=Ibex build: embedded generated artifacts are STALE — {why}. \
+                 This build uses the committed bytes, NOT your edit. {hint}. \
+                 Set IBEX_FAIL_ON_STALE_VENDORED=1 to make this fatal."
+            );
+        }
     } else if !regenerate_runtime {
         // The default ibex build is hermetic: it expects the committed
         // vendored-generated/ artifacts. If they are missing, fail loudly
@@ -517,10 +539,10 @@ fn main() {
         // so the manifest's include_str!(OUT_DIR/builtins/*.js) calls resolve.
         let vendored_builtins = vendored_generated_dir.join("builtins");
         copy_dir_files(&vendored_builtins, &builtins_out, &["js"]);
-        eprintln!(
-            "cargo:warning=Copied vendored builtin modules → {}",
-            builtins_out.display()
-        );
+        // Plain note (not cargo:warning): the hermetic copy happens on every
+        // build, so surfacing it as a warning would train readers to ignore
+        // warnings — reserve cargo:warning for the stale signal above.
+        eprintln!("ibex build: copied vendored builtin modules → {}", builtins_out.display());
     } else if builtins_src.exists() {
         let build_script = exact_devtools_script(repo_root, "build-builtins.mjs");
         if build_script.exists() {
@@ -1441,6 +1463,92 @@ fn env_truthy(name: &str) -> bool {
             .as_deref(),
         Some("1") | Some("true") | Some("yes") | Some("on")
     )
+}
+
+/// Emit `cargo:rerun-if-changed` for every file under `path` (recursing, skipping
+/// node_modules). A directory-level rerun-if-changed does NOT reliably fire when
+/// a file *inside* it is edited, so the staleness check below would miss the very
+/// case it exists for — enumerate the files so any edit re-runs build.rs.
+/// @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
+fn emit_rerun_for_tree(path: &Path) {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_dir() => {
+            if let Ok(entries) = std::fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    if entry.file_name() == "node_modules" {
+                        continue;
+                    }
+                    emit_rerun_for_tree(&entry.path());
+                }
+            }
+        }
+        Ok(_) => println!("cargo:rerun-if-changed={}", path.display()),
+        Err(_) => {}
+    }
+}
+
+/// Newest modification time under `path` (recursing into directories, skipping
+/// node_modules), or None if the path does not exist. Used to detect when a
+/// generated *source* is newer than its committed generated *output*.
+/// @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
+fn newest_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if meta.file_type().is_dir() {
+        let mut newest: Option<std::time::SystemTime> = None;
+        for entry in std::fs::read_dir(path).ok()?.flatten() {
+            if entry.file_name() == "node_modules" {
+                continue;
+            }
+            if let Some(t) = newest_mtime(&entry.path()) {
+                newest = Some(match newest {
+                    Some(cur) if cur >= t => cur,
+                    _ => t,
+                });
+            }
+        }
+        newest
+    } else {
+        meta.modified().ok()
+    }
+}
+
+/// If any generated *source* (the JS/TS you edit) is newer than every committed
+/// generated *output* it feeds, return a human description of the staleness;
+/// otherwise None. mtime-based and cheap — no bun/node, no network. Compares the
+/// newest source against the newest output so a fresh checkout (all mtimes ≈
+/// equal) does not read as stale, while a real post-checkout edit does.
+/// @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
+fn vendored_generated_stale(manifest_dir: &Path, vendored_generated_dir: &Path) -> Option<String> {
+    // Sources that regeneration consumes.
+    let sources = [
+        manifest_dir.join("src").join("builtins"),
+        manifest_dir.join("packages").join("ibex-runtime-js").join("src"),
+    ];
+    // Committed outputs those sources are embedded into (mirrors the
+    // input/output pairs scripts/check-generated-drift.sh tracks).
+    let outputs = [
+        vendored_generated_dir.join("builtins"),
+        vendored_generated_dir.join("embedded_runtime_bundle.js"),
+        vendored_generated_dir.join("builtin_manifest.generated.rs"),
+        manifest_dir.join("src").join("identity_generated.rs"),
+    ];
+
+    let newest_source = sources.iter().filter_map(|p| newest_mtime(p)).max()?;
+    let newest_output = outputs.iter().filter_map(|p| newest_mtime(p)).max()?;
+
+    if newest_source > newest_output {
+        Some(format!(
+            "a generated source under {} is newer than the committed output under {}",
+            sources
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" / "),
+            vendored_generated_dir.display()
+        ))
+    } else {
+        None
+    }
 }
 
 fn generate_builtin_manifest(

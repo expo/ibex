@@ -1,11 +1,11 @@
 # LLP 0018: Agent Tooling Should Fail Loud, Not Silent-Green
 
 **Type:** Plan
-**Status:** Draft
+**Status:** Accepted (core items implemented 2026-07-05 — see Implementation status)
 **Systems:** Tooling, Build, Agent Skills, Developer Experience, CI
 **Author:** Charlie Cheever / Claude (second-round pilot feedback)
 **Date:** 2026-07-05
-**Revised:** 2026-07-05 (added frictions 5–7 — vendored-vs-src stale build, agents parking on backgrounded builds, and the hot-`main` rebuild tax — plus plan items 5–7 and a sharp-edges appendix, from the 14-way parallel cdc-linear-do run)
+**Revised:** 2026-07-05 (added frictions 5–7 — vendored-vs-src stale build, agents parking on backgrounded builds, and the hot-`main` rebuild tax — plus plan items 5–7 and a sharp-edges appendix, from the 14-way parallel cdc-linear-do run); 2026-07-05 (revised items 1, 2, 5, 7 per the OpenAI- and Claude-family reviews under `llp/reviews/`: agent stale-vendored path now fails nonzero not warn-only, test wrapper defaults to the full package test set instead of dropping the 63 binary tests, post-rebase re-verify gets a minimum-verification policy, and item-1 required-artifact semantics are made explicit); 2026-07-05 (implemented the core items — see Implementation status)
 **Related:** LLP 0000; LLP 0005; LLP 0006 (fail-closed/loud principle); LLP 0015 (build machines); LLP 0017 (agent execution reliability); ENG-22986
 
 ## Summary
@@ -49,16 +49,20 @@ show up at scale.
    dies much later on a missing Hermes framework, far from the real cause. The
    pilot reports every agent hit this.
 
-2. **`cargo test --bin ibex <filter>` is a false-pass trap.** The bulk of the
-   suite lives in the `ibex_runtime` **lib** crate (17 `mod tests` files under
-   `src/` plus integration tests under `tests/`) `[observed]`
-   (`Cargo.toml:9-15`). `--bin ibex` scopes to the binary target
-   (`src/bin/ibex/`) only. An agent verifying a lib-crate fix with a filter that
-   matches a lib test but scopes to `--bin ibex` runs **zero** matching tests —
-   and `cargo test` exits 0 on zero tests. The agent reads green and lands an
-   unverified change. The interim mitigation is a playbook rule forcing an
-   explicit `--lib`/`--test` choice and an "N passed > 0" check; this plan makes
-   that a tool, not a habit.
+2. **`cargo test --bin ibex <filter>` is a false-pass trap.** The suite is split
+   across three targets `[observed]` (`Cargo.toml:9-15`): the `ibex_runtime`
+   **lib** crate (9 files under `src/` carry `mod tests`), integration tests
+   under `tests/`, **and 63 `#[test]`/`#[tokio::test]` functions across 8 files
+   under the `ibex` **binary** target** (`src/bin/ibex/`). Any single-target
+   scoping is a trap in both directions: a filter that matches a lib test but
+   scopes to `--bin ibex` runs **zero** matching tests, and `--lib` alone silently
+   skips the 63 binary tests. `cargo test` exits 0 on zero tests either way, so
+   the agent reads green and lands an unverified change. (Earlier drafts of this
+   plan mis-attributed all 17 `mod tests` files to the lib crate; 8 are in the
+   binary target — the correction is why item 2 below defaults to the *full*
+   package test set, not `--lib`.) The interim mitigation is a playbook rule
+   forcing a scope choice plus an "N passed > 0" check; this plan makes that a
+   tool, not a habit.
 
 3. **Cold native builds re-do ~40s of CPU per worktree because no cache is wired
    up by default.** LLP 0017 §4 chose to *not* link `target/` across worktrees
@@ -161,11 +165,19 @@ fresh worktree.
   destination.
 - Keep the source==dest guard, but reframe its message around the new model
   ("run from inside the worktree you want to populate, or pass --dest").
-- **Fail loud on an empty result.** If zero artifacts were linked *and* the
-  destination is missing an artifact the caller needs, exit nonzero. At minimum,
-  a `--require ios/Frameworks,tools/hermes` mode (or a default required set)
-  makes the script assert the postcondition — the artifacts exist at the
-  destination after the run — rather than reporting `0 linked` as success.
+- **Fail loud on an empty result, and separate required from optional links.**
+  Split the artifact list into a **required set** and an **optional-convenience
+  set**. The default required set for a native build is
+  `ios/Frameworks,tools/hermes` (the artifacts whose absence makes cargo die
+  later on a missing Hermes framework); `node_modules` is optional convenience.
+  After linking, the script asserts the postcondition — every required artifact
+  now exists at the destination — and exits nonzero naming any that do not,
+  rather than reporting `0 linked` as success. Define the source-missing case
+  explicitly: if a *required* artifact is absent from the source checkout, fail
+  with a message naming the missing source path (there is nothing to link and the
+  postcondition cannot be met), rather than silently `skip`-ping it; a missing
+  *optional* artifact is a warning, not a failure. `--require a,b` overrides the
+  default required set; `--profile` may select a per-platform default set later.
 - Update the script's own usage doc and every playbook that invokes it to the
   corrected invocation, since the current header example is what led agents to
   run it wrong (LLP 0017 §3 acceptance: playbooks use the wrapper correctly).
@@ -186,24 +198,36 @@ Acceptance criteria:
 Replace the fragile "remember to pass `--lib` and eyeball the count" habit with a
 wrapper that enforces both.
 
-- Add `scripts/run-tests.sh` (name TBD) that drives `cargo test` with the correct
-  default scope for this crate layout (lib + integration tests, not `--bin`
-  alone), parses the `test result: ... N passed` lines, and **exits nonzero if
-  the total tests run is zero** unless an explicit `--allow-zero` is passed (for
-  the rare intentional case).
-- The wrapper forwards a filter argument to the right scope so that
-  `run-tests.sh deep_freeze` runs the lib tests matching `deep_freeze`, not a
-  zero-test `--bin` scoping.
+- Add `scripts/run-tests.sh` (name TBD) that drives `cargo test` over the crate's
+  **full package test set by default** — lib **and** binary (`src/bin/ibex/`,
+  which holds 63 tests) **and** integration tests under `tests/`, i.e. plain
+  `cargo test` scoping, not `--lib` or `--bin` alone. It parses the
+  `test result: ... N passed` lines, sums across every test binary, and **exits
+  nonzero if the total tests run is zero** unless an explicit `--allow-zero` is
+  passed (for the rare intentional case).
+- Narrowing the scope is explicit and opt-in: `--scope lib|bin|test|all`
+  (default `all`). A filter is forwarded to the selected scope, so
+  `run-tests.sh deep_freeze` runs *every* matching test across lib+bin+integration
+  rather than a zero-test single-target scoping.
+- **Preserve the real `cargo test` exit status.** The parsing step must not mask a
+  failure that aborts before all `test result:` lines print (e.g. a panic in one
+  binary): the wrapper's exit code is nonzero if cargo failed *or* if zero tests
+  ran, never the exit code of the parser.
+- The wrapper reports the scope and total it ran ("ran 214 tests across
+  lib+bin+integration") so the agent's evidence names its coverage, not just
+  pass/fail.
 - Update the agent playbook so verification goes through the wrapper; keep the
   raw `cargo test` documented for humans who know the scoping.
 
 Acceptance criteria:
 
-- A filter that matches only lib tests runs them (nonzero count) instead of
-  silently running zero.
+- A filter that matches only lib tests, or only binary tests, runs them (nonzero
+  count) under the default scope instead of silently running zero.
 - A run that matches zero tests exits nonzero by default.
-- The wrapper's exit status is the real test outcome, not masked by the parsing
-  step.
+- A failing test (including one that panics before other binaries report) yields a
+  nonzero wrapper exit — the parser never masks a real failure.
+- The wrapper is exercised against: zero matches, lib-only matches, bin-only
+  matches, a failing test, and a run spanning multiple test binaries.
 
 ### 3. Wire up a native build cache by default, safely
 
@@ -258,13 +282,26 @@ Acceptance criteria:
 A normal `cargo build` should not silently run last-commit's builtin when the
 `src/` source is newer.
 
-- Add a fast, no-network staleness check — an mtime/hash comparison of the
-  generated *sources* (`src/builtins/*.js`, the capability-bit / identity /
-  module-manifest inputs) against their `vendored-generated/**` (and
-  `src/identity_generated.rs` etc.) outputs — that a cheap `build.rs` step runs
-  in dev, printing a loud "embedded builtin is stale; run `IBEX_REGENERATE_RUNTIME=1`
-  or `bun run regenerate:vendored`" warning, or failing under an opt-in strict
-  flag.
+- Add a fast, no-network **staleness comparison** — an mtime/hash comparison of
+  the generated *sources* (`src/builtins/*.js`,
+  `src/builtins/helpers/runtime-module-manifest.cjs`, the capability-bit /
+  identity / module-manifest inputs) against their `vendored-generated/**` outputs
+  (`vendored-generated/builtin_manifest.generated.rs`,
+  `src/identity_generated.rs`, etc.; the same input/output pairs
+  `scripts/check-generated-drift.sh:35` already tracks) — run by a cheap
+  `build.rs` step. This is a real *staleness* signal that fires only when a source
+  is newer than its embedded output, **not** the unconditional
+  `cargo:warning=… using vendored generated artifacts …` that `build.rs:474-478`
+  already prints on every hermetic build. This item **replaces/subsumes** that
+  always-on warning so the loud signal means "your edit is not embedded," rather
+  than firing on every build (which trains agents to ignore it).
+- **The agent verification path must fail loud, not warn.** A `cargo:warning` is
+  the exact weak channel this plan says agents cannot distrust, so:
+  - consumer/human builds may keep a warning for the compatibility trade-off;
+  - the agent/dev verification path — a strict mode on by default in the agent run
+    environment, e.g. `IBEX_FAIL_ON_STALE_VENDORED=1` (or folded into the item-2
+    `run-tests.sh` / a `verify-agent.sh` wrapper) — **exits nonzero** when a
+    generated source is newer than its embedded output.
 - Preserve the LLP 0005 hermetic default: the check is a comparison, never a
   regeneration, and must add no bun/`node_modules` dependency to a normal build.
 - Document the two iterate paths at the top of `src/builtins/` and in the
@@ -273,9 +310,11 @@ A normal `cargo build` should not silently run last-commit's builtin when the
 
 Acceptance criteria:
 
-- Editing a `src/builtins/*.js` file and running a normal `cargo build` surfaces
-  a loud "embedded builtin is stale" signal instead of silently using the
-  committed bytes.
+- Editing a `src/builtins/*.js` file and running the **agent verification
+  command** exits nonzero with a loud "embedded builtin is stale" signal instead
+  of silently using the committed bytes.
+- With no source newer than its output, the staleness check is silent — it does
+  not re-emit the old always-on warning.
 - The check adds no bun/`node_modules` dependency to a normal build and never
   regenerates anything itself.
 
@@ -300,21 +339,39 @@ Acceptance criteria:
 ### 7. Cut the rebuild tax when landing onto a busy `main`
 
 - With `sccache` wired up (item 3), a post-rebase rebuild is mostly cache hits —
-  the primary mitigation.
-- Add playbook guidance to **skip a full re-verify when a rebase introduced no
-  conflicts touching the agent's own changed files**: a rebase that only advances
-  the base need not re-run the whole native suite; a targeted re-run of the
-  affected test suffices.
+  this is the **primary** mitigation. Treat `sccache` as the cost reducer; do not
+  buy speed by diluting verification.
+- Define a **minimum post-rebase verification policy** rather than a blanket skip.
+  "No conflicts touching my files" is *not* sufficient evidence the base change is
+  irrelevant — an advancing base can change dependencies, the build script,
+  generated artifacts, the platform, shared native code, or the tests for the
+  touched subsystem without ever conflicting with the agent's diff. So:
+  - **Always** rerun the directly affected test/build command and the drift check
+    (item 5) after any rebase.
+  - **Require broader re-verification** (the fuller native suite) when the rebase
+    pulled in upstream changes to any of: `Cargo.toml`, `Cargo.lock`, `build.rs`,
+    `vendored-generated/**` or other generated artifacts, scripts used by the
+    agent workflow, shared native files (e.g. `hermes_runtime.cc`), or tests
+    covering the touched subsystem — detected by a merge-base path diff, not by
+    "did it conflict."
+  - Only when the rebase advanced the base with *none* of the above touched may
+    the agent stop at the targeted re-run.
 - Optionally provide a small landing helper that fetches, rebases, and pushes to
-  `HEAD:main` with bounded retries and reports contention, and/or lightly
-  serialize agents editing the same hot file (e.g. `hermes_runtime.cc`) so they
-  do not each rebase across one another.
+  `HEAD:main` with bounded retries, records the verification evidence it relied on
+  before pushing (so "no full re-verify" is auditable, not just convention), and
+  reports contention; and/or lightly serialize agents editing the same hot file
+  (e.g. `hermes_runtime.cc`) so they do not each rebase across one another.
 
 Acceptance criteria:
 
-- A conflict-free rebase onto an advanced `main` does not force a full-suite
-  native rebuild + re-verify by default.
-- The playbook documents when a re-verify is and isn't required after a rebase.
+- A rebase that advances `main` with no upstream change to the sensitive paths
+  above does not force a full-suite native rebuild + re-verify — the targeted
+  re-run plus drift check is accepted.
+- A rebase that *does* touch a sensitive path triggers broader re-verification
+  even when it produced no textual conflict with the agent's diff.
+- The playbook documents the sensitive-path list and the minimum-verification
+  policy, and (if the landing helper exists) the evidence it records before a
+  push.
 
 ### 8. Hold new agent tooling to the fail-loud rule
 
@@ -343,6 +400,48 @@ not silently regrow.
 6. P2: build-machine bootstrap checklist (item 4).
 7. Ongoing: apply the fail-loud checklist to new tooling (item 8).
 
+## Implementation status
+
+Landed 2026-07-05. Agent tooling now lives under `scripts/` with a `scripts/README.md`
+playbook; verified end to end in this checkout.
+
+- **Item 1 — done.** `scripts/link-worktree-artifacts.sh` rewritten to resolve the
+  destination from the invoking worktree (`git -C "$PWD" rev-parse --show-toplevel`,
+  `--dest` override), split required (`ios/Frameworks`, `tools/hermes`) from optional
+  (`node_modules`), assert the required postcondition, and exit nonzero naming any
+  missing artifact (distinguishing source-missing from dest-missing). Smoke test:
+  `scripts/link-worktree-artifacts.test.sh` (5/5 passing) covers fresh-worktree
+  link-in, required-absent failure, and idempotent re-run.
+- **Item 2 — done.** `scripts/run-tests.sh` drives the full package test set by
+  default (lib + `ibex` binary + integration), narrowable via `--scope`, sums the
+  reported counts, exits nonzero on zero tests (unless `--allow-zero`), preserves
+  cargo's real exit status via `PIPESTATUS`, and reports the scope + total it ran.
+- **Item 3 — partial.** `scripts/warm-worktree.sh --clone-target` does the APFS
+  `cp -c` per-worktree `target/` clone (refusing to overwrite), and
+  `check-build-machine.sh` verifies `sccache` + `RUSTC_WRAPPER`/`SCCACHE_DIR`.
+  Installing `sccache` on the build machines themselves remains operational setup
+  (LLP 0015), not code.
+- **Item 4 — done.** `scripts/check-build-machine.sh` verifies the timeout binary
+  (through the wrapper), the LLP 0017 git-hooks safe state, cargo, and
+  recommends sccache/bun; exits nonzero if a required precondition is unmet.
+- **Item 5 — done.** `build.rs` gained an mtime staleness comparison of the
+  generated sources against their committed outputs. It **replaces** the old
+  always-on "using vendored generated artifacts" `cargo:warning` (which, being
+  emitted to stderr, never actually surfaced): a clean build is silent, a stale
+  build warns via stdout `cargo:warning`, and under `IBEX_FAIL_ON_STALE_VENDORED=1`
+  (set by `run-tests.sh`) it panics — so agent verification exits nonzero on stale
+  bytes. Per-file `rerun-if-changed` ensures a builtin edit actually re-runs the
+  check. No bun/`node_modules` dependency added; the check only compares.
+- **Item 6 — done.** `scripts/build-blocking.sh` runs a build/test in the
+  foreground under `with-timeout.sh` with a heartbeat; the policy is documented in
+  `scripts/README.md`.
+- **Item 7 — partial.** The minimum post-rebase verification policy and the
+  sensitive-path list are documented in `scripts/README.md`; the optional landing
+  helper (bounded-retry push + evidence recording + hot-file serialization) is not
+  yet built.
+- **Item 8 — done (as a doc gate).** The fail-loud checklist for new agent-facing
+  scripts is in `scripts/README.md`.
+
 ## Open questions
 
 - Should items 1–4 be tracked under the existing ENG-22986 (0017's reliability
@@ -352,6 +451,10 @@ not silently regrow.
 - Should the fail-on-zero-tests wrapper (item 2) also become a CI gate, or stay
   an agent-side verification tool? CI already runs the full suite, so the value
   is mostly at agent verification time.
+- Should items 2, 5, and 6 be composed behind a single `verify-agent.sh` entry
+  point (full-scope tests + strict stale-vendored + timeout), so "one command
+  verifies correctly" holds end to end, or stay separate scripts the playbook
+  chains? (Raised by both review families.)
 - Is `check-build-machine.sh` (item 4) better as a script or as a section of the
   agent playbook the agent runs first? A script is enforceable; prose is
   cheaper to keep current.
