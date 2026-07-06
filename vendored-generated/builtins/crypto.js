@@ -2387,12 +2387,12 @@ function sign(algorithm, data, key, outputEncoding) {
 	if (algorithm === null) algorithm = void 0;
 	var hash = algorithm ? _normalizeHashForSign(algorithm) : "sha256";
 	var keyText = _extractKeyText(key);
-	var dataText = _toByteString(data);
+	var dataBytes = _toUint8Array(data);
 	var fallbackKey = keyText || _toByteString(key);
 	if (typeof keyText === "string" && _isPemKeyText(keyText) && typeof __exactSignSync === "function") try {
-		return _signatureOutput(__exactSignSync(hash, dataText, keyText), outputEncoding);
+		return _signatureOutput(__exactSignSync(hash, dataBytes, keyText), outputEncoding);
 	} catch (e) {}
-	if (typeof __exactHmacSync === "function") return _signatureOutput(__exactHmacSync(hash, fallbackKey, dataText), outputEncoding);
+	if (typeof __exactHmacSync === "function") return _signatureOutput(__exactHmacSync(hash, fallbackKey, _toByteString(data)), outputEncoding);
 	throw new Error("crypto.sign not available");
 }
 function verify(algorithm, data, key, signature, callback) {
@@ -2403,10 +2403,11 @@ function verify(algorithm, data, key, signature, callback) {
 	var signatureValue = signature;
 	if (typeof signatureValue !== "string" && signatureValue && !(signatureValue instanceof ArrayBuffer) && !(typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(signatureValue)) && !(typeof Buffer !== "undefined" && typeof Buffer.isBuffer === "function" && Buffer.isBuffer(signatureValue))) signatureValue = _toByteArray(signatureValue);
 	var dataText = _toByteString(data);
+	var dataBytes = _toUint8Array(data);
 	var result = false;
 	if (typeof keyText === "string" && _isPemKeyText(keyText) && typeof __exactVerifySync === "function") {
 		try {
-			result = __exactVerifySync(hash, signatureValue, dataText, keyText);
+			result = __exactVerifySync(hash, signatureValue, dataBytes, keyText);
 		} catch (e) {
 			if (typeof callback === "function") {
 				(typeof process !== "undefined" && typeof process.nextTick === "function" ? process.nextTick : function(fn) {

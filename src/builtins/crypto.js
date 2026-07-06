@@ -2254,17 +2254,21 @@ function sign(algorithm, data, key, outputEncoding) {
   if (algorithm === null) algorithm = undefined;
   var hash = algorithm ? _normalizeHashForSign(algorithm) : 'sha256';
   var keyText = _extractKeyText(key);
-  var dataText = _toByteString(data);
+  // Pass the raw message bytes to the native bridge. The bridge takes a
+  // Uint8Array byte-for-byte but UTF-8-re-encodes a string argument, which
+  // expanded every message byte >= 0x80 so signatures were rejected by external
+  // verifiers (ENG-23017; the WebCrypto surface was fixed in ENG-23002/ENG-22983).
+  var dataBytes = _toUint8Array(data);
   var fallbackKey = keyText || _toByteString(key);
 
   if (typeof keyText === 'string' && _isPemKeyText(keyText) && typeof __exactSignSync === 'function') {
     try {
-      var nativeBytes = __exactSignSync(hash, dataText, keyText);
+      var nativeBytes = __exactSignSync(hash, dataBytes, keyText);
       return _signatureOutput(nativeBytes, outputEncoding);
     } catch (e) {}
   }
   if (typeof __exactHmacSync === 'function') {
-    var hmacHex = __exactHmacSync(hash, fallbackKey, dataText);
+    var hmacHex = __exactHmacSync(hash, fallbackKey, _toByteString(data));
     return _signatureOutput(hmacHex, outputEncoding);
   }
   throw new Error('crypto.sign not available');
@@ -2284,11 +2288,14 @@ function verify(algorithm, data, key, signature, callback) {
     signatureValue = _toByteArray(signatureValue);
   }
   var dataText = _toByteString(data);
+  // Raw message bytes for the native bridge (see sign()); the string form is
+  // kept only for the legacy __exactHmacSync fallback below (ENG-23017).
+  var dataBytes = _toUint8Array(data);
 
   var result = false;
   if (typeof keyText === 'string' && _isPemKeyText(keyText) && typeof __exactVerifySync === 'function') {
     try {
-      result = __exactVerifySync(hash, signatureValue, dataText, keyText);
+      result = __exactVerifySync(hash, signatureValue, dataBytes, keyText);
     } catch (e) {
       if (typeof callback === 'function') {
         var _nextTick = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };

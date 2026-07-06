@@ -221,3 +221,46 @@ describe('randomFillSync byte-buffer fill (ENG-22966 #3)', () => {
     expect(Array.from(buf)).toEqual([1, 2, 3, 4, 5]);
   });
 });
+
+// ENG-23017 — crypto.sign/verify must hand the native __exactSignSync/
+// __exactVerifySync bridge the RAW message bytes. The bridge takes a Uint8Array
+// byte-for-byte but UTF-8-re-encodes a string arg, so passing a Latin-1 byte
+// string (the old code) expanded every message byte >= 0x80 and produced
+// signatures external verifiers reject. Stub the bridge with Node's crypto using
+// the same extractBytes semantics (Uint8Array/Buffer -> raw bytes, string ->
+// UTF-8); had crypto.js passed a string, toBuf would UTF-8-expand it and the
+// signature would not match Node's over the raw bytes.
+describe('sign/verify pass raw message bytes (ENG-23017)', () => {
+  const { publicKey, privateKey } = nodeCrypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+
+  g.__exactSignSync = (hash: string, data: any, keyPem: string) =>
+    Uint8Array.from(nodeCrypto.sign(normAlgoToNode(hash), toBuf(data), keyPem));
+  g.__exactVerifySync = (hash: string, sig: any, data: any, keyPem: string) =>
+    nodeCrypto.verify(normAlgoToNode(hash), toBuf(data), keyPem, toBuf(sig));
+
+  // A message with bytes on both sides of 0x80 — the ones that UTF-8 expansion
+  // would corrupt.
+  const highByteMsg = Buffer.from([0x00, 0x41, 0x7f, 0x80, 0x81, 0xc3, 0xa9, 0xfe, 0xff]);
+
+  test('crypto.sign over a high-byte Buffer verifies against Node', () => {
+    const sig = crypto.sign('sha256', highByteMsg, privateKey);
+    // Node verifies the signature over the SAME raw bytes -> byte-accurate.
+    expect(nodeCrypto.verify('sha256', highByteMsg, publicKey, toBuf(sig))).toBe(true);
+    // The builtin's own verify agrees.
+    expect(crypto.verify('sha256', highByteMsg, publicKey, sig)).toBe(true);
+    // A flipped message byte must fail.
+    const tampered = Buffer.from(highByteMsg);
+    tampered[3] ^= 0xff;
+    expect(nodeCrypto.verify('sha256', tampered, publicKey, toBuf(sig))).toBe(false);
+  });
+
+  test('createSign/createVerify streaming over high bytes matches Node', () => {
+    const sig = crypto.createSign('sha256').update(highByteMsg).sign(privateKey);
+    expect(nodeCrypto.verify('sha256', highByteMsg, publicKey, toBuf(sig))).toBe(true);
+    expect(crypto.createVerify('sha256').update(highByteMsg).verify(publicKey, sig)).toBe(true);
+  });
+});
