@@ -58,8 +58,25 @@ pub trait Engine: Send + Sync {
         Ok(())
     }
 
+    /// Park until the next scheduled event-loop wakeup (the soonest due timer) or
+    /// a background callback, so the idle REPL prompt can stop polling at a fixed
+    /// 20 Hz cadence. Engines without an event loop just sleep a short interval.
+    /// (ENG-23030 #5)
+    async fn wait_for_pending_tasks(&self) {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
     /// Run a JavaScript file
     async fn run_file(&self, path: &str) -> Result<Option<String>>;
+
+    /// Run a JavaScript file WITHOUT driving the event loop to quiescence, so a
+    /// long-lived server/timer started by the file returns control to the caller.
+    /// The REPL's `.load` uses this and lets its idle pump drive background work,
+    /// instead of wedging the prompt on `drive_event_loop`. Defaults to
+    /// `run_file`. (ENG-23030 #2)
+    async fn run_file_immediate(&self, path: &str) -> Result<Option<String>> {
+        self.run_file(path).await
+    }
 
     /// Start the Chrome DevTools Protocol inspector
     async fn start_inspector(&self, host: &str, port: u16) -> Result<()>;

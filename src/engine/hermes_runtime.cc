@@ -2678,6 +2678,28 @@ extern "C" int ex_hermes_eval(
           return false;
         };
 
+        // Bound the wait for the awaited Promise to settle. `hasPendingWork`
+        // counts *any* referenced work (a `setInterval`, a live server), so an
+        // unrelated timer keeps it true and this loop would spin forever when the
+        // awaited Promise itself never settles — e.g. `setInterval(()=>{},1000)`
+        // then `await new Promise(()=>{})`. Cap the wait and fall back to
+        // returning the still-pending Promise so the prompt (which holds the
+        // runtime lock across this call) comes back. Override the budget with
+        // IBEX_AWAIT_UNWRAP_TIMEOUT_MS; 0 disables the cap. (ENG-23030 #4)
+        const uint64_t unwrap_budget_ms = []() -> uint64_t {
+          const char* raw = std::getenv("IBEX_AWAIT_UNWRAP_TIMEOUT_MS");
+          if (!raw || !*raw) {
+            return 10000;
+          }
+          char* end = nullptr;
+          unsigned long long parsed = std::strtoull(raw, &end, 10);
+          if (end == raw) {
+            return 10000;
+          }
+          return static_cast<uint64_t>(parsed);
+        }();
+        const uint64_t unwrap_start_ms = nowMs();
+
         while (true) {
           auto settled = resolvePromiseResult();
           if (settled.has_value()) {
@@ -2708,6 +2730,14 @@ extern "C" int ex_hermes_eval(
           if (!hasPendingWork && nextTimer < 0) {
             // No timers or host work can advance the Promise any further.
             // Fall back to returning the raw Promise value rather than spin.
+            break;
+          }
+
+          if (unwrap_budget_ms != 0 &&
+              nowMs() - unwrap_start_ms >= unwrap_budget_ms) {
+            // Pending work exists but the awaited Promise has not settled within
+            // the budget — return it still pending rather than hold the runtime
+            // lock (and wedge the prompt) indefinitely. (ENG-23030 #4)
             break;
           }
 

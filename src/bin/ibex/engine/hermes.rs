@@ -172,6 +172,26 @@ const IDLE_PARK: std::time::Duration = std::time::Duration::from_secs(1);
 #[cfg(not(feature = "cli-notify"))]
 const IDLE_PARK: std::time::Duration = std::time::Duration::from_millis(5);
 
+// Upper bound on how long the REPL-EOF drain (`drain_event_loop`) runs before
+// giving up. At EOF we flush work that is ready now and one-shots already due,
+// but a referenced perpetual `setInterval`/a self-rescheduling 0-delay timer
+// stays "pending" forever; this deadline stops Ctrl+D from hanging on it.
+// @ref LLP 0003#the-event-loop — the host drives Hermes by polling; at EOF that
+// drive must be bounded. (ENG-23030 #1)
+const EOF_DRAIN_BUDGET: std::time::Duration = std::time::Duration::from_millis(200);
+
+// Maximum `ex_hermes_poll` calls per idle pump (`pump_ready_tasks`). A
+// self-rescheduling 0-delay timer (`setInterval(fn,0)` / `setTimeout(tick,0)`)
+// is due on every poll, so without a bound the pump never returns and starves
+// the REPL select! of the chance to read the next line. The next idle tick
+// pumps again, so the timer still runs — it just no longer locks out input.
+// (ENG-23030 #3)
+const PUMP_MAX_POLLS_PER_TICK: usize = 1024;
+
+// Floor for the REPL idle park so a due-soon (or 0-delay) timer cannot make the
+// prompt busy-spin; mirrors the pre-ENG-23030 fixed pump cadence. (ENG-23030 #5)
+const REPL_PARK_FLOOR: std::time::Duration = std::time::Duration::from_millis(50);
+
 fn host_call_response(payload: String) -> *mut std::os::raw::c_char {
     match CString::new(payload) {
         Ok(value) => value.into_raw(),
@@ -1035,7 +1055,12 @@ impl HermesEngine {
     /// `ex_hermes_poll`; the keep-alive loop must do so too. (ENG-22958)
     async fn pump_ready_tasks(&self) -> Result<()> {
         self.ensure_thread()?;
-        loop {
+        // Bounded: a self-rescheduling 0-delay timer is due on every poll, so an
+        // unbounded `while executed != 0` loop would never return control to the
+        // caller — wedging the REPL prompt (and the keep-alive loop). Cap the
+        // polls per pump; the next tick pumps again, so the timer still runs but
+        // no longer starves input. (ENG-23030 #3)
+        for _ in 0..PUMP_MAX_POLLS_PER_TICK {
             let executed = {
                 let runtime = self.runtime.lock().await;
                 let handle = match runtime.as_ref() {
@@ -1053,6 +1078,27 @@ impl HermesEngine {
             }
         }
         Ok(())
+    }
+
+    /// Read and evaluate a JS/HBC file WITHOUT driving the event loop to
+    /// quiescence afterwards. `run_file` adds that drive (for `ibex <file>`);
+    /// the REPL's `.load` uses this directly (via `run_file_immediate`) so a
+    /// loaded `Bun.serve`/`setInterval` returns control to the prompt instead of
+    /// wedging, with the idle pump driving background work. (ENG-23030 #2)
+    async fn eval_file(&self, path: &str) -> Result<Option<String>> {
+        self.maybe_enable_debugger().await?;
+        let path_buf = PathBuf::from(path);
+        let is_bytecode = path_buf.extension().and_then(|s| s.to_str()) == Some("hbc");
+        let bytes = tokio::fs::read(&path_buf)
+            .await
+            .with_context(|| format!("Failed to read file {}", path))?;
+        let bytes = if is_bytecode {
+            Cow::Borrowed(bytes.as_slice())
+        } else {
+            normalize_hashbang_bytes(&bytes)
+        };
+        let source = path_buf.to_string_lossy().to_string();
+        self.eval_bytes(bytes.as_ref(), &source, is_bytecode).await
     }
 
     /// Try to apply source map to rewrite stack traces in error messages.
@@ -1425,31 +1471,79 @@ impl Engine for HermesEngine {
         self.pump_ready_tasks().await
     }
 
+    async fn wait_for_pending_tasks(&self) {
+        // Size the idle wait from the soonest scheduled timer and park until it
+        // is due — or, with nothing scheduled, park for IDLE_PARK, waking early
+        // on a background-callback notification (an HTTP request, a cross-thread
+        // callback). This replaces the REPL's fixed 20 Hz poll: an idle prompt no
+        // longer runs an FFI poll 20×/s, and a scheduled timer is serviced when
+        // it comes due rather than on the next fixed tick. (ENG-23030 #5)
+        let wait = {
+            let runtime = self.runtime.lock().await;
+            match runtime.as_ref() {
+                None => IDLE_PARK,
+                Some(handle) => {
+                    let now = current_time_ms();
+                    let next_timer = handle
+                        .with_runtime(|raw| unsafe { ex_hermes_next_timer(raw) })
+                        .unwrap_or(-1);
+                    repl_idle_wait(next_timer, now, REPL_PARK_FLOOR, IDLE_PARK)
+                }
+            }
+        };
+        wait_for_callback_or_sleep(wait).await;
+    }
+
     async fn drain_event_loop(&self) -> Result<()> {
-        // Same quiescence-driving loop `eval` runs after evaluating code, but
-        // with nothing to evaluate — the REPL uses it at EOF to let pending
-        // timers/callbacks finish before exit. (ENG-23001)
-        self.drive_event_loop().await
+        // At EOF, flush work that is ready now and one-shots already due, then
+        // stop — do NOT drive to quiescence. A referenced perpetual `setInterval`
+        // (or a self-rescheduling 0-delay timer) keeps the loop pending forever,
+        // which hung Ctrl+D with the tty in raw mode (Ctrl+C dead, external kill
+        // required). Poll only while something ran or a timer is already due,
+        // never sleep-waiting for a future timer, and cap the whole drain with a
+        // deadline as a hard backstop against a 0-delay self-reschedule.
+        // (ENG-23030 #1)
+        self.ensure_thread()?;
+        let deadline = std::time::Instant::now() + EOF_DRAIN_BUDGET;
+        loop {
+            let (executed, next_timer, now) = {
+                let runtime = self.runtime.lock().await;
+                let handle = match runtime.as_ref() {
+                    Some(handle) => handle,
+                    None => return Ok(()),
+                };
+                let now = current_time_ms();
+                let (executed, next_timer) = handle.with_runtime(|raw| {
+                    let executed = unsafe { ex_hermes_poll(raw, now) };
+                    let next_timer = unsafe { ex_hermes_next_timer(raw) };
+                    (executed, next_timer)
+                })?;
+                (executed, next_timer, now)
+            };
+            if executed < 0 {
+                return Err(anyhow::anyhow!("Hermes task execution failed"));
+            }
+            if eof_drain_complete(executed, next_timer, now) {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+        }
+        Ok(())
     }
 
     async fn run_file(&self, path: &str) -> Result<Option<String>> {
-        self.maybe_enable_debugger().await?;
-        let path_buf = PathBuf::from(path);
-        let is_bytecode = path_buf.extension().and_then(|s| s.to_str()) == Some("hbc");
-        let bytes = tokio::fs::read(&path_buf)
-            .await
-            .with_context(|| format!("Failed to read file {}", path))?;
-        let bytes = if is_bytecode {
-            Cow::Borrowed(bytes.as_slice())
-        } else {
-            normalize_hashbang_bytes(&bytes)
-        };
-        let source = path_buf.to_string_lossy().to_string();
-        let result = self
-            .eval_bytes(bytes.as_ref(), &source, is_bytecode)
-            .await?;
+        let result = self.eval_file(path).await?;
         self.drive_event_loop().await?;
         Ok(result)
+    }
+
+    async fn run_file_immediate(&self, path: &str) -> Result<Option<String>> {
+        // Like `run_file` but without driving the event loop to quiescence, so a
+        // `.load server.js` that starts a long-lived server/timer returns to the
+        // prompt. Background work runs via the REPL idle pump. (ENG-23030 #2)
+        self.eval_file(path).await
     }
 
     async fn start_inspector(&self, host: &str, port: u16) -> Result<()> {
@@ -1580,6 +1674,40 @@ fn current_time_ms() -> u64 {
     // monotonic clock (Instant) is not guaranteed to share an epoch with the
     // C++ steady_clock — so we route through the one C++ source of truth.
     unsafe { ex_hermes_now_ms() }
+}
+
+/// Whether the REPL-EOF drain has run out of work that is ready *now*. Keep
+/// draining while a poll executed something (`executed > 0`) or a timer is
+/// already due (`next_timer <= now`); stop otherwise so a future/perpetual timer
+/// (a referenced `setInterval`) cannot block process exit. `next_timer < 0` means
+/// no timers scheduled. (ENG-23030 #1)
+fn eof_drain_complete(executed: i32, next_timer: i64, now: u64) -> bool {
+    if executed > 0 {
+        return false;
+    }
+    next_timer < 0 || (next_timer as u64) > now
+}
+
+/// How long the idle REPL should park before pumping ready event-loop work,
+/// given the soonest scheduled timer (`next_timer`, ms on the shared clock; < 0
+/// when none) and `now`. Nothing scheduled parks for `idle_park` (waking early on
+/// a background-callback notification); a scheduled timer parks until it is due,
+/// floored so a 0-delay timer cannot busy-spin the prompt and capped at
+/// `idle_park`. Replaces the fixed 20 Hz poll. (ENG-23030 #5)
+fn repl_idle_wait(
+    next_timer: i64,
+    now: u64,
+    floor: std::time::Duration,
+    idle_park: std::time::Duration,
+) -> std::time::Duration {
+    if next_timer < 0 {
+        return idle_park;
+    }
+    let delay = std::time::Duration::from_millis((next_timer as u64).saturating_sub(now));
+    // `floor.min(idle_park)` keeps the lower bound <= the cap even when a build
+    // configures a very short IDLE_PARK (non-`cli-notify`), so the clamp is well
+    // formed.
+    delay.max(floor.min(idle_park)).min(idle_park)
 }
 
 fn temporary_output_path(path: &std::path::Path) -> std::path::PathBuf {
@@ -1789,6 +1917,45 @@ mod tests {
         assert_eq!(roots, vec![temp_root.clone()]);
 
         let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn eof_drain_stops_on_future_or_perpetual_timer() {
+        let now = 1_000u64;
+        // Something ran this poll: keep draining ready work.
+        assert!(!eof_drain_complete(1, -1, now));
+        assert!(!eof_drain_complete(3, (now + 5000) as i64, now));
+        // Nothing ran and no timers scheduled: done.
+        assert!(eof_drain_complete(0, -1, now));
+        // Nothing ran and only a FUTURE timer (a referenced setInterval that
+        // rescheduled to now+1000): done — must not hang Ctrl+D. (ENG-23030 #1)
+        assert!(eof_drain_complete(0, (now + 1000) as i64, now));
+        // Nothing ran but a one-shot is already due: keep draining it.
+        assert!(!eof_drain_complete(0, (now - 1) as i64, now));
+        assert!(!eof_drain_complete(0, now as i64, now));
+    }
+
+    #[test]
+    fn repl_idle_wait_parks_when_idle_and_tracks_timers() {
+        use std::time::Duration;
+        let floor = Duration::from_millis(50);
+        let idle = Duration::from_secs(1);
+        let now = 10_000u64;
+        // Nothing scheduled -> park the full idle interval (wake on notify).
+        assert_eq!(repl_idle_wait(-1, now, floor, idle), idle);
+        // A far-future timer is capped at the idle interval.
+        assert_eq!(repl_idle_wait((now + 5000) as i64, now, floor, idle), idle);
+        // A timer due soon waits until it is due.
+        assert_eq!(
+            repl_idle_wait((now + 200) as i64, now, floor, idle),
+            Duration::from_millis(200)
+        );
+        // A 0-delay / already-due timer is floored so the prompt cannot busy-spin.
+        assert_eq!(repl_idle_wait(now as i64, now, floor, idle), floor);
+        assert_eq!(repl_idle_wait((now - 100) as i64, now, floor, idle), floor);
+        // A very short IDLE_PARK (non-cli-notify) keeps the clamp well formed.
+        let tiny = Duration::from_millis(5);
+        assert_eq!(repl_idle_wait(now as i64, now, floor, tiny), tiny);
     }
 
     fn hermes_engine_test_lock() -> &'static Mutex<()> {

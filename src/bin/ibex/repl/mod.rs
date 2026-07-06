@@ -24,11 +24,6 @@ use tokio::sync::mpsc;
 
 const DEFAULT_PROMPT_SYMBOL: &str = "\u{27A4}";
 
-/// How often the idle REPL pumps ready event-loop work so background timers and
-/// async callbacks fire while the prompt waits for input. Mirrors the
-/// `--keep-alive` debug loop cadence in `main.rs::run_debug_loop`. (ENG-23001)
-const REPL_PUMP_INTERVAL: Duration = Duration::from_millis(50);
-
 /// Upper bound the completer waits for the engine thread to answer a member-
 /// completion query. In practice the answer is near-instant (a pure prototype
 /// walk with no yield points); the bound only guards against the engine loop
@@ -608,12 +603,14 @@ fn print_help() {
 ///
 /// The line editor (`rustyline::readline`) runs on a dedicated OS thread while
 /// this — the engine's creating thread — drives the Hermes event loop between
-/// keystrokes. A `select!` interleaves three things: a periodic non-blocking
+/// keystrokes. A `select!` interleaves three things: an idle park + non-blocking
 /// pump so background timers/async callbacks fire while the prompt sits idle
 /// (Node-like parity, the point of ENG-23001); submitted lines; and
 /// member-completion queries dispatched back from the readline thread's
 /// completer (the Hermes runtime is single-threaded, so completion can only
-/// evaluate on this thread). Pumping uses `drive_ready_tasks` — never the
+/// evaluate on this thread). The park (`wait_for_pending_tasks`) is sized by the
+/// soonest scheduled timer instead of a fixed cadence, so an idle prompt does
+/// not busy-poll (ENG-23030 #5); the pump uses `drive_ready_tasks` — never the
 /// quiescence-driving `eval` — so the prompt cannot re-wedge on
 /// `setInterval`/servers the way it did before ENG-22957. (ENG-23001)
 pub async fn start(engine: Arc<dyn Engine>) -> Result<()> {
@@ -676,9 +673,6 @@ pub async fn start(engine: Arc<dyn Engine>) -> Result<()> {
     // Track capabilities for the REPL session (whole conversation is one module)
     let mut session_capabilities: HashSet<String> = HashSet::new();
 
-    let mut ticker = tokio::time::interval(REPL_PUMP_INTERVAL);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
     'main: loop {
         tokio::select! {
             biased;
@@ -735,11 +729,14 @@ pub async fn start(engine: Arc<dyn Engine>) -> Result<()> {
                 }
             }
 
-            // Idle tick: run timers/microtasks/callbacks that became ready so
-            // background work fires while the prompt waits for input. This is
-            // the non-blocking pump (`drive_ready_tasks`), never the
-            // quiescence-driving `eval`, so no wedge. (ENG-23001)
-            _ = ticker.tick() => {
+            // Idle park + pump: wait until the soonest scheduled timer is due (or
+            // a background callback wakes us, or — nothing scheduled — for
+            // IDLE_PARK), then run whatever became ready. The engine sizes the
+            // park, so an idle prompt no longer runs an FFI poll 20×/s; the pump
+            // is the non-blocking `drive_ready_tasks` (never the quiescence-
+            // driving `eval`), so background timers/servers fire without ever
+            // wedging the prompt. (ENG-23001, ENG-23030 #5)
+            _ = engine.wait_for_pending_tasks() => {
                 if let Err(err) = engine.drive_ready_tasks().await {
                     eprintln!(
                         "{}: REPL event loop pump failed: {err:#}",
@@ -902,7 +899,12 @@ async fn handle_command(cmd: &str, engine: &Arc<dyn Engine>) -> Result<bool> {
         }
         ".load" => {
             let file = arg.ok_or_else(|| anyhow::anyhow!("Usage: .load <file>"))?;
-            match engine.run_file(file).await {
+            // `run_file_immediate`, not `run_file`: the latter drives the event
+            // loop to quiescence, so `.load server.js` (Bun.serve/setInterval)
+            // never returned and the prompt hard-wedged — the same ENG-22957
+            // wedge every other eval path already avoids. Background work runs
+            // via the idle pump instead. (ENG-23030 #2)
+            match engine.run_file_immediate(file).await {
                 Ok(Some(result)) => println!("{}", result),
                 Ok(None) => println!("{}", "Loaded".green()),
                 Err(e) => eprintln!("{}: {}", "Error".red().bold(), e),
