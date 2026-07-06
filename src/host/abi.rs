@@ -1299,6 +1299,96 @@ pub extern "C" fn ex_host_fs_seek(file: *mut ExactFileHandle, position: u64) -> 
     }
 }
 
+/// Positional read: read up to `len` bytes at absolute `offset` WITHOUT leaving
+/// the handle's file cursor moved. Node's `readSync` leaves the fd offset
+/// unchanged when `position` is a number, so the Windows JSI bridge needs a
+/// `pread`-equivalent; the previous `ex_host_fs_seek` + `ex_host_fs_read`
+/// permanently moved the cursor and corrupted a "header at a fixed offset then
+/// stream sequentially" read pattern (ENG-22993, mirroring the POSIX `pread`
+/// fix in ENG-22982). Implemented as save-cursor / seek / read / restore-cursor
+/// rather than a platform positional API because Windows overlapped reads still
+/// advance the pointer; this keeps behavior identical on every platform.
+/// Returns the number of bytes read, or -1 on error.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_pread(
+    file: *mut ExactFileHandle,
+    buf: *mut u8,
+    len: u32,
+    offset: u64,
+) -> i32 {
+    if file.is_null() || buf.is_null() {
+        return -1;
+    }
+    let handle = unsafe { &mut *file };
+    let slice = unsafe { std::slice::from_raw_parts_mut(buf, len as usize) };
+    let saved = match std::io::Seek::stream_position(&mut handle.file) {
+        Ok(pos) => pos,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            return -1;
+        }
+    };
+    if let Err(err) = std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(offset)) {
+        set_errno_from_io_error(&err);
+        return -1;
+    }
+    let read_result = std::io::Read::read(&mut handle.file, slice);
+    // Restore the cursor regardless of the read outcome so a positional read
+    // never disturbs a subsequent sequential read.
+    let restore_result =
+        std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(saved));
+    match (read_result, restore_result) {
+        (Ok(bytes), Ok(_)) => bytes as i32,
+        (Err(err), _) | (Ok(_), Err(err)) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+/// Positional write: write up to `len` bytes at absolute `offset` WITHOUT
+/// leaving the handle's file cursor moved (see `ex_host_fs_pread`; ENG-22993,
+/// mirroring the POSIX `pwrite` fix in ENG-22982). Returns the number of bytes
+/// written, which — like a single `std::io::Write::write` — may be fewer than
+/// `len`; the JS caller is responsible for looping on a short write. Returns -1
+/// on error.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_pwrite(
+    file: *mut ExactFileHandle,
+    buf: *const u8,
+    len: u32,
+    offset: u64,
+) -> i32 {
+    if file.is_null() || buf.is_null() {
+        return -1;
+    }
+    let handle = unsafe { &mut *file };
+    let slice = unsafe { std::slice::from_raw_parts(buf, len as usize) };
+    let saved = match std::io::Seek::stream_position(&mut handle.file) {
+        Ok(pos) => pos,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            return -1;
+        }
+    };
+    if let Err(err) = std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(offset)) {
+        set_errno_from_io_error(&err);
+        return -1;
+    }
+    let write_result = std::io::Write::write(&mut handle.file, slice);
+    // Restore the cursor regardless of the write outcome so a positional write
+    // never disturbs a subsequent sequential write.
+    let restore_result =
+        std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(saved));
+    match (write_result, restore_result) {
+        (Ok(bytes), Ok(_)) => bytes as i32,
+        (Err(err), _) | (Ok(_), Err(err)) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ex_host_fs_close(file: *mut ExactFileHandle) {
     if file.is_null() {
@@ -2367,6 +2457,54 @@ mod tests {
         // Free with the exact reported length so the Box layout matches the
         // allocation (this is the path the C++ caller takes).
         ex_host_free_buffer(buf, out_len);
+    }
+
+    #[test]
+    fn pread_pwrite_are_positional_and_leave_the_cursor_unchanged() {
+        // ENG-22993 / ENG-22982: a numeric `position` in Node's readSync/writeSync
+        // is a *positional* op that must not move the fd cursor. ex_host_fs_pread /
+        // ex_host_fs_pwrite must read/write at the given offset and restore the
+        // cursor so a subsequent sequential read/write continues where it left
+        // off (the pre-fix seek+read/seek+write path moved the cursor and
+        // corrupted header-then-stream access).
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        Write::write_all(&mut file, b"ABCDEFGHIJ").unwrap();
+        Write::flush(&mut file).unwrap();
+        let path = CString::new(file.path().to_str().unwrap()).unwrap();
+
+        // Open read+write (no truncate): cursor starts at 0, contents preserved.
+        let handle = ex_host_fs_open(path.as_ptr(), FS_READ | FS_WRITE);
+        assert!(!handle.is_null());
+
+        // Sequential read of the first 3 bytes advances the cursor to 3.
+        let mut head = [0u8; 3];
+        assert_eq!(ex_host_fs_read(handle, head.as_mut_ptr(), 3), 3);
+        assert_eq!(&head, b"ABC");
+
+        // Positional read at offset 7 must NOT disturb the cursor.
+        let mut mid = [0u8; 2];
+        assert_eq!(ex_host_fs_pread(handle, mid.as_mut_ptr(), 2, 7), 2);
+        assert_eq!(&mid, b"HI");
+
+        // The next sequential read continues from 3 (not from 9). With the
+        // pre-fix seek+read bug this would have returned bytes at offset 9.
+        let mut next = [0u8; 3];
+        assert_eq!(ex_host_fs_read(handle, next.as_mut_ptr(), 3), 3);
+        assert_eq!(&next, b"DEF");
+
+        // Positional write at offset 0 must also leave the cursor at 6.
+        assert_eq!(ex_host_fs_pwrite(handle, b"xy".as_ptr(), 2, 0), 2);
+
+        // Sequential read continues from 6 -> "GHI".
+        let mut after = [0u8; 3];
+        assert_eq!(ex_host_fs_read(handle, after.as_mut_ptr(), 3), 3);
+        assert_eq!(&after, b"GHI");
+
+        ex_host_fs_close(handle);
+
+        // The positional write landed at offset 0, leaving the rest intact.
+        let contents = std::fs::read(file.path()).unwrap();
+        assert_eq!(&contents, b"xyCDEFGHIJ");
     }
 
     /// Run `sql` through the exec ABI, asserting it did not fault, and free the

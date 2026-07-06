@@ -36,6 +36,11 @@ extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
 extern "C" int32_t ex_host_fs_write(void* file, const uint8_t* buf, uint32_t len);
 extern "C" int32_t ex_host_fs_seek(void* file, uint64_t position);
+// Positional read/write that do NOT move the handle's cursor (pread/pwrite
+// equivalents; ENG-22993, porting the POSIX fix in ENG-22982). Node's
+// readSync/writeSync leave the fd offset unchanged when `position` is a number.
+extern "C" int32_t ex_host_fs_pread(void* file, uint8_t* buf, uint32_t len, uint64_t offset);
+extern "C" int32_t ex_host_fs_pwrite(void* file, const uint8_t* buf, uint32_t len, uint64_t offset);
 extern "C" void ex_host_fs_close(void* file);
 extern "C" uint8_t* ex_host_fs_read_file(const char* path, uint64_t* out_len, int32_t* out_errno);
 extern "C" void ex_host_free_buffer(uint8_t* buf, uint64_t len);
@@ -233,10 +238,27 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (!file) {
           throwFs(runtime, "open", path);
         }
-        if (!bytes.empty() &&
-            ex_host_fs_write(file, bytes.data(), static_cast<uint32_t>(bytes.size())) < 0) {
-          ex_host_fs_close(file);
-          throwFs(runtime, "write", path);
+        // ex_host_fs_write is a single std::io::Write::write, which may write
+        // FEWER bytes than requested (nearly-full disk, RLIMIT_FSIZE, a large
+        // buffer). A single call that ignores the returned count silently
+        // truncates the file while reporting success, so loop until every byte
+        // is written. Mirrors the POSIX bridge fix in ENG-22982 / the fd-based
+        // _writeAllSync path in fs.js.
+        size_t totalWritten = 0;
+        const size_t total = bytes.size();
+        while (totalWritten < total) {
+          size_t remaining = total - totalWritten;
+          uint32_t chunk = remaining > 0xFFFFFFFFu
+              ? 0xFFFFFFFFu
+              : static_cast<uint32_t>(remaining);
+          int32_t written = ex_host_fs_write(file, bytes.data() + totalWritten, chunk);
+          // written < 0 is an error; written == 0 with bytes remaining means no
+          // progress and no error — refuse to spin forever.
+          if (written <= 0) {
+            ex_host_fs_close(file);
+            throwFs(runtime, "write", path);
+          }
+          totalWritten += static_cast<size_t>(written);
         }
         ex_host_fs_close(file);
         return facebook::jsi::Value::undefined();
@@ -331,13 +353,19 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         std::vector<uint8_t> bytes(length);
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryRead(runtime, entry);
-        if (count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
-          auto position = static_cast<uint64_t>(args[2].asNumber());
-          if (ex_host_fs_seek(entry.handle, position) != 0) {
-            throwFs(runtime, "read", entry.path);
-          }
-        }
-        auto nread = ex_host_fs_read(entry.handle, bytes.data(), length);
+        // A numeric position is a *positional* read: Node's readSync leaves the
+        // handle's current file offset unchanged when `position` is a number. The
+        // old ex_host_fs_seek + ex_host_fs_read permanently moved the cursor
+        // (corrupting a header-at-fixed-offset-then-stream read pattern), so use
+        // ex_host_fs_pread, which reads at the offset and restores the cursor.
+        // position < 0 / null / undefined means "read at the current position"
+        // and keeps the plain read path. Mirrors the POSIX pread fix in ENG-22982.
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
+        auto nread = positioned
+            ? ex_host_fs_pread(
+                  entry.handle, bytes.data(), length,
+                  static_cast<uint64_t>(args[2].asNumber()))
+            : ex_host_fs_read(entry.handle, bytes.data(), length);
         if (nread < 0) {
           throwFs(runtime, "read", entry.path);
         }
@@ -364,15 +392,25 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (bytes.empty()) {
           return facebook::jsi::Value(0.0);
         }
-        if (!entry.append && count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
-          auto position = static_cast<uint64_t>(args[2].asNumber());
-          if (ex_host_fs_seek(entry.handle, position) != 0) {
-            throwFs(runtime, "write", entry.path);
-          }
-        }
+        // A numeric position is a *positional* write: Node's writeSync leaves the
+        // handle's current offset unchanged when `position` is a number. The old
+        // ex_host_fs_seek + ex_host_fs_write permanently moved the cursor, so use
+        // ex_host_fs_pwrite (writes at the offset, restores the cursor). position
+        // < 0 / null / undefined means "write at the current position". An append
+        // fd always appends and ignores the offset (matching Node). Mirrors the
+        // POSIX pwrite fix in ENG-22982. The returned short-write count is the JS
+        // caller's responsibility to loop on, same as the POSIX fd write path.
+        bool positioned =
+            !entry.append && count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         auto written = entry.append
-            ? ex_host_fs_append(entry.path.c_str(), bytes.data(), static_cast<uint32_t>(bytes.size()))
-            : ex_host_fs_write(entry.handle, bytes.data(), static_cast<uint32_t>(bytes.size()));
+            ? ex_host_fs_append(
+                  entry.path.c_str(), bytes.data(), static_cast<uint32_t>(bytes.size()))
+            : (positioned
+                   ? ex_host_fs_pwrite(
+                         entry.handle, bytes.data(), static_cast<uint32_t>(bytes.size()),
+                         static_cast<uint64_t>(args[2].asNumber()))
+                   : ex_host_fs_write(
+                         entry.handle, bytes.data(), static_cast<uint32_t>(bytes.size())));
         if (written < 0) {
           throwFs(runtime, "write", entry.path);
         }
