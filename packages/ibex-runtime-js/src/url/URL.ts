@@ -81,7 +81,9 @@ function resolveHostURLConstructor(): typeof globalThis.URL | undefined {
 function canonicalizeSpecialHost(value: string): string {
   const hostURL = resolveHostURLConstructor();
   if (typeof hostURL !== "function") {
-    return value;
+    // Locked-down compartments have no host parser; special-scheme hosts are
+    // ASCII-lowercased per the WHATWG host parser so origin comparisons work.
+    return value.toLowerCase();
   }
   const parsed = new hostURL(`https://${value}`);
   return parsed.hostname;
@@ -324,6 +326,10 @@ type ParsedURLParts = {
   pathname: string;
   search: string;
   hash: string;
+  // WHATWG hosts are null-vs-empty-string distinct: file: URLs have an EMPTY
+  // host ("file:///tmp/x") while opaque-path URLs ("mailto:x") have NO host.
+  // The serializer must emit "//" whenever a host is present, even if empty.
+  hostPresent: boolean;
 };
 
 function splitPathSearchHash(input: string): { path: string; search: string; hash: string } {
@@ -344,31 +350,52 @@ function splitPathSearchHash(input: string): { path: string; search: string; has
 }
 
 function normalizePathname(path: string): string {
+  // WHATWG path state: single/double dot segments (including their
+  // percent-encoded spellings) are resolved, but EMPTY segments are kept —
+  // "/a//b" must stay "/a//b", not collapse to "/a/b".
   if (!path) return "/";
-  const segments = path.split("/");
-  const normalized: string[] = [];
-  for (const segment of segments) {
-    if (segment === "" || segment === ".") {
-      if (normalized.length === 0) normalized.push("");
-      continue;
+  if (!path.startsWith("/")) path = "/" + path;
+  const segments = path.split("/").slice(1);
+  const out: string[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const lower = segment.toLowerCase();
+    const isLast = i === segments.length - 1;
+    if (lower === ".." || lower === "%2e." || lower === ".%2e" || lower === "%2e%2e") {
+      if (out.length > 0) out.pop();
+      if (isLast) out.push("");
+    } else if (lower === "." || lower === "%2e") {
+      if (isLast) out.push("");
+    } else {
+      out.push(segment);
     }
-    if (segment === "..") {
-      if (normalized.length > 1) normalized.pop();
-      continue;
-    }
-    normalized.push(segment);
   }
-  let result = normalized.join("/");
-  if (!result.startsWith("/")) result = "/" + result;
-  if (path.endsWith("/") && !result.endsWith("/")) result += "/";
-  return result || "/";
+  return "/" + out.join("/");
+}
+
+// Percent-encode the "?query" / "#fragment" tails produced by
+// splitPathSearchHash, preserving the leading delimiter.
+function encodeSearchTail(search: string, isSpecial: boolean): string {
+  if (!search) return "";
+  const encodeSet = isSpecial ? inSpecialQueryPercentEncodeSet : inQueryPercentEncodeSet;
+  return "?" + percentEncode(search.slice(1), encodeSet);
+}
+
+function encodeHashTail(hash: string): string {
+  if (!hash) return "";
+  return "#" + percentEncode(hash.slice(1), inFragmentPercentEncodeSet);
 }
 
 function parseAuthorityUrl(protocol: string, rest: string): ParsedURLParts | null {
+  const scheme = protocol.slice(0, -1);
+  const isSpecial = SPECIAL_SCHEMES.has(scheme);
+  // file: and non-special schemes accept an empty host ("file:///x",
+  // "foo:///x"); the other special schemes require one.
+  const allowEmptyHost = !isSpecial || scheme === "file";
   const authorityEnd = rest.search(/[/?#]/);
   const authority = authorityEnd === -1 ? rest : rest.slice(0, authorityEnd);
   const pathTail = authorityEnd === -1 ? "" : rest.slice(authorityEnd);
-  if (!authority) {
+  if (!authority && !allowEmptyHost) {
     return null;
   }
 
@@ -407,50 +434,96 @@ function parseAuthorityUrl(protocol: string, rest: string): ParsedURLParts | nul
       hostname = canonicalizeHost(hostPort, protocol);
     }
   }
-  if (!hostname) return null;
+  if (!hostname && !allowEmptyHost) return null;
+  // A file: host of "localhost" is normalized to the empty host.
+  if (scheme === "file" && hostname === "localhost") hostname = "";
   if (port) {
     const portNumber = Number(port);
     if (!Number.isInteger(portNumber) || portNumber > 65535) return null;
-    if (port === DEFAULT_PORTS[protocol.slice(0, -1)]) port = "";
+    if (port === DEFAULT_PORTS[scheme]) port = "";
   }
 
-  const { path, search, hash } = splitPathSearchHash(pathTail || "/");
+  const { path, search, hash } = splitPathSearchHash(pathTail);
+  // Special schemes always have at least "/" as the path; non-special URLs
+  // keep an empty path ("foo://h" serializes without a trailing slash).
+  const pathname = path !== "" || isSpecial ? normalizePathname(path) : "";
   return {
     protocol,
     username,
     password,
     hostname,
     port,
-    pathname: normalizePathname(path),
-    search,
-    hash,
+    hostPresent: true,
+    pathname: percentEncode(pathname, inPathPercentEncodeSet),
+    search: encodeSearchTail(search, isSpecial),
+    hash: encodeHashTail(hash),
   };
 }
 
 function parseBasicUrl(input: string, base: URL | null): ParsedURLParts | null {
-  const value = stripProtocolControlChars(String(input).trim());
+  let value = stripProtocolControlChars(String(input).trim());
   const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(value);
   if (scheme) {
     const protocol = `${scheme[1].toLowerCase()}:`;
-    const rest = value.slice(scheme[0].length);
+    const schemeName = protocol.slice(0, -1);
+    const isSpecial = SPECIAL_SCHEMES.has(schemeName);
+    let rest = value.slice(scheme[0].length);
+    if (isSpecial) {
+      // The WHATWG parser treats "\" as "/" for special schemes
+      // ("http:\\example.com\path" is an authority, not an opaque path).
+      rest = rest.replace(/\\/g, "/");
+    }
+    if (schemeName === "file") {
+      if (rest.startsWith("//")) {
+        return parseAuthorityUrl(protocol, rest.slice(2));
+      }
+      // file: URLs always carry a (possibly empty) host: "file:/tmp/x" and
+      // "file:" normalize to the empty-host, absolute-path form.
+      const { path, search, hash } = splitPathSearchHash(rest);
+      return {
+        protocol,
+        username: "",
+        password: "",
+        hostname: "",
+        port: "",
+        hostPresent: true,
+        pathname: percentEncode(normalizePathname(path), inPathPercentEncodeSet),
+        search: encodeSearchTail(search, true),
+        hash: encodeHashTail(hash),
+      };
+    }
+    if (isSpecial) {
+      // "special authority ignore slashes": any run of leading slashes (or
+      // none at all — "http:example.com") precedes the authority.
+      return parseAuthorityUrl(protocol, rest.replace(/^\/+/, ""));
+    }
     if (rest.startsWith("//")) {
       return parseAuthorityUrl(protocol, rest.slice(2));
     }
     const { path, search, hash } = splitPathSearchHash(rest);
+    const hierarchical = path.startsWith("/");
     return {
       protocol,
       username: "",
       password: "",
       hostname: "",
       port: "",
-      pathname: path,
-      search,
-      hash,
+      hostPresent: false,
+      pathname: hierarchical
+        ? percentEncode(normalizePathname(path), inPathPercentEncodeSet)
+        : percentEncode(path, inC0ControlPercentEncodeSet),
+      search: encodeSearchTail(search, false),
+      hash: encodeHashTail(hash),
     };
   }
 
   if (!base) {
     return null;
+  }
+  const baseScheme = base.protocol.slice(0, -1);
+  const baseIsSpecial = SPECIAL_SCHEMES.has(baseScheme);
+  if (baseIsSpecial) {
+    value = value.replace(/\\/g, "/");
   }
   if (value.startsWith("//")) {
     return parseAuthorityUrl(base.protocol, value.slice(2));
@@ -473,9 +546,14 @@ function parseBasicUrl(input: string, base: URL | null): ParsedURLParts | null {
     password: base.password,
     hostname: base.hostname,
     port: base.port,
-    pathname,
-    search: search || (path ? "" : base.search),
-    hash,
+    hostPresent: (base as unknown as { _hasHost: boolean })._hasHost,
+    pathname: percentEncode(pathname, inPathPercentEncodeSet),
+    search: search
+      ? encodeSearchTail(search, baseIsSpecial)
+      : path
+        ? ""
+        : base.search,
+    hash: encodeHashTail(hash),
   };
 }
 
@@ -488,6 +566,9 @@ export class URL {
   private _pathname: string = "";
   private _search: string = "";
   private _hash: string = "";
+  // Whether the URL has a host at all (WHATWG null-vs-empty host). file: URLs
+  // have an EMPTY host (serialize with "//"); opaque-path URLs have NO host.
+  private _hasHost: boolean = false;
   private _searchParams: URLSearchParams;
 
   constructor(url: string, base?: string | URL) {
@@ -536,6 +617,11 @@ export class URL {
         this._pathname = parsed.pathname;
         this._search = parsed.search;
         this._hash = parsed.hash;
+        // Host implementations expose hostname "" both for empty hosts
+        // (file:///x) and absent hosts (mailto:x); the serialized href is the
+        // only reliable signal. A null-host URL never serializes "//" right
+        // after the scheme (paths starting "//" get a "/." guard).
+        this._hasHost = parsed.href.startsWith(`${parsed.protocol}//`);
         return;
       } catch {
         throw _makeURLError(input, baseStr);
@@ -552,6 +638,7 @@ export class URL {
     this._pathname = parsed.pathname;
     this._search = parsed.search;
     this._hash = parsed.hash;
+    this._hasHost = parsed.hostPresent;
   }
 
   private _normalizePath(path: string): string {
@@ -580,12 +667,16 @@ export class URL {
 
   // Getters and setters
   get href(): string {
+    // WHATWG URL serializer: the "//" authority prefix is emitted whenever a
+    // host is PRESENT, including the empty-string host of file: URLs —
+    // "file:///tmp/x" must not degrade to "file:/tmp/x", and "file:////x"
+    // must not corrupt into "file://x" (which re-parses with host "x").
     let result = this._protocol;
 
-    if (this._hostname) {
+    if (this._hasHost) {
       result += "//";
 
-      if (this._username) {
+      if (this._username || this._password) {
         result += this._username;
         if (this._password) {
           result += ":" + this._password;
@@ -598,6 +689,10 @@ export class URL {
       if (this._port) {
         result += ":" + this._port;
       }
+    } else if (this._pathname.startsWith("//")) {
+      // No host but a path starting "//": prepend "/." so the path cannot be
+      // re-parsed as an authority.
+      result += "/.";
     }
 
     result += this._pathname;
@@ -617,6 +712,7 @@ export class URL {
     this._pathname = newURL._pathname;
     this._search = newURL._search;
     this._hash = newURL._hash;
+    this._hasHost = newURL._hasHost;
     // Per the spec there is exactly one URLSearchParams object per URL for its
     // lifetime; re-fill the existing instance rather than vending a new one.
     this._searchParams._resetFromSearch(this._search);
@@ -735,6 +831,7 @@ export class URL {
     const colonIndex = hostInput.lastIndexOf(":");
     if (colonIndex !== -1 && !input.includes("[")) {
       this._hostname = canonicalizeHost(hostInput.slice(0, colonIndex), this._protocol);
+      this._hasHost = true;
       if (colonIndex < hostInput.length - 1) {
         const port = hostInput.slice(colonIndex + 1);
         const parsedPort = normalizePort(port);
@@ -752,6 +849,7 @@ export class URL {
       }
     } else if (hostInput !== "") {
         this._hostname = canonicalizeHost(hostInput, this._protocol);
+        this._hasHost = true;
     } else {
       this._hostname = "";
       this._port = "";
@@ -782,6 +880,7 @@ export class URL {
       return;
     }
     this._hostname = canonicalizeHost(hostInput, this._protocol);
+    this._hasHost = true;
   }
 
   get port(): string {
@@ -942,3 +1041,14 @@ export class URL {
     objectURLRegistry.delete(String(url));
   }
 }
+
+// @internal — shared with URLPattern's component canonicalization and with the
+// fallback-parser unit tests. Not part of the public URL API surface.
+export {
+  percentEncode as _percentEncode,
+  inPathPercentEncodeSet as _inPathPercentEncodeSet,
+  inQueryPercentEncodeSet as _inQueryPercentEncodeSet,
+  inFragmentPercentEncodeSet as _inFragmentPercentEncodeSet,
+  parseBasicUrl as _parseBasicUrl,
+  DEFAULT_PORTS as _DEFAULT_PORTS,
+};
