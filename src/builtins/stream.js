@@ -126,6 +126,29 @@ function _drainPendingEnd(stream, err) {
   pending(err);
 }
 
+// (ENG-23135) Mirror of Node's errorBuffer (internal/streams/writable.js):
+// whenever a Writable errors or is destroyed with writes still buffered, every
+// buffered write callback MUST be invoked with the error and its bytes
+// released from writableLength. Without this, a write queued behind an
+// erroring/destroyed write is stranded forever — its callback never fires
+// (hanging promisified writes) and writableLength reports phantom bytes.
+// Callbacks are once-wrapped (_wrapCallbackOnce), so already-settled writes
+// are unaffected.
+function _errorWritableQueue(stream, err) {
+  if (!stream || !stream._writeQueue || stream._writeQueue.length === 0) return;
+  var queue = stream._writeQueue;
+  stream._writeQueue = [];
+  _syncWritableBufferState(stream);
+  for (var i = 0; i < queue.length; i++) {
+    var item = queue[i];
+    stream.writableLength -= item.chunkLen || 0;
+    if (stream.writableLength < 0) stream.writableLength = 0;
+    if (typeof item.callback === 'function') {
+      item.callback(err);
+    }
+  }
+}
+
 function _resumeWritableAfterConstruct(stream) {
   if (!stream || !stream._writableState || stream._destroyed) return;
   var state = stream._writableState;
@@ -649,6 +672,27 @@ Stream.prototype.destroy = function(error, callback) {
       this._writableState.errored = error;
       this.errored = error;
     }
+  }
+  // (ENG-23135) Node's Writable.destroy schedules errorBuffer on nextTick:
+  // every write still buffered (e.g. corked, or queued behind construct) gets
+  // its callback invoked with the destroy error / ERR_STREAM_DESTROYED and its
+  // bytes released. Skipped while a write is in flight — that write's
+  // completion drains the queue itself (afterWrite's error path, or
+  // _flushWriteQueue's destroyed branch on success).
+  if (this._writableState && this._writeQueue && this._writeQueue.length) {
+    var queueSelf = this;
+    _nextTick(function() {
+      var queueState = queueSelf._writableState;
+      if (queueState && (queueState.writing || queueState.bufferProcessing)) return;
+      if (!queueSelf._writeQueue || queueSelf._writeQueue.length === 0) return;
+      var queueErr = queueSelf.errored || (queueState && queueState.errored);
+      if (!queueErr) {
+        queueErr = new Error('Cannot call write after a stream was destroyed');
+        queueErr.code = 'ERR_STREAM_DESTROYED';
+      }
+      _errorWritableQueue(queueSelf, queueErr);
+      _drainPendingEnd(queueSelf, queueErr);
+    });
   }
   var self = this;
   function emitErrorAndClose(err) {
@@ -4862,6 +4906,12 @@ Writable.prototype.write = function(chunk, encoding, callback) {
         if (typeof queued.callback === 'function') {
           queued.callback(err);
         }
+        // (ENG-23135) Writes queued behind this erroring write would otherwise
+        // be stranded: nothing flushes the queue after the error (autoDestroy
+        // destroys the stream and write() on a destroyed stream early-returns),
+        // so their callbacks would never fire. Node's onwriteError calls
+        // errorBuffer here for the same reason.
+        _errorWritableQueue(self, err);
         _drainPendingEnd(self, err);
         // When the stream is already destroyed (error came from the destroy
         // path or is a synthetic ERR_STREAM_DESTROYED), do not re-emit the
@@ -4952,19 +5002,15 @@ Writable.prototype._flushWriteQueue = function() {
     return;
   }
   if (this._destroyed || this.destroyed || this._writableState.destroyed) {
-    var destroyedBatch = this._writeQueue;
-    this._writeQueue = [];
-    _syncWritableBufferState(this);
     var destroyedErr = this._writableState.errored || this.errored;
     if (!destroyedErr || destroyedErr.code !== 'ERR_STREAM_DESTROYED') {
       destroyedErr = new Error('Cannot call write after a stream was destroyed');
       destroyedErr.code = 'ERR_STREAM_DESTROYED';
     }
-    for (var db = 0; db < destroyedBatch.length; db++) {
-      if (typeof destroyedBatch[db].callback === 'function') {
-        destroyedBatch[db].callback(destroyedErr);
-      }
-    }
+    // (ENG-23135) Route through _errorWritableQueue so the dropped writes'
+    // bytes are also released from writableLength (the old inline loop
+    // invoked the callbacks but left writableLength inflated forever).
+    _errorWritableQueue(this, destroyedErr);
     _drainPendingEnd(this, destroyedErr);
     return;
   }
@@ -5015,10 +5061,26 @@ Writable.prototype._flushWriteQueue = function() {
       self.writable = false;
       state.writable = false;
       for (var bi2 = 0; bi2 < batch.length; bi2++) {
-        if (typeof batch[bi2].callback === 'function') {
-          batch[bi2].callback(err);
+        var failedItem = batch[bi2];
+        // (ENG-23135) On the runNext path (cleanupShouldDecrementLength is
+        // false) writableLength is decremented per item as each _write
+        // completes; items after the failing one were never attempted, so
+        // release their bytes here (the _writev path already subtracted the
+        // whole batch via totalLen above). Callbacks are once-wrapped, so
+        // items that already completed successfully are not re-invoked.
+        if (!cleanupShouldDecrementLength && !failedItem._lengthAccounted) {
+          self.writableLength -= failedItem.chunkLen || 0;
+          if (self.writableLength < 0) self.writableLength = 0;
+        }
+        if (typeof failedItem.callback === 'function') {
+          failedItem.callback(err);
         }
       }
+      _syncWritableBufferState(self);
+      // (ENG-23135) Writes that landed in a fresh _writeQueue while this batch
+      // was flushing must not be stranded: error them too, mirroring Node's
+      // errorBuffer.
+      _errorWritableQueue(self, err);
       _drainPendingEnd(self, err);
       _finishIfError(self, err);
       return;
@@ -5066,6 +5128,10 @@ Writable.prototype._flushWriteQueue = function() {
       self._write(item.chunk, item.encoding, function(err) {
         if (itemDone) return;
         itemDone = true;
+        // (ENG-23135) cleanup()'s error path releases the bytes of batch items
+        // that were never attempted; this flag tells it this item's bytes were
+        // already subtracted here.
+        item._lengthAccounted = true;
         self.writableLength -= item.chunkLen || 0;
         if (self.writableLength < 0) self.writableLength = 0;
         if (err) {

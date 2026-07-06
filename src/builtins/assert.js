@@ -1562,7 +1562,10 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
         }
         for (var i = 0; i < aKeys.length; i++) {
           var key = aKeys[i];
-          if (!Object.prototype.hasOwnProperty.call(b, key)) {
+          // propertyIsEnumerable, not hasOwnProperty: Node's keyCheck requires
+          // the counterpart key to be own AND enumerable, keeping the
+          // comparison symmetric. (ENG-23135)
+          if (!Object.prototype.propertyIsEnumerable.call(b, key)) {
             return false;
           }
           if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) {
@@ -1624,10 +1627,31 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
     if (aKeys.length !== bKeys.length) return false;
     for (var i = 0; i < aKeys.length; i++) {
       var key = aKeys[i];
-      if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+      // Node's keyCheck uses propertyIsEnumerable (own + enumerable), not
+      // hasOwnProperty: a non-enumerable own key on b must NOT satisfy an
+      // enumerable key on a, or the comparison turns asymmetric. (ENG-23135)
+      if (!Object.prototype.propertyIsEnumerable.call(b, key)) return false;
       if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
     }
     return true;
+  }
+
+  // Prototype handling, matching Node's internal/util/comparisons: strict mode
+  // requires an identical [[Prototype]] (so Object.create(null) is NOT equal to
+  // a plain {} — null vs Object.prototype), while loose mode ignores the
+  // prototype/constructor entirely (a class instance can equal a plain object
+  // with the same own enumerable properties). The former `constructor`-based
+  // check both let null-proto objects pass strict comparison and made loose
+  // comparison reject differing constructors — both diverging from Node.
+  // (ENG-23000)
+  //
+  // This check runs BEFORE the Map/Set branches (which used to return without
+  // it, letting `deepStrictEqual(new MyMap(), new Map())` pass); Node checks
+  // the prototype for those too. (ENG-23135)
+  if (strict) {
+    if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) {
+      return false;
+    }
   }
 
   // Handle Map
@@ -1686,11 +1710,14 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
         if (!found) return false;
       }
     }
-    return true;
+    // Entries matched — fall through to the own-enumerable-key walk below.
+    // Returning here skipped it, so `m = new Map(); m.extra = 1` compared
+    // equal to a bare `new Map()` (Node walks own keys for Maps too, in both
+    // loose and strict mode). (ENG-23135)
   }
 
   // Handle Set
-  if (typeof Set !== 'undefined' && a instanceof Set && b instanceof Set) {
+  else if (typeof Set !== 'undefined' && a instanceof Set && b instanceof Set) {
     if (a.size !== b.size) return false;
     var aArr = Array.from(a);
     var bArr = Array.from(b);
@@ -1708,21 +1735,8 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
       }
       if (!found) return false;
     }
-    return true;
-  }
-
-  // Prototype handling, matching Node's internal/util/comparisons: strict mode
-  // requires an identical [[Prototype]] (so Object.create(null) is NOT equal to
-  // a plain {} — null vs Object.prototype), while loose mode ignores the
-  // prototype/constructor entirely (a class instance can equal a plain object
-  // with the same own enumerable properties). The former `constructor`-based
-  // check both let null-proto objects pass strict comparison and made loose
-  // comparison reject differing constructors — both diverging from Node.
-  // (ENG-23000)
-  if (strict) {
-    if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) {
-      return false;
-    }
+    // Fall through to the own-enumerable-key walk, as for Map above.
+    // (ENG-23135)
   }
 
   if (Array.isArray(a)) {
@@ -1739,7 +1753,9 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
     if (arrKeysA.length !== arrKeysB.length) return false;
     for (var ai = 0; ai < arrKeysA.length; ai++) {
       var arrKey = arrKeysA[ai];
-      if (!Object.prototype.hasOwnProperty.call(b, arrKey)) return false;
+      // propertyIsEnumerable, not hasOwnProperty — see the generic key walk
+      // below. (ENG-23135)
+      if (!Object.prototype.propertyIsEnumerable.call(b, arrKey)) return false;
       if (!_deepEqual(a[arrKey], b[arrKey], aSeen, bSeen, strict)) return false;
     }
     // Enumerable own Symbol keys, strict mode only: Node's *loose* deepEqual
@@ -1753,7 +1769,12 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
   if (keysA.length !== keysB.length) return false;
   for (var i = 0; i < keysA.length; i++) {
     var key = keysA[i];
-    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    // propertyIsEnumerable, not hasOwnProperty: with `a = {x:1}` and `b`
+    // holding a non-enumerable own `x` plus an enumerable `y`, the key counts
+    // match and hasOwnProperty(b,'x') is true, so (a,b) compared equal while
+    // (b,a) did not — an asymmetric false pass. Node's keyCheck requires the
+    // counterpart key to be own AND enumerable. (ENG-23135)
+    if (!Object.prototype.propertyIsEnumerable.call(b, key)) return false;
     if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
   }
   // Enumerable own Symbol keys -- ignored by the generic string-key walk
@@ -2247,7 +2268,10 @@ function throws(fn, expected, message) {
               stackStartFn: throws
             });
           }
-        } else if (!_deepEqual(caught[key], expected[key])) {
+        } else if (!_deepEqual(caught[key], expected[key], undefined, undefined, true)) {
+          // Strict deep equality, matching Node's compareExceptionKey
+          // (isDeepStrictEqual): a loose compare would let e.g. an expected
+          // '404' silently match a thrown 404. (ENG-23135)
           throw new AssertionError({
             message: message || 'Expected error property "' + key + '" to be ' + _inspect(expected[key]) + ', got ' + _inspect(caught[key]),
             actual: caught,
@@ -2496,7 +2520,9 @@ async function rejects(asyncFn, expected, message) {
               stackStartFn: rejects
             });
           }
-        } else if (!_deepEqual(caught[key], expected[key])) {
+        } else if (!_deepEqual(caught[key], expected[key], undefined, undefined, true)) {
+          // Strict deep equality, matching Node's compareExceptionKey
+          // (isDeepStrictEqual); see the identical throws() site. (ENG-23135)
           throw new AssertionError({
             message: message || 'Expected the ' + key + ' property on the thrown error to be ' +
                 _inspect(expected[key]) + ', got ' + _inspect(caught[key]),

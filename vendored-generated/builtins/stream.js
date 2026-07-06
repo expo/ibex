@@ -96,6 +96,18 @@ function _drainPendingEnd(stream, err) {
 	state._pendingEndScheduled = false;
 	pending(err);
 }
+function _errorWritableQueue(stream, err) {
+	if (!stream || !stream._writeQueue || stream._writeQueue.length === 0) return;
+	var queue = stream._writeQueue;
+	stream._writeQueue = [];
+	_syncWritableBufferState(stream);
+	for (var i = 0; i < queue.length; i++) {
+		var item = queue[i];
+		stream.writableLength -= item.chunkLen || 0;
+		if (stream.writableLength < 0) stream.writableLength = 0;
+		if (typeof item.callback === "function") item.callback(err);
+	}
+}
 function _resumeWritableAfterConstruct(stream) {
 	if (!stream || !stream._writableState || stream._destroyed) return;
 	if (stream._writableState.constructed === false) return;
@@ -483,6 +495,21 @@ Stream.prototype.destroy = function(error, callback) {
 			this._writableState.errored = error;
 			this.errored = error;
 		}
+	}
+	if (this._writableState && this._writeQueue && this._writeQueue.length) {
+		var queueSelf = this;
+		_nextTick(function() {
+			var queueState = queueSelf._writableState;
+			if (queueState && (queueState.writing || queueState.bufferProcessing)) return;
+			if (!queueSelf._writeQueue || queueSelf._writeQueue.length === 0) return;
+			var queueErr = queueSelf.errored || queueState && queueState.errored;
+			if (!queueErr) {
+				queueErr = /* @__PURE__ */ new Error("Cannot call write after a stream was destroyed");
+				queueErr.code = "ERR_STREAM_DESTROYED";
+			}
+			_errorWritableQueue(queueSelf, queueErr);
+			_drainPendingEnd(queueSelf, queueErr);
+		});
 	}
 	var self = this;
 	function emitErrorAndClose(err) {
@@ -3701,6 +3728,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 		var afterWrite = function() {
 			if (err) {
 				if (typeof queued.callback === "function") queued.callback(err);
+				_errorWritableQueue(self, err);
 				_drainPendingEnd(self, err);
 				if (!(self._destroyed || self.destroyed)) _nextTick(function() {
 					if (state.autoDestroy && !self._destroyed) self.destroy(err);
@@ -3745,15 +3773,12 @@ Writable.prototype._flushWriteQueue = function() {
 	if (!this._writeQueue || this._writeQueue.length === 0) return;
 	if (!this._writableState || this._writableState.writing || this._writableState.bufferProcessing || this._writableState.constructed === false) return;
 	if (this._destroyed || this.destroyed || this._writableState.destroyed) {
-		var destroyedBatch = this._writeQueue;
-		this._writeQueue = [];
-		_syncWritableBufferState(this);
 		var destroyedErr = this._writableState.errored || this.errored;
 		if (!destroyedErr || destroyedErr.code !== "ERR_STREAM_DESTROYED") {
 			destroyedErr = /* @__PURE__ */ new Error("Cannot call write after a stream was destroyed");
 			destroyedErr.code = "ERR_STREAM_DESTROYED";
 		}
-		for (var db = 0; db < destroyedBatch.length; db++) if (typeof destroyedBatch[db].callback === "function") destroyedBatch[db].callback(destroyedErr);
+		_errorWritableQueue(this, destroyedErr);
 		_drainPendingEnd(this, destroyedErr);
 		return;
 	}
@@ -3790,7 +3815,16 @@ Writable.prototype._flushWriteQueue = function() {
 		if (err) {
 			self.writable = false;
 			state.writable = false;
-			for (var bi2 = 0; bi2 < batch.length; bi2++) if (typeof batch[bi2].callback === "function") batch[bi2].callback(err);
+			for (var bi2 = 0; bi2 < batch.length; bi2++) {
+				var failedItem = batch[bi2];
+				if (!cleanupShouldDecrementLength && !failedItem._lengthAccounted) {
+					self.writableLength -= failedItem.chunkLen || 0;
+					if (self.writableLength < 0) self.writableLength = 0;
+				}
+				if (typeof failedItem.callback === "function") failedItem.callback(err);
+			}
+			_syncWritableBufferState(self);
+			_errorWritableQueue(self, err);
 			_drainPendingEnd(self, err);
 			_finishIfError(self, err);
 			return;
@@ -3828,6 +3862,7 @@ Writable.prototype._flushWriteQueue = function() {
 			self._write(item.chunk, item.encoding, function(err) {
 				if (itemDone) return;
 				itemDone = true;
+				item._lengthAccounted = true;
 				self.writableLength -= item.chunkLen || 0;
 				if (self.writableLength < 0) self.writableLength = 0;
 				if (err) {

@@ -1156,7 +1156,7 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 		if (aKeys.length !== bKeys.length) return false;
 		for (var i = 0; i < aKeys.length; i++) {
 			var key = aKeys[i];
-			if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+			if (!Object.prototype.propertyIsEnumerable.call(b, key)) return false;
 			if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
 		}
 		return true;
@@ -1187,10 +1187,13 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 		if (aKeys.length !== bKeys.length) return false;
 		for (var i = 0; i < aKeys.length; i++) {
 			var key = aKeys[i];
-			if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+			if (!Object.prototype.propertyIsEnumerable.call(b, key)) return false;
 			if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
 		}
 		return true;
+	}
+	if (strict) {
+		if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
 	}
 	if (typeof Map !== "undefined" && a instanceof Map && b instanceof Map) {
 		if (a.size !== b.size) return false;
@@ -1232,9 +1235,7 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 				if (!found) return false;
 			}
 		}
-		return true;
-	}
-	if (typeof Set !== "undefined" && a instanceof Set && b instanceof Set) {
+	} else if (typeof Set !== "undefined" && a instanceof Set && b instanceof Set) {
 		if (a.size !== b.size) return false;
 		var aArr = Array.from(a);
 		var bArr = Array.from(b);
@@ -1248,10 +1249,6 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 			}
 			if (!found) return false;
 		}
-		return true;
-	}
-	if (strict) {
-		if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
 	}
 	if (Array.isArray(a)) {
 		if (!Array.isArray(b) || a.length !== b.length) return false;
@@ -1260,7 +1257,7 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 		if (arrKeysA.length !== arrKeysB.length) return false;
 		for (var ai = 0; ai < arrKeysA.length; ai++) {
 			var arrKey = arrKeysA[ai];
-			if (!Object.prototype.hasOwnProperty.call(b, arrKey)) return false;
+			if (!Object.prototype.propertyIsEnumerable.call(b, arrKey)) return false;
 			if (!_deepEqual(a[arrKey], b[arrKey], aSeen, bSeen, strict)) return false;
 		}
 		if (strict && !_symbolKeysEqual(a, b, aSeen, bSeen)) return false;
@@ -1271,7 +1268,7 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 	if (keysA.length !== keysB.length) return false;
 	for (var i = 0; i < keysA.length; i++) {
 		var key = keysA[i];
-		if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+		if (!Object.prototype.propertyIsEnumerable.call(b, key)) return false;
 		if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
 	}
 	if (strict && !_symbolKeysEqual(a, b, aSeen, bSeen)) return false;
@@ -1647,7 +1644,7 @@ function throws(fn, expected, message) {
 						operator: "throws",
 						stackStartFn: throws
 					});
-				} else if (!_deepEqual(caught[key], expected[key])) throw new AssertionError({
+				} else if (!_deepEqual(caught[key], expected[key], void 0, void 0, true)) throw new AssertionError({
 					message: message || "Expected error property \"" + key + "\" to be " + _inspect(expected[key]) + ", got " + _inspect(caught[key]),
 					actual: caught,
 					expected,
@@ -1839,7 +1836,7 @@ async function rejects(asyncFn, expected, message) {
 						operator: "rejects",
 						stackStartFn: rejects
 					});
-				} else if (!_deepEqual(caught[key], expected[key])) throw new AssertionError({
+				} else if (!_deepEqual(caught[key], expected[key], void 0, void 0, true)) throw new AssertionError({
 					message: message || "Expected the " + key + " property on the thrown error to be " + _inspect(expected[key]) + ", got " + _inspect(caught[key]),
 					actual: caught,
 					expected,
