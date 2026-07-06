@@ -180,6 +180,66 @@ next(0);
     );
 }
 
+// ENG-23113 ------------------------------------------------------------------
+
+/// The async exec-failure branch (spawning a MISSING binary -> ENOENT) closed
+/// only the parent-retained pipe ends and leaked the child-side ends the parent
+/// still held; no `s_spawnedProcesses` entry is stored on failure, so there is no
+/// `__exactSpawnDispose` to reclaim them — ~3 fds leaked per failed spawn. A
+/// process probing for optional/missing binaries marched to EMFILE. After the fix
+/// the exec-failure branch closes every fd, so the open-fd count stays flat across
+/// many failed spawns.
+#[test]
+fn async_spawn_exec_failure_does_not_leak_fds() {
+    let app = r#"
+const cp = require('child_process');
+const fs = require('fs');
+function fdCount() { try { return fs.readdirSync('/dev/fd').length; } catch (e) { return -1; } }
+const N = 60;
+let done = 0;
+let badCode = '';
+const baseline = fdCount();
+function finish() {
+  const after = fdCount();
+  console.log('RESULT|done=' + done + '|badCode=' + badCode + '|baseline=' + baseline + '|after=' + after + '|delta=' + (after - baseline));
+}
+function next(i) {
+  if (i >= N) { finish(); return; }
+  let c;
+  try { c = cp.spawn('definitely-does-not-exist-ibex-xyz', []); }
+  catch (e) { console.log('RESULT|spawn_threw=' + (e && e.message) + '|at=' + i); return; }
+  let advanced = false;
+  function advance() { if (advanced) return; advanced = true; done++; next(i + 1); }
+  c.on('error', function (e) {
+    // Every failed spawn should report ENOENT; an EMFILE here means fds leaked.
+    if (e && e.code && e.code !== 'ENOENT' && !badCode) badCode = String(e.code) + '@' + i;
+    advance();
+  });
+  c.on('close', advance);
+}
+next(0);
+"#;
+    let run = run_app("fdleak_fail", app, Duration::from_secs(30));
+    let line = result_line(&run);
+    let done: i64 = field(line, "done=")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(-1);
+    let delta: i64 = field(line, "delta=")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(i64::MAX);
+    assert_eq!(done, 60, "not all failed spawns completed: {line}");
+    assert_eq!(
+        field(line, "badCode="),
+        Some(""),
+        "a failed spawn reported a non-ENOENT error (likely EMFILE from leaked fds): {line}"
+    );
+    // Fixed: delta ~= 0. Broken: ~3 fds/failed-spawn => ~180.
+    assert!(
+        delta < 20,
+        "parent fd count grew by {delta} across 60 failed spawns — exec-failure fd leak regressed: {line}"
+    );
+}
+
 // ENG-23025 -----------------------------------------------------------------
 
 /// The child writes 100_000 bytes to stderr (past the ~64KB pipe buffer) and
@@ -305,6 +365,71 @@ setTimeout(function () {
         field(line, "groupExists="),
         Some("true"),
         "detached child did not become its own process-group leader (setsid missing): {line}"
+    );
+}
+
+/// ENG-23113: spawnSync/execSync with a `timeout` armed a DETACHED watchdog thread
+/// capturing stack `std::atomic<bool>`s by reference; on a fast child it woke after
+/// the host function returned and dereferenced the freed frame (and could SIGKILL a
+/// recycled PID). The fix holds the watchdog state in a self-joining object that is
+/// cancelled + JOINED once the child is reaped, so no thread outlives the frame.
+/// The UAF itself is a non-deterministic latent crash (best caught under ASan, not
+/// wired into this suite); this is the deterministic functional regression — the
+/// refactored watchdog still (a) lets a fast command under a long timeout succeed
+/// (watchdog cancelled, not fired) across many iterations without hanging on the
+/// join, and (b) kills a slow command under a short timeout.
+#[test]
+fn spawn_sync_timeout_watchdog_joins_and_still_enforces() {
+    let app = r#"
+const cp = require('child_process');
+// (A) Fast command, long timeout: must succeed, never reported as timed out.
+// Looped to exercise the cancel+join path repeatedly (a join deadlock would hang
+// the run and trip the harness timeout).
+let okCount = 0;
+for (let i = 0; i < 20; i++) {
+  const r = cp.spawnSync('echo', ['hi'], { timeout: 30000, encoding: 'utf8' });
+  if (r.status === 0 && !r.error && String(r.stdout).indexOf('hi') !== -1) okCount++;
+}
+// (B) Slow command, short timeout: must be killed and reported as ETIMEDOUT.
+const slow = cp.spawnSync('sleep', ['5'], { timeout: 200 });
+const timedOut = !!(slow.error && slow.error.code === 'ETIMEDOUT');
+console.log('RESULT|okCount=' + okCount + '|timedOut=' + timedOut);
+"#;
+    let run = run_app("watchdog", app, Duration::from_secs(30));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "okCount="),
+        Some("20"),
+        "fast spawnSync under a long timeout should always succeed (watchdog cancelled): {line}"
+    );
+    assert_eq!(
+        field(line, "timedOut="),
+        Some("true"),
+        "slow spawnSync under a short timeout should be killed (ETIMEDOUT): {line}"
+    );
+}
+
+/// ENG-23113: `spawn(cmd, { detached: true })` must NOT auto-unref. Node unrefs
+/// only on an explicit `child.unref()`; otherwise the parent waits for the child
+/// and its `exit`/`close` handlers fire. Ibex auto-unref'd on `detached`, so with
+/// the child as the only pending work the parent's event loop drained and exited
+/// before a short-lived detached child finished, skipping its handlers. Here the
+/// ONLY pending work is a ~300ms detached child with no explicit unref; with the
+/// fix the parent stays alive until it exits and the `exit` handler runs.
+#[test]
+fn detached_spawn_does_not_auto_unref() {
+    let app = r#"
+const cp = require('child_process');
+// Short-lived detached child, no explicit unref, no other keep-alive.
+const c = cp.spawn('sleep', ['0.3'], { detached: true, stdio: 'ignore' });
+c.on('exit', function (code) { console.log('RESULT|exit=fired|code=' + code); });
+"#;
+    let run = run_app("detached_ref", app, Duration::from_secs(15));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "exit="),
+        Some("fired"),
+        "detached child's exit handler did not fire — parent auto-unref'd and exited early: {line}"
     );
 }
 

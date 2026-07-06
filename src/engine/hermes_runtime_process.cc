@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,6 +30,40 @@
 #else
 extern "C" char** environ;
 #endif
+
+namespace {
+// @ref LLP 0008#sockets-dns-and-process, ENG-23113 — a cancellable timeout
+// watchdog for the SYNCHRONOUS child_process paths (__exactExecSync /
+// __exactSpawnSync). Its destructor cancels + JOINS the worker, so the worker
+// thread can never outlive this object's frame (the old code detached a thread
+// that captured stack `std::atomic<bool>`s BY REFERENCE — on a fast child it woke
+// after the host function returned and read/wrote the freed frame, and for
+// spawnSync could `kill(pid, SIGKILL)` an unrelated recycled PID). Once the child
+// is reaped the main path calls cancelAndJoin(): the worker either already fired
+// while the child was alive (a real timeout) or is cancelled before it can wake.
+struct SyncTimeoutWatchdog {
+  std::mutex mtx;
+  std::condition_variable cv;
+  bool finished = false;  // set by the main path to cancel the worker
+  std::atomic<bool> timedOut{false};
+  std::atomic<bool> childExited{false};
+  std::thread worker;
+
+  ~SyncTimeoutWatchdog() { cancelAndJoin(); }
+
+  // Cancel the watchdog (so it will not fire) and join the worker. Idempotent —
+  // the main path calls it once the child is reaped; the destructor is a no-op
+  // second call on every early-exit / exception path.
+  void cancelAndJoin() {
+    {
+      std::lock_guard<std::mutex> lk(mtx);
+      finished = true;
+    }
+    cv.notify_all();
+    if (worker.joinable()) worker.join();
+  }
+};
+}  // namespace
 
 static std::string s_parseEnvJsonStr(const std::string& value, size_t& pos) {
   std::string out;
@@ -288,7 +323,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         std::string shellCmd = "( " + fullCommand + " ) 2>" + stderrTmpPath;
 
-        std::atomic<bool> timedOut{false};
+        // ENG-23113 — cancellable, self-joining timeout watchdog (see
+        // SyncTimeoutWatchdog): the previous detached thread wrote a stack
+        // `timedOut` that had been freed once a fast command returned.
+        SyncTimeoutWatchdog watchdog;
 
         FILE* fp = popen(shellCmd.c_str(), "r");
         if (!fp) {
@@ -298,16 +336,20 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         // Start timeout thread if needed
         if (timeout_ms > 0) {
-          std::thread([timeout_ms, &timedOut]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
-            timedOut.store(true);
-          }).detach();
+          watchdog.worker = std::thread([&watchdog, timeout_ms]() {
+            std::unique_lock<std::mutex> lk(watchdog.mtx);
+            if (!watchdog.cv.wait_for(
+                    lk, std::chrono::milliseconds(timeout_ms),
+                    [&] { return watchdog.finished; })) {
+              watchdog.timedOut.store(true);
+            }
+          });
         }
 
         // Read stdout
         std::string stdoutStr;
         char buf[4096];
-        while (!timedOut.load()) {
+        while (!watchdog.timedOut.load()) {
           size_t bytesRead = fread(buf, 1, sizeof(buf), fp);
           if (bytesRead == 0) break;
           if (stdoutStr.size() + bytesRead > max_buffer) {
@@ -319,6 +361,11 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         int pcloseResult = pclose(fp);
         int exitStatus = WIFEXITED(pcloseResult) ? WEXITSTATUS(pcloseResult) : -1;
+
+        // Command finished: cancel + join the watchdog before this frame can
+        // return (or throw building the result), so it can never wake late and
+        // write freed memory. ENG-23113
+        watchdog.cancelAndJoin();
 
         // Read stderr from temp file
         std::string stderrStr;
@@ -361,7 +408,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         };
 
         std::string errorStr = "";
-        if (timedOut.load()) {
+        if (watchdog.timedOut.load()) {
           errorStr = "Command timed out";
           exitStatus = -1;
         }
@@ -860,16 +907,28 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         std::string stdoutStr, stderrStr;
         char buf[4096];
-        std::atomic<bool> timedOut{false};
-        std::atomic<bool> childExited{false};
+        // ENG-23113 — cancellable, self-joining timeout watchdog (see
+        // SyncTimeoutWatchdog). The worker fires SIGKILL only while the child is
+        // still alive; once the child is reaped the main path cancels + joins it,
+        // so it can never wake after this frame returns and SIGKILL a recycled PID
+        // (or read/write the freed stack `childExited`/`timedOut`).
+        SyncTimeoutWatchdog watchdog;
 
         if (timeout_ms > 0) {
-          std::thread([timeout_ms, &timedOut, &childExited, pid]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
-            if (!childExited.load() && kill(pid, SIGKILL) == 0) {
-              timedOut.store(true);
+          watchdog.worker = std::thread([&watchdog, timeout_ms, pid]() {
+            std::unique_lock<std::mutex> lk(watchdog.mtx);
+            if (!watchdog.cv.wait_for(
+                    lk, std::chrono::milliseconds(timeout_ms),
+                    [&] { return watchdog.finished; })) {
+              // Not cancelled -> a real timeout. The childExited guard closes the
+              // window where the child was reaped between wait_for waking and this
+              // check: no reap has happened yet unless childExited is set, so pid
+              // is not recycled.
+              if (!watchdog.childExited.load() && kill(pid, SIGKILL) == 0) {
+                watchdog.timedOut.store(true);
+              }
             }
-          }).detach();
+          });
         }
 
         // (ENG-23008) Enforce maxBuffer by BYTES on each stream. When cumulative
@@ -924,7 +983,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             size_t room = max_buffer > dst.size() ? max_buffer - dst.size() : 0;
             dst.append(data, room);
             maxBufferExceeded = true;
-            if (!childExited.load()) kill(pid, kill_signal);
+            if (!watchdog.childExited.load()) kill(pid, kill_signal);
             return false;
           }
           dst.append(data, len);
@@ -1027,14 +1086,18 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Wait for child
         int status = 0;
         waitpid(pid, &status, 0);
-        childExited.store(true);
+        watchdog.childExited.store(true);
+        // Child reaped: cancel + join the watchdog before this frame can return
+        // (or throw building the result JSON), so it can never wake late and
+        // SIGKILL a recycled PID. ENG-23113
+        watchdog.cancelAndJoin();
         int exitStatus = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         if (WIFSIGNALED(status)) {
           exitStatus = -WTERMSIG(status);
         }
 
         std::string errorStr;
-        if (timedOut.load()) {
+        if (watchdog.timedOut.load()) {
           errorStr = "Command timed out";
         } else if (exitStatus == 127) {
           errorStr = "Command not found: " + file;
@@ -1414,6 +1477,17 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           fcntl(stdoutPipeFd[0], F_SETFD, FD_CLOEXEC);
         if (stderrPipeRequested && stderrPipeFd[0] >= 0)
           fcntl(stderrPipeFd[0], F_SETFD, FD_CLOEXEC);
+        // ENG-23113 — the CHILD-side ends also need FD_CLOEXEC. This child
+        // dup2's them onto STDIN/OUT/ERR and closes the originals before exec, so
+        // CLOEXEC does not affect it; but without CLOEXEC a *concurrently* spawned
+        // child (another fork racing between this fork and exec) inherits them and
+        // they leak into it — the same leak the parent ends above guard against.
+        if (stdinPipeRequested && stdinPipeFd[0] >= 0)
+          fcntl(stdinPipeFd[0], F_SETFD, FD_CLOEXEC);
+        if (stdoutPipeRequested && stdoutPipeFd[1] >= 0)
+          fcntl(stdoutPipeFd[1], F_SETFD, FD_CLOEXEC);
+        if (stderrPipeRequested && stderrPipeFd[1] >= 0)
+          fcntl(stderrPipeFd[1], F_SETFD, FD_CLOEXEC);
         if (ipcRequested) {
           if (ipcPair[0] >= 0) fcntl(ipcPair[0], F_SETFD, FD_CLOEXEC);
           if (ipcPair[1] >= 0) fcntl(ipcPair[1], F_SETFD, FD_CLOEXEC);
@@ -1439,6 +1513,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
                   facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to create extra stdio pipe\"}"));
             }
             fcntl(ep[0], F_SETFD, FD_CLOEXEC);
+            // ENG-23113 — CLOEXEC the child end too (this child dup2's + closes
+            // it before exec; keeps it from leaking into a concurrently spawned child).
+            fcntl(ep[1], F_SETFD, FD_CLOEXEC);
             extraPipes.push_back({ep[0], ep[1]});
           } else {
             extraPipes.push_back({-1, -1});
@@ -1473,6 +1550,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
           if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
           if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          // ENG-23113 — no SpawnedProcess is stored on failure, so close every
+          // fd the parent still holds. Previously ipcPair and extraPipes leaked here.
+          if (ipcPair[0] >= 0) close(ipcPair[0]);
+          if (ipcPair[1] >= 0) close(ipcPair[1]);
+          for (auto& p : extraPipes) {
+            if (p.first >= 0) close(p.first);
+            if (p.second >= 0) close(p.second);
+          }
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, "{\"error\":\"Failed to fork process\"}"));
         }
@@ -1669,11 +1754,28 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             // Exec failed in the child - reap it and return error
             int wstatus;
             waitpid(pid, &wstatus, 0);
-            // Clean up all pipe fds
+            // ENG-23113 — close EVERY fd the parent still holds. No
+            // SpawnedProcess is stored on exec failure, so there is no
+            // __exactSpawnDispose to reclaim these later. Previously only the
+            // parent-retained ends below were closed; the child-side ends the
+            // parent also holds (the child exited, but the parent's copies remain)
+            // and every extraPipes fd leaked permanently -> EMFILE for a process
+            // that probes for optional/missing binaries.
+            // Parent-retained ends:
             if (stdinPipeRequested && stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
             if (stdoutPipeRequested && stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
             if (stderrPipeRequested && stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
             if (ipcRequested && ipcPair[1] >= 0) close(ipcPair[1]);
+            // Child-side ends the parent still holds (the success path closes
+            // these once the child has inherited them; here the child is gone):
+            if (stdinPipeRequested && stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+            if (stdoutPipeRequested && stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+            if (stderrPipeRequested && stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+            if (ipcRequested && ipcPair[0] >= 0) close(ipcPair[0]);
+            for (auto& p : extraPipes) {
+              if (p.first >= 0) close(p.first);
+              if (p.second >= 0) close(p.second);
+            }
 
             std::string errName;
             if (childErrno == ENOENT) errName = "ENOENT";

@@ -2969,7 +2969,6 @@ cp.spawn = function spawn(command, args, options) {
 		child.spawnfile = command;
 		child.spawnargs = [command].concat(args);
 	}
-	if (normalizedOptions.detached) child.unref();
 	_trackSharedReadablePipeConsumers(options.stdio, child);
 	_setupSharedReadablePipeRelays(normalizedOptions.relayReadablePipes, child);
 	if (options.timeout && options.timeout > 0) {
@@ -3105,7 +3104,6 @@ cp.fork = function fork(modulePath, args, options) {
 	};
 	var child = cp.spawn(execPath, spawnArgs, spawnOptions);
 	child._channel = child.channel;
-	if (options.detached) child.unref();
 	return child;
 };
 cp.ChildProcess = ChildProcess;

@@ -3705,9 +3705,12 @@ cp.spawn = function spawn(command, args, options) {
     child.spawnfile = command;
     child.spawnargs = [command].concat(args);
   }
-  if (normalizedOptions.detached) {
-    child.unref();
-  }
+  // ENG-23113 — `detached` must NOT auto-unref. In Node, `detached` only
+  // controls process-group/session placement (setsid, handled natively); the
+  // parent still waits for the child (and its `exit`/`close` fire) UNLESS the
+  // caller explicitly invokes `child.unref()`. Auto-unref'ing here let the CLI
+  // exit and orphan `spawn('worker', { detached: true })` used as the last
+  // statement, and could skip the exit/close handlers.
   _trackSharedReadablePipeConsumers(options.stdio, child);
   _setupSharedReadablePipeRelays(normalizedOptions.relayReadablePipes, child);
   // Handle timeout option
@@ -3862,9 +3865,8 @@ cp.fork = function fork(modulePath, args, options) {
 
   var child = cp.spawn(execPath, spawnArgs, spawnOptions);
   child._channel = child.channel;
-  if (options.detached) {
-    child.unref();
-  }
+  // ENG-23113 — like spawn(), fork() must NOT auto-unref on `detached`; only
+  // an explicit child.unref() detaches the parent's event loop (Node parity).
 
   return child;
 };

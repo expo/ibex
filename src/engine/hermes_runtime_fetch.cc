@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -102,6 +103,20 @@ struct SyncFetchResult {
   std::string headers;
   std::vector<uint8_t> body;
 };
+
+// ENG-23113 — keep-alive registry so a SyncFetchResult outlives the sync
+// fetch's stack frame. `native_fetch_perform` runs `performFetch` on a DETACHED
+// worker thread whose completion callback may fire AFTER the waiter timed out and
+// unwound. Keying the result by request_id (which the callback receives) — rather
+// than by the address of a stack local — lets whichever of {completion callback,
+// timeout waiter} runs first take ownership under g_syncFetchMutex and the other
+// observe the entry already gone. Result: the callback never dereferences a
+// destroyed object (no UAF / no notify on a freed condition_variable), and the
+// entry is erased exactly once (no leak, even on the Windows error/cancel paths
+// where performFetch returns without ever calling the callback).
+static std::mutex g_syncFetchMutex;
+static std::unordered_map<uint32_t, std::shared_ptr<SyncFetchResult>>
+    g_syncFetchResults;
 #endif
 
 } // namespace
@@ -471,7 +486,18 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           requestId = handle->nextFetchId++;
         }
 
-        SyncFetchResult result;
+        // ENG-23113 — the completion callback runs on a DETACHED worker
+        // thread that may fire after this frame unwinds, so it must NOT reference a
+        // `SyncFetchResult` on this stack. Register a heap-owned result keyed by
+        // requestId (the callback receives request_id) BEFORE performing the fetch,
+        // so whichever of {callback, timeout waiter} runs first takes ownership and
+        // the other sees the entry gone — no waiter-destroys-cv UAF, no write to a
+        // freed stack on timeout, and no leak.
+        auto result = std::make_shared<SyncFetchResult>();
+        {
+          std::lock_guard<std::mutex> lk(g_syncFetchMutex);
+          g_syncFetchResults[requestId] = result;
+        }
         native_fetch_perform(
             requestId,
             method.c_str(),
@@ -480,61 +506,79 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
             decompress ? 1 : 0,
             body.empty() ? nullptr : body.data(),
             body.size(),
-            [](uint32_t,
+            [](uint32_t request_id,
                int status,
                const char* status_text,
                const char* resp_headers,
                const uint8_t* resp_body,
                size_t resp_body_length,
-               void* ctx) {
-              auto* result = static_cast<SyncFetchResult*>(ctx);
+               void* /*ctx*/) {
+              // Take ownership of the result via the registry (keyed by the
+              // request_id the backend hands back). If the waiter already gave up
+              // and erased it, do nothing rather than touch freed memory.
+              std::shared_ptr<SyncFetchResult> result;
               {
-                std::lock_guard<std::mutex> lock(result->mutex);
-                result->status = status;
-                result->statusText = status_text ? status_text : "";
-                result->headers = resp_headers ? resp_headers : "";
-                if (resp_body && resp_body_length > 0) {
-                  result->body.assign(resp_body, resp_body + resp_body_length);
-                }
-                result->done = true;
+                std::lock_guard<std::mutex> lk(g_syncFetchMutex);
+                auto it = g_syncFetchResults.find(request_id);
+                if (it == g_syncFetchResults.end()) return;
+                result = it->second;  // local ref keeps it alive past the erase
+                g_syncFetchResults.erase(it);
               }
+              std::lock_guard<std::mutex> lock(result->mutex);
+              result->status = status;
+              result->statusText = status_text ? status_text : "";
+              result->headers = resp_headers ? resp_headers : "";
+              if (resp_body && resp_body_length > 0) {
+                result->body.assign(resp_body, resp_body + resp_body_length);
+              }
+              result->done = true;
+              // Notify UNDER the lock: the local `result` keeps the cv alive, and
+              // this closes the notify-after-unlock / lost-wakeup window entirely.
               result->cv.notify_one();
             },
-            &result);
+            nullptr);
 
         {
-          std::unique_lock<std::mutex> lock(result.mutex);
+          std::unique_lock<std::mutex> lock(result->mutex);
           if (timeout_ms == 0) {
             // 0 = no timeout (web semantics); block until the network layer
             // resolves or fails the request. @ref LLP 0008#linux-networking
-            result.cv.wait(lock, [&result] { return result.done; });
-          } else if (!result.cv.wait_for(
-                  lock, std::chrono::milliseconds(timeout_ms), [&result] { return result.done; })) {
+            result->cv.wait(lock, [&] { return result->done; });
+          } else if (!result->cv.wait_for(
+                  lock, std::chrono::milliseconds(timeout_ms), [&] { return result->done; })) {
+            lock.unlock();
             native_fetch_cancel(requestId);
+            // Drop the keep-alive so a cancelled request whose worker never calls
+            // back (Windows error/cancel paths) — or races this timeout — can't
+            // leak the result. If the callback already took it, this is a no-op.
+            {
+              std::lock_guard<std::mutex> lk(g_syncFetchMutex);
+              g_syncFetchResults.erase(requestId);
+            }
             throw facebook::jsi::JSError(runtime, "Fetch timed out");
           }
         }
 
-        if (result.status == 0) {
+        if (result->status == 0) {
           throw facebook::jsi::JSError(
-              runtime, result.statusText.empty() ? "Network error" : result.statusText);
+              runtime, result->statusText.empty() ? "Network error" : result->statusText);
         }
 
         facebook::jsi::Object response(runtime);
-        response.setProperty(runtime, "status", facebook::jsi::Value(result.status));
+        response.setProperty(runtime, "status", facebook::jsi::Value(result->status));
         response.setProperty(
             runtime,
             "statusText",
-            facebook::jsi::String::createFromUtf8(runtime, result.statusText));
+            facebook::jsi::String::createFromUtf8(runtime, result->statusText));
         response.setProperty(runtime, "url", facebook::jsi::String::createFromUtf8(runtime, url));
         response.setProperty(runtime, "redirected", facebook::jsi::Value(false));
 
         std::vector<std::pair<std::string, std::string>> headerPairs;
         size_t pos = 0;
-        while (pos < result.headers.size()) {
-          size_t lineEnd = result.headers.find("\r\n", pos);
-          if (lineEnd == std::string::npos) lineEnd = result.headers.size();
-          std::string line = result.headers.substr(pos, lineEnd - pos);
+        while (pos < result->headers.size()) {
+          size_t lineEnd = result->headers.find("\r\n", pos);
+          if (lineEnd == std::string::npos) lineEnd = result->headers.size();
+          std::string line = result->headers.substr(pos, lineEnd - pos);
           size_t colonPos = line.find(':');
           if (colonPos != std::string::npos) {
             std::string key = line.substr(0, colonPos);
@@ -555,13 +599,13 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         }
         response.setProperty(runtime, "headers", headersArray);
 
-        if (!result.body.empty()) {
+        if (!result->body.empty()) {
           auto arrayBufferCtor = runtime.global().getPropertyAsFunction(runtime, "ArrayBuffer");
           auto arrayBuffer =
-              arrayBufferCtor.callAsConstructor(runtime, static_cast<double>(result.body.size()))
+              arrayBufferCtor.callAsConstructor(runtime, static_cast<double>(result->body.size()))
                   .getObject(runtime);
           auto ab = arrayBuffer.getArrayBuffer(runtime);
-          memcpy(ab.data(runtime), result.body.data(), result.body.size());
+          memcpy(ab.data(runtime), result->body.data(), result->body.size());
           response.setProperty(runtime, "body", arrayBuffer);
         } else {
           response.setProperty(runtime, "body", facebook::jsi::Value::null());
