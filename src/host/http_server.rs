@@ -27,6 +27,7 @@ use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
+use hyper_util::server::graceful::GracefulShutdown;
 use std::collections::{HashMap, HashSet};
 use std::io::Error as IoError;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -275,6 +276,12 @@ pub fn start_server(port: u16, hostname: &str) -> Result<(u32, u16)> {
         socket2::Type::STREAM,
         Some(socket2::Protocol::TCP),
     )?;
+    // Match libuv/Node: SO_REUSEADDR everywhere except Windows. On Windows the
+    // flag means something different — it lets a second socket bind a port
+    // another listener is actively using, silently splitting incoming
+    // connections between processes — so Node deliberately omits it there.
+    // @ref https://linear.app/expo/issue/ENG-23114
+    #[cfg(not(windows))]
     socket.set_reuse_address(true)?;
     socket.bind(&addr.into()).map_err(|e| {
         anyhow!(
@@ -373,11 +380,25 @@ async fn run_server(
         }
     };
 
+    // Watch every accepted connection and track its task. When the shutdown
+    // signal fires (post-drain for a graceful close), `rt.block_on` returning
+    // would drop the per-serve runtime and ABORT all spawned connection tasks
+    // — handlers parked on resp_rx would die without writing (client sees RST
+    // instead of the promised response) and mid-body streams would be cut. The
+    // graceful watcher + bounded join below lets connections flush their final
+    // bytes and closes idle keep-alives first.
+    // @ref https://linear.app/expo/issue/ENG-23114
+    let graceful = GracefulShutdown::new();
+    let mut connections = tokio::task::JoinSet::new();
+
     loop {
         tokio::select! {
             _ = &mut shutdown_rx => {
                 break;
             }
+            // Reap completed connection tasks so the join set does not
+            // accumulate finished entries for the server's lifetime.
+            Some(_) = connections.join_next(), if !connections.is_empty() => {}
             accept = listener.accept() => {
                 match accept {
                     Ok((stream, remote_addr)) => {
@@ -387,20 +408,21 @@ async fn run_server(
                         let tx = tx.clone();
                         let remote = remote_addr.to_string();
                         let state_clone = state.clone();
-                        tokio::spawn(async move {
-                            let io = TokioIo::new(stream);
-                            let svc = service_fn(move |req: Request<hyper::body::Incoming>| {
-                                let tx = tx.clone();
-                                let remote = remote.clone();
-                                let state = state_clone.clone();
-                                async move {
-                                    handle_request(req, tx, remote, state).await
-                                }
-                            });
-                            let mut builder = AutoBuilder::new(TokioExecutor::new());
-                            builder.http1().title_case_headers(true);
-                            builder.http1().auto_date_header(false);
-                            if let Err(e) = builder.serve_connection(io, svc).await {
+                        let io = TokioIo::new(stream);
+                        let svc = service_fn(move |req: Request<hyper::body::Incoming>| {
+                            let tx = tx.clone();
+                            let remote = remote.clone();
+                            let state = state_clone.clone();
+                            async move {
+                                handle_request(req, tx, remote, state).await
+                            }
+                        });
+                        let mut builder = AutoBuilder::new(TokioExecutor::new());
+                        builder.http1().title_case_headers(true);
+                        builder.http1().auto_date_header(false);
+                        let conn = graceful.watch(builder.serve_connection(io, svc).into_owned());
+                        connections.spawn(async move {
+                            if let Err(e) = conn.await {
                                 // Connection errors are normal (client disconnects, etc.)
                                 let err_str = e.to_string();
                                 if !err_str.contains("connection closed")
@@ -419,13 +441,40 @@ async fn run_server(
             }
         }
     }
+
+    // Stop accepting, then give the watched connections a bounded window to
+    // finish their in-flight request/response and close keep-alives. Anything
+    // still pending after the timeout is aborted (matching the forced-close
+    // ceiling). @ref https://linear.app/expo/issue/ENG-23114
+    drop(listener);
+    let drained = tokio::time::timeout(Duration::from_millis(HTTP_SHUTDOWN_TIMEOUT_MS), async {
+        graceful.shutdown().await;
+        while connections.join_next().await.is_some() {}
+    })
+    .await;
+    if drained.is_err() {
+        connections.abort_all();
+    }
+}
+
+/// True while the server still owes bytes to some client: either a handler is
+/// in flight (`active_requests`) or a response body pipe is still open. A
+/// handler releases its active slot when it returns the response head, but
+/// hyper may still be streaming the body — closing on `active_requests == 0`
+/// alone would clear `response_bodies` mid-stream and silently truncate the
+/// download. The pipe entry lives until its terminator is delivered (or the
+/// peer is observed gone), so the drain condition must include it.
+/// @ref https://linear.app/expo/issue/ENG-23114
+fn has_outstanding_work(state: &Arc<ServerState>) -> bool {
+    state.active_requests.load(Ordering::SeqCst) != 0
+        || !lock_or_recover(&state.response_bodies).is_empty()
 }
 
 fn notify_if_draining_complete(state: &Arc<ServerState>) {
     if state.lifecycle.load(Ordering::SeqCst) != HTTP_SERVER_CLOSING {
         return;
     }
-    if state.active_requests.load(Ordering::SeqCst) != 0 {
+    if has_outstanding_work(state) {
         return;
     }
 
@@ -499,7 +548,7 @@ fn schedule_forced_close(state: Arc<ServerState>) {
                 return;
             }
 
-            if state.active_requests.load(Ordering::SeqCst) == 0 {
+            if !has_outstanding_work(&state) {
                 notify_if_draining_complete(&state);
                 return;
             }
@@ -534,8 +583,24 @@ fn clear_request_body(state: &Arc<ServerState>, request_id: u32) {
     lock_or_recover(&state.request_bodies).remove(&request_id);
 }
 
-fn clear_response_body(state: &Arc<ServerState>, request_id: u32) {
-    lock_or_recover(&state.response_bodies).remove(&request_id);
+/// Remove a response body pipe. Returns whether a pipe was present. On removal
+/// this also wakes any worker parked in `ex_host_http_await_writable` on the
+/// pipe (it must observe the pipe is gone promptly instead of burning its full
+/// timeout) and re-checks the graceful-drain condition, since the last open
+/// pipe closing is what completes a drain once handlers have returned.
+/// The drain notify happens AFTER the map lock is released — a parked waiter
+/// re-checks map membership while holding the drain lock, so notifying under
+/// the map lock would invert that order. @ref https://linear.app/expo/issue/ENG-23114
+fn clear_response_body(state: &Arc<ServerState>, request_id: u32) -> bool {
+    let removed = lock_or_recover(&state.response_bodies).remove(&request_id);
+    match removed {
+        Some(pipe) => {
+            pipe.drain.notify();
+            notify_if_draining_complete(state);
+            true
+        }
+        None => false,
+    }
 }
 
 fn clear_pending_responder(state: &Arc<ServerState>, request_id: u32) {
@@ -558,23 +623,64 @@ fn streamed_body_response(
     receiver: mpsc::Receiver<RequestBodyChunk>,
     drain: Arc<DrainSignal>,
 ) -> BoxBody<Bytes, IoError> {
-    let stream = futures_util::stream::unfold((receiver, drain), |(mut rx, drain)| async move {
-        match rx.recv().await {
-            Some(chunk) => {
-                // A slot just freed; wake any producer parked on backpressure.
-                drain.notify();
-                let frame = match chunk {
-                    RequestBodyChunk::Data(bytes) => Ok(Frame::data(Bytes::from(bytes))),
-                    RequestBodyChunk::Error(message) => Err(IoError::other(message)),
-                    RequestBodyChunk::Done => {
+    /// Unfold state with a Drop guard: when hyper drops the response stream
+    /// (peer disconnected mid-body), close the channel FIRST so producers'
+    /// `sender.is_closed()` turns true, then fire the drain — a worker parked
+    /// in `ex_host_http_await_writable` wakes and observes the dead peer
+    /// immediately instead of pinning a pool worker for its full timeout.
+    /// @ref https://linear.app/expo/issue/ENG-23114
+    struct StreamState {
+        rx: mpsc::Receiver<RequestBodyChunk>,
+        drain: Arc<DrainSignal>,
+        errored: bool,
+    }
+    impl Drop for StreamState {
+        fn drop(&mut self) {
+            self.rx.close();
+            self.drain.notify();
+        }
+    }
+
+    let stream = futures_util::stream::unfold(
+        StreamState {
+            rx: receiver,
+            drain,
+            errored: false,
+        },
+        |mut st| async move {
+            match st.rx.recv().await {
+                Some(chunk) => {
+                    // A slot just freed; wake any producer parked on backpressure.
+                    st.drain.notify();
+                    let frame = match chunk {
+                        RequestBodyChunk::Data(bytes) => Ok(Frame::data(Bytes::from(bytes))),
+                        RequestBodyChunk::Error(message) => Err(IoError::other(message)),
+                        RequestBodyChunk::Done => {
+                            return None;
+                        }
+                    };
+                    Some((frame, st))
+                }
+                // The sender vanished without delivering `Done`: the response
+                // was aborted (JS body-stream error, forced close, wedged-peer
+                // abort). Ending cleanly here would make hyper write a valid
+                // chunked terminator over a TRUNCATED body that validates as
+                // complete on the client. Surface an error instead so hyper
+                // tears the connection down and the client observes a broken
+                // transfer. @ref https://linear.app/expo/issue/ENG-23114
+                None => {
+                    if st.errored {
                         return None;
                     }
-                };
-                Some((frame, (rx, drain)))
+                    st.errored = true;
+                    Some((
+                        Err(IoError::other("response stream aborted before completion")),
+                        st,
+                    ))
+                }
             }
-            None => None,
-        }
-    });
+        },
+    );
     BodyExt::boxed(StreamBody::new(stream))
 }
 
@@ -1709,6 +1815,40 @@ pub extern "C" fn ex_host_http_respond_end_try(server_id: u32, request_id: u32) 
     }
 }
 
+/// Abort a streamed response outright. Unlike the `respond_end*` terminators,
+/// this works regardless of channel fullness: the pipe is removed and its
+/// sender dropped, which closes the channel even when all slots are occupied.
+/// hyper drains any already-buffered chunks, then observes the closed channel
+/// without a `Done` marker and surfaces a body error (see
+/// `streamed_body_response`), so the client sees a broken transfer — never a
+/// clean-looking truncated body — and the pipe entry cannot leak. Any pending
+/// responder is also dropped so a pre-header abort unblocks the hyper handler.
+/// Returns 0 if a stream or pending request was aborted, -1 if the request is
+/// unknown. Called from the JS `serve({fetch})` abort path; the Node `http`
+/// bridge destroy path should adopt it too. @ref https://linear.app/expo/issue/ENG-23114
+#[no_mangle]
+pub extern "C" fn ex_host_http_respond_abort(server_id: u32, request_id: u32) -> i32 {
+    let state = {
+        let servers = lock_or_recover(servers());
+        match servers.get(&server_id) {
+            Some(s) => s.clone(),
+            None => return -1,
+        }
+    };
+
+    let had_responder = lock_or_recover(&state.responders)
+        .remove(&request_id)
+        .is_some();
+    clear_request_body(&state, request_id);
+    let had_pipe = clear_response_body(&state, request_id);
+    if had_responder || had_pipe {
+        cdp_network::cleanup_request(request_id);
+        0
+    } else {
+        -1
+    }
+}
+
 /// Park until the streamed response body channel for `request_id` has room for
 /// another chunk (returns 0), or the peer is gone / has stalled past
 /// `timeout_ms` (or `HTTP_RESPONSE_CHUNK_SEND_TIMEOUT_MS` when 0) — in which case
@@ -1752,6 +1892,15 @@ pub extern "C" fn ex_host_http_await_writable(
         if sender.is_closed() {
             drop(version);
             clear_response_body(&state, request_id);
+            return -1;
+        }
+        // The pipe may have been aborted/cleared while we were parked
+        // (respond_abort, forced close, chunk-send observing Closed). Our own
+        // sender clone keeps the channel alive, so is_closed() stays false —
+        // membership in the map is the authoritative liveness check. Lock
+        // order (drain lock -> map lock) is safe: removers only fire the drain
+        // notify after releasing the map lock. @ref https://linear.app/expo/issue/ENG-23114
+        if !lock_or_recover(&state.response_bodies).contains_key(&request_id) {
             return -1;
         }
         if sender.capacity() > 0 {
@@ -1847,12 +1996,16 @@ pub extern "C" fn ex_host_http_close(server_id: u32, force: i32) -> i32 {
         return 0;
     }
 
-    if previous == HTTP_SERVER_LISTENING {
-        if let Some(tx) = lock_or_recover(&state.shutdown_tx).take() {
-            let _ = tx.send(());
-        }
-    }
-
+    // Graceful close: do NOT fire the shutdown signal here. Firing it while
+    // requests are in flight breaks run_server's accept loop immediately and
+    // tears the runtime down before the drain design ever runs — handlers
+    // parked on resp_rx die without writing and mid-body responses are cut.
+    // The accept arm already sheds new connections while CLOSING; the drain
+    // machinery (notify_if_draining_complete below and on each request/pipe
+    // completion, with schedule_forced_close as the bounded backstop) fires
+    // the shutdown once the server owes clients nothing.
+    // @ref https://linear.app/expo/issue/ENG-23114
+    notify_if_draining_complete(&state);
     schedule_forced_close(state.clone());
     notify_request_available(&state);
 
@@ -1891,12 +2044,15 @@ pub extern "C" fn ex_host_http_has_referenced() -> i32 {
     0
 }
 
-/// Check if any server still has in-flight requests.
+/// Check if any server still has in-flight requests. Includes responses whose
+/// handler has returned but whose body is still streaming (open response
+/// pipe), so the CLI shutdown loop does not consider a server idle mid-download.
+/// @ref https://linear.app/expo/issue/ENG-23114
 #[no_mangle]
 pub extern "C" fn ex_host_http_has_pending_requests() -> i32 {
     let servers = lock_or_recover(servers());
     for state in servers.values() {
-        if state.active_requests.load(Ordering::SeqCst) != 0 {
+        if has_outstanding_work(state) {
             return 1;
         }
     }
@@ -2616,5 +2772,309 @@ mod tests {
         // A second end after the pipe is gone is reported fatal, not would-block.
         assert_eq!(ex_host_http_respond_end_try(server_id, request_id), -1);
         assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn streamed_body_surfaces_abort_when_sender_drops_without_done() {
+        // A sender that vanishes without the Done marker is an abort. Ending
+        // the stream cleanly here would let hyper write a valid chunked
+        // terminator over a truncated body. @ref https://linear.app/expo/issue/ENG-23114
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        rt.block_on(async {
+            let (tx, rx) = mpsc::channel::<RequestBodyChunk>(8);
+            let mut body = streamed_body_response(rx, Arc::new(DrainSignal::new()));
+            tx.send(RequestBodyChunk::Data(b"partial".to_vec()))
+                .await
+                .expect("send data");
+            drop(tx); // abort: no Done marker
+
+            let first = body
+                .frame()
+                .await
+                .expect("first frame present")
+                .expect("first frame is data");
+            assert_eq!(
+                first.into_data().expect("data frame"),
+                Bytes::from_static(b"partial")
+            );
+            let second = body.frame().await.expect("second frame present");
+            assert!(
+                second.is_err(),
+                "sender drop without Done must surface an error, not a clean end"
+            );
+            assert!(body.frame().await.is_none(), "stream ends after the error");
+        });
+    }
+
+    #[test]
+    fn streamed_body_ends_cleanly_after_done_marker() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        rt.block_on(async {
+            let (tx, rx) = mpsc::channel::<RequestBodyChunk>(8);
+            let mut body = streamed_body_response(rx, Arc::new(DrainSignal::new()));
+            tx.send(RequestBodyChunk::Data(b"whole".to_vec()))
+                .await
+                .expect("send data");
+            tx.send(RequestBodyChunk::Done).await.expect("send done");
+            drop(tx);
+
+            let first = body
+                .frame()
+                .await
+                .expect("first frame present")
+                .expect("first frame is data");
+            assert_eq!(
+                first.into_data().expect("data frame"),
+                Bytes::from_static(b"whole")
+            );
+            assert!(
+                body.frame().await.is_none(),
+                "Done marker still ends the stream cleanly"
+            );
+        });
+    }
+
+    #[test]
+    fn ex_host_http_respond_abort_works_even_when_channel_is_full() {
+        // The clean end-try terminator cannot be delivered into a full channel
+        // (WouldBlock) — abort must work anyway, otherwise the unfold waits on
+        // rx.recv() forever and the pipe entry leaks. @ref https://linear.app/expo/issue/ENG-23114
+        let server_id = 90_016u32;
+        let request_id = 116u32;
+        let state = register_test_server(server_id);
+        let (body_tx, mut body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: Arc::new(DrainSignal::new()),
+            },
+        );
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"x".to_vec())),
+            ChunkSend::Sent
+        ));
+
+        assert_eq!(ex_host_http_respond_abort(server_id, request_id), 0);
+        assert!(
+            !lock_or_recover(&state.response_bodies).contains_key(&request_id),
+            "abort must clear the pipe entry"
+        );
+        // Buffered bytes remain readable, then the channel reports closed
+        // WITHOUT a Done marker — which the unfold surfaces as an error.
+        assert!(matches!(
+            body_rx.try_recv(),
+            Ok(RequestBodyChunk::Data(ref bytes)) if bytes.as_slice() == b"x"
+        ));
+        assert!(matches!(
+            body_rx.try_recv(),
+            Err(TryRecvError::Disconnected)
+        ));
+        // A second abort reports the request as unknown.
+        assert_eq!(ex_host_http_respond_abort(server_id, request_id), -1);
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn await_writable_wakes_promptly_when_pipe_is_aborted() {
+        // A parked backpressure waiter must observe an abort immediately, not
+        // burn its full timeout while pinning a pool worker. @ref https://linear.app/expo/issue/ENG-23114
+        let server_id = 90_017u32;
+        let request_id = 117u32;
+        let state = register_test_server(server_id);
+        let (body_tx, _body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: Arc::new(DrainSignal::new()),
+            },
+        );
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"x".to_vec())),
+            ChunkSend::Sent
+        ));
+
+        let waiter =
+            std::thread::spawn(move || ex_host_http_await_writable(server_id, request_id, 10_000));
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(ex_host_http_respond_abort(server_id, request_id), 0);
+
+        let start = Instant::now();
+        let result = waiter.join().expect("waiter thread should not panic");
+        assert_eq!(result, -1, "an aborted pipe must fail the wait");
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "the waiter must wake on abort, not run out its 10s timeout"
+        );
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn await_writable_wakes_when_client_disconnects() {
+        // Dropping the hyper-side stream (peer disconnect) must wake a parked
+        // waiter via the unfold's drop guard so it observes is_closed()
+        // immediately. @ref https://linear.app/expo/issue/ENG-23114
+        let server_id = 90_018u32;
+        let request_id = 118u32;
+        let state = register_test_server(server_id);
+        let (body_tx, body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        let drain = Arc::new(DrainSignal::new());
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: drain.clone(),
+            },
+        );
+        let body = streamed_body_response(body_rx, drain);
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"x".to_vec())),
+            ChunkSend::Sent
+        ));
+
+        let waiter =
+            std::thread::spawn(move || ex_host_http_await_writable(server_id, request_id, 10_000));
+        std::thread::sleep(Duration::from_millis(50));
+        drop(body); // client went away: hyper drops the response stream
+
+        let start = Instant::now();
+        let result = waiter.join().expect("waiter thread should not panic");
+        assert_eq!(result, -1, "a dead peer must fail the wait");
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "the waiter must wake on disconnect, not run out its 10s timeout"
+        );
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn graceful_close_defers_until_response_pipe_completes() {
+        // A handler that already returned its head releases active_requests,
+        // but the body is still streaming: graceful close must wait for the
+        // pipe's terminator, not clear it mid-stream. @ref https://linear.app/expo/issue/ENG-23114
+        let server_id = 90_019u32;
+        let request_id = 119u32;
+        let state = register_test_server(server_id);
+        let (body_tx, mut body_rx) = mpsc::channel::<RequestBodyChunk>(8);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: Arc::new(DrainSignal::new()),
+            },
+        );
+
+        ex_host_http_set_ref(server_id, 0);
+        assert_eq!(ex_host_http_close(server_id, 0), 0);
+        assert_eq!(
+            state.lifecycle.load(Ordering::SeqCst),
+            HTTP_SERVER_CLOSING,
+            "an open response pipe must hold the server in CLOSING"
+        );
+        assert!(lock_or_recover(servers()).contains_key(&server_id));
+        assert!(
+            has_outstanding_work(&state),
+            "an open pipe counts as pending work for the CLI shutdown loop"
+        );
+
+        // Delivering the terminator completes the drain.
+        assert!(matches!(
+            try_end_response_stream(&state, request_id),
+            ChunkSend::Sent
+        ));
+        assert!(matches!(body_rx.try_recv(), Ok(RequestBodyChunk::Done)));
+        assert_eq!(state.lifecycle.load(Ordering::SeqCst), HTTP_SERVER_CLOSED);
+        assert!(!lock_or_recover(servers()).contains_key(&server_id));
+    }
+
+    #[test]
+    fn graceful_close_allows_in_flight_request_to_complete() {
+        // End-to-end regression for the close-path abort: server.close(force=0)
+        // while a request is being processed must let that request finish and
+        // deliver its full response — before ENG-23114, close fired the
+        // shutdown signal immediately, dropping the per-serve runtime and
+        // aborting the connection (client saw RST, never the response).
+        use std::io::{Read, Write};
+
+        let (server_id, port) = match start_server(0, "127.0.0.1") {
+            Ok(value) => value,
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("Operation not permitted"),
+                    "unexpected bind failure: {err:#}"
+                );
+                return;
+            }
+        };
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !is_server_listening(server_id) {
+            assert!(Instant::now() < deadline, "server never reached LISTENING");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let client = std::thread::spawn(move || {
+            let mut stream = std::net::TcpStream::connect(("127.0.0.1", port))
+                .expect("client connect should succeed");
+            stream
+                .write_all(
+                    b"GET /inflight HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                )
+                .expect("client write should succeed");
+            let mut buf = Vec::new();
+            stream
+                .read_to_end(&mut buf)
+                .expect("client read should succeed");
+            String::from_utf8_lossy(&buf).into_owned()
+        });
+
+        // Act as the JS event loop: pop the pending request.
+        let json_ptr = ex_host_http_wait(server_id, 5_000);
+        assert!(!json_ptr.is_null(), "expected a pending request");
+        let json = unsafe { std::ffi::CStr::from_ptr(json_ptr) }
+            .to_string_lossy()
+            .into_owned();
+        crate::host::abi::ex_host_free_string(json_ptr);
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("request json");
+        let request_id = parsed["id"]
+            .as_u64()
+            .and_then(|id| u32::try_from(id).ok())
+            .expect("request id");
+
+        // Graceful close while the request is still being "processed".
+        assert_eq!(ex_host_http_close(server_id, 0), 0);
+
+        // The in-flight request must still be answerable.
+        let body = b"hello after close";
+        assert_eq!(
+            ex_host_http_respond_text(server_id, request_id, 200, body.as_ptr(), body.len() as u32),
+            0
+        );
+
+        let response = client.join().expect("client thread should not panic");
+        assert!(
+            response.starts_with("HTTP/1.1 200"),
+            "client must receive the promised response, got: {response:?}"
+        );
+        assert!(
+            response.contains("hello after close"),
+            "client must receive the full body, got: {response:?}"
+        );
+
+        // And the server must finish closing on its own after the drain.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while lock_or_recover(servers()).contains_key(&server_id) {
+            assert!(
+                Instant::now() < deadline,
+                "server should close itself once drained"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 }

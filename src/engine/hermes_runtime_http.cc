@@ -46,6 +46,7 @@ extern "C" int32_t ex_host_http_respond_chunk_try(
     uint32_t body_len);
 extern "C" int32_t ex_host_http_respond_end(uint32_t server_id, uint32_t request_id);
 extern "C" int32_t ex_host_http_respond_end_try(uint32_t server_id, uint32_t request_id);
+extern "C" int32_t ex_host_http_respond_abort(uint32_t server_id, uint32_t request_id);
 extern "C" int32_t ex_host_http_await_writable(
     uint32_t server_id,
     uint32_t request_id,
@@ -399,10 +400,13 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 bool enqueue(WaitTask task, std::string& error) {
                   {
                     std::lock_guard<std::mutex> lock(mutex);
-                    if (idle_workers == 0 && total_workers >= kMaxWaitWorkers) {
-                      error = "__exactHttpWait worker limit reached";
-                      return false;
-                    }
+                    // ENG-23114: reject ONLY when the backlog is genuinely
+                    // full (same fix as DnsWorkerPool for ENG-23022). The old
+                    // `idle == 0 && total >= max` early-reject fired before
+                    // the queue-full check, so once every worker was parked in
+                    // ex_host_http_wait the kMaxWaitQueue backlog was never
+                    // used and the next wait rejected outright. Excess waits
+                    // now queue; a worker picks them up on its next loop.
                     if (queue.size() >= kMaxWaitQueue) {
                       error = "__exactHttpWait queue limit reached";
                       return false;
@@ -733,6 +737,34 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactHttpRespondEndTry", std::move(httpRespondEndTryFn));
 
+  // __exactHttpRespondAbort(serverId, requestId) -> 0 or -1
+  // Abort a streamed response. Unlike the end/end-try terminators this cannot
+  // report would-block: it errors the response pipe regardless of channel
+  // fullness so the client observes a broken transfer instead of a
+  // clean-looking truncated body, and the host-side pipe entry cannot leak.
+  // (ENG-23114)
+  auto httpRespondAbortFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondAbort"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
+          return facebook::jsi::Value(-1);
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondAbort")) {
+          return facebook::jsi::Value(-1);
+        }
+
+        int32_t result = ex_host_http_respond_abort(server_id, request_id);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondAbort", std::move(httpRespondAbortFn));
+
   // __exactHttpAwaitWritable(serverId, requestId, timeoutMs?) -> Promise(number)
   // Resolves with 0 once the streamed response body channel has room for another
   // chunk, or -1 if the peer is gone / has stalled. The blocking wait runs on a
@@ -847,10 +879,15 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 bool enqueue(WritableTask task, std::string& error) {
                   {
                     std::lock_guard<std::mutex> lock(mutex);
-                    if (idle_workers == 0 && total_workers >= kMaxWritableWorkers) {
-                      error = "__exactHttpAwaitWritable worker limit reached";
-                      return false;
-                    }
+                    // ENG-23114: reject ONLY when the backlog is genuinely
+                    // full (same fix as DnsWorkerPool for ENG-23022). This
+                    // pool parks one wait per backpressured streamed response
+                    // and is process-global, so with the old `idle == 0 &&
+                    // total >= max` early-reject 16 slow readers were enough
+                    // to make the 17th __exactHttpAwaitWritable reject — a
+                    // rejection the serve({fetch}) writer surfaces as a
+                    // stream abort, i.e. a silently truncated response body.
+                    // Excess waits now queue for the next free worker.
                     if (queue.size() >= kMaxWritableQueue) {
                       error = "__exactHttpAwaitWritable queue limit reached";
                       return false;

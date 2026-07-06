@@ -314,7 +314,13 @@ function serve(options) {
     }
 
     waitCount++;
-    var waitPromise = g.__exactHttpWait(serverId, 0);
+    // Bounded wait (matching the Node http bridge and Bun.serve dispatchers):
+    // an infinite wait would park a pooled native worker forever on an idle
+    // server, and with worker-pool overflow now queueing instead of rejecting
+    // (ENG-23114 / ENG-23022), a forever-parked worker could starve queued
+    // waits from other servers. A null resolution simply re-issues the wait
+    // below.
+    var waitPromise = g.__exactHttpWait(serverId, 1000);
     if (!waitPromise || typeof waitPromise.then !== "function") {
       waitCount--;
       if (!closed) {
@@ -609,11 +615,28 @@ function serve(options) {
 
       function abortStream() {
         if (streamReader.cancel) {
-          try { streamReader.cancel("stream aborted"); } catch (e) {}
+          // cancel() on an already-errored stream returns a rejected promise;
+          // swallow it (this is best-effort cleanup) so aborting an errored
+          // body does not surface an unhandled rejection.
+          try {
+            var cancelResult = streamReader.cancel("stream aborted");
+            if (cancelResult && typeof cancelResult.then === "function") {
+              cancelResult.then(undefined, function () {});
+            }
+          } catch (e) {}
         }
         if (!streamFinished) {
           streamFinished = true;
-          if (hasAsyncStream) {
+          // Abort, never end cleanly: a clean end-of-stream marker here makes
+          // hyper write a valid chunked terminator over a TRUNCATED body that
+          // validates as complete on the client. RespondAbort errors the pipe
+          // regardless of channel fullness (EndTry would report would-block on
+          // a full channel and the terminator would simply be lost, hanging
+          // the client and leaking the host pipe entry).
+          // @ref https://linear.app/expo/issue/ENG-23114
+          if (typeof g.__exactHttpRespondAbort === "function") {
+            g.__exactHttpRespondAbort(serverId, requestId);
+          } else if (hasAsyncStream) {
             g.__exactHttpRespondEndTry(serverId, requestId);
           } else {
             g.__exactHttpRespondEnd(serverId, requestId);

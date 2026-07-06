@@ -3449,6 +3449,7 @@ extern "C" WEAK_STUB int32_t ex_host_http_respond_chunk(uint32_t, uint32_t, cons
 extern "C" WEAK_STUB int32_t ex_host_http_respond_chunk_try(uint32_t, uint32_t, const uint8_t*, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_end(uint32_t, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_end_try(uint32_t, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_abort(uint32_t, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_await_writable(uint32_t, uint32_t, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_string(uint32_t, uint32_t, uint16_t, const char*, const uint8_t*, uint32_t) { return -1; }
 extern "C" WEAK_STUB char* ex_host_http_address(uint32_t) { return nullptr; }
