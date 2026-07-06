@@ -821,6 +821,10 @@ function _finishTcpConnectSuccess(selfRef, nativeHandle, address, family) {
   }
   selfRef._startPolling();
   selfRef._drainWriteQueue();
+  // _drainWriteQueue() can destroy() synchronously (an immediately-failed
+  // queued write, e.g. a peer RST). Don't emit 'connect'/'ready' after a
+  // fatal connect-time error -- Node never does. (ENG-23034)
+  if (selfRef.destroyed) return;
   _updateSocketTimeoutHandleState(selfRef);
   selfRef.emit('connect');
   selfRef.emit('ready');
@@ -1044,9 +1048,16 @@ function _handleSocketEOF(socket) {
   if (socket._decoder && typeof socket._decoder.end === 'function') {
     var trailing = socket._decoder.end();
     if (trailing) {
-      socket._appendToReadBuffer(trailing);
-      socket.emit('readable');
-      socket.emit('data', trailing);
+      // Route the final decoded chunk through the same flowing/paused branch
+      // as every other chunk: either emit it once to a 'data' consumer, or
+      // buffer it once for read() -- never both, or a later read() re-delivers
+      // bytes already emitted as 'data'. (ENG-23034; unfixed half of ENG-22960)
+      if (socket._isFlowing()) {
+        socket.emit('data', trailing);
+      } else {
+        socket._appendToReadBuffer(trailing);
+        socket.emit('readable');
+      }
     }
   }
   socket._readEnded = true;
@@ -1111,6 +1122,7 @@ function _resetSocketForConnect(socket) {
   socket._finishEmitted = false;
   socket._readBuffer = [];
   socket._readBufferLength = 0;
+  socket._readBackpressured = false;
   socket._onreadEOF = false;
   socket._isUnix = false;
   socket._socketPath = null;
@@ -1196,6 +1208,11 @@ function Socket(options) {
   this._writableHighWaterMark = _normalizeWritableHighWaterMark(options);
   this._readableHighWaterMark = _normalizeReadableHighWaterMark(options);
   this._paused = false;
+  // Set when the native read loop stops draining the kernel buffer because
+  // _readBuffer is at/over _readableHighWaterMark and nobody is flowing.
+  // Distinct from _paused (explicit pause()); cleared by read() once the
+  // buffer drains back under the watermark. (ENG-23034)
+  this._readBackpressured = false;
   this._encoding = null;
   this._decoder = null;
   this._events = {};
@@ -1310,6 +1327,34 @@ function _maybeActivateDeferredReadableSocket(socket, eventName) {
   }
   socket._deferReadableStart = false;
   socket.resume();
+}
+
+// Flush any bytes already sitting in _readBuffer to a newly-flowing consumer.
+// Accepted/connected sockets start polling (and buffering into _readBuffer)
+// immediately, without waiting for a 'data' listener -- only the raw-fd
+// constructor path defers via _deferReadableStart above. So bytes that arrive
+// before the first 'data' listener is attached (e.g. an async auth step
+// before `sock.on('data', ...)`) would otherwise sit in _readBuffer forever:
+// _maybeActivateDeferredReadableSocket is a no-op for them since
+// _deferReadableStart was never set. (ENG-23034)
+function _flushBufferedReadDataToFlowingConsumer(socket) {
+  if (!socket || socket.destroyed || !socket._isFlowing() || socket._readBufferLength === 0) {
+    return;
+  }
+  var buffered = socket._consumeReadBuffer();
+  if (buffered == null || !buffered.length) return;
+  socket._emitFlowingData(buffered);
+}
+
+function _scheduleFlushBufferedReadData(socket, eventName) {
+  if (eventName !== 'data') return;
+  if (!socket || socket.destroyed || socket._readBufferLength === 0 || !socket._isFlowing()) {
+    return;
+  }
+  // Defer to the next tick so this ordering holds: the listener-attach call
+  // returns first, then already-buffered bytes are delivered, then any bytes
+  // the poll loop reads afterward -- matching the order they actually arrived.
+  _scheduleCallback(_flushBufferedReadDataToFlowingConsumer, socket);
 }
 
 // Unconstructed prototypes should report undefined like Node.js.
@@ -1507,6 +1552,33 @@ Socket.prototype._isFlowing = function() {
   return typeof this.listenerCount === 'function' && this.listenerCount('data') > 0;
 };
 
+// True when the paused-mode read buffer has grown to/past
+// _readableHighWaterMark and nobody is flowing to drain it as it arrives.
+// Flowing consumers never buffer (see _deliverInboundData), so they are
+// exempt -- backpressure here is purely about read()/'readable' consumers
+// that haven't drained fast enough. (ENG-23034)
+Socket.prototype._isReadBufferOverHighWaterMark = function() {
+  return !this._isFlowing() && this._readBufferLength >= this._readableHighWaterMark;
+};
+
+// Emit a raw inbound chunk to 'data' listeners, decoding it first if
+// setEncoding() is active. Shared by _deliverInboundData and the
+// pre-listener-buffer flush (ENG-23034) so both paths decode identically.
+Socket.prototype._emitFlowingData = function(data) {
+  if (this._encoding) {
+    var encodedChunk = this._decoder && typeof this._decoder.write === 'function'
+      ? this._decoder.write(toBufferData(data))
+      : toBufferData(data).toString(this._encoding);
+    if (encodedChunk && encodedChunk.length) {
+      this.emit('data', encodedChunk);
+    }
+  } else if (typeof Buffer !== 'undefined') {
+    this.emit('data', toBufferData(data));
+  } else {
+    this.emit('data', data);
+  }
+};
+
 // Deliver an inbound chunk following Node's flowing/paused semantics. In flowing
 // mode the chunk is handed to 'data' consumers and dropped; it must NOT also be
 // retained in _readBuffer, otherwise a long-lived flowing connection (http.js,
@@ -1516,18 +1588,7 @@ Socket.prototype._isFlowing = function() {
 // signalled.
 Socket.prototype._deliverInboundData = function(data) {
   if (this._isFlowing()) {
-    if (this._encoding) {
-      var encodedChunk = this._decoder && typeof this._decoder.write === 'function'
-        ? this._decoder.write(toBufferData(data))
-        : toBufferData(data).toString(this._encoding);
-      if (encodedChunk && encodedChunk.length) {
-        this.emit('data', encodedChunk);
-      }
-    } else if (typeof Buffer !== 'undefined') {
-      this.emit('data', toBufferData(data));
-    } else {
-      this.emit('data', data);
-    }
+    this._emitFlowingData(data);
     return;
   }
   this._appendToReadBuffer(data);
@@ -1904,9 +1965,23 @@ Socket.prototype._startPolling = function() {
       _schedulePausedSocketPoll(self, poll);
       return;
     }
+    if (self._isReadBufferOverHighWaterMark()) {
+      // Don't drain the kernel buffer into _readBuffer past highWaterMark
+      // when nobody is flowing -- otherwise a fast peer + slow/absent
+      // read()/'readable' consumer buffers unboundedly. read() re-triggers
+      // polling once the buffer drains back under the watermark. (ENG-23034)
+      self._readBackpressured = true;
+      _schedulePausedSocketPoll(self, poll);
+      return;
+    }
+    self._readBackpressured = false;
     try {
       var readData = false;
       while (true) {
+        if (self._isReadBufferOverHighWaterMark()) {
+          self._readBackpressured = true;
+          break;
+        }
         var data = __exactTcpRead(nativeHandle, _SOCKET_READ_CHUNK_BYTES);
         if (data === null) {
           // EOF
@@ -1926,6 +2001,10 @@ Socket.prototype._startPolling = function() {
           _schedulePausedSocketPoll(self, poll);
           return;
         }
+      }
+      if (self._readBackpressured) {
+        _schedulePausedSocketPoll(self, poll);
+        return;
       }
     } catch(e) {
       self._pollTimer = null;
@@ -1978,6 +2057,18 @@ Socket.prototype.connect = function(options, connectListener) {
     throw boolTypeErr;
   }
   options = options || {};
+  // Reject an overlapping connect() while a prior attempt is still in flight
+  // (DNS lookup pending, async TCP connect polling, or the unix-socket
+  // setTimeout path). Without this, a second call starts a second native
+  // connect (second fd); only the last _pendingConnectHandle is tracked, so
+  // the first is unreachable by _cancelPendingConnect and leaks on success
+  // (both complete -> _setSocketHandle overwrites the first, 'connect' fires
+  // twice, two live connections). (ENG-23034)
+  if (this.connecting && !this.destroyed) {
+    var alreadyConnectingErr = new Error('Socket is already connecting');
+    alreadyConnectingErr.code = 'ERR_SOCKET_CONNECTING';
+    throw alreadyConnectingErr;
+  }
   if (options.address !== undefined &&
       options.address !== null &&
       options.host === undefined &&
@@ -2719,24 +2810,43 @@ Socket.prototype.setTimeout = function(timeout, callback) {
 };
 
 Socket.prototype.read = function(size) {
-  return this._consumeReadBuffer(typeof size === 'number' ? size : undefined);
+  var result = this._consumeReadBuffer(typeof size === 'number' ? size : undefined);
+  // If the read loop backed off because _readBuffer was over
+  // _readableHighWaterMark, and draining this read brought it back under,
+  // wake polling immediately instead of waiting out the unref'd 10ms
+  // paused-poll cadence. (ENG-23034)
+  if (this._readBackpressured && !this._isReadBufferOverHighWaterMark()) {
+    this._readBackpressured = false;
+    if (!this.destroyed && !this._paused && !this._customHandle &&
+        _unwrapHandle(this._handle) != null) {
+      if (this._pollTimer != null) {
+        clearTimeout(this._pollTimer);
+        this._pollTimer = null;
+      }
+      this._startPolling();
+    }
+  }
+  return result;
 };
 
 Socket.prototype.on = function(eventName, listener) {
   var result = EventEmitter.prototype.on.call(this, eventName, listener);
   _maybeActivateDeferredReadableSocket(this, eventName);
+  _scheduleFlushBufferedReadData(this, eventName);
   return result;
 };
 
 Socket.prototype.addListener = function(eventName, listener) {
   var result = EventEmitter.prototype.addListener.call(this, eventName, listener);
   _maybeActivateDeferredReadableSocket(this, eventName);
+  _scheduleFlushBufferedReadData(this, eventName);
   return result;
 };
 
 Socket.prototype.prependListener = function(eventName, listener) {
   var result = EventEmitter.prototype.prependListener.call(this, eventName, listener);
   _maybeActivateDeferredReadableSocket(this, eventName);
+  _scheduleFlushBufferedReadData(this, eventName);
   return result;
 };
 
@@ -2890,6 +3000,10 @@ Socket.prototype.resume = function() {
   if (wasPaused) {
     this.emit('resume');
   }
+  // If a 'data' listener is already attached, resuming can make previously
+  // buffered (pre-listener or pre-resume) bytes flowable; flush them rather
+  // than stranding them behind future reads. (ENG-23034)
+  _scheduleFlushBufferedReadData(this, 'data');
   return this;
 };
 

@@ -659,6 +659,7 @@ function _finishTcpConnectSuccess(selfRef, nativeHandle, address, family) {
 	if (selfRef._keepAlive !== void 0 && selfRef._keepAlive) selfRef.setKeepAlive(true, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
 	selfRef._startPolling();
 	selfRef._drainWriteQueue();
+	if (selfRef.destroyed) return;
 	_updateSocketTimeoutHandleState(selfRef);
 	selfRef.emit("connect");
 	selfRef.emit("ready");
@@ -841,10 +842,10 @@ function _handleSocketEOF(socket) {
 	if (!socket || socket.destroyed) return;
 	if (socket._decoder && typeof socket._decoder.end === "function") {
 		var trailing = socket._decoder.end();
-		if (trailing) {
+		if (trailing) if (socket._isFlowing()) socket.emit("data", trailing);
+		else {
 			socket._appendToReadBuffer(trailing);
 			socket.emit("readable");
-			socket.emit("data", trailing);
 		}
 	}
 	socket._readEnded = true;
@@ -905,6 +906,7 @@ function _resetSocketForConnect(socket) {
 	socket._finishEmitted = false;
 	socket._readBuffer = [];
 	socket._readBufferLength = 0;
+	socket._readBackpressured = false;
 	socket._onreadEOF = false;
 	socket._isUnix = false;
 	socket._socketPath = null;
@@ -975,6 +977,7 @@ function Socket(options) {
 	this._writableHighWaterMark = _normalizeWritableHighWaterMark(options);
 	this._readableHighWaterMark = _normalizeReadableHighWaterMark(options);
 	this._paused = false;
+	this._readBackpressured = false;
 	this._encoding = null;
 	this._decoder = null;
 	this._events = {};
@@ -1061,6 +1064,17 @@ function _maybeActivateDeferredReadableSocket(socket, eventName) {
 	if (eventName !== "data" && eventName !== "readable" && eventName !== "end") return;
 	socket._deferReadableStart = false;
 	socket.resume();
+}
+function _flushBufferedReadDataToFlowingConsumer(socket) {
+	if (!socket || socket.destroyed || !socket._isFlowing() || socket._readBufferLength === 0) return;
+	var buffered = socket._consumeReadBuffer();
+	if (buffered == null || !buffered.length) return;
+	socket._emitFlowingData(buffered);
+}
+function _scheduleFlushBufferedReadData(socket, eventName) {
+	if (eventName !== "data") return;
+	if (!socket || socket.destroyed || socket._readBufferLength === 0 || !socket._isFlowing()) return;
+	_scheduleCallback(_flushBufferedReadDataToFlowingConsumer, socket);
 }
 Socket.prototype.__defineGetter__("bytesWritten", function() {
 	if (!this || !Object.prototype.hasOwnProperty.call(this, "_bytesWritten")) return;
@@ -1205,13 +1219,19 @@ Socket.prototype._appendToReadBuffer = function(data) {
 Socket.prototype._isFlowing = function() {
 	return typeof this.listenerCount === "function" && this.listenerCount("data") > 0;
 };
+Socket.prototype._isReadBufferOverHighWaterMark = function() {
+	return !this._isFlowing() && this._readBufferLength >= this._readableHighWaterMark;
+};
+Socket.prototype._emitFlowingData = function(data) {
+	if (this._encoding) {
+		var encodedChunk = this._decoder && typeof this._decoder.write === "function" ? this._decoder.write(toBufferData(data)) : toBufferData(data).toString(this._encoding);
+		if (encodedChunk && encodedChunk.length) this.emit("data", encodedChunk);
+	} else if (typeof Buffer !== "undefined") this.emit("data", toBufferData(data));
+	else this.emit("data", data);
+};
 Socket.prototype._deliverInboundData = function(data) {
 	if (this._isFlowing()) {
-		if (this._encoding) {
-			var encodedChunk = this._decoder && typeof this._decoder.write === "function" ? this._decoder.write(toBufferData(data)) : toBufferData(data).toString(this._encoding);
-			if (encodedChunk && encodedChunk.length) this.emit("data", encodedChunk);
-		} else if (typeof Buffer !== "undefined") this.emit("data", toBufferData(data));
-		else this.emit("data", data);
+		this._emitFlowingData(data);
 		return;
 	}
 	this._appendToReadBuffer(data);
@@ -1524,9 +1544,19 @@ Socket.prototype._startPolling = function() {
 			_schedulePausedSocketPoll(self, poll);
 			return;
 		}
+		if (self._isReadBufferOverHighWaterMark()) {
+			self._readBackpressured = true;
+			_schedulePausedSocketPoll(self, poll);
+			return;
+		}
+		self._readBackpressured = false;
 		try {
 			var readData = false;
 			while (true) {
+				if (self._isReadBufferOverHighWaterMark()) {
+					self._readBackpressured = true;
+					break;
+				}
 				var data = __exactTcpRead(nativeHandle, _SOCKET_READ_CHUNK_BYTES);
 				if (data === null) {
 					self._pollTimer = null;
@@ -1543,6 +1573,10 @@ Socket.prototype._startPolling = function() {
 					_schedulePausedSocketPoll(self, poll);
 					return;
 				}
+			}
+			if (self._readBackpressured) {
+				_schedulePausedSocketPoll(self, poll);
+				return;
 			}
 		} catch (e) {
 			self._pollTimer = null;
@@ -1591,6 +1625,11 @@ Socket.prototype.connect = function(options, connectListener) {
 		throw boolTypeErr;
 	}
 	options = options || {};
+	if (this.connecting && !this.destroyed) {
+		var alreadyConnectingErr = /* @__PURE__ */ new Error("Socket is already connecting");
+		alreadyConnectingErr.code = "ERR_SOCKET_CONNECTING";
+		throw alreadyConnectingErr;
+	}
 	if (options.address !== void 0 && options.address !== null && options.host === void 0 && options.hostname === void 0 && options.path === void 0) options = Object.assign({}, options, { host: options.address });
 	var hasCustomConnectHandle = this._handle && this._handle._exactHandle === void 0 && typeof this._handle.connect === "function";
 	if (this.destroyed || this._handle == null && !this.connecting || !hasCustomConnectHandle && this.readyState === "closed" && !this.connecting && !this._connected) _resetSocketForConnect(this);
@@ -2165,21 +2204,35 @@ Socket.prototype.setTimeout = function(timeout, callback) {
 	return this;
 };
 Socket.prototype.read = function(size) {
-	return this._consumeReadBuffer(typeof size === "number" ? size : void 0);
+	var result = this._consumeReadBuffer(typeof size === "number" ? size : void 0);
+	if (this._readBackpressured && !this._isReadBufferOverHighWaterMark()) {
+		this._readBackpressured = false;
+		if (!this.destroyed && !this._paused && !this._customHandle && _unwrapHandle(this._handle) != null) {
+			if (this._pollTimer != null) {
+				clearTimeout(this._pollTimer);
+				this._pollTimer = null;
+			}
+			this._startPolling();
+		}
+	}
+	return result;
 };
 Socket.prototype.on = function(eventName, listener) {
 	var result = EventEmitter.prototype.on.call(this, eventName, listener);
 	_maybeActivateDeferredReadableSocket(this, eventName);
+	_scheduleFlushBufferedReadData(this, eventName);
 	return result;
 };
 Socket.prototype.addListener = function(eventName, listener) {
 	var result = EventEmitter.prototype.addListener.call(this, eventName, listener);
 	_maybeActivateDeferredReadableSocket(this, eventName);
+	_scheduleFlushBufferedReadData(this, eventName);
 	return result;
 };
 Socket.prototype.prependListener = function(eventName, listener) {
 	var result = EventEmitter.prototype.prependListener.call(this, eventName, listener);
 	_maybeActivateDeferredReadableSocket(this, eventName);
+	_scheduleFlushBufferedReadData(this, eventName);
 	return result;
 };
 Socket.prototype.push = function(chunk, encoding) {
@@ -2305,6 +2358,7 @@ Socket.prototype.resume = function() {
 	}
 	if (!this.destroyed && _unwrapHandle(this._handle) != null && this._pollTimer == null && !this._customHandle) this._startPolling();
 	if (wasPaused) this.emit("resume");
+	_scheduleFlushBufferedReadData(this, "data");
 	return this;
 };
 Socket.prototype.pipe = function(dest, options) {
