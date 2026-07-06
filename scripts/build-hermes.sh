@@ -246,10 +246,21 @@ NUM_CORES=$(sysctl -n hw.ncpu)
 # Build host hermesc first (force macOS SDK to avoid visionOS defaults)
 echo "Building host hermesc..."
 # Note: HAVE_CXX_ATOMICS*_WITHOUT_LIB=ON works around a CMake detection issue on macOS
+#
+# HERMES_ENABLE_TEST_SUITE=false: the host hermesc build only needs the
+# compiler; disabling the test suite skips add_subdirectory(unittests). Old
+# Hermes unittests mix plain and keyword target_link_libraries signatures,
+# which CMake 4.x hard-errors on ("all uses ... must be either all-keyword or
+# all-plain" — HermesADTTests/HermesOptimizerTests via cmake/modules/Lit.cmake),
+# breaking a cold-clone Hermes bootstrap on a machine with Homebrew CMake 4.x
+# and no prebuilt artifacts. The three device/simulator/macos configures below
+# already pass this flag; the host configure was the only one missing it.
+# (ENG-23077, ported from the exact-side ENG-22565 fix.)
 cmake -S . -B build_host_hermesc -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_OSX_SYSROOT:STRING="macosx" \
     -DCMAKE_OSX_ARCHITECTURES:STRING="arm64" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING="$MAC_DEPLOYMENT_TARGET" \
+    -DHERMES_ENABLE_TEST_SUITE:BOOLEAN=false \
     -DHAVE_CXX_ATOMICS_WITHOUT_LIB=ON \
     -DHAVE_CXX_ATOMICS64_WITHOUT_LIB=ON
 cmake --build ./build_host_hermesc --target hermesc -j "${NUM_CORES}"
