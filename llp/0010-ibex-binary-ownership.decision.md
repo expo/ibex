@@ -5,6 +5,7 @@
 **Systems:** CLI Runtime, Runtime, Build, Distribution, Documentation
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
+**Revised:** 2026-07-06
 **Related:** LLP 0000; LLP 0002; LLP 0005; LLP 0006
 
 ## Summary
@@ -22,7 +23,8 @@ tooling consumer of that runtime.
 The `ibex` command is runtime-only:
 
 - shipped runtime commands: file execution, `run`, `eval`, `repl`, `build`,
-  `completions`, `version`, and runtime diagnostics.
+  `completions`, `version`, runtime diagnostics (`debug`), and the LLP 0014
+  `policy` toolchain.
 - hidden harness command: `self-test` runs a compact in-binary smoke suite for
   CI consumers. It is not advertised in help and does not make `ibex test`
   user-facing.
@@ -33,6 +35,26 @@ The `ibex` command is runtime-only:
 
 An existing local path wins over the command tables, so `ibex test` can still
 execute a file named `test`.
+
+### Surface manifest
+
+The machine-readable authority for this surface is `runtime-surface.json` at
+the repo root, next to `runtime-identity.json` (LLP 0012). It lives in this
+repo — ibex-side, with the clap tree it describes — not in exact: after the
+LLP 0180 split stranded exact's original manifest and its clap-tree pin
+(exact-side LLP 0175 §8.1a), the manifest moved here with the binary
+(ENG-22429). Two tests pin it in-process:
+
+- `src/bin/ibex/cli.rs::surface_manifest_matches_clap_tree` — the clap tree's
+  visible and hidden subcommands match the manifest exactly, and reserved and
+  legacy names are absent from clap entirely.
+- `src/bin/ibex/main.rs::dispatcher_tables_match_surface_manifest` — the
+  pre-clap dispatcher tables own exactly the manifest's reserved and legacy
+  names.
+
+Adding or hiding a runtime command means updating the clap tree, the manifest,
+and this document together. Exact's behavior guards may read this manifest from
+the vendored pin; the copy here is authoritative.
 
 ## Binary Implementation
 

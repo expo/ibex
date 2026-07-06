@@ -492,8 +492,29 @@ mod tests {
         assert!(matches!(cli.command, Some(Commands::SelfTest)));
     }
 
+    /// The runtime surface manifest (`runtime-surface.json` at the repo root,
+    /// LLP 0010#runtime-command-surface) is the single authority for what is
+    /// visible, hidden, reserved, and legacy-shimmed. This test pins the clap
+    /// tree to it — ported from exact's stranded
+    /// `packages/exact-cli/src/cli.rs::surface_manifest_matches_clap_tree`
+    /// (LLP 0175 §8.1a) after the LLP 0180 split (ENG-22429). It supersedes
+    /// the earlier hardcoded-list test
+    /// `runtime_only_clap_tree_has_no_reserved_or_project_commands`.
     #[test]
-    fn runtime_only_clap_tree_has_no_reserved_or_project_commands() {
+    fn surface_manifest_matches_clap_tree() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../runtime-surface.json"))
+                .expect("runtime-surface.json parses");
+
+        let names = |key: &str| -> Vec<String> {
+            manifest[key]
+                .as_array()
+                .unwrap_or_else(|| panic!("{key} is an array"))
+                .iter()
+                .map(|v| v.as_str().expect("string entry").to_string())
+                .collect()
+        };
+
         let cmd = Cli::command();
         let mut visible: Vec<String> = cmd
             .get_subcommands()
@@ -501,39 +522,38 @@ mod tests {
             .map(|c| c.get_name().to_string())
             .collect();
         visible.sort();
-        assert_eq!(
-            visible,
-            [
-                "build",
-                "completions",
-                "debug",
-                "eval",
-                "policy",
-                "repl",
-                "run",
-                "version"
-            ]
-            .iter()
-            .map(|name| name.to_string())
-            .collect::<Vec<_>>(),
-            "visible clap subcommands"
-        );
+        let mut manifest_visible = names("visibleCommands");
+        manifest_visible.sort();
+        assert_eq!(visible, manifest_visible, "visible clap subcommands");
 
+        // Unlike exact's original, ibex has no `harness` cargo feature: the
+        // hidden harness surface (`self-test`) is always compiled in, so the
+        // hidden set must match the manifest unconditionally.
+        let mut hidden: Vec<String> = cmd
+            .get_subcommands()
+            .filter(|c| c.is_hide_set())
+            .map(|c| c.get_name().to_string())
+            .collect();
+        hidden.sort();
+        let mut manifest_hidden = names("hiddenHarnessCommands");
+        manifest_hidden.sort();
+        assert_eq!(hidden, manifest_hidden, "hidden clap subcommands");
+
+        // Reserved and legacy names must NOT exist in the clap tree at all —
+        // the pre-clap dispatcher in main.rs owns them.
         let all: Vec<String> = cmd
             .get_subcommands()
             .map(|c| c.get_name().to_string())
             .collect();
-        for reserved in ["test", "install", "bench", "exec"] {
+        for reserved in names("reservedCommands") {
             assert!(
-                !all.iter().any(|name| name == reserved),
+                !all.contains(&reserved),
                 "reserved name `{reserved}` must not be a clap subcommand"
             );
         }
-        for legacy in [
-            "new", "create", "init", "verify", "facet", "agent", "mcp", "doctor", "lint",
-        ] {
+        for legacy in names("legacyProjectCommands") {
             assert!(
-                !all.iter().any(|name| name == legacy),
+                !all.contains(&legacy),
                 "Exact project name `{legacy}` must not be a clap subcommand"
             );
         }

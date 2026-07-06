@@ -1426,9 +1426,46 @@ fn open_devtools_for_port(port: u16) {
 mod tests {
     use super::{
         cli, exit_code_for_error, watch_child_args, watch_shutdown_timeout_from_env,
-        DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS,
+        DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS, EXACT_PROJECT_COMMANDS, RESERVED_RUNTIME_COMMANDS,
     };
     use clap::Parser;
+
+    /// The pre-clap dispatcher tables must agree with the runtime surface
+    /// manifest (`runtime-surface.json`, LLP 0010#runtime-command-surface):
+    /// cli.rs::surface_manifest_matches_clap_tree proves the names are absent
+    /// from clap; this proves the dispatcher actually owns exactly those names.
+    #[test]
+    fn dispatcher_tables_match_surface_manifest() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../runtime-surface.json"))
+                .expect("runtime-surface.json parses");
+        let names = |key: &str| -> Vec<String> {
+            manifest[key]
+                .as_array()
+                .unwrap_or_else(|| panic!("{key} is an array"))
+                .iter()
+                .map(|v| v.as_str().expect("string entry").to_string())
+                .collect()
+        };
+
+        let mut reserved: Vec<String> = RESERVED_RUNTIME_COMMANDS
+            .iter()
+            .map(|(name, _)| name.to_string())
+            .collect();
+        reserved.sort();
+        let mut manifest_reserved = names("reservedCommands");
+        manifest_reserved.sort();
+        assert_eq!(reserved, manifest_reserved, "reserved runtime commands");
+
+        let mut legacy: Vec<String> = EXACT_PROJECT_COMMANDS
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        legacy.sort();
+        let mut manifest_legacy = names("legacyProjectCommands");
+        manifest_legacy.sort();
+        assert_eq!(legacy, manifest_legacy, "legacy Exact project commands");
+    }
 
     #[test]
     fn watch_child_preserves_security_flags() {

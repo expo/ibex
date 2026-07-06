@@ -1,0 +1,29 @@
+{
+  "$comment": "Runtime surface manifest (LLP 0010#runtime-command-surface; upstream LLP 0175 §8.1a in exact) — the single authority for the ibex command surface, kept next to the clap tree it pins. visibleCommands appear in `ibex --help` and must work standalone. hiddenHarnessCommands are compiled in but hidden from help (`self-test` is a CI harness smoke, not a user test runner). reservedCommands are runtime-namespace names with no implementation yet, and legacyProjectCommands are Exact project commands; both classes must be ABSENT from the clap tree entirely — the pre-clap dispatcher in src/bin/ibex/main.rs owns them and errors with a pointer. Pinned in-process by cli.rs::surface_manifest_matches_clap_tree (ported from exact's stranded packages/exact-cli test, ENG-22429); exact-side behavior guards read their own stale copy until retargeted here.",
+  "version": 2,
+  "binary": "ibex",
+  "visibleCommands": [
+    "run",
+    "eval",
+    "repl",
+    "build",
+    "completions",
+    "version",
+    "debug",
+    "policy"
+  ],
+  "hiddenHarnessCommands": ["self-test"],
+  "reservedCommands": ["test", "install", "bench", "exec"],
+  "legacyProjectCommands": [
+    "new",
+    "create",
+    "init",
+    "verify",
+    "facet",
+    "agent",
+    "mcp",
+    "doctor",
+    "lint"
+  ],
+  "llp": "0010"
+}
