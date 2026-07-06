@@ -178,9 +178,17 @@ thread_local uint64_t g_native_callback_principal_id = kNoNativePrincipalOverrid
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
 // @ref LLP 0013#mechanism-3 — the vm::Runtime pointer used by the exported
 // attribution bridge, cached from HermesRuntime::getVMRuntimeUnsafe() when the
-// runtime is created. Process-global: Ibex creates one HermesRuntime per process
-// and all host-boundary checks resolve the frame principal through it.
-void* g_vm_runtime = nullptr;
+// runtime is created. THREAD-LOCAL: a vm::Runtime is single-threaded and every
+// host-boundary attribution walk (currentPrincipalId/checkCapability) resolves
+// the JS frame executing on the *current* thread, so this must name the runtime
+// this thread created — never another thread's. It sits alongside the already
+// thread-local g_active_module_id / g_native_callback_principal_id principal
+// state above. A process-global here is a data race: any thread creating or
+// destroying its own runtime clobbers/frees the pointer a concurrently-evaling
+// thread is about to walk, faulting inside getCurrentPackageId(). Ibex's product
+// path (one runtime, one thread) is unaffected; the unit-test harness and
+// worklet threads create runtimes concurrently and hit the race. (ENG-23011)
+thread_local void* g_vm_runtime = nullptr;
 #endif
 
 // Concrete Buffer for static HBC byte arrays (used by precompiled bootstrap)
@@ -2376,6 +2384,13 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   disableDebugger(runtime);
   unregisterAndroidHostFunctions(runtime);
   unregisterRuntime(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // Clear this thread's cached vm::Runtime pointer before freeing the runtime so
+  // a later attribution walk on the same thread (e.g. a reused libtest worker or
+  // a thread that outlives its runtime) can't dereference freed memory. Now
+  // thread-local, so this only touches the owning thread's slot. (ENG-23011)
+  g_vm_runtime = nullptr;
+#endif
   delete runtime;
 }
 

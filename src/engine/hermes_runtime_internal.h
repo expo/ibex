@@ -219,9 +219,12 @@ extern "C" size_t ex_hermes_vm_collect_package_ids(void* vm_runtime,
 // patches/hermes/0008; armed at boot iff deputy-class hardening is configured.
 extern "C" void ex_hermes_vm_set_job_scheduler_capture(void* vm_runtime,
                                                        int enabled);
-// The vm::Runtime pointer (HermesRuntime::getVMRuntimeUnsafe()), cached once at
+// The vm::Runtime pointer (HermesRuntime::getVMRuntimeUnsafe()), cached at
 // runtime creation. Null on unpatched engines and until the runtime is created.
-extern void* g_vm_runtime;
+// THREAD-LOCAL: names the runtime the current thread created and drives, so
+// concurrent runtimes on other threads (unit-test harness, worklets) can't
+// clobber or free the pointer this thread's attribution walk reads. (ENG-23011)
+extern thread_local void* g_vm_runtime;
 // The reserved principal for runtime-internal code (bootstrap, module loader,
 // lockdown/compartment installers). Domains stamped with it are transparent to
 // frame attribution — the walk skips them so the nearest user frame is charged.
