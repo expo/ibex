@@ -204,6 +204,16 @@ facebook::jsi::Function unaryPathJsonFunction(
 
 } // namespace
 
+// The POSIX build implements this in hermes_runtime_fs.cc, where it records
+// the SCM_RIGHTS process-IPC fd in the fd ownership registry so raw integers
+// don't become ambient authority (ENG-22883). Windows has no SCM_RIGHTS fd
+// passing and this file keeps no raw-fd registry (file access goes through
+// HANDLE-backed FileEntry records), so the platform-neutral call site in
+// hermes_runtime.cc (EXACT_IPC_FD bootstrap) links against this no-op.
+void exactRegisterProcessIpcFd(int fd) {
+  (void)fd;
+}
+
 void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
 
