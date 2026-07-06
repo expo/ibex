@@ -179,3 +179,92 @@ next(0);
         "parent fd count grew by {delta} across 60 async spawns — fd leak regressed: {line}"
     );
 }
+
+// ENG-23025 -----------------------------------------------------------------
+
+/// The child writes 100_000 bytes to stderr (past the ~64KB pipe buffer) and
+/// then `echo done` to stdout. The old spawnSync drained stdout to EOF *before*
+/// touching stderr, so the child blocked writing stderr while the parent blocked
+/// reading stdout — a permanent deadlock. The poll()-multiplexed path drains
+/// both, so execSync returns `done`. The run timeout turns a regression into a
+/// failed assertion instead of a hung suite.
+#[test]
+fn spawn_sync_does_not_deadlock_on_full_stderr() {
+    let app = r#"
+const cp = require('child_process');
+try {
+  const r = cp.execSync("yes X | head -c 100000 >&2; echo done", { maxBuffer: 10 * 1024 * 1024 });
+  console.log('RESULT|stdout=' + JSON.stringify(String(r)));
+} catch (e) {
+  console.log('RESULT|error=' + (e && e.message));
+}
+"#;
+    let run = run_app("stderrfill", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    let stdout = field(line, "stdout=").unwrap_or("");
+    assert!(
+        stdout.contains("done"),
+        "execSync did not return child stdout (deadlock/regression): {line}"
+    );
+}
+
+/// `cat` echoes its 200_000-byte stdin back to stdout. The old spawnSync wrote
+/// all of stdin with blocking writes before reading any stdout, so once `cat`
+/// blocked writing >64KB of stdout the parent hadn't begun draining, both sides
+/// wedged. The multiplexed path interleaves the stdin write with the stdout
+/// read, so the full payload round-trips.
+#[test]
+fn spawn_sync_does_not_deadlock_on_large_stdin() {
+    let app = r#"
+const cp = require('child_process');
+try {
+  const out = cp.spawnSync('cat', [], { input: Buffer.alloc(200000, 65), maxBuffer: 10 * 1024 * 1024 });
+  const len = out.stdout ? out.stdout.length : -1;
+  console.log('RESULT|len=' + len + '|status=' + out.status);
+} catch (e) {
+  console.log('RESULT|error=' + (e && e.message));
+}
+"#;
+    let run = run_app("stdinfill", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    let len: i64 = field(line, "len=").and_then(|v| v.parse().ok()).unwrap_or(-1);
+    assert_eq!(
+        len, 200000,
+        "spawnSync stdin/stdout round-trip wrong length (deadlock/regression): {line}"
+    );
+}
+
+/// Array-form stdio was ignored by the native spawnSync parser, which read only
+/// the string form and left every fd at the default `pipe`. With
+/// `stdio: ['ignore','inherit','inherit']` the child's stdout must reach the
+/// inherited terminal (this process's stdout) and NOT be captured into
+/// `result.stdout`.
+#[test]
+fn spawn_sync_honors_array_form_stdio() {
+    let app = r#"
+const cp = require('child_process');
+const r = cp.spawnSync('sh', ['-c', 'echo INHERITED_LINE'], { stdio: ['ignore', 'inherit', 'inherit'] });
+const captured = r.stdout ? r.stdout.length : 0;
+console.log('RESULT|captured=' + captured);
+"#;
+    let run = run_app("arraystdio", app, Duration::from_secs(20));
+    let line = run
+        .stdout
+        .lines()
+        .find(|l| l.starts_with("RESULT|"))
+        .unwrap_or_else(|| panic!("no RESULT line\nstdout:\n{}\nstderr:\n{}", run.stdout, run.stderr));
+    assert!(!run.timed_out, "app timed out");
+    let captured: i64 = field(line, "captured=")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(-1);
+    assert_eq!(
+        captured, 0,
+        "array-form stdio ignored: child stdout was captured instead of inherited: {line}"
+    );
+    // The inherited child stdout must appear on the parent's stdout.
+    assert!(
+        run.stdout.contains("INHERITED_LINE"),
+        "inherited child stdout did not reach the parent terminal\nstdout:\n{}",
+        run.stdout
+    );
+}

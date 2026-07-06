@@ -14,6 +14,7 @@
 #include <csignal>
 #include <fcntl.h>
 #include <mutex>
+#include <poll.h>
 #include <spawn.h>
 #include <string>
 #include <sys/socket.h>
@@ -448,7 +449,12 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         bool hasStdinInput = false;
         bool inputIsBase64 = false;
         std::string argv0;
-        std::string syncStdioMode = "pipe"; // default: pipe stdout/stderr
+        // (ENG-23025) Per-fd stdio modes. Default: capture stdout/stderr, leave
+        // stdin inherited (or fed from `input`). Set together by the string form
+        // ("pipe"/"inherit"/"ignore") and per-index by the array form.
+        std::string stdinMode = "pipe";
+        std::string stdoutMode = "pipe";
+        std::string stderrMode = "pipe";
 
         if (count > 2 && args[2].isString()) {
           auto optsJson = args[2].toString(runtime).utf8(runtime);
@@ -490,13 +496,47 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             if (parsedSig > 0) kill_signal = parsedSig;
           }
           envEntries = s_parseEnvFromOpts(optsJson);
-          // Parse stdio option (string form: "inherit", "pipe", "ignore")
-          auto stdioPos = optsJson.find("\"stdio\":\"");
-          if (stdioPos != std::string::npos) {
-            auto start = stdioPos + 9;
+          // Parse stdio: string form ("inherit"/"pipe"/"ignore") sets all three
+          // fds; (ENG-23025) array form ["ignore","inherit","inherit"] sets them
+          // per-index. JS serializes mixed modes as a JSON array, but this path
+          // previously parsed only the string form and silently left the default
+          // "pipe" — so an array-form stdio was ignored (stdout/stderr captured
+          // instead of reaching the terminal; stdin left inherited).
+          auto strPos = optsJson.find("\"stdio\":\"");
+          if (strPos != std::string::npos) {
+            auto start = strPos + 9;
             auto end = optsJson.find("\"", start);
             if (end != std::string::npos) {
-              syncStdioMode = optsJson.substr(start, end - start);
+              std::string mode = optsJson.substr(start, end - start);
+              stdinMode = mode;
+              stdoutMode = mode;
+              stderrMode = mode;
+            }
+          } else {
+            auto arrPos = optsJson.find("\"stdio\":[");
+            if (arrPos != std::string::npos) {
+              size_t pos = arrPos + 9;
+              std::string* slots[3] = {&stdinMode, &stdoutMode, &stderrMode};
+              int slot = 0;
+              while (pos < optsJson.size() && optsJson[pos] != ']') {
+                while (pos < optsJson.size() &&
+                       (optsJson[pos] == ' ' || optsJson[pos] == ',')) pos++;
+                if (pos >= optsJson.size() || optsJson[pos] == ']') break;
+                if (optsJson[pos] == '"') {
+                  pos++;
+                  std::string val;
+                  while (pos < optsJson.size() && optsJson[pos] != '"') {
+                    val += optsJson[pos++];
+                  }
+                  if (pos < optsJson.size()) pos++; // closing quote
+                  if (slot < 3) *slots[slot] = val;
+                } else {
+                  // non-string entry (number fd / null): skip, keep default
+                  while (pos < optsJson.size() && optsJson[pos] != ',' &&
+                         optsJson[pos] != ']') pos++;
+                }
+                slot++;
+              }
             }
           }
           // Parse input option for stdin
@@ -545,9 +585,13 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }
         }
 
-        const bool syncStdoutPipe = (syncStdioMode == "pipe");
-        const bool syncStderrPipe = (syncStdioMode == "pipe");
-        const bool syncStdioIgnore = (syncStdioMode == "ignore");
+        const bool syncStdoutPipe = (stdoutMode == "pipe");
+        const bool syncStderrPipe = (stderrMode == "pipe");
+        const bool syncStdoutIgnore = (stdoutMode == "ignore");
+        const bool syncStderrIgnore = (stderrMode == "ignore");
+        // stdin is fed from `input` when present (pipe); otherwise "ignore" ->
+        // /dev/null and anything else -> inherit the parent's stdin.
+        const bool syncStdinIgnore = (stdinMode == "ignore");
 
         // JSON escape helper
         auto jsonEscape = [](const std::string& s) -> std::string {
@@ -689,7 +733,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stdoutPipe[0]);
             dup2(stdoutPipe[1], STDOUT_FILENO);
             close(stdoutPipe[1]);
-          } else if (syncStdioIgnore) {
+          } else if (syncStdoutIgnore) {
             int nullFd = open("/dev/null", O_WRONLY);
             if (nullFd >= 0) { dup2(nullFd, STDOUT_FILENO); close(nullFd); }
           }
@@ -699,7 +743,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stderrPipe[0]);
             dup2(stderrPipe[1], STDERR_FILENO);
             close(stderrPipe[1]);
-          } else if (syncStdioIgnore) {
+          } else if (syncStderrIgnore) {
             int nullFd = open("/dev/null", O_WRONLY);
             if (nullFd >= 0) { dup2(nullFd, STDERR_FILENO); close(nullFd); }
           }
@@ -709,7 +753,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stdinPipe[1]);
             dup2(stdinPipe[0], STDIN_FILENO);
             close(stdinPipe[0]);
-          } else if (syncStdioIgnore) {
+          } else if (syncStdinIgnore) {
             int nullFd = open("/dev/null", O_RDONLY);
             if (nullFd >= 0) { dup2(nullFd, STDIN_FILENO); close(nullFd); }
           }
@@ -802,19 +846,6 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
         if (syncStdoutPipe) close(stdoutPipe[1]);
         if (syncStderrPipe) close(stderrPipe[1]);
-        if (hasStdinInput) {
-          close(stdinPipe[0]);
-          // Write input to child's stdin
-          const char* data = stdinInput.c_str();
-          size_t remaining = stdinInput.size();
-          while (remaining > 0) {
-            ssize_t written = write(stdinPipe[1], data, remaining);
-            if (written <= 0) break;
-            data += written;
-            remaining -= written;
-          }
-          close(stdinPipe[1]);
-        }
 
         std::string stdoutStr, stderrStr;
         char buf[4096];
@@ -836,40 +867,150 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // to 256MB and never terminating the child.
         bool maxBufferExceeded = false;
 
-        // Read stdout (only if piped)
-        if (syncStdoutPipe) {
-          while (true) {
-            ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
-            if (bytesRead <= 0) break;
-            if (!max_buffer_unlimited &&
-                stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
-              size_t room = max_buffer > stdoutStr.size() ? max_buffer - stdoutStr.size() : 0;
-              stdoutStr.append(buf, room);
-              maxBufferExceeded = true;
-              if (!childExited.load()) kill(pid, kill_signal);
-              break;
-            }
-            stdoutStr.append(buf, static_cast<size_t>(bytesRead));
+        // (ENG-23025) Multiplex stdin-write / stdout-read / stderr-read with
+        // poll() on non-blocking fds. The previous path wrote all of stdin, then
+        // drained stdout to EOF, then stderr to EOF, each with fully-blocking
+        // I/O. A child that filled the ~64KB kernel buffer of a pipe the parent
+        // was not currently draining (e.g. >64KB to stderr while the parent
+        // blocked in the stdout read loop, or >64KB of stdin while the child
+        // blocked writing stdout the parent hadn't begun reading) deadlocked
+        // forever — there is no default timeout and typical output is under the
+        // 1MB maxBuffer, so neither guard fired. Node/libuv multiplex; so do we.
+        int stdinWriteFd = -1;
+        const char* stdinData = nullptr;
+        size_t stdinRemaining = 0;
+        if (hasStdinInput) {
+          close(stdinPipe[0]); // parent only writes to the child's stdin
+          stdinWriteFd = stdinPipe[1];
+          stdinData = stdinInput.data();
+          stdinRemaining = stdinInput.size();
+          int flags = fcntl(stdinWriteFd, F_GETFL, 0);
+          if (flags >= 0) fcntl(stdinWriteFd, F_SETFL, flags | O_NONBLOCK);
+          if (stdinRemaining == 0) {
+            close(stdinWriteFd);
+            stdinWriteFd = -1;
           }
-          close(stdoutPipe[0]);
+        }
+        int stdoutReadFd = syncStdoutPipe ? stdoutPipe[0] : -1;
+        int stderrReadFd = syncStderrPipe ? stderrPipe[0] : -1;
+        if (stdoutReadFd >= 0) {
+          int f = fcntl(stdoutReadFd, F_GETFL, 0);
+          if (f >= 0) fcntl(stdoutReadFd, F_SETFL, f | O_NONBLOCK);
+        }
+        if (stderrReadFd >= 0) {
+          int f = fcntl(stderrReadFd, F_GETFL, 0);
+          if (f >= 0) fcntl(stderrReadFd, F_SETFL, f | O_NONBLOCK);
         }
 
-        // Read stderr (only if piped)
-        if (syncStderrPipe) {
-          while (true) {
-            ssize_t bytesRead = read(stderrPipe[0], buf, sizeof(buf));
-            if (bytesRead <= 0) break;
-            if (!max_buffer_unlimited &&
-                stderrStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
-              size_t room = max_buffer > stderrStr.size() ? max_buffer - stderrStr.size() : 0;
-              stderrStr.append(buf, room);
-              maxBufferExceeded = true;
-              if (!childExited.load()) kill(pid, kill_signal);
-              break;
-            }
-            stderrStr.append(buf, static_cast<size_t>(bytesRead));
+        // Append bytes to a capture buffer enforcing maxBuffer; returns false
+        // when the stream hit the limit and should stop being read.
+        auto appendCapped = [&](std::string& dst, const char* data, size_t len) -> bool {
+          if (max_buffer_unlimited) {
+            dst.append(data, len);
+            return true;
           }
-          close(stderrPipe[0]);
+          if (dst.size() + len > max_buffer) {
+            size_t room = max_buffer > dst.size() ? max_buffer - dst.size() : 0;
+            dst.append(data, room);
+            maxBufferExceeded = true;
+            if (!childExited.load()) kill(pid, kill_signal);
+            return false;
+          }
+          dst.append(data, len);
+          return true;
+        };
+
+        // Drain a readable fd until EAGAIN/EOF. On EOF or a hard error, closes
+        // the fd and sets *fdSlot to -1 so it drops out of the poll set.
+        auto drainReadable = [&](int* fdSlot, std::string& dst) {
+          int fd = *fdSlot;
+          while (true) {
+            ssize_t br = read(fd, buf, sizeof(buf));
+            if (br > 0) {
+              if (!appendCapped(dst, buf, static_cast<size_t>(br))) {
+                close(fd);
+                *fdSlot = -1;
+                return;
+              }
+            } else if (br == 0) {
+              close(fd); // EOF
+              *fdSlot = -1;
+              return;
+            } else {
+              if (errno == EAGAIN || errno == EWOULDBLOCK) return; // drained
+              if (errno == EINTR) continue;
+              close(fd);
+              *fdSlot = -1;
+              return;
+            }
+          }
+        };
+
+        while (stdinWriteFd >= 0 || stdoutReadFd >= 0 || stderrReadFd >= 0) {
+          struct pollfd pfds[3];
+          int idxStdin = -1, idxStdout = -1, idxStderr = -1;
+          nfds_t nfds = 0;
+          if (stdinWriteFd >= 0) {
+            pfds[nfds].fd = stdinWriteFd;
+            pfds[nfds].events = POLLOUT;
+            pfds[nfds].revents = 0;
+            idxStdin = static_cast<int>(nfds++);
+          }
+          if (stdoutReadFd >= 0) {
+            pfds[nfds].fd = stdoutReadFd;
+            pfds[nfds].events = POLLIN;
+            pfds[nfds].revents = 0;
+            idxStdout = static_cast<int>(nfds++);
+          }
+          if (stderrReadFd >= 0) {
+            pfds[nfds].fd = stderrReadFd;
+            pfds[nfds].events = POLLIN;
+            pfds[nfds].revents = 0;
+            idxStderr = static_cast<int>(nfds++);
+          }
+
+          // 100ms tick so the watchdog thread's SIGKILL (timeout_ms) is observed
+          // even when every fd is quiet; on timeout the child's write ends close
+          // and the reads below see EOF, ending the loop.
+          int pr = poll(pfds, nfds, 100);
+          if (pr < 0) {
+            if (errno == EINTR) continue;
+            break; // unexpected poll failure: stop draining
+          }
+          if (pr == 0) {
+            continue; // tick with no readiness
+          }
+
+          if (idxStdin >= 0) {
+            short re = pfds[idxStdin].revents;
+            if (re & (POLLERR | POLLHUP | POLLNVAL)) {
+              // Reader is gone (child closed stdin or exited); stop writing.
+              close(stdinWriteFd);
+              stdinWriteFd = -1;
+            } else if (re & POLLOUT) {
+              ssize_t w = write(stdinWriteFd, stdinData, stdinRemaining);
+              if (w > 0) {
+                stdinData += w;
+                stdinRemaining -= static_cast<size_t>(w);
+                if (stdinRemaining == 0) {
+                  close(stdinWriteFd);
+                  stdinWriteFd = -1;
+                }
+              } else if (w < 0 && errno != EAGAIN && errno != EWOULDBLOCK &&
+                         errno != EINTR) {
+                close(stdinWriteFd);
+                stdinWriteFd = -1;
+              }
+            }
+          }
+          if (idxStdout >= 0 && (pfds[idxStdout].revents &
+                                 (POLLIN | POLLHUP | POLLERR | POLLNVAL))) {
+            drainReadable(&stdoutReadFd, stdoutStr);
+          }
+          if (idxStderr >= 0 && (pfds[idxStderr].revents &
+                                 (POLLIN | POLLHUP | POLLERR | POLLNVAL))) {
+            drainReadable(&stderrReadFd, stderrStr);
+          }
         }
 
         // Wait for child
