@@ -441,10 +441,19 @@ class DnsWorkerPool {
   bool enqueue(std::function<void()> job, std::string& error) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (idle_ == 0 && total_ >= kMaxWorkers) {
-        error = "DNS worker pool exhausted";
-        return false;
-      }
+      // ENG-23022: reject ONLY when the backlog is genuinely full. The old
+      // `idle_ == 0 && total_ >= kMaxWorkers` early-reject fired before the
+      // queue-full check, so once all kMaxWorkers workers were busy in
+      // getaddrinfo the kMaxQueue backlog was never used — the 9th+ concurrent
+      // lookup rejected with "DNS worker pool exhausted", which every
+      // lookup/resolve/reverse caller (and net.Socket.connect, which resolves
+      // via dns.lookup) maps to a spurious getaddrinfo ENOTFOUND. That pattern
+      // was borrowed from HTTP's WaitWorkerPool, whose one-wait-per-server
+      // profile makes it harmless; DNS is high fan-out, so a single
+      // Promise.all over >8 distinct hosts issues all enqueues in one JS tick
+      // and hits the early-reject. Excess work now queues; a busy worker drains
+      // it on its next loop iteration (spawnWorkerIfNeededLocked still caps the
+      // thread count, and cv_.wait re-checks the predicate so no wakeup is lost).
       if (queue_.size() >= kMaxQueue) {
         error = "DNS worker queue full";
         return false;
