@@ -15,7 +15,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/hermes-version.sh"
 
-HERMES_VERSION="${HERMES_VERSION:-$IBEX_HERMES_SOURCE_REF}"
+# Default to the pinned Hermes commit — the stable branch name moves under
+# cold clones (ENG-23092).
+HERMES_VERSION="${HERMES_VERSION:-$IBEX_HERMES_BUILD_REF}"
 PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
 
 echo "=== Hermes Install Script ==="

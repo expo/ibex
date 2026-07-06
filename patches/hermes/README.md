@@ -117,7 +117,9 @@ the native `__exactNativeFreeze` freeze primitive.
 
 ## Pin-bump runbook
 
-1. Update `IBEX_HERMES_SOURCE_REF` in `scripts/hermes-version.sh`.
+1. Update `IBEX_HERMES_SOURCE_REF` (branch) and `IBEX_HERMES_SOURCE_COMMIT`
+   (the commit the build scripts actually check out — ENG-23092) in
+   `scripts/hermes-version.sh`.
 2. Build (the build scripts re-apply this series automatically). Class A/B
    resolve mechanically; for a Class C conflict, re-read the surrounding
    upstream change before resolving.

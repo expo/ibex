@@ -17,7 +17,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 source "$SCRIPT_DIR/hermes-version.sh"
 
-HERMES_VERSION="${HERMES_VERSION:-$IBEX_HERMES_SOURCE_REF}"
+# Default to the pinned Hermes commit — the stable branch name moves under
+# cold clones (ENG-23092).
+HERMES_VERSION="${HERMES_VERSION:-$IBEX_HERMES_BUILD_REF}"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
 HERMES_INTL="${HERMES_ENABLE_INTL:-false}"
 CLEAN_CACHE=false
@@ -90,6 +92,13 @@ if [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
 elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
     git checkout "origin/$HERMES_VERSION"
 else
+    # A pinned commit may not be reachable from any currently advertised
+    # branch/tag (upstream rebases/deletes release branches); GitHub serves
+    # explicit SHA fetches, so ask for it directly before checking out.
+    if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ ]] \
+        && ! git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null; then
+        git fetch origin "$HERMES_VERSION"
+    fi
     git checkout "$HERMES_VERSION"
 fi
 

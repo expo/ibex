@@ -14,10 +14,11 @@
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
-> (`IBEX_HERMES_SOURCE_REF`, currently `260318099.0.0-stable`
-> `[observed]` (`scripts/hermes-version.sh:9-10`)), verified against the local
-> build checkout of that ref. Line numbers drift with the pin; treat them as
-> anchors, not contracts.
+> (`IBEX_HERMES_SOURCE_COMMIT` on the `260318099.0.0-stable` release branch
+> `[observed]` (`scripts/hermes-version.sh`)), verified against the local
+> build checkout of that commit. The branch name moves; the commit is the pin
+> (ENG-23092). Line numbers drift with the pin; treat them as anchors, not
+> contracts.
 >
 > Reproducibility: the Hermes source is not in this repo's committed tree.
 > `scripts/update-hermes.sh` (or any `build-hermes-*.sh`) materializes it;
@@ -665,11 +666,15 @@ conformance suite as oracle.
 
 ### Current consumption and the patch mechanism
 
-Ibex builds stock Hermes from a pinned stable branch: `hermes-version.sh`
-defines `IBEX_HERMES_SOURCE_REF`, `build-hermes-*.sh` shallow-clone and
-build it, `update-hermes.sh` drives updates `[observed]`
-(`scripts/hermes-version.sh`; `scripts/build-hermes-macos.sh:85`;
-`scripts/update-hermes.sh`). The fork adds a `patches/hermes/` directory —
+Ibex builds stock Hermes from a pinned commit on a stable release branch:
+`hermes-version.sh` defines `IBEX_HERMES_SOURCE_COMMIT` (the pin; the
+`IBEX_HERMES_SOURCE_REF` branch name is kept for humans and the canary's
+drift leg but moves upstream — ENG-23092), `build-hermes.sh` /
+`build-hermes-linux.sh` clone and build it, `update-hermes.sh` drives updates
+`[observed]` (`scripts/hermes-version.sh`; `scripts/build-hermes.sh`;
+`scripts/update-hermes.sh`; the stale `build-hermes-macos.sh`, which still
+called the removed `configure.py` flow and was invoked by nothing, was
+deleted). The fork adds a `patches/hermes/` directory —
 an ordered `git am`/`git apply` series applied immediately after clone by
 the same scripts (the Electron model at small scale
 `[inferred: external]`). No separate long-lived fork repository unless the
@@ -694,7 +699,9 @@ engine."
 
 ### The pin-bump runbook
 
-1. Update `IBEX_HERMES_SOURCE_REF` to the new stable branch.
+1. Update `IBEX_HERMES_SOURCE_REF` to the new stable branch and
+   `IBEX_HERMES_SOURCE_COMMIT` to the chosen commit on it (the commit is what
+   the build scripts check out).
 2. Apply the patch series; resolve conflicts under the class rules
    (Class A/B mechanically; Class C re-read the surrounding upstream change
    before resolving).

@@ -27,9 +27,10 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 source "$SCRIPT_DIR/hermes-version.sh"
 
 # Configuration
-# Default to the newest stable Hermes source branch. Use --latest only when you
+# Default to the pinned Hermes commit (scripts/hermes-version.sh) — the stable
+# branch name moves under cold clones (ENG-23092). Use --latest only when you
 # explicitly want the moving static_h development head.
-DEFAULT_HERMES_REF="$IBEX_HERMES_SOURCE_REF"
+DEFAULT_HERMES_REF="$IBEX_HERMES_BUILD_REF"
 HERMES_VERSION="${HERMES_VERSION:-$DEFAULT_HERMES_REF}"
 CACHE_DIR="$HOME/.cache/exact/hermes"
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
@@ -245,6 +246,13 @@ if [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
 elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
     git checkout "origin/$HERMES_VERSION"
 else
+    # A pinned commit may not be reachable from any currently advertised
+    # branch/tag (upstream rebases/deletes release branches); GitHub serves
+    # explicit SHA fetches, so ask for it directly before checking out.
+    if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ ]] \
+        && ! git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null; then
+        git fetch origin "$HERMES_VERSION"
+    fi
     git checkout "$HERMES_VERSION"
 fi
 

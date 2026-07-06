@@ -38,12 +38,14 @@ jobs:
         run: |
           source scripts/hermes-version.sh
           if [ "${{ matrix.ref }}" = "pinned" ]; then
-            echo "hermes_ref=$IBEX_HERMES_SOURCE_REF" >> "$GITHUB_OUTPUT"
+            # The pinned leg checks the exact commit the build scripts build
+            # (ENG-23092) — not the moving release branch.
+            echo "hermes_ref=$IBEX_HERMES_SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
           else
             echo "hermes_ref=main" >> "$GITHUB_OUTPUT"
           fi
 
-      # No fallback clone: if the requested ref cannot be cloned, that IS the
+      # No fallback clone: if the requested ref cannot be fetched, that IS the
       # drift signal this canary exists to raise. A `|| git clone` of the
       # default branch used to check the patch stack against the wrong tree
       # and stay green — the pinned leg failing to resolve must fail the job
@@ -52,9 +54,18 @@ jobs:
         run: |
           set -euo pipefail
           ref="${{ steps.ref.outputs.hermes_ref }}"
-          git clone --depth 1 --branch "$ref" \
-            https://github.com/facebook/hermes.git /tmp/hermes-src
-          checked_out="$(git -C /tmp/hermes-src rev-parse --abbrev-ref HEAD)"
+          if echo "$ref" | grep -Eq '^[0-9a-f]{40}$'; then
+            # Commit pin: GitHub serves explicit SHA fetches.
+            git init -q /tmp/hermes-src
+            git -C /tmp/hermes-src remote add origin https://github.com/facebook/hermes.git
+            git -C /tmp/hermes-src fetch --depth 1 origin "$ref"
+            git -C /tmp/hermes-src checkout -q --detach FETCH_HEAD
+            checked_out="$(git -C /tmp/hermes-src rev-parse HEAD)"
+          else
+            git clone --depth 1 --branch "$ref" \
+              https://github.com/facebook/hermes.git /tmp/hermes-src
+            checked_out="$(git -C /tmp/hermes-src rev-parse --abbrev-ref HEAD)"
+          fi
           if [ "$checked_out" != "$ref" ]; then
             echo "::error::asked for Hermes ref '$ref' but checked out '$checked_out'"
             exit 1
