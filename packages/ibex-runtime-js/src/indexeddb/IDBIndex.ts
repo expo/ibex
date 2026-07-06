@@ -53,16 +53,18 @@ export class IDBIndex {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
-    try {
-      const values = this._objectStore._indexGetValues(
-        this.name,
-        this._objectStore._queryRange(query),
-        1,
-      );
-      request._resolve(values.length > 0 ? values[0] : undefined);
-    } catch (e: any) {
-      request._reject(e);
-    }
+    this._objectStore._transaction._enqueueOp(request, () => {
+      try {
+        const values = this._objectStore._indexGetValues(
+          this.name,
+          this._objectStore._queryRange(query),
+          1,
+        );
+        request._resolve(values.length > 0 ? values[0] : undefined);
+      } catch (e: any) {
+        request._reject(e);
+      }
+    });
     return request;
   }
 
@@ -74,16 +76,18 @@ export class IDBIndex {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
-    try {
-      const keys = this._objectStore._indexGetKeys(
-        this.name,
-        this._objectStore._queryRange(query),
-        1,
-      );
-      request._resolve(keys.length > 0 ? keys[0] : undefined);
-    } catch (e: any) {
-      request._reject(e);
-    }
+    this._objectStore._transaction._enqueueOp(request, () => {
+      try {
+        const keys = this._objectStore._indexGetKeys(
+          this.name,
+          this._objectStore._queryRange(query),
+          1,
+        );
+        request._resolve(keys.length > 0 ? keys[0] : undefined);
+      } catch (e: any) {
+        request._reject(e);
+      }
+    });
     return request;
   }
 
@@ -95,18 +99,20 @@ export class IDBIndex {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
-    try {
-      // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
-      // only a positive count becomes a SQL LIMIT. (ENG-23026)
-      const values = this._objectStore._indexGetValues(
-        this.name,
-        this._objectStore._queryRange(query),
-        count !== undefined && count > 0 ? count : undefined,
-      );
-      request._resolve(values);
-    } catch (e: any) {
-      request._reject(e);
-    }
+    this._objectStore._transaction._enqueueOp(request, () => {
+      try {
+        // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
+        // only a positive count becomes a SQL LIMIT. (ENG-23026)
+        const values = this._objectStore._indexGetValues(
+          this.name,
+          this._objectStore._queryRange(query),
+          count !== undefined && count > 0 ? count : undefined,
+        );
+        request._resolve(values);
+      } catch (e: any) {
+        request._reject(e);
+      }
+    });
     return request;
   }
 
@@ -118,18 +124,20 @@ export class IDBIndex {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
-    try {
-      // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
-      // only a positive count becomes a SQL LIMIT. (ENG-23026)
-      const keys = this._objectStore._indexGetKeys(
-        this.name,
-        this._objectStore._queryRange(query),
-        count !== undefined && count > 0 ? count : undefined,
-      );
-      request._resolve(keys);
-    } catch (e: any) {
-      request._reject(e);
-    }
+    this._objectStore._transaction._enqueueOp(request, () => {
+      try {
+        // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
+        // only a positive count becomes a SQL LIMIT. (ENG-23026)
+        const keys = this._objectStore._indexGetKeys(
+          this.name,
+          this._objectStore._queryRange(query),
+          count !== undefined && count > 0 ? count : undefined,
+        );
+        request._resolve(keys);
+      } catch (e: any) {
+        request._reject(e);
+      }
+    });
     return request;
   }
 
@@ -141,14 +149,16 @@ export class IDBIndex {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
-    try {
-      // COUNT(*) over the companion index table — no rows materialized in JS.
-      request._resolve(
-        this._objectStore._indexCount(this.name, this._objectStore._queryRange(query)),
-      );
-    } catch (e: any) {
-      request._reject(e);
-    }
+    this._objectStore._transaction._enqueueOp(request, () => {
+      try {
+        // COUNT(*) over the companion index table — no rows materialized in JS.
+        request._resolve(
+          this._objectStore._indexCount(this.name, this._objectStore._queryRange(query)),
+        );
+      } catch (e: any) {
+        request._reject(e);
+      }
+    });
     return request;
   }
 
@@ -160,23 +170,25 @@ export class IDBIndex {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
-    try {
-      const records = this._objectStore._indexRecords(
-        this.name,
-        this._objectStore._queryRange(query),
-      );
-      if (records.length === 0) {
-        request._resolve(null);
-      } else {
-        // Index keys are not unique, so the cursor re-orders for its direction
-        // and de-dupes for the *unique variants (records arrive in ascending
-        // index-key order from SQL).
-        const cursor = new IDBCursorWithValue(this, direction ?? 'next', records, request);
-        request._resolve(cursor);
+    this._objectStore._transaction._enqueueOp(request, () => {
+      try {
+        const records = this._objectStore._indexRecords(
+          this.name,
+          this._objectStore._queryRange(query),
+        );
+        if (records.length === 0) {
+          request._resolve(null);
+        } else {
+          // Index keys are not unique, so the cursor re-orders for its direction
+          // and de-dupes for the *unique variants (records arrive in ascending
+          // index-key order from SQL).
+          const cursor = new IDBCursorWithValue(this, direction ?? 'next', records, request);
+          request._resolve(cursor);
+        }
+      } catch (e: any) {
+        request._reject(e);
       }
-    } catch (e: any) {
-      request._reject(e);
-    }
+    });
     return request;
   }
 
@@ -188,23 +200,25 @@ export class IDBIndex {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
-    try {
-      const records = this._objectStore._indexRecords(
-        this.name,
-        this._objectStore._queryRange(query),
-      );
-      if (records.length === 0) {
-        request._resolve(null);
-      } else {
-        // A key cursor exposes only key/primaryKey and never a value: yield a
-        // plain IDBCursor (not IDBCursorWithValue) and drop the values. (ENG-23026)
-        const keyRecords = records.map(r => ({ key: r.key, primaryKey: r.primaryKey, value: undefined }));
-        const cursor = new IDBCursor(this, direction ?? 'next', keyRecords, request);
-        request._resolve(cursor);
+    this._objectStore._transaction._enqueueOp(request, () => {
+      try {
+        const records = this._objectStore._indexRecords(
+          this.name,
+          this._objectStore._queryRange(query),
+        );
+        if (records.length === 0) {
+          request._resolve(null);
+        } else {
+          // A key cursor exposes only key/primaryKey and never a value: yield a
+          // plain IDBCursor (not IDBCursorWithValue) and drop the values. (ENG-23026)
+          const keyRecords = records.map(r => ({ key: r.key, primaryKey: r.primaryKey, value: undefined }));
+          const cursor = new IDBCursor(this, direction ?? 'next', keyRecords, request);
+          request._resolve(cursor);
+        }
+      } catch (e: any) {
+        request._reject(e);
       }
-    } catch (e: any) {
-      request._reject(e);
-    }
+    });
     return request;
   }
 }

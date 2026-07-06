@@ -225,6 +225,7 @@ export class IDBCursor {
   update(value: any): IDBRequest {
     const store = this._store();
     store._transaction._assertActive();
+    store._transaction._assertWritable(); // ReadOnlyError on readonly txns (ENG-23117)
     const request = new IDBRequest();
     request.transaction = store._transaction;
     if (!this._gotValue || this._position >= this._records.length) {
@@ -249,6 +250,7 @@ export class IDBCursor {
   delete(): IDBRequest {
     const store = this._store();
     store._transaction._assertActive();
+    store._transaction._assertWritable(); // ReadOnlyError on readonly txns (ENG-23117)
     const request = new IDBRequest();
     request.transaction = store._transaction;
     if (!this._gotValue || this._position >= this._records.length) {

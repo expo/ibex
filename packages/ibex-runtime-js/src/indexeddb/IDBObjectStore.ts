@@ -45,8 +45,12 @@ export class IDBObjectStore {
     this._db = db;
     this._tableName = `idb_store_${sanitizeName(name)}`;
 
-    // Create the SQLite table if it doesn't exist
-    this._ensureTable();
+    // Create/migrate the SQLite table if needed. Deferred into the
+    // transaction's operation queue: it must not run while an EARLIER
+    // transaction still holds the connection's BEGIN (that transaction's
+    // rollback would undo our DDL). FIFO ordering guarantees it runs before
+    // any of this transaction's data operations. (ENG-23117)
+    this._transaction._enqueueOp(null, () => this._ensureTable());
   }
 
   get indexNames(): string[] {
@@ -62,22 +66,25 @@ export class IDBObjectStore {
    */
   add(value: any, key?: any): IDBRequest {
     this._transaction._assertActive();
+    this._transaction._assertWritable();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      const resolvedKey = this._resolveKey(value, key);
-      if (this._hasRecord(resolvedKey)) {
-        throw new DOMException(
-          `A record with key ${JSON.stringify(resolvedKey)} already exists`,
-          'ConstraintError',
-        );
+    this._transaction._enqueueOp(request, () => {
+      try {
+        const resolvedKey = this._resolveKey(value, key);
+        if (this._hasRecord(resolvedKey)) {
+          throw new DOMException(
+            `A record with key ${JSON.stringify(resolvedKey)} already exists`,
+            'ConstraintError',
+          );
+        }
+        this._putRecord(resolvedKey, value);
+        request._resolve(resolvedKey);
+      } catch (e: any) {
+        request._reject(e instanceof DOMException ? e : new DOMException(e.message, 'DataError'));
       }
-      this._putRecord(resolvedKey, value);
-      request._resolve(resolvedKey);
-    } catch (e: any) {
-      request._reject(e instanceof DOMException ? e : new DOMException(e.message, 'DataError'));
-    }
+    });
     return request;
   }
 
@@ -86,16 +93,19 @@ export class IDBObjectStore {
    */
   put(value: any, key?: any): IDBRequest {
     this._transaction._assertActive();
+    this._transaction._assertWritable();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      const resolvedKey = this._resolveKey(value, key);
-      this._putRecord(resolvedKey, value);
-      request._resolve(resolvedKey);
-    } catch (e: any) {
-      request._reject(e instanceof DOMException ? e : new DOMException(e.message, 'DataError'));
-    }
+    this._transaction._enqueueOp(request, () => {
+      try {
+        const resolvedKey = this._resolveKey(value, key);
+        this._putRecord(resolvedKey, value);
+        request._resolve(resolvedKey);
+      } catch (e: any) {
+        request._reject(e instanceof DOMException ? e : new DOMException(e.message, 'DataError'));
+      }
+    });
     return request;
   }
 
@@ -107,20 +117,22 @@ export class IDBObjectStore {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      if (query instanceof IDBKeyRange) {
-        // Push the range + "first match" into SQL: only the smallest matching
-        // row is fetched and deserialized, not the whole table. (ENG-22999)
-        const { sql, params } = this._selectRange('value', query, 'asc', 1);
-        const row = this._db._get(sql, params);
-        request._resolve(row ? deserializeValue(row.value) : undefined);
-      } else {
-        const value = this._getRecord(query);
-        request._resolve(value);
+    this._transaction._enqueueOp(request, () => {
+      try {
+        if (query instanceof IDBKeyRange) {
+          // Push the range + "first match" into SQL: only the smallest matching
+          // row is fetched and deserialized, not the whole table. (ENG-22999)
+          const { sql, params } = this._selectRange('value', query, 'asc', 1);
+          const row = this._db._get(sql, params);
+          request._resolve(row ? deserializeValue(row.value) : undefined);
+        } else {
+          const value = this._getRecord(query);
+          request._resolve(value);
+        }
+      } catch (e: any) {
+        request._reject(e);
       }
-    } catch (e: any) {
-      request._reject(e);
-    }
+    });
     return request;
   }
 
@@ -132,22 +144,24 @@ export class IDBObjectStore {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      if (query instanceof IDBKeyRange) {
-        // Smallest matching key only — filtered and ordered in SQL. (ENG-22999)
-        const { sql, params } = this._selectRange('key', query, 'asc', 1);
-        const row = this._db._get(sql, params);
-        request._resolve(row ? deserializeKey(row.key) : undefined);
-      } else {
-        // Existence must be tested against the row, not the deserialized value:
-        // structured clone permits a stored `undefined`, so inferring absence
-        // from `value === undefined` reported a real record as missing.
-        // (ENG-23026)
-        request._resolve(this._hasRecord(query) ? query : undefined);
+    this._transaction._enqueueOp(request, () => {
+      try {
+        if (query instanceof IDBKeyRange) {
+          // Smallest matching key only — filtered and ordered in SQL. (ENG-22999)
+          const { sql, params } = this._selectRange('key', query, 'asc', 1);
+          const row = this._db._get(sql, params);
+          request._resolve(row ? deserializeKey(row.key) : undefined);
+        } else {
+          // Existence must be tested against the row, not the deserialized value:
+          // structured clone permits a stored `undefined`, so inferring absence
+          // from `value === undefined` reported a real record as missing.
+          // (ENG-23026)
+          request._resolve(this._hasRecord(query) ? query : undefined);
+        }
+      } catch (e: any) {
+        request._reject(e);
       }
-    } catch (e: any) {
-      request._reject(e);
-    }
+    });
     return request;
   }
 
@@ -159,20 +173,22 @@ export class IDBObjectStore {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      // Filter, order and limit in SQL so only the matching values are read
-      // and deserialized instead of the entire table. (ENG-22999)
-      const range = this._queryRange(query);
-      // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
-      // only a positive count becomes a SQL LIMIT (0 must NOT become LIMIT 0).
-      // (ENG-23026)
-      const limit = count !== undefined && count > 0 ? count : undefined;
-      const { sql, params } = this._selectRange('value', range, 'asc', limit);
-      const rows = this._db._all(sql, params);
-      request._resolve(rows.map((r: any) => deserializeValue(r.value)));
-    } catch (e: any) {
-      request._reject(e);
-    }
+    this._transaction._enqueueOp(request, () => {
+      try {
+        // Filter, order and limit in SQL so only the matching values are read
+        // and deserialized instead of the entire table. (ENG-22999)
+        const range = this._queryRange(query);
+        // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
+        // only a positive count becomes a SQL LIMIT (0 must NOT become LIMIT 0).
+        // (ENG-23026)
+        const limit = count !== undefined && count > 0 ? count : undefined;
+        const { sql, params } = this._selectRange('value', range, 'asc', limit);
+        const rows = this._db._all(sql, params);
+        request._resolve(rows.map((r: any) => deserializeValue(r.value)));
+      } catch (e: any) {
+        request._reject(e);
+      }
+    });
     return request;
   }
 
@@ -184,19 +200,21 @@ export class IDBObjectStore {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      // Key column only, filtered/ordered/limited in SQL. (ENG-22999)
-      const range = this._queryRange(query);
-      // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
-      // only a positive count becomes a SQL LIMIT (0 must NOT become LIMIT 0).
-      // (ENG-23026)
-      const limit = count !== undefined && count > 0 ? count : undefined;
-      const { sql, params } = this._selectRange('key', range, 'asc', limit);
-      const rows = this._db._all(sql, params);
-      request._resolve(rows.map((r: any) => deserializeKey(r.key)));
-    } catch (e: any) {
-      request._reject(e);
-    }
+    this._transaction._enqueueOp(request, () => {
+      try {
+        // Key column only, filtered/ordered/limited in SQL. (ENG-22999)
+        const range = this._queryRange(query);
+        // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
+        // only a positive count becomes a SQL LIMIT (0 must NOT become LIMIT 0).
+        // (ENG-23026)
+        const limit = count !== undefined && count > 0 ? count : undefined;
+        const { sql, params } = this._selectRange('key', range, 'asc', limit);
+        const rows = this._db._all(sql, params);
+        request._resolve(rows.map((r: any) => deserializeKey(r.key)));
+      } catch (e: any) {
+        request._reject(e);
+      }
+    });
     return request;
   }
 
@@ -205,32 +223,35 @@ export class IDBObjectStore {
    */
   delete(query: any): IDBRequest {
     this._transaction._assertActive();
+    this._transaction._assertWritable();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      if (query instanceof IDBKeyRange) {
-        // Delete the matching range directly in SQL — no scan, no per-row key
-        // deserialization, a single statement. (ENG-22999)
-        const { where, params } = this._rangeConds(query);
-        // First remove the companion index rows for the records about to be
-        // deleted (identified via the store's keyenc range subquery), then the
-        // store rows themselves. (ENG-23016)
-        if (this._indexes.size > 0) {
-          this._ensureIndexData();
-          this._db._exec(
-            `DELETE FROM "${this._indexTableName()}" WHERE pk IN (SELECT key FROM "${this._tableName}"${where})`,
-            params,
-          );
+    this._transaction._enqueueOp(request, () => {
+      try {
+        if (query instanceof IDBKeyRange) {
+          // Delete the matching range directly in SQL — no scan, no per-row key
+          // deserialization, a single statement. (ENG-22999)
+          const { where, params } = this._rangeConds(query);
+          // First remove the companion index rows for the records about to be
+          // deleted (identified via the store's keyenc range subquery), then the
+          // store rows themselves. (ENG-23016)
+          if (this._indexes.size > 0) {
+            this._ensureIndexData();
+            this._db._exec(
+              `DELETE FROM "${this._indexTableName()}" WHERE pk IN (SELECT key FROM "${this._tableName}"${where})`,
+              params,
+            );
+          }
+          this._db._exec(`DELETE FROM "${this._tableName}"${where}`, params);
+        } else {
+          this._deleteRecord(query);
         }
-        this._db._exec(`DELETE FROM "${this._tableName}"${where}`, params);
-      } else {
-        this._deleteRecord(query);
+        request._resolve(undefined);
+      } catch (e: any) {
+        request._reject(e);
       }
-      request._resolve(undefined);
-    } catch (e: any) {
-      request._reject(e);
-    }
+    });
     return request;
   }
 
@@ -239,15 +260,18 @@ export class IDBObjectStore {
    */
   clear(): IDBRequest {
     this._transaction._assertActive();
+    this._transaction._assertWritable();
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      this._clearRecords();
-      request._resolve(undefined);
-    } catch (e: any) {
-      request._reject(e);
-    }
+    this._transaction._enqueueOp(request, () => {
+      try {
+        this._clearRecords();
+        request._resolve(undefined);
+      } catch (e: any) {
+        request._reject(e);
+      }
+    });
     return request;
   }
 
@@ -259,23 +283,25 @@ export class IDBObjectStore {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      if (query === undefined || query === null) {
-        request._resolve(this._countRecords());
-      } else {
-        // COUNT(*) with the range pushed into a keyenc WHERE clause — no rows
-        // are materialized in JS at all. (ENG-22999)
-        const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-        const { where, params } = this._rangeConds(range);
-        const row = this._db._get(
-          `SELECT COUNT(*) as cnt FROM "${this._tableName}"${where}`,
-          params,
-        );
-        request._resolve(row ? row.cnt : 0);
+    this._transaction._enqueueOp(request, () => {
+      try {
+        if (query === undefined || query === null) {
+          request._resolve(this._countRecords());
+        } else {
+          // COUNT(*) with the range pushed into a keyenc WHERE clause — no rows
+          // are materialized in JS at all. (ENG-22999)
+          const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
+          const { where, params } = this._rangeConds(range);
+          const row = this._db._get(
+            `SELECT COUNT(*) as cnt FROM "${this._tableName}"${where}`,
+            params,
+          );
+          request._resolve(row ? row.cnt : 0);
+        }
+      } catch (e: any) {
+        request._reject(e);
       }
-    } catch (e: any) {
-      request._reject(e);
-    }
+    });
     return request;
   }
 
@@ -283,6 +309,16 @@ export class IDBObjectStore {
    * Create an index on this object store. Only valid during upgradeneeded.
    */
   createIndex(name: string, keyPath: string | string[], options?: IDBIndexParameters): IDBIndex {
+    // Only valid inside an active versionchange (upgradeneeded) transaction —
+    // previously there was no check at all, so runtime code could mutate the
+    // schema outside any upgrade. (ENG-23117)
+    if (this._transaction._mode !== 'versionchange') {
+      throw new DOMException(
+        'createIndex can only be called during an upgrade (versionchange) transaction',
+        'InvalidStateError',
+      );
+    }
+    this._transaction._assertActive();
     if (this._indexes.has(name)) {
       throw new DOMException(
         `Index "${name}" already exists`,
@@ -309,6 +345,15 @@ export class IDBObjectStore {
    * Delete an index from this object store. Only valid during upgradeneeded.
    */
   deleteIndex(name: string): void {
+    // Only valid inside an active versionchange transaction (see createIndex).
+    // (ENG-23117)
+    if (this._transaction._mode !== 'versionchange') {
+      throw new DOMException(
+        'deleteIndex can only be called during an upgrade (versionchange) transaction',
+        'InvalidStateError',
+      );
+    }
+    this._transaction._assertActive();
     if (!this._indexes.has(name)) {
       throw new DOMException(
         `Index "${name}" does not exist`,
@@ -345,23 +390,25 @@ export class IDBObjectStore {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      // Stream the matching rows in bounded batches (keyset pagination over the
-      // unique keyenc column) instead of materializing the whole matching set,
-      // so an unbounded cursor over a huge store holds O(batch) rows and defers
-      // value deserialization to each batch rather than up front. (ENG-23016)
-      const dir = direction ?? 'next';
-      const stream = this._cursorStreamer(this._queryRange(query), dir, true);
-      const first = stream.fetch(null, null);
-      if (first.length === 0) {
-        request._resolve(null);
-      } else {
-        const cursor = new IDBCursorWithValue(this, dir, first, request, false, stream);
-        request._resolve(cursor);
+    this._transaction._enqueueOp(request, () => {
+      try {
+        // Stream the matching rows in bounded batches (keyset pagination over the
+        // unique keyenc column) instead of materializing the whole matching set,
+        // so an unbounded cursor over a huge store holds O(batch) rows and defers
+        // value deserialization to each batch rather than up front. (ENG-23016)
+        const dir = direction ?? 'next';
+        const stream = this._cursorStreamer(this._queryRange(query), dir, true);
+        const first = stream.fetch(null, null);
+        if (first.length === 0) {
+          request._resolve(null);
+        } else {
+          const cursor = new IDBCursorWithValue(this, dir, first, request, false, stream);
+          request._resolve(cursor);
+        }
+      } catch (e: any) {
+        request._reject(e);
       }
-    } catch (e: any) {
-      request._reject(e);
-    }
+    });
     return request;
   }
 
@@ -373,22 +420,24 @@ export class IDBObjectStore {
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
-    try {
-      // A key cursor never exposes values: stream only the key column (no value
-      // deserialization) in bounded batches and yield a plain IDBCursor rather
-      // than an IDBCursorWithValue. (ENG-23026 / ENG-23016)
-      const dir = direction ?? 'next';
-      const stream = this._cursorStreamer(this._queryRange(query), dir, false);
-      const first = stream.fetch(null, null);
-      if (first.length === 0) {
-        request._resolve(null);
-      } else {
-        const cursor = new IDBCursor(this, dir, first, request, false, stream);
-        request._resolve(cursor);
+    this._transaction._enqueueOp(request, () => {
+      try {
+        // A key cursor never exposes values: stream only the key column (no value
+        // deserialization) in bounded batches and yield a plain IDBCursor rather
+        // than an IDBCursorWithValue. (ENG-23026 / ENG-23016)
+        const dir = direction ?? 'next';
+        const stream = this._cursorStreamer(this._queryRange(query), dir, false);
+        const first = stream.fetch(null, null);
+        if (first.length === 0) {
+          request._resolve(null);
+        } else {
+          const cursor = new IDBCursor(this, dir, first, request, false, stream);
+          request._resolve(cursor);
+        }
+      } catch (e: any) {
+        request._reject(e);
       }
-    } catch (e: any) {
-      request._reject(e);
-    }
+    });
     return request;
   }
 

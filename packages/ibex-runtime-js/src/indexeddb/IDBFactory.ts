@@ -8,7 +8,7 @@
  * @see https://developer.mozilla.org/en-US/docs/Web/API/IDBFactory
  */
 
-import { IDBDatabase } from './IDBDatabase';
+import { IDBDatabase, SharedConnectionState } from './IDBDatabase';
 import { IDBOpenDBRequest } from './IDBRequest';
 import { IDBTransaction } from './IDBTransaction';
 import { compareKeys } from './IDBKeyRange';
@@ -124,8 +124,15 @@ function writeStoredVersion(sqliteDb: any, version: number): void {
 }
 
 export class IDBFactory {
-  /** @internal - Map of database name -> { version, sqliteDb } */
-  private _databases: Map<string, { version: number; sqliteDb: any }> = new Map();
+  /**
+   * @internal - Map of database name -> shared connection state (SQLite
+   * handle, transaction scheduler, refcounted connections). Cached as soon as
+   * the handle is created — including for opens whose upgrade later fails —
+   * so sibling open() calls share ONE coordinated handle and a failed upgrade
+   * cannot leak an uncached handle. Evicted (via onClosed) when the last
+   * connection closes and the handle is actually closed. (ENG-23117)
+   */
+  private _databases: Map<string, SharedConnectionState> = new Map();
   /** @internal - SQLite provider for creating database instances */
   private _sqliteProvider: SQLiteDatabaseProvider;
 
@@ -156,18 +163,28 @@ export class IDBFactory {
 
     // Process in a microtask to allow handlers to be attached
     queueMicrotask(() => {
+      let shared: SharedConnectionState | null = null;
       try {
         const existing = this._databases.get(name);
 
-        let sqliteDb: any;
-        let oldVersion = 0;
-        if (existing) {
-          sqliteDb = existing.sqliteDb;
-          oldVersion = existing.version;
+        if (existing && !existing.closed) {
+          shared = existing;
         } else {
-          sqliteDb = this._sqliteProvider.create(name);
-          oldVersion = readStoredVersion(sqliteDb);
+          const sqliteDb = this._sqliteProvider.create(name);
+          shared = new SharedConnectionState(sqliteDb, readStoredVersion(sqliteDb));
+          // Evict the cache entry when the handle actually closes (last
+          // connection gone + transactions drained), so the next open()
+          // creates a fresh handle instead of reusing a dead one.
+          const entry = shared;
+          entry.onClosed = () => {
+            if (this._databases.get(name) === entry) {
+              this._databases.delete(name);
+            }
+          };
+          this._databases.set(name, shared);
         }
+        const sqliteDb = shared.sqliteDb;
+        const oldVersion = shared.version;
         const resolvedVersion = version ?? (oldVersion > 0 ? oldVersion : 1);
         if (oldVersion > 0 && resolvedVersion < oldVersion) {
           throw new DOMException(
@@ -176,7 +193,7 @@ export class IDBFactory {
           );
         }
 
-        const db = new IDBDatabase(name, resolvedVersion, sqliteDb, this);
+        const db = new IDBDatabase(name, resolvedVersion, shared, this);
 
         // Set the result on the request before upgradeneeded fires,
         // because onupgradeneeded handlers access event.target.result
@@ -186,71 +203,75 @@ export class IDBFactory {
         // Version upgrade needed?
         if (resolvedVersion > oldVersion) {
           // Create an upgrade transaction so createObjectStore/deleteObjectStore
-          // can detect that they are being called during upgradeneeded.
+          // can detect that they are being called during upgradeneeded, and so
+          // the standard `e.target.transaction` migration idiom works.
+          // (ENG-23117)
           const storeNames = Array.from((db as any)._objectStores?.keys?.() ?? []);
           const upgradeTxn = new IDBTransaction(db, storeNames, 'versionchange');
           db._upgradeTransaction = upgradeTxn;
+          request.transaction = upgradeTxn;
 
-          // Wrap the whole upgrade (schema changes + version bump) in a single
-          // SQLite transaction. If onupgradeneeded throws after creating some
-          // object stores, we roll everything back so the database can be
-          // reopened and the upgrade retried, rather than being permanently
-          // wedged (a re-run would hit ConstraintError re-creating store A).
-          upgradeTxn._beginVersionChange();
-          try {
-            // Fire onupgradeneeded synchronously
-            if (request.onupgradeneeded) {
-              const event = {
-                type: 'upgradeneeded',
-                target: request,
-                oldVersion,
-                newVersion: resolvedVersion,
-              };
-              // During upgradeneeded, the database is in a special state
-              // where createObjectStore/deleteObjectStore can be called
-              request.onupgradeneeded(event);
+          // The upgrade body runs when the connection scheduler grants the
+          // transaction (immediately when the connection is idle; after any
+          // in-flight sibling-connection transactions otherwise). The whole
+          // upgrade (schema changes + version bump) runs in a single SQLite
+          // transaction: if onupgradeneeded throws after creating some object
+          // stores, everything rolls back so the upgrade can be retried,
+          // rather than being permanently wedged (a re-run would hit
+          // ConstraintError re-creating store A).
+          upgradeTxn._onStart = () => {
+            try {
+              upgradeTxn._beginVersionChange();
+              // Fire onupgradeneeded synchronously
+              if (request.onupgradeneeded) {
+                const event = {
+                  type: 'upgradeneeded',
+                  target: request,
+                  transaction: upgradeTxn,
+                  oldVersion,
+                  newVersion: resolvedVersion,
+                };
+                // During upgradeneeded, the database is in a special state
+                // where createObjectStore/deleteObjectStore can be called
+                request.onupgradeneeded(event);
+              }
+
+              // Clear the upgrade transaction after upgradeneeded completes
+              db._upgradeTransaction = null;
+              writeStoredVersion(sqliteDb, resolvedVersion);
+              upgradeTxn._commitVersionChange();
+              shared!.version = resolvedVersion;
+              request.transaction = null;
+
+              // Fire onsuccess
+              request._resolveSync(db);
+            } catch (upgradeError: any) {
+              db._upgradeTransaction = null;
+              upgradeTxn._abortVersionChange();
+              request.transaction = null;
+              // The connection was never delivered; release it (closing the
+              // shared handle if this was the only reference — a retried
+              // open() then starts from a fresh handle instead of leaking one
+              // per attempt).
+              db.close();
+              request._reject(upgradeError);
             }
-
-            // Clear the upgrade transaction after upgradeneeded completes
-            db._upgradeTransaction = null;
-            writeStoredVersion(sqliteDb, resolvedVersion);
-            upgradeTxn._commitVersionChange();
-          } catch (upgradeError: any) {
-            db._upgradeTransaction = null;
-            upgradeTxn._abortVersionChange();
-            throw upgradeError;
-          }
+          };
+          db._scheduleTransaction(upgradeTxn);
         } else {
           writeStoredVersion(sqliteDb, resolvedVersion);
+          // Fire onsuccess
+          request._resolveSync(db);
         }
-
-        // Store the database reference (only reached once the upgrade, if any,
-        // has committed successfully).
-        this._databases.set(name, { version: resolvedVersion, sqliteDb });
-
-        // Fire onsuccess
-        request._resolveSync(db);
       } catch (e: any) {
         request._reject(e);
+        // Don't keep an unused handle cached for an open() that never
+        // produced a connection (e.g. VersionError).
+        shared?.releaseIfUnused();
       }
     });
 
     return request;
-  }
-
-  /**
-   * @internal - Evict a cached connection when its IDBDatabase.close() runs.
-   *
-   * open() reuses a cached sqliteDb handle for a name; without eviction, once a
-   * connection is closed the cache would keep handing out the dead handle and
-   * every subsequent open() would fail. Eviction lets the next open() create a
-   * fresh handle from the persisted SQLite file.
-   */
-  _handleConnectionClose(name: string, sqliteDb: any): void {
-    const entry = this._databases.get(name);
-    if (entry && entry.sqliteDb === sqliteDb) {
-      this._databases.delete(name);
-    }
   }
 
   /**
@@ -263,10 +284,9 @@ export class IDBFactory {
       try {
         const existing = this._databases.get(name);
         if (existing) {
-          // Close the SQLite database
-          if (existing.sqliteDb && existing.sqliteDb.close) {
-            existing.sqliteDb.close();
-          }
+          // Force-close the shared handle (its onClosed callback evicts the
+          // cache entry).
+          existing.forceClose();
           this._databases.delete(name);
         }
         this._sqliteProvider.delete?.(name);

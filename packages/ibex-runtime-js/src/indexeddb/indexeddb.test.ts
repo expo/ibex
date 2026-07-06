@@ -93,6 +93,16 @@ function txDone(tx: any): Promise<'complete' | 'abort'> {
   });
 }
 
+// Like txDone but tolerant of request error events bubbling to the
+// transaction (used with preventDefault()-ed request failures, where the
+// transaction still completes). (ENG-23117)
+function txSettled(tx: any): Promise<'complete' | 'abort'> {
+  return new Promise((resolve) => {
+    tx.oncomplete = () => resolve('complete');
+    tx.onabort = () => resolve('abort');
+  });
+}
+
 function reqDone<T = any>(req: any): Promise<T> {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
@@ -943,7 +953,10 @@ describe('ENG-23016: per-index key tables', () => {
     const s1 = tx1.objectStore('users');
     const ok = s1.add({ id: 1, email: 'a@x.com' });
     const dup = s1.add({ id: 2, email: 'a@x.com' }); // conflicts on the unique index
-    await txDone(tx1);
+    // Per spec an unhandled request error aborts the whole transaction;
+    // preventDefault() opts out so the other writes commit. (ENG-23117)
+    dup.onerror = (e: any) => e.preventDefault();
+    expect(await txSettled(tx1)).toBe('complete');
     expect(ok.result).toBe(1);
     expect(dup.error).toBeDefined();
     expect(dup.error.name).toBe('ConstraintError');
@@ -964,7 +977,8 @@ describe('ENG-23016: per-index key tables', () => {
     const s3 = tx3.objectStore('users');
     s3.add({ id: 3, email: 'c@x.com' });
     const clash = s3.put({ id: 3, email: 'a@x.com' });
-    await txDone(tx3);
+    clash.onerror = (e: any) => e.preventDefault();
+    expect(await txSettled(tx3)).toBe('complete');
     expect(clash.error?.name).toBe('ConstraintError');
     db.close();
   });
@@ -1145,6 +1159,467 @@ describe('ENG-23016: bounded-memory streaming cursors', () => {
     expect(keys.length).toBe(200);
     expect(keys[0]).toBe(100);
     expect(keys[199]).toBe(299);
+    db.close();
+  });
+});
+
+// ===========================================================================
+// ENG-23117 — transaction atomicity & isolation: overlapping transactions get
+// their own SQLite transaction (via the per-connection scheduler), schema
+// mutation requires an active versionchange transaction, unhandled request
+// errors abort, COMMIT failures surface as 'abort', sibling connections share
+// a refcounted handle + key generator, openRequest.transaction is live during
+// upgradeneeded, transaction modes are enforced, and rollback restores the
+// lazy-migration memos.
+// ===========================================================================
+
+describe('ENG-23117: overlapping transaction isolation', () => {
+  test('aborting the second of two overlapping readwrite txns rolls back only its own write', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'iso1', 1, (d) => d.createObjectStore('s'));
+
+    const t1 = db.transaction('s', 'readwrite');
+    const t2 = db.transaction('s', 'readwrite');
+    t1.objectStore('s').put('from-t1', 'a');
+    t2.objectStore('s').put('from-t2', 'b');
+    const d1 = txSettled(t1);
+    const d2 = txSettled(t2);
+    t2.abort();
+    expect(await d1).toBe('complete');
+    expect(await d2).toBe('abort');
+
+    // Pre-fix, t2's BEGIN failed silently and its put landed inside t1's
+    // transaction — the aborted t2 write persisted.
+    const all = await reqDone<any[]>(db.transaction('s', 'readonly').objectStore('s').getAll());
+    expect(all).toEqual(['from-t1']);
+    db.close();
+  });
+
+  test('aborting the first txn does not roll back the second (which fired complete)', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'iso2', 1, (d) => d.createObjectStore('s'));
+
+    const t1 = db.transaction('s', 'readwrite');
+    const t2 = db.transaction('s', 'readwrite');
+    t1.objectStore('s').put('from-t1', 'a');
+    t2.objectStore('s').put('from-t2', 'b');
+    const d1 = txSettled(t1);
+    const d2 = txSettled(t2);
+    t1.abort();
+    expect(await d1).toBe('abort');
+    expect(await d2).toBe('complete');
+
+    // Pre-fix, t1's ROLLBACK swept away t2's interleaved write even though t2
+    // reported success.
+    const all = await reqDone<any[]>(db.transaction('s', 'readonly').objectStore('s').getAll());
+    expect(all).toEqual(['from-t2']);
+    db.close();
+  });
+
+  test('a readonly txn queued behind a readwrite txn never sees uncommitted writes', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'iso3', 1, (d) => d.createObjectStore('s'));
+    const seed = db.transaction('s', 'readwrite');
+    seed.objectStore('s').put('committed', 1);
+    await txDone(seed);
+
+    // Writer adds a row then aborts; the overlapping readonly txn created
+    // while the writer is live must observe only the committed state.
+    const w = db.transaction('s', 'readwrite');
+    w.objectStore('s').put('dirty', 2);
+    const r = db.transaction('s', 'readonly');
+    const countP = reqDone<number>(r.objectStore('s').count());
+    const settled = txSettled(w);
+    w.abort();
+    await settled;
+    expect(await countP).toBe(1);
+    db.close();
+  });
+
+  test('a transaction created in another transaction\'s onsuccess queues and both commit', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'iso4', 1, (d) => d.createObjectStore('s'));
+
+    const order: string[] = [];
+    const t1 = db.transaction('s', 'readwrite');
+    const r1 = t1.objectStore('s').put('one', 1);
+    const done = new Promise<void>((resolve, reject) => {
+      r1.onsuccess = () => {
+        const t2 = db.transaction('s', 'readwrite');
+        t2.objectStore('s').put('two', 2);
+        t2.oncomplete = () => { order.push('t2'); resolve(); };
+        t2.onabort = () => reject(new Error('t2 aborted'));
+      };
+      t1.oncomplete = () => order.push('t1');
+      t1.onabort = () => reject(new Error('t1 aborted'));
+    });
+    await done;
+    expect(order).toEqual(['t1', 't2']);
+    const all = await reqDone<any[]>(db.transaction('s', 'readonly').objectStore('s').getAll());
+    expect(all).toEqual(['one', 'two']);
+    db.close();
+  });
+});
+
+describe('ENG-23117: schema mutation requires an active versionchange txn', () => {
+  test('createObjectStore/deleteObjectStore/createIndex/deleteIndex throw InvalidStateError outside upgradeneeded', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'guard1', 1, (d) => {
+      const s = d.createObjectStore('s', { keyPath: 'id' });
+      s.createIndex('byV', 'v');
+    });
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put({ id: 1, v: 'x' });
+    await txDone(wtx);
+
+    // Pre-fix the inverted guard PASSED whenever no upgrade was running, so
+    // this DROP TABLE destroyed the store's data with no transaction at all.
+    expect(() => db.deleteObjectStore('s')).toThrow();
+    try { db.deleteObjectStore('s'); } catch (e: any) { expect(e.name).toBe('InvalidStateError'); }
+    expect(() => db.createObjectStore('t')).toThrow();
+    try { db.createObjectStore('t'); } catch (e: any) { expect(e.name).toBe('InvalidStateError'); }
+
+    const tx = db.transaction('s', 'readwrite');
+    const store = tx.objectStore('s');
+    try { store.createIndex('byW', 'w'); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('InvalidStateError'); }
+    try { store.deleteIndex('byV'); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('InvalidStateError'); }
+    tx.abort();
+
+    // The store and its data survived every rejected mutation.
+    const rec: any = await reqDone(db.transaction('s', 'readonly').objectStore('s').get(1));
+    expect(rec.v).toBe('x');
+    db.close();
+  });
+});
+
+describe('ENG-23117: request errors abort the transaction', () => {
+  test('an unhandled failing request aborts and rolls back every write', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'errabort1', 1, (d) => d.createObjectStore('s', { keyPath: 'id' }));
+
+    const tx = db.transaction('s', 'readwrite');
+    const s = tx.objectStore('s');
+    s.add({ id: 1 });
+    s.add({ id: 1 }); // ConstraintError — no preventDefault
+    s.add({ id: 2 });
+    expect(await txSettled(tx)).toBe('abort');
+    expect(tx.error?.name).toBe('ConstraintError');
+
+    // Pre-fix the transaction went on to COMMIT records 1 and 2.
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(0);
+    db.close();
+  });
+
+  test('preventDefault() on the error event lets the transaction commit the other writes', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'errabort2', 1, (d) => d.createObjectStore('s', { keyPath: 'id' }));
+
+    const tx = db.transaction('s', 'readwrite');
+    const s = tx.objectStore('s');
+    s.add({ id: 1 });
+    const dup = s.add({ id: 1 });
+    dup.onerror = (e: any) => e.preventDefault();
+    s.add({ id: 2 });
+    expect(await txSettled(tx)).toBe('complete');
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(2);
+    db.close();
+  });
+
+  test('an exception thrown in a success handler aborts the transaction', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'errabort3', 1, (d) => d.createObjectStore('s', { keyPath: 'id' }));
+
+    const tx = db.transaction('s', 'readwrite');
+    const r = tx.objectStore('s').put({ id: 1 });
+    r.onsuccess = () => { throw new Error('handler boom'); };
+    expect(await txSettled(tx)).toBe('abort');
+    expect(tx.error?.name).toBe('AbortError');
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(0);
+    db.close();
+  });
+});
+
+describe('ENG-23117: COMMIT/ROLLBACK failures surface', () => {
+  test("a failed COMMIT fires 'abort' with the underlying error, not 'complete'", async () => {
+    const dir = makeDir();
+    const control = { failCommits: 0 };
+    const provider = {
+      create(name: string) {
+        const real = new Database(dbPath(dir, name));
+        const guard = (sql: string) => {
+          if (control.failCommits > 0 && /^COMMIT\b/i.test(sql.trim())) {
+            control.failCommits--;
+            throw new Error('database or disk is full');
+          }
+        };
+        return {
+          query(sql: string) { return real.query(sql); },
+          exec(sql: string, ...p: any[]) { guard(sql); return (real as any).exec(sql, ...p); },
+          run(sql: string, ...p: any[]) { guard(sql); return (real as any).run(sql, ...p); },
+          close() { return real.close(); },
+        };
+      },
+      delete(_: string) {},
+    };
+    const factory = new IDBFactory(provider as any);
+    const db = await openDb(factory, 'commitfail', 1, (d) => d.createObjectStore('s'));
+
+    const tx = db.transaction('s', 'readwrite');
+    tx.objectStore('s').put('v', 'k');
+    control.failCommits = 1;
+    // Pre-fix the COMMIT failure was swallowed and 'complete' fired — the app
+    // was told its data was durable when the transaction failed.
+    expect(await txSettled(tx)).toBe('abort');
+    expect(String(tx.error?.message)).toContain('disk is full');
+
+    // The write was rolled back, and the connection still works.
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(0);
+    const tx2 = db.transaction('s', 'readwrite');
+    tx2.objectStore('s').put('v2', 'k2');
+    expect(await txSettled(tx2)).toBe('complete');
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(1);
+    db.close();
+  });
+});
+
+describe('ENG-23117: sibling connections', () => {
+  test('close() on one connection does not brick its sibling; the key generator is shared', async () => {
+    const factory = makeFactory();
+    const db1 = await openDb(factory, 'sib', 1, (d) => {
+      d.createObjectStore('s', { autoIncrement: true });
+    });
+    const db2 = await openDb(factory, 'sib', undefined);
+    expect(db2.version).toBe(1);
+
+    // Alternating adds draw from ONE generator (pre-fix each connection cached
+    // its own counter and handed out colliding keys).
+    const t1 = db1.transaction('s', 'readwrite');
+    expect(await reqDone(t1.objectStore('s').add({}))).toBe(1);
+    await txDone(t1);
+    const t2 = db2.transaction('s', 'readwrite');
+    expect(await reqDone(t2.objectStore('s').add({}))).toBe(2);
+    await txDone(t2);
+    const t3 = db1.transaction('s', 'readwrite');
+    expect(await reqDone(t3.objectStore('s').add({}))).toBe(3);
+    await txDone(t3);
+
+    // Pre-fix db1.close() closed the SHARED handle and every db2 op threw.
+    db1.close();
+    const t4 = db2.transaction('s', 'readwrite');
+    expect(await reqDone(t4.objectStore('s').add({}))).toBe(4);
+    await txDone(t4);
+    expect(await reqDone<number>(db2.transaction('s', 'readonly').objectStore('s').count())).toBe(4);
+    db2.close();
+
+    // With both connections closed the handle really is released: a fresh
+    // open() works from disk.
+    const db3 = await openDb(factory, 'sib', undefined);
+    expect(await reqDone<number>(db3.transaction('s', 'readonly').objectStore('s').count())).toBe(4);
+    db3.close();
+  });
+});
+
+describe('ENG-23117: upgrade transaction wiring', () => {
+  test('e.target.transaction works during upgradeneeded (canonical add-index migration)', async () => {
+    const factory = makeFactory();
+    const db1 = await openDb(factory, 'upg1', 1, (d) => {
+      d.createObjectStore('users', { keyPath: 'id' });
+    });
+    const seed = db1.transaction('users', 'readwrite');
+    seed.objectStore('users').put({ id: 1, email: 'a@x.com' });
+    await txDone(seed);
+    db1.close();
+
+    // The MDN-standard migration idiom: reach the store through the OPEN
+    // REQUEST's transaction. Pre-fix request.transaction was null and this
+    // threw, rolling back the whole upgrade.
+    let sawTxn: any = null;
+    const db2 = await new Promise<any>((resolve, reject) => {
+      const req = factory.open('upg1', 2);
+      req.onupgradeneeded = (e: any) => {
+        sawTxn = e.target.transaction;
+        expect(e.target.transaction).toBe(e.transaction);
+        const store = e.target.transaction.objectStore('users');
+        store.createIndex('byEmail', 'email');
+        // A store created mid-upgrade joins the transaction's scope.
+        e.target.result.createObjectStore('logs');
+        expect(() => e.target.transaction.objectStore('logs')).not.toThrow();
+      };
+      req.onsuccess = () => {
+        // Outside upgradeneeded the open request's transaction is null again.
+        expect(req.transaction).toBeNull();
+        resolve(req.result);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    expect(sawTxn).not.toBeNull();
+
+    // The index created through the request transaction is live and backfilled.
+    const rec: any = await reqDone(
+      db2.transaction('users', 'readonly').objectStore('users').index('byEmail').get('a@x.com'),
+    );
+    expect(rec.id).toBe(1);
+    expect(db2.objectStoreNames.contains('logs')).toBe(true);
+    db2.close();
+  });
+});
+
+describe('ENG-23117: transaction mode enforcement', () => {
+  test('mutating operations on a readonly transaction throw ReadOnlyError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'mode1', 1, (d) => d.createObjectStore('s'));
+    const seed = db.transaction('s', 'readwrite');
+    seed.objectStore('s').put('v', 'k');
+    await txDone(seed);
+
+    const ro = db.transaction('s', 'readonly');
+    const store = ro.objectStore('s');
+    for (const op of [
+      () => store.put('x', 'k2'),
+      () => store.add('x', 'k3'),
+      () => store.delete('k'),
+      () => store.clear(),
+    ]) {
+      try { op(); expect(false).toBe(true); } catch (e: any) { expect(e.name).toBe('ReadOnlyError'); }
+    }
+    // cursor.update/delete are gated too (checked inside the cursor's success
+    // handler, while the transaction is still active).
+    const cursorErrs = await new Promise<string[]>((resolve, reject) => {
+      const names: string[] = [];
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cur = req.result;
+        try { cur.update('y'); } catch (e: any) { names.push(e.name); }
+        try { cur.delete(); } catch (e: any) { names.push(e.name); }
+        resolve(names);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    expect(cursorErrs).toEqual(['ReadOnlyError', 'ReadOnlyError']);
+
+    // Nothing was written; pre-fix the readonly put auto-committed instantly.
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(1);
+    db.close();
+  });
+
+  test("db.transaction rejects 'versionchange' and junk modes with TypeError", async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'mode2', 1, (d) => d.createObjectStore('s'));
+    expect(() => db.transaction('s', 'versionchange' as any)).toThrow(TypeError);
+    expect(() => db.transaction('s', 'readwriteflush' as any)).toThrow(TypeError);
+    db.close();
+  });
+});
+
+describe('ENG-23117: rollback restores lazy-migration state', () => {
+  test('aborting the txn that lazily created the index table lets later txns rebuild it', async () => {
+    const dir = makeDir();
+    const name = 'rollback-idx';
+    // Pre-ENG-23016 shape: index metadata but no companion table/marker.
+    const raw = new Database(dbPath(dir, name));
+    raw.run(`CREATE TABLE _idb_meta (key TEXT PRIMARY KEY, value TEXT)`);
+    raw.run(`INSERT INTO _idb_meta(key, value) VALUES ('version', '1')`);
+    raw.run(`CREATE TABLE _idb_stores (store_name TEXT PRIMARY KEY, key_path TEXT, auto_increment INTEGER DEFAULT 0)`);
+    raw.run(`INSERT INTO _idb_stores(store_name, key_path, auto_increment) VALUES ('s', '"id"', 0)`);
+    raw.run(`CREATE TABLE _idb_indexes (store_name TEXT, index_name TEXT, key_path TEXT, unique_flag INTEGER DEFAULT 0, multi_entry INTEGER DEFAULT 0, PRIMARY KEY (store_name, index_name))`);
+    raw.run(`INSERT INTO _idb_indexes(store_name, index_name, key_path, unique_flag, multi_entry) VALUES ('s', 'byV', '"v"', 0, 0)`);
+    raw.run(`CREATE TABLE "idb_store_s" (key TEXT PRIMARY KEY, value TEXT, keyenc TEXT)`);
+    for (let i = 1; i <= 3; i++) {
+      raw.run(
+        `INSERT INTO "idb_store_s" (key, value, keyenc) VALUES (?, ?, ?)`,
+        serializeKey(i),
+        serializeValue({ id: i, v: `v${i}` }),
+        encodeOrderedKey(i),
+      );
+    }
+    raw.close();
+
+    const factory = new IDBFactory(makeProvider(dir) as any);
+    const db = await openDb(factory, name, undefined);
+
+    // This readwrite txn's put() lazily CREATEs + backfills the index table
+    // inside its BEGIN; abort() rolls that DDL back. Pre-fix the ready-memo
+    // survived the rollback, so every later index read hit "no such table".
+    const tx1 = db.transaction('s', 'readwrite');
+    tx1.objectStore('s').put({ id: 4, v: 'v4' });
+    const settled = txSettled(tx1);
+    tx1.abort();
+    expect(await settled).toBe('abort');
+
+    const keys = await reqDone<any[]>(
+      db.transaction('s', 'readonly').objectStore('s').index('byV').getAllKeys(),
+    );
+    expect(keys).toEqual([1, 2, 3]);
+
+    // Writes keep working (index maintenance re-created the table).
+    const tx2 = db.transaction('s', 'readwrite');
+    tx2.objectStore('s').put({ id: 5, v: 'v5' });
+    expect(await txSettled(tx2)).toBe('complete');
+    expect(await reqDone<any[]>(
+      db.transaction('s', 'readonly').objectStore('s').index('byV').getAllKeys('v5'),
+    )).toEqual([5]);
+    db.close();
+  });
+
+  test('aborting the txn that lazily ALTERed keyenc onto a legacy store recovers', async () => {
+    const dir = makeDir();
+    const name = 'rollback-keyenc';
+    // Pre-ENG-22999 shape: (key, value) only, no keyenc column.
+    const raw = new Database(dbPath(dir, name));
+    raw.run(`CREATE TABLE _idb_meta (key TEXT PRIMARY KEY, value TEXT)`);
+    raw.run(`INSERT INTO _idb_meta(key, value) VALUES ('version', '1')`);
+    raw.run(`CREATE TABLE _idb_stores (store_name TEXT PRIMARY KEY, key_path TEXT, auto_increment INTEGER DEFAULT 0)`);
+    raw.run(`INSERT INTO _idb_stores(store_name, key_path, auto_increment) VALUES ('s', 'null', 0)`);
+    raw.run(`CREATE TABLE _idb_indexes (store_name TEXT, index_name TEXT, key_path TEXT, unique_flag INTEGER DEFAULT 0, multi_entry INTEGER DEFAULT 0, PRIMARY KEY (store_name, index_name))`);
+    raw.run(`CREATE TABLE "idb_store_s" (key TEXT PRIMARY KEY, value TEXT)`);
+    for (let i = 1; i <= 3; i++) {
+      raw.run(`INSERT INTO "idb_store_s" (key, value) VALUES (?, ?)`, serializeKey(i), serializeValue(`v${i}`));
+    }
+    raw.close();
+
+    const factory = new IDBFactory(makeProvider(dir) as any);
+    const db = await openDb(factory, name, undefined);
+
+    // First touch happens inside an aborted readwrite txn: the ALTER TABLE ...
+    // ADD COLUMN keyenc rolls back with it. Pre-fix the memo said the column
+    // existed, and every later read failed with "no such column: keyenc".
+    const tx1 = db.transaction('s', 'readwrite');
+    tx1.objectStore('s').put('v9', 9);
+    const settled = txSettled(tx1);
+    tx1.abort();
+    expect(await settled).toBe('abort');
+
+    expect(await reqDone<any[]>(
+      db.transaction('s', 'readonly').objectStore('s').getAll(IDBKeyRange.bound(1, 2)),
+    )).toEqual(['v1', 'v2']);
+    const tx2 = db.transaction('s', 'readwrite');
+    tx2.objectStore('s').put('v4', 4);
+    expect(await txSettled(tx2)).toBe('complete');
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(4);
+    db.close();
+  });
+
+  test('abort reverts the autoIncrement key generator (per spec)', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'rollback-ai', 1, (d) => {
+      d.createObjectStore('s', { autoIncrement: true });
+    });
+
+    const tx1 = db.transaction('s', 'readwrite');
+    const s1 = tx1.objectStore('s');
+    s1.add({});
+    s1.add({});
+    const r3 = s1.add({});
+    const settled = txSettled(tx1);
+    tx1.abort();
+    expect(await settled).toBe('abort');
+    void r3;
+
+    // The generator reverts to its pre-transaction state, so the next add()
+    // hands out 1 again, not 4.
+    const tx2 = db.transaction('s', 'readwrite');
+    expect(await reqDone(tx2.objectStore('s').add({}))).toBe(1);
+    await txDone(tx2);
     db.close();
   });
 });

@@ -82,12 +82,33 @@ export class IDBRequest<T = any> {
         try {
           fn(event);
         } catch (e) {
-          if (this._transaction && this._transaction._handleError) {
-            this._transaction._handleError(e);
+          // An exception thrown by a handler aborts the transaction with
+          // AbortError (spec). (ENG-23117)
+          if (this._transaction && this._transaction._abortWith) {
+            this._transaction._abortWith(new DOMException(
+              e?.message ?? 'Exception in event handler',
+              'AbortError',
+            ));
           }
         }
       }
     }
+  }
+
+  /**
+   * @internal - Build a cancelable error event. preventDefault() is how a
+   * handler opts OUT of the spec's default behavior of aborting the whole
+   * transaction when a request fails. (ENG-23117)
+   */
+  private _makeErrorEvent(): any {
+    return {
+      type: 'error',
+      target: this,
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
   }
 
   /** @internal - Resolve the request with a result */
@@ -111,9 +132,13 @@ export class IDBRequest<T = any> {
           try {
             this.onsuccess(event);
           } catch (e) {
-            // Errors in handlers propagate to transaction
-            if (tx && tx._handleError) {
-              tx._handleError(e);
+            // An exception in a success handler aborts the transaction with
+            // AbortError (spec) — it must not go on to COMMIT. (ENG-23117)
+            if (tx && tx._abortWith) {
+              tx._abortWith(new DOMException(
+                e?.message ?? 'Exception in success handler',
+                'AbortError',
+              ));
             }
           }
         }
@@ -132,20 +157,55 @@ export class IDBRequest<T = any> {
       ? error
       : new DOMException(error.message, 'UnknownError');
     this._result = undefined as any;
-    const event = { type: 'error', target: this };
+    const event = this._makeErrorEvent();
     const tx = this._transaction;
     if (tx && tx._retain) tx._retain();
     queueMicrotask(() => {
       if (tx && tx._beginEventDispatch) tx._beginEventDispatch();
       try {
         if (this.onerror) {
-          this.onerror(event);
+          try {
+            this.onerror(event);
+          } catch (e) {
+            if (tx && tx._abortWith) {
+              tx._abortWith(new DOMException(
+                e?.message ?? 'Exception in error handler',
+                'AbortError',
+              ));
+            }
+          }
         }
         this._fireListeners('error', event);
+        // Bubble to the transaction. Unless a handler preventDefault()-ed the
+        // event, the transaction aborts and rolls back all of its writes —
+        // previously it went on to COMMIT the partial work. (ENG-23117)
+        if (tx && tx._requestErrored) {
+          tx._requestErrored(event, this._error);
+        }
       } finally {
         if (tx && tx._endEventDispatch) tx._endEventDispatch();
         if (tx && tx._release) tx._release();
       }
+    });
+  }
+
+  /**
+   * @internal - Fail the request because its transaction aborted before the
+   * operation ever ran. Dispatches the error event WITHOUT the abort-bubbling
+   * of _reject (the transaction is already finished). (ENG-23117)
+   */
+  _abort(error: DOMException): void {
+    this._readyState = 'done';
+    this._error = error;
+    this._result = undefined as any;
+    const event = this._makeErrorEvent();
+    queueMicrotask(() => {
+      if (this.onerror) {
+        try {
+          this.onerror(event);
+        } catch (_) { /* transaction already aborted */ }
+      }
+      this._fireListeners('error', event);
     });
   }
 

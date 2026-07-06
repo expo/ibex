@@ -4,6 +4,19 @@
  *
  * Groups database operations that must succeed or fail as a unit.
  *
+ * Every connection to one database name shares a single SQLite handle, so at
+ * most one transaction at a time may hold the SQLite BEGIN. Transactions are
+ * therefore serialized by the shared-connection scheduler (see
+ * SharedConnectionState in IDBDatabase): a transaction created while an
+ * earlier one is live QUEUES — its operations are recorded and executed, in
+ * creation order, once every earlier transaction has committed or aborted.
+ * Previously a second concurrent readwrite transaction's BEGIN failed
+ * silently and both transactions interleaved inside the first one's SQLite
+ * transaction, so aborting one rolled back (or committed) the other's writes.
+ * The spec requires transactions with overlapping scopes to run in creation
+ * order; running ALL of a connection's transactions in creation order is a
+ * conservative, spec-permitted schedule. (ENG-23117)
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/IDBTransaction
  */
 
@@ -39,6 +52,23 @@ export class IDBTransaction {
   _pending = 0;
   /** @internal - Whether a SQLite BEGIN has been issued for this transaction */
   private _sqliteBegan = false;
+  /**
+   * @internal - Whether the connection scheduler has started this transaction.
+   * Until then operations queue in `_opQueue` and auto-commit is deferred.
+   * (ENG-23117)
+   */
+  _started = false;
+  /**
+   * @internal - Operations issued while this transaction waited its turn.
+   * Each entry's `run` performs the SQL and settles its request; `request` is
+   * rejected with AbortError if the transaction aborts before starting.
+   */
+  private _opQueue: Array<{ request: any; run: () => void }> = [];
+  /**
+   * @internal - For versionchange transactions: the upgrade body, invoked by
+   * the scheduler when the transaction may run (see IDBFactory.open).
+   */
+  _onStart: (() => void) | null = null;
   /** @internal - EventTarget listeners keyed by event type */
   private _listeners: Record<string, Function[]> = {};
 
@@ -48,21 +78,22 @@ export class IDBTransaction {
 
   constructor(db: any, storeNames: string[], mode: IDBTransactionMode) {
     this._db = db;
-    this._storeNames = storeNames;
+    this._storeNames = [...storeNames];
     this._mode = mode;
 
-    // Begin a SQLite transaction for readwrite so writes can roll back on
-    // abort. versionchange transactions are begun explicitly by IDBFactory.open
-    // via _beginVersionChange() so schema changes roll back if upgrade throws.
-    if (mode === 'readwrite') {
-      this._beginSqlite();
-    }
-
-    // A readonly/readwrite transaction is active for the duration of the task
-    // that created it, then goes inactive at the microtask checkpoint. Each
-    // bound request reactivates it while its event handler runs. Auto-commit
-    // fires once it is idle (no in-flight requests) and no longer active.
+    // Register with the connection's transaction scheduler. If no other
+    // transaction is live this starts (and, for readwrite, BEGINs)
+    // synchronously, so the transaction is usable during its creating task;
+    // otherwise it queues until every earlier transaction finishes.
+    // versionchange transactions are scheduled explicitly by IDBFactory.open
+    // once their upgrade body (_onStart) is attached. (ENG-23117)
     if (mode !== 'versionchange') {
+      db._scheduleTransaction(this);
+
+      // A readonly/readwrite transaction is active for the duration of the task
+      // that created it, then goes inactive at the microtask checkpoint. Each
+      // bound request reactivates it while its event handler runs. Auto-commit
+      // fires once it is idle (no in-flight requests) and no longer active.
       queueMicrotask(() => {
         if (this._state === 'active') this._state = 'inactive';
         this._maybeAutoCommit();
@@ -139,33 +170,53 @@ export class IDBTransaction {
 
   /**
    * Commit the transaction.
+   *
+   * Per spec this only refuses new requests; the actual COMMIT happens once
+   * every in-flight (and still-queued) request has finished.
    */
   commit(): void {
-    if (this._committed || this._aborted) return;
-    this._committed = true;
-    this._state = 'finished';
-    // Commit SQLite transaction if one was started
-    this._commitSqlite();
-    // Fire oncomplete asynchronously
-    const event = { type: 'complete', target: this };
-    queueMicrotask(() => {
-      if (this.oncomplete) {
-        this.oncomplete(event);
-      }
-      this._fireListeners('complete', event);
-    });
+    if (this._state === 'finished') return;
+    if (this._state === 'active') this._state = 'inactive';
+    this._maybeAutoCommit();
   }
 
   /**
    * Abort the transaction.
    */
   abort(): void {
+    this._abortWith(new DOMException('Transaction was aborted', 'AbortError'));
+  }
+
+  /**
+   * @internal - Abort with a specific error: explicit abort(), a request error
+   * event that no handler preventDefault()-ed, an exception thrown by a
+   * success/error handler, or a BEGIN/COMMIT failure. Rolls back this
+   * transaction's writes (and only this transaction's — see the scheduler
+   * notes above), fails any operations that never got to run, and hands the
+   * connection to the next queued transaction. (ENG-23117)
+   */
+  _abortWith(error: any): void {
     if (this._committed || this._aborted) return;
     this._aborted = true;
     this._state = 'finished';
-    this._error = new DOMException('Transaction was aborted', 'AbortError');
-    // Rollback SQLite transaction if one was started
+    this._error = error instanceof DOMException
+      ? error
+      : new DOMException(error?.message ?? 'Transaction was aborted', 'AbortError');
+
+    // Operations queued while waiting for the connection never ran; their
+    // requests fail with AbortError per the spec's abort steps.
+    const queued = this._opQueue;
+    this._opQueue = [];
+
     this._rollbackSqlite();
+    this._db._transactionFinished(this);
+
+    for (const { request } of queued) {
+      if (request) {
+        request._abort(new DOMException('The transaction was aborted.', 'AbortError'));
+      }
+    }
+
     const event = { type: 'abort', target: this };
     queueMicrotask(() => {
       if (this.onabort) {
@@ -175,18 +226,31 @@ export class IDBTransaction {
     });
   }
 
-  /** @internal - Handle an error from a request */
-  _handleError(error: any): void {
+  /**
+   * @internal - A bound request rejected and has finished dispatching its own
+   * error handlers. The event bubbles to the transaction, and — per spec —
+   * unless some handler called preventDefault(), the transaction aborts and
+   * rolls back every write it performed. Previously the error was reported and
+   * the transaction went on to COMMIT its partial writes. (ENG-23117)
+   */
+  _requestErrored(event: any, error: any): void {
     this._error = error instanceof DOMException
       ? error
       : new DOMException(error?.message ?? 'Unknown error', 'UnknownError');
-    const event = { type: 'error', target: this };
-    queueMicrotask(() => {
-      if (this.onerror) {
+    if (this.onerror) {
+      try {
         this.onerror(event);
+      } catch (e: any) {
+        this._abortWith(new DOMException(
+          e?.message ?? 'Exception in error handler',
+          'AbortError',
+        ));
       }
-      this._fireListeners('error', event);
-    });
+    }
+    this._fireListeners('error', event);
+    if (!event.defaultPrevented) {
+      this._abortWith(this._error);
+    }
   }
 
   // ================================================================
@@ -206,6 +270,20 @@ export class IDBTransaction {
           ? 'The transaction has finished.'
           : 'The transaction is not active.',
         'TransactionInactiveError',
+      );
+    }
+  }
+
+  /**
+   * @internal - Throw ReadOnlyError for a mutating operation on a readonly
+   * transaction. Previously the mode was never enforced, so readonly writes
+   * executed (outside any BEGIN) and even survived abort(). (ENG-23117)
+   */
+  _assertWritable(): void {
+    if (this._mode === 'readonly') {
+      throw new DOMException(
+        'The transaction is read-only.',
+        'ReadOnlyError',
       );
     }
   }
@@ -235,63 +313,215 @@ export class IDBTransaction {
   private _maybeAutoCommit(): void {
     if (this._state !== 'inactive') return;
     if (this._mode === 'versionchange') return;
+    // Not started yet: queued behind an earlier transaction. Its queued
+    // operations must still run (and their events dispatch) before committing.
+    if (!this._started) return;
     if (this._pending > 0) return;
-    this.commit();
+    if (this._opQueue.length > 0) return;
+    this._finishCommit();
+  }
+
+  // ================================================================
+  // Scheduling: deferred operations (ENG-23117)
+  // ================================================================
+
+  /**
+   * @internal - Execute an operation now if this transaction has started, or
+   * queue it until the scheduler starts the transaction. `request` (nullable)
+   * is rejected with AbortError if the transaction aborts before starting.
+   */
+  _enqueueOp(request: any, run: () => void): void {
+    if (this._started) {
+      run();
+      return;
+    }
+    this._opQueue.push({ request, run });
+  }
+
+  /**
+   * @internal - Called by the connection scheduler when this transaction may
+   * run: issues BEGIN (readwrite), then executes the operations that queued
+   * while it waited. versionchange transactions instead run their upgrade
+   * body, which manages BEGIN/COMMIT itself.
+   */
+  _start(): void {
+    if (this._started || this._state === 'finished') return;
+    this._started = true;
+
+    if (this._mode === 'readwrite') {
+      try {
+        this._beginSqlite();
+      } catch (e: any) {
+        // Fail loud: a transaction that cannot BEGIN has no rollback boundary,
+        // so running its writes anyway would break atomicity. (ENG-23117)
+        this._abortWith(new DOMException(
+          `Could not begin transaction: ${e?.message ?? e}`,
+          'UnknownError',
+        ));
+        return;
+      }
+    }
+
+    if (this._onStart) {
+      const run = this._onStart;
+      this._onStart = null;
+      run();
+      return;
+    }
+
+    while (this._opQueue.length > 0 && this._state !== 'finished') {
+      const op = this._opQueue.shift()!;
+      op.run();
+    }
+    this._maybeAutoCommit();
+  }
+
+  /** @internal - createObjectStore adds the new store to the upgrade scope. */
+  _addToScope(name: string): void {
+    if (!this._storeNames.includes(name)) this._storeNames.push(name);
+  }
+
+  /** @internal - deleteObjectStore removes the store from the upgrade scope. */
+  _removeFromScope(name: string): void {
+    this._storeNames = this._storeNames.filter(n => n !== name);
+    this._stores.delete(name);
   }
 
   // ================================================================
   // SQLite transaction wrapping
   // ================================================================
 
+  /** @internal - Finish a readonly/readwrite transaction by committing. */
+  private _finishCommit(): void {
+    if (this._state === 'finished') return;
+    this._state = 'finished';
+
+    if (this._sqliteBegan) {
+      try {
+        this._db._exec('COMMIT');
+        this._sqliteBegan = false;
+        this._db._commitTxnSnapshot();
+      } catch (e: any) {
+        // COMMIT failed (SQLITE_FULL/BUSY/IOERR — realistic on a full mobile
+        // disk): the writes are NOT durable. Roll back and report 'abort' with
+        // the underlying error; firing 'complete' here would tell the app its
+        // data persisted when it did not. (ENG-23117)
+        this._aborted = true;
+        this._error = new DOMException(
+          `Transaction commit failed: ${e?.message ?? e}`,
+          'UnknownError',
+        );
+        try {
+          this._db._exec('ROLLBACK');
+        } catch (_) {
+          // Best-effort: after a failed COMMIT, SQLite has usually rolled the
+          // transaction back already; the abort event carries the COMMIT error.
+        }
+        this._sqliteBegan = false;
+        this._db._rollbackTxnSnapshot();
+        this._db._transactionFinished(this);
+        const abortEvent = { type: 'abort', target: this };
+        queueMicrotask(() => {
+          if (this.onabort) {
+            this.onabort(abortEvent);
+          }
+          this._fireListeners('abort', abortEvent);
+        });
+        return;
+      }
+    }
+
+    this._committed = true;
+    this._db._transactionFinished(this);
+    const event = { type: 'complete', target: this };
+    queueMicrotask(() => {
+      if (this.oncomplete) {
+        this.oncomplete(event);
+      }
+      this._fireListeners('complete', event);
+    });
+  }
+
   /** @internal - Begin the SQLite transaction backing a versionchange upgrade. */
   _beginVersionChange(): void {
+    this._started = true;
     this._beginSqlite();
   }
 
-  /** @internal - Commit a versionchange upgrade's schema/data changes. */
+  /**
+   * @internal - Commit a versionchange upgrade's schema/data changes. Throws
+   * (after rolling back) if the COMMIT itself fails, so IDBFactory.open rejects
+   * instead of reporting a successful upgrade that never persisted.
+   */
   _commitVersionChange(): void {
-    this._committed = true;
+    if (this._committed || this._aborted) return;
     this._state = 'finished';
-    this._commitSqlite();
+    if (this._sqliteBegan) {
+      try {
+        this._db._exec('COMMIT');
+        this._sqliteBegan = false;
+        this._db._commitTxnSnapshot();
+      } catch (e: any) {
+        this._aborted = true;
+        try {
+          this._db._exec('ROLLBACK');
+        } catch (_) { /* best-effort; see _finishCommit */ }
+        this._sqliteBegan = false;
+        this._db._rollbackTxnSnapshot();
+        this._db._transactionFinished(this);
+        throw new DOMException(
+          `Upgrade commit failed: ${e?.message ?? e}`,
+          'UnknownError',
+        );
+      }
+    }
+    this._committed = true;
+    this._db._transactionFinished(this);
   }
 
   /** @internal - Roll back a versionchange upgrade whose onupgradeneeded threw. */
   _abortVersionChange(): void {
+    if (this._committed || this._aborted) return;
     this._aborted = true;
     this._state = 'finished';
     this._rollbackSqlite();
+    this._db._transactionFinished(this);
   }
 
-  /** @internal - Begin a SQLite transaction */
+  /**
+   * @internal - Begin a SQLite transaction. Throws on failure — the scheduler
+   * guarantees no other transaction holds the connection's BEGIN, so a failure
+   * here is a real error (e.g. SQLITE_BUSY from another process), and
+   * swallowing it is exactly what let overlapping transactions interleave
+   * inside one another's BEGIN. (ENG-23117)
+   */
   private _beginSqlite(): void {
     if (this._sqliteBegan) return;
-    try {
-      this._db._exec('BEGIN TRANSACTION');
-      this._sqliteBegan = true;
-    } catch (_) {
-      // Some environments may not support explicit transactions; that's OK
-    }
+    this._db._exec('BEGIN TRANSACTION');
+    this._sqliteBegan = true;
+    // Snapshot the connection-level caches (autoIncrement key generators,
+    // keyenc/index-table migration memos): SQLite DDL is transactional, so a
+    // rollback that undoes a lazy ALTER/CREATE must also undo the memo that
+    // says it happened. (ENG-23117)
+    this._db._beginTxnSnapshot();
   }
 
-  /** @internal - Commit the SQLite transaction */
-  private _commitSqlite(): void {
-    if (!this._sqliteBegan) return;
-    try {
-      this._db._exec('COMMIT');
-    } catch (_) {
-      // Ignore
-    }
-    this._sqliteBegan = false;
-  }
-
-  /** @internal - Rollback the SQLite transaction */
+  /** @internal - Roll back the SQLite transaction. */
   private _rollbackSqlite(): void {
     if (!this._sqliteBegan) return;
+    this._sqliteBegan = false;
     try {
       this._db._exec('ROLLBACK');
-    } catch (_) {
-      // Ignore
+    } catch (e: any) {
+      // Surface a failed ROLLBACK instead of reporting a clean abort: the
+      // transaction's writes may have persisted. (ENG-23117)
+      this._error = new DOMException(
+        `Transaction rollback failed: ${e?.message ?? e}`,
+        'UnknownError',
+      );
     }
-    this._sqliteBegan = false;
+    // Whether or not ROLLBACK succeeded the cached generators/memos may no
+    // longer match disk — restore the pre-transaction snapshot.
+    this._db._rollbackTxnSnapshot();
   }
 }

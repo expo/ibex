@@ -12,46 +12,170 @@ import { IDBIndex } from './IDBIndex';
 import { deserializeKey, encodeOrderedKey } from './serialization';
 import { DOMException, makeDOMStringList, sanitizeName } from './utils';
 
+/**
+ * @internal - State shared by every open connection (IDBDatabase) to one
+ * database name. (ENG-23117)
+ *
+ * open() previously handed each connection the same raw SQLite handle with no
+ * coordination: close() on one connection closed the handle under its
+ * siblings, each connection kept its own autoIncrement/migration caches
+ * (handing out colliding generated keys), and transactions from any
+ * connection silently interleaved inside one SQLite BEGIN. Everything a
+ * database NAME (rather than one connection) owns now lives here:
+ *
+ *  - the SQLite handle, refcounted — it closes when the last connection
+ *    closes and any in-flight transactions have drained;
+ *  - the transaction scheduler — one transaction at a time, in creation
+ *    order, across ALL connections (see IDBTransaction);
+ *  - the autoIncrement key generators and the keyenc/index-table migration
+ *    memos (ENG-22999 / ENG-23016), with a pre-transaction snapshot so a
+ *    rollback restores them (rolled-back lazy DDL must also roll back the
+ *    memo that says it happened).
+ */
+export class SharedConnectionState {
+  sqliteDb: any;
+  /** The database's current (persisted) version. */
+  version: number;
+  /** Open connections; the SQLite handle closes when the last one closes. */
+  connections: Set<IDBDatabase> = new Set();
+  /** Cached autoIncrement key generators, keyed by store name. */
+  autoIncrementValues: Map<string, number> = new Map();
+  /** Store tables whose keyenc column/index has been ensured. (ENG-22999) */
+  keyencReady: Set<string> = new Set();
+  /** Stores whose companion index table has been ensured. (ENG-23016) */
+  indexDataReady: Set<string> = new Set();
+  /** True once the underlying SQLite handle has been closed. */
+  closed = false;
+  /** Invoked when the handle actually closes, so IDBFactory evicts its cache. */
+  onClosed: (() => void) | null = null;
+
+  private _txCurrent: IDBTransaction | null = null;
+  private _txQueue: IDBTransaction[] = [];
+  private _snapshot: {
+    ai: Map<string, number>;
+    keyenc: Set<string>;
+    idx: Set<string>;
+  } | null = null;
+
+  constructor(sqliteDb: any, version: number) {
+    this.sqliteDb = sqliteDb;
+    this.version = version;
+  }
+
+  /**
+   * Start a transaction now if the connection is free, else queue it. The
+   * scheduler runs one transaction at a time in creation order — see the
+   * IDBTransaction header for why this is required for atomicity/isolation.
+   */
+  scheduleTransaction(tx: IDBTransaction): void {
+    if (this._txCurrent === null) {
+      this._txCurrent = tx;
+      tx._start();
+    } else {
+      this._txQueue.push(tx);
+    }
+  }
+
+  /** A transaction committed or aborted; hand the connection to the next one. */
+  transactionFinished(tx: IDBTransaction): void {
+    if (this._txCurrent === tx) {
+      this._txCurrent = this._txQueue.shift() ?? null;
+      if (this._txCurrent) {
+        this._txCurrent._start();
+      }
+    } else {
+      // Aborted while still queued.
+      const i = this._txQueue.indexOf(tx);
+      if (i >= 0) this._txQueue.splice(i, 1);
+    }
+    this._maybeCloseHandle();
+  }
+
+  /** Snapshot the caches at BEGIN so a rollback can restore them. */
+  snapshotCaches(): void {
+    this._snapshot = {
+      ai: new Map(this.autoIncrementValues),
+      keyenc: new Set(this.keyencReady),
+      idx: new Set(this.indexDataReady),
+    };
+  }
+
+  /** Restore the pre-transaction caches after a ROLLBACK. */
+  restoreCaches(): void {
+    if (this._snapshot) {
+      this.autoIncrementValues = this._snapshot.ai;
+      this.keyencReady = this._snapshot.keyenc;
+      this.indexDataReady = this._snapshot.idx;
+      this._snapshot = null;
+    }
+  }
+
+  /** Discard the snapshot after a successful COMMIT. */
+  discardSnapshot(): void {
+    this._snapshot = null;
+  }
+
+  /** A connection closed; close the handle once the last one is gone. */
+  connectionClosed(db: IDBDatabase): void {
+    this.connections.delete(db);
+    this._maybeCloseHandle();
+  }
+
+  /** Close the handle if nothing references it (failed sole open, etc.). */
+  releaseIfUnused(): void {
+    this._maybeCloseHandle();
+  }
+
+  /** deleteDatabase force-closes the handle regardless of connections. */
+  forceClose(): void {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      this.sqliteDb?.close?.();
+    } catch (_) { /* already closed */ }
+    if (this.onClosed) this.onClosed();
+  }
+
+  private _maybeCloseHandle(): void {
+    if (this.closed) return;
+    if (this.connections.size > 0) return;
+    if (this._txCurrent !== null || this._txQueue.length > 0) return;
+    this.closed = true;
+    if (this.sqliteDb && this.sqliteDb.close) {
+      this.sqliteDb.close();
+    }
+    if (this.onClosed) this.onClosed();
+  }
+}
+
 export class IDBDatabase {
   readonly name: string;
   private _version: number;
-  private _objectStores: Map<string, { options: IDBObjectStoreParameters; indexes: Map<string, any>; autoIncrementValue?: number }> = new Map();
+  private _objectStores: Map<string, { options: IDBObjectStoreParameters; indexes: Map<string, any> }> = new Map();
   private _closed = false;
-  /** @internal - SQLite database wrapper */
+  /** @internal - Shared per-database-name state (SQLite handle, scheduler, caches) */
+  _shared: SharedConnectionState;
+  /** @internal - SQLite database wrapper (the shared handle) */
   _sqliteDb: any;
-  /** @internal - Owning IDBFactory, notified on close() so it can evict its cache */
+  /** @internal - Owning IDBFactory */
   _factory: any = null;
   /** @internal - The active versionchange transaction during upgradeneeded, if any */
   _upgradeTransaction: IDBTransaction | null = null;
   /** @internal - EventTarget listeners keyed by event type */
   private _listeners: Record<string, Function[]> = {};
-  /**
-   * @internal - Store tables whose order-preserving `keyenc` column + index
-   * have already been ensured/backfilled on this connection, so the check runs
-   * at most once per store per open rather than on every objectStore() call.
-   * (ENG-22999)
-   */
-  private _keyencReady: Set<string> = new Set();
-  /**
-   * @internal - Store tables whose per-index companion table (`idb_index_<store>`)
-   * has been ensured — and, for legacy databases, backfilled — on this
-   * connection. Mirrors `_keyencReady`: memoized per connection so index-key
-   * table maintenance stays off the hot path, with a persistent
-   * `idxdata:<store>` meta marker making the backfill run at most once ever.
-   * (ENG-23016)
-   */
-  _indexDataReady: Set<string> = new Set();
 
   onclose: ((event: any) => void) | null = null;
   onversionchange: ((event: any) => void) | null = null;
   onerror: ((event: any) => void) | null = null;
   onabort: ((event: any) => void) | null = null;
 
-  constructor(name: string, version: number, sqliteDb: any, factory?: any) {
+  constructor(name: string, version: number, shared: SharedConnectionState, factory?: any) {
     this.name = name;
     this._version = version;
-    this._sqliteDb = sqliteDb;
+    this._shared = shared;
+    this._sqliteDb = shared.sqliteDb;
     this._factory = factory ?? null;
+    shared.connections.add(this);
 
     // Initialize meta tables
     this._initMeta();
@@ -65,6 +189,25 @@ export class IDBDatabase {
 
   get objectStoreNames(): any {
     return makeDOMStringList(Array.from(this._objectStores.keys()).sort());
+  }
+
+  /**
+   * @internal - Store tables whose order-preserving `keyenc` column + index
+   * have already been ensured/backfilled, so the check runs at most once per
+   * store rather than on every objectStore() call. Shared across sibling
+   * connections and snapshot/restored around rollbacks. (ENG-22999 / ENG-23117)
+   */
+  get _keyencReady(): Set<string> {
+    return this._shared.keyencReady;
+  }
+
+  /**
+   * @internal - Store tables whose per-index companion table has been ensured
+   * (and, for legacy databases, backfilled). Mirrors `_keyencReady`.
+   * (ENG-23016 / ENG-23117)
+   */
+  get _indexDataReady(): Set<string> {
+    return this._shared.indexDataReady;
   }
 
   addEventListener(type: string, fn: Function): void {
@@ -81,10 +224,13 @@ export class IDBDatabase {
    * Create a new object store. Only valid during upgradeneeded.
    */
   createObjectStore(name: string, options?: IDBObjectStoreParameters): IDBObjectStore {
-    // Guard: only allowed during an active versionchange transaction
-    if (this._upgradeTransaction && this._upgradeTransaction._state !== 'active') {
+    // Guard: only allowed inside an ACTIVE versionchange (upgradeneeded)
+    // transaction. The previous check (`_upgradeTransaction && state !==
+    // 'active'`) PASSED whenever no upgrade was running at all, letting normal
+    // runtime code mutate the schema outside any transaction. (ENG-23117)
+    if (!this._upgradeTransaction || this._upgradeTransaction._state !== 'active') {
       throw new DOMException(
-        'Can only be called during upgradeneeded',
+        'createObjectStore can only be called during an upgrade (versionchange) transaction',
         'InvalidStateError',
       );
     }
@@ -106,8 +252,11 @@ export class IDBDatabase {
     // Persist store definition to meta table
     this._saveStoreMeta(name, opts);
 
-    // Create the store object with a versionchange transaction
-    const txn = this._upgradeTransaction ?? new IDBTransaction(this, [name], 'versionchange');
+    const txn = this._upgradeTransaction;
+    // The versionchange transaction's scope covers every store, including ones
+    // created during this upgrade — the canonical
+    // `e.target.transaction.objectStore(justCreated)` must work. (ENG-23117)
+    txn._addToScope(name);
     const store = new IDBObjectStore(name, opts, txn, this);
     return store;
   }
@@ -116,10 +265,11 @@ export class IDBDatabase {
    * Delete an object store. Only valid during upgradeneeded.
    */
   deleteObjectStore(name: string): void {
-    // Guard: only allowed during an active versionchange transaction
-    if (this._upgradeTransaction && this._upgradeTransaction._state !== 'active') {
+    // Guard: same shape as createObjectStore — the old inverted check let any
+    // runtime code DROP a store's tables outside any transaction. (ENG-23117)
+    if (!this._upgradeTransaction || this._upgradeTransaction._state !== 'active') {
       throw new DOMException(
-        'Can only be called during upgradeneeded',
+        'deleteObjectStore can only be called during an upgrade (versionchange) transaction',
         'InvalidStateError',
       );
     }
@@ -148,9 +298,12 @@ export class IDBDatabase {
     );
     this._exec(`DELETE FROM _idb_meta WHERE key = ?`, [`idxdata:${name}`]);
 
-    this._keyencReady.delete(tableName);
-    this._indexDataReady.delete(indexTableName);
+    this._shared.keyencReady.delete(tableName);
+    this._shared.indexDataReady.delete(indexTableName);
+    // Deleting a store resets its key generator (per spec).
+    this._shared.autoIncrementValues.delete(name);
     this._objectStores.delete(name);
+    this._upgradeTransaction._removeFromScope(name);
   }
 
   /**
@@ -158,6 +311,20 @@ export class IDBDatabase {
    */
   transaction(storeNames: string | string[], mode?: IDBTransactionMode): IDBTransaction {
     this._checkClosed();
+    if (this._upgradeTransaction) {
+      throw new DOMException(
+        'A versionchange transaction is running',
+        'InvalidStateError',
+      );
+    }
+    const m = mode ?? 'readonly';
+    // Applications may not create versionchange transactions; those exist only
+    // inside upgradeneeded. (ENG-23117)
+    if (m !== 'readonly' && m !== 'readwrite') {
+      throw new TypeError(
+        `The mode provided ('${m}') is not one of 'readonly' or 'readwrite'.`,
+      );
+    }
     const names = Array.isArray(storeNames) ? storeNames : [storeNames];
 
     // Verify all stores exist
@@ -174,24 +341,21 @@ export class IDBDatabase {
     // creating task and each bound request's event dispatch, then auto-commits
     // once idle (see IDBTransaction). This keeps requests chained through nested
     // onsuccess handlers inside a single BEGIN/COMMIT.
-    return new IDBTransaction(this, names, mode ?? 'readonly');
+    return new IDBTransaction(this, names, m);
   }
 
   /**
    * Close the database connection.
+   *
+   * The underlying SQLite handle is refcounted: it closes only when the LAST
+   * connection to this database name closes (and any in-flight transactions
+   * have drained). Closing it eagerly bricked sibling connections handed out
+   * by a second open(). (ENG-23117)
    */
   close(): void {
     if (this._closed) return;
     this._closed = true;
-    if (this._sqliteDb && this._sqliteDb.close) {
-      this._sqliteDb.close();
-    }
-    // Evict the factory's cache entry for this connection. Without this, a
-    // later open() would reuse the now-closed SQLite handle and fail on every
-    // statement until the process restarts.
-    if (this._factory && this._factory._handleConnectionClose) {
-      this._factory._handleConnectionClose(this.name, this._sqliteDb);
-    }
+    this._shared.connectionClosed(this);
     if (this.onclose) {
       const event = { type: 'close', target: this };
       this.onclose(event);
@@ -310,22 +474,52 @@ export class IDBDatabase {
     return store;
   }
 
+  // ================================================================
+  // Transaction scheduling & cache snapshots (ENG-23117)
+  // ================================================================
+
+  /** @internal - Forward to the shared connection scheduler. */
+  _scheduleTransaction(tx: IDBTransaction): void {
+    this._shared.scheduleTransaction(tx);
+  }
+
+  /** @internal - Forward to the shared connection scheduler. */
+  _transactionFinished(tx: IDBTransaction): void {
+    this._shared.transactionFinished(tx);
+  }
+
+  /** @internal - Snapshot shared caches at BEGIN (see SharedConnectionState). */
+  _beginTxnSnapshot(): void {
+    this._shared.snapshotCaches();
+  }
+
+  /** @internal - Restore shared caches after ROLLBACK. */
+  _rollbackTxnSnapshot(): void {
+    this._shared.restoreCaches();
+  }
+
+  /** @internal - Discard the snapshot after COMMIT. */
+  _commitTxnSnapshot(): void {
+    this._shared.discardSnapshot();
+  }
+
   /**
    * @internal - Allocate the next autoIncrement key for a store.
    *
    * The current key-generator value is computed once (lazily, from the table's
-   * existing keys) and then cached on the store definition, which outlives
-   * individual transactions. This avoids re-scanning every key on each
-   * `transaction.objectStore()` call.
+   * existing keys) and then cached on the SHARED per-name state, so sibling
+   * connections draw from one generator and cannot hand out colliding keys.
+   * A rollback restores the generator via the transaction snapshot (per spec,
+   * aborting a transaction reverts its key-generator advances). (ENG-23117)
    */
   _nextAutoIncrement(name: string, tableName: string): number {
-    const info = this._objectStores.get(name);
-    if (!info) return 1;
-    if (info.autoIncrementValue === undefined) {
-      info.autoIncrementValue = this._computeAutoIncrementBase(tableName);
+    let value = this._shared.autoIncrementValues.get(name);
+    if (value === undefined) {
+      value = this._computeAutoIncrementBase(tableName);
     }
-    info.autoIncrementValue += 1;
-    return info.autoIncrementValue;
+    value += 1;
+    this._shared.autoIncrementValues.set(name, value);
+    return value;
   }
 
   /**
@@ -334,26 +528,23 @@ export class IDBDatabase {
    */
   _noteExplicitKey(name: string, key: any): void {
     if (typeof key !== 'number' || !Number.isFinite(key)) return;
-    const info = this._objectStores.get(name);
-    if (!info) return;
-    if (info.autoIncrementValue === undefined) {
-      info.autoIncrementValue = this._computeAutoIncrementBase(
-        `idb_store_${sanitizeName(name)}`,
-      );
+    let value = this._shared.autoIncrementValues.get(name);
+    if (value === undefined) {
+      value = this._computeAutoIncrementBase(`idb_store_${sanitizeName(name)}`);
     }
-    info.autoIncrementValue = Math.max(info.autoIncrementValue, Math.floor(key));
+    this._shared.autoIncrementValues.set(name, Math.max(value, Math.floor(key)));
   }
 
   /**
    * @internal - Ensure the order-preserving `keyenc` column and its index exist
    * on a store table, migrating (ALTER + backfill) any store created before
-   * this column was introduced. The result is memoized per connection so the
-   * PRAGMA check is paid at most once per store per open, keeping it off the
-   * hot path (mirrors the autoIncrement caching above). Freshly created tables
+   * this column was introduced. The result is memoized on the shared state so
+   * the PRAGMA check is paid at most once per store, keeping it off the hot
+   * path (mirrors the autoIncrement caching above). Freshly created tables
    * already declare `keyenc`, so they only pay the CREATE INDEX. (ENG-22999)
    */
   _ensureKeyEnc(tableName: string): void {
-    if (this._keyencReady.has(tableName)) return;
+    if (this._shared.keyencReady.has(tableName)) return;
 
     const cols = this._all(`PRAGMA table_info("${tableName}")`);
     const hasKeyenc = cols.some((c: any) => c.name === 'keyenc');
@@ -372,7 +563,7 @@ export class IDBDatabase {
     this._exec(
       `CREATE INDEX IF NOT EXISTS "${tableName}_keyenc" ON "${tableName}"(keyenc)`,
     );
-    this._keyencReady.add(tableName);
+    this._shared.keyencReady.add(tableName);
   }
 
   /**
