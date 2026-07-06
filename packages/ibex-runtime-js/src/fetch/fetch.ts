@@ -614,7 +614,9 @@ function normalizeSocketBodyStreamError(error: unknown, code?: string): Error {
 
 const SOCKET_DECOMPRESSED_CHUNK_SIZE = 16 * 1024;
 
-function createSocketResponseBodyStream(
+// Exported for direct unit testing only (mirrors executeRawHttpSocketFetchHop
+// below) — not part of the public fetch surface.
+export function createSocketResponseBodyStream(
   sourceStream: any,
   headers: [string, string][],
   decompress: boolean | undefined,
@@ -628,6 +630,12 @@ function createSocketResponseBodyStream(
   let queuedChunks: Uint8Array[] = [];
   let pendingError: Error | null = null;
   let pendingClose = false;
+  // The Node Readable currently being forwarded (the raw socket, or a zlib
+  // decoder piped from it). Paused when the ReadableStream's internal queue
+  // is full and resumed from `pull()`, so a slow consumer applies real
+  // backpressure to the underlying socket instead of the whole response
+  // buffering unbounded in the stream's internal queue.
+  let activeReadable: { pause?: () => void; resume?: () => void } | null = null;
 
   function flushQueuedState(): void {
     if (!controller || settled) {
@@ -667,6 +675,9 @@ function createSocketResponseBodyStream(
 
     if (controller) {
       controller.enqueue(copy);
+      if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+        activeReadable?.pause?.();
+      }
       return;
     }
 
@@ -693,6 +704,9 @@ function createSocketResponseBodyStream(
     start(streamController) {
       controller = streamController;
       flushQueuedState();
+    },
+    pull() {
+      activeReadable?.resume?.();
     },
     cancel(reason) {
       cleanupAbortListener();
@@ -770,6 +784,7 @@ function createSocketResponseBodyStream(
   }
 
   function forwardReadable(readable: any, errorCode?: string, maxChunkSize?: number): void {
+    activeReadable = readable;
     readable.on('data', (chunk: Uint8Array | ArrayBufferView | string) => {
       try {
         enqueueChunk(chunk, maxChunkSize);
@@ -1545,11 +1560,22 @@ const SENSITIVE_HEADERS = ['authorization', 'cookie', 'proxy-authorization'];
  * "HTTP-redirect fetch" algorithm, these entity headers no longer describe any
  * body once the body is nulled.
  */
-const REQUEST_BODY_HEADERS = [
+// Exported for direct unit testing only — not part of the public fetch
+// surface. (Content-Length is a forbidden request header per the Fetch spec
+// and Ibex's own Headers guard, so this list's effect isn't reachable through
+// the public fetch()/Headers surface in this codebase; it defends a lower
+// layer where a Content-Length could otherwise be injected into the outgoing
+// native headers.)
+export const REQUEST_BODY_HEADERS = [
   'content-encoding',
   'content-language',
   'content-location',
   'content-type',
+  // A caller-supplied Content-Length must not survive the body being nulled
+  // out by a method-rewriting redirect, or the follow-up GET/HEAD advertises
+  // a body it no longer carries and the server hangs awaiting bytes that
+  // never arrive.
+  'content-length',
 ];
 
 function isBunCompatEnv(): boolean {
@@ -2154,9 +2180,32 @@ export async function fetch(
         }));
 
         let activeCancelRequest: (() => void) | undefined;
+        // The outer `signal`/abortPromise race (see above) only covers the
+        // headers phase: once headers resolve this function's `finally`
+        // tears down the outer abort listener, so the body stream needs its
+        // own abort wiring (mirrors the socket path's abortListener below)
+        // or a post-headers abort() would leave the native download running
+        // with nothing consuming it.
+        const onBodyAbort = () => {
+          if (streamClosed) {
+            return;
+          }
+          streamClosed = true;
+          cleanupBodyAbortListener();
+          activeCancelRequest?.();
+          activeController?.error(signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
+        };
+        function cleanupBodyAbortListener(): void {
+          if (signal) {
+            signal.removeEventListener('abort', onBodyAbort);
+          }
+        }
+        let activeController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
         const responseBodyStream = new ReadableStream<Uint8Array>({
           type: 'bytes',
           start(controller: any) {
+            activeController = controller;
             activeCancelRequest = nativeModule.fetchStreamingUpload!(
               url,
               nativeInit,
@@ -2187,6 +2236,7 @@ export async function fetch(
                   return;
                 }
                 streamClosed = true;
+                cleanupBodyAbortListener();
                 controller.close();
               },
               (error) => {
@@ -2196,10 +2246,12 @@ export async function fetch(
                 if (!headersSettled) {
                   streamClosed = true;
                   headersSettled = true;
+                  cleanupBodyAbortListener();
                   rejectHeaders(error);
                   return;
                 }
                 streamClosed = true;
+                cleanupBodyAbortListener();
                 controller.error(error);
               }
             );
@@ -2208,9 +2260,18 @@ export async function fetch(
               activeCancelRequest = () => {};
             }
             cancelRequest = activeCancelRequest;
+
+            if (signal) {
+              if (signal.aborted) {
+                onBodyAbort();
+              } else {
+                signal.addEventListener('abort', onBodyAbort);
+              }
+            }
           },
           cancel() {
             streamClosed = true;
+            cleanupBodyAbortListener();
             activeCancelRequest?.();
           },
         } as any);
@@ -2236,9 +2297,32 @@ export async function fetch(
           rejectHeaders = reject;
         }));
 
+        // The outer `signal`/abortPromise race (see above) only covers the
+        // headers phase: once headers resolve this function's `finally`
+        // tears down the outer abort listener, so the body stream needs its
+        // own abort wiring (mirrors the socket path's abortListener below)
+        // or a post-headers abort() would leave the native download running
+        // with nothing consuming it.
+        const onBodyAbort = () => {
+          if (streamClosed) {
+            return;
+          }
+          streamClosed = true;
+          cleanupBodyAbortListener();
+          activeCancelRequest?.();
+          activeController?.error(signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
+        };
+        function cleanupBodyAbortListener(): void {
+          if (signal) {
+            signal.removeEventListener('abort', onBodyAbort);
+          }
+        }
+        let activeController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
         const bodyStream = new ReadableStream<Uint8Array>({
           type: 'bytes',
           start(controller: any) {
+            activeController = controller;
             activeCancelRequest = nativeModule.fetchStreaming!(
               url,
               nativeInit,
@@ -2263,6 +2347,7 @@ export async function fetch(
                   return;
                 }
                 streamClosed = true;
+                cleanupBodyAbortListener();
                 controller.close();
               },
               (error) => {
@@ -2272,10 +2357,12 @@ export async function fetch(
                 if (!headersSettled) {
                   streamClosed = true;
                   headersSettled = true;
+                  cleanupBodyAbortListener();
                   rejectHeaders(error);
                   return;
                 }
                 streamClosed = true;
+                cleanupBodyAbortListener();
                 controller.error(error);
               }
             );
@@ -2284,9 +2371,18 @@ export async function fetch(
               activeCancelRequest = () => {};
             }
             cancelRequest = activeCancelRequest;
+
+            if (signal) {
+              if (signal.aborted) {
+                onBodyAbort();
+              } else {
+                signal.addEventListener('abort', onBodyAbort);
+              }
+            }
           },
           cancel() {
             streamClosed = true;
+            cleanupBodyAbortListener();
             activeCancelRequest?.();
           },
         } as any);
