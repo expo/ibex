@@ -14,7 +14,16 @@
 // as independent oracles. Run with: bun test.
 
 import { expect, test, beforeAll, afterEach } from "bun:test";
-import { webcrypto, createSign, createVerify, createPrivateKey, createPublicKey, createHmac } from "node:crypto";
+import {
+  webcrypto,
+  createSign,
+  createVerify,
+  createPrivateKey,
+  createPublicKey,
+  createHmac,
+  generateKeyPairSync,
+  diffieHellman,
+} from "node:crypto";
 import { SubtleCrypto } from "./Crypto.ts";
 import { enableTestMode, Capabilities } from "../security/Capabilities.ts";
 
@@ -402,5 +411,298 @@ test("ECDSA verify with a JWK-imported EC public key (ENG-23037 finding 2)", asy
     expect(await ibex.verify({ name: "ECDSA", hash: "SHA-256" }, ibexKey, bad, msg)).toBe(false);
   } finally {
     delete (globalThis as any).__exactEcdsaVerify;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ENG-23120 — WebCrypto key export/derivation fixes.
+//
+// finding 1: exportKey('jwk') of generated EC/Ed25519/X25519 keys emitted
+//   base64url fragments of the native bridge's PEM text as coordinates.
+// finding 2: ECDH/X25519 deriveBits ignored `length` (deriveKey minted an
+//   AES-256 key when AES-128 was requested).
+// finding 3: ECDH deriveBits threw for a JWK-imported private key (raw
+//   0x04||x||y||d never converted to PKCS#8 for the PEM/DER-only bridge).
+// finding 4: ECDSA verify threw OperationError for a wrong-length signature
+//   instead of returning false.
+//
+// The native generator/derive bridges are emulated exactly like the real
+// OpenSSL implementations (PEM output for generate, PEM/DER parsing + full
+// field-size secret for derive) via node:crypto; Node WebCrypto and Node's
+// JWK exporter are the conformance oracles.
+// ---------------------------------------------------------------------------
+
+function nodePemPair(type: "ec" | "ed25519" | "x25519", namedCurve?: string) {
+  if (type === "ec") {
+    return generateKeyPairSync("ec", {
+      namedCurve:
+        namedCurve === "P-384" ? "secp384r1" : namedCurve === "P-521" ? "secp521r1" : "prime256v1",
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+  }
+  return generateKeyPairSync(type as any, {
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  } as any) as unknown as { publicKey: string; privateKey: string };
+}
+
+test("exportKey('jwk') of a generated EC key emits the real coordinates (ENG-23120 finding 1)", async () => {
+  const pems = nodePemPair("ec", "P-256");
+  (globalThis as any).__exactGenerateKeyPairSync = () => pems;
+
+  const pair: any = await ibex.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+    "sign",
+    "verify",
+  ]);
+  const pubJwk: any = await ibex.exportKey("jwk", pair.publicKey);
+  const privJwk: any = await ibex.exportKey("jwk", pair.privateKey);
+
+  // Node's JWK view of the exact same PEMs is the oracle.
+  const nodePub: any = createPublicKey(pems.publicKey).export({ format: "jwk" });
+  const nodePriv: any = createPrivateKey(pems.privateKey).export({ format: "jwk" });
+
+  expect(pubJwk.kty).toBe("EC");
+  expect(pubJwk.crv).toBe("P-256");
+  expect(pubJwk.x).toBe(nodePub.x);
+  expect(pubJwk.y).toBe(nodePub.y);
+  expect(privJwk.x).toBe(nodePriv.x);
+  expect(privJwk.y).toBe(nodePriv.y);
+  expect(privJwk.d).toBe(nodePriv.d);
+
+  // The exported private JWK must round-trip into a conformant WebCrypto.
+  const reloaded = await nodeSubtle.importKey(
+    "jwk", privJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]
+  );
+  expect(reloaded.type).toBe("private");
+});
+
+test("exportKey('jwk') of generated Ed25519/X25519 keys emits real scalars incl. x on private keys (ENG-23120 finding 1)", async () => {
+  for (const type of ["ed25519", "x25519"] as const) {
+    const pems = nodePemPair(type);
+    (globalThis as any).__exactGenerateKeyPairSync = () => pems;
+
+    const algName = type === "ed25519" ? "Ed25519" : "X25519";
+    const usages = type === "ed25519" ? ["sign", "verify"] : ["deriveBits", "deriveKey"];
+    const pair: any = await ibex.generateKey({ name: algName }, true, usages as any);
+
+    const pubJwk: any = await ibex.exportKey("jwk", pair.publicKey);
+    const privJwk: any = await ibex.exportKey("jwk", pair.privateKey);
+    const nodePub: any = createPublicKey(pems.publicKey).export({ format: "jwk" });
+    const nodePriv: any = createPrivateKey(pems.privateKey).export({ format: "jwk" });
+
+    expect(pubJwk.kty).toBe("OKP");
+    expect(pubJwk.crv).toBe(algName);
+    expect(pubJwk.x).toBe(nodePub.x);
+    // The old code exported the whole private PEM as `d` with no `x`.
+    expect(privJwk.d).toBe(nodePriv.d);
+    expect(privJwk.x).toBe(nodePriv.x);
+  }
+});
+
+/** Emulate the OpenSSL __exactEcdhDeriveBits bridge: PEM/DER keys in, full field-size secret out. */
+function installNodeEcdhBridge() {
+  (globalThis as any).__exactEcdhDeriveBits = (
+    _curve: string,
+    priv: Uint8Array,
+    pub: Uint8Array
+  ) => {
+    const privateKey =
+      priv[0] === 0x2d
+        ? createPrivateKey(Buffer.from(priv).toString())
+        : createPrivateKey({ key: Buffer.from(priv), format: "der", type: "pkcs8" });
+    const publicKey =
+      pub[0] === 0x2d
+        ? createPublicKey(Buffer.from(pub).toString())
+        : createPublicKey({ key: Buffer.from(pub), format: "der", type: "spki" });
+    return new Uint8Array(diffieHellman({ privateKey, publicKey }));
+  };
+}
+
+async function ecdhFixture() {
+  const alice = await nodeSubtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const bob = await nodeSubtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const ibexPriv: any = await ibex.importKey(
+    "jwk",
+    await nodeSubtle.exportKey("jwk", alice.privateKey),
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    ["deriveBits", "deriveKey"]
+  );
+  const ibexPub: any = await ibex.importKey(
+    "jwk",
+    await nodeSubtle.exportKey("jwk", bob.publicKey),
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    []
+  );
+  return { alice, bob, ibexPriv, ibexPub };
+}
+
+test("ECDH deriveBits honors length and accepts JWK-imported keys (ENG-23120 findings 2+3)", async () => {
+  const { alice, bob, ibexPriv, ibexPub } = await ecdhFixture();
+
+  // The conformant peer's answer for 128 bits.
+  const nodeBits = new Uint8Array(
+    await nodeSubtle.deriveBits({ name: "ECDH", public: bob.publicKey }, alice.privateKey, 128)
+  );
+
+  installNodeEcdhBridge();
+  try {
+    // finding 3: this call used to throw OperationError ("failed to import EC
+    // private key") for any JWK-imported private key.
+    const bits = new Uint8Array(await ibex.deriveBits({ name: "ECDH", public: ibexPub }, ibexPriv, 128));
+    // finding 2: 128 bits means 16 bytes, matching the conformant peer.
+    expect(bits.length).toBe(16);
+    expect(hex(bits)).toBe(hex(nodeBits));
+
+    const full = new Uint8Array(await ibex.deriveBits({ name: "ECDH", public: ibexPub }, ibexPriv, 256));
+    expect(full.length).toBe(32);
+    expect(hex(full.slice(0, 16))).toBe(hex(nodeBits));
+
+    // More bits than the shared secret has is an OperationError.
+    await expect(
+      ibex.deriveBits({ name: "ECDH", public: ibexPub }, ibexPriv, 264)
+    ).rejects.toThrow();
+  } finally {
+    delete (globalThis as any).__exactEcdhDeriveBits;
+  }
+});
+
+test("ECDH deriveKey(AES-GCM 128) mints an AES-128 key, not AES-256 (ENG-23120 finding 2)", async () => {
+  const { alice, bob, ibexPriv, ibexPub } = await ecdhFixture();
+  const nodeBits = new Uint8Array(
+    await nodeSubtle.deriveBits({ name: "ECDH", public: bob.publicKey }, alice.privateKey, 128)
+  );
+
+  installNodeEcdhBridge();
+  try {
+    const aesKey: any = await ibex.deriveKey(
+      { name: "ECDH", public: ibexPub },
+      ibexPriv,
+      { name: "AES-GCM", length: 128 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+    expect(aesKey.algorithm.length).toBe(128);
+    const raw = (await ibex.exportKey("raw", aesKey)) as ArrayBuffer;
+    expect(raw.byteLength).toBe(16);
+    // Interoperates with the conformant peer's AES-128 derivation.
+    expect(hex(raw)).toBe(hex(nodeBits));
+  } finally {
+    delete (globalThis as any).__exactEcdhDeriveBits;
+  }
+});
+
+test("X25519 deriveBits honors length (ENG-23120 finding 2)", async () => {
+  // Bun's WebCrypto lacks X25519, so the oracle is node:crypto's stateless
+  // diffieHellman over the same key material; per the WebCrypto X25519
+  // deriveBits algorithm, 64 bits = the first 8 bytes of that secret.
+  const aPems = nodePemPair("x25519");
+  const bPems = nodePemPair("x25519");
+  const aPrivJwk = createPrivateKey(aPems.privateKey).export({ format: "jwk" });
+  const bPubJwk = createPublicKey(bPems.publicKey).export({ format: "jwk" });
+  const fullSecret = new Uint8Array(
+    diffieHellman({
+      privateKey: createPrivateKey(aPems.privateKey),
+      publicKey: createPublicKey(bPems.publicKey),
+    })
+  );
+  const nodeBits = fullSecret.slice(0, 8);
+
+  // Emulate the raw-scalar OpenSSL bridge via RFC 8410 fixed DER prefixes.
+  (globalThis as any).__exactX25519DeriveBits = (priv: Uint8Array, pub: Uint8Array) => {
+    const pkcs8 = Buffer.concat([Buffer.from("302e020100300506032b656e04220420", "hex"), Buffer.from(priv)]);
+    const spki = Buffer.concat([Buffer.from("302a300506032b656e032100", "hex"), Buffer.from(pub)]);
+    return new Uint8Array(
+      diffieHellman({
+        privateKey: createPrivateKey({ key: pkcs8, format: "der", type: "pkcs8" }),
+        publicKey: createPublicKey({ key: spki, format: "der", type: "spki" }),
+      })
+    );
+  };
+  try {
+    const ibexPriv: any = await ibex.importKey(
+      "jwk", aPrivJwk, { name: "X25519" }, false, ["deriveBits"]
+    );
+    const ibexPub: any = await ibex.importKey(
+      "jwk", bPubJwk, { name: "X25519" }, false, []
+    );
+    const bits = new Uint8Array(await ibex.deriveBits({ name: "X25519", public: ibexPub }, ibexPriv, 64));
+    expect(bits.length).toBe(8);
+    expect(hex(bits)).toBe(hex(nodeBits));
+    await expect(
+      ibex.deriveBits({ name: "X25519", public: ibexPub }, ibexPriv, 512)
+    ).rejects.toThrow();
+  } finally {
+    delete (globalThis as any).__exactX25519DeriveBits;
+  }
+});
+
+test("ECDSA verify returns false for a wrong-length signature (ENG-23120 finding 4)", async () => {
+  const pair: any = await nodeSubtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+    "sign",
+    "verify",
+  ]);
+  const ibexPub: any = await ibex.importKey(
+    "jwk",
+    await nodeSubtle.exportKey("jwk", pair.publicKey),
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["verify"]
+  );
+
+  let bridgeCalled = false;
+  (globalThis as any).__exactEcdsaVerify = () => {
+    bridgeCalled = true;
+    return true;
+  };
+  try {
+    for (const len of [0, 63, 65, 128]) {
+      // Used to reject with OperationError (p1363ToDer DataError); the
+      // WebCrypto ECDSA verify algorithm requires `false`.
+      expect(
+        await ibex.verify({ name: "ECDSA", hash: "SHA-256" }, ibexPub, new Uint8Array(len), enc("m"))
+      ).toBe(false);
+    }
+    expect(bridgeCalled).toBe(false);
+  } finally {
+    delete (globalThis as any).__exactEcdsaVerify;
+  }
+});
+
+test("exportKey('spki'/'pkcs8') of generated OKP keys reaches the raw native path (ENG-23120)", async () => {
+  const pems = nodePemPair("ed25519");
+  (globalThis as any).__exactGenerateKeyPairSync = () => pems;
+  const pair: any = await ibex.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+
+  let spkiArgs: { t: string; len: number } | null = null;
+  let pkcs8Args: { t: string; len: number } | null = null;
+  // The real bridge only takes its raw-32 fast path for lowercase key types;
+  // emulate it with the RFC 8410 fixed prefixes.
+  (globalThis as any).__exactExportKeySpki = (t: string, k: Uint8Array) => {
+    spkiArgs = { t, len: k.length };
+    return new Uint8Array(Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(k)]));
+  };
+  (globalThis as any).__exactExportKeyPkcs8 = (t: string, k: Uint8Array) => {
+    pkcs8Args = { t, len: k.length };
+    return new Uint8Array(Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(k)]));
+  };
+  try {
+    const spkiOut = Buffer.from((await ibex.exportKey("spki", pair.publicKey)) as ArrayBuffer);
+    expect(spkiArgs).toEqual({ t: "ed25519", len: 32 });
+    expect(
+      spkiOut.equals(createPublicKey(pems.publicKey).export({ format: "der", type: "spki" }) as Buffer)
+    ).toBe(true);
+
+    const pkcs8Out = Buffer.from((await ibex.exportKey("pkcs8", pair.privateKey)) as ArrayBuffer);
+    // The d[32] || x[32] private blob must be sliced to the bare scalar.
+    expect(pkcs8Args).toEqual({ t: "ed25519", len: 32 });
+    expect(
+      pkcs8Out.equals(createPrivateKey(pems.privateKey).export({ format: "der", type: "pkcs8" }) as Buffer)
+    ).toBe(true);
+  } finally {
+    delete (globalThis as any).__exactExportKeySpki;
+    delete (globalThis as any).__exactExportKeyPkcs8;
   }
 });

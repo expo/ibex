@@ -509,12 +509,15 @@ export class SubtleCrypto {
         if (typeof __exactEcdsaSign === 'function') {
           try {
             // A JWK-imported EC key holds its raw 0x04||x||y||d point, which the
-            // native bridge (PEM/DER only) cannot parse; convert it to PKCS#8 DER.
-            // spki/pkcs8/generated keys already hold parseable bytes (ENG-23037
-            // finding 2).
+            // native bridge (PEM/DER only) cannot parse; convert it to PKCS#8 DER
+            // (ENG-23037 finding 2). PEM is normalized to DER too, because macOS
+            // SecItemExport uses armor labels OpenSSL's PEM reader can reject
+            // (ENG-23120).
             let keyData = (key as ExactCryptoKey)._keyData;
             if (isRawEcPoint(keyData)) {
               keyData = ecRawKeyToPkcs8Der(keyData, curve);
+            } else {
+              keyData = keyDataToDer(keyData) ?? keyData;
             }
             const result = __exactEcdsaSign(curve, hash, keyData, bytes);
             // The native bridge (OpenSSL EVP) returns an X9.62 DER signature, but
@@ -620,6 +623,13 @@ export class SubtleCrypto {
         const hash = typeof params.hash === 'string' ? params.hash : params.hash.name;
         const curve = (key.algorithm as EcKeyAlgorithm).namedCurve;
 
+        // Per the WebCrypto ECDSA verify algorithm a wrong-length signature
+        // yields `false`, not an error — p1363ToDer would otherwise throw
+        // DataError, rethrown as OperationError (ENG-23120).
+        if (signatureBytes.length !== 2 * getEcCoordSize(curve)) {
+          return false;
+        }
+
         if (typeof __exactEcdsaVerify === 'function') {
           try {
             // WebCrypto passes the raw fixed-length P1363 r||s signature, but the
@@ -627,9 +637,13 @@ export class SubtleCrypto {
             const derSig = p1363ToDer(signatureBytes, getEcCoordSize(curve));
             // A JWK-imported EC public key holds its raw 0x04||x||y point; convert
             // it to SPKI DER so the native bridge can parse it (ENG-23037 finding 2).
+            // PEM is normalized to DER for the same macOS armor-label reason as
+            // the ECDH/sign paths (ENG-23120).
             let keyData = (key as ExactCryptoKey)._keyData;
             if (isRawEcPoint(keyData)) {
               keyData = ecRawPointToSpkiDer(keyData, curve);
+            } else {
+              keyData = keyDataToDer(keyData) ?? keyData;
             }
             return __exactEcdsaVerify(curve, hash, keyData, derSig, dataBytes);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
@@ -814,9 +828,17 @@ export class SubtleCrypto {
 
           const algorithmInfo = { name: 'Ed25519' };
 
-          // Keys are PEM strings - store as UTF-8 bytes
-          const pubKeyData = new TextEncoder().encode(result.publicKey);
-          const privKeyData = new TextEncoder().encode(result.privateKey);
+          // The native bridge returns PEM text; store the raw scalars
+          // (x[32] public, d[32] || x[32] private — the JWK-import layout,
+          // which every native consumer accepts) so exportKey('jwk') emits
+          // real coordinates instead of base64url-encoded PEM fragments
+          // (ENG-23120). The private PKCS#8 has no embedded public key, so
+          // x must be taken from the public SPKI here at generation time.
+          const pubKeyData = okpSpkiDerToRawPublic(new Uint8Array(pemToDer(result.publicKey)));
+          const privKeyData = concatUint8Arrays([
+            okpPkcs8DerToRawParts(new Uint8Array(pemToDer(result.privateKey))).d,
+            pubKeyData,
+          ]);
 
           return {
             publicKey: new ExactCryptoKey(
@@ -844,9 +866,12 @@ export class SubtleCrypto {
 
           const algorithmInfo = { name: 'X25519' };
 
-          // Keys are PEM strings - store as UTF-8 bytes
-          const pubKeyData = new TextEncoder().encode(result.publicKey);
-          const privKeyData = new TextEncoder().encode(result.privateKey);
+          // Raw scalars, as in the Ed25519 branch above (ENG-23120).
+          const pubKeyData = okpSpkiDerToRawPublic(new Uint8Array(pemToDer(result.publicKey)));
+          const privKeyData = concatUint8Arrays([
+            okpPkcs8DerToRawParts(new Uint8Array(pemToDer(result.privateKey))).d,
+            pubKeyData,
+          ]);
 
           return {
             publicKey: new ExactCryptoKey(
@@ -1271,8 +1296,17 @@ export class SubtleCrypto {
         throw new DOMException('SPKI export only supported for public keys', 'InvalidAccessError');
       }
       if (typeof __exactExportKeySpki === 'function') {
-        const algName = key.algorithm.name.toUpperCase();
-        const result = __exactExportKeySpki(algName, exactKey._keyData);
+        // The native bridge matches lowercase key types ('ed25519'/'x25519')
+        // for its raw-32-byte fast path; the old uppercase name always missed
+        // it (ENG-23120 — generated OKP keys now store raw scalars). Raw EC
+        // points (JWK import) need the SPKI DER conversion the bridge cannot
+        // do itself.
+        const algName = key.algorithm.name.toLowerCase();
+        let keyData = exactKey._keyData;
+        if ((algName === 'ecdsa' || algName === 'ecdh') && isRawEcPoint(keyData)) {
+          keyData = ecRawPointToSpkiDer(keyData, (key.algorithm as EcKeyAlgorithm).namedCurve);
+        }
+        const result = __exactExportKeySpki(algName, keyData);
         return uint8ArrayToArrayBuffer(result);
       }
       throw new DOMException('SPKI export requires native implementation', 'NotSupportedError');
@@ -1283,8 +1317,17 @@ export class SubtleCrypto {
         throw new DOMException('PKCS8 export only supported for private keys', 'InvalidAccessError');
       }
       if (typeof __exactExportKeyPkcs8 === 'function') {
-        const algName = key.algorithm.name.toUpperCase();
-        const result = __exactExportKeyPkcs8(algName, exactKey._keyData);
+        // Lowercase key type + raw-form conversions, as in the spki branch
+        // above (ENG-23120). OKP private keys store d[32] || x[32]; the
+        // bridge's raw path takes the bare 32-byte scalar.
+        const algName = key.algorithm.name.toLowerCase();
+        let keyData = exactKey._keyData;
+        if ((algName === 'ed25519' || algName === 'x25519') && keyData.length === 64) {
+          keyData = keyData.slice(0, 32);
+        } else if ((algName === 'ecdsa' || algName === 'ecdh') && isRawEcPoint(keyData)) {
+          keyData = ecRawKeyToPkcs8Der(keyData, (key.algorithm as EcKeyAlgorithm).namedCurve);
+        }
+        const result = __exactExportKeyPkcs8(algName, keyData);
         return uint8ArrayToArrayBuffer(result);
       }
       throw new DOMException('PKCS8 export requires native implementation', 'NotSupportedError');
@@ -1320,54 +1363,44 @@ export class SubtleCrypto {
     // Asymmetric key export
     const algName = key.algorithm.name.toUpperCase();
 
-    if (algName === 'ED25519' || algName === 'EDDSA') {
+    if (algName === 'ED25519' || algName === 'EDDSA' || algName === 'X25519') {
       const jwk: JsonWebKey = {
         kty: 'OKP',
-        crv: 'Ed25519',
+        crv: algName === 'X25519' ? 'X25519' : 'Ed25519',
         ext: key.extractable,
         key_ops: [...key.usages],
       };
 
+      // Key data is raw (x[32] public / d[32]||x[32] private — generateKey and
+      // JWK import), a bare d[32] (pkcs8 import), or PEM/DER (defensive: no
+      // current source stores it, but it must never be sliced as if it were
+      // raw — that exported whole PEM files as `d` (ENG-23120)). Length decides
+      // before any PEM/DER sniffing: a random raw scalar can begin with '-' or
+      // 0x30 and must not be mistaken for an encoded key.
+      const okpData = key._keyData;
       if (key.type === 'public') {
-        jwk.x = base64UrlEncode(key._keyData);
-      } else {
-        // Private key: key data may be d[32] || x[32] (64 bytes from JWK import)
-        // or a PEM string (from generateKey). Per Web Crypto spec, both x and d
-        // must be present in a private OKP JWK.
-        if (key._keyData.length === 64) {
-          // Raw key data: d[32] || x[32]
-          jwk.d = base64UrlEncode(key._keyData.slice(0, 32));
-          jwk.x = base64UrlEncode(key._keyData.slice(32));
+        if (okpData.length === 32) {
+          jwk.x = base64UrlEncode(okpData);
         } else {
-          // PEM or other format -- export d only (x not available without native bridge)
-          jwk.d = base64UrlEncode(key._keyData);
+          const der = keyDataToDer(okpData);
+          jwk.x = base64UrlEncode(der ? okpSpkiDerToRawPublic(der) : okpData);
         }
-      }
-
-      return jwk;
-    }
-
-    if (algName === 'X25519') {
-      const jwk: JsonWebKey = {
-        kty: 'OKP',
-        crv: 'X25519',
-        ext: key.extractable,
-        key_ops: [...key.usages],
-      };
-
-      if (key.type === 'public') {
-        jwk.x = base64UrlEncode(key._keyData);
+      } else if (okpData.length === 64) {
+        // Raw key data: d[32] || x[32]
+        jwk.d = base64UrlEncode(okpData.slice(0, 32));
+        jwk.x = base64UrlEncode(okpData.slice(32));
+      } else if (okpData.length === 32) {
+        // Bare 32-byte scalar (pkcs8 import) — d is exact; x is not
+        // recoverable without a native public-key derivation hook.
+        jwk.d = base64UrlEncode(okpData);
       } else {
-        // Private key: key data may be d[32] || x[32] (64 bytes from JWK import)
-        // or a PEM string (from generateKey). Per Web Crypto spec, both x and d
-        // must be present in a private OKP JWK.
-        if (key._keyData.length === 64) {
-          // Raw key data: d[32] || x[32]
-          jwk.d = base64UrlEncode(key._keyData.slice(0, 32));
-          jwk.x = base64UrlEncode(key._keyData.slice(32));
+        const der = keyDataToDer(okpData);
+        if (der) {
+          const parts = okpPkcs8DerToRawParts(der);
+          jwk.d = base64UrlEncode(parts.d);
+          if (parts.x) jwk.x = base64UrlEncode(parts.x);
         } else {
-          // PEM or other format -- export d only (x not available without native bridge)
-          jwk.d = base64UrlEncode(key._keyData);
+          throw new DOMException('Unrecognized OKP key data', 'OperationError');
         }
       }
 
@@ -1376,22 +1409,32 @@ export class SubtleCrypto {
 
     if (algName === 'ECDSA' || algName === 'ECDH') {
       const curve = (key.algorithm as EcKeyAlgorithm).namedCurve;
-      const data = key._keyData;
+      const size = getEcCoordSize(curve);
 
-      // Key data format: 0x04 || x || y [|| d]
-      const coordSize = (data.length - 1) / (key.type === 'private' ? 3 : 2);
+      // Key data is raw 0x04 || x || y [|| d] (JWK import) or PEM/DER
+      // (generateKey → PEM, spki/pkcs8 import → DER). The old code sliced
+      // whatever bytes were present as coordinates, so a generated key
+      // exported base64url fragments of its PEM text as x/y (ENG-23120).
+      let data = key._keyData;
+      const der = keyDataToDer(data);
+      if (der) {
+        data = key.type === 'private' ? ecPrivateDerToRawKey(der, curve) : ecSpkiDerToRawPoint(der, curve);
+      }
+      if (data.length !== 1 + (key.type === 'private' ? 3 : 2) * size || data[0] !== 0x04) {
+        throw new DOMException('EC key data is not a valid uncompressed point', 'OperationError');
+      }
 
       const jwk: JsonWebKey = {
         kty: 'EC',
         crv: curve,
-        x: base64UrlEncode(data.slice(1, 1 + coordSize)),
-        y: base64UrlEncode(data.slice(1 + coordSize, 1 + 2 * coordSize)),
+        x: base64UrlEncode(data.slice(1, 1 + size)),
+        y: base64UrlEncode(data.slice(1 + size, 1 + 2 * size)),
         ext: key.extractable,
         key_ops: [...key.usages],
       };
 
       if (key.type === 'private') {
-        jwk.d = base64UrlEncode(data.slice(1 + 2 * coordSize));
+        jwk.d = base64UrlEncode(data.slice(1 + 2 * size));
       }
 
       return jwk;
@@ -1502,16 +1545,19 @@ export class SubtleCrypto {
         const publicKey = params.public as ExactCryptoKey;
 
         if (typeof __exactX25519DeriveBits === 'function') {
+          let result: Uint8Array;
           try {
             // If base key data is 64 bytes (d[32] || x[32] from JWK import), pass only d portion
             const baseKeyData = (baseKey as ExactCryptoKey)._keyData;
             const privKeyData = baseKeyData.length === 64 ? baseKeyData.slice(0, 32) : baseKeyData;
-            const result = __exactX25519DeriveBits(
+            result = __exactX25519DeriveBits(
               privKeyData,
               publicKey._keyData
             );
-            return uint8ArrayToArrayBuffer(result);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
+          // The bridge returns the full 32-byte secret; honor `length`
+          // (it used to be ignored — ENG-23120).
+          return trimDerivedBits(result, length);
         }
         throw new DOMException('Native crypto not available for X25519', 'NotSupportedError');
       }
@@ -1521,15 +1567,36 @@ export class SubtleCrypto {
         const publicKey = params.public as ExactCryptoKey;
 
         if (typeof __exactEcdhDeriveBits === 'function') {
+          let result: Uint8Array;
           try {
             const curve = (baseKey.algorithm as EcKeyAlgorithm).namedCurve;
-            const result = __exactEcdhDeriveBits(
-              curve,
-              (baseKey as ExactCryptoKey)._keyData,
-              publicKey._keyData
-            );
-            return uint8ArrayToArrayBuffer(result);
+            // A JWK-imported EC private key holds its raw 0x04||x||y||d blob,
+            // which the PEM/DER-only native bridge cannot parse; convert it to
+            // PKCS#8 DER — the same conversion the ECDSA sign path got in
+            // ENG-23037, previously missing here so JWK-reloaded ECDH keys
+            // threw OperationError (ENG-23120). Same for a raw public point.
+            let privKeyData = (baseKey as ExactCryptoKey)._keyData;
+            if (isRawEcPoint(privKeyData)) {
+              privKeyData = ecRawKeyToPkcs8Der(privKeyData, curve);
+            } else {
+              privKeyData = keyDataToDer(privKeyData) ?? privKeyData;
+            }
+            // PEM is also normalized to DER: macOS SecItemExport armors the
+            // public key as "BEGIN ECDSA PUBLIC KEY", a label OpenSSL's PEM
+            // reader rejects even though the payload is plain SPKI DER
+            // (ENG-23120).
+            let pubKeyData = publicKey._keyData;
+            if (isRawEcPoint(pubKeyData)) {
+              pubKeyData = ecRawPointToSpkiDer(pubKeyData, curve);
+            } else {
+              pubKeyData = keyDataToDer(pubKeyData) ?? pubKeyData;
+            }
+            result = __exactEcdhDeriveBits(curve, privKeyData, pubKeyData);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
+          // The bridge returns the full field-size secret; honor `length`
+          // (it used to be ignored, so deriveKey(AES-128) minted an AES-256
+          // key — ENG-23120).
+          return trimDerivedBits(result, length);
         }
         throw new DOMException('Native crypto not available for ECDH', 'NotSupportedError');
       }
@@ -2992,6 +3059,164 @@ function ecRawKeyToPkcs8Der(rawKeyData: Uint8Array, curve: string): Uint8Array {
       encodeAsn1Tag(0x04, ecPrivateKey),
     ])
   );
+}
+
+/**
+ * Asymmetric `_keyData` is one of three shapes: PEM text (generateKey),
+ * DER (spki/pkcs8 import), or a raw point/scalar blob (JWK import). Return
+ * DER bytes for the PEM/DER shapes, or null when the data is raw
+ * (ENG-23120 — exportKey('jwk') used to slice PEM text as coordinates).
+ */
+function keyDataToDer(keyData: Uint8Array): Uint8Array | null {
+  if (keyData.length === 0) return null;
+  if (keyData[0] === 0x2d) {
+    // '-' — "-----BEGIN ...-----" PEM armor
+    return new Uint8Array(pemToDer(uint8ArrayToString(keyData)));
+  }
+  if (keyData[0] === 0x30) return keyData; // DER SEQUENCE
+  return null;
+}
+
+/**
+ * Extract the raw uncompressed point (0x04 || x || y) from an EC
+ * SubjectPublicKeyInfo DER (ENG-23120).
+ */
+function ecSpkiDerToRawPoint(der: Uint8Array, curve: string): Uint8Array {
+  const size = getEcCoordSize(curve);
+  const spki = parseAsn1(der, 0);
+  const bitStr = spki.children?.[1];
+  if (
+    spki.tag !== 0x30 ||
+    !bitStr ||
+    bitStr.tag !== 0x03 ||
+    bitStr.value.length !== 2 + 2 * size ||
+    bitStr.value[0] !== 0x00 ||
+    bitStr.value[1] !== 0x04
+  ) {
+    throw new DOMException('Unrecognized EC public key encoding', 'OperationError');
+  }
+  return bitStr.value.slice(1);
+}
+
+/**
+ * Extract the raw private blob (0x04 || x || y || d — the JWK-import layout)
+ * from an EC private key DER. Handles both PKCS#8 PrivateKeyInfo (OpenSSL,
+ * Node) and a bare SEC1 ECPrivateKey (macOS SecItemExport), and requires the
+ * optional embedded public point — without it x/y cannot be recovered in JS
+ * (ENG-23120).
+ */
+function ecPrivateDerToRawKey(der: Uint8Array, curve: string): Uint8Array {
+  const size = getEcCoordSize(curve);
+  const outer = parseAsn1(der, 0);
+  if (outer.tag !== 0x30 || !outer.children || outer.children.length < 2) {
+    throw new DOMException('Unrecognized EC private key encoding', 'OperationError');
+  }
+  // PKCS#8 wraps the SEC1 ECPrivateKey in an OCTET STRING after the
+  // AlgorithmIdentifier; a bare SEC1 key IS the ECPrivateKey SEQUENCE.
+  let ecKey = outer;
+  if (outer.children[1].tag === 0x30) {
+    const wrapped = outer.children[2];
+    if (!wrapped || wrapped.tag !== 0x04) {
+      throw new DOMException('Unrecognized EC private key encoding', 'OperationError');
+    }
+    ecKey = parseAsn1(wrapped.value, 0);
+  }
+  if (ecKey.tag !== 0x30 || !ecKey.children || ecKey.children.length < 2 || ecKey.children[1].tag !== 0x04) {
+    throw new DOMException('Unrecognized EC private key encoding', 'OperationError');
+  }
+  let d = ecKey.children[1].value;
+  if (d.length > size) d = stripLeadingZeros(d);
+  if (d.length > size) {
+    throw new DOMException('EC private scalar does not match the curve size', 'OperationError');
+  }
+  if (d.length < size) {
+    const padded = new Uint8Array(size);
+    padded.set(d, size - d.length);
+    d = padded;
+  }
+  // [1] EXPLICIT BIT STRING publicKey (SEC1) — required to recover x/y.
+  let point: Uint8Array | null = null;
+  for (const child of ecKey.children.slice(2)) {
+    if (child.tag === 0xa1) {
+      const bit = parseAsn1(child.value, 0);
+      if (bit.tag === 0x03 && bit.value.length === 2 + 2 * size && bit.value[0] === 0x00 && bit.value[1] === 0x04) {
+        point = bit.value.slice(1);
+      }
+    }
+  }
+  if (!point) {
+    throw new DOMException(
+      'EC private key has no embedded public point; cannot reconstruct JWK coordinates',
+      'OperationError'
+    );
+  }
+  return concatUint8Arrays([point, d]);
+}
+
+/**
+ * Extract the raw 32-byte public key from an Ed25519/X25519
+ * SubjectPublicKeyInfo DER (RFC 8410) (ENG-23120).
+ */
+function okpSpkiDerToRawPublic(der: Uint8Array): Uint8Array {
+  const spki = parseAsn1(der, 0);
+  const bitStr = spki.children?.[1];
+  if (spki.tag !== 0x30 || !bitStr || bitStr.tag !== 0x03 || bitStr.value.length !== 33 || bitStr.value[0] !== 0x00) {
+    throw new DOMException('Unrecognized OKP public key encoding', 'OperationError');
+  }
+  return bitStr.value.slice(1);
+}
+
+/**
+ * Extract the raw private scalar d (and the public key x when the optional
+ * RFC 8410 publicKey attribute is present) from an Ed25519/X25519 PKCS#8 DER
+ * (ENG-23120).
+ */
+function okpPkcs8DerToRawParts(der: Uint8Array): { d: Uint8Array; x: Uint8Array | null } {
+  const pkcs8 = parseAsn1(der, 0);
+  const wrapped = pkcs8.children?.[2];
+  if (pkcs8.tag !== 0x30 || !wrapped || wrapped.tag !== 0x04) {
+    throw new DOMException('Unrecognized OKP private key encoding', 'OperationError');
+  }
+  // CurvePrivateKey ::= OCTET STRING (inside the PKCS#8 privateKey OCTET STRING)
+  const curvePriv = parseAsn1(wrapped.value, 0);
+  if (curvePriv.tag !== 0x04 || curvePriv.value.length !== 32) {
+    throw new DOMException('Unrecognized OKP private key encoding', 'OperationError');
+  }
+  // publicKey [1] IMPLICIT BIT STRING OPTIONAL (0x81 primitive context tag)
+  let x: Uint8Array | null = null;
+  for (const child of (pkcs8.children ?? []).slice(3)) {
+    if (child.tag === 0x81 && child.value.length === 33 && child.value[0] === 0x00) {
+      x = child.value.slice(1);
+    }
+  }
+  return { d: curvePriv.value, x };
+}
+
+/**
+ * Trim a native ECDH/X25519 shared secret to the requested bit length per the
+ * WebCrypto deriveBits algorithm: null/undefined returns the whole secret,
+ * more bits than the secret has is an OperationError, otherwise the first
+ * `length` bits (any trailing bits of the final byte zeroed). The native
+ * bridges always return the full field-size secret; `length` used to be
+ * ignored entirely, so deriveKey(AES-128) minted an AES-256 key (ENG-23120).
+ */
+function trimDerivedBits(secret: Uint8Array, length: number | null | undefined): ArrayBuffer {
+  if (length === null || length === undefined) return uint8ArrayToArrayBuffer(secret);
+  if (typeof length !== 'number' || !Number.isFinite(length) || length < 0) {
+    throw new DOMException('Invalid deriveBits length', 'OperationError');
+  }
+  if (length > secret.length * 8) {
+    throw new DOMException(
+      `Cannot derive ${length} bits from a ${secret.length * 8}-bit shared secret`,
+      'OperationError'
+    );
+  }
+  const out = secret.slice(0, Math.ceil(length / 8));
+  const rem = length % 8;
+  if (rem !== 0 && out.length > 0) {
+    out[out.length - 1] &= (0xff << (8 - rem)) & 0xff;
+  }
+  return uint8ArrayToArrayBuffer(out);
 }
 
 /** Encode ASN.1 INTEGER */
