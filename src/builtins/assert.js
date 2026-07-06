@@ -1490,6 +1490,25 @@ function _deepEqual(a, b, aSeen, bSeen, strict) {
   return deepEqualResult;
 }
 
+// Compare own enumerable Symbol-keyed properties. Only meaningful in strict
+// mode (deepStrictEqual): Node's loose deepEqual does not compare symbol
+// keys at all, so callers must gate this on `strict` themselves. (ENG-23035)
+function _symbolKeysEqual(a, b, aSeen, bSeen) {
+  var aSymbols = Object.getOwnPropertySymbols(a).filter(function(s) {
+    return Object.prototype.propertyIsEnumerable.call(a, s);
+  });
+  var bSymbols = Object.getOwnPropertySymbols(b).filter(function(s) {
+    return Object.prototype.propertyIsEnumerable.call(b, s);
+  });
+  if (aSymbols.length !== bSymbols.length) return false;
+  for (var i = 0; i < aSymbols.length; i++) {
+    var sym = aSymbols[i];
+    if (!Object.prototype.propertyIsEnumerable.call(b, sym)) return false;
+    if (!_deepEqual(a[sym], b[sym], aSeen, bSeen, true)) return false;
+  }
+  return true;
+}
+
 function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
   // Handle Date - use toString tag check to avoid calling getTime on non-Date objects
   var aTag = Object.prototype.toString.call(a);
@@ -1555,9 +1574,18 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
     );
   }
 
-  // Handle Error
+  // Handle Error. `message` and `name` are checked explicitly because V8
+  // gives Error instances a non-enumerable own `message` and `name` is
+  // usually inherited from the prototype (neither would be caught by the
+  // own-enumerable-key walk below). Node does NOT stop here though: it falls
+  // through to also compare the prototype (strict mode; see below) and any
+  // other own enumerable properties (e.g. `.code`, or any user-set field) --
+  // returning immediately made two Errors with the same message/name but
+  // different `.code` (or different subclasses in strict mode) compare
+  // equal. (ENG-23035)
   if (a instanceof Error && b instanceof Error) {
-    return a.message === b.message && a.name === b.name;
+    if (a.message !== b.message || a.name !== b.name) return false;
+    // fall through to prototype + own-enumerable-property comparison below
   }
 
   // Handle ArrayBuffer and SharedArrayBuffer - different types are not equal
@@ -1699,9 +1727,25 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 
   if (Array.isArray(a)) {
     if (!Array.isArray(b) || a.length !== b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (!_deepEqual(a[i], b[i], aSeen, bSeen, strict)) return false;
+    // Walk own enumerable string keys rather than raw indices 0..length-1:
+    // a sparse hole is not an own property at all (Object.keys skips it),
+    // so `[1,,3]` (keys {0,2}) and `[1,undefined,3]` (keys {0,1,2}) get
+    // different key sets and correctly compare unequal -- a per-index loop
+    // treats a hole as `undefined` and would have missed that. This also
+    // picks up extra non-index own-enumerable properties (e.g. `arr.foo`),
+    // which Node compares too. (ENG-23035)
+    var arrKeysA = Object.keys(a);
+    var arrKeysB = Object.keys(b);
+    if (arrKeysA.length !== arrKeysB.length) return false;
+    for (var ai = 0; ai < arrKeysA.length; ai++) {
+      var arrKey = arrKeysA[ai];
+      if (!Object.prototype.hasOwnProperty.call(b, arrKey)) return false;
+      if (!_deepEqual(a[arrKey], b[arrKey], aSeen, bSeen, strict)) return false;
     }
+    // Enumerable own Symbol keys, strict mode only: Node's *loose* deepEqual
+    // does not compare symbol-keyed properties at all (verified against
+    // Node), only deepStrictEqual does. (ENG-23035)
+    if (strict && !_symbolKeysEqual(a, b, aSeen, bSeen)) return false;
     return true;
   }
   var keysA = Object.keys(a);
@@ -1712,6 +1756,12 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
     if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
     if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
   }
+  // Enumerable own Symbol keys -- ignored by the generic string-key walk
+  // above, so e.g. `deepStrictEqual({[s]:1},{[s]:2})` (same string keys,
+  // differing symbol-keyed values) fell through as equal. Strict-only, to
+  // match Node's loose deepEqual (which does not compare symbol keys).
+  // (ENG-23035)
+  if (strict && !_symbolKeysEqual(a, b, aSeen, bSeen)) return false;
   return true;
 }
 

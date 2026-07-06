@@ -240,6 +240,59 @@ describe('assert.equal / notEqual NaN handling (ENG-22968)', () => {
   }
 });
 
+// ENG-23035 — further deep-equality gaps beyond ENG-22968/23000: Symbol
+// own-keys, Error own-enumerable-properties, and array extra-props/holes.
+// Oracle values captured from real Node v25.9.0 (`node -e` differential run).
+// Notably, loose deepEqual does NOT compare symbol-keyed properties at all
+// (verified against real Node), only deepStrictEqual does -- several rows
+// below are strict-only failures for that reason.
+describe('assert/util deep-equality gaps: symbols, Error props, array holes (ENG-23035)', () => {
+  const s = Symbol('k');
+  class FooError extends Error {}
+
+  function errWithCode(ctor: new (msg: string) => Error, message: string, code: string): Error {
+    const e = new ctor(message);
+    (e as any).code = code;
+    return e;
+  }
+
+  const rows: Row[] = [
+    // --- Finding #1: enumerable Symbol own-keys ---
+    ['symbol value differs', { [s]: 1 }, { [s]: 2 }, false, true, false],
+    ['symbol key missing on b', { [s]: 1 }, {}, false, true, false],
+    ['symbol key/value equal', { [s]: 1 }, { [s]: 1 }, true, true, true],
+
+    // --- Finding #2: Error own-enumerable-properties (does not stop at message/name) ---
+    ['Error same message/name, code differs', errWithCode(Error, 'x', 'E1'), errWithCode(Error, 'x', 'E2'), false, false, false],
+    ['Error same message/name/code', errWithCode(Error, 'x', 'E1'), errWithCode(Error, 'x', 'E1'), true, true, true],
+    ['Error vs subclass, same message/code', errWithCode(Error, 'x', 'E1'), errWithCode(FooError, 'x', 'E1'), false, true, false],
+    ['Error subclass vs subclass, same message/code', errWithCode(FooError, 'x', 'E1'), errWithCode(FooError, 'x', 'E1'), true, true, true],
+
+    // --- Finding #3: array extra non-index own-props and sparse holes ---
+    ['array extra prop differs', Object.assign([1, 2], { foo: 'x' }), Object.assign([1, 2], { foo: 'y' }), false, false, false],
+    ['array extra prop equal', Object.assign([1, 2], { foo: 'x' }), Object.assign([1, 2], { foo: 'x' }), true, true, true],
+    ['array extra prop missing on b', Object.assign([1, 2], { foo: 'x' }), [1, 2], false, false, false],
+    ['array hole vs explicit undefined', [1, , 3], [1, undefined, 3], false, false, false],
+    ['array hole vs hole', [1, , 3], [1, , 3], true, true, true],
+    ['array symbol value differs', Object.assign([1, 2], { [s]: 1 }), Object.assign([1, 2], { [s]: 2 }), false, true, false],
+    ['array symbol key/value equal', Object.assign([1, 2], { [s]: 1 }), Object.assign([1, 2], { [s]: 1 }), true, true, true],
+    ['array length-only diff (no extra own indexed props)', (() => { const a = [1, 2]; a.length = 5; return a; })(), [1, 2], false, false, false],
+  ];
+
+  for (const [name, a, b, expStrict, expLoose, expIsdse] of rows) {
+    test(`deepStrictEqual: ${name}`, () => {
+      expect(passes(() => ibexAssert.deepStrictEqual(a, b))).toBe(expStrict);
+    });
+    test(`deepEqual (loose): ${name}`, () => {
+      expect(passes(() => ibexAssert.deepEqual(a, b))).toBe(expLoose);
+    });
+    test(`util.isDeepStrictEqual: ${name}`, () => {
+      expect(ibexUtil.isDeepStrictEqual(a, b)).toBe(expIsdse);
+      expect(ibexAssert._isDeepStrictEqual(a, b)).toBe(expIsdse);
+    });
+  }
+});
+
 describe('seen-stack pop keeps large comparisons linear (ENG-22968)', () => {
   test('20k-element comparison is fast and correct', () => {
     const n = 20000;

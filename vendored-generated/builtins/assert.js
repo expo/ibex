@@ -1106,6 +1106,21 @@ function _deepEqual(a, b, aSeen, bSeen, strict) {
 	bSeen.pop();
 	return deepEqualResult;
 }
+function _symbolKeysEqual(a, b, aSeen, bSeen) {
+	var aSymbols = Object.getOwnPropertySymbols(a).filter(function(s) {
+		return Object.prototype.propertyIsEnumerable.call(a, s);
+	});
+	var bSymbols = Object.getOwnPropertySymbols(b).filter(function(s) {
+		return Object.prototype.propertyIsEnumerable.call(b, s);
+	});
+	if (aSymbols.length !== bSymbols.length) return false;
+	for (var i = 0; i < aSymbols.length; i++) {
+		var sym = aSymbols[i];
+		if (!Object.prototype.propertyIsEnumerable.call(b, sym)) return false;
+		if (!_deepEqual(a[sym], b[sym], aSeen, bSeen, true)) return false;
+	}
+	return true;
+}
 function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 	var aTag = Object.prototype.toString.call(a);
 	var bTag = Object.prototype.toString.call(b);
@@ -1146,7 +1161,9 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 		}
 		return true;
 	})();
-	if (a instanceof Error && b instanceof Error) return a.message === b.message && a.name === b.name;
+	if (a instanceof Error && b instanceof Error) {
+		if (a.message !== b.message || a.name !== b.name) return false;
+	}
 	if (typeof ArrayBuffer !== "undefined" && (aTag === "[object ArrayBuffer]" || aTag === "[object SharedArrayBuffer]")) {
 		if (aTag !== bTag) return false;
 		return _buffersAreByteEqual(a, b);
@@ -1238,7 +1255,15 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 	}
 	if (Array.isArray(a)) {
 		if (!Array.isArray(b) || a.length !== b.length) return false;
-		for (var i = 0; i < a.length; i++) if (!_deepEqual(a[i], b[i], aSeen, bSeen, strict)) return false;
+		var arrKeysA = Object.keys(a);
+		var arrKeysB = Object.keys(b);
+		if (arrKeysA.length !== arrKeysB.length) return false;
+		for (var ai = 0; ai < arrKeysA.length; ai++) {
+			var arrKey = arrKeysA[ai];
+			if (!Object.prototype.hasOwnProperty.call(b, arrKey)) return false;
+			if (!_deepEqual(a[arrKey], b[arrKey], aSeen, bSeen, strict)) return false;
+		}
+		if (strict && !_symbolKeysEqual(a, b, aSeen, bSeen)) return false;
 		return true;
 	}
 	var keysA = Object.keys(a);
@@ -1249,6 +1274,7 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 		if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
 		if (!_deepEqual(a[key], b[key], aSeen, bSeen, strict)) return false;
 	}
+	if (strict && !_symbolKeysEqual(a, b, aSeen, bSeen)) return false;
 	return true;
 }
 function ok(value, message) {
