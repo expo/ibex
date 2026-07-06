@@ -3674,12 +3674,8 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 	}
 	if (typeof state.pendingcb === "number") state.pendingcb++;
 	state.writing = true;
-	if (shouldNeedDrain) {
-		this._needDrain = true;
-		this.writableNeedDrain = true;
-		state.needDrain = true;
-	}
 	var hadNeedDrain = this._needDrain || this.writableNeedDrain;
+	var writeNeededDrain = false;
 	var callbackCalled = false;
 	var self = this;
 	var writeSync = true;
@@ -3715,7 +3711,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 				});
 				return;
 			}
-			if ((hadNeedDrain || shouldNeedDrain) && !(state && state.ending) && !self._destroyed && self.writableLength < self.writableHighWaterMark) {
+			if ((hadNeedDrain || writeNeededDrain) && !(state && state.ending) && !self._destroyed && self.writableLength < self.writableHighWaterMark) {
 				self._needDrain = false;
 				self.writableNeedDrain = false;
 				state.needDrain = false;
@@ -3728,11 +3724,6 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 		if (writeSync) _nextTick(afterWrite);
 		else afterWrite();
 	};
-	if (shouldNeedDrain) {
-		this._needDrain = true;
-		this.writableNeedDrain = true;
-		state.needDrain = true;
-	}
 	try {
 		self._write(chunk, writeEncoding, onWriteComplete);
 	} catch (err) {
@@ -3740,8 +3731,15 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 		throw err;
 	}
 	writeSync = false;
-	if (callbackCalled && state.errored) return false;
-	return !shouldNeedDrain;
+	var needsDrain = this.writableLength >= this.writableHighWaterMark;
+	if (needsDrain) {
+		writeNeededDrain = true;
+		this._needDrain = true;
+		this.writableNeedDrain = true;
+		state.needDrain = true;
+	}
+	if (state.errored || this._destroyed || this.destroyed) return false;
+	return !needsDrain;
 };
 Writable.prototype._flushWriteQueue = function() {
 	if (!this._writeQueue || this._writeQueue.length === 0) return;

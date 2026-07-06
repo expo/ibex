@@ -4804,12 +4804,13 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     state.pendingcb++;
   }
   state.writing = true;
-  if (shouldNeedDrain) {
-    this._needDrain = true;
-    this.writableNeedDrain = true;
-    state.needDrain = true;
-  }
+  // (ENG-22998) Do not assert needDrain from the pre-write length here. A
+  // synchronous _write callback drains this chunk within this same tick, so
+  // whether *this* write needs backpressure is only known after _write runs
+  // (writeNeededDrain, set below once writableLength reflects the post-onwrite
+  // state). hadNeedDrain captures backpressure a *prior* write already asserted.
   var hadNeedDrain = this._needDrain || this.writableNeedDrain;
+  var writeNeededDrain = false;
   var callbackCalled = false;
   var self = this;
   // When self._write() invokes its callback synchronously, Node defers the
@@ -4878,7 +4879,13 @@ Writable.prototype.write = function(chunk, encoding, callback) {
         return;
       }
 
-      var shouldEmitDrain = (hadNeedDrain || shouldNeedDrain) &&
+      // (ENG-22998) Emit 'drain' only when this write (writeNeededDrain) or a
+      // prior write (hadNeedDrain) actually asserted backpressure and the buffer
+      // has since fallen below the high-water mark. Gating on this write's own
+      // *post-write* need rather than its pre-write length is what stops a
+      // synchronous _write that drains the buffer from emitting a spurious
+      // 'drain'; async writes are unaffected (their post-write need == pre-write).
+      var shouldEmitDrain = (hadNeedDrain || writeNeededDrain) &&
                             !(state && state.ending) &&
                             !self._destroyed &&
                             self.writableLength < self.writableHighWaterMark;
@@ -4906,12 +4913,6 @@ Writable.prototype.write = function(chunk, encoding, callback) {
     }
   };
 
-  if (shouldNeedDrain) {
-    this._needDrain = true;
-    this.writableNeedDrain = true;
-    state.needDrain = true;
-  }
-
   try {
     self._write(chunk, writeEncoding, onWriteComplete);
   } catch (err) {
@@ -4923,10 +4924,24 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   // Any onWriteComplete call after this point is an asynchronous _write
   // callback; run its afterWrite work immediately rather than deferring.
   writeSync = false;
-  if (callbackCalled && state.errored) {
+  // (ENG-22998) Mirror Node: the write() return value reflects the buffer state
+  // *after* the synchronous _write callback (onwrite) has run. A synchronous
+  // _write that invokes its callback within this call has already decremented
+  // writableLength, so the buffer can be back below the high-water mark and the
+  // write never needed draining (returns true, emits no 'drain'). For an
+  // asynchronous _write the chunk is still buffered, so this stays the over-hwm
+  // result. needDrain is asserted only when backpressure genuinely remains.
+  var needsDrain = this.writableLength >= this.writableHighWaterMark;
+  if (needsDrain) {
+    writeNeededDrain = true;
+    this._needDrain = true;
+    this.writableNeedDrain = true;
+    state.needDrain = true;
+  }
+  if (state.errored || this._destroyed || this.destroyed) {
     return false;
   }
-  return !shouldNeedDrain;
+  return !needsDrain;
 };
 
 Writable.prototype._flushWriteQueue = function() {
