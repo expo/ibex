@@ -14,7 +14,6 @@ function normalizeExecOptions(opts) {
 	}
 	if (opts.cwd) o.cwd = String(opts.cwd);
 	if (opts.timeout) o.timeout = Number(opts.timeout);
-	o.maxBuffer = 268435456;
 	if (opts.encoding !== void 0) o.encoding = opts.encoding;
 	if (opts.env) o.env = opts.env;
 	if (opts.shell !== void 0) o.shell = opts.shell;
@@ -770,7 +769,9 @@ function _internalSpawnSync(opts) {
 	var nativeOpts = {};
 	if (opts.cwd) nativeOpts.cwd = String(opts.cwd);
 	if (opts.timeout) nativeOpts.timeout = Number(opts.timeout);
-	nativeOpts.maxBuffer = 268435456;
+	if (opts.maxBuffer === Infinity) nativeOpts.maxBuffer = 0;
+	else if (typeof opts.maxBuffer === "number" && isFinite(opts.maxBuffer)) nativeOpts.maxBuffer = Math.floor(opts.maxBuffer);
+	if (typeof opts.killSignal === "number" && opts.killSignal > 0) nativeOpts.killSignal = opts.killSignal;
 	if (opts.encoding !== void 0) nativeOpts.encoding = opts.encoding;
 	if (opts.envPairs) {
 		var envObj = {};
@@ -951,19 +952,14 @@ cp.spawnSync = function spawnSync(command, args, options) {
 		signal: null,
 		error: void 0
 	};
-	var maxBuffer = options && options.maxBuffer !== void 0 ? options.maxBuffer : 1024 * 1024;
-	if (maxBuffer !== Infinity && !result.error) {
-		var stdoutLen = typeof stdoutOutput === "string" ? stdoutOutput.length : stdoutOutput ? stdoutOutput.length : 0;
-		var stderrLen = typeof stderrOutput === "string" ? stderrOutput.length : stderrOutput ? stderrOutput.length : 0;
-		if (stdoutLen > maxBuffer || stderrLen > maxBuffer) {
-			var maxBufErr = /* @__PURE__ */ new Error("spawnSync " + command + " ENOBUFS");
-			maxBufErr.code = "ENOBUFS";
-			maxBufErr.errno = -55;
-			maxBufErr.syscall = "spawnSync " + command;
-			maxBufErr.spawnargs = args;
-			maxBufErr.path = command;
-			spawnResult.error = maxBufErr;
-		}
+	if (result.maxBufferExceeded && !result.error) {
+		var maxBufErr = /* @__PURE__ */ new Error("spawnSync " + command + " ENOBUFS");
+		maxBufErr.code = "ENOBUFS";
+		maxBufErr.errno = -55;
+		maxBufErr.syscall = "spawnSync " + command;
+		maxBufErr.spawnargs = args;
+		maxBufErr.path = command;
+		spawnResult.error = maxBufErr;
 	}
 	if (!spawnResult.error && result.error) {
 		var isShellSuccess = shellValue && typeof result.status === "number" && result.status >= 0;

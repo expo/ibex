@@ -20,8 +20,8 @@ function normalizeExecOptions(opts) {
   }
   if (opts.cwd) o.cwd = String(opts.cwd);
   if (opts.timeout) o.timeout = Number(opts.timeout);
-  // Pass large maxBuffer to C++ to prevent C++ truncation - JS handles actual enforcement
-  o.maxBuffer = 268435456; // 256MB
+  // (ENG-23008) maxBuffer is enforced in the native bridge from the caller's real
+  // value; do not clamp it to 256MB here (that made native never truncate/kill).
   if (opts.encoding !== undefined) o.encoding = opts.encoding;
   if (opts.env) o.env = opts.env;
   if (opts.shell !== undefined) o.shell = opts.shell;
@@ -932,7 +932,18 @@ function _validateSpawnSyncOptions(options) {
     var nativeOpts = {};
     if (opts.cwd) nativeOpts.cwd = String(opts.cwd);
     if (opts.timeout) nativeOpts.timeout = Number(opts.timeout);
-    nativeOpts.maxBuffer = 268435456; // 256MB - JS handles actual enforcement
+    // (ENG-23008) Hand the caller's real maxBuffer to the native bridge, which
+    // enforces it by bytes and kills the child on overflow. Infinity -> 0 means
+    // unlimited; an unset maxBuffer omits the key so native uses Node's 1MB
+    // default. killSignal (numeric) tells native which signal to send on kill.
+    if (opts.maxBuffer === Infinity) {
+      nativeOpts.maxBuffer = 0;
+    } else if (typeof opts.maxBuffer === 'number' && isFinite(opts.maxBuffer)) {
+      nativeOpts.maxBuffer = Math.floor(opts.maxBuffer);
+    }
+    if (typeof opts.killSignal === 'number' && opts.killSignal > 0) {
+      nativeOpts.killSignal = opts.killSignal;
+    }
     if (opts.encoding !== undefined) nativeOpts.encoding = opts.encoding;
     if (opts.envPairs) {
       var envObj = {};
@@ -1155,20 +1166,19 @@ function _validateSpawnSyncOptions(options) {
     error: undefined
   };
 
-  // Check maxBuffer enforcement
-  var maxBuffer = (options && options.maxBuffer !== undefined) ? options.maxBuffer : 1024 * 1024;
-  if (maxBuffer !== Infinity && !result.error) {
-    var stdoutLen = typeof stdoutOutput === 'string' ? stdoutOutput.length : (stdoutOutput ? stdoutOutput.length : 0);
-    var stderrLen = typeof stderrOutput === 'string' ? stderrOutput.length : (stderrOutput ? stderrOutput.length : 0);
-    if (stdoutLen > maxBuffer || stderrLen > maxBuffer) {
-      var maxBufErr = new Error('spawnSync ' + command + ' ENOBUFS');
-      maxBufErr.code = 'ENOBUFS';
-      maxBufErr.errno = -55;
-      maxBufErr.syscall = 'spawnSync ' + command;
-      maxBufErr.spawnargs = args;
-      maxBufErr.path = command;
-      spawnResult.error = maxBufErr;
-    }
+  // (ENG-23008) maxBuffer is now enforced in the native bridge: it counts BYTES,
+  // truncates the captured output to maxBuffer, and kills the child with
+  // killSignal the moment the limit is exceeded. Surface that overflow as the
+  // ENOBUFS error Node reports (the child kill also sets spawnResult.signal via
+  // the negative status handling below). No post-hoc UTF-16 length comparison.
+  if (result.maxBufferExceeded && !result.error) {
+    var maxBufErr = new Error('spawnSync ' + command + ' ENOBUFS');
+    maxBufErr.code = 'ENOBUFS';
+    maxBufErr.errno = -55;
+    maxBufErr.syscall = 'spawnSync ' + command;
+    maxBufErr.spawnargs = args;
+    maxBufErr.path = command;
+    spawnResult.error = maxBufErr;
   }
 
   if (!spawnResult.error && result.error) {

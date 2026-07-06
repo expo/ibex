@@ -435,7 +435,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         std::string cwd;
         bool useShell = false;
         uint32_t timeout_ms = 0;
-        uint32_t max_buffer = 1024 * 1024;
+        // (ENG-23008) maxBuffer is now enforced here (byte-counted, child killed
+        // on exceed) instead of post-hoc in JS. Default matches Node (1MB); a
+        // value of 0 means unlimited (JS maps Infinity -> 0). kill_signal is the
+        // numeric signal to send when the limit is exceeded (Node killSignal,
+        // default SIGTERM=15).
+        size_t max_buffer = 1024 * 1024;
+        bool max_buffer_unlimited = false;
+        int kill_signal = 15;
         std::vector<std::string> envEntries;
         std::string stdinInput;
         bool hasStdinInput = false;
@@ -463,12 +470,24 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           auto timeoutPos = optsJson.find("\"timeout\":");
           if (timeoutPos != std::string::npos) {
             auto start = timeoutPos + 10;
-            timeout_ms = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
+            timeout_ms = static_cast<uint32_t>(std::strtoul(optsJson.c_str() + start, nullptr, 10));
           }
           auto maxBufPos = optsJson.find("\"maxBuffer\":");
           if (maxBufPos != std::string::npos) {
             auto start = maxBufPos + 12;
-            max_buffer = static_cast<uint32_t>(std::stoul(optsJson.substr(start)));
+            // strtoull (not stoul) so a non-digit (e.g. JSON null) never throws.
+            unsigned long long parsed = std::strtoull(optsJson.c_str() + start, nullptr, 10);
+            if (parsed == 0ULL) {
+              max_buffer_unlimited = true;
+            } else {
+              max_buffer = static_cast<size_t>(parsed);
+            }
+          }
+          auto killSigPos = optsJson.find("\"killSignal\":");
+          if (killSigPos != std::string::npos) {
+            auto start = killSigPos + 13;
+            int parsedSig = static_cast<int>(std::strtol(optsJson.c_str() + start, nullptr, 10));
+            if (parsedSig > 0) kill_signal = parsedSig;
           }
           envEntries = s_parseEnvFromOpts(optsJson);
           // Parse stdio option (string form: "inherit", "pipe", "ignore")
@@ -807,13 +826,23 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }).detach();
         }
 
+        // (ENG-23008) Enforce maxBuffer by BYTES on each stream. When cumulative
+        // bytes exceed the limit, truncate the captured output to maxBuffer and
+        // KILL the child with killSignal (matching Node), instead of buffering up
+        // to 256MB and never terminating the child.
+        bool maxBufferExceeded = false;
+
         // Read stdout (only if piped)
         if (syncStdoutPipe) {
           while (true) {
             ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
             if (bytesRead <= 0) break;
-            if (stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
-              stdoutStr.append(buf, max_buffer - stdoutStr.size());
+            if (!max_buffer_unlimited &&
+                stdoutStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
+              size_t room = max_buffer > stdoutStr.size() ? max_buffer - stdoutStr.size() : 0;
+              stdoutStr.append(buf, room);
+              maxBufferExceeded = true;
+              if (!childExited.load()) kill(pid, kill_signal);
               break;
             }
             stdoutStr.append(buf, static_cast<size_t>(bytesRead));
@@ -826,6 +855,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           while (true) {
             ssize_t bytesRead = read(stderrPipe[0], buf, sizeof(buf));
             if (bytesRead <= 0) break;
+            if (!max_buffer_unlimited &&
+                stderrStr.size() + static_cast<size_t>(bytesRead) > max_buffer) {
+              size_t room = max_buffer > stderrStr.size() ? max_buffer - stderrStr.size() : 0;
+              stderrStr.append(buf, room);
+              maxBufferExceeded = true;
+              if (!childExited.load()) kill(pid, kill_signal);
+              break;
+            }
             stderrStr.append(buf, static_cast<size_t>(bytesRead));
           }
           close(stderrPipe[0]);
@@ -852,7 +889,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         std::string resultJson = "{\"stdout\":\"" + base64Encode(stdoutStr)
             + "\",\"stderr\":\"" + base64Encode(stderrStr)
             + "\",\"stdioEncoding\":\"base64\",\"status\":" + std::to_string(exitStatus)
-            + ",\"pid\":" + std::to_string(static_cast<int>(pid));
+            + ",\"pid\":" + std::to_string(static_cast<int>(pid))
+            + ",\"maxBufferExceeded\":" + (maxBufferExceeded ? "true" : "false");
         if (!errorStr.empty()) {
           resultJson += ",\"error\":\"" + jsonEscape(errorStr) + "\"";
         }
