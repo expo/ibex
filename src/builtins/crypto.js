@@ -1027,11 +1027,19 @@ function randomInt(min, max, callback) {
   if (arguments.length <= 2 && max > MAX_RANGE) {
     throw _errOutOfRange('max', '<= ' + MAX_RANGE, _formatNumber(max));
   }
-  var bytes = randomBytes(6);
-  var val = 0;
-  for (var bi = 0; bi < 6; bi++) {
-    val = val * 256 + (typeof bytes[bi] === 'number' ? bytes[bi] : (bytes.charCodeAt ? bytes.charCodeAt(bi) : 0));
-  }
+  // Rejection sampling (as Node does): redraw when the 48-bit sample lands in
+  // the partial final copy of `range`, otherwise `val % range` is biased
+  // toward low values whenever range does not divide 2^48 (ENG-23129). All
+  // arithmetic stays exact: every intermediate is <= 2^48 < 2^53.
+  var limit = Math.floor(281474976710656 / range) * range; // 2^48 - (2^48 % range)
+  var val;
+  do {
+    var bytes = randomBytes(6);
+    val = 0;
+    for (var bi = 0; bi < 6; bi++) {
+      val = val * 256 + (typeof bytes[bi] === 'number' ? bytes[bi] : (bytes.charCodeAt ? bytes.charCodeAt(bi) : 0));
+    }
+  } while (val >= limit);
   var result = min + (val % range);
   if (typeof callback === 'function') {
     setTimeout(function() { callback(null, result); }, 0);
@@ -2232,13 +2240,27 @@ function _extractKeyText(key) {
 
 function _normalizeHashForSign(algorithm) {
   var name = (typeof algorithm === 'string' ? algorithm : (algorithm && algorithm.name) ? algorithm.name : '').toLowerCase();
-  if (name.indexOf('sha1') !== -1) return 'sha1';
-  if (name.indexOf('sha224') !== -1) return 'sha224';
-  if (name.indexOf('sha256') !== -1) return 'sha256';
-  if (name.indexOf('sha384') !== -1) return 'sha384';
-  if (name.indexOf('sha512') !== -1) return 'sha512';
-  if (name.indexOf('md5') !== -1) return 'md5';
-  return 'sha256';
+  var compact = name.replace(/[-_]/g, '');
+  // Multi-part digest names must match before the plain sha256/sha512
+  // substring checks: "sha512-256" contains "sha512" and would select the
+  // wrong digest, and sha3-* had no tokens at all, so both used to collapse
+  // silently to another hash (ENG-23129).
+  if (compact.indexOf('sha512224') !== -1) return 'sha512-224';
+  if (compact.indexOf('sha512256') !== -1) return 'sha512-256';
+  if (compact.indexOf('sha3224') !== -1) return 'sha3-224';
+  if (compact.indexOf('sha3256') !== -1) return 'sha3-256';
+  if (compact.indexOf('sha3384') !== -1) return 'sha3-384';
+  if (compact.indexOf('sha3512') !== -1) return 'sha3-512';
+  if (compact.indexOf('sha224') !== -1) return 'sha224';
+  if (compact.indexOf('sha256') !== -1) return 'sha256';
+  if (compact.indexOf('sha384') !== -1) return 'sha384';
+  if (compact.indexOf('sha512') !== -1) return 'sha512';
+  if (compact.indexOf('sha1') !== -1) return 'sha1';
+  if (compact.indexOf('md5') !== -1) return 'md5';
+  // Unknown: pass the raw name through so the native bridge rejects it with
+  // "unsupported algorithm" instead of silently signing with SHA-256
+  // (ENG-23129; the bridge normalizers stopped defaulting too).
+  return name;
 }
 
 function _signatureOutput(signatureBytesLike, outputEncoding) {
@@ -2260,6 +2282,37 @@ function _signatureOutput(signatureBytesLike, outputEncoding) {
   return _bytesToBufferLike(signatureBytes);
 }
 
+// Extract the RSA padding scheme + PSS salt length from the key-options
+// object form ({ key, padding, saltLength }) that Node's sign/verify accept.
+// These used to be dropped entirely, so a jsonwebtoken PS256 request silently
+// produced a PKCS#1 v1.5 signature every external verifier rejected
+// (ENG-23129; the native bridge grew scheme/salt arguments in ENG-23002).
+// Default salt length is -2: Node's RSA_PSS_SALTLEN_MAX_SIGN when signing and
+// RSA_PSS_SALTLEN_AUTO when verifying (the OpenSSL bridge maps -2 to the
+// matching mode; the macOS SecKey bridge only supports digest-length salt and
+// throws for any other explicit value rather than mis-signing).
+function _rsaSchemeFromKeyOptions(key) {
+  var scheme = 'pkcs1';
+  var saltLength = -2;
+  if (key && typeof key === 'object' && !(key instanceof KeyObject) && key.padding !== undefined) {
+    if (key.padding === cryptoConstants.RSA_PKCS1_PSS_PADDING) {
+      scheme = 'pss';
+    } else if (key.padding !== cryptoConstants.RSA_PKCS1_PADDING) {
+      var paddingErr = new Error('Unsupported RSA padding: ' + key.padding +
+        ' (only RSA_PKCS1_PADDING and RSA_PKCS1_PSS_PADDING are supported for sign/verify)');
+      paddingErr.code = 'ERR_CRYPTO_INVALID_PADDING';
+      throw paddingErr;
+    }
+  }
+  if (key && typeof key === 'object' && !(key instanceof KeyObject) && key.saltLength !== undefined) {
+    if (typeof key.saltLength !== 'number' || !Number.isInteger(key.saltLength)) {
+      throw _errInvalidArgType('key.saltLength', 'of type number', key.saltLength);
+    }
+    saltLength = key.saltLength;
+  }
+  return { scheme: scheme, saltLength: saltLength };
+}
+
 function sign(algorithm, data, key, outputEncoding) {
   if (algorithm === null) algorithm = undefined;
   var hash = algorithm ? _normalizeHashForSign(algorithm) : 'sha256';
@@ -2269,15 +2322,22 @@ function sign(algorithm, data, key, outputEncoding) {
   // expanded every message byte >= 0x80 so signatures were rejected by external
   // verifiers (ENG-23017; the WebCrypto surface was fixed in ENG-23002/ENG-22983).
   var dataBytes = _toUint8Array(data);
-  var fallbackKey = keyText || _toByteString(key);
 
-  if (typeof keyText === 'string' && _isPemKeyText(keyText) && typeof __exactSignSync === 'function') {
-    try {
-      var nativeBytes = __exactSignSync(hash, dataBytes, keyText);
-      return _signatureOutput(nativeBytes, outputEncoding);
-    } catch (e) { /* ignored: native sign failed; fall through to the JS sign path */ }
+  if (typeof keyText === 'string' && _isPemKeyText(keyText)) {
+    // Asymmetric (PEM) key: the native signer is the only correct path. A
+    // native failure (unsupported hash, bad key, unsupported scheme) must
+    // propagate — the old catch fell through to the HMAC branch below and
+    // returned a 32-byte HMAC masquerading as a signature (ENG-23129).
+    if (typeof __exactSignSync !== 'function') {
+      throw new Error('crypto.sign: asymmetric signing is not available on this platform');
+    }
+    var rsaOpts = _rsaSchemeFromKeyOptions(key);
+    var nativeBytes = __exactSignSync(hash, dataBytes, keyText, rsaOpts.scheme, rsaOpts.saltLength);
+    return _signatureOutput(nativeBytes, outputEncoding);
   }
+  // Symmetric (non-PEM) secret: legacy HMAC behavior.
   if (typeof __exactHmacSync === 'function') {
+    var fallbackKey = keyText || _toByteString(key);
     var hmacHex = __exactHmacSync(hash, fallbackKey, _toByteString(data));
     return _signatureOutput(hmacHex, outputEncoding);
   }
@@ -2303,16 +2363,30 @@ function verify(algorithm, data, key, signature, callback) {
   var dataBytes = _toUint8Array(data);
 
   var result = false;
-  if (typeof keyText === 'string' && _isPemKeyText(keyText) && typeof __exactVerifySync === 'function') {
-    try {
-      result = __exactVerifySync(hash, signatureValue, dataBytes, keyText);
-    } catch (e) {
+  if (typeof keyText === 'string' && _isPemKeyText(keyText)) {
+    if (typeof __exactVerifySync !== 'function') {
+      var unavailable = new Error('crypto.verify: asymmetric verification is not available on this platform');
       if (typeof callback === 'function') {
-        var _nextTick = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
-        _nextTick(function() { callback(null, false); });
+        var _nextTick0 = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+        _nextTick0(function() { callback(unavailable); });
         return;
       }
-      result = false;
+      throw unavailable;
+    }
+    try {
+      var rsaOpts = _rsaSchemeFromKeyOptions(key);
+      result = __exactVerifySync(hash, signatureValue, dataBytes, keyText, rsaOpts.scheme, rsaOpts.saltLength);
+    } catch (e) {
+      // Only a genuine verification mismatch may become `false`; the bridge
+      // returns false for that itself. What it throws are key/argument
+      // errors (invalid PEM, unsupported hash/scheme), which used to be
+      // swallowed into `false` here (ENG-23129).
+      if (typeof callback === 'function') {
+        var _nextTick = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+        _nextTick(function() { callback(e); });
+        return;
+      }
+      throw e;
     }
     if (typeof callback === 'function') {
       var _nextTick2 = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
@@ -2362,10 +2436,13 @@ if (_CipherStreamTransform) {
   Sign.prototype.constructor = Sign;
 }
 
-Sign.prototype.update = function(data, inputEncoding) { this._chunks.push(_toByteStringWithEncoding(data, inputEncoding)); return this; };
+// Node defaults update(string) to utf8 (as Hash/Hmac do above); without it a
+// non-ASCII string was signed as Latin-1/truncated code units and the
+// signature failed external verification (ENG-23129).
+Sign.prototype.update = function(data, inputEncoding) { this._chunks.push(_toByteStringWithEncoding(data, inputEncoding || 'utf8')); return this; };
 Sign.prototype.sign = function(key, outputEncoding) { return sign(this._algorithm, this._chunks.join(''), key, outputEncoding); };
 Sign.prototype.end = function(data, inputEncoding) {
-  if (typeof data !== 'undefined' && data !== null) this._chunks.push(_toByteStringWithEncoding(data, inputEncoding));
+  if (typeof data !== 'undefined' && data !== null) this._chunks.push(_toByteStringWithEncoding(data, inputEncoding || 'utf8'));
   return this;
 };
 Sign.prototype[Symbol.toStringTag] = 'Sign';
@@ -2384,10 +2461,11 @@ if (_CipherStreamTransform) {
   Verify.prototype.constructor = Verify;
 }
 
-Verify.prototype.update = function(data, inputEncoding) { this._chunks.push(_toByteStringWithEncoding(data, inputEncoding)); return this; };
+// utf8 default for the same reason as Sign.prototype.update (ENG-23129).
+Verify.prototype.update = function(data, inputEncoding) { this._chunks.push(_toByteStringWithEncoding(data, inputEncoding || 'utf8')); return this; };
 Verify.prototype.verify = function(key, signature) { return verify(this._algorithm, this._chunks.join(''), key, signature); };
 Verify.prototype.end = function(data, inputEncoding) {
-  if (typeof data !== 'undefined' && data !== null) this._chunks.push(_toByteStringWithEncoding(data, inputEncoding));
+  if (typeof data !== 'undefined' && data !== null) this._chunks.push(_toByteStringWithEncoding(data, inputEncoding || 'utf8'));
   return this;
 };
 Verify.prototype[Symbol.toStringTag] = 'Verify';
@@ -3010,50 +3088,150 @@ function createDiffieHellman(sizeOrKey, generatorEncoding, generator) {
 }
 
 // --- DiffieHellmanGroup ---
+// Well-known MODP group primes (RFC 2412 groups 1-2; RFC 3526 groups 5 and
+// 14-18), all with generator 2. Hex values dumped from Node's
+// crypto.getDiffieHellman (external oracle); tests pin modp14 against the
+// RFC 3526 value. The point of these standardized groups is that two peers
+// derive the SAME shared secret, so the previous randomBytes() stubs silently
+// broke every getDiffieHellman()-based key agreement (ENG-23129).
+var _dhWellKnownGroupPrimes = {
+  modp1:
+    'ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea6' +
+    '3b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245' +
+    'e485b576625e7ec6f44c42e9a63a3620ffffffffffffffff',
+  modp2:
+    'ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea6' +
+    '3b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245' +
+    'e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f2411' +
+    '7c4b1fe649286651ece65381ffffffffffffffff',
+  modp5:
+    'ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea6' +
+    '3b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245' +
+    'e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f2411' +
+    '7c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f' +
+    '83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08' +
+    'ca237327ffffffffffffffff',
+  modp14:
+    'ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea6' +
+    '3b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245' +
+    'e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f2411' +
+    '7c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f' +
+    '83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08' +
+    'ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9' +
+    'de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aacaa68ffffffff' +
+    'ffffffff',
+  modp15:
+    'ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea6' +
+    '3b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245' +
+    'e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f2411' +
+    '7c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f' +
+    '83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08' +
+    'ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9' +
+    'de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d' +
+    '04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7' +
+    'abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d8760273' +
+    '3ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab31' +
+    '43db5bfce0fd108e4b82d120a93ad2caffffffffffffffff',
+  modp16:
+    'ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea6' +
+    '3b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245' +
+    'e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f2411' +
+    '7c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f' +
+    '83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08' +
+    'ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9' +
+    'de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d' +
+    '04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7' +
+    'abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d8760273' +
+    '3ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab31' +
+    '43db5bfce0fd108e4b82d120a92108011a723c12a787e6d788719a10bdba5b2699c32718' +
+    '6af4e23c1a946834b6150bda2583e9ca2ad44ce8dbbbc2db04de8ef92e8efc141fbecaa6' +
+    '287c59474e6bc05d99b2964fa090c3a2233ba186515be7ed1f612970cee2d7afb81bdd76' +
+    '2170481cd0069127d5b05aa993b4ea988d8fddc186ffb7dc90a6c08f4df435c934063199' +
+    'ffffffffffffffff',
+  modp17:
+    'ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea6' +
+    '3b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245' +
+    'e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f2411' +
+    '7c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f' +
+    '83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08' +
+    'ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9' +
+    'de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d' +
+    '04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7' +
+    'abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d8760273' +
+    '3ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab31' +
+    '43db5bfce0fd108e4b82d120a92108011a723c12a787e6d788719a10bdba5b2699c32718' +
+    '6af4e23c1a946834b6150bda2583e9ca2ad44ce8dbbbc2db04de8ef92e8efc141fbecaa6' +
+    '287c59474e6bc05d99b2964fa090c3a2233ba186515be7ed1f612970cee2d7afb81bdd76' +
+    '2170481cd0069127d5b05aa993b4ea988d8fddc186ffb7dc90a6c08f4df435c934028492' +
+    '36c3fab4d27c7026c1d4dcb2602646dec9751e763dba37bdf8ff9406ad9e530ee5db382f' +
+    '413001aeb06a53ed9027d831179727b0865a8918da3edbebcf9b14ed44ce6cbaced4bb1b' +
+    'db7f1447e6cc254b332051512bd7af426fb8f401378cd2bf5983ca01c64b92ecf032ea15' +
+    'd1721d03f482d7ce6e74fef6d55e702f46980c82b5a84031900b1c9e59e7c97fbec7e8f3' +
+    '23a97a7e36cc88be0f1d45b7ff585ac54bd407b22b4154aacc8f6d7ebf48e1d814cc5ed2' +
+    '0f8037e0a79715eef29be32806a1d58bb7c5da76f550aa3d8a1fbff0eb19ccb1a313d55c' +
+    'da56c9ec2ef29632387fe8d76e3c0468043e8f663f4860ee12bf2d5b0b7474d6e694f91e' +
+    '6dcc4024ffffffffffffffff',
+  modp18:
+    'ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea6' +
+    '3b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245' +
+    'e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f2411' +
+    '7c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f' +
+    '83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08' +
+    'ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9' +
+    'de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d' +
+    '04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7' +
+    'abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d8760273' +
+    '3ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab31' +
+    '43db5bfce0fd108e4b82d120a92108011a723c12a787e6d788719a10bdba5b2699c32718' +
+    '6af4e23c1a946834b6150bda2583e9ca2ad44ce8dbbbc2db04de8ef92e8efc141fbecaa6' +
+    '287c59474e6bc05d99b2964fa090c3a2233ba186515be7ed1f612970cee2d7afb81bdd76' +
+    '2170481cd0069127d5b05aa993b4ea988d8fddc186ffb7dc90a6c08f4df435c934028492' +
+    '36c3fab4d27c7026c1d4dcb2602646dec9751e763dba37bdf8ff9406ad9e530ee5db382f' +
+    '413001aeb06a53ed9027d831179727b0865a8918da3edbebcf9b14ed44ce6cbaced4bb1b' +
+    'db7f1447e6cc254b332051512bd7af426fb8f401378cd2bf5983ca01c64b92ecf032ea15' +
+    'd1721d03f482d7ce6e74fef6d55e702f46980c82b5a84031900b1c9e59e7c97fbec7e8f3' +
+    '23a97a7e36cc88be0f1d45b7ff585ac54bd407b22b4154aacc8f6d7ebf48e1d814cc5ed2' +
+    '0f8037e0a79715eef29be32806a1d58bb7c5da76f550aa3d8a1fbff0eb19ccb1a313d55c' +
+    'da56c9ec2ef29632387fe8d76e3c0468043e8f663f4860ee12bf2d5b0b7474d6e694f91e' +
+    '6dbe115974a3926f12fee5e438777cb6a932df8cd8bec4d073b931ba3bc832b68d9dd300' +
+    '741fa7bf8afc47ed2576f6936ba424663aab639c5ae4f5683423b4742bf1c978238f16cb' +
+    'e39d652de3fdb8befc848ad922222e04a4037c0713eb57a81a23f0c73473fc646cea306b' +
+    '4bcbc8862f8385ddfa9d4b7fa2c087e879683303ed5bdd3a062b3cf5b3a278a66d2a13f8' +
+    '3f44f82ddf310ee074ab6a364597e899a0255dc164f31cc50846851df9ab48195ded7ea1' +
+    'b1d510bd7ee74d73faf36bc31ecfa268359046f4eb879f924009438b481c6cd7889a002e' +
+    'd5ee382bc9190da6fc026e479558e4475677e9aa9e3050e2765694dfc81f56e880b96e71' +
+    '60c980dd98edd3dfffffffffffffffff',
+};
+
 function DiffieHellmanGroup(groupName) {
   if (!(this instanceof DiffieHellmanGroup)) return new DiffieHellmanGroup(groupName);
-  if (!groupName || groupName === 'unknown-group') {
+  var primeHex = typeof groupName === 'string' ? _dhWellKnownGroupPrimes[groupName] : undefined;
+  if (!primeHex) {
     throw _createCryptoError(Error, 'ERR_CRYPTO_UNKNOWN_DH_GROUP', 'Unknown DH group');
   }
   this._group = groupName;
+  // Same field layout as a DiffieHellman constructed with an explicit prime,
+  // so the borrowed prototype methods below run the real BigInt math.
+  this._prime = _bigIntToBytes(BigInt('0x' + primeHex), primeHex.length / 2);
+  this._primeBigInt = BigInt('0x' + primeHex);
+  this._primeLength = 0;
+  this._generator = new Uint8Array([2]);
   this._publicKey = null;
   this._privateKey = null;
+  this._privateKeyBigInt = null;
+  this._publicKeyBigInt = null;
   this.verifyError = 0;
 }
 
-DiffieHellmanGroup.prototype.generateKeys = function(encoding) {
-  var pubBytes = randomBytes(128);
-  this._publicKey = pubBytes;
-  this._privateKey = randomBytes(128);
-  if (encoding === 'hex') return pubBytes.toString('hex');
-  return pubBytes;
-};
-DiffieHellmanGroup.prototype.computeSecret = function(otherKey, inputEncoding, outputEncoding) {
-  var keyBytes = randomBytes(128);
-  if (outputEncoding === 'hex') return keyBytes.toString('hex');
-  return keyBytes;
-};
+// Real DH math shared with DiffieHellman — these were randomBytes() stubs
+// that ignored both keys (ENG-23129).
+DiffieHellmanGroup.prototype.generateKeys = DiffieHellman.prototype.generateKeys;
+DiffieHellmanGroup.prototype.computeSecret = DiffieHellman.prototype.computeSecret;
+DiffieHellmanGroup.prototype.getPrime = DiffieHellman.prototype.getPrime;
+DiffieHellmanGroup.prototype.getGenerator = DiffieHellman.prototype.getGenerator;
+DiffieHellmanGroup.prototype.getPrivateKey = DiffieHellman.prototype.getPrivateKey;
+DiffieHellmanGroup.prototype.getPublicKey = DiffieHellman.prototype.getPublicKey;
 // DiffieHellmanGroup does NOT have setPublicKey/setPrivateKey (unlike DiffieHellman)
-DiffieHellmanGroup.prototype.getPrime = function(encoding) {
-  var p = randomBytes(128);
-  if (encoding === 'hex') return p.toString('hex');
-  return p;
-};
-DiffieHellmanGroup.prototype.getGenerator = function(encoding) {
-  var g = _bytesToBufferLike([2]);
-  if (encoding === 'hex') return g.toString('hex');
-  return g;
-};
-DiffieHellmanGroup.prototype.getPrivateKey = function(encoding) {
-  var k = this._privateKey || new Uint8Array(0);
-  if (encoding === 'hex') return _bytesToBufferLike(k).toString('hex');
-  return _bytesToBufferLike(_toByteArray(k));
-};
-DiffieHellmanGroup.prototype.getPublicKey = function(encoding) {
-  var k = this._publicKey || new Uint8Array(0);
-  if (encoding === 'hex') return _bytesToBufferLike(k).toString('hex');
-  return _bytesToBufferLike(_toByteArray(k));
-};
 
 function createDiffieHellmanGroup(groupName) {
   return new DiffieHellmanGroup(groupName);
@@ -3471,17 +3649,10 @@ function checkPrimeSync(candidate, options) {
       throw _createCryptoError(Error, 'ERR_OSSL_BN_BIGNUM_TOO_LONG', 'bignum too long');
     }
   }
-  // Simple primality check
+  var mrChecks = (options && typeof options.checks === 'number' && options.checks > 0) ? options.checks : 20;
   var val;
   if (typeof candidate === 'bigint') {
-    if (candidate < 2n) return false;
-    if (candidate === 2n || candidate === 3n) return true;
-    if (candidate % 2n === 0n) return false;
-    // Trial division for small factors
-    for (var td = 3n; td * td <= candidate && td < 1000n; td += 2n) {
-      if (candidate % td === 0n) return false;
-    }
-    return true;
+    return _isProbablePrimeBigInt(candidate, mrChecks);
   }
   var bytes = _toBytes(candidate);
   if (bytes.length === 0) return false;
@@ -3499,9 +3670,27 @@ function checkPrimeSync(candidate, options) {
     }
     return true;
   }
-  // For larger values, check if odd (rough approximation for large random primes)
-  if ((bytes[bytes.length - 1] & 1) === 1) return true;
-  return false;
+  // Large candidates get a real Miller-Rabin test (as Node does). The old
+  // code only tested the low bit here, so every odd large composite —
+  // including a product of two large primes, the exact thing checkPrime is
+  // used to reject when validating DH/RSA parameters — returned true
+  // (ENG-23129).
+  return _isProbablePrimeBigInt(_bytesToBigInt(bytes), mrChecks);
+}
+
+// Probabilistic primality for arbitrary-size candidates: trial division by
+// small odd factors, then Miller-Rabin (_millerRabinTest, also used by
+// generatePrime) for anything the trial division could not settle exactly.
+function _isProbablePrimeBigInt(candidate, checks) {
+  if (candidate < 2n) return false;
+  if (candidate === 2n || candidate === 3n) return true;
+  if (candidate % 2n === 0n) return false;
+  for (var td = 3n; td * td <= candidate && td < 1000n; td += 2n) {
+    if (candidate % td === 0n) return false;
+  }
+  // Below 1000^2 the trial division above was exhaustive.
+  if (candidate < 1000000n) return true;
+  return _millerRabinTest(candidate, checks);
 }
 
 function checkPrime(candidate, options, callback) {

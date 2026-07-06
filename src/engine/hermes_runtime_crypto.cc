@@ -108,8 +108,11 @@ CFRefPtr<T> adoptCF(T ptr) {
 // Parse the optional RSA scheme + salt-length trailing arguments shared by the
 // __exactSignSync/__exactVerifySync bridges (ENG-23002). The scheme argument
 // selects RSA-PSS ("pss"/"rsa-pss") vs PKCS#1 v1.5; the salt argument is the PSS
-// salt length in bytes (defaults to -1 = "use the digest length"). Both are
-// optional so legacy 3/4-argument callers keep PKCS#1 v1.5 behavior.
+// salt length in bytes. Negative values are modes, mirroring Node's constants:
+// -1 = digest length (RSA_PSS_SALTLEN_DIGEST), -2 = maximum on sign / recover
+// from the signature on verify (RSA_PSS_SALTLEN_MAX_SIGN / RSA_PSS_SALTLEN_AUTO,
+// ENG-23129). Both are optional so legacy 3/4-argument callers keep PKCS#1 v1.5
+// behavior.
 static void parseRsaSignScheme(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::Value* args,
@@ -154,12 +157,26 @@ static std::string normalizeHashForNodeCrypto(const std::string& algorithm) {
   if (lowered == "ecdsa-with-sha256" || lowered == "rsa-sha256" || lowered == "sha256") return "sha256";
   if (lowered == "ecdsa-with-sha384" || lowered == "rsa-sha384" || lowered == "sha384") return "sha384";
   if (lowered == "ecdsa-with-sha512" || lowered == "rsa-sha512" || lowered == "sha512") return "sha512";
-  if (compact.find("sha1") != std::string::npos) return "sha1";
+  // Multi-part digest names must match before the plain shaNNN substring
+  // checks: "sha512-256" contains "sha512" and would select the wrong digest,
+  // and sha224/sha3-* had no tokens at all (ENG-23129).
+  if (compact.find("sha512224") != std::string::npos) return "sha512-224";
+  if (compact.find("sha512256") != std::string::npos) return "sha512-256";
+  if (compact.find("sha3224") != std::string::npos) return "sha3-224";
+  if (compact.find("sha3256") != std::string::npos) return "sha3-256";
+  if (compact.find("sha3384") != std::string::npos) return "sha3-384";
+  if (compact.find("sha3512") != std::string::npos) return "sha3-512";
+  if (compact.find("sha224") != std::string::npos) return "sha224";
   if (compact.find("sha256") != std::string::npos) return "sha256";
   if (compact.find("sha384") != std::string::npos) return "sha384";
   if (compact.find("sha512") != std::string::npos) return "sha512";
+  if (compact.find("sha1") != std::string::npos) return "sha1";
   if (compact.find("md5") != std::string::npos) return "md5";
-  return "sha256";
+  // Unknown: return the lowered name unchanged so the caller's algorithm
+  // lookup misses and it throws "unsupported algorithm" instead of silently
+  // signing with SHA-256 (ENG-23129 — the old `return "sha256"` default
+  // signed the wrong hash for sha224/sha3-*/anything unrecognized).
+  return lowered;
 }
 
 // Digest output size in bytes for the hash names we support. Used to validate
@@ -167,6 +184,7 @@ static std::string normalizeHashForNodeCrypto(const std::string& algorithm) {
 // the salt length at the digest size (ENG-23002).
 static size_t rsaHashDigestSize(const std::string& hashName) {
   if (hashName == "sha1") return 20;
+  if (hashName == "sha224") return 28;
   if (hashName == "sha256") return 32;
   if (hashName == "sha384") return 48;
   if (hashName == "sha512") return 64;
@@ -827,6 +845,8 @@ static const EVP_MD* openSslDigestForAlgorithm(const std::string& algorithm) {
   if (normalized == "sha256") return EVP_sha256();
   if (normalized == "sha384") return EVP_sha384();
   if (normalized == "sha512") return EVP_sha512();
+  if (normalized == "sha512224") return EVP_sha512_224();
+  if (normalized == "sha512256") return EVP_sha512_256();
   if (normalized == "sha3224") return EVP_sha3_224();
   if (normalized == "sha3256") return EVP_sha3_256();
   if (normalized == "sha3384") return EVP_sha3_384();
@@ -889,7 +909,11 @@ static bool opensslSignMessageCore(
       break;
     }
     if (usePss) {
-      int effSalt = saltLen >= 0 ? saltLen : RSA_PSS_SALTLEN_DIGEST;
+      // -2 is Node's RSA_PSS_SALTLEN_MAX_SIGN, which OpenSSL spells
+      // RSA_PSS_SALTLEN_AUTO in a sign context (maximum permissible salt);
+      // any other negative value keeps the digest-length default (ENG-23129).
+      int effSalt = saltLen >= 0 ? saltLen
+                                 : (saltLen == -2 ? RSA_PSS_SALTLEN_AUTO : RSA_PSS_SALTLEN_DIGEST);
       if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING) <= 0) { err = "failed to set RSA-PSS padding"; break; }
       if (EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, effSalt) <= 0) { err = "failed to set RSA-PSS salt length"; break; }
       if (EVP_PKEY_CTX_set_rsa_mgf1_md(pctx, md) <= 0) { err = "failed to set MGF1 digest"; break; }
@@ -943,7 +967,11 @@ static int opensslVerifyMessageCore(
       break;
     }
     if (usePss) {
-      int effSalt = saltLen >= 0 ? saltLen : RSA_PSS_SALTLEN_DIGEST;
+      // -2 is Node's RSA_PSS_SALTLEN_AUTO (recover the salt length from the
+      // signature), which is the same OpenSSL constant; any other negative
+      // value keeps the digest-length default (ENG-23129).
+      int effSalt = saltLen >= 0 ? saltLen
+                                 : (saltLen == -2 ? RSA_PSS_SALTLEN_AUTO : RSA_PSS_SALTLEN_DIGEST);
       if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING) <= 0) { err = "failed to set RSA-PSS padding"; break; }
       if (EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, effSalt) <= 0) { err = "failed to set RSA-PSS salt length"; break; }
       if (EVP_PKEY_CTX_set_rsa_mgf1_md(pctx, md) <= 0) { err = "failed to set MGF1 digest"; break; }
@@ -1065,12 +1093,27 @@ static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
   if (lowered == "ecdsa-with-sha256" || lowered == "rsa-sha256" || lowered == "sha256") return "sha256";
   if (lowered == "ecdsa-with-sha384" || lowered == "rsa-sha384" || lowered == "sha384") return "sha384";
   if (lowered == "ecdsa-with-sha512" || lowered == "rsa-sha512" || lowered == "sha512") return "sha512";
-  if (compact.find("sha1") != std::string::npos) return "sha1";
+  // Multi-part digest names must match before the plain shaNNN substring
+  // checks: "sha512-256" contains "sha512" and would select the wrong digest,
+  // and sha224/sha3-* had no tokens at all (ENG-23129).
+  if (compact.find("sha512224") != std::string::npos) return "sha512-224";
+  if (compact.find("sha512256") != std::string::npos) return "sha512-256";
+  if (compact.find("sha3224") != std::string::npos) return "sha3-224";
+  if (compact.find("sha3256") != std::string::npos) return "sha3-256";
+  if (compact.find("sha3384") != std::string::npos) return "sha3-384";
+  if (compact.find("sha3512") != std::string::npos) return "sha3-512";
+  if (compact.find("sha224") != std::string::npos) return "sha224";
   if (compact.find("sha256") != std::string::npos) return "sha256";
   if (compact.find("sha384") != std::string::npos) return "sha384";
   if (compact.find("sha512") != std::string::npos) return "sha512";
+  if (compact.find("sha1") != std::string::npos) return "sha1";
   if (compact.find("md5") != std::string::npos) return "md5";
-  return "sha256";
+  // Unknown: return the lowered name unchanged so openSslDigestForAlgorithm
+  // misses and the bridge throws "unsupported algorithm" instead of silently
+  // signing with SHA-256 (ENG-23129 — the old `return "sha256"` default
+  // signed the wrong hash for anything unrecognized). sha224/sha3-* now reach
+  // the digest table, which supports them.
+  return lowered;
 }
 #endif
 
@@ -1085,7 +1128,8 @@ static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
 // unit test sign RAW bytes with RSA-PSS + an explicit salt length and verify the
 // result — the exact code path that ships on Android/Linux. `hash_name` is a
 // normalized digest name ("sha256" etc.); `use_pss` selects PSS vs PKCS#1 v1.5;
-// `salt_len` is the PSS salt length in bytes (<0 = digest length).
+// `salt_len` is the PSS salt length in bytes (-1 = digest length, -2 = max on
+// sign / auto-recover on verify).
 // ex_crypto_test_rsa_sign returns the signature length written into `out` (which
 // must have capacity `out_cap` >= key size) or -1 on error.
 extern "C" int ex_crypto_test_rsa_sign(
@@ -2459,6 +2503,9 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         // SecKey's message-PSS algorithms fix the salt length at the digest size,
         // so honor an explicit saltLength only when it matches; reject anything
         // else rather than silently producing a mismatched-salt signature.
+        // Negative salt modes (-1 digest / -2 max) both produce a digest-length
+        // salt here — a valid PSS signature that conformant verifiers accept in
+        // auto mode (honest reduced profile, LLP 0006).
         if (usePss && saltLen >= 0 &&
             static_cast<size_t>(saltLen) != rsaHashDigestSize(hashName)) {
           throw facebook::jsi::JSError(
@@ -2528,6 +2575,10 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         if (usePss && !isRsa) {
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: RSA-PSS requires an RSA key");
         }
+        // Negative salt modes (-1 digest / -2 auto) can only check a
+        // digest-length salt here: SecKey has no auto-recover mode, so a
+        // conformant max-salt signature will not verify on this platform
+        // (honest reduced profile, LLP 0006).
         if (usePss && saltLen >= 0 &&
             static_cast<size_t>(saltLen) != rsaHashDigestSize(hashName)) {
           throw facebook::jsi::JSError(

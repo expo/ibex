@@ -62,6 +62,16 @@ fn node_crypto_normalizer_honors_dashed_webcrypto_hash_names() {
         ("sha512", "sha512"),
         ("RSA-SHA384", "sha384"),
         ("ecdsa-with-sha512", "sha512"),
+        // ENG-23129: names the normalizer used to collapse to sha256 (sha224,
+        // sha3-*) or mis-bucket via substring match (sha512-224/-256).
+        ("sha224", "sha224"),
+        ("RSA-SHA224", "sha224"),
+        ("SHA3-224", "sha3-224"),
+        ("SHA3-256", "sha3-256"),
+        ("SHA3-384", "sha3-384"),
+        ("SHA3-512", "sha3-512"),
+        ("sha512-224", "sha512-224"),
+        ("sha512-256", "sha512-256"),
     ] {
         assert_eq!(
             normalize(input).as_deref(),
@@ -74,4 +84,29 @@ fn node_crypto_normalizer_honors_dashed_webcrypto_hash_names() {
     assert_ne!(normalize("SHA-1").as_deref(), Some("sha256"));
     assert_ne!(normalize("SHA-384").as_deref(), Some("sha256"));
     assert_ne!(normalize("SHA-512").as_deref(), Some("sha256"));
+}
+
+/// ENG-23129: an unrecognized hash name must pass through unchanged (so the
+/// bridge's digest lookup misses and throws "unsupported algorithm") instead
+/// of silently defaulting to sha256 and signing the wrong hash.
+#[test]
+fn node_crypto_normalizer_does_not_default_unknown_names_to_sha256() {
+    // Skip on platforms/profiles where no node-crypto normalizer is compiled.
+    let Some(_) = normalize("SHA-256") else {
+        return;
+    };
+
+    for unknown in ["whirlpool", "ripemd160", "blake2b512", "not-a-hash"] {
+        let normalized = normalize(unknown);
+        assert_ne!(
+            normalized.as_deref(),
+            Some("sha256"),
+            "unknown hash name {unknown} must not collapse to sha256"
+        );
+        assert_eq!(
+            normalized.as_deref(),
+            Some(unknown),
+            "unknown hash name {unknown} must pass through for the bridge to reject"
+        );
+    }
 }
