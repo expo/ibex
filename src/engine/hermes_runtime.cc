@@ -3339,7 +3339,10 @@ extern "C" WEAK_STUB int32_t ex_host_http_respond_text(uint32_t, uint32_t, uint1
 extern "C" WEAK_STUB int32_t ex_host_http_respond_json(uint32_t, uint32_t, uint16_t, const uint8_t*, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_stream(uint32_t, uint32_t, uint16_t, const char*) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_chunk(uint32_t, uint32_t, const uint8_t*, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_chunk_try(uint32_t, uint32_t, const uint8_t*, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_end(uint32_t, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_respond_end_try(uint32_t, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_await_writable(uint32_t, uint32_t, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_string(uint32_t, uint32_t, uint16_t, const char*, const uint8_t*, uint32_t) { return -1; }
 extern "C" WEAK_STUB char* ex_host_http_address(uint32_t) { return nullptr; }
 extern "C" WEAK_STUB char* ex_host_http_poll(uint32_t) { return nullptr; }

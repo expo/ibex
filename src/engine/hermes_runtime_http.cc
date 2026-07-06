@@ -39,7 +39,17 @@ extern "C" int32_t ex_host_http_respond_chunk(
     uint32_t request_id,
     const uint8_t* body,
     uint32_t body_len);
+extern "C" int32_t ex_host_http_respond_chunk_try(
+    uint32_t server_id,
+    uint32_t request_id,
+    const uint8_t* body,
+    uint32_t body_len);
 extern "C" int32_t ex_host_http_respond_end(uint32_t server_id, uint32_t request_id);
+extern "C" int32_t ex_host_http_respond_end_try(uint32_t server_id, uint32_t request_id);
+extern "C" int32_t ex_host_http_await_writable(
+    uint32_t server_id,
+    uint32_t request_id,
+    uint32_t timeout_ms);
 extern "C" int32_t ex_host_http_respond_string(
     uint32_t server_id,
     uint32_t request_id,
@@ -668,6 +678,208 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value(result);
       });
   rt.global().setProperty(rt, "__exactHttpRespondEnd", std::move(httpRespondEndFn));
+
+  // __exactHttpRespondChunkTry(serverId, requestId, bodyUint8Array) -> 0 | 2 | -1
+  // Non-blocking chunk send for the serve({fetch}) streaming path. A return of 2
+  // means "would block": the caller must await __exactHttpAwaitWritable and
+  // retry the same chunk rather than parking the JS event loop.
+  auto httpRespondChunkTryFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondChunkTry"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespondChunkTry: serverId, requestId, body required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondChunkTry")) {
+          return facebook::jsi::Value(-1);
+        }
+
+        const uint8_t* body = nullptr;
+        uint32_t body_len = extractOptionalHttpBody(runtime, args, count, 2, body);
+
+        int32_t result = ex_host_http_respond_chunk_try(
+            server_id, request_id, body, body_len);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondChunkTry", std::move(httpRespondChunkTryFn));
+
+  // __exactHttpRespondEndTry(serverId, requestId) -> 0 | 2 | -1
+  // Non-blocking stream terminator paired with __exactHttpRespondChunkTry.
+  auto httpRespondEndTryFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpRespondEndTry"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2) {
+          throw facebook::jsi::JSError(runtime, "__exactHttpRespondEndTry: serverId, requestId required");
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondEndTry")) {
+          return facebook::jsi::Value(-1);
+        }
+
+        int32_t result = ex_host_http_respond_end_try(server_id, request_id);
+        return facebook::jsi::Value(result);
+      });
+  rt.global().setProperty(rt, "__exactHttpRespondEndTry", std::move(httpRespondEndTryFn));
+
+  // __exactHttpAwaitWritable(serverId, requestId, timeoutMs?) -> Promise(number)
+  // Resolves with 0 once the streamed response body channel has room for another
+  // chunk, or -1 if the peer is gone / has stalled. The blocking wait runs on a
+  // pooled worker thread (mirroring __exactHttpWait) so the JS event loop is
+  // never parked on backpressure.
+  auto httpAwaitWritableFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpAwaitWritable"),
+      3,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
+          return facebook::jsi::Value(-1);
+        }
+        uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
+        uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
+        uint32_t timeout_ms = 0;
+        if (count > 2 && args[2].isNumber()) {
+          timeout_ms = exactUint32FromValue(runtime, args[2], "timeoutMs", 0);
+        }
+        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpAwaitWritable")) {
+          return facebook::jsi::Value(-1);
+        }
+        auto waitPrincipal = currentPrincipalId();
+
+        auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
+        auto executor = facebook::jsi::Function::createFromHostFunction(
+            runtime,
+            facebook::jsi::PropNameID::forAscii(runtime, "__exactHttpAwaitWritableExecutor"),
+            2,
+            [handle, server_id, request_id, timeout_ms, waitPrincipal](
+                facebook::jsi::Runtime& runtime,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+              if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
+                return facebook::jsi::Value::undefined();
+              }
+
+              auto resolve = std::make_shared<facebook::jsi::Function>(
+                  args[0].asObject(runtime).asFunction(runtime));
+              auto reject = std::make_shared<facebook::jsi::Function>(
+                  args[1].asObject(runtime).asFunction(runtime));
+
+              struct WritableTask {
+                ExactHermesRuntime* handle;
+                uint32_t server_id;
+                uint32_t request_id;
+                uint32_t timeout_ms;
+                uint64_t principal;
+                std::shared_ptr<facebook::jsi::Function> resolve;
+                std::shared_ptr<facebook::jsi::Function> reject;
+              };
+
+              constexpr size_t kMaxWritableWorkers = 16;
+              constexpr size_t kMaxWritableQueue = 256;
+
+              struct WritableWorkerPool {
+                std::mutex mutex;
+                std::condition_variable cv;
+                std::deque<WritableTask> queue;
+                size_t idle_workers{0};
+                size_t total_workers{0};
+
+                void spawnWorkerIfNeededLocked() {
+                  if (idle_workers > 0) {
+                    return;
+                  }
+                  if (total_workers >= kMaxWritableWorkers) {
+                    return;
+                  }
+
+                  total_workers += 1;
+                  std::thread([this]() {
+                    while (true) {
+                      WritableTask t;
+                      {
+                        std::unique_lock<std::mutex> lock(mutex);
+                        idle_workers += 1;
+                        cv.wait(lock, [this] { return !queue.empty(); });
+                        idle_workers -= 1;
+                        t = std::move(queue.front());
+                        queue.pop_front();
+                      }
+
+                      int32_t code = ex_host_http_await_writable(
+                          t.server_id, t.request_id, t.timeout_ms);
+
+                      pushRuntimeCallback(
+                          t.handle,
+                          [resolve = t.resolve, reject = t.reject,
+                           principal = t.principal, code](
+                              facebook::jsi::Runtime& rt) {
+                            ScopedNativePrincipal nativePrincipal(principal);
+                            try {
+                              resolve->call(rt, facebook::jsi::Value(code));
+                            } catch (const facebook::jsi::JSError& err) {
+                              reject->call(rt,
+                                  facebook::jsi::JSError(rt, err.getMessage().c_str()).value());
+                            } catch (...) {
+                              reject->call(rt,
+                                  facebook::jsi::JSError(rt,
+                                      "Failed to complete __exactHttpAwaitWritable").value());
+                            }
+                          });
+                    }
+                  }).detach();
+                }
+
+                bool enqueue(WritableTask task, std::string& error) {
+                  {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    if (idle_workers == 0 && total_workers >= kMaxWritableWorkers) {
+                      error = "__exactHttpAwaitWritable worker limit reached";
+                      return false;
+                    }
+                    if (queue.size() >= kMaxWritableQueue) {
+                      error = "__exactHttpAwaitWritable queue limit reached";
+                      return false;
+                    }
+                    spawnWorkerIfNeededLocked();
+                    queue.push_back(std::move(task));
+                  }
+                  cv.notify_one();
+                  return true;
+                }
+              };
+
+              static WritableWorkerPool writablePool;
+
+              auto task = WritableTask{
+                  handle, server_id, request_id, timeout_ms, waitPrincipal, resolve, reject};
+              std::string enqueueError;
+              if (!writablePool.enqueue(std::move(task), enqueueError)) {
+                reject->call(
+                    runtime,
+                    facebook::jsi::JSError(runtime, enqueueError.c_str()).value());
+              }
+
+              return facebook::jsi::Value::undefined();
+            });
+
+        return promiseCtor.callAsConstructor(runtime, executor);
+      });
+  rt.global().setProperty(rt, "__exactHttpAwaitWritable", std::move(httpAwaitWritableFn));
 
   // __exactHttpAddress(serverId) -> JSON string or null
   auto httpAddressFn = facebook::jsi::Function::createFromHostFunction(

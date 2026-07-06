@@ -1,10 +1,17 @@
 var g = globalThis;
 
+// Hoisted once at module load: rebuilding this 64-entry table on every request
+// body decode was pure per-call waste. @ref https://linear.app/expo/issue/ENG-23027
+var B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+var B64_LOOKUP = (function () {
+  var lookup = {};
+  for (var i = 0; i < B64_CHARS.length; i++) lookup[B64_CHARS[i]] = i;
+  return lookup;
+})();
+
 function b64ToBytes(b64) {
   if (!b64) return new Uint8Array(0);
-  var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  var lookup = {};
-  for (var i = 0; i < chars.length; i++) lookup[chars[i]] = i;
+  var lookup = B64_LOOKUP;
   var raw = b64.replace(/[^A-Za-z0-9+/]/g, "");
   var len = raw.length;
   var bytes = new Uint8Array(Math.ceil(len * 3 / 4));
@@ -577,36 +584,91 @@ function serve(options) {
       g.__exactHttpRespond(serverId, requestId, status, headersJson, responseBodyPayload(bytes));
     }
 
+    // Prefer the non-blocking streaming host calls: __exactHttpRespondChunkTry /
+    // __exactHttpRespondEndTry return a "would-block" code (2) when the bounded
+    // body channel is full, and __exactHttpAwaitWritable resolves once a slot
+    // frees. This keeps a slow/stalled client from freezing the whole JS event
+    // loop. Fall back to the legacy blocking calls if the async surface is
+    // absent. @ref https://linear.app/expo/issue/ENG-23027
+    var hasAsyncStream = typeof g.__exactHttpRespondChunkTry === "function" &&
+      typeof g.__exactHttpRespondEndTry === "function" &&
+      typeof g.__exactHttpAwaitWritable === "function";
     if (hasBodyStream && typeof g.__exactHttpRespondStream === "function" &&
-      typeof g.__exactHttpRespondChunk === "function" &&
-      typeof g.__exactHttpRespondEnd === "function") {
+      ((hasAsyncStream) ||
+       (typeof g.__exactHttpRespondChunk === "function" &&
+        typeof g.__exactHttpRespondEnd === "function"))) {
       var respondStarted = g.__exactHttpRespondStream(serverId, requestId, status, headersJson);
       if (respondStarted !== 0) {
         failResponse(requestId, HTTP_INTERNAL_SERVER_ERROR, "Internal Server Error: failed to start response");
         return;
       }
 
+      var HTTP_RESPOND_WOULD_BLOCK = 2;
       var streamReader = body.getReader();
-      function writeBody() {
-        return streamReader.read().then(function(result) {
-          if (result.done) {
+      var streamFinished = false;
+
+      function abortStream() {
+        if (streamReader.cancel) {
+          try { streamReader.cancel("stream aborted"); } catch (e) {}
+        }
+        if (!streamFinished) {
+          streamFinished = true;
+          if (hasAsyncStream) {
+            g.__exactHttpRespondEndTry(serverId, requestId);
+          } else {
             g.__exactHttpRespondEnd(serverId, requestId);
-            return;
+          }
+        }
+      }
+
+      // Issue `action` (a host call returning 0 / 2 / -1), awaiting a drained
+      // slot off the event loop whenever it reports would-block. Resolves true
+      // once the byte lands, false on a fatal/gone peer.
+      function issue(action) {
+        var code = action();
+        if (code === 0) {
+          return Promise.resolve(true);
+        }
+        if (code === HTTP_RESPOND_WOULD_BLOCK && hasAsyncStream) {
+          return g.__exactHttpAwaitWritable(serverId, requestId, 0).then(function (ready) {
+            if (ready === 0) {
+              return issue(action);
+            }
+            // Peer gone or wedged; the host already cleared/ended the stream.
+            streamFinished = true;
+            return false;
+          });
+        }
+        // Fatal (-1), or would-block without async support: give up.
+        return Promise.resolve(false);
+      }
+
+      function writeBody() {
+        return streamReader.read().then(function (result) {
+          if (result.done) {
+            return issue(function () {
+              return hasAsyncStream
+                ? g.__exactHttpRespondEndTry(serverId, requestId)
+                : g.__exactHttpRespondEnd(serverId, requestId);
+            }).then(function () {
+              streamFinished = true;
+            });
           }
 
           var chunk = result.value || new Uint8Array(0);
-          var writeResult = g.__exactHttpRespondChunk(serverId, requestId, responseBodyPayload(chunk));
-          if (writeResult === 0) {
+          return issue(function () {
+            return hasAsyncStream
+              ? g.__exactHttpRespondChunkTry(serverId, requestId, responseBodyPayload(chunk))
+              : g.__exactHttpRespondChunk(serverId, requestId, responseBodyPayload(chunk));
+          }).then(function (ok) {
+            if (!ok) {
+              abortStream();
+              return;
+            }
             return writeBody();
-          }
-
-          if (streamReader.cancel) {
-            streamReader.cancel("stream aborted");
-          }
-          g.__exactHttpRespondEnd(serverId, requestId);
-          throw new Error("Failed to write response chunk");
-        }).catch(function() {
-          g.__exactHttpRespondEnd(serverId, requestId);
+          });
+        }).catch(function () {
+          abortStream();
         });
       }
 

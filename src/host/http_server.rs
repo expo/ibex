@@ -30,7 +30,7 @@ use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use std::collections::{HashMap, HashSet};
 use std::io::Error as IoError;
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::atomic::{AtomicU32, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -76,13 +76,48 @@ enum RequestBodyChunk {
     Error(String),
 }
 
+/// Outcome of a non-blocking attempt to hand a chunk to the bounded response
+/// body channel. `WouldBlock` is surfaced to the JS `serve({fetch})` streaming
+/// path so it can await a real drain notification instead of the JS thread
+/// spinning. @ref https://linear.app/expo/issue/ENG-23027
+enum ChunkSend {
+    Sent,
+    WouldBlock,
+    Closed,
+}
+
 struct RequestBodyPipe {
     receiver: Mutex<mpsc::Receiver<RequestBodyChunk>>,
 }
 
+/// Cross-thread signal fired by the hyper-side consumer each time it pulls a
+/// frame off the bounded response channel (freeing a slot). A producer that saw
+/// `WouldBlock` parks on this — on a worker thread via `ex_host_http_await_writable`,
+/// never the JS event loop — until a slot opens or the peer goes away.
+/// @ref https://linear.app/expo/issue/ENG-23027
+struct DrainSignal {
+    version: Mutex<u64>,
+    condvar: Condvar,
+}
+
+impl DrainSignal {
+    fn new() -> Self {
+        DrainSignal {
+            version: Mutex::new(0),
+            condvar: Condvar::new(),
+        }
+    }
+
+    fn notify(&self) {
+        let mut version = lock_or_recover(&self.version);
+        *version = version.wrapping_add(1);
+        self.condvar.notify_all();
+    }
+}
+
 struct ResponseBodyPipe {
     sender: mpsc::Sender<RequestBodyChunk>,
-    total_bytes: AtomicUsize,
+    drain: Arc<DrainSignal>,
 }
 
 const HTTP_SERVER_STARTING: u8 = 0;
@@ -94,23 +129,58 @@ const HTTP_SHUTDOWN_POLL_MS: u64 = 50;
 const HTTP_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const HTTP_REQUEST_BODY_TIMEOUT_MS: u64 = 20_000;
 const HTTP_REQUEST_BODY_IDLE_TIMEOUT_MS: u64 = 2_500;
-/// Longest a single streamed response chunk may wait for room in the bounded
-/// body channel before the client is treated as wedged. Backpressure (rather
-/// than dropping the chunk) is what prevents silent truncation of a slow but
-/// still-draining client; this ceiling only guards against a peer that has
-/// stopped reading entirely without closing the connection.
+/// Longest a streamed response may wait for room in the bounded body channel
+/// before a non-draining peer is treated as wedged and the response aborted.
+/// Backpressure (rather than dropping the chunk) is what prevents silent
+/// truncation of a slow-but-still-draining client; this ceiling only guards
+/// against a peer that has stopped reading entirely without closing the
+/// connection. For the `serve({fetch})` streaming path the wait now happens off
+/// the JS thread (see `ex_host_http_await_writable`), so it no longer stalls the
+/// event loop. @ref https://linear.app/expo/issue/ENG-23027
 const HTTP_RESPONSE_CHUNK_SEND_TIMEOUT_MS: u64 = 30_000;
-/// Poll cadence while a streamed response chunk is blocked on a full channel.
+/// Poll cadence for the legacy blocking chunk sender still used by the Node
+/// `http` `ServerResponse` bridge (`ex_host_http_respond_chunk`).
 const HTTP_RESPONSE_CHUNK_SEND_POLL_MS: u64 = 2;
+/// Return code shared with the C++/JS bridge meaning "the bounded response
+/// channel is momentarily full": the caller must await a drain
+/// (`ex_host_http_await_writable`) off the JS thread and retry the same chunk,
+/// never drop the byte. @ref https://linear.app/expo/issue/ENG-23027
+const HTTP_RESPOND_WOULD_BLOCK: i32 = 2;
 const HTTP_REQUEST_URI_MAX_BYTES: usize = 2048;
 const MAX_REQUEST_HEADER_BYTES: usize = 16 * 1024;
 const MAX_REQUEST_HEADER_COUNT: usize = 128;
-const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
+/// Default ceiling for a (fully buffered) request body. Raised from the former
+/// hard 1 MiB — which 413'd routine multi-megabyte uploads — and overridable at
+/// process start via `IBEX_HTTP_MAX_REQUEST_BODY_BYTES` (bytes).
+/// @ref https://linear.app/expo/issue/ENG-23027
+const DEFAULT_MAX_REQUEST_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_RESPONSE_BODY_BYTES: usize = 4 * 1024 * 1024;
 const HEADER_TEXT_PLAIN: &str = "text/plain; charset=utf-8";
 const HEADER_JSON: &str = "application/json; charset=utf-8";
 const HEADER_CONTENT_LENGTH: &str = "content-length";
 const HEADER_TRANSFER_ENCODING: &str = "transfer-encoding";
+
+/// Pure parse of the request-body cap override so it is unit-testable without
+/// mutating process env (the live value is memoized in `max_request_body_bytes`).
+/// A missing, empty, non-numeric, or zero value falls back to the default.
+fn parse_max_request_body_bytes(raw: Option<&str>) -> usize {
+    raw.and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|bytes| *bytes > 0)
+        .unwrap_or(DEFAULT_MAX_REQUEST_BODY_BYTES)
+}
+
+/// Maximum buffered request-body size, honoring `IBEX_HTTP_MAX_REQUEST_BODY_BYTES`
+/// (read once at first use). @ref https://linear.app/expo/issue/ENG-23027
+fn max_request_body_bytes() -> usize {
+    static CAP: OnceLock<usize> = OnceLock::new();
+    *CAP.get_or_init(|| {
+        parse_max_request_body_bytes(
+            std::env::var("IBEX_HTTP_MAX_REQUEST_BODY_BYTES")
+                .ok()
+                .as_deref(),
+        )
+    })
+}
 
 struct ServerState {
     /// Identifier for map removal and lifecycle operations.
@@ -484,10 +554,15 @@ fn empty_body_response() -> BoxBody<Bytes, IoError> {
     BodyExt::boxed(body)
 }
 
-fn streamed_body_response(receiver: mpsc::Receiver<RequestBodyChunk>) -> BoxBody<Bytes, IoError> {
-    let stream = futures_util::stream::unfold(receiver, |mut rx| async {
+fn streamed_body_response(
+    receiver: mpsc::Receiver<RequestBodyChunk>,
+    drain: Arc<DrainSignal>,
+) -> BoxBody<Bytes, IoError> {
+    let stream = futures_util::stream::unfold((receiver, drain), |(mut rx, drain)| async move {
         match rx.recv().await {
             Some(chunk) => {
+                // A slot just freed; wake any producer parked on backpressure.
+                drain.notify();
                 let frame = match chunk {
                     RequestBodyChunk::Data(bytes) => Ok(Frame::data(Bytes::from(bytes))),
                     RequestBodyChunk::Error(message) => Err(IoError::other(message)),
@@ -495,7 +570,7 @@ fn streamed_body_response(receiver: mpsc::Receiver<RequestBodyChunk>) -> BoxBody
                         return None;
                     }
                 };
-                Some((frame, rx))
+                Some((frame, (rx, drain)))
             }
             None => None,
         }
@@ -690,25 +765,26 @@ fn send_response(
     }
 
     if body.is_null() || body_len == 0 {
-        end_response_stream(state, request_id);
+        let _ = try_end_response_stream(state, request_id);
         return 0;
     }
 
     if body_len as usize > MAX_RESPONSE_BODY_BYTES {
-        let _ = send_response_chunk(
+        let _ = try_send_response_chunk(
             state,
             request_id,
             RequestBodyChunk::Error("Payload Too Large".to_string()),
         );
-        end_response_stream(state, request_id);
+        let _ = try_end_response_stream(state, request_id);
         return 0;
     }
 
+    // A buffered body is a single within-cap chunk sent into a fresh 8-slot
+    // channel, so these never actually block; backpressure only bites the
+    // JS-driven streaming path (`ex_host_http_respond_chunk_try`).
     let body_vec = body_slice.to_vec();
-    if mark_response_chunk(state, request_id, body_vec.len()) {
-        let _ = send_response_chunk(state, request_id, RequestBodyChunk::Data(body_vec));
-    }
-    end_response_stream(state, request_id);
+    let _ = try_send_response_chunk(state, request_id, RequestBodyChunk::Data(body_vec));
+    let _ = try_end_response_stream(state, request_id);
     0
 }
 
@@ -809,23 +885,61 @@ fn response_sender_for_request(
     bodies.get(&request_id).map(|pipe| pipe.sender.clone())
 }
 
+/// Non-blocking hand-off of a chunk to the bounded response body channel.
+///
+/// The channel is bounded, so a fast producer (JS) can outrun a slow consumer
+/// (hyper draining to a slow client). A full channel is NOT fatal and must not
+/// silently drop the chunk — dropping it would end the unfold stream *cleanly*
+/// so hyper emits a valid chunked terminator and the client receives a truncated
+/// body that looks complete. Instead we report `WouldBlock`; the caller awaits a
+/// real drain off the JS event loop (`ex_host_http_await_writable`) and retries
+/// the same chunk, so the client receives every byte without the JS thread ever
+/// blocking. `Closed` (the receiver/connection is gone) is the only genuinely
+/// fatal outcome. @ref https://linear.app/expo/issue/ENG-23027
+fn try_send_response_chunk(
+    state: &Arc<ServerState>,
+    request_id: u32,
+    chunk: RequestBodyChunk,
+) -> ChunkSend {
+    let sender = match response_sender_for_request(state, request_id) {
+        Some(sender) => sender,
+        None => return ChunkSend::Closed,
+    };
+    match sender.try_send(chunk) {
+        Ok(_) => ChunkSend::Sent,
+        Err(TrySendError::Full(_)) => ChunkSend::WouldBlock,
+        Err(TrySendError::Closed(_)) => {
+            clear_response_body(state, request_id);
+            ChunkSend::Closed
+        }
+    }
+}
+
+/// Non-blocking send of the stream terminator. On success the pipe is cleared;
+/// on `WouldBlock` the pipe is kept so the caller can await a drain and retry.
+fn try_end_response_stream(state: &Arc<ServerState>, request_id: u32) -> ChunkSend {
+    match try_send_response_chunk(state, request_id, RequestBodyChunk::Done) {
+        ChunkSend::Sent => {
+            clear_response_body(state, request_id);
+            ChunkSend::Sent
+        }
+        // WouldBlock: keep the pipe so a retry can deliver the terminator.
+        // Closed: try_send_response_chunk already cleared the pipe.
+        other => other,
+    }
+}
+
+/// Blocking chunk send retained for the Node `http` `ServerResponse` bridge
+/// (`ex_host_http_respond_chunk`), whose synchronous `res.write()` contract has
+/// no drain-then-retry seam. Streams driven by `serve({fetch})` use the
+/// non-blocking `try_*` path instead so they never stall the event loop.
+/// @ref https://linear.app/expo/issue/ENG-23027
 fn send_response_chunk(state: &Arc<ServerState>, request_id: u32, chunk: RequestBodyChunk) -> bool {
     let sender = match response_sender_for_request(state, request_id) {
         Some(sender) => sender,
         None => return false,
     };
 
-    // The body channel is bounded, so a fast producer (JS) can outrun a slow
-    // consumer (hyper draining to a slow client). A full channel is NOT fatal:
-    // dropping the pipe here would end the unfold stream *cleanly*, so hyper
-    // would emit a valid chunked terminator and the client would receive a
-    // truncated body that looks complete. Instead we apply backpressure —
-    // block the calling (JS) thread until the consumer drains a slot — so the
-    // client receives every byte. `Closed` (the receiver/connection is gone) is
-    // the only genuinely fatal outcome and is reported distinctly from `Full`.
-    //
-    // This runs only on the JS thread (via the `ex_host_http_respond*` FFI), not
-    // inside the tokio runtime, so blocking here cannot stall connection I/O.
     let deadline = Instant::now() + Duration::from_millis(HTTP_RESPONSE_CHUNK_SEND_TIMEOUT_MS);
     let mut pending = chunk;
     loop {
@@ -850,25 +964,8 @@ fn send_response_chunk(state: &Arc<ServerState>, request_id: u32, chunk: Request
     }
 }
 
-fn mark_response_chunk(state: &Arc<ServerState>, request_id: u32, chunk_len: usize) -> bool {
-    let bodies = lock_or_recover(&state.response_bodies);
-    let Some(pipe) = bodies.get(&request_id) else {
-        return false;
-    };
-    let previous = pipe.total_bytes.fetch_add(chunk_len, Ordering::Relaxed);
-    if previous.saturating_add(chunk_len) > MAX_RESPONSE_BODY_BYTES {
-        drop(bodies);
-        let _ = send_response_chunk(
-            state,
-            request_id,
-            RequestBodyChunk::Error("Payload Too Large".to_string()),
-        );
-        clear_response_body(state, request_id);
-        return false;
-    }
-    true
-}
-
+/// Blocking stream terminator paired with `send_response_chunk` for the Node
+/// `http` bridge.
 fn end_response_stream(state: &Arc<ServerState>, request_id: u32) -> bool {
     let sent = send_response_chunk(state, request_id, RequestBodyChunk::Done);
     clear_response_body(state, request_id);
@@ -977,7 +1074,7 @@ async fn handle_request(
                 Some(chunk_result) => match chunk_result {
                     Ok(chunk) => {
                         total = total.saturating_add(chunk.len());
-                        if total > MAX_REQUEST_BODY_BYTES {
+                        if total > max_request_body_bytes() {
                             return Ok(simple_response(
                                 StatusCode::PAYLOAD_TOO_LARGE,
                                 b"Payload Too Large",
@@ -1038,11 +1135,12 @@ async fn handle_request(
 
     let (resp_tx, resp_rx) = oneshot::channel();
     let (response_body_tx, response_body_rx) = mpsc::channel::<RequestBodyChunk>(8);
+    let response_drain = Arc::new(DrainSignal::new());
     lock_or_recover(&state.response_bodies).insert(
         request_id,
         ResponseBodyPipe {
             sender: response_body_tx,
-            total_bytes: AtomicUsize::new(0),
+            drain: response_drain.clone(),
         },
     );
 
@@ -1097,7 +1195,7 @@ async fn handle_request(
                 } else {
                     Ok(build_response(
                         builder,
-                        streamed_body_response(response_body_rx),
+                        streamed_body_response(response_body_rx, response_drain),
                     ))
                 }
             }
@@ -1507,7 +1605,11 @@ pub extern "C" fn ex_host_http_respond_stream(
     0
 }
 
-/// Send a chunk for a streaming response. Returns -1 if the request is not active.
+/// Send a chunk for a streaming response (blocking Node `http` bridge path).
+/// Returns 0 on success, -1 if the request is not active. Streamed responses are
+/// intentionally NOT subject to the buffered-response byte ceiling: capping them
+/// mid-stream would inject an error after headers + bytes were already sent,
+/// corrupting an otherwise-valid download. @ref https://linear.app/expo/issue/ENG-23027
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn ex_host_http_respond_chunk(
@@ -1529,16 +1631,47 @@ pub extern "C" fn ex_host_http_respond_chunk(
     }
     let len = chunk_len as usize;
     let data = unsafe { std::slice::from_raw_parts(chunk, len) };
-    if !mark_response_chunk(&state, request_id, len) {
-        return -1;
-    }
     match send_response_chunk(&state, request_id, RequestBodyChunk::Data(data.to_vec())) {
         true => 0,
         false => -1,
     }
 }
 
-/// Finish a streaming response. Returns -1 if the request is already gone.
+/// Non-blocking chunk send for the `serve({fetch})` streaming path. Returns 0 on
+/// success, `HTTP_RESPOND_WOULD_BLOCK` (2) if the bounded channel is momentarily
+/// full (caller must await `ex_host_http_await_writable` and retry the same
+/// chunk), or -1 if the peer is gone. Never blocks the JS event loop.
+/// @ref https://linear.app/expo/issue/ENG-23027
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn ex_host_http_respond_chunk_try(
+    server_id: u32,
+    request_id: u32,
+    chunk: *const u8,
+    chunk_len: u32,
+) -> i32 {
+    let state = {
+        let servers = lock_or_recover(servers());
+        match servers.get(&server_id) {
+            Some(s) => s.clone(),
+            None => return -1,
+        }
+    };
+
+    if chunk.is_null() {
+        return -1;
+    }
+    let len = chunk_len as usize;
+    let data = unsafe { std::slice::from_raw_parts(chunk, len) };
+    match try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(data.to_vec())) {
+        ChunkSend::Sent => 0,
+        ChunkSend::WouldBlock => HTTP_RESPOND_WOULD_BLOCK,
+        ChunkSend::Closed => -1,
+    }
+}
+
+/// Finish a streaming response (blocking Node `http` bridge path).
+/// Returns -1 if the request is already gone.
 #[no_mangle]
 pub extern "C" fn ex_host_http_respond_end(server_id: u32, request_id: u32) -> i32 {
     let state = {
@@ -1552,6 +1685,95 @@ pub extern "C" fn ex_host_http_respond_end(server_id: u32, request_id: u32) -> i
     match end_response_stream(&state, request_id) {
         true => 0,
         false => -1,
+    }
+}
+
+/// Non-blocking stream terminator for the `serve({fetch})` streaming path.
+/// Returns 0 on success, `HTTP_RESPOND_WOULD_BLOCK` (2) if the channel is full
+/// (await + retry), or -1 if the request is already gone.
+/// @ref https://linear.app/expo/issue/ENG-23027
+#[no_mangle]
+pub extern "C" fn ex_host_http_respond_end_try(server_id: u32, request_id: u32) -> i32 {
+    let state = {
+        let servers = lock_or_recover(servers());
+        match servers.get(&server_id) {
+            Some(s) => s.clone(),
+            None => return -1,
+        }
+    };
+
+    match try_end_response_stream(&state, request_id) {
+        ChunkSend::Sent => 0,
+        ChunkSend::WouldBlock => HTTP_RESPOND_WOULD_BLOCK,
+        ChunkSend::Closed => -1,
+    }
+}
+
+/// Park until the streamed response body channel for `request_id` has room for
+/// another chunk (returns 0), or the peer is gone / has stalled past
+/// `timeout_ms` (or `HTTP_RESPONSE_CHUNK_SEND_TIMEOUT_MS` when 0) — in which case
+/// it returns -1 and clears the pipe so hyper ends the stream. Intended to run
+/// on a worker thread (the C++ bridge wraps it in a Promise), never the JS event
+/// loop. @ref https://linear.app/expo/issue/ENG-23027
+#[no_mangle]
+pub extern "C" fn ex_host_http_await_writable(
+    server_id: u32,
+    request_id: u32,
+    timeout_ms: u32,
+) -> i32 {
+    let state = {
+        let servers = lock_or_recover(servers());
+        match servers.get(&server_id) {
+            Some(s) => s.clone(),
+            None => return -1,
+        }
+    };
+
+    let (sender, drain) = {
+        let bodies = lock_or_recover(&state.response_bodies);
+        match bodies.get(&request_id) {
+            Some(pipe) => (pipe.sender.clone(), pipe.drain.clone()),
+            None => return -1,
+        }
+    };
+
+    let timeout = if timeout_ms == 0 {
+        Duration::from_millis(HTTP_RESPONSE_CHUNK_SEND_TIMEOUT_MS)
+    } else {
+        Duration::from_millis(timeout_ms as u64)
+    };
+    let deadline = Instant::now() + timeout;
+
+    // Hold the drain lock across the capacity check and the wait so the
+    // consumer's notify (also under this lock) can never slip in between and be
+    // lost — the standard condvar predicate loop.
+    let mut version = lock_or_recover(&drain.version);
+    loop {
+        if sender.is_closed() {
+            drop(version);
+            clear_response_body(&state, request_id);
+            return -1;
+        }
+        if sender.capacity() > 0 {
+            return 0;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            // The peer has stopped reading without closing; treat as wedged so a
+            // single dead client can't pin a response forever.
+            drop(version);
+            clear_response_body(&state, request_id);
+            return -1;
+        }
+        let known = *version;
+        version = match drain.condvar.wait_timeout_while(
+            version,
+            deadline - now,
+            |current| *current == known,
+        ) {
+            Ok((guard, _timed_out)) => guard,
+            Err(err) => err.into_inner().0,
+        };
     }
 }
 
@@ -1896,7 +2118,7 @@ mod tests {
             request_id,
             ResponseBodyPipe {
                 sender: body_tx,
-                total_bytes: AtomicUsize::new(0),
+                drain: Arc::new(DrainSignal::new()),
             },
         );
 
@@ -1960,7 +2182,7 @@ mod tests {
             request_id,
             ResponseBodyPipe {
                 sender: body_tx,
-                total_bytes: AtomicUsize::new(0),
+                drain: Arc::new(DrainSignal::new()),
             },
         );
 
@@ -2024,7 +2246,7 @@ mod tests {
             request_id,
             ResponseBodyPipe {
                 sender: body_tx,
-                total_bytes: AtomicUsize::new(0),
+                drain: Arc::new(DrainSignal::new()),
             },
         );
 
@@ -2077,7 +2299,7 @@ mod tests {
             request_id,
             ResponseBodyPipe {
                 sender: body_tx,
-                total_bytes: AtomicUsize::new(0),
+                drain: Arc::new(DrainSignal::new()),
             },
         );
         drop(body_rx);
@@ -2145,5 +2367,229 @@ mod tests {
             headers,
             vec![("content-type".to_string(), "text/plain".to_string())]
         );
+    }
+
+    #[test]
+    fn parse_max_request_body_bytes_reads_override_and_defaults() {
+        assert_eq!(
+            parse_max_request_body_bytes(None),
+            DEFAULT_MAX_REQUEST_BODY_BYTES
+        );
+        assert_eq!(
+            parse_max_request_body_bytes(Some("  2097152 ")),
+            2 * 1024 * 1024
+        );
+        // Zero and non-numeric values fall back to the default rather than
+        // pinning the cap to something unusable.
+        assert_eq!(
+            parse_max_request_body_bytes(Some("0")),
+            DEFAULT_MAX_REQUEST_BODY_BYTES
+        );
+        assert_eq!(
+            parse_max_request_body_bytes(Some("not-a-number")),
+            DEFAULT_MAX_REQUEST_BODY_BYTES
+        );
+        // The default is comfortably above the old hard 1 MiB cap that 413'd
+        // routine multi-megabyte uploads.
+        assert!(DEFAULT_MAX_REQUEST_BODY_BYTES > 1024 * 1024);
+    }
+
+    #[test]
+    fn try_send_response_chunk_reports_would_block_without_blocking() {
+        // A full channel must NOT block the caller and must NOT drop the chunk;
+        // it reports WouldBlock so the JS side can await a drain and retry.
+        let server_id = 90_010u32;
+        let request_id = 110u32;
+        let state = register_test_server(server_id);
+
+        let (body_tx, _body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: Arc::new(DrainSignal::new()),
+            },
+        );
+
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"first".to_vec())),
+            ChunkSend::Sent
+        ));
+
+        let start = Instant::now();
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"second".to_vec())),
+            ChunkSend::WouldBlock
+        ));
+        assert!(
+            start.elapsed() < Duration::from_millis(100),
+            "WouldBlock must return promptly, never spin on the caller's thread"
+        );
+        // WouldBlock leaves the pipe intact so a retry can still deliver the byte.
+        assert!(lock_or_recover(&state.response_bodies).contains_key(&request_id));
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn try_send_response_chunk_reports_closed_and_clears_pipe() {
+        let server_id = 90_011u32;
+        let request_id = 111u32;
+        let state = register_test_server(server_id);
+
+        let (body_tx, body_rx) = mpsc::channel::<RequestBodyChunk>(8);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: Arc::new(DrainSignal::new()),
+            },
+        );
+        drop(body_rx);
+
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"x".to_vec())),
+            ChunkSend::Closed
+        ));
+        assert!(!lock_or_recover(&state.response_bodies).contains_key(&request_id));
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn await_writable_unblocks_when_consumer_drains_a_slot() {
+        // The drain wait parks until a slot frees, then reports writable — this
+        // is what lets the JS side retry instead of the event loop spinning.
+        let server_id = 90_012u32;
+        let request_id = 112u32;
+        let state = register_test_server(server_id);
+
+        let (body_tx, body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        let drain = Arc::new(DrainSignal::new());
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: drain.clone(),
+            },
+        );
+
+        // Fill the single slot so the next send would block.
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"first".to_vec())),
+            ChunkSend::Sent
+        ));
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"second".to_vec())),
+            ChunkSend::WouldBlock
+        ));
+
+        // A consumer drains a slot after a delay and signals the drain, exactly
+        // as the hyper-side unfold does in production.
+        let drainer = std::thread::spawn(move || {
+            let mut body_rx = body_rx;
+            std::thread::sleep(Duration::from_millis(50));
+            assert!(matches!(
+                body_rx.blocking_recv(),
+                Some(RequestBodyChunk::Data(_))
+            ));
+            drain.notify();
+            // Keep the receiver alive so the channel is not observed as Closed.
+            body_rx
+        });
+
+        let start = Instant::now();
+        let ready = ex_host_http_await_writable(server_id, request_id, 5_000);
+        assert_eq!(ready, 0, "await_writable should report the slot is writable");
+        assert!(
+            start.elapsed() >= Duration::from_millis(40),
+            "await_writable should have parked until the drain fired"
+        );
+
+        let _body_rx = drainer.join().expect("drainer thread should not panic");
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn await_writable_times_out_and_aborts_a_wedged_peer() {
+        // A peer that never reads must not pin the response forever: after the
+        // timeout, await_writable aborts and clears the pipe so hyper ends the
+        // stream — all without ever blocking the JS event loop.
+        let server_id = 90_013u32;
+        let request_id = 113u32;
+        let state = register_test_server(server_id);
+
+        let (body_tx, _body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: Arc::new(DrainSignal::new()),
+            },
+        );
+        assert!(matches!(
+            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"x".to_vec())),
+            ChunkSend::Sent
+        ));
+
+        let start = Instant::now();
+        let result = ex_host_http_await_writable(server_id, request_id, 60);
+        assert_eq!(result, -1, "a wedged peer must abort, not park forever");
+        assert!(start.elapsed() >= Duration::from_millis(50));
+        assert!(
+            !lock_or_recover(&state.response_bodies).contains_key(&request_id),
+            "aborting should clear the pipe so hyper ends the stream"
+        );
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn ex_host_http_respond_chunk_try_returns_would_block_when_full() {
+        let server_id = 90_014u32;
+        let request_id = 114u32;
+        let state = register_test_server(server_id);
+        let (body_tx, _body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: Arc::new(DrainSignal::new()),
+            },
+        );
+
+        let data = b"chunk";
+        assert_eq!(
+            ex_host_http_respond_chunk_try(server_id, request_id, data.as_ptr(), data.len() as u32),
+            0
+        );
+        // The single slot is now full: the next chunk must report would-block
+        // (2), not fatal (-1) and not a silent drop.
+        assert_eq!(
+            ex_host_http_respond_chunk_try(server_id, request_id, data.as_ptr(), data.len() as u32),
+            HTTP_RESPOND_WOULD_BLOCK
+        );
+        // The pipe survives for a post-drain retry.
+        assert!(lock_or_recover(&state.response_bodies).contains_key(&request_id));
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn ex_host_http_respond_end_try_delivers_terminator_and_clears() {
+        let server_id = 90_015u32;
+        let request_id = 115u32;
+        let state = register_test_server(server_id);
+        let (body_tx, mut body_rx) = mpsc::channel::<RequestBodyChunk>(8);
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: Arc::new(DrainSignal::new()),
+            },
+        );
+
+        assert_eq!(ex_host_http_respond_end_try(server_id, request_id), 0);
+        assert!(matches!(body_rx.try_recv(), Ok(RequestBodyChunk::Done)));
+        assert!(!lock_or_recover(&state.response_bodies).contains_key(&request_id));
+        // A second end after the pipe is gone is reported fatal, not would-block.
+        assert_eq!(ex_host_http_respond_end_try(server_id, request_id), -1);
+        assert!(lock_or_recover(servers()).remove(&server_id).is_some());
     }
 }
