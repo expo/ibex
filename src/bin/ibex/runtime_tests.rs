@@ -143,6 +143,70 @@ pub async fn run_all(cli: &Cli) -> Result<()> {
             "sync host-call object args are JSON.stringify'd",
         )
         .await?;
+
+        // ENG-22995: async native DNS bridge. dns.lookup/resolve/reverse now
+        // dispatch the blocking resolver call to a worker pool and resolve on
+        // the event loop, so a slow lookup never freezes timers/other I/O.
+        // DNS host functions install lazily on first require('dns'), so trigger
+        // the load before probing for the async bridge.
+        expect_eval(
+            &runtime,
+            "(function(){ require('dns'); return (typeof __exactDnsLookupAsync === 'function' && typeof __exactDnsResolveAsync === 'function' && typeof __exactDnsReverseAsync === 'function') ? 'true' : 'false'; })()",
+            "true",
+            "async DNS host functions installed",
+        )
+        .await?;
+        // Kick a localhost lookup plus a concurrent timer, then read the
+        // settled state in the next eval (whose event-loop drive delivers the
+        // off-thread resolution). The synchronous marker must precede the
+        // callback, proving dispatch does not block the caller.
+        expect_eval(
+            &runtime,
+            "globalThis.__dnsProbe = { order: [], result: 'pending' }; \
+             var __dns = require('dns'); \
+             __dns.lookup('localhost', { family: 4 }, function(err, addr) { \
+                 globalThis.__dnsProbe.order.push('dns'); \
+                 globalThis.__dnsProbe.result = err ? ('err:' + err.code) : addr; }); \
+             setTimeout(function() { globalThis.__dnsProbe.order.push('timer'); }, 0); \
+             globalThis.__dnsProbe.order.push('sync'); 'kicked'",
+            "kicked",
+            "async dns.lookup kickoff",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__dnsProbe.result",
+            "127.0.0.1",
+            "async dns.lookup resolves localhost off-thread",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "(globalThis.__dnsProbe.order[0] === 'sync' \
+              && globalThis.__dnsProbe.order.indexOf('timer') !== -1 \
+              && globalThis.__dnsProbe.order.indexOf('dns') !== -1) ? 'ok' : globalThis.__dnsProbe.order.join(',')",
+            "ok",
+            "dns.lookup callback is async; timer fires without being blocked",
+        )
+        .await?;
+        // dns/promises rides the same async path.
+        expect_eval(
+            &runtime,
+            "globalThis.__dnsPromise = 'pending'; \
+             require('dns').promises.lookup('localhost', { family: 4 }).then(\
+                 function(r) { globalThis.__dnsPromise = r && r.address; },\
+                 function(e) { globalThis.__dnsPromise = 'rejected:' + (e && e.code); }); 'kicked'",
+            "kicked",
+            "async dns.promises.lookup kickoff",
+        )
+        .await?;
+        expect_eval(
+            &runtime,
+            "globalThis.__dnsPromise",
+            "127.0.0.1",
+            "dns.promises.lookup resolves via the async path",
+        )
+        .await?;
     }
 
     eprintln!("ibex self-test OK");

@@ -3,9 +3,11 @@
 // (__exactUdp*, __exactTcp*, ...) which we stub here so the pure-JS logic can be
 // exercised and checked against expected behavior. Run with: bun test.
 //
-// Finding #5 (fully-synchronous dns.lookup/resolve*/reverse) is NOT covered here:
-// making those calls non-blocking requires a new async native DNS bridge and is
-// tracked as a native follow-up — it cannot be fixed or verified in pure JS.
+// Finding #5 (fully-synchronous dns.lookup/resolve*/reverse) landed as the async
+// native DNS bridge (ENG-22995): the native side runs the resolver off-thread
+// and resolves a Promise on the event loop. The native non-blocking behavior is
+// verified in `ibex self-test`; the JS wiring here (async-preferred, sync
+// fallback, error mapping) is covered by the `dns async native bridge` block.
 
 import { expect, test, describe, beforeEach, afterEach } from 'bun:test';
 import { createRequire } from 'module';
@@ -325,5 +327,168 @@ describe('tls server secureConnection (ENG-22962 #1)', () => {
     _capturedConnListener!(fakeRawSocket());
     expect(errCount).toBe(1);
     expect(secureCount).toBe(0); // was: 1 (secureConnection wrongly emitted for the destroyed socket)
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dns — finding #5 (async native DNS bridge, ENG-22995)
+//
+// dns.js now prefers the non-blocking host functions (__exactDns*Async, which
+// return Promises) and only falls back to the blocking __exactDns* calls when
+// the async ones are absent. These stubs exercise that JS wiring: the async
+// path is preferred, the callback is delivered asynchronously, results/errors
+// map correctly, and the sync path still works as a fallback.
+// ---------------------------------------------------------------------------
+describe('dns async native bridge (ENG-22995 / #5)', () => {
+  const dnsPath = require.resolve('../../../src/builtins/dns.js');
+  const dnsGlobals = [
+    '__exactDnsLookup', '__exactDnsLookupAsync',
+    '__exactDnsResolve', '__exactDnsResolveAsync',
+    '__exactDnsReverse', '__exactDnsReverseAsync',
+  ];
+
+  let asyncCalls: any[];
+  let syncCalls: any[];
+
+  // dns.js captures `typeof __exactDns*` into module-level flags at load time,
+  // so each test installs its stubs first, then loads a fresh module instance.
+  function loadFreshDns() {
+    delete (require as any).cache[dnsPath];
+    return require('../../../src/builtins/dns.js');
+  }
+
+  function clearDnsGlobals() {
+    for (const k of dnsGlobals) delete g[k];
+  }
+
+  beforeEach(() => {
+    asyncCalls = [];
+    syncCalls = [];
+    clearDnsGlobals();
+  });
+
+  afterEach(() => {
+    clearDnsGlobals();
+    delete (require as any).cache[dnsPath];
+  });
+
+  test('lookup prefers the async host function and never calls the blocking one', async () => {
+    g.__exactDnsLookup = (...a: any[]) => { syncCalls.push(a); return JSON.stringify([{ address: '9.9.9.9', family: 4 }]); };
+    g.__exactDnsLookupAsync = (...a: any[]) => { asyncCalls.push(a); return Promise.resolve(JSON.stringify([{ address: '1.2.3.4', family: 4 }])); };
+    const dns = loadFreshDns();
+    const res: any = await new Promise((resolve) => {
+      dns.lookup('example.com', { family: 4 }, (err: any, address: string, family: number) => resolve({ err, address, family }));
+    });
+    expect(res.err).toBeNull();
+    expect(res.address).toBe('1.2.3.4');
+    expect(res.family).toBe(4);
+    expect(asyncCalls.length).toBe(1);
+    expect(syncCalls.length).toBe(0); // the blocking host function is never called
+  });
+
+  test('lookup callback is asynchronous — dispatch does not block the caller', async () => {
+    g.__exactDnsLookupAsync = () => Promise.resolve(JSON.stringify([{ address: '1.2.3.4', family: 4 }]));
+    const dns = loadFreshDns();
+    let synchronousReturn = false;
+    const firedBeforeReturn = await new Promise<boolean>((resolve) => {
+      dns.lookup('example.com', () => resolve(synchronousReturn === false));
+      // If lookup blocked and invoked the callback inline, this would run late.
+      synchronousReturn = true;
+    });
+    // The callback must NOT have fired before the synchronous code after the call.
+    expect(firedBeforeReturn).toBe(false);
+  });
+
+  test('lookup { all: true } returns the full record array', async () => {
+    g.__exactDnsLookupAsync = () => Promise.resolve(JSON.stringify([
+      { address: '1.2.3.4', family: 4 },
+      { address: '5.6.7.8', family: 4 },
+    ]));
+    const dns = loadFreshDns();
+    const res: any = await new Promise((resolve) => {
+      dns.lookup('example.com', { all: true }, (err: any, results: any) => resolve({ err, results }));
+    });
+    expect(res.err).toBeNull();
+    expect(res.results).toEqual([
+      { address: '1.2.3.4', family: 4 },
+      { address: '5.6.7.8', family: 4 },
+    ]);
+  });
+
+  test('lookup maps an empty async result to ENOTFOUND', async () => {
+    g.__exactDnsLookupAsync = () => Promise.resolve('[]');
+    const dns = loadFreshDns();
+    const err: any = await new Promise((resolve) => {
+      dns.lookup('nope.invalid', (e: any) => resolve(e));
+    });
+    expect(err).toBeTruthy();
+    expect(err.code).toBe('ENOTFOUND');
+    expect(err.hostname).toBe('nope.invalid');
+  });
+
+  test('lookup maps an async rejection to ENOTFOUND', async () => {
+    g.__exactDnsLookupAsync = () => Promise.reject(new Error('resolver down'));
+    const dns = loadFreshDns();
+    const err: any = await new Promise((resolve) => {
+      dns.lookup('nope.invalid', (e: any) => resolve(e));
+    });
+    expect(err).toBeTruthy();
+    expect(err.code).toBe('ENOTFOUND');
+  });
+
+  test('resolveMx prefers the async resolver and returns records', async () => {
+    g.__exactDnsResolve = (...a: any[]) => { syncCalls.push(a); return '[]'; };
+    g.__exactDnsResolveAsync = (...a: any[]) => { asyncCalls.push(a); return Promise.resolve(JSON.stringify([{ priority: 10, exchange: 'mail.example.com' }])); };
+    const dns = loadFreshDns();
+    const recs: any = await new Promise((resolve, reject) => {
+      dns.resolveMx('example.com', (err: any, r: any) => (err ? reject(err) : resolve(r)));
+    });
+    expect(recs).toEqual([{ priority: 10, exchange: 'mail.example.com' }]);
+    expect(asyncCalls.length).toBe(1);
+    expect(asyncCalls[0][1]).toBe('MX');
+    expect(syncCalls.length).toBe(0);
+  });
+
+  test('resolve async rejection maps to a queryXxx ENOTFOUND error', async () => {
+    g.__exactDnsResolve = () => '[]';
+    g.__exactDnsResolveAsync = () => Promise.reject(new Error('SERVFAIL'));
+    const dns = loadFreshDns();
+    const err: any = await new Promise((resolve) => {
+      dns.resolveTxt('example.com', (e: any) => resolve(e));
+    });
+    expect(err.code).toBe('ENOTFOUND');
+    expect(String(err.message)).toContain('queryTXT');
+    expect(String(err.message)).toContain('SERVFAIL');
+  });
+
+  test('reverse prefers the async resolver and returns hostnames', async () => {
+    g.__exactDnsReverse = (...a: any[]) => { syncCalls.push(a); return '[]'; };
+    g.__exactDnsReverseAsync = (...a: any[]) => { asyncCalls.push(a); return Promise.resolve(JSON.stringify(['host.example.com'])); };
+    const dns = loadFreshDns();
+    const names: any = await new Promise((resolve, reject) => {
+      dns.reverse('1.2.3.4', (err: any, r: any) => (err ? reject(err) : resolve(r)));
+    });
+    expect(names).toEqual(['host.example.com']);
+    expect(asyncCalls.length).toBe(1);
+    expect(syncCalls.length).toBe(0);
+  });
+
+  test('dns.promises.lookup rides the async path', async () => {
+    g.__exactDnsLookupAsync = () => Promise.resolve(JSON.stringify([{ address: '1.2.3.4', family: 4 }]));
+    const dns = loadFreshDns();
+    const r: any = await dns.promises.lookup('example.com', { family: 4 });
+    expect(r).toEqual({ address: '1.2.3.4', family: 4 });
+  });
+
+  test('falls back to the synchronous host function when the async one is absent', async () => {
+    g.__exactDnsLookup = (...a: any[]) => { syncCalls.push(a); return JSON.stringify([{ address: '5.6.7.8', family: 4 }]); };
+    // No __exactDnsLookupAsync installed.
+    const dns = loadFreshDns();
+    const res: any = await new Promise((resolve) => {
+      dns.lookup('example.com', { family: 4 }, (err: any, address: string) => resolve({ err, address }));
+    });
+    expect(res.err).toBeNull();
+    expect(res.address).toBe('5.6.7.8');
+    expect(syncCalls.length).toBe(1); // fell back to the blocking host function
   });
 });

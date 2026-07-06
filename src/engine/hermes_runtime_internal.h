@@ -100,6 +100,10 @@ struct ExactHermesRuntime {
   std::mutex task_mutex;
   std::vector<std::function<void(facebook::jsi::Runtime&)>> pending_tasks;
   std::atomic<int> active_spawn_processes{0};
+  // In-flight async DNS resolutions dispatched to the DNS worker pool. Counted
+  // as referenced work so a pending lookup keeps the event loop alive (matching
+  // Node's ref'd getaddrinfo requests) without a polling timer. (ENG-22995)
+  std::atomic<int> pending_dns_lookups{0};
   std::mutex fetchMutex;
   uint32_t nextFetchId{1};
   std::unordered_map<uint32_t, FetchCallbackEntry> fetchCallbacks;

@@ -1,5 +1,30 @@
 var Buffer = require('buffer').Buffer;
 
+var _hasDnsLookupAsync = typeof __exactDnsLookupAsync === 'function';
+
+function _emitLookupNotFound(hostname, callback, defer) {
+  var err = new Error('getaddrinfo ENOTFOUND ' + hostname);
+  err.code = 'ENOTFOUND';
+  err.hostname = hostname;
+  if (!callback) return;
+  if (defer) setTimeout(function() { callback(err); }, 0);
+  else callback(err);
+}
+
+function _deliverLookupResult(hostname, options, results, callback) {
+  if (!results || results.length === 0) {
+    // Native resolution succeeded but yielded no A/AAAA records.
+    _emitLookupNotFound(hostname, callback, false);
+    return;
+  }
+  var result = results[0];
+  if (options.all) {
+    if (callback) callback(null, results);
+  } else {
+    if (callback) callback(null, result.address, result.family);
+  }
+}
+
 function lookup(hostname, options, callback) {
   if (typeof options === 'function') {
     callback = options;
@@ -7,14 +32,31 @@ function lookup(hostname, options, callback) {
   }
   options = options || {};
   var family = options.family || 0;
+  // Async native path: getaddrinfo runs off the JS thread so a slow resolver
+  // does not freeze timers/other I/O. The Promise already delivers the
+  // callback on a later turn, so no setTimeout(0) deferral is needed here.
+  // (ENG-22995)
+  if (_hasDnsLookupAsync) {
+    try {
+      __exactDnsLookupAsync(hostname, family).then(function(json) {
+        var results;
+        try { results = JSON.parse(json); } catch (_) { results = null; }
+        _deliverLookupResult(hostname, options, results, callback);
+      }, function() {
+        _emitLookupNotFound(hostname, callback, false);
+      });
+    } catch (e) {
+      // A synchronous throw (arg/capability rejection) still surfaces as an
+      // async ENOTFOUND, matching the historical behavior.
+      _emitLookupNotFound(hostname, callback, true);
+    }
+    return;
+  }
   try {
     var json = __exactDnsLookup(hostname, family);
     var results = JSON.parse(json);
     if (results.length === 0) {
-      var err = new Error('getaddrinfo ENOTFOUND ' + hostname);
-      err.code = 'ENOTFOUND';
-      err.hostname = hostname;
-      if (callback) setTimeout(function() { callback(err); }, 0);
+      _emitLookupNotFound(hostname, callback, true);
       return;
     }
     var result = results[0];
@@ -24,15 +66,17 @@ function lookup(hostname, options, callback) {
       if (callback) setTimeout(function() { callback(null, result.address, result.family); }, 0);
     }
   } catch(e) {
-    var err = new Error('getaddrinfo ENOTFOUND ' + hostname);
-    err.code = 'ENOTFOUND';
-    err.hostname = hostname;
-    if (callback) setTimeout(function() { callback(err); }, 0);
+    _emitLookupNotFound(hostname, callback, true);
   }
 }
 
 var _hasDnsResolve = typeof __exactDnsResolve === 'function';
 var _hasDnsReverse = typeof __exactDnsReverse === 'function';
+// Non-blocking native DNS bridge: prefer the async host functions so a slow
+// resolver never freezes the runtime. Fall back to the synchronous host
+// functions on embedders that predate them. (ENG-22995)
+var _hasDnsResolveAsync = typeof __exactDnsResolveAsync === 'function';
+var _hasDnsReverseAsync = typeof __exactDnsReverseAsync === 'function';
 var _dnsRecordTypes = {
   A: 1,
   NS: 2,
@@ -658,11 +702,37 @@ function _cancelResolverQueries(resolver) {
   }
 }
 
+function _resolveQueryError(hostname, rrtype, e, callback, defer) {
+  var err = new Error('query' + rrtype + ' ' + (e && e.message ? e.message : String(e)));
+  err.code = 'ENOTFOUND';
+  err.hostname = hostname;
+  if (!callback) return;
+  if (defer) setTimeout(function() { callback(err); }, 0);
+  else callback(err);
+}
+
 function _resolveViaQuery(hostname, rrtype, callback) {
-  if (!_hasDnsResolve) {
+  if (!_hasDnsResolve && !_hasDnsResolveAsync) {
     var err = new Error('DNS record type ' + rrtype + ' requires native resolver');
     err.code = 'ENOTIMP';
     if (callback) setTimeout(function() { callback(err); }, 0);
+    return;
+  }
+  // Async native path when available: res_query runs off the JS thread.
+  // (ENG-22995)
+  if (_hasDnsResolveAsync) {
+    try {
+      __exactDnsResolveAsync(hostname, rrtype).then(function(json) {
+        var records;
+        try { records = JSON.parse(json); }
+        catch (parseErr) { _resolveQueryError(hostname, rrtype, parseErr, callback, false); return; }
+        if (callback) callback(null, records);
+      }, function(e) {
+        _resolveQueryError(hostname, rrtype, e, callback, false);
+      });
+    } catch (e) {
+      _resolveQueryError(hostname, rrtype, e, callback, true);
+    }
     return;
   }
   try {
@@ -670,10 +740,7 @@ function _resolveViaQuery(hostname, rrtype, callback) {
     var records = JSON.parse(json);
     if (callback) setTimeout(function() { callback(null, records); }, 0);
   } catch(e) {
-    var err2 = new Error('query' + rrtype + ' ' + (e.message || String(e)));
-    err2.code = 'ENOTFOUND';
-    err2.hostname = hostname;
-    if (callback) setTimeout(function() { callback(err2); }, 0);
+    _resolveQueryError(hostname, rrtype, e, callback, true);
   }
 }
 
@@ -761,11 +828,36 @@ function resolveNaptr(hostname, callback) {
   _resolveViaQuery(hostname, 'NAPTR', callback);
 }
 
+function _reverseError(e, callback, defer) {
+  var err = new Error('getHostByAddr ' + (e && e.message ? e.message : String(e)));
+  err.code = 'ENOTFOUND';
+  if (!callback) return;
+  if (defer) setTimeout(function() { callback(err); }, 0);
+  else callback(err);
+}
+
 function reverse(ip, callback) {
-  if (!_hasDnsReverse) {
+  if (!_hasDnsReverse && !_hasDnsReverseAsync) {
     var err = new Error('dns.reverse requires native resolver');
     err.code = 'ENOTIMP';
     if (callback) setTimeout(function() { callback(err); }, 0);
+    return;
+  }
+  // Async native path when available: getnameinfo runs off the JS thread.
+  // (ENG-22995)
+  if (_hasDnsReverseAsync) {
+    try {
+      __exactDnsReverseAsync(ip).then(function(json) {
+        var hostnames;
+        try { hostnames = JSON.parse(json); }
+        catch (parseErr) { _reverseError(parseErr, callback, false); return; }
+        if (callback) callback(null, hostnames);
+      }, function(e) {
+        _reverseError(e, callback, false);
+      });
+    } catch (e) {
+      _reverseError(e, callback, true);
+    }
     return;
   }
   try {
@@ -773,9 +865,7 @@ function reverse(ip, callback) {
     var hostnames = JSON.parse(json);
     if (callback) setTimeout(function() { callback(null, hostnames); }, 0);
   } catch(e) {
-    var err2 = new Error('getHostByAddr ' + (e.message || String(e)));
-    err2.code = 'ENOTFOUND';
-    if (callback) setTimeout(function() { callback(err2); }, 0);
+    _reverseError(e, callback, true);
   }
 }
 
