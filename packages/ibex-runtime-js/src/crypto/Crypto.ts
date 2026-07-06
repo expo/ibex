@@ -62,18 +62,25 @@ declare global {
     data: string
   ) => string) | undefined;
 
-  // RSA sign/verify (expects PEM key strings, data as string)
+  // RSA sign/verify. The native bridge signs the RAW message bytes (pass a
+  // Uint8Array; a string is still accepted for legacy callers) and honours the
+  // optional RSA scheme ("pss" selects RSA-PSS) + salt length so RSA-PSS is no
+  // longer silently signed as PKCS#1 v1.5 (ENG-23002). PEM key as a string.
   var __exactSignSync: ((
     algorithm: string,
-    data: string,
-    key: string
+    data: Uint8Array | string,
+    key: string,
+    scheme?: "pkcs1" | "pss",
+    saltLength?: number
   ) => Uint8Array) | undefined;
 
   var __exactVerifySync: ((
     algorithm: string,
     signature: Uint8Array,
-    data: string,
-    key: string
+    data: Uint8Array | string,
+    key: string,
+    scheme?: "pkcs1" | "pss",
+    saltLength?: number
   ) => boolean) | undefined;
 
   // Key generation (returns PEM strings for asymmetric keys)
@@ -462,8 +469,9 @@ export class SubtleCrypto {
         if (typeof __exactSignSync === 'function') {
           try {
             const keyStr = uint8ArrayToString((key as ExactCryptoKey)._keyData);
-            const dataStr = uint8ArrayToString(bytes);
-            const result = __exactSignSync(hash, dataStr, keyStr);
+            // Pass the raw message bytes so the native bridge signs them
+            // byte-for-byte instead of a UTF-8 re-encoding (ENG-23002).
+            const result = __exactSignSync(hash, bytes, keyStr, 'pkcs1');
             return uint8ArrayToArrayBuffer(result);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
@@ -474,11 +482,10 @@ export class SubtleCrypto {
         const hash = (key.algorithm as RsaHashedKeyAlgorithm).hash.name;
         const saltLength = (algorithm as RsaPssParams).saltLength;
 
-        // The __exactSignSync bridge only maps RSA keys to PKCS#1 v1.5 and never
-        // receives the PSS scheme or saltLength, so it silently produced a v1.5
-        // signature for RSA-PSS. Route through a real WebCrypto (which honours
-        // the PSS scheme + saltLength and signs raw bytes) when available.
-        // The native bridge fallback remains v1.5-only on-device (ENG-22983).
+        // Prefer a real WebCrypto when the host provides one. Otherwise the
+        // native bridge now honours the PSS scheme + saltLength and signs the
+        // raw message bytes, so on-device RSA-PSS is a genuine PSS signature
+        // (it previously silently produced a PKCS#1 v1.5 signature — ENG-23002).
         const viaPlatform = await platformRsaSign(
           'RSA-PSS', hash, saltLength, key as ExactCryptoKey, bytes
         );
@@ -487,8 +494,7 @@ export class SubtleCrypto {
         if (typeof __exactSignSync === 'function') {
           try {
             const keyStr = uint8ArrayToString((key as ExactCryptoKey)._keyData);
-            const dataStr = uint8ArrayToString(bytes);
-            const result = __exactSignSync(hash, dataStr, keyStr);
+            const result = __exactSignSync(hash, bytes, keyStr, 'pss', saltLength);
             return uint8ArrayToArrayBuffer(result);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
@@ -573,8 +579,8 @@ export class SubtleCrypto {
         if (typeof __exactVerifySync === 'function') {
           try {
             const keyStr = uint8ArrayToString((key as ExactCryptoKey)._keyData);
-            const dataStr = uint8ArrayToString(dataBytes);
-            return __exactVerifySync(hash, signatureBytes, dataStr, keyStr);
+            // Verify against the raw message bytes byte-for-byte (ENG-23002).
+            return __exactVerifySync(hash, signatureBytes, dataBytes, keyStr, 'pkcs1');
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
         throw new DOMException('Native crypto not available for RSASSA-PKCS1-v1_5', 'NotSupportedError');
@@ -584,8 +590,9 @@ export class SubtleCrypto {
         const hash = (key.algorithm as RsaHashedKeyAlgorithm).hash.name;
         const saltLength = (algorithm as RsaPssParams).saltLength;
 
-        // A real WebCrypto verifies genuine PSS signatures (with saltLength) that
-        // the v1.5-only __exactVerifySync bridge rejects (ENG-22983).
+        // A real WebCrypto verifies genuine PSS signatures (with saltLength).
+        // The native bridge now also honours the PSS scheme + saltLength and
+        // verifies against the raw message bytes (ENG-23002).
         const viaPlatform = await platformRsaVerify(
           'RSA-PSS', hash, saltLength, key as ExactCryptoKey, signatureBytes, dataBytes
         );
@@ -594,8 +601,7 @@ export class SubtleCrypto {
         if (typeof __exactVerifySync === 'function') {
           try {
             const keyStr = uint8ArrayToString((key as ExactCryptoKey)._keyData);
-            const dataStr = uint8ArrayToString(dataBytes);
-            return __exactVerifySync(hash, signatureBytes, dataStr, keyStr);
+            return __exactVerifySync(hash, signatureBytes, dataBytes, keyStr, 'pss', saltLength);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
         throw new DOMException('Native crypto not available for RSA-PSS', 'NotSupportedError');

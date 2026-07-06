@@ -105,6 +105,31 @@ CFRefPtr<T> adoptCF(T ptr) {
   return CFRefPtr<T>(ptr);
 }
 
+// Parse the optional RSA scheme + salt-length trailing arguments shared by the
+// __exactSignSync/__exactVerifySync bridges (ENG-23002). The scheme argument
+// selects RSA-PSS ("pss"/"rsa-pss") vs PKCS#1 v1.5; the salt argument is the PSS
+// salt length in bytes (defaults to -1 = "use the digest length"). Both are
+// optional so legacy 3/4-argument callers keep PKCS#1 v1.5 behavior.
+static void parseRsaSignScheme(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value* args,
+    size_t count,
+    size_t schemeIndex,
+    size_t saltIndex,
+    bool& usePss,
+    int& saltLen) {
+  usePss = false;
+  saltLen = -1;
+  if (count > schemeIndex && args[schemeIndex].isString()) {
+    auto s = args[schemeIndex].asString(runtime).utf8(runtime);
+    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    usePss = (s == "pss" || s == "rsa-pss");
+  }
+  if (count > saltIndex && args[saltIndex].isNumber()) {
+    saltLen = static_cast<int>(args[saltIndex].asNumber());
+  }
+}
+
 #if defined(__APPLE__) && !defined(EXACT_PLATFORM_IOS)
 static std::string normalizeHashForNodeCrypto(const std::string& algorithm) {
   auto lowered = algorithm;
@@ -124,8 +149,30 @@ static std::string normalizeHashForNodeCrypto(const std::string& algorithm) {
   return "sha256";
 }
 
-static SecKeyAlgorithm pickSecKeySignAlgorithm(const std::string& hashName, bool isRsa) {
+// Digest output size in bytes for the hash names we support. Used to validate
+// the RSA-PSS salt length on the SecKey path, whose message-PSS algorithms fix
+// the salt length at the digest size (ENG-23002).
+static size_t rsaHashDigestSize(const std::string& hashName) {
+  if (hashName == "sha1") return 20;
+  if (hashName == "sha256") return 32;
+  if (hashName == "sha384") return 48;
+  if (hashName == "sha512") return 64;
+  return 0;
+}
+
+// @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
+// When usePss is set for an RSA key, select the SecKey RSA-PSS message
+// algorithms instead of PKCS#1 v1.5 so RSA-PSS signatures actually use PSS
+// padding (ENG-23002 — previously RSA always mapped to v1.5).
+static SecKeyAlgorithm pickSecKeySignAlgorithm(const std::string& hashName, bool isRsa, bool usePss) {
   if (isRsa) {
+    if (usePss) {
+      if (hashName == "sha1") return kSecKeyAlgorithmRSASignatureMessagePSSSHA1;
+      if (hashName == "sha256") return kSecKeyAlgorithmRSASignatureMessagePSSSHA256;
+      if (hashName == "sha384") return kSecKeyAlgorithmRSASignatureMessagePSSSHA384;
+      if (hashName == "sha512") return kSecKeyAlgorithmRSASignatureMessagePSSSHA512;
+      return nullptr;
+    }
     if (hashName == "sha1") return kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA1;
     if (hashName == "sha256") return kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256;
     if (hashName == "sha384") return kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA384;
@@ -795,6 +842,113 @@ static const EVP_CIPHER* openSslAesGcmCipher(size_t keyLength) {
   if (keyLength == 32) return EVP_aes_256_gcm();
   return nullptr;
 }
+
+// @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
+// Shared OpenSSL sign/verify core operating on RAW message bytes (ENG-23002).
+// Signs/verifies the bytes exactly as given — no UTF-8 round-trip that would
+// expand bytes >= 0x80 — and, for RSA, selects PSS padding with a caller-supplied
+// salt length when usePss is set (otherwise PKCS#1 v1.5). Shared by the
+// __exactSignSync/__exactVerifySync OpenSSL bridges and the ex_crypto_test_rsa_*
+// hooks. saltLen < 0 means "use the digest length" (RSA_PSS_SALTLEN_DIGEST).
+// Returns true on success and fills outSig; on failure sets err.
+static bool opensslSignMessageCore(
+    const std::vector<uint8_t>& data,
+    const std::string& keyPem,
+    const EVP_MD* md,
+    bool usePss,
+    int saltLen,
+    std::vector<uint8_t>& outSig,
+    std::string& err) {
+  BIO* keyBio = BIO_new_mem_buf(keyPem.data(), static_cast<int>(keyPem.size()));
+  if (!keyBio) { err = "failed to allocate key BIO"; return false; }
+  EVP_PKEY* pkey = PEM_read_bio_PrivateKey(keyBio, nullptr, nullptr, nullptr);
+  BIO_free(keyBio);
+  if (!pkey) { err = "invalid PEM private key"; return false; }
+
+  EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
+  if (!mdCtx) { EVP_PKEY_free(pkey); err = "failed to allocate digest context"; return false; }
+
+  EVP_PKEY_CTX* pctx = nullptr;
+  bool ok = false;
+  do {
+    if (EVP_DigestSignInit(mdCtx, &pctx, md, nullptr, pkey) != 1) {
+      err = "EVP_DigestSignInit failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr));
+      break;
+    }
+    if (usePss) {
+      int effSalt = saltLen >= 0 ? saltLen : RSA_PSS_SALTLEN_DIGEST;
+      if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING) <= 0) { err = "failed to set RSA-PSS padding"; break; }
+      if (EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, effSalt) <= 0) { err = "failed to set RSA-PSS salt length"; break; }
+      if (EVP_PKEY_CTX_set_rsa_mgf1_md(pctx, md) <= 0) { err = "failed to set MGF1 digest"; break; }
+    }
+    if (EVP_DigestSignUpdate(mdCtx, data.data(), data.size()) != 1) {
+      err = "EVP_DigestSignUpdate failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr));
+      break;
+    }
+    size_t sigLen = 0;
+    if (EVP_DigestSignFinal(mdCtx, nullptr, &sigLen) != 1) {
+      err = "EVP_DigestSignFinal (size) failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr));
+      break;
+    }
+    outSig.resize(sigLen);
+    if (EVP_DigestSignFinal(mdCtx, outSig.data(), &sigLen) != 1) {
+      err = "signing failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr));
+      break;
+    }
+    outSig.resize(sigLen);
+    ok = true;
+  } while (false);
+
+  EVP_MD_CTX_free(mdCtx);
+  EVP_PKEY_free(pkey);
+  return ok;
+}
+
+// Returns 1 (verified), 0 (not verified), or -1 (error, err set).
+static int opensslVerifyMessageCore(
+    const std::vector<uint8_t>& data,
+    const std::vector<uint8_t>& sig,
+    const std::string& keyPem,
+    const EVP_MD* md,
+    bool usePss,
+    int saltLen,
+    std::string& err) {
+  BIO* keyBio = BIO_new_mem_buf(keyPem.data(), static_cast<int>(keyPem.size()));
+  if (!keyBio) { err = "failed to allocate key BIO"; return -1; }
+  EVP_PKEY* pkey = PEM_read_bio_PUBKEY(keyBio, nullptr, nullptr, nullptr);
+  BIO_free(keyBio);
+  if (!pkey) { err = "invalid PEM public key"; return -1; }
+
+  EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
+  if (!mdCtx) { EVP_PKEY_free(pkey); err = "failed to allocate digest context"; return -1; }
+
+  EVP_PKEY_CTX* pctx = nullptr;
+  int rc = -1;
+  do {
+    if (EVP_DigestVerifyInit(mdCtx, &pctx, md, nullptr, pkey) != 1) {
+      err = "EVP_DigestVerifyInit failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr));
+      break;
+    }
+    if (usePss) {
+      int effSalt = saltLen >= 0 ? saltLen : RSA_PSS_SALTLEN_DIGEST;
+      if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING) <= 0) { err = "failed to set RSA-PSS padding"; break; }
+      if (EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, effSalt) <= 0) { err = "failed to set RSA-PSS salt length"; break; }
+      if (EVP_PKEY_CTX_set_rsa_mgf1_md(pctx, md) <= 0) { err = "failed to set MGF1 digest"; break; }
+    }
+    if (EVP_DigestVerifyUpdate(mdCtx, data.data(), data.size()) != 1) {
+      err = "EVP_DigestVerifyUpdate failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr));
+      break;
+    }
+    int v = EVP_DigestVerifyFinal(mdCtx, sig.data(), sig.size());
+    if (v == 1) { rc = 1; }
+    else if (v == 0) { rc = 0; }
+    else { err = "verify failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)); rc = -1; }
+  } while (false);
+
+  EVP_MD_CTX_free(mdCtx);
+  EVP_PKEY_free(pkey);
+  return rc;
+}
 #endif
 
 #if defined(__APPLE__) && !defined(EXACT_PLATFORM_IOS)
@@ -897,6 +1051,61 @@ static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
 
 
 } // namespace
+
+#if !defined(EXACT_NO_OPENSSL)
+// Test-only C ABI (ENG-23002) exercising the shared OpenSSL RSA sign/verify core
+// that backs the on-device __exactSignSync/__exactVerifySync bridges. The JSI
+// bridges themselves need a full Hermes runtime to invoke, so these let a Rust
+// unit test sign RAW bytes with RSA-PSS + an explicit salt length and verify the
+// result — the exact code path that ships on Android/Linux. `hash_name` is a
+// normalized digest name ("sha256" etc.); `use_pss` selects PSS vs PKCS#1 v1.5;
+// `salt_len` is the PSS salt length in bytes (<0 = digest length).
+// ex_crypto_test_rsa_sign returns the signature length written into `out` (which
+// must have capacity `out_cap` >= key size) or -1 on error.
+extern "C" int ex_crypto_test_rsa_sign(
+    const uint8_t* data,
+    size_t data_len,
+    const char* pem_key,
+    size_t pem_len,
+    const char* hash_name,
+    int use_pss,
+    int salt_len,
+    uint8_t* out,
+    size_t out_cap) {
+  const EVP_MD* md = openSslDigestForAlgorithm(hash_name ? std::string(hash_name) : std::string());
+  if (!md) return -1;
+  std::vector<uint8_t> dataVec(data, data + data_len);
+  std::string keyPem(pem_key, pem_len);
+  std::vector<uint8_t> sig;
+  std::string err;
+  if (!opensslSignMessageCore(dataVec, keyPem, md, use_pss != 0, salt_len, sig, err)) {
+    return -1;
+  }
+  if (sig.size() > out_cap) return -1;
+  std::memcpy(out, sig.data(), sig.size());
+  return static_cast<int>(sig.size());
+}
+
+// Returns 1 (verified), 0 (not verified), or -1 (error).
+extern "C" int ex_crypto_test_rsa_verify(
+    const uint8_t* data,
+    size_t data_len,
+    const uint8_t* sig,
+    size_t sig_len,
+    const char* pem_pub,
+    size_t pem_pub_len,
+    const char* hash_name,
+    int use_pss,
+    int salt_len) {
+  const EVP_MD* md = openSslDigestForAlgorithm(hash_name ? std::string(hash_name) : std::string());
+  if (!md) return -1;
+  std::vector<uint8_t> dataVec(data, data + data_len);
+  std::vector<uint8_t> sigVec(sig, sig + sig_len);
+  std::string keyPem(pem_pub, pem_pub_len);
+  std::string err;
+  return opensslVerifyMessageCore(dataVec, sigVec, keyPem, md, use_pss != 0, salt_len, err);
+}
+#endif  // !EXACT_NO_OPENSSL
 
 void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
@@ -2167,31 +2376,50 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   auto signFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSignSync"),
-      3,
+      5,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (count < 3 || !args[0].isString() || !args[1].isString() || !args[2].isString()) {
+        // args: algorithm, data (Uint8Array or string), key (PEM), scheme?, saltLength?
+        if (count < 3 || !args[0].isString() || !args[2].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactSignSync: algorithm, data, and key required");
         }
 
         auto rawAlgorithm = args[0].asString(runtime).utf8(runtime);
         auto hashName = normalizeHashForNodeCrypto(rawAlgorithm);
-        auto dataText = args[1].asString(runtime).utf8(runtime);
+        // Sign the RAW message bytes: a Uint8Array is taken byte-for-byte, and a
+        // string is UTF-8 encoded, so bytes >= 0x80 are no longer mangled by a
+        // string round-trip on the WebCrypto path (ENG-23002).
+        auto dataBytes = extractBytes(runtime, args[1]);
         auto keyText = args[2].asString(runtime).utf8(runtime);
+        bool usePss = false;
+        int saltLen = -1;
+        parseRsaSignScheme(runtime, args, count, 3, 4, usePss, saltLen);
         auto key = adoptCF(importPemKey(keyText, kSecItemTypePrivateKey));
         if (!key) {
           throw facebook::jsi::JSError(runtime, "__exactSignSync: invalid PEM private key");
         }
 
         auto isRsa = isRsaSecKey(key.get());
-        auto algorithm = pickSecKeySignAlgorithm(hashName, isRsa);
+        if (usePss && !isRsa) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: RSA-PSS requires an RSA key");
+        }
+        // SecKey's message-PSS algorithms fix the salt length at the digest size,
+        // so honor an explicit saltLength only when it matches; reject anything
+        // else rather than silently producing a mismatched-salt signature.
+        if (usePss && saltLen >= 0 &&
+            static_cast<size_t>(saltLen) != rsaHashDigestSize(hashName)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactSignSync: RSA-PSS salt length " + std::to_string(saltLen) +
+                  " is unsupported on this platform (SecKey uses salt length == digest size)");
+        }
+        auto algorithm = pickSecKeySignAlgorithm(hashName, isRsa, usePss);
         if (!algorithm) {
           throw facebook::jsi::JSError(runtime, "__exactSignSync: unsupported algorithm " + rawAlgorithm);
         }
 
-        auto dataBytes = std::vector<uint8_t>(dataText.begin(), dataText.end());
         auto dataRef = adoptCF(CFDataCreate(
             kCFAllocatorDefault,
             dataBytes.data(),
@@ -2221,32 +2449,46 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   auto verifyFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactVerifySync"),
-      4,
+      6,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (count < 4 || !args[0].isString() || !args[2].isString() || !args[3].isString()) {
+        // args: algorithm, signature, data (Uint8Array or string), key (PEM), scheme?, saltLength?
+        if (count < 4 || !args[0].isString() || !args[3].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: algorithm, signature, data, and key required");
         }
 
         auto rawAlgorithm = args[0].asString(runtime).utf8(runtime);
         auto hashName = normalizeHashForNodeCrypto(rawAlgorithm);
         auto signatureBytes = extractBytes(runtime, args[1]);
-        auto dataText = args[2].asString(runtime).utf8(runtime);
+        // Verify against the RAW message bytes (see __exactSignSync — ENG-23002).
+        auto dataBytes = extractBytes(runtime, args[2]);
         auto keyText = args[3].asString(runtime).utf8(runtime);
+        bool usePss = false;
+        int saltLen = -1;
+        parseRsaSignScheme(runtime, args, count, 4, 5, usePss, saltLen);
         auto key = adoptCF(importPemKey(keyText, kSecItemTypePublicKey));
         if (!key) {
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: invalid PEM public key");
         }
 
         auto isRsa = isRsaSecKey(key.get());
-        auto algorithm = pickSecKeySignAlgorithm(hashName, isRsa);
+        if (usePss && !isRsa) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: RSA-PSS requires an RSA key");
+        }
+        if (usePss && saltLen >= 0 &&
+            static_cast<size_t>(saltLen) != rsaHashDigestSize(hashName)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactVerifySync: RSA-PSS salt length " + std::to_string(saltLen) +
+                  " is unsupported on this platform (SecKey uses salt length == digest size)");
+        }
+        auto algorithm = pickSecKeySignAlgorithm(hashName, isRsa, usePss);
         if (!algorithm) {
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: unsupported algorithm " + rawAlgorithm);
         }
 
-        auto dataBytes = std::vector<uint8_t>(dataText.begin(), dataText.end());
         auto signatureRef = adoptCF(CFDataCreate(
             kCFAllocatorDefault,
             signatureBytes.data(),
@@ -2524,12 +2766,13 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   auto signFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSignSync"),
-      3,
+      5,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (count < 3 || !args[0].isString() || !args[1].isString() || !args[2].isString()) {
+        // args: algorithm, data (Uint8Array or string), key (PEM), scheme?, saltLength?
+        if (count < 3 || !args[0].isString() || !args[2].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactSignSync: algorithm, data, and key required");
         }
 
@@ -2540,56 +2783,21 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSignSync: unsupported algorithm " + rawAlgorithm);
         }
 
-        auto dataText = args[1].asString(runtime).utf8(runtime);
+        // Sign the RAW message bytes (Uint8Array taken byte-for-byte, string
+        // UTF-8 encoded) instead of the old string-only path that mangled bytes
+        // >= 0x80, and thread the RSA-PSS scheme + salt length through so
+        // RSA-PSS no longer silently signs PKCS#1 v1.5 (ENG-23002).
+        auto data = extractBytes(runtime, args[1]);
         auto keyText = args[2].asString(runtime).utf8(runtime);
-        std::vector<uint8_t> data(dataText.begin(), dataText.end());
-        std::vector<uint8_t> keyBytes(keyText.begin(), keyText.end());
+        bool usePss = false;
+        int saltLen = -1;
+        parseRsaSignScheme(runtime, args, count, 3, 4, usePss, saltLen);
 
         std::vector<uint8_t> signature;
-        BIO* keyBio = BIO_new_mem_buf(keyBytes.data(), static_cast<int>(keyBytes.size()));
-        if (!keyBio) {
-          throw facebook::jsi::JSError(runtime, "__exactSignSync: failed to allocate key BIO");
+        std::string err;
+        if (!opensslSignMessageCore(data, keyText, md, usePss, saltLen, signature, err)) {
+          throw facebook::jsi::JSError(runtime, "__exactSignSync: " + err);
         }
-
-        EVP_PKEY* pkey = PEM_read_bio_PrivateKey(keyBio, nullptr, nullptr, nullptr);
-        BIO_free(keyBio);
-        if (!pkey) {
-          throw facebook::jsi::JSError(runtime, "__exactSignSync: invalid PEM private key");
-        }
-
-        EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
-        if (!mdCtx) {
-          EVP_PKEY_free(pkey);
-          throw facebook::jsi::JSError(runtime, "__exactSignSync: failed to allocate digest context");
-        }
-
-        if (EVP_DigestSignInit(mdCtx, nullptr, md, nullptr, pkey) != 1) {
-          EVP_MD_CTX_free(mdCtx);
-          EVP_PKEY_free(pkey);
-          throw facebook::jsi::JSError(runtime, "__exactSignSync: EVP_DigestSignInit failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
-        }
-        if (EVP_DigestSignUpdate(mdCtx, data.data(), data.size()) != 1) {
-          EVP_MD_CTX_free(mdCtx);
-          EVP_PKEY_free(pkey);
-          throw facebook::jsi::JSError(runtime, "__exactSignSync: EVP_DigestSignUpdate failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
-        }
-        size_t sigLen = 0;
-        if (EVP_DigestSignFinal(mdCtx, nullptr, &sigLen) != 1) {
-          EVP_MD_CTX_free(mdCtx);
-          EVP_PKEY_free(pkey);
-          throw facebook::jsi::JSError(runtime, "__exactSignSync: EVP_DigestSignFinal failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
-        }
-        signature.resize(sigLen);
-        if (EVP_DigestSignFinal(mdCtx, signature.data(), &sigLen) != 1) {
-          EVP_MD_CTX_free(mdCtx);
-          EVP_PKEY_free(pkey);
-          throw facebook::jsi::JSError(runtime, "__exactSignSync: signing failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
-        }
-        signature.resize(sigLen);
-
-        EVP_MD_CTX_free(mdCtx);
-        EVP_PKEY_free(pkey);
-
         return makeUint8Array(runtime, std::move(signature));
       });
   rt.global().setProperty(rt, "__exactSignSync", std::move(signFn));
@@ -2597,12 +2805,13 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   auto verifyFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactVerifySync"),
-      4,
+      6,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (count < 4 || !args[0].isString() || !args[2].isString() || !args[3].isString()) {
+        // args: algorithm, signature, data (Uint8Array or string), key (PEM), scheme?, saltLength?
+        if (count < 4 || !args[0].isString() || !args[3].isString()) {
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: algorithm, signature, data, and key required");
         }
 
@@ -2614,45 +2823,19 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         }
 
         auto signatureBytes = extractBytes(runtime, args[1]);
-        auto dataText = args[2].asString(runtime).utf8(runtime);
+        // Verify against the RAW message bytes + RSA-PSS scheme/salt (ENG-23002).
+        auto data = extractBytes(runtime, args[2]);
         auto keyText = args[3].asString(runtime).utf8(runtime);
-        std::vector<uint8_t> data(dataText.begin(), dataText.end());
-        std::vector<uint8_t> keyBytes(keyText.begin(), keyText.end());
+        bool usePss = false;
+        int saltLen = -1;
+        parseRsaSignScheme(runtime, args, count, 4, 5, usePss, saltLen);
 
-        BIO* keyBio = BIO_new_mem_buf(keyBytes.data(), static_cast<int>(keyBytes.size()));
-        if (!keyBio) {
-          throw facebook::jsi::JSError(runtime, "__exactVerifySync: failed to allocate key BIO");
+        std::string err;
+        int result = opensslVerifyMessageCore(data, signatureBytes, keyText, md, usePss, saltLen, err);
+        if (result < 0) {
+          throw facebook::jsi::JSError(runtime, "__exactVerifySync: " + err);
         }
-
-        EVP_PKEY* pkey = PEM_read_bio_PUBKEY(keyBio, nullptr, nullptr, nullptr);
-        BIO_free(keyBio);
-        if (!pkey) {
-          throw facebook::jsi::JSError(runtime, "__exactVerifySync: invalid PEM public key");
-        }
-
-        EVP_MD_CTX* mdCtx = EVP_MD_CTX_new();
-        if (!mdCtx) {
-          EVP_PKEY_free(pkey);
-          throw facebook::jsi::JSError(runtime, "__exactVerifySync: failed to allocate digest context");
-        }
-
-        if (EVP_DigestVerifyInit(mdCtx, nullptr, md, nullptr, pkey) != 1) {
-          EVP_MD_CTX_free(mdCtx);
-          EVP_PKEY_free(pkey);
-          throw facebook::jsi::JSError(runtime, "__exactVerifySync: EVP_DigestVerifyInit failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
-        }
-        if (EVP_DigestVerifyUpdate(mdCtx, data.data(), data.size()) != 1) {
-          EVP_MD_CTX_free(mdCtx);
-          EVP_PKEY_free(pkey);
-          throw facebook::jsi::JSError(runtime, "__exactVerifySync: EVP_DigestVerifyUpdate failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
-        }
-        auto result = EVP_DigestVerifyFinal(mdCtx, signatureBytes.data(), signatureBytes.size());
-        EVP_MD_CTX_free(mdCtx);
-        EVP_PKEY_free(pkey);
-        if (result != 1 && result != 0) {
-          throw facebook::jsi::JSError(runtime, "__exactVerifySync: verify failed: " + std::string(ERR_error_string(ERR_get_error(), nullptr)));
-        }
-        return facebook::jsi::Value(static_cast<bool>(result == 1));
+        return facebook::jsi::Value(result == 1);
       });
   rt.global().setProperty(rt, "__exactVerifySync", std::move(verifyFn));
 
