@@ -8,7 +8,14 @@
 #     Domain is given a compartment). While false, the interpreter's
 #     globalForFrame returns the real global directly, so code that never uses
 #     compartments (the common case) pays a single predicted-not-taken branch
-#     instead of the Domain walk. __exactSetCompartmentFor arms the flag.
+#     instead of the Domain walk. __exactSetCompartmentFor arms the flag. Once
+#     armed, a per-Domain POD `hasCompartmentGlobal()` bit (patch 0004) is the
+#     second-tier guard: frames whose own Domain has no compartment still skip the
+#     GCPointer read barrier on `compartmentGlobal_`, so root/first-party code does
+#     not pay the full Domain walk just because a dependency installed a
+#     compartment. Without it, the one-way `anyCompartmentActive_` flag makes every
+#     global access take the slow Domain-walk path for the whole process once any
+#     compartment exists (ENG-22948).
 #   * Native freeze primitive. `__exactNativeFreeze(obj)` (JSObject::freeze), the
 #     building block for a faster / boot-time lockdown; the userland freeze walk
 #     can call it per intrinsic.
@@ -49,10 +56,10 @@ index f506f6cb9..aeb865ed6 100644
    bool pendingPackageIdSet_{false};
    uint32_t defaultPackageId_{0};
  
-+  /// @ref LLP 0013#mechanism-2 (Phase 3) — hot-path guard. Stays false until the
-+  /// first Domain is given a compartment global; while false, the interpreter's
-+  /// GetGlobalObject/this resolution skips the compartment walk entirely and
-+  /// returns the real global directly. Set once, never cleared.
++  /// @ref LLP 0013#mechanism-2 (Phase 3) — coarse hot-path guard. Stays false
++  /// until the first Domain is given a compartment global; while false, global
++  /// resolution skips the Domain walk entirely. Set once, never cleared — after
++  /// arming, Domain::hasCompartmentGlobal() is the per-frame second-tier skip.
 +  bool anyCompartmentActive_{false};
 +  bool anyCompartmentActive() const {
 +    return anyCompartmentActive_;
@@ -99,17 +106,30 @@ diff --git a/lib/VM/Interpreter.cpp b/lib/VM/Interpreter.cpp
 index 7f8769c6c..b5511f787 100644
 --- a/lib/VM/Interpreter.cpp
 +++ b/lib/VM/Interpreter.cpp
-@@ -111,6 +111,10 @@ namespace vm {
+@@ -111,10 +111,21 @@ namespace vm {
  /// on the hot path.
  static LLVM_ATTRIBUTE_ALWAYS_INLINE HermesValue
  globalForFrame(Runtime &runtime, CodeBlock *cb) {
-+  // Fast path: until the first compartment is installed, every frame resolves to
-+  // the real global — a single predicted-not-taken branch for the common case.
++  // Fast path: until the first compartment is installed anywhere, every frame
++  // resolves to the real global — a single predicted-not-taken branch.
 +  if (LLVM_LIKELY(!runtime.anyCompartmentActive()))
 +    return runtime.getGlobal().getHermesValue();
++  // Second fast path (ENG-22948): a compartment exists somewhere, but this
++  // frame's Domain has none — the common case for root/first-party code even
++  // after a dependency installs one. hasCompartmentGlobal() is a POD read, so we
++  // skip the GCPointer read barrier on compartmentGlobal_ unless this frame's
++  // OWN Domain actually carries a compartment.
    if (LLVM_LIKELY(cb)) {
      Domain *d = cb->getRuntimeModule()->getDomainUnsafe(runtime);
-     if (JSObject *cg = d->getCompartmentGlobal(runtime))
+-    if (JSObject *cg = d->getCompartmentGlobal(runtime))
+-      return HermesValue::encodeObjectValue(cg);
++    if (LLVM_UNLIKELY(d->hasCompartmentGlobal())) {
++      if (JSObject *cg = d->getCompartmentGlobal(runtime))
++        return HermesValue::encodeObjectValue(cg);
++    }
+   }
+   return runtime.getGlobal().getHermesValue();
+ }
 diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
 index 665ecc0a6..b78ddb6ca 100644
 --- a/lib/VM/JSLib/GlobalObject.cpp

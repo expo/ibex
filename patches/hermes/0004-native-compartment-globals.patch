@@ -33,7 +33,7 @@ diff --git a/include/hermes/VM/Domain.h b/include/hermes/VM/Domain.h
 index 9a37c7c5c..7d4b8fede 100644
 --- a/include/hermes/VM/Domain.h
 +++ b/include/hermes/VM/Domain.h
-@@ -113,6 +113,15 @@ class Domain final : public GCCell {
+@@ -113,6 +113,22 @@ class Domain final : public GCCell {
    /// cannot forge.
    uint32_t packageId_{0};
  
@@ -46,10 +46,17 @@ index 9a37c7c5c..7d4b8fede 100644
 +  /// builder entry (unlike packageId_).
 +  GCPointer<JSObject> compartmentGlobal_{};
 +
++  /// @ref LLP 0013#mechanism-2 — POD mirror of "compartmentGlobal_ is non-null",
++  /// set by setCompartmentGlobal. Lets Interpreter::globalForFrame skip the
++  /// GCPointer read barrier on compartmentGlobal_ for root/first-party frames
++  /// even after another package installs a compartment (ENG-22948). POD: unlike
++  /// compartmentGlobal_ it holds no heap pointer and needs no metadata entry.
++  bool hasCompartmentGlobal_{false};
++
   public:
    static constexpr CellKind getCellKind() {
      return CellKind::DomainKind;
-@@ -133,6 +142,18 @@ class Domain final : public GCCell {
+@@ -133,6 +149,27 @@ class Domain final : public GCCell {
      packageId_ = packageId;
    }
  
@@ -59,10 +66,19 @@ index 9a37c7c5c..7d4b8fede 100644
 +    return compartmentGlobal_.get(runtime);
 +  }
 +
++  /// \return whether a compartment global is installed on this Domain. A POD,
++  /// barrier-free read the interpreter hot path uses to skip the GCPointer read
++  /// of compartmentGlobal_ for frames with no compartment (ENG-22948).
++  /// @ref LLP 0013#mechanism-2
++  bool hasCompartmentGlobal() const {
++    return hasCompartmentGlobal_;
++  }
++
 +  /// Set the per-package compartment global for this Domain's code.
 +  /// @ref LLP 0013#mechanism-2
 +  void setCompartmentGlobal(Runtime &runtime, JSObject *obj) {
 +    compartmentGlobal_.set(runtime, obj, runtime.getHeap());
++    hasCompartmentGlobal_ = obj != nullptr;
 +  }
 +
    /// Create a Domain with no associated RuntimeModules.
