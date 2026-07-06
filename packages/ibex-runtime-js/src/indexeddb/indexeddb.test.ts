@@ -11,6 +11,7 @@ import { join } from 'node:path';
 
 import { IDBFactory } from './IDBFactory';
 import { IDBKeyRange, compareKeys } from './IDBKeyRange';
+import { IDBCursorWithValue } from './IDBCursor';
 import { encodeOrderedKey, serializeKey, serializeValue } from './serialization';
 
 // ---------------------------------------------------------------------------
@@ -677,6 +678,188 @@ describe('ENG-22999: SQL range/order pushdown', () => {
     tx = db.transaction('s', 'readonly');
     expect(await reqDone(tx.objectStore('s').getAll(IDBKeyRange.lowerBound(9))))
       .toEqual(['v9', 'v10', 'v11']);
+    db.close();
+  });
+});
+
+// ===========================================================================
+// ENG-23026 — index accessors return index-key order (not primary-key order),
+// count of 0 means "all", clear() preserves the key generator, key cursors
+// don't expose values, and getKey distinguishes a stored `undefined` from a
+// missing record.
+// ===========================================================================
+
+describe('ENG-23026: index & accessor correctness', () => {
+  // Finding 1: index get/getAll/getAllKeys must be in INDEX-key order, with the
+  // primary key as tiebreak — not the store's primary-key order.
+  test('index get/getAll/getAllKeys/count return index-key order with primaryKey tiebreak', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'e23026-1', 1, (d) => {
+      const s = d.createObjectStore('people', { keyPath: 'id' });
+      s.createIndex('byAge', 'age');
+    });
+
+    const wtx = db.transaction('people', 'readwrite');
+    const ws = wtx.objectStore('people');
+    // Inserted in primary-key order; ages are out of order. Two records share
+    // age 20 to exercise the primary-key tiebreak.
+    ws.put({ id: 1, age: 30 });
+    ws.put({ id: 2, age: 20 });
+    ws.put({ id: 3, age: 25 });
+    ws.put({ id: 5, age: 20 });
+    await txDone(wtx);
+
+    let tx = db.transaction('people', 'readonly');
+    const all = await reqDone<any[]>(tx.objectStore('people').index('byAge').getAll());
+    expect(all.map((r) => r.age)).toEqual([20, 20, 25, 30]);
+    // Equal index keys ordered by ascending primary key (2 before 5).
+    expect(all.map((r) => r.id)).toEqual([2, 5, 3, 1]);
+
+    tx = db.transaction('people', 'readonly');
+    expect(await reqDone(tx.objectStore('people').index('byAge').getAllKeys()))
+      .toEqual([2, 5, 3, 1]);
+
+    // get / getKey over a lower-bounded range return the smallest INDEX key,
+    // i.e. the youngest person, not primary key 1.
+    tx = db.transaction('people', 'readonly');
+    const first = await reqDone<any>(tx.objectStore('people').index('byAge').get(IDBKeyRange.lowerBound(0)));
+    expect(first.id).toBe(2);
+    tx = db.transaction('people', 'readonly');
+    expect(await reqDone(tx.objectStore('people').index('byAge').getKey(IDBKeyRange.lowerBound(0)))).toBe(2);
+
+    tx = db.transaction('people', 'readonly');
+    expect(await reqDone(tx.objectStore('people').index('byAge').count())).toBe(4);
+    db.close();
+  });
+
+  // Finding 2: records with no value at the index key path are not in the index,
+  // including the unbounded getAll/getAllKeys/count branch.
+  test('index excludes records missing the indexed property (unbounded branch)', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'e23026-2', 1, (d) => {
+      const s = d.createObjectStore('people', { keyPath: 'id' });
+      s.createIndex('byAge', 'age');
+    });
+    const wtx = db.transaction('people', 'readwrite');
+    const ws = wtx.objectStore('people');
+    ws.put({ id: 1, age: 30 });
+    ws.put({ id: 2 }); // no `age`
+    await txDone(wtx);
+
+    let tx = db.transaction('people', 'readonly');
+    expect(await reqDone(tx.objectStore('people').index('byAge').count())).toBe(1);
+    tx = db.transaction('people', 'readonly');
+    expect(await reqDone<any[]>(tx.objectStore('people').index('byAge').getAllKeys())).toEqual([1]);
+    tx = db.transaction('people', 'readonly');
+    expect((await reqDone<any[]>(tx.objectStore('people').index('byAge').getAll())).length).toBe(1);
+    db.close();
+  });
+
+  // Finding 3: count of 0 (like absent) means "all", for both store and index.
+  test('getAll/getAllKeys with count 0 return all records (store and index)', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'e23026-3', 1, (d) => {
+      const s = d.createObjectStore('s', { keyPath: 'id' });
+      s.createIndex('byV', 'v');
+    });
+    const wtx = db.transaction('s', 'readwrite');
+    const ws = wtx.objectStore('s');
+    ws.put({ id: 1, v: 'a' });
+    ws.put({ id: 2, v: 'b' });
+    ws.put({ id: 3, v: 'c' });
+    await txDone(wtx);
+
+    let tx = db.transaction('s', 'readonly');
+    expect((await reqDone<any[]>(tx.objectStore('s').getAll(undefined, 0))).length).toBe(3);
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone<any[]>(tx.objectStore('s').getAllKeys(undefined, 0))).toEqual([1, 2, 3]);
+    tx = db.transaction('s', 'readonly');
+    expect((await reqDone<any[]>(tx.objectStore('s').index('byV').getAll(undefined, 0))).length).toBe(3);
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone<any[]>(tx.objectStore('s').index('byV').getAllKeys(undefined, 0))).toEqual([1, 2, 3]);
+    db.close();
+  });
+
+  // Finding 4: clear() must not reset the autoIncrement generator.
+  test('clear() does not reset the autoIncrement key generator', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'e23026-4', 1, (d) => {
+      d.createObjectStore('s', { autoIncrement: true });
+    });
+
+    const tx1 = db.transaction('s', 'readwrite');
+    const s1 = tx1.objectStore('s');
+    const r1 = s1.add({});
+    const r2 = s1.add({});
+    await txDone(tx1);
+    expect(r1.result).toBe(1);
+    expect(r2.result).toBe(2);
+
+    const tx2 = db.transaction('s', 'readwrite');
+    tx2.objectStore('s').clear();
+    await txDone(tx2);
+
+    const tx3 = db.transaction('s', 'readwrite');
+    const r3 = tx3.objectStore('s').add({});
+    await txDone(tx3);
+    expect(r3.result).toBe(3); // continues from 2, not reset back to 1
+    db.close();
+  });
+
+  // Finding 5: key cursors yield a plain IDBCursor with no value.
+  test('openKeyCursor yields a valueless cursor (store and index)', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'e23026-5', 1, (d) => {
+      const s = d.createObjectStore('s', { keyPath: 'id' });
+      s.createIndex('byV', 'v');
+    });
+    const wtx = db.transaction('s', 'readwrite');
+    const ws = wtx.objectStore('s');
+    ws.put({ id: 1, v: 'a' });
+    ws.put({ id: 2, v: 'b' });
+    await txDone(wtx);
+
+    const firstCursor = (store: any, method: 'openKeyCursor', src: 'store' | 'index') =>
+      new Promise<any>((resolve, reject) => {
+        const source = src === 'index' ? store.index('byV') : store;
+        const req = source[method]();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+
+    let tx = db.transaction('s', 'readonly');
+    const c1 = await firstCursor(tx.objectStore('s'), 'openKeyCursor', 'store');
+    expect(c1).toBeDefined();
+    expect(c1).not.toBeInstanceOf(IDBCursorWithValue);
+    expect('value' in c1).toBe(false);
+    expect(c1.value).toBeUndefined();
+    expect(c1.key).toBe(1);
+
+    tx = db.transaction('s', 'readonly');
+    const c2 = await firstCursor(tx.objectStore('s'), 'openKeyCursor', 'index');
+    expect(c2).not.toBeInstanceOf(IDBCursorWithValue);
+    expect(c2.value).toBeUndefined();
+    expect(c2.key).toBe('a'); // index key
+    expect(c2.primaryKey).toBe(1);
+    db.close();
+  });
+
+  // Finding 6: a stored `undefined` value is a real record; getKey must not
+  // report it as missing.
+  test('getKey reports an existing record whose stored value is undefined', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'e23026-6', 1, (d) => {
+      d.createObjectStore('s'); // out-of-line keys
+    });
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put(undefined, 'k');
+    await txDone(wtx);
+
+    let tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getKey('k'))).toBe('k');
+    // A genuinely absent key still yields undefined.
+    tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').getKey('missing'))).toBeUndefined();
     db.close();
   });
 });

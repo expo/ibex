@@ -9,7 +9,7 @@
 import { IDBRequest } from './IDBRequest';
 import { IDBIndex, type IDBIndexParameters, extractKeyPath } from './IDBIndex';
 import { IDBKeyRange, isValidKey } from './IDBKeyRange';
-import { IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
+import { IDBCursor, IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
 import { serializeKey, deserializeKey, serializeValue, deserializeValue, encodeOrderedKey } from './serialization';
 import { DOMException, sanitizeName } from './utils';
 
@@ -139,8 +139,11 @@ export class IDBObjectStore {
         const row = this._db._get(sql, params);
         request._resolve(row ? deserializeKey(row.key) : undefined);
       } else {
-        const value = this._getRecord(query);
-        request._resolve(value !== undefined ? query : undefined);
+        // Existence must be tested against the row, not the deserialized value:
+        // structured clone permits a stored `undefined`, so inferring absence
+        // from `value === undefined` reported a real record as missing.
+        // (ENG-23026)
+        request._resolve(this._hasRecord(query) ? query : undefined);
       }
     } catch (e: any) {
       request._reject(e);
@@ -160,7 +163,10 @@ export class IDBObjectStore {
       // Filter, order and limit in SQL so only the matching values are read
       // and deserialized instead of the entire table. (ENG-22999)
       const range = this._queryRange(query);
-      const limit = count !== undefined && count >= 0 ? count : undefined;
+      // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
+      // only a positive count becomes a SQL LIMIT (0 must NOT become LIMIT 0).
+      // (ENG-23026)
+      const limit = count !== undefined && count > 0 ? count : undefined;
       const { sql, params } = this._selectRange('value', range, 'asc', limit);
       const rows = this._db._all(sql, params);
       request._resolve(rows.map((r: any) => deserializeValue(r.value)));
@@ -181,7 +187,10 @@ export class IDBObjectStore {
     try {
       // Key column only, filtered/ordered/limited in SQL. (ENG-22999)
       const range = this._queryRange(query);
-      const limit = count !== undefined && count >= 0 ? count : undefined;
+      // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
+      // only a positive count becomes a SQL LIMIT (0 must NOT become LIMIT 0).
+      // (ENG-23026)
+      const limit = count !== undefined && count > 0 ? count : undefined;
       const { sql, params } = this._selectRange('key', range, 'asc', limit);
       const rows = this._db._all(sql, params);
       request._resolve(rows.map((r: any) => deserializeKey(r.key)));
@@ -346,7 +355,36 @@ export class IDBObjectStore {
    * Open a key cursor over the object store.
    */
   openKeyCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
-    return this.openCursor(query, direction);
+    this._transaction._assertActive();
+    const request = new IDBRequest();
+    request.source = this;
+    request.transaction = this._transaction;
+    try {
+      // A key cursor never exposes values: select only the key column (skipping
+      // value deserialization entirely) and yield a plain IDBCursor rather than
+      // delegating to openCursor, which would read+deserialize every value and
+      // return an IDBCursorWithValue. (ENG-23026)
+      const dir = direction ?? 'next';
+      const range = this._queryRange(query);
+      const sqlDir = dir === 'prev' || dir === 'prevunique' ? 'desc' : 'asc';
+      const { sql, params } = this._selectRange('key', range, sqlDir);
+      const rows = this._db._all(sql, params);
+      if (rows.length === 0) {
+        request._resolve(null);
+      } else {
+        const cursorRecords = rows.map((r: any) => {
+          const key = deserializeKey(r.key);
+          return { key, primaryKey: key, value: undefined };
+        });
+        // Object-store keys are unique and already ordered by direction in SQL,
+        // so hand them to the cursor pre-sorted. (ENG-22999)
+        const cursor = new IDBCursor(this, dir, cursorRecords, request, true);
+        request._resolve(cursor);
+      }
+    } catch (e: any) {
+      request._reject(e);
+    }
+    return request;
   }
 
   // ================================================================
@@ -494,10 +532,11 @@ export class IDBObjectStore {
 
   /** @internal */
   _clearRecords(): void {
+    // Clearing records must NOT reset the autoIncrement key generator. Per spec
+    // the generator is reset only when the object store is deleted or the
+    // transaction is aborted — never by clear()/delete() — so a later add()
+    // keeps counting up rather than reissuing an already-used key. (ENG-23026)
     this._db._exec(`DELETE FROM "${this._tableName}"`);
-    if (this.autoIncrement) {
-      this._db._resetAutoIncrement(this.name);
-    }
   }
 
   /** @internal */

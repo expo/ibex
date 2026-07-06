@@ -8,8 +8,8 @@
  */
 
 import { IDBRequest } from './IDBRequest';
-import { IDBKeyRange } from './IDBKeyRange';
-import { IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
+import { IDBKeyRange, compareKeys } from './IDBKeyRange';
+import { IDBCursor, IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
 
 export interface IDBIndexParameters {
   unique?: boolean;
@@ -85,7 +85,9 @@ export class IDBIndex {
     request.transaction = this._objectStore._transaction;
     try {
       let records = this._getMatchingRecords(query);
-      if (count !== undefined && count >= 0) {
+      // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
+      // only a positive count limits the result. (ENG-23026)
+      if (count !== undefined && count > 0) {
         records = records.slice(0, count);
       }
       request._resolve(records.map(r => r.value));
@@ -105,7 +107,9 @@ export class IDBIndex {
     request.transaction = this._objectStore._transaction;
     try {
       let records = this._getMatchingRecords(query);
-      if (count !== undefined && count >= 0) {
+      // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
+      // only a positive count limits the result. (ENG-23026)
+      if (count !== undefined && count > 0) {
         records = records.slice(0, count);
       }
       request._resolve(records.map(r => r.primaryKey));
@@ -158,28 +162,59 @@ export class IDBIndex {
    * Open a key cursor over the index.
    */
   openKeyCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
-    // Same as openCursor but without values - for simplicity we include values
-    return this.openCursor(query, direction);
+    this._objectStore._transaction._assertActive();
+    const request = new IDBRequest();
+    request.source = this;
+    request.transaction = this._objectStore._transaction;
+    try {
+      const records = this._getMatchingRecords(query);
+      if (records.length === 0) {
+        request._resolve(null);
+      } else {
+        // A key cursor exposes only key/primaryKey and never a value: yield a
+        // plain IDBCursor (not IDBCursorWithValue) and drop the deserialized
+        // values so they aren't retained or surfaced. (ENG-23026)
+        const keyRecords = records.map(r => ({ key: r.key, primaryKey: r.primaryKey, value: undefined }));
+        const cursor = new IDBCursor(this, direction ?? 'next', keyRecords, request);
+        request._resolve(cursor);
+      }
+    } catch (e: any) {
+      request._reject(e);
+    }
+    return request;
   }
 
-  /** @internal - Get records that match a query via this index */
+  /** @internal - Get records that match a query via this index, in index-key order */
   _getMatchingRecords(query?: any): Array<{ key: any; primaryKey: any; value: any }> {
     const keyPath = this.keyPath;
     const allRecords = this._objectStore._getAllRecords();
 
-    // Extract index key from each record
-    const indexedRecords = allRecords.map((r: any) => ({
-      key: extractKeyPath(r.value, keyPath),
-      primaryKey: r.key,
-      value: r.value,
-    }));
+    // Extract the index key from each record. A record whose value yields no key
+    // at the index's key path is NOT represented in the index, so it is dropped
+    // in EVERY branch — including the unbounded one, which previously leaked such
+    // records into getAll/getAllKeys/count. (ENG-23026)
+    const indexedRecords: Array<{ key: any; primaryKey: any; value: any }> = [];
+    for (const r of allRecords) {
+      const key = extractKeyPath(r.value, keyPath);
+      if (key === undefined) continue;
+      indexedRecords.push({ key, primaryKey: r.key, value: r.value });
+    }
+
+    // Index accessors must return records in index-key order, with the primary
+    // key as the tiebreak — NOT the primary-key order _getAllRecords yields.
+    // Only the index cursor used to re-sort; get/getKey/getAll/getAllKeys/count
+    // silently returned primary-key order before this. (ENG-23026)
+    indexedRecords.sort((a, b) => {
+      const c = compareKeys(a.key, b.key);
+      return c !== 0 ? c : compareKeys(a.primaryKey, b.primaryKey);
+    });
 
     if (query === undefined || query === null) {
       return indexedRecords;
     }
 
     const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-    return indexedRecords.filter((r: any) => r.key !== undefined && range.includes(r.key));
+    return indexedRecords.filter((r: any) => range.includes(r.key));
   }
 }
 

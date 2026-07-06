@@ -330,12 +330,6 @@ export class IDBDatabase {
     info.autoIncrementValue = Math.max(info.autoIncrementValue, Math.floor(key));
   }
 
-  /** @internal - Reset a store's cached key generator (after clear()). */
-  _resetAutoIncrement(name: string): void {
-    const info = this._objectStores.get(name);
-    if (info) info.autoIncrementValue = 0;
-  }
-
   /**
    * @internal - Ensure the order-preserving `keyenc` column and its index exist
    * on a store table, migrating (ALTER + backfill) any store created before
