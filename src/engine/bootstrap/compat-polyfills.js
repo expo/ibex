@@ -432,7 +432,7 @@
     } catch (err) {}
   }
 
-  function __exactNormalizeFetchInit(init) {
+  function __exactNormalizeFetchInit(init, ctorName) {
     if (!init || typeof init !== 'object') {
       return init;
     }
@@ -443,11 +443,15 @@
       }
     }
     if (
+      ctorName === 'Request' &&
       normalized.body !== undefined &&
       normalized.body !== null &&
       (normalized.method === undefined || normalized.method === null || normalized.method === '')
     ) {
-      normalized.method = 'POST';
+      // fetch spec: the Request method defaults to GET, and a GET/HEAD
+      // request cannot carry a body — this must be a TypeError, not a silent
+      // upgrade to POST (ENG-23132).
+      throw new TypeError('Request with GET/HEAD method cannot have body.');
     }
     if (normalized.headers && typeof globalThis.Headers === 'function' &&
         !(normalized.headers instanceof globalThis.Headers)) {
@@ -466,7 +470,7 @@
       return;
     }
     function Wrapped(input, init) {
-      return new NativeCtor(input, __exactNormalizeFetchInit(init));
+      return new NativeCtor(input, __exactNormalizeFetchInit(init, name));
     }
     Wrapped.prototype = NativeCtor.prototype;
     try {
@@ -656,17 +660,23 @@
     };
   }
 
-  // @ref LLP 0013#mechanism-3 — no plain-object env snapshot on `process`.
-  // A former workaround materialized `process.__exactPlainEnv`, a full copy of
-  // the environment, because the old native JSI HostObject `env` silently
-  // dropped writes. `process.env` is now a JS Proxy (see exact-global.js) whose
-  // `set` trap handles writes and whose reads funnel every key through the
-  // capability-checked `__exactGetEnv`/`__exactGetAllEnv` host functions
-  // (`env:read:<key>` / `env:read:*`). A plain snapshot would be an UNGATED
+  // @ref LLP 0013#implementation-status — no plain-object env snapshot on
+  // `process`. A former workaround materialized `process.__exactPlainEnv`, a
+  // full copy of the environment, because the old native JSI HostObject `env`
+  // silently dropped writes. A plain snapshot would be an UNGATED
   // full-environment surface: any code holding `process` (e.g. a package
   // endowed with `process` for `process.argv`) could read every secret via
   // `process.__exactPlainEnv`, laundering past its `env:read` grant. It had no
-  // readers, so it is simply not created — env reads have exactly one gated path.
+  // readers, so it is simply not created. On shared-bundle builds (where
+  // compartment enforcement runs) `process.env` is a JS Proxy in
+  // `packages/ibex-runtime-js/src/node/process.ts` whose reads funnel every
+  // key through the capability-checked `__exactGetEnv`/`__exactGetAllEnv`
+  // host functions (`env:read:<key>` / `env:read:*`), so env reads have
+  // exactly one gated path there. On legacy non-bundle builds (this file's
+  // path) `process.env` is instead an eager plain copy installed natively by
+  // `hermes_runtime_process_setup.cc` — those builds do not provide the
+  // gated-env property, which is another reason not to widen the surface
+  // with a second snapshot here.
 
   function __exactGetSharedArrayBufferBacking(buffer) {
     if (!buffer || typeof buffer !== 'object') {
@@ -2230,9 +2240,25 @@
           instance = new NativeCtor(input, normalizedInit);
         }
 
-        if (headerPairs && instance && instance.headers && typeof instance.headers.set === 'function') {
-          for (var j = 0; j < headerPairs.length; j++) {
-            instance.headers.set(headerPairs[j][0], headerPairs[j][1]);
+        if (headerPairs && instance && instance.headers) {
+          var reapplied = instance.headers;
+          if (typeof reapplied.append === 'function' && typeof reapplied.delete === 'function') {
+            // Re-apply with delete-then-append so repeated names (notably
+            // set-cookie) keep every value — set() per pair collapsed
+            // duplicates to the last one (ENG-23132).
+            var clearedNames = {};
+            for (var j = 0; j < headerPairs.length; j++) {
+              var headerName = String(headerPairs[j][0]).toLowerCase();
+              if (!clearedNames[headerName]) {
+                clearedNames[headerName] = true;
+                try { reapplied.delete(headerPairs[j][0]); } catch (err) {}
+              }
+              reapplied.append(headerPairs[j][0], headerPairs[j][1]);
+            }
+          } else if (typeof reapplied.set === 'function') {
+            for (var j2 = 0; j2 < headerPairs.length; j2++) {
+              reapplied.set(headerPairs[j2][0], headerPairs[j2][1]);
+            }
           }
         }
         return instance;
@@ -2656,11 +2682,23 @@
       var exactIpcSerialization =
         globalThis.process.env.EXACT_IPC_SERIALIZATION === 'advanced' ? 'advanced' : 'json';
 
+      var exactIpcStreamDecoder = null;
       function exactToString(bytes) {
+        if (typeof bytes === 'string') return bytes;
+        // Persistent streaming decode (ENG-23132): a UTF-8 sequence split
+        // across two 64KB poll reads must not decode to U+FFFD on each side,
+        // so the decoder keeps the partial tail between chunks. '\n' framing
+        // is unaffected — newline bytes never occur inside a multibyte
+        // sequence.
         if (typeof TextDecoder === 'function') {
           try {
-            return new TextDecoder().decode(bytes);
-          } catch (err) {}
+            if (exactIpcStreamDecoder === null) {
+              exactIpcStreamDecoder = new TextDecoder('utf-8');
+            }
+            return exactIpcStreamDecoder.decode(bytes, { stream: true });
+          } catch (err) {
+            exactIpcStreamDecoder = null;
+          }
         }
         var out = '';
         for (var i = 0; i < bytes.length; i++) {
@@ -3198,6 +3236,135 @@
         return err;
       }
 
+      // Outbound backpressure queue (ENG-23132; mirrors ipc-listener.js).
+      // The IPC fd is O_NONBLOCK, so sendmsg/write return partial counts and
+      // 0 on EAGAIN. The old single `> 0` check treated a partial write as
+      // success and dropped the packet tail, corrupting the parent's newline
+      // framing. Unsent bytes are queued and flushed in order on a timer and
+      // before every later send; the referenced flush timer keeps the process
+      // alive until queued packets are delivered (Node parity).
+      var exactIpcPendingWrites = [];
+      var exactIpcFlushTimer = null;
+      function exactIpcPacketToBytes(packet) {
+        if (typeof packet !== 'string') return packet;
+        var BufferCtor = exactIpcGetBufferCtor();
+        if (BufferCtor) {
+          try { return BufferCtor.from(packet, 'utf8'); } catch (_) {}
+        }
+        if (typeof TextEncoder === 'function') {
+          try { return new TextEncoder().encode(packet); } catch (_) {}
+        }
+        return packet;
+      }
+      function exactIpcByteLength(bytes) {
+        if (!bytes) return 0;
+        if (typeof bytes.byteLength === 'number') return bytes.byteLength;
+        if (typeof bytes.length === 'number') return bytes.length;
+        return 0;
+      }
+      function exactIpcSliceBytes(bytes, offset) {
+        if (!bytes || offset <= 0) return bytes;
+        if (typeof bytes.subarray === 'function') return bytes.subarray(offset);
+        if (typeof bytes.slice === 'function') return bytes.slice(offset);
+        return bytes;
+      }
+      function exactIpcInvokeSendCallback(callback, err) {
+        if (typeof callback !== 'function') return;
+        setTimeout(function() { callback(err || null); }, 0);
+      }
+      // Bytes written this call (0 means EAGAIN — retry later) or -1 on a
+      // hard failure. When a handle fd is requested but sendmsg is missing,
+      // fall through to a plain write without the handle (pre-queue
+      // behavior).
+      function exactIpcWriteChunk(chunk, sendFd) {
+        if (typeof globalThis.__exactIpcSendMsg === 'function') {
+          try {
+            if (sendFd >= 0) {
+              return globalThis.__exactIpcSendMsg(exactIpcFd, chunk, sendFd);
+            }
+            return globalThis.__exactIpcSendMsg(exactIpcFd, chunk);
+          } catch (_) {
+            return -1;
+          }
+        }
+        if (typeof globalThis.__exactFsWrite === 'function') {
+          try {
+            return globalThis.__exactFsWrite(exactIpcFd, chunk, -1);
+          } catch (_) {
+            return -1;
+          }
+        }
+        return -1;
+      }
+      function exactIpcFailPendingWrites() {
+        var failed = exactIpcPendingWrites;
+        exactIpcPendingWrites = [];
+        if (exactIpcFlushTimer) {
+          clearTimeout(exactIpcFlushTimer);
+          exactIpcFlushTimer = null;
+        }
+        for (var i = 0; i < failed.length; i++) {
+          exactIpcInvokeSendCallback(failed[i].callback,
+            exactCreateIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed'));
+        }
+      }
+      function exactIpcScheduleFlush() {
+        if (exactIpcFlushTimer) return;
+        exactIpcFlushTimer = setTimeout(function() {
+          exactIpcFlushTimer = null;
+          exactIpcFlushPendingWrites();
+        }, 2);
+      }
+      // Drain the queue head-first, preserving packet order. Returns true
+      // when the queue is empty afterwards.
+      function exactIpcFlushPendingWrites() {
+        while (exactIpcPendingWrites.length > 0) {
+          var entry = exactIpcPendingWrites[0];
+          var total = exactIpcByteLength(entry.bytes);
+          while (entry.offset < total) {
+            var isFirstWrite = entry.offset === 0;
+            var written = exactIpcWriteChunk(
+              exactIpcSliceBytes(entry.bytes, entry.offset),
+              // SCM_RIGHTS handles ride only on the packet's first byte(s).
+              isFirstWrite ? entry.sendFd : -1);
+            if (written < 0) {
+              exactIpcFailPendingWrites();
+              return false;
+            }
+            if (!(written > 0)) {
+              exactIpcScheduleFlush();
+              return false;
+            }
+            entry.offset += written;
+            if (isFirstWrite && typeof entry.onFirstWrite === 'function') {
+              // The handle has been transferred; safe to detach it locally.
+              try { entry.onFirstWrite(); } catch (_) {}
+              entry.onFirstWrite = null;
+            }
+          }
+          exactIpcPendingWrites.shift();
+          exactIpcInvokeSendCallback(entry.callback, null);
+        }
+        return true;
+      }
+      // True = fully written synchronously. False = queued under backpressure
+      // (still delivered later) or hard-failed (the callback saw the error).
+      function exactIpcWritePacket(packet, sendFd, callback, onFirstWrite) {
+        var bytes = exactIpcPacketToBytes(packet);
+        if (exactIpcByteLength(bytes) <= 0) {
+          exactIpcInvokeSendCallback(callback, null);
+          return true;
+        }
+        exactIpcPendingWrites.push({
+          bytes: bytes,
+          offset: 0,
+          sendFd: typeof sendFd === 'number' ? sendFd : -1,
+          callback: callback,
+          onFirstWrite: onFirstWrite
+        });
+        return exactIpcFlushPendingWrites();
+      }
+
       function exactSetProcessChannel(value) {
         try {
           Object.defineProperty(globalThis.process, 'channel', {
@@ -3237,6 +3404,10 @@
           globalThis.__exactKChannelHandleKey = exactChannelHandleKey;
         }
         globalThis.process[exactChannelHandleKey] = null;
+        // The fd is about to close: give queued packets one last flush
+        // attempt, then fail whatever could not be delivered.
+        try { exactIpcFlushPendingWrites(); } catch (_) {}
+        exactIpcFailPendingWrites();
         if (typeof globalThis.__exactFsClose === 'function') {
           try {
             globalThis.__exactFsClose(exactIpcFd);
@@ -3277,6 +3448,10 @@
         if (!rawData || !rawData.length) return;
         exactIpcBuffer += exactToString(rawData);
         exactMaybeDecodeIpcBuffer();
+        exactDrainIpcLines();
+      }
+
+      function exactDrainIpcLines() {
         while (exactIpcBuffer.length > 0) {
           var lineEnd = exactIpcBuffer.indexOf('\n');
           if (lineEnd < 0) {
@@ -3429,54 +3604,69 @@
         // When the other end closes the pipe, there may still be buffered
         // data in the kernel that we need to drain before closing.
         var hadData = false;
-        // Prefer recvmsg to receive SCM_RIGHTS file descriptors
-        if (typeof globalThis.__exactIpcRecvMsg === 'function') {
-          var recvResult;
-          try {
-            recvResult = globalThis.__exactIpcRecvMsg(exactIpcFd, 65536);
-          } catch (err) {
-            exactCloseIpc();
-            return;
-          }
-          if (recvResult && recvResult.data && recvResult.data.length) {
+        // ENG-23132: a throwing user 'message' listener propagates out of
+        // this function (preserving uncaughtException semantics), but the
+        // next poll must be armed first or the channel goes permanently deaf
+        // — exactIpcPollActive stays true, so readStart() would never
+        // restart it. The finally below always reschedules; it no-ops once
+        // the channel was closed.
+        try {
+          // Lines stranded by a listener that threw mid-drain on a previous
+          // dispatch are processed before reading more data.
+          if (exactIpcBuffer.indexOf('\n') !== -1) {
             hadData = true;
-            exactProcessIncomingPackets(recvResult.data, recvResult.fd);
+            exactDrainIpcLines();
           }
-        } else if (
-          typeof globalThis.__exactFsRead === 'function' &&
-          globalThis.__exactFsRead
-        ) {
-          var chunk;
-          try {
-            chunk = globalThis.__exactFsRead(exactIpcFd, 65536, -1);
-          } catch (err) {
-            exactCloseIpc();
-            return;
-          }
-          if (chunk && chunk.length) {
-            hadData = true;
-            exactProcessIncomingPackets(chunk);
-          }
-        }
-        // Check if IPC fd has been closed (pipe hangup) AFTER draining data.
-        // Only close if we got no data this round (all buffered data consumed).
-        if (!hadData && typeof globalThis.__exactFdPollHup === 'function') {
-          try {
-            if (globalThis.__exactFdPollHup(exactIpcFd)) {
+          // Prefer recvmsg to receive SCM_RIGHTS file descriptors
+          if (typeof globalThis.__exactIpcRecvMsg === 'function') {
+            var recvResult;
+            try {
+              recvResult = globalThis.__exactIpcRecvMsg(exactIpcFd, 65536);
+            } catch (err) {
               exactCloseIpc();
               return;
             }
-          } catch (e) {}
-        }
-        if (exactIpcPollActive) {
-          exactSyncIpcListenerRef();
-          exactIpcPollTimer = setTimeout(exactPollIpc, exactIpcPollInterval);
-          // Ref/unref based on current channel ref state
-          if (exactIpcPollTimer) {
-            if (exactIpcChannelRefed) {
-              if (typeof exactIpcPollTimer.ref === 'function') exactIpcPollTimer.ref();
-            } else {
-              if (typeof exactIpcPollTimer.unref === 'function') exactIpcPollTimer.unref();
+            if (recvResult && recvResult.data && recvResult.data.length) {
+              hadData = true;
+              exactProcessIncomingPackets(recvResult.data, recvResult.fd);
+            }
+          } else if (
+            typeof globalThis.__exactFsRead === 'function' &&
+            globalThis.__exactFsRead
+          ) {
+            var chunk;
+            try {
+              chunk = globalThis.__exactFsRead(exactIpcFd, 65536, -1);
+            } catch (err) {
+              exactCloseIpc();
+              return;
+            }
+            if (chunk && chunk.length) {
+              hadData = true;
+              exactProcessIncomingPackets(chunk);
+            }
+          }
+          // Check if IPC fd has been closed (pipe hangup) AFTER draining data.
+          // Only close if we got no data this round (all buffered data consumed).
+          if (!hadData && typeof globalThis.__exactFdPollHup === 'function') {
+            try {
+              if (globalThis.__exactFdPollHup(exactIpcFd)) {
+                exactCloseIpc();
+                return;
+              }
+            } catch (e) {}
+          }
+        } finally {
+          if (exactIpcPollActive) {
+            exactSyncIpcListenerRef();
+            exactIpcPollTimer = setTimeout(exactPollIpc, exactIpcPollInterval);
+            // Ref/unref based on current channel ref state
+            if (exactIpcPollTimer) {
+              if (exactIpcChannelRefed) {
+                if (typeof exactIpcPollTimer.ref === 'function') exactIpcPollTimer.ref();
+              } else {
+                if (typeof exactIpcPollTimer.unref === 'function') exactIpcPollTimer.unref();
+              }
             }
           }
         }
@@ -3808,75 +3998,68 @@
           }
         }
         var packet = exactBuildIpcPacket('message', message, exactIpcSerialization, handleType);
-        var written = false;
-        if (handleFd >= 0 && typeof globalThis.__exactIpcSendMsg === 'function') {
-          try {
-            written = globalThis.__exactIpcSendMsg(exactIpcFd, packet, handleFd) > 0;
-          } catch (err) {
-            written = false;
-          }
-          // When keepOpen is not set, Node.js detaches the handle from the sender.
-          // Don't destroy dgram sockets or servers - they're shared.
+        // When keepOpen is not set, Node.js detaches the handle from the
+        // sender once it has actually been transferred. With the backpressure
+        // queue that transfer can happen after this call returns, so the
+        // detach runs from the queue's first-write hook (the SCM_RIGHTS
+        // payload rides on the packet's first written byte). Don't destroy
+        // dgram sockets or servers — they're shared.
+        var detachAfterHandleSent = null;
+        if (sendHandle != null && sendHandle !== false && typeof sendHandle === 'object' &&
+            handleFd >= 0 && typeof globalThis.__exactIpcSendMsg === 'function') {
           var keepOpen = opts && opts.keepOpen;
-          var isDgramHandle = sendHandle && (sendHandle.type === 'udp4' || sendHandle.type === 'udp6');
+          var isDgramHandle = sendHandle.type === 'udp4' || sendHandle.type === 'udp6';
           var isServerHandle = handleType === 'net.Server' || handleType === 'net.ServerHandle';
-          if (written && sendHandle && !keepOpen && !isDgramHandle && !isServerHandle) {
-            // Clear server reference but don't decrement _connections
-            // (SocketList protocol handles this via NODE_SOCKET_CLOSED)
-            if (sendHandle._server) {
-              sendHandle._server = null;
-              sendHandle.server = null;
-            }
-            if (sendHandle.parser) sendHandle.parser = null;
-            if (sendHandle._httpMessage) sendHandle._httpMessage = null;
-            var kt = Symbol.for('kTimeout');
-            sendHandle[kt] = null;
-            // Detach the handle without emitting 'close'.
-            if (sendHandle._pollTimer != null) {
-              clearTimeout(sendHandle._pollTimer);
-              sendHandle._pollTimer = null;
-            }
-            if (sendHandle._timeoutTimer != null) {
-              clearTimeout(sendHandle._timeoutTimer);
-              sendHandle._timeoutTimer = null;
-            }
-            var nativeH = sendHandle._handle;
-            if (nativeH && nativeH._exactHandle !== undefined) {
-              nativeH = nativeH._exactHandle;
-            }
-            if (nativeH != null && typeof globalThis.__exactTcpClose === 'function') {
-              try { globalThis.__exactTcpClose(nativeH); } catch(e) {}
-            }
-            sendHandle._handle = null;
-            sendHandle.destroyed = true;
-            sendHandle.readable = false;
-            sendHandle.writable = false;
-          }
-        } else if (typeof globalThis.__exactFsWrite === 'function') {
-          try {
-            written = globalThis.__exactFsWrite(exactIpcFd, packet, -1) > 0;
-          } catch (err) {
-            written = false;
+          if (!keepOpen && !isDgramHandle && !isServerHandle) {
+            detachAfterHandleSent = function() {
+              // Clear server reference but don't decrement _connections
+              // (SocketList protocol handles this via NODE_SOCKET_CLOSED)
+              if (sendHandle._server) {
+                sendHandle._server = null;
+                sendHandle.server = null;
+              }
+              if (sendHandle.parser) sendHandle.parser = null;
+              if (sendHandle._httpMessage) sendHandle._httpMessage = null;
+              var kt = Symbol.for('kTimeout');
+              sendHandle[kt] = null;
+              // Detach the handle without emitting 'close'.
+              if (sendHandle._pollTimer != null) {
+                clearTimeout(sendHandle._pollTimer);
+                sendHandle._pollTimer = null;
+              }
+              if (sendHandle._timeoutTimer != null) {
+                clearTimeout(sendHandle._timeoutTimer);
+                sendHandle._timeoutTimer = null;
+              }
+              var nativeH = sendHandle._handle;
+              if (nativeH && nativeH._exactHandle !== undefined) {
+                nativeH = nativeH._exactHandle;
+              }
+              if (nativeH != null && typeof globalThis.__exactTcpClose === 'function') {
+                try { globalThis.__exactTcpClose(nativeH); } catch(e) {}
+              }
+              sendHandle._handle = null;
+              sendHandle.destroyed = true;
+              sendHandle.readable = false;
+              sendHandle.writable = false;
+            };
           }
         }
-        if (typeof callback === 'function') {
-          setTimeout(function() {
-            callback(written ? null : exactCreateIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed'));
-          }, 0);
-        }
-        return written;
+        // The callback is owned by the write queue: it fires with null once
+        // the packet is fully written (possibly after backpressure flushes)
+        // or with an error if the channel hard-fails first.
+        return exactIpcWritePacket(packet, handleFd, callback, detachAfterHandleSent);
       };
 
       globalThis.process.disconnect = function() {
         if (!exactIpcConnected) {
           throw exactCreateIpcError('ERR_IPC_DISCONNECTED', 'IPC channel is already disconnected');
         }
-        if (typeof globalThis.__exactFsWrite === 'function' && exactIpcConnected) {
-          try {
-            var disconnectPacket = exactBuildIpcPacket('disconnect');
-            globalThis.__exactFsWrite(exactIpcFd, disconnectPacket, -1);
-          } catch (err) {}
-        }
+        // Route through the write queue: a raw write here could interleave
+        // into the middle of a queued packet and corrupt the framing.
+        try {
+          exactIpcWritePacket(exactBuildIpcPacket('disconnect'), -1);
+        } catch (err) {}
         exactCloseIpc();
       };
 

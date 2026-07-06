@@ -46,14 +46,26 @@
       var stream = p[streams[si]];
       if (!stream) continue;
       for (var mi = 0; mi < methods.length; mi++) {
-        (function(s, method) {
+        (function(s, streamName, method) {
           if (!s[method]) {
-            s[method] = function() {
+            var stub = function() {
               __exactEnsureStreamEnhance();
-              return s[method].apply(s, arguments);
+              // Delegate only if the enhancement replaced the stub. If it
+              // didn't (e.g. write/end/cork/uncork on a read-only stdin),
+              // calling s[method] again would recurse into this stub until
+              // stack overflow (ENG-23132) — drop the stub and fail the way
+              // Node does when the method doesn't exist.
+              var current = s[method];
+              if (current === stub || typeof current !== 'function') {
+                try { delete s[method]; } catch (_e) {}
+                throw new TypeError(
+                  'process.' + streamName + '.' + method + ' is not a function');
+              }
+              return current.apply(s, arguments);
             };
+            s[method] = stub;
           }
-        })(stream, methods[mi]);
+        })(stream, streams[si], methods[mi]);
       }
     }
   }

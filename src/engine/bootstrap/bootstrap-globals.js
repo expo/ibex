@@ -611,6 +611,11 @@
     this._timerArgs = args;
     this._repeat = isRepeat ? delay : null;
     this._destroyed = false;
+    // Distinct from _destroyed: _closed means the timer was cleared/closed
+    // and must stay dead; _destroyed alone means a one-shot already fired and
+    // can still be reactivated via refresh(). Mirrors src/builtins/timers.js
+    // (ENG-22970); this global wrapper missed that fix (ENG-23132).
+    this._closed = false;
     this._refed = true;
   }
 
@@ -635,9 +640,16 @@
   };
 
   Timeout.prototype.refresh = function refresh() {
-    if (this._destroyed) return this;
-    // Cancel the old native timer and reschedule
-    if (this._nativeId !== null) {
+    // A cleared/closed timer stays dead (Node: clearTimeout sets
+    // _idleTimeout = -1 so refresh() cannot reschedule).
+    if (this._closed) return this;
+    if (this._destroyed) {
+      // One-shot that already fired: Node's refresh() reactivates it —
+      // re-register in the id map and reschedule from scratch (ENG-22970).
+      this._destroyed = false;
+      _timeoutMap[this._id] = this;
+    } else if (this._nativeId !== null) {
+      // Still pending: cancel the in-flight native timer before rescheduling.
       if (this._repeat) {
         _nativeClearInterval(this._nativeId);
       } else {
@@ -650,12 +662,17 @@
     } else {
       this._nativeId = _nativeSetTimeout(function() { self._invokeCallback(); }, this._idleTimeout);
     }
+    if (!this._refed && _nativeTimerUnref && this._nativeId !== null) {
+      _nativeTimerUnref(this._nativeId);
+    }
     return this;
   };
 
   Timeout.prototype.close = function close() {
-    if (!this._destroyed) {
+    if (!this._closed) {
+      this._closed = true;
       this._destroyed = true;
+      delete _timeoutMap[this._id];
       if (this._nativeId !== null) {
         if (this._repeat) {
           _nativeClearInterval(this._nativeId);
@@ -681,9 +698,13 @@
     if (this._destroyed) return;
     var cb = this._onTimeout;
     if (typeof cb !== 'function') return;
-    // Mark non-repeating timers as destroyed after firing
+    // Mark non-repeating timers as destroyed after firing (they stay
+    // refresh()-able until closed) and release their id-map entry here —
+    // refresh() reschedules with a native callback that only reaches this
+    // method, so cleanup anywhere else leaks refreshed-then-fired timers.
     if (!this._repeat) {
       this._destroyed = true;
+      delete _timeoutMap[this._id];
     }
     // Check _idleTimeout: if set to -1, treat as cancelled
     if (this._idleTimeout === -1) {
@@ -805,7 +826,8 @@
       var timeout = new Timeout(wrappedCallback, d, args, false);
       _timeoutMap[timeout._id] = timeout;
       timeout._nativeId = _nativeSetTimeout(function() {
-        delete _timeoutMap[timeout._id];
+        // Map cleanup happens in _invokeCallback so refreshed timers (which
+        // reschedule with a different native callback) are cleaned up too.
         timeout._invokeCallback();
       }, d);
       return timeout;
@@ -822,11 +844,9 @@
       var timeout = new Timeout(callback, d, args, true);
       _timeoutMap[timeout._id] = timeout;
       timeout._nativeId = _nativeSetInterval(function() {
+        // close() (reached via clearInterval or a callback that closes the
+        // timer) releases the map entry itself.
         timeout._invokeCallback();
-        // Clean up map if timer was closed during callback
-        if (timeout._destroyed) {
-          delete _timeoutMap[timeout._id];
-        }
       }, d);
       return timeout;
     };

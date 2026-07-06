@@ -218,6 +218,18 @@
         callback = encoding;
         encoding = undefined;
       }
+      // Honor the encoding argument: the fs/native write paths treat strings
+      // as UTF-8, so write('aGVsbG8=', 'base64') must be converted to bytes
+      // here or the literal base64 text is emitted (ENG-23132).
+      if (typeof chunk === 'string' && typeof encoding === 'string' &&
+          encoding !== '' && encoding !== 'utf8' && encoding !== 'utf-8') {
+        if (typeof Buffer !== 'undefined' && Buffer.from) {
+          try {
+            chunk = Buffer.from(chunk, encoding);
+            encoding = undefined;
+          } catch (_) {}
+        }
+      }
       chunk = normalizeWritableChunk(chunk);
       try {
         if (writeViaFs(chunk)) {
@@ -896,6 +908,20 @@
     }
   }
 
+  function _unrefSignalPollTimer(timer) {
+    // The signal poll must never keep the event loop alive: in Node, signal
+    // listeners are not refs, so a CLI script that registers a SIGINT cleanup
+    // handler still exits once its real work is done (ENG-23132).
+    if (timer == null) return;
+    if (typeof timer === 'object' && typeof timer.unref === 'function') {
+      try { timer.unref(); } catch (_) {}
+      return;
+    }
+    if (typeof globalThis.__exactTimerUnref === 'function') {
+      try { globalThis.__exactTimerUnref(timer); } catch (_) {}
+    }
+  }
+
   function _startSignalPolling() {
     if (!_signalPollEnabled || _signalPollActive) {
       return;
@@ -904,6 +930,7 @@
     _signalPollActive = true;
 
     (function pollSignals() {
+      if (!_signalPollActive) return;
       var sig = __exactPollSignal();
       if (sig > 0 && _signalNames[sig]) {
         var name = _signalNames[sig];
@@ -921,8 +948,39 @@
 
       if (_signalPollActive) {
         _signalPollTimer = setTimeout(pollSignals, 100);
+        _unrefSignalPollTimer(_signalPollTimer);
       }
     })();
+  }
+
+  function _stopSignalPolling() {
+    if (!_signalPollActive) return;
+    _signalPollActive = false;
+    if (_signalPollTimer) {
+      try { clearTimeout(_signalPollTimer); } catch (_) {}
+      _signalPollTimer = 0;
+    }
+  }
+
+  function _hasAnySignalListener() {
+    if (typeof p.listenerCount !== 'function') return false;
+    try {
+      for (var sigName in _signals) {
+        if (p.listenerCount(sigName) > 0) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  // Stop polling when the last signal listener is removed; the trap itself
+  // stays installed (cheap) and polling restarts if a listener is re-added.
+  function _syncSignalPolling() {
+    if (!_signalPollEnabled) return;
+    if (_hasAnySignalListener()) {
+      _startSignalPolling();
+    } else {
+      _stopSignalPolling();
+    }
   }
 
   var _origOn = p.on;
@@ -932,11 +990,14 @@
         p.channel && typeof p.channel.ref === 'function') {
       p.channel.ref();
     }
-    // Auto-trap OS signal when first listener is added
-    if (_signals[event] && !_trappedSignals[event]) {
-      _trappedSignals[event] = true;
-      if (typeof __exactTrapSignal === 'function') {
-        __exactTrapSignal(_signals[event]);
+    // Auto-trap OS signal when first listener is added; restart polling if a
+    // listener is re-added after the last one was removed.
+    if (_signals[event]) {
+      if (!_trappedSignals[event]) {
+        _trappedSignals[event] = true;
+        if (typeof __exactTrapSignal === 'function') {
+          __exactTrapSignal(_signals[event]);
+        }
       }
       if (_signalPollEnabled) {
         _startSignalPolling();
@@ -945,6 +1006,29 @@
     return p;
   };
   p.addListener = p.on;
+  if (typeof p.removeListener === 'function') {
+    var _origSignalRemoveListener = p.removeListener;
+    p.removeListener = function(event) {
+      var result = _origSignalRemoveListener.apply(p, arguments);
+      if (_signals[event]) {
+        _syncSignalPolling();
+      }
+      return result;
+    };
+    if (typeof p.off === 'function') {
+      p.off = p.removeListener;
+    }
+  }
+  if (typeof p.removeAllListeners === 'function') {
+    var _origSignalRemoveAll = p.removeAllListeners;
+    p.removeAllListeners = function(event) {
+      var result = _origSignalRemoveAll.apply(p, arguments);
+      if (event === undefined || _signals[event]) {
+        _syncSignalPolling();
+      }
+      return result;
+    };
+  }
   if (typeof p.once === 'function') {
     var _origOnce = p.once;
     p.once = function(event, fn) {
@@ -966,32 +1050,122 @@
     return JSON.stringify({ __exactIpc: true, type: type, data: data }) + '\n';
   }
 
-  function exactBootstrapIpcWrite(fd, packet) {
-    if (!isFinite(fd) || fd < 0) return false;
+  // Outbound backpressure queue for the early IPC shim (ENG-23132): the IPC
+  // fd is O_NONBLOCK, so a single write can be partial (or 0 on EAGAIN).
+  // Treating any `> 0` result as success silently drops the packet tail and
+  // corrupts the parent's newline framing. Unsent bytes are queued and
+  // flushed in order on a timer and before every later send.
+  var exactBootstrapIpcPendingWrites = [];
+  var exactBootstrapIpcFlushTimer = 0;
+
+  function exactBootstrapIpcPacketToBytes(packet) {
+    if (typeof packet !== 'string') return packet;
+    if (typeof Buffer === 'function' && Buffer.from) {
+      try { return Buffer.from(packet, 'utf8'); } catch (_) {}
+    }
+    if (typeof TextEncoder === 'function') {
+      try { return new TextEncoder().encode(packet); } catch (_) {}
+    }
+    return packet;
+  }
+
+  function exactBootstrapIpcSlice(bytes, offset) {
+    if (!bytes || offset <= 0) return bytes;
+    if (typeof bytes.subarray === 'function') return bytes.subarray(offset);
+    if (typeof bytes.slice === 'function') return bytes.slice(offset);
+    return bytes;
+  }
+
+  // Returns bytes written (0 on EAGAIN) or -1 on hard failure.
+  function exactBootstrapIpcWriteChunk(fd, chunk) {
     if (typeof globalThis.__exactFsWrite === 'function') {
       try {
-        return globalThis.__exactFsWrite(fd, packet, -1) > 0;
-      } catch (_) {}
+        return globalThis.__exactFsWrite(fd, chunk, -1);
+      } catch (_) {
+        return -1;
+      }
     }
     try {
       var fs = require('fs');
       if (fs && typeof fs.writeSync === 'function') {
-        return fs.writeSync(fd, packet) > 0;
+        return fs.writeSync(fd, chunk);
       }
     } catch (_) {}
-    return false;
+    return -1;
   }
 
+  function exactBootstrapFlushIpcWrites() {
+    while (exactBootstrapIpcPendingWrites.length > 0) {
+      var entry = exactBootstrapIpcPendingWrites[0];
+      var total = typeof entry.bytes.byteLength === 'number'
+        ? entry.bytes.byteLength
+        : entry.bytes.length;
+      while (entry.offset < total) {
+        var written = exactBootstrapIpcWriteChunk(
+          entry.fd, exactBootstrapIpcSlice(entry.bytes, entry.offset));
+        if (written < 0) {
+          exactBootstrapIpcPendingWrites = [];
+          if (exactBootstrapIpcFlushTimer) {
+            clearTimeout(exactBootstrapIpcFlushTimer);
+            exactBootstrapIpcFlushTimer = 0;
+          }
+          return false;
+        }
+        if (!(written > 0)) {
+          // EAGAIN: retry shortly; the referenced timer keeps the process
+          // alive until queued packets are delivered (Node parity).
+          if (!exactBootstrapIpcFlushTimer) {
+            exactBootstrapIpcFlushTimer = setTimeout(function() {
+              exactBootstrapIpcFlushTimer = 0;
+              exactBootstrapFlushIpcWrites();
+            }, 2);
+          }
+          return false;
+        }
+        entry.offset += written;
+      }
+      exactBootstrapIpcPendingWrites.shift();
+    }
+    return true;
+  }
+
+  // Returns true when the packet was written or queued for delivery under
+  // backpressure; false only when the channel hard-failed and the packet was
+  // dropped.
+  function exactBootstrapIpcWrite(fd, packet) {
+    if (!isFinite(fd) || fd < 0) return false;
+    var bytes = exactBootstrapIpcPacketToBytes(packet);
+    var total = bytes == null ? 0 :
+      (typeof bytes.byteLength === 'number' ? bytes.byteLength : bytes.length);
+    if (!total) return true;
+    exactBootstrapIpcPendingWrites.push({ fd: fd, bytes: bytes, offset: 0 });
+    if (exactBootstrapFlushIpcWrites()) return true;
+    // Queue still non-empty: accepted under backpressure. Emptied without
+    // success: hard failure.
+    return exactBootstrapIpcPendingWrites.length > 0;
+  }
+
+  var exactBootstrapIpcDecoder = null;
   function exactBootstrapIpcChunkToString(chunk) {
     if (chunk == null) return '';
     if (typeof chunk === 'string') return chunk;
-    if (typeof Buffer === 'function' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
-      return chunk.toString('utf8');
-    }
+    // Persistent streaming decode (ENG-23132): a UTF-8 sequence split across
+    // two reads must not decode to U+FFFD on each side. Buffers are
+    // Uint8Arrays, so they take this path too.
     if (typeof TextDecoder === 'function' &&
         typeof Uint8Array === 'function' &&
         chunk instanceof Uint8Array) {
-      try { return new TextDecoder().decode(chunk); } catch (_) {}
+      try {
+        if (exactBootstrapIpcDecoder === null) {
+          exactBootstrapIpcDecoder = new TextDecoder('utf-8');
+        }
+        return exactBootstrapIpcDecoder.decode(chunk, { stream: true });
+      } catch (_) {
+        exactBootstrapIpcDecoder = null;
+      }
+    }
+    if (typeof Buffer === 'function' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+      return chunk.toString('utf8');
     }
     return String(chunk);
   }
@@ -1057,9 +1231,15 @@
 
   // process.channel/process.send are only stubbed when the runtime was not
   // booted with an IPC pipe. Forked child processes get an early shim here,
-  // then a fuller implementation later in compat bootstrap.
+  // then a fuller implementation later in compat bootstrap. If the compat
+  // bootstrap already installed that fuller implementation (stream-enhance
+  // loads lazily, so it can run after compat-polyfills), leave it alone —
+  // re-installing the early shim would clobber handle passing, advanced
+  // serialization, and the listener-tracked channel ref accounting.
   var hasIpcBootstrap = !!(p.env && p.env.EXACT_IPC_FD);
-  if (hasIpcBootstrap) {
+  if (p.__exactProcessIpcBootstrapInstalled) {
+    // Fuller IPC implementation already owns process.send/channel.
+  } else if (hasIpcBootstrap) {
     var exactBootstrapIpcFd = Number(p.env.EXACT_IPC_FD);
     var exactBootstrapIpcBuffer = '';
     var exactBootstrapIpcPollTimer = 0;

@@ -33,16 +33,27 @@
     var pollReadSize = 262144;
     var serializationMode =
       process.env.EXACT_IPC_SERIALIZATION === 'advanced' ? 'advanced' : 'json';
+    var ipcStreamDecoder = null;
     function chunkToString(chunk) {
       if (chunk == null) return '';
       if (typeof chunk === 'string') return chunk;
-      if (typeof Buffer === 'function' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
-        return chunk.toString('utf8');
-      }
+      // Persistent streaming decode (ENG-23132): a UTF-8 sequence split
+      // across two poll reads must not decode to U+FFFD on each side, so the
+      // decoder keeps the partial tail between chunks. '\n' framing is
+      // unaffected — a newline byte never appears inside a multibyte
+      // sequence. Buffers are Uint8Arrays, so they take this path too.
       if (typeof TextDecoder === 'function' &&
           typeof Uint8Array === 'function' &&
           chunk instanceof Uint8Array) {
-        try { return new TextDecoder().decode(chunk); } catch (_) {}
+        try {
+          if (ipcStreamDecoder === null) ipcStreamDecoder = new TextDecoder('utf-8');
+          return ipcStreamDecoder.decode(chunk, { stream: true });
+        } catch (_) {
+          ipcStreamDecoder = null;
+        }
+      }
+      if (typeof Buffer === 'function' && Buffer.isBuffer && Buffer.isBuffer(chunk)) {
+        return chunk.toString('utf8');
       }
       return String(chunk);
     }
@@ -462,44 +473,110 @@
       if (typeof packet.slice === 'function') return packet.slice(offset);
       return packet;
     }
-    function writePacket(packet, sendFd) {
-      var packetBytes = packetToBytes(packet);
-      var totalLength = packetLength(packetBytes);
-      if (totalLength <= 0) return true;
-      var offset = 0;
-      var firstWrite = true;
-      while (offset < totalLength) {
-        var chunk = packetSlice(packetBytes, offset);
-        var written = 0;
-        if (firstWrite && sendFd >= 0) {
-          if (typeof globalThis.__exactIpcSendMsg !== 'function') {
+    // Outbound backpressure queue (ENG-23132). The IPC fd is O_NONBLOCK, so
+    // sendmsg/write return partial counts and 0 on EAGAIN. Abandoning a
+    // packet mid-write leaves a headless fragment in the pipe with no
+    // trailing '\n' — the parent glues it to the next packet and both are
+    // silently dropped by its JSON framing. Instead, the unsent tail is
+    // queued and flushed in order on a timer and before every later send.
+    // Node guarantees delivery of queued IPC sends, so the flush timer stays
+    // referenced (a process with undelivered packets must not exit).
+    var pendingWrites = [];
+    var flushTimer = 0;
+    var flushRetryDelay = 2;
+    function invokeSendCallback(callback, err) {
+      if (typeof callback !== 'function') return;
+      setTimeout(function() { callback(err || null); }, 0);
+    }
+    // Write as much of `chunk` as the socket accepts. Returns the byte count
+    // written (0 means EAGAIN — retry later) or -1 on a hard failure
+    // (write primitive missing or the peer end is gone).
+    function writeChunk(chunk, sendFd) {
+      if (sendFd >= 0) {
+        if (typeof globalThis.__exactIpcSendMsg !== 'function') return -1;
+        try {
+          return globalThis.__exactIpcSendMsg(ipcFd, chunk, sendFd);
+        } catch (_) {
+          return -1;
+        }
+      }
+      if (typeof globalThis.__exactIpcSendMsg === 'function') {
+        try {
+          return globalThis.__exactIpcSendMsg(ipcFd, chunk);
+        } catch (_) {
+          return -1;
+        }
+      }
+      if (typeof globalThis.__exactFsWrite === 'function') {
+        try {
+          return globalThis.__exactFsWrite(ipcFd, chunk, -1);
+        } catch (_) {
+          return -1;
+        }
+      }
+      return -1;
+    }
+    function failPendingWrites() {
+      var failed = pendingWrites;
+      pendingWrites = [];
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = 0;
+      }
+      for (var i = 0; i < failed.length; i++) {
+        invokeSendCallback(failed[i].callback,
+          createIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed'));
+      }
+    }
+    function scheduleFlush() {
+      if (flushTimer) return;
+      flushTimer = setTimeout(function() {
+        flushTimer = 0;
+        flushPendingWrites();
+      }, flushRetryDelay);
+    }
+    // Drain the queue head-first, preserving packet order. Returns true when
+    // the queue is empty afterwards.
+    function flushPendingWrites() {
+      while (pendingWrites.length > 0) {
+        var entry = pendingWrites[0];
+        var total = packetLength(entry.bytes);
+        while (entry.offset < total) {
+          var chunk = packetSlice(entry.bytes, entry.offset);
+          // SCM_RIGHTS handles ride only on the packet's first byte(s).
+          var written = writeChunk(chunk, entry.offset === 0 ? entry.sendFd : -1);
+          if (written < 0) {
+            failPendingWrites();
             return false;
           }
-          try {
-            written = globalThis.__exactIpcSendMsg(ipcFd, chunk, sendFd);
-          } catch (_) {
-            written = 0;
+          if (!(written > 0)) {
+            scheduleFlush();
+            return false;
           }
-        } else if (typeof globalThis.__exactIpcSendMsg === 'function') {
-          try {
-            written = globalThis.__exactIpcSendMsg(ipcFd, chunk);
-          } catch (_) {
-            written = 0;
-          }
-        } else if (typeof globalThis.__exactFsWrite === 'function') {
-          try {
-            written = globalThis.__exactFsWrite(ipcFd, chunk, -1);
-          } catch (_) {
-            written = 0;
-          }
-        } else {
-          return false;
+          entry.offset += written;
         }
-        firstWrite = false;
-        if (!(written > 0)) return false;
-        offset += written;
+        pendingWrites.shift();
+        invokeSendCallback(entry.callback, null);
       }
       return true;
+    }
+    // Queue-or-write one framed packet. Returns true when it was written in
+    // full synchronously; false when (part of) it was queued under
+    // backpressure — it will still be delivered — or the channel hard-failed
+    // (then `callback` observed the error).
+    function writePacket(packet, sendFd, callback) {
+      var packetBytes = packetToBytes(packet);
+      if (packetLength(packetBytes) <= 0) {
+        invokeSendCallback(callback, null);
+        return true;
+      }
+      pendingWrites.push({
+        bytes: packetBytes,
+        offset: 0,
+        sendFd: typeof sendFd === 'number' ? sendFd : -1,
+        callback: callback
+      });
+      return flushPendingWrites();
     }
     function maybeDecodeBuffer() {
       if (!ipcBuffer || ipcBuffer.charCodeAt(0) !== 34) return;
@@ -659,20 +736,23 @@
         emitDisconnect();
       }
     }
-    function processIncomingPackets(chunk, recvFd) {
+    function drainBufferedLines() {
       var newlineIndex;
-      if (typeof recvFd === 'number' && recvFd >= 0) {
-        pendingRecvFd = recvFd;
-      }
-      if (!chunk || !chunk.length) return;
-      ipcBuffer += chunkToString(chunk);
-      maybeDecodeBuffer();
       while ((newlineIndex = ipcBuffer.indexOf('\n')) !== -1) {
         var line = ipcBuffer.slice(0, newlineIndex);
         ipcBuffer = ipcBuffer.slice(newlineIndex + 1);
         handleLine(line);
         maybeDecodeBuffer();
       }
+    }
+    function processIncomingPackets(chunk, recvFd) {
+      if (typeof recvFd === 'number' && recvFd >= 0) {
+        pendingRecvFd = recvFd;
+      }
+      if (!chunk || !chunk.length) return;
+      ipcBuffer += chunkToString(chunk);
+      maybeDecodeBuffer();
+      drainBufferedLines();
     }
     function schedulePoll(delay) {
       if (!process.connected || !pollEnabled || readPending) return;
@@ -687,60 +767,79 @@
     function pollIncoming() {
       if (!process.connected || !pollEnabled) return;
       var hadData = false;
-      if (typeof globalThis.__exactIpcRecvMsg === 'function') {
-        var recvResult;
-        try {
-          recvResult = globalThis.__exactIpcRecvMsg(ipcFd, pollReadSize);
-        } catch (_) {
-          emitDisconnect();
-          return;
-        }
-        if (recvResult && recvResult.data && recvResult.data.length) {
+      // ENG-23132: a throwing user 'message' listener propagates out of this
+      // function (preserving Node's uncaughtException semantics), but the
+      // next poll must be armed first or the channel goes permanently deaf —
+      // pollEnabled stays true, so ref()/readStart() would never restart it.
+      // The finally below always reschedules; schedulePoll itself no-ops
+      // once disconnected or stopped.
+      try {
+        // Lines stranded by a listener that threw mid-drain on a previous
+        // dispatch are processed before reading more data.
+        if (ipcBuffer.indexOf('\n') !== -1) {
           hadData = true;
-          processIncomingPackets(recvResult.data, recvResult.fd);
+          drainBufferedLines();
         }
-      } else if (typeof globalThis.__exactFsRead === 'function') {
-        var readChunk;
-        try {
-          readChunk = globalThis.__exactFsRead(ipcFd, pollReadSize, -1);
-        } catch (_) {
-          emitDisconnect();
-          return;
-        }
-        if (readChunk && readChunk.length) {
-          hadData = true;
-          processIncomingPackets(readChunk);
-        }
-      } else if (typeof require === 'function') {
-        try {
-          var fs = require('fs');
-          var BufferCtor = typeof Buffer === 'function' ? Buffer : null;
-          if (fs && BufferCtor && typeof fs.read === 'function') {
-            var buf = BufferCtor.alloc(pollReadSize);
-            readPending = true;
-            fs.read(ipcFd, buf, 0, buf.length, null, function(err, bytesRead) {
-              readPending = false;
-              if (!process.connected) return;
-              if (!err && bytesRead > 0) {
-                processIncomingPackets(buf.subarray(0, bytesRead));
-                schedulePoll(0);
-                return;
-              }
-              schedulePoll(pollInterval);
-            });
-            return;
-          }
-        } catch (_) {}
-      }
-      if (!hadData && typeof globalThis.__exactFdPollHup === 'function') {
-        try {
-          if (globalThis.__exactFdPollHup(ipcFd)) {
+        if (typeof globalThis.__exactIpcRecvMsg === 'function') {
+          var recvResult;
+          try {
+            recvResult = globalThis.__exactIpcRecvMsg(ipcFd, pollReadSize);
+          } catch (_) {
             emitDisconnect();
             return;
           }
-        } catch (_) {}
+          if (recvResult && recvResult.data && recvResult.data.length) {
+            hadData = true;
+            processIncomingPackets(recvResult.data, recvResult.fd);
+          }
+        } else if (typeof globalThis.__exactFsRead === 'function') {
+          var readChunk;
+          try {
+            readChunk = globalThis.__exactFsRead(ipcFd, pollReadSize, -1);
+          } catch (_) {
+            emitDisconnect();
+            return;
+          }
+          if (readChunk && readChunk.length) {
+            hadData = true;
+            processIncomingPackets(readChunk);
+          }
+        } else if (typeof require === 'function') {
+          try {
+            var fs = require('fs');
+            var BufferCtor = typeof Buffer === 'function' ? Buffer : null;
+            if (fs && BufferCtor && typeof fs.read === 'function') {
+              var buf = BufferCtor.alloc(pollReadSize);
+              readPending = true;
+              fs.read(ipcFd, buf, 0, buf.length, null, function(err, bytesRead) {
+                readPending = false;
+                if (!process.connected) return;
+                var gotData = !err && bytesRead > 0;
+                try {
+                  if (gotData) {
+                    processIncomingPackets(buf.subarray(0, bytesRead));
+                  }
+                } finally {
+                  schedulePoll(gotData ? 0 : pollInterval);
+                }
+              });
+              return;
+            }
+          } catch (_) {}
+        }
+        if (!hadData && typeof globalThis.__exactFdPollHup === 'function') {
+          try {
+            if (globalThis.__exactFdPollHup(ipcFd)) {
+              emitDisconnect();
+              return;
+            }
+          } catch (_) {}
+        }
+      } finally {
+        if (!readPending) {
+          schedulePoll(hadData ? 0 : pollInterval);
+        }
       }
-      schedulePoll(hadData ? 0 : pollInterval);
     }
     var channelHandleKey = globalThis.__exactKChannelHandleKey;
     if (channelHandleKey === undefined) {
@@ -851,13 +950,10 @@
         }
       }
       var packet = buildPacket('message', message, handleType);
-      var written = writePacket(packet, handleFd);
-      if (typeof callback === 'function') {
-        setTimeout(function() {
-          callback(written ? null : createIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed'));
-        }, 0);
-      }
-      return written;
+      // The callback is owned by the write queue: it fires with null once the
+      // packet is fully written (possibly after backpressure flushes) or with
+      // an error if the channel hard-fails first.
+      return writePacket(packet, handleFd, callback);
     };
     process.disconnect = function() {
       if (!process.connected) {

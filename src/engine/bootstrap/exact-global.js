@@ -237,7 +237,21 @@
     if (typeof g.__exactTimerUnref === 'function') {
       try {
         var _bProbe = nativeSetTimeout(function() {}, 0);
-        var _bCutoff = typeof _bProbe === 'number' ? _bProbe : (typeof _bProbe === 'object' && _bProbe !== null ? _bProbe._exactHandle : null);
+        // nativeSetTimeout is whatever setTimeout was installed before this
+        // script: a raw native id (number), this file's Timeout wrapper
+        // (_exactHandle), or bootstrap-globals' Timeout (_nativeId). Probe
+        // all three — probing only _exactHandle left the sweep inert when
+        // bootstrap-globals' wrapper was active (ENG-23132).
+        var _bCutoff = null;
+        if (typeof _bProbe === 'number') {
+          _bCutoff = _bProbe;
+        } else if (typeof _bProbe === 'object' && _bProbe !== null) {
+          if (typeof _bProbe._exactHandle === 'number') {
+            _bCutoff = _bProbe._exactHandle;
+          } else if (typeof _bProbe._nativeId === 'number') {
+            _bCutoff = _bProbe._nativeId;
+          }
+        }
         if (typeof _bCutoff === 'number' && _bCutoff > 1) {
           for (var _bi = 1; _bi < _bCutoff; _bi++) {
             g.__exactTimerUnref(_bi);
@@ -365,11 +379,30 @@
           try { g.__exactEnsureFs(); } catch (_) {}
         }
 
+        // Honor the encoding argument: __exactFsWrite treats strings as
+        // UTF-8, so write('aGVsbG8=', 'base64') must be converted first or
+        // the literal base64 text is emitted (ENG-23132).
+        var payload = chunk;
+        if (typeof chunk === 'string' && typeof encoding === 'string' &&
+            encoding !== '' && encoding !== 'utf8' && encoding !== 'utf-8') {
+          var BufferCtor = typeof g.Buffer === 'function' ? g.Buffer : null;
+          if (BufferCtor && typeof BufferCtor.from === 'function') {
+            try {
+              payload = BufferCtor.from(chunk, encoding);
+            } catch (_) {
+              payload = chunk;
+            }
+          } else if (typeof originalWrite === 'function') {
+            return originalWrite.call(this, chunk, encoding, callback);
+          }
+        }
+
         if (typeof g.__exactFsWrite === 'function') {
           try {
-            g.__exactFsWrite(fd, chunk, -1);
+            g.__exactFsWrite(fd, payload, -1);
             if (typeof callback === 'function') {
-              callback();
+              // Node invokes write callbacks asynchronously.
+              setTimeout(function() { callback(); }, 0);
             }
             return true;
           } catch (_) {
@@ -762,11 +795,16 @@
     }
     return iv(obj, 0);
   });
+  // Bun.peek(value): non-promises come back as-is; a promise whose state
+  // cannot be inspected synchronously comes back as the promise itself, which
+  // is Bun's documented behavior for pending promises. There is no
+  // synchronous promise-state hook in this runtime, so settled promises are
+  // indistinguishable from pending ones here — the previous implementation
+  // pretended otherwise and returned a `{status:...}` object, which is not
+  // Bun.peek's return shape at all (ENG-23132). This also matches the shared
+  // runtime bundle's Exact.peek.
   E.peek = function(p) {
-    if (!(p instanceof Promise)) return { status: 'fulfilled', value: p };
-    var s = 'pending', r;
-    Promise.race([p.then(function(v){s='fulfilled';r=v},function(e){s='rejected';r=e}),Promise.resolve()]);
-    return s === 'pending' ? { status: 'pending' } : s === 'fulfilled' ? { status: 'fulfilled', value: r } : { status: 'rejected', reason: r };
+    return p;
   };
   E.concatArrayBuffers = function concatArrayBuffers(buffers) {
     if (!Array.isArray(buffers)) {
@@ -1256,7 +1294,20 @@
   // --- Bun.sha() ---
   E.sha = function(data, encoding) {
     if (typeof g.__exactHashSync === 'function') {
-      var input = typeof data === 'string' ? data : '';
+      // __exactHashSync hashes strings as UTF-8 and ArrayBuffer views as raw
+      // bytes. Binary inputs must be passed through as views — coercing them
+      // to '' hashed the empty string for every Uint8Array input (ENG-23132).
+      var input;
+      if (typeof data === 'string') {
+        input = data;
+      } else if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) {
+        input = new Uint8Array(data);
+      } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView &&
+                 ArrayBuffer.isView(data)) {
+        input = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      } else {
+        input = String(data == null ? '' : data);
+      }
       var hex = g.__exactHashSync('sha512', input);
       if (encoding === 'hex' || encoding === undefined) return hex;
       if (encoding === 'base64') {
@@ -1657,7 +1708,7 @@
         publish: function() {},
         fetch: fetchHandler
       };
-      return defineDisposable(server, function() {
+      return __exactDefineDisposable(server, function() {
         server.stop(true);
       }, function() {
         server.stop(true);
@@ -2282,24 +2333,61 @@
   };
 
   // Bun.CryptoHasher
-  function exactHashToByteString(data) {
+  // Chunks are kept as raw bytes and handed to __exactHashSync as a
+  // Uint8Array. The previous latin1 string round-trip re-encoded every byte
+  // >= 0x80 as two UTF-8 bytes at the native string boundary, so any binary
+  // input hashed to the wrong digest (ENG-23132).
+  function exactHashToBytes(data) {
     if (typeof data === 'string') {
-      return data;
+      if (typeof TextEncoder === 'function') {
+        try { return new TextEncoder().encode(data); } catch (_) {}
+      }
+      if (typeof Buffer !== 'undefined' && Buffer.from) {
+        var strBuf = Buffer.from(data, 'utf8');
+        return new Uint8Array(strBuf.buffer, strBuf.byteOffset, strBuf.byteLength);
+      }
+      // Manual UTF-8 encode (bootstrap-safe last resort).
+      var encoded = [];
+      for (var si = 0; si < data.length; si++) {
+        var code = data.codePointAt(si);
+        if (code > 0xffff) si++;
+        if (code < 0x80) encoded.push(code);
+        else if (code < 0x800) {
+          encoded.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+        } else if (code < 0x10000) {
+          encoded.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+        } else {
+          encoded.push(
+            0xf0 | (code >> 18), 0x80 | ((code >> 12) & 0x3f),
+            0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+        }
+      }
+      return new Uint8Array(encoded);
     }
-    if (typeof Buffer !== 'undefined' && Buffer.from) {
-      if (data instanceof ArrayBuffer) {
-        return Buffer.from(data).toString('latin1');
-      }
-      if (data && typeof data === 'object' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
-        return Buffer.from(data.buffer, data.byteOffset || 0, data.byteLength || 0).toString('latin1');
-      }
+    if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) {
+      return new Uint8Array(data);
+    }
+    if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
+      return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength || 0);
     }
     if (data && typeof data === 'object' && data.length !== undefined) {
-      var str = '';
-      for (var i = 0; i < data.length; i++) str += String.fromCharCode(data[i] & 0xff);
-      return str;
+      var out = new Uint8Array(data.length);
+      for (var i = 0; i < data.length; i++) out[i] = data[i] & 0xff;
+      return out;
     }
-    return '';
+    return new Uint8Array(0);
+  }
+
+  function exactConcatHashChunks(chunks) {
+    var total = 0;
+    for (var i = 0; i < chunks.length; i++) total += chunks[i].length;
+    var joined = new Uint8Array(total);
+    var offset = 0;
+    for (var j = 0; j < chunks.length; j++) {
+      joined.set(chunks[j], offset);
+      offset += chunks[j].length;
+    }
+    return joined;
   }
 
   E.CryptoHasher = (function() {
@@ -2313,11 +2401,11 @@
       var h = new CH(algorithm); h.update(data); return h.digest(encoding || 'hex');
     };
     CH.prototype.update = function(data) {
-      this._chunks.push(exactHashToByteString(data));
+      this._chunks.push(exactHashToBytes(data));
       return this;
     };
     CH.prototype.digest = function(encoding) {
-      var joined = this._chunks.join('');
+      var joined = exactConcatHashChunks(this._chunks);
       if (typeof g.__exactHashSync === 'function') {
         var hex = g.__exactHashSync(this._algo, joined);
         if (!encoding || encoding === 'hex') return hex;
