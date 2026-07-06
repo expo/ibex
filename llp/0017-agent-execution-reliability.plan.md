@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Claude (pilot feedback) / Codex
 **Date:** 2026-07-05
 **Revised:** 2026-07-05 (Claude and OpenAI review revisions: hook mutability, drift-check cleanliness, regenerate parity, installer hook opt-in, and source-repo validation); 2026-07-05 (P0/P1/P2 code items implemented — see §Implementation status)
-**Related:** LLP 0000; LLP 0001; LLP 0005; LLP 0006; LLP 0012; LLP 0015; ENG-22986
+**Related:** LLP 0000; LLP 0001; LLP 0005; LLP 0006; LLP 0012; LLP 0015; LLP 0018 (second-round fail-loud follow-ups); ENG-22986
 
 ## Summary
 
@@ -348,7 +348,9 @@ remaining work is operational (build-machine bootstrap) and one policy decision
 - **Operational, not yet done:** install GNU coreutils on the macOS build
   machine (`brew install coreutils`) and bootstrap `sccache`
   (`RUSTC_WRAPPER=sccache` + a persistent cache dir). These are machine setup
-  under LLP 0015's inventory role, not code in this repo.
+  under LLP 0015's inventory role, not code in this repo. (coreutils since
+  installed; `sccache` bootstrap and default cache wiring are now tracked by
+  [LLP 0018](./0018-agent-tooling-fail-loud.plan.md) items 3–4.)
 
 **Item 5 — direct-to-main vs PR landing (P3): decided.** The author chose to
 **keep direct-to-main** (2026-07-05), now that item 1 removes the
