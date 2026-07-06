@@ -441,6 +441,19 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                 : static_cast<uint32_t>(remaining);
             int32_t written = ex_host_fs_write(handle, dataPtr + totalWritten, chunk);
             if (written < 0) {
+              // ex_host_fs_write is a single std::io::Write::write;
+              // Rust's File::write (unlike write_all) does not retry
+              // ErrorKind::Interrupted itself, so a signal arriving mid-write
+              // (e.g. SIGCHLD/SIGALRM handled while writeFileSync targets a
+              // FIFO or char device) surfaces here as errno EINTR. Treating
+              // that as fatal aborted the whole call on a partial write where
+              // Node's writeSync retries. EAGAIN/EWOULDBLOCK can only occur if
+              // the destination is a non-blocking special file; writeFileSync
+              // is meant to block, so retry those too rather than throw.
+              // (ENG-23042, residual of the ENG-22982/22993 short-write fixes)
+              if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+                continue;
+              }
               ex_host_fs_close(handle);
               throw facebook::jsi::JSError(runtime, "Failed to write file");
             }

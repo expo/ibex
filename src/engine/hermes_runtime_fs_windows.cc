@@ -28,6 +28,20 @@ struct FileEntry {
   bool canWrite = false;
 };
 
+// g_files_mutex only guards the fd -> FileEntry lookup/insert/erase below; it
+// does NOT serialize I/O performed against a FileEntry's `handle` once a
+// caller has copied one out (getFileEntry() returns by value). That is fine
+// for a plain read/write, but ex_host_fs_pread/pwrite (see their extern "C"
+// declarations below) are implemented as save-cursor/seek/op/restore-cursor
+// on the shared Rust handle rather than a true atomic positional syscall
+// (Windows has no pread/pwrite equivalent). If the SAME fd number were ever
+// used concurrently from two threads — e.g. an fd value passed across
+// worker/runtime threads that share this process-global map — their
+// positional ops could interleave and read/write at each other's offsets.
+// Not confirmed reachable today (fd numbers aren't handed across threads by
+// any current caller), so this is documented rather than serialized with a
+// per-handle lock; if cross-thread fd sharing is ever introduced, positional
+// ops must be serialized per-handle. (ENG-23042 finding 2)
 std::mutex g_files_mutex;
 std::unordered_map<int, FileEntry> g_files;
 int g_next_fd = 3;
@@ -252,9 +266,21 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               ? 0xFFFFFFFFu
               : static_cast<uint32_t>(remaining);
           int32_t written = ex_host_fs_write(file, bytes.data() + totalWritten, chunk);
-          // written < 0 is an error; written == 0 with bytes remaining means no
-          // progress and no error — refuse to spin forever.
-          if (written <= 0) {
+          if (written < 0) {
+            // Unlike the POSIX bridge, there is nothing safe to retry here: a
+            // blocking (non-overlapped) Win32 WriteFile is not interruptible
+            // the way a POSIX write(2) is aborted by an asynchronous signal
+            // (no EINTR-equivalent), and the Rust ABI does not propagate a
+            // Windows error code across this FFI boundary for the C++ side to
+            // inspect, so a negative return is treated as a real,
+            // non-retryable error. (ENG-23042, residual of the ENG-22982/22993
+            // short-write fixes — see the POSIX EINTR retry in
+            // hermes_runtime_fs.cc's __exactWriteFile.)
+            ex_host_fs_close(file);
+            throwFs(runtime, "write", path);
+          }
+          if (written == 0) {
+            // No progress and no error: refuse to spin forever.
             ex_host_fs_close(file);
             throwFs(runtime, "write", path);
           }
