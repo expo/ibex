@@ -85,9 +85,7 @@ fn run_conformance_script(script: &str, args: &[&str], summary_marker: &str) {
     let summary = stdout
         .lines()
         .find(|line| line.contains(summary_marker) && line.contains("fixtures ok"))
-        .unwrap_or_else(|| {
-            panic!("{script} printed no '{summary_marker}' summary:\n{stdout}")
-        });
+        .unwrap_or_else(|| panic!("{script} printed no '{summary_marker}' summary:\n{stdout}"));
     let counts = summary
         .split_whitespace()
         .find(|token| token.contains('/'))

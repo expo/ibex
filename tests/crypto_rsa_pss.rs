@@ -87,7 +87,14 @@ fn sign(data: &[u8], priv_pem: &str, hash: &[u8], use_pss: bool, salt_len: i32) 
 }
 
 /// Returns 1 (verified), 0 (not verified), or -1 (error).
-fn verify(data: &[u8], sig: &[u8], pub_pem: &str, hash: &[u8], use_pss: bool, salt_len: i32) -> i32 {
+fn verify(
+    data: &[u8],
+    sig: &[u8],
+    pub_pem: &str,
+    hash: &[u8],
+    use_pss: bool,
+    salt_len: i32,
+) -> i32 {
     ensure_runtime_linked();
     unsafe {
         ex_crypto_test_rsa_verify(

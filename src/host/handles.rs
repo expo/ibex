@@ -527,8 +527,8 @@ mod tests {
         assert!(!r.check(c, "fs:read:/app/images/cache/x")); // cascaded
         assert!(!r.check(gc, "fs:read:/app/images/cache/thumbs/x")); // cascaded
         assert_eq!(r.scoped(c, "more"), 0); // cannot re-attenuate a dead handle
-        // ENG-22955: the whole subtree is evicted, not merely flagged — the map
-        // reclaims every dead grant instead of retaining them forever.
+                                            // ENG-22955: the whole subtree is evicted, not merely flagged — the map
+                                            // reclaims every dead grant instead of retaining them forever.
         assert_eq!(r.handles.read().unwrap().len(), 0);
     }
 

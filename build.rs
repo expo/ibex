@@ -542,7 +542,10 @@ fn main() {
         // Plain note (not cargo:warning): the hermetic copy happens on every
         // build, so surfacing it as a warning would train readers to ignore
         // warnings — reserve cargo:warning for the stale signal above.
-        eprintln!("ibex build: copied vendored builtin modules → {}", builtins_out.display());
+        eprintln!(
+            "ibex build: copied vendored builtin modules → {}",
+            builtins_out.display()
+        );
     } else if builtins_src.exists() {
         let build_script = exact_devtools_script(repo_root, "build-builtins.mjs");
         if build_script.exists() {
@@ -1522,7 +1525,10 @@ fn vendored_generated_stale(manifest_dir: &Path, vendored_generated_dir: &Path) 
     // Sources that regeneration consumes.
     let sources = [
         manifest_dir.join("src").join("builtins"),
-        manifest_dir.join("packages").join("ibex-runtime-js").join("src"),
+        manifest_dir
+            .join("packages")
+            .join("ibex-runtime-js")
+            .join("src"),
     ];
     // Committed outputs those sources are embedded into (mirrors the
     // input/output pairs scripts/check-generated-drift.sh tracks).

@@ -278,8 +278,7 @@ async fn cli_console_log_prints_strings_raw() {
     // LLP 0175 ledger item 5 (exact-side history): string arguments after the
     // first were inspect-quoted (`a 'b'`); Node prints them raw (`a b`).
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e")
-        .arg(r#"console.log("a", "b", 1, { x: "y" })"#);
+    cmd.arg("-e").arg(r#"console.log("a", "b", 1, { x: "y" })"#);
 
     let output = timeout(Duration::from_secs(10), cmd.output())
         .await

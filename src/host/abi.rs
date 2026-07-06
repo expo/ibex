@@ -1394,8 +1394,7 @@ pub extern "C" fn ex_host_fs_pread(
     let read_result = std::io::Read::read(&mut handle.file, slice);
     // Restore the cursor regardless of the read outcome so a positional read
     // never disturbs a subsequent sequential read.
-    let restore_result =
-        std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(saved));
+    let restore_result = std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(saved));
     match (read_result, restore_result) {
         (Ok(bytes), Ok(_)) => bytes as i32,
         (Err(err), _) | (Ok(_), Err(err)) => {
@@ -1437,8 +1436,7 @@ pub extern "C" fn ex_host_fs_pwrite(
     let write_result = std::io::Write::write(&mut handle.file, slice);
     // Restore the cursor regardless of the write outcome so a positional write
     // never disturbs a subsequent sequential write.
-    let restore_result =
-        std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(saved));
+    let restore_result = std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(saved));
     match (write_result, restore_result) {
         (Ok(bytes), Ok(_)) => bytes as i32,
         (Err(err), _) | (Ok(_), Err(err)) => {
@@ -2614,9 +2612,7 @@ mod tests {
     fn exec_ok(db: u64, sql: &str, bindings: Option<&str>) {
         let c_sql = CString::new(sql).unwrap();
         let c_bindings = bindings.map(|b| CString::new(b).unwrap());
-        let bindings_ptr = c_bindings
-            .as_ref()
-            .map_or(ptr::null(), |c| c.as_ptr());
+        let bindings_ptr = c_bindings.as_ref().map_or(ptr::null(), |c| c.as_ptr());
         let result = ex_host_sqlite_exec(db, c_sql.as_ptr(), bindings_ptr);
         assert!(!result.is_null(), "exec returned null for {sql}");
         let text = unsafe { CStr::from_ptr(result) }
@@ -2660,7 +2656,10 @@ mod tests {
         // which rusqlite rejects with SQLITE_MISUSE, so open returned 0.
         let ro_opts = CString::new("{\"readonly\":true}").unwrap();
         let ro = ex_host_sqlite_open(c_path.as_ptr(), ro_opts.as_ptr());
-        assert_ne!(ro, 0, "{{readonly:true}} open of an existing file must succeed");
+        assert_ne!(
+            ro, 0,
+            "{{readonly:true}} open of an existing file must succeed"
+        );
 
         // Reads work.
         let prep = CString::new("SELECT v FROM t").unwrap();
@@ -2693,7 +2692,11 @@ mod tests {
         // overflow" during step — a genuine mid-iteration error after a good row.
         exec_ok(db, "CREATE TABLE t (v INTEGER)", None);
         exec_ok(db, "INSERT INTO t (v) VALUES (1)", None);
-        exec_ok(db, "INSERT INTO t (v) VALUES (?)", Some("[-9223372036854775808]"));
+        exec_ok(
+            db,
+            "INSERT INTO t (v) VALUES (?)",
+            Some("[-9223372036854775808]"),
+        );
 
         let prep = CString::new("SELECT abs(v) AS a FROM t").unwrap();
         let prepared = take_json(ex_host_sqlite_prepare(db, prep.as_ptr()));
@@ -2749,7 +2752,10 @@ mod tests {
         std::env::set_var(KEY, "hello");
         buf = [0x7f as c_char; 32];
         assert_eq!(call(&mut buf), 5);
-        assert_eq!(&buf[..5].iter().map(|&b| b as u8).collect::<Vec<_>>(), b"hello");
+        assert_eq!(
+            &buf[..5].iter().map(|&b| b as u8).collect::<Vec<_>>(),
+            b"hello"
+        );
         assert_eq!(buf[5], 0);
 
         // Value longer than the buffer -> return is the FULL length (> buffer),

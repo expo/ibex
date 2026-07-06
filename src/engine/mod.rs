@@ -191,7 +191,10 @@ mod tests {
             assert_eq!(status, 0);
 
             let due = ex_hermes_next_timer(runtime);
-            assert!(due >= 0, "an armed timer must report a non-negative due time");
+            assert!(
+                due >= 0,
+                "an armed timer must report a non-negative due time"
+            );
             let rel = (due as u64).saturating_sub(t0);
             assert!(
                 (90_000..=110_000).contains(&rel),
@@ -256,11 +259,13 @@ mod tests {
             ];
             for (label, arm) in cases {
                 let base = ex_hermes_now_ms();
-                let (status, _) =
-                    eval(runtime, &format!("globalThis.__f = 0; {arm} 'ok';"));
+                let (status, _) = eval(runtime, &format!("globalThis.__f = 0; {arm} 'ok';"));
                 assert_eq!(status, 0, "{label}: setTimeout must not throw");
                 let due = ex_hermes_next_timer(runtime);
-                assert!(due >= 0, "{label}: delay must not become a far-future deadline");
+                assert!(
+                    due >= 0,
+                    "{label}: delay must not become a far-future deadline"
+                );
                 let rel = (due as u64).saturating_sub(base);
                 assert!(
                     rel <= 1_000,
@@ -270,8 +275,16 @@ mod tests {
                 let fired = ex_hermes_poll(runtime, ex_hermes_now_ms());
                 assert!(fired >= 1, "{label}: clamped-to-0 timer must fire");
                 let (_, value) = eval(runtime, "String(globalThis.__f)");
-                assert_eq!(value.as_deref(), Some("1"), "{label}: callback should run once");
-                assert_eq!(ex_hermes_next_timer(runtime), -1, "{label}: one-shot retired");
+                assert_eq!(
+                    value.as_deref(),
+                    Some("1"),
+                    "{label}: callback should run once"
+                );
+                assert_eq!(
+                    ex_hermes_next_timer(runtime),
+                    -1,
+                    "{label}: one-shot retired"
+                );
             }
 
             ex_hermes_destroy(runtime);

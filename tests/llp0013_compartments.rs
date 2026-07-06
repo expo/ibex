@@ -1708,9 +1708,7 @@ fn dropped_handle_is_auto_revoked_when_garbage_collected() {
             out.stderr
         );
     } else {
-        eprintln!(
-            "skipping auto-revoke assertion: runtime exposes no gc() to force a collection"
-        );
+        eprintln!("skipping auto-revoke assertion: runtime exposes no gc() to force a collection");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1792,9 +1790,7 @@ fn gc_of_delegation_parent_does_not_over_revoke_live_child() {
             out.stderr
         );
     } else {
-        eprintln!(
-            "skipping over-revoke assertion: runtime exposes no gc() to force a collection"
-        );
+        eprintln!("skipping over-revoke assertion: runtime exposes no gc() to force a collection");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

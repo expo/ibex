@@ -1766,11 +1766,10 @@ pub extern "C" fn ex_host_http_await_writable(
             return -1;
         }
         let known = *version;
-        version = match drain.condvar.wait_timeout_while(
-            version,
-            deadline - now,
-            |current| *current == known,
-        ) {
+        version = match drain
+            .condvar
+            .wait_timeout_while(version, deadline - now, |current| *current == known)
+        {
             Ok((guard, _timed_out)) => guard,
             Err(err) => err.into_inner().0,
         };
@@ -2272,8 +2271,15 @@ mod tests {
         });
 
         let start = Instant::now();
-        let ok = send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"second".to_vec()));
-        assert!(ok, "a full channel must apply backpressure and then succeed");
+        let ok = send_response_chunk(
+            &state,
+            request_id,
+            RequestBodyChunk::Data(b"second".to_vec()),
+        );
+        assert!(
+            ok,
+            "a full channel must apply backpressure and then succeed"
+        );
         assert!(
             start.elapsed() >= Duration::from_millis(40),
             "send should have blocked until a slot was drained"
@@ -2412,13 +2418,21 @@ mod tests {
         );
 
         assert!(matches!(
-            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"first".to_vec())),
+            try_send_response_chunk(
+                &state,
+                request_id,
+                RequestBodyChunk::Data(b"first".to_vec())
+            ),
             ChunkSend::Sent
         ));
 
         let start = Instant::now();
         assert!(matches!(
-            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"second".to_vec())),
+            try_send_response_chunk(
+                &state,
+                request_id,
+                RequestBodyChunk::Data(b"second".to_vec())
+            ),
             ChunkSend::WouldBlock
         ));
         assert!(
@@ -2474,11 +2488,19 @@ mod tests {
 
         // Fill the single slot so the next send would block.
         assert!(matches!(
-            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"first".to_vec())),
+            try_send_response_chunk(
+                &state,
+                request_id,
+                RequestBodyChunk::Data(b"first".to_vec())
+            ),
             ChunkSend::Sent
         ));
         assert!(matches!(
-            try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"second".to_vec())),
+            try_send_response_chunk(
+                &state,
+                request_id,
+                RequestBodyChunk::Data(b"second".to_vec())
+            ),
             ChunkSend::WouldBlock
         ));
 
@@ -2498,7 +2520,10 @@ mod tests {
 
         let start = Instant::now();
         let ready = ex_host_http_await_writable(server_id, request_id, 5_000);
-        assert_eq!(ready, 0, "await_writable should report the slot is writable");
+        assert_eq!(
+            ready, 0,
+            "await_writable should report the slot is writable"
+        );
         assert!(
             start.elapsed() >= Duration::from_millis(40),
             "await_writable should have parked until the drain fired"

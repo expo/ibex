@@ -227,7 +227,9 @@ try {
 "#;
     let run = run_app("stdinfill", app, Duration::from_secs(20));
     let line = result_line(&run);
-    let len: i64 = field(line, "len=").and_then(|v| v.parse().ok()).unwrap_or(-1);
+    let len: i64 = field(line, "len=")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(-1);
     assert_eq!(
         len, 200000,
         "spawnSync stdin/stdout round-trip wrong length (deadlock/regression): {line}"
@@ -252,7 +254,12 @@ console.log('RESULT|captured=' + captured);
         .stdout
         .lines()
         .find(|l| l.starts_with("RESULT|"))
-        .unwrap_or_else(|| panic!("no RESULT line\nstdout:\n{}\nstderr:\n{}", run.stdout, run.stderr));
+        .unwrap_or_else(|| {
+            panic!(
+                "no RESULT line\nstdout:\n{}\nstderr:\n{}",
+                run.stdout, run.stderr
+            )
+        });
     assert!(!run.timed_out, "app timed out");
     let captured: i64 = field(line, "captured=")
         .and_then(|v| v.parse().ok())

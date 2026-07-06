@@ -13,7 +13,9 @@ use std::time::SystemTime;
 /// another thread. (The shared `crate::sync` helper is gated behind the
 /// `host-http-server` feature, but the source-map cache must build regardless.)
 fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// A single decoded mapping entry.
