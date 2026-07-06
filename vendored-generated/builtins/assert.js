@@ -1233,8 +1233,8 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
 		}
 		return true;
 	}
-	if (a.constructor !== b.constructor) {
-		if (!((a.constructor === Object || a.constructor === void 0) && (b.constructor === Object || b.constructor === void 0))) return false;
+	if (strict) {
+		if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
 	}
 	if (Array.isArray(a)) {
 		if (!Array.isArray(b) || a.length !== b.length) return false;

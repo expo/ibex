@@ -1683,13 +1683,16 @@ function _deepEqualObjects(a, b, aSeen, bSeen, strict) {
     return true;
   }
 
-  // Ensure same constructor/prototype
-  if (a.constructor !== b.constructor) {
-    // Allow comparison between plain objects and Object.create(null)
-    if (!(
-      (a.constructor === Object || a.constructor === undefined) &&
-      (b.constructor === Object || b.constructor === undefined)
-    )) {
+  // Prototype handling, matching Node's internal/util/comparisons: strict mode
+  // requires an identical [[Prototype]] (so Object.create(null) is NOT equal to
+  // a plain {} — null vs Object.prototype), while loose mode ignores the
+  // prototype/constructor entirely (a class instance can equal a plain object
+  // with the same own enumerable properties). The former `constructor`-based
+  // check both let null-proto objects pass strict comparison and made loose
+  // comparison reject differing constructors — both diverging from Node.
+  // (ENG-23000)
+  if (strict) {
+    if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) {
       return false;
     }
   }

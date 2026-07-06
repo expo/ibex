@@ -20,16 +20,44 @@
 //      RegExps/Maps/Sets/prototypes ignored, no cycle detection) — now delegates
 //      to the fixed assert comparator.
 //
-// Two pre-existing constructor/prototype divergences from Node are out of scope
-// for this ticket and tracked in ENG-23000; they are listed in KNOWN_DIVERGENCES
-// below so the suite documents (rather than hides) current behavior.
+// ENG-23000 follow-up: two constructor/prototype divergences from Node that
+// ENG-22968 left out of scope are now fixed in `_deepEqualObjects` — strict
+// mode compares `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` (so a
+// null-proto object is NOT strictly deep-equal to a plain `{}`), and loose mode
+// ignores the prototype/constructor entirely (a class instance can loosely
+// deep-equal a plain object with the same own enumerable props). The rows below
+// encode real Node's answers directly; there is no longer a divergence table.
 
 import { expect, test, describe } from 'bun:test';
 import { createRequire } from 'module';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
 const require = createRequire(import.meta.url);
 const ibexAssert = require('../../../src/builtins/assert.js');
-const ibexUtil = require('../../../src/builtins/util.js');
+
+// util.isDeepStrictEqual delegates to `require("assert")._isDeepStrictEqual`.
+// In the real ibex runtime that bare specifier resolves to ibex's OWN
+// `src/builtins/assert.js`; under bun's test harness it would instead resolve
+// to bun's built-in `node:assert`, whose deep-equality diverges from Node on a
+// few cases (e.g. it treats `Object.create(null)` as equal to `{}` in strict
+// mode). To exercise ibex's actual delegation — not the host's assert — load a
+// fresh copy of ibex's util.js with a custom `require` that returns ibex's
+// assert module, exactly as the production module registry wires it. util.js's
+// only require() is for "assert".
+function loadIbexUtil(): any {
+  const utilPath = fileURLToPath(new URL('../../../src/builtins/util.js', import.meta.url));
+  const src = readFileSync(utilPath, 'utf8');
+  const moduleObj: { exports: any } = { exports: {} };
+  const wiredRequire = (id: string) =>
+    id === 'assert' || id === 'node:assert' ? ibexAssert : require(id);
+  // CommonJS module wrapper: (exports, require, module, __filename, __dirname).
+  const fn = new Function('exports', 'require', 'module', '__filename', '__dirname', src);
+  fn(moduleObj.exports, wiredRequire, moduleObj, utilPath, dirname(utilPath));
+  return moduleObj.exports;
+}
+const ibexUtil = loadIbexUtil();
 
 // Returns true when `fn` does not throw, false when it throws an assertion
 // failure. Non-assertion errors propagate (they indicate a broken test).
@@ -113,32 +141,82 @@ const rows: Row[] = [
   ['nested differ deep', { a: [1, { b: 2 }] }, { a: [1, { b: 3 }] }, false, false, false],
 ];
 
-// Pre-existing constructor/prototype divergences from Node, tracked in ENG-23000
-// and intentionally NOT fixed here. Key is `${name}|${mode}` → ibex's current
-// (divergent) result, so the suite pins the behavior instead of failing on it.
-const KNOWN_DIVERGENCES: Record<string, boolean> = {
-  'null-proto vs plain|strict': true, // ibex treats Object.create(null) == {}
-  'null-proto vs plain|isdse': true,
-  'class instance vs plain|loose': false, // ibex checks constructor in loose mode
-};
-
-describe('assert/util deep-equality matches Node (ENG-22968)', () => {
+describe('assert/util deep-equality matches Node (ENG-22968, ENG-23000)', () => {
   for (const [name, a, b, expStrict, expLoose, expIsdse] of rows) {
     test(`deepStrictEqual: ${name}`, () => {
-      const want = KNOWN_DIVERGENCES[`${name}|strict`];
-      expect(passes(() => ibexAssert.deepStrictEqual(a, b))).toBe(want ?? expStrict);
+      expect(passes(() => ibexAssert.deepStrictEqual(a, b))).toBe(expStrict);
     });
     test(`deepEqual (loose): ${name}`, () => {
-      const want = KNOWN_DIVERGENCES[`${name}|loose`];
-      expect(passes(() => ibexAssert.deepEqual(a, b))).toBe(want ?? expLoose);
+      expect(passes(() => ibexAssert.deepEqual(a, b))).toBe(expLoose);
     });
     test(`util.isDeepStrictEqual: ${name}`, () => {
-      const want = KNOWN_DIVERGENCES[`${name}|isdse`];
       // Both the public util path and the internal comparator it delegates to.
-      expect(ibexUtil.isDeepStrictEqual(a, b)).toBe(want ?? expIsdse);
-      expect(ibexAssert._isDeepStrictEqual(a, b)).toBe(want ?? expIsdse);
+      expect(ibexUtil.isDeepStrictEqual(a, b)).toBe(expIsdse);
+      expect(ibexAssert._isDeepStrictEqual(a, b)).toBe(expIsdse);
     });
   }
+});
+
+// ENG-23000: focused prototype-handling coverage. Oracle values captured from
+// real Node v25.9.0 (`node -e` differential run).
+describe('prototype handling matches Node (ENG-23000)', () => {
+  class Foo {
+    x = 1;
+  }
+  class Bar {
+    x = 1;
+  }
+  const proto = { shared: true };
+
+  test('strict distinguishes null-proto from plain object', () => {
+    // Node: throws (Object.getPrototypeOf === null vs Object.prototype).
+    expect(passes(() => ibexAssert.deepStrictEqual(Object.create(null), {}))).toBe(false);
+    expect(ibexUtil.isDeepStrictEqual(Object.create(null), {})).toBe(false);
+    expect(ibexAssert._isDeepStrictEqual(Object.create(null), {})).toBe(false);
+  });
+
+  test('strict allows two null-proto objects with equal own props', () => {
+    const a = Object.assign(Object.create(null), { x: 1 });
+    const b = Object.assign(Object.create(null), { x: 1 });
+    expect(passes(() => ibexAssert.deepStrictEqual(a, b))).toBe(true);
+    expect(ibexUtil.isDeepStrictEqual(a, b)).toBe(true);
+  });
+
+  test('strict distinguishes class instance from plain object', () => {
+    // Node: throws (Foo.prototype vs Object.prototype).
+    expect(passes(() => ibexAssert.deepStrictEqual(new Foo(), { x: 1 }))).toBe(false);
+    expect(ibexUtil.isDeepStrictEqual(new Foo(), { x: 1 })).toBe(false);
+  });
+
+  test('strict distinguishes instances of different classes', () => {
+    // Node: throws (Foo.prototype vs Bar.prototype).
+    expect(passes(() => ibexAssert.deepStrictEqual(new Foo(), new Bar()))).toBe(false);
+  });
+
+  test('strict equates instances sharing a custom prototype', () => {
+    const a = Object.assign(Object.create(proto), { x: 1 });
+    const b = Object.assign(Object.create(proto), { x: 1 });
+    expect(passes(() => ibexAssert.deepStrictEqual(a, b))).toBe(true);
+  });
+
+  test('loose ignores prototype: class instance equals plain object', () => {
+    // Node: equal (loose deepEqual ignores the prototype entirely).
+    expect(passes(() => ibexAssert.deepEqual(new Foo(), { x: 1 }))).toBe(true);
+  });
+
+  test('loose ignores prototype: instances of different classes are equal', () => {
+    expect(passes(() => ibexAssert.deepEqual(new Foo(), new Bar()))).toBe(true);
+  });
+
+  test('loose equates null-proto and plain object with equal own props', () => {
+    expect(passes(() => ibexAssert.deepEqual(Object.create(null), {}))).toBe(true);
+  });
+
+  test('differing own props still fail regardless of prototype', () => {
+    expect(passes(() => ibexAssert.deepEqual(new Foo(), { x: 2 }))).toBe(false);
+    const differing = Object.assign(new Foo(), { x: 2 });
+    expect(passes(() => ibexAssert.deepStrictEqual(new Foo(), differing))).toBe(false);
+  });
 });
 
 describe('assert.equal / notEqual NaN handling (ENG-22968)', () => {
