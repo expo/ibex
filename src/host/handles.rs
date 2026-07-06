@@ -13,12 +13,15 @@ use std::sync::RwLock;
 
 use super::capability::normalize_capability;
 
-/// One authority-bearing handle: the capability it carries, its parent (for the
-/// revocation cascade), and whether it has been revoked directly.
+/// One authority-bearing handle: the capability it carries and its parent (for
+/// the revocation cascade). Revocation is not flagged in place — `revoke` evicts
+/// the handle and its whole descendant subtree from the registry (ENG-22955), so
+/// any grant still present in the map is, by construction, live. Bounding the map
+/// this way keeps a long-running process that mints and revokes per-request
+/// handles from growing without bound.
 struct HandleGrant {
     capability: String,
     parent: Option<u64>,
-    revoked: bool,
 }
 
 /// Process-global registry of live handles. Ids are drawn from the OS RNG so a
@@ -209,7 +212,6 @@ impl HandleRegistry {
                     HandleGrant {
                         capability: normalize_capability(capability),
                         parent: None,
-                        revoked: false,
                     },
                 );
                 return id;
@@ -227,8 +229,8 @@ impl HandleRegistry {
                 Err(_) => return 0,
             };
             match map.get(&parent) {
-                Some(g) if !g.revoked => g.capability.clone(),
-                _ => return 0,
+                Some(g) => g.capability.clone(),
+                None => return 0,
             }
         };
         if !self.is_live(parent) {
@@ -245,7 +247,6 @@ impl HandleRegistry {
                     HandleGrant {
                         capability: child_cap,
                         parent: Some(parent),
-                        revoked: false,
                     },
                 );
                 return id;
@@ -254,8 +255,11 @@ impl HandleRegistry {
         0 // fail closed: RNG failure or (astronomically) no free id
     }
 
-    /// Is the handle (and its whole ancestor chain) live — not directly revoked
-    /// and no revoked ancestor?
+    /// Is the handle live — present with an intact ancestor chain up to a root?
+    /// `revoke` evicts a handle together with its whole descendant subtree, so a
+    /// live subtree never contains a dangling parent link; the walk still fails
+    /// closed on a missing entry as defense-in-depth (a revoked ancestor's slot
+    /// is gone, so a stale child id resolves to `None` and denies).
     fn is_live(&self, id: u64) -> bool {
         let map = match self.handles.read() {
             Ok(m) => m,
@@ -269,7 +273,6 @@ impl HandleRegistry {
                 return false; // cycle guard (ids are random; belt and braces)
             }
             match map.get(&cur) {
-                Some(g) if g.revoked => return false,
                 Some(g) => match g.parent {
                     Some(p) => cur = p,
                     None => return true,
@@ -294,12 +297,56 @@ impl HandleRegistry {
         }
     }
 
-    /// Revoke a handle. Descendants fail-close on their next check via the
-    /// ancestor walk (no eager sweep needed).
+    /// Revoke a handle, evicting it and every handle derived from it (its whole
+    /// descendant subtree) from the registry. The revocation cascade is
+    /// preserved — a subsequent check on the handle or any descendant finds no
+    /// entry and fails closed — while the dead grants are reclaimed instead of
+    /// being retained forever (ENG-22955: a long-running process minting a
+    /// scoped handle per request must not accumulate entries until OOM). Because
+    /// the subtree is removed as a unit, no surviving handle is left with a
+    /// dangling parent link that a future (randomly reused) id could resurrect.
     pub fn revoke(&self, id: u64) {
         if let Ok(mut map) = self.handles.write() {
-            if let Some(g) = map.get_mut(&id) {
-                g.revoked = true;
+            if !map.contains_key(&id) {
+                return;
+            }
+            // Collect the revoked handle plus every handle whose ancestor chain
+            // reaches it, then drop them together. A bounded ancestor walk per
+            // entry avoids maintaining a child index; the map stays small
+            // precisely because revoke now evicts, so this scan is over the live
+            // set, not an ever-growing graveyard.
+            let doomed: Vec<u64> = map
+                .keys()
+                .copied()
+                .filter(|&hid| Self::chain_reaches(&map, hid, id))
+                .collect();
+            for hid in doomed {
+                map.remove(&hid);
+            }
+        }
+    }
+
+    /// Does the ancestor chain starting at `start` reach `target` (inclusive of
+    /// `start` itself)? Walks parent links with the same cycle guard as
+    /// `is_live`; a broken chain (missing entry) simply means `target` is not an
+    /// ancestor of `start`.
+    fn chain_reaches(map: &HashMap<u64, HandleGrant>, start: u64, target: u64) -> bool {
+        let mut cur = start;
+        let mut guard = 0;
+        loop {
+            if cur == target {
+                return true;
+            }
+            guard += 1;
+            if guard > 4096 {
+                return false; // cycle guard (ids are random; belt and braces)
+            }
+            match map.get(&cur) {
+                Some(g) => match g.parent {
+                    Some(p) => cur = p,
+                    None => return false,
+                },
+                None => return false,
             }
         }
     }
@@ -457,7 +504,6 @@ mod tests {
             HandleGrant {
                 capability: "fs:read:/app".into(),
                 parent: None,
-                revoked: false,
             },
         );
         // First two draws collide with the occupied id 42, third is free.
@@ -481,5 +527,43 @@ mod tests {
         assert!(!r.check(c, "fs:read:/app/images/cache/x")); // cascaded
         assert!(!r.check(gc, "fs:read:/app/images/cache/thumbs/x")); // cascaded
         assert_eq!(r.scoped(c, "more"), 0); // cannot re-attenuate a dead handle
+        // ENG-22955: the whole subtree is evicted, not merely flagged — the map
+        // reclaims every dead grant instead of retaining them forever.
+        assert_eq!(r.handles.read().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn revoke_evicts_subtree_and_reclaims_memory() {
+        // ENG-22955: revoke must remove the handle and its descendants from the
+        // registry so a long-running process minting per-request handles does not
+        // grow without bound. Revoking a leaf reclaims only that leaf; revoking an
+        // interior node reclaims exactly its subtree and leaves siblings intact.
+        let r = HandleRegistry::new();
+        let root = r.create("fs:read:/app/**");
+        let a = r.scoped(root, "a"); // root -> a
+        let a_child = r.scoped(a, "deep"); // a -> a_child
+        let b = r.scoped(root, "b"); // root -> b
+        assert_eq!(r.handles.read().unwrap().len(), 4);
+
+        // Revoking a leaf reclaims just that entry; its parent/siblings survive.
+        r.revoke(b);
+        assert_eq!(r.handles.read().unwrap().len(), 3);
+        assert!(r.check(a, "fs:read:/app/a/x"));
+        assert!(r.check(a_child, "fs:read:/app/a/deep/x"));
+
+        // Revoking an interior node reclaims exactly its subtree (a + a_child),
+        // leaving the root live.
+        r.revoke(a);
+        assert_eq!(r.handles.read().unwrap().len(), 1);
+        assert!(!r.check(a, "fs:read:/app/a/x"));
+        assert!(!r.check(a_child, "fs:read:/app/a/deep/x"));
+        assert!(r.check(root, "fs:read:/app/z"));
+
+        // Revoking an unknown id is a no-op and does not disturb the live set.
+        r.revoke(0xdead_beef);
+        assert_eq!(r.handles.read().unwrap().len(), 1);
+
+        r.revoke(root);
+        assert_eq!(r.handles.read().unwrap().len(), 0);
     }
 }

@@ -75,6 +75,7 @@ pub const EXACT_HOST_ABI_VERSION: u32 = 1;
 
 static HOST: OnceLock<RwLock<Host>> = OnceLock::new();
 static SECURITY_LOG_ENABLED: OnceLock<bool> = OnceLock::new();
+static CONSOLE_MIRROR_ENABLED: OnceLock<bool> = OnceLock::new();
 
 #[cfg(test)]
 pub(crate) fn host_test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -215,9 +216,15 @@ fn security_log_enabled() -> bool {
 }
 
 fn console_mirror_enabled() -> bool {
-    std::env::var("IBEX_SUPPRESS_CONSOLE_MIRROR")
-        .map(|v| matches!(v.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
-        .unwrap_or(true)
+    // Memoized like `security_log_enabled` above: `ex_host_console_log` calls this
+    // on every log line on the JS thread, and an env lookup per line (allocating
+    // on a hit) is needless per-line work for a value fixed for the process
+    // lifetime (ENG-22955).
+    *CONSOLE_MIRROR_ENABLED.get_or_init(|| {
+        std::env::var("IBEX_SUPPRESS_CONSOLE_MIRROR")
+            .map(|v| matches!(v.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
+            .unwrap_or(true)
+    })
 }
 
 fn write_stdio_line(writer: &mut impl Write, msg: &str) -> io::Result<()> {
@@ -2136,23 +2143,43 @@ pub extern "C" fn ex_host_sqlite_exec(
     }))
 }
 
+/// Read an environment variable into `out_buf`.
+///
+/// Returns the value's *full* byte length (which may exceed `len`), or `-1` when
+/// the variable is unset. This lets a caller (a) distinguish "unset" from
+/// "present but empty" — the previous `unwrap_or_default()` folded both to an
+/// empty string — and (b) detect truncation: if the return value is `>= len`,
+/// the buffer held only a `len - 1` byte prefix and the caller should re-query
+/// with a buffer of at least `return + 1` bytes. `out_buf`/`len` may be
+/// null/`0` to query the length without copying. Previously values longer than
+/// the buffer (notably the C++ side's fixed 4096-byte buffer) were clipped with
+/// no signal (ENG-22955).
 #[no_mangle]
-pub extern "C" fn ex_host_env_get(key: *const c_char, out_buf: *mut c_char, len: u32) -> u32 {
-    if key.is_null() || out_buf.is_null() || len == 0 {
-        return 0;
+pub extern "C" fn ex_host_env_get(key: *const c_char, out_buf: *mut c_char, len: u32) -> i64 {
+    if key.is_null() {
+        return -1;
     }
     let key = unsafe { CStr::from_ptr(key) }.to_string_lossy().to_string();
-    let value = std::env::var(key).unwrap_or_default();
+    // `var_os` returns None only when the variable is absent, so unset stays
+    // distinguishable from empty; a non-UTF-8 value is rendered lossily (like the
+    // key) rather than reported as absent.
+    let value = match std::env::var_os(&key) {
+        Some(v) => v,
+        None => return -1,
+    };
+    let value = value.to_string_lossy();
     let bytes = value.as_bytes();
-    let max_len = len as usize;
+    let full_len = bytes.len();
 
-    let write_len = bytes.len().min(max_len.saturating_sub(1));
-    unsafe {
-        ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf as *mut u8, write_len);
-        *out_buf.add(write_len) = 0;
+    if !out_buf.is_null() && len > 0 {
+        let write_len = full_len.min((len as usize).saturating_sub(1));
+        unsafe {
+            ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf as *mut u8, write_len);
+            *out_buf.add(write_len) = 0;
+        }
     }
 
-    write_len as u32
+    full_len as i64
 }
 
 #[no_mangle]
@@ -2451,5 +2478,54 @@ mod tests {
         );
 
         assert_eq!(ex_host_sqlite_close(db), 0);
+    }
+
+    #[test]
+    fn env_get_distinguishes_unset_empty_and_reports_full_length() {
+        // ENG-22955: the ABI must (a) distinguish unset (-1) from present-but-empty
+        // (0), which the old `unwrap_or_default()` folded together, and (b) report
+        // the value's full byte length so a caller can detect truncation and
+        // re-query instead of silently clipping long values (the C++ side's 4096
+        // buffer used to lose the tail with no signal).
+        use std::os::raw::c_char;
+
+        const KEY: &str = "IBEX_ENG22955_ENV_TEST";
+        let key = CString::new(KEY).unwrap();
+        let call = |buf: &mut [c_char]| -> i64 {
+            ex_host_env_get(key.as_ptr(), buf.as_mut_ptr(), buf.len() as u32)
+        };
+
+        std::env::remove_var(KEY);
+        // Unset -> -1 (distinct from empty).
+        let mut buf = [0x7f as c_char; 32];
+        assert_eq!(call(&mut buf), -1);
+
+        // Present but empty -> length 0, null-terminated at index 0.
+        std::env::set_var(KEY, "");
+        buf = [0x7f as c_char; 32];
+        assert_eq!(call(&mut buf), 0);
+        assert_eq!(buf[0], 0);
+
+        // Normal value -> full length, exact bytes + null terminator.
+        std::env::set_var(KEY, "hello");
+        buf = [0x7f as c_char; 32];
+        assert_eq!(call(&mut buf), 5);
+        assert_eq!(&buf[..5].iter().map(|&b| b as u8).collect::<Vec<_>>(), b"hello");
+        assert_eq!(buf[5], 0);
+
+        // Value longer than the buffer -> return is the FULL length (> buffer),
+        // the buffer holds a len-1 byte prefix and stays null-terminated: the
+        // caller can see it was truncated and re-query with a bigger buffer.
+        let long = "x".repeat(10_000);
+        std::env::set_var(KEY, &long);
+        let mut small = [0x7f as c_char; 8];
+        assert_eq!(call(&mut small), 10_000);
+        assert_eq!(small[7], 0);
+        assert!(small[..7].iter().all(|&b| b as u8 == b'x'));
+
+        // A null/zero buffer is a pure length query: no write, just the length.
+        assert_eq!(ex_host_env_get(key.as_ptr(), ptr::null_mut(), 0), 10_000);
+
+        std::env::remove_var(KEY);
     }
 }

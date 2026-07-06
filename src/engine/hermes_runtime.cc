@@ -247,7 +247,9 @@ extern "C" int32_t ex_host_fs_access(const char* path, int32_t mode);
 extern "C" int32_t ex_host_fs_chmod(const char* path, uint32_t mode);
 extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
-extern "C" uint32_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
+// Returns the value's full byte length (>= len signals truncation), or -1 when
+// the variable is unset. See getEnvValue below (ENG-22955).
+extern "C" int64_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 extern "C" char* ex_host_module_resolve(const char* specifier, const char* referrer);
 extern "C" void ex_host_free_string(char* value);
@@ -824,13 +826,29 @@ void emitNewScriptsImpl(ExactHermesRuntime* runtime,
 #include "hermes_runtime_templates.inl"
 #endif
 
-std::string getEnvValue(const std::string& key) {
+// Returns the value of `key`, or std::nullopt when the variable is unset (kept
+// distinct from a present-but-empty value). Grows past the initial stack buffer
+// so a value >= 4096 bytes (e.g. a long PATH) is read in full rather than being
+// silently clipped to the buffer size (ENG-22955).
+std::optional<std::string> getEnvValue(const std::string& key) {
   char buffer[4096];
-  auto written = ex_host_env_get(key.c_str(), buffer, sizeof(buffer));
-  if (written == 0) {
-    return std::string();
+  int64_t needed = ex_host_env_get(key.c_str(), buffer, sizeof(buffer));
+  if (needed < 0) {
+    return std::nullopt;  // unset
   }
-  return std::string(buffer, buffer + written);
+  size_t fullLen = static_cast<size_t>(needed);
+  if (fullLen < sizeof(buffer)) {
+    return std::string(buffer, buffer + fullLen);
+  }
+  // The value did not fit the stack buffer; allocate exactly and re-query.
+  std::string result(fullLen, '\0');
+  int64_t written =
+      ex_host_env_get(key.c_str(), result.data(), static_cast<uint32_t>(fullLen + 1));
+  if (written < 0) {
+    return std::nullopt;  // raced to unset between the two calls
+  }
+  result.resize(std::min(static_cast<size_t>(written), fullLen));
+  return result;
 }
 
 void runNextTickQueue(ExactHermesRuntime* runtime);
@@ -957,11 +975,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         auto value = getEnvValue(key);
-        if (value.empty()) {
+        if (!value.has_value()) {
+          // Unset -> undefined; a present-but-empty value returns "" so callers
+          // can tell the two apart (ENG-22955).
           return facebook::jsi::Value::undefined();
         }
         return facebook::jsi::Value(
-            facebook::jsi::String::createFromUtf8(runtime, value));
+            facebook::jsi::String::createFromUtf8(runtime, *value));
       });
   rt.global().setProperty(rt, "__exactGetEnv", std::move(getEnvFn));
 
