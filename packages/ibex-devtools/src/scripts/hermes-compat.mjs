@@ -492,7 +492,7 @@ function collectTopLevelExponentiation(source, ast, replacementBuilder, matcher)
   return replacements;
 }
 
-function applySourceReplacements(source, replacements) {
+export function applySourceReplacements(source, replacements) {
   if (!replacements.length) {
     return source;
   }
@@ -875,4 +875,3 @@ export function applyHermesTransforms(source) {
   // @ref LLP 0005#bytecode-precompilation-hermesc — Hermes accepts BigInt(...) but rejects BigInt literal source.
   return transformBigIntLiterals(transformAsyncGenerators(fixForOfScoping(source)));
 }
-

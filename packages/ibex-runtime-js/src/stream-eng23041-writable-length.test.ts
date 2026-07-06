@@ -23,29 +23,25 @@
 // runs -- but before c's own flush completes -- is observed deterministically,
 // with no timing races.
 //
-// NB: requiring src/builtins/stream.js runs its module-level
-// _patchProcessWritableStdio(), which replaces the prototype of the live
-// process.stdout/stderr with this module's own Writable.prototype. Under bun
-// (unlike the Hermes runtime this builtin targets), process.stdout/stderr are
-// already fully-functional native streams, and that prototype swap corrupts
-// their internal construct/destroy state, crashing later stdout/stderr writes
-// (TypeError: stream._construct is not a function, from bun's real
-// internal:streams/destroy). This is pre-existing (reproduces on an unmodified
-// checkout) and unrelated to this fix; filed separately as ENG-23043. Swap in
-// throwaway stand-ins for the duration of the require() so the patch lands on
-// those instead of the real streams, then restore the originals via a plain
-// data-property redefinition (bypassing the accessor the patch installs, so
-// restoring does not re-trigger it on the real objects).
 import { test, expect } from 'bun:test';
 
 const realStdout = process.stdout;
 const realStderr = process.stderr;
-Object.defineProperty(process, 'stdout', { value: {}, writable: true, configurable: true, enumerable: true });
-Object.defineProperty(process, 'stderr', { value: {}, writable: true, configurable: true, enumerable: true });
+const realStdoutProto = Object.getPrototypeOf(realStdout);
+const realStderrProto = Object.getPrototypeOf(realStderr);
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { Writable } = require('../../../src/builtins/stream.js');
-Object.defineProperty(process, 'stdout', { value: realStdout, writable: true, configurable: true, enumerable: true });
-Object.defineProperty(process, 'stderr', { value: realStderr, writable: true, configurable: true, enumerable: true });
+
+test('requiring the stream builtin does not corrupt Bun real stdio streams', () => {
+  expect(process.stdout).toBe(realStdout);
+  expect(process.stderr).toBe(realStderr);
+  expect(Object.getPrototypeOf(process.stdout)).toBe(realStdoutProto);
+  expect(Object.getPrototypeOf(process.stderr)).toBe(realStderrProto);
+  expect(Object.getPrototypeOf(process.stdout)).not.toBe(Writable.prototype);
+  expect(Object.getPrototypeOf(process.stderr)).not.toBe(Writable.prototype);
+  process.stdout.write('');
+  process.stderr.write('');
+});
 
 test('a concurrent write during an async non-writev flush is not double-subtracted / does not fire a premature drain', () => {
   const pendingCallbacks: Array<(err?: Error) => void> = [];

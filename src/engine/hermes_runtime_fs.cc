@@ -56,6 +56,7 @@ extern "C" void ex_host_free_string(char* value);
 constexpr uint32_t EXACT_FS_WRITE = 1u << 1;
 constexpr uint32_t EXACT_FS_CREATE = 1u << 2;
 constexpr uint32_t EXACT_FS_TRUNCATE = 1u << 3;
+constexpr uint32_t kMaxHostWriteChunk = 0x7FFFFFFFu;
 
 struct IoVecMetadata {
   bool isArrayBuffer;
@@ -436,8 +437,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           size_t totalWritten = 0;
           while (totalWritten < length) {
             size_t remaining = length - totalWritten;
-            uint32_t chunk = remaining > 0xFFFFFFFFu
-                ? 0xFFFFFFFFu
+            uint32_t chunk = remaining > kMaxHostWriteChunk
+                ? kMaxHostWriteChunk
                 : static_cast<uint32_t>(remaining);
             int32_t written = ex_host_fs_write(handle, dataPtr + totalWritten, chunk);
             if (written < 0) {
@@ -493,9 +494,27 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         const uint8_t* dataPtr = dataCopy.empty() ? nullptr : dataCopy.data();
 
         if (length > 0 && dataPtr) {
-          int32_t written = ex_host_fs_append(path.c_str(), dataPtr, static_cast<uint32_t>(length));
-          if (written < 0) {
-            throw facebook::jsi::JSError(runtime, "Failed to append to file");
+          // ex_host_fs_append is allowed to report a short write. Treat append
+          // like __exactWriteFile: keep appending until the whole caller buffer
+          // is durable, retry transient EINTR/EAGAIN, and refuse a zero-progress
+          // success so we never silently drop the tail of a streaming write.
+          size_t totalWritten = 0;
+          while (totalWritten < length) {
+            size_t remaining = length - totalWritten;
+            uint32_t chunk = remaining > kMaxHostWriteChunk
+                ? kMaxHostWriteChunk
+                : static_cast<uint32_t>(remaining);
+            int32_t written = ex_host_fs_append(path.c_str(), dataPtr + totalWritten, chunk);
+            if (written < 0) {
+              if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+                continue;
+              }
+              throw facebook::jsi::JSError(runtime, "Failed to append to file");
+            }
+            if (written == 0) {
+              throw facebook::jsi::JSError(runtime, "Failed to append to file: short write");
+            }
+            totalWritten += static_cast<size_t>(written);
           }
         }
         return facebook::jsi::Value::undefined();

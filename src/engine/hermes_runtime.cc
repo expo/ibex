@@ -640,11 +640,11 @@ static bool runtimeIsRegisteredLocked(ExactHermesRuntime* runtime) {
 
 // ENG-23028: cross-TU form of the ENG-22925 resolve_host_call pin. Holds
 // g_runtimeRegistryMutex across the membership test AND the synchronous body so
-// any-thread completion callbacks in sibling .cc files (fetch, ...) can close
-// the same check-then-lock TOCTOU without touching the file-local registry
-// primitives directly. ex_hermes_destroy holds the same mutex across its
-// delete, so the runtime cannot be freed while body runs. See the header for
-// the body contract (short, no registry re-entry, no destroy-held locks).
+// any-thread completion callbacks in sibling .cc files (fetch, debugger, ...)
+// can close the same check-then-lock TOCTOU without touching the file-local
+// registry primitives directly. ex_hermes_destroy holds the same mutex across
+// teardown and delete, so the runtime cannot be freed while body runs. See the
+// header for the body contract.
 bool withRuntimePinned(ExactHermesRuntime* runtime,
                        const std::function<void()>& body) {
   std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
@@ -2500,7 +2500,6 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   if (runtime == nullptr) {
     return;
   }
-  disableDebugger(runtime);
   unregisterAndroidHostFunctions(runtime);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // Clear this thread's cached vm::Runtime pointer before freeing the runtime so
@@ -2509,17 +2508,16 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   // thread-local, so this only touches the owning thread's slot. (ENG-23011)
   g_vm_runtime = nullptr;
 #endif
-  // ENG-22925: hold g_runtimeRegistryMutex across BOTH the unregister and the
-  // delete. Any-thread resolvers (ex_hermes_resolve_host_call,
-  // pushRuntimeCallback, the WebSocket ctx release) take the same mutex across
-  // their liveness check + the derefs that follow, so destroy is now mutually
-  // exclusive with an in-flight resolution: the runtime can no longer be freed
-  // in the TOCTOU gap between an any-thread liveness check and the deref after
-  // it. The default destructor never re-enters the registry, so holding the
-  // mutex across the delete cannot self-deadlock, and notifies still fire
-  // outside the mutex (the LLP 0297 19a3412 lock-order discipline).
+  // ENG-22925/ENG-23045: hold g_runtimeRegistryMutex across unregister,
+  // debugger teardown, and delete. Any-thread resolvers and debugger callbacks
+  // take the same mutex across their liveness check + derefs, so destroy is
+  // mutually exclusive with in-flight pinned bodies. Debugger clearing now also
+  // follows registry -> debug_mutex lock order; taking debug_mutex before the
+  // registry would deadlock against a pinned callback that is about to enqueue a
+  // debug event while destroy is waiting to unregister.
   std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
   g_activeRuntimes.erase(runtime);
+  disableDebugger(runtime);
   delete runtime;
 }
 

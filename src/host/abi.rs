@@ -1815,6 +1815,12 @@ pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char, module_id: u64) -> *
     }
 }
 
+fn write_all_return_count(writer: &mut impl Write, data: &[u8]) -> io::Result<i32> {
+    writer.write_all(data)?;
+    i32::try_from(data.len())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "write length exceeds i32"))
+}
+
 /// Append data to a file. Returns bytes written or -1 on error.
 #[no_mangle]
 pub extern "C" fn ex_host_fs_append(path: *const c_char, data: *const u8, len: u32) -> i32 {
@@ -1826,11 +1832,10 @@ pub extern "C" fn ex_host_fs_append(path: *const c_char, data: *const u8, len: u
         .to_string();
     let slice = unsafe { std::slice::from_raw_parts(data, len as usize) };
 
-    use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).append(true);
     match opts.open(&path) {
-        Ok(mut file) => match file.write(slice) {
+        Ok(mut file) => match write_all_return_count(&mut file, slice) {
             Ok(n) => n as i32,
             Err(err) => {
                 set_errno_from_io_error(&err);
@@ -2388,6 +2393,28 @@ mod tests {
         }
     }
 
+    struct FragmentedInterruptingWriter {
+        bytes: Vec<u8>,
+        max_chunk: usize,
+        interrupt_once: bool,
+    }
+
+    impl Write for FragmentedInterruptingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.interrupt_once {
+                self.interrupt_once = false;
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "signal"));
+            }
+            let n = self.max_chunk.min(buf.len());
+            self.bytes.extend_from_slice(&buf[..n]);
+            Ok(n)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn stdio_line_writer_appends_newline() {
         let mut output = Vec::new();
@@ -2404,6 +2431,21 @@ mod tests {
         let result = write_stdio_line(&mut writer, "hello");
 
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn append_write_helper_retries_interrupted_and_short_writes() {
+        let mut writer = FragmentedInterruptingWriter {
+            bytes: Vec::new(),
+            max_chunk: 3,
+            interrupt_once: true,
+        };
+        let payload = b"abcdefghij";
+
+        let written = write_all_return_count(&mut writer, payload).unwrap();
+
+        assert_eq!(written, payload.len() as i32);
+        assert_eq!(writer.bytes, payload);
     }
 
     #[test]

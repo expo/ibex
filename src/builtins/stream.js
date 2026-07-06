@@ -8372,6 +8372,19 @@ Duplex.duplexPair = duplexPair;
 
 function _patchExactWritableStdioStream(stream) {
   if (!stream || typeof stream !== 'object') return stream;
+  if (!_shouldPatchExactWritableStdioStream(stream)) return stream;
+  try {
+    if (!stream.__exactWritableStdioStream) {
+      Object.defineProperty(stream, '__exactWritableStdioStream', {
+        value: true,
+        writable: false,
+        configurable: true,
+        enumerable: false
+      });
+    }
+  } catch (_) {
+    try { stream.__exactWritableStdioStream = true; } catch (_) {}
+  }
   try {
     if (Object.getPrototypeOf(stream) !== Writable.prototype) {
       Object.setPrototypeOf(stream, Writable.prototype);
@@ -8380,6 +8393,17 @@ function _patchExactWritableStdioStream(stream) {
   if (stream.readable === undefined) stream.readable = false;
   if (stream.writable === undefined) stream.writable = true;
   return stream;
+}
+
+function _shouldPatchExactWritableStdioStream(stream) {
+  if (!stream || typeof stream !== 'object') return false;
+  if (Object.getPrototypeOf(stream) === Writable.prototype) return true;
+  if (stream.__exactWritableStdioStream === true) return true;
+  if (stream._writableState !== undefined || stream._readableState !== undefined) return false;
+  if (typeof stream._construct === 'function') return false;
+  if (typeof stream._write === 'function') return false;
+  if (typeof stream._destroy === 'function') return false;
+  return true;
 }
 
 function _installProcessWritableStdioAccessors() {
@@ -8421,8 +8445,16 @@ function _installProcessWritableStdioAccessors() {
 
 function _patchProcessWritableStdio() {
   if (typeof process !== 'object' || process === null) return;
-  _installProcessWritableStdioAccessors();
   var names = ['stdout', 'stderr'];
+  var shouldInstallAccessors = !!process.__exactWritableStdioPatched;
+  for (var i = 0; i < names.length; i++) {
+    if (_shouldPatchExactWritableStdioStream(process[names[i]])) {
+      shouldInstallAccessors = true;
+      break;
+    }
+  }
+  if (!shouldInstallAccessors) return;
+  _installProcessWritableStdioAccessors();
   for (var i = 0; i < names.length; i++) {
     _patchExactWritableStdioStream(process[names[i]]);
   }

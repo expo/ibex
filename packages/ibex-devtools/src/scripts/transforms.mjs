@@ -49,6 +49,7 @@ import {
   transformBigIntLiterals,
   transformAsyncGenerators,
   applyHermesTransforms,
+  applySourceReplacements,
 } from './hermes-compat.mjs';
 
 export {
@@ -58,6 +59,7 @@ export {
   transformBigIntLiterals,
   transformAsyncGenerators,
   applyHermesTransforms,
+  applySourceReplacements,
 };
 
 /** Node.js built-in module names shared between bundle and builtins scripts. */

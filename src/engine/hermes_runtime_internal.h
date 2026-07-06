@@ -757,13 +757,14 @@ bool runtimeIsAlive(ExactHermesRuntime* runtime);
 // of `body`, so a caller on any thread can safely dereference runtime-owned
 // state (per-runtime mutexes/maps) that would otherwise race a concurrent
 // ex_hermes_destroy — which holds the same mutex across its `delete`. Returns
-// true iff the runtime was alive and `body` ran. `body` MUST be short, MUST NOT
-// re-enter the runtime registry (no ex_hermes_destroy / pushRuntimeCallback /
-// runtimeIsAlive) and MUST NOT take a lock that destroy holds, to preserve lock
-// order (registry -> per-runtime lock) and avoid self-deadlock. This is the
-// cross-translation-unit form of the resolve_host_call pin so sibling completion
-// paths (fetch, etc.) in other .cc files can close the same check-then-lock
-// TOCTOU without exposing the registry internals.
+// true iff the runtime was alive and `body` ran. `body` MUST be short and MUST
+// NOT re-enter the runtime registry (no ex_hermes_destroy / pushRuntimeCallback /
+// runtimeIsAlive). If it takes a per-runtime lock, that lock must follow the
+// registry in the global lock order; destroy-side cleanup that needs the same
+// lock must also happen under the registry. This is the cross-translation-unit
+// form of the resolve_host_call pin so sibling completion paths (fetch,
+// debugger, etc.) can close the same check-then-lock TOCTOU without exposing the
+// registry internals.
 bool withRuntimePinned(ExactHermesRuntime* runtime,
                        const std::function<void()>& body);
 
