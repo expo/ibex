@@ -106,10 +106,62 @@ function getModule(): PerformanceModule {
   return nativeModule ?? fallbackModule;
 }
 
+// Cap on how many timeline entries the buffer retains. mark()/measure() have no
+// clearMarks/clearMeasures discipline in most apps, so a library marking per
+// frame at 60fps would otherwise retain ~200k entries/hour forever. When the cap
+// is exceeded the oldest entries are evicted (FIFO). (ENG-22985)
+const MAX_TIMELINE_ENTRIES = 10000;
+
 export class Performance {
   private _marks: Map<string, PerformanceMark[]> = new Map();
   private _measures: Map<string, PerformanceMeasure[]> = new Map();
   private _entries: PerformanceEntry[] = [];
+  // True while `_entries` is in non-decreasing startTime order (the common case,
+  // since now() is monotonic). Lets getEntries* skip the O(n log n) re-sort on
+  // every call and only sort when an out-of-order startTime was inserted. (ENG-22985)
+  private _entriesSorted = true;
+
+  // Append an entry to the timeline, tracking sort order and enforcing the cap.
+  private _recordEntry(entry: PerformanceEntry): void {
+    const entries = this._entries;
+    const last = entries.length > 0 ? entries[entries.length - 1] : undefined;
+    if (last !== undefined && entry.startTime < last.startTime) {
+      this._entriesSorted = false;
+    }
+    entries.push(entry);
+
+    if (entries.length > MAX_TIMELINE_ENTRIES) {
+      const evicted = entries.shift();
+      if (evicted !== undefined) {
+        this._evictFromBucket(evicted);
+      }
+    }
+  }
+
+  // Drop an evicted entry from its by-name bucket (`_marks`/`_measures`) too, so
+  // eviction bounds those maps as well and getEntriesByName stays consistent.
+  private _evictFromBucket(entry: PerformanceEntry): void {
+    const bucketMap =
+      entry.entryType === "mark"
+        ? this._marks
+        : entry.entryType === "measure"
+        ? this._measures
+        : null;
+    if (!bucketMap) {
+      return;
+    }
+    const bucket = bucketMap.get(entry.name);
+    if (!bucket) {
+      return;
+    }
+    const idx = bucket.indexOf(entry as any);
+    if (idx !== -1) {
+      bucket.splice(idx, 1);
+    }
+    if (bucket.length === 0) {
+      bucketMap.delete(entry.name);
+    }
+  }
 
   /**
    * Time origin (when the runtime started)
@@ -140,7 +192,7 @@ export class Performance {
       this._marks.set(markName, marks);
     }
     marks.push(mark);
-    this._entries.push(mark);
+    this._recordEntry(mark);
 
     return mark;
   }
@@ -237,7 +289,7 @@ export class Performance {
       this._measures.set(measureName, measures);
     }
     measures.push(measure);
-    this._entries.push(measure);
+    this._recordEntry(measure);
 
     return measure;
   }
@@ -276,25 +328,37 @@ export class Performance {
    * Get all entries
    */
   getEntries(): PerformanceEntry[] {
-    return [...this._entries].sort((a, b) => a.startTime - b.startTime);
+    const copy = [...this._entries];
+    // `_entries` (and any filter of it, which preserves order) is already sorted
+    // by startTime in the common monotonic case, so only sort when needed. (ENG-22985)
+    if (!this._entriesSorted) {
+      copy.sort((a, b) => a.startTime - b.startTime);
+    }
+    return copy;
   }
 
   /**
    * Get entries by name
    */
   getEntriesByName(name: string, type?: string): PerformanceEntry[] {
-    return this._entries
-      .filter((e) => e.name === name && (!type || e.entryType === type))
-      .sort((a, b) => a.startTime - b.startTime);
+    const filtered = this._entries.filter(
+      (e) => e.name === name && (!type || e.entryType === type)
+    );
+    if (!this._entriesSorted) {
+      filtered.sort((a, b) => a.startTime - b.startTime);
+    }
+    return filtered;
   }
 
   /**
    * Get entries by type
    */
   getEntriesByType(type: string): PerformanceEntry[] {
-    return this._entries
-      .filter((e) => e.entryType === type)
-      .sort((a, b) => a.startTime - b.startTime);
+    const filtered = this._entries.filter((e) => e.entryType === type);
+    if (!this._entriesSorted) {
+      filtered.sort((a, b) => a.startTime - b.startTime);
+    }
+    return filtered;
   }
 
   // Resource timing (stubs for compatibility)
@@ -319,15 +383,13 @@ export class Performance {
 // We do this as a mixin instead of class inheritance because Babel's
 // ES5 transpilation of `class Performance extends EventTarget` doesn't
 // properly set up the prototype chain when compiled to an IIFE for Hermes.
+// EventTarget's constructor never runs for Performance (no super call), but its
+// methods lazily initialize their listener storage, so BOTH the singleton and
+// `new Performance()` instances have working addEventListener now. (ENG-22985)
 Object.setPrototypeOf(Performance.prototype, EventTarget.prototype);
 
 // Create singleton
 export const performance = new Performance();
-// Initialize the EventTarget internal state on the singleton.
-// We can't use EventTarget.call(performance) because Babel's _classCallCheck
-// prevents calling a class constructor without `new`. Instead, directly
-// initialize the internal _listeners Map that EventTarget expects.
-(performance as any)._listeners = new Map();
 
 // =============================================================================
 // PerformanceObserver

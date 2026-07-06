@@ -20,10 +20,21 @@ import { EventTarget } from "./events/EventTarget";
 import { PromiseRejectionEvent } from "./events/PromiseRejectionEvent";
 
 /**
- * Map of currently-unhandled rejections: Promise -> reason.
- * Exposed for testing purposes.
+ * Map of currently-pending unhandled rejections: Promise -> reason.
+ * Entries live here only between the rejection and the microtask that reports
+ * (or suppresses) it -- once 'unhandledrejection' has been dispatched the entry
+ * is evicted so a genuinely-unhandled rejection never retains its Promise +
+ * reason for the life of the runtime. Exposed for testing purposes.
  */
 const _unhandledRejections: Map<Promise<any>, any> = new Map();
+
+/**
+ * Promises that have already been reported via 'unhandledrejection'. Held
+ * WEAKLY (keyed by the promise) so a rejection that is never handled is not
+ * retained forever, while a handler attached AFTER the report can still fire
+ * 'rejectionhandled' with the original reason. (ENG-22985)
+ */
+const _reportedRejections: WeakMap<Promise<any>, any> = new WeakMap();
 
 /**
  * Internal EventTarget used to dispatch promise rejection events.
@@ -142,6 +153,13 @@ export function trackPromiseRejection(promise: Promise<any>, reason: any): void 
       return;
     }
 
+    // Evict from the strong pending map BEFORE dispatch and record it weakly.
+    // The rejection has now been reported, so we must not keep retaining the
+    // promise + reason; a later-attached handler still fires 'rejectionhandled'
+    // via _reportedRejections. (ENG-22985)
+    _unhandledRejections.delete(promise);
+    _reportedRejections.set(promise, reason);
+
     const target = getEventTarget();
     const event = new PromiseRejectionEvent('unhandledrejection', {
       promise,
@@ -169,7 +187,10 @@ function installNativeHandledPromiseTracking(OriginalPromise: PromiseConstructor
 
   function markHandled(promise: Promise<any>): void {
     _synchronouslyHandledPromises.add(promise);
-    if (_unhandledRejections.has(promise)) {
+    // Consult BOTH the pending map and the already-reported weak map: after a
+    // rejection is reported it is evicted from _unhandledRejections, but a
+    // handler attached now must still fire 'rejectionhandled'. (ENG-22985)
+    if (_unhandledRejections.has(promise) || _reportedRejections.has(promise)) {
       trackPromiseRejectionHandled(promise);
     }
   }
@@ -210,12 +231,22 @@ function installNativeHandledPromiseTracking(OriginalPromise: PromiseConstructor
  * Dispatches `rejectionhandled` on globalThis.
  */
 export function trackPromiseRejectionHandled(promise: Promise<any>): void {
-  const reason = _unhandledRejections.get(promise);
-  if (!_unhandledRejections.has(promise)) {
+  // Case 1: handled before 'unhandledrejection' was ever dispatched -- just drop
+  // the pending entry; per spec no 'rejectionhandled' fires without a preceding
+  // 'unhandledrejection'.
+  if (_unhandledRejections.has(promise)) {
+    _unhandledRejections.delete(promise);
     return;
   }
 
-  _unhandledRejections.delete(promise);
+  // Case 2: handled after it was reported unhandled -- fire 'rejectionhandled'
+  // with the original reason and stop tracking the promise weakly. (ENG-22985)
+  if (!_reportedRejections.has(promise)) {
+    return;
+  }
+
+  const reason = _reportedRejections.get(promise);
+  _reportedRejections.delete(promise);
 
   // Dispatch rejectionhandled asynchronously (per spec, fires in a later task)
   queueMicrotask(() => {

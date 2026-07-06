@@ -97,38 +97,52 @@ export function setNativeTimerModule(module: TimerModule): void {
 // Fallback implementation using JS-based timers
 // This is used when native module is not available (e.g., in tests)
 let nextId = 1;
-const timeoutMap = new Map<number, ReturnType<typeof globalThis.setTimeout>>();
-const intervalMap = new Map<number, ReturnType<typeof globalThis.setInterval>>();
+
+// Per WHATWG (and Node), timeouts and intervals share ONE list of active timers,
+// so clearTimeout(intervalId) must cancel the interval and vice versa. Keep both
+// kinds in a single id-keyed registry (ids come from the shared `nextId`, so they
+// never collide) and dispatch to the matching global clear based on the recorded
+// kind. (ENG-22985)
+interface FallbackTimer {
+  handle: ReturnType<typeof globalThis.setTimeout> | ReturnType<typeof globalThis.setInterval>;
+  isInterval: boolean;
+}
+const timerMap = new Map<number, FallbackTimer>();
+
+function clearFallbackTimer(id: number): void {
+  const timer = timerMap.get(id);
+  if (timer === undefined) {
+    return;
+  }
+  timerMap.delete(id);
+  if (timer.isInterval) {
+    globalThis.clearInterval(timer.handle as ReturnType<typeof globalThis.setInterval>);
+  } else {
+    globalThis.clearTimeout(timer.handle as ReturnType<typeof globalThis.setTimeout>);
+  }
+}
 
 const fallbackModule: TimerModule = {
   setTimeout(callback: () => void, delay: number): number {
     const id = nextId++;
     const handle = globalThis.setTimeout(() => {
-      timeoutMap.delete(id);
+      timerMap.delete(id);
       callback();
     }, delay);
-    timeoutMap.set(id, handle);
+    timerMap.set(id, { handle, isInterval: false });
     return id;
   },
   clearTimeout(id: number): void {
-    const handle = timeoutMap.get(id);
-    if (handle !== undefined) {
-      globalThis.clearTimeout(handle);
-      timeoutMap.delete(id);
-    }
+    clearFallbackTimer(id);
   },
   setInterval(callback: () => void, delay: number): number {
     const id = nextId++;
     const handle = globalThis.setInterval(callback, delay);
-    intervalMap.set(id, handle);
+    timerMap.set(id, { handle, isInterval: true });
     return id;
   },
   clearInterval(id: number): void {
-    const handle = intervalMap.get(id);
-    if (handle !== undefined) {
-      globalThis.clearInterval(handle);
-      intervalMap.delete(id);
-    }
+    clearFallbackTimer(id);
   },
 };
 

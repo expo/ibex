@@ -80,12 +80,26 @@ function runCallbacks(): void {
     ? performance.now()
     : Date.now();
 
-  // Copy callbacks to allow adding new ones during iteration
-  const pending = new Map(callbacks);
-  callbacks.clear();
-  trackAnimationFrameExecuted(Array.from(pending.keys()));
+  // Per the HTML spec, snapshot the handles present at the start of this frame,
+  // then process them one at a time, removing each from the LIVE map immediately
+  // before invoking it. This means:
+  //  - callbacks requested from within a callback are deferred to the next frame
+  //    (they aren't in the snapshot), and
+  //  - cancelAnimationFrame(id2) called from id1's callback actually cancels id2
+  //    (we re-check the live map and skip handles removed during the frame).
+  // We also only report the callbacks we actually invoked as executed. (ENG-22985)
+  const handles = Array.from(callbacks.keys());
+  const executed: number[] = [];
 
-  for (const [, callback] of pending) {
+  for (const id of handles) {
+    const callback = callbacks.get(id);
+    if (callback === undefined) {
+      // Cancelled during this frame (e.g. by an earlier same-frame callback).
+      continue;
+    }
+    callbacks.delete(id);
+    executed.push(id);
+
     try {
       callback(timestamp);
     } catch (error) {
@@ -93,6 +107,8 @@ function runCallbacks(): void {
       console.error('Error in requestAnimationFrame callback:', error);
     }
   }
+
+  trackAnimationFrameExecuted(executed);
 }
 
 function fallbackFrameDelayMs(): number {

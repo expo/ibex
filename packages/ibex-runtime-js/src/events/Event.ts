@@ -39,6 +39,7 @@ export class Event {
   private _stopPropagationFlag: boolean = false;
   private _stopImmediatePropagationFlag: boolean = false;
   private _inPassiveListener: boolean = false;
+  private _dispatchFlag: boolean = false;
 
   constructor(type: string, eventInitDict?: EventInit) {
     this.type = type;
@@ -124,11 +125,25 @@ export class Event {
 
   /** @internal */
   _resetFlags(): void {
+    // Per the DOM spec's dispatch algorithm, once dispatch finishes only the
+    // propagation flags are unset. The canceled flag (defaultPrevented) is NOT
+    // reset: it must remain observable to the caller after dispatchEvent returns
+    // (the common `if (e.defaultPrevented)` follow-up) and it persists across a
+    // later re-dispatch of the same Event. (ENG-22985)
     this._stopPropagationFlag = false;
     this._stopImmediatePropagationFlag = false;
-    this._defaultPrevented = false;
     this._eventPhase = Event.NONE;
     this._inPassiveListener = false;
+  }
+
+  /** @internal */
+  _isBeingDispatched(): boolean {
+    return this._dispatchFlag;
+  }
+
+  /** @internal */
+  _setDispatchFlag(value: boolean): void {
+    this._dispatchFlag = value;
   }
 
   /** @internal */

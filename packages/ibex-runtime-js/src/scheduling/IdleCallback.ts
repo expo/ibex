@@ -23,6 +23,10 @@ interface PendingCallback {
   callback: IdleRequestCallback;
   timeout?: number;
   scheduledTime: number;
+  // Handle of the per-callback timeout timer (fallback path only), so it can be
+  // cancelled when the callback runs or is cancelled instead of leaking a
+  // full-duration timer + closure. (ENG-22985)
+  timeoutHandle?: ReturnType<typeof setTimeout>;
 }
 
 const callbacks = new Map<number, PendingCallback>();
@@ -68,14 +72,21 @@ export function requestIdleCallback(
   // Fallback: simulate idle callback using setTimeout
   scheduleIdleCheck();
 
-  // If timeout is specified, ensure callback runs within that time
+  // If timeout is specified, ensure callback runs within that time. Store the
+  // timer handle so it is cancelled once the callback runs or is cancelled;
+  // otherwise every completed request leaves a dead full-duration timer +
+  // closure pending. (ENG-22985)
   if (timeout !== undefined && timeout > 0) {
-    setTimeout(() => {
+    const timeoutHandle = setTimeout(() => {
       const pending = callbacks.get(id);
       if (pending) {
         runCallback(id, createDeadline(true, 0));
       }
     }, timeout);
+    const pending = callbacks.get(id);
+    if (pending) {
+      pending.timeoutHandle = timeoutHandle;
+    }
   }
 
   return id;
@@ -85,6 +96,10 @@ export function requestIdleCallback(
  * Cancels a previously scheduled idle callback.
  */
 export function cancelIdleCallback(id: number): void {
+  const pending = callbacks.get(id);
+  if (pending?.timeoutHandle !== undefined) {
+    clearTimeout(pending.timeoutHandle);
+  }
   callbacks.delete(id);
 }
 
@@ -113,13 +128,26 @@ function runIdleCallbacks(): void {
   const now = performance?.now?.() ?? Date.now();
   const idleDeadline = now + MAX_IDLE_PERIOD;
 
-  // Process callbacks until we run out of time or callbacks
-  for (const [id, pending] of callbacks) {
+  // Snapshot the handles present at the start of this idle period. Iterating the
+  // live Map would also visit callbacks that requestIdleCallback inserts DURING
+  // iteration (Map iteration observes concurrent insertions), so a callback that
+  // reschedules itself would re-run back-to-back until the whole budget is
+  // exhausted. Per spec, callbacks scheduled from within an idle callback must
+  // wait for the NEXT idle period. (ENG-22985)
+  const handles = Array.from(callbacks.keys());
+
+  // Process callbacks until we run out of time or snapshotted callbacks
+  for (const id of handles) {
+    const pending = callbacks.get(id);
+    if (!pending) {
+      // Cancelled (or already run) during this period.
+      continue;
+    }
+
     const remaining = idleDeadline - (performance?.now?.() ?? Date.now());
-    
+
     if (remaining <= 0) {
-      // No more idle time, schedule another check
-      scheduleIdleCheck();
+      // No more idle time; the remaining snapshotted callbacks stay pending.
       break;
     }
 
@@ -128,6 +156,12 @@ function runIdleCallbacks(): void {
     const didTimeout = pending.timeout !== undefined && elapsed >= pending.timeout;
 
     runCallback(id, createDeadline(didTimeout, remaining));
+  }
+
+  // Anything still pending -- snapshotted callbacks we ran out of time for, plus
+  // callbacks scheduled during this period -- needs a fresh idle check.
+  if (callbacks.size > 0) {
+    scheduleIdleCheck();
   }
 }
 
@@ -141,6 +175,12 @@ function runCallback(id: number, deadline: IdleDeadline): void {
   }
 
   callbacks.delete(id);
+
+  // Cancel the per-callback timeout timer (if any) so it doesn't linger. (ENG-22985)
+  if (pending.timeoutHandle !== undefined) {
+    clearTimeout(pending.timeoutHandle);
+    pending.timeoutHandle = undefined;
+  }
 
   try {
     pending.callback(deadline);
