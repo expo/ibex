@@ -1181,7 +1181,11 @@ Per-package compartment globals, two implementations of one semantics:
   `GetGlobalObject` and sloppy-`this` (`CoerceThisNS`/`LoadThisNS`) through the
   executing frame's `Domain` compartment global (`globalForFrame`), so a
   package's bare globals and its `(function(){return this})()` UMD escape both
-  resolve through its compartment **with no build-time rewrite**. The loader sets
+  resolve through its compartment **with no build-time rewrite**. Top-level `var`
+  declarations resolve the same way (`DeclareGlobalVar` /
+  `Interpreter::declareGlobalVarImpl`), so an indirect `eval("var x = 1")` in a
+  compartment defines `x` on the compartment global instead of splitting the
+  declaration onto the shared real global. The loader sets
   each package's Domain compartment via the native `__exactSetCompartmentFor`
   (captured privately, sealed at end-of-bootstrap). This closes channel #2
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
@@ -1197,6 +1201,10 @@ Per-package compartment globals, two implementations of one semantics:
   GC-rooted `Runtime::pendingCompartment_` — and `runBytecode` stamps both onto
   the Domain it mints, so `eval` and `new Function` produced code inherits the
   caller's compartment (it cannot reach the root realm's globals) and attribution.
+  When the eval has no attributable user caller, `getCurrentPackageId` returns the
+  `kNoUserPrincipal` sentinel (patch 0007); the capture pins only a real package
+  principal (it excludes both `0` and `kNoUserPrincipal`), leaving such a Domain
+  unlabelled rather than stamping the sentinel as if it were a package id.
   The capture is skipped when a principal was labelled explicitly, so loader-driven
   module compiles keep their own principal; the loader `clearPendingPackageId()`s
   (distinct from pinning 0) after each compile so a later eval reads as unlabelled

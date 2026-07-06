@@ -264,7 +264,7 @@ index 3d0fc7ed1..fa6513eea 100644
  #include "hermes/VM/JSLib.h"
  #include "hermes/VM/Runtime.h"
  #include "hermes/VM/StringPrimitive.h"
-@@ -121,6 +122,22 @@ CallResult<HermesValue> evalInEnvironment(
+@@ -121,6 +122,28 @@ CallResult<HermesValue> evalInEnvironment(
      }
    }
  
@@ -278,7 +278,13 @@ index 3d0fc7ed1..fa6513eea 100644
 +  if (!runtime.pendingPackageIdSet_) {
 +    uint32_t callerPkg = getCurrentPackageId(runtime);
 +    JSObject *cg = getCurrentCompartmentGlobal(runtime);
-+    if (callerPkg != 0)
++    // Pin only a real attributable caller principal. getCurrentPackageId returns
++    // kNoUserPrincipal (patch 0007) when there is NO user frame on the stack;
++    // that sentinel must NOT be stamped onto the minted Domain as if it were a
++    // package id (it is not the transparent runtime principal, so it would mask
++    // real user frames below it and be collected as an ordinary principal).
++    // Leave such a Domain unlabelled — it falls back to the default principal.
++    if (callerPkg != 0 && callerPkg != kNoUserPrincipal)
 +      runtime.setPendingPackageId(callerPkg);
 +    if (cg)
 +      runtime.setPendingCompartment(HermesValue::encodeObjectValue(cg));

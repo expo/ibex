@@ -1,7 +1,7 @@
 # LLP 0013 Hermes patch 0004 — native per-package compartment globals
 # Class: B (a GCPointer field + metadata line on Domain, a native global
-#         function) + C (the 3 interpreter global-resolution sites + one
-#         #include). @ref LLP 0013#mechanism-2 (Phase 3)
+#         function) + C (the 4 interpreter global-resolution sites + two
+#         #includes). @ref LLP 0013#mechanism-2 (Phase 3)
 #
 # Makes compartment globals native, retiring the need for the build-time
 # free-global rewrite: the interpreter resolves bare-global references and
@@ -18,7 +18,12 @@
 #     deletes it — setting a Domain's compartment is a containment-escape
 #     primitive if left reachable).
 #   * Interpreter CASE(GetGlobalObject) / CASE(CoerceThisNS) / CASE(LoadThisNS)
-#     resolve through `globalForFrame(runtime, curCodeBlock)`.
+#     resolve through `globalForFrame(runtime, curCodeBlock)`; and
+#     `Interpreter::declareGlobalVarImpl` (Interpreter-slowpaths.cpp) defines the
+#     declared name on the frame's compartment global too (same resolution,
+#     inlined — `globalForFrame` is file-static in Interpreter.cpp), so a
+#     top-level `var` in compartment-bound code (e.g. an indirect eval, patch
+#     0006) does not split its declaration onto the shared real global.
 #
 # Not yet native (documented Phase 3 follow-ups, both low-priority because
 # lockdown already tames eval/Function and the userland freeze works): binding
@@ -138,6 +143,61 @@ index 63126c23f..7f8769c6c 100644
          ip = NEXTINST(GetGlobalObject);
          DISPATCH;
        }
+diff --git a/lib/VM/Interpreter-slowpaths.cpp b/lib/VM/Interpreter-slowpaths.cpp
+index fa585f1..a5d6992 100644
+--- a/lib/VM/Interpreter-slowpaths.cpp
++++ b/lib/VM/Interpreter-slowpaths.cpp
+@@ -12,6 +12,7 @@
+ #include "hermes/VM/BigIntPrimitive.h"
+ #include "hermes/VM/Callable.h"
+ #include "hermes/VM/Casting.h"
++#include "hermes/VM/Domain.h"
+ #include "hermes/VM/Interpreter.h"
+ #include "hermes/VM/JSCallableProxy.h"
+ #include "hermes/VM/PropertyAccessor.h"
+@@ -1021,8 +1022,23 @@ ExecutionStatus Interpreter::declareGlobalVarImpl(
+   // Do not overwrite existing globals with undefined.
+   dpf.setValue = 0;
+ 
++  // @ref LLP 0013#mechanism-2 (Phase 3) — declare the global var on the executing
++  // frame's compartment global when its Domain has one, mirroring the interpreter's
++  // GetGlobalObject/CoerceThisNS/LoadThisNS resolution (globalForFrame). Otherwise a
++  // top-level `var` in code bound to a compartment (e.g. an indirect eval inside a
++  // package compartment, patch 0006) would declare the binding on the shared real
++  // global while its initializing store and later reads resolve through the
++  // compartment global — splitting one declaration across two objects and leaking
++  // an own property onto the root global. Falls back to the real global otherwise.
++  Handle<JSObject> global = runtime.getGlobal();
++  if (curCodeBlock) {
++    if (Domain *d = curCodeBlock->getRuntimeModule()->getDomainUnsafe(runtime))
++      if (JSObject *cg = d->getCompartmentGlobal(runtime))
++        global = runtime.makeHandle(cg);
++  }
++
+   CallResult<bool> res = JSObject::defineOwnProperty(
+-      runtime.getGlobal(),
++      global,
+       runtime,
+       ID(ip->iDeclareGlobalVar.op1),
+       dpf,
+@@ -1030,7 +1046,7 @@ ExecutionStatus Interpreter::declareGlobalVarImpl(
+       PropOpFlags().plusThrowOnError());
+   if (LLVM_UNLIKELY(res == ExecutionStatus::EXCEPTION)) {
+     assert(
+-        !runtime.getGlobal()->isProxyObject() &&
++        !global->isProxyObject() &&
+         "global can't be a proxy object");
+     // If the property already exists, this should be a noop.
+     // Instead of incurring the cost to check every time, do it
+@@ -1040,7 +1056,7 @@ ExecutionStatus Interpreter::declareGlobalVarImpl(
+     // non-configurable.
+     NamedPropertyDescriptor desc;
+     if (!JSObject::getOwnNamedDescriptor(
+-            runtime.getGlobal(),
++            global,
+             runtime,
+             ID(ip->iDeclareGlobalVar.op1),
+             desc)) {
 diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
 index ce55c5401..665ecc0a6 100644
 --- a/lib/VM/JSLib/GlobalObject.cpp

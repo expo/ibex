@@ -1,5 +1,5 @@
 # LLP 0013 Hermes patch 0007 — fail closed on the async/deputy attribution boundary
-# Class: B (a constant + one-line changes to two existing functions).
+# Class: B (a header sentinel constant + one-line changes to two existing functions).
 # @ref LLP 0013#mechanism-3, Open-Q3 (native/microtask attribution)
 #
 # Closes a deputy-laundering hole in enforce mode: a package could exfiltrate a
@@ -11,8 +11,9 @@
 #     genuine first-party frame AND when the walk found no user frame at all.
 #     With the host trusting root 0 (so `--capsec enforce` is usable), the
 #     no-user-frame case fell open. Now it returns a distinct kNoUserPrincipal
-#     (0xFFFFFFFE) that the host fails closed on — genuine first-party (a frame
-#     stamped 0) still returns 0 and stays trusted.
+#     (0xFFFFFFFE, declared in CapabilityAttribution.h so eval-site callers can
+#     exclude it too) that the host fails closed on — genuine first-party (a
+#     frame stamped 0) still returns 0 and stays trusted.
 #
 #   * The internal bytecode (Hermes's JS Promise implementation) loaded during
 #     Runtime construction with the default principal 0, so its reaction
@@ -26,22 +27,47 @@
 # Red-team: tests/llp0013_compartments.rs
 # detached_deputy_read_is_contained_but_app_wrapped_read_works.
 #
+diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h
+index e571e81..b583c2a 100644
+--- a/include/hermes/VM/CapabilityAttribution.h
++++ b/include/hermes/VM/CapabilityAttribution.h
+@@ -27,9 +27,22 @@ namespace vm {
+ class Runtime;
+ class JSObject;
+ 
+-/// \return the capability principal (package id) of the nearest JS frame on the
+-/// stack, or 0 (trusted root / unassigned) when no attributable JS frame is
+-/// found. Skips native frames, whose callee CodeBlock is null.
++/// The principal getCurrentPackageId() returns when the stack has NO
++/// attributable user frame (only native and/or runtime-deputy frames) — e.g. a
++/// deputy method passed directly as a promise/timer callback
++/// (`Promise.resolve(x).then(fs.readFileSync)`). DISTINCT from the first-party
++/// root principal 0 (which the host trusts) and from the runtime principal
++/// 0xFFFFFFFF: the host fails closed on this sentinel, and a caller that pins a
++/// captured principal onto a Domain must exclude it (it is not a real package id
++/// and is not transparent to the frame walk). @ref LLP 0013 Open-Q3
++/// (native/microtask attribution).
++constexpr uint32_t kNoUserPrincipal = 0xFFFFFFFEu;
++
++/// \return the capability principal of the nearest user JS frame on the stack:
++/// 0 (trusted first-party root) for a genuine root frame, a package id for a
++/// package frame, or kNoUserPrincipal when no user frame is attributable. Skips
++/// native frames (null callee CodeBlock) and runtime-deputy frames (principal
++/// 0xFFFFFFFF).
+ uint32_t getCurrentPackageId(Runtime &runtime);
+ 
+ /// \return the compartment global of the nearest user JS frame's Domain, or
 diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
 index 582316c76..09c8b2129 100644
 --- a/lib/VM/CapabilityAttribution.cpp
 +++ b/lib/VM/CapabilityAttribution.cpp
-@@ -35,10 +35,19 @@ namespace vm {
+@@ -35,10 +35,14 @@ namespace vm {
  // the Ibex side. @ref LLP 0013 Open-Q3 (skip runtime-internal frames).
  static constexpr uint32_t kRuntimePackageId = 0xFFFFFFFFu;
  
-+// Returned when the stack has NO attributable user frame (only native and/or
-+// runtime-deputy frames) — e.g. a deputy method invoked directly as a
-+// promise/timer callback (`Promise.resolve(x).then(fs.readFileSync)`), so the
-+// scheduling package's frame is already gone. This is DISTINCT from the
-+// first-party root principal 0: the host must fail closed here (a trusted-root
-+// default for 0 would otherwise let any package launder a deputy op across the
-+// async boundary). @ref LLP 0013 Open-Q3 (native/microtask attribution).
-+static constexpr uint32_t kNoUserPrincipal = 0xFFFFFFFEu;
++// kNoUserPrincipal (0xFFFFFFFE, the no-attributable-user-frame sentinel) is
++// declared in CapabilityAttribution.h so callers that consume getCurrentPackageId
++// (e.g. eval.cpp's compartment-binding capture) can exclude it too.
 +
  uint32_t getCurrentPackageId(Runtime &runtime) {
    // Walk from the innermost frame outward, skipping native frames (null callee
@@ -51,7 +77,7 @@ index 582316c76..09c8b2129 100644
    for (StackFramePtr frame : runtime.getStackFrames()) {
      CodeBlock *cb = frame.getCalleeCodeBlock();
      if (!cb)
-@@ -54,7 +63,8 @@ uint32_t getCurrentPackageId(Runtime &runtime) {
+@@ -54,7 +58,8 @@ uint32_t getCurrentPackageId(Runtime &runtime) {
        continue;
      return packageId;
    }
