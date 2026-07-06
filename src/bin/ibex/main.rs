@@ -6,6 +6,7 @@
 mod agent_logs;
 mod cdp;
 mod cli;
+mod compat;
 mod engine;
 mod host;
 mod repl;
@@ -392,6 +393,44 @@ async fn run(cli: Cli) -> Result<()> {
         },
         Some(Commands::Policy { command }) => runtime::run_policy_command(command).await,
         Some(Commands::SelfTest) => runtime_tests::run_all(&cli).await,
+        Some(Commands::Compat {
+            section,
+            module,
+            test,
+            quick,
+            failed,
+            update_expectations,
+            report,
+            json,
+            log,
+            log_color,
+            log_no_skip,
+            jobs,
+            strict,
+            all,
+            no_retry,
+            timeout,
+        }) => {
+            compat::run_compat(compat::CompatOptions {
+                section: section.clone(),
+                module: module.clone(),
+                test_filter: test.clone(),
+                quick: *quick,
+                failed: *failed,
+                update_expectations: *update_expectations,
+                report: *report,
+                json: *json,
+                log: *log,
+                log_color: *log_color,
+                log_no_skip: *log_no_skip,
+                jobs: *jobs,
+                strict: *strict,
+                all: *all,
+                no_retry: *no_retry,
+                timeout: *timeout,
+            })
+            .await
+        }
         None => {
             // If no command but a file is provided via positional argument
             if let Some(file) = &cli.file {

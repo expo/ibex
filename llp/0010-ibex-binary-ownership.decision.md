@@ -25,9 +25,13 @@ The `ibex` command is runtime-only:
 - shipped runtime commands: file execution, `run`, `eval`, `repl`, `build`,
   `completions`, `version`, runtime diagnostics (`debug`), and the LLP 0014
   `policy` toolchain.
-- hidden harness command: `self-test` runs a compact in-binary smoke suite for
-  CI consumers. It is not advertised in help and does not make `ibex test`
-  user-facing.
+- hidden harness commands: `self-test` runs a compact in-binary smoke suite for
+  CI consumers; `compat` runs the WPT/Node/Bun/Exact compatibility harness
+  (ported from exact's stranded `packages/exact-cli` compat module, ENG-23081)
+  against the `test/compat/` fixture tree, which lives in the exact repo — the
+  registered `websocket-wpt-compat` / `websocket-server-compat` checks invoke
+  it through the vendored pin. Neither is advertised in help, and neither makes
+  `ibex test` user-facing.
 - reserved runtime names such as `test`, `install`, `bench`, and `exec` are not
   advertised until implemented.
 - Exact project commands such as `new`, `create`, `init`, `verify`, `facet`,

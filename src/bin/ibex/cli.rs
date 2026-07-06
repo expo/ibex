@@ -4,7 +4,8 @@
 //! `exact` binary; reserved-but-unbuilt runtime names (`test`, `install`,
 //! `bench`, `exec`) are absent from this clap tree and intercepted by the
 //! pre-clap dispatcher in `main.rs`. The hidden `self-test` command is a CI
-//! harness smoke, not a user-facing test runner.
+//! harness smoke, not a user-facing test runner; the hidden `compat` command
+//! is the WPT/exact compat harness (fixtures live in the exact repo).
 
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -249,6 +250,77 @@ pub enum Commands {
     /// Run the hidden in-binary runtime smoke suite
     #[command(hide = true, name = "self-test")]
     SelfTest,
+
+    /// Run compatibility test suite (WPT, Node.js, Bun, Exact) — repo
+    /// harness; requires the fixture tree (`test/compat/` in the exact
+    /// repo). Ported from exact-cli (ENG-23081); hidden like `self-test`
+    /// per LLP 0010#runtime-command-surface.
+    #[command(hide = true)]
+    Compat {
+        /// Run only a specific section: wpt, node, bun, exact
+        #[arg(long, value_name = "SECTION")]
+        section: Option<String>,
+
+        /// Run tests for a specific module across all sections
+        #[arg(long, value_name = "MODULE")]
+        module: Option<String>,
+
+        /// Filter tests by ID substring (can be repeated for multiple tests)
+        #[arg(long, short = 't', value_name = "FILTER")]
+        test: Vec<String>,
+
+        /// Run only Tier 0 subset (~500 tests, <30s)
+        #[arg(long)]
+        quick: bool,
+
+        /// Re-run only tests that failed in the previous run
+        #[arg(long)]
+        failed: bool,
+
+        /// Run suite and overwrite expectations with current results
+        #[arg(long)]
+        update_expectations: bool,
+
+        /// Generate web report after running
+        #[arg(long)]
+        report: bool,
+
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Stream live pass/fail output to the console.
+        #[arg(long, conflicts_with = "json")]
+        log: bool,
+
+        /// Add ANSI colors to `--log` output.
+        #[arg(long)]
+        log_color: bool,
+
+        /// Skip printing SKIP lines in `--log` output.
+        #[arg(long)]
+        log_no_skip: bool,
+
+        /// Number of parallel test processes (default: min(CPU count, 4))
+        #[arg(long, short = 'j', value_name = "N")]
+        jobs: Option<usize>,
+
+        /// Treat flaky tests as failures
+        #[arg(long)]
+        strict: bool,
+
+        /// Run all tiers including Tier 2 (third-party)
+        #[arg(long)]
+        all: bool,
+
+        /// Skip flaky-detection retries for failed tests
+        #[arg(long)]
+        no_retry: bool,
+
+        /// Override timeout per test in milliseconds (default: 6000)
+        #[arg(long, value_name = "MS")]
+        timeout: Option<u64>,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq)]
@@ -490,6 +562,67 @@ mod tests {
     fn self_test_command_parses() {
         let cli = Cli::parse_from(["ibex", "self-test"]);
         assert!(matches!(cli.command, Some(Commands::SelfTest)));
+    }
+
+    /// The registered exact-side checks invoke exactly this surface
+    /// (`compat --section wpt --module websockets --log --log-no-skip -j N
+    /// --timeout MS --strict --no-retry` and the `--section exact
+    /// --module websocket-server` variant) — pin that it parses. (ENG-23081)
+    #[test]
+    fn compat_command_parses_registered_check_surface() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "compat",
+            "--section",
+            "wpt",
+            "--module",
+            "websockets",
+            "--strict",
+            "--no-retry",
+            "-j",
+            "2",
+            "--timeout",
+            "15000",
+            "--log",
+            "--log-no-skip",
+        ]);
+        match cli.command {
+            Some(Commands::Compat {
+                section,
+                module,
+                strict,
+                no_retry,
+                jobs,
+                timeout,
+                log,
+                log_no_skip,
+                json,
+                all,
+                ..
+            }) => {
+                assert_eq!(section.as_deref(), Some("wpt"));
+                assert_eq!(module.as_deref(), Some("websockets"));
+                assert!(strict);
+                assert!(no_retry);
+                assert_eq!(jobs, Some(2));
+                assert_eq!(timeout, Some(15000));
+                assert!(log);
+                assert!(log_no_skip);
+                assert!(!json);
+                assert!(!all);
+            }
+            other => panic!("expected Compat command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compat_all_flag_parses_and_log_conflicts_with_json() {
+        let cli = Cli::parse_from(["ibex", "compat", "--all"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Compat { all: true, .. })
+        ));
+        assert!(Cli::try_parse_from(["ibex", "compat", "--log", "--json"]).is_err());
     }
 
     /// The runtime surface manifest (`runtime-surface.json` at the repo root,
