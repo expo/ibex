@@ -32,6 +32,15 @@ export class IDBDatabase {
    * (ENG-22999)
    */
   private _keyencReady: Set<string> = new Set();
+  /**
+   * @internal - Store tables whose per-index companion table (`idb_index_<store>`)
+   * has been ensured — and, for legacy databases, backfilled — on this
+   * connection. Mirrors `_keyencReady`: memoized per connection so index-key
+   * table maintenance stays off the hot path, with a persistent
+   * `idxdata:<store>` meta marker making the backfill run at most once ever.
+   * (ENG-23016)
+   */
+  _indexDataReady: Set<string> = new Set();
 
   onclose: ((event: any) => void) | null = null;
   onversionchange: ((event: any) => void) | null = null;
@@ -122,9 +131,11 @@ export class IDBDatabase {
       );
     }
 
-    // Drop the SQLite table
+    // Drop the SQLite table and its per-index companion table. (ENG-23016)
     const tableName = `idb_store_${sanitizeName(name)}`;
+    const indexTableName = `idb_index_${sanitizeName(name)}`;
     this._exec(`DROP TABLE IF EXISTS "${tableName}"`);
+    this._exec(`DROP TABLE IF EXISTS "${indexTableName}"`);
 
     // Remove from meta
     this._exec(
@@ -135,7 +146,10 @@ export class IDBDatabase {
       `DELETE FROM _idb_indexes WHERE store_name = ?`,
       [name]
     );
+    this._exec(`DELETE FROM _idb_meta WHERE key = ?`, [`idxdata:${name}`]);
 
+    this._keyencReady.delete(tableName);
+    this._indexDataReady.delete(indexTableName);
     this._objectStores.delete(name);
   }
 

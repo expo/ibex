@@ -863,3 +863,288 @@ describe('ENG-23026: index & accessor correctness', () => {
     db.close();
   });
 });
+
+// ===========================================================================
+// ENG-23016 — per-index SQLite key tables (sublinear index lookups, multiEntry
+// + unique maintenance, migration) and bounded-memory (batched) streaming
+// object-store cursors.
+// ===========================================================================
+
+describe('ENG-23016: per-index key tables', () => {
+  test('index reads run against the companion index table, not a full store scan', async () => {
+    const seen: string[] = [];
+    const dir = makeDir();
+    const factory = new IDBFactory(makeProvider(dir, (sql) => seen.push(sql)) as any);
+    const db = await openDb(factory, 'ix-sql', 1, (d) => {
+      const s = d.createObjectStore('people', { keyPath: 'id' });
+      s.createIndex('byAge', 'age');
+    });
+    const wtx = db.transaction('people', 'readwrite');
+    const ws = wtx.objectStore('people');
+    for (let i = 0; i < 50; i++) ws.put({ id: i, age: 100 - i });
+    await txDone(wtx);
+
+    seen.length = 0;
+    const tx = db.transaction('people', 'readonly');
+    await reqDone(tx.objectStore('people').index('byAge').getAll(IDBKeyRange.bound(60, 70)));
+    // The read joins the per-index table; it never scans the whole store.
+    expect(seen.some((s) => /FROM "idb_index_people"/.test(s) && /JOIN/.test(s))).toBe(true);
+    expect(seen.some((s) => /ORDER BY ix\.keyenc/.test(s))).toBe(true);
+
+    // count(range) is a COUNT over the index table with no JOIN / row read.
+    seen.length = 0;
+    const ctx = db.transaction('people', 'readonly');
+    await reqDone(ctx.objectStore('people').index('byAge').count(IDBKeyRange.bound(60, 70)));
+    expect(seen.some((s) => /COUNT\(\*\)/.test(s) && /FROM "idb_index_people"/.test(s))).toBe(true);
+    db.close();
+  });
+
+  test('multiEntry index expands array keys and dedupes duplicate subkeys', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'multi', 1, (d) => {
+      const s = d.createObjectStore('docs', { keyPath: 'id' });
+      s.createIndex('tags', 'tags', { multiEntry: true });
+    });
+    const wtx = db.transaction('docs', 'readwrite');
+    const ws = wtx.objectStore('docs');
+    ws.put({ id: 1, tags: ['a', 'b'] });
+    ws.put({ id: 2, tags: ['b', 'c'] });
+    ws.put({ id: 3, tags: ['x', 'x'] }); // duplicate subkeys collapse to one entry
+    await txDone(wtx);
+
+    let tx = db.transaction('docs', 'readonly');
+    expect(await reqDone(tx.objectStore('docs').index('tags').getAllKeys('b'))).toEqual([1, 2]);
+    tx = db.transaction('docs', 'readonly');
+    expect(await reqDone(tx.objectStore('docs').index('tags').count('b'))).toBe(2);
+    tx = db.transaction('docs', 'readonly');
+    expect(await reqDone(tx.objectStore('docs').index('tags').count('x'))).toBe(1);
+    // Unbounded getAllKeys: one entry per (deduped) tag, index-key order then pk.
+    tx = db.transaction('docs', 'readonly');
+    expect(await reqDone(tx.objectStore('docs').index('tags').getAllKeys()))
+      .toEqual([1, 1, 2, 2, 3]); // a(1) b(1) b(2) c(2) x(3)
+
+    // Deleting a record removes all of its multiEntry rows.
+    const dtx = db.transaction('docs', 'readwrite');
+    dtx.objectStore('docs').delete(2);
+    await txDone(dtx);
+    tx = db.transaction('docs', 'readonly');
+    expect(await reqDone(tx.objectStore('docs').index('tags').getAllKeys('b'))).toEqual([1]);
+    db.close();
+  });
+
+  test('unique index rejects a conflicting write with ConstraintError but allows same-key replace', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'uniq', 1, (d) => {
+      const s = d.createObjectStore('users', { keyPath: 'id' });
+      s.createIndex('email', 'email', { unique: true });
+    });
+
+    const tx1 = db.transaction('users', 'readwrite');
+    const s1 = tx1.objectStore('users');
+    const ok = s1.add({ id: 1, email: 'a@x.com' });
+    const dup = s1.add({ id: 2, email: 'a@x.com' }); // conflicts on the unique index
+    await txDone(tx1);
+    expect(ok.result).toBe(1);
+    expect(dup.error).toBeDefined();
+    expect(dup.error.name).toBe('ConstraintError');
+
+    // Only the first record made it in.
+    let tx = db.transaction('users', 'readonly');
+    expect(await reqDone(tx.objectStore('users').index('email').getAllKeys('a@x.com'))).toEqual([1]);
+
+    // Replacing the SAME record's value keeps the same index key — no self-conflict.
+    const tx2 = db.transaction('users', 'readwrite');
+    tx2.objectStore('users').put({ id: 1, email: 'a@x.com', n: 2 });
+    await txDone(tx2);
+    tx = db.transaction('users', 'readonly');
+    expect(await reqDone(tx.objectStore('users').index('email').count('a@x.com'))).toBe(1);
+
+    // Moving record 3 onto record 1's email conflicts.
+    const tx3 = db.transaction('users', 'readwrite');
+    const s3 = tx3.objectStore('users');
+    s3.add({ id: 3, email: 'c@x.com' });
+    const clash = s3.put({ id: 3, email: 'a@x.com' });
+    await txDone(tx3);
+    expect(clash.error?.name).toBe('ConstraintError');
+    db.close();
+  });
+
+  test('createIndex backfills from records already in the store', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'backfill', 1, (d) => {
+      const s = d.createObjectStore('s', { keyPath: 'id' });
+      // Write rows during the upgrade BEFORE the index exists, then create the
+      // index: its companion rows must be backfilled from the existing data.
+      s.put({ id: 1, v: 'x' });
+      s.put({ id: 2, v: 'y' });
+      s.createIndex('byV', 'v');
+    });
+    let tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').index('byV').getAllKeys())).toEqual([1, 2]);
+    tx = db.transaction('s', 'readonly');
+    const rec: any = await reqDone(tx.objectStore('s').index('byV').get('y'));
+    expect(rec.id).toBe(2);
+    db.close();
+  });
+
+  test('a legacy database without a per-index table is migrated on first index read', async () => {
+    const dir = makeDir();
+    const name = 'legacy-index';
+
+    // Hand-build the pre-ENG-23016 on-disk shape: a store with keyenc + index
+    // METADATA, but no `idb_index_<store>` companion table and no marker.
+    const raw = new Database(dbPath(dir, name));
+    raw.run(`CREATE TABLE _idb_meta (key TEXT PRIMARY KEY, value TEXT)`);
+    raw.run(`INSERT INTO _idb_meta(key, value) VALUES ('version', '1')`);
+    raw.run(`CREATE TABLE _idb_stores (store_name TEXT PRIMARY KEY, key_path TEXT, auto_increment INTEGER DEFAULT 0)`);
+    raw.run(`INSERT INTO _idb_stores(store_name, key_path, auto_increment) VALUES ('s', '"id"', 0)`);
+    raw.run(`CREATE TABLE _idb_indexes (store_name TEXT, index_name TEXT, key_path TEXT, unique_flag INTEGER DEFAULT 0, multi_entry INTEGER DEFAULT 0, PRIMARY KEY (store_name, index_name))`);
+    raw.run(`INSERT INTO _idb_indexes(store_name, index_name, key_path, unique_flag, multi_entry) VALUES ('s', 'byV', '"v"', 0, 0)`);
+    raw.run(`CREATE TABLE "idb_store_s" (key TEXT PRIMARY KEY, value TEXT, keyenc TEXT)`);
+    for (let i = 1; i <= 5; i++) {
+      raw.run(
+        `INSERT INTO "idb_store_s" (key, value, keyenc) VALUES (?, ?, ?)`,
+        serializeKey(i),
+        serializeValue({ id: i, v: `v${6 - i}` }), // v5,v4,v3,v2,v1 for ids 1..5
+        encodeOrderedKey(i),
+      );
+    }
+    raw.close();
+
+    const factory = new IDBFactory(makeProvider(dir) as any);
+    const db = await openDb(factory, name, undefined);
+    // First index read migrates (builds + backfills the companion table).
+    let tx = db.transaction('s', 'readonly');
+    expect(await reqDone(tx.objectStore('s').index('byV').getAllKeys()))
+      .toEqual([5, 4, 3, 2, 1]); // ordered by v1..v5 -> ids 5..1
+    tx = db.transaction('s', 'readonly');
+    const rec: any = await reqDone(tx.objectStore('s').index('byV').get('v3'));
+    expect(rec.id).toBe(3);
+    db.close();
+  });
+});
+
+describe('ENG-23016: bounded-memory streaming cursors', () => {
+  // Drive a cursor to completion, collecting [key, value] pairs.
+  const drain = (store: any, range: any, dir: any, key = false) =>
+    new Promise<any[]>((resolve, reject) => {
+      const out: any[] = [];
+      const req = key ? store.openKeyCursor(range, dir) : store.openCursor(range, dir);
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return resolve(out);
+        out.push(key ? cur.key : [cur.key, cur.value]);
+        cur.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+  test('an unbounded cursor over a large store pages in bounded batches', async () => {
+    const seen: string[] = [];
+    const dir = makeDir();
+    const factory = new IDBFactory(makeProvider(dir, (sql) => seen.push(sql)) as any);
+    const db = await openDb(factory, 'stream-big', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 300; i++) wtx.objectStore('s').put(`v${i}`, i);
+    await txDone(wtx);
+
+    seen.length = 0;
+    const tx = db.transaction('s', 'readonly');
+    const rows = await drain(tx.objectStore('s'), null, 'next');
+    expect(rows.length).toBe(300);
+    expect(rows[0]).toEqual([0, 'v0']);
+    expect(rows[299]).toEqual([299, 'v299']);
+    // Bounded memory: the cursor issued several batched SELECTs (LIMIT), never a
+    // single fetch of the whole store.
+    const fetches = seen.filter((s) => /SELECT key, value, keyenc FROM "idb_store_s"/.test(s) && /LIMIT/.test(s));
+    expect(fetches.length).toBeGreaterThan(1);
+    db.close();
+  });
+
+  test('streaming cursor iterates correctly in reverse over a large store', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'stream-rev', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 300; i++) wtx.objectStore('s').put(`v${i}`, i);
+    await txDone(wtx);
+
+    const tx = db.transaction('s', 'readonly');
+    const rows = await drain(tx.objectStore('s'), null, 'prev');
+    expect(rows.length).toBe(300);
+    expect(rows[0]).toEqual([299, 'v299']);
+    expect(rows[299]).toEqual([0, 'v0']);
+    db.close();
+  });
+
+  test('continue(key) re-seeks across batch boundaries', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'stream-seek', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 300; i++) wtx.objectStore('s').put(`v${i}`, i);
+    await txDone(wtx);
+
+    const out = await new Promise<any[]>((resolve, reject) => {
+      const acc: any[] = [];
+      let jumped = false;
+      const req = db.transaction('s', 'readonly').objectStore('s').openCursor();
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return resolve(acc);
+        if (!jumped) {
+          jumped = true;
+          expect(cur.key).toBe(0);
+          cur.continue(250); // jump well past the first batch
+          return;
+        }
+        acc.push(cur.key);
+        cur.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+    expect(out[0]).toBe(250);
+    expect(out[out.length - 1]).toBe(299);
+    expect(out.length).toBe(50);
+    db.close();
+  });
+
+  test('advance() skips across batch boundaries', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'stream-adv', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 300; i++) wtx.objectStore('s').put(`v${i}`, i);
+    await txDone(wtx);
+
+    const landed = await new Promise<any>((resolve, reject) => {
+      const req = db.transaction('s', 'readonly').objectStore('s').openCursor();
+      let advanced = false;
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return resolve(undefined);
+        if (!advanced) {
+          advanced = true;
+          cur.advance(150); // 0 -> 150, crossing the 128-row batch boundary
+          return;
+        }
+        resolve(cur.key);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    expect(landed).toBe(150);
+    db.close();
+  });
+
+  test('streaming key cursor over a large store yields keys only, in bounded batches', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'stream-key', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 300; i++) wtx.objectStore('s').put(`v${i}`, i);
+    await txDone(wtx);
+
+    const tx = db.transaction('s', 'readonly');
+    const keys = await drain(tx.objectStore('s'), IDBKeyRange.lowerBound(100), 'next', true);
+    expect(keys.length).toBe(200);
+    expect(keys[0]).toBe(100);
+    expect(keys[199]).toBe(299);
+    db.close();
+  });
+});

@@ -9,7 +9,7 @@
 import { IDBRequest } from './IDBRequest';
 import { IDBIndex, type IDBIndexParameters, extractKeyPath } from './IDBIndex';
 import { IDBKeyRange, isValidKey } from './IDBKeyRange';
-import { IDBCursor, IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
+import { IDBCursor, IDBCursorWithValue, IDB_CURSOR_BATCH, type IDBCursorDirection, type CursorStream } from './IDBCursor';
 import { serializeKey, deserializeKey, serializeValue, deserializeValue, encodeOrderedKey } from './serialization';
 import { DOMException, sanitizeName } from './utils';
 
@@ -213,6 +213,16 @@ export class IDBObjectStore {
         // Delete the matching range directly in SQL — no scan, no per-row key
         // deserialization, a single statement. (ENG-22999)
         const { where, params } = this._rangeConds(query);
+        // First remove the companion index rows for the records about to be
+        // deleted (identified via the store's keyenc range subquery), then the
+        // store rows themselves. (ENG-23016)
+        if (this._indexes.size > 0) {
+          this._ensureIndexData();
+          this._db._exec(
+            `DELETE FROM "${this._indexTableName()}" WHERE pk IN (SELECT key FROM "${this._tableName}"${where})`,
+            params,
+          );
+        }
         this._db._exec(`DELETE FROM "${this._tableName}"${where}`, params);
       } else {
         this._deleteRecord(query);
@@ -285,6 +295,13 @@ export class IDBObjectStore {
     // Persist index metadata
     this._db._saveIndexMeta(this.name, name, keyPath, options ?? {});
 
+    // Build this index's rows in the companion key table from whatever records
+    // the store already holds, so index queries are SQL-backed immediately even
+    // when the index is added to a populated store during a later upgrade.
+    // (ENG-23016)
+    this._ensureIndexData();
+    this._backfillIndex(name);
+
     return index;
   }
 
@@ -298,6 +315,10 @@ export class IDBObjectStore {
         'NotFoundError',
       );
     }
+    // Drop this index's companion rows before removing it from the store (while
+    // the store still has an index, so the table is ensured to exist). (ENG-23016)
+    this._ensureIndexData();
+    this._db._exec(`DELETE FROM "${this._indexTableName()}" WHERE idx = ?`, [name]);
     this._indexes.delete(name);
     this._db._deleteIndexMeta(this.name, name);
   }
@@ -325,24 +346,17 @@ export class IDBObjectStore {
     request.source = this;
     request.transaction = this._transaction;
     try {
-      // Select only the matching rows, already ordered by the cursor's
-      // direction in SQL, so the cursor never scans/deserializes the whole
-      // table or re-sorts in JS. Object-store keys are unique, so the ordered
-      // rows can be handed to the cursor pre-sorted (nextunique/prevunique are
-      // equivalent to next/prev here). (ENG-22999)
+      // Stream the matching rows in bounded batches (keyset pagination over the
+      // unique keyenc column) instead of materializing the whole matching set,
+      // so an unbounded cursor over a huge store holds O(batch) rows and defers
+      // value deserialization to each batch rather than up front. (ENG-23016)
       const dir = direction ?? 'next';
-      const range = this._queryRange(query);
-      const sqlDir = dir === 'prev' || dir === 'prevunique' ? 'desc' : 'asc';
-      const { sql, params } = this._selectRange('key, value', range, sqlDir);
-      const rows = this._db._all(sql, params);
-      if (rows.length === 0) {
+      const stream = this._cursorStreamer(this._queryRange(query), dir, true);
+      const first = stream.fetch(null, null);
+      if (first.length === 0) {
         request._resolve(null);
       } else {
-        const cursorRecords = rows.map((r: any) => {
-          const key = deserializeKey(r.key);
-          return { key, primaryKey: key, value: deserializeValue(r.value) };
-        });
-        const cursor = new IDBCursorWithValue(this, dir, cursorRecords, request, true);
+        const cursor = new IDBCursorWithValue(this, dir, first, request, false, stream);
         request._resolve(cursor);
       }
     } catch (e: any) {
@@ -360,31 +374,73 @@ export class IDBObjectStore {
     request.source = this;
     request.transaction = this._transaction;
     try {
-      // A key cursor never exposes values: select only the key column (skipping
-      // value deserialization entirely) and yield a plain IDBCursor rather than
-      // delegating to openCursor, which would read+deserialize every value and
-      // return an IDBCursorWithValue. (ENG-23026)
+      // A key cursor never exposes values: stream only the key column (no value
+      // deserialization) in bounded batches and yield a plain IDBCursor rather
+      // than an IDBCursorWithValue. (ENG-23026 / ENG-23016)
       const dir = direction ?? 'next';
-      const range = this._queryRange(query);
-      const sqlDir = dir === 'prev' || dir === 'prevunique' ? 'desc' : 'asc';
-      const { sql, params } = this._selectRange('key', range, sqlDir);
-      const rows = this._db._all(sql, params);
-      if (rows.length === 0) {
+      const stream = this._cursorStreamer(this._queryRange(query), dir, false);
+      const first = stream.fetch(null, null);
+      if (first.length === 0) {
         request._resolve(null);
       } else {
-        const cursorRecords = rows.map((r: any) => {
-          const key = deserializeKey(r.key);
-          return { key, primaryKey: key, value: undefined };
-        });
-        // Object-store keys are unique and already ordered by direction in SQL,
-        // so hand them to the cursor pre-sorted. (ENG-22999)
-        const cursor = new IDBCursor(this, dir, cursorRecords, request, true);
+        const cursor = new IDBCursor(this, dir, first, request, false, stream);
         request._resolve(cursor);
       }
     } catch (e: any) {
       request._reject(e);
     }
     return request;
+  }
+
+  /**
+   * @internal - Build a bounded-memory streaming fetcher for an object-store
+   * cursor. Object-store keys (hence `keyenc`) are unique, so keyset pagination
+   * with a strict keyenc bookmark yields every matching row exactly once in
+   * direction order. A true single-statement native row iterator
+   * (SQLite statement.iterate held across microtasks) remains a native-bridge
+   * follow-up — the JS sqlite bridge exposes only exec/get/all — so we page with
+   * LIMIT + a keyenc bookmark here. (ENG-23016)
+   */
+  _cursorStreamer(range: IDBKeyRange | null, dir: IDBCursorDirection, wantValue: boolean): CursorStream {
+    const sqlDir = dir === 'prev' || dir === 'prevunique' ? 'desc' : 'asc';
+    const cols = wantValue ? 'key, value, keyenc' : 'key, keyenc';
+    const fetch = (after: string | null, target: string | null) => {
+      const conds: string[] = [];
+      const params: any[] = [];
+      if (range) {
+        if (range.lower !== undefined) {
+          conds.push(range.lowerOpen ? 'keyenc > ?' : 'keyenc >= ?');
+          params.push(encodeOrderedKey(range.lower));
+        }
+        if (range.upper !== undefined) {
+          conds.push(range.upperOpen ? 'keyenc < ?' : 'keyenc <= ?');
+          params.push(encodeOrderedKey(range.upper));
+        }
+      }
+      if (after !== null) {
+        conds.push(sqlDir === 'asc' ? 'keyenc > ?' : 'keyenc < ?');
+        params.push(after);
+      }
+      if (target !== null) {
+        conds.push(sqlDir === 'asc' ? 'keyenc >= ?' : 'keyenc <= ?');
+        params.push(target);
+      }
+      const where = conds.length ? ' WHERE ' + conds.join(' AND ') : '';
+      const sql =
+        `SELECT ${cols} FROM "${this._tableName}"${where} ` +
+        `ORDER BY keyenc ${sqlDir === 'desc' ? 'DESC' : 'ASC'} LIMIT ?`;
+      params.push(IDB_CURSOR_BATCH);
+      return this._db._all(sql, params).map((r: any) => {
+        const key = deserializeKey(r.key);
+        return {
+          key,
+          primaryKey: key,
+          value: wantValue ? deserializeValue(r.value) : undefined,
+          keyenc: r.keyenc,
+        };
+      });
+    };
+    return { fetch, batchSize: IDB_CURSOR_BATCH };
   }
 
   // ================================================================
@@ -504,13 +560,21 @@ export class IDBObjectStore {
 
   /** @internal */
   _putRecord(key: any, value: any): void {
+    const pkSer = serializeKey(key);
+    // Compute the record's index entries and detect any unique-index conflict
+    // BEFORE writing the store row, so a ConstraintError leaves the store
+    // untouched even if the failing request's error is handled and the
+    // transaction continues. Returns null when the store has no indexes.
+    // (ENG-23016)
+    const applyIndexes = this._prepareIndexMaintenance(key, value, pkSer);
     // Structured (tagged) serialization preserves Date/TypedArray/ArrayBuffer/
     // Map/Set/undefined that plain JSON silently corrupts. The `keyenc` column
     // holds the order-preserving encoding used for range/ORDER BY. (ENG-22999)
     this._db._exec(
       `INSERT OR REPLACE INTO "${this._tableName}" (key, value, keyenc) VALUES (?, ?, ?)`,
-      [serializeKey(key), serializeValue(value), encodeOrderedKey(key)]
+      [pkSer, serializeValue(value), encodeOrderedKey(key)]
     );
+    if (applyIndexes) applyIndexes();
   }
 
   /** @internal */
@@ -524,9 +588,15 @@ export class IDBObjectStore {
 
   /** @internal */
   _deleteRecord(key: any): void {
+    const pkSer = serializeKey(key);
+    // Remove the record's companion index rows alongside the store row. (ENG-23016)
+    if (this._indexes.size > 0) {
+      this._ensureIndexData();
+      this._db._exec(`DELETE FROM "${this._indexTableName()}" WHERE pk = ?`, [pkSer]);
+    }
     this._db._exec(
       `DELETE FROM "${this._tableName}" WHERE key = ?`,
-      [serializeKey(key)]
+      [pkSer]
     );
   }
 
@@ -537,6 +607,12 @@ export class IDBObjectStore {
     // transaction is aborted — never by clear()/delete() — so a later add()
     // keeps counting up rather than reissuing an already-used key. (ENG-23026)
     this._db._exec(`DELETE FROM "${this._tableName}"`);
+    // Clear the companion index rows too, so indexes reflect the empty store.
+    // (ENG-23016)
+    if (this._indexes.size > 0) {
+      this._ensureIndexData();
+      this._db._exec(`DELETE FROM "${this._indexTableName()}"`);
+    }
   }
 
   /** @internal */
@@ -545,17 +621,218 @@ export class IDBObjectStore {
     return row ? row.cnt : 0;
   }
 
+  // ================================================================
+  // Per-index SQLite key tables (ENG-23016)
+  //
+  // Each store has ONE companion table `idb_index_<store>` holding a row per
+  // (index, index-key entry): `keyenc`/`pkenc` are the order-preserving
+  // encodings of the index key and primary key (so range + ORDER BY run in
+  // SQL, giving index-key order with a primary-key tiebreak), while `ikey`/`pk`
+  // are the tagged-JSON index key and primary key. A multiEntry array key
+  // expands to one row per distinct valid element. Index reads then filter,
+  // order and limit in SQL and join back to the store for values, instead of
+  // scanning + deserializing the whole store in JS (the deferred "index-backed
+  // lookups" piece of ENG-22999 / finding 3 of ENG-22974).
+  // ================================================================
+
+  /** @internal - The store's companion index-key table name. */
+  _indexTableName(): string {
+    return `idb_index_${sanitizeName(this.name)}`;
+  }
+
   /**
-   * @internal - All records ordered by IndexedDB key order. The ordering is
-   * done in SQL via the `keyenc` column, so no JS sort is needed. Still a full
-   * scan; used only by IDBIndex, which re-sorts by the index key anyway.
+   * @internal - Ensure the companion index table + lookup index exist and, on
+   * the first open of a database created before per-index tables existed,
+   * backfill every index from the store's rows. Memoized per connection; the
+   * persistent `idxdata:<store>` meta marker makes the backfill run at most once
+   * ever. Mirrors _ensureKeyEnc so it stays off the hot path.
    */
-  _getAllRecords(): Array<{ key: any; value: any }> {
-    const rows = this._db._all(
-      `SELECT key, value FROM "${this._tableName}" ORDER BY keyenc`,
+  _ensureIndexData(): void {
+    if (this._indexes.size === 0) return;
+    const table = this._indexTableName();
+    if (this._db._indexDataReady.has(table)) return;
+    this._db._exec(
+      `CREATE TABLE IF NOT EXISTS "${table}" (idx TEXT, keyenc TEXT, pkenc TEXT, ikey TEXT, pk TEXT)`,
     );
-    return rows.map((r: any) => ({
-      key: deserializeKey(r.key),
+    this._db._exec(
+      `CREATE INDEX IF NOT EXISTS "${table}_lookup" ON "${table}"(idx, keyenc, pkenc)`,
+    );
+    const marker = this._db._get(`SELECT value FROM _idb_meta WHERE key = ?`, [`idxdata:${this.name}`]);
+    if (!marker || marker.value !== '1') {
+      for (const name of this._indexes.keys()) this._backfillIndex(name);
+      this._db._exec(
+        `INSERT OR REPLACE INTO _idb_meta (key, value) VALUES (?, '1')`,
+        [`idxdata:${this.name}`],
+      );
+    }
+    this._db._indexDataReady.add(table);
+  }
+
+  /** @internal - Rebuild one index's companion rows from the store's records. */
+  _backfillIndex(indexName: string): void {
+    const index = this._indexes.get(indexName);
+    if (!index) return;
+    const table = this._indexTableName();
+    this._db._exec(`DELETE FROM "${table}" WHERE idx = ?`, [indexName]);
+    const rows = this._db._all(`SELECT key, value FROM "${this._tableName}"`);
+    for (const r of rows) {
+      const primaryKey = deserializeKey(r.key);
+      const value = deserializeValue(r.value);
+      for (const e of this._indexEntries(index, primaryKey, value)) {
+        this._db._exec(
+          `INSERT INTO "${table}" (idx, keyenc, pkenc, ikey, pk) VALUES (?, ?, ?, ?, ?)`,
+          [indexName, e.keyenc, e.pkenc, e.ikey, e.pk],
+        );
+      }
+    }
+  }
+
+  /**
+   * @internal - The companion rows a record contributes to one index. Empty
+   * when the record has no valid key at the index's key path. A multiEntry
+   * index over an array key yields one entry per distinct valid element.
+   */
+  _indexEntries(
+    index: IDBIndex,
+    primaryKey: any,
+    value: any,
+  ): Array<{ keyenc: string; pkenc: string; ikey: string; pk: string }> {
+    const raw = extractKeyPath(value, index.keyPath);
+    if (raw === undefined) return [];
+    const pkenc = encodeOrderedKey(primaryKey);
+    const pk = serializeKey(primaryKey);
+
+    if (index.multiEntry && Array.isArray(raw)) {
+      const out: Array<{ keyenc: string; pkenc: string; ikey: string; pk: string }> = [];
+      const seen = new Set<string>();
+      for (const el of raw) {
+        if (!isValidKey(el)) continue; // skip non-key array elements
+        const keyenc = encodeOrderedKey(el);
+        if (seen.has(keyenc)) continue; // dedupe duplicate subkeys
+        seen.add(keyenc);
+        out.push({ keyenc, pkenc, ikey: serializeKey(el), pk });
+      }
+      return out;
+    }
+
+    if (!isValidKey(raw)) return []; // an index value that isn't a valid key is not indexed
+    return [{ keyenc: encodeOrderedKey(raw), pkenc, ikey: serializeKey(raw), pk }];
+  }
+
+  /**
+   * @internal - Detect unique-index conflicts for a record and return a closure
+   * that applies its index-row updates, or null when the store has no indexes.
+   * The conflict check runs before the caller writes the store row so a
+   * ConstraintError never leaves a half-written record. (ENG-23016)
+   */
+  _prepareIndexMaintenance(primaryKey: any, value: any, pkSer: string): (() => void) | null {
+    if (this._indexes.size === 0) return null;
+    this._ensureIndexData();
+    const table = this._indexTableName();
+    const plan: Array<{ name: string; entries: Array<{ keyenc: string; pkenc: string; ikey: string; pk: string }> }> = [];
+    for (const [name, index] of this._indexes) {
+      const entries = this._indexEntries(index, primaryKey, value);
+      if (index.unique) {
+        for (const e of entries) {
+          const clash = this._db._get(
+            `SELECT 1 FROM "${table}" WHERE idx = ? AND keyenc = ? AND pk <> ? LIMIT 1`,
+            [name, e.keyenc, pkSer],
+          );
+          if (clash) {
+            throw new DOMException(
+              `Unable to add key to index "${name}": at least one key does not satisfy the uniqueness requirements.`,
+              'ConstraintError',
+            );
+          }
+        }
+      }
+      plan.push({ name, entries });
+    }
+    return () => {
+      for (const { name, entries } of plan) {
+        this._db._exec(`DELETE FROM "${table}" WHERE idx = ? AND pk = ?`, [name, pkSer]);
+        for (const e of entries) {
+          this._db._exec(
+            `INSERT INTO "${table}" (idx, keyenc, pkenc, ikey, pk) VALUES (?, ?, ?, ?, ?)`,
+            [name, e.keyenc, e.pkenc, e.ikey, e.pk],
+          );
+        }
+      }
+    };
+  }
+
+  /**
+   * @internal - WHERE clause for an index query: the index name plus an optional
+   * order-preserving `keyenc` range, matching _rangeConds but qualified for the
+   * joined index table alias `ix`.
+   */
+  _indexWhere(indexName: string, range: IDBKeyRange | null): { where: string; params: any[] } {
+    const conds = ['ix.idx = ?'];
+    const params: any[] = [indexName];
+    if (range) {
+      if (range.lower !== undefined) {
+        conds.push(range.lowerOpen ? 'ix.keyenc > ?' : 'ix.keyenc >= ?');
+        params.push(encodeOrderedKey(range.lower));
+      }
+      if (range.upper !== undefined) {
+        conds.push(range.upperOpen ? 'ix.keyenc < ?' : 'ix.keyenc <= ?');
+        params.push(encodeOrderedKey(range.upper));
+      }
+    }
+    return { where: ' WHERE ' + conds.join(' AND '), params };
+  }
+
+  /** @internal - Values matching an index query, in index-key (then primary-key) order. */
+  _indexGetValues(indexName: string, range: IDBKeyRange | null, limit?: number): any[] {
+    this._ensureIndexData();
+    const { where, params } = this._indexWhere(indexName, range);
+    let sql =
+      `SELECT s.value AS value FROM "${this._indexTableName()}" ix ` +
+      `JOIN "${this._tableName}" s ON s.key = ix.pk${where} ORDER BY ix.keyenc ASC, ix.pkenc ASC`;
+    if (limit !== undefined && limit > 0) {
+      sql += ' LIMIT ?';
+      params.push(limit);
+    }
+    return this._db._all(sql, params).map((r: any) => deserializeValue(r.value));
+  }
+
+  /** @internal - Primary keys matching an index query, in index-key order. */
+  _indexGetKeys(indexName: string, range: IDBKeyRange | null, limit?: number): any[] {
+    this._ensureIndexData();
+    const { where, params } = this._indexWhere(indexName, range);
+    let sql = `SELECT ix.pk AS pk FROM "${this._indexTableName()}" ix${where} ORDER BY ix.keyenc ASC, ix.pkenc ASC`;
+    if (limit !== undefined && limit > 0) {
+      sql += ' LIMIT ?';
+      params.push(limit);
+    }
+    return this._db._all(sql, params).map((r: any) => deserializeKey(r.pk));
+  }
+
+  /** @internal - COUNT of index rows matching a query — no rows materialized in JS. */
+  _indexCount(indexName: string, range: IDBKeyRange | null): number {
+    this._ensureIndexData();
+    const { where, params } = this._indexWhere(indexName, range);
+    const row = this._db._get(
+      `SELECT COUNT(*) AS cnt FROM "${this._indexTableName()}" ix${where}`,
+      params,
+    );
+    return row ? row.cnt : 0;
+  }
+
+  /**
+   * @internal - Full {key, primaryKey, value} records for an index cursor, in
+   * ascending index-key (then primary-key) order; the cursor re-orders for its
+   * direction and de-dupes for the *unique variants.
+   */
+  _indexRecords(indexName: string, range: IDBKeyRange | null): Array<{ key: any; primaryKey: any; value: any }> {
+    this._ensureIndexData();
+    const { where, params } = this._indexWhere(indexName, range);
+    const sql =
+      `SELECT ix.ikey AS ikey, ix.pk AS pk, s.value AS value FROM "${this._indexTableName()}" ix ` +
+      `JOIN "${this._tableName}" s ON s.key = ix.pk${where} ORDER BY ix.keyenc ASC, ix.pkenc ASC`;
+    return this._db._all(sql, params).map((r: any) => ({
+      key: deserializeKey(r.ikey),
+      primaryKey: deserializeKey(r.pk),
       value: deserializeValue(r.value),
     }));
   }

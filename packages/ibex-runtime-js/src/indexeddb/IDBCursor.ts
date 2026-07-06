@@ -8,16 +8,43 @@
 
 import { IDBRequest } from './IDBRequest';
 import { compareKeys } from './IDBKeyRange';
+import { encodeOrderedKey } from './serialization';
 
 export type IDBCursorDirection = 'next' | 'nextunique' | 'prev' | 'prevunique';
+
+/** Default batch size for streaming object-store cursors. (ENG-23016) */
+export const IDB_CURSOR_BATCH = 128;
+
+/**
+ * A bounded-memory row source for a streaming cursor: pages rows in direction
+ * order via keyset pagination over the unique `keyenc` column, so the cursor
+ * holds at most one batch at a time rather than the whole matching set.
+ * (ENG-23016)
+ */
+export interface CursorStream {
+  /**
+   * Fetch the next batch. `after` is the exclusive keyenc bookmark of the last
+   * row already consumed (null to start); `target` is an inclusive keyenc floor
+   * used by continue(key) to re-seek. Rows come back in the cursor's direction.
+   */
+  fetch(after: string | null, target: string | null): Array<{ key: any; primaryKey: any; value: any; keyenc: string }>;
+  batchSize: number;
+}
 
 export class IDBCursor {
   private _source: any;
   private _direction: IDBCursorDirection;
-  private _records: Array<{ key: any; primaryKey: any; value: any }>;
+  private _records: Array<{ key: any; primaryKey: any; value: any; keyenc?: string }>;
   private _position: number;
   private _request: IDBRequest;
   private _gotValue: boolean = false;
+  /**
+   * @internal - When set, the cursor pages its rows lazily from SQL instead of
+   * holding the whole matching set; `_records` is then just the current batch
+   * and `_bookmark` is the keyenc of its last row. (ENG-23016)
+   */
+  private _stream: CursorStream | null = null;
+  private _bookmark: string | null = null;
 
   constructor(
     source: any,
@@ -25,12 +52,20 @@ export class IDBCursor {
     records: Array<{ key: any; primaryKey: any; value: any }>,
     request: IDBRequest,
     presorted: boolean = false,
+    stream: CursorStream | null = null,
   ) {
     this._source = source;
     this._direction = direction;
     this._request = request;
 
-    if (presorted) {
+    if (stream) {
+      // Streaming (bounded-memory) mode: hold only the first batch; continue()/
+      // advance() page in subsequent batches on demand. (ENG-23016)
+      this._stream = stream;
+      const first = stream.fetch(null, null);
+      this._records = first;
+      this._bookmark = first.length ? (first[first.length - 1] as any).keyenc : null;
+    } else if (presorted) {
       // The caller already ordered the rows by direction in SQL and guarantees
       // unique keys (object-store cursors), so no JS sort or dedup is needed —
       // this is what lets a ranged/unbounded object-store cursor avoid the
@@ -91,6 +126,10 @@ export class IDBCursor {
   continue(key?: any): void {
     const tx = this._request.transaction;
     if (tx && tx._assertActive) tx._assertActive();
+    if (this._stream) {
+      this._streamContinue(key);
+      return;
+    }
     this._position++;
     if (key !== undefined) {
       // Skip to the first record with key >= given key (or <= for prev)
@@ -105,13 +144,7 @@ export class IDBCursor {
       }
     }
 
-    if (this._position < this._records.length) {
-      this._gotValue = true;
-      this._request._resolve(this as any);
-    } else {
-      this._gotValue = false;
-      this._request._resolve(null as any);
-    }
+    this._resolvePosition();
   }
 
   /**
@@ -124,6 +157,54 @@ export class IDBCursor {
     const tx = this._request.transaction;
     if (tx && tx._assertActive) tx._assertActive();
     this._position += count;
+    if (this._stream) {
+      // Page across batches until the target position lands inside a batch or
+      // the stream is exhausted. (ENG-23016)
+      while (this._position >= this._records.length) {
+        const overflow = this._position - this._records.length;
+        const batch = this._stream.fetch(this._bookmark, null);
+        if (batch.length === 0) {
+          this._records = [];
+          this._position = 0;
+          break;
+        }
+        this._records = batch;
+        this._bookmark = (batch[batch.length - 1] as any).keyenc;
+        this._position = overflow;
+      }
+    }
+    this._resolvePosition();
+  }
+
+  /**
+   * @internal - continue() for a streaming cursor: page in the next batch (or
+   * re-seek to `key`) via keyset pagination instead of walking an in-memory
+   * array. (ENG-23016)
+   */
+  private _streamContinue(key?: any): void {
+    if (key !== undefined) {
+      // Re-seek: strictly after the current row and at/after the target key.
+      const cur = this._records[this._position] as any;
+      const after = cur ? cur.keyenc : this._bookmark;
+      this._loadBatch(this._stream!.fetch(after, encodeOrderedKey(key)));
+    } else {
+      this._position++;
+      if (this._position >= this._records.length) {
+        this._loadBatch(this._stream!.fetch(this._bookmark, null));
+      }
+    }
+    this._resolvePosition();
+  }
+
+  /** @internal - Replace the current batch (from a fresh fetch) and reset position. */
+  private _loadBatch(batch: Array<{ key: any; primaryKey: any; value: any; keyenc?: string }>): void {
+    this._records = batch;
+    this._position = 0;
+    if (batch.length > 0) this._bookmark = (batch[batch.length - 1] as any).keyenc;
+  }
+
+  /** @internal - Resolve the bound request with the cursor (more) or null (done). */
+  private _resolvePosition(): void {
     if (this._position < this._records.length) {
       this._gotValue = true;
       this._request._resolve(this as any);
@@ -197,8 +278,9 @@ export class IDBCursorWithValue extends IDBCursor {
     records: Array<{ key: any; primaryKey: any; value: any }>,
     request: IDBRequest,
     presorted: boolean = false,
+    stream: CursorStream | null = null,
   ) {
-    super(source, direction, records, request, presorted);
+    super(source, direction, records, request, presorted, stream);
     this._valueRecords = (this as any)._records;
   }
 

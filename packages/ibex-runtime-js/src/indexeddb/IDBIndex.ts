@@ -8,7 +8,6 @@
  */
 
 import { IDBRequest } from './IDBRequest';
-import { IDBKeyRange, compareKeys } from './IDBKeyRange';
 import { IDBCursor, IDBCursorWithValue, type IDBCursorDirection } from './IDBCursor';
 
 export interface IDBIndexParameters {
@@ -43,6 +42,11 @@ export class IDBIndex {
 
   /**
    * Retrieve the first record matching a key or key range from this index.
+   *
+   * Index reads are backed by the store's companion index-key table: filtering,
+   * index-key ordering (primary key as tiebreak) and LIMIT push into SQL, so an
+   * index query no longer scans + deserializes the whole store in JS. multiEntry
+   * and unique are maintained on the write path. (ENG-23016)
    */
   get(query: any): IDBRequest {
     this._objectStore._transaction._assertActive();
@@ -50,8 +54,12 @@ export class IDBIndex {
     request.source = this;
     request.transaction = this._objectStore._transaction;
     try {
-      const records = this._getMatchingRecords(query);
-      request._resolve(records.length > 0 ? records[0].value : undefined);
+      const values = this._objectStore._indexGetValues(
+        this.name,
+        this._objectStore._queryRange(query),
+        1,
+      );
+      request._resolve(values.length > 0 ? values[0] : undefined);
     } catch (e: any) {
       request._reject(e);
     }
@@ -67,8 +75,12 @@ export class IDBIndex {
     request.source = this;
     request.transaction = this._objectStore._transaction;
     try {
-      const records = this._getMatchingRecords(query);
-      request._resolve(records.length > 0 ? records[0].primaryKey : undefined);
+      const keys = this._objectStore._indexGetKeys(
+        this.name,
+        this._objectStore._queryRange(query),
+        1,
+      );
+      request._resolve(keys.length > 0 ? keys[0] : undefined);
     } catch (e: any) {
       request._reject(e);
     }
@@ -84,13 +96,14 @@ export class IDBIndex {
     request.source = this;
     request.transaction = this._objectStore._transaction;
     try {
-      let records = this._getMatchingRecords(query);
       // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
-      // only a positive count limits the result. (ENG-23026)
-      if (count !== undefined && count > 0) {
-        records = records.slice(0, count);
-      }
-      request._resolve(records.map(r => r.value));
+      // only a positive count becomes a SQL LIMIT. (ENG-23026)
+      const values = this._objectStore._indexGetValues(
+        this.name,
+        this._objectStore._queryRange(query),
+        count !== undefined && count > 0 ? count : undefined,
+      );
+      request._resolve(values);
     } catch (e: any) {
       request._reject(e);
     }
@@ -106,13 +119,14 @@ export class IDBIndex {
     request.source = this;
     request.transaction = this._objectStore._transaction;
     try {
-      let records = this._getMatchingRecords(query);
       // count of 0 (or absent) means "all" per the retrieve-multiple algorithm;
-      // only a positive count limits the result. (ENG-23026)
-      if (count !== undefined && count > 0) {
-        records = records.slice(0, count);
-      }
-      request._resolve(records.map(r => r.primaryKey));
+      // only a positive count becomes a SQL LIMIT. (ENG-23026)
+      const keys = this._objectStore._indexGetKeys(
+        this.name,
+        this._objectStore._queryRange(query),
+        count !== undefined && count > 0 ? count : undefined,
+      );
+      request._resolve(keys);
     } catch (e: any) {
       request._reject(e);
     }
@@ -128,8 +142,10 @@ export class IDBIndex {
     request.source = this;
     request.transaction = this._objectStore._transaction;
     try {
-      const records = this._getMatchingRecords(query);
-      request._resolve(records.length);
+      // COUNT(*) over the companion index table — no rows materialized in JS.
+      request._resolve(
+        this._objectStore._indexCount(this.name, this._objectStore._queryRange(query)),
+      );
     } catch (e: any) {
       request._reject(e);
     }
@@ -145,10 +161,16 @@ export class IDBIndex {
     request.source = this;
     request.transaction = this._objectStore._transaction;
     try {
-      const records = this._getMatchingRecords(query);
+      const records = this._objectStore._indexRecords(
+        this.name,
+        this._objectStore._queryRange(query),
+      );
       if (records.length === 0) {
         request._resolve(null);
       } else {
+        // Index keys are not unique, so the cursor re-orders for its direction
+        // and de-dupes for the *unique variants (records arrive in ascending
+        // index-key order from SQL).
         const cursor = new IDBCursorWithValue(this, direction ?? 'next', records, request);
         request._resolve(cursor);
       }
@@ -167,13 +189,15 @@ export class IDBIndex {
     request.source = this;
     request.transaction = this._objectStore._transaction;
     try {
-      const records = this._getMatchingRecords(query);
+      const records = this._objectStore._indexRecords(
+        this.name,
+        this._objectStore._queryRange(query),
+      );
       if (records.length === 0) {
         request._resolve(null);
       } else {
         // A key cursor exposes only key/primaryKey and never a value: yield a
-        // plain IDBCursor (not IDBCursorWithValue) and drop the deserialized
-        // values so they aren't retained or surfaced. (ENG-23026)
+        // plain IDBCursor (not IDBCursorWithValue) and drop the values. (ENG-23026)
         const keyRecords = records.map(r => ({ key: r.key, primaryKey: r.primaryKey, value: undefined }));
         const cursor = new IDBCursor(this, direction ?? 'next', keyRecords, request);
         request._resolve(cursor);
@@ -182,39 +206,6 @@ export class IDBIndex {
       request._reject(e);
     }
     return request;
-  }
-
-  /** @internal - Get records that match a query via this index, in index-key order */
-  _getMatchingRecords(query?: any): Array<{ key: any; primaryKey: any; value: any }> {
-    const keyPath = this.keyPath;
-    const allRecords = this._objectStore._getAllRecords();
-
-    // Extract the index key from each record. A record whose value yields no key
-    // at the index's key path is NOT represented in the index, so it is dropped
-    // in EVERY branch — including the unbounded one, which previously leaked such
-    // records into getAll/getAllKeys/count. (ENG-23026)
-    const indexedRecords: Array<{ key: any; primaryKey: any; value: any }> = [];
-    for (const r of allRecords) {
-      const key = extractKeyPath(r.value, keyPath);
-      if (key === undefined) continue;
-      indexedRecords.push({ key, primaryKey: r.key, value: r.value });
-    }
-
-    // Index accessors must return records in index-key order, with the primary
-    // key as the tiebreak — NOT the primary-key order _getAllRecords yields.
-    // Only the index cursor used to re-sort; get/getKey/getAll/getAllKeys/count
-    // silently returned primary-key order before this. (ENG-23026)
-    indexedRecords.sort((a, b) => {
-      const c = compareKeys(a.key, b.key);
-      return c !== 0 ? c : compareKeys(a.primaryKey, b.primaryKey);
-    });
-
-    if (query === undefined || query === null) {
-      return indexedRecords;
-    }
-
-    const range = query instanceof IDBKeyRange ? query : IDBKeyRange.only(query);
-    return indexedRecords.filter((r: any) => range.includes(r.key));
   }
 }
 
