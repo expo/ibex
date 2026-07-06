@@ -372,9 +372,21 @@ function _normalizeQueryValue(value) {
 }
 
 function _encodeQueryValue(value) {
+  // The WHATWG application/x-www-form-urlencoded serializer's percent-encode
+  // set exempts only ASCII alphanumerics plus `* - . _` (space becomes `+`).
+  // `encodeURIComponent` exempts a wider set -- `! ' ( ) ~` -- that this
+  // spec does NOT, so they must be percent-encoded afterward or values like
+  // `O'Brien~(x)!` are emitted unescaped (breaking OAuth1 signatures/request
+  // signing/cache keys that expect the spec's exact encoding). `*` is
+  // already left alone by encodeURIComponent, matching the spec, so the
+  // `%2A`->`*` replace below is dead (encodeURIComponent never emits `%2A`)
+  // but harmless; left as-is to avoid unrelated churn. (ENG-23038)
   return encodeURIComponent(String(value))
     .replace(/%20/g, "+")
-    .replace(/%2A/gi, "*"); // * must NOT be encoded per WHATWG URL application/x-www-form-urlencoded spec
+    .replace(/%2A/gi, "*")
+    .replace(/[!'()~]/g, function(ch) {
+      return "%" + ch.charCodeAt(0).toString(16).toUpperCase();
+    });
 }
 
 function _toUSVString(value) {

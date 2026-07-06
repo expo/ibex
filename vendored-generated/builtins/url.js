@@ -227,7 +227,9 @@
 	typeof globalThis !== "undefined" && typeof globalThis.__exactUrlCtor === "function" ? globalThis.__exactUrlCtor : typeof globalThis.URL === "function" && globalThis.URL;
 	typeof globalThis !== "undefined" && typeof globalThis.__exactUrlSearchParamsCtor === "function" ? globalThis.__exactUrlSearchParamsCtor : typeof globalThis.URLSearchParams === "function" && globalThis.URLSearchParams;
 	function _encodeQueryValue(value) {
-		return encodeURIComponent(String(value)).replace(/%20/g, "+").replace(/%2A/gi, "*");
+		return encodeURIComponent(String(value)).replace(/%20/g, "+").replace(/%2A/gi, "*").replace(/[!'()~]/g, function(ch) {
+			return "%" + ch.charCodeAt(0).toString(16).toUpperCase();
+		});
 	}
 	function _toUSVString(value) {
 		value = String(value);

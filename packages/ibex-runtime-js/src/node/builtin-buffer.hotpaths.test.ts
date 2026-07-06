@@ -108,6 +108,39 @@ test('latin1/binary/ascii/base64/base64url decode match Node (incl. > chunk size
   }
 });
 
+// ---------------------------------------------------------------------------
+// ENG-23038 finding #4: hex/ucs2 toString() moved off a per-byte/per-unit
+// `+=` loop (table lookup + join for hex; scratch array + chunked
+// fromCharCode.apply for ucs2/utf16le) -- these pin the byte-exact output
+// against the runtime's own Buffer, including across the chunk-size boundary.
+// ---------------------------------------------------------------------------
+test('hex/ucs2/utf16le toString match Node (incl. > chunk size, odd-length ucs2)', () => {
+  const encs = ['hex', 'ucs2', 'utf16le'];
+  for (let t = 0; t < 3000; t++) {
+    const bytes = Array.from(randBytes((Math.random() * 40) | 0));
+    for (const e of encs) {
+      expect(Bx.from(bytes).toString(e)).toBe(Oracle.from(bytes).toString(e));
+    }
+  }
+  // An odd byte length truncates the trailing incomplete code unit for
+  // ucs2/utf16le (Node does the same); hex is unaffected by parity.
+  for (const len of [1, 3, 5, 7]) {
+    const bytes = Array.from(randBytes(len));
+    for (const e of encs) {
+      expect(Bx.from(bytes).toString(e)).toBe(Oracle.from(bytes).toString(e));
+    }
+  }
+  // Exercise the chunked fromCharCode path (> BINARY_STRING_CHUNK === 0x2000)
+  // for both the byte-table hex path and the code-unit ucs2/utf16le path.
+  const big = Array.from(randBytes(70000));
+  for (const e of encs) {
+    expect(Bx.from(big).toString(e)).toBe(Oracle.from(big).toString(e));
+  }
+  // All 256 byte values individually, to pin the HEX_BYTE_TABLE contents.
+  const allBytes = Array.from({ length: 256 }, (_, i) => i);
+  expect(Bx.from(allBytes).toString('hex')).toBe(Oracle.from(allBytes).toString('hex'));
+});
+
 test('Buffer.concat matches Node (default length, truncated, and over-length)', () => {
   let mism = 0;
   for (let t = 0; t < 4000; t++) {

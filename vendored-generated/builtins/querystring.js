@@ -57,6 +57,13 @@ qs.unescape = function unescape(str) {
 		return str;
 	}
 };
+function __qsStringifyPrimitive(v) {
+	if (typeof v === "string") return v;
+	if (typeof v === "number" && isFinite(v)) return "" + v;
+	if (typeof v === "boolean") return v ? "true" : "false";
+	if (typeof v === "bigint") return v.toString();
+	return "";
+}
 qs.stringify = function stringify(obj, sep, eq, options) {
 	sep = sep || "&";
 	eq = eq || "=";
@@ -71,10 +78,10 @@ qs.stringify = function stringify(obj, sep, eq, options) {
 		if (Array.isArray(value)) for (var j = 0; j < value.length; j++) {
 			var item = value[j];
 			if (item === null || item === void 0) parts.push(encodedKey + eq);
-			else parts.push(encodedKey + eq + encode(String(item)));
+			else parts.push(encodedKey + eq + encode(__qsStringifyPrimitive(item)));
 		}
 		else if (value === null || value === void 0) parts.push(encodedKey + eq);
-		else parts.push(encodedKey + eq + encode(String(value)));
+		else parts.push(encodedKey + eq + encode(__qsStringifyPrimitive(value)));
 	}
 	return parts.join(sep);
 };

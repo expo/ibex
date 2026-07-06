@@ -82,6 +82,29 @@ qs.unescape = function unescape(str) {
   }
 };
 
+// Mirrors Node's internal stringifyPrimitive (lib/internal/querystring.js):
+// strings pass through, finite numbers/booleans/bigints stringify, and
+// anything else (object, Infinity/-Infinity/NaN, symbol, function) becomes ''
+// rather than being coerced via String(). Without this, `String(value)`
+// serialized objects as "[object Object]", non-finite numbers as
+// "Infinity"/"NaN", and would throw a TypeError on a Symbol value (Symbols
+// cannot be implicitly ToString'd) instead of Node's silent ''. (ENG-23038)
+//
+// NB: the ticket's own bigint repro (`stringify({a:[1,{},2n]})` expected to
+// give Node `"a=1&a=&a="`, treating the bigint like the object) does not hold
+// against real Node -- verified directly (`node -v` v25.9.0):
+// `require('querystring').stringify({a:2n})` -> `"a=2"`, not `"a="`. Node
+// does stringify bigints here; only object/Infinity/NaN/symbol/function
+// collapse to ''. Encoding the verified real-Node behavior, not the ticket's
+// stated (incorrect) example.
+function __qsStringifyPrimitive(v) {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' && isFinite(v)) return '' + v;
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'bigint') return v.toString();
+  return '';
+}
+
 qs.stringify = function stringify(obj, sep, eq, options) {
   sep = sep || '&';
   eq = eq || '=';
@@ -107,13 +130,13 @@ qs.stringify = function stringify(obj, sep, eq, options) {
         if (item === null || item === undefined) {
           parts.push(encodedKey + eq);
         } else {
-          parts.push(encodedKey + eq + encode(String(item)));
+          parts.push(encodedKey + eq + encode(__qsStringifyPrimitive(item)));
         }
       }
     } else if (value === null || value === undefined) {
       parts.push(encodedKey + eq);
     } else {
-      parts.push(encodedKey + eq + encode(String(value)));
+      parts.push(encodedKey + eq + encode(__qsStringifyPrimitive(value)));
     }
   }
 

@@ -678,6 +678,37 @@ function bytesToBinaryString(bytes) {
   return out;
 }
 
+// Same chunked-fromCharCode.apply trick as bytesToBinaryString, but over a
+// plain Array of already-combined UTF-16 code units (not raw byte values) --
+// used by the ucs2/utf16le decoder below, whose code units can exceed 0xFF.
+// (ENG-23038)
+function codeUnitsToString(units) {
+  var len = units.length;
+  if (len === 0) return "";
+  if (len <= BINARY_STRING_CHUNK) {
+    return _fromCharCode.apply(null, units);
+  }
+  var out = "";
+  for (var offset = 0; offset < len; offset += BINARY_STRING_CHUNK) {
+    var end = offset + BINARY_STRING_CHUNK;
+    if (end > len) end = len;
+    out += _fromCharCode.apply(null, units.slice(offset, end));
+  }
+  return out;
+}
+
+// 256-entry byte -> 2-hex-char lookup table, avoiding a per-byte
+// `.toString(16)` call plus a length check/pad for the leading zero.
+// (ENG-23038)
+var HEX_BYTE_TABLE = (function() {
+  var table = new Array(256);
+  for (var i = 0; i < 256; i++) {
+    var h = i.toString(16);
+    table[i] = h.length === 1 ? "0" + h : h;
+  }
+  return table;
+})();
+
 // Lazily-created fatal UTF-8 decoder used only as a fast path. On well-formed UTF-8
 // it returns the decoded string, which is byte-for-byte identical to the manual loop
 // below; on malformed input it throws and we fall back to the loop, which owns the
@@ -790,13 +821,13 @@ function decodeBytes(bytes, encoding, start, end) {
     return decodeUtf8Bytes(slice);
   }
   if (enc === "hex") {
-    var out = "";
-    for (var i = 0; i < slice.length; i++) {
-      var value = slice[i].toString(16);
-      if (value.length === 1) out += "0";
-      out += value;
-    }
-    return out;
+    // Table lookup + array/join instead of a per-byte .toString(16) call and
+    // a length-check/pad/concat (ENG-23038; ENG-22964 already chunked the
+    // latin1/ascii/base64 decoders but left this one as a per-byte loop).
+    var hexLen = slice.length;
+    var hexParts = new Array(hexLen);
+    for (var hi = 0; hi < hexLen; hi++) hexParts[hi] = HEX_BYTE_TABLE[slice[hi]];
+    return hexParts.join("");
   }
   if (enc === "base64" || enc === "base64url") {
     var binary = bytesToBinaryString(slice);
@@ -816,11 +847,16 @@ function decodeBytes(bytes, encoding, start, end) {
     return bytesToBinaryString(asciiBytes);
   }
   if (enc === "utf16le" || enc === "ucs2" || enc === "ucs-2" || enc === "utf-16le") {
-    var result = "";
-    for (var i = 0; i + 1 < slice.length; i += 2) {
-      result += String.fromCharCode(slice[i] | (slice[i + 1] << 8));
+    // Build code units into a scratch array, then chunked
+    // fromCharCode.apply, instead of a per-2-byte-unit += concat.
+    // (ENG-23038; see codeUnitsToString.)
+    var pairCount = slice.length >> 1;
+    var codeUnits = new Array(pairCount);
+    for (var ui = 0; ui < pairCount; ui++) {
+      var ub = ui * 2;
+      codeUnits[ui] = slice[ub] | (slice[ub + 1] << 8);
     }
-    return result;
+    return codeUnitsToString(codeUnits);
   }
   if (typeof TextDecoder !== "undefined") {
     var view = (slice.__isExactBuffer) ? new Uint8Array(slice) : slice;
@@ -1799,15 +1835,17 @@ BufferProto.readDoubleBE = function(offset) {
   return new DataView(this.buffer, this.byteOffset, this.byteLength).getFloat64(offset, false);
 };
 BufferProto.readBigUInt64LE = function(offset) {
-  offset = offset || 0;
-  validateOffset(offset, 8, this.length);
+  // Use validateOffset's normalized return, not `offset || 0`: `|| 0` maps
+  // NaN/null/''/false to 0 *before* any check runs, so an invalid offset
+  // silently reads from byte 0 instead of throwing ERR_OUT_OF_RANGE like
+  // Node. (ENG-23038)
+  offset = validateOffset(offset, 8, this.length);
   var lo = BigInt(this.readUInt32LE(offset));
   var hi = BigInt(this.readUInt32LE(offset + 4));
   return (hi << 32n) | lo;
 };
 BufferProto.readBigUInt64BE = function(offset) {
-  offset = offset || 0;
-  validateOffset(offset, 8, this.length);
+  offset = validateOffset(offset, 8, this.length); // (ENG-23038, see readBigUInt64LE)
   var hi = BigInt(this.readUInt32BE(offset));
   var lo = BigInt(this.readUInt32BE(offset + 4));
   return (hi << 32n) | lo;
@@ -1925,14 +1963,17 @@ BufferProto.writeIntBE = function(value, offset, byteLength) {
   return this.writeUIntBE(value, offset, byteLength);
 };
 
-// Write floats/doubles via DataView
-BufferProto.writeFloatLE = function(value, offset) { offset = offset || 0; new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat32(offset, value, true); return offset + 4; };
-BufferProto.writeFloatBE = function(value, offset) { offset = offset || 0; new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat32(offset, value, false); return offset + 4; };
-BufferProto.writeDoubleLE = function(value, offset) { offset = offset || 0; new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat64(offset, value, true); return offset + 8; };
-BufferProto.writeDoubleBE = function(value, offset) { offset = offset || 0; new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat64(offset, value, false); return offset + 8; };
+// Write floats/doubles via DataView. offset must go through validateOffset
+// (not `offset || 0`, which maps NaN/null/''/false to 0 before any check and
+// truncates a fractional offset instead of throwing ERR_OUT_OF_RANGE like
+// Node -- e.g. `buf.writeFloatLE(1.5, 2.5)` silently wrote at byte 2 and
+// returned 6.5, poisoning `off = buf.writeFloatLE(x, off)` loops). (ENG-23038)
+BufferProto.writeFloatLE = function(value, offset) { offset = validateOffset(offset, 4, this.length); new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat32(offset, value, true); return offset + 4; };
+BufferProto.writeFloatBE = function(value, offset) { offset = validateOffset(offset, 4, this.length); new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat32(offset, value, false); return offset + 4; };
+BufferProto.writeDoubleLE = function(value, offset) { offset = validateOffset(offset, 8, this.length); new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat64(offset, value, true); return offset + 8; };
+BufferProto.writeDoubleBE = function(value, offset) { offset = validateOffset(offset, 8, this.length); new DataView(this.buffer, this.byteOffset, this.byteLength).setFloat64(offset, value, false); return offset + 8; };
 BufferProto.writeBigInt64LE = function(value, offset) {
-  offset = offset || 0;
-  validateOffset(offset, 8, this.length);
+  offset = validateOffset(offset, 8, this.length); // (ENG-23038, see writeFloatLE)
   validateBigIntWrite(value, true);
   var unsignedValue = value < 0n ? value + (1n << 64n) : value;
   this.writeUInt32LE(Number(unsignedValue & 0xffffffffn), offset);
@@ -1940,8 +1981,7 @@ BufferProto.writeBigInt64LE = function(value, offset) {
   return offset + 8;
 };
 BufferProto.writeBigInt64BE = function(value, offset) {
-  offset = offset || 0;
-  validateOffset(offset, 8, this.length);
+  offset = validateOffset(offset, 8, this.length); // (ENG-23038, see writeFloatLE)
   validateBigIntWrite(value, true);
   var unsignedValue = value < 0n ? value + (1n << 64n) : value;
   this.writeUInt32BE(Number((unsignedValue >> 32n) & 0xffffffffn), offset);
@@ -1949,16 +1989,14 @@ BufferProto.writeBigInt64BE = function(value, offset) {
   return offset + 8;
 };
 BufferProto.writeBigUInt64LE = function(value, offset) {
-  offset = offset || 0;
-  validateOffset(offset, 8, this.length);
+  offset = validateOffset(offset, 8, this.length); // (ENG-23038, see writeFloatLE)
   validateBigIntWrite(value, false);
   this.writeUInt32LE(Number(value & 0xffffffffn), offset);
   this.writeUInt32LE(Number((value >> 32n) & 0xffffffffn), offset + 4);
   return offset + 8;
 };
 BufferProto.writeBigUInt64BE = function(value, offset) {
-  offset = offset || 0;
-  validateOffset(offset, 8, this.length);
+  offset = validateOffset(offset, 8, this.length); // (ENG-23038, see writeFloatLE)
   validateBigIntWrite(value, false);
   this.writeUInt32BE(Number((value >> 32n) & 0xffffffffn), offset);
   this.writeUInt32BE(Number(value & 0xffffffffn), offset + 4);
