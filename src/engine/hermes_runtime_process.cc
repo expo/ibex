@@ -775,8 +775,12 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           ssize_t n = read(execErrPipe[0], &childErrno, sizeof(childErrno));
           close(execErrPipe[0]);
           if (n > 0) {
-            if (syncStdoutPipe) close(stdoutPipe[0]);
-            if (syncStderrPipe) close(stderrPipe[0]);
+            // (ENG-23023) On exec failure close BOTH ends of the stdout/stderr
+            // pipes. The success path closes the write ends at :799-800, but this
+            // early-return branch previously closed only the read ends, leaking
+            // stdoutPipe[1]/stderrPipe[1] on every failed spawnSync (e.g. ENOENT).
+            if (syncStdoutPipe) { close(stdoutPipe[0]); close(stdoutPipe[1]); }
+            if (syncStderrPipe) { close(stderrPipe[0]); close(stderrPipe[1]); }
             if (hasStdinInput) {
               close(stdinPipe[0]);
               close(stdinPipe[1]);
@@ -2077,6 +2081,57 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactSpawnCloseStdin", std::move(spawnCloseStdinFn));
+
+  // __exactSpawnDispose(handle) -> void
+  // (ENG-23023) Release every parent-side fd captured for an async child and
+  // drop its s_spawnedProcesses entry. The JS `close` handler calls this once the
+  // child has exited and its streams are drained. Without it, each async spawn
+  // permanently leaked its stdout/stderr (and any ipc/extra) read fds plus a map
+  // entry, so a repeated spawn loop or per-request exec() marched to EMFILE. The
+  // JS-only stub in child-process.js merely dropped the JS bookkeeping object;
+  // installing this native fn overrides that stub so the kernel fds are freed.
+  auto spawnDisposeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnDispose"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::undefined();
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+
+        // Detach the entry under the lock, then close its fds outside the lock.
+        SpawnedProcess proc;
+        bool found = false;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          auto it = s_spawnedProcesses.find(handle);
+          if (it != s_spawnedProcesses.end()) {
+            proc = std::move(it->second);
+            s_spawnedProcesses.erase(it);
+            found = true;
+          }
+        }
+        if (!found) {
+          return facebook::jsi::Value::undefined();
+        }
+
+        // The child has already been reaped by __exactSpawnPoll; here we only
+        // reclaim the parent-side descriptors. Each may already be -1 if closed
+        // earlier (e.g. stdin via __exactSpawnCloseStdin, ipc via disconnect).
+        if (proc.stdinFd >= 0) close(proc.stdinFd);
+        if (proc.stdoutFd >= 0) close(proc.stdoutFd);
+        if (proc.stderrFd >= 0) close(proc.stderrFd);
+        if (proc.ipcFd >= 0) close(proc.ipcFd);
+        for (int extraFd : proc.extraFds) {
+          if (extraFd >= 0) close(extraFd);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactSpawnDispose", std::move(spawnDisposeFn));
 
   // __exactWhich(command) -> string path or null
   // Searches PATH for the given command, similar to the `which` utility.
