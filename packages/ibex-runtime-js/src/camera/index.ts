@@ -3290,6 +3290,22 @@ async function maybeCaptureTrackPhoto(track: MediaStreamTrack): Promise<Blob | n
   }
 }
 
+async function blobImageDimensions(
+  blob: Blob,
+): Promise<{ width: number; height: number } | null> {
+  if (typeof createImageBitmap !== "function") {
+    return null;
+  }
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const dimensions = { width: bitmap.width, height: bitmap.height };
+    bitmap.close?.();
+    return dimensions;
+  } catch {
+    return null;
+  }
+}
+
 class VirtualCameraController {
   readonly canvas: HTMLCanvasElement;
   readonly stream: MediaStream;
@@ -3483,6 +3499,18 @@ class VirtualCameraController {
   }
 }
 
+// Marks rejections caused by routine pipeline teardown (dispose on stop,
+// processor swap/removal) so the session can tell them apart from genuine
+// processor failures. Surfacing these as `processor/failed` latched a lastError
+// that depressed evaluateCameraReadiness() for the rest of the session after a
+// single live reconfigure. (ENG-23139)
+class ProcessorSupersededError extends Error {
+  constructor() {
+    super("Frame processor worker terminated.");
+    this.name = "ProcessorSupersededError";
+  }
+}
+
 class WorkerFrameProcessorRuntime {
   private worker: Worker | null = null;
   private pending = new Map<number, WorkerPendingRequest>();
@@ -3506,6 +3534,32 @@ class WorkerFrameProcessorRuntime {
       new URL("./processor.worker.ts", import.meta.url),
       { type: "module" },
     );
+    // A worker whose script fails to load (or that crashes with an uncaught
+    // error) never answers its messages: without these handlers the first
+    // processFrame() promise never settles, processingBusy stays true, and the
+    // processor is permanently dead with no error surfaced. Fail loud instead:
+    // reject everything pending with the real error and drop the worker.
+    // (ENG-23139)
+    worker.onerror = (event: ErrorEvent) => {
+      if (this.worker !== worker) {
+        return;
+      }
+      this.failWorker(
+        new Error(
+          typeof event?.message === "string" && event.message.length > 0
+            ? `Frame processor worker error: ${event.message}`
+            : "Frame processor worker failed to load.",
+        ),
+      );
+    };
+    worker.onmessageerror = () => {
+      if (this.worker !== worker) {
+        return;
+      }
+      this.failWorker(
+        new Error("Frame processor worker message could not be deserialized."),
+      );
+    };
     worker.onmessage = (event: MessageEvent) => {
       const payload = event.data as
         | { type: "result"; id: number; result?: unknown; outputBuffer?: ArrayBuffer }
@@ -3569,7 +3623,19 @@ class WorkerFrameProcessorRuntime {
 
   dispose(): void {
     for (const pending of this.pending.values()) {
-      pending.reject(new Error("Frame processor worker terminated."));
+      pending.reject(new ProcessorSupersededError());
+    }
+    this.pending.clear();
+    this.worker?.terminate();
+    this.worker = null;
+    this.currentSource = null;
+  }
+
+  private failWorker(error: Error): void {
+    // Unlike dispose(), reject with the *real* failure so the session surfaces
+    // it through onError instead of swallowing it as routine teardown.
+    for (const pending of this.pending.values()) {
+      pending.reject(error);
     }
     this.pending.clear();
     this.worker?.terminate();
@@ -4210,6 +4276,15 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   private virtualController: VirtualCameraController | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private frameLoopToken: FrameLoopToken | null = null;
+  // The loop is "live" from the moment a chain is started until it is
+  // cancelled or decides not to reschedule. frameLoopToken alone cannot carry
+  // that: the schedule callback nulls it before handleFrame runs, so a
+  // reconfigure during an in-flight frame used to see "no loop" and start a
+  // second self-perpetuating chain. (ENG-23139)
+  private frameLoopActive = false;
+  // Bumped by cancelFrameLoop(); an in-flight frame from an older generation
+  // must not reschedule itself into (and thereby duplicate) a newer chain.
+  private frameLoopGeneration = 0;
   private initialized = false;
   private started = false;
   private lastError: CameraError | null = null;
@@ -4223,6 +4298,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   private recordingBytesWritten = 0;
   private recordingChunks = 0;
   private recordingTimer: ReturnType<typeof setInterval> | null = null;
+  private maxDurationTimer: ReturnType<typeof setTimeout> | null = null;
   private currentRecorder: MediaRecorderWithRequestData | null = null;
   private currentRecorderSource: MediaStream | null = null;
   private currentRecordingOptions: CameraRecordingOptions | null = null;
@@ -4456,11 +4532,12 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     const track = this.mediaStream?.getVideoTracks()[0];
     this.options.onShutter?.();
 
-    let blob =
+    const trackPhotoBlob =
       track != null && this.options.previewMode !== "processed"
         ? await maybeCaptureTrackPhoto(track)
         : null;
 
+    let blob = trackPhotoBlob;
     if (!blob) {
       const sourceCanvas = await this.capturePhotoCanvas();
       blob = await canvasToBlob(
@@ -4472,6 +4549,19 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
 
     const uri = createUrlForBlob(blob);
     const canvas = await this.capturePhotoCanvas();
+    // ImageCapture.takePhoto() returns the sensor's full-resolution photo; the
+    // preview canvas dimensions can wildly understate it. Decode the real size
+    // from the blob and only fall back to the canvas dimensions when decoding
+    // is unavailable (or the blob came from the canvas anyway). (ENG-23139)
+    let photoWidth = canvas.width;
+    let photoHeight = canvas.height;
+    if (trackPhotoBlob) {
+      const dimensions = await blobImageDimensions(trackPhotoBlob);
+      if (dimensions && dimensions.width > 0 && dimensions.height > 0) {
+        photoWidth = dimensions.width;
+        photoHeight = dimensions.height;
+      }
+    }
     const metadata: Record<string, unknown> = {
       previewMode: this.options.previewMode,
       deviceId: this.options.device?.id ?? null,
@@ -4495,8 +4585,8 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
 
     const result = {
       uri,
-      width: canvas.width,
-      height: canvas.height,
+      width: photoWidth,
+      height: photoHeight,
       rawUri: null,
       exif: options.exif ? { mimeType: blob.type } : undefined,
       metadata,
@@ -4663,60 +4753,71 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     };
 
     recorder.onstop = () => {
-      const selectedRollingChunks =
-        options.includeRetroactive && this.options.retroactiveBuffer
-          ? this.selectRetroactiveChunks(this.options.retroactiveBuffer)
-          : [];
-      const blobs = [
-        ...selectedRollingChunks.map((entry) => entry.blob),
-        ...this.currentRecordingChunks,
-      ];
-      const size = blobs.reduce((total, blob) => total + blob.size, 0);
-      const mimeType = recorder.mimeType || "video/webm";
-      const blob = new Blob(blobs, { type: mimeType });
-      const retroactiveSeconds =
-        selectedRollingChunks.reduce((total, chunk) => total + chunk.durationMs, 0) / 1_000;
-      const retroactiveAudioAvailable =
-        options.audio === true
-          ? options.includeRetroactive === true
-            ? selectedRollingChunks.length > 0
-              && selectedRollingChunks.every((chunk) => chunk.includesAudio)
-            : false
-          : undefined;
-      const result: CameraVideoResult = {
-        uri: createUrlForBlob(blob),
-        duration: (performance.now() - this.recordingStartedAt) / 1000,
-        size,
-        retroactiveSeconds,
-        retroactiveAudioAvailable,
-        provenance: buildCaptureProvenance({
-          snapshot: this.getSnapshot(),
-          sessionOptions: {
-            flash: this.options.flash,
-            zoom: this.options.zoom,
-            processing: this.options.processing,
-            format: this.options.format,
-            intent: this.options.intent,
-          },
-          capturePath:
-            this.options.previewMode === "processed"
-              ? "processed-photo-pass"
-              : "photo-pipeline",
-          request: {
-            processing: this.options.processing,
-            location: options.location,
-          },
-          locationEmbedded: false,
-        }),
-      };
-
-      const finishedCallback = this.currentRecordingOptions?.onFinished;
+      // Check the discard flag *before* building the result: concatenating the
+      // chunks into a Blob and minting an object URL for a cancelled recording
+      // pinned the entire recording in memory for the document's lifetime,
+      // because the URL of a result that is never delivered is never revoked
+      // either. (ENG-23139)
       const shouldDiscard = this.discardNextRecording;
+      const finishedCallback = this.currentRecordingOptions?.onFinished;
+      let result: CameraVideoResult | null = null;
+
+      if (!shouldDiscard) {
+        const selectedRollingChunks =
+          options.includeRetroactive && this.options.retroactiveBuffer
+            ? this.selectRetroactiveChunks(this.options.retroactiveBuffer)
+            : [];
+        const blobs = [
+          ...selectedRollingChunks.map((entry) => entry.blob),
+          ...this.currentRecordingChunks,
+        ];
+        const size = blobs.reduce((total, blob) => total + blob.size, 0);
+        const mimeType = recorder.mimeType || "video/webm";
+        const blob = new Blob(blobs, { type: mimeType });
+        const retroactiveSeconds =
+          selectedRollingChunks.reduce((total, chunk) => total + chunk.durationMs, 0) / 1_000;
+        const retroactiveAudioAvailable =
+          options.audio === true
+            ? options.includeRetroactive === true
+              ? selectedRollingChunks.length > 0
+                && selectedRollingChunks.every((chunk) => chunk.includesAudio)
+              : false
+            : undefined;
+        result = {
+          uri: createUrlForBlob(blob),
+          duration: (performance.now() - this.recordingStartedAt) / 1000,
+          size,
+          retroactiveSeconds,
+          retroactiveAudioAvailable,
+          provenance: buildCaptureProvenance({
+            snapshot: this.getSnapshot(),
+            sessionOptions: {
+              flash: this.options.flash,
+              zoom: this.options.zoom,
+              processing: this.options.processing,
+              format: this.options.format,
+              intent: this.options.intent,
+            },
+            capturePath:
+              this.options.previewMode === "processed"
+                ? "processed-photo-pass"
+                : "photo-pipeline",
+            request: {
+              processing: this.options.processing,
+              location: options.location,
+            },
+            locationEmbedded: false,
+          }),
+        };
+      }
+
+      this.discardNextRecording = false;
       this.recordingState = "inactive";
       this.currentRecorder = null;
       this.currentRecordingOptions = null;
       this.currentRecordingChunks = [];
       this.clearRecordingTimer();
+      this.clearMaxDurationTimer();
       // Release the cloned capture source (and the recording's mic) so the
       // physical camera/mic stop when the recording ends, not at page unload.
       // The clone's tracks are independent of the live preview stream. (ENG-22978)
@@ -4726,12 +4827,44 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       this.audioStream = null;
       this.notify();
 
-      if (!shouldDiscard) {
+      if (result) {
         finishedCallback?.(result);
       }
     };
 
-    recorder.start(1000);
+    try {
+      recorder.start(1000);
+    } catch (error) {
+      // MediaRecorder.start() throws synchronously (ended clone tracks, tainted
+      // canvas capture, ...). Roll the recording state back or the controller
+      // latches in "recording" with no live recorder and every subsequent
+      // startRecording fails until stopSession. (ENG-23139)
+      this.recordingState = "inactive";
+      this.currentRecorder = null;
+      this.currentRecordingOptions = null;
+      this.currentRecordingChunks = [];
+      this.stopStreamTracks(this.currentRecorderSource);
+      this.currentRecorderSource = null;
+      this.stopStreamTracks(this.audioStream);
+      this.audioStream = null;
+      this.notify();
+      throw error;
+    }
+
+    // The native controller enforces maxDuration in-platform; MediaRecorder has
+    // no equivalent, so without this timer a web recording written against the
+    // native contract runs — and buffers chunks in RAM — forever. (ENG-23139)
+    const maxDurationSeconds = options.maxDuration;
+    if (
+      maxDurationSeconds != null
+      && Number.isFinite(maxDurationSeconds)
+      && maxDurationSeconds > 0
+    ) {
+      this.maxDurationTimer = setTimeout(() => {
+        this.maxDurationTimer = null;
+        void this.stopRecording();
+      }, maxDurationSeconds * 1000);
+    }
     this.startRecordingTimer();
     this.notify();
   }
@@ -5212,6 +5345,8 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       return;
     }
 
+    let stream: MediaStream | null = null;
+    let createdVirtualController: VirtualCameraController | null = null;
     try {
       const admissionError = getCameraSessionAdmissionError({
         snapshot: this.getSnapshot(),
@@ -5221,7 +5356,11 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
         throw admissionError;
       }
 
-      const stream = await this.createPreviewStream();
+      const previousVirtualController = this.virtualController;
+      stream = await this.createPreviewStream();
+      if (this.virtualController !== previousVirtualController) {
+        createdVirtualController = this.virtualController;
+      }
       this.mediaStream = stream;
       const video = this.bindings.video;
       video.srcObject = stream;
@@ -5238,11 +5377,13 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
         // interrupted play() as stale work instead of surfacing a false
         // device/configuration-failed error to the app.
         if (this.bindings?.video !== video || video.srcObject !== stream) {
+          this.releaseSupersededStart(stream, createdVirtualController);
           return;
         }
       }
 
       if (this.bindings?.video !== video || video.srcObject !== stream) {
+        this.releaseSupersededStart(stream, createdVirtualController);
         return;
       }
       this.started = true;
@@ -5255,6 +5396,13 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       await this.syncRollingRecorderLifecycle();
       this.notify();
     } catch (error) {
+      // The session never reached started=true, so nothing will ever stop the
+      // stream this attempt created (a later startSession would overwrite
+      // this.mediaStream and orphan it live). Same leak shape as the stale
+      // early-returns above. (ENG-23139)
+      if (!this.started && stream) {
+        this.releaseSupersededStart(stream, createdVirtualController);
+      }
       const cameraError = toPermissionDeniedError(error);
       this.lastError = cameraError;
       // RFC 0044 treats lack of camera permission as a placeholder state rather
@@ -5267,6 +5415,27 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     }
   }
 
+  private releaseSupersededStart(
+    stream: MediaStream,
+    createdVirtualController: VirtualCameraController | null,
+  ): void {
+    // A newer lifecycle step replaced this start's stream/controller while it
+    // was still awaiting getUserMedia()/play(). Nothing else references them
+    // anymore — this.mediaStream already points at the newer stream — so stop
+    // them here or the physical camera stays captured (OS indicator on) until
+    // page unload. (ENG-23139)
+    if (this.mediaStream === stream) {
+      this.mediaStream = null;
+    }
+    this.stopStreamTracks(stream);
+    if (createdVirtualController) {
+      createdVirtualController.stop();
+      if (this.virtualController === createdVirtualController) {
+        this.virtualController = null;
+      }
+    }
+  }
+
   private async stopSession(): Promise<void> {
     this.cancelFrameLoop();
     this.frameProcessorRuntime.dispose();
@@ -5275,6 +5444,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     this.pathBActive = false;
     this.stopRollingRecorder();
     this.clearRecordingTimer();
+    this.clearMaxDurationTimer();
     if (this.currentRecorder && this.currentRecorder.state !== "inactive") {
       this.currentRecorder.stop();
     }
@@ -5459,9 +5629,13 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       this.frameProcessorRuntime.dispose();
     }
 
-    if (!this.frameLoopToken) {
+    // Gate on loop *liveness*, not on the token: during an in-flight frame the
+    // token is null but the chain is alive and will reschedule itself, so
+    // starting another chain here multiplies the loop. (ENG-23139)
+    if (!this.frameLoopActive) {
       this.diagnostics.pathBActivations += 1;
       this.notifyPathBState(true);
+      this.frameLoopActive = true;
       this.scheduleNextFrame();
     }
   }
@@ -5480,6 +5654,11 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   }
 
   private cancelFrameLoop(): void {
+    // Invalidate the chain as a whole: the scheduled token below, and — via the
+    // generation bump — any frame already in flight, which would otherwise
+    // reschedule itself alongside a chain started after this cancellation.
+    this.frameLoopGeneration += 1;
+    this.frameLoopActive = false;
     if (!this.frameLoopToken || !this.bindings) {
       this.frameLoopToken = null;
       return;
@@ -5498,9 +5677,13 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
 
   private scheduleNextFrame(): void {
     if (!this.bindings) {
+      // Nothing was scheduled, so the chain is dead; leaving the liveness flag
+      // set would block syncFramePipeline from ever starting a new one.
+      this.frameLoopActive = false;
       return;
     }
 
+    const generation = this.frameLoopGeneration;
     const video = this.bindings.video as HTMLVideoElement & {
       requestVideoFrameCallback?: (
         callback: (time: number, metadata: VideoFrameCallbackMetadata) => void,
@@ -5510,7 +5693,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     if (typeof video.requestVideoFrameCallback === "function") {
       const id = video.requestVideoFrameCallback((_time, metadata) => {
         this.frameLoopToken = null;
-        void this.handleFrame(metadata.expectedDisplayTime);
+        void this.handleFrame(metadata.expectedDisplayTime, generation);
       });
       this.frameLoopToken = {
         kind: "video-frame-callback",
@@ -5521,7 +5704,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
 
     const id = requestAnimationFrame((time) => {
       this.frameLoopToken = null;
-      void this.handleFrame(time);
+      void this.handleFrame(time, generation);
     });
     this.frameLoopToken = {
       kind: "raf",
@@ -5529,14 +5712,24 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     };
   }
 
-  private async handleFrame(timestamp: number): Promise<void> {
+  private async handleFrame(
+    timestamp: number,
+    generation: number = this.frameLoopGeneration,
+  ): Promise<void> {
     // scheduleNextFrame's callback clears frameLoopToken *before* invoking us, so
-    // a frame already in flight is immune to cancelFrameLoop(). If stopSession()
-    // tore the session down while this frame was scheduled (or mid-await), bail
-    // and — critically — never reschedule once stopped. Rescheduling on the old
-    // `needsPathB()` (options-only) resurrected the loop at rAF rate on a disposed
-    // pipeline, throwing 'worker not initialized' ~60x/sec. (ENG-22978)
+    // a frame already in flight is immune to cancelFrameLoop(). The generation
+    // check catches that case: a cancelled chain's in-flight frame must neither
+    // run nor reschedule — a newer chain (if any) owns the loop now. (ENG-23139)
+    if (generation !== this.frameLoopGeneration) {
+      return;
+    }
+    // If stopSession() tore the session down while this frame was scheduled
+    // (or mid-await), bail and — critically — never reschedule once stopped.
+    // Rescheduling on the old `needsPathB()` (options-only) resurrected the
+    // loop at rAF rate on a disposed pipeline, throwing 'worker not
+    // initialized' ~60x/sec. (ENG-22978)
     if (!this.started || !this.bindings) {
+      this.frameLoopActive = false;
       return;
     }
     try {
@@ -5548,8 +5741,12 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       await this.runFrameProcessorIfNeeded(timestamp);
       this.drawPreviewFromCurrentBuffer();
     } finally {
-      if (this.started && this.needsPathB()) {
-        this.scheduleNextFrame();
+      if (generation === this.frameLoopGeneration) {
+        if (this.started && this.needsPathB()) {
+          this.scheduleNextFrame();
+        } else {
+          this.frameLoopActive = false;
+        }
       }
       this.notify();
     }
@@ -5745,6 +5942,12 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       // A frame processed cleanly, so re-arm the one-shot error latches.
       this.reportedProcessorOverload = false;
       this.reportedProcessorFailure = false;
+      // A processor failure is over once a later frame processes cleanly.
+      // Leaving it latched in lastError kept the 0.35 readiness penalty in
+      // evaluateCameraReadiness() until the next startSession. (ENG-23139)
+      if (this.lastError?.code === "processor/failed") {
+        this.lastError = null;
+      }
 
       if (response.outputBuffer) {
         // bgraToRgba() already returns a freshly-allocated, non-shared
@@ -5770,8 +5973,11 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       }
     } catch (error) {
       // stopSession() disposes the worker runtime, which rejects any in-flight
-      // request. Don't surface that teardown race as a processor failure. (ENG-22978)
-      if (!this.started) {
+      // request — and a live reconfigure (processor swap/removal in
+      // syncFramePipeline) does the same to the superseded pipeline. Neither is
+      // a processor failure; surfacing them set a lastError that depressed
+      // readiness until the next startSession. (ENG-22978, ENG-23139)
+      if (!this.started || error instanceof ProcessorSupersededError) {
         return;
       }
       const processorError = makeCameraError(
@@ -5878,7 +6084,16 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     // the life of the session. Only the Path B loop keeps the buffer continuously
     // up to date; when it is not running, redraw one frame on demand. (ENG-22978)
     if (!this.started) {
-      await this.startSession();
+      // Start through the lifecycle queue: an unserialized startSession() here
+      // could overlap a queued one (e.g. from attach() when a capture call
+      // lands right after mount). Both pass the !started guard before either
+      // finishes getUserMedia, and the loser's live stream is orphaned with the
+      // OS camera indicator stuck on. (ENG-23139)
+      await this.enqueueLifecycle(async () => {
+        if (!this.started) {
+          await this.startSession();
+        }
+      });
     }
 
     if (this.started && this.needsPathB()) {
@@ -5983,6 +6198,13 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     }
   }
 
+  private clearMaxDurationTimer(): void {
+    if (this.maxDurationTimer) {
+      clearTimeout(this.maxDurationTimer);
+      this.maxDurationTimer = null;
+    }
+  }
+
   private async syncRollingRecorderLifecycle(): Promise<void> {
     const retroactiveSeconds = this.options.retroactiveBuffer ?? 0;
     if (retroactiveSeconds <= 0 || !this.started) {
@@ -6076,9 +6298,23 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
         size: event.data.size,
         includesAudio: rollingRecorderHasAudio,
       });
-      this.trimRollingChunks(retroactiveSeconds);
+      // Trim against the *live* option, not the value captured when the
+      // recorder was created: raising retroactiveBuffer via updateOptions does
+      // not restart the rolling recorder (a restart would throw away the
+      // pre-roll accumulated so far), so a captured constant kept trimming to
+      // the original window forever. (ENG-23139)
+      this.trimRollingChunks(this.options.retroactiveBuffer ?? 0);
     };
-    recorder.start(1_000);
+    try {
+      recorder.start(1_000);
+    } catch {
+      // A rolling recorder that fails to start must not leak its cloned
+      // camera/mic tracks until the next stopSession; the retroactive buffer
+      // is best-effort (consistent with the codec-unsupported path above).
+      // (ENG-23139)
+      this.stopRollingRecorder();
+      return;
+    }
     this.rollingRecorder = recorder;
   }
 
