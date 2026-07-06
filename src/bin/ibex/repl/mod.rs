@@ -1178,6 +1178,13 @@ mod tests {
         assert!(!needs_top_level_await("console.log('await')"));
         assert!(!needs_top_level_await("const s = \"please await\";"));
 
+        // `await` inside a regex literal must NOT be read as top-level await:
+        // wrapping `var re = /await/g` in an async IIFE dropped the `re` binding
+        // from the global scope, so the next line threw ReferenceError. (ENG-23031)
+        assert!(!needs_top_level_await("var re = /await/g"));
+        assert!(!needs_top_level_await("var re = /(await)/"));
+        assert!(!needs_top_level_await("x.replace(/await/g, '')"));
+
         // Guards for empty / async-function / plain statements still hold.
         assert!(!needs_top_level_await(""));
         assert!(!needs_top_level_await("async function f() { await g(); }"));

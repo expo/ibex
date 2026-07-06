@@ -2325,82 +2325,164 @@ fn wrap_source_for_tla_eval_with(
     )
 }
 
-/// String- and comment-aware scan for an `await` keyword anywhere in the
-/// source. Any depth counts: `await` inside top-level `for`/`if` blocks is
-/// still TLA, and wrapping non-TLA async code is harmless, so no brace
-/// tracking is needed — only literals and comments are excluded.
+/// String-, comment-, and regex-aware scan for an `await` keyword anywhere in
+/// the source. Any depth counts: `await` inside top-level `for`/`if` blocks is
+/// still TLA, and wrapping non-TLA async code is harmless, so no brace tracking
+/// is needed — only literals, comments, and regex literals are excluded.
 ///
-/// Shared with the REPL so `.time`/prompt input use the same word-boundary,
-/// literal-aware detection instead of a raw `contains("await")`. (ENG-22957)
+/// Identifiers are consumed as whole words so `await` is matched only on a word
+/// boundary (`awaited`/`awaitTime`/`kawaii` are not TLA). A `/` is disambiguated
+/// between a regex literal and a division operator by tracking whether the
+/// previous significant token was value-producing: without this, `await` inside
+/// a regex literal (`var re = /await/g`) was read as a real keyword, so the REPL
+/// wrapped the line in an async IIFE and the `var`/function binding no longer
+/// leaked to the global object — a silent regression of the bug ENG-22957
+/// aimed to close. (ENG-23031)
+///
+/// Shared with the REPL so `.time`/prompt input use the same detection instead
+/// of a raw `contains("await")`. (ENG-22957)
 pub(crate) fn contains_await_keyword(source: &str) -> bool {
     let bytes = source.as_bytes();
     let mut i = 0usize;
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut in_template = false;
-    let mut in_line_comment = false;
-    let mut in_block_comment = false;
+    // Whether a `/` here begins a regex literal (value position) rather than a
+    // division operator. True at input start and after operators/punctuators
+    // that expect an expression; false after a value token (identifier, `)`,
+    // `]`, number, string, regex).
+    let mut regex_allowed = true;
 
     while i < bytes.len() {
         let b = bytes[i];
 
-        if in_line_comment {
-            if b == b'\n' {
-                in_line_comment = false;
-            }
-            i += 1;
-            continue;
-        }
-        if in_block_comment {
-            if b == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-                in_block_comment = false;
-                i += 2;
-            } else {
-                i += 1;
-            }
-            continue;
-        }
-        if in_single || in_double || in_template {
-            if b == b'\\' && i + 1 < bytes.len() {
-                i += 2;
-                continue;
-            }
-            if (in_single && b == b'\'') || (in_double && b == b'"') || (in_template && b == b'`') {
-                in_single = false;
-                in_double = false;
-                in_template = false;
-            }
+        // Whitespace never produces a value, so it must not disturb
+        // `regex_allowed` (`a /b/` is division, not a regex after the space).
+        if matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c') {
             i += 1;
             continue;
         }
 
-        match b {
-            b'\'' => in_single = true,
-            b'"' => in_double = true,
-            b'`' => in_template = true,
-            b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'/' => {
-                in_line_comment = true;
-                i += 2;
-                continue;
+        // Comments: skip without changing the previous significant token.
+        if b == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
             }
-            b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
-                in_block_comment = true;
-                i += 2;
-                continue;
+            continue;
+        }
+        if b == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
             }
-            b'a' => {
-                let is_keyword = source[i..].starts_with("await")
-                    && (i == 0 || !is_ident_byte(bytes[i - 1]))
-                    && bytes.get(i + 5).is_none_or(|next| !is_ident_byte(*next));
-                if is_keyword {
-                    return true;
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+
+        // String / template literal: opaque span. Template interpolation is not
+        // inspected (matching the prior scanner); a literal is a value, so a
+        // following `/` is division.
+        if b == b'\'' || b == b'"' || b == b'`' {
+            let quote = b;
+            i += 1;
+            while i < bytes.len() {
+                let c = bytes[i];
+                if c == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+                if c == quote {
+                    break;
                 }
             }
-            _ => {}
+            regex_allowed = false;
+            continue;
         }
+
+        // Regex literal in value position: skip `/…/flags`, honoring escapes and
+        // `[…]` character classes (which may contain an unescaped `/`).
+        if b == b'/' && regex_allowed {
+            i += 1;
+            let mut in_class = false;
+            while i < bytes.len() {
+                let c = bytes[i];
+                if c == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if c == b'\n' {
+                    break; // unterminated literal; stop scanning it
+                }
+                i += 1;
+                match c {
+                    b'[' => in_class = true,
+                    b']' => in_class = false,
+                    b'/' if !in_class => break,
+                    _ => {}
+                }
+            }
+            while i < bytes.len() && is_ident_byte(bytes[i]) {
+                i += 1; // regex flags
+            }
+            regex_allowed = false;
+            continue;
+        }
+
+        // Identifier / keyword.
+        if b == b'_' || b == b'$' || b.is_ascii_alphabetic() {
+            let start = i;
+            while i < bytes.len() && is_ident_byte(bytes[i]) {
+                i += 1;
+            }
+            if &source[start..i] == "await" {
+                return true;
+            }
+            // After a value identifier `/` is division; after a keyword that
+            // expects an expression it starts a regex.
+            regex_allowed = keyword_precedes_expression(&source[start..i]);
+            continue;
+        }
+
+        // Numeric literal: a value, so a following `/` is division. Consuming a
+        // little loosely (digits, `.`, exponent/hex letters) is fine — we only
+        // need `regex_allowed` to end up false.
+        if b.is_ascii_digit() {
+            i += 1;
+            while i < bytes.len() && (is_ident_byte(bytes[i]) || bytes[i] == b'.') {
+                i += 1;
+            }
+            regex_allowed = false;
+            continue;
+        }
+
+        // Any other punctuation/operator. A `/` after a closing `)`/`]` is
+        // division; after everything else (`= , ( { [ ! ? : ; + - * % < > & | ^`)
+        // it starts a regex.
+        regex_allowed = !matches!(b, b')' | b']');
         i += 1;
     }
     false
+}
+
+/// Keywords after which a `/` begins a regex literal rather than division,
+/// because they syntactically expect an expression to follow. (ENG-23031)
+fn keyword_precedes_expression(word: &str) -> bool {
+    matches!(
+        word,
+        "return"
+            | "typeof"
+            | "instanceof"
+            | "in"
+            | "of"
+            | "new"
+            | "delete"
+            | "void"
+            | "do"
+            | "else"
+            | "yield"
+            | "await"
+            | "case"
+            | "throw"
+    )
 }
 
 fn is_ident_byte(b: u8) -> bool {
@@ -3448,6 +3530,26 @@ mod tests {
         assert!(!contains_await_keyword("/* await */ let a = 1;"));
         assert!(!contains_await_keyword("let awaited = `await ${'await'}`;"));
         assert!(!contains_await_keyword("let kawaii = 1;"));
+    }
+
+    #[test]
+    fn await_detection_skips_regex_literals() {
+        // `await` inside a regex literal is not a keyword — the scanner must not
+        // report TLA (which would move a `var`/function binding into an async
+        // IIFE and drop it from the global scope). (ENG-23031)
+        assert!(!contains_await_keyword("var re = /await/g"));
+        assert!(!contains_await_keyword("var re = /(await)/"));
+        assert!(!contains_await_keyword("const re = /a\\/await/;"));
+        assert!(!contains_await_keyword("var re = /[/await]/"));
+        assert!(!contains_await_keyword("x.replace(/await/g, '')"));
+        assert!(!contains_await_keyword("return /await/.test(s)"));
+
+        // A `/` after a value is division, so a real `await` following it is
+        // still detected (the regex heuristic must not swallow later code).
+        assert!(contains_await_keyword("var q = a / b; await c"));
+        assert!(contains_await_keyword("var q = /re/.source; await c"));
+        // `typeof x` is a value, so `/ await y` is a division then a real await.
+        assert!(contains_await_keyword("typeof x / await y"));
     }
 
     #[test]
