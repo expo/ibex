@@ -5,6 +5,7 @@
 **Systems:** Tooling, Build, Agent Skills, Developer Experience, CI
 **Author:** Charlie Cheever / Claude (second-round pilot feedback)
 **Date:** 2026-07-05
+**Revised:** 2026-07-05 (added frictions 5–7 — vendored-vs-src stale build, agents parking on backgrounded builds, and the hot-`main` rebuild tax — plus plan items 5–7 and a sharp-edges appendix, from the 14-way parallel cdc-linear-do run)
 **Related:** LLP 0000; LLP 0005; LLP 0006 (fail-closed/loud principle); LLP 0015 (build machines); LLP 0017 (agent execution reliability); ENG-22986
 
 ## Summary
@@ -28,9 +29,11 @@ regenerating`); this plan extends it from the build to the agent tool surface.
 
 ## Motivation
 
-The second-round pilot feedback surfaced four concrete frictions. Every one of
-them is a *silent-green* failure: the failure mode is not a crash the agent can
-see, but a success the agent can't distrust.
+The second-round pilot feedback surfaced four concrete *silent-green* frictions:
+the failure mode is not a crash the agent can see, but a success the agent can't
+distrust. A follow-on 14-way parallel run then added three more (items 5–7) —
+one more silent-green, and two execution-reliability/efficiency costs that only
+show up at scale.
 
 1. **`link-worktree-artifacts.sh` links into the wrong checkout, then reports
    success.** The script anchors its *destination* to its own file location
@@ -74,9 +77,38 @@ see, but a success the agent can't distrust.
    This is the mildest case (it fails closed), but it is the same shape: a tool
    whose precondition was never established.
 
-Items 1 and 3 are follow-through on 0017 deliverables that shipped with a
-silent-green edge; item 2 is new; item 4 is now operationally resolved and is
-recorded here to close the loop and seed the bootstrap checklist.
+5. **A plain `cargo build` silently embeds the *committed* builtin, not your
+   edited source.** Builtins execute from `vendored-generated/` (compiled into
+   the binary), so editing `src/builtins/*.js` and running a normal
+   `cargo build`/`cargo test` runs the **stale** builtin with no warning — the
+   change appears to do nothing, or a test fails inexplicably, until the author
+   remembers `IBEX_REGENERATE_RUNTIME=1` (iterate) or `bun run regenerate:vendored`
+   (commit) + `bun run check:drift`. `check:drift` catches it at *land* time, but
+   the dev-iteration build is silent-green: it compiles and runs clean against
+   the wrong bytes. Multiple agents flagged this independently.
+
+6. **Agents strand themselves waiting on backgrounded builds.** In the parallel
+   run a native ticket launched its multi-minute `cargo` build in the background
+   and then parked waiting on a completion event that never woke its thread — it
+   stopped twice and only finished after an explicit "run the build in the
+   foreground" nudge from the coordinator. A long command an agent launches and
+   then blocks on must complete on a path the agent actually resumes from;
+   "detach and await an event" is a reliability hole for the very builds this
+   tooling exists to speed up.
+
+7. **On a hot `main`, fast-forward landing taxes every loser with a full
+   rebuild.** With ~8 native agents fast-forward-pushing to `main` and several
+   editing the same file (`hermes_runtime.cc`), each rejected push forced a
+   re-fetch → rebase → **~45s native rebuild** → re-verify loop before retrying
+   (individual agents rebased up to three times). Correctness held (no
+   clobbering, no force pushes), but the land step that looks like a quick push
+   is actually O(rebuilds × contention).
+
+Items 1, 3, and 5 are follow-through on 0017 deliverables — or on the
+`vendored-generated` build — that ship with a silent-green edge; item 2 is new;
+items 6–7 are execution-reliability and efficiency costs that only surfaced at
+14-way concurrency; item 4 is now operationally resolved and is recorded here to
+close the loop and seed the bootstrap checklist.
 
 ## The governing rule
 
@@ -221,7 +253,70 @@ Acceptance criteria:
 - A wrapper script added in the future is expected to check its own binary's
   presence (the standard `with-timeout.sh` already meets).
 
-### 5. Hold new agent tooling to the fail-loud rule
+### 5. Make the dev build loud when `vendored-generated` is stale
+
+A normal `cargo build` should not silently run last-commit's builtin when the
+`src/` source is newer.
+
+- Add a fast, no-network staleness check — an mtime/hash comparison of the
+  generated *sources* (`src/builtins/*.js`, the capability-bit / identity /
+  module-manifest inputs) against their `vendored-generated/**` (and
+  `src/identity_generated.rs` etc.) outputs — that a cheap `build.rs` step runs
+  in dev, printing a loud "embedded builtin is stale; run `IBEX_REGENERATE_RUNTIME=1`
+  or `bun run regenerate:vendored`" warning, or failing under an opt-in strict
+  flag.
+- Preserve the LLP 0005 hermetic default: the check is a comparison, never a
+  regeneration, and must add no bun/`node_modules` dependency to a normal build.
+- Document the two iterate paths at the top of `src/builtins/` and in the
+  playbook: `IBEX_REGENERATE_RUNTIME=1 cargo …` (rebuild-and-embed in one step)
+  vs `bun run regenerate:vendored` + `check:drift` (commit path).
+
+Acceptance criteria:
+
+- Editing a `src/builtins/*.js` file and running a normal `cargo build` surfaces
+  a loud "embedded builtin is stale" signal instead of silently using the
+  committed bytes.
+- The check adds no bun/`node_modules` dependency to a normal build and never
+  regenerates anything itself.
+
+### 6. Long agent-launched builds run to completion on a resumable path
+
+- Playbook rule (and, where the harness allows, an enforced default): run
+  multi-minute builds/tests in the **foreground** under `scripts/with-timeout.sh`,
+  not backgrounded-with-event-wait. If a build must be backgrounded, the agent
+  polls its output/exit to completion rather than parking on an external
+  notification that may never re-invoke it.
+- Consider a thin `scripts/build-blocking.sh` that runs the native build in the
+  foreground with periodic progress to stderr, so "background it to watch
+  progress" is not the reason agents detach from a build they depend on.
+
+Acceptance criteria:
+
+- An agent following the playbook never stalls indefinitely waiting on a build it
+  launched.
+- Build progress is observable without detaching the build from the agent's own
+  control flow.
+
+### 7. Cut the rebuild tax when landing onto a busy `main`
+
+- With `sccache` wired up (item 3), a post-rebase rebuild is mostly cache hits —
+  the primary mitigation.
+- Add playbook guidance to **skip a full re-verify when a rebase introduced no
+  conflicts touching the agent's own changed files**: a rebase that only advances
+  the base need not re-run the whole native suite; a targeted re-run of the
+  affected test suffices.
+- Optionally provide a small landing helper that fetches, rebases, and pushes to
+  `HEAD:main` with bounded retries and reports contention, and/or lightly
+  serialize agents editing the same hot file (e.g. `hermes_runtime.cc`) so they
+  do not each rebase across one another.
+
+Acceptance criteria:
+
+- A conflict-free rebase onto an advanced `main` does not force a full-suite
+  native rebuild + re-verify by default.
+- The playbook documents when a re-verify is and isn't required after a rebase.
+
+### 8. Hold new agent tooling to the fail-loud rule
 
 Make the governing rule a checklist item for future scripts, so this class does
 not silently regrow.
@@ -239,9 +334,14 @@ not silently regrow.
    this blocked every pilot agent.
 2. P1: add the fail-on-zero test wrapper (item 2) — it gates verification
    correctness for every native ticket.
-3. P2: bootstrap `sccache` and the opt-in target clone (item 3).
-4. P2: build-machine bootstrap checklist (item 4).
-5. Ongoing: apply the fail-loud checklist to new tooling (item 5).
+3. P1: make the dev build loud on stale `vendored-generated` (item 5) — a
+   silent-green that hits every builtin edit.
+4. P2: bootstrap `sccache` and the opt-in target clone (item 3), which also cuts
+   the post-rebase rebuild tax (item 7).
+5. P2: foreground/resumable long builds (item 6) and the post-rebase re-verify
+   guidance (item 7) in the playbook.
+6. P2: build-machine bootstrap checklist (item 4).
+7. Ongoing: apply the fail-loud checklist to new tooling (item 8).
 
 ## Open questions
 
@@ -255,6 +355,28 @@ not silently regrow.
 - Is `check-build-machine.sh` (item 4) better as a script or as a section of the
   agent playbook the agent runs first? A script is enforceable; prose is
   cheaper to keep current.
-- Does the fail-loud rule (item 5) belong here as a Plan item or promoted into
+- Does the fail-loud rule (item 8) belong here as a Plan item or promoted into
   LLP 0006 as a standing principle for the agent tool surface? For now it lives
   here; if it proves durable, fold a one-line principle into 0006.
+
+## Sharp edges observed (smaller playbook fixes)
+
+Recorded so the playbook and future agents don't rediscover them; each is a
+candidate one-line doc note or guardrail rather than its own plan item.
+
+- **A Rust integration test that only calls `extern "C"` symbols fails to link
+  the C++ bridge.** rustc drops the "unused" `ibex_runtime` rlib, so its bundled
+  C++ archive never reaches the linker and the test fails at link time. Reference
+  any public lib item (e.g. `ibex_runtime::runtime_cache_dir`) from the test to
+  force linkage. Belongs next to the native-bridge test helpers.
+- **`git worktree remove … && git branch -D …` in one command fails** with
+  "Unable to read current working directory" when the shell's cwd was the removed
+  worktree — run the two steps separately, from the primary checkout.
+- **`git diff origin/main` is noisy while `main` advances under you.** Use the
+  merge-base form `git diff origin/main...HEAD` (three dots) or `git status` for
+  an agent's own diff during a concurrent run.
+- **Some host functions install lazily on first `require` (DNS, crypto).** A
+  `typeof __exact…` probe run before the relevant `require('dns')` /
+  `require('crypto')` reports "missing" — trigger the require first.
+- **`ibex run --allow-all` is rejected** — allow-all is a global/default-permissive
+  posture, not a `run` argument; default permissions sufficed in the run.
