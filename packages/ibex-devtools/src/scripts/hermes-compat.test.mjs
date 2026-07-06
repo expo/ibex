@@ -8,8 +8,17 @@ import {
   transformAsyncGenerators,
   transformBigIntLiterals,
 } from './hermes-compat.mjs';
-import { forOfScopingCorpus } from './hermes-compat-corpus.mjs';
+import { asyncGeneratorCorpus, forOfScopingCorpus } from './hermes-compat-corpus.mjs';
 import { runCorpus } from './run-hermes-compat-corpus.mjs';
+
+// Build a runnable driver from a corpus source that defines `runFixture()`, and
+// return its result. The raw source runs as a native async generator (the
+// oracle); the transformed source runs the desugared async iterator.
+async function runAsyncFixture(source) {
+  // eslint-disable-next-line no-new-func
+  const build = new Function(`${source}\n;return runFixture();`);
+  return await build();
+}
 
 // The canonical Hermes-compat module exposes the transform surface directly,
 // independent of the broader ibex-devtools bundler module (LLP 0312).
@@ -59,4 +68,32 @@ describe('hermes-compat conformance corpus', () => {
     expect(detail).toBe('');
     expect(report.ok).toBe(true);
   });
+});
+
+// The async-generator corpus (ENG-23036) asserts that the desugared async
+// iterator reproduces native async-generator semantics — next(v) value
+// threading, FIFO concurrency, lazy body start, and return()/throw()
+// completion — by running each fixture raw (native async generator = oracle)
+// and transformed, then comparing.
+describe('hermes-compat async-generator conformance corpus', () => {
+  it('has the ENG-23036 async-generator fixtures', () => {
+    expect(asyncGeneratorCorpus.length).toBeGreaterThanOrEqual(5);
+    for (const fixture of asyncGeneratorCorpus) {
+      expect(typeof fixture.id).toBe('string');
+      expect(typeof fixture.source).toBe('string');
+    }
+  });
+
+  for (const fixture of asyncGeneratorCorpus) {
+    it(`reproduces native async-generator semantics: ${fixture.id}`, async () => {
+      const transformed = transformAsyncGenerators(fixture.source);
+      // The transform must actually rewrite the async generator away.
+      expect(transformed).not.toContain('async function*');
+      expect(transformed).not.toBe(fixture.source);
+
+      const oracle = await runAsyncFixture(fixture.source);
+      const actual = await runAsyncFixture(transformed);
+      expect(JSON.stringify(actual)).toBe(JSON.stringify(oracle));
+    });
+  }
 });

@@ -344,7 +344,23 @@ export function fixForOfScoping(source) {
       const stepSource = `__exactForOfStep${rewriteCounter}`;
       const valueSource = `__exactForOfValue${rewriteCounter}`;
       const bodyFnSource = `__exactForOfBody${rewriteCounter}`;
+      const errorSource = `__exactForOfError${rewriteCounter}`;
+      const returnSource = `__exactForOfReturn${rewriteCounter}`;
+      const ignoreSource = `__exactForOfIgnore${rewriteCounter}`;
       rewriteCounter += 1;
+
+      // ENG-23036: native `for...of` runs IteratorClose (the iterator's
+      // `return` method) on any abrupt completion of the body, so a generator's
+      // `finally` / a custom `return()` runs when the body throws. The plain
+      // `for (;;) { ...next()... body }` shape had no such call, silently
+      // skipping cleanup. break/continue/return/await/yield already bail to raw
+      // (which closes natively), so the only abrupt completion that reaches a
+      // rewrite is a throw from the body; wrap just the body execution (not the
+      // next() call, which native for-of does not IteratorClose on) and, on
+      // throw, close the iterator before re-throwing. Per spec IteratorClose on
+      // a throw completion the original error wins, so a throwing return() is
+      // swallowed.
+      const closeOnThrow = `catch (${errorSource}) { const ${returnSource} = ${iteratorSource}.return; if (typeof ${returnSource} === 'function') { try { ${returnSource}.call(${iteratorSource}); } catch (${ignoreSource}) {} } throw ${errorSource}; }`;
 
       // Recursively transform the right expression and the body BEFORE
       // wrapping (ENG-22559): nested for-of loops — directly in the body, or
@@ -367,7 +383,7 @@ export function fixForOfScoping(source) {
         // preserves `this`, `arguments`, `super`, and `new.target`, and the
         // explicit iterator protocol keeps live/lazy iteration semantics
         // (`Array.from` would snapshot the iterable).
-        text = `{ const ${iteratorSource} = (${transformedRight})[Symbol.iterator](); const ${bodyFnSource} = (${valueSource}) => { ${left.kind} ${leftSource} = ${valueSource};\n${blockInner} }; for (;;) { const ${stepSource} = ${iteratorSource}.next(); if (${stepSource}.done) break; ${bodyFnSource}(${stepSource}.value); } }`;
+        text = `{ const ${iteratorSource} = (${transformedRight})[Symbol.iterator](); const ${bodyFnSource} = (${valueSource}) => { ${left.kind} ${leftSource} = ${valueSource};\n${blockInner} }; for (;;) { const ${stepSource} = ${iteratorSource}.next(); if (${stepSource}.done) break; try { ${bodyFnSource}(${stepSource}.value); } ${closeOnThrow} } }`;
       } else {
         let loopSetupSource;
         if (leftDecl) {
@@ -379,7 +395,7 @@ export function fixForOfScoping(source) {
               : `${leftSource} = ${stepSource}.value;`;
           loopSetupSource = `${assignmentSource}\n`;
         }
-        text = `{ const ${iteratorSource} = (${transformedRight})[Symbol.iterator](); for (;;) { const ${stepSource} = ${iteratorSource}.next(); if (${stepSource}.done) break; ${loopSetupSource}${blockInner} } }`;
+        text = `{ const ${iteratorSource} = (${transformedRight})[Symbol.iterator](); for (;;) { const ${stepSource} = ${iteratorSource}.next(); if (${stepSource}.done) break; try { ${loopSetupSource}${blockInner} } ${closeOnThrow} } }`;
       }
 
       replacements.push({
@@ -711,76 +727,97 @@ export function transformAsyncGenerators(source) {
           transformedBody.slice(replacement.end);
       }
 
+      // @ref LLP 0005#2-transformed-builtin-modules — Hermes lacks native
+      // async generators, so we desugar to a demand-driven async iterator that
+      // must reproduce ES async-generator semantics (ENG-23036):
+      //   - lazy start: the body runs on the first next()/return()/throw(), not
+      //     at generator-call time (no premature side effects / resource acq);
+      //   - value threading: `x = yield e` resolves to the argument of the
+      //     next()/return() that resumes it (`_resume(req.sent)`), not undefined;
+      //   - concurrency: consumers queue FIFO in `_requests`, so overlapping
+      //     next() calls never orphan a promise or reorder results — the body is
+      //     sequential (one suspended `_yield` at a time) with backpressure, so
+      //     no unconsumed-item buffer is needed.
       const wrapperBody = `{
-  var _items = [], _resolve = null, _done = false, _yieldReject = null, _error = null;
+  var _requests = [];
+  var _active = null;
+  var _resume = null, _resumeReject = null;
+  var _started = false, _done = false;
   var _ABORT = {};
+  function _pump() {
+    if (_resume && _requests.length > 0) {
+      var req = _requests.shift();
+      _active = req;
+      var r = _resume;
+      _resume = null;
+      _resumeReject = null;
+      r(req.sent);
+    }
+  }
+  function _flushDone() {
+    while (_requests.length > 0) {
+      var req = _requests.shift();
+      req.resolve({ value: undefined, done: true });
+    }
+  }
   function _yield(v) {
     if (_done) return Promise.reject(_ABORT);
+    if (_active) { var a = _active; _active = null; a.resolve({ value: v, done: false }); }
     return new Promise(function(resolve, reject) {
-      var item = { value: v, done: false };
-      _yieldReject = reject;
-      if (_resolve) {
-        var fn = _resolve;
-        _resolve = null;
-        fn(item);
-        Promise.resolve().then(function() {
-          _yieldReject = null;
-          resolve();
-        });
-      }
-      else {
-        item._resume = function() {
-          _yieldReject = null;
-          resolve();
-        };
-        _items.push(item);
-      }
+      _resume = resolve;
+      _resumeReject = reject;
+      _pump();
     });
   }
-  (async function() {${transformedBody}})().then(function() {
-    _done = true;
-    if (_resolve) { var fn = _resolve; _resolve = null; fn({ value: undefined, done: true }); }
-  }, function(err) {
-    _done = true;
-    if (err === _ABORT) {
-      _error = null;
-      if (_resolve) { var fn = _resolve; _resolve = null; fn({ value: undefined, done: true }); }
-      return;
-    }
-    _error = err;
-    if (_resolve) { var fn = _resolve; _resolve = null; _error = null; fn(Promise.reject(err)); }
-  });
+  function _start() {
+    _started = true;
+    (async function() {${transformedBody}})().then(function(_ret) {
+      _done = true;
+      if (_active) { var a = _active; _active = null; a.resolve({ value: _ret, done: true }); }
+      _flushDone();
+    }, function(_err) {
+      _done = true;
+      if (_err === _ABORT) {
+        if (_active) { var a = _active; _active = null; a.resolve({ value: undefined, done: true }); }
+        _flushDone();
+        return;
+      }
+      if (_active) { var a = _active; _active = null; a.reject(_err); }
+      _flushDone();
+    });
+  }
   return {
     [Symbol.asyncIterator]: function() { return this; },
-    next: function() {
-      if (_items.length > 0) {
-        var queued = _items.shift();
-        if (queued && typeof queued._resume === 'function') {
-          var resume = queued._resume;
-          delete queued._resume;
-          Promise.resolve().then(resume);
-        }
-        return Promise.resolve(queued);
+    next: function(_sent) {
+      return new Promise(function(resolve, reject) {
+        if (_done) { resolve({ value: undefined, done: true }); return; }
+        var req = { resolve: resolve, reject: reject, sent: _sent };
+        if (!_started) { _active = req; _start(); return; }
+        _requests.push(req);
+        _pump();
+      });
+    },
+    return: function(_value) {
+      if (!_started || _done) {
+        _done = true;
+        return Promise.resolve({ value: _value, done: true });
       }
-      if (_error) { var err = _error; _error = null; return Promise.reject(err); }
-      if (_done) return Promise.resolve({ value: undefined, done: true });
-      return new Promise(function(r) { _resolve = r; });
-    },
-    return: function() {
       _done = true;
-      _error = null;
-      _items.length = 0;
-      if (_yieldReject) { var fn = _yieldReject; _yieldReject = null; fn(_ABORT); }
-      if (_resolve) { var fn2 = _resolve; _resolve = null; fn2({ value: undefined, done: true }); }
-      return Promise.resolve({ value: undefined, done: true });
+      if (_resumeReject) { var rj = _resumeReject; _resume = null; _resumeReject = null; rj(_ABORT); }
+      if (_active) { var a = _active; _active = null; a.resolve({ value: _value, done: true }); }
+      _flushDone();
+      return Promise.resolve({ value: _value, done: true });
     },
-    throw: function(err) {
+    throw: function(_err) {
+      if (!_started || _done) {
+        _done = true;
+        return Promise.reject(_err);
+      }
       _done = true;
-      _error = null;
-      _items.length = 0;
-      if (_yieldReject) { var fn = _yieldReject; _yieldReject = null; fn(err); }
-      if (_resolve) { var fn2 = _resolve; _resolve = null; fn2(Promise.reject(err)); }
-      return Promise.reject(err);
+      if (_resumeReject) { var rj = _resumeReject; _resume = null; _resumeReject = null; rj(_err); }
+      if (_active) { var a = _active; _active = null; a.reject(_err); }
+      _flushDone();
+      return Promise.reject(_err);
     }
   };
 }`;

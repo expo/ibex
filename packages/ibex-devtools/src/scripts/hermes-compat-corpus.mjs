@@ -215,6 +215,149 @@ function collect(items) {
 print(JSON.stringify(collect(["a", "b"])));
 `,
   },
+  {
+    id: 'iterator-close-on-throw',
+    rewrites: true,
+    note: 'ENG-23036: a rewritten for-of runs IteratorClose (iterator.return) when the body throws, so a generator finally runs — native does, the pre-fix iterator-protocol shape did not',
+    source: `
+function run() {
+  const log = [];
+  function* g() {
+    try {
+      yield "a";
+      yield "b";
+    } finally {
+      log.push("cleanup");
+    }
+  }
+  try {
+    for (const x of g()) {
+      log.push("body:" + x);
+      throw new Error("boom");
+    }
+  } catch (e) {
+    log.push("caught:" + e.message);
+  }
+  return log;
+}
+print(JSON.stringify(run()));
+`,
+  },
+]);
+
+/**
+ * Async-generator conformance corpus (ENG-23036).
+ *
+ * `transformAsyncGenerators` desugars `async function*` into a demand-driven
+ * async iterator (Hermes has no native async generators). These fixtures pin
+ * the observable async-generator semantics the desugaring must reproduce; the
+ * oracle is the untransformed source run as a native async generator on
+ * V8/Node (see hermes-compat.test.mjs, which runs each `runFixture()` raw and
+ * transformed and compares the results).
+ *
+ * Each fixture is a self-contained source that defines one or more
+ * `async function*` generators plus an `async function runFixture()` driver
+ * (a plain async function, so the transform leaves it untouched) returning a
+ * JSON-serializable result.
+ */
+export const asyncGeneratorCorpus = Object.freeze([
+  {
+    id: 'next-arg-threads-into-yield',
+    note: 'ENG-23036 #1: `x = yield e` resolves to the value passed to the resuming next(v); the return value threads to the final {value, done:true}',
+    source: `
+async function* g() {
+  const a = yield 1;
+  const b = yield a + 10;
+  return b + 100;
+}
+async function runFixture() {
+  const it = g();
+  const out = [];
+  out.push(await it.next());
+  out.push(await it.next(5));
+  out.push(await it.next(7));
+  out.push(await it.next(9));
+  return out;
+}
+`,
+  },
+  {
+    id: 'concurrent-next-fifo',
+    note: 'ENG-23036 #2: overlapping next() calls queue FIFO — neither promise is orphaned and results are not reordered',
+    source: `
+async function* g() {
+  await Promise.resolve();
+  yield 1;
+  yield 2;
+}
+async function runFixture() {
+  const it = g();
+  const p1 = it.next();
+  const p2 = it.next();
+  const r1 = await p1;
+  const r2 = await p2;
+  const r3 = await it.next();
+  return [r1, r2, r3];
+}
+`,
+  },
+  {
+    id: 'lazy-body-start',
+    note: 'ENG-23036 #3: the body runs lazily on the first next(), not eagerly at generator-call time',
+    source: `
+const sideEffects = [];
+async function* g() {
+  sideEffects.push("body-start");
+  yield 1;
+}
+async function runFixture() {
+  const it = g();
+  const before = sideEffects.slice();
+  await it.next();
+  const after = sideEffects.slice();
+  return { before, after };
+}
+`,
+  },
+  {
+    id: 'return-completes-iterator',
+    note: 'ENG-23036: return(v) resolves {value:v, done:true} and completes the iterator (subsequent next() is done)',
+    source: `
+async function* g() {
+  yield 1;
+  yield 2;
+}
+async function runFixture() {
+  const it = g();
+  const a = await it.next();
+  const b = await it.return(42);
+  const c = await it.next();
+  return [a, b, c];
+}
+`,
+  },
+  {
+    id: 'throw-propagates-and-completes',
+    note: 'ENG-23036: throw(err) rejects when the generator does not catch and completes the iterator',
+    source: `
+async function* g() {
+  yield 1;
+  yield 2;
+}
+async function runFixture() {
+  const it = g();
+  const a = await it.next();
+  let message = null;
+  try {
+    await it.throw(new Error("boom"));
+  } catch (e) {
+    message = e.message;
+  }
+  const c = await it.next();
+  return [a, message, c];
+}
+`,
+  },
 ]);
 
 export default forOfScopingCorpus;
