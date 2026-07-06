@@ -1830,7 +1830,22 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   FsHandle.prototype.scoped = function (sub) {
     var id = g.__exactHandleScoped(this._id, String(sub));
     if (!id) throw new Error('Cannot scope handle to ' + sub);
-    return new FsHandle(id);
+    var child = new FsHandle(id);
+    // ENG-23029: pin the parent wrapper on the child so a live descendant keeps
+    // its whole ancestor chain reachable. A scoped child's grant is DERIVED from
+    // the parent's HandleRegistry entry — subtree eviction (revoke) cascades
+    // parent -> children, and is_live treats a missing ancestor entry as dead —
+    // so the parent's GC finalizer (__exactRevokeHandle(parentId), which
+    // cascade-evicts the subtree) must NOT be allowed to fire while any child is
+    // still in use. Without this reference the parent wrapper can be a temporary
+    // (`readHandle(dir).scoped(sub)`); GC of that temporary would over-revoke the
+    // still-held child. Retaining the parent object makes it unreachable (and
+    // thus finalizable) only once every descendant wrapper is also unreachable,
+    // at which point revoking the subtree is correct. This also removes the ABA
+    // window in which an evicted-but-not-unregistered parent id is redrawn and a
+    // stale finalizer revokes an unrelated new handle (secondary note on 23029).
+    child.__parent = this;
+    return child;
   };
   FsHandle.prototype.revoke = function () {
     // Drop the finalizer registration first: once revoked, this wrapper's id is

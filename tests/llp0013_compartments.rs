@@ -1716,6 +1716,90 @@ fn dropped_handle_is_auto_revoked_when_garbage_collected() {
 }
 
 // ---------------------------------------------------------------------------
+// GC of a delegation parent must NOT over-revoke a still-in-use child (ENG-23029)
+//
+// The headline delegation pattern is "mint broad -> scope narrow -> hand the
+// child off -> forget the parent". `scoped()` returns a fresh FsHandle wrapping
+// only the child id, so the parent wrapper can become an unreachable temporary
+// while the child is still held and in use. The GC auto-revoke (ENG-23010) routes
+// a collected wrapper's id to __exactRevokeHandle, which cascade-evicts the id AND
+// its descendant subtree — so collecting the parent wrapper would revoke the live
+// child. The fix pins the parent on the child (`child.__parent = this`) so a live
+// descendant keeps its ancestors reachable and the parent finalizer can't fire
+// while any child is in use.
+//
+// Same framework-independence and gc()-gating as the ENG-23010 test above: the
+// possession read, gc(), and FinalizationRegistry are core/Rust, so this does not
+// skip vacuously on the stock checked-in Hermes. When gc() drives collection this
+// FAILS on the pre-fix cascade (child-after=REVOKED) and passes with the pin.
+// ---------------------------------------------------------------------------
+
+const HANDLE_PARENT_PIN_APP_JS: &str = r#"var g = globalThis;
+var dir = process.env.HDIR;
+var file = dir + '/images/data.txt';
+function childState(id) {
+  try { g.__exactHandleReadFileSync(id, file); return 'LIVE'; }
+  catch (e) { return (String(e && e.message).indexOf('does not grant') !== -1) ? 'REVOKED' : 'ERR'; }
+}
+console.log('gc-available=' + (typeof gc === 'function'));
+// Mint broad, scope narrow, keep ONLY the child: the parent wrapper is a
+// temporary that goes unreachable when this IIFE returns.
+var child;
+var childId;
+(function () {
+  var parent = Ibex.fs.readHandle(dir);
+  child = parent.scoped('images');
+  childId = child._id;
+})();
+console.log('child-before=' + childState(childId));
+if (typeof gc === 'function') gc();
+setTimeout(function () {
+  if (typeof gc === 'function') gc();
+  setTimeout(function () {
+    if (typeof gc === 'function') gc();
+    setTimeout(function () {
+      // The child is still strongly referenced and in use, so GC of the parent
+      // wrapper must not have revoked it.
+      console.log('child-after=' + childState(childId));
+    }, 30);
+  }, 30);
+}, 30);
+"#;
+
+#[test]
+fn gc_of_delegation_parent_does_not_over_revoke_live_child() {
+    let dir = unique_dir("handle-parent-pin");
+    write_text(&dir.join("images").join("data.txt"), "child-handle-data");
+    write_text(&dir.join("app.js"), HANDLE_PARENT_PIN_APP_JS);
+    let out = run_ibex(
+        &["run", "app.js"],
+        &[("HDIR", &dir.to_string_lossy())],
+        Some(&dir),
+    );
+    // Precondition: the scoped child is usable before any GC (proves the mint +
+    // scope + possession read work, so a later REVOKED is a real regression).
+    assert!(
+        out.stdout.contains("child-before=LIVE"),
+        "the scoped child handle should be usable before GC:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    if out.stdout.contains("gc-available=true") {
+        assert!(
+            out.stdout.contains("child-after=LIVE"),
+            "GC of the (temporary) delegation parent must not over-revoke the still-held child:\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    } else {
+        eprintln!(
+            "skipping over-revoke assertion: runtime exposes no gc() to force a collection"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
 // Exact fs grants cannot mint subtree handles (ENG-22882)
 //
 // Handle grant coverage uses the same path algebra as ambient capability
