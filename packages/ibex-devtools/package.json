@@ -20,6 +20,12 @@
     "./scripts/generate-runtime-identity": {
       "import": "./src/scripts/generate-runtime-identity.ts"
     },
+    "./scripts/hermes-compat": {
+      "import": "./src/scripts/hermes-compat.mjs"
+    },
+    "./scripts/hermes-compat-corpus": {
+      "import": "./src/scripts/hermes-compat-corpus.mjs"
+    },
     "./scripts/rolldown-bundle": {
       "import": "./src/scripts/rolldown-bundle.mjs"
     },

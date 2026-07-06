@@ -2443,6 +2443,17 @@ fn bundler_cache_input_paths() -> Vec<PathBuf> {
             .join("src")
             .join("scripts")
             .join("transforms.mjs"),
+        // @ref LLP 0312 (ENG-22987) — the canonical Hermes-compat transforms
+        // (for-of scoping, exponentiation, BigInt, async generators) moved out
+        // of transforms.mjs into hermes-compat.mjs, which transforms.mjs now
+        // re-exports. The bundle cache must hash the file the logic actually
+        // lives in, or an edit to the transform semantics would not invalidate
+        // cached bundles.
+        root.join("packages")
+            .join("ibex-devtools")
+            .join("src")
+            .join("scripts")
+            .join("hermes-compat.mjs"),
         // @ref LLP 0014#parse-and-strip — the grant-attribute strip runs in
         // every bundle; its logic changing must invalidate cached bundles.
         root.join("packages")
@@ -3472,13 +3483,17 @@ mod tests {
         // is empty by design.
         let paths = bundler_cache_input_paths();
 
-        assert_eq!(paths.len(), 3);
+        assert_eq!(paths.len(), 4);
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/rolldown-bundle.mjs")));
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/transforms.mjs")));
+        // @ref LLP 0312 (ENG-22987) — the extracted canonical transform source.
+        assert!(paths
+            .iter()
+            .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/hermes-compat.mjs")));
         assert!(paths
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/import-grants.mjs")));

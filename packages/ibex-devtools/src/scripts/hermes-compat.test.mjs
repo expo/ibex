@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'bun:test';
+
+import {
+  applyHermesTransforms,
+  fixForOfScoping,
+  protectExponentiation,
+  restoreExponentiation,
+  transformAsyncGenerators,
+  transformBigIntLiterals,
+} from './hermes-compat.mjs';
+import { forOfScopingCorpus } from './hermes-compat-corpus.mjs';
+import { runCorpus } from './run-hermes-compat-corpus.mjs';
+
+// The canonical Hermes-compat module exposes the transform surface directly,
+// independent of the broader ibex-devtools bundler module (LLP 0312).
+describe('hermes-compat module surface', () => {
+  it('exports the canonical transform functions', () => {
+    for (const fn of [
+      fixForOfScoping,
+      protectExponentiation,
+      restoreExponentiation,
+      transformBigIntLiterals,
+      transformAsyncGenerators,
+      applyHermesTransforms,
+    ]) {
+      expect(typeof fn).toBe('function');
+    }
+  });
+
+  it('applyHermesTransforms composes for-of + async-generator + BigInt lowering', () => {
+    const source = 'const xs = [1n, 2n]; for (const x of xs) { fns.push(() => x); }';
+    // BigInt literals are lowered and the for-of loop is rewritten.
+    const out = applyHermesTransforms(source);
+    expect(out).not.toContain('1n');
+    expect(out).toContain('BigInt("1")');
+    expect(out).toContain('[Symbol.iterator]()');
+  });
+});
+
+// The shared conformance corpus asserts observable behavior — closure capture,
+// live iteration, this-binding, bailout semantics — against the V8 oracle and,
+// when a Hermes binary is available, against the shipping Hermes configuration.
+describe('hermes-compat conformance corpus', () => {
+  it('has the ENG-22569 engine-honest for-of fixtures', () => {
+    expect(forOfScopingCorpus.length).toBeGreaterThanOrEqual(10);
+    for (const fixture of forOfScopingCorpus) {
+      expect(typeof fixture.id).toBe('string');
+      expect(typeof fixture.source).toBe('string');
+      expect(typeof fixture.rewrites).toBe('boolean');
+    }
+  });
+
+  it('passes the corpus (V8 oracle always; Hermes when available)', () => {
+    const report = runCorpus();
+    const failed = report.results.filter((result) => !result.ok);
+    const detail = failed
+      .map((result) => `${result.id}: ${result.failures.join('; ')}`)
+      .join('\n');
+    expect(detail).toBe('');
+    expect(report.ok).toBe(true);
+  });
+});
