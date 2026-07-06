@@ -9,8 +9,9 @@
  * Ibex-standalone with no Exact checkout.
  *
  * The Ibex runtime module loader has its own (string-scanner) for-of rewrite.
- * Adding that path as a second runner over this same corpus is ENG-22989 and is
- * deliberately out of scope here; this runner exercises the AST path only.
+ * That path is covered by the sibling runner run-hermes-compat-loader.mjs
+ * (ENG-22989), which drives this same corpus through the real `ibex` binary;
+ * this runner exercises the AST path only.
  *
  * Usage:
  *   node run-hermes-compat-corpus.mjs          # run corpus, print report
@@ -51,7 +52,14 @@ export function canRunHermes(candidate) {
   return result.status === 0 && result.stdout.trim() === 'ok';
 }
 
-function runV8(code) {
+/**
+ * Run a corpus fixture on the host engine (V8 when this runs under Node) with
+ * a `print` shim, returning its printed lines. This is the spec oracle every
+ * corpus runner compares against — exported so the loader-path runner
+ * (run-hermes-compat-loader.mjs, ENG-22989) derives its oracle from the same
+ * evaluation instead of duplicating it.
+ */
+export function runV8(code) {
   const lines = [];
   // eslint-disable-next-line no-new-func
   new Function('print', code)((value) => lines.push(String(value)));
