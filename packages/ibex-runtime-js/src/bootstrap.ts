@@ -784,6 +784,40 @@ export function installGlobals(): void {
   // (registers the native module but doesn't create the global crypto object)
   // ========================================
   if (typeof g.__exactRandomBytes === 'function') {
+    // Byte-accurate hash + HMAC over the native __exactHashRaw bridge
+    // (CommonCrypto/OpenSSL). __exactHashRaw takes raw bytes and a lowercase
+    // hash name, so it avoids the UTF-8 round-trip that the legacy string-only
+    // __exactHmacSync bridge inflicted on bytes >= 0x80 (ENG-22983), and it runs
+    // native instead of the BigInt jsSHA fallbacks (ENG-23037 finding 1).
+    // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
+    const nativeHashRaw = (hash: string, data: Uint8Array): Uint8Array =>
+      g.__exactHashRaw(hash.toLowerCase(), data);
+    const toArrayBuffer = (u: Uint8Array): ArrayBuffer =>
+      u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+    const hmacBlockBytes = (hash: string): number => {
+      const h = hash.toUpperCase().replace(/-/g, '');
+      return h === 'SHA384' || h === 'SHA512' ? 128 : 64;
+    };
+    const nativeHmac = (hash: string, key: Uint8Array, data: Uint8Array): Uint8Array => {
+      const blockSize = hmacBlockBytes(hash);
+      let k = key;
+      if (k.length > blockSize) k = nativeHashRaw(hash, k);
+      const padded = new Uint8Array(blockSize);
+      padded.set(k);
+      const inner = new Uint8Array(blockSize + data.length);
+      const outerPrefix = new Uint8Array(blockSize);
+      for (let i = 0; i < blockSize; i++) {
+        inner[i] = padded[i] ^ 0x36;
+        outerPrefix[i] = padded[i] ^ 0x5c;
+      }
+      inner.set(data, blockSize);
+      const innerHash = nativeHashRaw(hash, inner);
+      const outer = new Uint8Array(blockSize + innerHash.length);
+      outer.set(outerPrefix);
+      outer.set(innerHash, blockSize);
+      return nativeHashRaw(hash, outer);
+    };
+    const hasNativeHash = typeof g.__exactHashRaw === 'function';
     setNativeCryptoModule({
       getRandomValues: (array: Uint8Array) => {
         const bytes: Uint8Array = g.__exactRandomBytes(array.byteLength);
@@ -815,21 +849,31 @@ export function installGlobals(): void {
       sha1: async () => {
         throw new DOMException('sha1 not available', 'NotSupportedError');
       },
-      digest: typeof g.__exactCryptoSubtleDigest === 'function'
-        ? async (hash: string, data: Uint8Array) => Promise.resolve(g.__exactCryptoSubtleDigest(hash, data))
+      // Route subtle.digest and HMAC through the native __exactHashRaw bridge.
+      // These previously guarded on __exactCryptoSubtleDigest/Sign/Verify globals
+      // that are defined nowhere, so digest/hmacSign/hmacVerify were always
+      // undefined and SubtleCrypto fell back to the pure-JS BigInt SHA on-device
+      // (ENG-23037 finding 1).
+      digest: hasNativeHash
+        ? async (hash: string, data: Uint8Array) => toArrayBuffer(nativeHashRaw(hash, data))
         : undefined,
-      hmacSign: typeof g.__exactCryptoSubtleSign === 'function'
-        ? async (hash: string, key: Uint8Array, data: Uint8Array) => Promise.resolve(
-            g.__exactCryptoSubtleSign(hash, key, data)
-          )
+      hmacSign: hasNativeHash
+        ? async (hash: string, key: Uint8Array, data: Uint8Array) =>
+            toArrayBuffer(nativeHmac(hash, key, data))
         : undefined,
-      hmacVerify: typeof g.__exactCryptoSubtleVerify === 'function'
+      hmacVerify: hasNativeHash
         ? async (
             hash: string,
             key: Uint8Array,
             signature: Uint8Array,
             data: Uint8Array
-          ) => Promise.resolve(g.__exactCryptoSubtleVerify(hash, key, signature, data))
+          ) => {
+            const mac = nativeHmac(hash, key, data);
+            if (mac.length !== signature.length) return false;
+            let diff = 0;
+            for (let i = 0; i < mac.length; i++) diff |= mac[i] ^ signature[i];
+            return diff === 0;
+          }
         : undefined,
     });
   }

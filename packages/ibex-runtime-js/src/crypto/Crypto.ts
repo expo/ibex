@@ -508,7 +508,15 @@ export class SubtleCrypto {
 
         if (typeof __exactEcdsaSign === 'function') {
           try {
-            const result = __exactEcdsaSign(curve, hash, (key as ExactCryptoKey)._keyData, bytes);
+            // A JWK-imported EC key holds its raw 0x04||x||y||d point, which the
+            // native bridge (PEM/DER only) cannot parse; convert it to PKCS#8 DER.
+            // spki/pkcs8/generated keys already hold parseable bytes (ENG-23037
+            // finding 2).
+            let keyData = (key as ExactCryptoKey)._keyData;
+            if (isRawEcPoint(keyData)) {
+              keyData = ecRawKeyToPkcs8Der(keyData, curve);
+            }
+            const result = __exactEcdsaSign(curve, hash, keyData, bytes);
             // The native bridge (OpenSSL EVP) returns an X9.62 DER signature, but
             // WebCrypto mandates the raw fixed-length IEEE P1363 r||s form
             // (64 bytes for P-256), so convert at the boundary (ENG-22983).
@@ -617,7 +625,13 @@ export class SubtleCrypto {
             // WebCrypto passes the raw fixed-length P1363 r||s signature, but the
             // native verifier (OpenSSL EVP) expects X9.62 DER (ENG-22983).
             const derSig = p1363ToDer(signatureBytes, getEcCoordSize(curve));
-            return __exactEcdsaVerify(curve, hash, (key as ExactCryptoKey)._keyData, derSig, dataBytes);
+            // A JWK-imported EC public key holds its raw 0x04||x||y point; convert
+            // it to SPKI DER so the native bridge can parse it (ENG-23037 finding 2).
+            let keyData = (key as ExactCryptoKey)._keyData;
+            if (isRawEcPoint(keyData)) {
+              keyData = ecRawPointToSpkiDer(keyData, curve);
+            }
+            return __exactEcdsaVerify(curve, hash, keyData, derSig, dataBytes);
           } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
         throw new DOMException('Native crypto not available for ECDSA', 'NotSupportedError');
@@ -1757,7 +1771,31 @@ function toUint8Array(data: BufferSource): Uint8Array {
 }
 
 // Simple SHA-256 implementation for testing (not optimized)
+// SHA-224 and SHA-256 share the FIPS 180-4 compression function and differ only
+// in their initial hash values and output truncation (SHA-224 keeps h0..h6).
+const SHA256_INIT_H = [
+  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+  0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+] as const;
+const SHA224_INIT_H = [
+  0xc1059ed8, 0x367cd507, 0x3070dd17, 0xf70e5939,
+  0xffc00b31, 0x68581511, 0x64f98fa7, 0xbefa4fa4,
+] as const;
+
 async function jsSHA256(data: Uint8Array): Promise<ArrayBuffer> {
+  return sha256Compress(data, SHA256_INIT_H, 32);
+}
+
+/**
+ * SHA-224 digest (pure JS). Node supports HMAC-SHA-224, so getJsDigest must too
+ * — it previously threw NotSupportedError on a SHA-224 HMAC (ENG-23037 finding 3).
+ */
+async function jsSHA224(data: Uint8Array): Promise<ArrayBuffer> {
+  return sha256Compress(data, SHA224_INIT_H, 28);
+}
+
+/** Shared SHA-224/256 core. `outBytes` (28 or 32) must be a multiple of 4. */
+function sha256Compress(data: Uint8Array, initH: readonly number[], outBytes: number): ArrayBuffer {
   // Constants
   const K = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
@@ -1774,14 +1812,14 @@ async function jsSHA256(data: Uint8Array): Promise<ArrayBuffer> {
   ];
 
   // Initial hash values
-  let h0 = 0x6a09e667;
-  let h1 = 0xbb67ae85;
-  let h2 = 0x3c6ef372;
-  let h3 = 0xa54ff53a;
-  let h4 = 0x510e527f;
-  let h5 = 0x9b05688c;
-  let h6 = 0x1f83d9ab;
-  let h7 = 0x5be0cd19;
+  let h0 = initH[0];
+  let h1 = initH[1];
+  let h2 = initH[2];
+  let h3 = initH[3];
+  let h4 = initH[4];
+  let h5 = initH[5];
+  let h6 = initH[6];
+  let h7 = initH[7];
 
   // Pre-processing: add padding
   const msgLen = data.length;
@@ -1862,17 +1900,14 @@ async function jsSHA256(data: Uint8Array): Promise<ArrayBuffer> {
     h7 = (h7 + h) >>> 0;
   }
 
-  // Produce final hash
-  const result = new ArrayBuffer(32);
+  // Produce final hash. SHA-256 emits all 8 words (32 bytes); SHA-224 emits the
+  // first 7 (28 bytes).
+  const words = [h0, h1, h2, h3, h4, h5, h6, h7];
+  const result = new ArrayBuffer(outBytes);
   const resultView = new DataView(result);
-  resultView.setUint32(0, h0, false);
-  resultView.setUint32(4, h1, false);
-  resultView.setUint32(8, h2, false);
-  resultView.setUint32(12, h3, false);
-  resultView.setUint32(16, h4, false);
-  resultView.setUint32(20, h5, false);
-  resultView.setUint32(24, h6, false);
-  resultView.setUint32(28, h7, false);
+  for (let i = 0; i * 4 < outBytes; i++) {
+    resultView.setUint32(i * 4, words[i], false);
+  }
 
   return result;
 }
@@ -2402,6 +2437,8 @@ function getJsDigest(hash: string): (data: Uint8Array) => Promise<ArrayBuffer> {
   switch (normalizeHashName(hash)) {
     case "SHA-1":
       return jsSHA1;
+    case "SHA-224":
+      return jsSHA224;
     case "SHA-256":
       return jsSHA256;
     case "SHA-384":
@@ -2875,6 +2912,86 @@ function rsaJwkToPem(jwk: JsonWebKey, isPrivate: boolean): string {
     const lines = b64.match(/.{1,64}/g) || [];
     return '-----BEGIN PUBLIC KEY-----\n' + lines.join('\n') + '\n-----END PUBLIC KEY-----\n';
   }
+}
+
+// DER-encoded namedCurve OIDs for the EC curves we support (ENG-23037 finding 2).
+const EC_NAMED_CURVE_OID_DER: Record<string, Uint8Array> = {
+  "P-256": new Uint8Array([0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]),
+  "P-384": new Uint8Array([0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22]),
+  "P-521": new Uint8Array([0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x23]),
+};
+// id-ecPublicKey (1.2.840.10045.2.1)
+const EC_PUBLIC_KEY_OID_DER = new Uint8Array([0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
+
+/**
+ * A JWK-imported EC key stores its raw uncompressed point (0x04 || x || y [|| d]).
+ * PEM key material starts with '-' (0x2d) and DER SPKI/PKCS#8 with SEQUENCE
+ * (0x30), so a leading 0x04 uniquely identifies the raw-point form — which the
+ * native ECDSA bridge (PEM/DER only) cannot parse (ENG-23037 finding 2).
+ */
+function isRawEcPoint(keyData: Uint8Array): boolean {
+  return keyData.length > 0 && keyData[0] === 0x04;
+}
+
+function ecNamedCurveOidDer(curve: string): Uint8Array {
+  const oid = EC_NAMED_CURVE_OID_DER[curve];
+  if (!oid) {
+    throw new DOMException(`Unsupported EC curve for JWK key: ${curve}`, "NotSupportedError");
+  }
+  return oid;
+}
+
+/**
+ * Build a SubjectPublicKeyInfo (SPKI) DER for an EC public key from a raw
+ * uncompressed point (0x04 || x || y), so the native ECDSA verify bridge can
+ * parse a JWK-imported public key (ENG-23037 finding 2).
+ */
+function ecRawPointToSpkiDer(point: Uint8Array, curve: string): Uint8Array {
+  const algSeq = encodeAsn1Sequence(
+    concatUint8Arrays([EC_PUBLIC_KEY_OID_DER, ecNamedCurveOidDer(curve)])
+  );
+  const bitStr = encodeAsn1Tag(0x03, concatUint8Arrays([new Uint8Array([0x00]), point]));
+  return encodeAsn1Sequence(concatUint8Arrays([algSeq, bitStr]));
+}
+
+/**
+ * Build a PKCS#8 PrivateKeyInfo DER from a raw JWK EC private-key blob
+ * (0x04 || x || y || d), so the native ECDSA sign bridge can parse a
+ * JWK-imported private key (ENG-23037 finding 2). Coordinates are assumed to be
+ * the field size, as RFC 7518 requires.
+ */
+function ecRawKeyToPkcs8Der(rawKeyData: Uint8Array, curve: string): Uint8Array {
+  const size = getEcCoordSize(curve);
+  const point = rawKeyData.slice(0, 1 + 2 * size); // 0x04 || x || y
+  let d = rawKeyData.slice(1 + 2 * size);
+  if (d.length < size) {
+    const padded = new Uint8Array(size);
+    padded.set(d, size - d.length);
+    d = padded;
+  }
+  // ECPrivateKey ::= SEQUENCE { version(1), privateKey OCTET STRING,
+  //                             [1] EXPLICIT publicKey BIT STRING }
+  const ecPrivateKey = encodeAsn1Sequence(
+    concatUint8Arrays([
+      encodeAsn1Integer(new Uint8Array([1])),
+      encodeAsn1Tag(0x04, d),
+      encodeAsn1Tag(
+        0xa1,
+        encodeAsn1Tag(0x03, concatUint8Arrays([new Uint8Array([0x00]), point]))
+      ),
+    ])
+  );
+  const algSeq = encodeAsn1Sequence(
+    concatUint8Arrays([EC_PUBLIC_KEY_OID_DER, ecNamedCurveOidDer(curve)])
+  );
+  // PrivateKeyInfo ::= SEQUENCE { version(0), algorithm, privateKey OCTET STRING }
+  return encodeAsn1Sequence(
+    concatUint8Arrays([
+      encodeAsn1Integer(new Uint8Array([0])),
+      algSeq,
+      encodeAsn1Tag(0x04, ecPrivateKey),
+    ])
+  );
 }
 
 /** Encode ASN.1 INTEGER */

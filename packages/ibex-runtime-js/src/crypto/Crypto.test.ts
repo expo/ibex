@@ -14,7 +14,7 @@
 // as independent oracles. Run with: bun test.
 
 import { expect, test, beforeAll, afterEach } from "bun:test";
-import { webcrypto, createSign, createVerify, createPrivateKey, createPublicKey } from "node:crypto";
+import { webcrypto, createSign, createVerify, createPrivateKey, createPublicKey, createHmac } from "node:crypto";
 import { SubtleCrypto } from "./Crypto.ts";
 import { enableTestMode, Capabilities } from "../security/Capabilities.ts";
 
@@ -304,6 +304,102 @@ test("ECDSA verify converts P1363->DER for the native bridge (bug 5)", async () 
     expect(derSeenByBridge).not.toBeNull();
     expect(derSeenByBridge![0]).toBe(0x30);
     expect(derSeenByBridge!.length).not.toBe(64);
+  } finally {
+    delete (globalThis as any).__exactEcdsaVerify;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ENG-23037 finding 3 - HMAC-SHA-224 was accepted at import but threw on use
+// (getJsDigest had no SHA-224 case). Node supports HMAC-SHA-224.
+// ---------------------------------------------------------------------------
+test("HMAC-SHA-224 sign/verify match Node (ENG-23037 finding 3)", async () => {
+  const keyBytes = new Uint8Array(40);
+  for (let i = 0; i < keyBytes.length; i++) keyBytes[i] = (i * 7 + 0x81) & 0xff; // bytes >= 0x80
+  const data = enc("hmac-sha224 interop \u{1F512}ÿ");
+
+  const key: any = await ibex.importKey(
+    "raw", keyBytes, { name: "HMAC", hash: "SHA-224" }, false, ["sign", "verify"]
+  );
+  const mac = new Uint8Array(await ibex.sign({ name: "HMAC" }, key, data));
+  const nodeMac = new Uint8Array(
+    createHmac("sha224", Buffer.from(keyBytes)).update(Buffer.from(data)).digest()
+  );
+
+  expect(mac.length).toBe(28); // SHA-224 digest size
+  expect(hex(mac)).toBe(hex(nodeMac));
+  expect(await ibex.verify({ name: "HMAC" }, key, mac, data)).toBe(true);
+  expect(await ibex.verify({ name: "HMAC" }, key, new Uint8Array(28), data)).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// ENG-23037 finding 2 - ECDSA sign/verify with a JWK-imported EC key threw
+// ("failed to import EC private key") because the raw 0x04||x||y||d point was
+// handed to a PEM/DER-only native bridge. We now convert it to PKCS#8/SPKI DER
+// at the call site; Node parses that DER as the oracle key.
+// ---------------------------------------------------------------------------
+test("ECDSA sign with a JWK-imported EC private key (ENG-23037 finding 2)", async () => {
+  const pair: any = await nodeSubtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]
+  );
+  const privJwk = await nodeSubtle.exportKey("jwk", pair.privateKey);
+  const ibexKey: any = await ibex.importKey(
+    "jwk", privJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]
+  );
+
+  let derParsedOk = false;
+  (globalThis as any).__exactEcdsaSign = (
+    _curve: string, _hash: string, keyData: Uint8Array, data: Uint8Array
+  ) => {
+    // The JWK's raw point must have been converted to a parseable PKCS#8 DER.
+    const keyObj = createPrivateKey({ key: Buffer.from(keyData), format: "der", type: "pkcs8" });
+    derParsedOk = true;
+    return new Uint8Array(createSign("SHA256").update(Buffer.from(data)).sign(keyObj)); // X9.62 DER
+  };
+  try {
+    const msg = enc("ecdsa jwk sign ÿ");
+    const p1363 = new Uint8Array(await ibex.sign({ name: "ECDSA", hash: "SHA-256" }, ibexKey, msg));
+    expect(derParsedOk).toBe(true);
+    expect(p1363.length).toBe(64); // raw IEEE P1363 r||s
+    // Node's own public key verifies ibex's signature => the PKCS#8 DER encodes
+    // exactly the JWK's private key.
+    const ok = await nodeSubtle.verify({ name: "ECDSA", hash: "SHA-256" }, pair.publicKey, p1363, msg);
+    expect(ok).toBe(true);
+  } finally {
+    delete (globalThis as any).__exactEcdsaSign;
+  }
+});
+
+test("ECDSA verify with a JWK-imported EC public key (ENG-23037 finding 2)", async () => {
+  const pair: any = await nodeSubtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]
+  );
+  const pubJwk = await nodeSubtle.exportKey("jwk", pair.publicKey);
+  const ibexKey: any = await ibex.importKey(
+    "jwk", pubJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]
+  );
+
+  const msg = enc("ecdsa jwk verify þ");
+  const p1363Sig = new Uint8Array(
+    await nodeSubtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, msg)
+  );
+
+  let spkiParsedOk = false;
+  (globalThis as any).__exactEcdsaVerify = (
+    _c: string, _h: string, keyData: Uint8Array, derSig: Uint8Array, data: Uint8Array
+  ) => {
+    const keyObj = createPublicKey({ key: Buffer.from(keyData), format: "der", type: "spki" });
+    spkiParsedOk = true;
+    return createVerify("SHA256").update(Buffer.from(data)).verify(keyObj, Buffer.from(derSig));
+  };
+  try {
+    const ok = await ibex.verify({ name: "ECDSA", hash: "SHA-256" }, ibexKey, p1363Sig, msg);
+    expect(spkiParsedOk).toBe(true);
+    expect(ok).toBe(true);
+    // A tampered signature must not verify.
+    const bad = p1363Sig.slice();
+    bad[0] ^= 0xff;
+    expect(await ibex.verify({ name: "ECDSA", hash: "SHA-256" }, ibexKey, bad, msg)).toBe(false);
   } finally {
     delete (globalThis as any).__exactEcdsaVerify;
   }
