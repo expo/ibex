@@ -1425,6 +1425,13 @@ impl Engine for HermesEngine {
         self.pump_ready_tasks().await
     }
 
+    async fn drain_event_loop(&self) -> Result<()> {
+        // Same quiescence-driving loop `eval` runs after evaluating code, but
+        // with nothing to evaluate — the REPL uses it at EOF to let pending
+        // timers/callbacks finish before exit. (ENG-23001)
+        self.drive_event_loop().await
+    }
+
     async fn run_file(&self, path: &str) -> Result<Option<String>> {
         self.maybe_enable_debugger().await?;
         let path_buf = PathBuf::from(path);

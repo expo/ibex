@@ -9,7 +9,6 @@
 use crate::engine::Engine;
 use anyhow::Result;
 use colored::Colorize;
-use futures_util::future::FutureExt;
 use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
@@ -20,8 +19,38 @@ use rustyline::{Context, Editor, Helper};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 const DEFAULT_PROMPT_SYMBOL: &str = "\u{27A4}";
+
+/// How often the idle REPL pumps ready event-loop work so background timers and
+/// async callbacks fire while the prompt waits for input. Mirrors the
+/// `--keep-alive` debug loop cadence in `main.rs::run_debug_loop`. (ENG-23001)
+const REPL_PUMP_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Upper bound the completer waits for the engine thread to answer a member-
+/// completion query. In practice the answer is near-instant (a pure prototype
+/// walk with no yield points); the bound only guards against the engine loop
+/// being unexpectedly unavailable, so a Tab press can never hang the line
+/// editor. (ENG-23001)
+const COMPLETION_DISPATCH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Signal from the engine loop to the readline thread: draw the next prompt, or
+/// stop and save history. (ENG-23001)
+enum ReplControl {
+    Continue,
+    Stop,
+}
+
+/// A read-only member-completion query dispatched from the readline thread's
+/// completer back to the engine's creating thread, with a channel to return the
+/// JSON result. The Hermes runtime may only be touched from its creating
+/// thread, so completion cannot run on the readline thread directly. (ENG-23001)
+struct CompletionRequest {
+    query: String,
+    respond: std::sync::mpsc::Sender<Option<String>>,
+}
 
 fn style_prompt_symbol(symbol: &str) -> String {
     let symbol = format!("{} ", symbol);
@@ -144,11 +173,14 @@ struct ExHelper {
     /// JavaScript globals for completion hints
     globals: Vec<String>,
     prompt_symbol: String,
-    engine: Arc<dyn Engine>,
+    /// Channel to dispatch member-completion queries to the engine's creating
+    /// thread. The completer runs on the readline thread (ENG-23001), which is
+    /// not the engine thread, so it cannot evaluate directly. (ENG-23001)
+    completion_tx: mpsc::UnboundedSender<CompletionRequest>,
 }
 
 impl ExHelper {
-    fn new(prompt_symbol: &str, engine: Arc<dyn Engine>) -> Self {
+    fn new(prompt_symbol: &str, completion_tx: mpsc::UnboundedSender<CompletionRequest>) -> Self {
         Self {
             globals: vec![
                 "console",
@@ -208,8 +240,27 @@ impl ExHelper {
             .map(String::from)
             .collect(),
             prompt_symbol: prompt_symbol.to_string(),
-            engine,
+            completion_tx,
         }
+    }
+
+    /// Send a read-only completion query to the engine's creating thread and
+    /// block (bounded) for the JSON result. Returns `None` if the engine loop
+    /// is gone or does not answer in time, matching the previous behavior of
+    /// yielding no candidates rather than surfacing an error at the prompt.
+    /// (ENG-23001)
+    fn dispatch_completion_query(&self, query: &str) -> Option<String> {
+        let (respond, response) = std::sync::mpsc::channel();
+        self.completion_tx
+            .send(CompletionRequest {
+                query: query.to_string(),
+                respond,
+            })
+            .ok()?;
+        response
+            .recv_timeout(COMPLETION_DISPATCH_TIMEOUT)
+            .ok()
+            .flatten()
     }
 
     fn completion_query(line: &str, pos: usize) -> (usize, Option<String>, String) {
@@ -289,23 +340,17 @@ impl ExHelper {
             prefix_json
         );
 
-        // The completer is invoked synchronously on the prompt thread, which is
-        // the engine's creating thread (the CLI drives the REPL on a
-        // current-thread tokio runtime). Evaluate the read-only query there
-        // directly. The prior worker-thread `block_on` always ran on the wrong
-        // thread — the engine's same-thread guard rejected it and the error was
-        // swallowed into empty candidates, so member completion never worked.
-        // `eval_immediate` skips event-loop driving, and the query is a pure
-        // `Object.getOwnPropertyNames` prototype walk with no yield points, so
-        // it settles on a single poll (`now_or_never`); a busy engine cannot
-        // arise here because we are between evals on the one runtime thread.
-        // (ENG-22957)
+        // The completer runs on the readline OS thread, which ENG-23001 split
+        // off the engine's creating thread so background timers fire while the
+        // prompt is idle. The Hermes runtime may only be touched from its
+        // creating thread, so hand the read-only introspection query to the
+        // engine loop (which evaluates it with `eval_immediate` — no event-loop
+        // driving — and answers over a channel) and block for the result. The
+        // query is a pure `Object.getOwnPropertyNames` prototype walk with no
+        // side effects, and the completer only runs while the engine loop sits
+        // idle in `select!`, so the answer comes back promptly. (ENG-23001)
         let result = self
-            .engine
-            .eval_immediate(&query)
-            .now_or_never()
-            .and_then(|eval_result| eval_result.ok())
-            .flatten()
+            .dispatch_completion_query(&query)
             .and_then(|text| serde_json::from_str::<Vec<String>>(&text).ok())
             .unwrap_or_default();
 
@@ -559,176 +604,288 @@ fn print_help() {
     println!();
 }
 
-/// Start the REPL
+/// Start the REPL.
+///
+/// The line editor (`rustyline::readline`) runs on a dedicated OS thread while
+/// this — the engine's creating thread — drives the Hermes event loop between
+/// keystrokes. A `select!` interleaves three things: a periodic non-blocking
+/// pump so background timers/async callbacks fire while the prompt sits idle
+/// (Node-like parity, the point of ENG-23001); submitted lines; and
+/// member-completion queries dispatched back from the readline thread's
+/// completer (the Hermes runtime is single-threaded, so completion can only
+/// evaluate on this thread). Pumping uses `drive_ready_tasks` — never the
+/// quiescence-driving `eval` — so the prompt cannot re-wedge on
+/// `setInterval`/servers the way it did before ENG-22957. (ENG-23001)
 pub async fn start(engine: Arc<dyn Engine>) -> Result<()> {
     print_welcome();
 
     let prompt_symbol = configured_prompt_symbol(DEFAULT_PROMPT_SYMBOL);
-    let helper = ExHelper::new(&prompt_symbol, engine.clone());
-    let config = rustyline::Config::builder()
-        .history_ignore_space(true)
-        .completion_type(rustyline::CompletionType::List)
-        .edit_mode(rustyline::EditMode::Emacs)
-        .build();
-
-    let mut rl: Editor<ExHelper, DefaultHistory> = Editor::with_config(config)?;
-    rl.set_helper(Some(helper));
-
-    // Load history
     let history_file = history_path();
-    if let Some(parent) = history_file.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = rl.load_history(&history_file);
+
+    // readline thread -> engine loop: the result of each `readline()` call.
+    let (line_tx, mut line_rx) = mpsc::unbounded_channel::<Result<String, ReadlineError>>();
+    // completer (readline thread) -> engine loop: member-completion queries.
+    let (completion_tx, mut completion_rx) = mpsc::unbounded_channel::<CompletionRequest>();
+    // engine loop -> readline thread: draw the next prompt, or stop.
+    let (control_tx, control_rx) = std::sync::mpsc::channel::<ReplControl>();
+
+    // The line editor is owned entirely by its own thread so it never crosses a
+    // thread boundary. It blocks in `readline()` there while this thread keeps
+    // the runtime's event loop alive.
+    let reader = std::thread::Builder::new()
+        .name("ibex-repl-readline".to_string())
+        .spawn(move || -> Result<()> {
+            let helper = ExHelper::new(&prompt_symbol, completion_tx);
+            let config = rustyline::Config::builder()
+                .history_ignore_space(true)
+                .completion_type(rustyline::CompletionType::List)
+                .edit_mode(rustyline::EditMode::Emacs)
+                .build();
+            let mut rl: Editor<ExHelper, DefaultHistory> = Editor::with_config(config)?;
+            rl.set_helper(Some(helper));
+
+            if let Some(parent) = history_file.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = rl.load_history(&history_file);
+
+            let prompt = plain_prompt(&prompt_symbol);
+            loop {
+                let readline = rl.readline(&prompt);
+                if let Ok(line) = readline.as_ref() {
+                    if !line.trim().is_empty() {
+                        let _ = rl.add_history_entry(line);
+                    }
+                }
+                // Hand the result to the engine loop. If it is gone, stop.
+                if line_tx.send(readline).is_err() {
+                    break;
+                }
+                // Wait until the engine loop has finished handling this line
+                // (and printed any result) before drawing the next prompt, so
+                // eval output stays ordered above the prompt.
+                match control_rx.recv() {
+                    Ok(ReplControl::Continue) => continue,
+                    Ok(ReplControl::Stop) | Err(_) => break,
+                }
+            }
+            let _ = rl.save_history(&history_file);
+            Ok(())
+        })?;
 
     // Track capabilities for the REPL session (whole conversation is one module)
-    let mut session_capabilities: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut session_capabilities: HashSet<String> = HashSet::new();
 
-    loop {
-        let prompt = plain_prompt(&prompt_symbol);
-        let readline = rl.readline(&prompt);
+    let mut ticker = tokio::time::interval(REPL_PUMP_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        match readline {
-            Ok(line) => {
-                let trimmed = line.trim();
+    'main: loop {
+        tokio::select! {
+            biased;
 
-                if trimmed.is_empty() {
-                    continue;
-                }
+            // Answer a completion query on the engine's creating thread. The
+            // completer is blocking on the response, so service it first.
+            Some(req) = completion_rx.recv() => {
+                let candidates = engine.eval_immediate(&req.query).await.ok().flatten();
+                let _ = req.respond.send(candidates);
+            }
 
-                // Add to history
-                let _ = rl.add_history_entry(&line);
-
-                // Handle REPL commands
-                if trimmed.starts_with('.') {
-                    match handle_command(trimmed, &engine, &mut rl).await {
-                        Ok(true) => continue, // Command handled, continue
-                        Ok(false) => break,   // Exit requested
-                        Err(e) => {
-                            eprintln!("{}: {}", "Error".red().bold(), e);
-                            continue;
+            // A submitted line (or a readline error) arrived.
+            maybe_line = line_rx.recv() => {
+                let Some(readline) = maybe_line else { break 'main; };
+                match readline {
+                    Ok(line) => {
+                        let keep_going =
+                            handle_repl_line(&engine, &line, &mut session_capabilities).await;
+                        let signal = if keep_going {
+                            ReplControl::Continue
+                        } else {
+                            ReplControl::Stop
+                        };
+                        // A send error means the reader already exited.
+                        if control_tx.send(signal).is_err() || !keep_going {
+                            break 'main;
                         }
                     }
-                }
-
-                // Evaluate JavaScript and wrap result in Exact.inspect for pretty printing
-                let async_expression = needs_top_level_await(trimmed) && !is_statement(trimmed);
-                let (code, use_inspect) = if is_import_statement(trimmed) {
-                    // Transform import statement to require() and extract capabilities
-                    match transform_import(trimmed) {
-                        Some((transformed, capabilities)) => {
-                            // Track capabilities for this REPL session
-                            if !capabilities.is_empty() {
-                                for cap in &capabilities {
-                                    session_capabilities.insert(cap.clone());
-                                    println!(
-                                        "{}",
-                                        format!("  [capability granted: {}]", cap).dimmed()
-                                    );
-                                }
-
-                                // Register capabilities with the runtime (module ID 0 for REPL)
-                                let cap_list: Vec<String> =
-                                    session_capabilities.iter().cloned().collect();
-                                let cap_json = serde_json::to_string(&cap_list).unwrap_or_default();
-                                let register_code = format!(
-                                    "(function() {{ \
-                                        if (typeof Exact !== 'undefined' && Exact.setModuleCapabilities) {{ \
-                                            Exact.setModuleCapabilities(0, {}); \
-                                        }} \
-                                    }})()",
-                                    cap_json
-                                );
-                                let _ = engine.eval_immediate(&register_code).await;
-                            }
-
-                            (transformed, true) // Inspect import results to show module exports
-                        }
-                        None => {
-                            eprintln!(
-                                "{}: Could not parse import statement. Try: import {{ x }} from 'mod' or const x = require('mod')",
-                                "Error".red().bold()
-                            );
-                            continue;
+                    Err(ReadlineError::Interrupted) => {
+                        println!("^C");
+                        if control_tx.send(ReplControl::Continue).is_err() {
+                            break 'main;
                         }
                     }
-                } else if async_expression {
-                    (trimmed.to_string(), true)
-                } else if needs_top_level_await(trimmed) {
-                    (wrap_top_level_await(trimmed), false)
-                } else if is_statement(trimmed) {
-                    (trimmed.to_string(), false) // Statements don't return values to inspect
-                } else {
-                    // Expression: will be wrapped by inspect below
-                    (trimmed.to_string(), true)
-                };
-
-                // Transform import() to globalThis['import']() since Hermes parser doesn't support import() syntax
-                // Use bracket notation to avoid parser issues with 'import' keyword
-                let code = code.replace("import(", "globalThis['import'](");
-
-                // Wrap with Exact.inspect if it's an expression result
-                // Avoid wrapping user code in extra parens — use "var _val = CODE;" directly
-                // so syntax errors reference the user's code, not wrapper artifacts
-                let final_code = if use_inspect {
-                    wrap_inspected_expression(&code, async_expression)
-                } else {
-                    code
-                };
-
-                // Compute how many characters of wrapper precede the user's code
-                let wrapper_prefix_len = final_code.find(trimmed).unwrap_or(0);
-
-                // Use `eval_immediate`, not `eval`: the native eval path already
-                // drains microtasks and unwraps/awaits the result Promise before
-                // returning (so top-level `await` still resolves), while `eval`
-                // additionally drives the event loop to full quiescence. At an
-                // interactive prompt that means `setInterval(...)` or
-                // `Bun.serve(...)` never return control — the prompt wedges until
-                // Ctrl+C. Node's REPL returns immediately; match that. (ENG-22957)
-                match engine.eval_immediate(&final_code).await {
-                    Ok(Some(result)) => {
-                        println!("{}", result);
+                    Err(ReadlineError::Eof) => {
+                        // Release the reader (it saves history and exits), then
+                        // let pending event-loop work scheduled during the
+                        // session finish before we exit — Node's REPL and
+                        // `ibex <file>` both drain rather than drop a still-due
+                        // `setTimeout`/`fetch().then()`. This runs only after
+                        // input has ended, so it cannot re-wedge a live prompt
+                        // (the ENG-22957 concern). (ENG-23001)
+                        let _ = control_tx.send(ReplControl::Stop);
+                        if let Err(err) = engine.drain_event_loop().await {
+                            eprintln!("{}: {err:#}", "Error".red().bold());
+                        }
+                        break 'main;
                     }
-                    Ok(None) => {
-                        println!("{}", "undefined".dimmed());
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "{}",
-                            format_repl_error(&e.to_string(), trimmed, wrapper_prefix_len)
-                        );
+                    Err(err) => {
+                        eprintln!("{}: {:?}", "Error".red().bold(), err);
+                        let _ = control_tx.send(ReplControl::Stop);
+                        break 'main;
                     }
                 }
             }
-            Err(ReadlineError::Interrupted) => {
-                println!("^C");
-                continue;
-            }
-            Err(ReadlineError::Eof) => {
-                break;
-            }
-            Err(err) => {
-                eprintln!("{}: {:?}", "Error".red().bold(), err);
-                break;
+
+            // Idle tick: run timers/microtasks/callbacks that became ready so
+            // background work fires while the prompt waits for input. This is
+            // the non-blocking pump (`drive_ready_tasks`), never the
+            // quiescence-driving `eval`, so no wedge. (ENG-23001)
+            _ = ticker.tick() => {
+                if let Err(err) = engine.drive_ready_tasks().await {
+                    eprintln!(
+                        "{}: REPL event loop pump failed: {err:#}",
+                        "Error".red().bold()
+                    );
+                }
             }
         }
     }
 
-    // Save history
-    let _ = rl.save_history(&history_file);
+    // Every `break 'main` above either sent `Stop` or observed the reader gone,
+    // so the reader thread is unblocked and about to save history and exit.
+    let _ = reader.join();
 
     Ok(())
 }
 
+/// Handle one submitted REPL line: dispatch a built-in `.command` or evaluate
+/// JavaScript. Returns `true` to keep the session going, `false` to exit.
+/// Split out of `start` so the engine loop's `select!` arm stays small; it runs
+/// on the engine's creating thread. (ENG-23001)
+async fn handle_repl_line(
+    engine: &Arc<dyn Engine>,
+    line: &str,
+    session_capabilities: &mut HashSet<String>,
+) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    // Handle REPL commands
+    if trimmed.starts_with('.') {
+        return match handle_command(trimmed, engine).await {
+            Ok(keep_going) => keep_going,
+            Err(e) => {
+                eprintln!("{}: {}", "Error".red().bold(), e);
+                true
+            }
+        };
+    }
+
+    // Evaluate JavaScript and wrap result in Exact.inspect for pretty printing
+    let async_expression = needs_top_level_await(trimmed) && !is_statement(trimmed);
+    let (code, use_inspect) = if is_import_statement(trimmed) {
+        // Transform import statement to require() and extract capabilities
+        match transform_import(trimmed) {
+            Some((transformed, capabilities)) => {
+                // Track capabilities for this REPL session
+                if !capabilities.is_empty() {
+                    for cap in &capabilities {
+                        session_capabilities.insert(cap.clone());
+                        println!("{}", format!("  [capability granted: {}]", cap).dimmed());
+                    }
+
+                    // Register capabilities with the runtime (module ID 0 for REPL)
+                    let cap_list: Vec<String> = session_capabilities.iter().cloned().collect();
+                    let cap_json = serde_json::to_string(&cap_list).unwrap_or_default();
+                    let register_code = format!(
+                        "(function() {{ \
+                            if (typeof Exact !== 'undefined' && Exact.setModuleCapabilities) {{ \
+                                Exact.setModuleCapabilities(0, {}); \
+                            }} \
+                        }})()",
+                        cap_json
+                    );
+                    let _ = engine.eval_immediate(&register_code).await;
+                }
+
+                (transformed, true) // Inspect import results to show module exports
+            }
+            None => {
+                eprintln!(
+                    "{}: Could not parse import statement. Try: import {{ x }} from 'mod' or const x = require('mod')",
+                    "Error".red().bold()
+                );
+                return true;
+            }
+        }
+    } else if async_expression {
+        (trimmed.to_string(), true)
+    } else if needs_top_level_await(trimmed) {
+        (wrap_top_level_await(trimmed), false)
+    } else if is_statement(trimmed) {
+        (trimmed.to_string(), false) // Statements don't return values to inspect
+    } else {
+        // Expression: will be wrapped by inspect below
+        (trimmed.to_string(), true)
+    };
+
+    // Transform import() to globalThis['import']() since Hermes parser doesn't support import() syntax
+    // Use bracket notation to avoid parser issues with 'import' keyword
+    let code = code.replace("import(", "globalThis['import'](");
+
+    // Wrap with Exact.inspect if it's an expression result
+    // Avoid wrapping user code in extra parens — use "var _val = CODE;" directly
+    // so syntax errors reference the user's code, not wrapper artifacts
+    let final_code = if use_inspect {
+        wrap_inspected_expression(&code, async_expression)
+    } else {
+        code
+    };
+
+    // Compute how many characters of wrapper precede the user's code
+    let wrapper_prefix_len = final_code.find(trimmed).unwrap_or(0);
+
+    // Use `eval_immediate`, not `eval`: the native eval path already drains
+    // microtasks and unwraps/awaits the result Promise before returning (so
+    // top-level `await` still resolves), while `eval` additionally drives the
+    // event loop to full quiescence. At an interactive prompt that means
+    // `setInterval(...)` or `Bun.serve(...)` never return control — the prompt
+    // wedges until Ctrl+C. Background work now runs via the idle pump in
+    // `start` instead. Node's REPL returns immediately; match that. (ENG-22957,
+    // ENG-23001)
+    match engine.eval_immediate(&final_code).await {
+        Ok(Some(result)) => {
+            println!("{}", result);
+        }
+        Ok(None) => {
+            println!("{}", "undefined".dimmed());
+        }
+        Err(e) => {
+            eprintln!(
+                "{}",
+                format_repl_error(&e.to_string(), trimmed, wrapper_prefix_len)
+            );
+        }
+    }
+
+    true
+}
+
+/// Clear the terminal and move the cursor home. Emits the ANSI sequence
+/// directly rather than `rustyline::Editor::clear_screen`, because the line
+/// editor now lives on a separate thread (ENG-23001) while the command handler
+/// runs on the engine thread. The reader thread draws the next prompt fresh, so
+/// a plain clear is sufficient. (ENG-23001)
+fn clear_screen() {
+    use std::io::Write;
+    print!("\x1b[H\x1b[2J");
+    let _ = std::io::stdout().flush();
+}
+
 /// Handle a REPL command
 /// Returns Ok(true) to continue, Ok(false) to exit, Err for errors
-async fn handle_command(
-    cmd: &str,
-    engine: &Arc<dyn Engine>,
-    rl: &mut Editor<ExHelper, DefaultHistory>,
-) -> Result<bool> {
+async fn handle_command(cmd: &str, engine: &Arc<dyn Engine>) -> Result<bool> {
     let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
     let command = parts[0];
     let arg = parts.get(1).map(|s| s.trim());
@@ -740,7 +897,7 @@ async fn handle_command(
         }
         ".exit" | ".quit" | ".q" => Ok(false),
         ".clear" | ".cls" => {
-            rl.clear_screen()?;
+            clear_screen();
             Ok(true)
         }
         ".load" => {

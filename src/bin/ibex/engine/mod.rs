@@ -47,6 +47,17 @@ pub trait Engine: Send + Sync {
         Ok(())
     }
 
+    /// Drive the event loop to quiescence — like `eval` does after running code,
+    /// but without evaluating anything. The REPL calls this once its input
+    /// stream ends (EOF) so pending timers/async callbacks scheduled during the
+    /// session finish before the process exits, matching Node's REPL and
+    /// `ibex <file>`. Unlike `drive_ready_tasks` this blocks until no work
+    /// remains, so it is only safe after the prompt is gone. Engines without an
+    /// event loop leave this a no-op. (ENG-23001)
+    async fn drain_event_loop(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Run a JavaScript file
     async fn run_file(&self, path: &str) -> Result<Option<String>>;
 
