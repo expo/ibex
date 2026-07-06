@@ -167,6 +167,15 @@ function _validateConnectPort(port) {
 
 // Check for native TCP support
 var _hasTcp = typeof __exactTcpConnect === 'function';
+// Async (non-blocking) connect support (ENG-22994). When present, connect is
+// started with __exactTcpConnectStart and completed from the event loop via
+// __exactTcpConnectPoll, so a slow/blackholed host never freezes timers, other
+// sockets, or servers. Falls back to the synchronous __exactTcpConnect path
+// when these host functions are unavailable (older/embedded frameworks).
+var _hasAsyncTcpConnect = typeof __exactTcpConnectStart === 'function' &&
+  typeof __exactTcpConnectPoll === 'function';
+// How often (ms) the event loop re-checks a pending non-blocking connect.
+var _CONNECT_POLL_INTERVAL_MS = 1;
 // Check for native Unix socket support
 var _hasUnix = typeof __exactUnixConnect === 'function';
 var _internalBinding = null;
@@ -775,6 +784,87 @@ function _emitAsyncSocketError(socket, err, callback) {
   }, 0, socket);
 }
 
+// Cancel a non-blocking connect that is still in flight (handshake not yet
+// resolved). The connect fd is not attached to socket._handle until the connect
+// succeeds, so it must be released here rather than through the normal handle
+// teardown. Safe to call at any time. (ENG-22994)
+function _cancelPendingConnect(socket) {
+  if (!socket) return;
+  if (socket._connectPollTimer != null) {
+    clearTimeout(socket._connectPollTimer);
+    socket._connectPollTimer = null;
+  }
+  if (socket._pendingConnectHandle != null) {
+    if (_hasTcp) {
+      try { __exactTcpClose(socket._pendingConnectHandle); } catch (e) {}
+    }
+    socket._pendingConnectHandle = null;
+  }
+}
+
+// Finalize a successful TCP connect (shared by the sync and async paths): attach
+// the native handle, flip connection state, start read polling, drain queued
+// writes, and emit 'connect'/'ready'. (ENG-22994)
+function _finishTcpConnectSuccess(selfRef, nativeHandle, address, family) {
+  selfRef.remoteAddress = address;
+  if (family) selfRef.remoteFamily = _addressFamilyToName(family);
+  _setSocketHandle(selfRef._handle, nativeHandle);
+  _setHandleRefState(selfRef._handle, !selfRef._unrefed);
+  selfRef.connecting = false;
+  selfRef._connected = true;
+  selfRef.pending = false;
+  selfRef.readyState = 'open';
+  selfRef._updateAddressInfo();
+  if (selfRef._noDelay !== undefined) selfRef.setNoDelay(selfRef._noDelay);
+  if (selfRef._keepAlive !== undefined && selfRef._keepAlive) {
+    selfRef.setKeepAlive(true, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
+  }
+  selfRef._startPolling();
+  selfRef._drainWriteQueue();
+  _updateSocketTimeoutHandleState(selfRef);
+  selfRef.emit('connect');
+  selfRef.emit('ready');
+}
+
+// Drive a non-blocking connect to completion (ENG-22994). Polls
+// __exactTcpConnectPoll on a setTimeout cadence so every re-check yields to the
+// event loop: timers, other sockets, and servers keep running while a connect to
+// a slow/blackholed host is pending. Invokes onConnected() on success, or
+// onFailed(err) when the handshake fails (the fd is closed first).
+function _pollTcpConnect(socket, nativeHandle, onConnected, onFailed) {
+  socket._pendingConnectHandle = nativeHandle;
+  function pollConnect() {
+    socket._connectPollTimer = null;
+    if (socket.destroyed || socket._abortPending ||
+        (typeof process !== 'undefined' && process._exactExiting)) {
+      // destroy()/reset close _pendingConnectHandle themselves; only release
+      // here if this handle is still the pending one (e.g. a bare abort).
+      if (socket._pendingConnectHandle === nativeHandle) {
+        try { __exactTcpClose(nativeHandle); } catch (e) {}
+        socket._pendingConnectHandle = null;
+      }
+      return;
+    }
+    var status;
+    try {
+      status = __exactTcpConnectPoll(nativeHandle);
+    } catch (pollErr) {
+      try { __exactTcpClose(nativeHandle); } catch (e) {}
+      socket._pendingConnectHandle = null;
+      onFailed(pollErr);
+      return;
+    }
+    if (status === 1) {
+      socket._pendingConnectHandle = null;
+      onConnected();
+      return;
+    }
+    // Still connecting: re-check on the next event-loop turn.
+    socket._connectPollTimer = _scheduleTimer(pollConnect, _CONNECT_POLL_INTERVAL_MS, socket);
+  }
+  socket._connectPollTimer = _scheduleTimer(pollConnect, 0, socket);
+}
+
 function _shouldTreatResetAsEof(socket, err) {
   return !!(socket &&
     err &&
@@ -982,6 +1072,8 @@ function _resetSocketForConnect(socket) {
     clearTimeout(socket._pollTimer);
     socket._pollTimer = null;
   }
+  // Abandon any in-flight non-blocking connect from a prior attempt. (ENG-22994)
+  _cancelPendingConnect(socket);
   if (socket._drainTimer != null) {
     clearTimeout(socket._drainTimer);
     socket._drainTimer = null;
@@ -1084,6 +1176,10 @@ function Socket(options) {
   this[kTimeout] = null;
   this._handle = _makeSocketHandle(null);
   this._pollTimer = null;
+  // Async connect bookkeeping (ENG-22994): the in-flight non-blocking connect
+  // handle (not yet attached to _handle) and the timer polling its completion.
+  this._connectPollTimer = null;
+  this._pendingConnectHandle = null;
   this._drainTimer = null;
   this._drainEventTimer = null;
   this._drainImmediateQueued = false;
@@ -2179,8 +2275,10 @@ Socket.prototype.connect = function(options, connectListener) {
       }
 
       // Compat: mocked autoSelectFamily lookups often include unroutable public
-      // addresses purely to exercise family ordering. Exact's synchronous
-      // connect path can block on those, so fast-fail them and continue.
+      // addresses purely to exercise family ordering. A real connect attempt to
+      // them would hang until the OS connect timeout; even with the async
+      // connect path (ENG-22994) that would still stall these tests for ~75s, so
+      // fast-fail them and continue.
       if (shouldAutoSelect && customLookup && !_isLocalTestAddress(address)) {
         attemptErrors.push(_createConnectError('ECONNREFUSED', address, selfRef._requestedPort, 'connect'));
         nextAttempt();
@@ -2204,36 +2302,65 @@ Socket.prototype.connect = function(options, connectListener) {
         return;
       }
 
+      var localAddressArg = options.localAddress === undefined ? null : options.localAddress;
+      var localPortArg = options.localPort === undefined ? null : options.localPort;
+
+      if (_hasAsyncTcpConnect) {
+        // Async connect (ENG-22994): start a non-blocking connect and resolve it
+        // from the event loop, so a slow/blackholed host never freezes timers,
+        // other sockets, or servers. __exactTcpConnectStart still throws
+        // synchronously for socket()/bind()/immediate-connect failures, which we
+        // treat exactly like a failed attempt and fall through to the next.
+        var startHandle;
+        try {
+          startHandle = __exactTcpConnectStart(
+            address, selfRef._requestedPort, localAddressArg, localPortArg);
+        } catch (startErr) {
+          if (selfRef.destroyed || selfRef._abortPending) {
+            return;
+          }
+          attemptErrors.push(_createConnectErrorFromRaw(startErr, address, selfRef._requestedPort));
+          nextAttempt();
+          return;
+        }
+        if (selfRef.destroyed || selfRef._abortPending) {
+          try { __exactTcpClose(startHandle); } catch(e) {}
+          return;
+        }
+        _pollTcpConnect(
+          selfRef,
+          startHandle,
+          function onConnectPollDone() {
+            if (selfRef.destroyed || selfRef._abortPending) {
+              try { __exactTcpClose(startHandle); } catch(e) {}
+              return;
+            }
+            connected = true;
+            _finishTcpConnectSuccess(selfRef, startHandle, address, family);
+          },
+          function onConnectPollFailed(pollErr) {
+            if (selfRef.destroyed || selfRef._abortPending) {
+              return;
+            }
+            attemptErrors.push(_createConnectErrorFromRaw(pollErr, address, selfRef._requestedPort));
+            nextAttempt();
+          });
+        return;
+      }
+
       try {
         var nativeHandle = __exactTcpConnect(
           address,
           selfRef._requestedPort,
-          options.localAddress === undefined ? null : options.localAddress,
-          options.localPort === undefined ? null : options.localPort
+          localAddressArg,
+          localPortArg
         );
         if (selfRef.destroyed) {
           try { __exactTcpClose(nativeHandle); } catch(e) {}
           return;
         }
-        selfRef.remoteAddress = address;
-        if (family) selfRef.remoteFamily = _addressFamilyToName(family);
-        _setSocketHandle(selfRef._handle, nativeHandle);
-        _setHandleRefState(selfRef._handle, !selfRef._unrefed);
-        selfRef.connecting = false;
-        selfRef._connected = true;
         connected = true;
-        selfRef.pending = false;
-        selfRef.readyState = 'open';
-        selfRef._updateAddressInfo();
-        if (selfRef._noDelay !== undefined) selfRef.setNoDelay(selfRef._noDelay);
-        if (selfRef._keepAlive !== undefined && selfRef._keepAlive) {
-          selfRef.setKeepAlive(true, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
-        }
-        selfRef._startPolling();
-        selfRef._drainWriteQueue();
-        _updateSocketTimeoutHandleState(selfRef);
-        selfRef.emit('connect');
-        selfRef.emit('ready');
+        _finishTcpConnectSuccess(selfRef, nativeHandle, address, family);
         return;
       } catch (err) {
         if (selfRef.destroyed || selfRef._abortPending) {
@@ -2526,6 +2653,9 @@ Socket.prototype.destroy = function(err) {
     this._isWriting = false;
   }
   this._suppressCloseBeforeConnectError = false;
+  // Release an in-flight non-blocking connect fd that was never attached to the
+  // socket handle (so the block below can't reach it). (ENG-22994)
+  _cancelPendingConnect(this);
   var nativeHandle = _unwrapHandle(this._handle);
   if (nativeHandle != null && _hasTcp) {
     try { __exactTcpClose(nativeHandle); } catch(e) {}

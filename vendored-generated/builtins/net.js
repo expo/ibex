@@ -142,6 +142,8 @@ function _validateConnectPort(port) {
 	return p >>> 0;
 }
 var _hasTcp = typeof __exactTcpConnect === "function";
+var _hasAsyncTcpConnect = typeof __exactTcpConnectStart === "function" && typeof __exactTcpConnectPoll === "function";
+var _CONNECT_POLL_INTERVAL_MS = 1;
 var _hasUnix = typeof __exactUnixConnect === "function";
 var _internalBinding = null;
 try {
@@ -630,6 +632,70 @@ function _emitAsyncSocketError(socket, err, callback) {
 		socket.emit("error", err);
 	}, 0, socket);
 }
+function _cancelPendingConnect(socket) {
+	if (!socket) return;
+	if (socket._connectPollTimer != null) {
+		clearTimeout(socket._connectPollTimer);
+		socket._connectPollTimer = null;
+	}
+	if (socket._pendingConnectHandle != null) {
+		if (_hasTcp) try {
+			__exactTcpClose(socket._pendingConnectHandle);
+		} catch (e) {}
+		socket._pendingConnectHandle = null;
+	}
+}
+function _finishTcpConnectSuccess(selfRef, nativeHandle, address, family) {
+	selfRef.remoteAddress = address;
+	if (family) selfRef.remoteFamily = _addressFamilyToName(family);
+	_setSocketHandle(selfRef._handle, nativeHandle);
+	_setHandleRefState(selfRef._handle, !selfRef._unrefed);
+	selfRef.connecting = false;
+	selfRef._connected = true;
+	selfRef.pending = false;
+	selfRef.readyState = "open";
+	selfRef._updateAddressInfo();
+	if (selfRef._noDelay !== void 0) selfRef.setNoDelay(selfRef._noDelay);
+	if (selfRef._keepAlive !== void 0 && selfRef._keepAlive) selfRef.setKeepAlive(true, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
+	selfRef._startPolling();
+	selfRef._drainWriteQueue();
+	_updateSocketTimeoutHandleState(selfRef);
+	selfRef.emit("connect");
+	selfRef.emit("ready");
+}
+function _pollTcpConnect(socket, nativeHandle, onConnected, onFailed) {
+	socket._pendingConnectHandle = nativeHandle;
+	function pollConnect() {
+		socket._connectPollTimer = null;
+		if (socket.destroyed || socket._abortPending || typeof process !== "undefined" && process._exactExiting) {
+			if (socket._pendingConnectHandle === nativeHandle) {
+				try {
+					__exactTcpClose(nativeHandle);
+				} catch (e) {}
+				socket._pendingConnectHandle = null;
+			}
+			return;
+		}
+		var status;
+		try {
+			status = __exactTcpConnectPoll(nativeHandle);
+		} catch (pollErr) {
+			try {
+				__exactTcpClose(nativeHandle);
+			} catch (e) {}
+			socket._pendingConnectHandle = null;
+			onFailed(pollErr);
+			return;
+		}
+		if (status === 1) {
+			socket._pendingConnectHandle = null;
+			onConnected();
+			return;
+		}
+		socket._connectPollTimer = _scheduleTimer(pollConnect, _CONNECT_POLL_INTERVAL_MS, socket);
+	}
+	socket._connectPollTimer = _scheduleTimer(pollConnect, 0, socket);
+}
 function _shouldTreatResetAsEof(socket, err) {
 	return !!(socket && err && err.code === "ECONNRESET" && (socket._ended === true || socket._closeAfterEnd === true || socket._allowResetAsEof === true || socket._autoEndedFromPeer === true));
 }
@@ -801,6 +867,7 @@ function _resetSocketForConnect(socket) {
 		clearTimeout(socket._pollTimer);
 		socket._pollTimer = null;
 	}
+	_cancelPendingConnect(socket);
 	if (socket._drainTimer != null) {
 		clearTimeout(socket._drainTimer);
 		socket._drainTimer = null;
@@ -890,6 +957,8 @@ function Socket(options) {
 	this[kTimeout] = null;
 	this._handle = _makeSocketHandle(null);
 	this._pollTimer = null;
+	this._connectPollTimer = null;
+	this._pendingConnectHandle = null;
 	this._drainTimer = null;
 	this._drainEventTimer = null;
 	this._drainImmediateQueued = false;
@@ -1760,31 +1829,50 @@ Socket.prototype.connect = function(options, connectListener) {
 				nextAttempt();
 				return;
 			}
+			var localAddressArg = options.localAddress === void 0 ? null : options.localAddress;
+			var localPortArg = options.localPort === void 0 ? null : options.localPort;
+			if (_hasAsyncTcpConnect) {
+				var startHandle;
+				try {
+					startHandle = __exactTcpConnectStart(address, selfRef._requestedPort, localAddressArg, localPortArg);
+				} catch (startErr) {
+					if (selfRef.destroyed || selfRef._abortPending) return;
+					attemptErrors.push(_createConnectErrorFromRaw(startErr, address, selfRef._requestedPort));
+					nextAttempt();
+					return;
+				}
+				if (selfRef.destroyed || selfRef._abortPending) {
+					try {
+						__exactTcpClose(startHandle);
+					} catch (e) {}
+					return;
+				}
+				_pollTcpConnect(selfRef, startHandle, function onConnectPollDone() {
+					if (selfRef.destroyed || selfRef._abortPending) {
+						try {
+							__exactTcpClose(startHandle);
+						} catch (e) {}
+						return;
+					}
+					connected = true;
+					_finishTcpConnectSuccess(selfRef, startHandle, address, family);
+				}, function onConnectPollFailed(pollErr) {
+					if (selfRef.destroyed || selfRef._abortPending) return;
+					attemptErrors.push(_createConnectErrorFromRaw(pollErr, address, selfRef._requestedPort));
+					nextAttempt();
+				});
+				return;
+			}
 			try {
-				var nativeHandle = __exactTcpConnect(address, selfRef._requestedPort, options.localAddress === void 0 ? null : options.localAddress, options.localPort === void 0 ? null : options.localPort);
+				var nativeHandle = __exactTcpConnect(address, selfRef._requestedPort, localAddressArg, localPortArg);
 				if (selfRef.destroyed) {
 					try {
 						__exactTcpClose(nativeHandle);
 					} catch (e) {}
 					return;
 				}
-				selfRef.remoteAddress = address;
-				if (family) selfRef.remoteFamily = _addressFamilyToName(family);
-				_setSocketHandle(selfRef._handle, nativeHandle);
-				_setHandleRefState(selfRef._handle, !selfRef._unrefed);
-				selfRef.connecting = false;
-				selfRef._connected = true;
 				connected = true;
-				selfRef.pending = false;
-				selfRef.readyState = "open";
-				selfRef._updateAddressInfo();
-				if (selfRef._noDelay !== void 0) selfRef.setNoDelay(selfRef._noDelay);
-				if (selfRef._keepAlive !== void 0 && selfRef._keepAlive) selfRef.setKeepAlive(true, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
-				selfRef._startPolling();
-				selfRef._drainWriteQueue();
-				_updateSocketTimeoutHandleState(selfRef);
-				selfRef.emit("connect");
-				selfRef.emit("ready");
+				_finishTcpConnectSuccess(selfRef, nativeHandle, address, family);
 				return;
 			} catch (err) {
 				if (selfRef.destroyed || selfRef._abortPending) return;
@@ -2026,6 +2114,7 @@ Socket.prototype.destroy = function(err) {
 		this._isWriting = false;
 	}
 	this._suppressCloseBeforeConnectError = false;
+	_cancelPendingConnect(this);
 	var nativeHandle = _unwrapHandle(this._handle);
 	if (nativeHandle != null && _hasTcp) try {
 		__exactTcpClose(nativeHandle);

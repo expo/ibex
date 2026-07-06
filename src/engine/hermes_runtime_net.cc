@@ -8,6 +8,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -246,6 +247,160 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactTcpConnect", std::move(tcpConnectFn));
+
+    // __exactTcpConnectStart(host, port, localAddress?, localPort?) -> handle or throws
+    // Non-blocking connect (ENG-22994). Unlike __exactTcpConnect, which does a
+    // BLOCKING ::connect on the JS thread (freezing every timer/socket/server
+    // for the OS connect timeout on a slow/blackholed host), this sets
+    // O_NONBLOCK *before* ::connect, accepts EINPROGRESS, and returns a handle
+    // immediately. Completion is reported asynchronously via
+    // __exactTcpConnectPoll, driven by the same setTimeout poll loop that
+    // already services reads. getaddrinfo stays synchronous here: callers
+    // resolve hostnames to IP literals before connecting (async DNS is tracked
+    // separately in ENG-22995), so it returns without a network round-trip.
+    auto tcpConnectStartFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpConnectStart"), 4,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpConnectStart: host (string) and port (number) required");
+          }
+          std::string host = args[0].toString(runtime).utf8(runtime);
+          int port = static_cast<int>(args[1].asNumber());
+          bool hasLocalAddress = count > 2 && !args[2].isUndefined() && !args[2].isNull();
+          bool hasLocalPort = count > 3 && !args[3].isUndefined() && !args[3].isNull();
+          std::string localAddress;
+          if (hasLocalAddress) {
+            if (!args[2].isString()) {
+              throw facebook::jsi::JSError(runtime, "__exactTcpConnectStart: localAddress must be a string");
+            }
+            localAddress = args[2].toString(runtime).utf8(runtime);
+          }
+          int localPort = 0;
+          if (hasLocalPort) {
+            if (!args[3].isNumber()) {
+              throw facebook::jsi::JSError(runtime, "__exactTcpConnectStart: localPort must be a number");
+            }
+            localPort = static_cast<int>(args[3].asNumber());
+          }
+          // @ref LLP 0013#policy — loading node:net is only import authority;
+          // opening a TCP connection is a host-boundary operation.
+          std::string connectCapability =
+              networkEndpointCapability("network:connect", host, port);
+          requireNetworkCapability(runtime, connectCapability, "network:connect");
+          struct addrinfo hints{}, *result = nullptr;
+          hints.ai_family = AF_UNSPEC;
+          hints.ai_socktype = SOCK_STREAM;
+          hints.ai_protocol = IPPROTO_TCP;
+          std::string portStr = std::to_string(port);
+          int gai_err = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
+          if (gai_err != 0) {
+            throw facebook::jsi::JSError(runtime,
+                ("getaddrinfo failed for " + host + ":" + portStr + ": " + gai_strerror(gai_err)).c_str());
+          }
+          int fd = -1;
+          int connectErrno = 0;
+          for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+            fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+            if (fd == -1) { connectErrno = errno; continue; }
+            // Non-blocking BEFORE ::connect so the syscall returns immediately
+            // (EINPROGRESS) instead of blocking the JS thread. (ENG-22994)
+            int flags = fcntl(fd, F_GETFL, 0);
+            if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+            if (hasLocalAddress || hasLocalPort) {
+              struct addrinfo bindHints{}, *bindResult = nullptr;
+              bindHints.ai_family = rp->ai_family;
+              bindHints.ai_socktype = rp->ai_socktype;
+              bindHints.ai_protocol = rp->ai_protocol;
+              bindHints.ai_flags = AI_PASSIVE;
+              std::string localPortStr = std::to_string(localPort);
+              const char* bindNode = hasLocalAddress ? localAddress.c_str() : nullptr;
+              int bindGaiErr = getaddrinfo(bindNode, localPortStr.c_str(), &bindHints, &bindResult);
+              if (bindGaiErr != 0) {
+                ::close(fd);
+                fd = -1;
+                continue;
+              }
+              bool bound = false;
+              int bindErrno = 0;
+              for (struct addrinfo* bp = bindResult; bp != nullptr; bp = bp->ai_next) {
+                if (::bind(fd, bp->ai_addr, bp->ai_addrlen) == 0) {
+                  bound = true;
+                  break;
+                }
+                bindErrno = errno;
+              }
+              freeaddrinfo(bindResult);
+              if (!bound) {
+                ::close(fd);
+                freeaddrinfo(result);
+                throw facebook::jsi::JSError(runtime,
+                    ("bind() failed: " + std::string(strerror(bindErrno))).c_str());
+              }
+            }
+            int rc = ::connect(fd, rp->ai_addr, rp->ai_addrlen);
+            // rc == 0: connected immediately (e.g. localhost/AF_UNIX-fast path).
+            // EINPROGRESS: handshake in flight; __exactTcpConnectPoll reports it.
+            // Both are success for the async model — register and hand back the
+            // handle. Any other errno means this candidate failed; try the next.
+            if (rc == 0 || errno == EINPROGRESS) {
+              break;
+            }
+            connectErrno = errno;
+            ::close(fd);
+            fd = -1;
+          }
+          freeaddrinfo(result);
+          if (fd == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("connect failed for " + host + ":" + portStr + ": " + strerror(connectErrno)).c_str());
+          }
+          int handle = registerSocketHandle(fd, connectCapability);
+          return facebook::jsi::Value(handle);
+        });
+    rt.global().setProperty(rt, "__exactTcpConnectStart", std::move(tcpConnectStartFn));
+
+    // __exactTcpConnectPoll(handle) -> 0 (pending) | 1 (connected); throws on failure
+    // Drives async connect completion (ENG-22994) without blocking. poll() with
+    // POLLOUT and a 0ms timeout tests writability; a completed connect makes the
+    // socket writable, at which point getsockopt(SO_ERROR) distinguishes success
+    // (0) from failure. The thrown message carries strerror() so the JS layer
+    // (_createConnectErrorFromRaw) maps it to ECONNREFUSED/ETIMEDOUT/ENETUNREACH.
+    auto tcpConnectPollFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpConnectPoll"), 1,
+        [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+           const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+          if (count < 1 || !args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpConnectPoll: handle required");
+          }
+          int handle = static_cast<int>(args[0].asNumber());
+          int fd = requireSocketHandle(runtime, handle, "__exactTcpConnectPoll").fd;
+          struct pollfd pfd;
+          pfd.fd = fd;
+          pfd.events = POLLOUT;
+          pfd.revents = 0;
+          int pr = ::poll(&pfd, 1, 0);
+          if (pr == 0) {
+            return facebook::jsi::Value(0);  // handshake still in progress
+          }
+          if (pr < 0) {
+            if (errno == EINTR || errno == EAGAIN) return facebook::jsi::Value(0);
+            throw facebook::jsi::JSError(runtime,
+                ("__exactTcpConnectPoll poll error: " + std::string(strerror(errno))).c_str());
+          }
+          int soError = 0;
+          socklen_t soLen = sizeof(soError);
+          if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &soLen) == -1) {
+            throw facebook::jsi::JSError(runtime,
+                ("__exactTcpConnectPoll getsockopt error: " + std::string(strerror(errno))).c_str());
+          }
+          if (soError != 0) {
+            throw facebook::jsi::JSError(runtime,
+                ("connect failed: " + std::string(strerror(soError))).c_str());
+          }
+          return facebook::jsi::Value(1);  // connected
+        });
+    rt.global().setProperty(rt, "__exactTcpConnectPoll", std::move(tcpConnectPollFn));
 
     // __exactTcpRead(handle, maxBytes) -> Uint8Array (data), null (EOF), "" (EAGAIN)
     auto tcpReadFn = facebook::jsi::Function::createFromHostFunction(
