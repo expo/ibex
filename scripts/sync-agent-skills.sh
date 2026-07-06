@@ -49,6 +49,69 @@ die() {
   exit 1
 }
 
+# Physical (symlink-resolved) absolute path of an existing directory, or empty.
+# @ref LLP 0017#1-make-agent-skill-sync-safe-by-default — never mutate a Git
+# repo we cannot prove is a managed source checkout under $sources_root.
+resolve_dir() {
+  ( cd "$1" 2>/dev/null && pwd -P ) || true
+}
+
+repo_root_real="$(resolve_dir "$repo_root")"
+sources_root_real=""
+
+# Prove $dir is exactly the managed source checkout for a skill upstream before
+# any mutating Git command runs against it. This defeats two escapes that let a
+# `git -C "$dir" …` mutation land on the *Ibex* repository's shared config:
+#   1. upward .git discovery — $dir is not itself a repo, so Git walks up to the
+#      enclosing Ibex worktree;
+#   2. gitdir redirection — a crafted `$dir/.git` file/worktree points its
+#      git-dir at another repository (e.g. Ibex).
+# Refuse unless the working-tree top-level AND the git-dir both resolve inside
+# $dir, and $dir itself resolves strictly under $sources_root (never the Ibex
+# worktree). See LLP 0017 acceptance criteria for the covered cases.
+assert_managed_source_repo() {
+  local dir="$1"
+  local dir_real toplevel toplevel_real gitdir gitdir_real common common_real
+
+  dir_real="$(resolve_dir "$dir")"
+  [ -n "$dir_real" ] || die "managed source $dir is not a directory"
+
+  if [ -z "$sources_root_real" ]; then
+    sources_root_real="$(resolve_dir "$sources_root")"
+    [ -n "$sources_root_real" ] || die "sources root $sources_root does not resolve to a directory"
+  fi
+
+  case "$dir_real/" in
+    "$sources_root_real"/*) ;;
+    *) die "refusing to touch $dir: resolves to $dir_real, outside managed sources root $sources_root_real" ;;
+  esac
+
+  if [ -n "$repo_root_real" ] && [ "$dir_real" = "$repo_root_real" ]; then
+    die "refusing to touch $dir: resolves to the Ibex repo root $repo_root_real"
+  fi
+
+  toplevel="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" \
+    || die "refusing to touch $dir: not a Git repository"
+  toplevel_real="$(resolve_dir "$toplevel")"
+  if [ "$toplevel_real" != "$dir_real" ]; then
+    die "refusing to touch $dir: Git top-level is $toplevel_real, not the managed source dir $dir_real"
+  fi
+
+  gitdir="$(git -C "$dir" rev-parse --absolute-git-dir 2>/dev/null)" \
+    || die "refusing to touch $dir: cannot resolve its Git directory"
+  gitdir_real="$(resolve_dir "$gitdir")"
+  common="$( ( cd "$dir" && git rev-parse --git-common-dir 2>/dev/null ) || true )"
+  common_real="$( ( cd "$dir" && cd "$common" 2>/dev/null && pwd -P ) || true )"
+  local g
+  for g in "$gitdir_real" "$common_real"; do
+    [ -n "$g" ] || die "refusing to touch $dir: cannot resolve its Git directory"
+    case "$g/" in
+      "$dir_real"/*) ;;
+      *) die "refusing to touch $dir: Git dir $g is redirected outside the managed source dir $dir_real" ;;
+    esac
+  done
+}
+
 timestamp=""
 
 backup_existing() {
@@ -73,12 +136,28 @@ ensure_repo() {
 
   mkdir -p "$sources_root"
 
-  if [ ! -d "$dir/.git" ]; then
-    if [ -e "$dir" ]; then
-      die "$dir exists but is not a Git checkout"
+  # Clone path (directory absent): a fresh clone into $dir cannot mutate any
+  # existing repository, so no identity proof is required — but it does touch
+  # the network, so honor no-network mode.
+  if [ ! -e "$dir" ]; then
+    if [ "$fetch" -eq 0 ]; then
+      log "Skipping clone of $name ($dir absent, network disabled)"
+      return
     fi
     log "Cloning $url into $dir"
     git clone --depth 1 --branch "$branch" "$url" "$dir"
+    return
+  fi
+
+  # Update path (directory present): every subsequent Git command runs against
+  # $dir with `git -C`, so prove $dir is exactly the managed source checkout
+  # before ANY mutation. Without this, a non-repo / redirected $dir lets the
+  # mutations below land on the enclosing Ibex worktree's shared config.
+  assert_managed_source_repo "$dir"
+
+  # Non-network mode is read-only: skip both the remote repair and the fetch.
+  if [ "$fetch" -eq 0 ]; then
+    log "Leaving $name untouched ($dir present, network disabled)"
     return
   fi
 
@@ -88,18 +167,16 @@ ensure_repo() {
     git -C "$dir" remote set-url origin "$url"
   fi
 
-  if [ "$fetch" -eq 1 ]; then
-    log "Updating $name from $url"
-    git -C "$dir" fetch --prune origin "$branch"
+  log "Updating $name from $url"
+  git -C "$dir" fetch --prune origin "$branch"
 
-    if git -C "$dir" show-ref --verify --quiet "refs/heads/$branch"; then
-      git -C "$dir" switch "$branch" >/dev/null
-    else
-      git -C "$dir" switch -c "$branch" "origin/$branch" >/dev/null
-    fi
-
-    git -C "$dir" pull --ff-only origin "$branch"
+  if git -C "$dir" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$dir" switch "$branch" >/dev/null
+  else
+    git -C "$dir" switch -c "$branch" "origin/$branch" >/dev/null
   fi
+
+  git -C "$dir" pull --ff-only origin "$branch"
 }
 
 replace_with_symlink() {

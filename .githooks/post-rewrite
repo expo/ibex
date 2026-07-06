@@ -1,7 +1,18 @@
 #!/bin/sh
+# Agent skill sync is OFF by default from Git hooks. Networked skill updates
+# and any Git mutation of managed source repos must be an explicit, opted-in
+# action — a checkout/merge/rebase must never fetch, switch branches, or
+# repair remotes as a hidden side effect.
+# @ref LLP 0017#1-make-agent-skill-sync-safe-by-default — invert the hook default.
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 
 if [ "${IBEX_SKIP_AGENT_SKILLS_SYNC:-0}" = "1" ]; then
+  exit 0
+fi
+
+if [ "${IBEX_ENABLE_AGENT_SKILLS_SYNC:-0}" != "1" ]; then
+  # Opt in with IBEX_ENABLE_AGENT_SKILLS_SYNC=1, or run
+  # scripts/sync-agent-skills.sh manually to refresh skills.
   exit 0
 fi
 

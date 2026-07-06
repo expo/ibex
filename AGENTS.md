@@ -55,3 +55,7 @@ Skills: orient = context before coding · create = author one LLP · review = LL
 - If you make a design decision worth documenting, write or update an LLP.
 - Prefer updating an existing LLP over creating a new one when the topic is covered.
 - Land doc updates in the same commit as the code change that motivated them.
+- When filing new Linear issues for Ibex work, assign them to the **Exact**
+  Linear project by default. Only use another project or no project when there
+  is a very explicit, clear reason to do so, and make that rationale obvious in
+  the issue.

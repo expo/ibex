@@ -12,6 +12,8 @@
     "generate:identity": "bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts",
     "generate:modules": "bun packages/ibex-devtools/src/scripts/generate-module-manifest.ts",
     "refresh:vendored": "IBEX_REGENERATE_RUNTIME=1 IBEX_UPDATE_VENDORED_GENERATED=1 cargo build --features openssl-crypto",
+    "regenerate:vendored": "scripts/regenerate-vendored.sh",
+    "check:drift": "scripts/check-generated-drift.sh",
     "test": "bun test packages"
   },
   "devDependencies": {

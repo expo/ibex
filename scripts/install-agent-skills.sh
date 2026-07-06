@@ -4,17 +4,43 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 skills_root="$repo_root/skills"
 
-if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-  cat <<'USAGE'
-Usage: scripts/install-agent-skills.sh [--quiet] [--no-fetch]
-
-Sync upstream skills, link them into the supported local agent skill
-directories, and configure this checkout's Git hooks to keep them refreshed.
-USAGE
-  exit 0
+# @ref LLP 0017#1-make-agent-skill-sync-safe-by-default — installing skills must
+# not silently re-enable the hidden hook-sync regime. Configuring
+# core.hooksPath=.githooks is opt-in only, via --enable-hooks or
+# IBEX_ENABLE_AGENT_SKILLS_SYNC=1.
+enable_hooks=0
+if [ "${IBEX_ENABLE_AGENT_SKILLS_SYNC:-0}" = "1" ]; then
+  enable_hooks=1
 fi
 
-"$repo_root/scripts/sync-agent-skills.sh" "$@"
+sync_args=""
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      cat <<'USAGE'
+Usage: scripts/install-agent-skills.sh [--quiet] [--no-fetch] [--enable-hooks]
+
+Sync upstream skills and link them into the supported local agent skill
+directories.
+
+By default this does NOT configure Git hooks. Pass --enable-hooks (or set
+IBEX_ENABLE_AGENT_SKILLS_SYNC=1) to point core.hooksPath at .githooks so
+checkouts/merges/rebases refresh skills automatically. Automatic sync can
+fetch from the network and update managed skill source repos, so it is opt-in.
+USAGE
+      exit 0
+      ;;
+    --enable-hooks)
+      enable_hooks=1
+      ;;
+    *)
+      sync_args="$sync_args $arg"
+      ;;
+  esac
+done
+
+# shellcheck disable=SC2086 -- intentional word-splitting of collected flags.
+"$repo_root/scripts/sync-agent-skills.sh" $sync_args
 
 timestamp="$(date +%Y%m%d%H%M%S)"
 
@@ -89,9 +115,14 @@ else
   log "Installed for OpenCode via Claude-compatible skills path: $claude_skills_dir"
 fi
 
-if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  git -C "$repo_root" config core.hooksPath .githooks
-  log "Configured Git hooks path: .githooks"
+if [ "$enable_hooks" = "1" ]; then
+  if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$repo_root" config core.hooksPath .githooks
+    log "Configured Git hooks path: .githooks (automatic skill sync enabled)"
+  fi
+else
+  log "Left Git hooks unchanged. Re-run with --enable-hooks (or set"
+  log "IBEX_ENABLE_AGENT_SKILLS_SYNC=1) to enable automatic skill sync on checkout."
 fi
 
 log "Done. Restart running agents to reload skills."
