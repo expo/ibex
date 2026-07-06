@@ -1686,7 +1686,26 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   {
     static const char* kFsHandleJS = R"JS((function () {
   var g = globalThis;
-  function FsHandle(id) { this._id = id; }
+  // @ref LLP 0013#delegation-and-authority-flow — auto-reclaim handles the app
+  // drops without calling revoke(). When the FsHandle wrapper object is
+  // garbage-collected, its native id is handed to __exactRevokeHandle, which
+  // evicts the handle and its whole descendant subtree (ENG-22955); so a
+  // long-running server that mints a per-request handle and relies on GC rather
+  // than an explicit revoke() no longer leaks one native HandleGrant per request
+  // until OOM (ENG-23010). Revoking an already-revoked/missing id is a no-op, so
+  // a finalizer that races an explicit revoke (or an ancestor's subtree
+  // eviction) is harmless. Guarded on the primitive: with only the
+  // compat-polyfill FinalizationRegistry (which never fires) this degrades to the
+  // prior explicit-revoke-only behavior.
+  var handleFinalizer = (typeof FinalizationRegistry === 'function')
+    ? new FinalizationRegistry(function (id) { g.__exactRevokeHandle(id); })
+    : null;
+  function FsHandle(id) {
+    this._id = id;
+    // Register weakly: the held value is the numeric id (a primitive, so it does
+    // not retain the wrapper), and the wrapper itself is the unregister token.
+    if (handleFinalizer) handleFinalizer.register(this, id, this);
+  }
   FsHandle.prototype.readFileSync = function (path) {
     return g.__exactHandleReadFileSync(this._id, String(path));
   };
@@ -1701,7 +1720,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     if (!id) throw new Error('Cannot scope handle to ' + sub);
     return new FsHandle(id);
   };
-  FsHandle.prototype.revoke = function () { g.__exactRevokeHandle(this._id); };
+  FsHandle.prototype.revoke = function () {
+    // Drop the finalizer registration first: once revoked, this wrapper's id is
+    // dead, and a late finalizer for it could otherwise revoke an unrelated
+    // future handle that happened to draw the same random id after eviction.
+    if (handleFinalizer) handleFinalizer.unregister(this);
+    g.__exactRevokeHandle(this._id);
+  };
   var Ibex = g.Ibex || (g.Ibex = {});
   Ibex.fs = Ibex.fs || {};
   Ibex.fs.readHandle = function (dir) {

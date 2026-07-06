@@ -1624,6 +1624,98 @@ fn attenuator_handle_delegation_scoping_and_revocation() {
 }
 
 // ---------------------------------------------------------------------------
+// Handles dropped by JS with no explicit revoke() are auto-reclaimed (ENG-23010)
+//
+// The FsHandle wrapper registers itself in a FinalizationRegistry whose cleanup
+// callback invokes __exactRevokeHandle(id); revoke evicts the handle and its
+// whole descendant subtree (ENG-22955). So a wrapper the app drops WITHOUT
+// calling revoke() is reclaimed once it is garbage-collected — closing the
+// drop-without-revoke unbounded-growth path a long-running server hits when it
+// mints a per-request handle and relies on GC. A handle the app still holds a
+// strong reference to survives GC (the revoke is targeted, not blanket), and the
+// explicit revoke() path is unchanged.
+//
+// Runs in allow-all mode so minting needs no frame attribution: the possession
+// check, gc(), and FinalizationRegistry are all core/Rust and framework-
+// independent, so this does NOT skip vacuously on the stock checked-in Hermes
+// (unlike the enforce-mode frame-attribution suites). If the runtime exposes no
+// gc() to force a collection the finalizer can't be driven deterministically, so
+// the auto-revoke assertion is skipped (and reported) rather than flaking.
+// ---------------------------------------------------------------------------
+
+const HANDLE_FINALIZER_APP_JS: &str = r#"var g = globalThis;
+var dir = process.env.HDIR;
+var file = dir + '/data.txt';
+function state(id) {
+  try { g.__exactHandleReadFileSync(id, file); return 'LIVE'; }
+  catch (e) { return (String(e && e.message).indexOf('does not grant') !== -1) ? 'REVOKED' : 'ERR'; }
+}
+console.log('gc-available=' + (typeof gc === 'function'));
+// kept: a strong reference is held, so GC must not collect (or revoke) it.
+var kept = Ibex.fs.readHandle(dir);
+var keptId = kept._id;
+// dropped: minted inside an IIFE and released — GC should auto-revoke it.
+var droppedId;
+(function () { var h = Ibex.fs.readHandle(dir); droppedId = h._id; })();
+console.log('dropped-before=' + state(droppedId) + ' kept-before=' + state(keptId));
+if (typeof gc === 'function') gc();
+setTimeout(function () {
+  if (typeof gc === 'function') gc();
+  setTimeout(function () {
+    if (typeof gc === 'function') gc();
+    setTimeout(function () {
+      console.log('dropped-after=' + state(droppedId) + ' kept-after=' + state(keptId));
+      kept.revoke();
+      console.log('kept-after-revoke=' + state(keptId));
+    }, 30);
+  }, 30);
+}, 30);
+"#;
+
+#[test]
+fn dropped_handle_is_auto_revoked_when_garbage_collected() {
+    let dir = unique_dir("handle-finalizer");
+    write_text(&dir.join("data.txt"), "hello-handle-data");
+    write_text(&dir.join("app.js"), HANDLE_FINALIZER_APP_JS);
+    let out = run_ibex(
+        &["run", "app.js"],
+        &[("HDIR", &dir.to_string_lossy())],
+        Some(&dir),
+    );
+    // Preconditions: both handles start live (proves minting + possession work,
+    // so a later REVOKED is a real state change, not a mint that never happened).
+    assert!(
+        out.stdout.contains("dropped-before=LIVE kept-before=LIVE"),
+        "both handles should start live:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // The explicit revoke() path is unchanged and still fail-closes.
+    assert!(
+        out.stdout.contains("kept-after-revoke=REVOKED"),
+        "explicit revoke() must still fail-close the handle:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    if out.stdout.contains("gc-available=true") {
+        // Core assertion: the dropped wrapper is auto-revoked on GC, while the
+        // still-referenced one survives — proving the reclamation is driven by
+        // the specific wrapper's finalization, not a blanket/timed revoke.
+        assert!(
+            out.stdout.contains("dropped-after=REVOKED kept-after=LIVE"),
+            "a dropped handle must be auto-revoked on GC while a held handle survives:\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    } else {
+        eprintln!(
+            "skipping auto-revoke assertion: runtime exposes no gc() to force a collection"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
 // Exact fs grants cannot mint subtree handles (ENG-22882)
 //
 // Handle grant coverage uses the same path algebra as ambient capability
