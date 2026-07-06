@@ -49,9 +49,10 @@ const repoRoot = path.resolve(scriptsDir, '../../../..');
  *     `matchesOracle: true` in the same change.
  *
  * The loader scanner and the AST transform legitimately disagree on WHICH
- * loops they rewrite (e.g. the scanner has no var-in-body hazard bail and
- * skips `for (var ...)` headers entirely), but rewrite-set differences only
- * matter here when they change observable behavior against the oracle.
+ * loops they rewrite (the scanner's line-based bails are coarser than the
+ * AST walk, and it skips `for (var ...)` headers entirely where the AST path
+ * rewrites them to the plain iterator shape), but rewrite-set differences
+ * only matter here when they change observable behavior against the oracle.
  */
 export const loaderExpectations = Object.freeze({
   'single-level-closure-capture': { matchesOracle: true },
@@ -60,12 +61,12 @@ export const loaderExpectations = Object.freeze({
   'let-mutation-per-iteration': { matchesOracle: true },
   'method-this-binding': { matchesOracle: true },
   'live-iterator-semantics': {
-    matchesOracle: false,
-    stdout: '["a"]',
-    reason:
-      'the loader scanner emits Array.from(expr).forEach(...), which snapshots ' +
-      'the iterable before the body runs, so mutation-during-iteration is not ' +
-      'observed (ENG-22990 tracks converging on the live iterator-protocol shape)',
+    matchesOracle: true,
+    note: 'ENG-22990: the scanner emits the explicit iterator-protocol shape, so live/lazy iteration is preserved (the old Array.from shape snapshotted)',
+  },
+  'arguments-preserved': {
+    matchesOracle: true,
+    note: 'ENG-22990: the per-iteration body is an arrow, so `arguments` resolves to the enclosing function (the old forEach callback bound its own)',
   },
   'bailed-break-continue': {
     matchesOracle: true,
@@ -81,21 +82,16 @@ export const loaderExpectations = Object.freeze({
   },
   'hazard-bailed-var-in-body': {
     matchesOracle: false,
-    stdout: '["a:a","b:b"]',
+    stdout: '["b:b","b:b"]',
     reason:
-      'loader-vs-AST rewrite-set divergence: the AST transform hazard-bails on a var ' +
-      'declaration in the body (corpus hermesMatchesOracle=false — raw capture-last), but the ' +
-      'scanner has no var-in-body bail and rewrites the loop, hoisting the var INTO the ' +
-      'per-iteration callback. Spec var is function-scoped (oracle ["a:b","b:b"]); the wrapped ' +
-      'var becomes per-iteration (["a:a","b:b"]) (ENG-22990 tracks aligning the scanner bails)',
+      'ENG-22990: the scanner now hazard-bails on a var declaration in the body (converged ' +
+      'with the AST twin), leaving the loop raw — so escaping closures keep raw capture-last ' +
+      'behavior on non-block-scoping Hermes, the same documented hole the corpus pins for the ' +
+      'AST path (hermesMatchesOracle=false / rawHermesCaptureLast)',
   },
   'iterator-close-on-throw': {
-    matchesOracle: false,
-    stdout: '["cleanup","body:a","caught:boom"]',
-    reason:
-      'Array.from drains the generator to completion BEFORE the body runs, so the ' +
-      'finally-cleanup logs first and IteratorClose-on-throw ordering is lost ' +
-      '(ENG-22990 tracks converging on the live iterator-protocol shape)',
+    matchesOracle: true,
+    note: 'ENG-22990: the emitted loop closes the iterator (iterator.return) when the body throws, matching native IteratorClose ordering',
   },
 });
 

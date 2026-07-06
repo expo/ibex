@@ -216,6 +216,22 @@ print(JSON.stringify(collect(["a", "b"])));
 `,
   },
   {
+    id: 'arguments-preserved',
+    rewrites: true,
+    note: 'ENG-22990: the per-iteration wrapper preserves the enclosing function’s `arguments` (an arrow, not a callback that binds its own)',
+    rawHermesCaptureLast: '["b:2","b:2"]',
+    source: `
+function collect() {
+  const fns = [];
+  for (const item of arguments[0]) {
+    fns.push(() => item + ":" + arguments.length);
+  }
+  return fns.map((fn) => String(fn()));
+}
+print(JSON.stringify(collect(["a", "b"], "extra")));
+`,
+  },
+  {
     id: 'iterator-close-on-throw',
     rewrites: true,
     note: 'ENG-23036: a rewritten for-of runs IteratorClose (iterator.return) when the body throws, so a generator finally runs — native does, the pre-fix iterator-protocol shape did not',

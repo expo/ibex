@@ -3248,7 +3248,7 @@
     }
     var isSimpleBinding = /^[A-Za-z_$][\w$]*$/;
     function splitForOfBinding(inner) {
-      var declMatch = inner.match(/^(?:const|let)\s+/);
+      var declMatch = inner.match(/^(const|let)\s+/);
       if (!declMatch) return null;
       var text = inner.slice(declMatch[0].length);
       var depthParen = 0;
@@ -3275,6 +3275,7 @@
         else if (ch === 93) depthBracket--;
         if (depthParen === 0 && depthBrace === 0 && depthBracket === 0 && text.slice(index, index + 4) === " of ") {
           return {
+            kind: declMatch[1],
             binding: text.slice(0, index).replace(/^\s+|\s+$/g, ""),
             expr: text.slice(index + 4).replace(/^\s+|\s+$/g, "")
           };
@@ -3290,8 +3291,8 @@
     // about to be wrapped, so nested for-of loops get their own rewrite
     // instead of being emitted raw (where the Hermes function-scoped-const
     // closure pitfall survived one level down). Recursion always runs on the
-    // pre-wrap body, so the generated `Array.from(...).forEach(function(...) {`
-    // header is never re-scanned. `namePrefix` keeps the generated
+    // pre-wrap body, so the generated iterator-protocol wrapper header is
+    // never re-scanned. `namePrefix` keeps the generated
     // __exactForOfValue<...> temporaries unique across nesting levels: each
     // recursion appends the enclosing header's line index, so the name
     // encodes the loop's path ("" at top level, "5_" inside the loop at line
@@ -3354,6 +3355,7 @@
         if (!parts || !parts.binding || !parts.expr) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
         var binding = parts.binding;
         var expr = parts.expr;
+        var kind = parts.kind;
         // Rest of line after for(...) must be just "{"
         var afterFor = trimmed.slice(forEnd + 1).replace(/^\s+|\s+$/g, "");
         if (afterFor !== "{") { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
@@ -3400,31 +3402,52 @@
           continue;
         }
         var bodyLines = lines.slice(i + 1, closeLine);
-        // The return/continue/break/yield/await bail is load-bearing: rewriting
-        // to forEach would change control flow (and escaping closures capture
-        // the last item by design — a documented tradeoff). Semantics
-        // deliberately unchanged by ENG-22546.
-        var hasBreakContinue = false;
+        // Bail scan (ENG-22990, converged with the canonical AST transform's
+        // hasUnsafeControlFlow/hasHoistingHazard as far as a line scanner
+        // allows; see packages/ibex-devtools/src/scripts/hermes-compat.mjs):
+        // - return/continue/break/yield/await: moving the body into a
+        //   per-iteration function would change control flow. Load-bearing
+        //   since before ENG-22546; deliberately unchanged.
+        // - var declarations and line-leading function declarations: the body
+        //   moves into a per-iteration function, so a `var` would no longer
+        //   hoist to the enclosing function and a sloppy-mode function
+        //   declaration would lose its function-scope binding (the AST twin's
+        //   hoisting-hazard bail). The line regexes are coarser than the AST
+        //   walk — a `var` inside a nested closure in the body also bails —
+        //   but coarse-bail only costs the capture-last pitfall for that loop,
+        //   which is strictly less wrong than breaking hoisting semantics.
+        // - a body-top-level let/const redeclaring a simple loop binding would
+        //   be a redeclaration in the generated wrapper block; bail like the
+        //   AST twin's bodyRedeclaresBoundNames (destructured bindings keep
+        //   the pre-existing coarseness: their names are not extracted here).
+        var bailRewrite = false;
+        var redeclareRe = isSimpleBinding.test(binding)
+          ? new RegExp("^\\s*(?:let|const)\\s+" + binding + "\\b")
+          : null;
         for (var b = 0; b < bodyLines.length; b++) {
           var bl = bodyLines[b];
           if (/\b(break|continue)\s*[;\n}]/.test(bl) || /\byield\b/.test(bl) || /\bawait\b/.test(bl) || /\breturn\b/.test(bl)) {
-            hasBreakContinue = true;
+            bailRewrite = true;
+            break;
+          }
+          if (/\bvar\b/.test(bl) || /^\s*(?:async\s+)?function\b/.test(bl)) {
+            bailRewrite = true;
+            break;
+          }
+          if (redeclareRe && redeclareRe.test(bl)) {
+            bailRewrite = true;
             break;
           }
         }
-        if (hasBreakContinue) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
-        var callbackParam = binding;
-        var bindingPreamble = "";
-        if (!isSimpleBinding.test(binding)) {
-          callbackParam = "__exactForOfValue" + namePrefix + i;
-          bindingPreamble = indent + "  var " + binding + " = " + callbackParam + ";";
-        }
+        if (bailRewrite) { scanDelimiterLine(line, fileState); out.push(line); i++; continue; }
         // Rewrite nested for-of loops inside the body before wrapping it
         // (ENG-22558). This only ADDS inner rewrites where the outer already
         // rewrites: the bail scan above ran over every raw body line — a
-        // superset of any inner loop's body lines — so with identical per-line
-        // regexes an inner rewrite can never hit a bail keyword the outer scan
-        // did not already bail on, and the outer's bail decision is untouched.
+        // superset of any inner loop's body lines — so an inner rewrite can
+        // never hit a shared bail keyword the outer scan did not already bail
+        // on, and the outer's bail decision is untouched. (The binding-specific
+        // redeclare bail can make an INNER loop bail where the outer did not;
+        // that only leaves the inner loop raw, which is always safe.)
         var emitBodyLines = bodyLines;
         if (bodyLines.length > 0) {
           var bodyText = bodyLines.join("\n");
@@ -3435,14 +3458,46 @@
             }
           }
         }
-        out.push(indent + "Array.from(" + expr + ").forEach(function(" + callbackParam + ") {");
-        if (bindingPreamble) {
-          out.push(bindingPreamble);
-        }
+        // Emit the ENG-22569 iterator-protocol shape (ENG-22990), converging
+        // on the canonical AST transform's output (hermes-compat.mjs): the
+        // body lives in an arrow function allocated once and invoked with the
+        // current iteration's value, so the let/const binding re-declared
+        // inside it gets a fresh binding per call on every Hermes
+        // configuration, while the arrow preserves `this`, `arguments`,
+        // `super`, and `new.target` (the old
+        // `Array.from(expr).forEach(function(...){...}, this)` shape broke
+        // `arguments`/`super`/`new.target` and — by materializing the
+        // iterable up front — lazy iterators, mutation-during-iteration, and
+        // IteratorClose ordering). The explicit protocol keeps live iteration,
+        // and the catch block runs IteratorClose (iterator.return) when the
+        // body throws, matching native for-of (ENG-23036); per spec the
+        // body's error wins over a throwing return().
+        var suffix = namePrefix + i;
+        var iterName = "__exactForOfIterator" + suffix;
+        var stepName = "__exactForOfStep" + suffix;
+        var valueName = "__exactForOfValue" + suffix;
+        var bodyFnName = "__exactForOfBody" + suffix;
+        var errorName = "__exactForOfError" + suffix;
+        var returnName = "__exactForOfReturn" + suffix;
+        var ignoreName = "__exactForOfIgnore" + suffix;
+        out.push(
+          indent + "{ const " + iterName + " = (" + expr + ")[Symbol.iterator](); " +
+          "const " + bodyFnName + " = (" + valueName + ") => {"
+        );
+        out.push(indent + "  " + kind + " " + binding + " = " + valueName + ";");
         for (var b2 = 0; b2 < emitBodyLines.length; b2++) {
           out.push(emitBodyLines[b2]);
         }
-        out.push(indent + "}, this);");
+        out.push(
+          indent + "}; for (;;) { const " + stepName + " = " + iterName + ".next(); " +
+          "if (" + stepName + ".done) break; " +
+          "try { " + bodyFnName + "(" + stepName + ".value); } " +
+          "catch (" + errorName + ") { " +
+          "const " + returnName + " = " + iterName + ".return; " +
+          "if (typeof " + returnName + " === 'function') { " +
+          "try { " + returnName + ".call(" + iterName + "); } catch (" + ignoreName + ") {} } " +
+          "throw " + errorName + "; } } }"
+        );
         // Advance the file-wide state over the consumed original lines so the
         // lines after the loop are classified against the true source state.
         for (var s = i; s <= closeLine; s++) {
