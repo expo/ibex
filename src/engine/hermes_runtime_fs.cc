@@ -448,11 +448,15 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               // (e.g. SIGCHLD/SIGALRM handled while writeFileSync targets a
               // FIFO or char device) surfaces here as errno EINTR. Treating
               // that as fatal aborted the whole call on a partial write where
-              // Node's writeSync retries. EAGAIN/EWOULDBLOCK can only occur if
-              // the destination is a non-blocking special file; writeFileSync
-              // is meant to block, so retry those too rather than throw.
-              // (ENG-23042, residual of the ENG-22982/22993 short-write fixes)
-              if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+              // Node's writeSync retries. (ENG-23042, residual of the
+              // ENG-22982/22993 short-write fixes.)
+              //
+              // EAGAIN/EWOULDBLOCK (non-blocking special file whose reader has
+              // stalled) is NOT retried: with no way to poll the host handle
+              // for writability, a bare `continue` busy-spins at 100% CPU for
+              // as long as the reader stays stalled. Node surfaces EAGAIN as
+              // an error here, so fail loudly instead. (ENG-23136)
+              if (errno == EINTR) {
                 continue;
               }
               ex_host_fs_close(handle);
@@ -496,8 +500,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (length > 0 && dataPtr) {
           // ex_host_fs_append is allowed to report a short write. Treat append
           // like __exactWriteFile: keep appending until the whole caller buffer
-          // is durable, retry transient EINTR/EAGAIN, and refuse a zero-progress
+          // is durable, retry transient EINTR, and refuse a zero-progress
           // success so we never silently drop the tail of a streaming write.
+          // EAGAIN/EWOULDBLOCK is an error, not a retry: with no way to poll
+          // the host handle, retrying busy-spins unboundedly (see the
+          // __exactWriteFile loop above; ENG-23136).
           size_t totalWritten = 0;
           while (totalWritten < length) {
             size_t remaining = length - totalWritten;
@@ -506,7 +513,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                 : static_cast<uint32_t>(remaining);
             int32_t written = ex_host_fs_append(path.c_str(), dataPtr + totalWritten, chunk);
             if (written < 0) {
-              if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+              if (errno == EINTR) {
                 continue;
               }
               throw facebook::jsi::JSError(runtime, "Failed to append to file");
@@ -1224,10 +1231,20 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         // 0 / null / undefined means "write at the current position". (For an
         // O_APPEND fd pwrite still appends, ignoring the offset, matching Node.)
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        ssize_t bytesWritten = positioned
-            ? ::pwrite(fd, dataBytes.data(), dataBytes.size(),
-                       static_cast<off_t>(args[2].asNumber()))
-            : ::write(fd, dataBytes.data(), dataBytes.size());
+        // Retry EINTR: a signal delivered mid-write (SIGCHLD/SIGALRM while the
+        // fd is a FIFO or char device) makes write/pwrite fail with EINTR
+        // having written nothing. Node (libuv) retries the syscall instead of
+        // surfacing it, so treating it as fatal aborted every fs.writeSync /
+        // writeFileSync(fd, ...) / WriteStream write with a spurious error.
+        // ENG-23042 added this retry to the path-based __exactWriteFile loop
+        // only; this is the fd-based sibling. (ENG-23136)
+        ssize_t bytesWritten;
+        do {
+          bytesWritten = positioned
+              ? ::pwrite(fd, dataBytes.data(), dataBytes.size(),
+                         static_cast<off_t>(args[2].asNumber()))
+              : ::write(fd, dataBytes.data(), dataBytes.size());
+        } while (bytesWritten < 0 && errno == EINTR);
         if (bytesWritten < 0) {
           normalizeWriteErrno(fd);
           throwFsError(runtime, "write");

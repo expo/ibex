@@ -385,7 +385,7 @@ function normalizeToInteger(value) {
 	return value < 0 ? Math.ceil(value) : Math.floor(value);
 }
 function validateOffset(offset, byteLength, bufferLength) {
-	if (offset === void 0) return 0;
+	if (offset === void 0) offset = 0;
 	if (typeof offset !== "number") throw makeInvalidArgTypeError("offset", "of type number", offset);
 	if (offset !== offset || offset !== Math.floor(offset)) throw createOutOfRangeError("offset", "an integer", offset);
 	offset = normalizeToInteger(offset);
@@ -1148,24 +1148,17 @@ BufferProto.hexWrite = function(value, offset, length) {
 BufferProto.write = function(value, offset, length, encoding) {
 	if (typeof length === "string") {
 		encoding = length;
-		length = null;
+		length = void 0;
 	}
 	if (typeof offset === "string") {
 		encoding = offset;
 		offset = 0;
-		length = null;
+		length = void 0;
 	}
-	if (offset == null) offset = 0;
-	if (typeof offset !== "number") {
-		var offErr = /* @__PURE__ */ new TypeError("The \"offset\" argument must be of type number. Received type " + typeof offset);
-		offErr.code = "ERR_INVALID_ARG_TYPE";
-		throw offErr;
-	}
-	if (offset < 0 || offset > this.length) {
-		var rangeErr = /* @__PURE__ */ new RangeError("The value of \"offset\" is out of range. It must be >= 0 && <= " + this.length + ". Received " + offset);
-		rangeErr.code = "ERR_OUT_OF_RANGE";
-		throw rangeErr;
-	}
+	if (offset === void 0) offset = 0;
+	if (typeof offset !== "number") throw makeInvalidArgTypeError("offset", "of type number", offset);
+	if (offset !== offset || !isFiniteNumber(offset) || offset !== Math.floor(offset)) throw createOutOfRangeError("offset", "an integer", offset);
+	if (offset < 0 || offset > this.length) throw createOutOfRangeError("offset", ">= 0 && <= " + this.length, offset);
 	var _validEncodings = {
 		"utf8": 1,
 		"utf-8": 1,
@@ -1183,7 +1176,13 @@ BufferProto.write = function(value, offset, length, encoding) {
 	var _enc = (encoding || "utf8").toLowerCase();
 	if (!_validEncodings[_enc]) throw new TypeError("Unknown encoding: " + encoding);
 	var bytes = encodeString(String(value), _enc);
-	if (length == null || length > bytes.length) length = bytes.length;
+	if (length === void 0) length = bytes.length;
+	else {
+		if (typeof length !== "number") throw makeInvalidArgTypeError("length", "of type number", length);
+		if (length !== length || !isFiniteNumber(length) || length !== Math.floor(length)) throw createOutOfRangeError("length", "an integer", length);
+		if (length < 0 || length > this.length) throw createOutOfRangeError("length", ">= 0 && <= " + this.length, length);
+		if (length > bytes.length) length = bytes.length;
+	}
 	if (length > this.length - offset) length = this.length - offset;
 	length = clampEncodedWriteLength(bytes, length, _enc);
 	for (var i = 0; i < length && offset + i < this.length; i++) this[offset + i] = bytes[i];

@@ -77,11 +77,13 @@ export class Buffer extends Uint8Array {
     if (arrayBufferByteLength !== null) {
       const byteOffset = normalizeArrayBufferOffset(encodingOrOffset, arrayBufferByteLength);
       const viewLength = normalizeArrayBufferLength(length, arrayBufferByteLength, byteOffset);
-      // Copy the data to avoid aliasing bugs with native memory that may be
-      // freed or reused.  This matches Node.js Buffer.from(ArrayBuffer) semantics.
-      const copy = new Uint8Array(viewLength);
-      copy.set(new Uint8Array(value as ArrayBuffer, byteOffset, viewLength));
-      return Object.setPrototypeOf(copy, Buffer.prototype) as Buffer;
+      // Node.js semantics: Buffer.from(ArrayBuffer[, byteOffset[, length]])
+      // returns a view that SHARES the ArrayBuffer's memory (writes through the
+      // Buffer must be visible in the ArrayBuffer and vice versa, e.g. for wasm
+      // memory interop). A copy here silently broke that contract and diverged
+      // from src/builtins/buffer.js, which shares. (ENG-23136)
+      const view = new Uint8Array(value as ArrayBuffer, byteOffset, viewLength);
+      return Object.setPrototypeOf(view, Buffer.prototype) as Buffer;
     }
 
     if (value instanceof Buffer) {
@@ -147,18 +149,24 @@ export class Buffer extends Uint8Array {
         return buffer;
       }
       case 'hex': {
-        const bytes: number[] = [];
-        for (let i = 0; i < str.length - 1; i += 2) {
-          const byte = parseInt(str.slice(i, i + 2), 16);
-          if (Number.isNaN(byte)) {
+        // Match Node's hex decoder: walk floor(len/2) byte-pairs and stop at
+        // the first pair containing a non-hex-digit. Unlike parseInt(pair, 16)
+        // this rejects whitespace, signs, and half-valid pairs (e.g. 'a1bg' ->
+        // <a1>, '1 23' -> <>) instead of fabricating bytes. Port of the
+        // ENG-22964 fix in src/builtins/buffer.js. (ENG-23136)
+        const maxBytes = str.length >>> 1;
+        const bytes = new Uint8Array(maxBytes);
+        let count = 0;
+        for (let i = 0; i < maxBytes; i++) {
+          const hi = hexNibble(str.charCodeAt(i * 2));
+          const lo = hexNibble(str.charCodeAt(i * 2 + 1));
+          if (hi < 0 || lo < 0) {
             break;
           }
-          bytes.push(byte);
+          bytes[count++] = (hi << 4) | lo;
         }
-        const buffer = new Buffer(bytes.length);
-        for (let i = 0; i < bytes.length; i++) {
-          buffer[i] = bytes[i];
-        }
+        const buffer = new Buffer(count);
+        buffer.set(count === maxBytes ? bytes : bytes.subarray(0, count));
         return buffer;
       }
       case 'base64':
@@ -460,36 +468,59 @@ export class Buffer extends Uint8Array {
       end = undefined;
     }
 
+    // Node validates fill bounds (validateInt32) instead of clamping:
+    // fill(v, -1) must throw ERR_OUT_OF_RANGE, not silently fill the whole
+    // buffer; NaN/fractional offsets must throw, not no-op. An offset beyond
+    // this.length (with end defaulted) is a no-op in Node, not an error.
+    // (ENG-23136)
+    if (typeof offset !== 'number') {
+      throw makeInvalidArgTypeError('offset', 'of type number', offset);
+    }
+    if (!Number.isInteger(offset)) {
+      throw createOutOfRangeError('offset', 'an integer', offset);
+    }
+    if (offset < 0 || offset > 0x7fffffff) {
+      throw createOutOfRangeError('offset', `>= 0 && <= ${0x7fffffff}`, offset);
+    }
+    if (end !== undefined) {
+      if (typeof end !== 'number') {
+        throw makeInvalidArgTypeError('end', 'of type number', end);
+      }
+      if (!Number.isInteger(end)) {
+        throw createOutOfRangeError('end', 'an integer', end);
+      }
+      if (end < 0 || end > this.length) {
+        throw createOutOfRangeError('end', `>= 0 && <= ${this.length}`, end);
+      }
+    }
+
+    const fillStart = offset;
     const fillEnd = end ?? this.length;
 
-    // Clamp offset and end to valid range
-    const clampedOffset = Math.max(0, Math.min(offset, this.length));
-    const clampedEnd = Math.max(0, Math.min(fillEnd, this.length));
-
-    if (clampedOffset >= clampedEnd) {
+    if (fillStart >= fillEnd) {
       return this;
     }
 
     if (typeof value === 'number') {
-      for (let i = clampedOffset; i < clampedEnd; i++) {
+      for (let i = fillStart; i < fillEnd; i++) {
         this[i] = value & 0xff;
       }
     } else if (typeof value === 'string') {
       if (value.length === 0) {
         // Node.js fills with zeros for empty string
-        for (let i = clampedOffset; i < clampedEnd; i++) {
+        for (let i = fillStart; i < fillEnd; i++) {
           this[i] = 0;
         }
       } else {
         const fillBuffer = Buffer.from(value, encoding);
         if (fillBuffer.length === 0) {
           // Encoded to zero bytes - fill with zeros
-          for (let i = clampedOffset; i < clampedEnd; i++) {
+          for (let i = fillStart; i < fillEnd; i++) {
             this[i] = 0;
           }
         } else {
           let j = 0;
-          for (let i = clampedOffset; i < clampedEnd; i++) {
+          for (let i = fillStart; i < fillEnd; i++) {
             this[i] = fillBuffer[j % fillBuffer.length];
             j++;
           }
@@ -500,7 +531,7 @@ export class Buffer extends Uint8Array {
         return this;
       }
       let j = 0;
-      for (let i = clampedOffset; i < clampedEnd; i++) {
+      for (let i = fillStart; i < fillEnd; i++) {
         this[i] = value[j % value.length];
         j++;
       }
@@ -779,6 +810,32 @@ export class Buffer extends Uint8Array {
       writeEncoding = offset;
       offset = 0;
       writeLength = undefined;
+    }
+
+    // Node validates offset/length as integers within [0, this.length]:
+    // NaN/fractional offsets must throw ERR_OUT_OF_RANGE instead of silently
+    // misplacing bytes or returning NaN, and an out-of-range offset must throw
+    // instead of returning 0 (which spins `off += buf.write(...)` serializer
+    // loops forever). (ENG-23136)
+    if (typeof offset !== 'number') {
+      throw makeInvalidArgTypeError('offset', 'of type number', offset);
+    }
+    if (!Number.isInteger(offset)) {
+      throw createOutOfRangeError('offset', 'an integer', offset);
+    }
+    if (offset < 0 || offset > this.length) {
+      throw createOutOfRangeError('offset', `>= 0 && <= ${this.length}`, offset);
+    }
+    if (writeLength !== undefined) {
+      if (typeof writeLength !== 'number') {
+        throw makeInvalidArgTypeError('length', 'of type number', writeLength);
+      }
+      if (!Number.isInteger(writeLength)) {
+        throw createOutOfRangeError('length', 'an integer', writeLength);
+      }
+      if (writeLength < 0 || writeLength > this.length) {
+        throw createOutOfRangeError('length', `>= 0 && <= ${this.length}`, writeLength);
+      }
     }
 
     const data = Buffer.from(string, writeEncoding);
@@ -1303,6 +1360,15 @@ function isArrayBufferLike(value: unknown): value is ArrayBuffer | SharedArrayBu
   return getArrayBufferByteLength(value) !== null;
 }
 
+// Hex digit char code -> nibble value, or -1 for any non-hex-digit
+// (whitespace, signs, unicode digits, ...). Mirrors src/builtins/buffer.js.
+function hexNibble(code: number): number {
+  if (code >= 0x30 && code <= 0x39) return code - 0x30; // 0-9
+  if (code >= 0x61 && code <= 0x66) return code - 0x61 + 10; // a-f
+  if (code >= 0x41 && code <= 0x46) return code - 0x41 + 10; // A-F
+  return -1;
+}
+
 function getArrayBufferByteLength(value: unknown): number | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -1614,8 +1680,12 @@ function makeOutOfBoundsReadError(): RangeError & { code: string } {
 }
 
 function validateOffset(offset: unknown, byteLength: number, bufferLength: number): number {
+  // An omitted offset defaults to 0 but must still fall through to the bounds
+  // check below (see the sibling fix in src/builtins/buffer.js, ENG-23136).
+  // Callers currently shield this via `offset = 0` parameter defaults, so this
+  // is hardening against the same silent-OOB trap, not a behavior change.
   if (offset === undefined) {
-    return 0;
+    offset = 0;
   }
   if (typeof offset !== 'number') {
     throw makeInvalidArgTypeError('offset', 'of type number', offset);

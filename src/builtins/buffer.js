@@ -552,7 +552,12 @@ function normalizeToInteger(value) {
 }
 
 function validateOffset(offset, byteLength, bufferLength) {
-  if (offset === undefined) return 0;
+  // An omitted offset defaults to 0 but must still fall through to the bounds
+  // check below: an early `return 0` let readUInt32LE()/writeUInt32LE() on a
+  // too-short buffer silently read/write out of bounds (returning garbage or
+  // dropping bytes) where the explicit `(0)` call throws. (ENG-23136,
+  // regression of ENG-23038)
+  if (offset === undefined) offset = 0;
   if (typeof offset !== "number") {
     throw makeInvalidArgTypeError("offset", "of type number", offset);
   }
@@ -1677,24 +1682,27 @@ BufferProto.hexWrite = function(value, offset, length) {
 BufferProto.write = function(value, offset, length, encoding) {
   if (typeof length === "string") {
     encoding = length;
-    length = null;
+    length = undefined;
   }
   if (typeof offset === "string") {
     encoding = offset;
     offset = 0;
-    length = null;
+    length = undefined;
   }
 
-  if (offset == null) offset = 0;
+  // Node validates offset/length via validateInteger: NaN, fractional and
+  // non-finite values throw ERR_OUT_OF_RANGE instead of silently no-op'ing
+  // (typed-array stores at non-integer indices are dropped) or poisoning the
+  // returned byte count with NaN. (ENG-23136)
+  if (offset === undefined) offset = 0;
   if (typeof offset !== 'number') {
-    var offErr = new TypeError('The "offset" argument must be of type number. Received type ' + typeof offset);
-    offErr.code = 'ERR_INVALID_ARG_TYPE';
-    throw offErr;
+    throw makeInvalidArgTypeError('offset', 'of type number', offset);
+  }
+  if (offset !== offset || !isFiniteNumber(offset) || offset !== Math.floor(offset)) {
+    throw createOutOfRangeError('offset', 'an integer', offset);
   }
   if (offset < 0 || offset > this.length) {
-    var rangeErr = new RangeError('The value of "offset" is out of range. It must be >= 0 && <= ' + this.length + '. Received ' + offset);
-    rangeErr.code = 'ERR_OUT_OF_RANGE';
-    throw rangeErr;
+    throw createOutOfRangeError('offset', '>= 0 && <= ' + this.length, offset);
   }
 
   var _validEncodings = { 'utf8': 1, 'utf-8': 1, 'ascii': 1, 'latin1': 1, 'binary': 1, 'hex': 1, 'base64': 1, 'base64url': 1, 'ucs2': 1, 'ucs-2': 1, 'utf16le': 1, 'utf-16le': 1 };
@@ -1704,7 +1712,20 @@ BufferProto.write = function(value, offset, length, encoding) {
   }
 
   var bytes = encodeString(String(value), _enc);
-  if (length == null || length > bytes.length) length = bytes.length;
+  if (length === undefined) {
+    length = bytes.length;
+  } else {
+    if (typeof length !== 'number') {
+      throw makeInvalidArgTypeError('length', 'of type number', length);
+    }
+    if (length !== length || !isFiniteNumber(length) || length !== Math.floor(length)) {
+      throw createOutOfRangeError('length', 'an integer', length);
+    }
+    if (length < 0 || length > this.length) {
+      throw createOutOfRangeError('length', '>= 0 && <= ' + this.length, length);
+    }
+    if (length > bytes.length) length = bytes.length;
+  }
   if (length > this.length - offset) length = this.length - offset;
   length = clampEncodedWriteLength(bytes, length, _enc);
   for (var i = 0; i < length && (offset + i) < this.length; i++) {

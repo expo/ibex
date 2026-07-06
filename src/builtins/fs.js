@@ -665,7 +665,7 @@ function _fsInvalidArgTypeProperty(propName, expected, actual) {
 
 var _uvErrnoMap = {
   'EACCES': 13, 'EBADF': 9, 'EBUSY': 16, 'EEXIST': 17,
-  'EFAULT': 14, 'EINVAL': 22, 'EIO': 5, 'EISDIR': 21,
+  'EFAULT': 14, 'EFBIG': 27, 'EINVAL': 22, 'EIO': 5, 'EISDIR': 21,
   'ELOOP': 40, 'EMFILE': 24, 'ENAMETOOLONG': 63, 'ENOENT': 2,
   'ENOMEM': 12, 'ENOSPC': 28, 'ENOSYS': 78, 'ENOTDIR': 20,
   'ENOTEMPTY': 66, 'EPERM': 1, 'ERANGE': 34, 'EROFS': 30,
@@ -678,6 +678,7 @@ var _uvErrnoMessage = {
   'EBUSY': 'resource busy or locked',
   'EEXIST': 'file already exists',
   'EFAULT': 'bad address in system call argument',
+  'EFBIG': 'file too large',
   'EINVAL': 'invalid argument',
   'EIO': 'i/o error',
   'EISDIR': 'illegal operation on a directory',
@@ -1190,6 +1191,13 @@ function _writeAllSync(fd, bytes, position) {
     try {
       written = _callWriteSync(fd, bytes, offset, bytes.length - offset, currentPosition);
     } catch (err) {
+      // EINTR is transient (a signal interrupted the write before any bytes
+      // moved): Node's libuv retries the syscall instead of surfacing it.
+      // The native __exactFsWrite hook retries EINTR itself; this guard
+      // covers replaced/stubbed writeSync hooks that surface it. (ENG-23136)
+      if (_getFsErrorCode(err) === 'EINTR') {
+        continue;
+      }
       throw _coercePartialWriteError(err, offset);
     }
     if (typeof written !== 'number' || written <= 0) {

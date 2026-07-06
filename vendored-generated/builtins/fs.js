@@ -454,6 +454,7 @@ var _uvErrnoMap = {
 	"EBUSY": 16,
 	"EEXIST": 17,
 	"EFAULT": 14,
+	"EFBIG": 27,
 	"EINVAL": 22,
 	"EIO": 5,
 	"EISDIR": 21,
@@ -480,6 +481,7 @@ var _uvErrnoMessage = {
 	"EBUSY": "resource busy or locked",
 	"EEXIST": "file already exists",
 	"EFAULT": "bad address in system call argument",
+	"EFBIG": "file too large",
 	"EINVAL": "invalid argument",
 	"EIO": "i/o error",
 	"EISDIR": "illegal operation on a directory",
@@ -867,6 +869,7 @@ function _writeAllSync(fd, bytes, position) {
 		try {
 			written = _callWriteSync(fd, bytes, offset, bytes.length - offset, currentPosition);
 		} catch (err) {
+			if (_getFsErrorCode(err) === "EINTR") continue;
 			throw _coercePartialWriteError(err, offset);
 		}
 		if (typeof written !== "number" || written <= 0) {
