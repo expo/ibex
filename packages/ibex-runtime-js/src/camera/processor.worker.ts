@@ -141,6 +141,15 @@ self.onmessage = (event: MessageEvent) => {
   }
 
   if (!processorFn) {
+    // The processor source failed to compile at init (processorFn stayed null).
+    // Reply with an error so the main thread's pending request settles instead of
+    // hanging forever — a hung request latches processingBusy and turns every
+    // subsequent frame into an unbounded 'processor/overload' error. (ENG-22978)
+    self.postMessage({
+      type: "error",
+      id: payload.id,
+      message: "Frame processor is not initialized.",
+    });
     return;
   }
 

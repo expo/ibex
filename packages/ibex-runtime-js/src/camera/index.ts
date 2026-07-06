@@ -3106,7 +3106,7 @@ function rgbaToBgra(data: Uint8ClampedArray): ArrayBuffer {
   return output.buffer;
 }
 
-function bgraToRgba(data: Uint8Array): Uint8ClampedArray {
+function bgraToRgba(data: Uint8Array): Uint8ClampedArray<ArrayBuffer> {
   const output = new Uint8ClampedArray(new ArrayBuffer(data.length));
   for (let index = 0; index < data.length; index += 4) {
     output[index] = data[index + 2];
@@ -4215,6 +4215,8 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   private lastError: CameraError | null = null;
   private pathBActive = false;
   private processingBusy = false;
+  private reportedProcessorOverload = false;
+  private reportedProcessorFailure = false;
   private hasProcessedPreviewFrame = false;
   private recordingState: "inactive" | "recording" | "paused" = "inactive";
   private recordingStartedAt = 0;
@@ -4222,6 +4224,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   private recordingChunks = 0;
   private recordingTimer: ReturnType<typeof setInterval> | null = null;
   private currentRecorder: MediaRecorderWithRequestData | null = null;
+  private currentRecorderSource: MediaStream | null = null;
   private currentRecordingOptions: CameraRecordingOptions | null = null;
   private currentRecordingChunks: Blob[] = [];
   private discardNextRecording = false;
@@ -4714,6 +4717,13 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       this.currentRecordingOptions = null;
       this.currentRecordingChunks = [];
       this.clearRecordingTimer();
+      // Release the cloned capture source (and the recording's mic) so the
+      // physical camera/mic stop when the recording ends, not at page unload.
+      // The clone's tracks are independent of the live preview stream. (ENG-22978)
+      this.stopStreamTracks(this.currentRecorderSource);
+      this.currentRecorderSource = null;
+      this.stopStreamTracks(this.audioStream);
+      this.audioStream = null;
       this.notify();
 
       if (!shouldDiscard) {
@@ -4967,7 +4977,12 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   }
 
   computeAnalysis(options: CameraAnalysisOptions): CameraAnalysisSnapshot | null {
-    if (this.rawCanvas.width === 0 || this.rawCanvas.height === 0) {
+    // The raw canvas keeps its dimensions after the first drawn frame (and a
+    // blank canvas already reports a non-zero default size in a browser), so a
+    // width===0 guard would analyse a stale — or never-drawn, all-zero — buffer
+    // and always see brightness 0 ('too-dark'). Only the Path B loop keeps the
+    // sensor buffer continuously current; otherwise redraw here. (ENG-22978)
+    if (!(this.started && this.needsPathB())) {
       this.drawCurrentSensorFrame();
     }
     const canvas = this.getCurrentSensorCanvas();
@@ -5284,26 +5299,20 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       );
     }
 
-    if (this.audioStream) {
-      for (const track of this.audioStream.getTracks()) {
-        track.stop();
-      }
-      this.audioStream = null;
-    }
+    // Release any recorder clone that outlived its MediaRecorder (e.g. stop()
+    // fired without an onstop, or the session is torn down mid-recording) so the
+    // cloned camera tracks don't keep the device captured. (ENG-22978)
+    this.stopStreamTracks(this.currentRecorderSource);
+    this.currentRecorderSource = null;
 
-    if (this.rollingAudioStream) {
-      for (const track of this.rollingAudioStream.getTracks()) {
-        track.stop();
-      }
-      this.rollingAudioStream = null;
-    }
+    this.stopStreamTracks(this.audioStream);
+    this.audioStream = null;
 
-    if (this.mediaStream) {
-      for (const track of this.mediaStream.getTracks()) {
-        track.stop();
-      }
-      this.mediaStream = null;
-    }
+    this.stopStreamTracks(this.rollingAudioStream);
+    this.rollingAudioStream = null;
+
+    this.stopStreamTracks(this.mediaStream);
+    this.mediaStream = null;
 
     if (this.virtualController) {
       this.virtualController.stop();
@@ -5430,6 +5439,10 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   }
 
   private async syncFramePipeline(): Promise<void> {
+    // The pipeline is being (re)configured — re-arm the one-shot processor error
+    // latches so a fresh processor can report overload/failure again. (ENG-22978)
+    this.reportedProcessorOverload = false;
+    this.reportedProcessorFailure = false;
     const shouldRunPathB = this.needsPathB();
 
     if (!shouldRunPathB) {
@@ -5517,6 +5530,15 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   }
 
   private async handleFrame(timestamp: number): Promise<void> {
+    // scheduleNextFrame's callback clears frameLoopToken *before* invoking us, so
+    // a frame already in flight is immune to cancelFrameLoop(). If stopSession()
+    // tore the session down while this frame was scheduled (or mid-await), bail
+    // and — critically — never reschedule once stopped. Rescheduling on the old
+    // `needsPathB()` (options-only) resurrected the loop at rAF rate on a disposed
+    // pipeline, throwing 'worker not initialized' ~60x/sec. (ENG-22978)
+    if (!this.started || !this.bindings) {
+      return;
+    }
     try {
       this.diagnostics.framesReceived += 1;
       this.diagnostics.lastFrameTimestamp = timestamp;
@@ -5526,7 +5548,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       await this.runFrameProcessorIfNeeded(timestamp);
       this.drawPreviewFromCurrentBuffer();
     } finally {
-      if (this.needsPathB()) {
+      if (this.started && this.needsPathB()) {
         this.scheduleNextFrame();
       }
       this.notify();
@@ -5661,7 +5683,11 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       const dropBudgetExceeded =
         this.diagnostics.framesReceived > 0 &&
         this.diagnostics.framesDropped / this.diagnostics.framesReceived > 0.5;
-      if (dropBudgetExceeded) {
+      // Latch the overload report: without this, once the drop ratio crosses the
+      // threshold onError fires on *every* subsequent frame (~60x/sec). Re-armed
+      // when a frame processes successfully or the pipeline changes. (ENG-22978)
+      if (dropBudgetExceeded && !this.reportedProcessorOverload) {
+        this.reportedProcessorOverload = true;
         this.options.onError?.(
           makeCameraError(
             "processor/overload",
@@ -5681,6 +5707,11 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       return;
     }
 
+    // Capture the *previous* processor timestamp before overwriting it; the fps
+    // estimate below is derived from the gap between consecutive processed
+    // frames. Reading lastProcessorTimestamp after the assignment made the delta
+    // always 0 → clamped to 1 → a constant 1000fps. (ENG-22978)
+    const previousProcessorTimestamp = this.diagnostics.lastProcessorTimestamp;
     this.processingBusy = true;
     this.diagnostics.lastProcessorTimestamp = timestamp;
 
@@ -5708,19 +5739,20 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
 
       this.diagnostics.framesProcessed += 1;
       this.diagnostics.processorFps =
-        this.diagnostics.lastProcessorTimestamp == null
+        previousProcessorTimestamp == null
           ? processor.fps
-          : Math.round(
-              1000 /
-                Math.max(1, timestamp - (this.diagnostics.lastProcessorTimestamp ?? timestamp)),
-            );
+          : Math.round(1000 / Math.max(1, timestamp - previousProcessorTimestamp));
+      // A frame processed cleanly, so re-arm the one-shot error latches.
+      this.reportedProcessorOverload = false;
+      this.reportedProcessorFailure = false;
 
       if (response.outputBuffer) {
+        // bgraToRgba() already returns a freshly-allocated, non-shared
+        // Uint8ClampedArray suitable for ImageData; the extra defensive copy was
+        // ~8MB of alloc+memcpy per 1080p frame for nothing. (ENG-22978)
         const rgba = bgraToRgba(new Uint8Array(response.outputBuffer));
-        const stableRgba = new Uint8ClampedArray(rgba.length);
-        stableRgba.set(rgba);
         const processedImage = new ImageData(
-          stableRgba,
+          rgba,
           this.rawCanvas.width,
           this.rawCanvas.height,
         );
@@ -5737,14 +5769,24 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
         processor.onResult?.(response.result);
       }
     } catch (error) {
+      // stopSession() disposes the worker runtime, which rejects any in-flight
+      // request. Don't surface that teardown race as a processor failure. (ENG-22978)
+      if (!this.started) {
+        return;
+      }
       const processorError = makeCameraError(
         "processor/failed",
         error instanceof Error ? error.message : "Frame processor failed.",
         true,
         error instanceof Error ? error : undefined,
       );
-      this.options.onError?.(processorError);
       this.lastError = processorError;
+      // Latch the failure report so a permanently-broken processor (e.g. one that
+      // fails to compile) reports once per episode, not once per frame. (ENG-22978)
+      if (!this.reportedProcessorFailure) {
+        this.reportedProcessorFailure = true;
+        this.options.onError?.(processorError);
+      }
     } finally {
       this.processingBusy = false;
     }
@@ -5828,15 +5870,19 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
   }
 
   private async ensureSensorBufferFresh(): Promise<void> {
-    // Snapshots and still capture metadata need a current frame even when Path B
-    // is cold. We opportunistically draw a single frame here instead of forcing
-    // the whole processing loop to stay resident.
-    if (this.rawCanvas.width > 0 && this.rawCanvas.height > 0) {
-      return;
-    }
-
+    // Snapshots and still capture metadata need a *current* frame even when
+    // Path B is cold. Canvas dimensions can't signal freshness — a blank canvas
+    // reports its default 300x150 size in a real browser, and once a frame has
+    // been drawn the raw canvas keeps the previous frame's size forever — so the
+    // old `width>0` early-return handed back a stale (or first-frame) buffer for
+    // the life of the session. Only the Path B loop keeps the buffer continuously
+    // up to date; when it is not running, redraw one frame on demand. (ENG-22978)
     if (!this.started) {
       await this.startSession();
+    }
+
+    if (this.started && this.needsPathB()) {
+      return;
     }
 
     this.drawCurrentSensorFrame();
@@ -5860,40 +5906,64 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       return null;
     }
 
-    if (options.audio) {
-      const reusableRetroactiveAudio =
-        this.options.retroactiveAudio === true
-          ? this.rollingAudioStream?.clone() ?? null
-          : null;
-      if (reusableRetroactiveAudio && reusableRetroactiveAudio.getAudioTracks().length > 0) {
-        this.audioStream = reusableRetroactiveAudio;
-      } else {
-        const nav = getNavigator();
-        if (!nav?.mediaDevices?.getUserMedia) {
-          throw new Error("Audio capture is unavailable.");
+    // recordingSource holds cloned (independent) camera tracks — or a canvas
+    // capture stream — that keep the physical camera captured until explicitly
+    // stopped. Every early exit below must release them or the OS camera-in-use
+    // indicator stays on after the recording (and after destroy()). (ENG-22978)
+    try {
+      if (options.audio) {
+        const reusableRetroactiveAudio =
+          this.options.retroactiveAudio === true
+            ? this.rollingAudioStream?.clone() ?? null
+            : null;
+        if (reusableRetroactiveAudio && reusableRetroactiveAudio.getAudioTracks().length > 0) {
+          this.audioStream = reusableRetroactiveAudio;
+        } else {
+          const nav = getNavigator();
+          if (!nav?.mediaDevices?.getUserMedia) {
+            throw new Error("Audio capture is unavailable.");
+          }
+          const audioPermission = await requestMicrophonePermission();
+          if (audioPermission.state !== "granted") {
+            throw new CapabilityDeniedError("device:microphone", "os_denied", true);
+          }
+          this.audioStream = await nav.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
         }
-        const audioPermission = await requestMicrophonePermission();
-        if (audioPermission.state !== "granted") {
-          throw new CapabilityDeniedError("device:microphone", "os_denied", true);
+        for (const track of this.audioStream.getAudioTracks()) {
+          recordingSource.addTrack(track);
         }
-        this.audioStream = await nav.mediaDevices.getUserMedia({
-          audio: true,
-          video: false,
-        });
       }
-      for (const track of this.audioStream.getAudioTracks()) {
-        recordingSource.addTrack(track);
+
+      const mimeType = pickRecordingMimeType(options.codec ?? "h264");
+      if (!mimeType) {
+        this.stopStreamTracks(recordingSource);
+        this.stopStreamTracks(this.audioStream);
+        this.audioStream = null;
+        return null;
       }
-    }
 
-    const mimeType = pickRecordingMimeType(options.codec ?? "h264");
-    if (!mimeType) {
-      return null;
+      this.currentRecorderSource = recordingSource;
+      return new MediaRecorder(recordingSource, {
+        mimeType,
+      }) as MediaRecorderWithRequestData;
+    } catch (error) {
+      this.stopStreamTracks(recordingSource);
+      this.stopStreamTracks(this.audioStream);
+      this.audioStream = null;
+      throw error;
     }
+  }
 
-    return new MediaRecorder(recordingSource, {
-      mimeType,
-    }) as MediaRecorderWithRequestData;
+  private stopStreamTracks(stream: MediaStream | null): void {
+    if (!stream) {
+      return;
+    }
+    for (const track of stream.getTracks()) {
+      track.stop();
+    }
   }
 
   private startRecordingTimer(): void {
