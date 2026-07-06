@@ -2896,7 +2896,7 @@ exports.run = async function() {
   await new Promise(function(resolve) {
     var socket = net.connect({ host: "127.0.0.1", port: 9 });
     once(socket, "error", function(err) {
-      out.push("tcp-connect:" + (err && err.code === "EACCES" ? "DENIED" : "ERR"));
+      out.push("tcp-connect:" + (err && err.code === "EACCES" ? "DENIED" : "ERR(" + String(err && err.code || err) + ")"));
       resolve();
     });
     socket.once("connect", function() {
@@ -2908,7 +2908,7 @@ exports.run = async function() {
   await new Promise(function(resolve) {
     var server = net.createServer();
     once(server, "error", function(err) {
-      out.push("tcp-listen:" + (err && err.code === "EACCES" ? "DENIED" : "ERR"));
+      out.push("tcp-listen:" + (err && err.code === "EACCES" ? "DENIED" : "ERR(" + String(err && err.code || err) + ")"));
       resolve();
     });
     server.listen(0, "127.0.0.1", function() {
@@ -2919,8 +2919,10 @@ exports.run = async function() {
   var dgram = require("dgram");
   await new Promise(function(resolve) {
     var udp = dgram.createSocket("udp4");
-    once(udp, "error", function() {
-      out.push("udp-bind:DENIED");
+    once(udp, "error", function(err) {
+      // Suffix the code (assertion matches the "udp-bind:DENIED" prefix): a
+      // transient bind error under load must not masquerade as a clean deny.
+      out.push("udp-bind:DENIED(" + String(err && err.code || err) + ")");
       try { udp.close(); } catch (_) {}
       resolve();
     });
@@ -3102,7 +3104,10 @@ exports.run = async function(port) {
     var allowed = await fetch("http://127.0.0.1:" + port + "/ok");
     out.push("fetch-127:" + await allowed.text());
   } catch (e) {
-    out.push("fetch-127:DENIED");
+    // Carry the error detail: a transient under-load failure (ECONNRESET,
+    // ENOBUFS, ...) must be distinguishable from a capsec denial in the
+    // assertion output when this branch is unexpectedly taken.
+    out.push("fetch-127:DENIED(" + String(e && e.message || e) + ")");
   }
   try {
     await fetch("http://localhost:" + port + "/deny");
@@ -3191,7 +3196,10 @@ exports.run = function run(label) {
     console.log(label + ":native:DENIED:" + String(e && e.message || e));
   }
   dns.lookup("localhost", { family: 4 }, function(err, address) {
-    console.log(label + ":api:" + (err ? "DENIED" : ("OK:" + !!address)));
+    // Suffix the code so a transient resolver failure under parallel load is
+    // distinguishable from a capsec denial (assertions match the "DENIED"
+    // prefix either way).
+    console.log(label + ":api:" + (err ? "DENIED:" + String(err.code || err) : ("OK:" + !!address)));
   });
 };
 "#,
