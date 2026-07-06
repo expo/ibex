@@ -13,7 +13,12 @@ const NATIVE_ARRAY_BUFFER_TRANSFER:
   | ((this: ArrayBuffer, newByteLength?: number) => ArrayBuffer)
   | undefined =
   typeof (ArrayBuffer.prototype as { transfer?: unknown }).transfer === "function"
-    ? ((ArrayBuffer.prototype as { transfer: (this: ArrayBuffer, n?: number) => ArrayBuffer }).transfer)
+    ? // Exact's newer ES lib declares a native `ArrayBuffer.prototype.transfer`
+      // with a different signature, so a direct `as {...}` cast no longer
+      // "sufficiently overlaps" (TS2352 under exact's DOM/ES lib). Route the
+      // cast through `unknown` per TS's own hint. Compile-time only — runtime
+      // behavior is unchanged. (ENG-23019)
+      ((ArrayBuffer.prototype as unknown as { transfer: (this: ArrayBuffer, n?: number) => ArrayBuffer }).transfer)
     : undefined;
 
 function getDetachedArrayBuffers(): WeakSet<ArrayBuffer> | null {

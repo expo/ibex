@@ -10,7 +10,7 @@
  */
 
 import { EventTarget } from './events/EventTarget';
-import { MessageEvent } from './events/MessageEvent';
+import { MessageEvent, type MessageEventInit } from './events/MessageEvent';
 import { structuredClone } from './clone/structuredClone';
 import { structuredCloneTransferSymbol } from './clone/transferableSymbols';
 
@@ -209,7 +209,17 @@ export class MessagePort extends EventTarget {
   // -- Private helpers ------------------------------------------------------
 
   #dispatchMessage(data: unknown, ports: MessagePort[] = []): void {
-    const event = new MessageEvent('message', { data, ports });
+    const event = new MessageEvent('message', {
+      data,
+      // ibex's own `MessagePort` (the class declared in this file) is nominally
+      // distinct from the `MessagePort` that `MessageEventInit.ports` resolves
+      // to: MessageEvent.ts imports no MessagePort, so under exact's DOM lib
+      // that annotation binds to the DOM-global `MessagePort` (TS2322). The two
+      // are structurally interchangeable here; cast `ports` through `unknown`
+      // to the type the constructor expects. Compile-time only — runtime
+      // behavior is unchanged. (ENG-23019)
+      ports: ports as unknown as MessageEventInit['ports'],
+    });
 
     // Call the IDL onmessage handler first
     if (this.#onmessage) {
