@@ -1318,7 +1318,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactRevokeHandle", std::move(revokeHandleFn));
 
-  // @ref LLP 0013 §dynamic permissions — runtime root-grant mutation. request()
+  // @ref LLP 0013 — §dynamic permissions — runtime root-grant mutation. request()
   // grants the ROOT principal a capability if it is within the policy ceiling
   // (the static artifact is the ceiling; a prompt moves the floor). Granting
   // root does not escalate the calling package (checks key on the frame's own
@@ -1868,7 +1868,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     if (!id) throw new Error('Cannot mint handle for ' + dir);
     return new FsHandle(id);
   };
-  // @ref LLP 0013 §dynamic permissions — the runtime permission surface. status
+  // @ref LLP 0013 — §dynamic permissions — the runtime permission surface. status
   // is tri-state ('granted' | 'prompt' | 'denied'); request/revoke move the root
   // grant floor within the static ceiling.
   Ibex.permissions = Ibex.permissions || {};
@@ -1876,7 +1876,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var s = g.__exactPermissionStatus(String(cap));
     return s === 1 ? 'granted' : (s === 2 ? 'prompt' : 'denied');
   };
-  // @ref LLP 0013 §dynamic permissions — the grant-change signal handles and the
+  // @ref LLP 0013 — §dynamic permissions — the grant-change signal handles and the
   // embedder subscribe to, so live resources (watches, sessions) tear down
   // fail-closed when a grant is revoked and re-arm when re-granted. onChange
   // returns an unsubscribe function. This plus request/revoke/acquire, the
@@ -1909,7 +1909,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     g.__exactPermissionRevoke(cap);
     __notifyPerm(cap);
   };
-  // @ref LLP 0013 §dynamic permissions — acquisition is async and lives in the
+  // @ref LLP 0013 — §dynamic permissions — acquisition is async and lives in the
   // attenuator, while the host-boundary check stays synchronous. `acquire`
   // returns a Promise that suspends on the broker decision and resolves the
   // (now-current) grant state; a real embedder awaits an OS prompt here, and
@@ -1951,7 +1951,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // globals so no code that runs after bootstrap can reach them. Runs in all
   // modes (acceptance criterion: escape-hatch globals unreachable in all modes).
   {
-    // @ref LLP 0013 §self-grant — under enforce (IBEX_SEAL_SELF_GRANT) the
+    // @ref LLP 0013 — §self-grant — under enforce (IBEX_SEAL_SELF_GRANT) the
     // runtime self-grant surface is removed entirely: package code must not
     // reach `Exact.setModuleCapabilities`, since grants come from the policy
     // artifact, not runtime self-declaration. Audit leaves the surface reachable
@@ -2065,7 +2065,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // `--lockdown` CLI flag) because freezing intrinsics can break packages that
   // mutate them — the top risk in the RFC. Composes with any --capsec mode.
   if (env_flag_enabled("IBEX_LOCKDOWN")) {
-    // @ref LLP 0013#mechanism-1 (Phase 3) — opt into the native transitive
+    // @ref LLP 0013#mechanism-1 — (Phase 3) — opt into the native transitive
     // freeze (__exactDeepFreeze) for the intrinsics graph instead of the JS
     // walk. Same result; native is faster at boot.
     if (env_flag_enabled("IBEX_NATIVE_LOCKDOWN")) {
@@ -2160,7 +2160,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     if (typeof g[typedArrays[k]] === 'function') roots.push(g[typedArrays[k]]);
   }
   try { roots.push(getProto(getProto([][Symbol.iterator]()))); } catch (e) {} // %IteratorPrototype%
-  // @ref LLP 0013#mechanism-1 (Phase 3) — freeze the intrinsics graph. With
+  // @ref LLP 0013#mechanism-1 — (Phase 3) — freeze the intrinsics graph. With
   // IBEX_NATIVE_LOCKDOWN the transitive freeze runs in native code
   // (__exactDeepFreeze) instead of this JS walk; both freeze the same graph.
   var __nativeFreeze = g.__ibexNativeLockdown && typeof g.__exactDeepFreeze === 'function'
@@ -2196,7 +2196,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
 
-  // @ref LLP 0013#mechanism-1, ENG-23112 — remove the native freeze primitives
+  // @ref LLP 0013#mechanism-1 — ENG-23112 — remove the native freeze primitives
   // from the global in ALL modes. `__exactDeepFreeze`/`__exactNativeFreeze` are
   // installed unconditionally by Hermes patch 0006 and are the only escape-hatch
   // natives the end-of-bootstrap capability seal above intentionally KEPT,
@@ -2461,7 +2461,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   // deputy wrappers they install) with the runtime principal, so frame
   // attribution sees through those deputies to the real caller. Reset to the
   // root principal after installGlobals so eval/Function-minted Domains and user
-  // code are attributed to root, not the runtime. @ref LLP 0013 Open-Q3
+  // code are attributed to root, not the runtime. @ref LLP 0013 — Open-Q3
   if (g_vm_runtime != nullptr) {
     ex_hermes_vm_set_default_package_id(g_vm_runtime, kRuntimePrincipalId);
   }
@@ -2517,10 +2517,10 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   // Bootstrap and all built-in polyfills are installed; from here on, code
   // compiled with no explicit principal (eval/Function, or any stray script the
   // embedder evaluates) is attributed to the root principal rather than the
-  // runtime. Package code is stamped explicitly by the loader. @ref LLP 0013 Open-Q3
+  // runtime. Package code is stamped explicitly by the loader. @ref LLP 0013 — Open-Q3
   if (g_vm_runtime != nullptr) {
     ex_hermes_vm_set_default_package_id(g_vm_runtime, 0);
-    // @ref LLP 0013#phase-5 (Open-Q3) — arm schedule-time principal capture when
+    // @ref LLP 0013#phase-5 — (Open-Q3) — arm schedule-time principal capture when
     // the patched engine is present. Deputy classes can be configured after
     // create_engine, and the host consumes the captured scheduler only on the
     // live deputy-stack path or when a native-resolved continuation would
@@ -3248,7 +3248,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       }
     };
     try {
-      // @ref LLP 0013#phase-5, ENG-23112 — scope the native-principal override to
+      // @ref LLP 0013#phase-5 — ENG-23112 — scope the native-principal override to
       // JUST the timer callback invocation. Extending it over runNextTickQueue /
       // drainMicrotasks would pin g_native_callback_principal_id to the timer
       // owner while a *detached* deputy microtask drains — e.g. an ungranted

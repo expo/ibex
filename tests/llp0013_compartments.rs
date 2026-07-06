@@ -85,6 +85,28 @@ fn which(bin: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Shared gate for the frame-attribution suites: on an unpatched Hermes
+/// (no `exact_frame_attribution` cfg) they cannot observe anything, so they
+/// skip — but libtest counts an early `return` as PASS, so a runner that
+/// *expects* the patched engine (compartment-conformance CI, a dev machine
+/// that just built the patched framework) would be certified green while 18
+/// tests verified nothing. Setting `IBEX_REQUIRE_FRAME_ATTRIBUTION=1` turns
+/// the silent skip into a loud failure. @ref LLP 0018#the-governing-rule
+fn frame_attribution_unavailable() -> bool {
+    if cfg!(exact_frame_attribution) {
+        return false;
+    }
+    if std::env::var("IBEX_REQUIRE_FRAME_ATTRIBUTION").is_ok_and(|v| !v.is_empty() && v != "0") {
+        panic!(
+            "IBEX_REQUIRE_FRAME_ATTRIBUTION is set, but this binary was built without the \
+             patched Hermes frame-attribution engine (cfg exact_frame_attribution). Build the \
+             patched framework (scripts/download-hermes.sh) and rebuild, or unset the variable \
+             to allow the frame-attribution tests to self-skip."
+        );
+    }
+    true
+}
+
 // ---------------------------------------------------------------------------
 // Red-team suite (Mechanism 1: lockdown)
 // ---------------------------------------------------------------------------
@@ -668,7 +690,7 @@ fn committed_grants_artifact_is_in_sync() {
     );
 }
 
-// @ref LLP 0014#generator (ENG-22818) — the generated cascade operates on
+// @ref LLP 0014#generator — (ENG-22818) — the generated cascade operates on
 // version-qualified identities, so a delegate declared by one installed version
 // cannot flow along a coexisting version's import edge. Fixture: top-level
 // shared-pkg@2.0.0 imports helper-pkg but declares no delegates; nested
@@ -1808,7 +1830,7 @@ fn gc_of_delegation_parent_does_not_over_revoke_live_child() {
 
 #[test]
 fn exact_fs_grant_cannot_mint_subtree_handle() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         // Without the patched engine every ambient mint is denied outright
         // (misattributed principal), so the exact-vs-subtree distinction this
         // test guards is unobservable — same gate as the per-package test.
@@ -1922,7 +1944,7 @@ try {
 
 #[test]
 fn per_package_chunks_give_bundled_apps_frame_attribution() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: frame attribution needs the patched Hermes engine");
         return;
     }
@@ -2010,7 +2032,7 @@ fn per_package_chunks_give_bundled_apps_frame_attribution() {
 
 #[test]
 fn policy_declared_enforce_auto_enables_bundled_attribution() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: frame attribution needs the patched Hermes engine");
         return;
     }
@@ -2149,7 +2171,7 @@ fn advisory_attribution_flag_makes_downgrade_explicit() {
 
 #[test]
 fn coexisting_versions_get_distinct_policy_treatment() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: version-distinguished attribution needs the patched Hermes engine");
         return;
     }
@@ -2341,7 +2363,7 @@ fn dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling() {
 
 #[test]
 fn native_compartment_withholds_globals_without_rewrite() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: native compartments need the patched Hermes engine");
         return;
     }
@@ -2371,7 +2393,7 @@ fn native_compartment_withholds_globals_without_rewrite() {
 
 #[test]
 fn eval_and_function_inherit_the_caller_compartment() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: eval/Function binding needs the patched Hermes engine");
         return;
     }
@@ -2398,7 +2420,7 @@ fn eval_and_function_inherit_the_caller_compartment() {
 
 #[test]
 fn native_lockdown_freezes_intrinsics_and_contains_redteam() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: native lockdown needs the patched Hermes engine");
         return;
     }
@@ -2438,11 +2460,11 @@ fn native_lockdown_freezes_intrinsics_and_contains_redteam() {
 
 #[test]
 fn native_deep_freeze_freezes_a_graph_without_invoking_getters() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: native deep-freeze needs the patched Hermes engine");
         return;
     }
-    // @ref LLP 0013#mechanism-1 (ENG-23112 finding L) — `__exactDeepFreeze` is an
+    // @ref LLP 0013#mechanism-1 — (ENG-23112 finding L) — `__exactDeepFreeze` is an
     // INTERNAL primitive the bootstrap lockdown pass consumes; it must NOT stay
     // reachable from package code after bootstrap. Left reachable in the default
     // (non-lockdown) enforce/audit mode — where the compartment membrane that
@@ -2509,11 +2531,11 @@ fn permission_onchange_signals_grants_and_revocations() {
 
 #[test]
 fn native_freeze_primitive_freezes_objects() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: native freeze needs the patched Hermes engine");
         return;
     }
-    // @ref LLP 0013#mechanism-1 (ENG-23112 finding L) — like `__exactDeepFreeze`,
+    // @ref LLP 0013#mechanism-1 — (ENG-23112 finding L) like `__exactDeepFreeze`,
     // the shallow `__exactNativeFreeze` primitive must not remain reachable from
     // package code after bootstrap. The end-of-bootstrap freeze seal deletes it in
     // ALL modes; assert user script observes it as undefined.
@@ -2560,7 +2582,7 @@ fn native_compartment_control_no_containment_without_compartments() {
 
 #[test]
 fn enforce_closes_runtime_capability_escapes() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: the self-grant/detached-require reads need frame attribution");
         return;
     }
@@ -2980,7 +3002,7 @@ exports.run = async function() {
     );
 }
 
-// @ref LLP 0013#policy (ENG-22819) — a UDP socket handle created by a package is
+// @ref LLP 0013#policy — (ENG-22819) — a UDP socket handle created by a package is
 // authority-bearing:
 // receiving datagrams, reading the (implicitly-bound) local address, and exporting
 // the raw fd are all listening-side authority. A package holding only
@@ -3533,7 +3555,7 @@ fn capsec_aliases_parse() {
 /// frame accuracy.
 #[test]
 fn frame_attribution_denies_deferred_dependency_but_allows_app() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: engine built without frame attribution (unpatched Hermes framework)");
         return;
     }
@@ -3588,7 +3610,7 @@ fn frame_attribution_denies_deferred_dependency_but_allows_app() {
 // sentinel. @ref LLP 0013#mechanism-3
 #[test]
 fn detached_deputy_read_is_contained_but_app_wrapped_read_works() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: engine built without frame attribution (unpatched Hermes framework)");
         return;
     }
@@ -3663,7 +3685,7 @@ fn frame_attribution_control_permissive_leaks() {
 
 #[test]
 fn stack_intersection_denies_deputy_driven_by_ungranted_caller() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: stack intersection needs frame attribution");
         return;
     }
@@ -3705,7 +3727,7 @@ fn stack_intersection_denies_deputy_driven_by_ungranted_caller() {
 
 #[test]
 fn stack_intersection_is_off_by_default() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: stack intersection needs frame attribution");
         return;
     }
@@ -3751,7 +3773,7 @@ fn stack_intersection_is_off_by_default() {
 // stack and stays allowed. Needs frame attribution + schedule-time capture.
 #[test]
 fn async_detached_deputy_read_is_contained_but_granted_self_async_works() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: async deputy attribution needs frame attribution");
         return;
     }
@@ -3819,7 +3841,7 @@ fn async_detached_deputy_read_is_contained_but_granted_self_async_works() {
 /// broken fs path, a rejected promise, or a dead code path.
 #[test]
 fn async_detached_deputy_control_permissive_leaks() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: async deputy attribution needs frame attribution");
         return;
     }
@@ -3868,7 +3890,7 @@ fn async_detached_deputy_control_permissive_leaks() {
 // attribution.
 #[test]
 fn host_scheduled_detached_deputy_read_is_contained_across_timer_channels() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: host-queue deputy attribution needs frame attribution");
         return;
     }
@@ -3943,7 +3965,7 @@ fn host_scheduled_detached_deputy_read_is_contained_across_timer_channels() {
 /// path, or a read that never actually happens.
 #[test]
 fn host_scheduled_detached_deputy_control_permissive_leaks() {
-    if !cfg!(exact_frame_attribution) {
+    if frame_attribution_unavailable() {
         eprintln!("skipping: host-queue deputy attribution needs frame attribution");
         return;
     }

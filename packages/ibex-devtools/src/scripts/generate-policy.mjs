@@ -84,7 +84,7 @@ const observedBuiltins = new Map(); // package identity -> Set<node:builtin>
 // the importer's node_modules chain, exactly as the bundler's resolver does.
 // Edges must carry `fromIdentity -> toIdentity` (not bare names) so a delegate
 // declared by one installed version can never flow along another installed
-// version's import edge. @ref LLP 0014#generator (ENG-22818)
+// version's import edge. @ref LLP 0014#generator — (ENG-22818)
 const __targetIdentityMemo = new Map();
 function resolveTargetIdentity(fromModuleId, bareTarget) {
   // A root-principal importer (no node_modules ancestor) resolves from the app

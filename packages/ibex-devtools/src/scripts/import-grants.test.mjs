@@ -96,7 +96,7 @@ test('builtinSpecifierOf classifies builtins and normalizes the node: prefix', (
   expect(builtinSpecifierOf('/abs/path')).toBeNull();
 });
 
-// @ref LLP 0014#the-generated-artifact (ENG-22683/ENG-22772) — the generator's
+// @ref LLP 0014#the-generated-artifact — (ENG-22683/ENG-22772) — the generator's
 // builtin classifier and the runtime gate share the generated manifest roots. If
 // this lags, a package's real `require("<root>")` (e.g. `sqlite`) is emitted as a
 // package edge, omitted from the builtins allowlist, and DENIED under enforce.
@@ -346,7 +346,7 @@ test('bareNameOf strips the version, preserving scoped names and bare names', ()
   expect(bareNameOf('@scope/name')).toBe('@scope/name');
 });
 
-// @ref LLP 0013 (ENG-22818) — with an identity-keyed cascade a delegate declared
+// @ref LLP 0013 — (ENG-22818) — with an identity-keyed cascade a delegate declared
 // by one installed version must not flow along a DIFFERENT version's import edge.
 // Mirrors tests/fixtures/llp0013/versioned-delegation.
 test('cascade: a delegate is not honored along a coexisting version edge', () => {

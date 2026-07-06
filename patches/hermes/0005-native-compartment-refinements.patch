@@ -1,6 +1,6 @@
 # LLP 0013 Hermes patch 0005 — native-compartment refinements
 # Class: B (a POD flag + accessors on Runtime; a new native function) + C (the
-#         GetGlobalObject fast-path guard). @ref LLP 0013#mechanism-2 (Phase 3)
+#         GetGlobalObject fast-path guard). @ref LLP 0013#mechanism-2 — (Phase 3)
 #
 # Refinements on the native compartments landed in patch 0004:
 #
@@ -56,7 +56,7 @@ index f506f6cb9..aeb865ed6 100644
    bool pendingPackageIdSet_{false};
    uint32_t defaultPackageId_{0};
  
-+  /// @ref LLP 0013#mechanism-2 (Phase 3) — coarse hot-path guard. Stays false
++  /// @ref LLP 0013#mechanism-2 — (Phase 3) — coarse hot-path guard. Stays false
 +  /// until the first Domain is given a compartment global; while false, global
 +  /// resolution skips the Domain walk entirely. Set once, never cleared — after
 +  /// arming, Domain::hasCompartmentGlobal() is the per-frame second-tier skip.
@@ -146,7 +146,7 @@ index 665ecc0a6..b78ddb6ca 100644
    return HermesValue::encodeUndefinedValue();
  }
  
-+/// @ref LLP 0013#mechanism-1 (Phase 3) — native shallow freeze primitive.
++/// @ref LLP 0013#mechanism-1 — (Phase 3) — native shallow freeze primitive.
 +/// __exactNativeFreeze(obj): freeze one object natively (JSObject::freeze). The
 +/// userland lockdown walk can call this per intrinsic to freeze faster than a
 +/// JS Object.freeze; a full boot-time native snapshot is the further step.
@@ -168,7 +168,7 @@ index 665ecc0a6..b78ddb6ca 100644
            runtime, createASCIIRef("__exactSetCompartmentFor")),
        exactSetCompartmentFor,
        2);
-+  // @ref LLP 0013#mechanism-1 (Phase 3) — the native freeze primitive.
++  // @ref LLP 0013#mechanism-1 — (Phase 3) — the native freeze primitive.
 +  defineGlobalFunc(
 +      runtime.getIdentifierTable().registerLazyIdentifier(
 +          runtime, createASCIIRef("__exactNativeFreeze")),

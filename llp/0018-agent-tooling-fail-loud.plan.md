@@ -442,6 +442,49 @@ playbook; verified end to end in this checkout.
 - **Item 8 — done (as a doc gate).** The fail-loud checklist for new agent-facing
   scripts is in `scripts/README.md`.
 
+### Round-3 closures (2026-07-06, ENG-23131)
+
+A review through this plan's lens found and closed a second layer of
+silent-green paths in the tooling itself:
+
+- `bun run generate:modules` now passes `--rust-out-dir vendored-generated`,
+  so the local drift gate / `regenerate:vendored` actually cover
+  `vendored-generated/builtin_manifest.generated.rs` (previously only CI's
+  divergent inline command did); CI now calls `bun run check:drift` — one gate,
+  no inline copy to drift.
+- `scripts/build-hermes.sh` folds a `patches/hermes/*.patch` content digest
+  into its cache key, so a patch-stack edit can no longer install a
+  stale-patched framework via a cache hit keyed only on the upstream SHA.
+- The 18 frame-attribution tests in `tests/llp0013_compartments.rs` share a
+  guard that panics under `IBEX_REQUIRE_FRAME_ATTRIBUTION=1` (set by
+  compartment-conformance CI) instead of self-skipping as PASS on an
+  unpatched Hermes.
+- `scripts/run-tests.sh` accepts `--features` (the RSA-PSS suite is reachable
+  through the blessed entry point) and names per-target zero-test binaries so
+  a partial vacuum inside a green run is visible.
+- `build.rs`: all warning-worthy `cargo:warning=` directives moved to stdout
+  (cargo never parsed the stderr ones — degraded builds looked healthy);
+  success notices dropped the misleading prefix. The primary-checkout builtin
+  and runtime-bundle fallbacks now run only when the local JS deps are absent;
+  a present-but-failing local pipeline panics (or requires
+  `EXACT_ALLOW_FALLBACK`) instead of silently substituting the primary's
+  possibly-older transforms. Both rolldown invocations pass `--lower-classes`
+  to match `package.json`.
+- `ref-check` validates `@ref LLP N#anchor` targets whose gloss lacks a
+  delimiter instead of demoting them to unchecked shorthands (105 refs were
+  silently un-gated), and flags the undelimited form as a format error.
+- The hermes-compat corpus runners honor `IBEX_REQUIRE_HERMES_CONFORMANCE=1`
+  (fail when the run was V8-oracle-only); the cargo conformance gate sets it
+  whenever `tools/hermes/hermes` exists.
+- `hermes-patch-canary` no longer falls back to cloning the upstream default
+  branch when the requested ref fails to clone (that failure *is* the drift
+  signal), and asserts the checked-out ref.
+- `scripts/sync-agent-skills.sh` / `install-agent-skills.sh` exit nonzero when
+  zero skills were linked/installed, verify each created link resolves
+  (path-normalization could mint broken links that still counted), and the
+  zero-link failure fires before the stale-link cleanup so a broken sync
+  cannot delete existing links.
+
 ## Open questions
 
 - Should items 1–4 be tracked under the existing ENG-22986 (0017's reliability

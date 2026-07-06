@@ -93,6 +93,20 @@ install_root() {
   log "Installed agent skill links for $label: $root"
 }
 
+# Fail loud before fanning out: installing zero skills into every agent's
+# skill directory is a no-op that used to exit 0 (scripts/README.md fail-loud
+# rule, ENG-23131). sync-agent-skills.sh guards its own link step; this guards
+# an out-of-band emptied/restructured skills/ tree.
+skill_count=0
+for skill_md in "$skills_root"/*/SKILL.md; do
+  [ -e "$skill_md" ] || continue
+  skill_count=$((skill_count + 1))
+done
+if [ "$skill_count" -eq 0 ]; then
+  printf 'error: no skills with a SKILL.md found under %s; nothing to install\n' "$skills_root" >&2
+  exit 1
+fi
+
 claude_skills_dir="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 cursor_skills_dir="${CURSOR_SKILLS_DIR:-$HOME/.cursor/skills}"

@@ -76,8 +76,14 @@ jobs:
             && echo "frame attribution: linked" \
             || (echo "::error::patched Hermes not linked (frame attribution absent)"; exit 1)
 
+      # IBEX_REQUIRE_FRAME_ATTRIBUTION: this job exists to test the *patched*
+      # engine, so the 18 frame-attribution tests must fail loud here instead
+      # of self-skipping to PASS if the patched framework ever fails to link
+      # (LLP 0018). The nm check above guards the binary; this guards the suite.
       - name: Compartment conformance / red-team suite
         run: cargo test --test llp0013_compartments -- --nocapture
+        env:
+          IBEX_REQUIRE_FRAME_ATTRIBUTION: "1"
 
       - name: Host + handle unit tests
         run: cargo test --lib

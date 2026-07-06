@@ -242,7 +242,7 @@ fn write_stderr_line(msg: &str) {
     let _ = write_stdio_line(&mut stderr, msg);
 }
 
-// @ref LLP 0006#degrade-diagnostics-never-the-caller: console output is mirrored to stdio from the JS
+// @ref LLP 0006#degrade-diagnostics-never-the-caller — console output is mirrored to stdio from the JS
 // thread, which is the app host's main thread. stdout there is a PTY or pipe
 // drained by a console UI (Xcode) or a script wrapper; when the consumer
 // stalls, a direct write blocks the main thread ("Application Not
@@ -992,7 +992,7 @@ pub extern "C" fn ex_host_handle_revoke(id: u64) {
     with_host(|host| host.handles().revoke(id), ());
 }
 
-// --- Dynamic root-principal permissions. @ref LLP 0013 §dynamic permissions
+// --- Dynamic root-principal permissions. @ref LLP 0013 — §dynamic permissions
 
 /// Runtime-grant `capability` to the root principal, bounded by the policy
 /// ceiling. Returns 1 if applied, 0 if outside the ceiling (denied).
@@ -1046,7 +1046,7 @@ pub extern "C" fn ex_host_grant_capability(module_id: u64, capability: *const c_
         .to_string();
 
     let module = module_id.to_string();
-    // @ref LLP 0013 §self-grant — this ABI is the JS-reachable package self-grant
+    // @ref LLP 0013 — §self-grant — this ABI is the JS-reachable package self-grant
     // (Exact.setModuleCapabilities / require({needs})); route it through
     // runtime_self_grant so it is refused under enforce and audited without
     // changing behavior under audit. Policy-driven grants use grant() directly

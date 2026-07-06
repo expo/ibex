@@ -133,8 +133,8 @@ impl ModuleLoader {
     /// metadata/path is authoritative for the package name; the version is
     /// self-reported and only distinguishes coexisting installed copies.
     /// Version-pinned selectors are therefore convenience/precision, not a trust
-    /// boundary against a malicious package forging its package.json. @ref LLP
-    /// 0013#resolved-questions (ENG-22621/ENG-22768)
+    /// boundary against a malicious package forging its package.json.
+    /// @ref LLP 0013#resolved-questions — ENG-22621/ENG-22768
     fn package_version_for(&self, path: &Path) -> Option<String> {
         // Read the version from the package's OWN root (`node_modules/<name>`,
         // the same segment the loader derives the package NAME from), NOT the
@@ -1017,7 +1017,7 @@ fn transpile_tooling_hash() -> Result<u64> {
 }
 
 fn compute_transpile_tooling_hash() -> Result<u64> {
-    // @ref LLP 0007#proposal - the in-process engine is part of the cache key
+    // @ref LLP 0007#proposal — the in-process engine is part of the cache key
     // so the SWC fallback and Oxc candidate never share output.
     // Only the explicit subprocess override hashes a repo script.
     if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
@@ -2202,7 +2202,7 @@ for (let i = 0; i < 3; i++) {
         assert_eq!(internal.package_version.as_deref(), Some("1.2.3"));
     }
 
-    // @ref LLP 0013#resolved-questions (ENG-22621) — the package root for
+    // @ref LLP 0013#resolved-questions — (ENG-22621) — the package root for
     // version derivation is node_modules/<name>, so a nested versionless
     // package.json (e.g. dist/) doesn't degrade identity to the bare name.
     #[test]

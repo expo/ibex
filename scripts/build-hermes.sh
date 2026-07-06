@@ -118,6 +118,11 @@ resolve_version() {
     if [[ "$version" == "static_h" || "$version" == "main" ]]; then
         ref="static_h"
     fi
+    # A full commit SHA is already an exact key; skip the remote lookup.
+    if [[ "$version" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "${version:0:12}"
+        return
+    fi
     local remote_sha
     remote_sha="$(git ls-remote https://github.com/facebook/hermes.git \
         "refs/heads/$ref" "refs/tags/$ref" "refs/tags/v$ref" 2>/dev/null \
@@ -129,12 +134,30 @@ resolve_version() {
     fi
 }
 
+# The carried patch stack is part of the build identity: the framework the
+# cache-hit path installs was built from upstream@SHA *plus* patches/hermes/*.
+# Keying only on the upstream SHA let an edited/added patch silently install a
+# stale-patched framework ("already built"), greenlighting old enforcement
+# semantics in the llp0013 suites. Digest content + filenames so an edit,
+# add, remove, or reorder all miss the cache. (ENG-23131; mirrors the
+# hashFiles('patches/hermes/**') key compartment-conformance.yml already uses.)
+# @ref LLP 0013#upstream-tracking-and-re-derivation — the pin + patch stack is the fork
+patch_stack_digest() {
+    (
+        cd "$PROJECT_ROOT"
+        # shellcheck disable=SC2012 -- glob list feeds shasum; names matter.
+        ls patches/hermes/*.patch 2>/dev/null | LC_ALL=C sort \
+            | xargs shasum -a 256 2>/dev/null
+    ) | shasum -a 256 | awk '{ print substr($1, 1, 12) }'
+}
+
 VERSION_KEY=$(resolve_version "$HERMES_VERSION")
-VERSION_CACHE="$CACHE_DIR/${VERSION_KEY}${DEBUG_SUFFIX}"
+PATCH_DIGEST=$(patch_stack_digest)
+VERSION_CACHE="$CACHE_DIR/${VERSION_KEY}${DEBUG_SUFFIX}-p${PATCH_DIGEST}"
 
 echo "=== Hermes Build Script ==="
 echo "Version: $HERMES_VERSION"
-echo "Cache key: $VERSION_KEY"
+echo "Cache key: $VERSION_KEY (patch stack: $PATCH_DIGEST)"
 echo "Debugger suffix: $DEBUG_SUFFIX"
 echo "Cache dir: $VERSION_CACHE"
 echo "iOS Deployment Target: $IOS_DEPLOYMENT_TARGET"

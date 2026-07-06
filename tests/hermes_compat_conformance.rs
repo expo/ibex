@@ -66,12 +66,24 @@ fn run_conformance_script(script: &str, args: &[&str], summary_marker: &str) {
         "conformance runner missing: {}",
         script_path.display()
     );
-    let out = Command::new(js_runner())
-        .arg(&script_path)
+    let mut cmd = Command::new(js_runner());
+    cmd.arg(&script_path)
         .args(args)
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("failed to spawn JS runner");
+        .current_dir(env!("CARGO_MANIFEST_DIR"));
+    // Where tools/hermes exists (dev machines / CI legs that built it), the
+    // runners must actually exercise Hermes: a resolution regression that
+    // silently downgraded the corpus to V8-oracle-only used to keep this gate
+    // green while the transform-output-on-Hermes property went unchecked
+    // (ENG-23131). The runner fails loud when the flag is set but Hermes is
+    // unusable. Caller env wins if already set.
+    let hermes_cli = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tools")
+        .join("hermes")
+        .join("hermes");
+    if hermes_cli.exists() && std::env::var_os("IBEX_REQUIRE_HERMES_CONFORMANCE").is_none() {
+        cmd.env("IBEX_REQUIRE_HERMES_CONFORMANCE", "1");
+    }
+    let out = cmd.output().expect("failed to spawn JS runner");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(

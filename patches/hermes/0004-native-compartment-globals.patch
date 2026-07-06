@@ -1,7 +1,7 @@
 # LLP 0013 Hermes patch 0004 — native per-package compartment globals
 # Class: B (a GCPointer field + metadata line on Domain, a native global
 #         function) + C (the 4 interpreter global-resolution sites + two
-#         #includes). @ref LLP 0013#mechanism-2 (Phase 3)
+#         #includes). @ref LLP 0013#mechanism-2 — (Phase 3)
 #
 # Makes compartment globals native, retiring the need for the build-time
 # free-global rewrite: the interpreter resolves bare-global references and
@@ -37,7 +37,7 @@ index 9a37c7c5c..7d4b8fede 100644
    /// cannot forge.
    uint32_t packageId_{0};
  
-+  /// @ref LLP 0013#mechanism-2 (Phase 3) — the per-package compartment global
++  /// @ref LLP 0013#mechanism-2 — (Phase 3) — the per-package compartment global
 +  /// object. When set, bare-global references and sloppy-mode `this` in code
 +  /// owned by this Domain resolve to this object (a per-package global that
 +  /// withholds powerful globals) instead of the shared real global — native
@@ -92,7 +92,7 @@ index e1b819ac9..24aecafee 100644
    mb.setVTable(&Domain::vt);
    mb.addField("cjsModules", &self->cjsModules_);
    mb.addField("throwingRequire", &self->throwingRequire_);
-+  // @ref LLP 0013#mechanism-2 (Phase 3) — the per-package compartment global.
++  // @ref LLP 0013#mechanism-2 — (Phase 3) — the per-package compartment global.
 +  mb.addField("compartmentGlobal", &self->compartmentGlobal_);
  }
  
@@ -113,7 +113,7 @@ index 63126c23f..7f8769c6c 100644
  namespace hermes {
  namespace vm {
  
-+/// @ref LLP 0013#mechanism-2 (Phase 3) — resolve the global object for the
++/// @ref LLP 0013#mechanism-2 — (Phase 3) — resolve the global object for the
 +/// currently-executing frame. If the frame's Domain carries a compartment
 +/// global (a per-package global that withholds powerful globals), bare-global
 +/// references and sloppy-mode `this` resolve to it; otherwise, and in the common
@@ -175,7 +175,7 @@ index fa585f1..a5d6992 100644
    // Do not overwrite existing globals with undefined.
    dpf.setValue = 0;
  
-+  // @ref LLP 0013#mechanism-2 (Phase 3) — declare the global var on the executing
++  // @ref LLP 0013#mechanism-2 — (Phase 3) — declare the global var on the executing
 +  // frame's compartment global when its Domain has one, mirroring the interpreter's
 +  // GetGlobalObject/CoerceThisNS/LoadThisNS resolution (globalForFrame). Otherwise a
 +  // top-level `var` in code bound to a compartment (e.g. an indirect eval inside a
@@ -222,14 +222,14 @@ index ce55c5401..665ecc0a6 100644
  
  #include "JSLibInternal.h"
  
-+// @ref LLP 0013#mechanism-2 (Phase 3) — native compartment global binding.
++// @ref LLP 0013#mechanism-2 — (Phase 3) — native compartment global binding.
 +#include "hermes/VM/Domain.h"
 +#include "hermes/VM/RuntimeModule-inline.h"
 +
  namespace hermes {
  namespace vm {
  
-+/// @ref LLP 0013#mechanism-2 (Phase 3) — bind a compartment global to a
++/// @ref LLP 0013#mechanism-2 — (Phase 3) — bind a compartment global to a
 +/// compiled function's Domain. __exactSetCompartmentFor(fn, obj): after the
 +/// loader compiles a package's module body (`new Function(...)`), it calls this
 +/// to set that Domain's compartment global, so bare-global references in the
@@ -258,7 +258,7 @@ index ce55c5401..665ecc0a6 100644
    // Define the 'print' function.
    defineGlobalFunc(Predefined::getSymbolID(Predefined::print), print, 1);
  
-+  // @ref LLP 0013#mechanism-2 (Phase 3) — the native compartment binder.
++  // @ref LLP 0013#mechanism-2 — (Phase 3) — the native compartment binder.
 +  defineGlobalFunc(
 +      runtime.getIdentifierTable().registerLazyIdentifier(
 +          runtime, createASCIIRef("__exactSetCompartmentFor")),

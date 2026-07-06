@@ -960,7 +960,7 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     if cli.allow_all {
         flags.push("--allow-all".into());
     }
-    // @ref LLP 0013#mechanism-2 (ENG-22684) — the env-endowment escape hatch must
+    // @ref LLP 0013#mechanism-2 — (ENG-22684) — the env-endowment escape hatch must
     // reach the watch child, else an enforce-mode restart would drop IBEX_ENDOW
     // the parent honored, silently changing behavior across a reload.
     if cli.allow_env_endowments {
@@ -1325,7 +1325,7 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     // (each dependency in its own Domain/principal) instead of a flat,
     // single-principal bundle that attributes every dependency to trusted root.
     // Sets IBEX_PER_PACKAGE_CHUNKS before bundling so the bundler chunks and the
-    // cache key agrees. @ref LLP 0013#mechanism-3 (ENG-22760)
+    // cache key agrees. @ref LLP 0013#mechanism-3 — (ENG-22760)
     runtime::apply_build_isolation(cli)?;
 
     let output_path = runtime::compute_build_output(file, outdir)?;
@@ -1346,7 +1346,7 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     // not next to the built `.hbc`. The run path resolves them against the
     // artifact's own directory (`__exactChunkDir`), so ship them alongside the
     // `.hbc` — otherwise the built artifact silently loses per-package
-    // attribution (a flat single-Domain run). @ref LLP 0013#mechanism-3 (ENG-22760)
+    // attribution (a flat single-Domain run). @ref LLP 0013#mechanism-3 — (ENG-22760)
     if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
         if let Some(dest_dir) = output_path.parent() {
             let copied = runtime::ship_chunk_siblings(&bundled, dest_dir)?;

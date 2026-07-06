@@ -88,7 +88,7 @@ pub(crate) fn selected_engine_cache_tag() -> Result<&'static str> {
 pub(crate) fn transpile_source_to_cjs(source: &str, path: &Path, target: &str) -> Result<String> {
     match selected_transform_engine()? {
         TransformEngine::Swc => transpile_to_cjs(source, path),
-        // @ref LLP 0007#proposal - Oxc is opt-in until the runtime has a
+        // @ref LLP 0007#proposal — Oxc is opt-in until the runtime has a
         // proven replacement for SWC's general ESM-to-CJS lowering.
         TransformEngine::Oxc => transpile_with_oxc(source, path, target),
     }

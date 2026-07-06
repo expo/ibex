@@ -36,6 +36,11 @@ REF_MARK = "@" + "ref"
 CODE_REF_RE = re.compile(re.escape(REF_MARK) + r"\s+(.+)")
 MD_REF_RE = re.compile(r"<!--\s*" + re.escape(REF_MARK) + r"\s+(.+?)-->", re.DOTALL)
 LLP_TARGET_RE = re.compile(r"^LLP\s+(\d{1,4})(?:#(\S+))?$")
+# Prefix form: an LLP target followed by trailing text without a gloss
+# delimiter (— – or --). The target is still validated, but the undelimited
+# tail is a format error: it previously demoted the whole annotation to an
+# unchecked "shorthand", silently un-gating the anchor check (ENG-23131).
+LLP_PREFIX_RE = re.compile(r"^LLP\s+(\d{1,4})(?:#(\S+))?\s+\S")
 SHORTHAND_RE = re.compile(r"^[A-Z][A-Z0-9_]*(?:#\S+)?$")
 URL_RE = re.compile(r"^https?://[^\s/]+\.[^\s/]+\S*$")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -111,6 +116,9 @@ def parse_target(rest):
     m = LLP_TARGET_RE.match(rest)
     if m:
         return "llp", m.group(1), m.group(2)
+    m = LLP_PREFIX_RE.match(rest)
+    if m:
+        return "llp-undelimited", m.group(1), m.group(2)
     token = rest.split()[0] if rest.split() else ""
     if token.startswith(("http://", "https://")):
         return "url", token, None
@@ -199,7 +207,10 @@ def check(root):
                 n_refs += 1
                 kind, target, anchor = parse_target(rest)
                 where = f"{rel}:{lineno}"
-                if kind == "llp":
+                if kind in ("llp", "llp-undelimited"):
+                    if kind == "llp-undelimited":
+                        rep.error(f"{where}: malformed ref: text after the LLP target "
+                                  f"must be a gloss delimited by ' — ' (em dash) or ' -- '")
                     num = target.zfill(4)
                     if num not in docs:
                         rep.error(f"{where}: broken ref: LLP {num} not found under llp/")

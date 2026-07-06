@@ -357,7 +357,7 @@ Socket.prototype.connect = function(port, address, callback) {
         // a listening socket. send() still works (the kernel binds implicitly on
         // the first datagram and each send re-checks network:connect), while
         // address()/recv/fd stay closed on the capability-less handle.
-        // @ref LLP 0013#policy (ENG-22819)
+        // @ref LLP 0013#policy — (ENG-22819)
         this._bindState = 0;
       }
     }

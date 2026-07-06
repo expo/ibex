@@ -1,7 +1,7 @@
 # LLP 0013 Hermes patch 0008 — schedule-time principal capture (async deputy laundering)
 # Class: B (a field + accessors on Runtime, a parallel job queue, and one-line
 #          changes to enqueueJob / drainJobs / collectStackPackageIds).
-# @ref LLP 0013#phase-5, Open-Q3 (native/microtask attribution). Closes ENG-22631.
+# @ref LLP 0013#phase-5 — Open-Q3 (native/microtask attribution). Closes ENG-22631.
 #
 # Completes patch 0007. 0007 closed the async/deputy boundary for the EMPTY-stack
 # native-callback case (`Promise.resolve(x).then(fs.readFileSync)` — no user frame
@@ -64,7 +64,7 @@ index 8793016..0f0c7c3 100644
  
  inline void Runtime::enqueueJob(Callable *job) {
    jobQueue_.push_back(job);
-+  // @ref LLP 0013#phase-5 (Open-Q3) — capture the SCHEDULING principal now, while
++  // @ref LLP 0013#phase-5 — (Open-Q3) — capture the SCHEDULING principal now, while
 +  // the frame enqueuing this job is still live. When the job later drains, its
 +  // reaction runs detached (only the callback's own frame on the stack), so this
 +  // is the sole record of who scheduled it. getCurrentPackageId walks past native
@@ -88,7 +88,7 @@ index 66b65c3..e0ce7bc 100644
      return v;
    }
  
-+  /// @ref LLP 0013#phase-5 (Open-Q3) — schedule-time principal capture for the
++  /// @ref LLP 0013#phase-5 — (Open-Q3) — schedule-time principal capture for the
 +  /// async/deputy attribution boundary. A capability principal id is a user
 +  /// package (0 = first-party root, 1.. = npm packages) or the runtime principal
 +  /// 0xFFFFFFFF; getCurrentPackageId() yields a user id or kNoUserPrincipal
@@ -103,7 +103,7 @@ index 66b65c3..e0ce7bc 100644
 +  /// stack so a package cannot launder a deputy op by detaching it across a
 +  /// microtask (`Promise.resolve(x).then(deputy.method)`): the reaction runs with
 +  /// only the deputy's frame live, but the scheduler's principal is recovered
-+  /// here. @ref LLP 0013 Open-Q3 (native/microtask attribution).
++  /// here. @ref LLP 0013 — Open-Q3 (native/microtask attribution).
 +  uint32_t currentJobSchedulerPrincipal() const {
 +    return currentJobSchedulerPrincipal_;
 +  }
@@ -136,7 +136,7 @@ index 66b65c3..e0ce7bc 100644
    /// HTML spec specified "perform a microtask checkpoint" algorithm.
    std::deque<Callable *> jobQueue_{};
  
-+  /// @ref LLP 0013#phase-5 (Open-Q3) — the scheduling principal captured for each
++  /// @ref LLP 0013#phase-5 — (Open-Q3) — the scheduling principal captured for each
 +  /// queued job, kept in lockstep with jobQueue_ (one entry per job, same FIFO
 +  /// order; enqueueJob pushes both, drainJobs pops both). POD uint32_t, so unlike
 +  /// jobQueue_ it holds no heap pointers and needs no GC root marking.
@@ -153,7 +153,7 @@ index 09c8b21..0f806cf 100644
      out[count++] = packageId;
      last = packageId;
    }
-+  // @ref LLP 0013#phase-5 (Open-Q3) — append the principal that SCHEDULED the
++  // @ref LLP 0013#phase-5 — (Open-Q3) — append the principal that SCHEDULED the
 +  // currently-draining job, if any. A deputy op detached across a microtask
 +  // (`Promise.resolve(x).then(deputy.method)`) runs with only the deputy's frame
 +  // on the stack; without this the deputy-class AND would see just [deputy] and
@@ -202,7 +202,7 @@ index 98c12db..d82e722 100644
      job = jobQueue_.front();
      jobQueue_.pop_front();
  
-+    // @ref LLP 0013#phase-5 (Open-Q3) — restore the principal that SCHEDULED this
++    // @ref LLP 0013#phase-5 — (Open-Q3) — restore the principal that SCHEDULED this
 +    // job (captured at enqueueJob, kept in lockstep with jobQueue_) as ambient
 +    // state for the duration of the job, so collectStackPackageIds can attribute a
 +    // detached deputy op to its true scheduler. Save/restore around the call so a

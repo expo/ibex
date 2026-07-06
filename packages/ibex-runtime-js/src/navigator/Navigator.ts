@@ -229,7 +229,7 @@ export class Navigator {
    * Whether the device is online.
    */
   get onLine(): boolean {
-    // @ref LLP 0008#os-info - Android navigator online status uses native network interface data.
+    // @ref LLP 0008#os-info — Android navigator online status uses native network interface data.
     return readOnlineStatus();
   }
 
@@ -237,7 +237,7 @@ export class Navigator {
    * Number of logical processors available.
    */
   get hardwareConcurrency(): number {
-    // @ref LLP 0008#os-info - Android navigator device hints use native sysconf/sysinfo values.
+    // @ref LLP 0008#os-info — Android navigator device hints use native sysconf/sysinfo values.
     const nativeCount = callNumericHostFunction('__exactGetCpuCount');
     return nativeCount == null ? 4 : Math.max(1, Math.floor(nativeCount));
   }
@@ -270,7 +270,7 @@ export class Navigator {
    * Note: This is a hint, not exact value.
    */
   get deviceMemory(): number {
-    // @ref LLP 0008#os-info - Android navigator device hints use native sysconf/sysinfo values.
+    // @ref LLP 0008#os-info — Android navigator device hints use native sysconf/sysinfo values.
     return approximateDeviceMemory(callNumericHostFunction('__exactGetTotalMem'));
   }
 

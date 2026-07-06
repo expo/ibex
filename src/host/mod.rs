@@ -170,7 +170,7 @@ impl Host {
     }
 
     /// Runtime-grant a capability to the root principal, bounded by the static
-    /// ceiling. Returns whether it was applied. @ref LLP 0013 §dynamic permissions
+    /// ceiling. Returns whether it was applied. @ref LLP 0013 — §dynamic permissions
     pub fn runtime_grant_root(&self, capability: &str) -> bool {
         self.capability_manager.runtime_grant_root(capability)
     }

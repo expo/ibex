@@ -16,7 +16,7 @@ The scripts here are the commands agents use to set up worktrees, build, and
 | `check-build-machine.sh` | Run first on a fresh host. Reports every unmet precondition (timeout binary, safe git hooks, cargo, sccache/bun) and exits nonzero if a required one is missing. |
 | `warm-worktree.sh [--clone-target]` | Warm a fresh worktree: link the git-ignored artifacts, and optionally APFS-clone a per-worktree `target/`. |
 | `link-worktree-artifacts.sh` | Link `ios/Frameworks` + `tools/hermes` (required) and `node_modules` (optional) from the warm primary **into the worktree you run it from**. Fails loud if a required artifact is still absent after linking. |
-| `run-tests.sh [--scope lib\|bin\|test\|all]` | The verification entry point. Runs the **full** package test set by default and **exits nonzero if zero tests ran**. Also fails on stale vendored bytes. |
+| `run-tests.sh [--scope lib\|bin\|test\|all] [--features LIST]` | The verification entry point. Runs the **full** package test set by default and **exits nonzero if zero tests ran**. Names any per-target zero-test binaries (a feature-gated suite compiling to an empty test binary is visible, not silent). Also fails on stale vendored bytes. |
 | `build-blocking.sh` | Run a long build/test in the foreground under a timeout, with a heartbeat. |
 | `with-timeout.sh` | Portable `timeout`/`gtimeout` wrapper (exit 127 if neither is installed). |
 | `check-generated-drift.sh` | Prove committed generated artifacts are current (land-time gate). |

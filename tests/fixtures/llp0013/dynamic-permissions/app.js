@@ -1,4 +1,4 @@
-// @ref LLP 0013 §dynamic permissions — the runtime permission surface. The
+// @ref LLP 0013 — §dynamic permissions — the runtime permission surface. The
 // static policy is the ceiling; a prompt moves the floor within it, never past.
 var p = Ibex.permissions;
 // network:fetch is in the ceiling but not statically granted -> prompt.

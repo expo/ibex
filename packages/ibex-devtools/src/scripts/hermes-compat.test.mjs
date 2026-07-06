@@ -9,7 +9,7 @@ import {
   transformBigIntLiterals,
 } from './hermes-compat.mjs';
 import { asyncGeneratorCorpus, forOfScopingCorpus } from './hermes-compat-corpus.mjs';
-import { runCorpus } from './run-hermes-compat-corpus.mjs';
+import { hermesConformanceRequired, runCorpus } from './run-hermes-compat-corpus.mjs';
 
 // Build a runnable driver from a corpus source that defines `runFixture()`, and
 // return its result. The raw source runs as a native async generator (the
@@ -67,6 +67,12 @@ describe('hermes-compat conformance corpus', () => {
       .join('\n');
     expect(detail).toBe('');
     expect(report.ok).toBe(true);
+    // Where the environment declares Hermes must be exercised, a V8-only pass
+    // is a false green (the corpus exists to check transform output ON
+    // Hermes) — fail loud instead of downgrading silently (ENG-23131).
+    if (hermesConformanceRequired()) {
+      expect(report.hermesUsed).toBe(true);
+    }
   });
 });
 

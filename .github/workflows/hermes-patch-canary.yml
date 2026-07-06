@@ -43,11 +43,22 @@ jobs:
             echo "hermes_ref=main" >> "$GITHUB_OUTPUT"
           fi
 
+      # No fallback clone: if the requested ref cannot be cloned, that IS the
+      # drift signal this canary exists to raise. A `|| git clone` of the
+      # default branch used to check the patch stack against the wrong tree
+      # and stay green — the pinned leg failing to resolve must fail the job
+      # (ENG-23131). Assert the checkout matches what we asked for.
       - name: Clone Hermes ${{ steps.ref.outputs.hermes_ref }}
         run: |
-          git clone --depth 1 --branch "${{ steps.ref.outputs.hermes_ref }}" \
-            https://github.com/facebook/hermes.git /tmp/hermes-src \
-            || git clone --depth 1 https://github.com/facebook/hermes.git /tmp/hermes-src
+          set -euo pipefail
+          ref="${{ steps.ref.outputs.hermes_ref }}"
+          git clone --depth 1 --branch "$ref" \
+            https://github.com/facebook/hermes.git /tmp/hermes-src
+          checked_out="$(git -C /tmp/hermes-src rev-parse --abbrev-ref HEAD)"
+          if [ "$checked_out" != "$ref" ]; then
+            echo "::error::asked for Hermes ref '$ref' but checked out '$checked_out'"
+            exit 1
+          fi
 
       - name: Apply carried patch stack
         id: apply

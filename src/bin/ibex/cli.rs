@@ -111,7 +111,7 @@ pub struct Cli {
     /// run, but attribution is ADVISORY: a dependency's access may be attributed
     /// to the trusted root. Also honored via `IBEX_CAPSEC_ALLOW_ADVISORY=1`;
     /// `--allow-advisory-attribution` is accepted as a hidden compatibility alias.
-    /// @ref LLP 0013#mechanism-3 (ENG-22884)
+    /// @ref LLP 0013#mechanism-3 — (ENG-22884)
     #[arg(long, alias = "allow-advisory-attribution")]
     pub capsec_allow_advisory: bool,
 

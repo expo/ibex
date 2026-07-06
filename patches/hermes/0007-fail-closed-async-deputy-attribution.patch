@@ -1,6 +1,6 @@
 # LLP 0013 Hermes patch 0007 — fail closed on the async/deputy attribution boundary
 # Class: B (a header sentinel constant + one-line changes to two existing functions).
-# @ref LLP 0013#mechanism-3, Open-Q3 (native/microtask attribution)
+# @ref LLP 0013#mechanism-3 — Open-Q3 (native/microtask attribution)
 #
 # Closes a deputy-laundering hole in enforce mode: a package could exfiltrate a
 # host capability by DETACHING a deputy method from its own frame — passing it
@@ -45,7 +45,7 @@ index e571e81..b583c2a 100644
 +/// root principal 0 (which the host trusts) and from the runtime principal
 +/// 0xFFFFFFFF: the host fails closed on this sentinel, and a caller that pins a
 +/// captured principal onto a Domain must exclude it (it is not a real package id
-+/// and is not transparent to the frame walk). @ref LLP 0013 Open-Q3
++/// and is not transparent to the frame walk). @ref LLP 0013 — Open-Q3
 +/// (native/microtask attribution).
 +constexpr uint32_t kNoUserPrincipal = 0xFFFFFFFEu;
 +
@@ -62,7 +62,7 @@ index 582316c76..09c8b2129 100644
 --- a/lib/VM/CapabilityAttribution.cpp
 +++ b/lib/VM/CapabilityAttribution.cpp
 @@ -35,10 +35,14 @@ namespace vm {
- // the Ibex side. @ref LLP 0013 Open-Q3 (skip runtime-internal frames).
+ // the Ibex side. @ref LLP 0013 — Open-Q3 (skip runtime-internal frames).
  static constexpr uint32_t kRuntimePackageId = 0xFFFFFFFFu;
  
 +// kNoUserPrincipal (0xFFFFFFFE, the no-attributable-user-frame sentinel) is

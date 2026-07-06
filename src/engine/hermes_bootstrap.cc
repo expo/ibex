@@ -111,7 +111,7 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
 
   char* error = nullptr;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
-  // @ref LLP 0013 Open-Q3 — the shared runtime bundle installs the trusted
+  // @ref LLP 0013 — Open-Q3 — the shared runtime bundle installs the trusted
   // deputy surfaces (fs, process, fetch); stamp its Domain with the runtime
   // principal so frame attribution sees through those deputies to the real
   // caller instead of laundering a package's host access into root.

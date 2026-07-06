@@ -1,4 +1,4 @@
-// @ref LLP 0013 §dynamic permissions — acquisition is async (lives in the
+// @ref LLP 0013 — §dynamic permissions — acquisition is async (lives in the
 // attenuator), the boundary check stays synchronous and consults resolved state.
 var p = Ibex.permissions;
 (async function () {

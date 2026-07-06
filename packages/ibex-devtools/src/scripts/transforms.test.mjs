@@ -21,7 +21,7 @@ import {
   transformBigIntLiterals,
 } from './transforms.mjs';
 
-// @ref LLP 0013#resolved-questions (ENG-22621) — the version-qualified identity
+// @ref LLP 0013#resolved-questions — (ENG-22621) — the version-qualified identity
 // keys compartments and chunk groups so coexisting versions stay separate.
 describe('packageIdentityOfModuleId', () => {
   it('reads name@version from the nearest package.json and distinguishes nested versions', () => {
@@ -38,7 +38,7 @@ describe('packageIdentityOfModuleId', () => {
     expect(packageOfModuleId(path.join(nestedPkg, 'index.js'))).toBe('shared-pkg');
   });
 
-  // @ref LLP 0013#mechanism-3 (ENG-22698) — the per-package chunk group's `test`
+  // @ref LLP 0013#mechanism-3 — (ENG-22698) — the per-package chunk group's `test`
   // predicate is `packageOfModuleId(id) !== null`, which normalizes separators,
   // so Windows backslash ids still map to their package chunk (a POSIX-only
   // `/node_modules/` regex would miss them and leave them in the root bundle).

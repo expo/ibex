@@ -262,7 +262,7 @@ facebook::jsi::Object makeAndroidPlatformState(facebook::jsi::Runtime& runtime) 
   char error[256] = {};
   facebook::jsi::Object state(runtime);
 
-  // @ref LLP 0008#os-info - Android OS metadata uses the Java host SDK version, not Linux kernel identity.
+  // @ref LLP 0008#os-info — Android OS metadata uses the Java host SDK version, not Linux kernel identity.
   char* platform_version = nullptr;
   if (android_get_platform_version(&platform_version, error, sizeof(error)) > 0 &&
       platform_version) {
@@ -352,7 +352,7 @@ void installAndroidEnvironmentGlobals(facebook::jsi::Runtime& rt) {
   char* platform_version = nullptr;
   if (android_get_platform_version(&platform_version, error, sizeof(error)) > 0 &&
       platform_version) {
-    // @ref LLP 0008#os-info - Android OS metadata uses the Java host SDK version, not Linux kernel identity.
+    // @ref LLP 0008#os-info — Android OS metadata uses the Java host SDK version, not Linux kernel identity.
     std::string android_os_version = std::string("Android ") + platform_version;
     rt.global().setProperty(
         rt,
@@ -841,7 +841,7 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
         char* result = nullptr;
         int is_null = 0;
         char error[256] = {};
-        // @ref LLP 0008#android-backend-matrix - Android window dialogs use
+        // @ref LLP 0008#android-backend-matrix — Android window dialogs use
         // the current Activity's native AlertDialog through the Java bridge.
         int rc = android_dialog_show(
             type.c_str(),

@@ -10,7 +10,7 @@
 // authority and the read leaked — an escalation reachable in the default enforce
 // mode with NO deputyClasses configured. The fix restricts the override to just
 // the callback invocation, so the drain matches the top-level poll.
-// @ref LLP 0013#phase-5 (ENG-23112)
+// @ref LLP 0013#phase-5 — (ENG-23112)
 var evil = require("evil-pkg");
 var fs = require("fs");
 var SECRET = process.env.SECRETPATH;

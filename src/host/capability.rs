@@ -205,7 +205,7 @@ impl CapabilityManager {
         if !policy.deputy_classes.is_empty() {
             self.set_deputy_classes(policy.deputy_classes.iter().cloned());
         }
-        // @ref LLP 0013 §dynamic permissions — the runtime-grant ceiling.
+        // @ref LLP 0013 — §dynamic permissions — the runtime-grant ceiling.
         if !policy.ceiling.is_empty() {
             if let Ok(mut c) = self.ceiling.write() {
                 *c = policy
@@ -218,7 +218,7 @@ impl CapabilityManager {
     }
 
     /// Is `capability` within the runtime-grant ceiling (may root acquire it at
-    /// runtime)? @ref LLP 0013 §dynamic permissions
+    /// runtime)? @ref LLP 0013 — §dynamic permissions
     fn within_ceiling(&self, capability: &str) -> bool {
         let normalized = normalize_capability(capability);
         self.ceiling
@@ -231,7 +231,7 @@ impl CapabilityManager {
     /// fine-grained dynamic (user-facing) permissions. When it has, the root
     /// principal is governed by the normal allow-list + dynamic-grant precedence
     /// bounded by the ceiling; when it has not, root is trusted (ambient app
-    /// authority). @ref LLP 0013 §dynamic permissions
+    /// authority). @ref LLP 0013 — §dynamic permissions
     fn ceiling_configured(&self) -> bool {
         // Fail closed on a poisoned lock: assume a ceiling is configured so root
         // is gated (not blanket-trusted) rather than silently ambient.
@@ -240,7 +240,7 @@ impl CapabilityManager {
 
     /// Runtime-grant `capability` to the root principal, bounded by the ceiling
     /// (the static artifact is the ceiling; prompts move the floor). Returns
-    /// whether the grant was applied. @ref LLP 0013 §dynamic permissions
+    /// whether the grant was applied. @ref LLP 0013 — §dynamic permissions
     pub fn runtime_grant_root(&self, capability: &str) -> bool {
         if !self.within_ceiling(capability) {
             return false;
@@ -261,7 +261,7 @@ impl CapabilityManager {
 
     /// Tri-state grant status for the root principal: 1 = granted now, 2 =
     /// prompt (not granted but within the ceiling, so acquirable), 0 = denied
-    /// (neither). @ref LLP 0013 §dynamic permissions — grant status is tri-state
+    /// (neither). @ref LLP 0013 — §dynamic permissions — grant status is tri-state
     /// at the host surface, not boolean.
     pub fn grant_status(&self, capability: &str) -> u8 {
         if self.decide("0", capability, FsNormalizationMode::FollowFinal) {
@@ -1553,7 +1553,7 @@ mod tests {
         assert_eq!(principal.locator.as_deref(), Some("node-fetch@3.3.2"));
     }
 
-    // @ref LLP 0013#resolved-questions (ENG-22621) — the name selector is the
+    // @ref LLP 0013#resolved-questions — (ENG-22621) — the name selector is the
     // default (survives version bumps); a version/locator-specific selector pins
     // a coexisting version and takes precedence.
     #[test]
@@ -1571,7 +1571,7 @@ mod tests {
         assert!(!m.check("2", "network:fetch:api.example.com"));
     }
 
-    // @ref LLP 0013#resolved-questions (ENG-22621) — import-policy axes resolve
+    // @ref LLP 0013#resolved-questions — (ENG-22621) — import-policy axes resolve
     // independently across selectors: a version pin that constrains only the
     // packages axis must NOT unrestrict the builtins axis a bare-name entry set.
     #[test]
@@ -1603,7 +1603,7 @@ mod tests {
         assert!(!m.check_import("1", "other-dep"));
     }
 
-    // @ref LLP 0013#resolved-questions (ENG-22621) — a bare-name grant with no
+    // @ref LLP 0013#resolved-questions — (ENG-22621) — a bare-name grant with no
     // version pin applies to every coexisting version, since each version's
     // selectors fall back to the bare name.
     #[test]
@@ -1626,7 +1626,7 @@ mod tests {
         assert!(!manager.check("7", "network:fetch:evil.example.com"));
     }
 
-    // @ref LLP 0013#policy (ENG-22697) — `builtins: []` must deny the runtime's
+    // @ref LLP 0013#policy — (ENG-22697) — `builtins: []` must deny the runtime's
     // `exact:`/`bun:` builtin aliases, not just `node:`/bare builtins: an alias
     // that classifies as a package would fall to the allow-by-default packages
     // axis (fail open).
@@ -1662,7 +1662,7 @@ mod tests {
         }
     }
 
-    // @ref LLP 0013#policy (ENG-22696) — an import with no attributable user
+    // @ref LLP 0013#policy — (ENG-22696) — an import with no attributable user
     // frame (a detached require callback) fails closed, never trusted.
     #[test]
     fn import_from_no_user_principal_fails_closed() {
@@ -1674,7 +1674,7 @@ mod tests {
         assert!(m.check_import("999", "node:fs"));
     }
 
-    // @ref LLP 0013 §self-grant (ENG-22695/ENG-22770) — the runtime package
+    // @ref LLP 0013 — §self-grant (ENG-22695/ENG-22770) — the runtime package
     // self-grant path (Exact.setModuleCapabilities / require({needs})) is
     // refused under enforce; audit preserves the legacy observable grant while
     // recording the would-deny so compatibility probes do not perturb behavior.
@@ -1754,7 +1754,7 @@ mod tests {
     // configured — root is NOT blanket-trusted: it is governed by the normal
     // allow-list + dynamic-grant precedence bounded by the ceiling, so a
     // capability outside the ceiling stays denied and the tri-state permission
-    // model holds. Explicit grants/denials still win for root. @ref LLP 0013 §dynamic permissions
+    // model holds. Explicit grants/denials still win for root. @ref LLP 0013 — §dynamic permissions
     #[test]
     fn ceiling_restores_root_gating_for_dynamic_permissions() {
         let manager = CapabilityManager::new(SecurityMode::Enforce);

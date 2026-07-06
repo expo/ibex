@@ -713,7 +713,7 @@ function getFallbackCapabilitySystemInfo(): Pick<
     readNonEmptyString(processHints?.platform);
   const osName = normalizeCapabilityOSName(platform);
 
-  // @ref LLP 0008#os-info - Android permission diagnostics use the Java host SDK version.
+  // @ref LLP 0008#os-info — Android permission diagnostics use the Java host SDK version.
   const osVersion = osName === 'android'
     ? readNonEmptyString(globalHints.__exactPlatformVersion) ??
       readNonEmptyString(processHints?.__exactOSRelease) ??

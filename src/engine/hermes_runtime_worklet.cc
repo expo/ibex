@@ -1,6 +1,8 @@
 // hermes_runtime_worklet.cc
 //
-// @system @ref LLP 0297 §4.3 (exact repo) — the restricted UI worklet
+// @system See LLP 0297 §4.3 in the exact monorepo (an inherited cross-repo
+// reference; kept as prose because that corpus is not carried under this
+// repo's llp/) — the restricted UI worklet
 // runtime. A second, single-owner Hermes instance created by the host's
 // main/UI thread and kept warm for the process lifetime. Restricted by
 // construction: created bare (no installGlobals), so there is no module

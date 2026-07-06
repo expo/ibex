@@ -225,8 +225,22 @@ link_skill_dir() {
     return
   fi
 
-  local source_rel="${source_dir#$repo_root/}"
-  replace_with_symlink "$skills_root/$name" "../$source_rel" "skills/$name"
+  # Build the link target from physically resolved paths: a literal
+  # env/TMPDIR string (double slash, symlinked temp dir) used to defeat the
+  # naive prefix strip and mint a broken "../<absolute-path>" link that still
+  # counted as synced (ENG-23131). Sources under the repo root get a relative
+  # link; an external IBEX_AGENT_SKILL_SOURCES tree gets an absolute one.
+  local source_real target
+  source_real="$(resolve_dir "$source_dir")"
+  [ -n "$source_real" ] || die "skill source $source_dir does not resolve to a directory"
+  case "$source_real/" in
+    "$repo_root_real"/*) target="../${source_real#"$repo_root_real"/}" ;;
+    *) target="$source_real" ;;
+  esac
+  replace_with_symlink "$skills_root/$name" "$target" "skills/$name"
+  # Postcondition: the created link must resolve — a "successful" sync over
+  # broken links is the silent no-op this script must never report.
+  [ -e "$skills_root/$name" ] || die "skill link $skills_root/$name is broken (target $target)"
   managed_names+=("$name")
 }
 
@@ -239,6 +253,17 @@ for source_dir in "$sources_root/skills"/*; do
   [ -d "$source_dir" ] || continue
   link_skill_dir "$source_dir"
 done
+
+# Zero skills linked means the sync did not do its one job — absent sources
+# (e.g. no-network mode before any clone) or an upstream restructure that left
+# no SKILL.md matches. Exit nonzero instead of printing an empty "Synced
+# agent skills:" success line (scripts/README.md fail-loud rule, ENG-23131).
+# Checked before the stale-link cleanup so a broken sync also cannot delete
+# every previously linked skill.
+if [ "${#managed_names[@]}" -eq 0 ]; then
+  die "no agent skills were linked from $sources_root (sources missing or no SKILL.md found); \
+run without IBEX_AGENT_SKILLS_NO_NETWORK=1 to clone the upstream skill repos"
+fi
 
 for existing in "$skills_root"/*; do
   [ -L "$existing" ] || continue

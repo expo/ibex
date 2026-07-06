@@ -29,7 +29,7 @@ function legacyNumberValue(getter) {
 }
 
 function androidPlatformVersion() {
-  // @ref LLP 0008#os-info - Android reports the Java host SDK version through os.release/version.
+  // @ref LLP 0008#os-info — Android reports the Java host SDK version through os.release/version.
   if (_platform !== "android" || typeof globalThis === "undefined") return null;
   if (typeof globalThis.__exactPlatformVersion === "string" &&
       globalThis.__exactPlatformVersion.length > 0) {

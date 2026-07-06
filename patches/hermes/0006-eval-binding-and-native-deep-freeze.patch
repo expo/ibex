@@ -1,6 +1,6 @@
 # LLP 0013 Hermes patch 0006 — eval/Function compartment binding + native deep-freeze
 # Class: B (GC-rooted Runtime field + accessors; a new native function) + A (a C
-#         bridge export). @ref LLP 0013#mechanism-2 (Phase 3)
+#         bridge export). @ref LLP 0013#mechanism-2 — (Phase 3)
 #
 # Two independent Phase-3 refinements that both need in-tree Hermes edits:
 #
@@ -53,7 +53,7 @@ index aeb865ed6..66b65c3db 100644
      anyCompartmentActive_ = true;
    }
  
-+  /// @ref LLP 0013#mechanism-2 (Phase 3) — set/consume the pending compartment
++  /// @ref LLP 0013#mechanism-2 — (Phase 3) — set/consume the pending compartment
 +  /// global (a HermesValue holding a JSObject, or undefined). Captured at the
 +  /// eval call site from the caller's frame and consumed by runBytecode() to
 +  /// bind eval/Function-produced code to the caller's compartment. Rooted via
@@ -78,7 +78,7 @@ index 42ca00073..a158a8b45 100644
  
  RUNTIME_HV_FIELD(promiseRejectionTrackingHook_, HermesValue)
  
-+// @ref LLP 0013#mechanism-2 (Phase 3) — the compartment global to stamp onto the
++// @ref LLP 0013#mechanism-2 — (Phase 3) — the compartment global to stamp onto the
 +// next Domain created by runBytecode(), for binding eval/Function-produced code
 +// to the caller's compartment. A GC root (PinnedValue) so it survives the
 +// allocations between capture (at the eval call site) and consumption.
@@ -110,7 +110,7 @@ index b78ddb6ca..1bca3c449 100644
 +++ b/lib/VM/JSLib/GlobalObject.cpp
 @@ -27,6 +27,8 @@
  
- // @ref LLP 0013#mechanism-2 (Phase 3) — native compartment global binding.
+ // @ref LLP 0013#mechanism-2 — (Phase 3) — native compartment global binding.
  #include "hermes/VM/Domain.h"
 +#include "hermes/VM/JSArray.h"
 +#include "llvh/ADT/SmallVector.h"
@@ -121,7 +121,7 @@ index b78ddb6ca..1bca3c449 100644
    return args.getArg(0);
  }
  
-+/// @ref LLP 0013#mechanism-1 (Phase 3) — native transitive deep-freeze. Freezes
++/// @ref LLP 0013#mechanism-1 — (Phase 3) — native transitive deep-freeze. Freezes
 +/// the object graph reachable from \p root, SES-style: every reachable object is
 +/// frozen (shallow, via JSObject::freeze) and the walk follows property
 +/// *descriptors* — data values and accessor getter/setter functions, read
@@ -237,8 +237,8 @@ index b78ddb6ca..1bca3c449 100644
            runtime, createASCIIRef("__exactSetCompartmentFor")),
        exactSetCompartmentFor,
        2);
--  // @ref LLP 0013#mechanism-1 (Phase 3) — the native freeze primitive.
-+  // @ref LLP 0013#mechanism-1 (Phase 3) — the native freeze primitives.
+-  // @ref LLP 0013#mechanism-1 — (Phase 3) — the native freeze primitive.
++  // @ref LLP 0013#mechanism-1 — (Phase 3) — the native freeze primitives.
    defineGlobalFunc(
        runtime.getIdentifierTable().registerLazyIdentifier(
            runtime, createASCIIRef("__exactNativeFreeze")),
@@ -268,7 +268,7 @@ index 3d0fc7ed1..fa6513eea 100644
      }
    }
  
-+  // @ref LLP 0013#mechanism-2 (Phase 3) — eval/Function binding. Here the
++  // @ref LLP 0013#mechanism-2 — (Phase 3) — eval/Function binding. Here the
 +  // caller's frame is still current (unlike inside runBytecode), so capture the
 +  // caller's package principal and compartment and stamp them onto the Domain
 +  // runBytecode is about to mint — so eval/`new Function`-produced code inherits
@@ -315,7 +315,7 @@ index 0828b7267..1cadc9340 100644
 +  // Function, the caller principal captured at the eval call site). One-shot:
 +  // consumed here so it never leaks onto a later Domain.
    domain->setPackageId(consumePendingPackageId());
-+  // @ref LLP 0013#mechanism-2 (Phase 3) — and its compartment global, so
++  // @ref LLP 0013#mechanism-2 — (Phase 3) — and its compartment global, so
 +  // eval/Function-produced code inherits the caller's compartment.
 +  {
 +    HermesValue pendingCg = consumePendingCompartment();

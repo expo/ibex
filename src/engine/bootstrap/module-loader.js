@@ -33,7 +33,7 @@
   var __privCheckImport = (typeof g.__exactCheckImport === 'function')
     ? g.__exactCheckImport
     : null;
-  // @ref LLP 0013#mechanism-2 (Phase 3) — native compartment binder. Sets a
+  // @ref LLP 0013#mechanism-2 — (Phase 3) — native compartment binder. Sets a
   // compiled function's Domain compartment global so bare-global references in a
   // package resolve natively through its compartment (no build-time rewrite).
   // Powerful (setting a Domain's compartment could escape it), so captured
@@ -117,7 +117,7 @@
   // Derive the npm package selector from a resolved module path: the segment
   // after the last `node_modules/` (two segments for an @scope). Returns null
   // for first-party / workspace code, which stays the trusted root principal.
-  // @ref LLP 0013#resolved-questions (package name is the policy selector)
+  // @ref LLP 0013#resolved-questions — (package name is the policy selector)
   function packageNameFromPath(p) {
     if (typeof p !== 'string') return null;
     // Normalize Windows separators before any marker detection. Runtime module
@@ -227,7 +227,7 @@
         __privSetPendingPackageId(-1);
       }
     }
-    // @ref LLP 0013#mechanism-2 (Phase 3) — bind this package's compartment to
+    // @ref LLP 0013#mechanism-2 — (Phase 3) — bind this package's compartment to
     // the fresh Domain the compile created, so its bare-global references
     // resolve natively through the compartment. No-op for root/builtins.
     if (__privSetCompartmentFor && compartment) {

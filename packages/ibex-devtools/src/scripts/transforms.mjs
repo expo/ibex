@@ -673,7 +673,7 @@ export function createCompartmentGlobalsPlugin({
       // Key by the version-qualified identity (`name@version`) so coexisting
       // versions never share a mutable compartment object, matching the runtime
       // loader's identity. Endowment lookup still falls back to the bare name in
-      // the registry (isEndowed). @ref LLP 0013#resolved-questions (ENG-22621)
+      // the registry (isEndowed). @ref LLP 0013#resolved-questions — (ENG-22621)
       const pkg = resolvePackage ? resolvePackage(id) : packageIdentityOfModuleId(id);
       if (!pkg) return null; // first-party / root — trusted, not compartmentalized
       // Endowment names are authored against the bare package name, so resolve
@@ -725,7 +725,7 @@ const __pkgVersionMemo = new Map();
  * distinct compartment keys and chunk groups — matching the runtime loader's
  * identity. This distinguishes installed copies; it is not an integrity boundary
  * against a package that forges its package.json version. Bundle-time only.
- * @ref LLP 0013#resolved-questions (ENG-22621/ENG-22768)
+ * @ref LLP 0013#resolved-questions — (ENG-22621/ENG-22768)
  */
 export function packageIdentityOfModuleId(id) {
   const name = packageOfModuleId(id);

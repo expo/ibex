@@ -598,19 +598,34 @@ async fn cli_legacy_env_names_warn_once() {
     // Legacy `EX_*`/`EXACT_*` env spellings keep working with a deprecation
     // warning while extracted consumers catch up (see runtime_env in
     // src/bin/ibex/main.rs).
+    //
+    // This must drive a FILE run: `-e` routes through eval_code and never
+    // consults IBEX_NO_BYTECODE, so the previous `-e null` variant could not
+    // fire the warning and its conditional assertion was dead (ENG-23131).
+    // EX_STARTUP_TRACE is consulted at several trace points in one process,
+    // so its warning appearing exactly once is what proves the "once" dedup.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("legacy_env.js");
+    std::fs::write(&file, "console.log('legacy-env-ok');\n").expect("write");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg("null");
+    cmd.arg(file.to_string_lossy().as_ref());
     cmd.env("EX_NO_BYTECODE", "1");
-    let output = timeout(Duration::from_secs(10), cmd.output())
+    cmd.env("EX_STARTUP_TRACE", "1");
+    let output = timeout(Duration::from_secs(20), cmd.output())
         .await
-        .expect("CLI eval timed out")
+        .expect("CLI run timed out")
         .expect("failed to spawn or read ibex process output");
-    assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    // The warning only fires on paths that consult the variable; a plain -e
-    // null may not touch the bytecode path, so only assert the shape when
-    // present.
-    if stderr.contains("deprecated") {
-        assert!(stderr.contains("IBEX_NO_BYTECODE"), "stderr: {stderr}");
+    assert!(output.status.success(), "stderr: {stderr}");
+    for (legacy, ibex) in [
+        ("EX_NO_BYTECODE", "IBEX_NO_BYTECODE"),
+        ("EX_STARTUP_TRACE", "IBEX_STARTUP_TRACE"),
+    ] {
+        let warning = format!("warning: {legacy} is deprecated; use {ibex}");
+        assert_eq!(
+            stderr.matches(&warning).count(),
+            1,
+            "expected exactly one deprecation warning for {legacy}; stderr: {stderr}"
+        );
     }
 }

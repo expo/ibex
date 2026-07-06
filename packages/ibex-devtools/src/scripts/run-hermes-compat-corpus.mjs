@@ -84,6 +84,20 @@ function runHermes(hermesBin, code) {
  * available. Returns a structured report; never throws on a fixture failure
  * (failures are collected per fixture).
  */
+/**
+ * True when the caller declared that a Hermes binary MUST be exercised
+ * (IBEX_REQUIRE_HERMES_CONFORMANCE=1). tools/hermes is git-ignored, so a
+ * fresh clone silently downgrades every corpus run to V8-oracle-only; where
+ * the environment is supposed to have Hermes (dev machines that built it,
+ * the cargo conformance gate), that downgrade must fail loud instead of
+ * reporting "fixtures ok" with the actual-Hermes assertions unexercised
+ * (LLP 0018 / LLP 0019, ENG-23131).
+ */
+export function hermesConformanceRequired(env = process.env) {
+  const value = env.IBEX_REQUIRE_HERMES_CONFORMANCE;
+  return value !== undefined && value !== '' && value !== '0';
+}
+
 export function runCorpus({ hermesBin = resolveHermesBin() } = {}) {
   const hermesUsable = canRunHermes(hermesBin);
   const results = [];
@@ -179,6 +193,14 @@ function main() {
     for (const failure of result.failures) {
       console.log(`       - ${failure}`);
     }
+  }
+  if (hermesConformanceRequired() && !report.hermesUsed) {
+    console.error(
+      'hermes-compat corpus: FAIL — IBEX_REQUIRE_HERMES_CONFORMANCE is set but no usable ' +
+        'Hermes binary was found (checked IBEX_HERMES_BIN and tools/hermes/hermes). ' +
+        'The V8-only pass above does not verify transform output on Hermes.',
+    );
+    process.exit(1);
   }
   process.exit(report.ok ? 0 : 1);
 }

@@ -45,28 +45,9 @@ jobs:
       - name: Run JS test suites
         run: bun test packages
 
-      - name: Check generated identity bindings
-        run: bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts --check
-
-      - name: Check generated capability bits
-        run: bun packages/ibex-devtools/src/scripts/generate-capability-bits.mjs --check
-
-      - name: Check generated module manifest
-        run: bun packages/ibex-devtools/src/scripts/generate-module-manifest.ts --check --rust-out-dir vendored-generated
-
-      - name: Check vendored JS snapshot
-        run: |
-          set -euo pipefail
-          tmp="$(mktemp -d)"
-
-          bun packages/ibex-devtools/src/scripts/build-builtins.mjs \
-            --src-dir src/builtins \
-            --out-dir "$tmp/builtins"
-          diff -rq vendored-generated/builtins "$tmp/builtins"
-
-          bun packages/ibex-devtools/src/scripts/rolldown-bundle.mjs \
-            --entry packages/ibex-runtime-js/src/runtime-entry.ts \
-            --out "$tmp/embedded_runtime_bundle.js" \
-            --format iife \
-            --lower-classes
-          cmp vendored-generated/embedded_runtime_bundle.js "$tmp/embedded_runtime_bundle.js"
+      # One drift gate, shared verbatim with the local land-time check so CI
+      # and `bun run check:drift` can never diverge on what "current" means
+      # (a divergent inline copy previously covered builtin_manifest.generated.rs
+      # while the local gate did not). @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
+      - name: Check generated artifacts (drift gate)
+        run: bun run check:drift

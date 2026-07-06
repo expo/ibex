@@ -564,50 +564,60 @@ fn main() {
                     .arg("--out-dir")
                     .arg(&builtins_out)
                     .status();
+                // The primary-checkout substitute exists for worktrees whose
+                // JS deps were never installed. When the local pipeline is
+                // *present* but fails (e.g. an in-progress transforms.mjs
+                // edit broke it), substituting the primary's script would
+                // embed artifacts built by different transforms and mask the
+                // failure — the local pipeline is the authority under test
+                // (LLP 0019), so that case must fail loud instead.
+                let local_js_deps_missing = !missing_js_deps_hint.is_empty();
                 match status {
                     Ok(s) if s.success() => {
                         eprintln!(
-                            "cargo:warning=Built builtin modules → {}",
+                            "ibex build: built builtin modules → {}",
                             builtins_out.display()
                         );
                     }
                     Ok(s) => {
-                        if try_build_builtins_via_primary_checkout(
-                            repo_root,
-                            &builtins_src,
-                            &builtins_out,
-                        ) {
-                            eprintln!(
-                                "cargo:warning=Built builtin modules via primary checkout toolchain → {}",
+                        if local_js_deps_missing
+                            && try_build_builtins_via_primary_checkout(
+                                repo_root,
+                                &builtins_src,
+                                &builtins_out,
+                            )
+                        {
+                            println!(
+                                "cargo:warning=Local JS deps missing; built builtin modules via primary checkout toolchain → {}",
                                 builtins_out.display()
                             );
+                        } else if !allow_fallback {
+                            panic!(
+                                "build-builtins.mjs failed with status {s} using {runner_name} and EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
+                            );
                         } else {
-                            if !allow_fallback {
-                                panic!(
-                                    "build-builtins.mjs failed with status {s} using {runner_name} and EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
-                                );
-                            }
-                            eprintln!("cargo:warning=build-builtins.mjs exited with status {}, copying source files as fallback", s);
+                            println!("cargo:warning=build-builtins.mjs exited with status {}, copying source files as fallback", s);
                             copy_builtins_fallback(&builtins_src, &builtins_out);
                         }
                     }
                     Err(e) => {
-                        if try_build_builtins_via_primary_checkout(
-                            repo_root,
-                            &builtins_src,
-                            &builtins_out,
-                        ) {
-                            eprintln!(
-                                "cargo:warning=Built builtin modules via primary checkout toolchain → {}",
+                        if local_js_deps_missing
+                            && try_build_builtins_via_primary_checkout(
+                                repo_root,
+                                &builtins_src,
+                                &builtins_out,
+                            )
+                        {
+                            println!(
+                                "cargo:warning=Local JS deps missing; built builtin modules via primary checkout toolchain → {}",
                                 builtins_out.display()
                             );
+                        } else if !allow_fallback {
+                            panic!(
+                                "Failed to run build-builtins.mjs with {runner_name} ({e}); build aborted because EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
+                            );
                         } else {
-                            if !allow_fallback {
-                                panic!(
-                                    "Failed to run build-builtins.mjs with {runner_name} ({e}); build aborted because EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
-                                );
-                            }
-                            eprintln!("cargo:warning=Failed to run build-builtins.mjs: {}, copying source files as fallback", e);
+                            println!("cargo:warning=Failed to run build-builtins.mjs: {}, copying source files as fallback", e);
                             copy_builtins_fallback(&builtins_src, &builtins_out);
                         }
                     }
@@ -616,16 +626,14 @@ fn main() {
                 if !allow_fallback {
                     panic!("Neither bun nor node found and EXACT_ALLOW_FALLBACK is not set");
                 }
-                eprintln!(
-                    "cargo:warning=Neither bun nor node found, copying builtin sources as-is"
-                );
+                println!("cargo:warning=Neither bun nor node found, copying builtin sources as-is");
                 copy_builtins_fallback(&builtins_src, &builtins_out);
             }
         } else {
             if !allow_fallback {
                 panic!("build-builtins.mjs not found and EXACT_ALLOW_FALLBACK is not set");
             }
-            eprintln!("cargo:warning=build-builtins.mjs not found, copying builtin sources as-is");
+            println!("cargo:warning=build-builtins.mjs not found, copying builtin sources as-is");
             copy_builtins_fallback(&builtins_src, &builtins_out);
         }
     }
@@ -675,7 +683,7 @@ fn main() {
     let mut precompile_bootstrap_hbc = target_os != "windows";
 
     if target_os == "windows" {
-        eprintln!(
+        println!(
             "cargo:warning=Skipping bootstrap HBC precompilation on Windows; using generated source headers"
         );
     } else if !hermesc.exists() {
@@ -686,7 +694,7 @@ fn main() {
                 hermesc.display()
             );
         }
-        eprintln!(
+        println!(
             "cargo:warning=hermesc not found at {}, skipping HBC precompilation",
             hermesc.display()
         );
@@ -695,7 +703,7 @@ fn main() {
         if !allow_fallback {
             panic!("Failed to read hermesc HBC version and EXACT_ALLOW_FALLBACK is not set");
         }
-        eprintln!(
+        println!(
             "cargo:warning=Cannot read hermesc HBC version; skipping bootstrap HBC precompilation"
         );
     } else if let (Some(compiler_version), Some(runtime_version)) =
@@ -709,7 +717,7 @@ fn main() {
                     compiler_version, runtime_version
                 );
             }
-            eprintln!(
+            println!(
                 "cargo:warning=Skipping bootstrap HBC precompilation due version mismatch (hermesc {} vs hermes {})",
                 compiler_version,
                 runtime_version
@@ -762,7 +770,7 @@ fn main() {
                         js_path.display()
                     );
                 }
-                eprintln!(
+                println!(
                     "cargo:warning=Bootstrap JS file not found: {}",
                     js_path.display()
                 );
@@ -784,7 +792,7 @@ fn main() {
                         Some(actual_version) if actual_version == expected_version => {}
                         Some(actual_version) => {
                             if optional_source_fallback {
-                                eprintln!(
+                                println!(
                                     "cargo:warning=Bootstrap HBC version mismatch for optional {}: compiled {} expected {}; using source fallback for this file",
                                     js_file, actual_version, expected_version
                                 );
@@ -797,7 +805,7 @@ fn main() {
                                     js_file, actual_version, expected_version
                                 );
                             }
-                            eprintln!(
+                            println!(
                                 "cargo:warning=Bootstrap hbc version mismatch for {}: compiled {} expected {}; skipping precompiled bootstrap",
                                 js_file, actual_version, expected_version
                             );
@@ -806,7 +814,7 @@ fn main() {
                         }
                         None => {
                             if optional_source_fallback {
-                                eprintln!(
+                                println!(
                                     "cargo:warning=Cannot read HBC version for optional {}; using source fallback for this file",
                                     js_file
                                 );
@@ -819,7 +827,7 @@ fn main() {
                                     js_file
                                 );
                             }
-                            eprintln!(
+                            println!(
                                 "cargo:warning=Cannot read hbc version for {}; skipping precompiled bootstrap",
                                 js_file
                             );
@@ -846,7 +854,7 @@ fn main() {
                 }
                 _ => {
                     if optional_source_fallback {
-                        eprintln!(
+                        println!(
                             "cargo:warning=hermesc failed for optional {}; using source fallback for this file",
                             js_file
                         );
@@ -859,7 +867,7 @@ fn main() {
                             js_file
                         );
                     }
-                    eprintln!("cargo:warning=hermesc failed for {}", js_file);
+                    println!("cargo:warning=hermesc failed for {}", js_file);
                     all_ok = false;
                     break;
                 }
@@ -868,11 +876,11 @@ fn main() {
 
         if all_ok {
             write_file_or_panic(&bootstrap_hbc_header, &header, "bootstrap_bytecode.h");
-            eprintln!("cargo:warning=Generated bootstrap_bytecode.h with precompiled HBC");
+            eprintln!("ibex build: generated bootstrap_bytecode.h with precompiled HBC");
         } else if !allow_fallback {
             panic!("HBC precompilation failed and EXACT_ALLOW_FALLBACK is not set");
         } else {
-            eprintln!("cargo:warning=HBC precompilation failed, falling back to source parsing");
+            println!("cargo:warning=HBC precompilation failed, falling back to source parsing");
         }
     }
     if !bootstrap_hbc_header.exists() {
@@ -897,7 +905,7 @@ fn main() {
                         js_path.display()
                     );
                 }
-                eprintln!(
+                println!(
                     "cargo:warning=Bootstrap JS file not found for source header: {}",
                     js_path.display()
                 );
@@ -911,11 +919,11 @@ fn main() {
 
         if all_ok {
             write_file_or_panic(&bootstrap_source_header, &src_header, "bootstrap_source.h");
-            eprintln!("cargo:warning=Generated bootstrap_source.h with JS source literals");
+            eprintln!("ibex build: generated bootstrap_source.h with JS source literals");
         } else if !allow_fallback {
             panic!("bootstrap_source.h generation failed because EXACT_ALLOW_FALLBACK is not set");
         } else {
-            eprintln!("cargo:warning=bootstrap_source.h generation failed — missing JS files");
+            println!("cargo:warning=bootstrap_source.h generation failed — missing JS files");
         }
     }
 
@@ -1572,7 +1580,7 @@ fn generate_builtin_manifest(
         let contents = read_text_or_panic(&vendored_manifest, "vendored builtin manifest");
         write_file_or_panic(&dest, &contents, "builtin_manifest.generated.rs");
         eprintln!(
-            "cargo:warning=Copied vendored builtin manifest → {}",
+            "ibex build: copied vendored builtin manifest → {}",
             dest.display()
         );
         return;
@@ -1762,7 +1770,7 @@ fn generate_runtime_bundle_source_header(
         );
         push_cpp_raw_string_literal(&mut header, "SHARED_RUNTIME_BUNDLE_SRC", &source);
         write_file_or_panic(&header_path, header, "runtime_bundle_source.h");
-        eprintln!("cargo:warning=Generated runtime_bundle_source.h from vendored runtime bundle");
+        eprintln!("ibex build: generated runtime_bundle_source.h from vendored runtime bundle");
         generate_runtime_bundle_bytecode_header(repo_root, out_dir, &bundled_runtime);
         return;
     }
@@ -1775,7 +1783,7 @@ fn generate_runtime_bundle_source_header(
                 build_script.display()
             );
         }
-        eprintln!(
+        println!(
             "cargo:warning=Runtime bundle source files are missing; Ibex will keep the legacy bootstrap fallback"
         );
         return;
@@ -1788,7 +1796,7 @@ fn generate_runtime_bundle_source_header(
                 "Failed to build the shared runtime bundle for Ibex and EXACT_ALLOW_FALLBACK is not set{missing_js_deps_hint}"
             );
         }
-        eprintln!(
+        println!(
             "cargo:warning=Failed to build the shared runtime bundle for Ibex; keeping the legacy bootstrap fallback"
         );
         return;
@@ -1804,7 +1812,7 @@ fn generate_runtime_bundle_source_header(
                     err
                 );
             }
-            eprintln!(
+            println!(
                 "cargo:warning=Failed to read shared runtime bundle {}: {}",
                 bundled_runtime.display(),
                 err
@@ -1820,7 +1828,7 @@ fn generate_runtime_bundle_source_header(
                 bundled_runtime.display()
             );
         }
-        eprintln!(
+        println!(
             "cargo:warning=Shared runtime bundle at {} does not look like an Ibex runtime bundle; keeping legacy bootstrap fallback",
             bundled_runtime.display()
         );
@@ -1834,7 +1842,7 @@ fn generate_runtime_bundle_source_header(
     push_cpp_raw_string_literal(&mut header, "SHARED_RUNTIME_BUNDLE_SRC", &source);
     write_file_or_panic(&header_path, header, "runtime_bundle_source.h");
     write_embedded_runtime_rs(out_dir, "packages/ibex-runtime-js/src/runtime-entry.ts");
-    eprintln!("cargo:warning=Generated runtime_bundle_source.h from shared runtime bundle");
+    eprintln!("ibex build: generated runtime_bundle_source.h from shared runtime bundle");
 
     generate_runtime_bundle_bytecode_header(repo_root, out_dir, &bundled_runtime);
 }
@@ -1885,7 +1893,14 @@ fn build_runtime_bundle_source(
     };
     let _ = std::fs::create_dir_all(parent);
 
+    // --lower-classes must match package.json's build:runtime (rolldown
+    // defaults it off): the pinned Hermes rejects `class` syntax, and without
+    // it refresh:vendored / IBEX_REGENERATE_RUNTIME builds would write a
+    // non-lowered bundle that breaks the regenerate-vendored "same bytes"
+    // invariant and fails HBC compilation. (ENG-23131)
+    let mut ran_local_runner = false;
     if let Some(runner_path) = which_js_runner() {
+        ran_local_runner = true;
         let status = std::process::Command::new(&runner_path)
             .arg(&build_script)
             .arg("--entry")
@@ -1894,6 +1909,7 @@ fn build_runtime_bundle_source(
             .arg(bundled_runtime)
             .arg("--format")
             .arg("iife")
+            .arg("--lower-classes")
             .current_dir(devtools_dir)
             .status();
 
@@ -1902,7 +1918,15 @@ fn build_runtime_bundle_source(
         }
     }
 
-    try_build_runtime_bundle_via_primary_checkout(repo_root, runtime_entry, bundled_runtime)
+    // Same policy as the builtins path: the primary-checkout substitute is
+    // for worktrees with no local runner or JS deps. A present local pipeline
+    // that fails must surface as a failure (LLP 0019), not be papered over by
+    // the primary's (possibly older) bundler.
+    if !ran_local_runner || !missing_js_build_deps_hint(repo_root).is_empty() {
+        try_build_runtime_bundle_via_primary_checkout(repo_root, runtime_entry, bundled_runtime)
+    } else {
+        false
+    }
 }
 
 fn push_cpp_raw_string_literal(out: &mut String, const_name: &str, source: &str) {
@@ -2008,7 +2032,7 @@ fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
             match std::fs::copy(&path, &staged_path) {
                 Ok(_) => {}
                 Err(error) if is_existing_permission_denied(&error, &staged_path) => {
-                    eprintln!(
+                    println!(
                         "cargo:warning=Could not overwrite staged Windows runtime DLL {}; using existing file: {error}",
                         staged_path.display()
                     );
@@ -2032,7 +2056,7 @@ fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
         );
     }
     eprintln!(
-        "cargo:warning=Staged {copied} Windows runtime DLLs from {}",
+        "ibex build: staged {copied} Windows runtime DLLs from {}",
         hermes_bin_dir.display()
     );
 }
@@ -2067,12 +2091,12 @@ fn generate_runtime_bundle_bytecode_header(
     // install the shared runtime bundle, and the Windows Hermes compiler rejects
     // modern bundle syntax, so HBC generation is intentionally skipped.
     if target_os == "windows" {
-        eprintln!("cargo:warning=Skipping shared runtime bundle HBC generation on Windows");
+        println!("cargo:warning=Skipping shared runtime bundle HBC generation on Windows");
         return;
     }
 
     if !hermesc.exists() {
-        eprintln!(
+        println!(
             "cargo:warning=Skipping shared runtime bundle HBC generation: hermesc not found at {}",
             hermesc.display()
         );
@@ -2080,21 +2104,21 @@ fn generate_runtime_bundle_bytecode_header(
     }
 
     let Some(compiler_version) = extract_hbc_version(&hermesc) else {
-        eprintln!(
+        println!(
             "cargo:warning=Skipping shared runtime bundle HBC generation: could not read hermesc HBC version"
         );
         return;
     };
 
     let Some(runtime_version) = extract_hbc_version(&hermes_binary) else {
-        eprintln!(
+        println!(
             "cargo:warning=Skipping shared runtime bundle HBC generation: could not read Hermes runtime HBC version"
         );
         return;
     };
 
     if compiler_version != runtime_version {
-        eprintln!(
+        println!(
             "cargo:warning=Skipping shared runtime bundle HBC generation: hermesc HBC version {} != hermes HBC version {}",
             compiler_version,
             runtime_version
@@ -2111,7 +2135,7 @@ fn generate_runtime_bundle_bytecode_header(
         .status();
 
     if !matches!(status, Ok(result) if result.success()) {
-        eprintln!("cargo:warning=Skipping shared runtime bundle HBC generation: hermesc failed");
+        println!("cargo:warning=Skipping shared runtime bundle HBC generation: hermesc failed");
         safe_remove_file(&bundled_runtime_hbc);
         return;
     }
@@ -2119,7 +2143,7 @@ fn generate_runtime_bundle_bytecode_header(
     match bytecode_file_version(&hermesc, &bundled_runtime_hbc) {
         Some(file_version) if file_version == compiler_version => {}
         Some(file_version) => {
-            eprintln!(
+            println!(
                 "cargo:warning=Skipping shared runtime bundle HBC generation: file HBC version {} != expected {}",
                 file_version,
                 compiler_version
@@ -2128,7 +2152,7 @@ fn generate_runtime_bundle_bytecode_header(
             return;
         }
         None => {
-            eprintln!(
+            println!(
                 "cargo:warning=Skipping shared runtime bundle HBC generation: could not read generated HBC version"
             );
             safe_remove_file(&bundled_runtime_hbc);
@@ -2157,7 +2181,7 @@ fn generate_runtime_bundle_bytecode_header(
     );
 
     write_file_or_panic(&header_path, header, "runtime_bundle_bytecode.h");
-    eprintln!("cargo:warning=Generated runtime_bundle_bytecode.h from shared runtime bundle");
+    eprintln!("ibex build: generated runtime_bundle_bytecode.h from shared runtime bundle");
 }
 
 fn try_build_builtins_via_primary_checkout(
@@ -2231,6 +2255,7 @@ fn try_build_runtime_bundle_via_primary_checkout(
         .arg(bundled_runtime)
         .arg("--format")
         .arg("iife")
+        .arg("--lower-classes")
         .current_dir(&primary_devtools_dir)
         .status();
 
@@ -2286,7 +2311,7 @@ fn copy_builtins_fallback(src: &std::path::Path, dst: &std::path::Path) {
             let path = entry.path();
             if path.extension().is_some_and(|e| e == "js" || e == "ts") {
                 let Some(file_name) = path.file_name() else {
-                    eprintln!(
+                    println!(
                         "cargo:warning=Skipping builtin copy for {} because it has no file name",
                         path.display()
                     );
@@ -2356,10 +2381,7 @@ fn refresh_vendored_generated(out_dir: &Path, vendored_generated_dir: &Path) {
         let dst = vendored_generated_dir.join(file_name);
         let contents = read_bytes_or_panic(&src, file_name);
         write_file_or_panic(&dst, contents, file_name);
-        eprintln!(
-            "cargo:warning=Refreshed vendored artifact {}",
-            dst.display()
-        );
+        eprintln!("ibex build: refreshed vendored artifact {}", dst.display());
     }
 
     let src_builtins = out_dir.join("builtins");
@@ -2367,7 +2389,7 @@ fn refresh_vendored_generated(out_dir: &Path, vendored_generated_dir: &Path) {
     clear_dir_if_exists(&dst_builtins, "vendored builtins");
     copy_dir_files(&src_builtins, &dst_builtins, &["js"]);
     eprintln!(
-        "cargo:warning=Refreshed vendored builtin modules in {}",
+        "ibex build: refreshed vendored builtin modules in {}",
         dst_builtins.display()
     );
 }
@@ -2375,7 +2397,7 @@ fn refresh_vendored_generated(out_dir: &Path, vendored_generated_dir: &Path) {
 fn safe_remove_file(path: &Path) {
     if let Err(err) = std::fs::remove_file(path) {
         if err.kind() != ErrorKind::NotFound {
-            eprintln!("cargo:warning=Failed to remove {}: {}", path.display(), err);
+            println!("cargo:warning=Failed to remove {}: {}", path.display(), err);
         }
     }
 }

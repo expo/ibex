@@ -38,6 +38,18 @@ make_outer() {
 
 origin_of() { git -C "$1" config --get remote.origin.url || true; }
 
+# Seed a minimal valid managed skill source (a real Git repo whose top-level is
+# itself, holding one SKILL.md) so an offline sync can link at least one skill:
+# sync-agent-skills.sh now fails loud when it links zero skills (case 7).
+seed_skill_source() {
+  local outer="$1"
+  local src="$outer/.agent-skill-sources/llp"
+  mkdir -p "$src/skills/demo-skill"
+  printf '# demo skill\n' > "$src/skills/demo-skill/SKILL.md"
+  git -C "$src" init -q
+  git -C "$src" remote add origin https://github.com/ccheever/llp.git
+}
+
 # --- Case 1: hook is a no-op without opt-in --------------------------------
 outer="$(make_outer case1)"
 env -u IBEX_ENABLE_AGENT_SKILLS_SYNC -u IBEX_SKIP_AGENT_SKILLS_SYNC \
@@ -90,6 +102,7 @@ fi
 
 # --- Case 5: installer does not enable hooks without opt-in ----------------
 outer="$(make_outer case5)"
+seed_skill_source "$outer"
 env -u IBEX_ENABLE_AGENT_SKILLS_SYNC \
   IBEX_AGENT_SKILL_SOURCES="$outer/.agent-skill-sources" \
   CLAUDE_SKILLS_DIR="$work/case5-claude" \
@@ -106,6 +119,7 @@ fi
 
 # --- Case 6: installer WITH opt-in flag enables hooks ----------------------
 outer="$(make_outer case6)"
+seed_skill_source "$outer"
 env -u IBEX_ENABLE_AGENT_SKILLS_SYNC \
   IBEX_AGENT_SKILL_SOURCES="$outer/.agent-skill-sources" \
   CLAUDE_SKILLS_DIR="$work/case6-claude" \
@@ -118,6 +132,18 @@ if [ "$(git -C "$outer" config --get core.hooksPath || true)" = ".githooks" ]; t
   ok "installer enables core.hooksPath=.githooks with --enable-hooks"
 else
   bad "installer did not enable hooks even with --enable-hooks"
+fi
+
+# --- Case 7: zero skills linked is a loud failure ---------------------------
+# Absent sources + no network means nothing can be linked; the sync must exit
+# nonzero instead of printing an empty success line (scripts/README.md
+# fail-loud rule, ENG-23131).
+outer="$(make_outer case7)"
+if IBEX_AGENT_SKILL_SOURCES="$outer/.agent-skill-sources" \
+     "$outer/scripts/sync-agent-skills.sh" --quiet --no-fetch >/dev/null 2>&1; then
+  bad "sync exited 0 having linked zero skills"
+else
+  ok "sync exits nonzero when zero skills were linked"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

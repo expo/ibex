@@ -404,7 +404,7 @@ export function capabilityUnion(caps) {
  * or a lone scope prefix is returned unchanged. This is the generated-policy
  * counterpart to the runtime's native `bareNameOf`/`__ibexBarePackageName`
  * (`src/engine/hermes_runtime.cc`); it maps an identity back to the selector the
- * runtime falls through to. @ref LLP 0013#resolved-questions (ENG-22818)
+ * runtime falls through to. @ref LLP 0013#resolved-questions — (ENG-22818)
  */
 export function bareNameOf(identity) {
   if (typeof identity !== 'string') return identity;

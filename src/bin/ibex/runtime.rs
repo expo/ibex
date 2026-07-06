@@ -1611,7 +1611,7 @@ fn resolve_security_mode(
 /// the resulting `.hbc`, run under `--capsec enforce`, attributes every
 /// `node_modules` frame to the trusted root — the capability gate never fires for
 /// a dependency. Returns the resolved mode (Enforce/Audit imply chunking).
-/// @ref LLP 0013#mechanism-3 (ENG-22760)
+/// @ref LLP 0013#mechanism-3 — (ENG-22760)
 pub(crate) fn apply_build_isolation(cli: &Cli) -> Result<crate::host::SecurityMode> {
     let policy_path = resolve_policy_path(cli);
     let mode = resolve_security_mode(cli, policy_path.as_deref())?;
@@ -1850,7 +1850,7 @@ fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
             }
         );
     }
-    // @ref LLP 0013 §self-grant — under enforce the runtime package
+    // @ref LLP 0013 — §self-grant — under enforce the runtime package
     // self-grant surface (`Exact.setModuleCapabilities`, the `require({needs})`
     // channel) must not be reachable: grants come from the policy artifact. Audit
     // mode observes would-deny self-grant attempts while preserving permissive

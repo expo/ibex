@@ -98,7 +98,7 @@ const writeResult = await bundle.write({
                 // Group by the version-qualified identity (`name@version`) so two
                 // installed versions of one package become separate chunks (hence
                 // separate Domains/principals), matching the runtime loader's
-                // identity. @ref LLP 0013#resolved-questions (ENG-22621)
+                // identity. @ref LLP 0013#resolved-questions — (ENG-22621)
                 const pkg = packageIdentityOfModuleId(id);
                 return pkg ? encodePackageChunkName(pkg) : null;
               },

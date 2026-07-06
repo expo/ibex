@@ -514,7 +514,8 @@ async fn execute_test_once(
             cmd.env("EXACT_WPT_TRUST_LOOPBACK_TLS", "1");
             // Opt in to the WPT close-timing fixture URL sniffing in the macOS
             // websocket engine; production runs leave it off.
-            // @tactical @ref LLP 0159 R5
+            // @tactical — see LLP 0159 R5 in the exact monorepo (inherited
+            // cross-repo reference; that corpus is not carried under this llp/).
             cmd.env("EXACT_WPT_FIXTURE_CLOSE_SEMANTICS", "1");
             if let Ok(serialized) = serde_json::to_string(config) {
                 cmd.env("WPT_SERVER_CONFIG", serialized);

@@ -206,7 +206,7 @@ extern "C" uint64_t ex_host_handle_create(const char* capability);
 extern "C" uint64_t ex_host_handle_scoped(uint64_t parent, const char* narrower);
 extern "C" int32_t ex_host_handle_check(uint64_t id, const char* capability);
 extern "C" void ex_host_handle_revoke(uint64_t id);
-// @ref LLP 0013 §dynamic permissions — runtime root-grant mutation (tri-state).
+// @ref LLP 0013 — §dynamic permissions — runtime root-grant mutation (tri-state).
 extern "C" int32_t ex_host_permission_request(const char* capability);
 extern "C" void ex_host_permission_revoke(const char* capability);
 extern "C" int32_t ex_host_permission_status(const char* capability);
@@ -226,7 +226,7 @@ extern "C" void ex_hermes_vm_clear_pending_package_id(void* vm_runtime);
 extern "C" size_t ex_hermes_vm_collect_package_ids(void* vm_runtime,
                                                    uint32_t* out,
                                                    size_t max);
-// @ref LLP 0013#phase-5 (Open-Q3) — arm schedule-time principal capture so a
+// @ref LLP 0013#phase-5 — (Open-Q3) — arm schedule-time principal capture so a
 // deputy op detached across a microtask (`Promise.resolve(x).then(deputy.method)`)
 // is attributed to its scheduler, not just the bare deputy frame. Exported by
 // patches/hermes/0008; armed at boot iff deputy-class hardening is configured.
@@ -355,7 +355,7 @@ inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFoll
       if (n == kMaxStack) {
         ids64[n++] = static_cast<uint64_t>(kNoUserPrincipalId);
       }
-      // @ref LLP 0013#phase-5 (Open-Q3), ENG-22759 — fold in the HOST-queue
+      // @ref LLP 0013#phase-5 — (Open-Q3), ENG-22759 — fold in the HOST-queue
       // scheduling principal for a deputy op detached across a timer /
       // process.nextTick / setImmediate / the non-JSI queueMicrotask fallback.
       // ENG-22761 captures that principal into g_native_callback_principal_id
