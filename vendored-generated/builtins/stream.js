@@ -3778,11 +3778,14 @@ Writable.prototype._flushWriteQueue = function() {
 		state.needDrain = false;
 		_scheduleDrain(self);
 	};
+	var cleanupShouldDecrementLength = true;
 	var cleanup = function(err) {
 		state.bufferProcessing = false;
 		state.writing = false;
-		self.writableLength -= totalLen;
-		if (self.writableLength < 0) self.writableLength = 0;
+		if (cleanupShouldDecrementLength) {
+			self.writableLength -= totalLen;
+			if (self.writableLength < 0) self.writableLength = 0;
+		}
 		_syncWritableBufferState(self);
 		if (err) {
 			self.writable = false;
@@ -3812,6 +3815,7 @@ Writable.prototype._flushWriteQueue = function() {
 		}
 		return;
 	}
+	cleanupShouldDecrementLength = false;
 	var index = 0;
 	function runNext() {
 		if (index >= batch.length) {

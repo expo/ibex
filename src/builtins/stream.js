@@ -4994,11 +4994,22 @@ Writable.prototype._flushWriteQueue = function() {
     _scheduleDrain(self);
   };
 
+  // (ENG-23041) The _writev branch below has no per-item length decrement, so
+  // cleanup() subtracting totalLen once is correct there. But the runNext
+  // fallback (no _writev, or a single-chunk batch) already decrements
+  // writableLength per item as each write's callback fires; if cleanup() also
+  // subtracted totalLen, the batch would be double-subtracted, clamp to 0,
+  // and maybeEmitDrain() could fire 'drain' while a concurrent write that
+  // landed in a fresh _writeQueue during the flush is still buffered.
+  var cleanupShouldDecrementLength = true;
+
   var cleanup = function(err) {
     state.bufferProcessing = false;
     state.writing = false;
-    self.writableLength -= totalLen;
-    if (self.writableLength < 0) self.writableLength = 0;
+    if (cleanupShouldDecrementLength) {
+      self.writableLength -= totalLen;
+      if (self.writableLength < 0) self.writableLength = 0;
+    }
     _syncWritableBufferState(self);
     if (err) {
       self.writable = false;
@@ -5042,6 +5053,7 @@ Writable.prototype._flushWriteQueue = function() {
     return;
   }
 
+  cleanupShouldDecrementLength = false;
   var index = 0;
   function runNext() {
     if (index >= batch.length) {
