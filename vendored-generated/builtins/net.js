@@ -1,4 +1,13 @@
 //#region src/builtins/net.js
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+	if (_swallowDebugLog === null) try {
+		_swallowDebugLog = require("util").debuglog("net");
+	} catch (_swallowInitErr) {
+		_swallowDebugLog = function() {};
+	}
+	_swallowDebugLog(msg, err);
+}
 var EventEmitter;
 var StringDecoder = null;
 var _rejectionSymbol = typeof Symbol === "function" && typeof Symbol.for === "function" ? Symbol.for("nodejs.rejection") : null;
@@ -328,7 +337,9 @@ function _shutdownSocketWrite(socket) {
 	if (typeof __exactTcpShutdown !== "function") return;
 	try {
 		__exactTcpShutdown(nativeHandle, 1);
-	} catch (e) {}
+	} catch (e) {
+		_swallowDebug("tcp shutdown(write) failed", e);
+	}
 }
 function _hasMatchingIPv6OnlyServer(host, port) {
 	if (!host || !port) return false;
@@ -1759,7 +1770,9 @@ Socket.prototype.connect = function(options, connectListener) {
 			self.readyState = "open";
 			if (typeof self._handle.readStart === "function") try {
 				self._handle.readStart();
-			} catch (_customReadStartErr) {}
+			} catch (_customReadStartErr) {
+				_swallowDebug("custom handle readStart failed", _customReadStartErr);
+			}
 			_updateSocketTimeoutHandleState(self);
 			self.emit("connect");
 			self.emit("ready");
@@ -2780,7 +2793,9 @@ Server.prototype.close = function(callback) {
 	if (this._isUnix && this._socketPath) {
 		try {
 			require("fs").unlinkSync(this._socketPath);
-		} catch (e) {}
+		} catch (e) {
+			_swallowDebug("failed to unlink unix socket file", e);
+		}
 		this._socketPath = null;
 	}
 	var self = this;

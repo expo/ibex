@@ -1,3 +1,13 @@
+// ENG-23018: opt-in debug visibility (NODE_DEBUG=net) for otherwise-
+// swallowed best-effort errors. No-op unless the namespace is enabled, so
+// hot paths pay only a guarded function call.
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+  if (_swallowDebugLog === null) {
+    try { _swallowDebugLog = require('util').debuglog('net'); } catch (_swallowInitErr) { _swallowDebugLog = function() {}; }
+  }
+  _swallowDebugLog(msg, err);
+}
 var EventEmitter;
 var StringDecoder = null;
 var _rejectionSymbol = typeof Symbol === 'function' && typeof Symbol.for === 'function'
@@ -65,7 +75,7 @@ try {
 } catch (_stringDecoderErr) {
   try {
     StringDecoder = require('string_decoder').StringDecoder;
-  } catch (_stringDecoderErr2) {}
+  } catch (_stringDecoderErr2) { /* ignored: optional string_decoder; StringDecoder stays null and callers guard */ }
 }
 
 // --- Validation helpers ---
@@ -184,7 +194,7 @@ try {
   if (_internalTestBinding && typeof _internalTestBinding.internalBinding === 'function') {
     _internalBinding = _internalTestBinding.internalBinding;
   }
-} catch (e) {}
+} catch (e) { /* ignored: internal/test/binding only exists in test builds */ }
 var _normalizedArgsSymbol = Symbol.for('nodejs.net.normalizedArgs');
 var _kReinitializeHandle = Symbol.for('nodejs.net.kReinitializeHandle');
 var kTimeout = Symbol.for('kTimeout');
@@ -273,7 +283,7 @@ function _makeSocketHandle(handle, kind, fd, path) {
   if (typeof _internalBinding === 'function') {
     try {
       binding = _internalBinding(wrapKind === 'pipe' ? 'pipe_wrap' : 'tcp_wrap');
-    } catch (_bindingErr) {}
+    } catch (_bindingErr) { /* ignored: optional wrap binding; fall back to the plain exact handle */ }
   }
   if (binding) {
     Wrap = wrapKind === 'pipe' ? binding.Pipe : binding.TCP;
@@ -298,7 +308,7 @@ function _makeSocketHandle(handle, kind, fd, path) {
       if (socketHandle._exactHandle == null) return;
       try {
         __exactTcpSetNoDelay(socketHandle._exactHandle, noDelay ? 1 : 0);
-      } catch(e) {}
+      } catch (e) { /* ignored: best-effort TCP_NODELAY on a possibly-closed native handle */ }
     },
     setKeepAlive: function(enable, delay) {
       if (!_hasTcp) return;
@@ -312,12 +322,12 @@ function _makeSocketHandle(handle, kind, fd, path) {
         } else {
           __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0);
         }
-      } catch(e) {}
+      } catch (e) { /* ignored: best-effort SO_KEEPALIVE on a possibly-closed native handle */ }
     },
     close: function() {
       if (!_hasTcp) return;
       if (socketHandle._exactHandle == null) return;
-      try { __exactTcpClose(socketHandle._exactHandle); } catch(e) {}
+      try { __exactTcpClose(socketHandle._exactHandle); } catch (e) { /* ignored: best-effort close; native handle may already be released */ }
       socketHandle._exactHandle = null;
       socketHandle._refed = false;
     },
@@ -384,7 +394,7 @@ function _shutdownSocketWrite(socket) {
   if (typeof __exactTcpShutdown !== 'function') return;
   try {
     __exactTcpShutdown(nativeHandle, 1);
-  } catch(e) {}
+  } catch (e) { _swallowDebug('tcp shutdown(write) failed', e); }
 }
 
 function _hasMatchingIPv6OnlyServer(host, port) {
@@ -561,7 +571,7 @@ function _validateConnectPath(path) {
 function _validateHintsOption(hints) {
   if (hints === undefined) return;
   var dns;
-  try { dns = require('dns'); } catch (e) {}
+  try { dns = require('dns'); } catch (e) { /* ignored: optional dns module; lookup is skipped when unavailable */ }
   var validMask = 1024 | 2048 | 256;
   if (dns) {
     var dnsMask = 0;
@@ -675,7 +685,7 @@ function _setTimerRefState(timer, refed) {
     } else if (typeof timer.ref === 'function') {
       timer.ref();
     }
-  } catch(e) {}
+  } catch (e) { /* ignored: timer ref/unref is best-effort */ }
 }
 
 function _setHandleRefState(handle, refed) {
@@ -691,7 +701,7 @@ function _setHandleRefState(handle, refed) {
     } else if (typeof handle.ref === 'function') {
       handle.ref();
     }
-  } catch(e) {}
+  } catch (e) { /* ignored: handle ref/unref is best-effort */ }
 }
 
 function _scheduleTimer(callback, delay, owner) {
@@ -796,7 +806,7 @@ function _cancelPendingConnect(socket) {
   }
   if (socket._pendingConnectHandle != null) {
     if (_hasTcp) {
-      try { __exactTcpClose(socket._pendingConnectHandle); } catch (e) {}
+      try { __exactTcpClose(socket._pendingConnectHandle); } catch (e) { /* ignored: best-effort close of an aborted pending connect handle */ }
     }
     socket._pendingConnectHandle = null;
   }
@@ -844,7 +854,7 @@ function _pollTcpConnect(socket, nativeHandle, onConnected, onFailed) {
       // destroy()/reset close _pendingConnectHandle themselves; only release
       // here if this handle is still the pending one (e.g. a bare abort).
       if (socket._pendingConnectHandle === nativeHandle) {
-        try { __exactTcpClose(nativeHandle); } catch (e) {}
+        try { __exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close; connect already failed */ }
         socket._pendingConnectHandle = null;
       }
       return;
@@ -853,7 +863,7 @@ function _pollTcpConnect(socket, nativeHandle, onConnected, onFailed) {
     try {
       status = __exactTcpConnectPoll(nativeHandle);
     } catch (pollErr) {
-      try { __exactTcpClose(nativeHandle); } catch (e) {}
+      try { __exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close after a connect-poll error */ }
       socket._pendingConnectHandle = null;
       onFailed(pollErr);
       return;
@@ -907,7 +917,7 @@ function _detachSocketAbortListener(socket) {
   if (!socket || !socket._abortSignal || !socket._abortListener) return;
   try {
     socket._abortSignal.removeEventListener('abort', socket._abortListener);
-  } catch(e) {}
+  } catch (e) { /* ignored: abort listener may already be detached */ }
   socket._abortSignal = null;
   socket._abortListener = null;
 }
@@ -957,7 +967,7 @@ function _describeAcceptedSocket(nativeHandle, server) {
       info.localPort = localInfo.port;
       info.localFamily = localInfo.family;
     }
-  } catch(e) {}
+  } catch (e) { /* ignored: address info is advisory; leave local fields unset */ }
   try {
     var remote = __exactTcpRemoteAddr(nativeHandle);
     if (remote) {
@@ -966,7 +976,7 @@ function _describeAcceptedSocket(nativeHandle, server) {
       info.remotePort = remoteInfo.port;
       info.remoteFamily = remoteInfo.family;
     }
-  } catch(e) {}
+  } catch (e) { /* ignored: address info is advisory; leave remote fields unset */ }
   return info;
 }
 
@@ -1875,7 +1885,7 @@ Socket.prototype._updateAddressInfo = function() {
       this.remotePort = r.port;
       this.remoteFamily = r.family;
     }
-  } catch(e) {}
+  } catch (e) { /* ignored: address info is advisory; leave remote fields unset */ }
   try {
     var local = __exactTcpLocalAddr(nativeHandle);
     if (local) {
@@ -1884,7 +1894,7 @@ Socket.prototype._updateAddressInfo = function() {
       this.localPort = l.port;
       this.localFamily = l.family;
     }
-  } catch(e) {}
+  } catch (e) { /* ignored: address info is advisory; leave local fields unset */ }
 };
 
 Socket.prototype._startPolling = function() {
@@ -2245,7 +2255,7 @@ Socket.prototype.connect = function(options, connectListener) {
       self.pending = false;
       self.readyState = 'open';
       if (typeof self._handle.readStart === 'function') {
-        try { self._handle.readStart(); } catch (_customReadStartErr) {}
+        try { self._handle.readStart(); } catch (_customReadStartErr) { _swallowDebug('custom handle readStart failed', _customReadStartErr); }
       }
       _updateSocketTimeoutHandleState(self);
       self.emit('connect');
@@ -2275,7 +2285,7 @@ Socket.prototype.connect = function(options, connectListener) {
       if (dns && typeof dns.lookup === 'function') {
         resolver = dns.lookup;
       }
-    } catch (e) {}
+    } catch (e) { /* ignored: optional dns module; keep the caller-provided lookup */ }
   }
   if (_hasConflictingLocalBind(options.localAddress, options.localPort)) {
     _scheduleTimer(function() {
@@ -2415,7 +2425,7 @@ Socket.prototype.connect = function(options, connectListener) {
           return;
         }
         if (selfRef.destroyed || selfRef._abortPending) {
-          try { __exactTcpClose(startHandle); } catch(e) {}
+          try { __exactTcpClose(startHandle); } catch (e) { /* ignored: best-effort close; socket destroyed while connect was in flight */ }
           return;
         }
         _pollTcpConnect(
@@ -2423,7 +2433,7 @@ Socket.prototype.connect = function(options, connectListener) {
           startHandle,
           function onConnectPollDone() {
             if (selfRef.destroyed || selfRef._abortPending) {
-              try { __exactTcpClose(startHandle); } catch(e) {}
+              try { __exactTcpClose(startHandle); } catch (e) { /* ignored: best-effort close; socket destroyed while connect was in flight */ }
               return;
             }
             connected = true;
@@ -2447,7 +2457,7 @@ Socket.prototype.connect = function(options, connectListener) {
           localPortArg
         );
         if (selfRef.destroyed) {
-          try { __exactTcpClose(nativeHandle); } catch(e) {}
+          try { __exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close; socket destroyed before handle adoption */ }
           return;
         }
         connected = true;
@@ -2749,7 +2759,7 @@ Socket.prototype.destroy = function(err) {
   _cancelPendingConnect(this);
   var nativeHandle = _unwrapHandle(this._handle);
   if (nativeHandle != null && _hasTcp) {
-    try { __exactTcpClose(nativeHandle); } catch(e) {}
+    try { __exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close during destroy */ }
   }
   // Set _handle to null after destroy (Node.js compat: test-net-after-close checks c._handle === null)
   this._handle = null;
@@ -2769,7 +2779,7 @@ Socket.prototype.resetAndDestroy = function() {
   if (this._handle != null && _hasTcp) {
     var nativeHandle = _unwrapHandle(this._handle);
     if (nativeHandle != null && typeof __exactTcpReset === 'function') {
-      try { __exactTcpReset(nativeHandle); } catch(e) {}
+      try { __exactTcpReset(nativeHandle); } catch (e) { /* ignored: best-effort RST; handle may already be closed */ }
     }
   }
   return this.destroy();
@@ -2888,7 +2898,7 @@ Socket.prototype.unshift = function(chunk) {
 Socket.prototype.setNoDelay = function(noDelay) {
   this._noDelay = noDelay !== false;
   if (_unwrapHandle(this._handle) != null && _hasTcp) {
-    try { this._handle.setNoDelay(noDelay !== false); } catch(e) {}
+    try { this._handle.setNoDelay(noDelay !== false); } catch (e) { /* ignored: best-effort TCP_NODELAY; handle may be mid-teardown */ }
   }
   return this;
 };
@@ -2897,7 +2907,7 @@ Socket.prototype.setKeepAlive = function(enable, delay) {
   this._keepAlive = enable !== false;
   this._keepAliveInitialDelay = delay || 0;
   if (_unwrapHandle(this._handle) != null && _hasTcp) {
-    try { this._handle.setKeepAlive(enable, delay); } catch(e) {}
+    try { this._handle.setKeepAlive(enable, delay); } catch (e) { /* ignored: best-effort SO_KEEPALIVE; handle may be mid-teardown */ }
   }
   return this;
 };
@@ -2931,7 +2941,7 @@ Socket.prototype.address = function() {
     try {
       var info = __exactTcpLocalAddr(nativeHandle);
       if (info) return JSON.parse(info);
-    } catch(e) {}
+    } catch (e) { /* ignored: fall back to the cached address fields */ }
   }
   return { address: this.localAddress, port: this.localPort, family: this.remoteFamily || 'IPv4' };
 };
@@ -2945,7 +2955,7 @@ Socket.prototype.pause = function() {
     try {
       this._handle.readStop();
       this._customReadStarted = false;
-    } catch (_pauseReadStopErr) {}
+    } catch (_pauseReadStopErr) { /* ignored: readStop is best-effort; _customReadStarted stays set so pause can retry */ }
   }
   if (!wasPaused) {
     this.emit('pause');
@@ -3273,7 +3283,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
           self._requestedPort = directAddr.port;
           self._connectionKey = (directAddr.family || 'IPv4').slice(-1) + ':' + directAddr.address + ':' + directAddr.port;
         }
-      } catch (_directInfoErr) {}
+      } catch (_directInfoErr) { /* ignored: advisory listen-address bookkeeping */ }
     }
     _scheduleTimer(function() {
       if (listenToken !== self._listenToken) return;
@@ -3359,7 +3369,7 @@ Server.prototype.listen = function(port, host, backlog, callback) {
             var familySuffix = (addr.family || 'IPv4').slice(-1);
             self._connectionKey = familySuffix + ':' + addr.address + ':' + self._requestedPort;
           }
-        } catch(e) {}
+        } catch (e) { /* ignored: advisory listen-address bookkeeping */ }
         listenError = null;
         break;
       } catch (candidateError) {
@@ -3401,7 +3411,7 @@ Server.prototype._startAccepting = function() {
        self._connections >= self.maxConnections);
     if (shouldDrop) {
       var dropInfo = acceptedInfo || _describeAcceptedSocket(clientHandle, self);
-      try { __exactTcpClose(clientHandle); } catch(e) {}
+      try { __exactTcpClose(clientHandle); } catch (e) { /* ignored: best-effort close of a dropped (maxConnections) client handle */ }
       self.emit('drop', dropInfo);
       return true;
     }
@@ -3458,7 +3468,7 @@ Server.prototype._startAccepting = function() {
           if (acceptedInfo.remoteAddress) {
             var blockedType = isIPv6(acceptedInfo.remoteAddress) ? 'ipv6' : 'ipv4';
             if (self.blockList.check(acceptedInfo.remoteAddress, blockedType)) {
-              try { __exactTcpClose(clientHandle); } catch (_blockCloseErr) {}
+              try { __exactTcpClose(clientHandle); } catch (_blockCloseErr) { /* ignored: best-effort close of a blocklisted client handle */ }
               continue;
             }
           }
@@ -3500,7 +3510,7 @@ Server.prototype.close = function(callback) {
   if (this._handle != null) {
     // Close the fd (works for both TCP and Unix handles since they share the native socket table)
     if (_hasTcp) {
-      try { __exactTcpClose(_unwrapHandle(this._handle)); } catch(e) {}
+      try { __exactTcpClose(_unwrapHandle(this._handle)); } catch (e) { /* ignored: best-effort close during server shutdown */ }
     }
     _unregisterTcpServer(this);
     this._handle = null;
@@ -3510,7 +3520,7 @@ Server.prototype.close = function(callback) {
     try {
       var fs = require('fs');
       fs.unlinkSync(this._socketPath);
-    } catch(e) {}
+    } catch (e) { _swallowDebug('failed to unlink unix socket file', e); }
     this._socketPath = null;
   }
   // Only emit 'close' immediately if there are no active connections.
@@ -3558,7 +3568,7 @@ Server.prototype.address = function() {
     try {
       var info = __exactTcpLocalAddr(_unwrapHandle(this._handle));
       if (info) return JSON.parse(info);
-    } catch(e) {}
+    } catch (e) { /* ignored: fall through to the default address result */ }
   }
   return { address: this._host || '0.0.0.0', port: this._port || 0, family: 'IPv4' };
 };

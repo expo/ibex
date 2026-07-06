@@ -1,3 +1,13 @@
+// ENG-23018: opt-in debug visibility (NODE_DEBUG=http) for otherwise-
+// swallowed best-effort errors. No-op unless the namespace is enabled, so
+// hot paths pay only a guarded function call.
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+  if (_swallowDebugLog === null) {
+    try { _swallowDebugLog = require('util').debuglog('http'); } catch (_swallowInitErr) { _swallowDebugLog = function() {}; }
+  }
+  _swallowDebugLog(msg, err);
+}
 var EventEmitter = require('events').EventEmitter;
 var Readable = null;
 function getReadableCtor() {
@@ -7,7 +17,7 @@ function getReadableCtor() {
     if (streamModule && typeof streamModule.Readable === 'function') {
       Readable = streamModule.Readable;
     }
-  } catch (_streamErr) {}
+  } catch (_streamErr) { /* ignored: optional stream module; Readable stays null and callers guard */ }
   return Readable;
 }
 
@@ -137,7 +147,7 @@ function getDefaultOutgoingHighWaterMark() {
     if (streamModule && typeof streamModule.getDefaultHighWaterMark === 'function') {
       return streamModule.getDefaultHighWaterMark(false);
     }
-  } catch (_streamErr) {}
+  } catch (_streamErr) { /* ignored: optional stream module; use the default high-water mark */ }
   return DEFAULT_OUTGOING_HIGH_WATER_MARK;
 }
 
@@ -178,7 +188,7 @@ function _formatStatusCodeForError(statusCode) {
     if (util && typeof util.inspect === 'function') {
       return util.inspect(statusCode);
     }
-  } catch (_inspectStatusCodeErr) {}
+  } catch (_inspectStatusCodeErr) { /* ignored: optional util.inspect; fall back to String() */ }
   return String(statusCode);
 }
 
@@ -1128,7 +1138,7 @@ OutgoingMessage.prototype.destroy = function(err) {
   if (this.socket && typeof this.socket.destroy === 'function' && !this.socket.destroyed) {
     try {
       this.socket.destroy(err);
-    } catch (_destroyErr) {}
+    } catch (_destroyErr) { /* ignored: best-effort destroy; socket may already be torn down */ }
   }
   if (err) {
     this.errored = err;
@@ -2097,7 +2107,7 @@ function IncomingMessage(socketOrResponse) {
   EventEmitter.call(this);
   var ReadableCtor = getReadableCtor();
   if (ReadableCtor) {
-    try { ReadableCtor.call(this); } catch (_readableInitErr) {}
+    try { ReadableCtor.call(this); } catch (_readableInitErr) { _swallowDebug('Readable base-class init failed', _readableInitErr); }
   }
 
   // If called with a fetch Response object (internal path)
@@ -2772,7 +2782,7 @@ function asyncResetHandle(socket) {
         typeof handle.getProviderType === 'function' ? handle.getProviderType() : 'Socket',
         handle
       ));
-    } catch (_asyncResetErr) {}
+    } catch (_asyncResetErr) { /* ignored: async_hooks reset is best-effort */ }
   }
 }
 
@@ -2799,7 +2809,7 @@ function takeFreeAgentSocket(freeSockets, scheduling) {
     if (!isReusableAgentSocket(socket)) {
       freeSockets.splice(index, 1);
       if (socket && typeof socket.destroy === 'function') {
-        try { socket.destroy(); } catch (_destroyFreeAgentSocketErr) {}
+        try { socket.destroy(); } catch (_destroyFreeAgentSocketErr) { /* ignored: best-effort destroy of a freed agent socket */ }
       }
       continue;
     }
@@ -2936,7 +2946,7 @@ function detachRequestAbortSignal(req) {
   if (!req || !req._abortSignal || !req._abortSignalListener) return;
   try {
     req._abortSignal.removeEventListener('abort', req._abortSignalListener);
-  } catch (_detachAbortSignalErr) {}
+  } catch (_detachAbortSignalErr) { /* ignored: abort listener may already be detached */ }
   req._abortSignal = null;
   req._abortSignalListener = null;
 }
@@ -3016,13 +3026,13 @@ ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
           self.emit('close');
         }
         if (socket && typeof socket.destroy === 'function') {
-          try { socket.destroy(); } catch (_lateSocketDestroyErr) {}
+          try { socket.destroy(); } catch (_lateSocketDestroyErr) { /* ignored: best-effort destroy of a late socket */ }
         }
         return;
       }
       self.destroyed = true;
       if (socket && typeof socket.destroy === 'function') {
-        try { socket.destroy(err); } catch (_destroyErr) {}
+        try { socket.destroy(err); } catch (_destroyErr) { /* ignored: best-effort destroy; socket may already be torn down */ }
       }
       self.emit('error', err);
       if (!self._closed) {
@@ -3039,7 +3049,7 @@ ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
         socket._httpMessage = null;
       }
       if (!socket.destroyed && typeof socket.destroy === 'function') {
-        try { socket.destroy(); } catch (_extraSocketDestroyErr) {}
+        try { socket.destroy(); } catch (_extraSocketDestroyErr) { /* ignored: best-effort destroy of an extra socket */ }
       }
       return;
     }
@@ -3048,7 +3058,7 @@ ClientRequest.prototype.onSocket = function(socket, requestOptions, err) {
         socket._httpMessage = null;
       }
       if (!socket.destroyed && typeof socket.destroy === 'function') {
-        try { socket.destroy(); } catch (_deadSocketDestroyErr) {}
+        try { socket.destroy(); } catch (_deadSocketDestroyErr) { /* ignored: best-effort destroy of a dead socket */ }
       }
       return;
     }
@@ -3243,16 +3253,16 @@ ClientRequest.prototype.destroy = function(err) {
     this.errored = err;
   }
   if (typeof this._abortResponse === 'function') {
-    try { this._abortResponse(err); } catch (_abortResponseErr) {}
+    try { this._abortResponse(err); } catch (_abortResponseErr) { _swallowDebug('abortResponse callback threw', _abortResponseErr); }
   }
   if (this._abortController) {
-    try { this._abortController.abort(); } catch(e) {}
+    try { this._abortController.abort(); } catch (e) { /* ignored: abort() is best-effort; controller may already be aborted */ }
   }
   if (this.socket && !this.socket.destroyed) {
     if (!err && !this.res && this.socket.connecting) {
       this.socket._suppressCloseBeforeConnectError = true;
     }
-    try { this.socket.destroy(err); } catch(e) {}
+    try { this.socket.destroy(err); } catch (e) { /* ignored: best-effort destroy; socket may already be torn down */ }
   } else if (!this._closed) {
     this._closed = true;
     var self = this;
@@ -3307,7 +3317,7 @@ ClientRequest.prototype._send = function() {
       if (parsedUrl.protocol === "http:") {
         useFetch = false;
       }
-    } catch (_err) {}
+    } catch (_err) { /* ignored: unparsable request URL; keep the default transport decision */ }
   }
 
   if (useFetch) {
@@ -3427,7 +3437,7 @@ ClientRequest.prototype._resolveConnectionOptions = function() {
       if ((!options.path || options.path === '/') && parsed.pathname) {
         this.path = parsed.pathname + (parsed.search || '');
       }
-    } catch (_err) {}
+    } catch (_err) { /* ignored: unparsable URL; fall back to the explicit option fields */ }
   }
   if (!host) host = 'localhost';
   if (!port) port = defaultPort || 80;
@@ -3621,7 +3631,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     }
     try {
       socket.destroy();
-    } catch (_responseParseDestroyErr) {}
+    } catch (_responseParseDestroyErr) { /* ignored: best-effort destroy after a response parse error */ }
     if (finishParsedResponse && responseEmitted && !responseEnded) {
       finishResponse();
     }
@@ -3738,7 +3748,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
           if (typeof socket.end === 'function') socket.end();
           else socket.destroy();
         } catch (_endErr) {
-          try { socket.destroy(); } catch (_destroyErr) {}
+          try { socket.destroy(); } catch (_destroyErr) { /* ignored: best-effort destroy after end() failed */ }
         }
       }
       return;
@@ -3833,7 +3843,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
     if (typeof self.listenerCount === 'function' && self.listenerCount('upgrade') > 0) {
       self.emit('upgrade', tcpIncoming, socket, upgradeHead);
     } else if (!socket.destroyed) {
-      try { socket.destroy(); } catch (_destroyUpgradeWithoutListenerErr) {}
+      try { socket.destroy(); } catch (_destroyUpgradeWithoutListenerErr) { /* ignored: best-effort destroy of an unhandled upgrade socket */ }
     }
     if (!self._closed) {
       self._closed = true;
@@ -4229,7 +4239,7 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
               socket.destroy();
             }
           } catch (_closeErr) {
-            try { socket.destroy(); } catch (_destroyErr) {}
+            try { socket.destroy(); } catch (_destroyErr) { /* ignored: best-effort destroy after a close error */ }
           }
         }
       });
@@ -4950,7 +4960,7 @@ TcpIncomingMessage.prototype.pipe = function(dest, options) {
 };
 TcpIncomingMessage.prototype._destroy = function(err, callback) {
   if (this.socket && !this.socket.destroyed) {
-    try { this.socket.destroy(); } catch(e) {}
+    try { this.socket.destroy(); } catch (e) { /* ignored: best-effort destroy during request teardown */ }
   }
   if (typeof callback === 'function') callback(err || null);
 };
@@ -4966,7 +4976,7 @@ TcpIncomingMessage.prototype.destroy = function(err) {
     this.errored = err;
   }
   if (this.socket && !this.socket.destroyed) {
-    try { this.socket.destroy(); } catch(e) {}
+    try { this.socket.destroy(); } catch (e) { /* ignored: best-effort destroy during request teardown */ }
   }
   var self = this;
   if (err) {
@@ -5135,7 +5145,7 @@ Agent.prototype.destroy = function() {
     var socks = this.sockets[key];
     if (Array.isArray(socks)) {
       for (var i = 0; i < socks.length; i++) {
-        try { socks[i].destroy(); } catch(e) {}
+        try { socks[i].destroy(); } catch (e) { /* ignored: best-effort destroy while clearing agent sockets */ }
       }
     }
   }
@@ -5143,7 +5153,7 @@ Agent.prototype.destroy = function() {
     var socks2 = this.freeSockets[key];
     if (Array.isArray(socks2)) {
       for (var j = 0; j < socks2.length; j++) {
-        try { socks2[j].destroy(); } catch(e) {}
+        try { socks2[j].destroy(); } catch (e) { /* ignored: best-effort destroy while clearing agent sockets */ }
       }
     }
   }
@@ -5560,13 +5570,13 @@ function _toHttpParserString(chunk) {
       if (chunk instanceof ArrayBuffer) {
         return Buffer.from(chunk).toString('latin1');
       }
-    } catch (_coerceErr) {}
+    } catch (_coerceErr) { /* ignored: fall through to the next chunk-coercion strategy */ }
   }
   try {
     if (typeof Buffer !== 'undefined') {
       return Buffer.from(chunk).toString('latin1');
     }
-  } catch (_bufferErr) {}
+  } catch (_bufferErr) { /* ignored: fall through to the string coercion fallback */ }
   try {
     return chunk.toString('latin1');
   } catch (_stringErr) {
@@ -6121,7 +6131,7 @@ ServerResponse.prototype.assignSocket = function(socket) {
     try {
       socket.end();
     } catch (_socketEndErr) {
-      try { socket.destroy(); } catch (_socketDestroyErr) {}
+      try { socket.destroy(); } catch (_socketDestroyErr) { /* ignored: best-effort destroy after end() failed */ }
     }
   };
   if (typeof socket.on === 'function') {
@@ -6647,7 +6657,7 @@ function _getSocketReadableHighWaterMark(socket) {
 function _finalizeServerResponseKeepAlive(response, socket, writeErr) {
   if (!socket) return;
   if (writeErr) {
-    try { socket.destroy(writeErr); } catch (_destroyKeepAliveErr) {}
+    try { socket.destroy(writeErr); } catch (_destroyKeepAliveErr) { /* ignored: best-effort destroy after a keep-alive write error */ }
     return;
   }
   response.detachSocket(socket);
@@ -6821,7 +6831,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
               _finalizeServerResponseKeepAlive(thisResponse, socket, writeErr);
             });
           }
-        } catch(e) {}
+        } catch (e) { _swallowDebug('server response write failed', e); }
       } else {
         this.detachSocket(socket);
         socket.parser = null;
@@ -6832,12 +6842,12 @@ ServerResponse.prototype._sendSocketResponse = function() {
           } else if (!useChunkedBody && bodyLength === 0) {
             socket.write(head, function(writeErr) {
               if (writeErr) {
-                try { socket.destroy(writeErr); } catch (_destroyAfterHeadErr) {}
+                try { socket.destroy(writeErr); } catch (_destroyAfterHeadErr) { /* ignored: best-effort destroy after a head write error */ }
                 return;
               }
               setTimeout(function() {
                 if (!socket.destroyed) {
-                  try { socket.end(); } catch (_endAfterHeadErr) {}
+                  try { socket.end(); } catch (_endAfterHeadErr) { /* ignored: best-effort end after a head write error */ }
                 }
               }, 0);
             });
@@ -6853,21 +6863,21 @@ ServerResponse.prototype._sendSocketResponse = function() {
               socket._ended = true;
               socket.write(finalBody, function(writeErr) {
                 if (writeErr) {
-                  try { socket.destroy(writeErr); } catch (_destroyAfterBodyErr) {}
+                  try { socket.destroy(writeErr); } catch (_destroyAfterBodyErr) { /* ignored: best-effort destroy after a body write error */ }
                   return;
                 }
                 setTimeout(function() {
                   if (!socket.destroyed) {
                     try {
                       socket.end(typeof Buffer !== 'undefined' && Buffer.alloc ? Buffer.alloc(0) : '');
-                    } catch (_endAfterBodyErr) {}
+                    } catch (_endAfterBodyErr) { /* ignored: best-effort end after the body write */ }
                   }
                 }, 0);
               });
             }
           }
         } catch(e) {
-          try { socket.destroy(); } catch(e2) {}
+          try { socket.destroy(); } catch (e2) { /* ignored: best-effort destroy after a response write error */ }
         }
       }
     } else {
@@ -6900,7 +6910,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
               _finalizeServerResponseKeepAlive(streamingResponse, socket);
             });
           }
-        } catch(e) {}
+        } catch (e) { _swallowDebug('streaming response write failed', e); }
       } else {
         this.detachSocket(socket);
         socket.parser = null;
@@ -6915,7 +6925,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
             socket.end();
           }
         } catch(e) {
-          try { socket.destroy(); } catch(e2) {}
+          try { socket.destroy(); } catch (e2) { /* ignored: best-effort destroy after a streaming write error */ }
         }
       }
     }
@@ -7095,7 +7105,7 @@ ServerResponse.prototype.destroy = function(err) {
   this.writableFinished = true;
   _resetOutgoingBufferState(this);
   if (this.socket && !this.socket.destroyed) {
-    try { this.socket.destroy(err); } catch(e) {}
+    try { this.socket.destroy(err); } catch (e) { /* ignored: best-effort destroy during client error handling */ }
   }
   if (err) this.errored = err;
   this.emit('close');
@@ -7127,7 +7137,7 @@ function ServerIncomingMessage(requestData, serverId) {
   var rawBody = requestData.body || '';
   if (serverId && rawBody) {
     if (typeof atob === 'function') {
-      try { rawBody = atob(rawBody); } catch(e) {}
+      try { rawBody = atob(rawBody); } catch (e) { /* ignored: body is not base64; use it as-is */ }
     } else {
       var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
       var lookup = {};
@@ -7402,7 +7412,7 @@ ServerIncomingMessage.prototype.destroy = function(err) {
       activeResponse &&
       activeResponse._finished !== true
     ) {
-      try { self.socket.destroy(); } catch(e) {}
+      try { self.socket.destroy(); } catch (e) { /* ignored: best-effort destroy during response cleanup */ }
     }
   }, 0);
   return this;
@@ -7460,7 +7470,7 @@ try {
   if (_streamState && typeof _streamState.getDefaultHighWaterMark === 'function') {
     _defaultHttpHighWaterMark = _streamState.getDefaultHighWaterMark();
   }
-} catch (_streamStateErr) {}
+} catch (_streamStateErr) { /* ignored: optional internal/streams/state; use the default high-water mark */ }
 
 function _copyPrototypeMembers(target, ctor) {
   if (!target || !ctor || !ctor.prototype) return;
@@ -7473,7 +7483,7 @@ function _copyPrototypeMembers(target, ctor) {
     if (!descriptor) continue;
     try {
       Object.defineProperty(target, name, descriptor);
-    } catch (_copyErr) {}
+    } catch (_copyErr) { /* ignored: non-configurable target property; skip copying it */ }
   }
 }
 
@@ -7510,7 +7520,7 @@ function _destroyHttpTimer(timer) {
   if (!timer) return;
   clearTimeout(timer);
   if (typeof timer.destroy === 'function') {
-    try { timer.destroy(); } catch (_destroyTimerErr) {}
+    try { timer.destroy(); } catch (_destroyTimerErr) { /* ignored: timer teardown is best-effort */ }
   }
 }
 
@@ -7658,7 +7668,7 @@ function Server(options, requestListener) {
   });
 
   var net;
-  try { net = require('net'); } catch(e) {}
+  try { net = require('net'); } catch (e) { /* ignored: optional net module; callers guard for null */ }
   if (net && typeof net.createServer === 'function') {
     var self = this;
     this._netServer = net.createServer(function(socket) {
@@ -7737,7 +7747,7 @@ Server.prototype._onConnection = function(socket) {
       }
       handled = self.emit('timeout', socket) || handled;
       if (!handled && !socket.destroyed) {
-        try { socket.destroy(); } catch (_destroyOnTimeoutErr) {}
+        try { socket.destroy(); } catch (_destroyOnTimeoutErr) { /* ignored: best-effort destroy after an unhandled timeout */ }
       }
     };
     socket.on('timeout', socket._exactServerSocketTimeoutListener);
@@ -7747,11 +7757,11 @@ Server.prototype._onConnection = function(socket) {
     try {
       socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n', function() {
         if (!socket.destroyed) {
-          try { socket.destroy(); } catch (_destroyAfterBadRequestErr) {}
+          try { socket.destroy(); } catch (_destroyAfterBadRequestErr) { /* ignored: best-effort destroy after the 400 write */ }
         }
       });
     } catch (_writeErr) {
-      try { socket.destroy(); } catch (_destroyErr) {}
+      try { socket.destroy(); } catch (_destroyErr) { /* ignored: best-effort destroy after a write error */ }
     }
   }
   function sendChunkExtensionTooLargeAndClose() {
@@ -7759,11 +7769,11 @@ Server.prototype._onConnection = function(socket) {
     try {
       socket.end('HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n', function() {
         if (!socket.destroyed) {
-          try { socket.destroy(); } catch (_destroyAfterChunkExtensionErr) {}
+          try { socket.destroy(); } catch (_destroyAfterChunkExtensionErr) { /* ignored: best-effort destroy after the 400 write */ }
         }
       });
     } catch (_writeErr2) {
-      try { socket.destroy(); } catch (_destroyErr2) {}
+      try { socket.destroy(); } catch (_destroyErr2) { /* ignored: best-effort destroy after a write error */ }
     }
   }
   function sendInvalidMethodAndClose(rawPacket, bytesParsed) {
@@ -7776,11 +7786,11 @@ Server.prototype._onConnection = function(socket) {
     try {
       socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n', function() {
         if (!socket.destroyed) {
-          try { socket.destroy(); } catch (_destroyAfterInvalidMethodErr) {}
+          try { socket.destroy(); } catch (_destroyAfterInvalidMethodErr) { /* ignored: best-effort destroy after the 400 write */ }
         }
       });
     } catch (_writeErrInvalidMethod) {
-      try { socket.destroy(); } catch (_destroyErrInvalidMethod2) {}
+      try { socket.destroy(); } catch (_destroyErrInvalidMethod2) { /* ignored: best-effort destroy after a write error */ }
     }
   }
   function sendInvalidTransferEncodingAndClose(rawPacket, bytesParsed) {
@@ -7799,11 +7809,11 @@ Server.prototype._onConnection = function(socket) {
     try {
       socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n', function() {
         if (!socket.destroyed) {
-          try { socket.destroy(); } catch (_destroyAfterInvalidTransferEncodingErr) {}
+          try { socket.destroy(); } catch (_destroyAfterInvalidTransferEncodingErr) { /* ignored: best-effort destroy after the 400 write */ }
         }
       });
     } catch (_writeErrInvalidTe) {
-      try { socket.destroy(); } catch (_destroyErrInvalidTe) {}
+      try { socket.destroy(); } catch (_destroyErrInvalidTe) { /* ignored: best-effort destroy after a write error */ }
     }
   }
   function sendLfExpectedAndClose(rawPacket, bytesParsed) {
@@ -7822,11 +7832,11 @@ Server.prototype._onConnection = function(socket) {
     try {
       socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n', function() {
         if (!socket.destroyed) {
-          try { socket.destroy(); } catch (_destroyAfterLfExpectedErr) {}
+          try { socket.destroy(); } catch (_destroyAfterLfExpectedErr) { /* ignored: best-effort destroy after the 400 write */ }
         }
       });
     } catch (_writeErrLfExpected) {
-      try { socket.destroy(); } catch (_destroyErrLfExpected2) {}
+      try { socket.destroy(); } catch (_destroyErrLfExpected2) { /* ignored: best-effort destroy after a write error */ }
     }
   }
   function sendServiceUnavailableAndClose() {
@@ -7838,7 +7848,7 @@ Server.prototype._onConnection = function(socket) {
     try {
       socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
     } catch (_writeErr4) {
-      try { socket.destroy(); } catch (_destroyErr4) {}
+      try { socket.destroy(); } catch (_destroyErr4) { /* ignored: best-effort destroy after a write error */ }
     }
   }
   function sendHeaderOverflowAndClose(rawPacket, bytesParsed) {
@@ -7857,11 +7867,11 @@ Server.prototype._onConnection = function(socket) {
     try {
       socket.end('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n', function() {
         if (!socket.destroyed) {
-          try { socket.destroy(); } catch (_destroyAfterHeaderOverflowErr) {}
+          try { socket.destroy(); } catch (_destroyAfterHeaderOverflowErr) { /* ignored: best-effort destroy after the 431 write */ }
         }
       });
     } catch (_writeErr3) {
-      try { socket.destroy(); } catch (_destroyErr3) {}
+      try { socket.destroy(); } catch (_destroyErr3) { /* ignored: best-effort destroy after a write error */ }
     }
   }
   function isValidConnectTarget(target) {
@@ -7990,7 +8000,7 @@ Server.prototype._onConnection = function(socket) {
       try {
         socket.end();
       } catch (_keepAliveEndErr) {
-        try { socket.destroy(); } catch (_keepAliveDestroyErr) {}
+        try { socket.destroy(); } catch (_keepAliveDestroyErr) { /* ignored: best-effort destroy after the keep-alive end failed */ }
       }
     }, self.keepAliveTimeout);
     if (socket._keepAliveTimeoutId && typeof socket._keepAliveTimeoutId.unref === 'function') {
@@ -8005,7 +8015,7 @@ Server.prototype._onConnection = function(socket) {
     try {
       socket.end('HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n');
     } catch (_timeoutWriteErr) {
-      try { socket.destroy(); } catch (_timeoutDestroyErr) {}
+      try { socket.destroy(); } catch (_timeoutDestroyErr) { /* ignored: best-effort destroy after the timeout write failed */ }
     }
   }
 
@@ -8117,7 +8127,7 @@ Server.prototype._onConnection = function(socket) {
         parser.close();
       }
       detachServerHttpSocket();
-      try { socket.destroy(); } catch (_destroyUpgradeSocketErr) {}
+      try { socket.destroy(); } catch (_destroyUpgradeSocketErr) { /* ignored: best-effort destroy of a detached upgrade socket */ }
       return req;
     }
 
@@ -8170,7 +8180,7 @@ Server.prototype._onConnection = function(socket) {
       }
       socket._isIdle = true;
       if (reqData.oversizedBody && !socket.destroyed) {
-        try { socket.destroy(); } catch(e) {}
+        try { socket.destroy(); } catch (e) { /* ignored: best-effort destroy of an oversized-body socket */ }
         return;
       }
       if (self._closing && !socket.destroyed) {
@@ -8181,7 +8191,7 @@ Server.prototype._onConnection = function(socket) {
             } else {
               socket.destroy();
             }
-          } catch(e) {}
+          } catch (e) { /* ignored: best-effort end/destroy while the server is closing */ }
         }
       }
       if (!socket.destroyed) {
@@ -8578,7 +8588,7 @@ Server.prototype.closeAllConnections = function() {
   var sockets = [];
   this._sockets.forEach(function(s) { sockets.push(s); });
   for (var i = 0; i < sockets.length; i++) {
-    try { sockets[i].destroy(); } catch(e) {}
+    try { sockets[i].destroy(); } catch (e) { /* ignored: best-effort destroy while closing all server sockets */ }
   }
 };
 
@@ -8593,13 +8603,13 @@ Server.prototype.closeIdleConnections = function() {
         if (typeof sock.end === 'function' && sock.writable !== false) {
           sock.end(function() {
             if (!sock.destroyed) {
-              try { sock.destroy(); } catch (_destroyIdleSocketErr) {}
+              try { sock.destroy(); } catch (_destroyIdleSocketErr) { /* ignored: best-effort destroy of an idle socket */ }
             }
           });
         } else {
           sock.destroy();
         }
-      } catch(e) {}
+      } catch (e) { /* ignored: best-effort idle-socket teardown */ }
     }
   }
 };
@@ -8639,7 +8649,7 @@ Server.prototype.address = function() {
     if (typeof __exactHttpAddress === 'function') {
       var json = __exactHttpAddress(this._serverId);
       if (json) {
-        try { return JSON.parse(json); } catch(e) {}
+        try { return JSON.parse(json); } catch (e) { /* ignored: unparsable native address info; fall through to cached fields */ }
       }
     }
     return { address: this._hostname || '127.0.0.1', family: 'IPv4', port: this._port || 0 };

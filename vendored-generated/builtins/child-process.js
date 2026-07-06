@@ -1,4 +1,13 @@
 //#region src/builtins/child-process.js
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+	if (_swallowDebugLog === null) try {
+		_swallowDebugLog = require("util").debuglog("child_process");
+	} catch (_swallowInitErr) {
+		_swallowDebugLog = function() {};
+	}
+	_swallowDebugLog(msg, err);
+}
 var cp = {};
 function _fallbackSpawnCommand(command) {
 	if (typeof command !== "string") return command;
@@ -1500,7 +1509,9 @@ function _setupSharedReadablePipeRelays(relayReadablePipes, child) {
 	function stopAll() {
 		for (var i = 0; i < stops.length; i++) try {
 			stops[i](false);
-		} catch (_stopErr) {}
+		} catch (_stopErr) {
+			_swallowDebug("stdio pump stop callback threw", _stopErr);
+		}
 		stops.length = 0;
 	}
 	child.on("error", stopAll);
@@ -2068,7 +2079,9 @@ function ChildProcess(handle, pid, stdioModes) {
 		if (typeof process !== "undefined" && self._closeCallback) {
 			try {
 				self._closeCallback();
-			} catch (err) {}
+			} catch (err) {
+				_swallowDebug("close callback threw", err);
+			}
 			self._closeCallback = null;
 		}
 		if (typeof setTimeout === "function") setTimeout(function() {
@@ -2454,14 +2467,18 @@ ChildProcess.prototype.spawn = function(options) {
 				hadActivity = true;
 				self3.stdout.push(_bytesToBuffer(out));
 			}
-		} catch (e) {}
+		} catch (e) {
+			_swallowDebug("stdout pump read failed", e);
+		}
 		if (self3.stderr && self3._useNativePump && !self3._exactSuppressStderrPump) try {
 			var errOut = globalThis.__exactSpawnRead(self3._handle, 2);
 			if (errOut && errOut.length > 0) {
 				hadActivity = true;
 				self3.stderr.push(_bytesToBuffer(errOut));
 			}
-		} catch (e) {}
+		} catch (e) {
+			_swallowDebug("stderr pump read failed", e);
+		}
 		if (self3._ipcMode && !self3._disconnectPending) if (typeof globalThis.__exactSpawnRecvMsg === "function") {
 			var ipcResult = globalThis.__exactSpawnRecvMsg(self3._handle);
 			if (ipcResult) {
@@ -2481,11 +2498,15 @@ ChildProcess.prototype.spawn = function(options) {
 					if (!self3._exactSuppressStdoutPump) try {
 						var finalOut = globalThis.__exactSpawnRead(self3._handle, 1);
 						if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(_bytesToBuffer(finalOut));
-					} catch (e) {}
+					} catch (e) {
+						_swallowDebug("final stdout read failed", e);
+					}
 					if (!self3._exactSuppressStderrPump) try {
 						var finalErr = globalThis.__exactSpawnRead(self3._handle, 2);
 						if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(_bytesToBuffer(finalErr));
-					} catch (e) {}
+					} catch (e) {
+						_swallowDebug("final stderr read failed", e);
+					}
 				}
 				if (self3._ipcMode) {
 					if (typeof globalThis.__exactSpawnRecvMsg === "function") {
@@ -2511,7 +2532,9 @@ ChildProcess.prototype.spawn = function(options) {
 				}, 0);
 				return;
 			}
-		} catch (e) {}
+		} catch (e) {
+			_swallowDebug("spawn status poll failed", e);
+		}
 		if (!self3._exited && self3._ref) self3._pollTimer = setTimeout(pollStreams2, _nextSpawnPollDelay(self3, hadActivity));
 	}
 	setTimeout(function() {

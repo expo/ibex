@@ -1,4 +1,13 @@
 //#region src/builtins/ws.js
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+	if (_swallowDebugLog === null) try {
+		_swallowDebugLog = require("util").debuglog("ws");
+	} catch (_swallowInitErr) {
+		_swallowDebugLog = function() {};
+	}
+	_swallowDebugLog(msg, err);
+}
 var g = globalThis;
 var _exactNetInitialized = false;
 function ensureExactNet() {
@@ -108,7 +117,9 @@ function computeAcceptKey(key) {
 	}
 	try {
 		return require("crypto").createHash("sha1").update(input).digest("base64");
-	} catch (e) {}
+	} catch (e) {
+		_swallowDebug("sha1 fallback failed; returning empty accept key", e);
+	}
 	return "";
 }
 function encodeFrame(opcode, payload, fin) {

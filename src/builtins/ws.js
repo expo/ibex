@@ -1,9 +1,19 @@
+// ENG-23018: opt-in debug visibility (NODE_DEBUG=ws) for otherwise-
+// swallowed best-effort errors. No-op unless the namespace is enabled, so
+// hot paths pay only a guarded function call.
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+  if (_swallowDebugLog === null) {
+    try { _swallowDebugLog = require('util').debuglog('ws'); } catch (_swallowInitErr) { _swallowDebugLog = function() {}; }
+  }
+  _swallowDebugLog(msg, err);
+}
 var g = globalThis;
 var _exactNetInitialized = false;
 function ensureExactNet() {
   if (_exactNetInitialized) return;
   if (typeof g.__exactEnsureNet === 'function') {
-    try { g.__exactEnsureNet(); } catch (e) {}
+    try { g.__exactEnsureNet(); } catch (e) { /* ignored: optional net-bridge bootstrap; ws works without it */ }
   }
   _exactNetInitialized = true;
 }
@@ -105,8 +115,8 @@ function _rejectUpgrade(tcpHandle) {
   if (tcpHandle == null) return;
   try {
     __exactTcpWrite(tcpHandle, 'HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
-  } catch (_writeRejectErr) {}
-  try { __exactTcpClose(tcpHandle); } catch (_closeRejectErr) {}
+  } catch (_writeRejectErr) { /* ignored: best-effort 400 reject; peer may already be gone */ }
+  try { __exactTcpClose(tcpHandle); } catch (_closeRejectErr) { /* ignored: best-effort close of a rejected upgrade handle */ }
 }
 
 // ========================================================
@@ -164,7 +174,7 @@ function computeAcceptKey(key) {
   try {
     var crypto = require('crypto');
     return crypto.createHash('sha1').update(input).digest('base64');
-  } catch(e) {}
+  } catch (e) { _swallowDebug('sha1 fallback failed; returning empty accept key', e); }
   return '';
 }
 
@@ -508,7 +518,7 @@ WebSocketConnection.prototype._handleFrame = function(frame) {
       }
       this._readyState = READY_CLOSED;
       if (this._pollTimer != null) { clearTimeout(this._pollTimer); this._pollTimer = null; }
-      try { if (this._handle != null) __exactTcpClose(this._handle); } catch(e) {}
+      try { if (this._handle != null) __exactTcpClose(this._handle); } catch (e) { /* ignored: best-effort close during socket teardown */ }
       this._handle = null;
       this.emit('close', code, reason);
       break;
@@ -553,7 +563,7 @@ WebSocketConnection.prototype._handleTransportClose = function() {
   if (this._readyState === READY_CLOSED) return;
   this._readyState = READY_CLOSED;
   if (this._pollTimer != null) { clearTimeout(this._pollTimer); this._pollTimer = null; }
-  try { if (this._handle != null) __exactTcpClose(this._handle); } catch(e) {}
+  try { if (this._handle != null) __exactTcpClose(this._handle); } catch (e) { /* ignored: best-effort close during socket teardown */ }
   this._handle = null;
   this.emit('close', 1006, '');
 };
@@ -653,7 +663,7 @@ WebSocketConnection.prototype.terminate = function() {
   if (this._readyState === READY_CLOSED) return;
   this._readyState = READY_CLOSED;
   if (this._pollTimer != null) { clearTimeout(this._pollTimer); this._pollTimer = null; }
-  try { if (this._handle != null) __exactTcpClose(this._handle); } catch(e) {}
+  try { if (this._handle != null) __exactTcpClose(this._handle); } catch (e) { /* ignored: best-effort close during socket teardown */ }
   this._handle = null;
   this.emit('close', 1006, '');
 };
@@ -720,7 +730,7 @@ function WebSocketServer(options, callback) {
           self._port = addr.port;
           self._host = addr.address;
         }
-      } catch(e) {}
+      } catch (e) { /* ignored: advisory listen-address bookkeeping */ }
       self._listening = true;
       self.emit('listening');
       self._startAccepting();
@@ -758,13 +768,13 @@ WebSocketServer.prototype._handleRawConnection = function(tcpHandle) {
 
   function readHeader() {
     if (attempts++ > maxAttempts) {
-      try { __exactTcpClose(tcpHandle); } catch(e) {}
+      try { __exactTcpClose(tcpHandle); } catch (e) { /* ignored: best-effort close after the handshake retry limit */ }
       return;
     }
     try {
       var data = __exactTcpRead(tcpHandle, 65536);
       if (data === null) {
-        try { __exactTcpClose(tcpHandle); } catch(e) {}
+        try { __exactTcpClose(tcpHandle); } catch (e) { /* ignored: best-effort close after peer EOF during handshake */ }
         return;
       }
       data = _toBinaryString(data);
@@ -780,13 +790,13 @@ WebSocketServer.prototype._handleRawConnection = function(tcpHandle) {
           self._completeUpgrade(tcpHandle, req, body);
         } else {
           var response = 'HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n';
-          try { __exactTcpWrite(tcpHandle, response); } catch(e) {}
-          try { __exactTcpClose(tcpHandle); } catch(e) {}
+          try { __exactTcpWrite(tcpHandle, response); } catch (e) { /* ignored: best-effort 400 write; peer may already be gone */ }
+          try { __exactTcpClose(tcpHandle); } catch (e) { /* ignored: best-effort close of a rejected upgrade handle */ }
         }
         return;
       }
     } catch(e) {
-      try { __exactTcpClose(tcpHandle); } catch(e2) {}
+      try { __exactTcpClose(tcpHandle); } catch (e2) { /* ignored: best-effort close after a handshake read error */ }
       return;
     }
     setTimeout(readHeader, 10);
@@ -803,8 +813,8 @@ WebSocketServer.prototype._completeUpgrade = function(tcpHandle, req, remainingD
   var key = req.headers['sec-websocket-key'];
   if (!key) {
     var response = 'HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n';
-    try { __exactTcpWrite(tcpHandle, response); } catch(e) {}
-    try { __exactTcpClose(tcpHandle); } catch(e) {}
+    try { __exactTcpWrite(tcpHandle, response); } catch (e) { /* ignored: best-effort 400 write; peer may already be gone */ }
+    try { __exactTcpClose(tcpHandle); } catch (e) { /* ignored: best-effort close of a rejected upgrade handle */ }
     return;
   }
 
@@ -818,7 +828,7 @@ WebSocketServer.prototype._completeUpgrade = function(tcpHandle, req, remainingD
   try {
     __exactTcpWrite(tcpHandle, responseHeaders);
   } catch(e) {
-    try { __exactTcpClose(tcpHandle); } catch(e2) {}
+    try { __exactTcpClose(tcpHandle); } catch (e2) { /* ignored: best-effort close after a handshake poll error */ }
     return;
   }
 
@@ -858,7 +868,7 @@ WebSocketServer.prototype.handleUpgrade = function(req, socket, head, callback) 
 
   var key = headers['sec-websocket-key'];
   if (!key) {
-    try { __exactTcpClose(tcpHandle); } catch(e) {}
+    try { __exactTcpClose(tcpHandle); } catch (e) { /* ignored: best-effort close; upgrade lacked Sec-WebSocket-Key */ }
     if (typeof callback === 'function') callback(null);
     return;
   }
@@ -873,7 +883,7 @@ WebSocketServer.prototype.handleUpgrade = function(req, socket, head, callback) 
   try {
     __exactTcpWrite(tcpHandle, responseHeaders);
   } catch(e) {
-    try { __exactTcpClose(tcpHandle); } catch(e2) {}
+    try { __exactTcpClose(tcpHandle); } catch (e2) { /* ignored: best-effort close after an accept-response write error */ }
     if (typeof callback === 'function') callback(null);
     return;
   }
@@ -902,13 +912,13 @@ WebSocketServer.prototype.close = function(callback) {
     this._acceptTimer = null;
   }
   if (this._handle != null && _hasTcpSupport()) {
-    try { __exactTcpClose(this._handle); } catch(e) {}
+    try { __exactTcpClose(this._handle); } catch (e) { /* ignored: best-effort close during server shutdown */ }
     this._handle = null;
   }
   var clientsArr = [];
   this.clients.forEach(function(ws) { clientsArr.push(ws); });
   for (var i = 0; i < clientsArr.length; i++) {
-    try { clientsArr[i].terminate(); } catch(e) {}
+    try { clientsArr[i].terminate(); } catch (e) { /* ignored: best-effort terminate during server shutdown */ }
   }
   var self = this;
   setTimeout(function() { self.emit('close'); }, 0);
@@ -919,7 +929,7 @@ WebSocketServer.prototype.address = function() {
     try {
       var info = __exactTcpLocalAddr(this._handle);
       if (info) return JSON.parse(info);
-    } catch(e) {}
+    } catch (e) { /* ignored: fall through to the default address result */ }
   }
   return { address: this._host || '0.0.0.0', port: this._port || 0, family: 'IPv4' };
 };

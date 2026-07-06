@@ -1,4 +1,13 @@
 //#region src/builtins/http.js
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+	if (_swallowDebugLog === null) try {
+		_swallowDebugLog = require("util").debuglog("http");
+	} catch (_swallowInitErr) {
+		_swallowDebugLog = function() {};
+	}
+	_swallowDebugLog(msg, err);
+}
 var EventEmitter = require("events").EventEmitter;
 var Readable = null;
 function getReadableCtor() {
@@ -1419,7 +1428,9 @@ function IncomingMessage(socketOrResponse) {
 	var ReadableCtor = getReadableCtor();
 	if (ReadableCtor) try {
 		ReadableCtor.call(this);
-	} catch (_readableInitErr) {}
+	} catch (_readableInitErr) {
+		_swallowDebug("Readable base-class init failed", _readableInitErr);
+	}
 	if (socketOrResponse && typeof socketOrResponse === "object" && typeof socketOrResponse.status === "number" && socketOrResponse.headers && typeof socketOrResponse.headers.forEach === "function") {
 		this.statusCode = socketOrResponse.status;
 		this.statusMessage = socketOrResponse.statusText;
@@ -2232,7 +2243,9 @@ ClientRequest.prototype.destroy = function(err) {
 	if (err) this.errored = err;
 	if (typeof this._abortResponse === "function") try {
 		this._abortResponse(err);
-	} catch (_abortResponseErr) {}
+	} catch (_abortResponseErr) {
+		_swallowDebug("abortResponse callback threw", _abortResponseErr);
+	}
 	if (this._abortController) try {
 		this._abortController.abort();
 	} catch (e) {}
@@ -4911,7 +4924,9 @@ ServerResponse.prototype._sendSocketResponse = function() {
 					} else socket.write(head, function(writeErr) {
 						_finalizeServerResponseKeepAlive(thisResponse, socket, writeErr);
 					});
-				} catch (e) {}
+				} catch (e) {
+					_swallowDebug("server response write failed", e);
+				}
 			} else {
 				this.detachSocket(socket);
 				socket.parser = null;
@@ -4979,7 +4994,9 @@ ServerResponse.prototype._sendSocketResponse = function() {
 					else scheduleNextTick(function() {
 						_finalizeServerResponseKeepAlive(streamingResponse, socket);
 					});
-				} catch (e) {}
+				} catch (e) {
+					_swallowDebug("streaming response write failed", e);
+				}
 			} else {
 				this.detachSocket(socket);
 				socket.parser = null;

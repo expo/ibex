@@ -1,3 +1,13 @@
+// ENG-23018: opt-in debug visibility (NODE_DEBUG=child_process) for otherwise-
+// swallowed best-effort errors. No-op unless the namespace is enabled, so
+// hot paths pay only a guarded function call.
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+  if (_swallowDebugLog === null) {
+    try { _swallowDebugLog = require('util').debuglog('child_process'); } catch (_swallowInitErr) { _swallowDebugLog = function() {}; }
+  }
+  _swallowDebugLog(msg, err);
+}
 var cp = {};
 
 function _fallbackSpawnCommand(command) {
@@ -55,7 +65,7 @@ function _finalizeSentSocketEntry(entry) {
   if (!entry) return;
   var nativeHandle = entry.nativeHandle;
   if (nativeHandle != null && typeof globalThis.__exactTcpClose === 'function') {
-    try { globalThis.__exactTcpClose(nativeHandle); } catch (e) {}
+    try { globalThis.__exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close; native handle may already be released */ }
   }
   // Only decrement _connections on the actual server object, not the
   // wrapper entry.  entry.server is null when the sent socket had no
@@ -529,7 +539,7 @@ function _getHandleType(handle) {
   if (typeof handle._getFd === 'function' && (handle.type === 'udp4' || handle.type === 'udp6')) return 'dgram.Socket';
   if (_isServerHandleLike(handle)) return 'net.ServerHandle';
   var dgram;
-  try { dgram = require('dgram'); } catch (e) {}
+  try { dgram = require('dgram'); } catch (e) { /* ignored: optional dgram module; callers guard for null */ }
   if (dgram && dgram.Socket && handle instanceof dgram.Socket) return 'dgram.Socket';
   var net;
   try { net = require('net'); } catch (e) { return null; }
@@ -568,7 +578,7 @@ function _reconstructHandle(handleType, fd) {
         fd: fd,
         onconnection: function() {},
         close: function() {
-          try { globalThis.__exactTcpClose(nativeServerHandle); } catch (e) {}
+          try { globalThis.__exactTcpClose(nativeServerHandle); } catch (e) { /* ignored: best-effort close of the passed server handle */ }
         }
       };
     }
@@ -581,7 +591,7 @@ function _reconstructHandle(handleType, fd) {
           if (typeof globalThis.__exactFsClose === 'function') {
             globalThis.__exactFsClose(fd);
           }
-        } catch (_) {}
+        } catch (_) { /* ignored: best-effort close of the passed fd */ }
       }
     };
   } else if (handleType === 'net.Server') {
@@ -590,7 +600,7 @@ function _reconstructHandle(handleType, fd) {
       var nativeHandle = globalThis.__exactTcpFromFd(fd);
       var server = net.createServer();
       server._handle = { _exactHandle: nativeHandle, close: function() {
-        try { globalThis.__exactTcpClose(nativeHandle); } catch(e) {}
+        try { globalThis.__exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close of the passed handle */ }
       }};
       server._handle._exactServerHandle = true;
       server.listening = true;
@@ -607,7 +617,7 @@ function _reconstructHandle(handleType, fd) {
             server._connectionKey = familySuffix + ':' + addr.address + ':' + addr.port;
           }
         }
-      } catch (e) {}
+      } catch (e) { /* ignored: advisory listen-address bookkeeping */ }
       if (typeof server._startAccepting === 'function') {
         server._startAccepting();
       }
@@ -635,7 +645,7 @@ function _invalidArgTypeHelper(input) {
 var _getSystemErrorName = null;
 try {
   _getSystemErrorName = require('util').getSystemErrorName;
-} catch (e) {}
+} catch (e) { /* ignored: optional util.getSystemErrorName; errno stays numeric */ }
 
 // Node.js internal errors override toString() to include the code:
 // "TypeError [ERR_INVALID_ARG_TYPE]: message..."
@@ -1143,7 +1153,7 @@ function _validateSpawnSyncOptions(options) {
   try {
     var _icp = require('internal/child_process');
     if (_icp && typeof _icp.spawnSync === 'function') _internalFn = _icp.spawnSync;
-  } catch (e) {}
+  } catch (e) { /* ignored: optional internal/child_process; use the builtin spawnSync */ }
   var result = _internalFn(internalOpts);
   if (!result || typeof result !== 'object') {
     result = { stdout: '', stderr: '', status: null, pid: 0 };
@@ -1813,7 +1823,7 @@ function _setupSharedReadablePipeRelays(relayReadablePipes, child) {
     for (var i = 0; i < stops.length; i++) {
       try {
         stops[i](false);
-      } catch (_stopErr) {}
+      } catch (_stopErr) { _swallowDebug('stdio pump stop callback threw', _stopErr); }
     }
     stops.length = 0;
   }
@@ -1850,7 +1860,7 @@ function _setupSharedReadablePipeRelays(relayReadablePipes, child) {
             typeof globalThis.__exactSpawnCloseStdin === 'function') {
           try {
             globalThis.__exactSpawnCloseStdin(child._handle, 'stdin');
-          } catch (_closeErr) {}
+          } catch (_closeErr) { /* ignored: best-effort stdin close; child may already have exited */ }
         }
       }
 
@@ -2123,7 +2133,7 @@ function _toUtf8String(bytes) {
   if (typeof TextDecoder === 'function') {
     try {
       return new TextDecoder().decode(bytes);
-    } catch (err) {}
+    } catch (err) { /* ignored: fall through to the manual utf8 decode */ }
   }
   var out = '';
   for (var i = 0; i < bytes.length; i++) {
@@ -2475,7 +2485,7 @@ function ChildProcess(handle, pid, stdioModes) {
       _stdinClosed = true;
       if (typeof globalThis.__exactSpawnCloseStdin === 'function' &&
           self._handle !== null && self._handle !== undefined && self._handle >= 0) {
-        try { globalThis.__exactSpawnCloseStdin(self._handle, 'stdin'); } catch (e) {}
+        try { globalThis.__exactSpawnCloseStdin(self._handle, 'stdin'); } catch (e) { /* ignored: best-effort stdin close; child may already have exited */ }
       }
     };
     this.stdin = new Stream.Writable({
@@ -2506,7 +2516,7 @@ function ChildProcess(handle, pid, stdioModes) {
       if (this.stdin) this.stdin._fd = globalThis.__exactSpawnGetFd(this._handle, 0);
       if (this.stdout) this.stdout._fd = globalThis.__exactSpawnGetFd(this._handle, 1);
       if (this.stderr) this.stderr._fd = globalThis.__exactSpawnGetFd(this._handle, 2);
-    } catch (e) {}
+    } catch (e) { /* ignored: advisory fd bookkeeping for stdio passing */ }
   }
 
   if (modes.relayReadablePipes && modes.relayReadablePipes[0]) {
@@ -2568,7 +2578,7 @@ function ChildProcess(handle, pid, stdioModes) {
     if (typeof process !== 'undefined' && self._closeCallback) {
       try {
         self._closeCallback();
-      } catch (err) {}
+      } catch (err) { _swallowDebug('close callback threw', err); }
       self._closeCallback = null;
     }
     if (typeof setTimeout === 'function') {
@@ -2929,7 +2939,7 @@ ChildProcess.prototype.spawn = function(options) {
       stdinClosed = true;
       if (typeof globalThis.__exactSpawnCloseStdin === 'function' &&
           self2._handle !== null && self2._handle !== undefined && self2._handle >= 0) {
-        try { globalThis.__exactSpawnCloseStdin(self2._handle, 'stdin'); } catch (e) {}
+        try { globalThis.__exactSpawnCloseStdin(self2._handle, 'stdin'); } catch (e) { /* ignored: best-effort stdin close; child may already have exited */ }
       }
     }
     this.stdin = new Stream.Writable({
@@ -3079,7 +3089,7 @@ ChildProcess.prototype.spawn = function(options) {
           hadActivity = true;
           self3.stdout.push(_bytesToBuffer(out)); // (ENG-23009) preserve binary bytes
         }
-      } catch(e) {}
+      } catch (e) { _swallowDebug('stdout pump read failed', e); }
     }
     // Read stderr
     if (self3.stderr && self3._useNativePump && !self3._exactSuppressStderrPump) {
@@ -3089,7 +3099,7 @@ ChildProcess.prototype.spawn = function(options) {
           hadActivity = true;
           self3.stderr.push(_bytesToBuffer(errOut)); // (ENG-23009) preserve binary bytes
         }
-      } catch(e) {}
+      } catch (e) { _swallowDebug('stderr pump read failed', e); }
     }
     // Poll IPC messages
     if (self3._ipcMode && !self3._disconnectPending) {
@@ -3118,13 +3128,13 @@ ChildProcess.prototype.spawn = function(options) {
               try {
                 var finalOut = globalThis.__exactSpawnRead(self3._handle, 1);
                 if (finalOut && finalOut.length > 0 && self3.stdout) self3.stdout.push(_bytesToBuffer(finalOut));
-              } catch(e) {}
+              } catch (e) { _swallowDebug('final stdout read failed', e); }
             }
             if (!self3._exactSuppressStderrPump) {
               try {
                 var finalErr = globalThis.__exactSpawnRead(self3._handle, 2);
                 if (finalErr && finalErr.length > 0 && self3.stderr) self3.stderr.push(_bytesToBuffer(finalErr));
-              } catch(e) {}
+              } catch (e) { _swallowDebug('final stderr read failed', e); }
             }
           }
           // Final IPC drain
@@ -3159,7 +3169,7 @@ ChildProcess.prototype.spawn = function(options) {
           }, 0);
           return;
         }
-      } catch(e) {}
+      } catch (e) { _swallowDebug('spawn status poll failed', e); }
     }
     if (!self3._exited && self3._ref) {
       self3._pollTimer = setTimeout(pollStreams2, _nextSpawnPollDelay(self3, hadActivity)); // (ENG-23032) back off when idle
@@ -3369,7 +3379,7 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
     var isDgram = handleType === 'dgram.Socket';
     var isServer = handleType === 'net.Server' || handleType === 'net.ServerHandle';
     var net2;
-    try { net2 = require('net'); } catch(e) {}
+    try { net2 = require('net'); } catch (e) { /* ignored: optional net module; callers guard for null */ }
     var isRawHandle = !isDgram && !isServer && !(net2 && net2.Socket && sendHandle instanceof net2.Socket);
     if (writeSuccess && sendHandle && !keepOpen && !isDgram && !isServer && !isRawHandle) {
       var sentSocketEntry = null;
@@ -3605,7 +3615,7 @@ cp.spawn = function spawn(command, args, options) {
         args: args,
         windowsHide: normalizedOptions.windowsHide
       });
-    } catch (e) {}
+    } catch (e) { /* ignored: spy-only hook; a monkey-patched spawn may throw */ }
   }
   // Validate only one IPC pipe
   if (normalizedOptions.stdio) {
@@ -3872,4 +3882,4 @@ try {
       internalCp.spawnSync = _internalSpawnSync;
     }
   }
-} catch (e) {}
+} catch (e) { /* ignored: optional internal/child_process wiring */ }

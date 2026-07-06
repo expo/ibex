@@ -1,7 +1,17 @@
+// ENG-23018: opt-in debug visibility (NODE_DEBUG=crypto) for otherwise-
+// swallowed best-effort errors. No-op unless the namespace is enabled, so
+// hot paths pay only a guarded function call.
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+  if (_swallowDebugLog === null) {
+    try { _swallowDebugLog = require('util').debuglog('crypto'); } catch (_swallowInitErr) { _swallowDebugLog = function() {}; }
+  }
+  _swallowDebugLog(msg, err);
+}
 var _CipherStreamTransform = null;
 try {
   _CipherStreamTransform = require('stream').Transform;
-} catch (e) {}
+} catch (e) { /* ignored: optional stream module; Transform stays null and callers guard */ }
 
 // Set process.versions.openssl (we emulate OpenSSL 3.0.x behavior)
 if (typeof process !== 'undefined') {
@@ -59,7 +69,7 @@ if (typeof process !== 'undefined') {
         Object.defineProperty(process, 'versions', {
           value: _newVersions, writable: true, configurable: true, enumerable: true
         });
-      } catch(e) {}
+      } catch (e) { /* ignored: process.versions may be non-configurable */ }
       // Also try the prototype
       if (!process.versions || process.versions.openssl !== '3.4.1') {
         try {
@@ -69,7 +79,7 @@ if (typeof process !== 'undefined') {
               value: _newVersions, writable: true, configurable: true, enumerable: false
             });
           }
-        } catch(e2) {}
+        } catch (e2) { /* ignored: the process prototype may reject the versions shim */ }
       }
     })();
   }
@@ -357,7 +367,7 @@ function randomBytes(size, callback) {
       var _nextTick = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
       _nextTick(function() {
         if (_activeDomain) {
-          try { _activeDomain.enter(); } catch(_de) {}
+          try { _activeDomain.enter(); } catch (_de) { /* ignored: domain enter is best-effort */ }
         }
         try {
           callback(null, buf);
@@ -369,7 +379,7 @@ function randomBytes(size, callback) {
           }
         } finally {
           if (_activeDomain) {
-            try { _activeDomain.exit(); } catch(_de2) {}
+            try { _activeDomain.exit(); } catch (_de2) { /* ignored: domain exit is best-effort */ }
           }
         }
       });
@@ -437,7 +447,7 @@ if (_CipherStreamTransform) {
       this._streamMode = true;
       var result = this.digest();
       this.push(result);
-    } catch(e) {}
+    } catch (e) { _swallowDebug('Hash flush digest failed', e); }
     if (typeof callback === 'function') callback();
   };
   Hash.prototype.end = function(chunk, encoding, callback) {
@@ -712,7 +722,7 @@ if (_CipherStreamTransform) {
     try {
       var result = this.digest();
       this.push(result);
-    } catch(e) {}
+    } catch (e) { _swallowDebug('Hmac flush digest failed', e); }
     if (typeof callback === 'function') callback();
   };
   Hmac.prototype.end = function(chunk, encoding, callback) {
@@ -1180,7 +1190,7 @@ function pbkdf2(password, salt, iterations, keylen, digest, callback) {
     var result = pbkdf2Sync(password, salt, iterations, keylen, digest);
     _nextTick(function() {
       if (_activeDomain) {
-        try { _activeDomain.enter(); } catch(_de) {}
+        try { _activeDomain.enter(); } catch (_de) { /* ignored: domain enter is best-effort */ }
       }
       try {
         callback(null, result);
@@ -1192,7 +1202,7 @@ function pbkdf2(password, salt, iterations, keylen, digest, callback) {
         }
       } finally {
         if (_activeDomain) {
-          try { _activeDomain.exit(); } catch(_de2) {}
+          try { _activeDomain.exit(); } catch (_de2) { /* ignored: domain exit is best-effort */ }
         }
       }
     });
@@ -2265,7 +2275,7 @@ function sign(algorithm, data, key, outputEncoding) {
     try {
       var nativeBytes = __exactSignSync(hash, dataBytes, keyText);
       return _signatureOutput(nativeBytes, outputEncoding);
-    } catch (e) {}
+    } catch (e) { /* ignored: native sign failed; fall through to the JS sign path */ }
   }
   if (typeof __exactHmacSync === 'function') {
     var hmacHex = __exactHmacSync(hash, fallbackKey, _toByteString(data));

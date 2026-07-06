@@ -655,7 +655,7 @@ function _canonicalizeHost(value, protocol) {
   if (typeof value.normalize === "function") {
     try {
       value = value.normalize("NFKC");
-    } catch (_normalizeErr) {}
+    } catch (_normalizeErr) { /* ignored: invalid unicode sequence; keep the un-normalized host */ }
   }
   value = value.replace(/[\u3002\uFF0E\uFF61]/g, ".");
   var isSpecial = protocol && URL._isSpecialProtocol(protocol.slice(0, -1));
@@ -663,7 +663,7 @@ function _canonicalizeHost(value, protocol) {
   if (isSpecial && value.indexOf("%") !== -1) {
     try {
       value = decodeURIComponent(value);
-    } catch (_decodeHostErr) {}
+    } catch (_decodeHostErr) { /* ignored: malformed percent-encoding; keep the encoded host */ }
   }
   if (isSpecial) {
     value = value.replace(/\u00AD/g, '');
@@ -940,7 +940,7 @@ function _hasDisallowedPunycodeLabel(host) {
         if (decodedLabel.normalize('NFKC') !== decodedLabel) {
           return true;
         }
-      } catch (_punycodeNormalizeErr) {}
+      } catch (_punycodeNormalizeErr) { /* ignored: normalize() rejected the label; skip the NFKC check */ }
     }
   }
   return false;
@@ -1015,7 +1015,7 @@ function _validateSpecialHostForParse(input, protocol) {
   var decodedHost = host;
   try {
     decodedHost = _decode(host, false);
-  } catch (_hostDecodeErr) {}
+  } catch (_hostDecodeErr) { /* ignored: malformed percent-encoding; validate the raw host */ }
   if (_containsForbiddenIdnaCodePoint(decodedHost)) {
     throw _invalidUrlParseError(input);
   }
@@ -1410,7 +1410,7 @@ function _markLegacyMalformedAuthority(result, value) {
         enumerable: false,
         writable: false
       });
-    } catch (_) {}
+    } catch (_) { /* ignored: marker property is advisory; the result may be frozen */ }
   }
   return result;
 }
@@ -1572,7 +1572,7 @@ URL._isSpecialProtocol = function(protocol) {
       } else {
         try {
           validationHost = _decode(validationHost, false);
-        } catch (_validationHostDecodeErr) {}
+        } catch (_validationHostDecodeErr) { /* ignored: malformed percent-encoding; validate the raw host */ }
         if (_containsForbiddenIdnaCodePoint(validationHost)) {
           throw _makeURLError(urlObj.__originalInput, urlObj.__baseStr);
         }
@@ -1847,7 +1847,7 @@ URL.prototype._parse = function(input, base, baseStr) {
       var decodedAuthority = authority;
       try {
         decodedAuthority = _decode(authority, false);
-      } catch (_fileAuthorityDecodeErr) {}
+      } catch (_fileAuthorityDecodeErr) { /* ignored: malformed percent-encoding; keep the raw authority */ }
       if (authority !== decodedAuthority && /^[A-Za-z](?:\:|\|)$/.test(decodedAuthority)) {
         throw _makeURLError(input, baseStr);
       }
@@ -2162,7 +2162,7 @@ Object.defineProperty(URL.prototype, "password", {
       }
       try {
         fileHostInput = _decode(fileHostInput, false);
-      } catch (_fileHostDecodeErr) {}
+      } catch (_fileHostDecodeErr) { /* ignored: malformed percent-encoding; match against the raw host */ }
       if (_canonicalizeHost(fileHostInput, this._protocol) === "localhost") {
         this._hostname = "";
         this._port = "";
@@ -2299,7 +2299,7 @@ Object.defineProperty(URL.prototype, "hostname", {
       }
       try {
         fileHostname = _decode(fileHostname, false);
-      } catch (_fileHostnameDecodeErr) {}
+      } catch (_fileHostnameDecodeErr) { /* ignored: malformed percent-encoding; match against the raw hostname */ }
       if (_canonicalizeHost(fileHostname, this._protocol) === "localhost") {
         this._hostname = "";
         this._port = "";
@@ -3113,7 +3113,7 @@ function _legacyResolveHref(urlObj) {
   ) {
     try {
       return new URLExport(formatted).href;
-    } catch (_legacyResolveHrefErr) {}
+    } catch (_legacyResolveHrefErr) { /* ignored: WHATWG parse failed; fall back to legacy formatting */ }
   }
   return formatted;
 }
@@ -3184,7 +3184,7 @@ function format(urlObj, options) {
               href = href.replace(urlObj.hostname, unicodeHost);
             }
           }
-        } catch(e) {}
+        } catch (e) { /* ignored: optional punycode module; keep the ASCII href */ }
       }
       if (!includeAuth) {
         var userinfo = urlObj.username ? (urlObj.password ? urlObj.username + ':' + urlObj.password + '@' : urlObj.username + '@') : '';
@@ -4128,7 +4128,7 @@ function _domainToUnicode(domain) {
     if (typeof punycode.toUnicode === 'function') {
       return punycode.toUnicode(domain);
     }
-  } catch(e) {}
+  } catch (e) { /* ignored: optional punycode module; keep the ASCII domain */ }
   return domain;
 }
 

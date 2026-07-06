@@ -1,4 +1,13 @@
 //#region src/builtins/crypto.js
+var _swallowDebugLog = null;
+function _swallowDebug(msg, err) {
+	if (_swallowDebugLog === null) try {
+		_swallowDebugLog = require("util").debuglog("crypto");
+	} catch (_swallowInitErr) {
+		_swallowDebugLog = function() {};
+	}
+	_swallowDebugLog(msg, err);
+}
 var _CipherStreamTransform = null;
 try {
 	_CipherStreamTransform = require("stream").Transform;
@@ -355,7 +364,9 @@ if (_CipherStreamTransform) {
 			this._streamMode = true;
 			var result = this.digest();
 			this.push(result);
-		} catch (e) {}
+		} catch (e) {
+			_swallowDebug("Hash flush digest failed", e);
+		}
 		if (typeof callback === "function") callback();
 	};
 	Hash.prototype.end = function(chunk, encoding, callback) {
@@ -578,7 +589,9 @@ if (_CipherStreamTransform) {
 		try {
 			var result = this.digest();
 			this.push(result);
-		} catch (e) {}
+		} catch (e) {
+			_swallowDebug("Hmac flush digest failed", e);
+		}
 		if (typeof callback === "function") callback();
 	};
 	Hmac.prototype.end = function(chunk, encoding, callback) {
