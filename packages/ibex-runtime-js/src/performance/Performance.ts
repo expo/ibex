@@ -243,40 +243,51 @@ export class Performance {
       const options = startOrMeasureOptions;
       detail = options.detail;
 
-      if (options.start !== undefined) {
-        if (typeof options.start === "string") {
-          const startMarks = this._marks.get(options.start);
-          if (!startMarks || startMarks.length === 0) {
+      const resolveTimestamp = (value: string | number): number => {
+        if (typeof value === "string") {
+          const marks = this._marks.get(value);
+          if (!marks || marks.length === 0) {
             throw new DOMException(
-              `Failed to execute 'measure': The mark '${options.start}' does not exist.`,
+              `Failed to execute 'measure': The mark '${value}' does not exist.`,
               "SyntaxError"
             );
           }
-          startTime = startMarks[startMarks.length - 1].startTime;
-        } else {
-          startTime = options.start;
+          return marks[marks.length - 1].startTime;
         }
-      } else {
-        startTime = 0;
+        return value;
+      };
+
+      // Per the User Timing spec, `duration` pairs with exactly one of
+      // start/end; all three together are ambiguous and throw.
+      if (
+        options.start !== undefined &&
+        options.duration !== undefined &&
+        options.end !== undefined
+      ) {
+        throw new TypeError(
+          "Failed to execute 'measure': Cannot specify start, end, and duration together."
+        );
       }
 
+      // End time: explicit end, else start + duration, else now.
       if (options.end !== undefined) {
-        if (typeof options.end === "string") {
-          const endMarks = this._marks.get(options.end);
-          if (!endMarks || endMarks.length === 0) {
-            throw new DOMException(
-              `Failed to execute 'measure': The mark '${options.end}' does not exist.`,
-              "SyntaxError"
-            );
-          }
-          endTime = endMarks[endMarks.length - 1].startTime;
-        } else {
-          endTime = options.end;
-        }
-      } else if (options.duration !== undefined) {
-        endTime = startTime + options.duration;
+        endTime = resolveTimestamp(options.end);
+      } else if (options.start !== undefined && options.duration !== undefined) {
+        endTime = resolveTimestamp(options.start) + options.duration;
       } else {
         endTime = this.now();
+      }
+
+      // Start time: explicit start, else end - duration, else 0. Previously
+      // `duration` was consulted only when `end` was absent, so
+      // measure('m', { end, duration }) silently ignored the duration and
+      // measured from 0. (ENG-23140)
+      if (options.start !== undefined) {
+        startTime = resolveTimestamp(options.start);
+      } else if (options.end !== undefined && options.duration !== undefined) {
+        startTime = endTime - options.duration;
+      } else {
+        startTime = 0;
       }
     }
 

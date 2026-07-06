@@ -739,13 +739,20 @@ export class Buffer extends Uint8Array {
 
     switch (normalizedEncoding) {
       case 'utf8': {
-        const decoded = new TextDecoder('utf-8').decode(slice);
+        const decoder = new TextDecoder('utf-8');
+        const decoded = decoder.decode(slice);
+        // A WHATWG TextDecoder strips one leading BOM, but Node's
+        // toString('utf8') preserves it. Detect the stripping behavior against
+        // the decoder itself instead of inspecting decoded[0]: with two encoded
+        // BOMs in the input the second decodes to U+FEFF at position 0, which
+        // the old charCodeAt(0) guard misread as "nothing was stripped" and so
+        // dropped one BOM. (ENG-23140)
         if (
           slice.length >= 3 &&
           slice[0] === 0xef &&
           slice[1] === 0xbb &&
           slice[2] === 0xbf &&
-          decoded.charCodeAt(0) !== 0xfeff
+          decoder.decode(Uint8Array.of(0xef, 0xbb, 0xbf)).length === 0
         ) {
           return `\uFEFF${decoded}`;
         }

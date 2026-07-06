@@ -19,7 +19,6 @@
 // (with correct lead-byte streaming state) but NOT 'gbk'. Run: bun test.
 
 import { expect, test, describe } from 'bun:test';
-import { createRequire } from 'module';
 
 // A minimal stateful DBCS decoder: lead bytes (>= 0x81) start a 2-byte sequence
 // whose state must persist across decode() calls for streaming to work.
@@ -65,11 +64,15 @@ class StubNativeDecoder {
 
 // Install stub, load the module (which captures it as NativeTextDecoderImpl),
 // then immediately restore the real global so sibling test files are unaffected.
+// The module copy is loaded FRESH via a query string (the window-shims test
+// pattern): a plain require() only captured the stub when no earlier test file
+// had already imported ./TextDecoder.ts transitively (e.g. anything importing
+// node/process -> bootstrap -> encoding), which made this file order-dependent.
+// (ENG-23140)
 const g = globalThis as Record<string, any>;
 const OriginalTextDecoder = g.TextDecoder;
 g.TextDecoder = StubNativeDecoder;
-const require = createRequire(import.meta.url);
-const mod = require('./TextDecoder.ts');
+const mod = await import('./TextDecoder.ts?eng22972-fresh-native-stub');
 g.TextDecoder = OriginalTextDecoder;
 const ModuleTextDecoder: typeof import('./TextDecoder').TextDecoder = mod.TextDecoder;
 

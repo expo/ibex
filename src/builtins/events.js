@@ -378,8 +378,6 @@ function _addListener(target, eventName, listener, prepend) {
       if (Array.isArray(events[eventName])) {
         events[eventName].warned = true;
       }
-      // In Node.js this emits a warning via process.emitWarning
-      // For now we just set the warned flag
       var w = new Error(
         'Possible EventEmitter memory leak detected. ' +
         count + ' ' + String(eventName) + ' listeners added to [' +
@@ -391,8 +389,12 @@ function _addListener(target, eventName, listener, prepend) {
       w.emitter = target;
       w.type = eventName;
       w.count = count;
-      if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-        // Suppress warning output during tests to avoid noise
+      // Actually surface the warning like Node does: the branch used to be
+      // empty, so a genuine listener leak produced no signal at all. (ENG-23140)
+      if (typeof process !== 'undefined' && process !== null && typeof process.emitWarning === 'function') {
+        process.emitWarning(w);
+      } else if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+        console.warn(w);
       }
     }
   }

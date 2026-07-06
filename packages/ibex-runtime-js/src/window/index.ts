@@ -293,6 +293,24 @@ const mediaQueryFinalization =
       })
     : null;
 
+// (ENG-23140) Strong retention for MediaQueryLists that currently have change
+// listeners (or an onchange handler). The HTML spec requires an MQL with
+// listeners to be kept alive even when the app drops its own reference —
+// ENG-22979's WeakRef registry over-collected them, so a
+// matchMedia('(prefers-color-scheme: dark)').addEventListener('change', cb)
+// pattern went silent after the next GC. Instances move into this set while
+// they have listeners and drop back to weak-only tracking when the last
+// listener is removed, preserving ENG-22979's leak fix for listener-less MQLs.
+const retainedMediaQueryLists = new Set<MediaQueryList>();
+
+function retainMediaQueryList(mql: MediaQueryList): void {
+  retainedMediaQueryLists.add(mql);
+}
+
+function releaseMediaQueryList(mql: MediaQueryList): void {
+  retainedMediaQueryLists.delete(mql);
+}
+
 function registerMediaQueryList(mql: MediaQueryList): void {
   if (supportsWeakRef) {
     const ref = new WeakRef(mql);
@@ -454,9 +472,11 @@ function callNativeDialog(
 export class MediaQueryList extends EventTarget {
   readonly media: string;
   private _matches: boolean;
-  
-  /** @deprecated Use addEventListener instead */
-  onchange: ((this: MediaQueryList, ev: MediaQueryListEvent) => any) | null = null;
+  // Registered 'change' callbacks, tracked so the instance can move between
+  // strong retention (has listeners) and weak-only registry (no listeners).
+  // (ENG-23140)
+  private _changeListeners = new Set<object>();
+  private _onchange: ((this: MediaQueryList, ev: MediaQueryListEvent) => any) | null = null;
 
   constructor(media: string) {
     super();
@@ -467,6 +487,54 @@ export class MediaQueryList extends EventTarget {
 
   get matches(): boolean {
     return this._matches;
+  }
+
+  /** @deprecated Use addEventListener instead */
+  get onchange(): ((this: MediaQueryList, ev: MediaQueryListEvent) => any) | null {
+    return this._onchange;
+  }
+
+  set onchange(handler: ((this: MediaQueryList, ev: MediaQueryListEvent) => any) | null) {
+    this._onchange = typeof handler === 'function' ? handler : null;
+    this._updateRetention();
+  }
+
+  addEventListener(
+    type: string,
+    callback: EventListenerOrEventListenerObject | null,
+    options?: boolean | AddEventListenerOptions,
+  ): void {
+    super.addEventListener(type, callback, options);
+    // Mirror EventTarget's "already aborted signal adds nothing" rule so we do
+    // not retain the MQL for a listener that was never registered. once/signal
+    // auto-removals inside EventTarget are not observable from here; they can
+    // only over-retain (never under-retain), which is the safe direction.
+    const alreadyAborted =
+      typeof options === 'object' && options !== null && (options as AddEventListenerOptions).signal?.aborted;
+    if (type === 'change' && callback && !alreadyAborted) {
+      this._changeListeners.add(callback as object);
+      this._updateRetention();
+    }
+  }
+
+  removeEventListener(
+    type: string,
+    callback: EventListenerOrEventListenerObject | null,
+    options?: boolean | EventListenerOptions,
+  ): void {
+    super.removeEventListener(type, callback, options);
+    if (type === 'change' && callback) {
+      this._changeListeners.delete(callback as object);
+      this._updateRetention();
+    }
+  }
+
+  private _updateRetention(): void {
+    if (this._changeListeners.size > 0 || this._onchange) {
+      retainMediaQueryList(this);
+    } else {
+      releaseMediaQueryList(this);
+    }
   }
 
   // Supports comma-separated query lists (logical OR), `and`-joined feature

@@ -109,8 +109,10 @@ export function basename(path: string, suffix?: string): string {
 
   let base = path.slice(start, end);
 
-  // Remove suffix if provided
-  if (suffix && base.endsWith(suffix)) {
+  // Remove suffix if provided. Node only strips a PROPER suffix: when the
+  // basename IS the suffix (dotfiles like basename('/dir/.txt', '.txt')) it is
+  // returned unchanged rather than collapsed to ''. (ENG-23140)
+  if (suffix && base !== suffix && base.endsWith(suffix)) {
     base = base.slice(0, -suffix.length);
   }
 

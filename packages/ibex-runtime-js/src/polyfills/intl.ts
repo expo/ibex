@@ -831,6 +831,10 @@ export function installIntlPolyfills(): void {
       ru: (n: number, type: string): string => {
         if (type === 'ordinal') return 'other';
         const i = Math.floor(Math.abs(n));
+        // CLDR: every ru cardinal category other than 'other' requires v = 0
+        // (no visible fraction digits), so 1.5 is 'other', not 'one'. Extends
+        // ENG-22984's fractional fix (en/de/...) to the ru/pl rule set. (ENG-23140)
+        if (Math.abs(n) !== i) return 'other';
         const mod10 = i % 10;
         const mod100 = i % 100;
         if (mod10 === 1 && mod100 !== 11) return 'one';
@@ -845,6 +849,9 @@ export function installIntlPolyfills(): void {
       pl: (n: number, type: string): string => {
         if (type === 'ordinal') return 'other';
         const i = Math.floor(Math.abs(n));
+        // CLDR: pl cardinal one/few/many all require v = 0; fractions are
+        // 'other' (1.5 must not be 'one'). (ENG-23140)
+        if (Math.abs(n) !== i) return 'other';
         if (i === 1) return 'one';
         const mod10 = i % 10;
         const mod100 = i % 100;
@@ -858,6 +865,10 @@ export function installIntlPolyfills(): void {
       ar: (n: number, type: string): string => {
         if (type === 'ordinal') return 'other';
         const i = Math.floor(Math.abs(n));
+        // CLDR: ar cardinal rules match on the operand n itself and its ranges
+        // only contain integers, so any fractional value (1.5, 3.2, 11.5) is
+        // 'other' rather than borrowing the truncated integer's category. (ENG-23140)
+        if (Math.abs(n) !== i) return 'other';
         if (i === 0) return 'zero';
         if (i === 1) return 'one';
         if (i === 2) return 'two';
@@ -1732,6 +1743,13 @@ export function installIntlPolyfills(): void {
         this._numeric = opts.numeric || false;
         this._caseFirst = opts.caseFirst || 'false';
         this._collation = opts.collation || 'default';
+        // Per spec, Intl.Collator#compare is an accessor returning a function
+        // bound to the collator, precisely so `arr.sort(collator.compare)`
+        // works. As a detached plain method `this` was undefined, the internal
+        // throw was swallowed by the catch below, and the sort silently fell
+        // back to option-less localeCompare (numeric/sensitivity/caseFirst all
+        // dropped). (ENG-23140)
+        this.compare = this.compare.bind(this);
       }
 
       compare(a: string, b: string): number {

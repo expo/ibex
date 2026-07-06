@@ -44,6 +44,7 @@ export { isDetachedArrayBuffer, markDetachedArrayBuffer } from '../arraybuffer-d
  * 
  * Supported types:
  * - Primitives (undefined, null, boolean, number, string, bigint)
+ * - Boxed primitives (Boolean, Number, String, BigInt objects)
  * - Date
  * - RegExp
  * - Array
@@ -56,13 +57,14 @@ export { isDetachedArrayBuffer, markDetachedArrayBuffer } from '../arraybuffer-d
  * - Blob
  * - File
  * - Error (partial - only message and name)
- * 
- * NOT supported:
+ *
+ * NOT supported (throws DataCloneError, matching browsers):
  * - Functions
  * - Symbols (as values - ignored as keys)
  * - DOM nodes
- * - WeakMap, WeakSet, WeakRef
- * - Generators, Promises
+ * - WeakMap, WeakSet, WeakRef, FinalizationRegistry
+ * - Promises
+ * - Detached ArrayBuffers
  * - SharedArrayBuffer (Hermes limitation)
  */
 export function structuredClone<T>(
@@ -85,6 +87,14 @@ export function structuredClone<T>(
         'The object could not be cloned.'
       );
     }
+    // Transferring an already-detached buffer (e.g. one transferred by an
+    // earlier structuredClone call) is a DataCloneError per
+    // StructuredSerializeWithTransfer, not a silent empty-buffer clone. (ENG-23140)
+    if (transferable instanceof ArrayBuffer && isDetachedArrayBuffer(transferable)) {
+      throw createDataCloneError(
+        'An ArrayBuffer is detached and could not be transferred.'
+      );
+    }
     if (transferable && typeof transferable === 'object') {
       if (transferSet.has(transferable)) {
         throw createDataCloneError('The object could not be cloned.');
@@ -101,6 +111,15 @@ export function structuredClone<T>(
   for (const transferable of transfer) {
     if (transferable instanceof ArrayBuffer) {
       markDetachedArrayBuffer(transferable);
+    } else if (
+      !cloneMap.has(transferable) &&
+      structuredCloneTransferSymbol in transferable
+    ) {
+      // Per StructuredSerializeWithTransfer every entry in the transfer list
+      // is detached/neutered even when it is unreachable from the cloned
+      // value; previously such transferables were silently left live. The
+      // transfer result is discarded — nothing in the output references it. (ENG-23140)
+      (transferable as any)[structuredCloneTransferSymbol]();
     }
   }
 
@@ -191,6 +210,11 @@ function cloneInternal<T>(
 
   if (transferSet.has(obj)) {
     if (obj instanceof ArrayBuffer) {
+      if (isDetachedArrayBuffer(obj)) {
+        throw createDataCloneError(
+          'An ArrayBuffer is detached and could not be transferred.'
+        );
+      }
       const clone = obj.slice(0);
       cloneMap.set(obj, clone);
       return clone as T;
@@ -278,6 +302,13 @@ function cloneInternal<T>(
   }
 
   if (obj instanceof ArrayBuffer) {
+    // A detached buffer cannot be serialized (browsers throw DataCloneError);
+    // slice(0) on a mark-detached buffer silently produced an empty clone. (ENG-23140)
+    if (isDetachedArrayBuffer(obj)) {
+      throw createDataCloneError(
+        'An ArrayBuffer is detached and could not be cloned.'
+      );
+    }
     // Clone the buffer
     const clone = obj.slice(0);
     cloneMap.set(obj, clone);
@@ -368,13 +399,58 @@ function cloneInternal<T>(
     return clone as T;
   }
 
-  // Handle Arrays
+  // Boxed primitives carry [[BooleanData]]/[[NumberData]]/[[StringData]]/
+  // [[BigIntData]] and are cloneable per StructuredSerializeInternal; they
+  // previously fell through to the plain-object path and came out as {}. Read
+  // the internal slot via the prototype valueOf so an own valueOf override
+  // cannot spoof the value. (ENG-23140)
+  if (obj instanceof Boolean) {
+    const clone = new Boolean(Boolean.prototype.valueOf.call(obj));
+    cloneMap.set(obj, clone);
+    return clone as T;
+  }
+  if (obj instanceof Number) {
+    const clone = new Number(Number.prototype.valueOf.call(obj));
+    cloneMap.set(obj, clone);
+    return clone as T;
+  }
+  if (obj instanceof String) {
+    const clone = new String(String.prototype.valueOf.call(obj));
+    cloneMap.set(obj, clone);
+    return clone as T;
+  }
+  if (typeof BigInt === 'function' && obj instanceof (BigInt as any)) {
+    const clone = Object(BigInt.prototype.valueOf.call(obj));
+    cloneMap.set(obj, clone);
+    return clone as T;
+  }
+
+  // Types the structured clone algorithm rejects: values with internal slots
+  // beyond ordinary objects (Promise, WeakMap, WeakSet, WeakRef,
+  // FinalizationRegistry). Every browser throws DataCloneError here; cloning
+  // them to a silent {} turned errors into corrupt data. (ENG-23140)
+  if (
+    obj instanceof Promise ||
+    (typeof WeakMap === 'function' && obj instanceof WeakMap) ||
+    (typeof WeakSet === 'function' && obj instanceof WeakSet) ||
+    (typeof WeakRef === 'function' && obj instanceof WeakRef) ||
+    (typeof FinalizationRegistry === 'function' && obj instanceof FinalizationRegistry)
+  ) {
+    throw createDataCloneError(
+      `${(obj as any).constructor?.name ?? 'Object'} object could not be cloned.`
+    );
+  }
+
+  // Handle Arrays. Per StructuredSerializeInternal an array serializes its own
+  // enumerable properties — including non-index keys — and holes stay holes
+  // (Object.keys skips them), instead of only indices 0..length-1 with holes
+  // materialized as undefined. (ENG-23140)
   if (Array.isArray(obj)) {
-      const clone: any[] = [];
-      cloneMap.set(obj, clone);
-      for (let i = 0; i < obj.length; i++) {
-      clone[i] = cloneInternal(obj[i], cloneMap, transferSet);
-      }
+    const clone: any[] = new Array(obj.length);
+    cloneMap.set(obj, clone);
+    for (const key of Object.keys(obj)) {
+      (clone as any)[key] = cloneInternal((obj as any)[key], cloneMap, transferSet);
+    }
     return clone as T;
   }
 
@@ -384,25 +460,26 @@ function cloneInternal<T>(
   if (proto === null || proto === Object.prototype) {
     const clone: Record<string, unknown> = {};
     cloneMap.set(obj, clone);
-    
+
     // Clone own enumerable string-keyed properties
     for (const key of Object.keys(obj)) {
       clone[key] = cloneInternal((obj as any)[key], cloneMap, transferSet);
     }
-    
+
     return clone as T;
   }
 
-  // Object with unknown prototype - try to clone as plain object with warning
-  // This handles objects that are "object-like" but may have custom prototypes
+  // Object with a custom prototype: per spec, ordinary class instances are
+  // serialized as plain objects from their own enumerable properties (the
+  // prototype is not preserved).
   if (typeof obj === 'object') {
     const clone: Record<string, unknown> = {};
     cloneMap.set(obj, clone);
-    
+
     for (const key of Object.keys(obj)) {
       clone[key] = cloneInternal((obj as any)[key], cloneMap, transferSet);
     }
-    
+
     return clone as T;
   }
 

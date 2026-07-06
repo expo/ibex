@@ -424,13 +424,22 @@ export function installPromiseRejectionTracking(): void {
     ) => void
   ): Promise<any> {
     let promiseRef: Promise<any> | null = null;
+    let hasPendingReject = false;
     let pendingReject: any = null;
 
     const wrappedExecutor = (
       resolve: (value?: any) => void,
       reject: (reason?: any) => void
     ) => {
+      let settled = false;
+
+      const wrappedResolve = (value?: any) => {
+        settled = true;
+        return resolve(value);
+      };
+
       const wrappedReject = (reason?: any) => {
+        settled = true;
         if (promiseRef && (typeof promiseRef === 'object' || typeof promiseRef === 'function')) {
           _rejectedPromises.add(promiseRef);
           queueMicrotask(() => {
@@ -439,19 +448,35 @@ export function installPromiseRejectionTracking(): void {
             }
           });
         } else {
+          // Use an explicit flag rather than a null sentinel so rejecting
+          // with reason null/undefined is still tracked. (ENG-23140)
+          hasPendingReject = true;
           pendingReject = reason;
         }
 
         return reject(reason);
       };
 
-      return executor(resolve, wrappedReject);
+      // A synchronously-throwing executor is turned into a rejection by the
+      // native Promise constructor via its INTERNAL reject, which this tracker
+      // never sees — so `new Promise(() => { throw e })` rejections vanished
+      // from unhandledrejection reporting. Route the throw through
+      // wrappedReject ourselves. If the executor already settled the promise
+      // before throwing, native semantics ignore the throw, so we do too. (ENG-23140)
+      try {
+        return executor(wrappedResolve, wrappedReject);
+      } catch (error) {
+        if (!settled) {
+          wrappedReject(error);
+        }
+      }
     };
 
     const promise = new OriginalPromise(wrappedExecutor);
     promiseRef = promise;
-    if (pendingReject !== null) {
+    if (hasPendingReject) {
       const reason = pendingReject;
+      hasPendingReject = false;
       pendingReject = null;
       _rejectedPromises.add(promiseRef);
       queueMicrotask(() => {

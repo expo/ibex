@@ -183,12 +183,29 @@ function resolveTimeoutMs(init?: RequestInit): number {
   return timeout;
 }
 
-function createEffectiveSignal(
+interface EffectiveSignalContext {
+  signal: AbortSignal | null | undefined;
+  /**
+   * Tear down the headers-phase timeout. By default this also detaches the
+   * source-signal forwarder; pass `keepAbortForwarding: true` when a streaming
+   * response body is still live — the body's abort wiring listens on the
+   * combined signal, and detaching the forwarder here orphaned the combined
+   * AbortController so a user `signal.abort()` during a body read was
+   * silently ignored (scoped to the non-standard `timeout` init option). (ENG-23140)
+   */
+  cleanup: (options?: { keepAbortForwarding?: boolean }) => void;
+  /** Detach the source-signal forwarder (idempotent). */
+  release: () => void;
+}
+
+// Exported for direct unit testing only (like createSocketResponseBodyStream
+// below) — not part of the public fetch surface.
+export function createEffectiveSignal(
   sourceSignal: AbortSignal | null | undefined,
   timeoutMs: number
-): { signal: AbortSignal | null | undefined; cleanup: () => void } {
+): EffectiveSignalContext {
   if (timeoutMs === 0) {
-    return { signal: sourceSignal, cleanup: () => {} };
+    return { signal: sourceSignal, cleanup: () => {}, release: () => {} };
   }
 
   const controller = new AbortController();
@@ -196,27 +213,43 @@ function createEffectiveSignal(
     controller.abort(new DOMException('The operation timed out.', 'TimeoutError'));
   }, timeoutMs);
 
-  const forwardAbort = () => {
-    controller.abort(sourceSignal?.reason);
+  let forwarding = false;
+  const release = () => {
+    if (forwarding && sourceSignal) {
+      forwarding = false;
+      sourceSignal.removeEventListener('abort', forwardAbort);
+    }
   };
 
+  function forwardAbort(): void {
+    controller.abort(sourceSignal?.reason);
+    // Once the combined signal has fired the forwarder can never matter
+    // again; drop it so a long-lived source signal stops retaining this
+    // fetch's abort graph.
+    release();
+  }
+
   if (sourceSignal?.aborted) {
-    forwardAbort();
+    controller.abort(sourceSignal.reason);
   } else if (sourceSignal) {
     sourceSignal.addEventListener('abort', forwardAbort);
+    forwarding = true;
+    // A timeout abort also makes the forwarder moot; self-release then too.
+    controller.signal.addEventListener('abort', release, { once: true });
   }
 
   return {
     signal: controller.signal,
-    cleanup: () => {
+    cleanup: (options) => {
       if (timeoutId !== undefined) {
         clearTimeout(timeoutId);
         timeoutId = undefined;
       }
-      if (sourceSignal) {
-        sourceSignal.removeEventListener('abort', forwardAbort);
+      if (!options?.keepAbortForwarding) {
+        release();
       }
     },
+    release,
   };
 }
 
@@ -621,7 +654,8 @@ export function createSocketResponseBodyStream(
   headers: [string, string][],
   decompress: boolean | undefined,
   runtimeRequire: (specifier: string) => unknown,
-  signal: AbortSignal | null | undefined
+  signal: AbortSignal | null | undefined,
+  onSettled?: () => void
 ): ReadableStream<Uint8Array> {
   const BufferCtor = getSocketBufferConstructor(runtimeRequire);
   const contentEncoding = getSocketResponseContentEncoding(headers, decompress);
@@ -738,6 +772,14 @@ export function createSocketResponseBodyStream(
   function cleanupAbortListener(): void {
     if (signal) {
       signal.removeEventListener('abort', abortListener);
+    }
+    // Called at every settle point (finish/fail/cancel): lets the caller drop
+    // any signal plumbing scoped to this body, e.g. the timeout-option
+    // source-signal forwarder. (ENG-23140)
+    try {
+      onSettled?.();
+    } catch {
+      // Never let caller cleanup break stream teardown.
     }
   }
 
@@ -1920,6 +1962,7 @@ export async function fetch(
     });
   }));
   let cancelRequest: (() => void) | undefined;
+  let responseBodyStreamLive = false;
 
   try {
     const isStreamingUpload = request.isBodyStream();
@@ -1968,6 +2011,12 @@ export async function fetch(
       nativeResponse: NativeResponse | NativeStreamingResponse,
       bodyStream?: ReadableStream<Uint8Array>
     ): Response => {
+      if (bodyStream) {
+        // A live body stream is being handed to the caller: the source-signal
+        // forwarder must survive this function's finally so user aborts still
+        // reach the combined signal during body reads. (ENG-23140)
+        responseBodyStreamLive = true;
+      }
       const response = bodyStream
         ? Response.fromNativeStreaming(nativeResponse as NativeStreamingResponse, bodyStream, currentUrl)
         : Response.fromNative(nativeResponse as NativeResponse, currentUrl);
@@ -2110,7 +2159,8 @@ export async function fetch(
                 headers,
                 nativeInit.decompress,
                 runtimeRequire,
-                signal
+                signal,
+                () => signalContext.release()
               ),
             });
             res.on('error', reject);
@@ -2199,6 +2249,9 @@ export async function fetch(
           if (signal) {
             signal.removeEventListener('abort', onBodyAbort);
           }
+          // Body settled: the timeout-option forwarder (if any) is no longer
+          // needed either. (ENG-23140)
+          signalContext.release();
         }
         let activeController: ReadableStreamDefaultController<Uint8Array> | null = null;
 
@@ -2316,6 +2369,9 @@ export async function fetch(
           if (signal) {
             signal.removeEventListener('abort', onBodyAbort);
           }
+          // Body settled: the timeout-option forwarder (if any) is no longer
+          // needed either. (ENG-23140)
+          signalContext.release();
         }
         let activeController: ReadableStreamDefaultController<Uint8Array> | null = null;
 
@@ -2634,7 +2690,10 @@ export async function fetch(
       cancelRequest();
     }
     abortCleanup();
-    signalContext.cleanup();
+    // Keep the source-signal -> combined-signal forwarding alive while a
+    // streaming body is still being read; the body teardown paths call
+    // signalContext.release() when the stream settles. (ENG-23140)
+    signalContext.cleanup({ keepAbortForwarding: responseBodyStreamLive });
   }
 }
 

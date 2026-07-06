@@ -118,3 +118,81 @@ test('location.assign/replace resolve relative and absolute URLs (ENG-22979)', a
   expect(location.search).toBe('?y=1');
   expect(location.hash).toBe('#frag');
 });
+
+// ENG-23140 — an MQL with an active 'change' listener must be kept alive (HTML
+// spec) even when the app drops its own reference; ENG-22979's WeakRef fix
+// over-collected these, so dark-mode/resize reactions silently died after GC.
+test('an MQL with an active change listener survives GC and keeps firing (ENG-23140)', async () => {
+  const g = globalThis as Record<string, unknown>;
+  setScreen(400, 800);
+  g.__exactAppearanceState = { colorScheme: 'light', reducedMotion: false };
+  const mod = await import('./index.ts?eng23140-retain');
+
+  let fired = 0;
+  const onChange = () => {
+    fired += 1;
+  };
+  let mql: unknown = mod.window.matchMedia('(prefers-color-scheme: dark)');
+  const ref = new WeakRef(mql as object);
+  (mql as { addEventListener: (t: string, f: () => void) => void }).addEventListener(
+    'change',
+    onChange,
+  );
+  mql = null;
+
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    (Bun as unknown as { gc: (sync: boolean) => void }).gc(true);
+  }
+  // Still alive: the change listener pins it.
+  expect(ref.deref()).toBeDefined();
+
+  (g.__exactAndroidDispatchPlatformEvent as (e: unknown, s: unknown) => void)(
+    { type: 'configuration' },
+    { appearance: { colorScheme: 'dark' } },
+  );
+  expect(fired).toBe(1);
+
+  // Removing the last listener drops the strong retention: collectable again
+  // (preserves ENG-22979's leak fix for listener-less MQLs).
+  let alive: unknown = ref.deref();
+  (alive as { removeEventListener: (t: string, f: () => void) => void }).removeEventListener(
+    'change',
+    onChange,
+  );
+  alive = null;
+  let collected = false;
+  for (let i = 0; i < 20 && !collected; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    (Bun as unknown as { gc: (sync: boolean) => void }).gc(true);
+    collected = ref.deref() === undefined;
+  }
+  expect(collected).toBe(true);
+});
+
+test('an onchange handler also retains the MQL across GC (ENG-23140)', async () => {
+  const g = globalThis as Record<string, unknown>;
+  setScreen(400, 800);
+  g.__exactAppearanceState = { colorScheme: 'light', reducedMotion: false };
+  const mod = await import('./index.ts?eng23140-onchange');
+
+  let fired = 0;
+  let mql: unknown = mod.window.matchMedia('(prefers-color-scheme: dark)');
+  const ref = new WeakRef(mql as object);
+  (mql as { onchange: (() => void) | null }).onchange = () => {
+    fired += 1;
+  };
+  mql = null;
+
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    (Bun as unknown as { gc: (sync: boolean) => void }).gc(true);
+  }
+  expect(ref.deref()).toBeDefined();
+
+  (g.__exactAndroidDispatchPlatformEvent as (e: unknown, s: unknown) => void)(
+    { type: 'configuration' },
+    { appearance: { colorScheme: 'dark' } },
+  );
+  expect(fired).toBe(1);
+});

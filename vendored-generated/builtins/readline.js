@@ -1458,6 +1458,7 @@ Interface.prototype.question = function(query, options, cb) {
 		self._questionPrompt = null;
 		self._questionCallback = null;
 		self._questionOnLine = null;
+		self._questionCleanup = null;
 		cleanup();
 		if (cb) cb(answer);
 	}
@@ -1466,6 +1467,7 @@ Interface.prototype.question = function(query, options, cb) {
 		self._questionPrompt = null;
 		self._questionCallback = null;
 		self._questionOnLine = null;
+		self._questionCleanup = null;
 		cleanup();
 	}
 	if (signal && signal.aborted) {
@@ -1474,6 +1476,7 @@ Interface.prototype.question = function(query, options, cb) {
 	}
 	if (signal && typeof signal.addEventListener === "function") signal.addEventListener("abort", onAbort);
 	this._questionOnLine = onLine;
+	this._questionCleanup = cleanup;
 	this.on("line", onLine);
 };
 Interface.prototype.write = function(data, key) {
@@ -1504,6 +1507,10 @@ Interface.prototype.close = function() {
 	if (this._questionOnLine) {
 		this.removeListener("line", this._questionOnLine);
 		this._questionOnLine = null;
+	}
+	if (this._questionCleanup) {
+		this._questionCleanup();
+		this._questionCleanup = null;
 	}
 	if (this.input && typeof this.input.removeListener === "function") {
 		if (this._onData) this.input.removeListener("data", this._onData);

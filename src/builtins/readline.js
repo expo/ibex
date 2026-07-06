@@ -1409,6 +1409,7 @@ Interface.prototype.question = function(query, options, cb) {
     self._questionPrompt = null;
     self._questionCallback = null;
     self._questionOnLine = null;
+    self._questionCleanup = null;
     cleanup();
     if (cb) cb(answer);
   }
@@ -1417,6 +1418,7 @@ Interface.prototype.question = function(query, options, cb) {
     self._questionPrompt = null;
     self._questionCallback = null;
     self._questionOnLine = null;
+    self._questionCleanup = null;
     cleanup();
   }
   if (signal && signal.aborted) {
@@ -1427,6 +1429,10 @@ Interface.prototype.question = function(query, options, cb) {
     signal.addEventListener('abort', onAbort);
   }
   this._questionOnLine = onLine;
+  // Stash the cleanup so close() can detach the signal's 'abort' listener when
+  // the interface is torn down before the question resolves; otherwise every
+  // abandoned question leaks a listener on a shared long-lived AbortSignal. (ENG-23140)
+  this._questionCleanup = cleanup;
   this.on('line', onLine);
 };
 
@@ -1460,6 +1466,11 @@ Interface.prototype.close = function() {
   if (this._questionOnLine) {
     this.removeListener('line', this._questionOnLine);
     this._questionOnLine = null;
+  }
+  if (this._questionCleanup) {
+    // Detach the pending question's AbortSignal listener (ENG-23140).
+    this._questionCleanup();
+    this._questionCleanup = null;
   }
   if (this.input && typeof this.input.removeListener === 'function') {
     if (this._onData) this.input.removeListener('data', this._onData);

@@ -270,7 +270,8 @@ function _addListener(target, eventName, listener, prepend) {
 			w.emitter = target;
 			w.type = eventName;
 			w.count = count;
-			if (typeof console !== "undefined" && typeof console.warn === "function") {}
+			if (typeof process !== "undefined" && process !== null && typeof process.emitWarning === "function") process.emitWarning(w);
+			else if (typeof console !== "undefined" && typeof console.warn === "function") console.warn(w);
 		}
 	}
 	return target;

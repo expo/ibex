@@ -79,40 +79,47 @@ const _nativeQueueMicrotask =
   typeof queueMicrotask === 'function' ? queueMicrotask.bind(globalThis) : undefined;
 const _nativeBigInt = typeof BigInt === 'function' ? BigInt : undefined;
 
-const SIGNAL_NAME_TO_NUMBER: Record<string, number> = {
-  SIGHUP: 1,
-  SIGINT: 2,
-  SIGQUIT: 3,
-  SIGILL: 4,
-  SIGTRAP: 5,
-  SIGABRT: 6,
-  SIGIOT: 6,
-  SIGBUS: 7,
-  SIGFPE: 8,
-  SIGKILL: 9,
-  SIGUSR1: 10,
-  SIGSEGV: 11,
-  SIGUSR2: 12,
-  SIGPIPE: 13,
-  SIGALRM: 14,
-  SIGTERM: 15,
-  SIGCHLD: 17,
-  SIGCONT: 18,
-  SIGSTOP: 19,
-  SIGTSTP: 20,
-  SIGTTIN: 21,
-  SIGTTOU: 22,
-  SIGURG: 23,
-  SIGXCPU: 24,
-  SIGXFSZ: 25,
-  SIGVTALRM: 26,
-  SIGPROF: 27,
-  SIGWINCH: 28,
-  SIGIO: 29,
-  SIGPOLL: 29,
-  SIGPWR: 30,
-  SIGSYS: 31,
+// (ENG-23140) Signal numbers are platform-specific and diverge for common
+// signals: SIGUSR1 is 30 on Darwin but 10 on Linux, SIGBUS is 10 on Darwin but
+// 7 on Linux. A single Linux-numbered table made process.kill(pid, 'SIGUSR1')
+// deliver SIGBUS on Darwin (killing the target) and disagreed with
+// binding('constants').os.signals. Branch on process.platform like
+// builtins/child-process.js does (ENG-23032); Android runs on the Linux
+// kernel, so it uses the Linux numbers.
+const SIGNAL_NAMES_DARWIN: Record<string, number> = {
+  SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
+  SIGIOT: 6, SIGBUS: 10, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 30, SIGSEGV: 11,
+  SIGUSR2: 31, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGCHLD: 20,
+  SIGCONT: 19, SIGSTOP: 17, SIGTSTP: 18, SIGTTIN: 21, SIGTTOU: 22,
+  SIGURG: 16, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27,
+  SIGWINCH: 28, SIGIO: 23, SIGINFO: 29, SIGSYS: 12,
 };
+const SIGNAL_NAMES_LINUX: Record<string, number> = {
+  SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
+  SIGIOT: 6, SIGBUS: 7, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 10, SIGSEGV: 11,
+  SIGUSR2: 12, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGSTKFLT: 16,
+  SIGCHLD: 17, SIGCONT: 18, SIGSTOP: 19, SIGTSTP: 20, SIGTTIN: 21,
+  SIGTTOU: 22, SIGURG: 23, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26,
+  SIGPROF: 27, SIGWINCH: 28, SIGIO: 29, SIGPOLL: 29, SIGPWR: 30, SIGSYS: 31,
+};
+
+/** Exported for tests: the signal name -> number table for a platform. */
+export function signalNameToNumberMap(platform: string): Record<string, number> {
+  return platform === 'linux' || platform === 'android'
+    ? SIGNAL_NAMES_LINUX
+    : SIGNAL_NAMES_DARWIN;
+}
+
+function currentSignalNameToNumberMap(): Record<string, number> {
+  let platform = 'darwin';
+  try {
+    const detected = process?.platform;
+    if (typeof detected === 'string' && detected.length > 0) {
+      platform = detected;
+    }
+  } catch (_err) {}
+  return signalNameToNumberMap(platform);
+}
 
 const USER_CREDENTIALS: Record<string, number> = {
   root: 0,
@@ -295,7 +302,39 @@ function _normalizeResolvedPath(path: string): string {
   return joined || '.';
 }
 
-function _drainNextTickQueue(): void {
+// (ENG-23140) Surface a throwing tick the way Node surfaces it (as an
+// uncaughtException), without letting it escape into whatever microtask
+// happened to trigger the drain. Previously a throw propagated out of the
+// wrapped Promise.prototype.then callback: the unrelated promise chain
+// rejected with the tick's error (misattribution) and the rest of the
+// nextTick queue was dropped.
+function _reportNextTickError(error: unknown): void {
+  try {
+    if (process.listenerCount('uncaughtException') > 0) {
+      process.emit('uncaughtException', error);
+      return;
+    }
+  } catch (_err) {}
+  const g = globalThis as any;
+  if (typeof g.reportError === 'function') {
+    g.reportError(error);
+    return;
+  }
+  if (typeof setTimeout === 'function') {
+    setTimeout(() => {
+      throw error;
+    }, 0);
+    return;
+  }
+  // No async escape hatch available; better loud than silent. The remaining
+  // queue entries survive (we dequeue one entry at a time), so a later drain
+  // still runs them.
+  throw error;
+}
+
+// Exported for tests (the fallback queue is only reachable when the engine
+// provides no native nextTick hook, which never holds under the test runner).
+export function _drainNextTickQueue(): void {
   if (_nextTickQueue.length === 0) {
     _nextTickScheduled = false;
     return;
@@ -303,11 +342,26 @@ function _drainNextTickQueue(): void {
 
   _nextTickScheduled = false;
   while (_nextTickQueue.length > 0) {
-    const batch = _nextTickQueue.splice(0, _nextTickQueue.length);
-    for (const entry of batch) {
+    // Dequeue one entry at a time so a throwing tick cannot drop the entries
+    // behind it in the same batch.
+    const entry = _nextTickQueue.shift()!;
+    try {
       entry.callback(...entry.args);
+    } catch (error) {
+      // Node keeps processing the queue after routing the error to
+      // uncaughtException; do the same.
+      _reportNextTickError(error);
     }
   }
+}
+
+// Exported for tests: enqueue on the fallback queue without going through the
+// native-hook delegation in Process#nextTick.
+export function _enqueueNextTickForTesting(
+  callback: (...args: any[]) => void,
+  ...args: any[]
+): void {
+  _nextTickQueue.push({ callback, args });
 }
 
 function _wrapNextTickAwareCallback<TArgs extends any[], TResult>(
@@ -831,22 +885,31 @@ function createProcessRelease(nodeVersion: string): ProcessRelease {
   return release;
 }
 
+// Console fallback only (no native write available): a lossy decode is the
+// best a text console can do with binary chunks.
+function _decodeStreamChunkForConsole(data: string | Uint8Array): string {
+  if (typeof data === 'string') return data;
+  if (typeof TextDecoder !== 'undefined') return new TextDecoder().decode(data);
+  let out = '';
+  for (let i = 0; i < data.length; i++) out += String.fromCharCode(data[i]);
+  return out;
+}
+
 /**
  * Create a process stream (stdout/stderr/stdin) with basic EventEmitter support.
  * This ensures pipe() and other stream operations work even before stream-enhance runs.
  */
-function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string) => boolean): any {
+function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string | Uint8Array) => boolean): any {
   const listeners: Record<string, Array<{fn: Function, once: boolean}>> = {};
-  function coerceChunk(chunk: any): string {
+  // Buffer / Uint8Array chunks are passed through as raw bytes: the native
+  // write (__exactFsWrite) accepts a Uint8Array verbatim, while decoding to a
+  // JS string UTF-8-mangled binary output (0xff -> U+FFFD), silently
+  // corrupting e.g. an image piped to stdout. (ENG-23140)
+  function coerceChunk(chunk: any): string | Uint8Array {
     if (chunk == null) return '';
     if (typeof chunk === 'string') return chunk;
-    if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) return chunk.toString();
-    if (chunk instanceof Uint8Array) {
-      if (typeof TextDecoder !== 'undefined') return new TextDecoder().decode(chunk);
-      let out = '';
-      for (let i = 0; i < chunk.length; i++) out += String.fromCharCode(chunk[i]);
-      return out;
-    }
+    if (chunk instanceof Uint8Array) return chunk;
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) return chunk;
     return String(chunk);
   }
   const stream: any = {
@@ -1295,9 +1358,24 @@ class Process {
 
   /**
    * Process title (runtime name).
+   * Writable like Node's: a getter-only property made strict-mode ESM code
+   * throw on the common `process.title = ...` assignment. (ENG-23140)
    */
+  private _title = 'ibex';
+
   get title(): string {
-    return 'ibex';
+    return this._title;
+  }
+
+  set title(value: string) {
+    if (typeof value !== 'string') {
+      const err = new TypeError(
+        `The "title" argument must be of type string. Received ${formatReceivedValue(value)}`,
+      ) as TypeError & { code: string };
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
+    this._title = value;
   }
 
   /**
@@ -1363,14 +1441,9 @@ class Process {
             EPROTOTYPE: 41, ERANGE: 34, EROFS: 30, ESPIPE: 29, ESRCH: 3,
             ETIMEDOUT: 60, ETXTBSY: 26, EWOULDBLOCK: 35, EXDEV: 18,
           },
-          signals: {
-            SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5,
-            SIGABRT: 6, SIGFPE: 8, SIGKILL: 9, SIGBUS: 10, SIGSEGV: 11,
-            SIGSYS: 12, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGURG: 16,
-            SIGSTOP: 17, SIGTSTP: 18, SIGCONT: 19, SIGCHLD: 20, SIGTTIN: 21,
-            SIGTTOU: 22, SIGIO: 23, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26,
-            SIGPROF: 27, SIGINFO: 29, SIGUSR1: 30, SIGUSR2: 31,
-          },
+          // Share the platform-branched table with process.kill() so the two
+          // can never disagree about signal numbering again. (ENG-23140)
+          signals: { ...currentSignalNameToNumberMap() },
         },
         fs: {
           O_RDONLY: 0, O_WRONLY: 1, O_RDWR: 2, O_CREAT: 512, O_EXCL: 2048,
@@ -1760,6 +1833,15 @@ class Process {
    * This runs before any I/O events but after the current operation.
    */
   nextTick(callback: (...args: any[]) => void, ...args: any[]): void {
+    if (typeof callback !== 'function') {
+      // Node throws synchronously at the call site (ERR_INVALID_ARG_TYPE);
+      // deferring the TypeError into the queue misattributes it. (ENG-23140)
+      const err = new TypeError(
+        `The "callback" argument must be of type function. Received ${formatReceivedValue(callback)}`,
+      ) as TypeError & { code: string };
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
+    }
     if (_nativeProcessNextTick) {
       _nativeProcessNextTick(callback, ...args);
       return;
@@ -2087,7 +2169,7 @@ class Process {
 
   get stdout() {
     if (!this._stdout) {
-      this._stdout = _makeProcessStream(1, false, (data: string) => {
+      this._stdout = _makeProcessStream(1, false, (data: string | Uint8Array) => {
         // Use native write to avoid circular console.log -> stdout.write -> console.log loop
         const g = globalThis as any;
         // Ensure fs host functions are loaded (they're registered lazily)
@@ -2095,11 +2177,12 @@ class Process {
           g.__exactEnsureFs();
         }
         if (typeof g.__exactFsWrite === 'function') {
+          // Uint8Array chunks reach native as raw bytes (no UTF-8 round trip).
           g.__exactFsWrite(1, data, -1);
           return true;
         }
         // Fallback to console.log only if native write is unavailable
-        console.log(data);
+        console.log(_decodeStreamChunkForConsole(data));
         return true;
       });
     }
@@ -2108,7 +2191,7 @@ class Process {
 
   get stderr() {
     if (!this._stderr) {
-      this._stderr = _makeProcessStream(2, false, (data: string) => {
+      this._stderr = _makeProcessStream(2, false, (data: string | Uint8Array) => {
         // Use native write to avoid circular console.error -> stderr.write -> console.error loop
         const g = globalThis as any;
         // Ensure fs host functions are loaded (they're registered lazily)
@@ -2116,11 +2199,12 @@ class Process {
           g.__exactEnsureFs();
         }
         if (typeof g.__exactFsWrite === 'function') {
+          // Uint8Array chunks reach native as raw bytes (no UTF-8 round trip).
           g.__exactFsWrite(2, data, -1);
           return true;
         }
         // Fallback to console.error only if native write is unavailable
-        console.error(data);
+        console.error(_decodeStreamChunkForConsole(data));
         return true;
       });
     }
@@ -2227,12 +2311,20 @@ class Process {
   emit(event: string, ...args: any[]): boolean {
     const listeners = this._events.get(event);
     if (!listeners || listeners.length === 0) return false;
-    const remaining: Array<{ fn: (...args: any[]) => void; once: boolean }> = [];
-    for (const entry of listeners) {
+    // Prune once-listeners BEFORE invoking (Node semantics). Rewriting the
+    // list only after the loop meant a throwing handler left already-run
+    // once-entries registered, double-firing them on the next emit (e.g. a
+    // throwing process.once('warning') handler). Iterating a snapshot also
+    // keeps listeners added during the emit out of the current dispatch,
+    // matching Node. (ENG-23140)
+    const snapshot = listeners.slice();
+    this._events.set(
+      event,
+      listeners.filter((entry) => !entry.once),
+    );
+    for (const entry of snapshot) {
       entry.fn(...args);
-      if (!entry.once) remaining.push(entry);
     }
-    this._events.set(event, remaining);
     return true;
   }
 
@@ -2433,14 +2525,15 @@ function normalizeProcessId(pid: number | string): number {
 }
 
 function normalizeSignal(signal?: string | number): number {
+  const signalMap = currentSignalNameToNumberMap();
   if (signal === undefined) {
-    return SIGNAL_NAME_TO_NUMBER.SIGTERM;
+    return signalMap.SIGTERM;
   }
   if (typeof signal === 'string') {
     if (signal === '0') {
       return 0;
     }
-    const numeric = SIGNAL_NAME_TO_NUMBER[signal];
+    const numeric = signalMap[signal];
     if (numeric === undefined) {
       const err = new TypeError(`Unknown signal: ${signal}`) as TypeError & { code: string };
       err.code = 'ERR_UNKNOWN_SIGNAL';
