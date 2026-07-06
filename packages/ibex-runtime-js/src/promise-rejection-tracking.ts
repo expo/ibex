@@ -173,6 +173,22 @@ export function trackPromiseRejection(promise: Promise<any>, reason: any): void 
       // Default behavior: log the unhandled rejection to console
       // (browsers typically report to console unless preventDefault is called)
       console.error('Unhandled promise rejection:', reason);
+      // Fail loud: an unhandled rejection that no handler consumed must not
+      // let the process report success — Node exits nonzero here. Keep running
+      // (we report-and-continue rather than crash mid-run), but make the exit
+      // code the CLI reads reflect the failure. A user-set nonzero exitCode is
+      // preserved.
+      // @ref LLP 0003#the-event-loop — async failures are fatal (ENG-23130)
+      const proc = (globalThis as any).process;
+      if (
+        proc &&
+        typeof proc === 'object' &&
+        (typeof proc.exitCode !== 'number' || proc.exitCode === 0)
+      ) {
+        try {
+          proc.exitCode = 1;
+        } catch (_) {}
+      }
     }
   });
 }

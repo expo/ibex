@@ -492,6 +492,107 @@ async fn cli_honors_process_exit_code_at_natural_exit() {
     );
 }
 
+/// Write `source` to a temp file with `name` and run it via `ibex <file>`,
+/// returning the process output. Bytecode is disabled so runs exercise the
+/// plain source path deterministically.
+async fn run_script(name: &str, source: &str) -> std::process::Output {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join(name);
+    std::fs::write(&file, source).expect("write script");
+    let mut cmd = Command::new(IBEX);
+    cmd.arg(file.to_string_lossy().as_ref());
+    cmd.env("IBEX_NO_BYTECODE", "1");
+    timeout(Duration::from_secs(20), cmd.output())
+        .await
+        .expect("CLI run timed out")
+        .expect("failed to spawn or read ibex process output")
+}
+
+#[tokio::test]
+async fn cli_async_only_failures_exit_nonzero() {
+    // ENG-23130: async-only failures used to complete with exit code 0,
+    // reporting success to any CI/agent using the exit code as pass/fail.
+    // Node exits 1 for every one of these.
+    let cases: &[(&str, &str)] = &[
+        (
+            "floating_rejection.js",
+            "Promise.reject(new Error('boom-rejection'));\n",
+        ),
+        (
+            "throwing_next_tick.js",
+            "process.nextTick(() => { throw new Error('boom-nexttick'); });\n",
+        ),
+        (
+            // A floating rejection inside a TLA entry takes the async-IIFE
+            // shim path; the rejection is not the completion value, so only
+            // the unhandledrejection default action can surface it.
+            "floating_rejection_tla.mjs",
+            "await new Promise((resolve) => setTimeout(resolve, 10));\nPromise.reject(new Error('boom-floating-tla'));\n",
+        ),
+        (
+            // Completion-value rejection: the engine unwraps the entry
+            // promise, so this must stay nonzero too.
+            "tla_rejection.mjs",
+            "await Promise.reject(new Error('boom-tla'));\n",
+        ),
+    ];
+    for (name, source) in cases {
+        let output = run_script(name, source).await;
+        assert_ne!(
+            output.status.code(),
+            Some(0),
+            "{name}: async failure must not exit 0: stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[tokio::test]
+async fn cli_async_failures_consumed_by_handlers_exit_zero() {
+    // ENG-23130 guard-rail: a handler that consumes the failure keeps the
+    // exit green — fail-loud must not turn handled failures into failures.
+    let cases: &[(&str, &str)] = &[
+        (
+            "handled_rejection.js",
+            "process.on('unhandledRejection', (reason) => { console.log('caught:', reason && reason.message); });\nPromise.reject(new Error('handled-rejection'));\n",
+        ),
+        (
+            "handled_next_tick.js",
+            "process.on('uncaughtException', (err) => { console.log('caught:', err.message); });\nprocess.nextTick(() => { throw new Error('handled-nexttick'); });\n",
+        ),
+        (
+            "prevented_rejection.js",
+            "addEventListener('unhandledrejection', (event) => { event.preventDefault(); console.log('prevented'); });\nPromise.reject(new Error('prevented-rejection'));\n",
+        ),
+    ];
+    for (name, source) in cases {
+        let output = run_script(name, source).await;
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: handled async failure must exit 0: stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[tokio::test]
+async fn cli_unhandled_rejection_preserves_user_exit_code() {
+    // ENG-23130: the unhandledrejection default action only forces the exit
+    // code when it is unset or 0 — a deliberate nonzero code wins.
+    let output = run_script(
+        "user_exit_code.js",
+        "process.exitCode = 7;\nPromise.reject(new Error('user-code-preserved'));\n",
+    )
+    .await;
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "user-set exitCode must survive an unhandled rejection: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[tokio::test]
 async fn cli_legacy_env_names_warn_once() {
     // Legacy `EX_*`/`EXACT_*` env spellings keep working with a deprecation

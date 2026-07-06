@@ -169,6 +169,12 @@ function _emitUnhandledPromiseRejection(err, promise) {
 			handled = g.__exactUnhandledRejectionHandler(err, promise) === true;
 		} catch (_handlerErr) {}
 		if (!handled && typeof console !== "undefined" && console && typeof console.error === "function") console.error("Unhandled promise rejection:", err);
+		if (!handled) {
+			var proc = g && g.process;
+			if (proc && typeof proc === "object" && (typeof proc.exitCode !== "number" || proc.exitCode === 0)) try {
+				proc.exitCode = 1;
+			} catch (_exitCodeErr) {}
+		}
 	});
 }
 function _maybeCaptureRejection(emitter, result, eventName, args) {

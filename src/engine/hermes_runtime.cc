@@ -852,11 +852,14 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
             } catch (...) {}
             if (!handled) {
                 ex_host_console_log(1, err.getMessage().c_str());
+                runtime->fatal_async_error = true;
             }
         } catch (const std::exception& err) {
             ex_host_console_log(1, err.what());
+            runtime->fatal_async_error = true;
         } catch (...) {
             ex_host_console_log(1, "Callback execution failed");
+            runtime->fatal_async_error = true;
         }
     }
     return count;
@@ -2363,9 +2366,11 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
       } catch (...) {}
       if (!handled) {
         ex_host_console_log(1, err.getMessage().c_str());
+        runtime->fatal_async_error = true;
       }
     } catch (const std::exception& err) {
       ex_host_console_log(1, err.what());
+      runtime->fatal_async_error = true;
     }
   }
 }
@@ -3122,9 +3127,27 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
           task(rt);
           executed++;
         } catch (const facebook::jsi::JSError& err) {
-          ex_host_console_log(1, err.getMessage().c_str());
+          // Try the uncaughtException handler first, mirroring the timer and
+          // nextTick paths; an unconsumed throw is fatal, not log-and-continue.
+          // (ENG-23130)
+          bool handled = false;
+          try {
+            auto handler =
+                rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
+            if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
+              auto errVal = facebook::jsi::Value(rt, err.value());
+              auto result =
+                  handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
+              if (result.isBool() && result.getBool()) handled = true;
+            }
+          } catch (...) {}
+          if (!handled) {
+            ex_host_console_log(1, err.getMessage().c_str());
+            runtime->fatal_async_error = true;
+          }
         } catch (const std::exception& err) {
           ex_host_console_log(1, err.what());
+          runtime->fatal_async_error = true;
         }
       }
     }
@@ -3232,6 +3255,15 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
     }
 
     retireTimer();
+  }
+
+  // An async callback (nextTick, cross-thread task/callback) threw and no
+  // uncaughtException handler consumed it: report failure so the host loop
+  // exits nonzero instead of treating the run as green. One-shot, mirroring
+  // the throwing-timer -1 above. (ENG-23130)
+  if (runtime->fatal_async_error) {
+    runtime->fatal_async_error = false;
+    return -1;
   }
 
   return executed;

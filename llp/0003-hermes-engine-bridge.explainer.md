@@ -97,6 +97,17 @@ flag polled by the host `[observed]` (`src/engine/mod.rs:33-43`); the
 `cli-notify` feature replaces it with a tokio `Notify`-based version
 `[observed]` (`src/engine/mod.rs:18-32`; `Cargo.toml:66-80`).
 
+Async failures are fatal, matching Node: a callback that throws with no
+`uncaughtException` handler consuming it — a timer, a `process.nextTick`, a
+cross-thread task or callback — makes the poll report `-1`, which the host
+loop turns into a nonzero process exit. Timers return `-1` directly; the other
+paths set a one-shot `fatal_async_error` flag on the runtime that the same or
+next poll consumes (one-shot so a REPL survives it the way it survives a
+throwing timer). Likewise the JS-side `unhandledrejection` default action sets
+`process.exitCode = 1` (preserving a user-set nonzero code) rather than
+crashing mid-run. Before ENG-23130, all of these logged and exited 0 — a
+silent green for any CI or agent using the exit code as the pass/fail signal.
+
 ## The platform shims (map)
 
 Each `src/engine/hermes_runtime_*.cc` file installs a family of native host

@@ -112,6 +112,15 @@ struct ExactHermesRuntime {
   std::unordered_map<uint64_t, HostCallAsyncEntry> hostCallAsyncCallbacks;
   std::mutex callbackMutex;
   std::deque<std::function<void(facebook::jsi::Runtime&)>> callbackQueue;
+  // Fail-loud marker for async callbacks (process.nextTick, cross-thread
+  // tasks/callbacks) that threw with no uncaughtException handler consuming
+  // the error: the poll that observes it returns -1 so the host loop surfaces
+  // the failure instead of letting the run complete with exit code 0. One-shot
+  // (consumed by that poll), mirroring the throwing-timer path's transient -1
+  // so a REPL survives it the same way it survives a throwing timer. Only
+  // touched on the runtime thread.
+  // @ref LLP 0003#the-event-loop — async failures are fatal (ENG-23130)
+  bool fatal_async_error = false;
 
   void (*ios_dispatch_callback)(const uint8_t* data, size_t length, void* context) = nullptr;
   void* ios_dispatch_context = nullptr;

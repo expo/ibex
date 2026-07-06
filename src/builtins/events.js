@@ -234,6 +234,16 @@ function _emitUnhandledPromiseRejection(err, promise) {
         typeof console.error === 'function') {
       console.error('Unhandled promise rejection:', err);
     }
+    if (!handled) {
+      // Fail loud: an unhandled rejection that no handler consumed must not
+      // let the process report success — Node exits nonzero here. A user-set
+      // nonzero exitCode is preserved. (ENG-23130)
+      var proc = g && g.process;
+      if (proc && typeof proc === 'object' &&
+          (typeof proc.exitCode !== 'number' || proc.exitCode === 0)) {
+        try { proc.exitCode = 1; } catch (_exitCodeErr) {}
+      }
+    }
   });
 }
 
