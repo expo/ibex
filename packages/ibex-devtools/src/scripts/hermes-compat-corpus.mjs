@@ -274,7 +274,17 @@ print(JSON.stringify(run()));
  * Each fixture is a self-contained source that defines one or more
  * `async function*` generators plus an `async function runFixture()` driver
  * (a plain async function, so the transform leaves it untouched) returning a
- * JSON-serializable result.
+ * JSON-serializable result. Drivers pump iterators manually (`await it.next()`
+ * in a loop) rather than with `for await`, so the same fixture source runs on
+ * engines without for-await support.
+ *
+ * A fixture may carry a `divergence` entry pinning a documented, deliberate
+ * difference between the desugared iterator and native semantics (LLP 0019
+ * style: exact expected outputs, so the pin fails loudly when either side
+ * drifts — including when a fix makes the transform match natively):
+ *   - `divergence.oracle`       JSON.stringify of the native result;
+ *   - `divergence.transformed`  JSON.stringify of the desugared result;
+ *   - `divergence.note`         why the divergence is accepted.
  */
 export const asyncGeneratorCorpus = Object.freeze([
   {
@@ -371,6 +381,243 @@ async function runFixture() {
   }
   const c = await it.next();
   return [a, message, c];
+}
+`,
+  },
+  {
+    id: 'class-method-positions',
+    note: 'ENG-23124 #1: class `async *m()` (instance, static, computed key) must replace the whole MethodDefinition — the old default branch emitted `class C { async *m function () {…} }`, a SyntaxError for the chunk',
+    source: `
+class C {
+  constructor() { this.base = 10; }
+  async *m(a) {
+    yield this.base + a;
+    yield "instance";
+  }
+  static async *sm() {
+    yield "static";
+  }
+  async *["comp" + "uted"]() {
+    yield "computed";
+  }
+}
+async function drain(it) {
+  const out = [];
+  for (;;) {
+    const step = await it.next();
+    if (step.done) return out;
+    out.push(step.value);
+  }
+}
+async function runFixture() {
+  const a = await drain(new C().m(5));
+  const b = await drain(C.sm());
+  const c = await drain(new C().computed());
+  return { a, b, c };
+}
+`,
+  },
+  {
+    id: 'yield-star-delegation',
+    note: 'ENG-23124 #2: `yield*` pumps the inner (async or sync) iterable — values, next(v) threading into the inner generator, and the completion value — instead of yielding the iterator object as a single value',
+    source: `
+async function* inner() {
+  const got = yield "i1";
+  yield "got:" + got;
+  return "inner-done";
+}
+async function* outer() {
+  yield "before";
+  const r = yield* inner();
+  yield "result:" + r;
+  yield* ["s1", "s2"];
+}
+async function runFixture() {
+  const it = outer();
+  const out = [];
+  out.push(await it.next());
+  out.push(await it.next());
+  out.push(await it.next("X"));
+  out.push(await it.next());
+  out.push(await it.next());
+  out.push(await it.next());
+  out.push(await it.next());
+  return out;
+}
+`,
+  },
+  {
+    id: 'wrapper-preserves-this-and-arguments',
+    note: 'ENG-23124 #3: the body runs with the original call’s `this` (object receiver) and `arguments`, not the driver plumbing’s',
+    source: `
+const q = {
+  items: [1, 2],
+  async *iter() {
+    for (const d of this.items) {
+      yield d;
+    }
+  }
+};
+async function* withArgs(a) {
+  yield arguments.length;
+  yield arguments[0] + a;
+}
+async function runFixture() {
+  const out = [];
+  let step;
+  const it1 = q.iter();
+  while (!(step = await it1.next()).done) out.push(step.value);
+  const it2 = withArgs(7, 8);
+  while (!(step = await it2.next()).done) out.push(step.value);
+  return out;
+}
+`,
+  },
+  {
+    id: 'nested-sync-generator-untouched',
+    note: 'ENG-23124 #4a: a sync `function*` nested in an async generator keeps its own `yield`s (the old dead function-boundary guard rewrote them into `await _yield(...)` inside a sync generator — a parse error)',
+    source: `
+async function* outer() {
+  function* inner() {
+    yield 1;
+    yield 2;
+  }
+  for (const v of inner()) {
+    yield v * 10;
+  }
+}
+async function runFixture() {
+  const out = [];
+  const it = outer();
+  let step;
+  while (!(step = await it.next()).done) out.push(step.value);
+  return out;
+}
+`,
+  },
+  {
+    id: 'nested-async-generator-transformed',
+    note: 'ENG-23124 #4b: an `async function*` nested inside another is transformed too (fixpoint) — the old single pass left it verbatim and Hermes rejected the chunk',
+    source: `
+async function* outer() {
+  async function* inner() {
+    yield "a";
+    yield "b";
+  }
+  yield* inner();
+  yield "c";
+}
+async function runFixture() {
+  const out = [];
+  const it = outer();
+  let step;
+  while (!(step = await it.next()).done) out.push(step.value);
+  return out;
+}
+`,
+  },
+  {
+    id: 'yield-operand-awaited',
+    note: 'ENG-23124 #5: AsyncGeneratorYield awaits the operand — consumers receive settled values (not {value: Promise}), operand rejection throws at the yield site, and return(promise) resolves to the settled value',
+    source: `
+async function* g() {
+  yield Promise.resolve(41);
+  try {
+    yield Promise.reject(new Error("nope"));
+  } catch (e) {
+    yield "caught:" + e.message;
+  }
+}
+async function* g2() {
+  yield 1;
+  yield 2;
+}
+async function runFixture() {
+  const out = [];
+  const it = g();
+  out.push(await it.next());
+  out.push(await it.next());
+  out.push(await it.next());
+  const it2 = g2();
+  out.push(await it2.next());
+  out.push(await it2.return(Promise.resolve(99)));
+  return out;
+}
+`,
+  },
+  {
+    id: 'throw-recoverable',
+    note: 'ENG-23124 #6a: throw(err) resumes the body with a catchable throw completion — `try { yield } catch { yield "recovered" }` resolves {value:"recovered", done:false} instead of killing the generator',
+    source: `
+async function* g() {
+  try {
+    yield 1;
+  } catch (e) {
+    yield "recovered:" + e.message;
+  }
+  yield "after";
+}
+async function runFixture() {
+  const it = g();
+  const out = [];
+  out.push(await it.next());
+  out.push(await it.throw(new Error("x")));
+  out.push(await it.next());
+  out.push(await it.next());
+  return out;
+}
+`,
+  },
+  {
+    id: 'return-runs-finally-before-settling',
+    note: 'ENG-23124 #6b: return(v) while suspended runs the body’s `finally` (including awaits inside it) to completion BEFORE the return() promise settles, then resolves {value:v, done:true}',
+    source: `
+const log = [];
+async function* g() {
+  try {
+    yield 1;
+    yield 2;
+  } finally {
+    await Promise.resolve();
+    log.push("cleanup");
+  }
+}
+async function runFixture() {
+  const it = g();
+  const first = await it.next();
+  const second = await it.return(99);
+  const finallyRanBeforeReturnSettled = log.length === 1;
+  const third = await it.next();
+  return { first, second, third, finallyRanBeforeReturnSettled };
+}
+`,
+  },
+  {
+    id: 'return-catch-divergence',
+    note: 'ENG-23124 #6c (pinned divergence): native return(v) resumes with a RETURN completion that skips `catch` blocks; the desugared body can only be resumed by resolve/reject, so a bare catch around a yield observes the abort sentinel and swallows the return value. Reproducing native semantics would need a state-machine rewrite of the body.',
+    divergence: {
+      oracle: '{"first":{"value":1,"done":false},"second":{"value":99,"done":true},"third":{"done":true},"log":["cleanup"]}',
+      transformed: '{"first":{"value":1,"done":false},"second":{"done":true},"third":{"done":true},"log":["caught","cleanup"]}',
+      note: 'catch runs on cancellation and the body then completes normally (undefined), so return() resolves {done:true} without the 99',
+    },
+    source: `
+const log = [];
+async function* g() {
+  try {
+    yield 1;
+    yield 2;
+  } catch (e) {
+    log.push("caught");
+  } finally {
+    log.push("cleanup");
+  }
+}
+async function runFixture() {
+  const it = g();
+  const first = await it.next();
+  const second = await it.return(99);
+  const third = await it.next();
+  return { first, second, third, log };
 }
 `,
   },

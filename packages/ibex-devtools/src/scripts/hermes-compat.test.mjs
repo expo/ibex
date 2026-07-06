@@ -87,13 +87,25 @@ describe('hermes-compat async-generator conformance corpus', () => {
   for (const fixture of asyncGeneratorCorpus) {
     it(`reproduces native async-generator semantics: ${fixture.id}`, async () => {
       const transformed = transformAsyncGenerators(fixture.source);
-      // The transform must actually rewrite the async generator away.
+      // The transform must actually rewrite every async generator away —
+      // including class/object `async *m()` methods and nested async
+      // generators (ENG-23124).
       expect(transformed).not.toContain('async function*');
+      expect(transformed).not.toMatch(/\basync\s*\*/);
       expect(transformed).not.toBe(fixture.source);
 
       const oracle = await runAsyncFixture(fixture.source);
       const actual = await runAsyncFixture(transformed);
-      expect(JSON.stringify(actual)).toBe(JSON.stringify(oracle));
+      if (fixture.divergence) {
+        // Documented divergence (LLP 0019 style): pin BOTH sides to their
+        // exact output, so the pin fails loudly when either the engine or the
+        // transform drifts — including when a fix makes them converge (the
+        // fixture must then drop its divergence entry).
+        expect(JSON.stringify(oracle)).toBe(fixture.divergence.oracle);
+        expect(JSON.stringify(actual)).toBe(fixture.divergence.transformed);
+      } else {
+        expect(JSON.stringify(actual)).toBe(JSON.stringify(oracle));
+      }
     });
   }
 });

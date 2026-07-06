@@ -99,6 +99,17 @@ One corpus, one oracle, two systems under test:
 `bun run test:hermes-compat` is the standalone entrypoint;
 `bun test packages` covers the AST path plus the async-generator corpus.
 
+The async-generator corpus (`asyncGeneratorCorpus`, ENG-23036 / ENG-23124)
+applies the same divergence discipline to `transformAsyncGenerators`: each
+fixture's oracle is the untransformed source run as a native async generator,
+and a deliberate divergence of the desugared iterator must be pinned by an
+explicit `divergence` entry recording the exact oracle and transformed
+outputs (the pin fails when either side drifts, including when a fix makes
+them converge). The one pinned divergence: `return()` resumes the desugared
+body via a rejection sentinel, so a bare `catch` around a `yield` observes
+the cancellation that native RETURN completions skip — full fidelity would
+require a state-machine rewrite of the body.
+
 ## Accepted divergences between the tiers
 
 The tiers agree on emitted shape and on oracle-observable behavior except

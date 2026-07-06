@@ -645,26 +645,52 @@ export function transformBigIntLiterals(source) {
 /**
  * Transform async generator functions (async function*) into regular functions
  * returning async iterables. Hermes does not support async generators natively.
+ *
+ * Runs the single-AST-pass rewrite to a fixpoint: each pass rewrites every
+ * async generator that is not nested inside another one (the outer rewrite
+ * leaves nested `async function*` text verbatim, since their yields belong to
+ * their own scope), so each pass strips one nesting level (ENG-23124).
  */
 export function transformAsyncGenerators(source) {
+  let current = source;
+  for (let pass = 0; pass < 100; pass += 1) {
+    const next = transformAsyncGeneratorsPass(current, { mustParse: pass > 0 });
+    if (next === current) {
+      return current;
+    }
+    current = next;
+  }
+  // 100 passes means 100 levels of nested async generators — not a real
+  // program. Fail loud rather than shipping untransformed async generators
+  // that Hermes rejects at load (LLP 0018).
+  throw new Error('transformAsyncGenerators did not reach a fixpoint after 100 passes');
+}
+
+function transformAsyncGeneratorsPass(source, { mustParse = false } = {}) {
   if (!source || source.indexOf('async') === -1) {
     return source;
   }
 
   const ast = parseModuleOrScript(source);
   if (!ast) {
+    if (mustParse) {
+      // The input of every pass after the first is this transform's own
+      // output; failing to re-parse it means the previous pass emitted
+      // invalid code. Never return it silently (LLP 0018).
+      throw new Error('transformAsyncGenerators emitted unparseable output');
+    }
     return source;
   }
 
   const replacements = [];
 
-  const collectAsyncGens = (node, parent, parentKey) => {
+  const collectAsyncGens = (node, parent) => {
     if (!node || typeof node !== 'object') {
       return;
     }
     if (Array.isArray(node)) {
       for (const child of node) {
-        collectAsyncGens(child, parent, parentKey);
+        collectAsyncGens(child, parent);
       }
       return;
     }
@@ -675,153 +701,217 @@ export function transformAsyncGenerators(source) {
       node.generator &&
       node.body
     ) {
-      const bodySource = source.slice(node.body.start + 1, node.body.end - 1);
       const params = node.params.map((param) => source.slice(param.start, param.end)).join(', ');
       const name = node.id ? node.id.name : '';
 
-      const yieldReplacements = [];
-      const collectYields = (current, depth) => {
-        if (!current || typeof current !== 'object') {
-          return;
-        }
-        if (Array.isArray(current)) {
-          for (const child of current) {
-            collectYields(child, depth);
+      // Rewrite the yields that belong to THIS generator into _yield/_delegate
+      // calls, stopping at nested function boundaries (a yield inside a nested
+      // function belongs to that function's own generator scope; rewriting it
+      // corrupted nested sync generators into parse errors, ENG-23124).
+      // Returns the transformed text for `root`'s source range and recurses
+      // into yield operands so nested yields (`yield yield 1`) stay rewritten.
+      // Nested `async function*` subtrees are emitted verbatim here and picked
+      // up by the next fixpoint pass.
+      let usesDelegate = false;
+      const rewriteYieldsIn = (root) => {
+        const yieldReplacements = [];
+        const collectYields = (current) => {
+          if (!current || typeof current !== 'object') {
+            return;
           }
-          return;
-        }
-        if (
-          depth > 0 &&
-          (current.type === 'FunctionDeclaration' ||
+          if (Array.isArray(current)) {
+            for (const child of current) {
+              collectYields(child);
+            }
+            return;
+          }
+          if (
+            current.type === 'FunctionDeclaration' ||
             current.type === 'FunctionExpression' ||
-            current.type === 'ArrowFunctionExpression')
-        ) {
-          return;
-        }
-        if (current.type === 'YieldExpression') {
-          const argSource = current.argument
-            ? source.slice(current.argument.start, current.argument.end)
-            : 'undefined';
-          yieldReplacements.push({
-            start: current.start - node.body.start - 1,
-            end: current.end - node.body.start - 1,
-            text: `await _yield(${argSource})`,
-          });
-          return;
-        }
-        for (const key of Object.keys(current)) {
-          if (key === 'start' || key === 'end' || key === 'type') {
-            continue;
+            current.type === 'ArrowFunctionExpression'
+          ) {
+            return;
           }
-          const value = current[key];
-          if (value && typeof value === 'object') {
-            collectYields(value, depth);
+          if (current.type === 'YieldExpression') {
+            const argSource = current.argument ? rewriteYieldsIn(current.argument) : 'undefined';
+            let text;
+            if (current.delegate) {
+              // ENG-23124: `yield*` delegates — pump the operand's (async or
+              // sync) iterator through _yield instead of yielding the iterator
+              // object as a single value.
+              usesDelegate = true;
+              text = `await _delegate(${argSource})`;
+            } else {
+              text = `await _yield(${argSource})`;
+            }
+            yieldReplacements.push({ start: current.start, end: current.end, text });
+            return;
           }
+          for (const key of Object.keys(current)) {
+            if (key === 'start' || key === 'end' || key === 'type') {
+              continue;
+            }
+            const value = current[key];
+            if (value && typeof value === 'object') {
+              collectYields(value);
+            }
+          }
+        };
+        if (root.type === 'FunctionDeclaration' || root.type === 'FunctionExpression' || root.type === 'ArrowFunctionExpression') {
+          // A function used as a yield operand is its own yield scope.
+          return source.slice(root.start, root.end);
         }
+        collectYields(root);
+        let text = source.slice(root.start, root.end);
+        yieldReplacements.sort((a, b) => b.start - a.start);
+        for (const replacement of yieldReplacements) {
+          text =
+            text.slice(0, replacement.start - root.start) +
+            replacement.text +
+            text.slice(replacement.end - root.start);
+        }
+        return text;
       };
-      collectYields(node.body, 0);
+      const transformedBody = rewriteYieldsIn(node.body).slice(1, -1);
 
-      yieldReplacements.sort((a, b) => b.start - a.start);
-      let transformedBody = bodySource;
-      for (const replacement of yieldReplacements) {
-        transformedBody =
-          transformedBody.slice(0, replacement.start) +
-          replacement.text +
-          transformedBody.slice(replacement.end);
+      // Native `yield*` semantics, approximated: thread resume values into the
+      // inner iterator's next(), return the inner iterator's completion value,
+      // and close the inner iterator (IteratorClose) when the outer generator
+      // is resumed abruptly (return()/throw()) while delegating. Divergence
+      // from native: an outer throw() is not forwarded to the inner iterator's
+      // throw() (the inner generator cannot catch it); the inner iterator is
+      // closed and the error propagates from the delegation site.
+      const delegateHelper = `
+  async function _delegate(_iterable) {
+    var _iter = (Symbol.asyncIterator && _iterable[Symbol.asyncIterator])
+      ? _iterable[Symbol.asyncIterator]()
+      : _iterable[Symbol.iterator]();
+    var _sent;
+    for (;;) {
+      var _step = await _iter.next(_sent);
+      if (_step.done) return await _step.value;
+      try {
+        _sent = await _yield(_step.value);
+      } catch (_resumeErr) {
+        var _closeFn = _iter.return;
+        if (typeof _closeFn === 'function') {
+          try { await _closeFn.call(_iter); } catch (_closeErr) {}
+        }
+        throw _resumeErr;
       }
+    }
+  }`;
 
       // @ref LLP 0005#2-transformed-builtin-modules — Hermes lacks native
       // async generators, so we desugar to a demand-driven async iterator that
-      // must reproduce ES async-generator semantics (ENG-23036):
+      // must reproduce ES async-generator semantics (ENG-23036, ENG-23124):
       //   - lazy start: the body runs on the first next()/return()/throw(), not
       //     at generator-call time (no premature side effects / resource acq);
       //   - value threading: `x = yield e` resolves to the argument of the
-      //     next()/return() that resumes it (`_resume(req.sent)`), not undefined;
-      //   - concurrency: consumers queue FIFO in `_requests`, so overlapping
-      //     next() calls never orphan a promise or reorder results — the body is
-      //     sequential (one suspended `_yield` at a time) with backpressure, so
-      //     no unconsumed-item buffer is needed.
+      //     next() that resumes it (`req.sent`), not undefined;
+      //   - concurrency: consumers queue FIFO in `_requests` with a completion
+      //     kind per request ('next' | 'return' | 'throw'), so overlapping
+      //     calls never orphan a promise or reorder results — the body is
+      //     sequential (one suspended `_yield` at a time) with backpressure;
+      //   - operand await: AsyncGeneratorYield awaits the yield operand, so
+      //     consumers receive settled values and an operand rejection throws at
+      //     the yield site inside the body;
+      //   - resume completions: return()/throw() while suspended resume the
+      //     body (throw() via a catchable rejection, so `try { yield } catch`
+      //     recovery yields keep the generator alive; return() via the _ABORT
+      //     sentinel carrying the return value) and settle from the body's
+      //     ACTUAL settlement, so `finally` blocks — including async ones, and
+      //     yields inside finally — complete before the caller's promise
+      //     resolves. Documented divergence (corpus-pinned, ENG-23124): a bare
+      //     `catch` around a yield observes the _ABORT sentinel on return(),
+      //     where native return-completion semantics skip catch blocks; that
+      //     would require a state-machine rewrite of the body;
+      //   - this/arguments/super: the body runs in an arrow chain (`_start`
+      //     and the body IIFE are arrows), so `this`, `arguments`, `super`,
+      //     and `new.target` resolve to the wrapper function — the original
+      //     call's receiver and arguments — not to the driver plumbing.
       const wrapperBody = `{
   var _requests = [];
   var _active = null;
   var _resume = null, _resumeReject = null;
   var _started = false, _done = false;
-  var _ABORT = {};
+  var _ABORT = { returned: undefined };
+  function _doneResult(v) {
+    return Promise.resolve(v).then(function(_v) { return { value: _v, done: true }; });
+  }
   function _pump() {
     if (_resume && _requests.length > 0) {
       var req = _requests.shift();
       _active = req;
-      var r = _resume;
+      var r = _resume, rj = _resumeReject;
       _resume = null;
       _resumeReject = null;
-      r(req.sent);
+      if (req.kind === 'throw') { rj(req.sent); }
+      else if (req.kind === 'return') { _ABORT.returned = req.sent; rj(_ABORT); }
+      else { r(req.sent); }
     }
   }
   function _flushDone() {
     while (_requests.length > 0) {
       var req = _requests.shift();
-      req.resolve({ value: undefined, done: true });
+      if (req.kind === 'throw') { req.reject(req.sent); }
+      else if (req.kind === 'return') { req.resolve(_doneResult(req.sent)); }
+      else { req.resolve({ value: undefined, done: true }); }
     }
   }
   function _yield(v) {
-    if (_done) return Promise.reject(_ABORT);
-    if (_active) { var a = _active; _active = null; a.resolve({ value: v, done: false }); }
-    return new Promise(function(resolve, reject) {
-      _resume = resolve;
-      _resumeReject = reject;
-      _pump();
+    return Promise.resolve(v).then(function(_settled) {
+      if (_done) return Promise.reject(_ABORT);
+      if (_active) { var a = _active; _active = null; a.resolve({ value: _settled, done: false }); }
+      return new Promise(function(resolve, reject) {
+        _resume = resolve;
+        _resumeReject = reject;
+        _pump();
+      });
     });
-  }
-  function _start() {
+  }${usesDelegate ? delegateHelper : ''}
+  var _start = (_firstReq) => {
     _started = true;
-    (async function() {${transformedBody}})().then(function(_ret) {
+    _active = _firstReq;
+    (async () => {${transformedBody}})().then(function(_ret) {
       _done = true;
       if (_active) { var a = _active; _active = null; a.resolve({ value: _ret, done: true }); }
       _flushDone();
     }, function(_err) {
       _done = true;
       if (_err === _ABORT) {
-        if (_active) { var a = _active; _active = null; a.resolve({ value: undefined, done: true }); }
+        if (_active) { var a = _active; _active = null; a.resolve(_doneResult(_ABORT.returned)); }
         _flushDone();
         return;
       }
       if (_active) { var a = _active; _active = null; a.reject(_err); }
       _flushDone();
     });
+  };
+  function _enqueue(kind, sent) {
+    return new Promise(function(resolve, reject) {
+      var req = { kind: kind, sent: sent, resolve: resolve, reject: reject };
+      if (_done) {
+        if (kind === 'throw') { reject(sent); }
+        else if (kind === 'return') { resolve(_doneResult(sent)); }
+        else { resolve({ value: undefined, done: true }); }
+        return;
+      }
+      if (!_started) {
+        if (kind === 'return') { _done = true; resolve(_doneResult(sent)); return; }
+        if (kind === 'throw') { _done = true; reject(sent); return; }
+        _start(req);
+        return;
+      }
+      _requests.push(req);
+      _pump();
+    });
   }
   return {
     [Symbol.asyncIterator]: function() { return this; },
-    next: function(_sent) {
-      return new Promise(function(resolve, reject) {
-        if (_done) { resolve({ value: undefined, done: true }); return; }
-        var req = { resolve: resolve, reject: reject, sent: _sent };
-        if (!_started) { _active = req; _start(); return; }
-        _requests.push(req);
-        _pump();
-      });
-    },
-    return: function(_value) {
-      if (!_started || _done) {
-        _done = true;
-        return Promise.resolve({ value: _value, done: true });
-      }
-      _done = true;
-      if (_resumeReject) { var rj = _resumeReject; _resume = null; _resumeReject = null; rj(_ABORT); }
-      if (_active) { var a = _active; _active = null; a.resolve({ value: _value, done: true }); }
-      _flushDone();
-      return Promise.resolve({ value: _value, done: true });
-    },
-    throw: function(_err) {
-      if (!_started || _done) {
-        _done = true;
-        return Promise.reject(_err);
-      }
-      _done = true;
-      if (_resumeReject) { var rj = _resumeReject; _resume = null; _resumeReject = null; rj(_err); }
-      if (_active) { var a = _active; _active = null; a.reject(_err); }
-      _flushDone();
-      return Promise.reject(_err);
-    }
+    next: function(_sent) { return _enqueue('next', _sent); },
+    return: function(_value) { return _enqueue('return', _value); },
+    throw: function(_err) { return _enqueue('throw', _err); }
   };
 }`;
 
@@ -840,6 +930,21 @@ export function transformAsyncGenerators(source) {
         replacementStart = parent.start;
         replacementEnd = parent.end;
         wrapper = `${propertyKey}: function(${params}) ${wrapperBody}`;
+      } else if (
+        parent &&
+        parent.type === 'MethodDefinition' &&
+        parent.value === node &&
+        parent.key
+      ) {
+        // ENG-23124: class methods — replace the whole MethodDefinition
+        // (which includes `async *` and the key), not just the function
+        // expression span, and preserve `static` and computed keys. The old
+        // default branch emitted `class C { async *m function () {…} }`.
+        const keySource = source.slice(parent.key.start, parent.key.end);
+        const propertyKey = parent.computed ? `[${keySource}]` : keySource;
+        replacementStart = parent.start;
+        replacementEnd = parent.end;
+        wrapper = `${parent.static ? 'static ' : ''}${propertyKey}(${params}) ${wrapperBody}`;
       }
 
       replacements.push({ start: replacementStart, end: replacementEnd, text: wrapper });
@@ -852,12 +957,12 @@ export function transformAsyncGenerators(source) {
       }
       const value = node[key];
       if (value && typeof value === 'object') {
-        collectAsyncGens(value, node, key);
+        collectAsyncGens(value, node);
       }
     }
   };
 
-  collectAsyncGens(ast, null, null);
+  collectAsyncGens(ast, null);
 
   if (!replacements.length) {
     return source;
