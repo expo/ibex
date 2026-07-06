@@ -32,8 +32,8 @@ extern "C" char** environ;
 #endif
 
 namespace {
-// @ref LLP 0008#sockets-dns-and-process, ENG-23113 — a cancellable timeout
-// watchdog for the SYNCHRONOUS child_process paths (__exactExecSync /
+// @ref LLP 0008#sockets-dns-and-process — a cancellable timeout watchdog for the
+// SYNCHRONOUS child_process paths (ENG-23113: __exactExecSync /
 // __exactSpawnSync). Its destructor cancels + JOINS the worker, so the worker
 // thread can never outlive this object's frame (the old code detached a thread
 // that captured stack `std::atomic<bool>`s BY REFERENCE — on a fast child it woke
