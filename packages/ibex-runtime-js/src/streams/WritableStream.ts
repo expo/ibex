@@ -204,10 +204,12 @@ export class WritableStreamDefaultController {
     if (stream === undefined) {
       throw new TypeError('Controller has no associated stream');
     }
-    if (stream._state !== 'writable') {
-      return;
-    }
-    stream._errorStream(e);
+    // Route through the erroring machinery (like abort) instead of erroring
+    // immediately: FinishErroring must wait for an in-flight sink.write to
+    // settle, and a fulfilling sink.write still resolves the user's write().
+    // Ibex 'closing' maps to the spec's writable-with-close-queued, so it
+    // errors too.
+    stream._errorIfNeeded(e);
   }
 
   get [Symbol.toStringTag](): string {
@@ -602,11 +604,15 @@ export class WritableStream<W = any> {
 
   /** @internal */
   _writeChunk(chunk: W): Promise<void> {
+    // An abrupt or invalid size() completion runs
+    // WritableStreamDefaultControllerErrorIfNeeded: the whole stream becomes
+    // errored (ready rejects, later writes reject), not just this write.
     let size: number;
     try {
       const sizeAlgorithm = this._strategySizeAlgorithm;
       size = toNumber(sizeAlgorithm(chunk));
     } catch (error) {
+      this._errorIfNeeded(error);
       return originalPromiseReject(error);
     }
 
@@ -615,7 +621,9 @@ export class WritableStream<W = any> {
       !Number.isFinite(size) ||
       size < 0
     ) {
-      return originalPromiseReject(new RangeError("The size returned by the size() algorithm must be a non-negative finite number"));
+      const rangeError = new RangeError("The size returned by the size() algorithm must be a non-negative finite number");
+      this._errorIfNeeded(rangeError);
+      return originalPromiseReject(rangeError);
     }
 
     const self = this;
@@ -632,6 +640,15 @@ export class WritableStream<W = any> {
 
   /** @internal */
   _closeStream(): Promise<void> {
+    // WritableStreamClose step 6: once close is requested no further writes
+    // can be queued, so a ready promise pending on backpressure resolves now
+    // (otherwise `await writer.ready` after close() hangs forever with e.g.
+    // highWaterMark 0).
+    const writer = this._writer;
+    if (writer !== undefined && this._backpressure && this._state === 'writable') {
+      writer._readyResolve?.(undefined);
+    }
+
     this._state = 'closing';
 
     const self = this;
@@ -791,6 +808,21 @@ export class WritableStream<W = any> {
     const writer = this._writer;
     if (writer) {
       writer._ensureClosedPromiseRejected(storedError);
+    }
+  }
+
+  /**
+   * @internal
+   * WritableStreamDefaultControllerErrorIfNeeded: error the stream through the
+   * StartErroring/FinishErroring machinery, so any in-flight sink.write/close
+   * settles before the stream finishes erroring. Both 'writable' and 'closing'
+   * map to the spec's "writable" state (closing = close queued/in flight).
+   * Contrast _errorStream below, which errors immediately and rejects the
+   * in-flight write.
+   */
+  _errorIfNeeded(e: any): void {
+    if (this._state === 'writable' || this._state === 'closing') {
+      this._startErroring(e);
     }
   }
 

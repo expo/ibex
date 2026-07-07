@@ -81,11 +81,16 @@ export class TransformStreamDefaultController<O = any> {
       readableController.enqueue(chunk);
     } catch (e) {
       // If enqueue throws (e.g., stream is not readable), propagate error
+      // (TransformStreamErrorWritableAndUnblockWrite: error the writable via
+      // the erroring machinery and release any backpressure-blocked write).
       const writable = this._stream._writable;
       if (writable === undefined) {
         this._stream._pendingWritableError = e;
       } else {
-        writable._errorStream(e);
+        writable._errorIfNeeded(e);
+      }
+      if (this._stream._backpressure) {
+        this._stream._updateBackpressure(false);
       }
       throw this._stream._readable._storedError ?? e;
     }
@@ -107,11 +112,13 @@ export class TransformStreamDefaultController<O = any> {
       readable._controller._error(reason);
     }
 
-    // Error the writable side
+    // Error the writable side through the erroring machinery: an in-flight
+    // sink.write (e.g. the transform() that called controller.error) must
+    // settle first, and a fulfilling transform still resolves that write().
     if (writable === undefined) {
       this._stream._pendingWritableError = reason;
     } else {
-      writable._errorStream(reason);
+      writable._errorIfNeeded(reason);
     }
 
     // Update backpressure flag
@@ -134,12 +141,13 @@ export class TransformStreamDefaultController<O = any> {
       readable._controller.close();
     }
 
-    // Error the writable side with a TypeError
+    // Error the writable side with a TypeError (via the erroring machinery,
+    // so an in-flight write settles before the stream finishes erroring)
     const error = new TypeError('TransformStream terminated');
     if (writable === undefined) {
       this._stream._pendingWritableError = error;
     } else {
-      writable._errorStream(error);
+      writable._errorIfNeeded(error);
     }
 
     // Update backpressure flag
@@ -260,7 +268,14 @@ export class TransformStream<I = any, O = any> {
     // actual read requests, not by available queue space, which is critical
     // for correct backpressure propagation.
     const self = this;
-    const effectiveReadableStrategy = readableStrategy ?? { highWaterMark: 0 };
+    // ExtractHighWaterMark(readableStrategy, 0): the readable side defaults to
+    // HWM 0 even when a strategy object is supplied without highWaterMark
+    // (otherwise the transformer runs one chunk ahead of demand and
+    // backpressure timing drifts from the spec).
+    const effectiveReadableStrategy = {
+      highWaterMark: (readableStrategy as any)?.highWaterMark ?? 0,
+      size: (readableStrategy as any)?.size,
+    };
     this._readable = new ReadableStream<O>(
       {
         pull: function () {
@@ -272,11 +287,18 @@ export class TransformStream<I = any, O = any> {
           return originalPromiseResolve();
         },
         cancel: function (reason: any) {
-          // When readable is cancelled, error the writable
+          // When readable is cancelled, error the writable (via the erroring
+          // machinery) and unblock any backpressure-blocked write
           return promiseThen(cancelAlgorithm(reason), function () {
-            self._writable._errorStream(reason);
+            self._writable._errorIfNeeded(reason);
+            if (self._backpressure) {
+              self._updateBackpressure(false);
+            }
           }, function (e) {
-            self._writable._errorStream(e);
+            self._writable._errorIfNeeded(e);
+            if (self._backpressure) {
+              self._updateBackpressure(false);
+            }
             throw e;
           });
         },
@@ -304,6 +326,14 @@ export class TransformStream<I = any, O = any> {
                 resolve(undefined);
               };
             }), function () {
+              // The unblock may come from an error/terminate/cancel path
+              // (TransformStreamErrorWritableAndUnblockWrite): surface the
+              // stored error instead of transforming a chunk on a stream
+              // that started erroring while this write was blocked.
+              const writableState = self._writable._state;
+              if (writableState === 'erroring' || writableState === 'errored') {
+                throw self._writable._storedError;
+              }
               return transformAlgorithm(chunk);
             });
           }
@@ -345,7 +375,7 @@ export class TransformStream<I = any, O = any> {
     if (this._pendingWritableError !== undefined) {
       const pendingError = this._pendingWritableError;
       this._pendingWritableError = undefined;
-      this._writable._errorStream(pendingError);
+      this._writable._errorIfNeeded(pendingError);
     }
 
     // Per spec, TransformStream starts with backpressure true. This ensures

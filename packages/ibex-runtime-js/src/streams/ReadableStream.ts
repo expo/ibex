@@ -1994,6 +1994,19 @@ export class ReadableStreamBYOBRequest {
     if (controller._stream._state !== 'readable') {
       throw new TypeError('The stream is not in readable state');
     }
+    // Spec respond() step 5: while the stream is still readable (close not
+    // yet requested), zero bytesWritten must throw instead of silently
+    // invalidating the request and re-pulling (which would loop a buggy
+    // source). respond(0) stays valid as the close handshake once close()
+    // has been requested with an empty queue.
+    if (
+      normalized === 0 &&
+      !(controller._closeRequested && controller._queue.length === 0)
+    ) {
+      throw new TypeError(
+        'bytesWritten must not be 0 when calling respond() on a readable stream'
+      );
+    }
     this._view = null;
     controller._respondToByobRequest(normalized);
   }
@@ -3222,8 +3235,10 @@ export class ReadableStream<R = any> {
   }
 
   cancel(reason?: any): Promise<void> {
+    // Per ReadableStream.cancel() spec, a locked stream yields a *rejected
+    // promise* (so .catch chains observe it), never a synchronous throw.
     if (this.locked) {
-      throw new TypeError('Cannot cancel a locked stream');
+      return originalPromiseReject(new TypeError('Cannot cancel a locked stream'));
     }
     this._disturbed = true;
     return this._cancelStream(reason);
@@ -3504,11 +3519,11 @@ export class ReadableStream<R = any> {
         }
 
         cancelStarted = true;
-        const reasons: Array<any> = [];
-        if (reason1 !== undefined) reasons.push(reason1);
-        if (reason2 !== undefined) reasons.push(reason2);
+        // Composite cancel reason is always the 2-element [reason1, reason2]
+        // tuple, including undefined slots (ReadableStreamTee step 17).
+        const reasons: Array<any> = [reason1, reason2];
         const activeSourceReader = byobReader ?? ensureDefaultReader();
-        void promiseThen(activeSourceReader.cancel(reasons.length > 0 ? reasons : undefined),
+        void promiseThen(activeSourceReader.cancel(reasons),
           () => resolveCancel?.(),
           (error) => rejectCancel?.(error)
         );
@@ -3772,12 +3787,26 @@ export class ReadableStream<R = any> {
       }
     };
 
+    // Per ReadableStreamDefaultTee, both branch cancels settle with the same
+    // ReadableStreamCancel(source, [reason1, reason2]) result: the promise
+    // stays pending until BOTH branches cancel, the composite reason is always
+    // the 2-element tuple (undefined slots included), and a rejecting source
+    // cancel rejects both branch cancel() promises.
+    let resolveTeeCancelPromise!: (value: Promise<void> | undefined) => void;
+    const teeCancelPromise = new Promise<void>((resolve) => {
+      resolveTeeCancelPromise = resolve as (value: Promise<void> | undefined) => void;
+    });
+    markPromiseHandled(teeCancelPromise);
+
     const ensureCancel = () => {
       if (canceled1 && canceled2) {
-        const reasons: Array<any> = [];
-        if (reason1 !== undefined) reasons.push(reason1);
-        if (reason2 !== undefined) reasons.push(reason2);
-        void reader.cancel(reasons.length > 0 ? reasons : undefined);
+        const sourceCancelPromise = reader.cancel([reason1, reason2]) as Promise<void>;
+        // Attach a rejection handler before the resolve-with-thenable adoption
+        // job runs: a promptly-rejecting source cancel settles in the microtask
+        // ahead of that job and would otherwise surface as a transient
+        // unhandled rejection.
+        markPromiseHandled(sourceCancelPromise);
+        resolveTeeCancelPromise(sourceCancelPromise);
       }
     };
 
@@ -3787,14 +3816,13 @@ export class ReadableStream<R = any> {
           canceled1 = true;
           reason1 = reason;
           pendingReads1 = 0;
-          stream1Controller?.error(reason);
         } else {
           canceled2 = true;
           reason2 = reason;
           pendingReads2 = 0;
-          stream2Controller?.error(reason);
         }
         ensureCancel();
+        return teeCancelPromise;
       };
 
       if (isByteStream) {
@@ -3960,6 +3988,11 @@ export class ReadableStream<R = any> {
     reason?: any,
     reader?: ReadableStreamReaderType
   ): Promise<void> {
+    // ReadableStreamCancel: cancelling an errored stream rejects with the
+    // stored error (resolving would mask it); a closed stream resolves.
+    if (this._state === 'errored') {
+      throw this._storedError;
+    }
     if (this._state !== 'readable') {
       return;
     }
@@ -4044,7 +4077,10 @@ export class ReadableStream<R = any> {
       if (typeof next !== 'function') {
         throw new TypeError('iterator.next must be callable');
       }
-      returnFn = undefined;
+      // Per the spec's async-from-sync iterator wrapper, return() forwards to
+      // the sync iterator, so cancelling the stream must run e.g. a
+      // generator's finally blocks instead of leaking their resources.
+      returnFn = getPropertyValueWithoutObjectPrototype(iterator, 'return');
     }
 
     return new ReadableStream<T>({
