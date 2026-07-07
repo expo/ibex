@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 typedef void (*NativeWsOpenCallback)(
@@ -37,12 +38,28 @@ struct WebSocketEntry {
 
 static std::mutex g_websocket_mutex;
 static std::unordered_map<uint32_t, WebSocketEntry> g_websockets;
+// Connect handshakes run asynchronously (ENG-23469), so a fast failure can
+// fire the close/error callbacks -- whose unregisterWebSocket runs on the io
+// thread -- before the JS thread reaches registerWebSocket after
+// native_ws_connect returns. ws_ids increase monotonically and are never
+// reused, and registrations happen on the JS thread in id order, so an
+// unregister for an id above the registration high-water mark can only be
+// such an early death: remember it and drop the late registration instead of
+// leaking a ghost entry.
+static std::unordered_set<uint32_t> g_early_unregistered;
+static uint32_t g_max_registered_ws_id = 0;
 
 void registerWebSocket(uint32_t ws_id, uint64_t owner, const std::string& capability) {
   if (ws_id == 0 || isAllowAll()) {
     return;
   }
   std::lock_guard<std::mutex> lock(g_websocket_mutex);
+  if (ws_id > g_max_registered_ws_id) {
+    g_max_registered_ws_id = ws_id;
+  }
+  if (g_early_unregistered.erase(ws_id) > 0) {
+    return;  // the socket already died; nothing to track
+  }
   g_websockets[ws_id] = WebSocketEntry{owner, capability};
 }
 
@@ -73,8 +90,18 @@ WebSocketEntry requireWebSocketOwner(
 }
 
 void unregisterWebSocket(uint32_t ws_id) {
+  if (ws_id == 0 || isAllowAll()) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(g_websocket_mutex);
-  g_websockets.erase(ws_id);
+  if (g_websockets.erase(ws_id) > 0) {
+    return;
+  }
+  if (ws_id > g_max_registered_ws_id) {
+    // Died before the JS thread could register it (see comment above); the
+    // marker is consumed by the upcoming registerWebSocket for this id.
+    g_early_unregistered.insert(ws_id);
+  }
 }
 
 } // namespace
@@ -289,18 +316,14 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               ws_id, reinterpret_cast<const uint8_t*>(text.c_str()), text.size(), 1);
         } else if (args[1].isObject()) {
           auto obj = args[1].asObject(runtime);
-          if (obj.isArrayBuffer(runtime)) {
-            auto ab = obj.getArrayBuffer(runtime);
-            native_ws_send(ws_id, ab.data(runtime), ab.size(runtime), 0);
-          } else {
-            const uint8_t* viewData = nullptr;
-            size_t viewLength = 0;
-            // WHATWG: send(new Uint8Array(0)) transmits a valid empty binary
-            // frame the peer observes as an empty message event, so a
-            // zero-length view must reach the native layer (ENG-23469).
-            if (extractArrayBufferView(runtime, obj, viewData, viewLength)) {
-              native_ws_send(ws_id, viewData, viewLength, 0);
-            }
+          const uint8_t* viewData = nullptr;
+          size_t viewLength = 0;
+          // Handles ArrayBuffers and typed-array views alike. WHATWG:
+          // send(new Uint8Array(0)) transmits a valid empty binary frame the
+          // peer observes as an empty message event, so a zero-length
+          // buffer/view must still reach the native layer (ENG-23469).
+          if (extractArrayBufferView(runtime, obj, viewData, viewLength)) {
+            native_ws_send(ws_id, viewData, viewLength, 0);
           }
         }
         return facebook::jsi::Value::undefined();
@@ -442,6 +465,9 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
   WebSocket.prototype.CLOSED = 3;
 
   WebSocket.prototype._handleOpen = function(protocol, extensions) {
+    // A close() racing the end of the async handshake must not resurrect
+    // the socket (ENG-23469).
+    if (this.readyState !== WebSocket.CONNECTING) return;
     this.readyState = WebSocket.OPEN;
     this.protocol = protocol || '';
     this.extensions = extensions || '';
